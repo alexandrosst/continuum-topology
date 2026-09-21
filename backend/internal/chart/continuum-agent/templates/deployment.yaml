@@ -1,0 +1,176 @@
+{{- if not .Values.server.address }}{{- fail "server.address is required (host:port)" }}{{- end }}
+{{- if not .Values.server.caPin }}{{- fail "server.caPin is required" }}{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  replicas: 1   # exactly one: the agent is not built to run as several (see strategy)
+  # Recreate, not RollingUpdate: a rolling update starts the new pod before the old one stops, and for a while two agents would
+  # hold the SAME identity (one Secret, one certificate). The server keeps one stream per agent, so they would displace each
+  # other in a loop, and both would try to renew and store the certificate. Recreate stops the old pod first; the price
+  # is a few seconds without reports at each upgrade, which the dashboard never notices.
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: continuum-agent, app.kubernetes.io/instance: {{ .Release.Name }}}
+  template:
+    metadata:
+      labels: {{- include "agent.labels" . | nindent 8 }}
+        {{- include "agent.podLabels" . | nindent 8 }}
+      annotations:
+        # A change to one of these Secrets rolls the pod (helm upgrade alone would not: env and files are read at start).
+        checksum/enrollment: {{ include (print $.Template.BasePath "/enrollment.yaml") . | sha256sum }}
+        {{- if .Values.nodeProbe.enabled }}
+        checksum/probe-secret: {{ include "agent.probeSecretRevision" . }}
+        {{- end }}
+        {{- if .Values.flowObserver.enabled }}
+        checksum/flow-secret: {{ include "agent.flowSecretRevision" . }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "agent.name" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532   # lets the non-root agent read the mounted probe secret
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: agent
+          image: {{ include "agent.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["agent"]   # the role: one image, `continuum agent|probe|flow`; the settings below come in as environment variables
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            - {name: CONTINUUM_SERVER, value: {{ .Values.server.address | quote }}}
+            - {name: CONTINUUM_CA_PIN, value: {{ .Values.server.caPin | quote }}}
+            - {name: CONTINUUM_TIER, value: {{ include "agent.tier" . | quote }}}
+            {{- if eq .Values.rbac.mode "namespaced" }}
+            # Tells the collector that tier 2's RBAC is a Role per namespace (rbac.yaml), not one cluster-wide
+            # ClusterRole: it watches each of CONTINUUM_SCOPE_NAMESPACES individually instead of the whole cluster,
+            # and never attempts to read Namespaces or PersistentVolumes (no Role, in any namespace, can grant either).
+            - {name: CONTINUUM_RBAC_MODE, value: "namespaced"}
+            {{- end }}
+            - {name: CONTINUUM_IDENTITY_SECRET, value: {{ include "agent.identitySecret" . | quote }}}
+            - {name: GOMEMLIMIT, value: {{ .Values.tuning.goMemLimit | quote }}}
+            - {name: GOGC, value: {{ .Values.tuning.goGC | quote }}}
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            # Helm does not expose the release name to a running pod any other way (it is not a downward-API field), so
+            # it is templated in here. The server uses it to print `helm upgrade`/`helm uninstall` commands against the
+            # release that is actually running, instead of guessing "continuum-agent".
+            - {name: CONTINUUM_RELEASE_NAME, value: {{ .Release.Name | quote }}}
+            - name: CONTINUUM_TOKEN
+              valueFrom: {secretKeyRef: {name: continuum-agent-enrollment, key: token, optional: true}}
+            {{- if .Values.measurements.enabled }}
+            - {name: CONTINUUM_MEASURE, value: "true"}
+            {{- end }}
+            {{- with .Values.scope.namespaces }}
+            - {name: CONTINUUM_SCOPE_NAMESPACES, value: {{ join "," . | quote }}}
+            {{- end }}
+            {{- with .Values.scope.exclude }}
+            - {name: CONTINUUM_SCOPE_EXCLUDE, value: {{ join "," . | quote }}}
+            {{- end }}
+            {{- with .Values.scope.selector }}
+            - {name: CONTINUUM_SCOPE_LABEL, value: {{ . | quote }}}
+            {{- end }}
+            {{- if include "agent.healthEnabled" . }}
+            - {name: CONTINUUM_HEALTH_LISTEN, value: ":{{ include "agent.healthPort" . }}"}
+            {{- end }}
+            {{- if include "agent.receiver" . }}
+            - {name: CONTINUUM_PROBE_LISTEN, value: ":8081"}
+            {{- end }}
+            {{- if .Values.nodeProbe.enabled }}
+            - {name: CONTINUUM_PROBE_SECRET_FILE, value: /probe/secret}
+            # How often the probes were told to report, so the agent can tell a quiet one from one that cannot reach it.
+            - {name: CONTINUUM_PROBE_INTERVAL, value: {{ .Values.nodeProbe.interval | quote }}}
+            {{- end }}
+            {{- if .Values.flowObserver.enabled }}
+            - {name: CONTINUUM_FLOW_SECRET_FILE, value: /flows/secret}
+            - {name: CONTINUUM_FLOW_INTERVAL, value: {{ .Values.flowObserver.interval | quote }}}
+            {{- end }}
+            {{- with .Values.proxy }}
+            {{- if or .httpProxy .httpsProxy }}
+            {{- with .httpProxy }}
+            - {name: HTTP_PROXY, value: {{ . | quote }}}
+            {{- end }}
+            {{- with .httpsProxy }}
+            - {name: HTTPS_PROXY, value: {{ . | quote }}}
+            {{- end }}
+            {{- /* the in-cluster names are always exempt: the probe and flow reports and the API server must not go through a proxy */}}
+            {{- $no := "localhost,127.0.0.1,.svc,.cluster.local" }}
+            {{- if .noProxy }}{{ $no = printf "%s,%s" $no .noProxy }}{{ end }}
+            - {name: NO_PROXY, value: {{ $no | quote }}}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if or (include "agent.receiver" .) (include "agent.healthEnabled" .) }}
+          ports:
+            {{- if include "agent.receiver" . }}
+            - {name: probe, containerPort: 8081, protocol: TCP}
+            {{- end }}
+            {{- if include "agent.healthEnabled" . }}
+            - {name: health, containerPort: {{ include "agent.healthPort" . }}, protocol: TCP}
+            {{- end }}
+          {{- end }}
+          {{- if include "agent.healthEnabled" . }}
+          # Liveness fails only when the agent's own loop has stopped for 5 minutes; readiness says whether it is connected (or
+          # waiting for approval, which is normal). See `health` in values.yaml. Being generous here on purpose: a probe that
+          # restarts the agent for a slow server would only make things worse.
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 4
+          readinessProbe:
+            httpGet: {path: /readyz, port: health}
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 2
+          {{- end }}
+          {{- if include "agent.receiver" . }}
+          volumeMounts:
+            {{- if .Values.nodeProbe.enabled }}
+            - {name: probe-secret, mountPath: /probe, readOnly: true}
+            {{- end }}
+            {{- if .Values.flowObserver.enabled }}
+            - {name: flow-secret, mountPath: /flows, readOnly: true}
+            {{- end }}
+          {{- end }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+      {{- if include "agent.receiver" . }}
+      volumes:
+        {{- if .Values.nodeProbe.enabled }}
+        - name: probe-secret
+          secret: {secretName: {{ include "agent.probeSecretName" . }}, defaultMode: 0440}
+        {{- end }}
+        {{- if .Values.flowObserver.enabled }}
+        - name: flow-secret
+          secret: {secretName: {{ include "agent.flowSecretName" . }}, defaultMode: 0440}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}

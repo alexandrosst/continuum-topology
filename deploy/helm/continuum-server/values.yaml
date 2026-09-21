@@ -1,0 +1,411 @@
+# Continuum server: control plane + web UI (+ optional Neo4j). Every value is documented here; values.schema.json checks
+# types and enums, and templates/_helpers.tpl fails fast (with the value to set) on combinations that cannot work.
+#
+# Two things must be understood before choosing values (deploy/README.md explains both at length):
+#
+#  1. The server has TWO listeners. The agent port (gRPC over mutual TLS, its own private CA that agents pin) must reach
+#     the pod with TLS untouched: expose it with a LoadBalancer or NodePort Service, or an Ingress/Gateway with TLS
+#     PASSTHROUGH. Never terminate it at an L7 proxy. The admin port (UI + JSON API) is plain HTTP inside the pod and is
+#     meant to sit behind an Ingress that terminates TLS (or serve TLS itself: admin.tls).
+#  2. The server is stateful and NOT horizontally scalable: one replica, one PersistentVolumeClaim. See `persistence`.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Image. The Dockerfile's `server` target builds it: docker build -f backend/Dockerfile --target server -t REGISTRY/server:TAG .
+# Nothing publishes it for you yet (scripts/publish.sh covers the agent image), so set repository to your registry.
+# ---------------------------------------------------------------------------------------------------------------------
+image:
+  repository: continuum/server
+  tag: ""          # defaults to the chart's appVersion
+  digest: ""       # sha256:<64 hex>; when set the image is repository@digest and tag is ignored (immutable, recommended in production)
+  pullPolicy: IfNotPresent
+
+# Secrets (in the release namespace) that let the cluster pull the images from a private registry, e.g.
+#   kubectl -n continuum create secret docker-registry regcred --docker-server=ghcr.io --docker-username=... --docker-password=...
+#   helm install ... --set 'imagePullSecrets[0].name=regcred'
+imagePullSecrets: []
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Who may create an account (--registration). The chart never defaults to open.
+#   invite  only with an invitation from an organization (the first administrator invites the others). Default.
+#   closed  nobody registers; accounts are provisioned from the command line (`server create-org`, `server reset-password`).
+#   open    anyone who can reach the admin address can create an account AND an organization. Private networks only.
+# ---------------------------------------------------------------------------------------------------------------------
+registration: invite
+
+# Id of the organization that is created together with the first account, on a fresh database only (--org).
+org: default
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Agents: how they reach this server. Agents connect OUT to this address over mutual TLS.
+# ---------------------------------------------------------------------------------------------------------------------
+agent:
+  # REQUIRED. host:port that agents dial (--agent-address), e.g. continuum.example.com:8443. The host becomes a name (DNS or
+  # IP) in the server's TLS certificate and is printed in every install command, so it must be exactly what agents use.
+  # Behind a passthrough Ingress this is the ingress host and its TLS port (usually :443); with NodePort it is NODE_IP:nodePort.
+  publicAddress: ""
+
+  # Further DNS names or IPs to put in the server certificate (--agent-hosts), e.g. a second address for the same server
+  # (an internal name next to the public one). Changing this issues a new server certificate; agents keep working because
+  # they trust the CA, not the certificate.
+  extraHosts: []
+
+  # Port the server listens on inside the pod (--agent-listen). The Service's own port is agent.service.port.
+  port: 8443
+
+  # Service that carries the agent gRPC port (L4: TLS is end-to-end).
+  service:
+    type: LoadBalancer         # LoadBalancer | NodePort | ClusterIP (ClusterIP only together with agent.ingress or agent.tlsRoute)
+    port: 8443
+    nodePort: null             # NodePort only; null lets Kubernetes choose (30000-32767)
+    annotations: {}            # e.g. service.beta.kubernetes.io/aws-load-balancer-type: nlb   (an NLB/L4 balancer, not an HTTP one)
+    loadBalancerIP: ""         # deprecated upstream, still honoured by some clouds
+    loadBalancerClass: ""
+    loadBalancerSourceRanges: []
+    # Local keeps the agent's real source address, which the server uses to suggest a location (geoip-db). With a single
+    # replica it also avoids a second hop. With NodePort, only the node running the pod answers. Empty = cluster default.
+    externalTrafficPolicy: ""
+    labels: {}
+
+  # Ingress-nginx TLS passthrough (only for ClusterIP or LoadBalancer setups that want to share port 443 with other apps).
+  # !! The controller must run with --enable-ssl-passthrough or this is silently plain routing that breaks the handshake:
+  #      helm upgrade ingress-nginx ingress-nginx/ingress-nginx --reuse-values --set controller.extraArgs.enable-ssl-passthrough=true
+  #    Passthrough routes on the SNI host only, so agent.publicAddress must be <agent.ingress.host>:443 (the controller's port).
+  ingress:
+    enabled: false
+    className: nginx
+    host: ""                   # the name agents dial; required when enabled
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+
+  # Gateway API TLSRoute in a Gateway listener with `protocol: TLS` and `tls.mode: Passthrough`. TLSRoute is still in the
+  # experimental channel of Gateway API: install those CRDs and check which version your implementation serves.
+  tlsRoute:
+    enabled: false
+    apiVersion: gateway.networking.k8s.io/v1alpha2
+    parentRefs: []             # e.g. [{name: shared-gateway, namespace: gateways, sectionName: agents-tls}]
+    hostnames: []              # SNI names, e.g. [continuum.example.com]
+    annotations: {}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Admin listener: the JSON API and the web UI (--admin-listen). Plain HTTP inside the pod unless admin.tls is set.
+# The server refuses to start on a non-loopback address in clear text unless it is told a TLS proxy protects it.
+# ---------------------------------------------------------------------------------------------------------------------
+admin:
+  port: 8080
+  # Pass --admin-behind-tls-proxy: serve plain HTTP because a TLS-terminating proxy in front protects the port. This also
+  # makes the server trust X-Forwarded-For / X-Forwarded-Proto from whoever connects, so keep the port reachable ONLY through
+  # that proxy (networkPolicy.ingress.admin.from).
+  #   null (default) = automatic: true when ui.ingress.enabled or httproute.enabled, otherwise false
+  #   true           = you terminate TLS yourself (your own proxy, a service mesh) or only use `kubectl port-forward`
+  #   false          = never (then admin.tls.secretName is required)
+  behindTlsProxy: null
+  # Serve HTTPS from the pod itself (--admin-tls-cert / --admin-tls-key). The Secret must be of type kubernetes.io/tls.
+  # A proxy in front then has to speak HTTPS to the pod (ingress-nginx: nginx.ingress.kubernetes.io/backend-protocol: HTTPS).
+  tls:
+    secretName: ""
+    certKey: tls.crt
+    keyKey: tls.key
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations: {}
+    labels: {}
+  # Bootstrap the first administrator from a Secret instead of the one-time password in the log (env CONTINUUM_ADMIN_PASSWORD).
+  # Only used while the database has no user yet; afterwards it is ignored (change the password in the UI). The password is
+  # NOT forced to be changed at first sign-in, so treat the Secret as the credential. The username is always "admin".
+  existingPasswordSecret: ""
+  existingPasswordSecretKey: password
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Web UI exposure (HTTPS to browsers). Terminates TLS at the proxy; see admin.behindTlsProxy.
+# ---------------------------------------------------------------------------------------------------------------------
+ui:
+  ingress:
+    enabled: false
+    className: ""              # e.g. nginx, traefik
+    annotations: {}            # e.g. cert-manager.io/cluster-issuer: letsencrypt
+    hosts: []                  # e.g. [{host: continuum.example.com, paths: [{path: /, pathType: Prefix}]}] (paths default to "/")
+    tls: []                    # e.g. [{secretName: continuum-ui-tls, hosts: [continuum.example.com]}]
+
+# Gateway API HTTPRoute for the UI, as an alternative to ui.ingress (needs the Gateway API CRDs and a Gateway with an HTTPS listener).
+httproute:
+  enabled: false
+  parentRefs: []               # e.g. [{name: shared-gateway, namespace: gateways, sectionName: https}]
+  hostnames: []                # e.g. [continuum.example.com]
+  annotations: {}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# State. /data holds the SQLite database (accounts, sessions, tokens, workspace) AND the enrollment CA's private key, the
+# trust root of every enrolled agent. Losing it means every agent must be enrolled again. There is no persistence toggle
+# on purpose: an emptyDir would lose the CA at the first reschedule.
+# ---------------------------------------------------------------------------------------------------------------------
+persistence:
+  existingClaim: ""            # use a PVC you manage (restored from a snapshot, pre-provisioned, ...); the chart then creates none
+  storageClass: ""             # "" = the cluster default class; "-" = no class (a pre-bound PV)
+  accessModes: [ReadWriteOnce]
+  size: 5Gi                    # SQLite + certificates are small; Neo4j (if bundled) has its own volume
+  annotations: {}
+  # helm.sh/resource-policy: keep on the PVC, so `helm uninstall` does not delete the CA key. Delete the PVC by hand when you mean it.
+  keepOnUninstall: true
+
+# The private key of the enrollment CA lives in /data/pki and signs every certificate this server ever issues to an
+# agent; anyone who reads it (a node compromise, a stray backup, a misconfigured volume snapshot) can mint a
+# certificate every agent would trust. encryptAtRest (default true) protects it with a passphrase: this chart
+# generates one itself, once, into its own Secret (see ca-passphrase-secret.yaml) kept separate from both the key
+# material (on the PVC) and the identity database (in /data). The passphrase is part of the backup: back it up (and
+# store it) separately from the PVC snapshot, exactly like the CA key itself; losing it is losing the CA (README.md,
+# "Encrypting the CA key at rest").
+#   true (default)  this chart generates and manages the passphrase Secret; nothing to configure
+#   false           the key stays unencrypted on disk (mode 0600), as this chart did before this setting existed;
+#                   only for local/dev use or a cluster where disk-level or volume encryption already covers this
+# caKeyPassphraseSecret.name, if set, always wins over both of the above: bring your own Secret (from an external
+# secret manager, say) instead of the one this chart generates.
+pki:
+  encryptAtRest: true
+  caKeyPassphraseSecret:
+    name: ""
+    key: passphrase
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Neo4j: the graph store for topology history, events, the audit trail and workspace revisions (--neo4j-url). This
+# chart always deploys it, one way or the other; there is no "none" — without it those features are degraded or
+# absent, so a deployment made from this chart always has one:
+#   bundled   this chart runs the official neo4j Community image as a StatefulSet next to the server (default)
+#   external  you run Neo4j elsewhere: give a URL and a Secret
+# Neo4j Community is GPLv3 and single-instance. It runs as a separate process; the Continuum server only talks to it over HTTP.
+# ---------------------------------------------------------------------------------------------------------------------
+neo4j:
+  mode: bundled
+  # Plain http:// to a Neo4j inside the cluster (the bundled one, or an *.svc address) is accepted: the chart passes
+  # --neo4j-allow-insecure-http for it. This switch is only for http:// to a host OUTSIDE the cluster, where the password and
+  # the topology would cross a network in clear text. Prefer https:// there.
+  allowInsecureHttp: false
+  user: neo4j                  # --neo4j-user (bundled: always neo4j, the account the image creates)
+  database: neo4j              # --neo4j-database
+
+  # bundled: where the password comes from.
+  auth:
+    # Name of a Secret you created. Empty: the chart creates <release>-continuum-server-neo4j-auth with a random password on
+    # first install and keeps it on every upgrade (looked up in the cluster; kept on uninstall, see README for GitOps).
+    existingSecret: ""
+    passwordKey: password
+
+  # external: an already running Neo4j (5.x, HTTP API on the URL below).
+  external:
+    url: ""                    # https://... or an in-cluster / loopback http:// address; anything else needs allowInsecureHttp
+    existingSecret: ""         # Secret with the password under passwordKey (required)
+    passwordKey: password
+    usernameKey: ""            # optional key in the same Secret holding the user name; empty: use neo4j.user
+
+  # bundled: the image. Pinned to a 5.26 Community tag. Bump it deliberately: Neo4j stores are upgraded on start and cannot go back.
+  image:
+    repository: neo4j
+    tag: 5.26.30-community
+    digest: ""
+    pullPolicy: IfNotPresent
+
+  # bundled: its own volume. Neo4j needs SSD-class storage for the history to stay responsive.
+  persistence:
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+    size: 10Gi
+    annotations: {}
+
+  # bundled: memory. Neo4j does not size itself to the container, so heap and page cache are set explicitly. The pod's limit must
+  # exceed heap + pagecache by ~400-500Mi for the JVM's own use (metaspace, threads, direct buffers). Defaults suit a small install
+  # (tens of clusters, a few months of history); raise all three together as the graph grows.
+  memory:
+    heapInitial: 512m
+    heapMax: 512m
+    pagecache: 256m
+  resources:
+    requests: {cpu: 250m, memory: 1Gi}
+    limits: {memory: 1536Mi}
+
+  # bundled: a NetworkPolicy that lets only the server pod reach Neo4j (port 7474). Needs a CNI that enforces NetworkPolicy.
+  networkPolicy:
+    enabled: false
+
+  terminationGracePeriodSeconds: 60    # time for a clean shutdown and checkpoint
+  # The image is built for uid/gid 7474 (neo4j). fsGroup makes the volume writable for it. readOnlyRootFilesystem stays off:
+  # the image entrypoint writes its generated configuration into the image filesystem.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 7474
+    runAsGroup: 7474
+    fsGroup: 7474
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile: {type: RuntimeDefault}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities: {drop: ["ALL"]}
+  probes:
+    # HTTP GET / on 7474 answers as soon as the database is up. The store can take a while to open after an upgrade.
+    startup: {periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 60}
+    readiness: {periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3}
+    liveness: {periodSeconds: 20, timeoutSeconds: 5, failureThreshold: 6}
+  podAnnotations: {}
+  podLabels: {}
+  priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: []                 # e.g. more NEO4J_* settings; see the Neo4j Docker docs for the naming rules
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The install command the server prints for each agent (Connect a cluster screen).
+# Empty values change nothing: the server uses its own defaults (a built-in registry and the chart it serves). Set them for
+# a private or air-gapped registry, or to pin the agent version.
+# ---------------------------------------------------------------------------------------------------------------------
+agentInstall:
+  imageRegistry: ""            # --image-registry: registry/path holding the `continuum` agent image (and the OCI chart). "none" turns the server's built-in default off
+  imageTag: ""                 # --image-tag: agent image tag; empty means the agent chart's own appVersion
+  chartRef: ""                 # --chart-ref: an OCI, repository or https chart reference; "local" makes the server hand out the chart it carries
+
+# Optional offline geolocation of agent addresses (--geoip-db): a MaxMind-format .mmdb (DB-IP Lite, GeoLite2). The file is not part
+# of the image or the chart; put it in a volume and point at it:
+#   geoip.path: /geoip/dbip-city-lite.mmdb
+#   extraVolumes:      [{name: geoip, persistentVolumeClaim: {claimName: geoip-db, readOnly: true}}]
+#   extraVolumeMounts: [{name: geoip, mountPath: /geoip, readOnly: true}]
+# The server refuses to start if the file is set and unreadable (fail closed).
+geoip:
+  path: ""
+
+# The external decider an administrator can configure in the UI (Settings) is called from inside the pod. By default the server
+# only calls PUBLIC addresses (so a decider URL cannot be used to reach internal services). List the private ranges your decider
+# lives in to allow them (--decider-allow-cidrs, env CONTINUUM_DECIDER_ALLOW_CIDRS); cloud metadata and link-local addresses stay
+# blocked whatever you list. Also open them in networkPolicy.egress.deciderCIDRs if you enable the NetworkPolicy.
+decider:
+  allowCIDRs: []               # e.g. ["10.20.0.0/16"]
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Pod
+# ---------------------------------------------------------------------------------------------------------------------
+# One replica, always: the server holds SQLite in /data (one writer), the in-memory agent sessions, and the CA. It is not
+# horizontally scalable today, and replicas is not a value. Recreate is used because a ReadWriteOnce volume cannot be
+# mounted by an old and a new pod at once; an upgrade therefore has a short gap (agents reconnect on their own).
+
+# Time to drain HTTP (10 s in the server) and stop the gRPC listener. Streams open at that moment are cut; agents reconnect.
+terminationGracePeriodSeconds: 30
+priorityClassName: ""
+
+# The server refuses to start when its data directory, CA key or database are open to group/other users. A volume that
+# the platform mounts with fsGroup is group-accessible by design, and only this pod's user and group can reach it, so the
+# chart starts the server with --allow-loose-permissions. Set false if your storage class hands out a 0700 volume.
+allowLoosePermissions: true
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532                # makes a freshly provisioned volume writable for uid 65532
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile: {type: RuntimeDefault}
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true  # writable paths: /data (volume) and /tmp (emptyDir)
+  capabilities: {drop: ["ALL"]}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+# The server never talks to the Kubernetes API, so the pod gets no token. Leave it false.
+automountServiceAccountToken: false
+
+# Requests suit a small install (a handful of agents). The limit is what the Go runtime is told to respect through GOMEMLIMIT.
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 512Mi}
+tuning:
+  goMemLimit: 400MiB            # GOMEMLIMIT: keep about 80% of resources.limits.memory; "" leaves it unset
+
+# All three probes use GET /healthz on the admin port (plain "ok"; HTTPS automatically when admin.tls is set).
+probes:
+  startup: {periodSeconds: 2, timeoutSeconds: 2, failureThreshold: 30}    # up to 60 s to open the database and load the CA
+  readiness: {periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3}
+  liveness: {periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3}
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Extra command-line flags appended last (a repeated flag wins), extra environment, volumes and init containers. Examples:
+#   extraArgs: ["--allow-origin=https://dev.example.com"]
+#   extraEnv:  [{name: HTTPS_PROXY, value: "http://proxy:3128"}]
+extraArgs: []
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []
+extraInitContainers: []
+# Any further manifests to deploy with the release (a cert-manager Certificate, an ExternalSecret, ...). Strings are templated with `tpl`.
+extraObjects: []
+
+# A PodDisruptionBudget on a single replica: minAvailable 1 blocks node drains until you delete it; maxUnavailable 1 allows the
+# eviction and protects nothing. Off by default for that reason. Enable it only if you want drains to require your attention.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: null
+
+# ---------------------------------------------------------------------------------------------------------------------
+# NetworkPolicy for the server pod (needs a CNI that enforces it; ignored silently otherwise).
+# Ingress: only the agent and admin ports. Egress: DNS, Neo4j, and what you add for deciders. Off by default.
+# ---------------------------------------------------------------------------------------------------------------------
+networkPolicy:
+  enabled: false
+  ingress:
+    # Peers allowed to connect to each port, as NetworkPolicyPeer objects. Empty = from anywhere (agents come from the internet
+    # or other clusters, so leave the agent port open unless you know their ranges).
+    # Restrict the admin port to your ingress controller, e.g.
+    #   admin: {from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}}]}
+    agent: {from: []}
+    admin: {from: []}
+  egress:
+    enabled: true              # false: keep the ingress rules only
+    # Where DNS lives. Empty list = port 53 to anywhere (needed for NodeLocal DNS or an unusual namespace).
+    dnsTo:
+      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+    # neo4j.mode=external: CIDRs of the external Neo4j (empty = its port to anywhere). The port comes from neo4j.external.url.
+    # bundled needs nothing here: the rule to the bundled pod is generated.
+    neo4jCIDRs: []
+    # The external decider an administrator may configure in the UI (Settings). The server calls it from inside the pod;
+    # give the CIDRs it lives in. Empty = no rule, the call is blocked by the policy.
+    deciderCIDRs: []
+    deciderPorts: [443]
+    extra: []                  # raw NetworkPolicyEgressRule objects appended as they are
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Backups. The data (SQLite in WAL mode + the CA key) lives on ONE volume, and a live copy of the database file is not a
+# correct backup (recent commits sit in the -wal file). This chart offers exactly one automated design, values-gated:
+# CSI VolumeSnapshots of the data volume, taken on a schedule. A snapshot is crash-consistent: restoring it is like
+# restarting after a power cut, which SQLite in WAL mode recovers from cleanly (the last moments before the snapshot may be
+# missing). It needs a CSI driver with snapshot support, the external-snapshotter CRDs, and a VolumeSnapshotClass. It does not
+# protect against losing the storage system itself: copy snapshots out (your storage's tooling) or use the cold backup in
+# deploy/README.md as well. This is not verified against a real CSI driver (see README.md).
+# ---------------------------------------------------------------------------------------------------------------------
+backup:
+  volumeSnapshot:
+    enabled: false
+    schedule: "17 3 * * *"     # cron, in the cluster's time zone (or the controller's: see timeZone)
+    timeZone: ""               # e.g. Europe/Berlin (needs Kubernetes 1.27+ for the field to be honoured); empty = controller default
+    className: ""              # volumeSnapshotClassName; empty = the cluster's default snapshot class
+    retain: 7                  # snapshots kept per volume; older ones are deleted after a new one is ready
+    readyTimeout: 300s         # the job fails (and shows it) if the snapshot is not readyToUse in this time
+    includeNeo4j: false        # also snapshot the bundled Neo4j volume (crash-consistent as well; Neo4j replays its transaction log)
+    # A shell plus kubectl. alpine/k8s is a community image; any image with /bin/sh, kubectl, awk and xargs works. Pin your own.
+    image:
+      repository: alpine/k8s
+      tag: 1.34.11
+      pullPolicy: IfNotPresent
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 128Mi}
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 3
+    suspend: false

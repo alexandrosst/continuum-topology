@@ -1,0 +1,51 @@
+# A cloud cluster: LoadBalancer for agents, Ingress (cert-manager) for the UI, bundled Neo4j, VolumeSnapshot backups.
+image:
+  repository: registry.example.com/continuum/server
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+registration: invite
+agent:
+  publicAddress: continuum-agents.example.com:8443
+  extraHosts: [continuum-agents.internal.example.com]
+  service:
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: nlb
+ui:
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    hosts:
+      - host: continuum.example.com
+    tls:
+      - secretName: continuum-ui-tls
+        hosts: [continuum.example.com]
+agentInstall:
+  imageRegistry: registry.example.com/continuum
+  imageTag: 0.1.0
+  chartRef: oci://registry.example.com/continuum/continuum-agent
+persistence:
+  size: 10Gi
+  storageClass: fast
+neo4j:
+  mode: bundled
+  allowInsecureHttp: false
+  persistence:
+    size: 20Gi
+  memory: {heapInitial: 1g, heapMax: 1g, pagecache: 512m}
+  resources:
+    requests: {cpu: 500m, memory: 2Gi}
+    limits: {memory: 2560Mi}
+  networkPolicy:
+    enabled: true
+backup:
+  volumeSnapshot:
+    enabled: true
+    className: csi-snapclass
+    includeNeo4j: true
+    timeZone: Europe/Berlin
+podDisruptionBudget:
+  enabled: false
+priorityClassName: system-cluster-critical

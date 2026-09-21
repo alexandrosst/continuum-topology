@@ -1,0 +1,108 @@
+{{- if eq .Values.neo4j.mode "bundled" }}
+{{- $n := .Values.neo4j }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "continuum.neo4jName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "continuum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: neo4j
+spec:
+  # Neo4j Community is a single instance: no clustering, no read replicas.
+  replicas: 1
+  serviceName: {{ include "continuum.neo4jName" . }}
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels: {{- include "continuum.neo4jSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "continuum.neo4jSelectorLabels" . | nindent 8 }}
+        helm.sh/chart: {{ include "continuum.chart" . }}
+        app.kubernetes.io/part-of: continuum
+        {{- with $n.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $n.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # No Kubernetes API access needed.
+      automountServiceAccountToken: false
+      {{- with $n.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ $n.terminationGracePeriodSeconds }}
+      securityContext: {{- toYaml $n.podSecurityContext | nindent 8 }}
+      containers:
+        - name: neo4j
+          image: {{ include "continuum.imageRef" (dict "image" $n.image "defaultTag" "") | quote }}
+          imagePullPolicy: {{ $n.image.pullPolicy }}
+          securityContext: {{- toYaml $n.securityContext | nindent 12 }}
+          env:
+            # The password comes from the Secret; NEO4J_AUTH is built from it with Kubernetes' $(VAR) expansion (the variable
+            # must be defined first). It only takes effect when the data volume is first initialised: changing the Secret later
+            # does not change the password inside an existing database (ALTER CURRENT USER SET PASSWORD ... does).
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "continuum.neo4jSecretName" . }}
+                  key: {{ include "continuum.neo4jSecretKey" . }}
+            - name: NEO4J_AUTH
+              value: neo4j/$(NEO4J_PASSWORD)
+            # Neo4j does not size itself to the container: heap and page cache are explicit (values: neo4j.memory).
+            - {name: NEO4J_server_memory_heap_initial__size, value: {{ $n.memory.heapInitial | quote }}}
+            - {name: NEO4J_server_memory_heap_max__size, value: {{ $n.memory.heapMax | quote }}}
+            - {name: NEO4J_server_memory_pagecache_size, value: {{ $n.memory.pagecache | quote }}}
+            {{- with $n.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - {name: http, containerPort: 7474, protocol: TCP}
+            - {name: bolt, containerPort: 7687, protocol: TCP}
+          {{- $probe := dict "path" "/" "port" "http" }}
+          startupProbe:
+            httpGet: {{- toYaml $probe | nindent 14 }}
+            {{- toYaml $n.probes.startup | nindent 12 }}
+          readinessProbe:
+            httpGet: {{- toYaml $probe | nindent 14 }}
+            {{- toYaml $n.probes.readiness | nindent 12 }}
+          livenessProbe:
+            httpGet: {{- toYaml $probe | nindent 14 }}
+            {{- toYaml $n.probes.liveness | nindent 12 }}
+          resources: {{- toYaml $n.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: logs, mountPath: /logs}
+      volumes:
+        - name: logs
+          emptyDir: {sizeLimit: 512Mi}
+      {{- with $n.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $n.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $n.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels: {{- include "continuum.neo4jSelectorLabels" . | nindent 10 }}
+        {{- with $n.persistence.annotations }}
+        annotations: {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes: {{- toYaml $n.persistence.accessModes | nindent 10 }}
+        {{- if $n.persistence.storageClass }}
+        storageClassName: {{ if eq $n.persistence.storageClass "-" }}""{{ else }}{{ $n.persistence.storageClass | quote }}{{ end }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $n.persistence.size | quote }}
+{{- end }}

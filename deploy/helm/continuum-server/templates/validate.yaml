@@ -1,0 +1,2 @@
+{{- /* Produces no object: it only runs the checks, so a wrong value stops `helm template|install|upgrade` with a clear message. */ -}}
+{{- include "continuum.validate" . -}}

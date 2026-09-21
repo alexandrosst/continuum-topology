@@ -1,0 +1,30 @@
+# Docker build context is the repository root (docker build -f backend/Dockerfile ... .). The UI stage runs `COPY . .` and the
+# Go stage copies backend/, so this file only removes what NO stage needs. Do not add: package.json, package-lock.json,
+# index.html, vite.config.ts, tsconfig*.json, public/, src/ (UI build) or backend/ (Go build; its go:embed'ed agent chart included).
+
+# VCS and editor state
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+*.swp
+
+# Dependencies and build output: the image installs and builds its own (npm ci, npm run build, go build)
+node_modules
+**/node_modules
+dist
+dist-ssr
+
+# Screenshots and scratch output
+shots*
+*.log
+**/*.log
+.tmp-*
+*.local
+
+# Not part of any build stage
+deploy
+tests
+scripts
+*.md

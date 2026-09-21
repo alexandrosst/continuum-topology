@@ -1,0 +1,13 @@
+{{- if .Values.enrollment.token }}
+# The one-time enrollment token. It lives in its own file so the agent pod can carry a checksum of it (changing the
+# token rolls the pod). The agent reads it from the environment once, at start, and only until it is enrolled.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: continuum-agent-enrollment
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  token: {{ .Values.enrollment.token | quote }}
+{{- end }}

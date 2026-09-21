@@ -1,0 +1,1344 @@
+{
+ "clusters": [
+  {
+   "eligible": true,
+   "free": {
+    "cpu": {
+     "attribute": "cpuFree",
+     "confidence": "reported",
+     "entity": "cl-home",
+     "entityName": "cl-home",
+     "evidence": "allocatable minus requested over 1 node(s)",
+     "high": 3.45,
+     "low": 2.55,
+     "observedAt": "2026-09-21T11:59:30Z",
+     "source": "inferred",
+     "state": "live",
+     "unit": "cores",
+     "value": 3
+    },
+    "memory": {
+     "attribute": "memoryFree",
+     "confidence": "reported",
+     "entity": "cl-home",
+     "entityName": "cl-home",
+     "evidence": "allocatable minus requested over 1 node(s)",
+     "high": 14817637171.199999,
+     "low": 10952166604.8,
+     "observedAt": "2026-09-21T11:59:30Z",
+     "source": "inferred",
+     "state": "live",
+     "unit": "bytes",
+     "value": 12884901888
+    }
+   },
+   "freeCpu": 3,
+   "id": "cl-home",
+   "name": "cl-home",
+   "state": "live",
+   "tier": "edge"
+  },
+  {
+   "eligible": true,
+   "free": {
+    "cpu": {
+     "attribute": "cpuFree",
+     "confidence": "reported",
+     "entity": "cl-big",
+     "entityName": "cl-big",
+     "evidence": "allocatable minus requested over 2 node(s)",
+     "high": 25.3,
+     "low": 18.7,
+     "observedAt": "2026-09-21T11:59:30Z",
+     "source": "inferred",
+     "state": "live",
+     "unit": "cores",
+     "value": 22
+    },
+    "memory": {
+     "attribute": "memoryFree",
+     "confidence": "reported",
+     "entity": "cl-big",
+     "entityName": "cl-big",
+     "evidence": "allocatable minus requested over 2 node(s)",
+     "high": 138297946931.19998,
+     "low": 102220221644.8,
+     "observedAt": "2026-09-21T11:59:30Z",
+     "source": "inferred",
+     "state": "live",
+     "unit": "bytes",
+     "value": 120259084288
+    }
+   },
+   "id": "cl-big",
+   "name": "cl-big",
+   "state": "live",
+   "tier": "cloud"
+  },
+  {
+   "eligible": true,
+   "free": {
+    "cpu": {
+     "attribute": "cpuFree",
+     "confidence": "reported",
+     "entity": "cl-tight",
+     "entityName": "cl-tight",
+     "evidence": "allocatable minus requested over 1 node(s)",
+     "high": 0.575,
+     "low": 0.425,
+     "observedAt": "2026-09-21T11:59:30Z",
+     "source": "inferred",
+     "state": "live",
+     "unit": "cores",
+     "value": 0.5
+    },
+    "memory": {
+     "attribute": "memoryFree",
+     "confidence": "reported",
+     "entity": "cl-tight",
+     "entityName": "cl-tight",
+     "evidence": "allocatable minus requested over 1 node(s)",
+     "high": 14817637171.199999,
+     "low": 10952166604.8,
+     "observedAt": "2026-09-21T11:59:30Z",
+     "source": "inferred",
+     "state": "live",
+     "unit": "bytes",
+     "value": 12884901888
+    }
+   },
+   "id": "cl-tight",
+   "name": "cl-tight",
+   "state": "live"
+  },
+  {
+   "eligible": false,
+   "free": {
+    "cpu": {
+     "attribute": "cpuFree",
+     "confidence": "unknown",
+     "entity": "cl-blind",
+     "entityName": "cl-blind",
+     "evidence": "nodes are not read at this access tier",
+     "low": 0,
+     "source": "inferred",
+     "state": "live",
+     "unit": "cores",
+     "value": null
+    },
+    "memory": {
+     "attribute": "memoryFree",
+     "confidence": "unknown",
+     "entity": "cl-blind",
+     "entityName": "cl-blind",
+     "evidence": "nodes are not read at this access tier",
+     "low": 0,
+     "source": "inferred",
+     "state": "live",
+     "unit": "bytes",
+     "value": null
+    }
+   },
+   "id": "cl-blind",
+   "name": "cl-blind",
+   "state": "live",
+   "stateReason": "capacity unknown: nodes are not read at this access tier"
+  },
+  {
+   "eligible": true,
+   "free": {
+    "cpu": {
+     "attribute": "cpuFree",
+     "confidence": "unknown",
+     "entity": "cl-noreq",
+     "entityName": "cl-noreq",
+     "evidence": "what is already requested on nd-noreq is not known (pods are not read at this access tier), so its free capacity is only bounded by what it has",
+     "high": 9.2,
+     "low": 0,
+     "observedAt": "2026-09-21T11:59:30Z",
+     "source": "inferred",
+     "state": "live",
+     "unit": "cores",
+     "value": null
+    },
+    "memory": {
+     "attribute": "memoryFree",
+     "confidence": "unknown",
+     "entity": "cl-noreq",
+     "entityName": "cl-noreq",
+     "evidence": "what is already requested on nd-noreq is not known (pods are not read at this access tier), so its free capacity is only bounded by what it has",
+     "high": 39513699123.2,
+     "low": 0,
+     "observedAt": "2026-09-21T11:59:30Z",
+     "source": "inferred",
+     "state": "live",
+     "unit": "bytes",
+     "value": null
+    }
+   },
+   "id": "cl-noreq",
+   "name": "cl-noreq",
+   "state": "live"
+  },
+  {
+   "eligible": false,
+   "free": {
+    "cpu": {
+     "attribute": "cpuFree",
+     "confidence": "unknown",
+     "entity": "cl-old",
+     "entityName": "cl-old",
+     "evidence": "no nodes are known",
+     "low": 0,
+     "source": "inferred",
+     "state": "stale",
+     "unit": "cores",
+     "value": null
+    },
+    "memory": {
+     "attribute": "memoryFree",
+     "confidence": "unknown",
+     "entity": "cl-old",
+     "entityName": "cl-old",
+     "evidence": "no nodes are known",
+     "low": 0,
+     "source": "inferred",
+     "state": "stale",
+     "unit": "bytes",
+     "value": null
+    }
+   },
+   "id": "cl-old",
+   "name": "cl-old",
+   "state": "stale",
+   "stateReason": "stale for 2 h"
+  },
+  {
+   "eligible": true,
+   "free": {
+    "cpu": {
+     "attribute": "cpuFree",
+     "confidence": "unknown",
+     "entity": "cl-decl",
+     "entityName": "cl-decl",
+     "evidence": "what is already requested on decl-node is not known (the workspace does not say what is already requested), so its free capacity is only bounded by what it has",
+     "high": 9.2,
+     "low": 0,
+     "source": "inferred",
+     "state": "declared",
+     "unit": "cores",
+     "value": null
+    },
+    "memory": {
+     "attribute": "memoryFree",
+     "confidence": "unknown",
+     "entity": "cl-decl",
+     "entityName": "cl-decl",
+     "evidence": "what is already requested on decl-node is not known (the workspace does not say what is already requested), so its free capacity is only bounded by what it has",
+     "high": 39513699123.2,
+     "low": 0,
+     "source": "inferred",
+     "state": "declared",
+     "unit": "bytes",
+     "value": null
+    }
+   },
+   "id": "cl-decl",
+   "name": "cl-decl",
+   "state": "declared"
+  }
+ ],
+ "excluded": [
+  {
+   "cluster": "cl-blind",
+   "fix": {
+    "action": "raise-agent-tier",
+    "link": "/agents",
+    "text": "Raise the agent's access tier to 1 or higher so it reads the cluster's nodes and what they have free"
+   },
+   "kind": "capacity-unknown",
+   "name": "cl-blind",
+   "reason": "capacity unknown: nodes are not read at this access tier",
+   "state": "live"
+  },
+  {
+   "cluster": "cl-old",
+   "kind": "not-live",
+   "name": "cl-old",
+   "reason": "stale for 2 h",
+   "state": "stale"
+  }
+ ],
+ "flows": [],
+ "generatedAt": "2026-09-21T12:00:00Z",
+ "links": [],
+ "modelVersion": 9,
+ "policy": {
+  "latency": 1
+ },
+ "question": "placement",
+ "schema": 1,
+ "services": [
+  {
+   "candidates": [
+    "cl-big"
+   ],
+   "capacity": [
+    {
+     "cluster": "cl-big",
+     "confidence": "high",
+     "dimensions": [
+      {
+       "confidence": "reported",
+       "dimension": "cpu",
+       "free": 22,
+       "freeHigh": 25.3,
+       "freeLow": 18.7,
+       "margin": 0.954545,
+       "need": 1,
+       "reason": "CPU at cluster cl-big: needs 1 cores, 22 cores free (reported, ±15 %); it fits even at the low end (18.7 cores)",
+       "unit": "cores",
+       "verdict": "fits"
+      },
+      {
+       "confidence": "reported",
+       "dimension": "memory",
+       "free": 120259084288,
+       "freeHigh": 138297946931.19998,
+       "freeLow": 102220221644.8,
+       "margin": 0.982143,
+       "need": 2147483648,
+       "reason": "memory at cluster cl-big: needs 2 GiB, 112 GiB free (reported, ±15 %); it fits even at the low end (95.2 GiB)",
+       "unit": "bytes",
+       "verdict": "fits"
+      }
+     ],
+     "facts": [
+      {
+       "attribute": "cpuFree",
+       "confidence": "reported",
+       "entity": "cl-big",
+       "entityName": "cl-big",
+       "evidence": "allocatable minus requested over 2 node(s)",
+       "high": 25.3,
+       "low": 18.7,
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "inferred",
+       "state": "live",
+       "unit": "cores",
+       "value": 22
+      },
+      {
+       "attribute": "cpuRequest",
+       "confidence": "reported",
+       "entity": "sv-api",
+       "entityName": "api",
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "agent",
+       "state": "live",
+       "unit": "cores",
+       "value": 1
+      },
+      {
+       "attribute": "memoryFree",
+       "confidence": "reported",
+       "entity": "cl-big",
+       "entityName": "cl-big",
+       "evidence": "allocatable minus requested over 2 node(s)",
+       "high": 138297946931.19998,
+       "low": 102220221644.8,
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "inferred",
+       "state": "live",
+       "unit": "bytes",
+       "value": 120259084288
+      },
+      {
+       "attribute": "memoryRequest",
+       "confidence": "reported",
+       "entity": "sv-api",
+       "entityName": "api",
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "agent",
+       "state": "live",
+       "unit": "bytes",
+       "value": 2147483648
+      }
+     ],
+     "name": "cl-big",
+     "verdict": "fits",
+     "weakestClass": "reported",
+     "wouldChange": [
+      {
+       "attribute": "cpuFree",
+       "becomes": "cantTell",
+       "current": 22,
+       "dimension": "cpu",
+       "direction": "below",
+       "text": "if free CPU at cluster cl-big is below 1.18 cores it can no longer be said to fit",
+       "threshold": 1.176471,
+       "unit": "cores"
+      },
+      {
+       "attribute": "memoryFree",
+       "becomes": "cantTell",
+       "current": 120259084288,
+       "dimension": "memory",
+       "direction": "below",
+       "text": "if free memory at cluster cl-big is below 2.35 GiB it can no longer be said to fit",
+       "threshold": 2526451350.588236,
+       "unit": "bytes"
+      }
+     ]
+    },
+    {
+     "cluster": "cl-blind",
+     "confidence": "none",
+     "dimensions": [
+      {
+       "confidence": "unknown",
+       "dimension": "cpu",
+       "free": null,
+       "freeHigh": null,
+       "freeLow": 0,
+       "need": 1,
+       "reason": "free CPU at cluster cl-blind is not known: nodes are not read at this access tier; it needs 1 cores",
+       "unit": "cores",
+       "verdict": "cantTell"
+      },
+      {
+       "confidence": "unknown",
+       "dimension": "memory",
+       "free": null,
+       "freeHigh": null,
+       "freeLow": 0,
+       "need": 2147483648,
+       "reason": "free memory at cluster cl-blind is not known: nodes are not read at this access tier; it needs 2 GiB",
+       "unit": "bytes",
+       "verdict": "cantTell"
+      }
+     ],
+     "facts": [
+      {
+       "attribute": "cpuFree",
+       "confidence": "unknown",
+       "entity": "cl-blind",
+       "entityName": "cl-blind",
+       "evidence": "nodes are not read at this access tier",
+       "low": 0,
+       "source": "inferred",
+       "state": "live",
+       "unit": "cores",
+       "value": null
+      },
+      {
+       "attribute": "cpuRequest",
+       "confidence": "reported",
+       "entity": "sv-api",
+       "entityName": "api",
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "agent",
+       "state": "live",
+       "unit": "cores",
+       "value": 1
+      },
+      {
+       "attribute": "memoryFree",
+       "confidence": "unknown",
+       "entity": "cl-blind",
+       "entityName": "cl-blind",
+       "evidence": "nodes are not read at this access tier",
+       "low": 0,
+       "source": "inferred",
+       "state": "live",
+       "unit": "bytes",
+       "value": null
+      },
+      {
+       "attribute": "memoryRequest",
+       "confidence": "reported",
+       "entity": "sv-api",
+       "entityName": "api",
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "agent",
+       "state": "live",
+       "unit": "bytes",
+       "value": 2147483648
+      }
+     ],
+     "fixes": [
+      {
+       "action": "raise-agent-tier",
+       "link": "/agents",
+       "text": "Raise the agent's access tier to 1 or higher so it reads the cluster's nodes and what they have free"
+      }
+     ],
+     "name": "cl-blind",
+     "reasons": [
+      "free CPU at cluster cl-blind is not known: nodes are not read at this access tier; it needs 1 cores",
+      "free memory at cluster cl-blind is not known: nodes are not read at this access tier; it needs 2 GiB"
+     ],
+     "verdict": "cantTell",
+     "weakestClass": "unknown",
+     "wouldChange": [
+      {
+       "attribute": "cpuFree",
+       "becomes": "fits",
+       "current": null,
+       "dimension": "cpu",
+       "direction": "atLeast",
+       "text": "if free CPU at cluster cl-blind were reported, it would fit at 1.18 cores or more",
+       "threshold": 1.176471,
+       "unit": "cores"
+      },
+      {
+       "attribute": "memoryFree",
+       "becomes": "fits",
+       "current": null,
+       "dimension": "memory",
+       "direction": "atLeast",
+       "text": "if free memory at cluster cl-blind were reported, it would fit at 2.35 GiB or more",
+       "threshold": 2526451350.588236,
+       "unit": "bytes"
+      }
+     ]
+    },
+    {
+     "cluster": "cl-decl",
+     "confidence": "none",
+     "dimensions": [
+      {
+       "confidence": "unknown",
+       "dimension": "cpu",
+       "free": null,
+       "freeHigh": 9.2,
+       "freeLow": 0,
+       "need": 1,
+       "reason": "free CPU at cluster cl-decl is not known: what is already requested on decl-node is not known (the workspace does not say what is already requested), so its free capacity is only bounded by what it has; it needs 1 cores",
+       "unit": "cores",
+       "verdict": "cantTell"
+      },
+      {
+       "confidence": "unknown",
+       "dimension": "memory",
+       "free": null,
+       "freeHigh": 39513699123.2,
+       "freeLow": 0,
+       "need": 2147483648,
+       "reason": "free memory at cluster cl-decl is not known: what is already requested on decl-node is not known (the workspace does not say what is already requested), so its free capacity is only bounded by what it has; it needs 2 GiB",
+       "unit": "bytes",
+       "verdict": "cantTell"
+      }
+     ],
+     "facts": [
+      {
+       "attribute": "cpuFree",
+       "confidence": "unknown",
+       "entity": "cl-decl",
+       "entityName": "cl-decl",
+       "evidence": "what is already requested on decl-node is not known (the workspace does not say what is already requested), so its free capacity is only bounded by what it has",
+       "high": 9.2,
+       "low": 0,
+       "source": "inferred",
+       "state": "declared",
+       "unit": "cores",
+       "value": null
+      },
+      {
+       "attribute": "cpuRequest",
+       "confidence": "reported",
+       "entity": "sv-api",
+       "entityName": "api",
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "agent",
+       "state": "live",
+       "unit": "cores",
+       "value": 1
+      },
+      {
+       "attribute": "memoryFree",
+       "confidence": "unknown",
+       "entity": "cl-decl",
+       "entityName": "cl-decl",
+       "evidence": "what is already requested on decl-node is not known (the workspace does not say what is already requested), so its free capacity is only bounded by what it has",
+       "high": 39513699123.2,
+       "low": 0,
+       "source": "inferred",
+       "state": "declared",
+       "unit": "bytes",
+       "value": null
+      },
+      {
+       "attribute": "memoryRequest",
+       "confidence": "reported",
+       "entity": "sv-api",
+       "entityName": "api",
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "agent",
+       "state": "live",
+       "unit": "bytes",
+       "value": 2147483648
+      }
+     ],
+     "fixes": [
+      {
+       "action": "declare-capacity",
+       "link": "/nodes",
+       "text": "Say what is already requested on the cluster's nodes, or connect an agent that reports it"
+      }
+     ],
+     "name": "cl-decl",
+     "reasons": [
+      "free CPU at cluster cl-decl is not known: what is already requested on decl-node is not known (the workspace does not say what is already requested), so its free capacity is only bounded by what it has; it needs 1 cores",
+      "free memory at cluster cl-decl is not known: what is already requested on decl-node is not known (the workspace does not say what is already requested), so its free capacity is only bounded by what it has; it needs 2 GiB"
+     ],
+     "verdict": "cantTell",
+     "weakestClass": "unknown",
+     "wouldChange": [
+      {
+       "attribute": "cpuFree",
+       "becomes": "fits",
+       "current": null,
+       "dimension": "cpu",
+       "direction": "atLeast",
+       "text": "if free CPU at cluster cl-decl were reported, it would fit at 1.18 cores or more",
+       "threshold": 1.176471,
+       "unit": "cores"
+      },
+      {
+       "attribute": "memoryFree",
+       "becomes": "fits",
+       "current": null,
+       "dimension": "memory",
+       "direction": "atLeast",
+       "text": "if free memory at cluster cl-decl were reported, it would fit at 2.35 GiB or more",
+       "threshold": 2526451350.588236,
+       "unit": "bytes"
+      }
+     ]
+    },
+    {
+     "cluster": "cl-noreq",
+     "confidence": "none",
+     "dimensions": [
+      {
+       "confidence": "unknown",
+       "dimension": "cpu",
+       "free": null,
+       "freeHigh": 9.2,
+       "freeLow": 0,
+       "need": 1,
+       "reason": "free CPU at cluster cl-noreq is not known: what is already requested on nd-noreq is not known (pods are not read at this access tier), so its free capacity is only bounded by what it has; it needs 1 cores",
+       "unit": "cores",
+       "verdict": "cantTell"
+      },
+      {
+       "confidence": "unknown",
+       "dimension": "memory",
+       "free": null,
+       "freeHigh": 39513699123.2,
+       "freeLow": 0,
+       "need": 2147483648,
+       "reason": "free memory at cluster cl-noreq is not known: what is already requested on nd-noreq is not known (pods are not read at this access tier), so its free capacity is only bounded by what it has; it needs 2 GiB",
+       "unit": "bytes",
+       "verdict": "cantTell"
+      }
+     ],
+     "facts": [
+      {
+       "attribute": "cpuFree",
+       "confidence": "unknown",
+       "entity": "cl-noreq",
+       "entityName": "cl-noreq",
+       "evidence": "what is already requested on nd-noreq is not known (pods are not read at this access tier), so its free capacity is only bounded by what it has",
+       "high": 9.2,
+       "low": 0,
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "inferred",
+       "state": "live",
+       "unit": "cores",
+       "value": null
+      },
+      {
+       "attribute": "cpuRequest",
+       "confidence": "reported",
+       "entity": "sv-api",
+       "entityName": "api",
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "agent",
+       "state": "live",
+       "unit": "cores",
+       "value": 1
+      },
+      {
+       "attribute": "memoryFree",
+       "confidence": "unknown",
+       "entity": "cl-noreq",
+       "entityName": "cl-noreq",
+       "evidence": "what is already requested on nd-noreq is not known (pods are not read at this access tier), so its free capacity is only bounded by what it has",
+       "high": 39513699123.2,
+       "low": 0,
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "inferred",
+       "state": "live",
+       "unit": "bytes",
+       "value": null
+      },
+      {
+       "attribute": "memoryRequest",
+       "confidence": "reported",
+       "entity": "sv-api",
+       "entityName": "api",
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "agent",
+       "state": "live",
+       "unit": "bytes",
+       "value": 2147483648
+      }
+     ],
+     "fixes": [
+      {
+       "action": "raise-agent-tier",
+       "link": "/agents",
+       "text": "Raise the agent's access tier to 2 so it reads pods and can say what is already requested"
+      }
+     ],
+     "name": "cl-noreq",
+     "reasons": [
+      "free CPU at cluster cl-noreq is not known: what is already requested on nd-noreq is not known (pods are not read at this access tier), so its free capacity is only bounded by what it has; it needs 1 cores",
+      "free memory at cluster cl-noreq is not known: what is already requested on nd-noreq is not known (pods are not read at this access tier), so its free capacity is only bounded by what it has; it needs 2 GiB"
+     ],
+     "verdict": "cantTell",
+     "weakestClass": "unknown",
+     "wouldChange": [
+      {
+       "attribute": "cpuFree",
+       "becomes": "fits",
+       "current": null,
+       "dimension": "cpu",
+       "direction": "atLeast",
+       "text": "if free CPU at cluster cl-noreq were reported, it would fit at 1.18 cores or more",
+       "threshold": 1.176471,
+       "unit": "cores"
+      },
+      {
+       "attribute": "memoryFree",
+       "becomes": "fits",
+       "current": null,
+       "dimension": "memory",
+       "direction": "atLeast",
+       "text": "if free memory at cluster cl-noreq were reported, it would fit at 2.35 GiB or more",
+       "threshold": 2526451350.588236,
+       "unit": "bytes"
+      }
+     ]
+    },
+    {
+     "cluster": "cl-tight",
+     "confidence": "high",
+     "dimensions": [
+      {
+       "confidence": "reported",
+       "dimension": "cpu",
+       "free": 0.5,
+       "freeHigh": 0.575,
+       "freeLow": 0.425,
+       "margin": -1,
+       "need": 1,
+       "reason": "not enough free CPU at cluster cl-tight: needs 1 cores, 0.5 cores free (reported, ±15 %); it does not fit even at the high end (0.57 cores)",
+       "unit": "cores",
+       "verdict": "doesNotFit"
+      },
+      {
+       "confidence": "reported",
+       "dimension": "memory",
+       "free": 12884901888,
+       "freeHigh": 14817637171.199999,
+       "freeLow": 10952166604.8,
+       "margin": 0.833333,
+       "need": 2147483648,
+       "reason": "memory at cluster cl-tight: needs 2 GiB, 12 GiB free (reported, ±15 %); it fits even at the low end (10.2 GiB)",
+       "unit": "bytes",
+       "verdict": "fits"
+      }
+     ],
+     "facts": [
+      {
+       "attribute": "cpuFree",
+       "confidence": "reported",
+       "entity": "cl-tight",
+       "entityName": "cl-tight",
+       "high": 0.575,
+       "low": 0.425,
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "inferred",
+       "state": "live",
+       "unit": "cores",
+       "value": 0.5
+      }
+     ],
+     "name": "cl-tight",
+     "reasons": [
+      "not enough free CPU at cluster cl-tight: needs 1 cores, 0.5 cores free (reported, ±15 %); it does not fit even at the high end (0.57 cores)"
+     ],
+     "verdict": "doesNotFit",
+     "weakestClass": "reported",
+     "wouldChange": [
+      {
+       "attribute": "cpuFree",
+       "becomes": "cantTell",
+       "current": 0.5,
+       "dimension": "cpu",
+       "direction": "atLeast",
+       "text": "if free CPU at cluster cl-tight reaches 0.87 cores it is no longer ruled out",
+       "threshold": 0.869565,
+       "unit": "cores"
+      },
+      {
+       "attribute": "cpuFree",
+       "becomes": "fits",
+       "current": 0.5,
+       "dimension": "cpu",
+       "direction": "atLeast",
+       "text": "if free CPU at cluster cl-tight reaches 1.18 cores it fits",
+       "threshold": 1.176471,
+       "unit": "cores"
+      }
+     ]
+    }
+   ],
+   "cluster": "cl-home",
+   "clusterState": "live",
+   "constraints": [],
+   "id": "sv-api",
+   "mobility": "free",
+   "name": "api",
+   "undecided": [
+    "cl-decl",
+    "cl-noreq"
+   ]
+  },
+  {
+   "candidates": [],
+   "capacity": [
+    {
+     "cluster": "cl-big",
+     "confidence": "none",
+     "dimensions": [
+      {
+       "confidence": "unknown",
+       "dimension": "cpu",
+       "free": 22,
+       "freeHigh": 25.3,
+       "freeLow": 18.7,
+       "need": null,
+       "reason": "the workload sets no CPU request, so what it needs is not known",
+       "unit": "cores",
+       "verdict": "cantTell"
+      },
+      {
+       "confidence": "unknown",
+       "dimension": "memory",
+       "free": 120259084288,
+       "freeHigh": 138297946931.19998,
+       "freeLow": 102220221644.8,
+       "need": null,
+       "reason": "the workload sets no memory request, so what it needs is not known",
+       "unit": "bytes",
+       "verdict": "cantTell"
+      }
+     ],
+     "facts": [
+      {
+       "attribute": "cpuFree",
+       "confidence": "reported",
+       "entity": "cl-big",
+       "entityName": "cl-big",
+       "evidence": "allocatable minus requested over 2 node(s)",
+       "high": 25.3,
+       "low": 18.7,
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "inferred",
+       "state": "live",
+       "unit": "cores",
+       "value": 22
+      },
+      {
+       "attribute": "cpuRequest",
+       "confidence": "unknown",
+       "entity": "sv-bare",
+       "entityName": "bare",
+       "evidence": "no CPU request is set, so what the workload needs is not known",
+       "source": "agent",
+       "state": "live",
+       "unit": "cores",
+       "value": null
+      },
+      {
+       "attribute": "memoryFree",
+       "confidence": "reported",
+       "entity": "cl-big",
+       "entityName": "cl-big",
+       "evidence": "allocatable minus requested over 2 node(s)",
+       "high": 138297946931.19998,
+       "low": 102220221644.8,
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "inferred",
+       "state": "live",
+       "unit": "bytes",
+       "value": 120259084288
+      },
+      {
+       "attribute": "memoryRequest",
+       "confidence": "unknown",
+       "entity": "sv-bare",
+       "entityName": "bare",
+       "evidence": "no memory request is set, so what the workload needs is not known",
+       "source": "agent",
+       "state": "live",
+       "unit": "bytes",
+       "value": null
+      }
+     ],
+     "fixes": [
+      {
+       "action": "set-requests",
+       "text": "Set a cpu request on bare so what it needs is known"
+      },
+      {
+       "action": "set-requests",
+       "text": "Set a memory request on bare so what it needs is known"
+      }
+     ],
+     "name": "cl-big",
+     "reasons": [
+      "the workload sets no CPU request, so what it needs is not known",
+      "the workload sets no memory request, so what it needs is not known"
+     ],
+     "verdict": "cantTell",
+     "weakestClass": "unknown",
+     "wouldChange": []
+    },
+    {
+     "cluster": "cl-blind",
+     "confidence": "none",
+     "dimensions": [
+      {
+       "confidence": "unknown",
+       "dimension": "cpu",
+       "free": null,
+       "freeHigh": null,
+       "freeLow": 0,
+       "need": null,
+       "reason": "the workload sets no CPU request, so what it needs is not known",
+       "unit": "cores",
+       "verdict": "cantTell"
+      },
+      {
+       "confidence": "unknown",
+       "dimension": "memory",
+       "free": null,
+       "freeHigh": null,
+       "freeLow": 0,
+       "need": null,
+       "reason": "the workload sets no memory request, so what it needs is not known",
+       "unit": "bytes",
+       "verdict": "cantTell"
+      }
+     ],
+     "facts": [
+      {
+       "attribute": "cpuFree",
+       "confidence": "unknown",
+       "entity": "cl-blind",
+       "entityName": "cl-blind",
+       "evidence": "nodes are not read at this access tier",
+       "low": 0,
+       "source": "inferred",
+       "state": "live",
+       "unit": "cores",
+       "value": null
+      },
+      {
+       "attribute": "cpuRequest",
+       "confidence": "unknown",
+       "entity": "sv-bare",
+       "entityName": "bare",
+       "evidence": "no CPU request is set, so what the workload needs is not known",
+       "source": "agent",
+       "state": "live",
+       "unit": "cores",
+       "value": null
+      },
+      {
+       "attribute": "memoryFree",
+       "confidence": "unknown",
+       "entity": "cl-blind",
+       "entityName": "cl-blind",
+       "evidence": "nodes are not read at this access tier",
+       "low": 0,
+       "source": "inferred",
+       "state": "live",
+       "unit": "bytes",
+       "value": null
+      },
+      {
+       "attribute": "memoryRequest",
+       "confidence": "unknown",
+       "entity": "sv-bare",
+       "entityName": "bare",
+       "evidence": "no memory request is set, so what the workload needs is not known",
+       "source": "agent",
+       "state": "live",
+       "unit": "bytes",
+       "value": null
+      }
+     ],
+     "fixes": [
+      {
+       "action": "set-requests",
+       "text": "Set a cpu request on bare so what it needs is known"
+      },
+      {
+       "action": "set-requests",
+       "text": "Set a memory request on bare so what it needs is known"
+      }
+     ],
+     "name": "cl-blind",
+     "reasons": [
+      "the workload sets no CPU request, so what it needs is not known",
+      "the workload sets no memory request, so what it needs is not known"
+     ],
+     "verdict": "cantTell",
+     "weakestClass": "unknown",
+     "wouldChange": []
+    },
+    {
+     "cluster": "cl-decl",
+     "confidence": "none",
+     "dimensions": [
+      {
+       "confidence": "unknown",
+       "dimension": "cpu",
+       "free": null,
+       "freeHigh": 9.2,
+       "freeLow": 0,
+       "need": null,
+       "reason": "the workload sets no CPU request, so what it needs is not known",
+       "unit": "cores",
+       "verdict": "cantTell"
+      },
+      {
+       "confidence": "unknown",
+       "dimension": "memory",
+       "free": null,
+       "freeHigh": 39513699123.2,
+       "freeLow": 0,
+       "need": null,
+       "reason": "the workload sets no memory request, so what it needs is not known",
+       "unit": "bytes",
+       "verdict": "cantTell"
+      }
+     ],
+     "facts": [
+      {
+       "attribute": "cpuFree",
+       "confidence": "unknown",
+       "entity": "cl-decl",
+       "entityName": "cl-decl",
+       "evidence": "what is already requested on decl-node is not known (the workspace does not say what is already requested), so its free capacity is only bounded by what it has",
+       "high": 9.2,
+       "low": 0,
+       "source": "inferred",
+       "state": "declared",
+       "unit": "cores",
+       "value": null
+      },
+      {
+       "attribute": "cpuRequest",
+       "confidence": "unknown",
+       "entity": "sv-bare",
+       "entityName": "bare",
+       "evidence": "no CPU request is set, so what the workload needs is not known",
+       "source": "agent",
+       "state": "live",
+       "unit": "cores",
+       "value": null
+      },
+      {
+       "attribute": "memoryFree",
+       "confidence": "unknown",
+       "entity": "cl-decl",
+       "entityName": "cl-decl",
+       "evidence": "what is already requested on decl-node is not known (the workspace does not say what is already requested), so its free capacity is only bounded by what it has",
+       "high": 39513699123.2,
+       "low": 0,
+       "source": "inferred",
+       "state": "declared",
+       "unit": "bytes",
+       "value": null
+      },
+      {
+       "attribute": "memoryRequest",
+       "confidence": "unknown",
+       "entity": "sv-bare",
+       "entityName": "bare",
+       "evidence": "no memory request is set, so what the workload needs is not known",
+       "source": "agent",
+       "state": "live",
+       "unit": "bytes",
+       "value": null
+      }
+     ],
+     "fixes": [
+      {
+       "action": "set-requests",
+       "text": "Set a cpu request on bare so what it needs is known"
+      },
+      {
+       "action": "set-requests",
+       "text": "Set a memory request on bare so what it needs is known"
+      }
+     ],
+     "name": "cl-decl",
+     "reasons": [
+      "the workload sets no CPU request, so what it needs is not known",
+      "the workload sets no memory request, so what it needs is not known"
+     ],
+     "verdict": "cantTell",
+     "weakestClass": "unknown",
+     "wouldChange": []
+    },
+    {
+     "cluster": "cl-noreq",
+     "confidence": "none",
+     "dimensions": [
+      {
+       "confidence": "unknown",
+       "dimension": "cpu",
+       "free": null,
+       "freeHigh": 9.2,
+       "freeLow": 0,
+       "need": null,
+       "reason": "the workload sets no CPU request, so what it needs is not known",
+       "unit": "cores",
+       "verdict": "cantTell"
+      },
+      {
+       "confidence": "unknown",
+       "dimension": "memory",
+       "free": null,
+       "freeHigh": 39513699123.2,
+       "freeLow": 0,
+       "need": null,
+       "reason": "the workload sets no memory request, so what it needs is not known",
+       "unit": "bytes",
+       "verdict": "cantTell"
+      }
+     ],
+     "facts": [
+      {
+       "attribute": "cpuFree",
+       "confidence": "unknown",
+       "entity": "cl-noreq",
+       "entityName": "cl-noreq",
+       "evidence": "what is already requested on nd-noreq is not known (pods are not read at this access tier), so its free capacity is only bounded by what it has",
+       "high": 9.2,
+       "low": 0,
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "inferred",
+       "state": "live",
+       "unit": "cores",
+       "value": null
+      },
+      {
+       "attribute": "cpuRequest",
+       "confidence": "unknown",
+       "entity": "sv-bare",
+       "entityName": "bare",
+       "evidence": "no CPU request is set, so what the workload needs is not known",
+       "source": "agent",
+       "state": "live",
+       "unit": "cores",
+       "value": null
+      },
+      {
+       "attribute": "memoryFree",
+       "confidence": "unknown",
+       "entity": "cl-noreq",
+       "entityName": "cl-noreq",
+       "evidence": "what is already requested on nd-noreq is not known (pods are not read at this access tier), so its free capacity is only bounded by what it has",
+       "high": 39513699123.2,
+       "low": 0,
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "inferred",
+       "state": "live",
+       "unit": "bytes",
+       "value": null
+      },
+      {
+       "attribute": "memoryRequest",
+       "confidence": "unknown",
+       "entity": "sv-bare",
+       "entityName": "bare",
+       "evidence": "no memory request is set, so what the workload needs is not known",
+       "source": "agent",
+       "state": "live",
+       "unit": "bytes",
+       "value": null
+      }
+     ],
+     "fixes": [
+      {
+       "action": "set-requests",
+       "text": "Set a cpu request on bare so what it needs is known"
+      },
+      {
+       "action": "set-requests",
+       "text": "Set a memory request on bare so what it needs is known"
+      }
+     ],
+     "name": "cl-noreq",
+     "reasons": [
+      "the workload sets no CPU request, so what it needs is not known",
+      "the workload sets no memory request, so what it needs is not known"
+     ],
+     "verdict": "cantTell",
+     "weakestClass": "unknown",
+     "wouldChange": []
+    },
+    {
+     "cluster": "cl-tight",
+     "confidence": "none",
+     "dimensions": [
+      {
+       "confidence": "unknown",
+       "dimension": "cpu",
+       "free": 0.5,
+       "freeHigh": 0.575,
+       "freeLow": 0.425,
+       "need": null,
+       "reason": "the workload sets no CPU request, so what it needs is not known",
+       "unit": "cores",
+       "verdict": "cantTell"
+      },
+      {
+       "confidence": "unknown",
+       "dimension": "memory",
+       "free": 12884901888,
+       "freeHigh": 14817637171.199999,
+       "freeLow": 10952166604.8,
+       "need": null,
+       "reason": "the workload sets no memory request, so what it needs is not known",
+       "unit": "bytes",
+       "verdict": "cantTell"
+      }
+     ],
+     "facts": [
+      {
+       "attribute": "cpuFree",
+       "confidence": "reported",
+       "entity": "cl-tight",
+       "entityName": "cl-tight",
+       "evidence": "allocatable minus requested over 1 node(s)",
+       "high": 0.575,
+       "low": 0.425,
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "inferred",
+       "state": "live",
+       "unit": "cores",
+       "value": 0.5
+      },
+      {
+       "attribute": "cpuRequest",
+       "confidence": "unknown",
+       "entity": "sv-bare",
+       "entityName": "bare",
+       "evidence": "no CPU request is set, so what the workload needs is not known",
+       "source": "agent",
+       "state": "live",
+       "unit": "cores",
+       "value": null
+      },
+      {
+       "attribute": "memoryFree",
+       "confidence": "reported",
+       "entity": "cl-tight",
+       "entityName": "cl-tight",
+       "evidence": "allocatable minus requested over 1 node(s)",
+       "high": 14817637171.199999,
+       "low": 10952166604.8,
+       "observedAt": "2026-09-21T11:59:30Z",
+       "source": "inferred",
+       "state": "live",
+       "unit": "bytes",
+       "value": 12884901888
+      },
+      {
+       "attribute": "memoryRequest",
+       "confidence": "unknown",
+       "entity": "sv-bare",
+       "entityName": "bare",
+       "evidence": "no memory request is set, so what the workload needs is not known",
+       "source": "agent",
+       "state": "live",
+       "unit": "bytes",
+       "value": null
+      }
+     ],
+     "fixes": [
+      {
+       "action": "set-requests",
+       "text": "Set a cpu request on bare so what it needs is known"
+      },
+      {
+       "action": "set-requests",
+       "text": "Set a memory request on bare so what it needs is known"
+      }
+     ],
+     "name": "cl-tight",
+     "reasons": [
+      "the workload sets no CPU request, so what it needs is not known",
+      "the workload sets no memory request, so what it needs is not known"
+     ],
+     "verdict": "cantTell",
+     "weakestClass": "unknown",
+     "wouldChange": []
+    }
+   ],
+   "cluster": "cl-home",
+   "clusterState": "live",
+   "constraints": [
+    "x"
+   ],
+   "id": "sv-bare",
+   "mobility": "careful",
+   "name": "bare",
+   "undecided": [
+    "cl-big",
+    "cl-decl",
+    "cl-noreq",
+    "cl-tight"
+   ]
+  },
+  {
+   "candidates": [
+    "cl-big",
+    "cl-tight"
+   ],
+   "cluster": "cl-home",
+   "clusterState": "live",
+   "id": "sv-unknown",
+   "mobility": "free",
+   "name": "not in the model"
+  },
+  {
+   "candidates": [],
+   "cluster": "cl-home",
+   "clusterState": "live",
+   "id": "sv-pin",
+   "mobility": "pinned",
+   "name": "pinned"
+  }
+ ]
+}

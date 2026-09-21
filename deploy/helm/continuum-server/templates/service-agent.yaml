@@ -1,0 +1,38 @@
+{{- /* The agent port carries gRPC over mutual TLS with the server's own CA: keep it L4 (LoadBalancer/NodePort) or TLS passthrough. */ -}}
+{{- $s := .Values.agent.service }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "continuum.fullname" . }}-agent
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "continuum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+    {{- with $s.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $s.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $s.type }}
+  {{- if and (eq $s.type "LoadBalancer") $s.loadBalancerClass }}
+  loadBalancerClass: {{ $s.loadBalancerClass | quote }}
+  {{- end }}
+  {{- if and (eq $s.type "LoadBalancer") $s.loadBalancerIP }}
+  loadBalancerIP: {{ $s.loadBalancerIP | quote }}
+  {{- end }}
+  {{- if and (eq $s.type "LoadBalancer") $s.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges: {{- toYaml $s.loadBalancerSourceRanges | nindent 4 }}
+  {{- end }}
+  {{- if and $s.externalTrafficPolicy (ne $s.type "ClusterIP") }}
+  externalTrafficPolicy: {{ $s.externalTrafficPolicy }}
+  {{- end }}
+  selector: {{- include "continuum.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: agent
+      port: {{ $s.port }}
+      targetPort: agent
+      protocol: TCP
+      {{- if and (eq $s.type "NodePort") $s.nodePort }}
+      nodePort: {{ $s.nodePort }}
+      {{- end }}

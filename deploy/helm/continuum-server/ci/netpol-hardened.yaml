@@ -1,0 +1,40 @@
+# Everything locked down: NetworkPolicies on the server and Neo4j, admin port only from the ingress controller, ingress passthrough
+# for agents (the controller runs with --enable-ssl-passthrough), an existing PVC.
+agent:
+  publicAddress: continuum.example.com:443
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: true
+    host: continuum.example.com
+ui:
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: continuum-ui.example.com
+        paths: [{path: /, pathType: Prefix}]
+    tls: [{secretName: continuum-ui-tls, hosts: [continuum-ui.example.com]}]
+persistence:
+  existingClaim: continuum-data-restored
+neo4j:
+  mode: bundled
+  networkPolicy:
+    enabled: true
+networkPolicy:
+  enabled: true
+  ingress:
+    admin:
+      from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+    agent:
+      from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+  egress:
+    deciderCIDRs: ["198.51.100.0/24"]
+decider:
+  allowCIDRs: ["198.51.100.0/24"]
+podDisruptionBudget:
+  enabled: true
+  minAvailable: null
+  maxUnavailable: 1

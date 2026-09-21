@@ -1,0 +1,92 @@
+{{- if .Values.flowObserver.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "agent.flowSecretName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  secret: {{ include "agent.flowSecret" . | quote }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: continuum-flow-collector
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: flow-collector
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: continuum-flow-collector, app.kubernetes.io/instance: {{ .Release.Name }}}
+  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 10%}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: continuum-flow-collector
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: continuum
+        {{- include "agent.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/secret: {{ include "agent.flowSecretRevision" . }}   # a new secret rolls the pods: they read it at start
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false   # never talks to the Kubernetes API
+      # The host network namespace is where the kernel's connection-tracking table lives (the fallback
+      # method) and it lets the collector reach the agent through its cluster Service.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- if .Values.flowObserver.liveBytes }}
+      # Needed to count the bytes of connections while they are open: the kernel walks the processes of
+      # the caller's PID namespace, and pods' sockets belong to processes outside this pod's namespace.
+      # The collector reads no process information; with every capability but BPF, PERFMON and
+      # SYS_RESOURCE dropped it could not read other processes' memory or environment anyway.
+      hostPID: true
+      {{- end }}
+      containers:
+        - name: collector
+          image: {{ include "agent.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["flow", "--interval={{ .Values.flowObserver.interval }}", "--method={{ .Values.flowObserver.method }}"]
+          # Loading a tracing program needs root with CAP_BPF and CAP_PERFMON (CAP_SYS_RESOURCE raises the
+          # locked-memory limit on kernels before 5.11); the runtime's default seccomp profile blocks the
+          # bpf() call. Nothing else is granted: no CAP_SYS_ADMIN, no privileged mode, a read-only filesystem.
+          # The collector counts connections. It does not read packets or payloads.
+          # runAsUser: 0 is stated HERE, not baked into the image: the image's default user is the unprivileged 65532
+          # (what the agent and the probe run as), and the decision to run one container as root is the cluster owner's
+          # to read, in this file.
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile: {type: Unconfined}
+            capabilities:
+              drop: ["ALL"]
+              add: ["BPF", "PERFMON", "SYS_RESOURCE"]
+          env:
+            - name: NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            - {name: CONTINUUM_FLOW_URL, value: "http://continuum-agent-probe.{{ .Release.Namespace }}.svc:8081"}
+            - {name: CONTINUUM_FLOW_SECRET_FILE, value: /secret/secret}
+            - {name: CONTINUUM_FLOW_LIVE, value: {{ .Values.flowObserver.liveBytes | quote }}}
+          volumeMounts:
+            - {name: secret, mountPath: /secret, readOnly: true}
+          resources: {{- toYaml .Values.flowObserver.resources | nindent 12 }}
+      volumes:
+        - name: secret
+          secret: {secretName: {{ include "agent.flowSecretName" . }}, defaultMode: 0400}
+      {{- with .Values.flowObserver.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.flowObserver.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

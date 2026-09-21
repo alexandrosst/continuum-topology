@@ -1,0 +1,50 @@
+{{- /* Optional: restrict what the agent pod may connect to. Off by default; see networkPolicy.egress in values.yaml. */ -}}
+{{- $np := dig "networkPolicy" "egress" (dict) .Values.AsMap }}
+{{- if $np.enabled }}
+{{- if not $np.apiServerCIDRs }}{{ fail "networkPolicy.egress.enabled needs networkPolicy.egress.apiServerCIDRs: the Kubernetes API server's address(es), e.g. [\"10.43.0.1/32\", \"192.168.1.10/32\"] (see: kubectl get endpoints kubernetes -n default)" }}{{ end }}
+{{- if not $np.serverCIDRs }}{{ fail "networkPolicy.egress.enabled needs networkPolicy.egress.serverCIDRs: the address(es) that server.address resolves to. A NetworkPolicy cannot match a host name." }}{{ end }}
+# The agent may connect only to DNS, the Kubernetes API and the Continuum server (plus what extraEgress adds). A policy that
+# selects a pod denies everything it does not list, so anything not named here is refused.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: continuum-agent-egress
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: continuum-agent, app.kubernetes.io/instance: {{ .Release.Name }}}
+  policyTypes: [Egress]
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+        {{- range $np.dnsCIDRs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # The Kubernetes API server
+    - to:
+        {{- range $np.apiServerCIDRs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        {{- range ($np.apiServerPorts | default (list 443 6443)) }}
+        - {port: {{ . }}, protocol: TCP}
+        {{- end }}
+    # The Continuum server (server.address: {{ .Values.server.address }})
+    - to:
+        {{- range $np.serverCIDRs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {port: {{ include "agent.serverPort" . }}, protocol: TCP}
+    {{- with $np.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

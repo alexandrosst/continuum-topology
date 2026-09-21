@@ -1,0 +1,20 @@
+{{- if .Values.agent.tlsRoute.enabled }}
+{{- /* Gateway API TLSRoute: passthrough for the agent mTLS port. The Gateway listener must be protocol TLS with tls.mode Passthrough. */ -}}
+apiVersion: {{ .Values.agent.tlsRoute.apiVersion }}
+kind: TLSRoute
+metadata:
+  name: {{ include "continuum.fullname" . }}-agent
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "continuum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  {{- with .Values.agent.tlsRoute.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs: {{- toYaml .Values.agent.tlsRoute.parentRefs | nindent 4 }}
+  hostnames: {{- toYaml .Values.agent.tlsRoute.hostnames | nindent 4 }}
+  rules:
+    - backendRefs:
+        - name: {{ include "continuum.fullname" . }}-agent
+          port: {{ .Values.agent.service.port }}
+{{- end }}

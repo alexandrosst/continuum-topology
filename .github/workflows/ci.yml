@@ -1,0 +1,88 @@
+name: CI
+
+# The checks every push and pull request gets, with no registry credentials and no publishing: build, vet and
+# test the Go backend, and lint, type-check, build and unit-test the frontend. This is what gives the repo's
+# commits and PRs a green check - the actual image/chart publishing is a separate workflow (release.yml) that only
+# runs on a push to main or a version tag, since that's the only case where GHCR credentials are involved.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # go-version-file respects backend/go.mod's own `toolchain` line (currently pinned to go1.25.13 for the
+          # standard-library CVE fixes it carries - see backend/go.mod's comment and deploy/README.md's
+          # "Dependency scanning" section), so this always builds with at least that patch version without
+          # needing to also update this workflow file every time that line changes.
+          go-version-file: backend/go.mod
+
+      - name: Build
+        working-directory: backend
+        run: go build ./...
+
+      - name: Vet
+        working-directory: backend
+        run: go vet ./...
+
+      - name: Test (race)
+        working-directory: backend
+        run: go test ./... -race -count=1
+        # Neo4j-backed tests (graph package) skip themselves when CONTINUUM_TEST_NEO4J is unset - see
+        # graph_test.go. Add a `services: neo4j: ...` block here and set that env var if you want CI to exercise
+        # them too; it isn't required for the rest of the suite to mean anything.
+
+      - name: Vulnerability scan (govulncheck)
+        working-directory: backend
+        continue-on-error: true
+        # Non-blocking on purpose, not because this doesn't matter: as of this writing there is one accepted,
+        # currently-unfixable finding (a grpc-go CVE with no stable release yet - see deploy/README.md's
+        # "Dependency scanning" section), and govulncheck exits non-zero for any finding, fixable or not. A hard
+        # failure here would turn every run red for a thing nobody here can currently fix, which teaches everyone
+        # to ignore the check - worse than not running it. Read this step's log on every run regardless: once the
+        # grpc-go finding has a real fix, bump the dependency, confirm a clean run, and drop `continue-on-error`
+        # so a genuinely new, fixable finding blocks the build the way it should.
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  frontend:
+    name: Frontend (TypeScript/React)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check + build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Vulnerability scan (npm audit)
+        run: npm audit --audit-level=high
+        # `high` (not the default `low`) so this blocks on what's worth blocking on; see deploy/README.md's
+        # "Dependency scanning" section - a clean run today says nothing about a dependency added tomorrow, which
+        # is exactly why this runs on every push instead of only when someone remembers to run it by hand.

@@ -1,0 +1,118 @@
+Continuum server {{ .Chart.AppVersion }} is installed as "{{ .Release.Name }}" in namespace {{ .Release.Namespace }}.
+{{- $fn := include "continuum.fullname" . }}
+{{- $ns := .Release.Namespace }}
+{{- $tls := include "continuum.adminTLS" . }}
+
+WHAT AGENTS WILL DIAL
+  {{ .Values.agent.publicAddress }}
+{{- $host := regexReplaceAll ":[0-9]+$" .Values.agent.publicAddress "" }}
+  The server certificate carries this name{{ if .Values.agent.extraHosts }} and {{ join ", " .Values.agent.extraHosts }}{{ end }}. An agent that dials a different name fails the TLS handshake.
+{{- if eq .Values.agent.service.type "LoadBalancer" }}
+
+  Service {{ $fn }}-agent is a LoadBalancer. Point the DNS name {{ $host }} at its address once one is assigned:
+    kubectl -n {{ $ns }} get service {{ $fn }}-agent -w
+  (EXTERNAL-IP stuck on <pending> means the cluster has no load balancer controller: use agent.service.type=NodePort, or install one such as MetalLB.)
+{{- else if eq .Values.agent.service.type "NodePort" }}
+
+  Service {{ $fn }}-agent is a NodePort. Agents must reach a node at that port; find it with:
+    kubectl -n {{ $ns }} get service {{ $fn }}-agent -o jsonpath='{.spec.ports[0].nodePort}{"\n"}'
+  and make agent.publicAddress match a node address plus that port.
+{{- else }}
+
+  Service {{ $fn }}-agent is ClusterIP: it is reachable only from inside the cluster unless you expose it with
+  {{- if .Values.agent.ingress.enabled }} the passthrough Ingress this release created (the controller MUST run with --enable-ssl-passthrough; TLS must never be terminated there){{ else if .Values.agent.tlsRoute.enabled }} the TLSRoute this release created (the Gateway listener must be protocol TLS, mode Passthrough){{ else }} agent.ingress or agent.tlsRoute, or your own L4 exposure{{ end }}.
+{{- end }}
+{{- if .Values.agent.ingress.enabled }}
+
+  Ingress {{ $fn }}-agent routes {{ .Values.agent.ingress.host }} by TLS passthrough; agents reach it on the controller's TLS port,
+  so agent.publicAddress should be {{ .Values.agent.ingress.host }}:443 (it is {{ .Values.agent.publicAddress }}).
+{{- end }}
+
+THE WEB UI
+{{- if .Values.ui.ingress.enabled }}
+{{- range .Values.ui.ingress.hosts }}
+  https://{{ .host }}/
+{{- end }}
+{{- else if .Values.httproute.enabled }}
+{{- range .Values.httproute.hostnames }}
+  https://{{ . }}/
+{{- end }}
+{{- else }}
+  Not exposed outside the cluster. Reach it with a port-forward:
+    kubectl -n {{ $ns }} port-forward service/{{ $fn }} {{ .Values.admin.service.port }}:{{ .Values.admin.service.port }}
+  and open {{ if $tls }}https{{ else }}http{{ end }}://localhost:{{ .Values.admin.service.port }}/   (enable ui.ingress for a real address)
+{{- end }}
+{{- if and (include "continuum.behindProxy" .) (not $tls) }}
+  The admin port speaks plain HTTP inside the cluster and the server trusts X-Forwarded-For / X-Forwarded-Proto on it
+  (--admin-behind-tls-proxy): keep it reachable only through your TLS proxy (see networkPolicy.ingress.admin.from).
+{{- end }}
+
+FIRST SIGN-IN
+{{- if .Values.admin.existingPasswordSecret }}
+  The first administrator "admin" takes its password from Secret {{ .Values.admin.existingPasswordSecret }} (key {{ .Values.admin.existingPasswordSecretKey }}),
+  on a fresh database only. If the data volume already had users, that password is ignored and the existing accounts apply.
+{{- else }}
+  On a fresh database the server generates a one-time password for the user "admin" and prints it to its log, once:
+    kubectl -n {{ $ns }} logs deployment/{{ $fn }} | grep -A2 'First start'
+  You choose a new password at first sign-in. If the line is missing, the database already existed: see "Recovery" in deploy/README.md.
+{{- end }}
+  Registration is "{{ .Values.registration }}"{{ if eq .Values.registration "open" }}: ANYONE who can reach the admin address can create an account and an organization. Use invite unless this is a private network.{{ else if eq .Values.registration "invite" }}: new people join by invitation from an organization. The first administrator can invite them.{{ else }}: nobody can register; accounts are made with `server create-org` / `server reset-password` (kubectl exec).{{ end }}
+
+CONNECT A CLUSTER
+  Open "Connect a cluster" in the UI; it prints the complete `helm install` for the agent (server address, CA pin, token).
+  The CA pin the agent trusts is also in the server log:
+    kubectl -n {{ $ns }} logs deployment/{{ $fn }} | grep -o 'ca_pin=[^ ]*'
+  or from the API, once you have signed in in the UI and chosen your own password (the API refuses everything before that; the
+  session cookie is kept in ./jar; the org id is "{{ .Values.org }}"):
+    UI={{ if .Values.ui.ingress.enabled }}{{ with (first .Values.ui.ingress.hosts) }}https://{{ .host }}{{ end }}{{ else }}http://localhost:{{ .Values.admin.service.port }}{{ end }}
+    curl -sc jar -H 'X-Requested-With: curl' -H 'Content-Type: application/json' -d '{"username":"admin","password":"..."}' $UI/api/v1/auth/login
+    curl -sb jar $UI/api/v1/orgs/{{ .Values.org }}/info | jq -r .caPin
+  If you keep the chart for the agent locally, the server also serves it (unauthenticated): curl -O $UI/charts/<file shown in the UI>.
+{{- if .Values.agentInstall.imageRegistry }}
+  Agent images and chart: {{ .Values.agentInstall.imageRegistry }}{{ with .Values.agentInstall.imageTag }} (tag {{ . }}){{ end }}.
+{{- end }}
+
+STATE
+  Everything lives in PersistentVolumeClaim {{ include "continuum.dataClaim" . }}, including the private key of the CA every agent trusts.
+  Back it up (deploy/README.md, "Backup and restore"): if it is lost, every agent must be enrolled again.
+{{- if .Values.backup.volumeSnapshot.enabled }}
+  VolumeSnapshots are taken on schedule "{{ .Values.backup.volumeSnapshot.schedule }}", keeping {{ .Values.backup.volumeSnapshot.retain }}:
+    kubectl -n {{ $ns }} get volumesnapshot -l app.kubernetes.io/component=backup
+{{- else }}
+  This release has no automated backup (backup.volumeSnapshot.enabled=false).
+{{- end }}
+{{- if eq .Values.neo4j.mode "bundled" }}
+
+NEO4J (bundled Community edition: GPLv3, single instance, separate process)
+  {{ include "continuum.neo4jURL" . }}   password in Secret {{ include "continuum.neo4jSecretName" . }} (key {{ include "continuum.neo4jSecretKey" . }})
+  The password is set into the Neo4j volume on its first start and is not changed by later Secret edits.
+{{- else if eq .Values.neo4j.mode "external" }}
+
+NEO4J (external): {{ .Values.neo4j.external.url }}, password from Secret {{ .Values.neo4j.external.existingSecret }}.
+{{- end }}
+{{- if .Values.neo4j.allowInsecureHttp }}
+  --neo4j-allow-insecure-http is passed: the server build must know that flag or it will not start.
+{{- end }}
+{{- if .Values.pki.caKeyPassphraseSecret.name }}
+
+CA KEY PASSPHRASE
+  --ca-key-passphrase-file is passed (Secret {{ .Values.pki.caKeyPassphraseSecret.name }}, your own). The server build must support that flag, and the
+  passphrase must be backed up separately from the data: without it a backup of the CA key is useless.
+{{- else if .Values.pki.encryptAtRest }}
+
+CA KEY PASSPHRASE
+  pki.encryptAtRest is true (the default): this chart generated its own passphrase into Secret {{ include "continuum.caPassphraseSecretName" . }} and
+  the CA private key is encrypted under it. Back that Secret up separately from the data volume: without it a backup of the CA key is useless, exactly
+  like the key itself (deploy/README.md, "Encrypting the CA key at rest").
+{{- else }}
+
+CA KEY PASSPHRASE
+  pki.encryptAtRest is false: the CA private key is stored UNENCRYPTED on disk. Anyone who reads it, or a backup of
+  it, can issue certificates every agent would trust. Only turn this off for local/dev use or where disk-level
+  encryption already covers it.
+{{- end }}
+{{- if not .Values.networkPolicy.enabled }}
+
+NETWORK
+  networkPolicy.enabled is false: nothing restricts who may reach the admin port from inside the cluster.
+{{- end }}

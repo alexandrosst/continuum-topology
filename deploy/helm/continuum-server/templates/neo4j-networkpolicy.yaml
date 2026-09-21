@@ -1,0 +1,21 @@
+{{- if and (eq .Values.neo4j.mode "bundled") .Values.neo4j.networkPolicy.enabled }}
+# Only the Continuum server pod may reach the bundled Neo4j, and only on its HTTP port. (Reach it yourself with kubectl port-forward,
+# which does not pass through the pod network policy.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "continuum.neo4jName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "continuum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: neo4j
+spec:
+  podSelector:
+    matchLabels: {{- include "continuum.neo4jSelectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {{- include "continuum.selectorLabels" . | nindent 14 }}
+      ports:
+        - {port: 7474, protocol: TCP}
+{{- end }}

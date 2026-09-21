@@ -1,0 +1,58 @@
+{{- if and .Values.flowObserver.enabled .Values.flowObserver.networkPolicy (not .Values.flowObserver.nodeCIDRs) }}
+{{- fail "flowObserver.networkPolicy=true needs flowObserver.nodeCIDRs: the addresses the agent sees the node collectors arrive from (an empty list would block every collector). Leave networkPolicy=false to accept reports from any source (they are signed either way)." }}
+{{- end }}
+{{- if include "agent.receiver" . }}
+# The agent's in-cluster receiver (port 8081) for the optional node probe and flow collector.
+apiVersion: v1
+kind: Service
+metadata:
+  name: continuum-agent-probe
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/name: continuum-agent, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    - {name: probe, port: 8081, targetPort: probe, protocol: TCP}
+{{- /* A policy that selects the agent denies everything it does not list, so it is created only when one of
+       the receivers asked for it, and then it lists every enabled receiver. */ -}}
+{{- if or (and .Values.nodeProbe.enabled .Values.nodeProbe.networkPolicy) (and .Values.flowObserver.enabled .Values.flowObserver.networkPolicy) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: continuum-agent-probe
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: continuum-agent, app.kubernetes.io/instance: {{ .Release.Name }}}
+  policyTypes: [Ingress]
+  ingress:
+    {{- if .Values.nodeProbe.enabled }}
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: continuum-node-probe, app.kubernetes.io/instance: {{ .Release.Name }}}
+      ports:
+        - {port: 8081, protocol: TCP}
+    {{- end }}
+    {{- if .Values.flowObserver.enabled }}
+    # The flow collectors run in the host network, so their traffic arrives from node-side addresses, which a
+    # pod selector cannot name. With flowObserver.networkPolicy=true it is restricted to flowObserver.nodeCIDRs (which must
+    # then list every address the agent sees them from: see values.yaml); otherwise any source may reach the port, as it
+    # could without this policy. Every report is signed with the flow secret either way.
+    - from:
+        {{- range (ternary .Values.flowObserver.nodeCIDRs (list "0.0.0.0/0") .Values.flowObserver.networkPolicy) }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {port: 8081, protocol: TCP}
+    {{- end }}
+    {{- if include "agent.healthEnabled" . }}
+    # The kubelet probes /healthz and /readyz on the pod's own address. Most CNIs let a node reach its own pods regardless,
+    # some do not, so the policy says so itself. The endpoints answer a state word and nothing else.
+    - ports:
+        - {port: {{ include "agent.healthPort" . }}, protocol: TCP}
+    {{- end }}
+{{- end }}
+{{- end }}

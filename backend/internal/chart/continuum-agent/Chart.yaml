@@ -1,0 +1,6 @@
+apiVersion: v2
+name: continuum-agent
+description: Read-only discovery agent for Continuum. Dials out to the server; listens only on a health port for the kubelet's probes, plus one in-cluster port if the optional node probe or flow observer is enabled. One image runs every role.
+type: application
+version: 0.1.0
+appVersion: "0.1.0-dev"

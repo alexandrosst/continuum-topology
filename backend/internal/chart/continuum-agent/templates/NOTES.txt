@@ -1,0 +1,93 @@
+Continuum agent {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} in namespace {{ .Release.Namespace }} (release "{{ .Release.Name }}").
+
+WHAT IT CAN SEE  (access tier {{ include "agent.tier" . }})
+{{- if eq (int (include "agent.tier" .)) 0 }}
+  Tier 0, "registered only": the UID of the kube-system namespace, which is how Continuum tells clusters apart. Nothing else.
+{{- else if eq (int (include "agent.tier" .)) 1 }}
+  Tier 1, "infrastructure": the cluster's identity, plus nodes, storage classes and ingress classes. No namespaces,
+  workloads or pods.
+{{- else }}
+  Tier 2, "services": the cluster's identity, nodes, storage and ingress classes, plus namespaces, workloads, pods, services
+  and ingresses (and the names of persistent volume claims, autoscaling and disruption rules). Kubernetes cannot grant read
+  access to part of an object, so the agent does receive pod specs; it drops environment variables, commands, arguments and
+  volume sources on arrival and never stores or sends them.
+{{- if eq .Values.rbac.mode "namespaced" }}
+
+  RBAC MODE: namespaced. Tier 2 is granted with a Role + RoleBinding in each of these namespaces only (no ClusterRole for
+  tier 2), narrower than the tier normally allows:
+    {{ join ", " .Values.scope.namespaces }}
+  Two things a ClusterRole would show are not available in this mode, not just filtered out: namespace metadata (labels,
+  creation time — only the name is shown) and persistent volumes (only claims are shown). A namespace added to the cluster
+  later is invisible until it is added here and the release is upgraded:
+
+    helm upgrade {{ .Release.Name }} <chart> -n {{ .Release.Namespace }} --reuse-values --set "scope.namespaces={{ `{` }}{{ join "," .Values.scope.namespaces }},<new-namespace>{{ `}` }}"
+
+  scope.selector cannot be used in this mode (it needs cluster-wide namespace listing, which namespaced mode exists to avoid).
+{{- end }}
+{{- end }}
+  Scope: {{ if or .Values.scope.namespaces .Values.scope.selector }}only {{ if .Values.scope.namespaces }}the namespaces {{ join ", " .Values.scope.namespaces }}{{ end }}{{ if and .Values.scope.namespaces .Values.scope.selector }} and {{ end }}{{ if .Values.scope.selector }}namespaces labelled {{ .Values.scope.selector }}{{ end }} are reported{{ else }}all namespaces are reported{{ end }}{{ if .Values.scope.exclude }}, except {{ join ", " .Values.scope.exclude }}{{ end }}. Narrowing the scope narrows what is
+  reported, not what the agent's permissions allow: the access described above is still cluster-wide read access.
+  It is read-only: it never creates, changes or deletes anything in the cluster except its own identity Secret
+  ({{ include "agent.identitySecret" . }}), and it cannot read any other Secret or any ConfigMap.
+{{- if .Release.IsInstall }}
+
+WHAT HAPPENS NEXT
+  The agent enrolls with {{ .Values.server.address }} and then waits for an administrator to approve it. Waiting is normal:
+  it is not an error and the pod is not restarted for it. It prints a short approval code in its log:
+
+    kubectl -n {{ .Release.Namespace }} logs deploy/continuum-agent | grep "approval code"
+
+  Open Discovery in the Continuum UI, enter that code to approve this cluster, and choose the access tier it may have.
+  Nothing is reported before you do.
+{{- end }}
+
+CHECK IT
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/name=continuum-agent
+  kubectl -n {{ .Release.Namespace }} logs deploy/continuum-agent
+{{- if include "agent.healthEnabled" . }}
+  READY 1/1 means the agent has reached the server (or is waiting for approval); 0/1 means it has not, or has been
+  revoked: the logs say which.
+{{- end }}
+
+CHANGE WHAT IT MAY SEE
+  Always upgrade with --reuse-values, or every setting you gave at install falls back to the chart's default (the tier
+  defaults to 2, "services", the widest). Narrow or widen consent like this:
+
+    helm upgrade {{ .Release.Name }} <chart> -n {{ .Release.Namespace }} --reuse-values --set access.tier=1
+
+  The cluster owner decides here; the server can approve up to this tier and never beyond it.
+{{- if .Values.enrollment.token }}
+
+  The one-time enrollment token is only used on first start. You can remove it from the cluster with
+  --reuse-values --set enrollment.token=   (the agent restarts once and keeps its identity).
+{{- end }}
+
+REMOVE IT
+  helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}
+  This removes the agent, its RBAC and the probe/flow parts. It deliberately KEEPS the Secret {{ include "agent.identitySecret" . }}
+  (the agent's private key and certificate), so a reinstall under the same release name and namespace finds its identity
+  again. To remove that too:
+
+    kubectl -n {{ .Release.Namespace }} delete secret {{ include "agent.identitySecret" . }}
+
+  Continuum's server keeps its record of this cluster until you remove it on the Discovery page.
+{{- if .Values.nodeProbe.enabled }}
+
+NODE PROBE
+  One small read-only pod per node reports the machine type to the agent (in-cluster, signed with a generated secret).{{ if .Values.nodeProbe.hostSys }}
+  It mounts the host's /sys read-only; if the pods are refused with a "hostPath" or "PodSecurity" error, label the namespace
+  privileged:
+
+    kubectl label namespace {{ .Release.Namespace }} pod-security.kubernetes.io/enforce=privileged --overwrite
+{{- end }}
+{{- end }}
+{{- if .Values.flowObserver.enabled }}
+
+TRAFFIC OBSERVER
+  One collector per node counts connections between workloads (method: {{ .Values.flowObserver.method }}; eBPF where the kernel
+  supports it, conntrack otherwise). It runs as root with CAP_BPF/CAP_PERFMON and an unconfined seccomp profile because
+  loading a tracing program needs them{{ if .Values.flowObserver.liveBytes }}, and in the host PID namespace so it can count the bytes of open
+  connections{{ end }}; it reads no packets. If the pods are refused by Pod Security, label the namespace privileged:
+
+    kubectl label namespace {{ .Release.Namespace }} pod-security.kubernetes.io/enforce=privileged --overwrite
+{{- end }}

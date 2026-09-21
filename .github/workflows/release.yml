@@ -1,0 +1,217 @@
+name: Release
+
+# Builds and publishes the ONE thing an install command needs to exist for: the `continuum` image (agent, probe
+# and flow collector - one binary, three roles), the `server` image, and both Helm charts, all to this repo's own
+# GitHub Container Registry namespace (ghcr.io/<owner>) - no separate registry to set up, and nothing for anyone
+# installing this to type in beyond the command the server's "Connect a cluster" screen already prints.
+#
+# This is the CI equivalent of running scripts/publish.sh by hand; read that script's own top-of-file comment for
+# the mechanism (keyless cosign signing, why images are pushed as one multi-arch tag, etc.) - this workflow does
+# the same thing, just triggered by git history instead of a person's keyboard, and using GitHub Actions' own
+# OIDC token for cosign instead of an interactive browser login.
+#
+# Triggers:
+#   - a push to main publishes the "edge" tag (and a sha-<short> one) - always pullable, always whatever main
+#     currently is, not meant to be depended on for anything you'd call a release.
+#   - pushing a tag like v0.3.0 publishes that exact version (and moves "latest" to it) - this is a real release.
+#   - workflow_dispatch, for a manual re-run without needing a new commit or tag.
+#
+# One-time setup this workflow cannot do for you: the first time this runs, GHCR creates the four packages
+# (continuum, server, continuum-agent, continuum-server) as PRIVATE by default, even in a public repo. Nothing
+# using the published install command will work until you flip that: on GitHub, the repo's right sidebar has a
+# "Packages" section once this has run once - open each of the four, "Package settings" at the bottom, "Change
+# visibility" to Public (and confirm "Link to this repository" is checked, so they show up on the repo's page).
+# You only need to do this once; every later push publishes new versions into the same, already-public packages.
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write # push images/charts to ghcr.io
+  id-token: write # cosign's keyless signing: this is what lets it get a short-lived cert with no secret at all
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false # never leave a half-published set of images/charts because a newer push cancelled it
+
+jobs:
+  version:
+    name: Compute version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      is_release: ${{ steps.v.outputs.is_release }}
+      owner: ${{ steps.v.outputs.owner }}
+    steps:
+      - id: v
+        run: |
+          # GHCR (like every Docker registry) requires lowercase repository names; a GitHub org or username can
+          # have mixed case, so this is not optional even though most owners happen to already be lowercase.
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            is_release=true
+          else
+            version="edge"
+            is_release=false
+          fi
+          echo "owner=$owner" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "is_release=$is_release" >> "$GITHUB_OUTPUT"
+          echo "Publishing as $owner, version=$version, is_release=$is_release"
+
+  images:
+    name: Build and sign ${{ matrix.image }}
+    needs: version
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # One image, three roles (agent/probe/flow), chosen by the container's args - see backend/Dockerfile's
+          # own comment. Multi-arch: an edge board pulls the same tag a cloud node does.
+          - target: continuum
+            image: continuum
+            platforms: linux/amd64,linux/arm64
+          # The server runs in one place (the control plane), so amd64 only by default - matches
+          # scripts/publish.sh's SERVER_PLATFORMS default. Fork this workflow and widen it if yours is ARM.
+          - target: server
+            image: server
+            platforms: linux/amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute this image's tags
+        id: tags
+        run: |
+          ref="ghcr.io/${{ needs.version.outputs.owner }}/${{ matrix.image }}"
+          version="${{ needs.version.outputs.version }}"
+          if [[ "${{ needs.version.outputs.is_release }}" == "true" ]]; then
+            tags="$ref:$version,$ref:latest"
+          else
+            tags="$ref:edge,$ref:sha-$(echo "$GITHUB_SHA" | cut -c1-7)"
+          fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          file: backend/Dockerfile
+          target: ${{ matrix.target }}
+          platforms: ${{ matrix.platforms }}
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            VERSION=${{ needs.version.outputs.version }}
+
+      - uses: sigstore/cosign-installer@v3
+
+      # Keyless: Fulcio issues a short-lived cert off this job's own OIDC token (id-token: write, above) and
+      # Rekor logs the signature publicly - nothing here is a secret you have to generate, store or rotate.
+      - name: Sign by digest
+        run: cosign sign --yes "${{ steps.tags.outputs.ref }}@${{ steps.build.outputs.digest }}"
+
+  charts:
+    name: Package and sign ${{ matrix.name }}
+    needs: [version, images]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - dir: backend/internal/chart/continuum-agent
+            name: continuum-agent
+          - dir: deploy/helm/continuum-server
+            name: continuum-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: sigstore/cosign-installer@v3
+
+      # The chart's own values.yaml ships with a placeholder image name (continuum/continuum,
+      # continuum/server - not a real, pullable image anywhere) so the source tree stays registry-agnostic and a
+      # fork does not silently point at someone else's images. This step patches a throwaway copy right before
+      # packaging, baking in THIS repo's own GHCR namespace so the chart works with no --set at all once
+      # installed from here. The grep-count check before each sed is deliberate: if the line it expects to find
+      # is ever reworded, this fails loudly here instead of silently publishing a chart that still points at the
+      # placeholder.
+      - name: Bake this repo's GHCR namespace into the chart's defaults
+        run: |
+          set -euo pipefail
+          owner="${{ needs.version.outputs.owner }}"
+          values="${{ matrix.dir }}/values.yaml"
+
+          patch_one() {
+            local match="$1" replacement="$2"
+            local n
+            n=$(grep -c "^${match}" "$values" || true)
+            if [[ "$n" != "1" ]]; then
+              echo "expected exactly one line matching '^${match}' in $values, found $n - this chart's values.yaml changed shape; update this workflow to match" >&2
+              exit 1
+            fi
+            sed -i "s#^${match}#${replacement}#" "$values"
+          }
+
+          case "${{ matrix.name }}" in
+            continuum-agent)
+              patch_one "  repository: continuum/continuum\$" "  repository: ghcr.io/${owner}/continuum"
+              ;;
+            continuum-server)
+              patch_one "  repository: continuum/server\$" "  repository: ghcr.io/${owner}/server"
+              # Leaving chartRef empty is deliberate: main.go documents that an empty --chart-ref resolves to
+              # oci://<image-registry>/continuum-agent, which is exactly where the continuum-agent job in this
+              # same workflow run just published to.
+              patch_one "  imageRegistry: \"\"" "  imageRegistry: \"ghcr.io/${owner}\""
+              ;;
+          esac
+
+      - name: Package
+        id: pkg
+        run: |
+          set -euo pipefail
+          version="${{ needs.version.outputs.version }}"
+          if [[ "${{ needs.version.outputs.is_release }}" == "true" ]]; then
+            chart_version="$version"
+          else
+            # A valid SemVer 2 pre-release identifier (Helm requires the chart's own `version` to be SemVer 2),
+            # distinguishable at a glance from a real release and naming the exact commit it came from.
+            chart_version="0.0.0-edge.$(echo "$GITHUB_SHA" | cut -c1-7)"
+          fi
+          mkdir -p /tmp/chartout
+          helm package "${{ matrix.dir }}" --version "$chart_version" --app-version "$version" -d /tmp/chartout
+          pkg=$(ls /tmp/chartout/*.tgz)
+          echo "pkg=$pkg" >> "$GITHUB_OUTPUT"
+
+      - name: Push
+        id: push
+        run: |
+          set -euo pipefail
+          out=$(helm push "${{ steps.pkg.outputs.pkg }}" "oci://ghcr.io/${{ needs.version.outputs.owner }}" 2>&1 | tee /dev/stderr)
+          digest=$(echo "$out" | sed -n 's/^Digest:[[:space:]]*\(sha256:[0-9a-f]\{64\}\).*$/\1/p' | head -n1)
+          if [[ -z "$digest" ]]; then
+            echo "helm push did not print a Digest: line this workflow could parse - check the log above" >&2
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Sign by digest
+        run: cosign sign --yes "ghcr.io/${{ needs.version.outputs.owner }}/${{ matrix.name }}@${{ steps.push.outputs.digest }}"

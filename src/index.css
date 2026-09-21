@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+/* NetBird-inspired palette: near-black neutrals + orange accent */
+@theme {
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  --color-nb-900: #181a1d;
+  --color-nb-920: #1b1d20;
+  --color-nb-925: #1c1e22;
+  --color-nb-930: #1f2124;
+  --color-nb-940: #25282c;
+  --color-nb-910: #16181a;
+  --color-nb-850: #2b2f33;
+  --color-nb-800: #32363d;
+  --color-nb-700: #3f444b;
+  --color-nb-600: #86929d; /* tertiary text: a shade dimmer than nb-500, still at least 4.5:1 on nb-900 to nb-940 (and nb-850) */
+  --color-nb-500: #8a97a2; /* secondary text: at least 4.5:1 on nb-900 to nb-850 */
+  --color-nb-400: #a7b1b9;
+  --color-nb-300: #e4e7e9;
+
+  --color-accent: #f68330;
+  --color-accent-600: #e55b1f;
+  --color-accent-soft: rgba(246, 131, 48, 0.12);
+
+  --color-tier-cloud: #60a5fa;
+  --color-tier-edge: #34d399;
+  --color-tier-far: #c084fc;
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: var(--color-nb-900);
+  color: var(--color-nb-300);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+* { scrollbar-width: thin; scrollbar-color: var(--color-nb-700) transparent; }
+
+/* React Flow theming */
+.react-flow { --xy-background-color: var(--color-nb-910); --xy-edge-stroke-default: #59636c; }
+.react-flow__attribution { display: none; }
+.react-flow__controls {
+  border: 1px solid var(--color-nb-850);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: none;
+}
+.react-flow__controls-button {
+  background: var(--color-nb-925);
+  border-bottom: 1px solid var(--color-nb-850);
+  fill: var(--color-nb-400);
+  color: var(--color-nb-400);
+}
+.react-flow__controls-button:hover { background: var(--color-nb-940); }
+.react-flow__minimap {
+  background: var(--color-nb-925);
+  border: 1px solid var(--color-nb-850);
+  border-radius: 10px;
+}
+.react-flow__handle { opacity: 0; pointer-events: none; }
+.react-flow__edge-text { fill: var(--color-nb-400); font-size: 10px; }
+.react-flow__edge-textbg { fill: var(--color-nb-910); }
+
+@keyframes dash { to { stroke-dashoffset: -20; } }
+.edge-animated path.react-flow__edge-path { stroke-dasharray: 5 5; animation: dash 1s linear infinite; }
+
+/* Connections on the map move like the ones in the other views: the dashes run from the caller to what it calls,
+   faster the busier the link. --flow is the time for one dash period; the direction flips when b calls a. */
+@keyframes map-dash { to { stroke-dashoffset: -8; } }
+.map-link { stroke-dasharray: 4 4; animation: map-dash var(--flow, 2.4s) linear infinite; }
+.map-link[data-reverse='1'] { animation-direction: reverse; }
+@media (prefers-reduced-motion: reduce) {
+  .edge-animated path.react-flow__edge-path, .map-link { animation: none; }
+}
+
+/* Map dots: no browser focus box; keyboard focus shows a dashed ring instead. */
+.map-dot:focus { outline: none; }
+.map-dot:focus-visible .map-hit { stroke: var(--color-accent); stroke-width: 1.5; stroke-dasharray: 3 3; }
+
+/* Keyboard focus is always visible. Mouse clicks draw no ring (only :focus-visible does). In the base layer, so a
+   control that sets its own focus style (a focus: or focus-visible: utility) keeps it. */
+@layer base {
+  :where(a[href], button, input, select, textarea, summary, [role='button'], [role='tab'], [role='menuitem'], [tabindex]:not([tabindex='-1'])):focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  /* Text fields also show focus with a border; keep the ring inside their frame. */
+  :where(input, select, textarea):focus-visible { outline-offset: 0; }
+}
+.map-dot:focus-visible { outline: none; }
+/* The canvas draws focus for its own nodes; give keyboard users a visible ring on the card or group that has it. */
+.react-flow .react-flow__node.selectable:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* People who ask for less motion get no spinning, pulsing or sliding; state still changes, it just does not move. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

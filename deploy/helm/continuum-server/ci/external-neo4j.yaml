@@ -1,0 +1,26 @@
+# Neo4j run elsewhere, over https; closed registration; the first admin's password comes from a Secret you created:
+#   kubectl -n continuum create secret generic continuum-admin --from-literal=password='...'
+#   kubectl -n continuum create secret generic neo4j-credentials --from-literal=password='...' --from-literal=username=continuum
+agent:
+  publicAddress: "203.0.113.7:8443"
+registration: closed
+admin:
+  behindTlsProxy: true
+  existingPasswordSecret: continuum-admin
+neo4j:
+  mode: external
+  database: continuum
+  external:
+    url: https://neo4j.example.com:7473
+    existingSecret: neo4j-credentials
+    passwordKey: password
+    usernameKey: username
+geoip:
+  path: /geoip/dbip-city-lite.mmdb
+extraVolumes:
+  - name: geoip
+    persistentVolumeClaim: {claimName: geoip-db, readOnly: true}
+extraVolumeMounts:
+  - {name: geoip, mountPath: /geoip, readOnly: true}
+decider:
+  allowCIDRs: ["10.20.0.0/16"]

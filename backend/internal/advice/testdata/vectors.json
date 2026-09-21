@@ -1,0 +1,1308 @@
+{
+ "comment": "Written by an independent implementation of the rules in backend/internal/advice/advice.go; read by the Go and the TypeScript tests so the two cannot disagree.",
+ "factors": {
+  "measured": 0.05,
+  "reported": 0.15,
+  "inferred": 0.3,
+  "guess": 0.5
+ },
+ "cases": [
+  {
+   "name": "reported: fits at the pessimistic end",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 4,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "reported",
+    "lo": 5.1,
+    "hi": 6.8999999999999995,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.33333333333333337,
+    "changes": [
+     {
+      "direction": "below",
+      "threshold": 4.705882352941177,
+      "becomes": "cantTell"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reported: straddles, so it cannot be told",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 5.5,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "reported",
+    "lo": 5.1,
+    "hi": 6.8999999999999995,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.08333333333333337,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 6.470588235294118,
+      "becomes": "fits"
+     },
+     {
+      "direction": "below",
+      "threshold": 4.782608695652175,
+      "becomes": "doesNotFit"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reported: fails even at the optimistic end",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 8,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "doesNotFit",
+    "class": "reported",
+    "lo": 5.1,
+    "hi": 6.8999999999999995,
+    "known": true,
+    "knownFree": 6,
+    "margin": -0.33333333333333326,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 6.9565217391304355,
+      "becomes": "cantTell"
+     },
+     {
+      "direction": "atLeast",
+      "threshold": 9.411764705882353,
+      "becomes": "fits"
+     }
+    ]
+   }
+  },
+  {
+   "name": "measured is tight: +-5 %",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 5.5,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "measured"
+     },
+     "requested": {
+      "value": 2,
+      "class": "measured"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "reported",
+    "lo": 5.699999999999999,
+    "hi": 6.300000000000001,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.08333333333333337,
+    "changes": [
+     {
+      "direction": "below",
+      "threshold": 5.789473684210527,
+      "becomes": "cantTell"
+     }
+    ]
+   }
+  },
+  {
+   "name": "inferred is wider: +-30 %, fits",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 4,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "inferred"
+     },
+     "requested": {
+      "value": 2,
+      "class": "inferred"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "inferred",
+    "lo": 4.199999999999999,
+    "hi": 7.800000000000001,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.33333333333333337,
+    "changes": [
+     {
+      "direction": "below",
+      "threshold": 5.714285714285715,
+      "becomes": "cantTell"
+     }
+    ]
+   }
+  },
+  {
+   "name": "inferred is wider: +-30 %, cannot be told",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 4.5,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "inferred"
+     },
+     "requested": {
+      "value": 2,
+      "class": "inferred"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "inferred",
+    "lo": 4.199999999999999,
+    "hi": 7.800000000000001,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.25,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 6.42857142857143,
+      "becomes": "fits"
+     },
+     {
+      "direction": "below",
+      "threshold": 3.4615384615384612,
+      "becomes": "doesNotFit"
+     }
+    ]
+   }
+  },
+  {
+   "name": "guess: +-50 %, fits",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 2.9,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "guess"
+     },
+     "requested": {
+      "value": 2,
+      "class": "guess"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "guess",
+    "lo": 3.0,
+    "hi": 9.0,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.5166666666666666,
+    "changes": [
+     {
+      "direction": "below",
+      "threshold": 5.8,
+      "becomes": "cantTell"
+     }
+    ]
+   }
+  },
+  {
+   "name": "guess: +-50 %, cannot be told",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 3.5,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "guess"
+     },
+     "requested": {
+      "value": 2,
+      "class": "guess"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "guess",
+    "lo": 3.0,
+    "hi": 9.0,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.41666666666666663,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 7.0,
+      "becomes": "fits"
+     },
+     {
+      "direction": "below",
+      "threshold": 2.3333333333333335,
+      "becomes": "doesNotFit"
+     }
+    ]
+   }
+  },
+  {
+   "name": "guess: fails even at the optimistic end",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 9.5,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "guess"
+     },
+     "requested": {
+      "value": 2,
+      "class": "guess"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "doesNotFit",
+    "class": "guess",
+    "lo": 3.0,
+    "hi": 9.0,
+    "known": true,
+    "knownFree": 6,
+    "margin": -0.5833333333333333,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 6.333333333333333,
+      "becomes": "cantTell"
+     },
+     {
+      "direction": "atLeast",
+      "threshold": 19.0,
+      "becomes": "fits"
+     }
+    ]
+   }
+  },
+  {
+   "name": "the weaker of allocatable and requested sets the class",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 4.5,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "measured"
+     },
+     "requested": {
+      "value": 2,
+      "class": "guess"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "guess",
+    "lo": 3.0,
+    "hi": 9.0,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.25,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 9.0,
+      "becomes": "fits"
+     },
+     {
+      "direction": "below",
+      "threshold": 3.0,
+      "becomes": "doesNotFit"
+     }
+    ]
+   }
+  },
+  {
+   "name": "a stale value counts one class worse (reported becomes inferred)",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 4.5,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported",
+      "ageSec": 300
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported",
+      "ageSec": 300
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "inferred",
+    "lo": 4.199999999999999,
+    "hi": 7.800000000000001,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.25,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 6.42857142857143,
+      "becomes": "fits"
+     },
+     {
+      "direction": "below",
+      "threshold": 3.4615384615384612,
+      "becomes": "doesNotFit"
+     }
+    ]
+   }
+  },
+  {
+   "name": "the same value when fresh fits",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 4.5,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported",
+      "ageSec": 10
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported",
+      "ageSec": 10
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "reported",
+    "lo": 5.1,
+    "hi": 6.8999999999999995,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.25,
+    "changes": [
+     {
+      "direction": "below",
+      "threshold": 5.294117647058824,
+      "becomes": "cantTell"
+     }
+    ]
+   }
+  },
+  {
+   "name": "a stale measurement becomes reported",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 5.5,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "measured",
+      "ageSec": 300
+     },
+     "requested": {
+      "value": 2,
+      "class": "measured",
+      "ageSec": 300
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "reported",
+    "lo": 5.1,
+    "hi": 6.8999999999999995,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.08333333333333337,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 6.470588235294118,
+      "becomes": "fits"
+     },
+     {
+      "direction": "below",
+      "threshold": 4.782608695652175,
+      "becomes": "doesNotFit"
+     }
+    ]
+   }
+  },
+  {
+   "name": "a stale guess stays a guess",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 2.9,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "guess",
+      "ageSec": 300
+     },
+     "requested": {
+      "value": 2,
+      "class": "guess",
+      "ageSec": 300
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "guess",
+    "lo": 3.0,
+    "hi": 9.0,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.5166666666666666,
+    "changes": [
+     {
+      "direction": "below",
+      "threshold": 5.8,
+      "becomes": "cantTell"
+     }
+    ]
+   }
+  },
+  {
+   "name": "exactly at the window is not stale",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 4.5,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported",
+      "ageSec": 120
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported",
+      "ageSec": 120
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "reported",
+    "lo": 5.1,
+    "hi": 6.8999999999999995,
+    "known": true,
+    "knownFree": 6,
+    "margin": 0.25,
+    "changes": [
+     {
+      "direction": "below",
+      "threshold": 5.294117647058824,
+      "becomes": "cantTell"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unknown allocatable: cannot be told, never zero",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 1,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": null,
+      "class": "unknown"
+     },
+     "requested": {
+      "value": null,
+      "class": "unknown"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "unknown",
+    "lo": 0,
+    "hi": null,
+    "known": false,
+    "knownFree": null,
+    "margin": null,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 1.1764705882352942,
+      "becomes": "fits"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unknown requested: only bounded by what the node has",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 4,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported"
+     },
+     "requested": {
+      "value": null,
+      "class": "unknown"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "unknown",
+    "lo": 0,
+    "hi": 9.2,
+    "known": false,
+    "knownFree": null,
+    "margin": null,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 4.705882352941177,
+      "becomes": "fits"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unknown requested but the need exceeds everything the node has",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 10,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported"
+     },
+     "requested": {
+      "value": null,
+      "class": "unknown"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "doesNotFit",
+    "class": "reported",
+    "lo": 0,
+    "hi": 9.2,
+    "known": false,
+    "knownFree": null,
+    "margin": null,
+    "changes": []
+   }
+  },
+  {
+   "name": "no nodes known",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 1,
+    "class": "reported"
+   },
+   "nodes": [],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "unknown",
+    "lo": 0,
+    "hi": null,
+    "known": false,
+    "knownFree": null,
+    "margin": null,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 1.1764705882352942,
+      "becomes": "fits"
+     }
+    ]
+   }
+  },
+  {
+   "name": "no request set: what it needs is not known",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": null,
+    "class": "unknown"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "unknown",
+    "changes": []
+   }
+  },
+  {
+   "name": "a request of zero asks for nothing",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 0,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "reported",
+    "changes": []
+   }
+  },
+  {
+   "name": "two nodes with different classes pool their intervals",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 8,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "measured"
+     },
+     "requested": {
+      "value": 2,
+      "class": "measured"
+     }
+    },
+    {
+     "alloc": {
+      "value": 4,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 1,
+      "class": "reported"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "reported",
+    "lo": 8.25,
+    "hi": 9.75,
+    "known": true,
+    "knownFree": 9,
+    "margin": 0.11111111111111116,
+    "changes": [
+     {
+      "direction": "below",
+      "threshold": 8.727272727272727,
+      "becomes": "cantTell"
+     }
+    ]
+   }
+  },
+  {
+   "name": "two nodes, straddling",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 8.5,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "measured"
+     },
+     "requested": {
+      "value": 2,
+      "class": "measured"
+     }
+    },
+    {
+     "alloc": {
+      "value": 4,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 1,
+      "class": "reported"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "reported",
+    "lo": 8.25,
+    "hi": 9.75,
+    "known": true,
+    "knownFree": 9,
+    "margin": 0.05555555555555558,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 9.272727272727273,
+      "becomes": "fits"
+     },
+     {
+      "direction": "below",
+      "threshold": 7.846153846153846,
+      "becomes": "doesNotFit"
+     }
+    ]
+   }
+  },
+  {
+   "name": "one node unknown: what the others have is enough",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 4,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported"
+     }
+    },
+    {
+     "alloc": {
+      "value": null,
+      "class": "unknown"
+     },
+     "requested": {
+      "value": null,
+      "class": "unknown"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "reported",
+    "lo": 5.1,
+    "hi": null,
+    "known": false,
+    "knownFree": null,
+    "margin": 0.33333333333333337,
+    "changes": [
+     {
+      "direction": "below",
+      "threshold": 4.705882352941177,
+      "becomes": "cantTell"
+     }
+    ]
+   }
+  },
+  {
+   "name": "one node unknown: what the others have is not enough, and the rest is unbounded",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 9,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported"
+     }
+    },
+    {
+     "alloc": {
+      "value": null,
+      "class": "unknown"
+     },
+     "requested": {
+      "value": null,
+      "class": "unknown"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "unknown",
+    "lo": 5.1,
+    "hi": null,
+    "known": false,
+    "knownFree": null,
+    "margin": -0.5,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 10.588235294117649,
+      "becomes": "fits"
+     }
+    ]
+   }
+  },
+  {
+   "name": "a node with more requested than allocatable has no room, not negative room",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 1,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 4,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 6,
+      "class": "reported"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "doesNotFit",
+    "class": "reported",
+    "lo": 0.0,
+    "hi": 0.0,
+    "known": true,
+    "knownFree": 0,
+    "margin": null,
+    "changes": []
+   }
+  },
+  {
+   "name": "what-if: moving a known workload in takes room",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 2,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "reported",
+    "lo": 2.0999999999999996,
+    "hi": 3.8999999999999995,
+    "known": true,
+    "knownFree": 3.0,
+    "margin": 0.33333333333333337,
+    "changes": [
+     {
+      "direction": "below",
+      "threshold": 2.8571428571428577,
+      "becomes": "cantTell"
+     }
+    ]
+   },
+   "adjust": [
+    -3.0
+   ]
+  },
+  {
+   "name": "what-if: moving out a known workload gives room back",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 5.5,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "reported",
+    "lo": 6.1,
+    "hi": 7.8999999999999995,
+    "known": true,
+    "knownFree": 7.0,
+    "margin": 0.2142857142857143,
+    "changes": [
+     {
+      "direction": "below",
+      "threshold": 6.311475409836066,
+      "becomes": "cantTell"
+     }
+    ]
+   },
+   "adjust": [
+    1.0
+   ]
+  },
+  {
+   "name": "what-if: a workload moved in with no request removes the floor",
+   "dimension": "cpu",
+   "windowSec": 120,
+   "need": {
+    "value": 1,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8,
+      "class": "reported"
+     },
+     "requested": {
+      "value": 2,
+      "class": "reported"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "unknown",
+    "lo": 0,
+    "hi": 6.8999999999999995,
+    "known": false,
+    "knownFree": null,
+    "margin": null,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 1.1764705882352942,
+      "becomes": "fits"
+     }
+    ]
+   },
+   "adjust": [
+    null
+   ]
+  },
+  {
+   "name": "memory-sized numbers work the same (bytes)",
+   "dimension": "memory",
+   "windowSec": 120,
+   "need": {
+    "value": 3435973836.8,
+    "class": "reported"
+   },
+   "nodes": [
+    {
+     "alloc": {
+      "value": 8589934592,
+      "class": "inferred"
+     },
+     "requested": {
+      "value": 4294967296,
+      "class": "inferred"
+     }
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "inferred",
+    "lo": 3006477107.2,
+    "hi": 5583457484.8,
+    "known": true,
+    "knownFree": 4294967296,
+    "margin": 0.19999999999999996,
+    "changes": [
+     {
+      "direction": "atLeast",
+      "threshold": 4908534052.571429,
+      "becomes": "fits"
+     },
+     {
+      "direction": "below",
+      "threshold": 2643056797.5384617,
+      "becomes": "doesNotFit"
+     }
+    ]
+   }
+  }
+ ],
+ "assess": [
+  {
+   "name": "all fit, all reported: high",
+   "parts": [
+    {
+     "verdict": "fits",
+     "class": "reported"
+    },
+    {
+     "verdict": "fits",
+     "class": "reported"
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "reported",
+    "confidence": "high"
+   }
+  },
+  {
+   "name": "all fit, one inferred: the weakest decides, medium",
+   "parts": [
+    {
+     "verdict": "fits",
+     "class": "reported"
+    },
+    {
+     "verdict": "fits",
+     "class": "inferred"
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "inferred",
+    "confidence": "medium"
+   }
+  },
+  {
+   "name": "all fit, one guess: low",
+   "parts": [
+    {
+     "verdict": "fits",
+     "class": "measured"
+    },
+    {
+     "verdict": "fits",
+     "class": "guess"
+    }
+   ],
+   "expect": {
+    "verdict": "fits",
+    "class": "guess",
+    "confidence": "low"
+   }
+  },
+  {
+   "name": "one cannot be told, and it is unknown: none",
+   "parts": [
+    {
+     "verdict": "fits",
+     "class": "reported"
+    },
+    {
+     "verdict": "cantTell",
+     "class": "unknown"
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "unknown",
+    "confidence": "none"
+   }
+  },
+  {
+   "name": "cannot be told, evidence reported: capped at low",
+   "parts": [
+    {
+     "verdict": "fits",
+     "class": "reported"
+    },
+    {
+     "verdict": "cantTell",
+     "class": "reported"
+    }
+   ],
+   "expect": {
+    "verdict": "cantTell",
+    "class": "reported",
+    "confidence": "low"
+   }
+  },
+  {
+   "name": "a definite no wins over cannot-tell; only the failing part decides",
+   "parts": [
+    {
+     "verdict": "cantTell",
+     "class": "unknown"
+    },
+    {
+     "verdict": "doesNotFit",
+     "class": "reported"
+    },
+    {
+     "verdict": "fits",
+     "class": "guess"
+    }
+   ],
+   "expect": {
+    "verdict": "doesNotFit",
+    "class": "reported",
+    "confidence": "high"
+   }
+  },
+  {
+   "name": "nothing to check fits with high confidence",
+   "parts": [],
+   "expect": {
+    "verdict": "fits",
+    "class": "reported",
+    "confidence": "high"
+   }
+  }
+ ]
+}

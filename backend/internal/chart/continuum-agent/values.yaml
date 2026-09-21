@@ -1,0 +1,221 @@
+# Where the agent reports. Both come from the "Connect a cluster" screen.
+server:
+  address: ""   # host:port the agent dials, e.g. continuum.example.com:8443
+  caPin: ""     # sha256 fingerprint of the server's CA; the agent trusts nothing else
+
+# What the agent is allowed to read. The server can only ever approve up to this.
+#   0  registered only: reads the kube-system namespace UID (the cluster's identity)
+#   1  infrastructure:  + nodes, storage classes, ingress classes
+#   2  services:        + namespaces, workloads, pods, services, ingresses
+# Every tier is read-only. The agent never gets access to Secrets or ConfigMaps.
+access:
+  tier: 2
+
+# How tier 2's per-namespace resources (pods, services, workloads, ingresses, ...) are granted:
+#   cluster (default)  one ClusterRole, cluster-wide read access. A namespace created after install is covered with
+#                       no further action, and scope.selector / scope.exclude both work as documented.
+#   namespaced          a Role + RoleBinding in each of scope.namespaces instead. The real trade-offs, not a strict
+#                       upgrade: scope.namespaces must be set (an explicit list; scope.selector cannot work here,
+#                       since evaluating a label selector needs to list namespaces cluster-wide); a namespace added
+#                       later needs `helm upgrade` to be covered, there is no way around that; and Namespace and
+#                       PersistentVolume objects are not read at all in this mode (both are cluster-scoped types, so
+#                       no Role can name them) — namespace metadata (labels, creation time) is unavailable, and
+#                       volumes are not shown, only claims. Tier 1 (nodes, storage classes, ingress classes) is
+#                       always a ClusterRole in either mode: those are cluster-scoped types with no namespaced form.
+#                       Needed on a platform that forbids ClusterRole for tenants altogether (a multi-tenant cluster
+#                       or a vcluster), and worth choosing anywhere the narrower blast radius matters more than the
+#                       convenience of new namespaces being covered automatically.
+rbac:
+  mode: cluster
+
+enrollment:
+  # One-time token, valid for one hour. Only used on first start; afterwards it does nothing,
+  # so you may remove it with `helm upgrade --reuse-values --set enrollment.token=`.
+  token: ""
+
+# Which namespaces the agent reports on. Everything empty means all of them (the default). Anything outside the scope is
+# dropped inside the cluster: its workloads, services and traffic are never sent, and the server is told only how many
+# namespaces were left out. The cluster's system namespaces are always read (that is how the CNI and ingress controller are
+# recognised) and never shown as applications. A namespace can also opt itself out with the label continuum.io/observe=false.
+# Narrowing the scope does not narrow the agent's permissions in rbac.mode=cluster (the default): it still holds the
+# tier's cluster-wide read access. In rbac.mode=namespaced, namespaces IS the agent's permissions (see rbac.mode
+# above) — the two are no longer independent there, and exclude/selector still only filter what an already-granted
+# namespace reports, they never grant a namespace RBAC did not already name.
+scope:
+  namespaces: []   # report only these, e.g. [shop, payments]; rbac.mode=namespaced requires this to be set
+  exclude: []      # never report these
+  selector: ""     # report only namespaces with this label, e.g. "continuum.io/observe=true" (labels the agent keeps: continuum.io/*, app.kubernetes.io/*, ...); incompatible with rbac.mode=namespaced
+
+# Service mesh (Istio, Linkerd): the agent recognises a mesh from labels, annotations and container names alone. For Istio it can
+# also read PeerAuthentication objects, to say whether mutual TLS is required; that is one extra read-only permission.
+mesh:
+  readPolicy: true
+
+# Secrets (in the release namespace) that let the cluster pull the image from a private registry, e.g.
+#   kubectl -n continuum-system create secret docker-registry regcred --docker-server=ghcr.io --docker-username=... --docker-password=...
+#   helm install ... --set 'imagePullSecrets[0].name=regcred'
+imagePullSecrets: []
+
+# ONE image runs all three roles: the agent (Deployment), the optional node probe and the optional flow collector
+# (DaemonSets) are the same binary with a different first argument (`agent`, `probe`, `flow`), chosen by the pod spec's
+# `args:`. There is nothing else to pull.
+#   tag:    defaults to the chart's appVersion.
+#   digest: when set (sha256:...), the pods pull repository@digest and the tag is ignored. A tag can be moved to another
+#           image after the fact; a digest cannot. scripts/publish.sh prints the digest of what it pushed.
+image:
+  repository: continuum/continuum
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# Go runtime tuning. Measured on a 400-workload cluster: about 80 MB of memory untuned, about 60 MB with these values.
+tuning:
+  goMemLimit: 64MiB
+  goGC: "50"
+
+resources:
+  requests: {cpu: 20m, memory: 48Mi}
+  limits: {memory: 192Mi}
+
+# Where the agent's pod may run. It is a single ordinary pod; these are the usual Kubernetes scheduling knobs.
+# The default keeps Continuum's pods off Windows nodes (the image is Linux only). Your own entries are merged with it;
+# to drop it, set `--set 'nodeSelector.kubernetes\.io/os=null'`.
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations: []
+affinity: {}
+podAnnotations: {}
+# Extra labels for every pod this chart creates (agent, probe, flow). The labels the chart uses itself
+# (app.kubernetes.io/*, helm.sh/*) cannot be overridden.
+podLabels: {}
+# Set to a PriorityClass to keep these pods from being evicted first under node pressure (agent, probe, flow).
+priorityClassName: ""
+
+# Extra environment variables for the AGENT container only, in the usual Kubernetes form, e.g.
+#   extraEnv:
+#     - {name: GODEBUG, value: "madvdontneed=1"}
+extraEnv: []
+
+# Outbound proxy for the AGENT, for clusters that reach the Internet (or your Continuum server) only through one.
+# The agent's connection to the server is gRPC over mutual TLS. grpc-go honours the standard proxy variables: it asks the
+# proxy for an HTTP CONNECT tunnel to the server and speaks TLS through it, so the proxy sees only the server's address,
+# never the content, and never terminates TLS (a proxy that tries to would be refused: the agent trusts only the server's
+# own CA, by the pin). Only httpsProxy is used for that connection (grpc-go asks for an https target). The Kubernetes API
+# client in the same process reads the same variables, so noProxy MUST cover the cluster's API server, or the agent's
+# cluster reads are sent to the proxy too. The chart always adds localhost, 127.0.0.1, .svc and .cluster.local; add the
+# API server's address (the `kubernetes` Service's cluster IP, e.g. 10.43.0.1 on k3s, 10.96.0.1 on kubeadm, and your
+# control-plane node addresses), and your pod and service CIDRs, in noProxy. Empty (the default): no proxy is used.
+# Not applied to the probe and flow pods: they talk only to the agent inside the cluster.
+proxy:
+  httpProxy: ""
+  httpsProxy: ""
+  noProxy: ""
+
+# Health endpoint of the agent, on this pod-network port, for the Kubernetes probes:
+#   /healthz  liveness:  fails only if the agent's own main loop has stopped turning for 5 minutes (a wedged process).
+#             An unreachable server, a pending approval or a revoked agent never fail it: a restart would fix none of them.
+#   /readyz   readiness: true while waiting for approval (normal), while connected, and for 10 minutes after the
+#             connection drops; false before the first contact with the server, after 10 minutes offline, and once revoked.
+#             Readiness also decides whether the probe/flow receiver Service has this pod behind it.
+# The endpoints answer with a short state word and nothing about the cluster.
+health:
+  enabled: true
+  port: 8082
+
+# Network policies. Both need a CNI that enforces NetworkPolicy (a cluster without one ignores them silently).
+networkPolicy:
+  # Egress: restrict what the AGENT pod may connect to. Off by default, because the right answer depends on your CNI and
+  # your network, and a wrong egress policy silently cuts the agent off. When enabled the agent may reach ONLY:
+  #   - DNS: the cluster DNS pods in kube-system (k8s-app=kube-dns), plus dnsCIDRs if you use a node-local DNS cache
+  #   - the Kubernetes API server: apiServerCIDRs on apiServerPorts
+  #   - the Continuum server: serverCIDRs on the port of server.address
+  #   - anything you list in extraEgress (raw NetworkPolicy egress rules; e.g. the addresses connection timing
+  #     may reach, if measurements.enabled)
+  # apiServerCIDRs and serverCIDRs are required (a NetworkPolicy cannot match a host name). For the API server list the
+  # `kubernetes` Service's cluster IP AND the control-plane node addresses behind it, because most CNIs evaluate the policy
+  # after the Service address has been translated:  kubectl get endpoints kubernetes -n default
+  egress:
+    enabled: false
+    apiServerCIDRs: []      # e.g. ["10.43.0.1/32", "192.168.1.10/32"]
+    apiServerPorts: [443, 6443]
+    serverCIDRs: []         # e.g. ["203.0.113.7/32"]: where server.address resolves to
+    dnsCIDRs: []            # e.g. ["169.254.20.10/32"] for NodeLocal DNSCache
+    extraEgress: []
+
+# Optional node probe: a tiny read-only DaemonSet that tells the agent what kind of machine each node
+# really is (virtual machine or bare metal, the hypervisor, the board model, how it connects). The
+# Kubernetes API cannot say this; without the probe Continuum can only guess and marks the guess as
+# low confidence. Off by default: it is the only part of Continuum that runs on every node.
+#
+# What it reads: CPU flags, DMI vendor/product strings, the device-tree model, which kinds of network
+# interface are up, whether a battery exists. Never serial numbers, MAC addresses, disks or processes.
+# `probe --print` shows exactly that. It reports only to the agent, over the cluster network, signed with
+# a secret this chart generates. It has no Kubernetes API access and no capabilities.
+nodeProbe:
+  enabled: false
+  # Mount the host's /sys read-only (a hostPath). This gives the board model of ARM devices and the
+  # real network interfaces. Namespaces that enforce the Pod Security "baseline" or "restricted"
+  # profile refuse hostPath volumes: label the namespace privileged, or set this to false and the
+  # probe still tells VMs from bare metal (from DMI and CPU flags) but sees no device tree or uplinks.
+  hostSys: true
+  interval: 3m
+  # Leave empty to generate one on first install and keep it across upgrades.
+  secret: ""
+  # Runs the same image as the agent, with the argument `probe` (see `image` above).
+  # Only the probe's own pods may reach the agent's receiver port. Needs a CNI that enforces NetworkPolicy.
+  networkPolicy: true
+  resources:
+    requests: {cpu: 5m, memory: 12Mi}
+    limits: {memory: 32Mi}
+  # Run on every Linux node, including tainted control-plane and edge nodes.
+  tolerations:
+    - operator: Exists
+  nodeSelector:
+    kubernetes.io/os: linux
+
+# Optional path measurements: lets the agent time TCP connections (connect time only, no data is sent)
+# to the addresses the server names, to learn how far away the other places are. The server only names
+# addresses your workloads already call, or ones an administrator adds; loopback, link-local and cloud
+# metadata addresses are always refused. Off by default: otherwise the agent opens no connection that
+# the cluster did not already make itself.
+measurements:
+  enabled: false
+
+# Optional traffic observer: counts which workloads talk to which, and how much, on every node.
+# It counts TCP connections and bytes per pair of addresses. It never reads packets or payloads.
+# Method: eBPF where the kernel supports it (5.10+ with BTF), the kernel's connection-tracking table
+# otherwise (bytes only if net.netfilter.nf_conntrack_acct=1). The dashboard shows which one each
+# edge came from.
+flowObserver:
+  enabled: false
+  # auto | ebpf | conntrack. auto tries eBPF and falls back to conntrack; forcing a method that the
+  # node cannot run leaves that node unobserved instead of silently using another one.
+  method: auto
+  interval: 30s
+  # Count the bytes of connections while they are open (eBPF only), so a database connection that lives
+  # for weeks shows its traffic now and not when it finally closes. This runs the collector in the
+  # host's PID namespace (hostPID), which the kernel needs in order to walk other pods' sockets. Set false
+  # to keep the pod out of the host's PID namespace; bytes then arrive when connections close.
+  liveBytes: true
+  # Leave empty to generate one on first install and keep it across upgrades. Separate from the probe's.
+  secret: ""
+  # Runs the same image as the agent, with the argument `flow` (see `image` above). It is the one part of Continuum that runs
+  # as root (runAsUser: 0, set in the pod spec, not in the image): loading the eBPF program needs it.
+  #
+  # Receiver policy. Collectors run in the host network, so the agent sees them arriving from an address of the NODE
+  # (which one depends on the CNI: on k3s/flannel, for example, traffic from a host process to a pod on the same node
+  # comes from the node's pod-network gateway address, and to a pod on another node from the tunnel address, not from the
+  # node's InternalIP). No default is both restrictive and safe, so this is OFF by default: the receiver port then accepts
+  # connections from anywhere the network lets through, and every report is still signed with the flow secret. To restrict it,
+  # set networkPolicy=true and list in nodeCIDRs every address the agent sees them from (check `kubectl -n <ns> logs`
+  # of the agent after a first report, or your CNI's docs); an incomplete list silently drops reports from those nodes.
+  # The probe's receiver rule (pods only, by label) is independent of this and stays on.
+  networkPolicy: false
+  nodeCIDRs: []
+  resources:
+    requests: {cpu: 10m, memory: 24Mi}
+    limits: {memory: 64Mi}
+  tolerations:
+    - operator: Exists
+  nodeSelector:
+    kubernetes.io/os: linux

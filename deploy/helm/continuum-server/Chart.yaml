@@ -1,0 +1,12 @@
+apiVersion: v2
+name: continuum-server
+description: The Continuum server (control plane and web UI) with its databases. One SQLite-backed replica, an optional bundled Neo4j, and the two listeners it needs exposed (agent mTLS gRPC and the admin API / UI).
+type: application
+version: 0.1.0
+appVersion: "0.1.0-dev"
+# The "-0" lets managed clusters with suffixed versions (v1.29.3-gke.100, v1.30.2-eks-...) satisfy the constraint.
+kubeVersion: ">=1.25.0-0"
+keywords: [continuum, topology, kubernetes, control-plane]
+annotations:
+  # Documentation for humans; nothing reads these.
+  continuum.io/agent-chart: "the agent is a separate chart (continuum-agent); the server's Connect a cluster screen prints its install command"

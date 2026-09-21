@@ -1,0 +1,73 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "continuum.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "continuum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  podSelector:
+    matchLabels: {{- include "continuum.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    {{- if $np.egress.enabled }}
+    - Egress
+    {{- end }}
+  ingress:
+    # Agents (mTLS gRPC). Empty `from` means from anywhere: agents live in other clusters.
+    - ports:
+        - {port: {{ .Values.agent.port }}, protocol: TCP}
+      {{- with $np.ingress.agent.from }}
+      from: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    # The UI and admin API. Restrict to your ingress controller / gateway (and the pods you port-forward from).
+    - ports:
+        - {port: {{ .Values.admin.port }}, protocol: TCP}
+      {{- with $np.ingress.admin.from }}
+      from: {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if $np.egress.enabled }}
+  egress:
+    # DNS
+    - ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+      {{- with $np.egress.dnsTo }}
+      to: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- if eq .Values.neo4j.mode "bundled" }}
+    # The bundled Neo4j (HTTP)
+    - to:
+        - podSelector:
+            matchLabels: {{- include "continuum.neo4jSelectorLabels" . | nindent 14 }}
+      ports:
+        - {port: 7474, protocol: TCP}
+    {{- else if eq .Values.neo4j.mode "external" }}
+    # The external Neo4j, on the port of neo4j.external.url
+    - ports:
+        - {port: {{ include "continuum.neo4jExternalPort" . }}, protocol: TCP}
+      {{- with $np.egress.neo4jCIDRs }}
+      to:
+        {{- range . }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+    {{- with $np.egress.deciderCIDRs }}
+    # The external decider configured in the UI
+    - to:
+        {{- range . }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        {{- range $np.egress.deciderPorts }}
+        - {port: {{ . }}, protocol: TCP}
+        {{- end }}
+    {{- end }}
+    {{- with $np.egress.extra }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+{{- end }}

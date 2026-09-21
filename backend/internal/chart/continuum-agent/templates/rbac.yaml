@@ -1,0 +1,176 @@
+{{- $tier := int (include "agent.tier" .) -}}
+{{- $namespaced := eq .Values.rbac.mode "namespaced" -}}
+{{- if $namespaced -}}
+{{- if not .Values.scope.namespaces -}}{{- fail "rbac.mode=namespaced needs scope.namespaces: an explicit, non-empty list of namespaces. It cannot discover namespaces on its own (that needs the cluster-wide list permission this mode exists to avoid), so there is nothing to scope a Role to without one." -}}{{- end -}}
+{{- if .Values.scope.selector -}}{{- fail "rbac.mode=namespaced cannot be combined with scope.selector: evaluating a label selector needs to list namespaces cluster-wide, which is exactly the permission this mode avoids. Use scope.namespaces (an explicit list) instead." -}}{{- end -}}
+{{- end -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "agent.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+---
+# The agent keeps its identity (key + certificate) in exactly one Secret. The Secret is created
+# empty by this chart, so the Role can be limited to get/update/patch on that single name:
+# the agent cannot read any other Secret and cannot create new ones.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "agent.identitySecret" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "agent.name" . }}-identity
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ include "agent.identitySecret" . | quote }}]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "agent.name" . }}-identity
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ include "agent.name" . }}-identity}
+subjects: [{kind: ServiceAccount, name: {{ include "agent.name" . }}, namespace: {{ .Release.Namespace }}}]
+---
+# Tier 0: the cluster's identity (the UID of kube-system) and nothing else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "agent.name" . }}-t0
+  labels: {{- include "agent.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    resourceNames: ["kube-system"]
+    verbs: ["get"]
+{{- if ge $tier 1 }}
+---
+# Tier 1: infrastructure.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "agent.name" . }}-t1
+  labels: {{- include "agent.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingressclasses"]
+    verbs: ["get", "list", "watch"]
+{{- end }}
+{{- if and (ge $tier 2) (not $namespaced) }}
+---
+# Tier 2: services. Kubernetes cannot grant read access to part of an object, so reading pods and
+# workloads necessarily exposes their specs to the agent. The agent discards environment variables,
+# commands, arguments and every volume source the moment an object arrives and never forwards or
+# stores them. Only the names of persistent volume claims are kept from pods; from volumes only the
+# node they are tied to, never where the data lives.
+# Storage claims and autoscaling/disruption rules are optional extras: if the cluster does not
+# allow or serve them the agent switches those modules off and reports why.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "agent.name" . }}-t2
+  labels: {{- include "agent.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "services", "persistentvolumeclaims", "persistentvolumes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+{{- if .Values.mesh.readPolicy }}
+  # Service-mesh policy: whether Istio requires mutual TLS. Read only, and only PeerAuthentication (no
+  # authorization policies, no secrets). Turn off with mesh.readPolicy=false; the agent then says the policy was not read.
+  - apiGroups: ["security.istio.io"]
+    resources: ["peerauthentications"]
+    verbs: ["get", "list"]
+{{- end }}
+{{- end }}
+{{/* ClusterRoleBindings only ever cover t0 and (from tier 1) t1: both are genuinely cluster-scoped resources (nodes,
+     storage classes, ingress classes are not namespaced types; there is no Kubernetes permission model that could
+     make them otherwise). t2 is bound this way only in cluster mode; in namespaced mode it is bound per namespace,
+     below, with a Role instead. */}}
+{{- $crMax := $tier }}
+{{- if and $namespaced (gt $tier 1) }}{{- $crMax = 1 }}{{- end }}
+{{- range $t := until (add1 $crMax | int) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "agent.name" $ }}-t{{ $t }}-{{ $.Release.Namespace }}
+  labels: {{- include "agent.labels" $ | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ include "agent.name" $ }}-t{{ $t }}}
+subjects: [{kind: ServiceAccount, name: {{ include "agent.name" $ }}, namespace: {{ $.Release.Namespace }}}]
+{{- end }}
+{{- if and (ge $tier 2) $namespaced }}
+{{- range $ns := .Values.scope.namespaces }}
+---
+# Tier 2, namespaced mode: the same resources as the ClusterRole above, minus the two kinds Kubernetes cannot grant
+# namespace-scoped access to at all (Namespace and PersistentVolume are cluster-scoped types; no Role, in any
+# namespace, can name them). The agent does not read either in this mode: namespace metadata (labels, creation time)
+# is unavailable and only the name from scope.namespaces is shown, and persistent volumes are not shown, only claims.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "agent.name" $ }}-t2
+  namespace: {{ $ns }}
+  labels: {{- include "agent.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+{{- if $.Values.mesh.readPolicy }}
+  - apiGroups: ["security.istio.io"]
+    resources: ["peerauthentications"]
+    verbs: ["get", "list"]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "agent.name" $ }}-t2
+  namespace: {{ $ns }}
+  labels: {{- include "agent.labels" $ | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ include "agent.name" $ }}-t2}
+subjects: [{kind: ServiceAccount, name: {{ include "agent.name" $ }}, namespace: {{ $.Release.Namespace }}}]
+{{- end }}
+{{- end }}

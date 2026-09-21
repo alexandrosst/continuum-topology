@@ -1,0 +1,207 @@
+{{- $tls := include "continuum.adminTLS" . }}
+{{- $neo := include "continuum.neo4jEnabled" . }}
+{{- $passName := include "continuum.caPassphraseSecretName" . }}
+{{- $passKey := include "continuum.caPassphraseSecretKey" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "continuum.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "continuum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  # One replica, always. The server owns a SQLite database and the enrollment CA in /data and keeps agent sessions in memory:
+  # a second copy would corrupt the first's view, not add capacity. Not a value on purpose.
+  replicas: 1
+  # A ReadWriteOnce volume cannot be mounted by the old and the new pod together, and two servers must never share /data.
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: {{- include "continuum.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "continuum.selectorLabels" . | nindent 8 }}
+        helm.sh/chart: {{ include "continuum.chart" . }}
+        app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+        app.kubernetes.io/part-of: continuum
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "continuum.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.extraInitContainers }}
+      initContainers: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: server
+          image: {{ include "continuum.imageRef" (dict "image" .Values.image "defaultTag" .Chart.AppVersion) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          # The image's ENTRYPOINT is /server with --data-dir=/data --ui-dir=/ui; these args repeat what matters (the last
+          # occurrence of a flag wins) so the pod does not depend on the image's defaults.
+          args:
+            - --data-dir=/data
+            - --ui-dir=/ui
+            - --agent-listen=:{{ .Values.agent.port }}
+            - --agent-address={{ .Values.agent.publicAddress }}
+            {{- with .Values.agent.extraHosts }}
+            - --agent-hosts={{ join "," . }}
+            {{- end }}
+            - --admin-listen=0.0.0.0:{{ .Values.admin.port }}
+            {{- if $tls }}
+            - --admin-tls-cert=/etc/continuum/admin-tls/{{ .Values.admin.tls.certKey }}
+            - --admin-tls-key=/etc/continuum/admin-tls/{{ .Values.admin.tls.keyKey }}
+            {{- end }}
+            {{- if include "continuum.behindProxy" . }}
+            - --admin-behind-tls-proxy
+            {{- end }}
+            - --registration={{ .Values.registration }}
+            - --org={{ .Values.org }}
+            {{- with .Values.agentInstall.imageRegistry }}
+            - --image-registry={{ . }}
+            {{- end }}
+            {{- with .Values.agentInstall.imageTag }}
+            - --image-tag={{ . }}
+            {{- end }}
+            {{- with .Values.agentInstall.chartRef }}
+            - --chart-ref={{ . }}
+            {{- end }}
+            {{- with .Values.geoip.path }}
+            - --geoip-db={{ . }}
+            {{- end }}
+            {{- with .Values.decider.allowCIDRs }}
+            - --decider-allow-cidrs={{ join "," . }}
+            {{- end }}
+            {{- if $neo }}
+            - --neo4j-url={{ include "continuum.neo4jURL" . }}
+            - --neo4j-database={{ .Values.neo4j.database }}
+            - --neo4j-password-file=/etc/continuum/neo4j/password
+            {{- /* the chart has already refused plain http to anything outside the cluster (see validate/_helpers), so the server's own check is told */ -}}
+            {{- if hasPrefix "http://" (include "continuum.neo4jURL" .) }}
+            - --neo4j-allow-insecure-http
+            {{- end }}
+            {{- end }}
+            {{- if .Values.allowLoosePermissions }}
+            - --allow-loose-permissions
+            {{- end }}
+            {{- if $passName }}
+            - --ca-key-passphrase-file=/etc/continuum/ca/{{ $passKey }}
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- if .Values.tuning.goMemLimit }}
+            - name: GOMEMLIMIT
+              value: {{ .Values.tuning.goMemLimit | quote }}
+            {{- end }}
+            {{- if .Values.admin.existingPasswordSecret }}
+            # Read only while the database has no user yet (first start); afterwards the account in the database rules.
+            - name: CONTINUUM_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.existingPasswordSecret }}
+                  key: {{ .Values.admin.existingPasswordSecretKey }}
+            {{- end }}
+            {{- if eq .Values.neo4j.mode "bundled" }}
+            - {name: CONTINUUM_NEO4J_USER, value: neo4j}
+            {{- else if eq .Values.neo4j.mode "external" }}
+            {{- if .Values.neo4j.external.usernameKey }}
+            - name: CONTINUUM_NEO4J_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.neo4j.external.existingSecret }}
+                  key: {{ .Values.neo4j.external.usernameKey }}
+            {{- else }}
+            - name: CONTINUUM_NEO4J_USER
+              value: {{ .Values.neo4j.user | quote }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - {name: agent, containerPort: {{ .Values.agent.port }}, protocol: TCP}
+            - {name: admin, containerPort: {{ .Values.admin.port }}, protocol: TCP}
+          {{- $probe := dict "path" "/healthz" "port" "admin" "scheme" (ternary "HTTPS" "HTTP" (not (empty $tls))) }}
+          startupProbe:
+            httpGet: {{- toYaml $probe | nindent 14 }}
+            {{- toYaml .Values.probes.startup | nindent 12 }}
+          readinessProbe:
+            httpGet: {{- toYaml $probe | nindent 14 }}
+            {{- toYaml .Values.probes.readiness | nindent 12 }}
+          livenessProbe:
+            httpGet: {{- toYaml $probe | nindent 14 }}
+            {{- toYaml .Values.probes.liveness | nindent 12 }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            # SQLite may spill temporary files; the root filesystem is read-only.
+            - {name: tmp, mountPath: /tmp}
+            {{- if $tls }}
+            - {name: admin-tls, mountPath: /etc/continuum/admin-tls, readOnly: true}
+            {{- end }}
+            {{- if $neo }}
+            - {name: neo4j-auth, mountPath: /etc/continuum/neo4j, readOnly: true}
+            {{- end }}
+            {{- if $passName }}
+            - {name: ca-passphrase, mountPath: /etc/continuum/ca, readOnly: true}
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "continuum.dataClaim" . }}
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+        {{- if $tls }}
+        - name: admin-tls
+          secret:
+            secretName: {{ .Values.admin.tls.secretName }}
+            defaultMode: 0440
+        {{- end }}
+        {{- if $neo }}
+        - name: neo4j-auth
+          secret:
+            secretName: {{ include "continuum.neo4jSecretName" . }}
+            defaultMode: 0440
+            items:
+              - key: {{ include "continuum.neo4jSecretKey" . }}
+                path: password
+        {{- end }}
+        {{- if $passName }}
+        - name: ca-passphrase
+          secret:
+            secretName: {{ $passName }}
+            defaultMode: 0440
+            items:
+              - key: {{ $passKey }}
+                path: {{ $passKey }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
