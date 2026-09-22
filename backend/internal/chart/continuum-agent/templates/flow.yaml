@@ -54,7 +54,7 @@ spec:
       containers:
         - name: collector
           image: {{ include "agent.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ include "agent.imagePullPolicy" . }}
           args: ["flow", "--interval={{ .Values.flowObserver.interval }}", "--method={{ .Values.flowObserver.method }}"]
           # Loading a tracing program needs root with CAP_BPF and CAP_PERFMON (CAP_SYS_RESOURCE raises the
           # locked-memory limit on kernels before 5.11); the runtime's default seccomp profile blocks the

@@ -55,6 +55,20 @@ app.kubernetes.io/component: server
 {{- end -}}
 {{- end -}}
 
+{{/* Effective imagePullPolicy for a component's image block: an explicit value always wins; otherwise Always
+     when the resolved tag is the moving `edge` tag (a node that already cached anything named edge won't
+     re-pull under IfNotPresent even after the registry moves on), else IfNotPresent.
+     Call with (dict "image" .Values.image "defaultTag" .Chart.AppVersion). */}}
+{{- define "continuum.imagePullPolicy" -}}
+{{- if .image.pullPolicy -}}
+{{- .image.pullPolicy -}}
+{{- else if eq (.image.tag | default .defaultTag | toString) "edge" -}}
+Always
+{{- else -}}
+IfNotPresent
+{{- end -}}
+{{- end -}}
+
 {{/* PVC that holds /data (SQLite, the CA and its key). */}}
 {{- define "continuum.dataClaim" -}}
 {{- default (printf "%s-data" (include "continuum.fullname" .)) .Values.persistence.existingClaim -}}

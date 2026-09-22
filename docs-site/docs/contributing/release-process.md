@@ -18,8 +18,8 @@ Builds and publishes the `continuum` and `server` images (multi-arch for the age
 
 - A push straight to `main` publishes the **`edge`** tag and a chart version like `0.0.0-edge.<sha>` — always whatever `main` currently is, never meant to be depended on for anything you'd call a release.
 
-  :::warning[Testing an edge build against a node that has pulled `edge` before]
-  `edge` is a moving tag: pinning `--version 0.0.0-edge.<sha>` pins the *chart* to an exact commit, but `image.tag` still resolves to the plain `edge` tag, and the default `imagePullPolicy: IfNotPresent` means a node that already has anything named `edge` locally won't re-pull, even though the registry has moved on — you get the chart's new templates running an old binary, with no error saying so (a flag it defines will fail with `flag provided but not defined`, or its behavior will just be stale). Add `--set image.pullPolicy=Always` whenever you install or upgrade an edge build to force a fresh pull every time.
+  :::info[`edge` is a moving tag]
+  Pinning `--version 0.0.0-edge.<sha>` pins the *chart* to an exact commit, but `image.tag` still resolves to the plain `edge` tag — and a node that already has anything named `edge` locally wouldn't normally re-pull it even after the registry moves on. Both charts handle this for you: `image.pullPolicy` defaults to `Always` whenever the resolved tag is `edge` (and to the ordinary `IfNotPresent` otherwise), so every install or upgrade of an edge build always gets today's image. You only need `--set image.pullPolicy=...` yourself to override that behavior.
   :::
 
 - Pushing a tag matching `v*.*.*` (for example `v0.3.0`) publishes that exact version and moves `latest` to it. This is a real release, and it's what every install command in this documentation assumes:

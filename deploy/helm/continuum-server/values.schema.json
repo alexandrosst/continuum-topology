@@ -35,6 +35,7 @@
         "pullPolicy": {
           "type": "string",
           "enum": [
+            "",
             "Always",
             "IfNotPresent",
             "Never"

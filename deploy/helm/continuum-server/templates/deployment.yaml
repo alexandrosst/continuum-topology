@@ -48,7 +48,7 @@ spec:
       containers:
         - name: server
           image: {{ include "continuum.imageRef" (dict "image" .Values.image "defaultTag" .Chart.AppVersion) | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ include "continuum.imagePullPolicy" (dict "image" .Values.image "defaultTag" .Chart.AppVersion) }}
           securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
           # The image's ENTRYPOINT is /server with --data-dir=/data --ui-dir=/ui; these args repeat what matters (the last
           # occurrence of a flag wins) so the pod does not depend on the image's defaults.

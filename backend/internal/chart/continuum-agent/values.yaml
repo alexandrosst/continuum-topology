@@ -78,7 +78,10 @@ image:
   repository: continuum/continuum
   tag: ""
   digest: ""
-  pullPolicy: IfNotPresent
+  # Explicit value always wins; left empty, resolves to Always for the moving `edge` tag and IfNotPresent
+  # otherwise, so a node that already cached something named edge still gets today's build instead of
+  # silently running stale code.
+  pullPolicy: ""
 
 # Go runtime tuning. Measured on a 400-workload cluster: about 80 MB of memory untuned, about 60 MB with these values.
 tuning:

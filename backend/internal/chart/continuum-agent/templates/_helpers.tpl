@@ -24,6 +24,20 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- end -}}
 {{- end -}}
 
+{{/* Effective imagePullPolicy: an explicit value always wins; otherwise Always when the resolved tag is the
+     moving `edge` tag (a node that already cached anything named edge won't re-pull under IfNotPresent even
+     after the registry moves on), else IfNotPresent. */}}
+{{- define "agent.imagePullPolicy" -}}
+{{- $i := .Values.image -}}
+{{- if $i.pullPolicy -}}
+{{- $i.pullPolicy -}}
+{{- else if eq (toString ($i.tag | default .Chart.AppVersion)) "edge" -}}
+Always
+{{- else -}}
+IfNotPresent
+{{- end -}}
+{{- end -}}
+
 {{/* Extra pod labels from values, one per line, refusing the labels the chart's selectors depend on. Indent with nindent. */}}
 {{- define "agent.podLabels" -}}
 {{- range $k, $v := .Values.podLabels }}

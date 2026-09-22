@@ -48,7 +48,7 @@ spec:
       containers:
         - name: agent
           image: {{ include "agent.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ include "agent.imagePullPolicy" . }}
           args: ["agent"]   # the role: one image, `continuum agent|probe|flow`; the settings below come in as environment variables
           securityContext:
             allowPrivilegeEscalation: false

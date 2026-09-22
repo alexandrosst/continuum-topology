@@ -21,7 +21,9 @@ image:
   repository: continuum/server
   tag: ""          # defaults to the chart's appVersion
   digest: ""       # sha256:<64 hex>; when set the image is repository@digest and tag is ignored (immutable, recommended in production)
-  pullPolicy: IfNotPresent
+  pullPolicy: ""   # explicit value always wins; left empty, resolves to Always for the moving `edge` tag and
+                    # IfNotPresent otherwise, so a node that already cached something named edge still gets
+                    # today's build instead of silently running stale code
 
 # Secrets (in the release namespace) that let the cluster pull the images from a private registry, e.g.
 #   kubectl -n continuum create secret docker-registry regcred --docker-server=ghcr.io --docker-username=... --docker-password=...
