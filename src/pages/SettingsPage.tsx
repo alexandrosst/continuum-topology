@@ -24,6 +24,7 @@ function Card({ title, description, children }: { title: string; description: st
 
 export default function SettingsPage() {
   const onServer = useServer((s) => s.status === 'connected' && atLeast(s.role, 'admin'))
+  const geoip = useServer((s) => s.info?.geoip)
   const { replaceAll, reset, clear, clusters, nodes, services, devices, dependencies, applications, sites } = useTopology()
   const conn = useConn()
   const connected = useServer((s) => s.status === 'connected')
@@ -106,8 +107,21 @@ export default function SettingsPage() {
         <p className={'mt-4 text-sm ' + (msg.ok ? 'text-emerald-400' : 'text-red-400')} role="status">{msg.text}</p>
       )}
 
-      <p className="mt-10 max-w-2xl text-xs leading-5 text-nb-500">
-        Place data: city names and coordinates from <a className="underline hover:text-nb-400" href="https://www.geonames.org/" target="_blank" rel="noreferrer">GeoNames</a> (CC BY 4.0), country outlines from Natural Earth. When the server has a GeoIP database, IP geolocation by <a className="underline hover:text-nb-400" href="https://db-ip.com" target="_blank" rel="noreferrer">DB-IP.com</a> (CC BY 4.0) or MaxMind GeoLite2.
+      {connected && (
+        <p className="mt-10 flex max-w-2xl items-start gap-2 text-xs leading-5 text-nb-500">
+          <span className={`mt-1.5 inline-block size-1.5 shrink-0 rounded-full ${geoip?.enabled ? 'bg-emerald-400' : 'bg-nb-700'}`} />
+          <span>
+            {geoip?.enabled ? (
+              <>IP-based location suggestions are on, using {geoip.database || 'an offline GeoIP database'}{geoip.builtAt ? `, built ${new Date(geoip.builtAt).toLocaleDateString()}` : ''}. Placement still asks for confirmation before it changes anything.</>
+            ) : (
+              <>IP-based location suggestions are off: this server has no offline GeoIP database configured. Cloud region codes and city names in cluster labels still place clusters automatically; an administrator can turn this on too by pointing the server at a DB-IP or MaxMind file (see the deployment guide).</>
+            )}
+          </span>
+        </p>
+      )}
+
+      <p className="mt-2 max-w-2xl text-xs leading-5 text-nb-500">
+        Place data: city names and coordinates from <a className="underline hover:text-nb-400" href="https://www.geonames.org/" target="_blank" rel="noreferrer">GeoNames</a> (CC BY 4.0), country outlines from Natural Earth. {geoip?.enabled && geoip.attribution ? `${geoip.attribution}.` : <>When the server has a GeoIP database, IP geolocation by <a className="underline hover:text-nb-400" href="https://db-ip.com" target="_blank" rel="noreferrer">DB-IP.com</a> (CC BY 4.0) or MaxMind GeoLite2.</>}
       </p>
 
       {confirm && (

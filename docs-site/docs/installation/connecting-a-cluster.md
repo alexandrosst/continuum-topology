@@ -30,7 +30,7 @@ When the agent first contacts the server, it generates a short code and prints i
 kubectl -n continuum-system logs deploy/continuum-agent
 ```
 
-Look for a line like `enrollment pending: approval code K7QM-4TXD`. Type that code into the approve dialog in the UI (case, dashes and spaces don't matter — pasting the whole log line works). Because only someone with access to the cluster can read that log, approving it is confirmation that the agent asking to join really is the one running where you expect.
+Look for a line starting with `APPROVAL CODE: K7QM-4TXD` — it's the first thing on the line, before the rest of the sentence. Type that code into the approve dialog in the UI (case, dashes and spaces don't matter — pasting the whole log line works). Because only someone with access to the cluster can read that log, approving it is confirmation that the agent asking to join really is the one running where you expect.
 
 Five wrong codes reject the request permanently — install again with a fresh token if that happens. The dialog shows how many attempts are left.
 

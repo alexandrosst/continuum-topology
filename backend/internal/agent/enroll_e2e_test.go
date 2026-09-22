@@ -91,7 +91,7 @@ func newLog() (*slog.Logger, *safeBuf) {
 	return slog.New(slog.NewTextHandler(b, nil)), b
 }
 
-var codeRe = regexp.MustCompile(`approval code ([0-9A-Z]{4}-[0-9A-Z]{4}) `)
+var codeRe = regexp.MustCompile(`(?i)approval code:\s+([0-9A-Z]{4}-[0-9A-Z]{4})`)
 
 // codesLogged lists, in order, the approval codes an agent has printed in its log.
 func codesLogged(log *safeBuf) []string {

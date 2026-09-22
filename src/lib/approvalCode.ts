@@ -34,8 +34,8 @@ export function hasStrayCharacters(raw: string): boolean {
 export const CODE_LOG_COMMAND = 'kubectl -n continuum-system logs deploy/continuum-agent'
 
 /**
- * What to take from pasted text. A person may copy the whole log line ("enrollment pending: approval code
- * K7QM-4TXD - enter it in…"), so a XXXX-XXXX group in it wins; otherwise the text is cleaned as typed.
+ * What to take from pasted text. A person may copy the whole log line ("APPROVAL CODE: K7QM-4TXD (enter it
+ * in…"), so a XXXX-XXXX group in it wins; otherwise the text is cleaned as typed.
  */
 export function fromPaste(text: string): string {
   const m = /(?<![0-9A-Za-z])([0-9A-Za-z]{4})-([0-9A-Za-z]{4})(?![0-9A-Za-z])/.exec(text)

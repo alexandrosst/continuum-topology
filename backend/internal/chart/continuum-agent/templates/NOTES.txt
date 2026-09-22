@@ -33,9 +33,10 @@ WHAT IT CAN SEE  (access tier {{ include "agent.tier" . }})
 
 WHAT HAPPENS NEXT
   The agent enrolls with {{ .Values.server.address }} and then waits for an administrator to approve it. Waiting is normal:
-  it is not an error and the pod is not restarted for it. It prints a short approval code in its log:
+  it is not an error and the pod is not restarted for it. It prints a short approval code in its log,
+  as the first thing on the line ("APPROVAL CODE: ..."), so it is easy to spot:
 
-    kubectl -n {{ .Release.Namespace }} logs deploy/continuum-agent | grep "approval code"
+    kubectl -n {{ .Release.Namespace }} logs deploy/continuum-agent | grep -i "approval code"
 
   Open Discovery in the Continuum UI, enter that code to approve this cluster, and choose the access tier it may have.
   Nothing is reported before you do.

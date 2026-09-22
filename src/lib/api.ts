@@ -36,6 +36,12 @@ export interface ServerInfo {
    * pins the image; a tag alone is mutable.
    */
   install?: { chartFile: string; chartRef: string; chartVersion: string; imagesConfigured: boolean; imageRegistry: string; imageTag: string; imageDigest: string }
+  /**
+   * Whether this server can suggest a location from an agent's connecting address. Off by default: the operator
+   * has to bring their own offline database (see Settings). Cloud region codes and city names typed into labels
+   * still work as placement signals either way; this only covers the IP-based one.
+   */
+  geoip?: { enabled: boolean; database?: string; description?: string; builtAt?: string; attribution?: string }
 }
 
 export interface CreatedToken {

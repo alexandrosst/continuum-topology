@@ -62,8 +62,10 @@ func tokenID(token string) string {
 }
 
 func (r *runner) logCode(id *Identity, why string) {
-	r.log.Info("enrollment pending: approval code "+id.ApprovalCode+" - enter it in Continuum to approve this cluster",
-		"why", why, "kubectl", "kubectl -n continuum-system logs deploy/continuum-agent")
+	// The code leads the line, right after a fixed short label, and is also its own field: someone
+	// scanning `kubectl logs` output should be able to spot it without reading the rest of the sentence.
+	r.log.Info("APPROVAL CODE: "+id.ApprovalCode+" (enter it in Continuum to approve this cluster)",
+		"code", id.ApprovalCode, "why", why, "kubectl", "kubectl -n continuum-system logs deploy/continuum-agent | grep -i 'approval code'")
 }
 
 // enroll takes the agent from "no certificate" to "approved": it sends the enrollment (again, if it was
