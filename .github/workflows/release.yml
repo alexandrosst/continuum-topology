@@ -64,7 +64,12 @@ jobs:
             # once here, not separately in each job that needs it: the images job bakes it into the server binary
             # (main.agentChartVersion) so its install commands say `--version` of whatever the charts job below
             # actually publishes under, instead of the two silently drifting apart.
-            chart_version="0.0.0-edge.$(echo "$GITHUB_SHA" | cut -c1-7)"
+            #
+            # The short SHA is prefixed with "g" (the same convention `git describe` uses), not used bare: SemVer 2
+            # forbids a leading zero on a pre-release identifier made up only of digits, and a 7-hex-char SHA
+            # occasionally is one (e.g. 0162909) - that exact commit's release run failed on this
+            # ("Error: version segment starts with 0") before the prefix was added.
+            chart_version="0.0.0-edge.g$(echo "$GITHUB_SHA" | cut -c1-7)"
           fi
           echo "owner=$owner" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
