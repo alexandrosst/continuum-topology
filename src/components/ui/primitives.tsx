@@ -397,6 +397,39 @@ export function Pill({ children }: { children: ReactNode }) {
   )
 }
 
+/* ---------- Popovers ---------- */
+/**
+ * The dropdown a toolbar button opens (Filter, Views, view Options, Add - one row of several in the Topology
+ * toolbar): an invisible full-screen click-outside backdrop plus the panel itself, positioned off the button
+ * that opened it and easing in on open. Pass what's specific to one menu (width, padding, whether it clips its
+ * content) through `className`.
+ *
+ * Both sit above the mobile Inspector sheet (z-30), which can be open behind any of these on a narrow
+ * viewport, and the panel is capped so it can never run off a narrow screen either.
+ */
+export function MenuPanel({
+  open,
+  onClose,
+  className,
+  children,
+  ...aria
+}: {
+  open: boolean
+  onClose: () => void
+  className?: string
+  children: ReactNode
+} & ComponentProps<'div'>) {
+  if (!open) return null
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div {...aria} className={clsx('menu-pop absolute right-0 top-11 z-[41] max-w-[calc(100vw-2rem)] rounded-lg border border-nb-850 bg-nb-920 shadow-xl', className)}>
+        {children}
+      </div>
+    </>
+  )
+}
+
 /* ---------- Modal ---------- */
 export function Modal({
   open,

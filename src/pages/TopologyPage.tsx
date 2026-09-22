@@ -24,7 +24,8 @@ import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
 import { nodeTypes } from '@/components/topology/nodes'
 import { edgeTypes } from '@/components/topology/OffsetEdge'
-import { Button, EmptyState, Select } from '@/components/ui/primitives'
+import { Button, EmptyState, MenuPanel, Select } from '@/components/ui/primitives'
+import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu from '@/components/topology/FilterMenu'
 import { applyFilter, encodeList, filterActive, knownOnly, parseFilter } from '@/lib/filter'
 import { buildGraph, cardId, groupId, type TopoEdge, type TopoNode } from '@/lib/graph'
@@ -277,7 +278,8 @@ function Canvas() {
                 setSelection(null)
               }}
               className={clsx(
-                'rounded-md px-3.5 py-1.5 text-sm transition-[background-color,color,transform] duration-100 active:scale-[0.97]',
+                'rounded-md px-3.5 py-1.5 text-sm',
+                PRESS_CLASS,
                 mode === v.value ? 'bg-nb-850 text-white' : 'text-nb-400 hover:text-nb-300',
               )}
             >
@@ -321,69 +323,63 @@ function Canvas() {
                 <SlidersHorizontal size={15} /> <span className="hidden sm:inline">Options</span>
                 {changedOptions > 0 && <span className="rounded-full bg-accent-soft px-1.5 text-[11px] font-medium text-accent">{changedOptions}</span>}
               </Button>
-              {openMenu === 'options' && (
-                <>
-                  {/* z-40/41: above the mobile Inspector sheet (z-30), which can be open behind this on a narrow viewport. */}
-                  <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
-                  <div className="menu-pop absolute right-0 top-11 z-[41] w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-nb-850 bg-nb-920 p-2 shadow-xl" role="group" aria-label="View options">
-                    {mode === 'application' && (
-                      <Toggle
-                        checked={showDevices}
-                        onChange={(v) => {
-                          setParam('devices', v ? null : '0')
-                          // Hiding devices removes the selected one from the canvas; Inspector would otherwise
-                          // keep showing (and let you edit) something no longer drawn anywhere.
-                          if (!v && (selection?.kind === 'device' || selection?.kind === 'external')) setSelection(null)
-                        }}
-                        label="Devices and external endpoints"
-                      />
-                    )}
-                    {mode === 'application' && dependencies.some((d) => d.noise) && (
-                      <Toggle checked={showNoise} onChange={(v) => setParam('noise', v ? '1' : null)} label="DNS & system traffic" />
-                    )}
-                    {mode === 'infrastructure' && (
-                      <>
-                        <Toggle checked={servicesOnNodes} onChange={(v) => setParam('services', v ? '1' : null)} label="Services on nodes" />
-                        <Toggle checked={links} onChange={(v) => setParam('links', v ? null : '0')} label="Cross-cluster links" />
-                      </>
-                    )}
-                    {mode === 'application' && (
-                      <Toggle
-                        checked={showMesh}
-                        disabled={!hasMesh}
-                        onChange={(v) => setParam('mesh', v ? '1' : null)}
-                        label="Service mesh"
-                        title={hasMesh ? 'Show the mesh, which services are in it, and what it does to each connection' : 'No service mesh was found in the connected clusters'}
-                      />
-                    )}
-                    {mode === 'application' && !hasMesh && <p className="-mt-0.5 px-2 pb-1 pl-[46px] text-[11px] text-nb-500">No mesh found in your clusters</p>}
-                    <Toggle checked={showLabels} onChange={(v) => setParam('labels', v ? '1' : null)} label="Edge labels" />
-                    {mode === 'application' && (
-                      <Toggle
-                        checked={showNamespaces}
-                        disabled={groupBy !== 'cluster'}
-                        onChange={(v) => setParam('namespaces', v ? '1' : null)}
-                        label="Namespace sub-boxes"
-                        title={groupBy === 'cluster' ? 'Draw a box per namespace inside each cluster' : 'Only available grouped by cluster'}
-                      />
-                    )}
-                    <div className="mt-1 flex items-center justify-between gap-3 border-t border-nb-850 px-2 pb-1 pt-2.5 text-sm text-nb-400">
-                      Group by
-                      <Select
-                        className="h-8 w-32"
-                        value={groupBy}
-                        onChange={(e) => {
-                          setParam('group', e.target.value === 'tier' ? 'tier' : null)
-                          setSelection(null)
-                        }}
-                      >
-                        <option value="cluster">Cluster</option>
-                        <option value="tier">Tier</option>
-                      </Select>
-                    </div>
-                  </div>
-                </>
-              )}
+              <MenuPanel open={openMenu === 'options'} onClose={() => setOpenMenu(null)} className="w-72 p-2" role="group" aria-label="View options">
+                {mode === 'application' && (
+                  <Toggle
+                    checked={showDevices}
+                    onChange={(v) => {
+                      setParam('devices', v ? null : '0')
+                      // Hiding devices removes the selected one from the canvas; Inspector would otherwise
+                      // keep showing (and let you edit) something no longer drawn anywhere.
+                      if (!v && (selection?.kind === 'device' || selection?.kind === 'external')) setSelection(null)
+                    }}
+                    label="Devices and external endpoints"
+                  />
+                )}
+                {mode === 'application' && dependencies.some((d) => d.noise) && (
+                  <Toggle checked={showNoise} onChange={(v) => setParam('noise', v ? '1' : null)} label="DNS & system traffic" />
+                )}
+                {mode === 'infrastructure' && (
+                  <>
+                    <Toggle checked={servicesOnNodes} onChange={(v) => setParam('services', v ? '1' : null)} label="Services on nodes" />
+                    <Toggle checked={links} onChange={(v) => setParam('links', v ? null : '0')} label="Cross-cluster links" />
+                  </>
+                )}
+                {mode === 'application' && (
+                  <Toggle
+                    checked={showMesh}
+                    disabled={!hasMesh}
+                    onChange={(v) => setParam('mesh', v ? '1' : null)}
+                    label="Service mesh"
+                    title={hasMesh ? 'Show the mesh, which services are in it, and what it does to each connection' : 'No service mesh was found in the connected clusters'}
+                  />
+                )}
+                {mode === 'application' && !hasMesh && <p className="-mt-0.5 px-2 pb-1 pl-[46px] text-[11px] text-nb-500">No mesh found in your clusters</p>}
+                <Toggle checked={showLabels} onChange={(v) => setParam('labels', v ? '1' : null)} label="Edge labels" />
+                {mode === 'application' && (
+                  <Toggle
+                    checked={showNamespaces}
+                    disabled={groupBy !== 'cluster'}
+                    onChange={(v) => setParam('namespaces', v ? '1' : null)}
+                    label="Namespace sub-boxes"
+                    title={groupBy === 'cluster' ? 'Draw a box per namespace inside each cluster' : 'Only available grouped by cluster'}
+                  />
+                )}
+                <div className="mt-1 flex items-center justify-between gap-3 border-t border-nb-850 px-2 pb-1 pt-2.5 text-sm text-nb-400">
+                  Group by
+                  <Select
+                    className="h-8 w-32"
+                    value={groupBy}
+                    onChange={(e) => {
+                      setParam('group', e.target.value === 'tier' ? 'tier' : null)
+                      setSelection(null)
+                    }}
+                  >
+                    <option value="cluster">Cluster</option>
+                    <option value="tier">Tier</option>
+                  </Select>
+                </div>
+              </MenuPanel>
             </div>
           )}
 
@@ -391,32 +387,26 @@ function Canvas() {
             <Button variant="primary" onClick={() => toggleMenu('add')} disabled={inPast} title={inPast ? 'Return to now to add or change things' : undefined}>
               <Plus size={16} /> Add <ChevronDown size={14} />
             </Button>
-            {openMenu === 'add' && (
-              <>
-                {/* z-40/41: above the mobile Inspector sheet (z-30), which can be open behind this on a narrow viewport. */}
-                <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
-                <div className="menu-pop absolute right-0 top-11 z-[41] w-48 overflow-hidden rounded-lg border border-nb-850 bg-nb-920 p-1 shadow-xl">
-                  {[
-                    { t: 'cluster', label: 'Cluster', icon: Boxes, disabled: false },
-                    { t: 'node', label: 'Node', icon: Server, disabled: empty },
-                    { t: 'service', label: 'Service', icon: Package, disabled: empty },
-                    { t: 'device', label: 'Device', icon: Radio, disabled: false },
-                  ].map(({ t, label, icon: Icon, disabled }) => (
-                    <button
-                      key={t}
-                      disabled={disabled}
-                      onClick={() => {
-                        setOpenMenu(null)
-                        setForm({ type: t as 'cluster' | 'node' | 'service' | 'device' })
-                      }}
-                      className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-nb-300 hover:bg-nb-940 disabled:opacity-40 disabled:hover:bg-transparent"
-                    >
-                      <Icon size={15} className="text-nb-500" /> {label}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
+            <MenuPanel open={openMenu === 'add'} onClose={() => setOpenMenu(null)} className="w-48 overflow-hidden p-1">
+              {[
+                { t: 'cluster', label: 'Cluster', icon: Boxes, disabled: false },
+                { t: 'node', label: 'Node', icon: Server, disabled: empty },
+                { t: 'service', label: 'Service', icon: Package, disabled: empty },
+                { t: 'device', label: 'Device', icon: Radio, disabled: false },
+              ].map(({ t, label, icon: Icon, disabled }) => (
+                <button
+                  key={t}
+                  disabled={disabled}
+                  onClick={() => {
+                    setOpenMenu(null)
+                    setForm({ type: t as 'cluster' | 'node' | 'service' | 'device' })
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-nb-300 hover:bg-nb-940 disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  <Icon size={15} className="text-nb-500" /> {label}
+                </button>
+              ))}
+            </MenuPanel>
           </div>
         </div>
       </div>

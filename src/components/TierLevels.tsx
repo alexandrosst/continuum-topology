@@ -18,6 +18,9 @@ function TierIcon({ level, tone, marked, size }: { level: number; tone: 'filled'
       </span>
     )
   }
+  // Each box insets a bit further than the last, so `level` of them nest visibly inside `size` without the
+  // innermost one collapsing to a sliver. 2.4 is tuned by eye for the range this actually renders at (2-4
+  // levels, an 18-24px icon): at 4 levels and the smallest icon, the innermost box is still ~6-7px on a side.
   const step = size / (level * 2.4)
   return (
     <span

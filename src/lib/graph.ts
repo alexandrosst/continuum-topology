@@ -241,7 +241,7 @@ function packItems(items: Item[], headerY: number, pad = PAD): { w: number; h: n
 function layoutNamespaces(items: Item[]): { w: number; h: number; boxes: NsBox[] } {
   const byNs = new Map<string, Item[]>()
   for (const it of items) {
-    const key = it.namespace || '(no namespace)'
+    const key = it.namespace || 'no namespace'
     if (!byNs.has(key)) byNs.set(key, [])
     byNs.get(key)!.push(it)
   }

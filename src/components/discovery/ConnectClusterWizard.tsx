@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Check, CheckCircle2, ChevronRight, Loader2, Pin } from 'lucide-react'
+import { Check, CheckCircle2, ChevronRight, Loader2, Pin, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button, ErrorBanner, Field, InfoTip, Input, Modal } from '@/components/ui/primitives'
@@ -60,29 +60,40 @@ const STEPS: { key: Phase; label: string }[] = [
  * What's already automatic here needs saying out loud: the wizard notices the agent connecting and being
  * approved by itself (it is simply polling), so the only manual step left is typing the approval code. This
  * turns that into a line of ticks that fill in on their own, so it reads as "in progress", not "stuck".
+ *
+ * `stoppedAt` says which step it never got past when `phase` is `'stopped'`: that step gets a red mark instead
+ * of being folded into "done" (a row of green checkmarks next to "this failed" would tell the opposite story
+ * of the text underneath it), and nothing after it is implied to have happened either.
  */
-function Stepper({ phase }: { phase: Phase }) {
+function Stepper({ phase, stoppedAt }: { phase: Phase; stoppedAt: number }) {
   if (phase === 'form') return null
-  const activeIndex = phase === 'stopped' ? STEPS.length : STEPS.findIndex((s) => s.key === phase)
+  const activeIndex = phase === 'stopped' ? stoppedAt : STEPS.findIndex((s) => s.key === phase)
   return (
     <div className="mb-4 flex items-center" data-testid="wizard-steps">
       {STEPS.map((s, i) => {
-        const done = i < activeIndex
-        const current = i === activeIndex
+        const failed = phase === 'stopped' && i === activeIndex
+        const done = !failed && i < activeIndex
+        const current = !failed && i === activeIndex
         return (
           <div key={s.key} className={clsx('flex items-center', i < STEPS.length - 1 && 'flex-1')}>
             <span className="relative flex size-5 shrink-0 items-center justify-center">
-              {current && phase !== 'stopped' && <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent/40" />}
+              {current && <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent/40" />}
               <span
                 className={clsx(
                   'relative flex size-5 items-center justify-center rounded-full border text-[10px] font-medium',
-                  done ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300' : current ? 'border-accent bg-accent-soft text-accent' : 'border-nb-800 text-nb-600',
+                  failed
+                    ? 'border-red-400/50 bg-red-400/15 text-red-300'
+                    : done
+                      ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300'
+                      : current
+                        ? 'border-accent bg-accent-soft text-accent'
+                        : 'border-nb-800 text-nb-600',
                 )}
               >
-                {done ? <Check size={11} /> : i + 1}
+                {failed ? <X size={11} /> : done ? <Check size={11} /> : i + 1}
               </span>
             </span>
-            <span className={clsx('ml-1.5 whitespace-nowrap text-[11px]', done ? 'text-nb-400' : current ? 'text-nb-200' : 'text-nb-600')}>{s.label}</span>
+            <span className={clsx('ml-1.5 whitespace-nowrap text-[11px]', failed ? 'text-red-300' : done ? 'text-nb-400' : current ? 'text-nb-200' : 'text-nb-600')}>{s.label}</span>
             {i < STEPS.length - 1 && <span className={clsx('mx-2 h-px flex-1', done ? 'bg-emerald-400/30' : 'bg-nb-850')} />}
           </div>
         )
@@ -186,6 +197,10 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
         : agent.status === 'approved'
           ? (counts && discovery.state !== 'discovering' ? 'done' : 'discovering')
           : 'stopped'
+  // Which step a stopped enrollment never got past. Rejected or expired both happen while still pending
+  // approval; a revoke can only happen to something that was already approved, so it reads as having failed
+  // one step further along (we don't know exactly when during discovery it was cut off, so this is our best guess).
+  const stoppedAt = agent?.status === 'revoked' ? 2 : 1
 
   return (
     <Modal
@@ -317,7 +332,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
 
       {created && phase !== 'form' && (
         <div className="space-y-5">
-          <Stepper phase={phase} />
+          <Stepper phase={phase} stoppedAt={stoppedAt} />
           {(phase === 'waiting' || phase === 'approve') && (
             <div>
               <div className="mb-1 flex items-center justify-between text-sm text-nb-300">
