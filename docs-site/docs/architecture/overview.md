@@ -36,7 +36,7 @@ Every connected cluster is labeled <span className="tier-chip tier-chip--cloud">
 
 ## Images and charts
 
-If you're hosting this on your own fork or repository, [`.github/workflows/release.yml`](https://github.com/alexandrosst/continuum-topology/blob/main/.github/workflows/release.yml) publishes both images and both Helm charts to your own `ghcr.io/<owner>` namespace on every tagged release, and bakes that namespace into the chart's own defaults. That's what makes the install commands throughout this site — and the one the server itself prints on the **Connect a cluster** screen — need no `--set image.repository=...` of any kind.
+The chart's defaults already point at this project's own published images, so none of the install commands on this site — nor the one the server itself prints on the **Connect a cluster** screen — ever need `--set image.repository=...`.
 
 ## Where to go next
 

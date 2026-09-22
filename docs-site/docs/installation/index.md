@@ -6,7 +6,7 @@ description: Which installation path fits your situation.
 
 # Installation overview
 
-There's one Helm chart for the server ([`continuum-server`](../reference/server-helm-values.md)) and one for the agent ([`continuum-agent`](../reference/agent-helm-values.md)), both published to `ghcr.io/<your-org>` by this repo's own GitHub Actions workflow — nothing to build, nothing to publish yourself, unless you want to.
+There's one Helm chart for the server ([`continuum-server`](../reference/server-helm-values.md)) and one for the agent ([`continuum-agent`](../reference/agent-helm-values.md)), both already published and ready to install — nothing to build or publish yourself.
 
 **Already did the [Quickstart](../getting-started/quickstart.md)?** You have a working server. This section is for the two things that come after: making it reachable for real (not just from your own machine), and connecting your first cluster.
 
