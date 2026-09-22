@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Boxes, Cable, Cpu, Folders, History, Layers, MapPin, Menu, Network, Package, Radar, Radio, Route, Search, Server, Settings2 } from 'lucide-react'
+import { BookOpen, Boxes, Cable, Cpu, Folders, History, Layers, MapPin, Menu, Network, Package, Radar, Radio, Route, Search, Server, Settings2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Copyright } from '@/components/ui/brand'
@@ -12,6 +12,10 @@ import HistoryBanner from '@/components/HistoryBanner'
 import SampleBanner from '@/components/SampleBanner'
 import { resumeServer, useServer } from '@/store/server'
 import { useRawTopology } from '@/store/topology'
+
+// Published by .github/workflows/docs.yml from docs-site/ — see its "Release process" page for the one-time
+// GitHub Pages setting that publishing depends on.
+const DOCS_URL = 'https://alexandrosst.github.io/continuum-topology/'
 
 const NAV = [
   { to: '/topology', label: 'Topology', icon: Network },
@@ -144,6 +148,14 @@ function Shell() {
         </nav>
         <div className="mt-auto border-t border-nb-850 pt-3">
           <AccountMenu />
+          <a
+            href={DOCS_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm text-nb-400 transition-colors hover:bg-nb-930 hover:text-nb-300"
+          >
+            <BookOpen size={16} /> Documentation
+          </a>
           <NavItem to="/settings" label="Settings" icon={Settings2} />
           <Copyright className="mt-3 px-3" />
         </div>

@@ -1,0 +1,118 @@
+/**
+ * Continuum Topology Studio docs theme.
+ * Same palette as the app itself (src/index.css): near-black neutrals + orange accent,
+ * so the docs feel like part of the same product rather than a bolted-on wiki.
+ */
+
+:root {
+  --ifm-font-family-base: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --ifm-font-family-monospace: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+  --ifm-code-font-size: 90%;
+
+  --ifm-color-primary: #e55b1f;
+  --ifm-color-primary-dark: #cf5119;
+  --ifm-color-primary-darker: #c34c18;
+  --ifm-color-primary-darkest: #a03e14;
+  --ifm-color-primary-light: #ea6b34;
+  --ifm-color-primary-lighter: #ec7440;
+  --ifm-color-primary-lightest: #f18f63;
+
+  --ct-tier-cloud: #3b82f6;
+  --ct-tier-edge: #10b981;
+  --ct-tier-far: #a855f7;
+
+  --docusaurus-highlighted-code-line-bg: rgba(246, 131, 48, 0.12);
+}
+
+/* Light mode still exists (respects OS preference) but this product lives in dark mode, so it gets a
+   lighter version of the same neutrals rather than Infima's default blue-gray. */
+[data-theme='light'] {
+  --ifm-background-color: #f7f5f2;
+  --ifm-navbar-background-color: #ffffff;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #f68330;
+  --ifm-color-primary-dark: #e55b1f;
+  --ifm-color-primary-darker: #d8531d;
+  --ifm-color-primary-darkest: #b8461a;
+  --ifm-color-primary-light: #f89a57;
+  --ifm-color-primary-lighter: #f9a768;
+  --ifm-color-primary-lightest: #fbc08f;
+
+  --ifm-background-color: #181a1d;
+  --ifm-background-surface-color: #1c1e22;
+  --ifm-navbar-background-color: #1b1d20;
+  --ifm-footer-background-color: #16181a;
+  --ifm-toc-border-color: #2b2f33;
+  --ifm-hr-border-color: #2b2f33;
+  --ifm-color-emphasis-300: #3f444b;
+  --ifm-code-background: #1f2124;
+  --docusaurus-highlighted-code-line-bg: rgba(246, 131, 48, 0.16);
+}
+
+[data-theme='dark'] .navbar {
+  border-bottom: 1px solid #2b2f33;
+}
+
+[data-theme='dark'] .menu__link--active,
+[data-theme='dark'] .menu__link:hover {
+  background: rgba(246, 131, 48, 0.1);
+}
+
+[data-theme='dark'] .theme-doc-sidebar-container {
+  border-right: 1px solid #2b2f33 !important;
+}
+
+[data-theme='dark'] table {
+  display: table;
+}
+[data-theme='dark'] table thead tr {
+  background-color: #1f2124;
+  border-bottom: 1px solid #2b2f33;
+}
+[data-theme='dark'] table tr {
+  border-top: 1px solid #2b2f33;
+  background-color: #1c1e22;
+}
+
+/* Diagram figures: a card matching the app's own Table/EmptyState treatment (nb-925 bg, nb-850 border, rounded-xl). */
+.diagram-figure {
+  margin: 1.5rem 0;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid var(--ifm-toc-border-color, #e2e2e2);
+  background: var(--ifm-background-surface-color, #fff);
+}
+.diagram-figure img,
+.diagram-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.diagram-caption {
+  margin: 0;
+  padding: 0.6rem 1rem;
+  font-size: 0.85rem;
+  color: var(--ifm-color-emphasis-600);
+  border-top: 1px solid var(--ifm-toc-border-color, #e2e2e2);
+}
+
+/* Tier chips used inline in prose to match the app's own cloud / edge / far-edge vocabulary. */
+.tier-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.05em 0.55em;
+  border-radius: 999px;
+  font-size: 0.85em;
+  font-weight: 600;
+  border: 1px solid currentColor;
+}
+.tier-chip--cloud { color: var(--ct-tier-cloud); }
+.tier-chip--edge { color: var(--ct-tier-edge); }
+.tier-chip--far { color: var(--ct-tier-far); }
+
+.admonition code {
+  white-space: normal;
+}

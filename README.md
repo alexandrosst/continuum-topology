@@ -9,7 +9,9 @@ Both planes are projections of one model, so editing a service in the table upda
 
 Stack: Vite · React 19 · TypeScript · Tailwind 4 · React Flow (`@xyflow/react`) · Zustand · React Router. Styling follows the NetBird dashboard (dark neutrals, orange accent, sidebar + tables + modals).
 
-## Run
+**This README is for building and hacking on the code.** For installing the server, connecting a cluster, the architecture, and day-to-day use of the UI, see **the documentation site** — published from [`docs-site/`](docs-site) via GitHub Pages, linked from the app's own header once deployed. Building it locally: `cd docs-site && npm install && npm start`.
+
+## Run the frontend
 
 ```bash
 npm install
@@ -19,20 +21,15 @@ npm run build    # type-check + production build
 
 Without a server, state is kept in `localStorage` (key `continuum-topology/v1`). With a Continuum server it is saved to the server (see below). Use **Settings → Import / Export** for JSON backup, sample data, or a clean slate.
 
-## Deploy on Kubernetes
+## Run the backend, and deploy on Kubernetes
 
-The server (control plane and web UI) installs from the Helm chart [`deploy/helm/continuum-server`](deploy/helm/continuum-server); the full guide is [`deploy/README.md`](deploy/README.md).
+Building and running the Go server and agent locally, and the full Helm chart reference, live in the docs site: **Getting started**, **Installation**, and **Architecture**. The short version: the server has two ports that need very different treatment (agents on `:8443`, mutual TLS, never behind a TLS-terminating proxy; the UI on `:8080`, plain HTTP meant to sit behind one), it's one replica with one PersistentVolumeClaim, and if this repository (or your fork) is on GitHub, [`.github/workflows/release.yml`](.github/workflows/release.yml) publishes zero-config images and charts to your own `ghcr.io/<owner>` namespace on every push to `main` or version tag — nothing to build or publish by hand. `scripts/publish.sh REGISTRY` remains for publishing to a registry other than GHCR, or a fork not wired up to Actions.
 
-- **Shape.** One replica with one PersistentVolumeClaim (the server is not horizontally scalable today), and two ports: **agents on 8443** (gRPC over mutual TLS, so it must be exposed as L4 or TLS passthrough, never behind an HTTP proxy that terminates TLS) and the **UI on 8080** (behind a TLS-terminating Ingress or Gateway).
-- **Neo4j** is optional: `neo4j.mode` is `none` (default), `bundled` (a StatefulSet with its own PVC) or `external` (yours).
-- **A quick trial** on k3s or kind is three commands (`helm install` with a NodePort for agents, read the one-time admin password from the log, `kubectl port-forward` the UI); they are in [`deploy/README.md`](deploy/README.md#quick-start).
-- **Installing an agent** in a cluster is the command the server prints (**Discovery → Connect a cluster**); see *Discovery backend* below.
-- **Zero-config images and charts, if you host this on GitHub.** Push (or fork) this repository and [`.github/workflows/release.yml`](.github/workflows/release.yml) builds and publishes the `continuum` and `server` images and both Helm charts to this repo's own `ghcr.io/<owner>` namespace on every push to `main` or version tag, and bakes that namespace into the published chart's own defaults - so `helm install` needs no `--set image.repository=...`, and the "Connect a cluster" command is already correct. One manual, one-time step (flip the four GHCR packages to Public after the first run) and the exact commands are in [`deploy/README.md`](deploy/README.md#using-this-repos-own-published-images-zero-config).
-- **Publishing elsewhere by hand.** `scripts/publish.sh REGISTRY` publishes the agent image and chart to any registry you choose; `ONLY=server scripts/publish.sh REGISTRY` publishes the server image and chart. Useful for a registry other than GHCR, or a fork that isn't wired up to Actions.
-
-The chart passes `helm lint`, `helm template` and a server-side dry run against a k3s API; no pod has run from it in a real cluster, so read the first install as a trial (the status note at the top of the deploy guide says the same).
+The chart passes `helm lint`, `helm template` and a server-side dry run against a k3s API; no pod has run from it in a real cluster, so read the first install as a trial (the status note at the top of [`deploy/README.md`](deploy/README.md) says the same — that file is now the deep operational reference; start with the docs site instead).
 
 ## Discovery backend (Phase 1)
+
+*The rest of this file, from here down, is deep implementation reference: exactly how enrollment, consent, the optional collectors, history and placement work under the hood. If you want to install and use the product rather than build on it, the docs site covers all of this at a more approachable level — this section stays for contributors who need the full detail.*
 
 A Go server and an in-cluster Go agent discover clusters for you. Nothing calls out from the cluster: the agent dials the server, and the server never holds a kubeconfig.
 
@@ -400,7 +397,7 @@ The footer text in the app (`OWNER` in `src/components/ui/brand.tsx`) reads "© 
 
 ## Continuous integration and releases
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) builds, vets and tests the Go backend and lints, type-checks, builds and unit-tests the frontend on every push and pull request, plus the two dependency scans described in [`deploy/README.md`](deploy/README.md#dependency-scanning). [`.github/workflows/release.yml`](.github/workflows/release.yml) publishes the `continuum` and `server` images and both Helm charts to this repository's own GitHub Container Registry namespace on a push to `main` (the floating `edge` tag) or a version tag (a real release); see *Zero-config images and charts* above and [`deploy/README.md`](deploy/README.md#using-this-repos-own-published-images-zero-config) for the one-time setup and exactly what gets published where.
+Three workflows: [`ci.yml`](.github/workflows/ci.yml) (build, vet, test and lint on every push and PR, plus two dependency scans), [`release.yml`](.github/workflows/release.yml) (publishes images and Helm charts to this repo's own GHCR namespace on a push to `main` or a version tag), and [`docs.yml`](.github/workflows/docs.yml) (publishes the docs site to GitHub Pages). The one-time setup each needs, and exactly what gets published where, is in the docs site's **Contributing → Release process** page.
 
 ## License
 

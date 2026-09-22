@@ -4,6 +4,8 @@ This guide covers the **server** (control plane and web UI) and its databases. T
 
 > **Status of this guide.** The chart was checked with `helm lint`, `helm template` over many value combinations, and `kubectl apply --dry-run=server` against a single-node k3s API. The server binary was built and started locally with the exact arguments the chart renders. **No pod has run in a cluster, no container image has been built, and the backup CronJob has not run against a real CSI driver.** Treat the first install as a trial run.
 
+> **New here? Start with the docs site instead.** Its [Quickstart](../docs-site/docs/getting-started/quickstart.md), [Installation](../docs-site/docs/installation/index.md) and [Troubleshooting](../docs-site/docs/troubleshooting/common-errors.md) pages cover the same ground this file does, in a more approachable order, using this repo's own zero-config published images. This file remains the deep operational reference — backup and restore, signing verification, air-gapped installs, the full values reference and security notes — for once you're past a first install.
+
 ## Contents
 
 1. [Prerequisites](#prerequisites)
