@@ -4,29 +4,20 @@ import { deriveChecklist, dismiss, wasDismissed, type ChecklistInput } from '../
 
 const agent = (over: Partial<ChecklistInput['agents'][number]> = {}) => ({ id: 'a1', name: 'edge-1', status: 'approved' as const, connected: true, ...over })
 const cluster = (over: Partial<ChecklistInput['clusters'][number]> = {}) => ({ id: 'c1', name: 'edge-1', source: 'discovered' as const, state: 'live' as const, ...over })
-const input = (over: Partial<ChecklistInput> = {}): ChecklistInput => ({ imagesConfigured: false, agents: [], clusters: [], ...over })
+const input = (over: Partial<ChecklistInput> = {}): ChecklistInput => ({ agents: [], clusters: [], ...over })
 const by = (c: ReturnType<typeof deriveChecklist>) => Object.fromEntries(c.steps.map((s) => [s.id, s]))
 
-test('a new organisation: the registry is the current step and the note is honest about the built-in names', () => {
+test('a new organisation: connecting a cluster is the current step', () => {
   const c = deriveChecklist(input())
-  assert.deepEqual(c.steps.map((s) => s.state), ['current', 'todo', 'todo', 'todo', 'todo'])
+  assert.deepEqual(c.steps.map((s) => s.state), ['current', 'todo', 'todo', 'todo'])
   assert.equal(c.done, 0)
   assert.equal(c.finished, false)
-  assert.match(by(c).images.line, /built-in image names/)
-  assert.deepEqual(by(c).images.action, { kind: 'settings', label: 'Set a registry' })
   assert.equal(by(c).connect.action?.kind, 'connect')
 })
 
-test('a configured registry is done and says where images come from', () => {
-  const c = deriveChecklist(input({ imagesConfigured: true, imageRegistry: 'reg.example.com/team' }))
-  assert.equal(by(c).images.state, 'done')
-  assert.match(by(c).images.line, /reg\.example\.com\/team/)
-  assert.equal(by(c).connect.state, 'current')
-})
-
-test('a waiting agent: connect is done, approve is current with a link to its card, and the registry no longer holds the focus', () => {
+test('a waiting agent: connect is done, approve is current with a link to its card', () => {
   const c = deriveChecklist(input({ agents: [agent({ status: 'pending', connected: undefined })] }))
-  assert.deepEqual(c.steps.map((s) => s.state), ['todo', 'done', 'current', 'todo', 'todo'])
+  assert.deepEqual(c.steps.map((s) => s.state), ['done', 'current', 'todo', 'todo'])
   assert.deepEqual(by(c).approve.action, { kind: 'approval', label: 'Review approval', agentId: 'a1' })
   assert.match(by(c).approve.line, /edge-1 is waiting/)
   assert.equal(by(c).connect.action, undefined, 'nothing more to do for a step that is done')
@@ -34,7 +25,7 @@ test('a waiting agent: connect is done, approve is current with a link to its ca
 
 test('approved but no report yet: see-it-live is current, and it does not claim the cluster is live', () => {
   const c = deriveChecklist(input({ agents: [agent()] }))
-  assert.deepEqual(c.steps.map((s) => s.state), ['todo', 'done', 'done', 'current', 'todo'])
+  assert.deepEqual(c.steps.map((s) => s.state), ['done', 'done', 'current', 'todo'])
   assert.match(by(c).live.line, /Waiting for the agent/)
   assert.equal(by(c).live.action?.kind, 'agents')
   assert.equal(c.finished, false)
@@ -57,7 +48,7 @@ test('a live cluster finishes the list; a hand-made cluster does not', () => {
 })
 
 test('a request that ran out or was rejected says so instead of pretending nothing happened', () => {
-  const exp = deriveChecklist(input({ imagesConfigured: true, agents: [agent({ status: 'expired', connected: undefined })] }))
+  const exp = deriveChecklist(input({ agents: [agent({ status: 'expired', connected: undefined })] }))
   assert.match(by(exp).approve.line, /ran out/)
   assert.equal(by(exp).connect.state, 'current', 'nothing is enrolled, so connecting is still the step')
   const rej = deriveChecklist(input({ agents: [agent({ status: 'rejected', connected: undefined })] }))
@@ -72,12 +63,12 @@ test('traffic observation and the node probe are optional and tracked from what 
 })
 
 test('exactly one step is current at a time, and none once everything before the end is done', () => {
-  for (const i of [input(), input({ agents: [agent({ status: 'pending' })] }), input({ agents: [agent()] }), input({ imagesConfigured: true })]) {
+  for (const i of [input(), input({ agents: [agent({ status: 'pending' })] }), input({ agents: [agent()] })]) {
     assert.equal(deriveChecklist(i).steps.filter((s) => s.state === 'current').length, 1)
   }
-  const all = deriveChecklist(input({ imagesConfigured: true, agents: [agent()], clusters: [cluster()], probedNodes: 1 }))
+  const all = deriveChecklist(input({ agents: [agent()], clusters: [cluster()], probedNodes: 1 }))
   assert.equal(all.steps.filter((s) => s.state === 'current').length, 0)
-  assert.equal(all.done, 5)
+  assert.equal(all.done, 4)
 })
 
 test('several agents are counted, not listed in full', () => {

@@ -10,11 +10,9 @@ import type { Agent, Cluster } from './types'
  */
 
 export type StepState = 'todo' | 'current' | 'done'
-export type StepId = 'images' | 'connect' | 'approve' | 'live' | 'observe'
+export type StepId = 'connect' | 'approve' | 'live' | 'observe'
 
 export type StepAction =
-  /** Settings → Installation. */
-  | { kind: 'settings'; label: string }
   /** Opens the Connect a cluster wizard (`options`: at the step where traffic observation and the node probe are chosen). */
   | { kind: 'connect'; label: string; options?: boolean }
   /** The approval card of one waiting agent. */
@@ -45,10 +43,6 @@ type ChecklistAgent = Pick<Agent, 'id' | 'name' | 'status' | 'clusterId' | 'conn
 type ChecklistCluster = Pick<Cluster, 'id' | 'name' | 'source' | 'state' | 'stateReason' | 'stale' | 'deletedAt'>
 
 export interface ChecklistInput {
-  /** From the server's install info: an image registry is set (by this organisation or by the server's flags). */
-  imagesConfigured: boolean
-  /** The registry, when it is known and set. */
-  imageRegistry?: string
   agents: readonly ChecklistAgent[]
   clusters: readonly ChecklistCluster[]
   /** Nodes whose facts came from a node probe. */
@@ -72,7 +66,6 @@ export function deriveChecklist(input: ChecklistInput): Checklist {
   const watching = agents.some((a) => a.observer && (a.observer.collectors?.length ?? 0) > 0) || (input.probedNodes ?? 0) > 0
 
   const done: Record<StepId, boolean> = {
-    images: input.imagesConfigured,
     connect: enrolled.length > 0,
     approve: approved.length > 0,
     live: live.length > 0,
@@ -80,15 +73,6 @@ export function deriveChecklist(input: ChecklistInput): Checklist {
   }
 
   const steps: ChecklistStep[] = [
-    {
-      id: 'images',
-      title: 'Choose where images live',
-      line: input.imagesConfigured
-        ? `Install commands pull the agent from ${input.imageRegistry || 'the registry you set'}.`
-        : 'Not set: install commands use the chart’s built-in image names, which works only if you published those images yourself.',
-      action: { kind: 'settings', label: input.imagesConfigured ? 'Review' : 'Set a registry' },
-      state: 'todo',
-    },
     {
       id: 'connect',
       title: 'Connect a cluster',
@@ -140,9 +124,8 @@ export function deriveChecklist(input: ChecklistInput): Checklist {
     },
   ]
 
-  // One step is "current": the first that is not done. The registry is skippable (the install works without it), so it
-  // stops being the focus once a cluster has enrolled.
-  const focus = steps.findIndex((s) => !done[s.id] && !(s.id === 'images' && enrolled.length > 0) && !(s.id === 'observe' && live.length > 0))
+  // One step is "current": the first that is not done.
+  const focus = steps.findIndex((s) => !done[s.id] && !(s.id === 'observe' && live.length > 0))
   steps.forEach((s, i) => {
     s.state = done[s.id] ? 'done' : i === focus ? 'current' : 'todo'
   })

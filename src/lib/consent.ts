@@ -158,7 +158,7 @@ export function effectiveNote(d: AgentDiagnostics): string | undefined {
   if (d.effectiveTier < d.approvedTier) {
     return d.effectiveTier < d.installedTier
       ? 'The agent has not yet applied the approved access.'
-      : `Held back by the install: the cluster's owner allows only ${tierName(d.installedTier).toLowerCase()} (Helm access.tier).`
+      : `Held back by the install: the cluster's owner allows only ${tierName(d.installedTier).toLowerCase()}.`
   }
   return undefined
 }
@@ -203,7 +203,7 @@ export function parseExclusions(text: string): ExclusionInput {
   const names = splitNames(text)
   const problems = scopeProblems({ namespaces: [], exclude: names, selector: '' })
   for (const n of names) if (SYSTEM_NAMESPACES.includes(n)) problems.push(`${n} is a system namespace: the agent always reads those to recognise the cluster's own components`)
-  if (names.length > MAX_EXCLUDED) problems.push(`At most ${MAX_EXCLUDED} namespaces can be left out from here; use the scope of the install (Helm) for more`)
+  if (names.length > MAX_EXCLUDED) problems.push(`At most ${MAX_EXCLUDED} namespaces can be left out from here; use the install's own scope for more`)
   return { names: [...names].sort(), problems }
 }
 

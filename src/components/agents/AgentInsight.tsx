@@ -83,7 +83,7 @@ export function CanSee({ agent, diagnostics: d }: { agent: Agent; diagnostics: A
     <div data-testid="can-see">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
         <dt className="text-nb-500">Install allows</dt>
-        <dd className="text-nb-300" data-testid="tier-installed">{tierName(d.installedTier)} <span className="text-nb-600">(the ceiling the cluster's owner set; Helm access.tier)</span></dd>
+        <dd className="text-nb-300" data-testid="tier-installed">{tierName(d.installedTier)} <span className="text-nb-600">(the ceiling the cluster's owner set at install)</span></dd>
         <dt className="text-nb-500">Approved here</dt>
         <dd className="text-nb-300" data-testid="tier-approved">{tierName(agent.status === 'approved' ? agent.accessTier : d.approvedTier)}</dd>
         <dt className="text-nb-500">Collecting now</dt>
@@ -214,7 +214,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
   return (
     <div data-testid="consent-panel">
       <p className="mb-3 text-xs leading-relaxed text-nb-500">
-        This can only <span className="text-nb-300">reduce</span> what this agent shares. What it may read at most is set by whoever owns the cluster, in the install (Helm access.tier, its RBAC and scope), and this server cannot exceed it: the agent checks that itself and ignores anything that would widen it.
+        This can only <span className="text-nb-300">reduce</span> what this agent shares. What it may read at most is set by whoever owns the cluster, when it was installed (its access tier, permissions and scope), and this server cannot exceed it: the agent checks that itself and ignores anything that would widen it.
       </p>
 
       <div>
@@ -286,7 +286,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
                   />
                   <span>
                     <span className="text-nb-300">Pause {c.label.toLowerCase()}</span>
-                    <span className="block text-xs text-nb-500">{c.what} {installedHere ? 'Pausing stops it in the cluster and forgets what it held.' : `Not installed in this cluster (Helm ${c.chart}).`}</span>
+                    <span className="block text-xs text-nb-500">{c.what} {installedHere ? 'Pausing stops it in the cluster and forgets what it held.' : 'Not installed in this cluster.'}</span>
                   </span>
                 </label>
               </li>

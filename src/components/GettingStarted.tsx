@@ -24,13 +24,11 @@ export function useGettingStarted(): { checklist: Checklist; dismissed: boolean;
   const checklist = useMemo(
     () =>
       deriveChecklist({
-        imagesConfigured: !!info?.install?.imagesConfigured,
-        imageRegistry: info?.install?.imageRegistry,
         agents,
         clusters,
         probedNodes: nodes.filter((n) => n.probed && !n.deletedAt).length,
       }),
-    [info, agents, clusters, nodes],
+    [agents, clusters, nodes],
   )
   if (!connected || !admin || !org || !info || !loaded || checklist.finished) return null
   return { checklist, dismissed: dismissedNow || wasDismissed(org), dismiss: () => { dismiss(org); setDismissedNow(true) } }
@@ -63,8 +61,6 @@ function Action({ step, onConnect }: { step: ChecklistStep; onConnect: () => voi
   const cls = buttonClass(variant, 'sm', 'whitespace-nowrap')
   const testId = `gs-action-${step.id}`
   switch (a.kind) {
-    case 'settings':
-      return <Link to="/settings#installation" className={cls} data-testid={testId}>{a.label}</Link>
     case 'approval':
       return <Link to={`/agents#approval-${a.agentId}`} className={cls} data-testid={testId}>{a.label}</Link>
     case 'agents':

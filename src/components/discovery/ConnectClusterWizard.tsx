@@ -164,7 +164,6 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
     >
       {phase === 'form' && (
         <div className="space-y-5">
-          {!imagesConfigured && <NoRegistryNotice onNavigate={close} />}
           <Field label="Cluster name" hint="How it appears in Continuum. You can rename it later.">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="edge-patras" autoFocus />
           </Field>
