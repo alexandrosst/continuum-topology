@@ -83,6 +83,12 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // A default name so Create works the moment the wizard opens; still yours to change, and renameable later either way.
+  // Deliberately keyed on `open` alone: it should fill in once per open, not re-fill while the count changes under it.
+  useEffect(() => {
+    if (open) setName((n) => n || `cluster-${raw.clusters.length + 1}`)
+  }, [open])
+
   const scope = useMemo(() => (scopeOn && tier >= 2 ? { ...emptyScope, namespaces: splitNames(inc), exclude: splitNames(exc), selector: sel } : emptyScope), [scopeOn, tier, inc, exc, sel])
   const problems = scopeProblems(scope)
   const max = Math.min(info?.implementedTier ?? 2, 2)
@@ -167,28 +173,28 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
           <Field label="Cluster name" hint="How it appears in Continuum. You can rename it later.">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="edge-patras" autoFocus />
           </Field>
-          <fieldset>
-            <legend className="mb-2 text-sm font-medium text-nb-300">What may the agent read?</legend>
-            <div className="space-y-2">
-              {LEVELS.filter((l) => l.tier <= max).map((l) => (
-                <label key={l.tier} className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 ${tier === l.tier ? 'border-accent/60 bg-accent-soft' : 'border-nb-850 bg-nb-925 hover:bg-nb-930'}`}>
-                  <input type="radio" name="tier" className="mt-1 accent-[var(--color-accent)]" checked={tier === l.tier} onChange={() => setTier(l.tier)} />
-                  <span>
-                    <span className="block text-sm font-medium text-white">{ACCESS_TIERS.find((t) => t.value === l.tier)?.label}</span>
-                    <span className="block text-sm text-nb-500">{l.help}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-nb-500">Always read-only. The agent can never read Secrets or ConfigMaps, or change anything in the cluster.</p>
-          </fieldset>
+          <p className="text-xs text-nb-500">Installs read-only at the recommended access level. It can never read Secrets or ConfigMaps, or change anything in the cluster — change what it may see under More options.</p>
           {max >= 1 && (
-            <details className="group rounded-lg border border-nb-850 bg-nb-925" data-testid="advanced-options" open={probe || flows || measure || scopeOn}>
+            <details className="group rounded-lg border border-nb-850 bg-nb-925" data-testid="advanced-options" open={tier !== 2 || probe || flows || measure || scopeOn}>
               <summary className="flex cursor-pointer select-none items-center gap-1.5 px-4 py-3 text-sm font-medium text-nb-300 marker:content-none">
                 <ChevronRight size={14} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
-                More options <span className="font-normal text-nb-500">(node probe, traffic observer, path measurements, namespace scope)</span>
+                More options <span className="font-normal text-nb-500">(access level, node probe, traffic observer, path measurements, namespace scope)</span>
               </summary>
-              <div className="space-y-2 border-t border-nb-850 p-3">
+              <div className="space-y-3 border-t border-nb-850 p-3">
+                <fieldset>
+                  <legend className="mb-2 text-sm font-medium text-nb-300">What may the agent read?</legend>
+                  <div className="space-y-2">
+                    {LEVELS.filter((l) => l.tier <= max).map((l) => (
+                      <label key={l.tier} className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 ${tier === l.tier ? 'border-accent/60 bg-accent-soft' : 'border-nb-850 bg-nb-925 hover:bg-nb-930'}`}>
+                        <input type="radio" name="tier" className="mt-1 accent-[var(--color-accent)]" checked={tier === l.tier} onChange={() => setTier(l.tier)} />
+                        <span>
+                          <span className="block text-sm font-medium text-white">{ACCESS_TIERS.find((t) => t.value === l.tier)?.label}</span>
+                          <span className="block text-sm text-nb-500">{l.help}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
                 <OptionToggle
                   testId="node-probe-toggle"
                   checked={probe}

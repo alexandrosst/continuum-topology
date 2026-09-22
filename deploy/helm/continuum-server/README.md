@@ -95,7 +95,7 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 | `agent.extraHosts` | `[]` | more certificate names |
 | `agent.port` | `8443` | agent listener in the pod |
 | `agent.service.type` | `LoadBalancer` | `LoadBalancer`, `NodePort`, `ClusterIP` |
-| `agent.service.port` / `nodePort` | `8443` / `null` | |
+| `agent.service.port` / `nodePort` | `8443` / `30443` | `nodePort` only applies when `agent.service.type=NodePort`; set it `null` to let Kubernetes choose instead |
 | `agent.service.externalTrafficPolicy` | `""` | `Local` keeps the agent's source address (used for geoip) |
 | `agent.service.annotations`, `loadBalancerIP`, `loadBalancerClass`, `loadBalancerSourceRanges` | empty | cloud load balancer tuning |
 | `agent.tlsRoute.enabled` / `apiVersion` / `parentRefs` / `hostnames` | `false` / `gateway.networking.k8s.io/v1alpha2` | Gateway API TLSRoute (passthrough) |

@@ -1,9 +1,9 @@
 # k3s / kind / a laptop: agents dial a node address on a NodePort; the UI is reached with kubectl port-forward.
+# nodePort is left unset on purpose here: agent.service.nodePort defaults to 30443, matching publicAddress below.
 agent:
   publicAddress: "192.0.2.10:30443"
   service:
     type: NodePort
-    nodePort: 30443
 admin:
   # No ingress here: the admin listener is plain HTTP and only ever reached through port-forward to localhost.
   behindTlsProxy: true

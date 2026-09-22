@@ -60,7 +60,7 @@ agent:
   service:
     type: LoadBalancer         # LoadBalancer | NodePort | ClusterIP (ClusterIP only together with agent.tlsRoute)
     port: 8443
-    nodePort: null             # NodePort only; null lets Kubernetes choose (30000-32767)
+    nodePort: 30443            # NodePort only; a fixed default so agent.publicAddress is known before installing (set null to let Kubernetes choose instead)
     annotations: {}            # e.g. service.beta.kubernetes.io/aws-load-balancer-type: nlb   (an NLB/L4 balancer, not an HTTP one)
     loadBalancerIP: ""         # deprecated upstream, still honoured by some clouds
     loadBalancerClass: ""

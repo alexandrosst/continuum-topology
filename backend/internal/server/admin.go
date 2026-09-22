@@ -899,6 +899,10 @@ func (a *Admin) createToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, map[string]any{"token": secret, "meta": toTokenDoc(t), "install": a.installCommand(a.images(a.core(r)), secret, t)})
 }
 
+// chartDefaultAccessTier mirrors continuum-agent/values.yaml's own access.tier default. Printing --set access.tier=N
+// when N is already what the chart defaults to would only make the common case's command longer for no reason.
+const chartDefaultAccessTier = 2
+
 // installCommand is what the operator runs on the cluster. The token appears here once, in the
 // response to its creation, and is never retrievable again.
 //
@@ -914,8 +918,11 @@ func (a *Admin) installCommand(img ImageConfig, secret string, t store.Token) st
 		version = " --version " + chart.Version() // a registry or repository holds many versions
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "helm install continuum-agent %s%s \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=%s \\\n  --set server.caPin=%s \\\n  --set access.tier=%d \\\n  --set enrollment.token=%s",
-		ref, version, a.AgentAddr, a.C.CA.Pin(), t.AccessTier, secret)
+	fmt.Fprintf(&b, "helm install continuum-agent %s%s \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=%s \\\n  --set server.caPin=%s \\\n  --set enrollment.token=%s",
+		ref, version, a.AgentAddr, a.C.CA.Pin(), secret)
+	if t.AccessTier != chartDefaultAccessTier {
+		fmt.Fprintf(&b, " \\\n  --set access.tier=%d", t.AccessTier)
+	}
 	if img.Configured() {
 		fmt.Fprintf(&b, " \\\n  --set image.repository=%s/continuum", img.Registry)
 		if img.Tag != "" {

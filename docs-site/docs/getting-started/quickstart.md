@@ -26,7 +26,6 @@ Replace `NODE_IP` with the address from the previous step:
 helm install continuum oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --create-namespace \
   --set agent.service.type=NodePort \
-  --set agent.service.nodePort=30443 \
   --set agent.publicAddress=NODE_IP:30443
 ```
 

@@ -73,7 +73,7 @@ NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="
 
 helm install continuum-server deploy/helm/continuum-server -n continuum --create-namespace \
   --set image.repository=REGISTRY/server \
-  --set agent.publicAddress=$NODE_IP:30443 --set agent.service.type=NodePort --set agent.service.nodePort=30443
+  --set agent.publicAddress=$NODE_IP:30443 --set agent.service.type=NodePort
 
 kubectl -n continuum logs deployment/continuum-server | grep -A2 'First start'   # the one-time admin password
 
