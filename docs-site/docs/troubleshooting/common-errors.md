@@ -6,24 +6,7 @@ description: The handful of mistakes that are easy to make once, and the exact f
 
 # Common errors
 
-## `Error: INSTALLATION FAILED: Could not locate a version matching provided version string`
-
-You ran `helm install` without `--version`, and there is no **stable** chart version published yet — only pre-release ones. Every push to `main` (without a tag) publishes the chart as `0.0.0-edge.<commit-sha>`; the `-edge` part makes it a semver pre-release, and Helm's rule for "no version given" is "the newest **stable** version," which skips pre-releases entirely.
-
-**Fix:** cut a real release tag and use it explicitly:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-# wait for the Release workflow to finish, then:
-helm install continuum oci://ghcr.io/YOUR-GITHUB-USERNAME/continuum-server --version 0.1.0 ...
-```
-
-Every later deploy just needs a new tag and a matching `--version`.
-
-## `Error: ... 403 Forbidden` / `unauthorized` pulling an image or chart
-
-GitHub creates GHCR packages as **private** the very first time your release workflow runs — even in a public repository. Open your repo's page, find **Packages** in the right sidebar, and for each of `continuum`, `server`, `continuum-agent` and `continuum-server`: **Package settings** → **Change visibility** → **Public**. This is a one-time step; every later push publishes into the same, already-public packages.
+These are errors you can hit while deploying and running the server or an agent. If you're setting up this repository's own releases or GitHub Pages rather than deploying the product, see [Release process](../contributing/release-process.md) instead — a couple of one-time repository settings live there.
 
 ## `agent.publicAddress is required: ...`
 

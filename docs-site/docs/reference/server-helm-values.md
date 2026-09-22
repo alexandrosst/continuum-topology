@@ -13,4 +13,4 @@ A rendered, searchable table is planned here. Until then, [`deploy/helm/continuu
 - `agent.publicAddress` — see [Quickstart](../getting-started/quickstart.md) and the [`agent.publicAddress is required`](../troubleshooting/common-errors.md#agentpublicaddress-is-required-) error.
 - `agent.service.type` / `agent.ingress` — see [Exposing the agent port](../architecture/exposure-options.md).
 
-`helm show values oci://ghcr.io/YOUR-GITHUB-USERNAME/continuum-server --version 0.1.0` also prints the whole file, with its comments, straight from whatever version you're about to install.
+`helm show values oci://ghcr.io/alexandrosst/continuum-server` also prints the whole file, with its comments, straight from whatever version you're about to install (add `--version X.Y.Z` to see a specific one).

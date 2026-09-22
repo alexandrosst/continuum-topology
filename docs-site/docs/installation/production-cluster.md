@@ -6,7 +6,11 @@ description: Exposing the server properly on a managed cloud cluster, with a rea
 
 # Production cluster
 
-This builds on the [Quickstart](../getting-started/quickstart.md) — same chart, same release tag, but exposed the way you'd actually want it running for more than a trial: a real DNS name for agents to dial, a load balancer instead of a bare node IP, and the UI behind a proper TLS-terminating Ingress instead of `kubectl port-forward`.
+This builds on the [Quickstart](../getting-started/quickstart.md) — same chart, but exposed the way you'd actually want it running for more than a trial: a real DNS name for agents to dial, a load balancer instead of a bare node IP, and the UI behind a proper TLS-terminating Ingress instead of `kubectl port-forward`.
+
+:::tip[Pinning a version]
+The commands below install the newest release, same as the Quickstart. For a production rollout you'll usually want a reproducible, pinned version instead — add `--version X.Y.Z` to each command below (see the [Releases page](https://github.com/alexandrosst/continuum-topology/releases)), and use the same pinned version for the install and every upgrade that follows.
+:::
 
 ## The two-step address problem
 
@@ -15,7 +19,7 @@ This builds on the [Quickstart](../getting-started/quickstart.md) — same chart
 **Install once**, with a placeholder address (the chart just needs something shaped like `host:port` — it doesn't have to resolve yet):
 
 ```bash
-helm install continuum oci://ghcr.io/YOUR-GITHUB-USERNAME/continuum-server --version 0.1.0 \
+helm install continuum oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --create-namespace \
   --set agent.publicAddress=pending.example.com:8443
 ```
@@ -31,7 +35,7 @@ Once `EXTERNAL-IP` is no longer `<pending>`, point your real DNS name at it (an 
 **Upgrade with the real address:**
 
 ```bash
-helm upgrade continuum oci://ghcr.io/YOUR-GITHUB-USERNAME/continuum-server --version 0.1.0 \
+helm upgrade continuum oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --reuse-values \
   --set agent.publicAddress=continuum.example.com:8443
 ```
@@ -43,7 +47,7 @@ Changing this issues the server a new certificate, but it doesn't break anything
 Instead of `port-forward`, put the admin port behind a real Ingress with TLS. With an ingress controller and cert-manager already installed:
 
 ```bash
-helm upgrade continuum oci://ghcr.io/YOUR-GITHUB-USERNAME/continuum-server --version 0.1.0 \
+helm upgrade continuum oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --reuse-values \
   --set ui.ingress.enabled=true \
   --set ui.ingress.className=nginx \
