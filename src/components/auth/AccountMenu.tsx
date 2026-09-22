@@ -1,7 +1,7 @@
-import { ChevronsUpDown, KeyRound, LogOut, Plus, ScrollText, Ticket, Users } from 'lucide-react'
+import { ChevronsUpDown, KeyRound, LogOut, Plus, ScrollText, ShieldCheck, Ticket, Users } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { Button, ErrorBanner, Field, Input, Modal, Select } from '@/components/ui/primitives'
+import { Button, CopyButton, ErrorBanner, Field, Input, Modal, Select } from '@/components/ui/primitives'
 import { atLeast, ROLE_LABEL } from '@/lib/api'
 import { useServer } from '@/store/server'
 import { useWorkspace, type SyncStatus } from '@/store/workspace'
@@ -63,6 +63,129 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
           {error && <ErrorBanner>{error}</ErrorBanner>}
         </form>
       )}
+    </Modal>
+  )
+}
+
+/** Turning two-factor authentication on: generate a secret, confirm one code from it, show the recovery codes once. */
+function TwoFactorSetupModal({ onClose }: { onClose: () => void }) {
+  const { setupTwoFactor, enableTwoFactor, error } = useServer()
+  const [step, setStep] = useState<'loading' | 'confirm' | 'recovery'>('loading')
+  const [secret, setSecret] = useState('')
+  const [otpauthUrl, setOtpauthUrl] = useState('')
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [codes, setCodes] = useState<string[]>([])
+
+  useEffect(() => {
+    void setupTwoFactor().then((r) => {
+      if (r) {
+        setSecret(r.secret)
+        setOtpauthUrl(r.otpauthUrl)
+        setStep('confirm')
+      }
+    })
+  }, [setupTwoFactor])
+
+  const submit = async () => {
+    setBusy(true)
+    const recovery = await enableTwoFactor(code)
+    setBusy(false)
+    if (recovery) {
+      setCodes(recovery)
+      setStep('recovery')
+    } else {
+      setCode('')
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Two-factor authentication"
+      width="max-w-md"
+      footer={
+        step === 'recovery' ? (
+          <Button variant="primary" onClick={onClose}>Done</Button>
+        ) : (
+          <>
+            <Button onClick={onClose}>Cancel</Button>
+            {step === 'confirm' && (
+              <Button variant="primary" onClick={submit} disabled={busy || code.trim().length !== 6}>
+                {busy ? 'Checking…' : 'Turn on'}
+              </Button>
+            )}
+          </>
+        )
+      }
+    >
+      {step === 'loading' && <p className="text-sm text-nb-500">Generating a secret…</p>}
+      {step === 'confirm' && (
+        <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (code.trim().length === 6) void submit() }}>
+          <p className="text-sm text-nb-400">Add this key to an authenticator app (Google Authenticator, 1Password, Authy, …), then enter the 6-digit code it shows.</p>
+          <Field label="Secret key">
+            <div className="flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded-md border border-nb-800 bg-nb-925 px-3 py-2 text-sm text-nb-200" data-testid="totp-secret">{secret}</code>
+              <CopyButton text={secret} />
+            </div>
+          </Field>
+          <details className="text-xs text-nb-500">
+            <summary className="cursor-pointer select-none">Or use a setup link</summary>
+            <div className="mt-2 flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded-md border border-nb-800 bg-nb-925 px-3 py-2 text-[11px] text-nb-400">{otpauthUrl}</code>
+              <CopyButton text={otpauthUrl} />
+            </div>
+          </details>
+          <Field label="Code from the app">
+            <Input value={code} onChange={(e) => setCode(e.target.value)} autoFocus inputMode="numeric" autoComplete="one-time-code" placeholder="123456" data-testid="totp-code" />
+          </Field>
+          {error && <ErrorBanner>{error}</ErrorBanner>}
+        </form>
+      )}
+      {step === 'recovery' && (
+        <div className="space-y-4">
+          <p className="text-sm text-emerald-300">Two-factor authentication is on.</p>
+          <p className="text-sm text-nb-400">
+            Save these recovery codes somewhere safe. Each works once, in place of a code from your app, if you ever lose access to it. They will not be shown again.
+          </p>
+          <div className="grid grid-cols-2 gap-1.5 rounded-md border border-nb-800 bg-nb-925 p-3 font-mono text-sm text-nb-200" data-testid="recovery-codes">
+            {codes.map((c) => <div key={c}>{c}</div>)}
+          </div>
+          <CopyButton text={codes.join('\n')} label="Copy all" />
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+/** Turning two-factor authentication off: needs the current password, the same as changing it. */
+function TwoFactorDisableModal({ onClose }: { onClose: () => void }) {
+  const { disableTwoFactor, error } = useServer()
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const submit = async () => {
+    setBusy(true)
+    const ok = await disableTwoFactor(password)
+    setBusy(false)
+    if (ok) onClose()
+    else setPassword('')
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Turn off two-factor authentication"
+      description="Your account will only need a password to sign in from then on."
+      width="max-w-md"
+      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit} disabled={busy || !password}>{busy ? 'Turning off…' : 'Turn off'}</Button></>}
+    >
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (password) void submit() }}>
+        <Field label="Current password"><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus /></Field>
+        {error && <ErrorBanner>{error}</ErrorBanner>}
+      </form>
     </Modal>
   )
 }
@@ -136,6 +259,7 @@ export default function AccountMenu() {
   const selectOrg = useServer((s) => s.selectOrg)
   const sync = useWorkspace((s) => s.status)
   const [pw, setPw] = useState(false)
+  const [twoFA, setTwoFA] = useState(false)
   const [newOrg, setNewOrg] = useState(false)
   const [join, setJoin] = useState(false)
   const [open, setOpen] = useState(false)
@@ -196,6 +320,9 @@ export default function AccountMenu() {
             <button onClick={pick(() => setJoin(true))} className={item} role="menuitem" data-testid="join-open"><Ticket size={15} className="text-nb-500" /> Join with a code</button>
             <div className="my-1 border-t border-nb-850" />
             <button onClick={pick(() => setPw(true))} className={item} role="menuitem"><KeyRound size={15} className="text-nb-500" /> Change password</button>
+            <button onClick={pick(() => setTwoFA(true))} className={item} role="menuitem" data-testid="two-factor-open">
+              <ShieldCheck size={15} className="text-nb-500" /> {user.twoFactorEnabled ? 'Two-factor authentication (on)' : 'Turn on two-factor authentication'}
+            </button>
             <button onClick={pick(() => void signOut())} className={item} role="menuitem" data-testid="sign-out"><LogOut size={15} className="text-nb-500" /> Sign out</button>
           </div>
         </>
@@ -229,6 +356,7 @@ export default function AccountMenu() {
         {label.text && <div className={`mt-2 px-1 text-[11px] ${label.tone}`} role="status" data-testid="sync-status">{label.text}</div>}
       </div>
       {pw && <ChangePasswordModal onClose={() => setPw(false)} />}
+      {twoFA && (user.twoFactorEnabled ? <TwoFactorDisableModal onClose={() => setTwoFA(false)} /> : <TwoFactorSetupModal onClose={() => setTwoFA(false)} />)}
       {newOrg && <NewOrgModal onClose={() => setNewOrg(false)} />}
       {join && <JoinModal onClose={() => setJoin(false)} />}
     </div>

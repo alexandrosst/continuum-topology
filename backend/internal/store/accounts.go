@@ -3,26 +3,45 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 )
 
 // ---- users ----
 
-const userCols = `id, username, password_hash, must_change, created_at, disabled_at, last_login`
+const userCols = `id, username, password_hash, must_change, created_at, disabled_at, last_login, totp_secret, totp_enabled_at, totp_recovery`
+
+// totpRecoveryJSON encodes/decodes User.TOTPRecovery as a JSON array; a blank or unparsable column (an
+// older row, or one never touched) reads back as no codes rather than an error.
+func totpRecoveryJSON(codes []string) string {
+	if len(codes) == 0 {
+		return "[]"
+	}
+	b, _ := json.Marshal(codes)
+	return string(b)
+}
+func parseTOTPRecovery(s string) []string {
+	var codes []string
+	_ = json.Unmarshal([]byte(s), &codes)
+	return codes
+}
 
 func scanUser(r scanner) (User, error) {
 	var u User
 	var mc int
 	var created int64
-	var dis, last sql.NullInt64
-	if err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &mc, &created, &dis, &last); err != nil {
+	var dis, last, enabledAt sql.NullInt64
+	var recovery string
+	if err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &mc, &created, &dis, &last, &u.TOTPSecret, &enabledAt, &recovery); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return User{}, ErrNotFound
 		}
 		return User{}, err
 	}
 	u.MustChange, u.CreatedAt, u.DisabledAt, u.LastLogin = mc != 0, fromMS(created), fromNullMS(dis), fromNullMS(last)
+	u.TOTPEnabledAt = fromNullMS(enabledAt)
+	u.TOTPRecovery = parseTOTPRecovery(recovery)
 	return u, nil
 }
 
@@ -35,6 +54,19 @@ func (s *SQLite) CreateUser(ctx context.Context, u User) error {
 		return ErrExists
 	}
 	return err
+}
+
+// SetTOTP is documented on the Store interface.
+func (s *SQLite) SetTOTP(ctx context.Context, id, secret string, enabledAt *time.Time, recovery []string) error {
+	var v any
+	if enabledAt != nil {
+		v = ms(*enabledAt)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET totp_secret=?, totp_enabled_at=?, totp_recovery=? WHERE id=?`, secret, v, totpRecoveryJSON(recovery), id)
+	if err != nil {
+		return err
+	}
+	return needFound(res)
 }
 
 func (s *SQLite) GetUser(ctx context.Context, id string) (User, error) {

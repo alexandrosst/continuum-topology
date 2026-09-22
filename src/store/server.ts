@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
-import { api, ApiError, atLeast, probe, type Conn, type InvitePreview, type OrgRef, type Registration, type Role, type ServerInfo, type Session, type User } from '@/lib/api'
+import { api, ApiError, atLeast, probe, twoFactorPending, type Conn, type InvitePreview, type OrgRef, type Registration, type Role, type ServerInfo, type Session, type User } from '@/lib/api'
 import { mergeDiscovered, type ServerState } from '@/lib/discovered'
 import { useHistoryView } from './history'
 import { useObserved } from './observed'
@@ -39,6 +39,7 @@ export type ServerStatus =
   | 'disconnected' // no server in use: the app works on this browser's own copy
   | 'connecting'
   | 'signin' // a server answered and wants credentials
+  | 'twofactor' // the password was right; a code from an authenticator app (or a recovery code) finishes it
   | 'connected' // signed in
   | 'error' // could not reach a server at that address
 
@@ -60,9 +61,15 @@ interface ServerStore {
   state?: ServerState
   /** True once the page has asked whether a server is around, so the UI does not flash the wrong screen. */
   checked: boolean
+  /** Set while status is 'twofactor': the token verifyTwoFactor must send back with the code. */
+  pendingLogin?: string
 
   connect: (url: string) => Promise<boolean>
   signIn: (username: string, password: string) => Promise<boolean>
+  /** Finishes a sign-in that stopped at status 'twofactor': code is a 6-digit authenticator code or a recovery code. */
+  verifyTwoFactor: (code: string) => Promise<boolean>
+  /** Abandons a pending two-factor sign-in and goes back to the sign-in form. */
+  cancelTwoFactor: () => void
   register: (username: string, password: string, orgName: string, invite?: string) => Promise<boolean>
   signOut: () => Promise<void>
   /** Switch to another of the person's organisations (or, with undefined, to none). */
@@ -74,6 +81,12 @@ interface ServerStore {
   reloadOrgs: (prefer?: string) => Promise<void>
   setInvite: (token: string | undefined) => Promise<void>
   changePassword: (current: string, next: string) => Promise<boolean>
+  /** Starts turning on two-factor authentication: a fresh secret and its otpauth:// URI, or undefined on failure (see `error`). */
+  setupTwoFactor: () => Promise<{ secret: string; otpauthUrl: string } | undefined>
+  /** Confirms the setup with one code from it; resolves to this account's one-time recovery codes, or undefined on failure. */
+  enableTwoFactor: (code: string) => Promise<string[] | undefined>
+  /** Turns two-factor authentication off; needs the current password. */
+  disableTwoFactor: (password: string) => Promise<boolean>
   /** Stop using the server without signing out (its session stays valid); the browser keeps working alone. */
   disconnect: () => void
   refresh: () => Promise<void>
@@ -168,7 +181,7 @@ export const useServer = create<ServerStore>((set, get) => {
 
     connect: async (url) => {
       const c = { url: url.trim() }
-      set({ status: 'connecting', error: undefined })
+      set({ status: 'connecting', error: undefined, pendingLogin: undefined })
       const found = await probe(c)
       if (found === 'none') {
         set({ status: 'error', error: `No Continuum server answered at ${c.url || 'this address'}. Check the address and that it is running.`, checked: true })
@@ -205,14 +218,37 @@ export const useServer = create<ServerStore>((set, get) => {
 
     signIn: async (username, password) => {
       const c = { url: get().url }
-      set({ error: undefined })
+      set({ error: undefined, pendingLogin: undefined })
       try {
         await enter(await api.login(c, username.trim(), password))
         return true
       } catch (e) {
+        if (twoFactorPending(e)) {
+          set({ pendingLogin: e.body.pending, status: 'twofactor' })
+          return false
+        }
         set({ error: messageOf(e), status: get().status === 'connected' ? 'connected' : 'signin' })
         return false
       }
+    },
+
+    verifyTwoFactor: async (code) => {
+      const pending = get().pendingLogin
+      if (!pending) return false
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        await enter(await api.login2FA(c, pending, code.trim()))
+        set({ pendingLogin: undefined })
+        return true
+      } catch (e) {
+        set({ error: messageOf(e) })
+        return false
+      }
+    },
+
+    cancelTwoFactor: () => {
+      set({ pendingLogin: undefined, error: undefined, status: 'signin' })
     },
 
     register: async (username, password, orgName, invite) => {
@@ -295,7 +331,7 @@ export const useServer = create<ServerStore>((set, get) => {
       wipeLocal()
       write(OWNER_KEY, '')
       forgetPending()
-      set({ status: 'signin', user: undefined, orgs: [], orgId: undefined, role: undefined, state: undefined, info: undefined, error: undefined })
+      set({ status: 'signin', user: undefined, orgs: [], orgId: undefined, role: undefined, state: undefined, info: undefined, error: undefined, pendingLogin: undefined })
     },
 
     changePassword: async (current, next) => {
@@ -310,13 +346,50 @@ export const useServer = create<ServerStore>((set, get) => {
       }
     },
 
+    setupTwoFactor: async () => {
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        return await api.setup2FA(c)
+      } catch (e) {
+        set({ error: messageOf(e) })
+        return undefined
+      }
+    },
+
+    enableTwoFactor: async (code) => {
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        const { recoveryCodes } = await api.enable2FA(c, code.trim())
+        set((s) => (s.user ? { user: { ...s.user, twoFactorEnabled: true } } : {}))
+        return recoveryCodes
+      } catch (e) {
+        set({ error: messageOf(e) })
+        return undefined
+      }
+    },
+
+    disableTwoFactor: async (password) => {
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        const session = await api.disable2FA(c, password)
+        set({ user: session.user })
+        return true
+      } catch (e) {
+        set({ error: messageOf(e) })
+        return false
+      }
+    },
+
     disconnect: () => {
       void leave(true).then(forgetPending)
       write(URL_KEY, '')
       useObserved.getState().clear()
       useHistoryView.getState().live()
       useSettings.getState().clear()
-      set({ url: '', status: 'disconnected', user: undefined, orgs: [], orgId: undefined, role: undefined, state: undefined, info: undefined, error: undefined })
+      set({ url: '', status: 'disconnected', user: undefined, orgs: [], orgId: undefined, role: undefined, state: undefined, info: undefined, error: undefined, pendingLogin: undefined })
     },
 
     reloadInfo: async () => {

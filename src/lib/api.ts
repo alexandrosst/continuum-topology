@@ -13,6 +13,12 @@ export class ApiError extends Error {
   }
 }
 
+/** True when `login` stopped short of a session because the account also needs a two-factor code: `pending`
+ *  is what `login2FA` must be called with next. */
+export function twoFactorPending(err: unknown): err is ApiError & { body: { pending: string } } {
+  return err instanceof ApiError && typeof err.body?.pending === 'string'
+}
+
 export interface ServerInfo {
   orgId: string
   orgName: string
@@ -72,6 +78,7 @@ export interface User {
   mustChangePassword: boolean
   createdAt: string
   lastLogin?: string
+  twoFactorEnabled: boolean
 }
 
 export interface OrgRef {
@@ -223,10 +230,19 @@ export const api = {
   serverInfo: (c: Conn) => call<{ registration: Registration; version: string }>(c, 'GET', '/api/v1/server'),
   me: (c: Conn) => call<Session>(c, 'GET', '/api/v1/auth/me'),
   login: (c: Conn, username: string, password: string) => call<Session>(c, 'POST', '/api/v1/auth/login', { username, password }),
+  // Called after `login` throws with `twoFactorPending(err)` true, with the code from an authenticator app
+  // (or one of the account's recovery codes) and the `pending` token that error carried.
+  login2FA: (c: Conn, pending: string, code: string) => call<Session>(c, 'POST', '/api/v1/auth/login/2fa', { pending, code }),
   register: (c: Conn, username: string, password: string, opts: { org?: string; invite?: string } = {}) =>
     call<Session>(c, 'POST', '/api/v1/auth/register', { username, password, ...(opts.org ? { org: opts.org } : {}), ...(opts.invite ? { invite: opts.invite } : {}) }),
   logout: (c: Conn) => call<void>(c, 'POST', '/api/v1/auth/logout'),
   changePassword: (c: Conn, current: string, next: string) => call<Session>(c, 'POST', '/api/v1/auth/password', { current, new: next }),
+  // Two-factor authentication (TOTP): setup2FA hands back a fresh secret (and its otpauth:// URI, for a
+  // copyable key rather than a QR code) that isn't active until enable2FA confirms one code from it - at
+  // which point it returns this account's one-time recovery codes. disable2FA needs the current password.
+  setup2FA: (c: Conn) => call<{ secret: string; otpauthUrl: string }>(c, 'POST', '/api/v1/auth/2fa/setup'),
+  enable2FA: (c: Conn, code: string) => call<{ recoveryCodes: string[] }>(c, 'POST', '/api/v1/auth/2fa/enable', { code }),
+  disable2FA: (c: Conn, password: string) => call<Session>(c, 'POST', '/api/v1/auth/2fa/disable', { password }),
 
   // organisations, members, invitations
   orgs: (c: Conn) => call<OrgRef[]>(c, 'GET', '/api/v1/orgs'),

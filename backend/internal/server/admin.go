@@ -109,11 +109,15 @@ func (a *Admin) Handler() http.Handler {
 	route := func(pattern string, n need, h http.HandlerFunc) { api.Handle(pattern, a.guard(n, h)) }
 	api.HandleFunc("GET /api/v1/server", a.serverInfo)
 	api.HandleFunc("POST /api/v1/auth/login", a.login)
+	api.HandleFunc("POST /api/v1/auth/login/2fa", a.login2FA)
 	api.HandleFunc("POST /api/v1/auth/register", a.register)
 	api.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	api.HandleFunc("POST /api/v1/invites/preview", a.previewInvite)
 	route("GET /api/v1/auth/me", anySession, a.me)
 	route("POST /api/v1/auth/password", anySession, a.changePassword)
+	route("POST /api/v1/auth/2fa/setup", anySession, a.setup2FA)
+	route("POST /api/v1/auth/2fa/enable", anySession, a.enable2FA)
+	route("POST /api/v1/auth/2fa/disable", anySession, a.disable2FA)
 	route("GET /api/v1/orgs", settled, a.listOrgs)
 	route("POST /api/v1/orgs", settled, a.createOrg)
 	route("POST /api/v1/invites/accept", settled, a.acceptInvite)
@@ -364,7 +368,7 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 func (a *Admin) fail(w http.ResponseWriter, err error) {
 	var e *Error
 	if errors.As(err, &e) {
-		code := map[Kind]int{KindInvalid: 400, KindUnauthenticated: 401, KindNotFound: 404, KindConflict: 409, KindRateLimited: 429, KindInternal: 500, KindForbidden: 403}[e.Kind]
+		code := map[Kind]int{KindInvalid: 400, KindUnauthenticated: 401, KindNotFound: 404, KindConflict: 409, KindRateLimited: 429, KindInternal: 500, KindForbidden: 403, KindTwoFactorRequired: 401}[e.Kind]
 		if len(e.Data) > 0 {
 			out := map[string]any{"error": e.Msg}
 			for k, v := range e.Data {
@@ -397,10 +401,14 @@ type userDoc struct {
 	MustChangePassword bool   `json:"mustChangePassword"`
 	CreatedAt          string `json:"createdAt"`
 	LastLogin          string `json:"lastLogin,omitempty"`
+	TwoFactorEnabled   bool   `json:"twoFactorEnabled"`
 }
 
 func toUserDoc(u store.User) userDoc {
-	return userDoc{ID: u.ID, Username: u.Username, MustChangePassword: u.MustChange, CreatedAt: rfc(u.CreatedAt), LastLogin: rfcp(u.LastLogin)}
+	return userDoc{
+		ID: u.ID, Username: u.Username, MustChangePassword: u.MustChange, CreatedAt: rfc(u.CreatedAt), LastLogin: rfcp(u.LastLogin),
+		TwoFactorEnabled: u.TOTPEnabledAt != nil,
+	}
 }
 
 type orgDoc struct {
@@ -509,6 +517,29 @@ func (a *Admin) login(w http.ResponseWriter, r *http.Request) {
 	}
 	secret, u, err := a.C.Login(r.Context(), a.clientIP(r), req.Username, req.Password)
 	if err != nil {
+		// A password that checks out but needs a TOTP code next comes back as an ordinary error (a
+		// KindTwoFactorRequired one, its "pending" token merged into this same JSON body by a.fail) rather
+		// than a special-cased response: the UI tells it apart from a wrong password by that field.
+		a.fail(w, err)
+		return
+	}
+	a.setCookie(w, r, secret, int(SessionMax.Seconds()))
+	writeJSON(w, 200, a.session(r.Context(), u))
+}
+
+// login2FA finishes a sign-in login left pending on a two-factor code.
+func (a *Admin) login2FA(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	var req struct {
+		Pending string `json:"pending"`
+		Code    string `json:"code"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	secret, u, err := a.C.Login2FA(r.Context(), a.clientIP(r), req.Pending, req.Code)
+	if err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -561,6 +592,52 @@ func (a *Admin) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.C.ChangePassword(r.Context(), principal(r), req.Current, req.New); err != nil {
+		a.fail(w, err)
+		return
+	}
+	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
+	writeJSON(w, 200, a.session(r.Context(), u))
+}
+
+// setup2FA starts turning two-factor authentication on: it returns the fresh secret and the otpauth://
+// URI for it, shown as text and a copyable key rather than a QR code (every authenticator app also
+// accepts typing a secret in by hand).
+func (a *Admin) setup2FA(w http.ResponseWriter, r *http.Request) {
+	secret, uri, err := a.C.Setup2FA(r.Context(), principal(r))
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"secret": secret, "otpauthUrl": uri})
+}
+
+// enable2FA confirms a setup with one code from it, turns two-factor authentication on, and hands back
+// this account's recovery codes - shown once, since only their hashes are kept from here on.
+func (a *Admin) enable2FA(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	codes, err := a.C.Enable2FA(r.Context(), principal(r), req.Code)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"recoveryCodes": codes})
+}
+
+func (a *Admin) disable2FA(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	if err := a.C.Disable2FA(r.Context(), principal(r), req.Password); err != nil {
 		a.fail(w, err)
 		return
 	}

@@ -43,6 +43,7 @@ func toStatus(err error) error {
 	code := map[Kind]codes.Code{
 		KindInvalid: codes.InvalidArgument, KindUnauthenticated: codes.Unauthenticated, KindNotFound: codes.NotFound,
 		KindConflict: codes.FailedPrecondition, KindRateLimited: codes.ResourceExhausted, KindInternal: codes.Internal, KindForbidden: codes.PermissionDenied,
+		KindTwoFactorRequired: codes.Unauthenticated, // never actually reached over gRPC (agents don't sign in), kept correct for safety
 	}[e.Kind]
 	return status.Error(code, e.Msg)
 }

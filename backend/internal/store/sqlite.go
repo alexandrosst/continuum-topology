@@ -72,6 +72,9 @@ CREATE TABLE IF NOT EXISTS users (
   must_change INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   disabled_at INTEGER,
+  totp_secret TEXT NOT NULL DEFAULT '',
+  totp_enabled_at INTEGER,
+  totp_recovery TEXT NOT NULL DEFAULT '[]',
   last_login INTEGER
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_name ON users(org_id, lower(username));
@@ -194,6 +197,10 @@ func OpenSQLite(path string) (*SQLite, error) {
 	if err := migrateTwin(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("upgrading to the twin model: %w", err)
+	}
+	if err := migrateTOTP(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("upgrading to two-factor accounts: %w", err)
 	}
 	return &SQLite{db: db}, nil
 }

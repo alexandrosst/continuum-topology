@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { Check, CheckCircle2, ChevronRight, Loader2, Pin, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button, ErrorBanner, Field, InfoTip, Input, Modal } from '@/components/ui/primitives'
+import { Button, CopyButton, ErrorBanner, Field, InfoTip, Input, Modal } from '@/components/ui/primitives'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError, type CreatedToken } from '@/lib/api'
 import { discoveryStatus, extrasOf } from '@/lib/consent'
@@ -11,7 +11,7 @@ import { emptyScope, scopeActive, scopeProblems, splitNames, withFlowObserver, w
 import type { AccessTier } from '@/lib/types'
 import { useServer } from '@/store/server'
 import { useRawTopology } from '@/store/topology'
-import ApprovalCard, { CopyButton } from './ApprovalCard'
+import ApprovalCard from './ApprovalCard'
 
 /** Where Settings → Installation lives. Inside the wizard's token step it opens in a new tab, so the command (shown once) is not lost. */
 function SettingsLink({ onNavigate, newTab }: { onNavigate?: () => void; newTab?: boolean }) {

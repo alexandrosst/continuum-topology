@@ -1,6 +1,6 @@
-import { ChevronRight, Copy, KeyRound, ShieldCheck, ShieldX } from 'lucide-react'
+import { ChevronRight, KeyRound, ShieldCheck, ShieldX } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Button, ErrorBanner, Input, Pill } from '@/components/ui/primitives'
+import { Button, CopyButton, ErrorBanner, Input, Pill } from '@/components/ui/primitives'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError } from '@/lib/api'
 import { CODE_LOG_COMMAND, cleanCode, codeComplete, formatCode, fromPaste } from '@/lib/approvalCode'
@@ -10,31 +10,6 @@ import { useApprovalLocks } from '@/store/approvalLocks'
 import { useServer } from '@/store/server'
 
 export const KUBECTL_UID = "kubectl get namespace kube-system -o jsonpath='{.metadata.uid}'"
-
-export async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    return false
-  }
-}
-
-export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
-  const [done, setDone] = useState(false)
-  return (
-    <Button
-      size="sm"
-      className="whitespace-nowrap"
-      onClick={async () => {
-        setDone(await copyText(text))
-        setTimeout(() => setDone(false), 1500)
-      }}
-    >
-      <Copy size={12} /> {done ? 'Copied' : label}
-    </Button>
-  )
-}
 
 /** "in 23 h", "in 40 min", for when a waiting request runs out. */
 function expiresIn(iso?: string, now = Date.now()): string | undefined {

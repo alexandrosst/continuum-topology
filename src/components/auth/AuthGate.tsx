@@ -92,6 +92,51 @@ function SignInScreen({ onRegister }: { onRegister: () => void }) {
   )
 }
 
+/** Shown after a correct password when the account also has two-factor authentication on. */
+function TwoFactorScreen() {
+  const { error, verifyTwoFactor, cancelTwoFactor } = useServer()
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const submit = async () => {
+    setBusy(true)
+    const ok = await verifyTwoFactor(code)
+    setBusy(false)
+    if (!ok) setCode('')
+  }
+
+  return (
+    <Shell title="Enter your code" description="Open your authenticator app, or use one of your recovery codes if you no longer have it.">
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void submit()
+        }}
+      >
+        <Field label="Code">
+          <Input
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            autoFocus
+            autoComplete="one-time-code"
+            inputMode="numeric"
+            placeholder="123456"
+            data-testid="totp-code"
+          />
+        </Field>
+        <ErrorLine text={error} />
+        <Button type="submit" variant="primary" className="w-full" disabled={busy || !code.trim()}>
+          {busy ? 'Checking…' : 'Continue'}
+        </Button>
+      </form>
+      <button onClick={cancelTwoFactor} className="mt-4 w-full text-center text-xs text-nb-500 hover:text-nb-300">
+        Back to sign in
+      </button>
+    </Shell>
+  )
+}
+
 function RegisterScreen({ onBack }: { onBack: () => void }) {
   const { url, error, register, invite } = useServer()
   const [username, setUsername] = useState('')
@@ -258,6 +303,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
 
   if (!checked) return <div className="min-h-full bg-nb-900" aria-busy="true" />
   if (status === 'signin') return registering ? <RegisterScreen onBack={() => setRegistering(false)} /> : <SignInScreen onRegister={() => setRegistering(true)} />
+  if (status === 'twofactor') return <TwoFactorScreen />
   if (status === 'connected' && mustChange) return <ChangePasswordScreen />
   if (status === 'connected' && !hasOrg) return <NoOrganisationScreen />
   return <>{children}</>

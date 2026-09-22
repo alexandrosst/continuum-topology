@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Check, ChevronDown, Minus, X } from 'lucide-react'
+import { Check, ChevronDown, Copy, Minus, X } from 'lucide-react'
 import {
   Children, isValidElement, useEffect, useId, useRef, useState,
   type ButtonHTMLAttributes, type ChangeEvent, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type SelectHTMLAttributes,
@@ -19,6 +19,32 @@ export function Button({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: 'sm' | 'md' }) {
   return <button {...props} className={buttonClass(variant, size, className)} />
+}
+
+/* ---------- Copy to clipboard ---------- */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const [done, setDone] = useState(false)
+  return (
+    <Button
+      size="sm"
+      className="whitespace-nowrap"
+      onClick={async () => {
+        setDone(await copyText(text))
+        setTimeout(() => setDone(false), 1500)
+      }}
+    >
+      <Copy size={12} /> {done ? 'Copied' : label}
+    </Button>
+  )
 }
 
 /* ---------- Form controls ---------- */

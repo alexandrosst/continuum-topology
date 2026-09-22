@@ -107,6 +107,15 @@ type User struct {
 	CreatedAt    time.Time
 	DisabledAt   *time.Time
 	LastLogin    *time.Time
+	// TOTPSecret is base32, in the clear (same trust boundary as everything else in this database: an
+	// argon2id hash cannot stand in for it, since a login must reproduce and compare a live code from it).
+	// Set the moment "set up 2FA" is asked for; TOTPEnabledAt stays nil until a code confirms it works, so a
+	// half-finished setup never blocks sign-in.
+	TOTPSecret    string
+	TOTPEnabledAt *time.Time
+	// TOTPRecovery holds SHA-256 hashes of unused one-time recovery codes (HashSecret, hex-encoded); each is
+	// removed the moment it is spent. Empty once 2FA is off.
+	TOTPRecovery []string
 }
 
 // Org is a tenant: one private topology with its own agents, history, settings and members.
@@ -247,6 +256,12 @@ type Store interface {
 	SetPassword(ctx context.Context, id, hash string, mustChange bool) error
 	SetDisabled(ctx context.Context, id string, at *time.Time) error
 	MarkLogin(ctx context.Context, id string, now time.Time) error
+	// SetTOTP replaces the account's whole two-factor state in one write: a pending setup (secret set,
+	// enabledAt nil, recovery nil), turning it on (enabledAt set, recovery the fresh codes), spending one
+	// recovery code (secret and enabledAt unchanged, recovery one shorter), or turning it off (all three
+	// zeroed). There being one setter rather than four keeps "what does 2FA state even look like right now"
+	// answerable from a single row instead of several independent flags that could drift out of sync.
+	SetTOTP(ctx context.Context, id, secret string, enabledAt *time.Time, recovery []string) error
 
 	// ---- tenants ----
 

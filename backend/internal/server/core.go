@@ -28,6 +28,10 @@ const (
 	KindRateLimited
 	KindInternal
 	KindForbidden
+	// KindTwoFactorRequired is what Login returns instead of a session when the password was right but the
+	// account also needs a TOTP code: not a failure, a second step, so callers can tell it apart from a wrong
+	// password and prompt for the code instead of showing an error.
+	KindTwoFactorRequired
 )
 
 // Error carries a category the transport layers map to gRPC codes / HTTP statuses.

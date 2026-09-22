@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -40,6 +41,12 @@ const (
 	SessionMax  = 7 * 24 * time.Hour
 	// touchEvery avoids a database write on every poll of the UI.
 	touchEvery = time.Minute
+
+	pendingPrefix = "cnp_"
+	// pendingLoginTTL is how long a password-verified sign-in may wait for its TOTP code before it must
+	// start over - long enough to type a 6-digit code, short enough that an abandoned attempt does not sit
+	// around as a live secret.
+	pendingLoginTTL = 5 * time.Minute
 
 	maxConcurrentHashes = 4 // each argon2 run needs 64 MiB
 	// maxHashQueue is how many further password checks may wait for one of those slots. Beyond it a request
@@ -76,6 +83,18 @@ type authState struct {
 	dummyHash string // verified against when the user does not exist, so timing does not reveal it
 	lastPurge time.Time
 	failures  *failureTracker
+
+	// pending holds sign-ins whose password checked out but whose TOTP code has not been typed yet, keyed
+	// by the one-time token Login handed back. It lives only in this process's memory - unlike a session, a
+	// half-finished sign-in is not worth a database round trip or surviving a restart.
+	pendingMu sync.Mutex
+	pending   map[string]pendingLogin
+}
+
+// pendingLogin is one entry in authState.pending.
+type pendingLogin struct {
+	userID    string
+	expiresAt time.Time
 }
 
 func newAuthState() *authState {
@@ -98,6 +117,71 @@ func newSessionSecret() (string, error) {
 		return "", err
 	}
 	return sessionPrefix + base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+func newPendingSecret() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return pendingPrefix + base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// beginTwoFactor records that userID's password has checked out and it is waiting on a TOTP code, and
+// returns the one-time token the caller must send back with it. Expired entries are swept out opportunistically
+// here rather than on a timer, since a login server does not need a background goroutine to reclaim a handful
+// of small map entries.
+func (c *Core) beginTwoFactor(userID string) (string, error) {
+	token, err := newPendingSecret()
+	if err != nil {
+		return "", err
+	}
+	now := c.Now()
+	a := c.auth
+	a.pendingMu.Lock()
+	defer a.pendingMu.Unlock()
+	if a.pending == nil {
+		a.pending = map[string]pendingLogin{}
+	}
+	for k, v := range a.pending {
+		if now.After(v.expiresAt) {
+			delete(a.pending, k)
+		}
+	}
+	a.pending[token] = pendingLogin{userID: userID, expiresAt: now.Add(pendingLoginTTL)}
+	return token, nil
+}
+
+// peekPendingLogin looks up a pending token without consuming it, so a wrong code can still be followed by
+// a correct one instead of sending the person all the way back to their password. An expired entry is
+// removed on sight (nothing else touches it before then).
+func (c *Core) peekPendingLogin(token string) (userID string, ok bool) {
+	a := c.auth
+	a.pendingMu.Lock()
+	defer a.pendingMu.Unlock()
+	pl, found := a.pending[token]
+	if !found {
+		return "", false
+	}
+	if c.Now().After(pl.expiresAt) {
+		delete(a.pending, token)
+		return "", false
+	}
+	return pl.userID, true
+}
+
+// consumePendingLogin removes a pending token once it has done its job, so it cannot be replayed.
+func (c *Core) consumePendingLogin(token string) {
+	a := c.auth
+	a.pendingMu.Lock()
+	delete(a.pending, token)
+	a.pendingMu.Unlock()
+}
+
+// errTwoFactorRequired is what Login returns when the password was right but the account also needs a TOTP
+// code: pending is the one-time token Login2FA must be called with next.
+func errTwoFactorRequired(pending string) *Error {
+	return &Error{Kind: KindTwoFactorRequired, Msg: "enter the code from your authenticator app", Data: map[string]any{"pending": pending}}
 }
 
 // errBusy is what a caller gets when the password workers are saturated.
@@ -183,11 +267,67 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 		return "", store.User{}, errf(KindUnauthenticated, "wrong username or password")
 	}
 	c.auth.failures.succeed(name)
+	if u.TOTPEnabledAt != nil {
+		pending, perr := c.beginTwoFactor(u.ID)
+		if perr != nil {
+			return "", store.User{}, perr
+		}
+		return "", store.User{}, errTwoFactorRequired(pending)
+	}
 	secret, err = c.openSession(ctx, u, ip)
 	if err != nil {
 		return "", store.User{}, err
 	}
 	c.auditUser(ctx, u, "login", "", ip)
+	return secret, u, nil
+}
+
+// Login2FA finishes a sign-in that Login left pending on a TOTP code: pending is the token Login returned,
+// code is either a 6-digit authenticator code or one of the account's recovery codes. The pending token
+// survives a wrong code (so a mistyped one can simply be retried, bounded by the same per-account backoff as
+// a wrong password) and is consumed only once a code actually matches, or once it expires on its own.
+func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret string, u store.User, err error) {
+	key := LimitKey(ip)
+	if !c.auth.loginIP.Allow(key) {
+		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+	}
+	userID, ok := c.peekPendingLogin(pending)
+	if !ok {
+		return "", store.User{}, errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+	}
+	u, gerr := c.Store.GetUser(ctx, userID)
+	if gerr != nil || u.DisabledAt != nil || u.TOTPEnabledAt == nil {
+		return "", store.User{}, errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+	}
+	if !c.auth.loginUser.Allow(key + "|" + u.Username) {
+		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+	}
+	if wait := c.auth.failures.blocked(u.Username, c.Now()); wait > 0 {
+		return "", store.User{}, errf(KindRateLimited, "too many failed sign-in attempts for this account; try again in %s", roundWait(wait))
+	}
+	via := "with a two-factor code"
+	matched := VerifyTOTP(u.TOTPSecret, code, c.Now())
+	if !matched {
+		if remaining, used := consumeRecoveryCode(u.TOTPRecovery, code); used {
+			if err := c.Store.SetTOTP(ctx, u.ID, u.TOTPSecret, u.TOTPEnabledAt, remaining); err != nil {
+				return "", store.User{}, err
+			}
+			matched, via = true, fmt.Sprintf("with a recovery code (%d left)", len(remaining))
+		}
+	}
+	if !matched {
+		c.auth.failures.fail(u.Username, c.Now())
+		Metrics.authFailures.Add(1)
+		c.auditOrg(ctx, "", "anonymous", "login-failed", "user", printable(u.Username, 64), "wrong two-factor code from "+ip)
+		return "", store.User{}, errf(KindUnauthenticated, "wrong code")
+	}
+	c.auth.failures.succeed(u.Username)
+	c.consumePendingLogin(pending)
+	secret, err = c.openSession(ctx, u, ip)
+	if err != nil {
+		return "", store.User{}, err
+	}
+	c.auditUser(ctx, u, "login", via, ip)
 	return secret, u, nil
 }
 
@@ -300,6 +440,88 @@ func (c *Core) ChangePassword(ctx context.Context, p Principal, current, next st
 	}
 	_ = c.Store.DeleteUserSessions(ctx, u.ID, p.SessionHash)
 	c.auditUser(ctx, u, "password-changed", "", "")
+	return nil
+}
+
+// totpIssuer is the "issuer" every otpauth:// URI carries, and what shows above the account name in an
+// authenticator app.
+const totpIssuer = "Continuum"
+
+// RecoveryCodeCount is how many one-time recovery codes Enable2FA hands out.
+const RecoveryCodeCount = 8
+
+// Setup2FA starts turning on two-factor authentication: it stores a fresh, unconfirmed secret for the
+// account (replacing any earlier unconfirmed one) and returns it together with the otpauth:// URI an
+// authenticator app reads. Nothing about sign-in changes until Enable2FA confirms the app can produce a
+// matching code - a setup nobody finishes never blocks sign-in.
+func (c *Core) Setup2FA(ctx context.Context, p Principal) (secret, otpauthURI string, err error) {
+	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+		return "", "", errf(KindRateLimited, "too many attempts, wait a minute")
+	}
+	if p.User.TOTPEnabledAt != nil {
+		return "", "", errf(KindConflict, "two-factor authentication is already on; turn it off before setting it up again")
+	}
+	secret, err = NewTOTPSecret()
+	if err != nil {
+		return "", "", err
+	}
+	if err := c.Store.SetTOTP(ctx, p.User.ID, secret, nil, nil); err != nil {
+		return "", "", err
+	}
+	return secret, otpauthURL(totpIssuer, p.User.Username, secret), nil
+}
+
+// Enable2FA confirms a setup by checking one code from it, turns two-factor authentication on, and returns
+// a fresh set of recovery codes - shown to the person exactly once, like an enrollment token, since only
+// their hashes are kept.
+func (c *Core) Enable2FA(ctx context.Context, p Principal, code string) ([]string, error) {
+	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+		return nil, errf(KindRateLimited, "too many attempts, wait a minute")
+	}
+	u, err := c.Store.GetUser(ctx, p.User.ID)
+	if err != nil {
+		return nil, errf(KindUnauthenticated, "sign in required")
+	}
+	if u.TOTPEnabledAt != nil {
+		return nil, errf(KindConflict, "two-factor authentication is already on")
+	}
+	if u.TOTPSecret == "" || !VerifyTOTP(u.TOTPSecret, code, c.Now()) {
+		return nil, errf(KindInvalid, "that code is not right; check the time on your device and try again")
+	}
+	codes, hashes, err := NewRecoveryCodes(RecoveryCodeCount)
+	if err != nil {
+		return nil, err
+	}
+	now := c.Now()
+	if err := c.Store.SetTOTP(ctx, u.ID, u.TOTPSecret, &now, hashes); err != nil {
+		return nil, err
+	}
+	c.auditUser(ctx, u, "2fa-enabled", "", "")
+	return codes, nil
+}
+
+// Disable2FA turns two-factor authentication off. It requires the current password, the same as changing
+// it, since removing a security measure deserves the same proof of presence as changing the one it
+// protects.
+func (c *Core) Disable2FA(ctx context.Context, p Principal, password string) error {
+	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+		return errf(KindRateLimited, "too many attempts, wait a minute")
+	}
+	u, err := c.Store.GetUser(ctx, p.User.ID)
+	if err != nil {
+		return errf(KindUnauthenticated, "sign in required")
+	}
+	ok, verr := c.verifyPassword(ctx, password, u.PasswordHash)
+	if verr != nil || !ok {
+		return errf(KindInvalid, "your current password is not correct")
+	}
+	if u.TOTPEnabledAt == nil {
+		return errf(KindConflict, "two-factor authentication is not on")
+	}
+	if err := c.Store.SetTOTP(ctx, u.ID, "", nil, nil); err != nil {
+		return err
+	}
+	c.auditUser(ctx, u, "2fa-disabled", "", "")
 	return nil
 }
 
