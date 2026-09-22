@@ -1,7 +1,18 @@
+import { Loader2 } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import ServerConnect from '@/components/discovery/ServerConnect'
 import { useServer } from '@/store/server'
+
+/** Covers the screen the instant the wizard is asked for, before its chunk has even arrived - so a click aimed
+ * at "Add manually" (or anything else) while it loads lands here instead of opening a second dialog behind it. */
+function WizardLoading() {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 backdrop-blur-[2px]" aria-hidden>
+      <Loader2 size={28} className="animate-spin text-accent" />
+    </div>
+  )
+}
 
 // The wizard is large and most visits never open it.
 const ConnectClusterWizard = lazy(() => import('@/components/discovery/ConnectClusterWizard'))
@@ -42,7 +53,7 @@ export function useConnectFlow(): { start: () => void; dialogs: ReactNode; canSt
     <>
       <ServerConnect open={connecting} onClose={() => setConnecting(false)} />
       {wizard && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<WizardLoading />}>
           <ConnectClusterWizard open={wizard} onClose={() => setWizard(false)} />
         </Suspense>
       )}

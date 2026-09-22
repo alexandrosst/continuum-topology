@@ -455,7 +455,11 @@ export function Modal({
   }, [open]) // onClose is read through a ref: a new function each render must not re-run this and steal focus
 
   if (!open) return null
-  return (
+  // Portaled to the document body: some callers (the sidebar's account menu) render this from inside an
+  // element that carries a CSS transform, which would otherwise make it the containing block for `fixed`
+  // descendants and confine the dialog to that element's box instead of the viewport - the same reason
+  // Select's own list is portaled below.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-[8vh] backdrop-blur-[2px]" onMouseDown={onClose}>
       <div
         ref={box}
@@ -478,7 +482,8 @@ export function Modal({
         <div className="px-6 py-5">{children}</div>
         {footer && <div className="flex justify-end gap-2 border-t border-nb-850 px-6 py-4">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

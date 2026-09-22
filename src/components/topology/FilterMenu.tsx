@@ -59,8 +59,9 @@ export default function FilterMenu({
       </Button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => onOpenChange(false)} />
-          <div role="dialog" aria-label="Filter the topology" className="menu-pop absolute right-0 top-11 z-20 w-80 overflow-hidden rounded-lg border border-nb-850 bg-nb-920 shadow-xl" data-testid="filter-menu">
+          {/* z-40/41: above the mobile Inspector sheet (z-30), which can be open behind this on a narrow viewport. */}
+          <div className="fixed inset-0 z-40" onClick={() => onOpenChange(false)} />
+          <div role="dialog" aria-label="Filter the topology" className="menu-pop absolute right-0 top-11 z-[41] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-nb-850 bg-nb-920 shadow-xl" data-testid="filter-menu">
             <div className="flex items-center justify-between border-b border-nb-850 px-3 py-2">
               <span className="text-sm font-medium text-nb-200">Show only…</span>
               <button

@@ -277,7 +277,7 @@ function Canvas() {
                 setSelection(null)
               }}
               className={clsx(
-                'rounded-md px-3.5 py-1.5 text-sm transition-colors',
+                'rounded-md px-3.5 py-1.5 text-sm transition-[background-color,color,transform] duration-100 active:scale-[0.97]',
                 mode === v.value ? 'bg-nb-850 text-white' : 'text-nb-400 hover:text-nb-300',
               )}
             >
@@ -323,9 +323,21 @@ function Canvas() {
               </Button>
               {openMenu === 'options' && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setOpenMenu(null)} />
-                  <div className="menu-pop absolute right-0 top-11 z-20 w-72 rounded-lg border border-nb-850 bg-nb-920 p-2 shadow-xl" role="group" aria-label="View options">
-                    {mode === 'application' && <Toggle checked={showDevices} onChange={(v) => setParam('devices', v ? null : '0')} label="Devices and external endpoints" />}
+                  {/* z-40/41: above the mobile Inspector sheet (z-30), which can be open behind this on a narrow viewport. */}
+                  <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
+                  <div className="menu-pop absolute right-0 top-11 z-[41] w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-nb-850 bg-nb-920 p-2 shadow-xl" role="group" aria-label="View options">
+                    {mode === 'application' && (
+                      <Toggle
+                        checked={showDevices}
+                        onChange={(v) => {
+                          setParam('devices', v ? null : '0')
+                          // Hiding devices removes the selected one from the canvas; Inspector would otherwise
+                          // keep showing (and let you edit) something no longer drawn anywhere.
+                          if (!v && (selection?.kind === 'device' || selection?.kind === 'external')) setSelection(null)
+                        }}
+                        label="Devices and external endpoints"
+                      />
+                    )}
                     {mode === 'application' && dependencies.some((d) => d.noise) && (
                       <Toggle checked={showNoise} onChange={(v) => setParam('noise', v ? '1' : null)} label="DNS & system traffic" />
                     )}
@@ -381,8 +393,9 @@ function Canvas() {
             </Button>
             {openMenu === 'add' && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setOpenMenu(null)} />
-                <div className="menu-pop absolute right-0 top-11 z-20 w-48 overflow-hidden rounded-lg border border-nb-850 bg-nb-920 p-1 shadow-xl">
+                {/* z-40/41: above the mobile Inspector sheet (z-30), which can be open behind this on a narrow viewport. */}
+                <div className="fixed inset-0 z-40" onClick={() => setOpenMenu(null)} />
+                <div className="menu-pop absolute right-0 top-11 z-[41] w-48 overflow-hidden rounded-lg border border-nb-850 bg-nb-920 p-1 shadow-xl">
                   {[
                     { t: 'cluster', label: 'Cluster', icon: Boxes, disabled: false },
                     { t: 'node', label: 'Node', icon: Server, disabled: empty },
