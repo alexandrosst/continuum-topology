@@ -9,8 +9,9 @@ helm install continuum-server deploy/helm/continuum-server \
   --namespace continuum --create-namespace \
   --set image.repository=REGISTRY/server \
   --set agent.publicAddress=continuum.example.com:8443 \
-  --set ui.ingress.enabled=true --set ui.ingress.className=nginx \
-  --set 'ui.ingress.hosts[0].host=continuum.example.com'
+  --set httproute.enabled=true \
+  --set-json 'httproute.parentRefs=[{"name":"shared-gateway","namespace":"gateways","sectionName":"https"}]' \
+  --set-json 'httproute.hostnames=["continuum.example.com"]'
 ```
 
 Requires Kubernetes >= 1.25 and Helm 3 (developed and tested with 3.16). The chart validates its values (`values.schema.json`, plus checks in `templates/_helpers.tpl` that say which value to set) and fails before creating anything.
@@ -24,8 +25,8 @@ Requires Kubernetes >= 1.25 and Helm 3 (developed and tested with 3.16). The cha
 | Service `<fullname>` | always | admin API and UI (ClusterIP, port 8080) |
 | Service `<fullname>-agent` | always | agent gRPC over mutual TLS (LoadBalancer by default): L4 only |
 | ServiceAccount | `serviceAccount.create` | bound to nothing |
-| Ingress `<fullname>` / HTTPRoute | `ui.ingress.enabled` / `httproute.enabled` | UI, TLS terminated at the proxy |
-| Ingress `<fullname>-agent` / TLSRoute | `agent.ingress.enabled` / `agent.tlsRoute.enabled` | TLS **passthrough** for agents |
+| HTTPRoute `<fullname>` | `httproute.enabled` | UI, TLS terminated at the Gateway |
+| TLSRoute `<fullname>-agent` | `agent.tlsRoute.enabled` | TLS **passthrough** for agents |
 | NetworkPolicy `<fullname>` | `networkPolicy.enabled` | ingress on the two ports; egress DNS, Neo4j, deciders |
 | PodDisruptionBudget | `podDisruptionBudget.enabled` | off: see values |
 | StatefulSet, headless Service, Secret, NetworkPolicy `<fullname>-neo4j` | `neo4j.mode=bundled` | official `neo4j` Community image |
@@ -34,7 +35,7 @@ Requires Kubernetes >= 1.25 and Helm 3 (developed and tested with 3.16). The cha
 
 ## Things to know before you install
 
-* **Two listeners, two kinds of exposure.** The agent port speaks gRPC over mutual TLS with the server's *own* CA, and agents pin that CA. TLS must reach the pod untouched: use the LoadBalancer (default) or NodePort Service, or an Ingress with TLS passthrough (`agent.ingress`, and the controller must run with `--enable-ssl-passthrough`) or a Gateway API TLSRoute in passthrough mode. Never an HTTP/L7 proxy. The admin port is plain HTTP in the pod and expects a TLS-terminating proxy in front (`ui.ingress` / `httproute`) or its own certificate (`admin.tls.secretName`). With neither, the chart refuses to render; `admin.behindTlsProxy=true` is the explicit "I know" switch (use it with `kubectl port-forward`).
+* **Two listeners, two kinds of exposure.** The agent port speaks gRPC over mutual TLS with the server's *own* CA, and agents pin that CA. TLS must reach the pod untouched: use the LoadBalancer (default) or NodePort Service, or a Gateway API TLSRoute in passthrough mode (`agent.tlsRoute`). Never an HTTP/L7 proxy. The admin port is plain HTTP in the pod and expects a TLS-terminating Gateway in front (`httproute`) or its own certificate (`admin.tls.secretName`). With neither, the chart refuses to render; `admin.behindTlsProxy=true` is the explicit "I know" switch (use it with `kubectl port-forward`).
 * **`agent.publicAddress` is required** and is exactly what agents dial. It is passed as `--agent-address` and its host becomes a name in the server certificate; `agent.extraHosts` adds more (`--agent-hosts`).
 * **One replica, one volume, and it is not scalable.** The server keeps SQLite in `/data` (one writer), agent sessions in memory and the CA on disk. `replicas` is deliberately not a value. `Recreate` is used because a ReadWriteOnce volume cannot be attached to two pods, so an upgrade has a short outage; agents reconnect by themselves.
 * **`/data/pki` holds the CA key that every enrolled agent trusts.** Lose it and every agent has to be enrolled again. Back it up (deploy/README.md). The PVC carries `helm.sh/resource-policy: keep`.
@@ -97,14 +98,12 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 | `agent.service.port` / `nodePort` | `8443` / `null` | |
 | `agent.service.externalTrafficPolicy` | `""` | `Local` keeps the agent's source address (used for geoip) |
 | `agent.service.annotations`, `loadBalancerIP`, `loadBalancerClass`, `loadBalancerSourceRanges` | empty | cloud load balancer tuning |
-| `agent.ingress.enabled` / `className` / `host` / `annotations` | `false` / `nginx` / `""` / ssl-passthrough | passthrough Ingress (controller flag required) |
-| `agent.tlsRoute.enabled` / `apiVersion` / `parentRefs` / `hostnames` | `false` / `gateway.networking.k8s.io/v1alpha2` | Gateway API TLSRoute |
+| `agent.tlsRoute.enabled` / `apiVersion` / `parentRefs` / `hostnames` | `false` / `gateway.networking.k8s.io/v1alpha2` | Gateway API TLSRoute (passthrough) |
 | `admin.port` | `8080` | admin listener in the pod |
-| `admin.behindTlsProxy` | `null` (auto) | pass `--admin-behind-tls-proxy`; auto is true when `ui.ingress`/`httproute` is enabled |
+| `admin.behindTlsProxy` | `null` (auto) | pass `--admin-behind-tls-proxy`; auto is true when `httproute` is enabled |
 | `admin.tls.secretName` / `certKey` / `keyKey` | `""` / `tls.crt` / `tls.key` | serve HTTPS from the pod |
 | `admin.service.type` / `port` | `ClusterIP` / `8080` | |
 | `admin.existingPasswordSecret` / `...Key` | `""` / `password` | first administrator's password (`CONTINUUM_ADMIN_PASSWORD`) |
-| `ui.ingress.enabled` / `className` / `annotations` / `hosts` / `tls` | `false` ... | UI Ingress |
 | `httproute.enabled` / `parentRefs` / `hostnames` / `annotations` | `false` ... | UI Gateway API HTTPRoute |
 | `persistence.existingClaim` | `""` | use your own PVC |
 | `persistence.storageClass` | `""` | `""` cluster default, `"-"` none |
@@ -148,4 +147,4 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 for f in ci/*.yaml; do helm lint . -f $f; helm template rel . -n scratch -f $f | kubectl apply --dry-run=server -f -; done
 ```
 
-`ci/` holds one values file per combination: `minimal-nodeport`, `ingress-lb-bundled-neo4j`, `external-neo4j`, `tls-secret` (admin TLS, passphrase, Gateway API), `netpol-hardened` (policies, passthrough Ingress, PDB). The Gateway API and VolumeSnapshot kinds need their CRDs on the cluster for a server-side dry run.
+`ci/` holds one values file per combination: `minimal-nodeport`, `gateway-lb-bundled-neo4j`, `external-neo4j`, `tls-secret` (admin TLS, passphrase, Gateway API), `netpol-hardened` (policies, passthrough TLSRoute, PDB). The Gateway API and VolumeSnapshot kinds need their CRDs on the cluster for a server-side dry run.

@@ -22,7 +22,7 @@ spec:
       {{- with $np.ingress.agent.from }}
       from: {{- toYaml . | nindent 8 }}
       {{- end }}
-    # The UI and admin API. Restrict to your ingress controller / gateway (and the pods you port-forward from).
+    # The UI and admin API. Restrict to your Gateway's namespace (and the pods you port-forward from).
     - ports:
         - {port: {{ .Values.admin.port }}, protocol: TCP}
       {{- with $np.ingress.admin.from }}

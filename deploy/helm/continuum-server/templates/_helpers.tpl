@@ -63,13 +63,13 @@ app.kubernetes.io/component: server
 {{/* The admin listener is plain HTTP unless a certificate is mounted. */}}
 {{- define "continuum.adminTLS" -}}{{- if .Values.admin.tls.secretName -}}true{{- end -}}{{- end -}}
 
-{{/* --admin-behind-tls-proxy: explicit value wins; otherwise on when this chart creates an Ingress or HTTPRoute
-     (a TLS-terminating proxy is then in front by construction). Renders "true" or nothing. */}}
+{{/* --admin-behind-tls-proxy: explicit value wins; otherwise on when this chart creates an HTTPRoute
+     (a TLS-terminating Gateway is then in front by construction). Renders "true" or nothing. */}}
 {{- define "continuum.behindProxy" -}}
 {{- $v := .Values.admin.behindTlsProxy -}}
 {{- if kindIs "bool" $v -}}
 {{- if $v -}}true{{- end -}}
-{{- else if or .Values.ui.ingress.enabled .Values.httproute.enabled -}}true{{- end -}}
+{{- else if .Values.httproute.enabled -}}true{{- end -}}
 {{- end -}}
 
 {{/* ---- Neo4j ---- */}}
@@ -160,18 +160,12 @@ checks for that and never mounts anything or passes --ca-key-passphrase-file in 
 {{- end -}}
 {{- /* admin exposure: the server refuses cleartext on a non-loopback address unless told a TLS proxy is in front */ -}}
 {{- if and (not (include "continuum.adminTLS" .)) (not (include "continuum.behindProxy" .)) -}}
-{{- fail "the admin listener (UI and API) carries sign-in passwords and the session cookie, and the server refuses to serve it in clear text without TLS. Choose one: enable ui.ingress (or httproute) so a proxy terminates TLS (and leave admin.behindTlsProxy unset); or set admin.tls.secretName to a kubernetes.io/tls Secret; or, if you put your own TLS in front (or only use kubectl port-forward to localhost), set admin.behindTlsProxy=true." -}}
+{{- fail "the admin listener (UI and API) carries sign-in passwords and the session cookie, and the server refuses to serve it in clear text without TLS. Choose one: enable httproute so a Gateway terminates TLS (and leave admin.behindTlsProxy unset); or set admin.tls.secretName to a kubernetes.io/tls Secret; or, if you put your own TLS in front (or only use kubectl port-forward to localhost), set admin.behindTlsProxy=true." -}}
 {{- end -}}
 {{- if and .Values.admin.tls.secretName (not .Values.admin.tls.certKey) -}}{{- fail "admin.tls.certKey must not be empty when admin.tls.secretName is set" -}}{{- end -}}
 {{- /* exposure objects */ -}}
-{{- if and .Values.ui.ingress.enabled (not .Values.ui.ingress.hosts) -}}
-{{- fail "ui.ingress.enabled needs at least one entry in ui.ingress.hosts" -}}
-{{- end -}}
 {{- if and .Values.httproute.enabled (not .Values.httproute.parentRefs) -}}
 {{- fail "httproute.enabled needs httproute.parentRefs (the Gateway to attach to)" -}}
-{{- end -}}
-{{- if and .Values.agent.ingress.enabled (not .Values.agent.ingress.host) -}}
-{{- fail "agent.ingress.enabled needs agent.ingress.host (the name agents dial; ssl-passthrough routes on it)" -}}
 {{- end -}}
 {{- if and .Values.agent.tlsRoute.enabled (or (not .Values.agent.tlsRoute.parentRefs) (not .Values.agent.tlsRoute.hostnames)) -}}
 {{- fail "agent.tlsRoute.enabled needs agent.tlsRoute.parentRefs and agent.tlsRoute.hostnames" -}}

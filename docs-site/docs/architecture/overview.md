@@ -18,7 +18,7 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 One replica, one PersistentVolumeClaim. It's deliberately not built to scale horizontally: it holds a SQLite database (accounts, sessions, the enrollment CA and its private key) that needs a single writer, plus the in-memory state of every connected agent's live stream. There are two listeners, and they have almost nothing in common:
 
 - **`:8443`, the agent port.** gRPC over mutual TLS. Agents connect *out* to this — nothing ever connects in the other direction. The handshake must reach the pod byte-for-byte untouched, which is why this port can never sit behind something that terminates TLS. See [Exposing the agent port](./exposure-options.md).
-- **`:8080`, the admin port.** The web UI and the JSON API it's built on. Plain HTTP inside the pod, meant to be put behind a normal TLS-terminating Ingress (or given its own certificate directly with `admin.tls`).
+- **`:8080`, the admin port.** The web UI and the JSON API it's built on. Plain HTTP inside the pod, meant to be put behind a Gateway that terminates TLS (or given its own certificate directly with `admin.tls`).
 
 Optionally, a Neo4j Community instance (bundled by the chart, or your own external one) holds topology history, change events and the audit trail as a temporal graph — every entity gets versions with a `validFrom`/`validTo`, so "what did this look like an hour ago" is one query away. Without it, the same things live in SQLite; the server keeps working exactly the same either way, and if Neo4j is briefly unreachable, events simply buffer in SQLite and drain in once it's back.
 

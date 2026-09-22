@@ -30,7 +30,7 @@ This guide covers the **server** (control plane and web UI) and its databases. T
 
 * Kubernetes 1.25 or newer and Helm 3.
 * A default **StorageClass** that provisions volumes (the server needs one PersistentVolumeClaim; bundled Neo4j needs another).
-* A way to expose two ports (see [The two ports](#the-two-ports)): a LoadBalancer or NodePort for agents, and an Ingress or Gateway for the UI. On k3s and kind a NodePort and `kubectl port-forward` are enough.
+* A way to expose two ports (see [The two ports](#the-two-ports)): a LoadBalancer or NodePort for agents, and a Gateway (HTTPRoute) for the UI. On k3s and kind a NodePort and `kubectl port-forward` are enough.
 * A DNS name for agents to dial, and a certificate for the UI (cert-manager works well). A public IP address also works for agents.
 * The server **image**. If you forked or pushed this repository to GitHub, [`.github/workflows/release.yml`](../.github/workflows/release.yml) already publishes one on every push to `main` and every version tag - see [Using this repo's own published images](#using-this-repos-own-published-images-zero-config) below, and skip straight to [Quick start](#quick-start) once its one-time setup is done. Otherwise, build it yourself from the repository root and push it to a registry your cluster can pull from:
 
@@ -83,7 +83,9 @@ kubectl -n continuum port-forward service/continuum-server 8080:8080            
 
 The port-forward serves plain HTTP on localhost, which is fine for a trial; do not expose it further. (With the release named `continuum-server` the objects are called `continuum-server`; any other release name gives `<release>-continuum-server`.)
 
-### A cloud cluster: LoadBalancer for agents, Ingress and cert-manager for the UI
+### A cloud cluster: LoadBalancer for agents, Gateway API and cert-manager for the UI
+
+Assumes a `Gateway` named `shared-gateway` already exists in a `gateways` namespace, with an HTTPS listener whose certificate cert-manager already manages (Gateway API support in cert-manager provisions this on the `Gateway` itself, not per-route) — this chart only creates the `HTTPRoute` that attaches to it.
 
 `values-prod.yaml`:
 
@@ -101,17 +103,13 @@ agent:
     annotations:
       service.beta.kubernetes.io/aws-load-balancer-type: nlb    # an L4 load balancer, never an HTTP one
 
-ui:
-  ingress:
-    enabled: true                                      # also switches on --admin-behind-tls-proxy
-    className: nginx
-    annotations:
-      cert-manager.io/cluster-issuer: letsencrypt
-    hosts:
-      - host: continuum.example.com
-    tls:
-      - secretName: continuum-ui-tls
-        hosts: [continuum.example.com]
+httproute:
+  enabled: true                                      # also switches on --admin-behind-tls-proxy
+  parentRefs:
+    - name: shared-gateway
+      namespace: gateways
+      sectionName: https
+  hostnames: [continuum.example.com]
 
 persistence: {size: 10Gi}
 neo4j: {mode: bundled}
@@ -139,8 +137,8 @@ flowchart LR
   end
   B["Browser"]
   subgraph k["Cluster running the server"]
-    LB["L4 LoadBalancer or NodePort<br/>(or Ingress with TLS passthrough)"]
-    IG["Ingress / Gateway<br/>terminates TLS"]
+    LB["L4 LoadBalancer or NodePort<br/>(or a Gateway TLSRoute, passthrough)"]
+    IG["Gateway (HTTPRoute)<br/>terminates TLS"]
     subgraph pod["Pod: continuum server"]
       P1[":8443 agents<br/>gRPC, mutual TLS,<br/>own private CA"]
       P2[":8080 admin API + UI<br/>plain HTTP"]
@@ -155,18 +153,18 @@ flowchart LR
   pod --- D
 ```
 
-* **Agent port (8443).** Agents dial out to it with gRPC over *mutual* TLS. The server signs each agent's certificate with its own private CA and the agents pin that CA, so the TLS session must run from the agent all the way into the pod. An L7 proxy that terminates TLS (a normal Ingress, a CDN, an HTTP load balancer) breaks the handshake for every agent. Expose it with a `LoadBalancer` or `NodePort` Service (L4), or with TLS **passthrough**: ingress-nginx with `--enable-ssl-passthrough` on the controller and the ready-made `agent.ingress`, or a Gateway API `TLSRoute` behind a `protocol: TLS` / `mode: Passthrough` listener (`agent.tlsRoute`). With passthrough the controller routes on the SNI host, so agents dial the ingress host on the controller's port (usually 443): `agent.publicAddress=continuum.example.com:443`.
-* **Admin port (8080).** The JSON API and the web UI. Inside the pod it is plain HTTP, and the server **refuses to start** on a non-loopback address in clear text unless it is told a TLS proxy protects it (`--admin-behind-tls-proxy`) or it serves TLS itself (`--admin-tls-cert/-key`). The chart sets the first automatically when `ui.ingress` or `httproute` is enabled; use `admin.tls.secretName` for the second. If neither applies the chart stops with a message.
+* **Agent port (8443).** Agents dial out to it with gRPC over *mutual* TLS. The server signs each agent's certificate with its own private CA and the agents pin that CA, so the TLS session must run from the agent all the way into the pod. An L7 proxy that terminates TLS (a normal Ingress, a CDN, an HTTP load balancer) breaks the handshake for every agent. Expose it with a `LoadBalancer` or `NodePort` Service (L4), or with TLS **passthrough** via a Gateway API `TLSRoute` behind a `protocol: TLS` / `mode: Passthrough` listener (`agent.tlsRoute`). With passthrough the Gateway routes on the SNI host, so agents dial that hostname on the Gateway's port (usually 443): `agent.publicAddress=continuum.example.com:443`.
+* **Admin port (8080).** The JSON API and the web UI. Inside the pod it is plain HTTP, and the server **refuses to start** on a non-loopback address in clear text unless it is told a TLS proxy protects it (`--admin-behind-tls-proxy`) or it serves TLS itself (`--admin-tls-cert/-key`). The chart sets the first automatically when `httproute` is enabled; use `admin.tls.secretName` for the second. If neither applies the chart stops with a message.
 
 ## DNS and certificates
 
 Three different certificates are involved.
 
-1. **The UI certificate**, for browsers, issued for your UI host (cert-manager + Let's Encrypt in the example above, or any `kubernetes.io/tls` Secret named in `ui.ingress.tls`). It is unrelated to the agents.
+1. **The UI certificate**, for browsers, issued for your UI host (cert-manager + Let's Encrypt in the example above). With Gateway API this lives on the `Gateway`'s own HTTPS listener, not on anything this chart creates — the `HTTPRoute` it templates just attaches to that listener. It is unrelated to the agents.
 2. **The agent-port server certificate**, issued by the server itself from its private CA. Its names come from the host in `agent.publicAddress` plus `agent.extraHosts`; a wrong or missing name shows up as a TLS handshake failure on the agent. This is why `agent.publicAddress` is required and must be exactly what agents use (a name or an IP; no scheme, no path). It is re-issued when the names change, and agents keep working because they trust the CA, not the certificate.
-3. **Optional admin TLS** (`admin.tls.secretName`): the pod serves HTTPS itself. The proxy in front then must speak HTTPS to the pod (ingress-nginx: `nginx.ingress.kubernetes.io/backend-protocol: HTTPS`; a Gateway needs a `BackendTLSPolicy`).
+3. **Optional admin TLS** (`admin.tls.secretName`): the pod serves HTTPS itself. The Gateway in front then must speak HTTPS to the pod, which needs a `BackendTLSPolicy` in Gateway API.
 
-DNS: one name for the UI (to the Ingress controller's address) and one for agents (to the agent LoadBalancer, or the same host under passthrough). Point the agent name at a stable address. **Changing `agent.publicAddress` later changes the address every agent was installed with**: keep the old name resolving (and list it in `agent.extraHosts` while both are in use) and upgrade the agents' `server.address` at your pace.
+DNS: one name for the UI (to the Gateway's address) and one for agents (to the agent LoadBalancer, or the same host under passthrough). Point the agent name at a stable address. **Changing `agent.publicAddress` later changes the address every agent was installed with**: keep the old name resolving (and list it in `agent.extraHosts` while both are in use) and upgrade the agents' `server.address` at your pace.
 
 ## First sign-in
 
@@ -480,10 +478,9 @@ The important values; all of them are documented in `values.yaml` and tabulated 
 | `agent.publicAddress` | *required* | `host:port` agents dial; becomes a certificate name |
 | `agent.extraHosts` | `[]` | more certificate names |
 | `agent.service.type` | `LoadBalancer` | `LoadBalancer`, `NodePort`, `ClusterIP` |
-| `agent.ingress.enabled` | `false` | ingress-nginx TLS passthrough (controller needs `--enable-ssl-passthrough`) |
 | `agent.tlsRoute.enabled` | `false` | Gateway API TLSRoute (passthrough) |
-| `ui.ingress.*` / `httproute.*` | off | UI exposure, TLS terminated at the proxy |
-| `admin.behindTlsProxy` | auto | passes `--admin-behind-tls-proxy`; auto = true with `ui.ingress`/`httproute` |
+| `httproute.*` | off | UI exposure, TLS terminated at the Gateway |
+| `admin.behindTlsProxy` | auto | passes `--admin-behind-tls-proxy`; auto = true with `httproute` |
 | `admin.tls.secretName` | `""` | the pod serves HTTPS itself |
 | `admin.existingPasswordSecret` | `""` | first administrator's password from a Secret |
 | `registration` | `invite` | `invite` / `closed` / `open` |
@@ -503,14 +500,14 @@ Ready-made combinations to copy from live in `helm/continuum-server/ci/`.
 
 **An agent cannot connect.**
 * *TLS handshake fails, `x509` or `certificate is valid for ... not ...` in the agent log*: the name the agent dials is not in the server certificate. Compare `server.address` on the agent with `agent.publicAddress` and `agent.extraHosts`; they must match exactly (IP vs DNS name counts). Fix the value and `helm upgrade`; the server issues a new certificate.
-* *Handshake fails or resets and the address is right*: something in the path terminates TLS or speaks HTTP. Check the path is L4 or passthrough: a plain Ingress, an HTTP load balancer, a CDN or a proxy with TLS inspection all break mutual TLS. With ingress-nginx, check the controller runs with `--enable-ssl-passthrough` (`kubectl -n ingress-nginx get deploy ingress-nginx-controller -o yaml | grep ssl-passthrough`) and that agents dial port 443.
+* *Handshake fails or resets and the address is right*: something in the path terminates TLS or speaks HTTP. Check the path is L4 or passthrough: a plain Ingress, an HTTP load balancer, a CDN or a proxy with TLS inspection all break mutual TLS. With a Gateway API `TLSRoute`, check the Gateway's listener is actually `protocol: TLS` with `tls.mode: Passthrough` (not `Terminate`), and that agents dial the Gateway's port (usually 443).
 * *Certificate signed by unknown authority / pin mismatch*: the agent was installed with another server's CA pin, or the server's data volume was replaced (a new CA). Compare `ca_pin=` in the server log with the agent's `server.caPin`.
 * *Timeouts*: the LoadBalancer is still `<pending>` (`kubectl -n continuum get service continuum-server-agent`; no load balancer controller: use NodePort or install MetalLB), a firewall or `loadBalancerSourceRanges` blocks the agent's network, or a NodePort is not open on that node.
 * With `networkPolicy.enabled`, `networkPolicy.ingress.agent.from` must allow the agents' networks (empty means anywhere).
 
-**The pod crash-loops with `refusing to serve the admin API in clear text`.** The admin listener is HTTP and nothing says a TLS proxy protects it. Enable `ui.ingress`/`httproute` (which turns `--admin-behind-tls-proxy` on), set `admin.tls.secretName`, or set `admin.behindTlsProxy=true` if you terminate TLS yourself. The chart normally stops you before this; you only reach it through `extraArgs` or by overriding `admin.behindTlsProxy=false`.
+**The pod crash-loops with `refusing to serve the admin API in clear text`.** The admin listener is HTTP and nothing says a TLS proxy protects it. Enable `httproute` (which turns `--admin-behind-tls-proxy` on), set `admin.tls.secretName`, or set `admin.behindTlsProxy=true` if you terminate TLS yourself. The chart normally stops you before this; you only reach it through `extraArgs` or by overriding `admin.behindTlsProxy=false`.
 
-**The UI works over the Ingress but sign-in loops or is rate limited as one client.** With `--admin-behind-tls-proxy` the server reads the client address from the last `X-Forwarded-For` entry and treats `X-Forwarded-Proto: https` as HTTPS (Secure cookie, HSTS). Make sure the proxy sets both (ingress-nginx does) and that it is the only path to port 8080. Do not override the Content-Security-Policy at the proxy.
+**The UI works over the Gateway but sign-in loops or is rate limited as one client.** With `--admin-behind-tls-proxy` the server reads the client address from the last `X-Forwarded-For` entry and treats `X-Forwarded-Proto: https` as HTTPS (Secure cookie, HSTS). Make sure the Gateway sets both and that it is the only path to port 8080. Do not override the Content-Security-Policy at the proxy.
 
 **The pod is `Pending` or stuck `ContainerCreating`.** The PVC is unbound: no default StorageClass (`persistence.storageClass`), or the volume cannot attach where the pod is scheduled. `kubectl -n continuum describe pvc,pod`.
 
@@ -525,7 +522,7 @@ Ready-made combinations to copy from live in `helm/continuum-server/ci/`.
 ## Security notes
 
 * **Registration.** Leave it `invite` (default) or `closed` on any reachable server. `open` gives anyone with network access an account and an organization of their own.
-* **Who can reach the admin port.** Everything a signed-in person does goes through it, and in proxy mode the server trusts `X-Forwarded-For` and `X-Forwarded-Proto` from whoever connects, so a client that can reach port 8080 directly can forge its address. Only the proxy should be able to. Use `networkPolicy.enabled` with `networkPolicy.ingress.admin.from` set to your ingress controller's namespace; do not put `admin.service.type` on a LoadBalancer without TLS in front.
+* **Who can reach the admin port.** Everything a signed-in person does goes through it, and in proxy mode the server trusts `X-Forwarded-For` and `X-Forwarded-Proto` from whoever connects, so a client that can reach port 8080 directly can forge its address. Only the proxy should be able to. Use `networkPolicy.enabled` with `networkPolicy.ingress.admin.from` set to your Gateway's namespace; do not put `admin.service.type` on a LoadBalancer without TLS in front.
 * **The agent port** is the trust boundary for agents: mutual TLS with a private CA, agents pinned to it, enrollment by one-time token and explicit approval. Restrict who can connect with `agent.service.loadBalancerSourceRanges` or `networkPolicy.ingress.agent.from` when you know the agents' networks.
 * **The CA key** is the crown jewel: it is encrypted at rest by default (`pki.encryptAtRest`, see "Encrypting the CA key at rest" above), but that only protects the key on disk — still guard the PVC, its snapshots and backups (encrypted, off-cluster) and, separately, the passphrase Secret, since a stolen backup plus a stolen passphrase is the same as a stolen plaintext key.
 * **Content-Security-Policy and headers.** The server sets a strict CSP (`'self'` only, no framing), `X-Content-Type-Options`, `Referrer-Policy`, and HSTS when the request was HTTPS. Do not weaken them at the proxy.

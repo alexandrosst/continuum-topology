@@ -13,7 +13,7 @@ These are errors you can hit while deploying and running the server or an agent.
 The admin port carries your sign-in password and session cookie, so the chart refuses to install or upgrade until something protects it. Pick one:
 
 - **Trial, reachable only via `kubectl port-forward`:** `--set admin.behindTlsProxy=true` (this is what the [Quickstart](../getting-started/quickstart.md) uses — `port-forward` already tunnels over an encrypted connection to the API server, so plain HTTP inside the pod is fine).
-- **Real Ingress or HTTPRoute in front, terminating TLS:** enable `ui.ingress` or `httproute` — either one sets this automatically, no separate flag needed. See [Production cluster](../installation/production-cluster.md).
+- **Real Gateway (HTTPRoute) in front, terminating TLS:** enable `httproute` — it sets this automatically, no separate flag needed. See [Production cluster](../installation/production-cluster.md).
 - **The server should serve HTTPS itself:** set `admin.tls.secretName` to a `kubernetes.io/tls` Secret.
 
 ## `agent.publicAddress is required: ...`
@@ -24,14 +24,13 @@ A related one: `agent.publicAddress must look like host:port (no scheme, no path
 
 ## The agent never appears / TLS handshake errors from the agent's side
 
-Almost always one specific mistake: something between the agent and the server is terminating TLS instead of passing it through untouched. The most common cause is an Ingress-based exposure (`agent.ingress`) whose controller was never told to skip TLS termination for that route:
+Almost always one specific mistake: something between the agent and the server is terminating TLS instead of passing it through untouched. The most common cause is a `agent.tlsRoute` Gateway listener that isn't actually in `Passthrough` mode — the `TLSRoute` alone doesn't guarantee that; the *Gateway's listener* it's attached to also has to be configured for it:
 
 ```bash
-helm upgrade ingress-nginx ingress-nginx/ingress-nginx --reuse-values \
-  --set controller.extraArgs.enable-ssl-passthrough=true
+kubectl get gateway shared-gateway -n gateways -o jsonpath='{.spec.listeners[?(@.name=="agents-tls")].tls.mode}'
 ```
 
-Without that flag, the controller terminates TLS silently — there's no obvious error naming the real cause, just a handshake that doesn't complete. See [Exposing the agent port](../architecture/exposure-options.md) for why this port needs different treatment from the UI's.
+That should print `Passthrough`. If it prints `Terminate` (or nothing), the Gateway is terminating TLS for that listener — fix the listener's `tls.mode`, not anything in this chart. Without that, the handshake fails silently — there's no obvious error naming the real cause, just a connection that doesn't complete. See [Exposing the agent port](../architecture/exposure-options.md) for why this port needs different treatment from the UI's.
 
 ## `EXTERNAL-IP` stuck on `<pending>`
 

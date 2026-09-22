@@ -134,23 +134,6 @@
             }
           }
         },
-        "ingress": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "className": {
-              "type": "string"
-            },
-            "host": {
-              "type": "string"
-            },
-            "annotations": {
-              "type": "object"
-            }
-          }
-        },
         "tlsRoute": {
           "type": "object",
           "properties": {
@@ -237,65 +220,6 @@
         "existingPasswordSecretKey": {
           "type": "string",
           "minLength": 1
-        }
-      }
-    },
-    "ui": {
-      "type": "object",
-      "properties": {
-        "ingress": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "className": {
-              "type": "string"
-            },
-            "annotations": {
-              "type": "object"
-            },
-            "hosts": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": [
-                  "host"
-                ],
-                "properties": {
-                  "host": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "paths": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "path": {
-                          "type": "string"
-                        },
-                        "pathType": {
-                          "type": "string",
-                          "enum": [
-                            "Prefix",
-                            "Exact",
-                            "ImplementationSpecific"
-                          ]
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            "tls": {
-              "type": "array",
-              "items": {
-                "type": "object"
-              }
-            }
-          }
         }
       }
     },

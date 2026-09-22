@@ -1,20 +1,17 @@
-# Everything locked down: NetworkPolicies on the server and Neo4j, admin port only from the ingress controller, ingress passthrough
-# for agents (the controller runs with --enable-ssl-passthrough), an existing PVC.
+# Everything locked down: NetworkPolicies on the server and Neo4j, admin port only from the Gateway's namespace, TLSRoute
+# passthrough for agents, an existing PVC.
 agent:
   publicAddress: continuum.example.com:443
   service:
     type: ClusterIP
-  ingress:
+  tlsRoute:
     enabled: true
-    host: continuum.example.com
-ui:
-  ingress:
-    enabled: true
-    className: nginx
-    hosts:
-      - host: continuum-ui.example.com
-        paths: [{path: /, pathType: Prefix}]
-    tls: [{secretName: continuum-ui-tls, hosts: [continuum-ui.example.com]}]
+    parentRefs: [{name: shared-gateway, namespace: gateways, sectionName: agents-tls}]
+    hostnames: [continuum.example.com]
+httproute:
+  enabled: true
+  parentRefs: [{name: shared-gateway, namespace: gateways, sectionName: https}]
+  hostnames: [continuum-ui.example.com]
 persistence:
   existingClaim: continuum-data-restored
 neo4j:
@@ -26,10 +23,10 @@ networkPolicy:
   ingress:
     admin:
       from:
-        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateways}}
     agent:
       from:
-        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateways}}
   egress:
     deciderCIDRs: ["198.51.100.0/24"]
 decider:

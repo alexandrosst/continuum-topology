@@ -11,7 +11,7 @@ A rendered, searchable table is planned here. Until then, [`deploy/helm/continuu
 :::
 
 - `agent.publicAddress` — see [Quickstart](../getting-started/quickstart.md) and the [`agent.publicAddress is required`](../troubleshooting/common-errors.md#agentpublicaddress-is-required-) error.
-- `agent.service.type` / `agent.ingress` / `agent.tlsRoute` — see [Exposing the agent port](../architecture/exposure-options.md).
+- `agent.service.type` / `agent.tlsRoute` — see [Exposing the agent port](../architecture/exposure-options.md).
 - `admin.behindTlsProxy` — see the [admin listener TLS error](../troubleshooting/common-errors.md#the-admin-listener-ui-and-api--refuses-to-serve-it-in-clear-text-without-tls).
 
 `helm show values oci://ghcr.io/alexandrosst/continuum-server` also prints the whole file, with its comments, straight from whatever version you're about to install (add `--version X.Y.Z` to see a specific one).

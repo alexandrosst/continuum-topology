@@ -1,4 +1,5 @@
-# A cloud cluster: LoadBalancer for agents, Ingress (cert-manager) for the UI, bundled Neo4j, VolumeSnapshot backups.
+# A cloud cluster: LoadBalancer for agents, Gateway API HTTPRoute (an existing Gateway with a TLS listener) for the UI,
+# bundled Neo4j, VolumeSnapshot backups.
 image:
   repository: registry.example.com/continuum/server
   digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
@@ -11,17 +12,10 @@ agent:
     externalTrafficPolicy: Local
     annotations:
       service.beta.kubernetes.io/aws-load-balancer-type: nlb
-ui:
-  ingress:
-    enabled: true
-    className: nginx
-    annotations:
-      cert-manager.io/cluster-issuer: letsencrypt
-    hosts:
-      - host: continuum.example.com
-    tls:
-      - secretName: continuum-ui-tls
-        hosts: [continuum.example.com]
+httproute:
+  enabled: true
+  parentRefs: [{name: shared-gateway, namespace: gateways, sectionName: https}]
+  hostnames: [continuum.example.com]
 agentInstall:
   imageRegistry: registry.example.com/continuum
   imageTag: 0.1.0

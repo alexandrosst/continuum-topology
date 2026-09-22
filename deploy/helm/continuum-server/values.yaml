@@ -4,9 +4,9 @@
 # Two things must be understood before choosing values (deploy/README.md explains both at length):
 #
 #  1. The server has TWO listeners. The agent port (gRPC over mutual TLS, its own private CA that agents pin) must reach
-#     the pod with TLS untouched: expose it with a LoadBalancer or NodePort Service, or an Ingress/Gateway with TLS
+#     the pod with TLS untouched: expose it with a LoadBalancer or NodePort Service, or a Gateway API TLSRoute with TLS
 #     PASSTHROUGH. Never terminate it at an L7 proxy. The admin port (UI + JSON API) is plain HTTP inside the pod and is
-#     meant to sit behind an Ingress that terminates TLS (or serve TLS itself: admin.tls).
+#     meant to sit behind a Gateway (HTTPRoute) that terminates TLS (or serve TLS itself: admin.tls).
 #  2. The server is stateful and NOT horizontally scalable: one replica, one PersistentVolumeClaim. See `persistence`.
 
 nameOverride: ""
@@ -44,7 +44,7 @@ org: default
 agent:
   # REQUIRED. host:port that agents dial (--agent-address), e.g. continuum.example.com:8443. The host becomes a name (DNS or
   # IP) in the server's TLS certificate and is printed in every install command, so it must be exactly what agents use.
-  # Behind a passthrough Ingress this is the ingress host and its TLS port (usually :443); with NodePort it is NODE_IP:nodePort.
+  # Behind a passthrough Gateway (TLSRoute) this is the SNI hostname and its TLS port (usually :443); with NodePort it is NODE_IP:nodePort.
   publicAddress: ""
 
   # Further DNS names or IPs to put in the server certificate (--agent-hosts), e.g. a second address for the same server
@@ -57,7 +57,7 @@ agent:
 
   # Service that carries the agent gRPC port (L4: TLS is end-to-end).
   service:
-    type: LoadBalancer         # LoadBalancer | NodePort | ClusterIP (ClusterIP only together with agent.ingress or agent.tlsRoute)
+    type: LoadBalancer         # LoadBalancer | NodePort | ClusterIP (ClusterIP only together with agent.tlsRoute)
     port: 8443
     nodePort: null             # NodePort only; null lets Kubernetes choose (30000-32767)
     annotations: {}            # e.g. service.beta.kubernetes.io/aws-load-balancer-type: nlb   (an NLB/L4 balancer, not an HTTP one)
@@ -68,17 +68,6 @@ agent:
     # replica it also avoids a second hop. With NodePort, only the node running the pod answers. Empty = cluster default.
     externalTrafficPolicy: ""
     labels: {}
-
-  # Ingress-nginx TLS passthrough (only for ClusterIP or LoadBalancer setups that want to share port 443 with other apps).
-  # !! The controller must run with --enable-ssl-passthrough or this is silently plain routing that breaks the handshake:
-  #      helm upgrade ingress-nginx ingress-nginx/ingress-nginx --reuse-values --set controller.extraArgs.enable-ssl-passthrough=true
-  #    Passthrough routes on the SNI host only, so agent.publicAddress must be <agent.ingress.host>:443 (the controller's port).
-  ingress:
-    enabled: false
-    className: nginx
-    host: ""                   # the name agents dial; required when enabled
-    annotations:
-      nginx.ingress.kubernetes.io/ssl-passthrough: "true"
 
   # Gateway API TLSRoute in a Gateway listener with `protocol: TLS` and `tls.mode: Passthrough`. TLSRoute graduated to
   # Gateway API's Standard (stable) channel in v1.5 (April 2026); install the Gateway API CRDs and check which apiVersion
@@ -99,12 +88,12 @@ admin:
   # Pass --admin-behind-tls-proxy: serve plain HTTP because a TLS-terminating proxy in front protects the port. This also
   # makes the server trust X-Forwarded-For / X-Forwarded-Proto from whoever connects, so keep the port reachable ONLY through
   # that proxy (networkPolicy.ingress.admin.from).
-  #   null (default) = automatic: true when ui.ingress.enabled or httproute.enabled, otherwise false
+  #   null (default) = automatic: true when httproute.enabled, otherwise false
   #   true           = you terminate TLS yourself (your own proxy, a service mesh) or only use `kubectl port-forward`
   #   false          = never (then admin.tls.secretName is required)
   behindTlsProxy: null
   # Serve HTTPS from the pod itself (--admin-tls-cert / --admin-tls-key). The Secret must be of type kubernetes.io/tls.
-  # A proxy in front then has to speak HTTPS to the pod (ingress-nginx: nginx.ingress.kubernetes.io/backend-protocol: HTTPS).
+  # A proxy in front then has to speak HTTPS to the pod (your Gateway implementation's own backend-TLS policy sets this).
   tls:
     secretName: ""
     certKey: tls.crt
@@ -121,17 +110,9 @@ admin:
   existingPasswordSecretKey: password
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Web UI exposure (HTTPS to browsers). Terminates TLS at the proxy; see admin.behindTlsProxy.
+# Web UI exposure (HTTPS to browsers). Gateway API HTTPRoute in a Gateway with an HTTPS listener (TLS terminated at the
+# Gateway; see admin.behindTlsProxy). Needs the Gateway API CRDs and a Gateway already running in the cluster.
 # ---------------------------------------------------------------------------------------------------------------------
-ui:
-  ingress:
-    enabled: false
-    className: ""              # e.g. nginx, traefik
-    annotations: {}            # e.g. cert-manager.io/cluster-issuer: letsencrypt
-    hosts: []                  # e.g. [{host: continuum.example.com, paths: [{path: /, pathType: Prefix}]}] (paths default to "/")
-    tls: []                    # e.g. [{secretName: continuum-ui-tls, hosts: [continuum.example.com]}]
-
-# Gateway API HTTPRoute for the UI, as an alternative to ui.ingress (needs the Gateway API CRDs and a Gateway with an HTTPS listener).
 httproute:
   enabled: false
   parentRefs: []               # e.g. [{name: shared-gateway, namespace: gateways, sectionName: https}]
@@ -363,8 +344,8 @@ networkPolicy:
   ingress:
     # Peers allowed to connect to each port, as NetworkPolicyPeer objects. Empty = from anywhere (agents come from the internet
     # or other clusters, so leave the agent port open unless you know their ranges).
-    # Restrict the admin port to your ingress controller, e.g.
-    #   admin: {from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}}]}
+    # Restrict the admin port to your Gateway's namespace, e.g.
+    #   admin: {from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateways}}}]}
     agent: {from: []}
     admin: {from: []}
   egress:

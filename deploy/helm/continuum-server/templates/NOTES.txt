@@ -20,27 +20,18 @@ WHAT AGENTS WILL DIAL
 {{- else }}
 
   Service {{ $fn }}-agent is ClusterIP: it is reachable only from inside the cluster unless you expose it with
-  {{- if .Values.agent.ingress.enabled }} the passthrough Ingress this release created (the controller MUST run with --enable-ssl-passthrough; TLS must never be terminated there){{ else if .Values.agent.tlsRoute.enabled }} the TLSRoute this release created (the Gateway listener must be protocol TLS, mode Passthrough){{ else }} agent.ingress or agent.tlsRoute, or your own L4 exposure{{ end }}.
-{{- end }}
-{{- if .Values.agent.ingress.enabled }}
-
-  Ingress {{ $fn }}-agent routes {{ .Values.agent.ingress.host }} by TLS passthrough; agents reach it on the controller's TLS port,
-  so agent.publicAddress should be {{ .Values.agent.ingress.host }}:443 (it is {{ .Values.agent.publicAddress }}).
+  {{- if .Values.agent.tlsRoute.enabled }} the TLSRoute this release created (the Gateway listener must be protocol TLS, mode Passthrough){{ else }} agent.tlsRoute, or your own L4 exposure{{ end }}.
 {{- end }}
 
 THE WEB UI
-{{- if .Values.ui.ingress.enabled }}
-{{- range .Values.ui.ingress.hosts }}
-  https://{{ .host }}/
-{{- end }}
-{{- else if .Values.httproute.enabled }}
+{{- if .Values.httproute.enabled }}
 {{- range .Values.httproute.hostnames }}
   https://{{ . }}/
 {{- end }}
 {{- else }}
   Not exposed outside the cluster. Reach it with a port-forward:
     kubectl -n {{ $ns }} port-forward service/{{ $fn }} {{ .Values.admin.service.port }}:{{ .Values.admin.service.port }}
-  and open {{ if $tls }}https{{ else }}http{{ end }}://localhost:{{ .Values.admin.service.port }}/   (enable ui.ingress for a real address)
+  and open {{ if $tls }}https{{ else }}http{{ end }}://localhost:{{ .Values.admin.service.port }}/   (enable httproute for a real address)
 {{- end }}
 {{- if and (include "continuum.behindProxy" .) (not $tls) }}
   The admin port speaks plain HTTP inside the cluster and the server trusts X-Forwarded-For / X-Forwarded-Proto on it
@@ -64,7 +55,7 @@ CONNECT A CLUSTER
     kubectl -n {{ $ns }} logs deployment/{{ $fn }} | grep -o 'ca_pin=[^ ]*'
   or from the API, once you have signed in in the UI and chosen your own password (the API refuses everything before that; the
   session cookie is kept in ./jar; the org id is "{{ .Values.org }}"):
-    UI={{ if .Values.ui.ingress.enabled }}{{ with (first .Values.ui.ingress.hosts) }}https://{{ .host }}{{ end }}{{ else }}http://localhost:{{ .Values.admin.service.port }}{{ end }}
+    UI={{ if .Values.httproute.enabled }}{{ with (first .Values.httproute.hostnames) }}https://{{ . }}{{ end }}{{ else }}http://localhost:{{ .Values.admin.service.port }}{{ end }}
     curl -sc jar -H 'X-Requested-With: curl' -H 'Content-Type: application/json' -d '{"username":"admin","password":"..."}' $UI/api/v1/auth/login
     curl -sb jar $UI/api/v1/orgs/{{ .Values.org }}/info | jq -r .caPin
   If you keep the chart for the agent locally, the server also serves it (unauthenticated): curl -O $UI/charts/<file shown in the UI>.
