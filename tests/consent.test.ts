@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   collectorState,
   consentChange,
+  discoveryStatus,
   effectiveNote,
   extrasOf,
   healthSummary,
@@ -54,6 +55,20 @@ test('the health line counts problems that need a person, not notices', () => {
   assert.deepEqual([one.line, one.level, one.count], ['1 problem', 'warn', 1])
   const two = healthSummary(diag({ problems: [{ code: 'a', severity: 'warn', message: 'm' }, { code: 'rbac_forbidden', severity: 'error', message: 'm' }, { code: 'i', severity: 'info', message: 'm' }] }))
   assert.deepEqual([two.line, two.level], ['2 problems', 'error'])
+})
+
+test('discovery is done once every watch has synced, separate from whether anything was found or is healthy', () => {
+  assert.equal(discoveryStatus(undefined).state, 'unknown')
+  assert.equal(discoveryStatus(diag({ partial: true, informers: [{ name: 'nodes', synced: true, objects: 3 }] })).state, 'unknown', 'a hello-only report has not looked at anything yet')
+  assert.equal(discoveryStatus(diag({ informers: [] })).state, 'unknown', 'an older agent with no watches at all')
+  const midway = discoveryStatus(diag({ informers: [{ name: 'nodes', synced: true, objects: 3 }, { name: 'pods', synced: false, objects: 0 }] }))
+  assert.deepEqual([midway.state, midway.synced, midway.total], ['discovering', 1, 2])
+  const done = discoveryStatus(diag({ informers: [{ name: 'nodes', synced: true, objects: 3 }, { name: 'pods', synced: true, objects: 40 }] }))
+  assert.deepEqual([done.state, done.synced, done.total], ['done', 2, 2])
+  // A synced watch that later errors (a permission dropped, say) is still counted as having synced once - discovery
+  // finishing is a one-time milestone, not a live health check.
+  const erroredButSynced = discoveryStatus(diag({ informers: [{ name: 'pods', synced: true, objects: 40, lastError: 'forbidden' }] }))
+  assert.equal(erroredButSynced.state, 'done')
 })
 
 test('problems are shown worst first without reordering equals', () => {

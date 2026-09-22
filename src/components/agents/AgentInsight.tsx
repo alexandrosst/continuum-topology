@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { AlertCircle, AlertTriangle, Check, Copy, Info, ShieldCheck } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Check, Copy, Info, Loader2, ShieldCheck } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Button, Field, Input } from '@/components/ui/primitives'
 import TierLevels from '@/components/TierLevels'
@@ -8,6 +8,7 @@ import {
   COLLECTORS,
   collectorState,
   consentChange,
+  discoveryStatus,
   effectiveNote,
   healthSummary,
   helmUpgradeCommand,
@@ -46,6 +47,38 @@ export function HealthChip({ diagnostics, connected }: { diagnostics?: AgentDiag
     <span className={clsx('inline-flex items-center gap-1 rounded-full border px-2 py-px text-[11px] font-medium', LEVEL_STYLE[h.level])} data-testid="health-chip" data-level={h.level} title={h.level === 'unknown' ? (diagnostics ? 'The agent’s last self-report is old, or the agent is not connected: what it said then may no longer be true.' : 'The agent has not sent a self-report yet (or this is an older agent).') : 'From the agent’s own account of itself'}>
       {h.level === 'healthy' ? <ShieldCheck size={11} aria-hidden /> : h.level === 'unknown' ? null : <AlertTriangle size={11} aria-hidden />}
       {h.line}
+    </span>
+  )
+}
+
+/**
+ * Whether the agent has finished its first full look at the cluster - every watch it runs synced at least
+ * once. This is a one-time milestone, not how healthy the agent is (that's HealthChip) and not a live count
+ * (those keep changing once discovery is done): it disappears once there is nothing left to report.
+ */
+export function DiscoveryChip({ diagnostics }: { diagnostics?: AgentDiagnostics }) {
+  const s = discoveryStatus(diagnostics)
+  if (s.state === 'unknown') return null
+  if (s.state === 'done') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-px text-[11px] font-medium text-emerald-300"
+        data-testid="discovery-chip"
+        data-state="done"
+        title={`Every watch this agent runs (${s.total}) has completed its first full read of the cluster.`}
+      >
+        <Check size={11} aria-hidden /> Fully discovered
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full border border-nb-700 bg-nb-930 px-2 py-px text-[11px] font-medium text-nb-400"
+      data-testid="discovery-chip"
+      data-state="discovering"
+      title="Still doing its first full read of the cluster (a one-time pass, separate from how busy it is once caught up)."
+    >
+      <Loader2 size={11} className="animate-spin" aria-hidden /> Discovering {s.synced}/{s.total}
     </span>
   )
 }

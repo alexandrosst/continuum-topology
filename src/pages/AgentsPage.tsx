@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { ChevronDown, ChevronRight, List, Network, Plug, Server } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
-import { CanSee, ConsentPanel, CopyCommand as CopyableCommand, HealthChip, Problems } from '@/components/agents/AgentInsight'
+import { CanSee, ConsentPanel, CopyCommand as CopyableCommand, DiscoveryChip, HealthChip, Problems } from '@/components/agents/AgentInsight'
 import { CheckLine, MODULE_STYLE, ObserverLine, ScopeLine, STATUS_STYLE, when } from '@/components/discovery/AgentParts'
 import ApprovalCard from '@/components/discovery/ApprovalCard'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -243,7 +243,10 @@ export default function AgentsPage() {
                             {a.link?.connectedSince && ` · up ${ageOf(a.link.connectedSince).replace(' ago', '')}`}
                           </div>
                           {a.status === 'approved' && extrasOf(rawAgents, a.id).diagnostics && (
-                            <div className="mt-1"><HealthChip diagnostics={extrasOf(rawAgents, a.id).diagnostics} connected={a.connected} /></div>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <HealthChip diagnostics={extrasOf(rawAgents, a.id).diagnostics} connected={a.connected} />
+                              <DiscoveryChip diagnostics={extrasOf(rawAgents, a.id).diagnostics} />
+                            </div>
                           )}
                           {skewWarning(a.clockSkewMs) && a.clockSkewMs !== undefined && (
                             <span className="mt-1 inline-block rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-px text-[11px] font-medium text-amber-300" title={skewWarning(a.clockSkewMs)} data-testid="clock-chip">
@@ -333,7 +336,7 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
           <div className="grid gap-x-10 gap-y-5 md:grid-cols-2">
             <div>
               <Heading>What this agent can see</Heading>
-              <div className="mb-2 flex items-center gap-2"><HealthChip diagnostics={extras.diagnostics} connected={a.connected} /><span className="text-xs text-nb-600">from the agent's own report, {ageOf(extras.diagnostics.reportedAt)}</span></div>
+              <div className="mb-2 flex flex-wrap items-center gap-2"><HealthChip diagnostics={extras.diagnostics} connected={a.connected} /><DiscoveryChip diagnostics={extras.diagnostics} /><span className="text-xs text-nb-600">from the agent's own report, {ageOf(extras.diagnostics.reportedAt)}</span></div>
               <CanSee agent={a} diagnostics={extras.diagnostics} />
               {extras.diagnostics.problems.length > 0 && (
                 <div className="mt-4">

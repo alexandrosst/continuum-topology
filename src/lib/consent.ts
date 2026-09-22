@@ -118,6 +118,28 @@ const RANK: Record<Severity, number> = { error: 0, warn: 1, info: 2 }
 /** Worst first, then in the order the agent sent them. */
 export const sortProblems = (ps: readonly AgentProblem[]): AgentProblem[] => [...ps].sort((a, b) => RANK[a.severity] - RANK[b.severity])
 
+/* ---------- discovery ---------- */
+
+export interface DiscoveryStatus {
+  /**
+   * 'done' once every watch this agent runs has completed its first full read of the cluster - a one-time
+   * milestone, not a health check (a watch can be synced and the agent still unhealthy, or still discovering
+   * and otherwise fine). 'unknown' before the agent has said anything substantive, or for an older agent
+   * that reports no watches at all.
+   */
+  state: 'unknown' | 'discovering' | 'done'
+  synced: number
+  total: number
+}
+
+/** Whether the agent has finished looking at the cluster for the first time. Separate from `healthSummary`
+ *  (is anything wrong) and from the live counts on screen (how much there is right now, which keeps changing). */
+export function discoveryStatus(d?: AgentDiagnostics): DiscoveryStatus {
+  if (!d || d.partial || d.informers.length === 0) return { state: 'unknown', synced: 0, total: d?.informers.length ?? 0 }
+  const synced = d.informers.filter((i) => i.synced).length
+  return { state: synced === d.informers.length ? 'done' : 'discovering', synced, total: d.informers.length }
+}
+
 /* ---------- tiers ---------- */
 
 export const TIER_NAMES = ['Registered only', 'Infrastructure', 'Services', 'Dependencies', 'Control'] as const

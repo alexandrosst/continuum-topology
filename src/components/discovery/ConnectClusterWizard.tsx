@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Button, ErrorBanner, Field, InfoTip, Input, Modal } from '@/components/ui/primitives'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError, type CreatedToken } from '@/lib/api'
+import { discoveryStatus, extrasOf } from '@/lib/consent'
 import { previewImage } from '@/lib/image'
 import { emptyScope, scopeActive, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '@/lib/install'
 import type { AccessTier } from '@/lib/types'
@@ -142,6 +143,9 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
   const counts = cluster
     ? { nodes: raw.nodes.filter((n) => n.clusterId === cluster.id && !n.deletedAt).length, services: raw.services.filter((s) => s.clusterId === cluster.id && !s.deletedAt).length }
     : null
+  // Whether the agent has finished its first full read of the cluster (every watch synced), not just found
+  // one thing: a big cluster can report its first node long before it is done looking around.
+  const discovery = discoveryStatus(extrasOf(state?.agents, agent?.id ?? '').diagnostics)
 
   const close = () => {
     setCreated(null)
@@ -173,7 +177,15 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
     }
   }
 
-  const phase = !created ? 'form' : !agent ? 'waiting' : agent.status === 'pending' ? 'approve' : agent.status === 'approved' ? (counts ? 'done' : 'discovering') : 'stopped'
+  const phase = !created
+    ? 'form'
+    : !agent
+      ? 'waiting'
+      : agent.status === 'pending'
+        ? 'approve'
+        : agent.status === 'approved'
+          ? (counts && discovery.state !== 'discovering' ? 'done' : 'discovering')
+          : 'stopped'
 
   return (
     <Modal
@@ -384,7 +396,8 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
           {phase === 'approve' && mine && <ApprovalCard agent={mine} />}
           {phase === 'discovering' && (
             <p className="flex items-center gap-2 text-sm text-nb-400">
-              <Loader2 size={16} className="animate-spin text-accent" /> Approved. Waiting for the first discovery…
+              <Loader2 size={16} className="animate-spin text-accent" />
+              {discovery.state === 'discovering' ? `Approved. Looking at the cluster… ${discovery.synced} of ${discovery.total} watches read so far.` : 'Approved. Waiting for the first discovery…'}
             </p>
           )}
           {phase === 'done' && counts && (
