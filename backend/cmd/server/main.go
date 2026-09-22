@@ -28,6 +28,13 @@ import (
 
 var version = "0.1.0-dev"
 
+// agentChartVersion is the continuum-agent chart version actually published alongside this server build - set at
+// link time (-X main.agentChartVersion=...) by the release pipeline, which packages the chart with an explicit
+// `helm package --version` that has nothing to do with what's checked into the chart's own Chart.yaml (edge builds
+// get 0.0.0-edge.<sha>; a tagged release gets the tag). Left at its zero value, Admin falls back to chart.Version()
+// (the Chart.yaml literal), which is only ever right by coincidence - see Admin.agentChartVersion's doc comment.
+var agentChartVersion = ""
+
 type multi []string
 
 func (m *multi) String() string     { return strings.Join(*m, ",") }
@@ -243,7 +250,7 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 		}
 	}()
 
-	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, Origins: origins, UIDir: uiDir, Version: version}
+	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, Origins: origins, UIDir: uiDir, Version: version, AgentChartVersion: agentChartVersion}
 	admin.Readiness = &server.Readiness{AgentsListening: grpcSrv.Serving}
 	if graphStore != nil {
 		admin.Readiness.Graph = func() (bool, bool) { return true, graphStore.Ready() }

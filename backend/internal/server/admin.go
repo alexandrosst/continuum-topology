@@ -45,6 +45,12 @@ type Admin struct {
 	Origins                              []string // browsers allowed cross-origin (dev); empty = same origin only
 	UIDir                                string   // built UI to serve, optional
 	Version                              string
+	// AgentChartVersion is the continuum-agent chart version the release pipeline actually published alongside
+	// this exact server build (edge: 0.0.0-edge.<sha>; a tagged release: the tag) - set at link time, empty on a
+	// build that skipped that (a local `go build`, or an image scripts/publish.sh built without it). Only matters
+	// for a `--version` flag against an OCI/registry chart reference; a local ./file.tgz reference (no registry
+	// configured) always serves the exact chart this binary was built from and needs no version at all.
+	AgentChartVersion string
 	// TrustProxy is set when a TLS-terminating proxy sits in front: the client address is read from
 	// the last entry of X-Forwarded-For (what the proxy itself saw), and the request counts as HTTPS
 	// when the proxy says so in X-Forwarded-Proto. Only correct when the proxy is the sole way in and
@@ -912,6 +918,19 @@ func (a *Admin) createToken(w http.ResponseWriter, r *http.Request) {
 // when N is already what the chart defaults to would only make the common case's command longer for no reason.
 const chartDefaultAccessTier = 2
 
+// agentChartVersion is what a `--version` flag against an OCI/registry chart reference should say: the version the
+// release pipeline actually published this build's chart under, when the binary was linked with that information,
+// else chart.Version() (the chart's own Chart.yaml literal) as the best available guess. The two agree for a chart
+// packaged straight from a checkout with no `helm package --version` override (scripts/publish.sh does this); they
+// can disagree for a CI-published chart, whose OCI version is a separate, deliberately-overridden string (edge:
+// 0.0.0-edge.<sha>; a tagged release: the tag) that Chart.yaml's checked-in text was never meant to track.
+func (a *Admin) agentChartVersion() string {
+	if a.AgentChartVersion != "" {
+		return a.AgentChartVersion
+	}
+	return chart.Version()
+}
+
 // installCommand is what the operator runs on the cluster. The token appears here once, in the
 // response to its creation, and is never retrievable again.
 //
@@ -924,7 +943,7 @@ func (a *Admin) installCommand(img ImageConfig, secret string, t store.Token) st
 	if ref == "" {
 		ref = "./" + chart.Filename() // the file the wizard offers to download
 	} else if !strings.HasSuffix(ref, ".tgz") {
-		version = " --version " + chart.Version() // a registry or repository holds many versions
+		version = " --version " + a.agentChartVersion() // a registry or repository holds many versions
 	}
 	// enrollment.key packs the CA pin and the one-time token into the single flag the chart splits back apart at
 	// render time (see continuum-agent's _helpers.tpl): one thing to paste instead of two, without hiding either

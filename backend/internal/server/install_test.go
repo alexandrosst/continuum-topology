@@ -118,6 +118,45 @@ func TestInstallCommandBundlesTheCAPinAndToken(t *testing.T) {
 	}
 }
 
+// The --version flag on an OCI/registry chart reference must say what the release pipeline actually published
+// under, when the binary knows it (AgentChartVersion, set at link time for a CI build) - not chart.Version()'s
+// Chart.yaml literal, which a CI-published chart's real OCI version routinely disagrees with (see
+// Admin.agentChartVersion's doc comment). A local build that was never linked with that information (the zero
+// value) still falls back to chart.Version(), same as before this existed.
+func TestInstallCommandUsesThePublishedChartVersionWhenKnown(t *testing.T) {
+	a := testAdmin(t)
+	img := ImageConfig{Registry: "myteam"}
+
+	// Unset: falls back to chart.Version(), unchanged from before.
+	if cmd := cmdFor(a, img); !strings.Contains(cmd, " --version "+chart.Version()+" ") {
+		t.Fatalf("no AgentChartVersion should fall back to chart.Version():\n%s", cmd)
+	}
+
+	// Set (as a CI-built binary would be, via -X main.agentChartVersion=...): wins outright, even though it looks
+	// nothing like chart.Version()'s "0.1.0"-shaped literal.
+	a.AgentChartVersion = "0.0.0-edge.5fb6022"
+	cmd := cmdFor(a, img)
+	if !strings.Contains(cmd, " --version 0.0.0-edge.5fb6022 ") {
+		t.Fatalf("AgentChartVersion should win:\n%s", cmd)
+	}
+	if strings.Contains(cmd, chart.Version()) {
+		t.Fatalf("chart.Version() must not leak in once AgentChartVersion is set:\n%s", cmd)
+	}
+
+	// A local ./file.tgz reference never prints --version at all, whichever is set: the file already is the
+	// exact chart this binary was built from.
+	a.ChartRef = "local"
+	if cmd := cmdFor(a, img); strings.Contains(cmd, "--version") {
+		t.Fatalf("a local chart reference must not print --version:\n%s", cmd)
+	}
+
+	// upgradeCommand (the tier-ceiling "harden" hint) must agree with installCommand.
+	a.ChartRef = ""
+	if cmd := a.upgradeCommand(img, 2, "continuum-system", "continuum-agent"); !strings.Contains(cmd, " --version 0.0.0-edge.5fb6022 ") {
+		t.Fatalf("upgradeCommand should also use AgentChartVersion:\n%s", cmd)
+	}
+}
+
 // An explicit --chart-ref wins over the registry's own chart, and "local" forces the served file.
 func TestExplicitChartRef(t *testing.T) {
 	a := testAdmin(t)

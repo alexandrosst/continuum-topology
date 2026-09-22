@@ -42,9 +42,15 @@ COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
 ARG VERSION=0.1.0-dev
+# CHART_VERSION is the continuum-agent chart version this same pipeline run publishes to the registry (edge:
+# 0.0.0-edge.<sha>; a tagged release: the tag) - baked only into the server binary, which is the only one that ever
+# prints a `--version` flag for that chart. Left unset (the default, e.g. a local `docker build`), the server falls
+# back to the chart's own Chart.yaml literal instead - see Admin.agentChartVersion's doc comment for why the two
+# can disagree for a CI-published image.
+ARG CHART_VERSION=
 ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/continuum ./cmd/continuum \
- && go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/server ./cmd/server
+ && go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.agentChartVersion=${CHART_VERSION}" -o /out/server ./cmd/server
 
 # The default user of this base image is 65532 (nonroot); nothing here overrides it, so a pod that needs root (the flow
 # collector) asks for it in its own securityContext.

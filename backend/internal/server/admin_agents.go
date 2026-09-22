@@ -32,7 +32,7 @@ func (a *Admin) upgradeCommand(img ImageConfig, tier int, namespace, release str
 	if ref == "" {
 		ref = "./" + chart.Filename()
 	} else if !strings.HasSuffix(ref, ".tgz") {
-		version = " --version " + chart.Version()
+		version = " --version " + a.agentChartVersion()
 	}
 	ns, name, _ := releaseTarget(namespace, release)
 	return fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reuse-values --set access.tier=%d", name, ref, version, ns, tier)
