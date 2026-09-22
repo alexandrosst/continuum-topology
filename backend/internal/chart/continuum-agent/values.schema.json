@@ -61,6 +61,11 @@
             "string",
             "integer"
           ]
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^$|^[0-9a-f]{64}\\.[A-Za-z0-9_-]+$",
+          "description": "server.caPin and enrollment.token, joined as '<caPin>.<token>'; what the install command prints instead of the two flags separately."
         }
       }
     },

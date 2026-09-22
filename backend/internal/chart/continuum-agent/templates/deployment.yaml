@@ -1,5 +1,5 @@
 {{- if not .Values.server.address }}{{- fail "server.address is required (host:port)" }}{{- end }}
-{{- if not .Values.server.caPin }}{{- fail "server.caPin is required" }}{{- end }}
+{{- if not (include "agent.caPin" .) }}{{- fail "server.caPin is required (or enrollment.key, which carries it together with the enrollment token)" }}{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -56,7 +56,7 @@ spec:
             capabilities: {drop: ["ALL"]}
           env:
             - {name: CONTINUUM_SERVER, value: {{ .Values.server.address | quote }}}
-            - {name: CONTINUUM_CA_PIN, value: {{ .Values.server.caPin | quote }}}
+            - {name: CONTINUUM_CA_PIN, value: {{ include "agent.caPin" . | quote }}}
             - {name: CONTINUUM_TIER, value: {{ include "agent.tier" . | quote }}}
             {{- if eq .Values.rbac.mode "namespaced" }}
             # Tells the collector that tier 2's RBAC is a Role per namespace (rbac.yaml), not one cluster-wide

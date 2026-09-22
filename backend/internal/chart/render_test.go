@@ -314,6 +314,38 @@ func TestFlowReceiverPolicyIsHonest(t *testing.T) {
 	}
 }
 
+// enrollment.key ("<caPin>.<token>") is what the install command prints instead of server.caPin + enrollment.token
+// separately; the chart must split it back into exactly what those two fields would have produced.
+func TestEnrollmentKeySplitsIntoCAPinAndToken(t *testing.T) {
+	pin := strings.Repeat("0f", 32)
+	r := render(t, "--set", "server.caPin=", "--set", "enrollment.token=", "--set", "enrollment.key="+pin+".cnt_xyz")
+	c := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
+	if v, _ := env(c, "CONTINUUM_CA_PIN"); v != pin {
+		t.Errorf("CONTINUUM_CA_PIN = %q, want %q", v, pin)
+	}
+	if s, ok := r.secrets["continuum-agent-enrollment"]; !ok || s.StringData["token"] != "cnt_xyz" {
+		t.Errorf("enrollment secret token = %q, ok=%v, want \"cnt_xyz\"", s.StringData["token"], ok)
+	}
+	// server.caPin and enrollment.token, given directly, win over enrollment.key: an operator's explicit override is
+	// never silently shadowed by the convenience field.
+	r = render(t, "--set", "server.caPin=ab", "--set", "enrollment.token=direct", "--set", "enrollment.key="+pin+".cnt_xyz")
+	c = r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
+	if v, _ := env(c, "CONTINUUM_CA_PIN"); v != "ab" {
+		t.Errorf("explicit server.caPin must win, got %q", v)
+	}
+	if s := r.secrets["continuum-agent-enrollment"]; s.StringData["token"] != "direct" {
+		t.Errorf("explicit enrollment.token must win, got %q", s.StringData["token"])
+	}
+	// Neither the pin nor the token appears un-set when only enrollment.key was given: rendering must not fail.
+	if out, err := helmTemplate(t, "--set", "server.caPin=", "--set", "enrollment.token=", "--set", "enrollment.key="+pin+".cnt_xyz"); err != nil {
+		t.Fatalf("enrollment.key alone should be enough: %v\n%s", err, out)
+	}
+	// Neither caPin nor enrollment.key: the chart still refuses to render, same as before this field existed.
+	if out, err := helmTemplate(t, "--set", "server.caPin=", "--set", "enrollment.token="); err == nil || !strings.Contains(out, "server.caPin is required") {
+		t.Errorf("missing both caPin and enrollment.key must fail with the caPin message, got err=%v\n%s", err, out)
+	}
+}
+
 // The values an install command sets (server.Admin.installCommand) must pass the chart's schema, and the schema must still
 // catch the typos that matter.
 func TestSchemaAcceptsTheInstallCommandAndCatchesTypos(t *testing.T) {
@@ -326,6 +358,7 @@ func TestSchemaAcceptsTheInstallCommandAndCatchesTypos(t *testing.T) {
 		{"--set", "enrollment.token=1234567"},           // ...and so could a token
 		{"--set-string", "access.tier=1"},               // a string tier is accepted too
 		{"--set", "nodeProbe.image.repository=x/probe"}, // an older server's command: accepted, ignored
+		{"--set", "server.caPin=", "--set", "enrollment.token=", "--set", "enrollment.key=" + strings.Repeat("0f", 32) + ".cnt_ok"}, // what the install command prints now
 	} {
 		if out, err := helmTemplate(t, extra...); err != nil {
 			t.Errorf("%v rejected: %v\n%s", extra, err, out)
@@ -338,6 +371,8 @@ func TestSchemaAcceptsTheInstallCommandAndCatchesTypos(t *testing.T) {
 		{"--set", "nodeProbe.enabled=yes"},
 		{"--set", "flowObserver.method=magic"},
 		{"--set", "servr.address=x"},
+		{"--set", "enrollment.key=notahexpin.cnt_ok"},           // the pin half must be 64 lowercase hex characters
+		{"--set", "enrollment.key=" + strings.Repeat("0f", 32)}, // no ".<token>" half at all
 	} {
 		if out, err := helmTemplate(t, bad...); err == nil {
 			t.Errorf("%v accepted, want a schema error\n%s", bad, out)

@@ -917,8 +917,12 @@ func (a *Admin) installCommand(img ImageConfig, secret string, t store.Token) st
 	} else if !strings.HasSuffix(ref, ".tgz") {
 		version = " --version " + chart.Version() // a registry or repository holds many versions
 	}
+	// enrollment.key packs the CA pin and the one-time token into the single flag the chart splits back apart at
+	// render time (see continuum-agent's _helpers.tpl): one thing to paste instead of two, without hiding either
+	// value's own text - the pin is 64 hex characters, the token cannot contain ".", so joining them is unambiguous
+	// and needs no escaping.
 	var b strings.Builder
-	fmt.Fprintf(&b, "helm install continuum-agent %s%s \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=%s \\\n  --set server.caPin=%s \\\n  --set enrollment.token=%s",
+	fmt.Fprintf(&b, "helm install continuum-agent %s%s \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=%s \\\n  --set enrollment.key=%s.%s",
 		ref, version, a.AgentAddr, a.C.CA.Pin(), secret)
 	if t.AccessTier != chartDefaultAccessTier {
 		fmt.Fprintf(&b, " \\\n  --set access.tier=%d", t.AccessTier)

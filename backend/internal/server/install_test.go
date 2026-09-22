@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -59,7 +60,7 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 
 	// 2. Registry only: one image, the chart from the same registry, no tag and no digest.
 	cmd = cmdFor(a, ImageConfig{Registry: "myteam"})
-	for _, want := range []string{"helm install continuum-agent oci://registry-1.docker.io/myteam/continuum-agent" + ver + "\\\n", "--set image.repository=myteam/continuum", "enrollment.token=cnt_1"} {
+	for _, want := range []string{"helm install continuum-agent oci://registry-1.docker.io/myteam/continuum-agent" + ver + "\\\n", "--set image.repository=myteam/continuum", "--set enrollment.key=" + a.C.CA.Pin() + ".cnt_1"} {
 		if !strings.Contains(cmd, want) {
 			t.Fatalf("missing %q in:\n%s", want, cmd)
 		}
@@ -95,6 +96,25 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 	// The only secret on the command line is the enrollment token, as before; no image value carries one.
 	if strings.Count(cmd, "cnt_1") != 1 {
 		t.Fatalf("the token appears once:\n%s", cmd)
+	}
+}
+
+// The CA pin and the one-time token print as one enrollment.key flag ("<pin>.<token>"), not the two separate
+// server.caPin / enrollment.token flags the chart also still accepts on its own.
+func TestInstallCommandBundlesTheCAPinAndToken(t *testing.T) {
+	a := testAdmin(t)
+	cmd := cmdFor(a, ImageConfig{})
+	want := "--set enrollment.key=" + a.C.CA.Pin() + ".cnt_1"
+	if !strings.Contains(cmd, want) {
+		t.Fatalf("missing %q in:\n%s", want, cmd)
+	}
+	for _, not := range []string{"server.caPin", "enrollment.token"} {
+		if strings.Contains(cmd, not) {
+			t.Fatalf("the bundled command must not also print %q:\n%s", not, cmd)
+		}
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(a.C.CA.Pin()) {
+		t.Fatalf("the pin half must be 64 lowercase hex characters (the chart's schema requires this): %q", a.C.CA.Pin())
 	}
 }
 

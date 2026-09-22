@@ -183,7 +183,7 @@ If you lost the password: `kubectl -n continuum exec deployment/continuum-server
 
 ## Connect the first cluster
 
-1. In the UI open **Connect a cluster**. It prints a complete `helm install` for the agent, with `server.address` (your `agent.publicAddress`), `server.caPin` (the fingerprint of this server's CA) and a one-hour enrollment token.
+1. In the UI open **Connect a cluster**. It prints a complete `helm install` for the agent, with `server.address` (your `agent.publicAddress`) and `enrollment.key` — the fingerprint of this server's CA and a one-hour enrollment token, joined as one value (`<caPin>.<token>`); the chart splits it back into the two on render, and also accepts `server.caPin` / `enrollment.token` set separately if you're writing the command by hand.
 2. Run it against the cluster you want to observe.
 3. The agent appears on the **Discovery** page as pending. Compare the cluster fingerprint it shows with `kubectl get namespace kube-system -o jsonpath='{.metadata.uid}'` on that cluster, and approve only if they match.
 
@@ -501,7 +501,7 @@ Ready-made combinations to copy from live in `helm/continuum-server/ci/`.
 **An agent cannot connect.**
 * *TLS handshake fails, `x509` or `certificate is valid for ... not ...` in the agent log*: the name the agent dials is not in the server certificate. Compare `server.address` on the agent with `agent.publicAddress` and `agent.extraHosts`; they must match exactly (IP vs DNS name counts). Fix the value and `helm upgrade`; the server issues a new certificate.
 * *Handshake fails or resets and the address is right*: something in the path terminates TLS or speaks HTTP. Check the path is L4 or passthrough: a plain Ingress, an HTTP load balancer, a CDN or a proxy with TLS inspection all break mutual TLS. With a Gateway API `TLSRoute`, check the Gateway's listener is actually `protocol: TLS` with `tls.mode: Passthrough` (not `Terminate`), and that agents dial the Gateway's port (usually 443).
-* *Certificate signed by unknown authority / pin mismatch*: the agent was installed with another server's CA pin, or the server's data volume was replaced (a new CA). Compare `ca_pin=` in the server log with the agent's `server.caPin`.
+* *Certificate signed by unknown authority / pin mismatch*: the agent was installed with another server's CA pin, or the server's data volume was replaced (a new CA). Compare `ca_pin=` in the server log with the pin half of the agent's `enrollment.key` (or `server.caPin`, if it was set directly) — `kubectl -n continuum-system get deployment continuum-agent -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CONTINUUM_CA_PIN")].value}'` shows the value it's actually running with either way.
 * *Timeouts*: the LoadBalancer is still `<pending>` (`kubectl -n continuum get service continuum-server-agent`; no load balancer controller: use NodePort or install MetalLB), a firewall or `loadBalancerSourceRanges` blocks the agent's network, or a NodePort is not open on that node.
 * With `networkPolicy.enabled`, `networkPolicy.ingress.agent.from` must allow the agents' networks (empty means anywhere).
 

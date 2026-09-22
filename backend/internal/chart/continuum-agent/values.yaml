@@ -1,7 +1,10 @@
-# Where the agent reports. Both come from the "Connect a cluster" screen.
+# Where the agent reports, and how it proves it's allowed to enroll. All from the "Connect a cluster" screen, which
+# prints server.address on its own (worth seeing at a glance) and folds caPin + the one-time token together into
+# enrollment.key below (one value instead of two, since both only matter for enrolling this one agent).
 server:
   address: ""   # host:port the agent dials, e.g. continuum.example.com:8443
-  caPin: ""     # sha256 fingerprint of the server's CA; the agent trusts nothing else
+  caPin: ""     # sha256 fingerprint of the server's CA; the agent trusts nothing else and pins it on every connection,
+                # not just the first. Leave unset if enrollment.key carries it instead.
 
 # What the agent is allowed to read. The server can only ever approve up to this.
 #   0  registered only: reads the kube-system namespace UID (the cluster's identity)
@@ -31,7 +34,16 @@ rbac:
 enrollment:
   # One-time token, valid for one hour. Only used on first start; afterwards it does nothing,
   # so you may remove it with `helm upgrade --reuse-values --set enrollment.token=`.
+  # Ignored where enrollment.key below is set (its second half is the token).
   token: ""
+  # The install command's one convenience flag: server.caPin and enrollment.token above, joined as "<caPin>.<token>".
+  # Splitting it back into those two values happens once, when this chart renders - nothing downstream (the agent
+  # binary, the running Deployment) ever sees "enrollment.key" itself, so this is purely how the command you paste
+  # stays short, not a new thing the agent has to understand. server.caPin / enrollment.token set directly always win
+  # over this if both are given. Unlike enrollment.token, don't blank this later to "clean up" the spent token: the
+  # CA pin lives in the same value, and the agent needs that on every restart, not just the first. It is harmless to
+  # leave in place indefinitely - the token half is already spent and does nothing.
+  key: ""
 
 # Which namespaces the agent reports on. Everything empty means all of them (the default). Anything outside the scope is
 # dropped inside the cluster: its workloads, services and traffic are never sent, and the server is told only how many

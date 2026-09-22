@@ -60,6 +60,11 @@ CHANGE WHAT IT MAY SEE
 
   The one-time enrollment token is only used on first start. You can remove it from the cluster with
   --reuse-values --set enrollment.token=   (the agent restarts once and keeps its identity).
+{{- else if .Values.enrollment.key }}
+
+  enrollment.key's token half is only used on first start; it does nothing now. Unlike enrollment.token, though,
+  there's no need (and no safe way) to blank it afterwards - it also carries the CA pin, which the agent needs on
+  every restart, not just the first. Leaving it set is fine.
 {{- end }}
 
 REMOVE IT

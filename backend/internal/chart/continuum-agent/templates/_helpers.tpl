@@ -64,6 +64,21 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{/* The port of server.address (host:port; the last colon wins, so [::1]:8443 works too). */}}
 {{- define "agent.serverPort" -}}{{- regexReplaceAll "^.*:" (toString .Values.server.address) "" -}}{{- end -}}
 
+{{/* enrollment.key is "<caPin>.<token>": the install command's one convenience flag for the two values below. It is
+     split here, once, at render time - server.caPin / enrollment.token set directly always win when both are given. */}}
+{{- define "agent.caPin" -}}
+{{- if .Values.server.caPin -}}{{- .Values.server.caPin -}}
+{{- else if .Values.enrollment.key -}}
+{{- $p := splitList "." (toString .Values.enrollment.key) -}}{{- if eq (len $p) 2 -}}{{- index $p 0 -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- define "agent.enrollToken" -}}
+{{- if .Values.enrollment.token -}}{{- .Values.enrollment.token -}}
+{{- else if .Values.enrollment.key -}}
+{{- $p := splitList "." (toString .Values.enrollment.key) -}}{{- if eq (len $p) 2 -}}{{- index $p 1 -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Values that were added after 0.1.0 may be missing when `helm upgrade --reuse-values` carries the old release's values
      over an older chart. These read them without failing. */}}
 {{- define "agent.healthEnabled" -}}{{- if (dig "health" "enabled" true .Values.AsMap) -}}true{{- end -}}{{- end -}}

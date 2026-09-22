@@ -1,6 +1,7 @@
-{{- if .Values.enrollment.token }}
-# The one-time enrollment token. It lives in its own file so the agent pod can carry a checksum of it (changing the
-# token rolls the pod). The agent reads it from the environment once, at start, and only until it is enrolled.
+{{- if include "agent.enrollToken" . }}
+# The one-time enrollment token (given directly, or as the second half of enrollment.key). It lives in its own file so
+# the agent pod can carry a checksum of it (changing the token rolls the pod). The agent reads it from the
+# environment once, at start, and only until it is enrolled.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -9,5 +10,5 @@ metadata:
   labels: {{- include "agent.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  token: {{ .Values.enrollment.token | quote }}
+  token: {{ include "agent.enrollToken" . | quote }}
 {{- end }}
