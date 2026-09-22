@@ -27,6 +27,15 @@ type Admin struct {
 	P         *Platform
 	C         *Core  // the platform-wide core (accounts, sign-in); an organisation's own is a.core(r)
 	AgentAddr string // host:port agents dial, shown in the install command
+	// AgentExposure is how AgentAddr is reached (loadbalancer, nodeport, gateway, clusterip), from --agent-exposure.
+	// Purely descriptive - the server cannot check it against how the port is actually reachable - and only used to
+	// pick which guidance Settings → Installation shows for changing AgentAddr later. Empty on older installs (a
+	// server chart from before this flag existed): the UI then shows generic guidance for all three methods.
+	AgentExposure string
+	// ReleaseName and ReleaseNamespace are this Helm release's own name and namespace, from --release-name and
+	// --release-namespace. Also purely descriptive, also empty on an older install; together with AgentExposure they
+	// let Settings → Installation print an exact, ready-to-run helm upgrade command instead of one with blanks in it.
+	ReleaseName, ReleaseNamespace string
 	ChartRef  string // an explicit chart reference for install commands; empty means the copy the server serves
 	// ImageRegistry, ImageTag and ImageDigest are the server-wide defaults (--image-registry, --image-tag,
 	// --image-digest) for where install commands pull the agent image and chart from. An organisation's own
@@ -823,7 +832,7 @@ func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 	t := a.tn(r)
 	o, _ := a.C.Store.GetOrg(r.Context(), t.ID)
 	img := a.images(t.C)
-	writeJSON(w, 200, map[string]any{"orgId": t.ID, "orgName": o.Name, "role": principal(r).Role, "agentAddress": a.AgentAddr, "caPin": a.C.CA.Pin(), "version": a.Version, "implementedTier": ImplementedTier, "geoip": a.P.Geo.Info(),
+	writeJSON(w, 200, map[string]any{"orgId": t.ID, "orgName": o.Name, "role": principal(r).Role, "agentAddress": a.AgentAddr, "agentExposure": a.AgentExposure, "releaseName": a.ReleaseName, "releaseNamespace": a.ReleaseNamespace, "caPin": a.C.CA.Pin(), "version": a.Version, "implementedTier": ImplementedTier, "geoip": a.P.Geo.Info(),
 		// What the install wizard tells the operator to bring to the cluster: the chart file this server hands out
 		// (empty when the command names a chart elsewhere) and where the image comes from (this organisation's
 		// Settings → Installation, else the server's flags; empty registry: the chart's built-in names).

@@ -69,6 +69,15 @@ app.kubernetes.io/component: server
 {{- else if .Values.httproute.enabled -}}true{{- end -}}
 {{- end -}}
 
+{{/* How the agent port is exposed, in the same words the UI uses: "gateway", "loadbalancer", "nodeport" or
+     "clusterip". Passed to the binary as --agent-exposure so Settings → Installation can explain the current
+     address instead of just showing it - the server has no other way to know this about itself. */}}
+{{- define "continuum.agentExposure" -}}
+{{- if .Values.agent.tlsRoute.enabled -}}gateway
+{{- else -}}{{- lower .Values.agent.service.type -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Whether the chart should generate (and, once created, keep using) a self-signed certificate for the admin port:
      no explicit Secret was given, nothing else is confirmed to already protect the port, and the escape hatch
      (admin.tls.selfSigned=false) wasn't used. Renders "true" or nothing. */}}

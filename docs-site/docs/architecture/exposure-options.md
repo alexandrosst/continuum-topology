@@ -41,6 +41,17 @@ TLSRoute graduated to Gateway API's stable Standard channel in v1.5 (April 2026)
 
 The admin/UI port has the same shape: `httproute` is the Gateway API `HTTPRoute` for the UI, covered in [Production cluster](../installation/production-cluster.md#exposing-the-ui-properly).
 
+## Already run your own reverse proxy?
+
+If nginx, Traefik, Caddy or similar already sits in front of your cluster, the two ports still want opposite treatment — your proxy fits naturally into one of them and not the other:
+
+- **The admin port** is exactly what a reverse proxy is for: point it at the server's admin Service and terminate TLS there, then add `--set admin.behindTlsProxy=true` so the chart serves plain HTTP behind it instead of generating its own certificate. This is no different from putting any other web app behind a proxy.
+- **The agent port cannot go behind that same proxy** — not because of a chart limitation, but because terminating TLS is the one thing a reverse proxy normally does, and that's exactly what breaks mutual TLS gRPC (see above). You have two ways to still use one entry point:
+  1. **Simplest: let it bypass your proxy.** Point a LoadBalancer or NodePort straight at the agent port, on its own address or port, and leave your reverse proxy out of that path entirely. Agents dialing a different port than browsers do is normal, not a workaround.
+  2. **One address for everything, still no termination:** if your proxy supports raw TCP/SNI passthrough (nginx's `stream` module, Traefik's TCP routers, Caddy's `layer4`), point that at the agent Service without touching TLS — the same idea as Gateway API TLSRoute above, just configured in your proxy instead of in-cluster. Gateway API TLSRoute is the better-tested path if you're open to running a Gateway controller; reserve your own proxy's TCP passthrough for when you'd rather not add one.
+
+Whichever you pick, once the real address is live, **Settings → Server address** in the UI turns it into the exact `helm upgrade` command for your release — you don't have to reconstruct it from these docs by hand (see [The two-step address problem](../installation/production-cluster.md#the-two-step-address-problem)).
+
 ## Meanwhile, the admin port
 
 None of the above touches `:8080` at all — that one is a completely separate decision, and it wants the *opposite* treatment: plain HTTP inside the pod, sitting behind a Gateway (`httproute`) that **does** terminate TLS (or serving TLS itself via `admin.tls`, if you'd rather skip a proxy entirely). Give it no certificate at all and the chart generates a self-signed one automatically rather than refusing to install — see [Production cluster](../installation/production-cluster.md) for the actual commands.

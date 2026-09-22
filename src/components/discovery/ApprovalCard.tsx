@@ -1,6 +1,7 @@
 import { ChevronRight, Copy, KeyRound, ShieldCheck, ShieldX } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Button, ErrorBanner, Field, Input, Pill, Select } from '@/components/ui/primitives'
+import { Button, ErrorBanner, Input, Pill } from '@/components/ui/primitives'
+import TierLevels from '@/components/TierLevels'
 import { api, ApiError } from '@/lib/api'
 import { CODE_LOG_COMMAND, cleanCode, codeComplete, formatCode, fromPaste } from '@/lib/approvalCode'
 import { ipScope, ipScopeLabel } from '@/lib/present'
@@ -33,12 +34,6 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
       <Copy size={12} /> {done ? 'Copied' : label}
     </Button>
   )
-}
-
-const TIER_HELP: Record<number, string> = {
-  0: 'Registered only. The agent proves which cluster it is and reads nothing else.',
-  1: 'Infrastructure. Nodes, storage classes and ingress classes.',
-  2: 'Services. Also namespaces, workloads, pods, services and ingresses. All read-only.',
 }
 
 /** "in 23 h", "in 40 min", for when a waiting request runs out. */
@@ -160,15 +155,13 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
               Access: <span className="text-nb-300">{ACCESS_TIERS.find((t) => t.value === tier)?.label}</span> <span className="text-nb-600">(change)</span>
             </summary>
             <div className="mt-2">
-              <Field label="What may it read?" hint={TIER_HELP[tier]}>
-                <Select value={tier} onChange={(e) => setTier(Number(e.target.value) as AccessTier)} aria-label="Access level">
-                  {ACCESS_TIERS.filter((t) => t.value <= max).map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+              <TierLevels
+                tiers={ACCESS_TIERS.map((t) => t.value).filter((v) => v <= max) as AccessTier[]}
+                value={tier}
+                onSelect={(t) => setTier(t)}
+                size="sm"
+                data-testid="approval-tier-pick"
+              />
             </div>
           </details>
         </div>

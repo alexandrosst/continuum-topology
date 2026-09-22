@@ -46,6 +46,10 @@ helm upgrade continuum oci://ghcr.io/alexandrosst/continuum-server \
 
 Changing this issues the server a new certificate, but it doesn't break anything already enrolled — agents trust the CA, not the specific certificate, so they keep working straight through the change. If `EXTERNAL-IP` stays `<pending>` for more than a couple of minutes, your cluster has no load-balancer controller; use `agent.service.type=NodePort` instead (see the [Quickstart](../getting-started/quickstart.md)), or install one such as MetalLB.
 
+:::tip[Skip reconstructing the command by hand]
+Once the server is up — even with the placeholder address — **Settings → Server address** in the UI shows the address it's currently using and how it's exposed, and fills in this exact `helm upgrade` command for you (release name and namespace included) once you paste in the real one. It's the same command either way; the UI just saves you the trip back to this page.
+:::
+
 ## Exposing the UI properly
 
 Instead of `port-forward`, put the admin port behind a Gateway that terminates TLS: an `HTTPRoute` attached to a `Gateway` that already has an HTTPS listener set up (its certificate is cert-manager's or however else you manage it — that's configured on the Gateway itself, not by this chart).

@@ -54,6 +54,9 @@ func main() {
 	dataDir := flag.String("data-dir", "./data", "where the database and CA live")
 	agentListen := flag.String("agent-listen", ":8443", "address the agents connect to (mTLS)")
 	agentAddr := flag.String("agent-address", "", "host:port agents use to reach this server, shown in install commands (required)")
+	agentExposure := flag.String("agent-exposure", "", "how --agent-address is exposed: loadbalancer, nodeport, gateway or clusterip. Purely informational - it only changes what Settings → Installation suggests when that address needs to change; the server does not validate it against how the port is actually reachable")
+	releaseName := flag.String("release-name", "", "this Helm release's own name, so Settings → Installation can print an exact helm upgrade command for changing --agent-address later instead of a fill-in-the-blank one. Optional; set by the chart")
+	releaseNamespace := flag.String("release-namespace", "", "this Helm release's own namespace, for the same reason as --release-name. Optional; set by the chart")
 	extraHosts := flag.String("agent-hosts", "", "extra DNS names or IPs for the server certificate, comma separated")
 	adminListen := flag.String("admin-listen", "127.0.0.1:8080", "address of the UI and JSON API")
 	adminCert := flag.String("admin-tls-cert", "", "TLS certificate for the admin listener (needed when it is not on loopback)")
@@ -126,7 +129,7 @@ func main() {
 	if err != nil {
 		fatal(log, fmt.Errorf("--image-registry/--image-tag/--image-digest: %w", err))
 	}
-	if err := run(log, *dataDir, *agentListen, *agentAddr, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *uiDir, *chartRef, img, *org, regMode, *geoDB, decider, neo, keyOpts{PassphraseFile: *caPassFile, AllowLoose: *looseOK}, origins); err != nil {
+	if err := run(log, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *uiDir, *chartRef, img, *org, regMode, *geoDB, decider, neo, keyOpts{PassphraseFile: *caPassFile, AllowLoose: *looseOK}, origins); err != nil {
 		fatal(log, err)
 	}
 }
@@ -149,7 +152,7 @@ func fatal(log *slog.Logger, err error) {
 	os.Exit(1)
 }
 
-func run(log *slog.Logger, dataDir, agentListen, agentAddr, extraHosts, adminListen, adminCert, adminKey string, behindProxy bool, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath string, decider *server.DeciderPolicy, neo *graph.Config, keys keyOpts, origins []string) error {
+func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, extraHosts, adminListen, adminCert, adminKey string, behindProxy bool, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath string, decider *server.DeciderPolicy, neo *graph.Config, keys keyOpts, origins []string) error {
 	// Fail closed: a database that was asked for but cannot be used stops the server rather than silently turning the feature off.
 	var geo *server.Geo
 	if geoPath != "" {
@@ -240,7 +243,7 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, extraHosts, adminLis
 		}
 	}()
 
-	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, Origins: origins, UIDir: uiDir, Version: version}
+	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, Origins: origins, UIDir: uiDir, Version: version}
 	admin.Readiness = &server.Readiness{AgentsListening: grpcSrv.Serving}
 	if graphStore != nil {
 		admin.Readiness.Graph = func() (bool, bool) { return true, graphStore.Ready() }

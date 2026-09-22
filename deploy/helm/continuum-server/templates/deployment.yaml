@@ -57,6 +57,9 @@ spec:
             - --ui-dir=/ui
             - --agent-listen=:{{ .Values.agent.port }}
             - --agent-address={{ .Values.agent.publicAddress }}
+            - --agent-exposure={{ include "continuum.agentExposure" . }}
+            - --release-name={{ .Release.Name }}
+            - --release-namespace={{ .Release.Namespace }}
             {{- with .Values.agent.extraHosts }}
             - --agent-hosts={{ join "," . }}
             {{- end }}

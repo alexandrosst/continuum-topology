@@ -11,7 +11,6 @@ import {
   parseExclusions,
   scopeWords,
   sortProblems,
-  tierChoices,
   uptimeWords,
   type AgentDiagnostics,
 } from '../src/lib/consent'
@@ -65,13 +64,6 @@ test('problems are shown worst first without reordering equals', () => {
     { code: 'd', severity: 'warn', message: '' },
   ])
   assert.deepEqual(sorted.map((p) => p.code), ['c', 'b', 'd', 'a'])
-})
-
-test('tiers above what the install allows are marked, and none above what this release can grant are offered', () => {
-  const c = tierChoices(1, 2)
-  assert.deepEqual(c.map((x) => [x.value, x.aboveCeiling]), [[0, false], [1, false], [2, true]])
-  assert.equal(tierChoices(2, 2).some((x) => x.aboveCeiling), false)
-  assert.equal(tierChoices(0, 2).filter((x) => !x.aboveCeiling).length, 1)
 })
 
 test('the helm command matches what the server prints', () => {

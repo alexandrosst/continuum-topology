@@ -17,22 +17,41 @@ import { useRawTopology } from '@/store/topology'
 // GitHub Pages setting that publishing depends on.
 const DOCS_URL = 'https://alexandrosst.github.io/continuum-topology/'
 
-const NAV = [
-  { to: '/topology', label: 'Topology', icon: Network },
-  { to: '/clusters', label: 'Clusters', icon: Boxes },
-  { to: '/nodes', label: 'Nodes', icon: Server },
-  { to: '/namespaces', label: 'Namespaces', icon: Folders },
-  { to: '/services', label: 'Services', icon: Package },
-  { to: '/devices', label: 'Devices', icon: Radio },
-  { to: '/applications', label: 'Applications', icon: Layers },
-  { to: '/sites', label: 'Sites', icon: MapPin },
-  { to: '/discovery', label: 'Discovery', icon: Radar },
-  { to: '/agents', label: 'Agents', icon: Cable },
-  { to: '/history', label: 'History', icon: History },
-  { to: '/placement', label: 'Placement', icon: Route },
+type NavEntry = { to: string; label: string; icon: typeof Network }
+
+// Grouped so the sidebar reads as three questions instead of one flat list: what am I looking at,
+// what's it made of, and what needs my attention. Order within a group is the same as before.
+const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
+  {
+    label: 'Explore',
+    items: [
+      { to: '/topology', label: 'Topology', icon: Network },
+      { to: '/clusters', label: 'Clusters', icon: Boxes },
+      { to: '/applications', label: 'Applications', icon: Layers },
+      { to: '/sites', label: 'Sites', icon: MapPin },
+    ],
+  },
+  {
+    label: 'Infrastructure',
+    items: [
+      { to: '/nodes', label: 'Nodes', icon: Server },
+      { to: '/namespaces', label: 'Namespaces', icon: Folders },
+      { to: '/services', label: 'Services', icon: Package },
+      { to: '/devices', label: 'Devices', icon: Radio },
+    ],
+  },
+  {
+    label: 'Manage',
+    items: [
+      { to: '/discovery', label: 'Discovery', icon: Radar },
+      { to: '/agents', label: 'Agents', icon: Cable },
+      { to: '/placement', label: 'Placement', icon: Route },
+      { to: '/history', label: 'History', icon: History },
+    ],
+  },
 ]
 
-function NavItem({ to, label, icon: Icon, badge }: (typeof NAV)[number] & { badge?: number }) {
+function NavItem({ to, label, icon: Icon, badge }: NavEntry & { badge?: number }) {
   return (
     <NavLink
       to={to}
@@ -141,9 +160,14 @@ function Shell() {
           <Search size={14} aria-hidden /> Search
           <kbd className="ml-auto rounded border border-nb-800 px-1.5 text-[11px]">{SHORTCUT}</kbd>
         </button>
-        <nav className="flex flex-col gap-1">
-          {NAV.map((n) => (
-            <NavItem key={n.to} {...n} badge={n.to === '/discovery' ? found : n.to === '/agents' ? approvals : undefined} />
+        <nav className="flex flex-col gap-3">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} className="flex flex-col gap-1">
+              <div className="px-3 text-[11px] font-medium uppercase tracking-wide text-nb-600">{group.label}</div>
+              {group.items.map((n) => (
+                <NavItem key={n.to} {...n} badge={n.to === '/discovery' ? found : n.to === '/agents' ? approvals : undefined} />
+              ))}
+            </div>
           ))}
         </nav>
         <div className="mt-auto border-t border-nb-850 pt-3">

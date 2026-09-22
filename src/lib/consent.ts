@@ -123,20 +123,6 @@ export const sortProblems = (ps: readonly AgentProblem[]): AgentProblem[] => [..
 export const TIER_NAMES = ['Registered only', 'Infrastructure', 'Services', 'Dependencies', 'Control'] as const
 export const tierName = (t: number) => TIER_NAMES[t] ?? `Tier ${t}`
 
-export interface TierChoice {
-  value: number
-  label: string
-  /** Above what the install allows: only the cluster's owner can make it available. */
-  aboveCeiling: boolean
-}
-
-/** Every tier this server release can grant; those above the install's ceiling are marked so they can be shown disabled. */
-export function tierChoices(installed: number, implemented: number): TierChoice[] {
-  const out: TierChoice[] = []
-  for (let t = 0; t <= implemented; t++) out.push({ value: t, label: tierName(t), aboveCeiling: t > installed })
-  return out
-}
-
 export interface InstallInfo {
   chartFile?: string
   chartRef?: string

@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { AlertCircle, AlertTriangle, Check, Copy, Info, ShieldCheck } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Button, Field, Input } from '@/components/ui/primitives'
+import TierLevels from '@/components/TierLevels'
 import { api, ApiError, type ServerInfo } from '@/lib/api'
 import {
   COLLECTORS,
@@ -14,7 +15,6 @@ import {
   parseExclusions,
   scopeWords,
   sortProblems,
-  tierChoices,
   tierName,
   uptimeWords,
   type AgentConsent,
@@ -23,7 +23,7 @@ import {
   type HealthSummary,
   type Severity,
 } from '@/lib/consent'
-import type { Agent } from '@/lib/types'
+import type { Agent, AccessTier } from '@/lib/types'
 import { useServer } from '@/store/server'
 
 const SEVERITY_STYLE: Record<Severity, { chip: string; icon: typeof Info; label: string }> = {
@@ -78,19 +78,22 @@ const TONE: Record<string, string> = { ok: 'text-emerald-300', warn: 'text-amber
 /** "What this agent can see": the ceiling the install sets, what was approved, what it collects now, and how much of the cluster is in view. */
 export function CanSee({ agent, diagnostics: d }: { agent: Agent; diagnostics: AgentDiagnostics }) {
   const note = effectiveNote(d)
+  const approved = (agent.status === 'approved' ? agent.accessTier : d.approvedTier) as AccessTier
   const failing = d.informers.filter((i) => !i.synced || i.lastError)
   return (
     <div data-testid="can-see">
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-        <dt className="text-nb-500">Install allows</dt>
-        <dd className="text-nb-300" data-testid="tier-installed">{tierName(d.installedTier)} <span className="text-nb-600">(the ceiling the cluster's owner set at install)</span></dd>
-        <dt className="text-nb-500">Approved here</dt>
-        <dd className="text-nb-300" data-testid="tier-approved">{tierName(agent.status === 'approved' ? agent.accessTier : d.approvedTier)}</dd>
-        <dt className="text-nb-500">Collecting now</dt>
-        <dd className="text-nb-300" data-testid="tier-effective">
-          {tierName(d.effectiveTier)}
-          {note && <span className="block text-xs text-amber-300">{note}</span>}
-        </dd>
+      <div className="mb-1.5 text-sm font-medium text-nb-300">What it can see</div>
+      <TierLevels
+        tiers={[0, 1, 2] as AccessTier[]}
+        value={d.effectiveTier as AccessTier}
+        max={d.installedTier as AccessTier}
+        markAt={approved}
+        markLabel={`Approved up to ${tierName(approved).toLowerCase()}`}
+        size="sm"
+        data-testid="can-see-tier"
+      />
+      {note && <p className="mt-1 text-xs text-amber-300" data-testid="tier-note">{note}</p>}
+      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
         <dt className="text-nb-500">Namespaces</dt>
         <dd className="text-nb-300" data-testid="scope-words">{scopeWords(d)}</dd>
         <dt className="text-nb-500">Watches</dt>
@@ -151,19 +154,19 @@ export function CopyCommand({ text }: { text: string }) {
 export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent; diagnostics?: AgentDiagnostics; consent?: AgentConsent }) {
   const server = useServer()
   const info: ServerInfo | undefined = server.info
-  const installed = agent.installedTier ?? d?.installedTier ?? agent.accessTier
-  const implemented = Math.min(info?.implementedTier ?? 2, 2)
-  const choices = useMemo(() => tierChoices(installed, implemented), [installed, implemented])
+  const installed = (agent.installedTier ?? d?.installedTier ?? agent.accessTier) as AccessTier
+  const implemented = Math.min(info?.implementedTier ?? 2, 2) as AccessTier
+  const tierLadder = useMemo(() => Array.from({ length: implemented + 1 }, (_, i) => i as AccessTier), [implemented])
   const stored = consent ?? { pausedCollectors: [], excludedNamespaces: [] }
 
-  const [tier, setTier] = useState<number>(agent.accessTier)
+  const [tier, setTier] = useState<AccessTier>(agent.accessTier)
   const [paused, setPaused] = useState<string[]>(stored.pausedCollectors)
   const [excl, setExcl] = useState(stored.excludedNamespaces.join(', '))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [helm, setHelm] = useState('')
   const [saved, setSaved] = useState(false)
-  const [asked, setAsked] = useState<number | null>(null) // an option above the ceiling that was clicked
+  const [asked, setAsked] = useState<AccessTier | null>(null) // an option above the ceiling that was clicked
 
   // Follow the server while nothing has been edited (another editor may have changed it, or the agent confirmed).
   const storedKey = `${agent.accessTier}|${stored.pausedCollectors.join(',')}|${stored.excludedNamespaces.join(',')}`
@@ -182,8 +185,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
     }
   }
 
-  const above = choices.filter((c) => c.aboveCeiling)
-  const toShow = asked ?? above[0]?.value
+  const toShow = asked ?? (installed < implemented ? ((installed + 1) as AccessTier) : undefined)
   const valid = parsed.problems.length === 0
   const confirmed = inForce(consent, agent.accessTier, d)
 
@@ -219,36 +221,21 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
 
       <div>
         <div className="mb-1.5 text-sm font-medium text-nb-300" id="tier-label">Access this agent is approved for</div>
-        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-labelledby="tier-label">
-          {choices.map((c) => {
-            const on = tier === c.value
-            return (
-              <button
-                key={c.value}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                aria-disabled={c.aboveCeiling || undefined}
-                data-testid={`tier-option-${c.value}`}
-                title={c.aboveCeiling ? `Above what this install allows. Only the cluster's owner can raise it; the command is shown below.` : undefined}
-                onClick={() => {
-                  if (c.aboveCeiling) setAsked(c.value)
-                  else {
-                    setTier(c.value)
-                    setSaved(false)
-                  }
-                }}
-                className={clsx(
-                  'rounded-md border px-3 py-1.5 text-sm transition-colors',
-                  c.aboveCeiling ? 'cursor-not-allowed border-nb-850 text-nb-600' : on ? 'border-accent/50 bg-accent-soft text-accent' : 'border-nb-800 text-nb-300 hover:border-nb-700 hover:bg-nb-940',
-                )}
-              >
-                {c.label}
-                {c.aboveCeiling && <span className="ml-1 text-[10px] uppercase tracking-wide">above install</span>}
-              </button>
-            )
-          })}
-        </div>
+        <TierLevels
+          tiers={tierLadder}
+          value={tier}
+          max={installed}
+          onSelect={(t) => {
+            if (t > installed) setAsked(t)
+            else {
+              setTier(t)
+              setSaved(false)
+            }
+          }}
+          size="sm"
+          data-testid="tier-option"
+          aria-labelledby="tier-label"
+        />
       </div>
       {toShow !== undefined && (
         <div className="mt-2 text-xs text-nb-500" data-testid="widen-hint">

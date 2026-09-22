@@ -2,18 +2,14 @@ import { CheckCircle2, ChevronRight, Loader2, Pin } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button, ErrorBanner, Field, InfoTip, Input, Modal } from '@/components/ui/primitives'
+import TierLevels from '@/components/TierLevels'
 import { api, ApiError, type CreatedToken } from '@/lib/api'
 import { previewImage } from '@/lib/image'
 import { emptyScope, scopeActive, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '@/lib/install'
-import { ACCESS_TIERS, type AccessTier } from '@/lib/types'
+import type { AccessTier } from '@/lib/types'
 import { useServer } from '@/store/server'
 import { useRawTopology } from '@/store/topology'
 import ApprovalCard, { CopyButton } from './ApprovalCard'
-
-const LEVELS: { tier: AccessTier; help: string }[] = [
-  { tier: 1, help: 'Nodes, storage classes and ingress classes: what the cluster is made of.' },
-  { tier: 2, help: 'Everything above, plus namespaces, workloads, pods, services and ingresses: what runs on it.' },
-]
 
 /** Where Settings → Installation lives. Inside the wizard's token step it opens in a new tab, so the command (shown once) is not lost. */
 function SettingsLink({ onNavigate, newTab }: { onNavigate?: () => void; newTab?: boolean }) {
@@ -183,17 +179,12 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
               <div className="space-y-3 border-t border-nb-850 p-3">
                 <fieldset>
                   <legend className="mb-2 text-sm font-medium text-nb-300">What may the agent read?</legend>
-                  <div className="space-y-2">
-                    {LEVELS.filter((l) => l.tier <= max).map((l) => (
-                      <label key={l.tier} className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 ${tier === l.tier ? 'border-accent/60 bg-accent-soft' : 'border-nb-850 bg-nb-925 hover:bg-nb-930'}`}>
-                        <input type="radio" name="tier" className="mt-1 accent-[var(--color-accent)]" checked={tier === l.tier} onChange={() => setTier(l.tier)} />
-                        <span>
-                          <span className="block text-sm font-medium text-white">{ACCESS_TIERS.find((t) => t.value === l.tier)?.label}</span>
-                          <span className="block text-sm text-nb-500">{l.help}</span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+                  <TierLevels
+                    tiers={([1, 2] as AccessTier[]).filter((t) => t <= max)}
+                    value={tier}
+                    onSelect={(t) => setTier(t)}
+                    data-testid="wizard-tier"
+                  />
                 </fieldset>
                 <OptionToggle
                   testId="node-probe-toggle"

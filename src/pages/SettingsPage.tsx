@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { ConfirmModal } from '@/components/forms'
 import InstallationSettings from '@/components/InstallationSettings'
+import ServerAddressSettings from '@/components/ServerAddressSettings'
 import { Button, PageHeader } from '@/components/ui/primitives'
 import { atLeast } from '@/lib/api'
 import { declaredNote, rehydrate, toDeclared } from '@/lib/declared'
@@ -68,8 +69,9 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description={connected ? 'Where install commands pull the agent from, and your topology as a file.' : 'Your topology is stored in this browser. Export it as JSON to back it up or share it.'} />
+      <PageHeader title="Settings" description={connected ? 'How agents reach this server, where install commands pull the agent from, and your topology as a file.' : 'Your topology is stored in this browser. Export it as JSON to back it up or share it.'} />
 
+      {connected && <ServerAddressSettings />}
       {connected && <InstallationSettings conn={conn} />}
 
       <h2 className="mb-1 text-sm font-medium text-white">Import / Export</h2>

@@ -18,6 +18,12 @@ export interface ServerInfo {
   orgName: string
   role: Role
   agentAddress: string
+  /** How agentAddress is exposed (loadbalancer, nodeport, gateway, clusterip), or empty on an older install. See lib/exposure. */
+  agentExposure: string
+  /** This server's own Helm release name and namespace, when it knows them, for an exact (not fill-in-the-blank)
+   *  upgrade command in Settings → Server address. Empty on an older install. */
+  releaseName: string
+  releaseNamespace: string
   caPin: string
   version: string
   /** Highest access tier this server release will grant. */

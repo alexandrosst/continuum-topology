@@ -9,14 +9,19 @@ WHAT AGENTS WILL DIAL
   The server certificate carries this name{{ if .Values.agent.extraHosts }} and {{ join ", " .Values.agent.extraHosts }}{{ end }}. An agent that dials a different name fails the TLS handshake.
 {{- if eq .Values.agent.service.type "LoadBalancer" }}
 
-  Service {{ $fn }}-agent is a LoadBalancer. Point the DNS name {{ $host }} at its address once one is assigned:
+  Service {{ $fn }}-agent is a LoadBalancer. Watch for its address:
     kubectl -n {{ $ns }} get service {{ $fn }}-agent -w
   (EXTERNAL-IP stuck on <pending> means the cluster has no load balancer controller: use agent.service.type=NodePort, or install one such as MetalLB.)
+  Once you have it, point the DNS name {{ $host }} there, or - if you installed with a placeholder address - give the
+  real one now (this issues a new server certificate for it; agents keep working, they trust the CA, not the certificate):
+    helm upgrade {{ .Release.Name }} <chart> -n {{ $ns }} --reuse-values --set agent.publicAddress=<EXTERNAL-IP>:{{ .Values.agent.service.port }}
 {{- else if eq .Values.agent.service.type "NodePort" }}
 
-  Service {{ $fn }}-agent is a NodePort. Agents must reach a node at that port; find it with:
+  Service {{ $fn }}-agent is a NodePort. Agents must reach a node at that port; find both with:
     kubectl -n {{ $ns }} get service {{ $fn }}-agent -o jsonpath='{.spec.ports[0].nodePort}{"\n"}'
-  and make agent.publicAddress match a node address plus that port.
+    kubectl get nodes -o wide
+  Then make agent.publicAddress match a node's address plus that port:
+    helm upgrade {{ .Release.Name }} <chart> -n {{ $ns }} --reuse-values --set agent.publicAddress=<NODE-IP>:{{ .Values.agent.service.nodePort }}
 {{- else }}
 
   Service {{ $fn }}-agent is ClusterIP: it is reachable only from inside the cluster unless you expose it with

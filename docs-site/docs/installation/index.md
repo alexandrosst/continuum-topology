@@ -14,6 +14,7 @@ There's one Helm chart for the server ([`continuum-server`](../reference/server-
 |---|---|
 | Get a server running as fast as possible, anywhere | [Quickstart](../getting-started/quickstart.md) |
 | Expose it properly on a cloud cluster, with a real DNS name | [Production cluster](./production-cluster.md) |
+| I already run my own reverse proxy (nginx, Traefik, Caddy...) | [Already run your own reverse proxy?](../architecture/exposure-options.md#already-run-your-own-reverse-proxy) |
 | Install the agent in a cluster and see it appear in the UI | [Connecting a cluster](./connecting-a-cluster.md) |
 | Understand *why* the agent port needs special treatment | [Exposing the agent port](../architecture/exposure-options.md) |
 
