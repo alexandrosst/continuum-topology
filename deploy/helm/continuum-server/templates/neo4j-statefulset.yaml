@@ -47,13 +47,18 @@ spec:
             # The password comes from the Secret; NEO4J_AUTH is built from it with Kubernetes' $(VAR) expansion (the variable
             # must be defined first). It only takes effect when the data volume is first initialised: changing the Secret later
             # does not change the password inside an existing database (ALTER CURRENT USER SET PASSWORD ... does).
-            - name: NEO4J_PASSWORD
+            # Deliberately NOT named NEO4J_PASSWORD (or anything else NEO4J_-prefixed): the image's own entrypoint treats every
+            # NEO4J_* env var as a neo4j.conf setting to generate unless it's on its short allow-list, so a var that exists only
+            # for this $(...) expansion would be misread as trying to set a config key called "password" - which doesn't exist,
+            # and newer images (5.26+) refuse to start over it (server.config.strict_validation.enabled, on by default) rather
+            # than just warning the way older ones did.
+            - name: AUTH_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "continuum.neo4jSecretName" . }}
                   key: {{ include "continuum.neo4jSecretKey" . }}
             - name: NEO4J_AUTH
-              value: neo4j/$(NEO4J_PASSWORD)
+              value: neo4j/$(AUTH_PASSWORD)
             # Neo4j does not size itself to the container: heap and page cache are explicit (values: neo4j.memory).
             - {name: NEO4J_server_memory_heap_initial__size, value: {{ $n.memory.heapInitial | quote }}}
             - {name: NEO4J_server_memory_heap_max__size, value: {{ $n.memory.heapMax | quote }}}

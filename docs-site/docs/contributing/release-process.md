@@ -17,6 +17,11 @@ Builds, vets and race-tests the Go backend; lints, type-checks, builds and unit-
 Builds and publishes the `continuum` and `server` images (multi-arch for the agent image; amd64 for the server) and both Helm charts to this repository's own `ghcr.io/<owner>` namespace, signs everything keylessly with cosign, and bakes that GHCR namespace into the published chart's own defaults — which is what lets every install command on this site skip `--set image.repository=...` entirely.
 
 - A push straight to `main` publishes the **`edge`** tag and a chart version like `0.0.0-edge.<sha>` — always whatever `main` currently is, never meant to be depended on for anything you'd call a release.
+
+  :::warning[Testing an edge build against a node that has pulled `edge` before]
+  `edge` is a moving tag: pinning `--version 0.0.0-edge.<sha>` pins the *chart* to an exact commit, but `image.tag` still resolves to the plain `edge` tag, and the default `imagePullPolicy: IfNotPresent` means a node that already has anything named `edge` locally won't re-pull, even though the registry has moved on — you get the chart's new templates running an old binary, with no error saying so (a flag it defines will fail with `flag provided but not defined`, or its behavior will just be stale). Add `--set image.pullPolicy=Always` whenever you install or upgrade an edge build to force a fresh pull every time.
+  :::
+
 - Pushing a tag matching `v*.*.*` (for example `v0.3.0`) publishes that exact version and moves `latest` to it. This is a real release, and it's what every install command in this documentation assumes:
 
   ```bash
