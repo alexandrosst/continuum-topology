@@ -113,6 +113,7 @@ Not verified: the consent panel and health block were checked in a browser again
 ### Sign-in and the shared workspace
 
 - Local accounts with argon2id password hashes. Sessions live on the server in an HttpOnly, SameSite=Strict cookie and end after 8 hours idle or 7 days in total, and immediately when the password changes or the account is disabled. Logins are rate limited, and state-changing requests need a custom header plus an allowed origin (CSRF).
+- **Two-factor authentication is optional, per account.** TOTP (RFC 6238, the standard 6-digit authenticator-app code), implemented against the Go standard library with no added dependency; setup shows the secret as text and an `otpauth://` link rather than a QR image, since every authenticator app also accepts typing it in by hand. Turning it on hands back eight one-time recovery codes (SHA-256 hashes are what is stored); turning it off needs the current password.
 - The topology is one **workspace document per organization on the server**. Your decisions, manual overrides, applications and sites are saved there automatically and shared by everyone who signs in. Saves carry the revision you last saw: if someone else saved first, you are told and choose *Load theirs* or *Keep mine*. Agent status is refreshed from the server and is not part of the saved document.
 - Without a server the app still works on its own and keeps its data in the browser (Settings → Import / Export for backup).
 

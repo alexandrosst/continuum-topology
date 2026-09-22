@@ -41,6 +41,8 @@ Two different things use the word "approve" and it's worth keeping them straight
 
 Every topology belongs to one organization, and nothing crosses between organizations. Four roles, most to least: `owner`, `admin` (connect and approve clusters, manage tokens, invitations and members), `editor` (change the topology, apply decisions), `viewer` (read-only). Invite colleagues from **Members & access** — invitations are one-time links that expire after 7 days.
 
+Each person can also turn on two-factor authentication for their own account, from the account menu at the bottom of the sidebar: it adds a standard 6-digit code from an authenticator app (Google Authenticator, 1Password, Authy, or similar) to the password check at sign-in. Setup shows a secret key to enter into the app — no camera or QR code needed — and, once a code confirms it, a set of one-time recovery codes to keep somewhere safe in case the device with the app is ever lost. Turning it off again asks for the current password.
+
 ## History
 
 If Neo4j is enabled (see [System overview](../architecture/overview.md)), the **History** page adds a time scrubber and an exact-moment picker: "view the estate as of an hour ago" is one click, with a clear banner reminding you that you're looking at the past and editing is disabled until you return to now. Without Neo4j the same events are tracked in SQLite; you get the audit trail either way, just not the point-in-time views.
