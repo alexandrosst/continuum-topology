@@ -43,4 +43,4 @@ The admin/UI port has the same shape: `httproute` is the Gateway API `HTTPRoute`
 
 ## Meanwhile, the admin port
 
-None of the above touches `:8080` at all — that one is a completely separate decision, and it wants the *opposite* treatment: plain HTTP inside the pod, sitting behind a Gateway (`httproute`) that **does** terminate TLS (or serving TLS itself via `admin.tls`, if you'd rather skip a proxy entirely). See [Production cluster](../installation/production-cluster.md) for the actual commands.
+None of the above touches `:8080` at all — that one is a completely separate decision, and it wants the *opposite* treatment: plain HTTP inside the pod, sitting behind a Gateway (`httproute`) that **does** terminate TLS (or serving TLS itself via `admin.tls`, if you'd rather skip a proxy entirely). Give it no certificate at all and the chart generates a self-signed one automatically rather than refusing to install — see [Production cluster](../installation/production-cluster.md) for the actual commands.

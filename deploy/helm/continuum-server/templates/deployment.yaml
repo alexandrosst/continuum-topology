@@ -172,7 +172,7 @@ spec:
         {{- if $tls }}
         - name: admin-tls
           secret:
-            secretName: {{ .Values.admin.tls.secretName }}
+            secretName: {{ include "continuum.adminTLSSecretName" . }}
             defaultMode: 0440
         {{- end }}
         {{- if $neo }}

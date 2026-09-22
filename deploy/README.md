@@ -66,22 +66,21 @@ The part that actually makes this zero-config: packaging bakes that same `ghcr.i
 
 ### k3s or kind: NodePort, three commands
 
-Agents reach a node address on a NodePort (the first line only looks that address up); you reach the UI through a port-forward, so there is no TLS proxy and `admin.behindTlsProxy=true` says so explicitly. (For a kind cluster, map the NodePort out with `extraPortMappings` if agents live outside the docker network. For k3s, import the image with `k3s ctr images import` if the node cannot pull it.)
+Agents reach a node address on a NodePort (the first line only looks that address up); you reach the UI through a port-forward. Nothing here tells the chart a TLS proxy is in front, so it generates a self-signed certificate for the admin port itself (`admin.tls.selfSigned`, on by default) rather than refusing to install. (For a kind cluster, map the NodePort out with `extraPortMappings` if agents live outside the docker network. For k3s, import the image with `k3s ctr images import` if the node cannot pull it.)
 
 ```console
 NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
 
 helm install continuum-server deploy/helm/continuum-server -n continuum --create-namespace \
   --set image.repository=REGISTRY/server \
-  --set agent.publicAddress=$NODE_IP:30443 --set agent.service.type=NodePort --set agent.service.nodePort=30443 \
-  --set admin.behindTlsProxy=true
+  --set agent.publicAddress=$NODE_IP:30443 --set agent.service.type=NodePort --set agent.service.nodePort=30443
 
 kubectl -n continuum logs deployment/continuum-server | grep -A2 'First start'   # the one-time admin password
 
-kubectl -n continuum port-forward service/continuum-server 8080:8080              # then open http://localhost:8080
+kubectl -n continuum port-forward service/continuum-server 8080:8080              # then open https://localhost:8080
 ```
 
-The port-forward serves plain HTTP on localhost, which is fine for a trial; do not expose it further. (With the release named `continuum-server` the objects are called `continuum-server`; any other release name gives `<release>-continuum-server`.)
+`https://localhost:8080` shows a "not private" warning the first time — the certificate is self-signed, generated automatically, not signed by anything your browser trusts. Click through it; this is fine for a trial, but do not expose this address further. Prefer plain HTTP over the tunnel instead (no warning, since `kubectl port-forward` already runs over an encrypted connection to the API server)? Add `--set admin.behindTlsProxy=true` and use `http://localhost:8080`. (With the release named `continuum-server` the objects are called `continuum-server`; any other release name gives `<release>-continuum-server`.)
 
 ### A cloud cluster: LoadBalancer for agents, Gateway API and cert-manager for the UI
 
@@ -154,7 +153,7 @@ flowchart LR
 ```
 
 * **Agent port (8443).** Agents dial out to it with gRPC over *mutual* TLS. The server signs each agent's certificate with its own private CA and the agents pin that CA, so the TLS session must run from the agent all the way into the pod. An L7 proxy that terminates TLS (a normal Ingress, a CDN, an HTTP load balancer) breaks the handshake for every agent. Expose it with a `LoadBalancer` or `NodePort` Service (L4), or with TLS **passthrough** via a Gateway API `TLSRoute` behind a `protocol: TLS` / `mode: Passthrough` listener (`agent.tlsRoute`). With passthrough the Gateway routes on the SNI host, so agents dial that hostname on the Gateway's port (usually 443): `agent.publicAddress=continuum.example.com:443`.
-* **Admin port (8080).** The JSON API and the web UI. Inside the pod it is plain HTTP, and the server **refuses to start** on a non-loopback address in clear text unless it is told a TLS proxy protects it (`--admin-behind-tls-proxy`) or it serves TLS itself (`--admin-tls-cert/-key`). The chart sets the first automatically when `httproute` is enabled; use `admin.tls.secretName` for the second. If neither applies the chart stops with a message.
+* **Admin port (8080).** The JSON API and the web UI. Inside the pod it is plain HTTP, and the server **refuses to start** on a non-loopback address in clear text unless it is told a TLS proxy protects it (`--admin-behind-tls-proxy`) or it serves TLS itself (`--admin-tls-cert/-key`). The chart sets the first automatically when `httproute` is enabled; use `admin.tls.secretName` for the second. If none of that applies, the chart generates and manages a self-signed certificate for the pod to serve instead (`admin.tls.selfSigned`, on by default) rather than stopping - real HTTPS with zero external dependencies, at the cost of a one-time browser warning. `admin.tls.selfSigned=false` restores the old behavior of stopping with a message until you pick one of the other options explicitly.
 
 ## DNS and certificates
 
@@ -162,7 +161,7 @@ Three different certificates are involved.
 
 1. **The UI certificate**, for browsers, issued for your UI host (cert-manager + Let's Encrypt in the example above). With Gateway API this lives on the `Gateway`'s own HTTPS listener, not on anything this chart creates — the `HTTPRoute` it templates just attaches to that listener. It is unrelated to the agents.
 2. **The agent-port server certificate**, issued by the server itself from its private CA. Its names come from the host in `agent.publicAddress` plus `agent.extraHosts`; a wrong or missing name shows up as a TLS handshake failure on the agent. This is why `agent.publicAddress` is required and must be exactly what agents use (a name or an IP; no scheme, no path). It is re-issued when the names change, and agents keep working because they trust the CA, not the certificate.
-3. **Optional admin TLS** (`admin.tls.secretName`): the pod serves HTTPS itself. The Gateway in front then must speak HTTPS to the pod, which needs a `BackendTLSPolicy` in Gateway API.
+3. **Optional admin TLS** (`admin.tls.secretName`): the pod serves HTTPS itself. The Gateway in front then must speak HTTPS to the pod, which needs a `BackendTLSPolicy` in Gateway API. When you don't provide one, the chart generates its own self-signed certificate for this instead (`admin.tls.selfSigned`) - untrusted by any browser (a click-through warning), but real TLS with nothing to configure, for a trial or a LAN-reachable install.
 
 DNS: one name for the UI (to the Gateway's address) and one for agents (to the agent LoadBalancer, or the same host under passthrough). Point the agent name at a stable address. **Changing `agent.publicAddress` later changes the address every agent was installed with**: keep the old name resolving (and list it in `agent.extraHosts` while both are in use) and upgrade the agents' `server.address` at your pace.
 
@@ -482,6 +481,7 @@ The important values; all of them are documented in `values.yaml` and tabulated 
 | `httproute.*` | off | UI exposure, TLS terminated at the Gateway |
 | `admin.behindTlsProxy` | auto | passes `--admin-behind-tls-proxy`; auto = true with `httproute` |
 | `admin.tls.secretName` | `""` | the pod serves HTTPS itself |
+| `admin.tls.selfSigned` / `selfSignedHosts` | `true` / `[]` | fallback: chart-generated self-signed cert when nothing else protects the port |
 | `admin.existingPasswordSecret` | `""` | first administrator's password from a Secret |
 | `registration` | `invite` | `invite` / `closed` / `open` |
 | `persistence.size` / `storageClass` / `existingClaim` | `5Gi` / default / `""` | the `/data` volume |
@@ -505,7 +505,7 @@ Ready-made combinations to copy from live in `helm/continuum-server/ci/`.
 * *Timeouts*: the LoadBalancer is still `<pending>` (`kubectl -n continuum get service continuum-server-agent`; no load balancer controller: use NodePort or install MetalLB), a firewall or `loadBalancerSourceRanges` blocks the agent's network, or a NodePort is not open on that node.
 * With `networkPolicy.enabled`, `networkPolicy.ingress.agent.from` must allow the agents' networks (empty means anywhere).
 
-**The pod crash-loops with `refusing to serve the admin API in clear text`.** The admin listener is HTTP and nothing says a TLS proxy protects it. Enable `httproute` (which turns `--admin-behind-tls-proxy` on), set `admin.tls.secretName`, or set `admin.behindTlsProxy=true` if you terminate TLS yourself. The chart normally stops you before this; you only reach it through `extraArgs` or by overriding `admin.behindTlsProxy=false`.
+**The pod crash-loops with `refusing to serve the admin API in clear text`.** The admin listener is HTTP and nothing says a TLS proxy protects it. Enable `httproute` (which turns `--admin-behind-tls-proxy` on), set `admin.tls.secretName`, or set `admin.behindTlsProxy=true` if you terminate TLS yourself. The chart's own self-signed fallback (`admin.tls.selfSigned`, on by default) normally prevents this at install time already; you only reach it through `extraArgs`, or by explicitly setting `admin.tls.selfSigned=false` without picking one of the other options.
 
 **The UI works over the Gateway but sign-in loops or is rate limited as one client.** With `--admin-behind-tls-proxy` the server reads the client address from the last `X-Forwarded-For` entry and treats `X-Forwarded-Proto: https` as HTTPS (Secure cookie, HSTS). Make sure the Gateway sets both and that it is the only path to port 8080. Do not override the Content-Security-Policy at the proxy.
 

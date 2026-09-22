@@ -35,7 +35,7 @@ Requires Kubernetes >= 1.25 and Helm 3 (developed and tested with 3.16). The cha
 
 ## Things to know before you install
 
-* **Two listeners, two kinds of exposure.** The agent port speaks gRPC over mutual TLS with the server's *own* CA, and agents pin that CA. TLS must reach the pod untouched: use the LoadBalancer (default) or NodePort Service, or a Gateway API TLSRoute in passthrough mode (`agent.tlsRoute`). Never an HTTP/L7 proxy. The admin port is plain HTTP in the pod and expects a TLS-terminating Gateway in front (`httproute`) or its own certificate (`admin.tls.secretName`). With neither, the chart refuses to render; `admin.behindTlsProxy=true` is the explicit "I know" switch (use it with `kubectl port-forward`).
+* **Two listeners, two kinds of exposure.** The agent port speaks gRPC over mutual TLS with the server's *own* CA, and agents pin that CA. TLS must reach the pod untouched: use the LoadBalancer (default) or NodePort Service, or a Gateway API TLSRoute in passthrough mode (`agent.tlsRoute`). Never an HTTP/L7 proxy. The admin port is plain HTTP in the pod and expects a TLS-terminating Gateway in front (`httproute`) or its own certificate (`admin.tls.secretName`). With neither, the chart generates and manages a self-signed certificate itself (`admin.tls.selfSigned`, on by default) rather than refusing to install - real HTTPS for a trial or LAN install with zero external dependencies, at the cost of a one-time browser warning. `admin.behindTlsProxy=true` is the explicit "I know, plain HTTP is fine" switch instead (use it with `kubectl port-forward` to `localhost`, no cert warning at all).
 * **`agent.publicAddress` is required** and is exactly what agents dial. It is passed as `--agent-address` and its host becomes a name in the server certificate; `agent.extraHosts` adds more (`--agent-hosts`).
 * **One replica, one volume, and it is not scalable.** The server keeps SQLite in `/data` (one writer), agent sessions in memory and the CA on disk. `replicas` is deliberately not a value. `Recreate` is used because a ReadWriteOnce volume cannot be attached to two pods, so an upgrade has a short outage; agents reconnect by themselves.
 * **`/data/pki` holds the CA key that every enrolled agent trusts.** Lose it and every agent has to be enrolled again. Back it up (deploy/README.md). The PVC carries `helm.sh/resource-policy: keep`.
@@ -102,6 +102,7 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 | `admin.port` | `8080` | admin listener in the pod |
 | `admin.behindTlsProxy` | `null` (auto) | pass `--admin-behind-tls-proxy`; auto is true when `httproute` is enabled |
 | `admin.tls.secretName` / `certKey` / `keyKey` | `""` / `tls.crt` / `tls.key` | serve HTTPS from the pod |
+| `admin.tls.selfSigned` / `selfSignedHosts` | `true` / `[]` | fallback: generate a self-signed cert when nothing else protects the port |
 | `admin.service.type` / `port` | `ClusterIP` / `8080` | |
 | `admin.existingPasswordSecret` / `...Key` | `""` / `password` | first administrator's password (`CONTINUUM_ADMIN_PASSWORD`) |
 | `httproute.enabled` / `parentRefs` / `hostnames` / `annotations` | `false` ... | UI Gateway API HTTPRoute |
@@ -147,4 +148,4 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 for f in ci/*.yaml; do helm lint . -f $f; helm template rel . -n scratch -f $f | kubectl apply --dry-run=server -f -; done
 ```
 
-`ci/` holds one values file per combination: `minimal-nodeport`, `gateway-lb-bundled-neo4j`, `external-neo4j`, `tls-secret` (admin TLS, passphrase, Gateway API), `netpol-hardened` (policies, passthrough TLSRoute, PDB). The Gateway API and VolumeSnapshot kinds need their CRDs on the cluster for a server-side dry run.
+`ci/` holds one values file per combination: `minimal-nodeport`, `gateway-lb-bundled-neo4j`, `external-neo4j`, `tls-secret` (admin TLS, passphrase, Gateway API), `netpol-hardened` (policies, passthrough TLSRoute, PDB), `trial-selfsigned` (no admin-TLS flag at all - the chart's self-signed fallback). The Gateway API and VolumeSnapshot kinds need their CRDs on the cluster for a server-side dry run.

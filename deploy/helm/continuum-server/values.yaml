@@ -6,7 +6,8 @@
 #  1. The server has TWO listeners. The agent port (gRPC over mutual TLS, its own private CA that agents pin) must reach
 #     the pod with TLS untouched: expose it with a LoadBalancer or NodePort Service, or a Gateway API TLSRoute with TLS
 #     PASSTHROUGH. Never terminate it at an L7 proxy. The admin port (UI + JSON API) is plain HTTP inside the pod and is
-#     meant to sit behind a Gateway (HTTPRoute) that terminates TLS (or serve TLS itself: admin.tls).
+#     meant to sit behind a Gateway (HTTPRoute) that terminates TLS, or serve TLS itself (admin.tls) - which, if you
+#     don't give it a certificate, this chart generates a self-signed one for automatically (admin.tls.selfSigned).
 #  2. The server is stateful and NOT horizontally scalable: one replica, one PersistentVolumeClaim. See `persistence`.
 
 nameOverride: ""
@@ -90,7 +91,7 @@ admin:
   # that proxy (networkPolicy.ingress.admin.from).
   #   null (default) = automatic: true when httproute.enabled, otherwise false
   #   true           = you terminate TLS yourself (your own proxy, a service mesh) or only use `kubectl port-forward`
-  #   false          = never (then admin.tls.secretName is required)
+  #   false          = never (then admin.tls.secretName is required, unless admin.tls.selfSigned's fallback applies)
   behindTlsProxy: null
   # Serve HTTPS from the pod itself (--admin-tls-cert / --admin-tls-key). The Secret must be of type kubernetes.io/tls.
   # A proxy in front then has to speak HTTPS to the pod (your Gateway implementation's own backend-TLS policy sets this).
@@ -98,6 +99,24 @@ admin:
     secretName: ""
     certKey: tls.crt
     keyKey: tls.key
+    # Fallback when nothing else protects this port: no secretName given, no Gateway (httproute) in front, and
+    # behindTlsProxy isn't explicitly true. Instead of refusing to install, the chart generates and manages a
+    # self-signed certificate itself (kept across upgrades, the same "generate once and keep" policy as pki's and
+    # neo4j.auth's generated secrets). This gets you a real, working HTTPS admin UI for a trial or a LAN-reachable
+    # install with zero external dependencies, at the cost of a one-time "not private" browser warning to click
+    # through, since nothing signed this certificate. It only covers localhost/127.0.0.1/::1 plus whatever you list in
+    # selfSignedHosts below; anything else you access it by needs to be added there. For a real, browser-trusted
+    # certificate on a public domain, use httproute with cert-manager instead (see Production cluster in the docs) -
+    # this one never gets you that.
+    #   true (default) generate one automatically when nothing else is configured
+    #   false          go back to the chart refusing to install until you pick httproute, secretName or
+    #                  behindTlsProxy=true explicitly
+    selfSigned: true
+    # Extra hostnames or IPv4 addresses to bake into the generated certificate, e.g. a node's LAN address:
+    # ["192.168.1.50"]. Changing this after the certificate already exists does NOT regenerate it (same "generate
+    # once, keep" policy) - delete the <release>-continuum-server-admin-tls-selfsigned Secret and upgrade again to
+    # pick up a new list.
+    selfSignedHosts: []
   service:
     type: ClusterIP
     port: 8080

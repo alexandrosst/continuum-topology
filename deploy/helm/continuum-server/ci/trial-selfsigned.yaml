@@ -1,0 +1,11 @@
+# A trial/LAN install with no admin-TLS flag at all: nothing sits in front of the admin port, so the chart's
+# self-signed fallback (admin.tls.selfSigned, on by default) generates the certificate instead of refusing to install.
+# selfSignedHosts covers a LAN address you might actually reach it by, next to the baked-in localhost/127.0.0.1/::1.
+agent:
+  publicAddress: "192.0.2.20:30443"
+  service:
+    type: NodePort
+    nodePort: 30443
+admin:
+  tls:
+    selfSignedHosts: ["192.0.2.20"]

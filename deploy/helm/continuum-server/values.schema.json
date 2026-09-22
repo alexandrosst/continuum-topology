@@ -187,6 +187,16 @@
             },
             "keyKey": {
               "type": "string"
+            },
+            "selfSigned": {
+              "type": "boolean"
+            },
+            "selfSignedHosts": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           }
         },

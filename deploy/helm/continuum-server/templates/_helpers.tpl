@@ -60,9 +60,6 @@ app.kubernetes.io/component: server
 {{- default (printf "%s-data" (include "continuum.fullname" .)) .Values.persistence.existingClaim -}}
 {{- end -}}
 
-{{/* The admin listener is plain HTTP unless a certificate is mounted. */}}
-{{- define "continuum.adminTLS" -}}{{- if .Values.admin.tls.secretName -}}true{{- end -}}{{- end -}}
-
 {{/* --admin-behind-tls-proxy: explicit value wins; otherwise on when this chart creates an HTTPRoute
      (a TLS-terminating Gateway is then in front by construction). Renders "true" or nothing. */}}
 {{- define "continuum.behindProxy" -}}
@@ -70,6 +67,36 @@ app.kubernetes.io/component: server
 {{- if kindIs "bool" $v -}}
 {{- if $v -}}true{{- end -}}
 {{- else if .Values.httproute.enabled -}}true{{- end -}}
+{{- end -}}
+
+{{/* Whether the chart should generate (and, once created, keep using) a self-signed certificate for the admin port:
+     no explicit Secret was given, nothing else is confirmed to already protect the port, and the escape hatch
+     (admin.tls.selfSigned=false) wasn't used. Renders "true" or nothing. */}}
+{{- define "continuum.adminSelfSigned" -}}
+{{- if .Values.admin.tls.secretName -}}
+{{- else if include "continuum.behindProxy" . -}}
+{{- else if not .Values.admin.tls.selfSigned -}}
+{{- else -}}true{{- end -}}
+{{- end -}}
+
+{{/* Name of the chart-generated self-signed admin TLS secret (only created when continuum.adminSelfSigned is true). */}}
+{{- define "continuum.adminSelfSignedSecretName" -}}
+{{- printf "%s-admin-tls-selfsigned" (include "continuum.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/* Secret that actually holds the admin TLS certificate: the user-provided one, or this chart's generated one, or
+     nothing at all (plain HTTP, behind a trusted proxy/tunnel). */}}
+{{- define "continuum.adminTLSSecretName" -}}
+{{- if .Values.admin.tls.secretName -}}
+{{- .Values.admin.tls.secretName -}}
+{{- else if include "continuum.adminSelfSigned" . -}}
+{{- include "continuum.adminSelfSignedSecretName" . -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The admin listener is plain HTTP unless a certificate (user-provided or self-signed) is mounted. */}}
+{{- define "continuum.adminTLS" -}}
+{{- if .Values.admin.tls.secretName -}}true{{- else if include "continuum.adminSelfSigned" . -}}true{{- end -}}
 {{- end -}}
 
 {{/* ---- Neo4j ---- */}}
@@ -160,7 +187,7 @@ checks for that and never mounts anything or passes --ca-key-passphrase-file in 
 {{- end -}}
 {{- /* admin exposure: the server refuses cleartext on a non-loopback address unless told a TLS proxy is in front */ -}}
 {{- if and (not (include "continuum.adminTLS" .)) (not (include "continuum.behindProxy" .)) -}}
-{{- fail "the admin listener (UI and API) carries sign-in passwords and the session cookie, and the server refuses to serve it in clear text without TLS. Choose one: enable httproute so a Gateway terminates TLS (and leave admin.behindTlsProxy unset); or set admin.tls.secretName to a kubernetes.io/tls Secret; or, if you put your own TLS in front (or only use kubectl port-forward to localhost), set admin.behindTlsProxy=true." -}}
+{{- fail "the admin listener (UI and API) carries sign-in passwords and the session cookie, and the server refuses to serve it in clear text without TLS. You've set admin.tls.selfSigned=false, which turns off this chart's own self-signed-certificate fallback, so choose one explicitly: enable httproute so a Gateway terminates TLS (and leave admin.behindTlsProxy unset); set admin.tls.secretName to a kubernetes.io/tls Secret; or, if you put your own TLS in front (or only use kubectl port-forward to localhost), set admin.behindTlsProxy=true." -}}
 {{- end -}}
 {{- if and .Values.admin.tls.secretName (not .Values.admin.tls.certKey) -}}{{- fail "admin.tls.certKey must not be empty when admin.tls.secretName is set" -}}{{- end -}}
 {{- /* exposure objects */ -}}

@@ -16,17 +16,16 @@ The commands below install the newest release, same as the Quickstart. For a pro
 
 `agent.publicAddress` has to be set at install time — it's baked into the server's TLS certificate — but if you're using a cloud load balancer, you don't know its external IP or hostname *until after* the Service exists. So this is genuinely a two-step process:
 
-**Install once**, with a placeholder address (the chart just needs something shaped like `host:port` — it doesn't have to resolve yet). `admin.behindTlsProxy=true` is required at this point because nothing is exposing the UI yet — see the note below:
+**Install once**, with a placeholder address (the chart just needs something shaped like `host:port` — it doesn't have to resolve yet):
 
 ```bash
 helm install continuum oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --create-namespace \
-  --set agent.publicAddress=pending.example.com:8443 \
-  --set admin.behindTlsProxy=true
+  --set agent.publicAddress=pending.example.com:8443
 ```
 
-:::info[Why `admin.behindTlsProxy=true` here]
-The admin port carries your sign-in password and session cookie, so the chart refuses to serve it in clear text unless something is already protecting it. At this point in the two-step process there's no Gateway (HTTPRoute) in front of it yet, so this flag is what lets the install succeed at all — use `kubectl port-forward` to reach the UI until [Exposing the UI properly](#exposing-the-ui-properly), below, is done. Leaving the flag set after that is harmless; it's also what the chart sets automatically once `httproute` is enabled.
+:::info[Reaching the UI before the Gateway is set up]
+The admin port carries your sign-in password and session cookie, so the chart refuses to serve it in clear text unless something is already protecting it. At this point in the two-step process there's no Gateway (HTTPRoute) in front of it yet, so the chart generates a self-signed certificate for it automatically (`admin.tls.selfSigned`, on by default) rather than refusing to install — use `kubectl port-forward` and `https://localhost:8080` (with a one-time browser warning to click through) to reach the UI until [Exposing the UI properly](#exposing-the-ui-properly), below, is done. If you'd rather have plain HTTP over the tunnel with no warning at all, add `--set admin.behindTlsProxy=true` instead and use `http://localhost:8080`. Either way, once `httproute` is enabled below, the chart switches to trusting that Gateway automatically and stops using the self-signed certificate.
 :::
 
 `agent.service.type` defaults to `LoadBalancer`, so this already asked your cloud for one. **Watch for the address:**

@@ -10,11 +10,17 @@ These are errors you can hit while deploying and running the server or an agent.
 
 ## `the admin listener (UI and API) ... refuses to serve it in clear text without TLS`
 
-The admin port carries your sign-in password and session cookie, so the chart refuses to install or upgrade until something protects it. Pick one:
+The admin port carries your sign-in password and session cookie, so the chart refuses to install or upgrade unless something protects it — normally you won't hit this at all, since the chart generates a self-signed certificate for it automatically when nothing else does (`admin.tls.selfSigned`, on by default; see [Exposing the agent port](../architecture/exposure-options.md)). You only reach this error by explicitly setting `admin.tls.selfSigned=false` — that turns off the fallback, so pick one of the other options explicitly:
 
-- **Trial, reachable only via `kubectl port-forward`:** `--set admin.behindTlsProxy=true` (this is what the [Quickstart](../getting-started/quickstart.md) uses — `port-forward` already tunnels over an encrypted connection to the API server, so plain HTTP inside the pod is fine).
+- **Trial, reachable only via `kubectl port-forward`, and you'd rather have plain HTTP than the self-signed certificate's browser warning:** `--set admin.behindTlsProxy=true` (`port-forward` already tunnels over an encrypted connection to the API server, so plain HTTP inside the pod is fine).
 - **Real Gateway (HTTPRoute) in front, terminating TLS:** enable `httproute` — it sets this automatically, no separate flag needed. See [Production cluster](../installation/production-cluster.md).
-- **The server should serve HTTPS itself:** set `admin.tls.secretName` to a `kubernetes.io/tls` Secret.
+- **The server should serve HTTPS itself, with a certificate you provide:** set `admin.tls.secretName` to a `kubernetes.io/tls` Secret.
+
+## Signed in, but every request after that comes back 401 (`sign in required`)
+
+You're reaching the admin port at a plain-`http://` address that isn't `localhost` or `127.0.0.1` — a LAN IP, most commonly, when `kubectl port-forward --address 0.0.0.0` is used so another device can reach it. The session cookie the server sets is marked `Secure`, and browsers only store/send a `Secure` cookie over plain HTTP for `localhost`/`127.0.0.1` — any other hostname or IP needs a real HTTPS connection, self-signed or not. Without it, the cookie from a successful login is silently dropped, and every following request looks unauthenticated.
+
+Fix: use `https://` (the chart's self-signed certificate, or a real one) instead of `http://` for anything other than `localhost`. If you're on the same machine as the `port-forward`, just use `https://localhost:8080` and skip this entirely.
 
 ## `agent.publicAddress is required: ...`
 
