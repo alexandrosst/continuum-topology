@@ -186,38 +186,41 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                     data-testid="wizard-tier"
                   />
                 </fieldset>
-                <OptionToggle
-                  testId="node-probe-toggle"
-                  checked={probe}
-                  disabled={tier < 1}
-                  onChange={setProbe}
-                  title="Also tell virtual machines from bare metal"
-                  summary="Reads CPU flags and firmware info on every node, read-only, reporting only inside the cluster."
-                  why="Kubernetes cannot say whether a node is a VM or a physical server, so Continuum otherwise guesses and marks the guess as uncertain. This is a small pod on every node that reads CPU flags, firmware vendor/product name, ARM board model, and which network interface kinds are up - never serial numbers, MAC addresses, disks or processes."
-                />
-                {max >= 2 && (
+                <fieldset className="space-y-3 border-t border-nb-850 pt-3">
+                  <legend className="mb-0.5 text-sm font-medium text-nb-300">Extras</legend>
+                  <p className="-mt-2 mb-2 text-xs text-nb-500">Independent of access level: each of these is a separate pod you're choosing to also install, not a higher tier.</p>
                   <OptionToggle
-                    testId="flow-observer-toggle"
-                    checked={flows}
-                    disabled={tier < 2}
-                    onChange={setFlows}
-                    title="Also show which services talk to which"
-                    summary="Counts connections and bytes on every node, via eBPF or the kernel's connection table."
-                    why="Kubernetes does not record who calls whom. This is a pod on every node that counts connections and the bytes they carried (TCP via eBPF where the kernel supports it, TCP and UDP via the kernel's connection table otherwise) - never packets or contents. It needs extra privileges (root with CAP_BPF and CAP_PERFMON, and the host's process view for live byte totals), so read what it is allowed to do before you enable it."
+                    testId="node-probe-toggle"
+                    checked={probe}
+                    disabled={tier < 1}
+                    onChange={setProbe}
+                    title="Also tell virtual machines from bare metal"
+                    summary="Reads CPU flags and firmware info on every node, read-only, reporting only inside the cluster."
+                    why="Kubernetes cannot say whether a node is a VM or a physical server, so Continuum otherwise guesses and marks the guess as uncertain. This is a small pod on every node that reads CPU flags, firmware vendor/product name, ARM board model, and which network interface kinds are up - never serial numbers, MAC addresses, disks or processes."
                   />
-                )}
-                {max >= 2 && (
-                  <OptionToggle
-                    testId="measurements-toggle"
-                    checked={measure}
-                    disabled={tier < 2}
-                    onChange={setMeasure}
-                    title="Also measure round trips to other places"
-                    summary="Times connections to a few addresses the server names, for placement advice."
-                    why="Times how long a TCP connection takes to open, and how often it fails, to the busiest outside addresses this cluster already connects to plus any you add on the Sites page. Nothing is sent over the connection; loopback, link-local and metadata addresses are always refused, and the agent refuses any address the server did not issue."
-                  />
-                )}
-                {max >= 2 && (
+                  {max >= 2 && (
+                    <OptionToggle
+                      testId="flow-observer-toggle"
+                      checked={flows}
+                      disabled={tier < 2}
+                      onChange={setFlows}
+                      title="Also show which services talk to which"
+                      summary="Counts connections and bytes on every node, via eBPF or the kernel's connection table."
+                      why="Kubernetes does not record who calls whom. This is a pod on every node that counts connections and the bytes they carried (TCP via eBPF where the kernel supports it, TCP and UDP via the kernel's connection table otherwise) - never packets or contents. It needs extra privileges (root with CAP_BPF and CAP_PERFMON, and the host's process view for live byte totals), so read what it is allowed to do before you enable it."
+                    />
+                  )}
+                  {max >= 2 && (
+                    <OptionToggle
+                      testId="measurements-toggle"
+                      checked={measure}
+                      disabled={tier < 2}
+                      onChange={setMeasure}
+                      title="Also measure round trips to other places"
+                      summary="Times connections to a few addresses the server names, for placement advice."
+                      why="Times how long a TCP connection takes to open, and how often it fails, to the busiest outside addresses this cluster already connects to plus any you add on the Sites page. Nothing is sent over the connection; loopback, link-local and metadata addresses are always refused, and the agent refuses any address the server did not issue."
+                    />
+                  )}
+                  {max >= 2 && (
                   <div className={`rounded-lg border px-4 py-3 ${scopeOn ? 'border-accent/60 bg-accent-soft' : 'border-nb-850 bg-nb-930'}`}>
                     <label className="flex cursor-pointer items-start gap-3">
                       <input type="checkbox" className="mt-1 accent-[var(--color-accent)]" checked={scopeOn} disabled={tier < 2} onChange={(e) => setScopeOn(e.target.checked)} data-testid="scope-toggle" />
@@ -247,7 +250,8 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                       </div>
                     )}
                   </div>
-                )}
+                  )}
+                </fieldset>
               </div>
             </details>
           )}

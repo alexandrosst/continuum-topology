@@ -486,12 +486,14 @@ export const ACCESS_TIERS: { value: AccessTier; label: string }[] = [
   { value: 4, label: 'Control' },
 ]
 
-/** One line per tier: what it adds on top of the tier below it. The single source of truth for every
- *  tier picker and indicator in the app, so the wording never drifts between them. */
+/** One line per tier: what it adds on top of the tier below it. Each one from tier 1 up names the tier directly
+ *  below it by label ("Everything in X, plus...") so the inclusion reads as a fact of the sentence, not something
+ *  a picker's visual has to imply on its own. The single source of truth for every tier picker and indicator in
+ *  the app, so the wording never drifts between them. */
 export const ACCESS_TIER_CAPTIONS: Record<AccessTier, string> = {
   0: 'Proves which cluster this is. Nothing else is read.',
-  1: 'Adds nodes, storage classes and ingress classes — what the cluster is made of.',
-  2: 'Adds namespaces, workloads, pods, services and ingresses — what runs on it.',
+  1: 'Nodes, storage classes and ingress classes — what the cluster is made of.',
+  2: 'Everything in Infrastructure, plus namespaces, workloads, pods, services and ingresses — what runs on it.',
   3: 'Not available yet.',
   4: 'Not available yet.',
 }

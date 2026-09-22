@@ -25,10 +25,13 @@ import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Ev
 export type Selection = { kind: 'cluster' | 'tier' | 'node' | 'service' | 'device' | 'site' | 'external' | 'dependency'; id: string } | null
 
 function Row({ label, children, wrap }: { label: string; children: ReactNode; wrap?: boolean }) {
+  // `wrap` values (prose - detection reasons, traffic summaries) break onto a second line. Everything else stays
+  // one line but scrolls horizontally instead of just being cut off with an ellipsis: a long image reference or
+  // pod CIDR is still there to read, not lost the moment it doesn't fit the sidebar's width.
   return (
     <div className="flex items-baseline justify-between gap-4 py-1.5 text-sm">
       <span className="shrink-0 text-nb-500">{label}</span>
-      <span className={wrap ? 'min-w-0 break-words text-right text-nb-300' : 'min-w-0 truncate text-right text-nb-300'}>{children}</span>
+      <span className={wrap ? 'min-w-0 break-words text-right text-nb-300' : 'min-w-0 overflow-x-auto whitespace-nowrap text-right text-nb-300'}>{children}</span>
     </div>
   )
 }

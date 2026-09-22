@@ -126,7 +126,10 @@ export const cardId = (id: string) => `c:${id}`
 
 /* ---------- layout constants ---------- */
 const PAD = 20
-const HEADER = 76
+// The box header (title, subtitle/country/mesh line, and - when a cluster has load - a fourth load-meter row)
+// runs up to about 72px tall at normal zoom; HEADER is the y where the first row of children starts, so it needs
+// real breathing room past that, not just enough to avoid overlap.
+const HEADER = 96
 const GAP_X = 72
 const GAP_Y = 44
 const GROUP_GAP_X = 64
