@@ -4,7 +4,7 @@ import { ArrowUpRight, Box, Camera, Cog, Cpu, Factory, Gauge, Globe, HardDrive, 
 import { memo } from 'react'
 import { LoadRow, peakLoad } from '@/components/topology/Load'
 import { DistroIcon, Flag } from '@/components/ui/brand'
-import { SIDES, type CardNode, type GroupNode } from '@/lib/graph'
+import { SIDES, type CardNode, type GroupNode, type NamespaceNode } from '@/lib/graph'
 import { STATUS_COLOR, TIER_COLOR, type DeviceKind } from '@/lib/types'
 
 export const DEVICE_ICON: Record<DeviceKind, LucideIcon> = {
@@ -95,6 +95,20 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
   )
 })
 
+/* ---------- Namespace sub-box (nests inside a cluster box, one level in from it) ---------- */
+export const NamespaceBox = memo(function NamespaceBox({ data }: NodeProps<NamespaceNode>) {
+  return (
+    <div className="h-full w-full rounded-lg border border-dashed border-nb-800 bg-black/10">
+      <AllHandles />
+      <div className="flex items-center gap-1.5 px-3 pt-2">
+        <span className="size-1.5 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
+        <span className="truncate text-[11px] font-medium uppercase tracking-wide text-nb-500">{data.namespace}</span>
+        <span className="ml-auto shrink-0 text-[10.5px] normal-case tracking-normal text-nb-600">{data.count}</span>
+      </div>
+    </div>
+  )
+})
+
 /* ---------- Service / machine card ---------- */
 const MACHINE_ICON = { vm: Server, 'bare-metal': HardDrive, 'edge-device': Cpu } as const
 
@@ -169,4 +183,4 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
   )
 })
 
-export const nodeTypes = { boundary: GroupBox, card: Card }
+export const nodeTypes = { boundary: GroupBox, card: Card, namespace: NamespaceBox }

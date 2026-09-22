@@ -1041,6 +1041,34 @@ test('lines between the same two boxes are spread apart, and a lone line is left
   assert.equal(offs('dep-4'), undefined)
 })
 
+test('namespace sub-boxes nest cards under one box per namespace, only when asked for and only grouped by cluster', () => {
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+  const off = buildGraph(seed, opts)
+  assert.ok(!off.nodes.some((n) => n.data.kind === 'namespace'), 'off by default')
+  assert.equal(off.nodes.find((n) => n.id === 'c:w-gw')!.parentId, 'g:cl-cloud', 'cards parent straight to the cluster box when the option is off')
+
+  const on = buildGraph(seed, { ...opts, namespaces: true })
+  const platform = on.nodes.find((n) => n.id === 'ns:cl-cloud:platform')
+  const ml = on.nodes.find((n) => n.id === 'ns:cl-cloud:ml')
+  assert.ok(platform && ml, 'one sub-box per namespace used in that cluster')
+  assert.equal(platform!.parentId, 'g:cl-cloud')
+  assert.equal(platform!.type, 'namespace')
+  assert.equal((platform!.data as { count: number }).count, 2, 'w-gw and w-orch')
+  assert.equal(on.nodes.find((n) => n.id === 'c:w-gw')!.parentId, 'ns:cl-cloud:platform')
+  assert.equal(on.nodes.find((n) => n.id === 'c:w-orch')!.parentId, 'ns:cl-cloud:platform')
+  assert.equal(on.nodes.find((n) => n.id === 'c:w-train')!.parentId, 'ns:cl-cloud:ml')
+  // A namespace box sits fully inside its cluster box: it never runs past it.
+  const cluster = on.nodes.find((n) => n.id === 'g:cl-cloud')!
+  for (const ns of [platform!, ml!]) {
+    assert.ok(ns.position.x >= 0 && ns.position.x + Number(ns.style?.width) <= Number(cluster.style?.width))
+    assert.ok(ns.position.y >= 0 && ns.position.y + Number(ns.style?.height) <= Number(cluster.style?.height))
+  }
+
+  // Grouped by tier, several clusters would share one box: namespace nesting is skipped rather than mixing them.
+  const byTier = buildGraph(seed, { ...opts, groupBy: 'tier', namespaces: true })
+  assert.ok(!byTier.nodes.some((n) => n.data.kind === 'namespace'))
+})
+
 test('mesh: anyMesh looks at live clusters only, and the saved-view URL keeps the option', () => {
   assert.equal(anyMesh(seed.clusters), false)
   assert.equal(anyMesh([withMesh(meshOf())]), true)

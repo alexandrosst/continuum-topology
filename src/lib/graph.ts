@@ -80,7 +80,21 @@ export type CardData = {
 
 export type GroupNode = Node<GroupData, 'boundary'>
 export type CardNode = Node<CardData, 'card'>
-export type TopoNode = GroupNode | CardNode
+
+export type NamespaceData = {
+  kind: 'namespace'
+  /** Unique across the graph: the cluster's group key plus the namespace. */
+  entityId: string
+  clusterId: string
+  namespace: string
+  /** How many cards sit inside, for the header. */
+  count: number
+  status: Status
+  tier: Tier
+}
+export type NamespaceNode = Node<NamespaceData, 'namespace'>
+
+export type TopoNode = GroupNode | CardNode | NamespaceNode
 
 export type EdgeData = {
   crossGroup: boolean
@@ -119,6 +133,8 @@ export interface GraphOptions {
   mesh?: boolean
   /** Service id → name of the cluster the placement engine would move it to. */
   hints?: Map<string, string>
+  /** Application view, grouped by cluster: draw a sub-box per namespace inside each cluster's box. */
+  namespaces?: boolean
 }
 
 export const groupId = (key: string) => `g:${key}`
@@ -137,6 +153,11 @@ const ROW_GAP = 150
 const APP_CARD = { w: 244, h: 68 }
 const MACHINE_CARD = { w: 248, h: 84 }
 const CHIP_ROW = 22
+// A namespace sub-box nests one level inside a cluster box: a little padding and a short header for its
+// name, then the same card grid a cluster box would use on its own.
+const NS_PAD = 14
+const NS_HEADER = 32
+const NS_GAP_Y = 22
 
 interface Box {
   x: number
@@ -150,6 +171,8 @@ interface Item {
   data: CardData
   w: number
   h: number
+  /** Set for service cards (application view): which namespace to nest it under when that option is on. */
+  namespace?: string
 }
 
 /** Rows 0-2 are the cluster tiers; devices sit below the far edge, external endpoints below that. */
@@ -166,11 +189,71 @@ interface GroupAcc {
   items: Item[]
 }
 
+interface PlacedChild {
+  item: Item
+  x: number
+  y: number
+  h: number
+}
+
+interface NsBox {
+  namespace: string
+  x: number
+  y: number
+  w: number
+  h: number
+  children: PlacedChild[]
+}
+
 interface Placed {
   g: GroupAcc
   w: number
   h: number
-  children: { item: Item; x: number; y: number; h: number }[]
+  children: PlacedChild[]
+  /** Set instead of (never alongside) `children` when this group nests its items under namespace sub-boxes. */
+  nsBoxes?: NsBox[]
+}
+
+/** One row of cards, left to right, wrapping at `cols`: shared by a cluster box and a namespace sub-box. */
+function packItems(items: Item[], headerY: number, pad = PAD): { w: number; h: number; children: PlacedChild[] } {
+  const n = items.length
+  const cols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(n))))
+  const cw = items[0]?.w ?? 0
+  const children: PlacedChild[] = []
+  let y = headerY
+  for (let i = 0; i < n; i += cols) {
+    const slice = items.slice(i, i + cols)
+    const rowH = Math.max(...slice.map((s) => s.h))
+    slice.forEach((item, j) => children.push({ item, x: pad + j * (cw + GAP_X), y, h: rowH }))
+    y += rowH + GAP_Y
+  }
+  const usedCols = Math.min(cols, n)
+  const w = n === 0 ? 0 : pad * 2 + usedCols * cw + (usedCols - 1) * GAP_X
+  const h = n === 0 ? headerY : y - GAP_Y + pad
+  return { w, h, children }
+}
+
+/**
+ * Buckets a cluster's cards by namespace (in the order they already come in - callers sort services by
+ * namespace first, so this does not need to sort again) and stacks the sub-boxes vertically. Every sub-box
+ * gets the same width, the widest one's, so the stack reads as one aligned column rather than a jumble.
+ */
+function layoutNamespaces(items: Item[]): { w: number; h: number; boxes: NsBox[] } {
+  const byNs = new Map<string, Item[]>()
+  for (const it of items) {
+    const key = it.namespace || '(no namespace)'
+    if (!byNs.has(key)) byNs.set(key, [])
+    byNs.get(key)!.push(it)
+  }
+  const laidOut = [...byNs.entries()].map(([namespace, its]) => ({ namespace, its, ...packItems(its, NS_HEADER, NS_PAD) }))
+  const w = Math.max(0, ...laidOut.map((b) => b.w))
+  let y = 0
+  const boxes: NsBox[] = laidOut.map((b) => {
+    const box: NsBox = { namespace: b.namespace, x: 0, y, w, h: b.h, children: b.children }
+    y += b.h + NS_GAP_Y
+    return box
+  })
+  return { w, h: Math.max(0, y - NS_GAP_Y), boxes }
 }
 
 const worstStatus = (ss: Status[]): Status => {
@@ -272,22 +355,18 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       rows.set(g.row, [...(rows.get(g.row) ?? []), g])
     })
 
+  // Namespace sub-boxes only make sense for a real cluster box in the application view: a tier box already
+  // mixes several clusters together, and infrastructure cards (nodes) have no namespace.
+  const nsEnabled = o.namespaces && o.view === 'application' && o.groupBy === 'cluster'
+
   const layoutGroup = (g: GroupAcc): Placed => {
     const n = g.items.length
-    const cols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(n))))
-    const cw = g.items[0]?.w ?? 0
-    const children: Placed['children'] = []
-    let y = HEADER
-    for (let i = 0; i < n; i += cols) {
-      const slice = g.items.slice(i, i + cols)
-      const rowH = Math.max(...slice.map((s) => s.h))
-      slice.forEach((item, j) => children.push({ item, x: PAD + j * (cw + GAP_X), y, h: rowH }))
-      y += rowH + GAP_Y
+    if (nsEnabled && g.cluster && n > 0) {
+      const { w: nsW, h: nsH, boxes } = layoutNamespaces(g.items)
+      return { g, w: Math.max(PAD * 2 + nsW, 248), h: HEADER + nsH + PAD, children: [], nsBoxes: boxes }
     }
-    const usedCols = Math.min(cols, n)
-    const w = n === 0 ? 248 : PAD * 2 + usedCols * cw + (usedCols - 1) * GAP_X
-    const h = n === 0 ? HEADER + 52 : y - GAP_Y + PAD
-    return { g, w: Math.max(w, 248), h, children }
+    const { w, h, children } = packItems(g.items, HEADER)
+    return { g, w: Math.max(w || 248, 248), h: n === 0 ? HEADER + 52 : h, children }
   }
 
   const placedRows = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, gs]) => gs.map(layoutGroup))
@@ -337,18 +416,56 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         },
       })
       abs.set(gid, { x, y, w: p.w, h: p.h })
-      for (const c of p.children) {
-        nodes.push({
-          id: c.item.id,
-          type: 'card',
-          parentId: gid,
-          extent: 'parent',
-          position: { x: c.x, y: c.y },
-          style: { width: c.item.w, height: c.h },
-          zIndex: 10,
-          data: c.item.data,
-        })
-        abs.set(c.item.id, { x: x + c.x, y: y + c.y, w: c.item.w, h: c.h })
+      if (p.nsBoxes) {
+        for (const nb of p.nsBoxes) {
+          const nsId = `ns:${g.key}:${nb.namespace}`
+          nodes.push({
+            id: nsId,
+            type: 'namespace',
+            parentId: gid,
+            extent: 'parent',
+            draggable: false,
+            position: { x: PAD + nb.x, y: HEADER + nb.y },
+            style: { width: nb.w, height: nb.h },
+            zIndex: 5,
+            data: {
+              kind: 'namespace',
+              entityId: nsId,
+              clusterId: cl!.id,
+              namespace: nb.namespace,
+              count: nb.children.length,
+              status: worstStatus(nb.children.map((c) => c.item.data.status)),
+              tier: g.tier,
+            },
+          })
+          for (const c of nb.children) {
+            nodes.push({
+              id: c.item.id,
+              type: 'card',
+              parentId: nsId,
+              extent: 'parent',
+              position: { x: c.x, y: c.y },
+              style: { width: c.item.w, height: c.h },
+              zIndex: 10,
+              data: c.item.data,
+            })
+            abs.set(c.item.id, { x: x + PAD + nb.x + c.x, y: y + HEADER + nb.y + c.y, w: c.item.w, h: c.h })
+          }
+        }
+      } else {
+        for (const c of p.children) {
+          nodes.push({
+            id: c.item.id,
+            type: 'card',
+            parentId: gid,
+            extent: 'parent',
+            position: { x: c.x, y: c.y },
+            style: { width: c.item.w, height: c.h },
+            zIndex: 10,
+            data: c.item.data,
+          })
+          abs.set(c.item.id, { x: x + c.x, y: y + c.y, w: c.item.w, h: c.h })
+        }
       }
       x += p.w + GROUP_GAP_X
     }
@@ -446,6 +563,7 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint?: string
     w: APP_CARD.w,
     // One row of small chips under the name; two when the mesh chip has to share it with advice or a warning.
     h: APP_CARD.h + (mesh && w.mesh && (hint || notReady) ? 46 : hint || notReady || (mesh && w.mesh) ? 24 : 0),
+    namespace: w.namespace,
     data: {
       kind: 'service',
       entityId: w.id,

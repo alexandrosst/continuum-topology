@@ -89,8 +89,10 @@ function Canvas() {
   const hasMesh = anyMesh(topology.clusters)
   // Asked for in the URL, but only means something when a cluster runs a mesh.
   const showMesh = sp.get('mesh') === '1' && hasMesh
+  // Only means something in the application view, grouped by cluster (a tier box already mixes clusters together).
+  const showNamespaces = sp.get('namespaces') === '1' && groupBy === 'cluster'
   // How many options differ from the defaults, so a hidden option is never a mystery.
-  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh].filter(Boolean).length
+  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces].filter(Boolean).length
   const setParam = (k: string, v: string | null) =>
     setSp((p) => {
       const n = new URLSearchParams(p)
@@ -150,8 +152,8 @@ function Canvas() {
     [clusters, machines, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, filter],
   )
   const graph = useMemo(
-    () => buildGraph(shown, { view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, paths, hints }),
-    [shown, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, paths, hints],
+    () => buildGraph(shown, { view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, paths, hints }),
+    [shown, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, paths, hints],
   )
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
 
@@ -236,6 +238,7 @@ function Canvas() {
       if (d.extra) return null
       return { kind: d.groupBy === 'cluster' ? 'cluster' : 'tier', id: d.entityId }
     }
+    if (d.kind === 'namespace') return null // a visual grouping only, nothing to inspect on its own
     return { kind: d.kind === 'machine' ? 'node' : d.kind, id: d.entityId }
   }
 
@@ -336,6 +339,15 @@ function Canvas() {
                     )}
                     {mode === 'application' && !hasMesh && <p className="-mt-0.5 px-2 pb-1 pl-[46px] text-[11px] text-nb-500">No mesh found in your clusters</p>}
                     <Toggle checked={showLabels} onChange={(v) => setParam('labels', v ? '1' : null)} label="Edge labels" />
+                    {mode === 'application' && (
+                      <Toggle
+                        checked={showNamespaces}
+                        disabled={groupBy !== 'cluster'}
+                        onChange={(v) => setParam('namespaces', v ? '1' : null)}
+                        label="Namespace sub-boxes"
+                        title={groupBy === 'cluster' ? 'Draw a box per namespace inside each cluster' : 'Only available grouped by cluster'}
+                      />
+                    )}
                     <div className="mt-1 flex items-center justify-between gap-3 border-t border-nb-850 px-2 pb-1 pt-2.5 text-sm text-nb-400">
                       Group by
                       <Select
