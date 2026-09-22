@@ -347,7 +347,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                     )}
                     {!imagesConfigured && (
                       <li>
-                        Make the image <code className="font-mono">{img.repository}</code> available to the cluster: publish it with <code className="font-mono">scripts/publish.sh</code> to a registry the cluster can pull from and set that registry in <SettingsLink newTab />, or load a locally built image into the nodes (for k3s <code className="font-mono">k3s ctr images import</code>, for kind <code className="font-mono">kind load docker-image</code>).
+                        Make the image <code className="font-mono">{img.repository}</code> available to the cluster: point this server at a registry you publish it to, under <SettingsLink newTab /> (see the deployment guide), or load a locally built image straight into the nodes (<code className="font-mono">k3s ctr images import</code> for k3s, <code className="font-mono">kind load docker-image</code> for kind).
                       </li>
                     )}
                   </ol>
@@ -377,9 +377,9 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                   <details className="mt-1.5">
                     <summary className="cursor-pointer text-nb-300">If helm says not found or unauthorized</summary>
                     <p className="mt-1">
-                      They have not been published yet (or are private). Run <code className="font-mono">scripts/publish.sh</code> from the project once: it builds and pushes the image for x86 and ARM, and the chart.
+                      They have not been published yet, or the registry is private. Ask whoever manages this Continuum server to publish them (see the deployment guide) or grant the cluster's registry credentials access.
                       {info?.install?.chartFile && (
-                        <> To skip the registry for the chart, use the copy this server serves: <code className="font-mono">curl -fLO {`${baseUrl || window.location.origin}/charts/${info.install.chartFile}`}</code>, then change the start of the command to <code className="font-mono">helm install continuum-agent ./{info.install.chartFile}</code> and drop <code className="font-mono">--version</code>.</>
+                        <> To skip the registry for just the chart, use the copy this server already serves: <code className="font-mono">curl -fLO {`${baseUrl || window.location.origin}/charts/${info.install.chartFile}`}</code>, then change the start of the command to <code className="font-mono">helm install continuum-agent ./{info.install.chartFile}</code> and drop <code className="font-mono">--version</code>.</>
                       )}
                     </p>
                   </details>

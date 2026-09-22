@@ -110,7 +110,7 @@ export default function InstallationSettings({ conn }: { conn: Conn }) {
               disabled={!admin}
               placeholder="sha256:…"
               testId="image-digest"
-              help={<>Optional, and the safest choice: <Code>sha256:</Code> and 64 hex digits pin the image so it can never change under you (the tag is then ignored). <Code>scripts/publish.sh</Code> prints the digest of what it pushed; or run <Code>docker buildx imagetools inspect &lt;registry&gt;/continuum:&lt;tag&gt;</Code>.</>}
+              help={<>Optional, and the safest choice: <Code>sha256:</Code> and 64 hex digits pin the image so it can never change under you (the tag is then ignored). Whatever published the image should have printed its digest; or find it yourself with <Code>docker buildx imagetools inspect &lt;registry&gt;/continuum:&lt;tag&gt;</Code>.</>}
             />
           </div>
         </div>
