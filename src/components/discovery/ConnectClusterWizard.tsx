@@ -1,4 +1,5 @@
-import { CheckCircle2, ChevronRight, Loader2, Pin } from 'lucide-react'
+import clsx from 'clsx'
+import { Check, CheckCircle2, ChevronRight, Loader2, Pin } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button, ErrorBanner, Field, InfoTip, Input, Modal } from '@/components/ui/primitives'
@@ -43,6 +44,49 @@ function OptionToggle({ testId, checked, disabled, onChange, title, summary, why
         </span>
       </span>
     </label>
+  )
+}
+
+type Phase = 'form' | 'waiting' | 'approve' | 'discovering' | 'done' | 'stopped'
+const STEPS: { key: Phase; label: string }[] = [
+  { key: 'waiting', label: 'Agent connects' },
+  { key: 'approve', label: 'You approve it' },
+  { key: 'discovering', label: 'Discovering' },
+  { key: 'done', label: 'Connected' },
+]
+
+/**
+ * What's already automatic here needs saying out loud: the wizard notices the agent connecting and being
+ * approved by itself (it is simply polling), so the only manual step left is typing the approval code. This
+ * turns that into a line of ticks that fill in on their own, so it reads as "in progress", not "stuck".
+ */
+function Stepper({ phase }: { phase: Phase }) {
+  if (phase === 'form') return null
+  const activeIndex = phase === 'stopped' ? STEPS.length : STEPS.findIndex((s) => s.key === phase)
+  return (
+    <div className="mb-4 flex items-center" data-testid="wizard-steps">
+      {STEPS.map((s, i) => {
+        const done = i < activeIndex
+        const current = i === activeIndex
+        return (
+          <div key={s.key} className={clsx('flex items-center', i < STEPS.length - 1 && 'flex-1')}>
+            <span className="relative flex size-5 shrink-0 items-center justify-center">
+              {current && phase !== 'stopped' && <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent/40" />}
+              <span
+                className={clsx(
+                  'relative flex size-5 items-center justify-center rounded-full border text-[10px] font-medium',
+                  done ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300' : current ? 'border-accent bg-accent-soft text-accent' : 'border-nb-800 text-nb-600',
+                )}
+              >
+                {done ? <Check size={11} /> : i + 1}
+              </span>
+            </span>
+            <span className={clsx('ml-1.5 whitespace-nowrap text-[11px]', done ? 'text-nb-400' : current ? 'text-nb-200' : 'text-nb-600')}>{s.label}</span>
+            {i < STEPS.length - 1 && <span className={clsx('mx-2 h-px flex-1', done ? 'bg-emerald-400/30' : 'bg-nb-850')} />}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -261,6 +305,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
 
       {created && phase !== 'form' && (
         <div className="space-y-5">
+          <Stepper phase={phase} />
           {(phase === 'waiting' || phase === 'approve') && (
             <div>
               <div className="mb-1 flex items-center justify-between text-sm text-nb-300">
@@ -333,7 +378,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
 
           {phase === 'waiting' && (
             <p className="flex items-center gap-2 text-sm text-nb-400">
-              <Loader2 size={16} className="animate-spin text-accent" /> Waiting for the agent to connect… Once it does, it prints an approval code in its log (kubectl -n continuum-system logs deploy/continuum-agent). You type that code here to approve it.
+              <Loader2 size={16} className="animate-spin text-accent" /> Waiting for the agent to start and connect. This can take a minute.
             </p>
           )}
           {phase === 'approve' && mine && <ApprovalCard agent={mine} />}
