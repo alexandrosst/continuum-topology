@@ -75,6 +75,12 @@ body {
   .edge-animated path.react-flow__edge-path, .map-link { animation: none; }
 }
 
+/* A popover (filter, saved views, options, add) eases in briefly on open instead of just appearing - the same light
+   touch as a button's own press-down (see buttonClass), not a heavier "sidebar" motion. Anchored top-right,
+   where every one of these panels hangs off its button. */
+@keyframes menu-pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.menu-pop { animation: menu-pop 0.12s ease-out; transform-origin: top right; }
+
 /* Map dots: no browser focus box; keyboard focus shows a dashed ring instead. */
 .map-dot:focus { outline: none; }
 .map-dot:focus-visible .map-hit { stroke: var(--color-accent); stroke-width: 1.5; stroke-dasharray: 3 3; }

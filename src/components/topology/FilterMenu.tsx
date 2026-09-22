@@ -1,5 +1,4 @@
 import { Filter as FilterIcon, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/primitives'
 import { filterActive, NO_APP, type Filter } from '@/lib/filter'
 import type { Application, Cluster } from '@/lib/types'
@@ -7,29 +6,27 @@ import type { Application, Cluster } from '@/lib/types'
 /**
  * "Show only these": a popover with a checklist of clusters and one of applications. Nothing chosen in a
  * list means everything. The filter lives in the URL, so a filtered view can be linked and saved.
+ *
+ * Controlled (`open`/`onOpenChange`) rather than managing its own state: the Topology toolbar has several of
+ * these popovers side by side (this one, saved views, options, add), and only one of them may be open at a
+ * time - a page-level switch enforces that, click-outside and Escape included, so two never fight over the screen.
  */
 export default function FilterMenu({
+  open,
+  onOpenChange,
   filter,
   clusters,
   applications,
   onChange,
 }: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
   filter: Filter
   clusters: Cluster[]
   applications: Application[]
   onChange: (f: Filter) => void
 }) {
-  const [open, setOpen] = useState(false)
   const count = filter.clusters.length + filter.apps.length
-
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open])
 
   const toggle = (key: 'clusters' | 'apps', id: string) => {
     const cur = filter[key]
@@ -51,7 +48,7 @@ export default function FilterMenu({
 
   return (
     <div className="relative">
-      <Button onClick={() => setOpen((o) => !o)} aria-haspopup="dialog" aria-expanded={open} aria-label="Filter the topology" data-testid="filter-button">
+      <Button onClick={() => onOpenChange(!open)} aria-haspopup="dialog" aria-expanded={open} aria-label="Filter the topology" data-testid="filter-button">
         <FilterIcon size={15} className={filterActive(filter) ? 'text-accent' : ''} />
         <span>Filter</span>
         {count > 0 && (
@@ -62,8 +59,8 @@ export default function FilterMenu({
       </Button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div role="dialog" aria-label="Filter the topology" className="absolute right-0 top-11 z-20 w-80 overflow-hidden rounded-lg border border-nb-850 bg-nb-920 shadow-xl" data-testid="filter-menu">
+          <div className="fixed inset-0 z-10" onClick={() => onOpenChange(false)} />
+          <div role="dialog" aria-label="Filter the topology" className="menu-pop absolute right-0 top-11 z-20 w-80 overflow-hidden rounded-lg border border-nb-850 bg-nb-920 shadow-xl" data-testid="filter-menu">
             <div className="flex items-center justify-between border-b border-nb-850 px-3 py-2">
               <span className="text-sm font-medium text-nb-200">Show only…</span>
               <button

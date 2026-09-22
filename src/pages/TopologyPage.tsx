@@ -70,6 +70,11 @@ type FormState =
   | { type: 'device'; id?: string }
   | null
 
+/** The toolbar's popovers (filter, saved views, options, add) all hang off the same row: at most one may be
+ * open at a time, so opening one always closes any other that was already open, instead of both fighting over
+ * their own click-outside backdrop. */
+type MenuKey = 'filter' | 'views' | 'options' | 'add'
+
 function Canvas() {
   const topology = useTopology()
   const { fitView } = useReactFlow()
@@ -106,21 +111,19 @@ function Canvas() {
   // Arriving from search (or a shared link) with ?sel=service:w-gw opens that thing in the inspector.
   const selParam = sp.get('sel')
   const [form, setForm] = useState<FormState>(null)
-  const [addOpen, setAddOpen] = useState(false)
   const inPast = useHistoryView((s) => s.at !== null)
-  const [optionsOpen, setOptionsOpen] = useState(false)
+  const [openMenu, setOpenMenu] = useState<MenuKey | null>(null)
+  const toggleMenu = (key: MenuKey) => setOpenMenu((cur) => (cur === key ? null : key))
   const [hoverEdge, setHoverEdge] = useState<string | null>(null)
-  // Escape closes whichever menu is open.
+  // Escape closes whichever one of the toolbar's popovers is open.
   useEffect(() => {
-    if (!optionsOpen && !addOpen) return
+    if (!openMenu) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      setOptionsOpen(false)
-      setAddOpen(false)
+      if (e.key === 'Escape') setOpenMenu(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [optionsOpen, addOpen])
+  }, [openMenu])
 
   const { clusters, nodes: machines, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints } = topology
   // Discovered records come from the server with the first refresh, after the workspace loads: a link to one waits for them.
@@ -286,6 +289,8 @@ function Canvas() {
         <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
           <LiveStatus />
           <FilterMenu
+            open={openMenu === 'filter'}
+            onOpenChange={(o) => setOpenMenu(o ? 'filter' : null)}
             filter={filter}
             clusters={clusters.filter((c) => !c.deletedAt)}
             applications={applications.filter((a) => !a.deletedAt)}
@@ -302,6 +307,8 @@ function Canvas() {
             }}
           />
           <ViewsMenu
+            open={openMenu === 'views'}
+            onOpenChange={(o) => setOpenMenu(o ? 'views' : null)}
             sp={sp}
             onApply={(params) => {
               setSp(new URLSearchParams(params), { replace: true })
@@ -310,14 +317,14 @@ function Canvas() {
           />
           {!isMap && (
             <div className="relative">
-              <Button onClick={() => setOptionsOpen((o) => !o)} aria-expanded={optionsOpen} aria-haspopup="true" data-testid="view-options">
+              <Button onClick={() => toggleMenu('options')} aria-expanded={openMenu === 'options'} aria-haspopup="true" data-testid="view-options">
                 <SlidersHorizontal size={15} /> <span className="hidden sm:inline">Options</span>
                 {changedOptions > 0 && <span className="rounded-full bg-accent-soft px-1.5 text-[11px] font-medium text-accent">{changedOptions}</span>}
               </Button>
-              {optionsOpen && (
+              {openMenu === 'options' && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setOptionsOpen(false)} />
-                  <div className="absolute right-0 top-11 z-20 w-72 rounded-lg border border-nb-850 bg-nb-920 p-2 shadow-xl" role="group" aria-label="View options">
+                  <div className="fixed inset-0 z-10" onClick={() => setOpenMenu(null)} />
+                  <div className="menu-pop absolute right-0 top-11 z-20 w-72 rounded-lg border border-nb-850 bg-nb-920 p-2 shadow-xl" role="group" aria-label="View options">
                     {mode === 'application' && <Toggle checked={showDevices} onChange={(v) => setParam('devices', v ? null : '0')} label="Devices and external endpoints" />}
                     {mode === 'application' && dependencies.some((d) => d.noise) && (
                       <Toggle checked={showNoise} onChange={(v) => setParam('noise', v ? '1' : null)} label="DNS & system traffic" />
@@ -369,13 +376,13 @@ function Canvas() {
           )}
 
           <div className="relative">
-            <Button variant="primary" onClick={() => setAddOpen((o) => !o)} disabled={inPast} title={inPast ? 'Return to now to add or change things' : undefined}>
+            <Button variant="primary" onClick={() => toggleMenu('add')} disabled={inPast} title={inPast ? 'Return to now to add or change things' : undefined}>
               <Plus size={16} /> Add <ChevronDown size={14} />
             </Button>
-            {addOpen && (
+            {openMenu === 'add' && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setAddOpen(false)} />
-                <div className="absolute right-0 top-11 z-20 w-48 overflow-hidden rounded-lg border border-nb-850 bg-nb-920 p-1 shadow-xl">
+                <div className="fixed inset-0 z-10" onClick={() => setOpenMenu(null)} />
+                <div className="menu-pop absolute right-0 top-11 z-20 w-48 overflow-hidden rounded-lg border border-nb-850 bg-nb-920 p-1 shadow-xl">
                   {[
                     { t: 'cluster', label: 'Cluster', icon: Boxes, disabled: false },
                     { t: 'node', label: 'Node', icon: Server, disabled: empty },
@@ -386,7 +393,7 @@ function Canvas() {
                       key={t}
                       disabled={disabled}
                       onClick={() => {
-                        setAddOpen(false)
+                        setOpenMenu(null)
                         setForm({ type: t as 'cluster' | 'node' | 'service' | 'device' })
                       }}
                       className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-nb-300 hover:bg-nb-940 disabled:opacity-40 disabled:hover:bg-transparent"

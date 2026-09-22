@@ -1,5 +1,5 @@
 import { Bookmark, BookmarkPlus, Check, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button, Input } from '@/components/ui/primitives'
 import { activeView, describeView, viewParams } from '@/lib/views'
 import { useTopology } from '@/store/topology'
@@ -7,38 +7,41 @@ import { useTopology } from '@/store/topology'
 /**
  * Saved views: named sets of Topology options (view, grouping, what is shown). One click brings one back;
  * they are kept in the workspace, so a team shares them. A view holds options only, never a selection.
+ *
+ * Controlled (`open`/`onOpenChange`) like its sibling popovers in the Topology toolbar: a page-level switch
+ * keeps only one of them open at a time, so opening this one always closes any other that was already open.
  */
-export default function ViewsMenu({ sp, onApply }: { sp: URLSearchParams; onApply: (params: string) => void }) {
+export default function ViewsMenu({
+  open,
+  onOpenChange,
+  sp,
+  onApply,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  sp: URLSearchParams
+  onApply: (params: string) => void
+}) {
   const { savedViews, saveView, deleteView } = useTopology()
-  const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const current = activeView(savedViews, sp)
   const now = viewParams(sp)
 
   const close = () => {
-    setOpen(false)
+    onOpenChange(false)
     setName('')
   }
 
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open])
-
   return (
     <div className="relative">
-      <Button onClick={() => setOpen((o) => !o)} aria-haspopup="dialog" aria-expanded={open} aria-label="Saved views" data-testid="views-button">
+      <Button onClick={() => onOpenChange(!open)} aria-haspopup="dialog" aria-expanded={open} aria-label="Saved views" data-testid="views-button">
         <Bookmark size={15} className={current ? 'fill-accent text-accent' : ''} />
         <span className="max-w-32 truncate">{current ? current.name : 'Views'}</span>
       </Button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={close} />
-          <div role="dialog" aria-label="Saved views" className="absolute right-0 top-11 z-20 w-80 overflow-hidden rounded-lg border border-nb-850 bg-nb-920 shadow-xl">
+          <div role="dialog" aria-label="Saved views" className="menu-pop absolute right-0 top-11 z-20 w-80 overflow-hidden rounded-lg border border-nb-850 bg-nb-920 shadow-xl">
             <div className="max-h-64 overflow-y-auto p-1">
               {savedViews.length === 0 && <p className="px-3 py-3 text-sm text-nb-500">No saved views yet. Set the view up the way you want it, then save it below.</p>}
               {savedViews.map((v) => (
