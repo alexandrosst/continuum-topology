@@ -80,8 +80,9 @@ agent:
     annotations:
       nginx.ingress.kubernetes.io/ssl-passthrough: "true"
 
-  # Gateway API TLSRoute in a Gateway listener with `protocol: TLS` and `tls.mode: Passthrough`. TLSRoute is still in the
-  # experimental channel of Gateway API: install those CRDs and check which version your implementation serves.
+  # Gateway API TLSRoute in a Gateway listener with `protocol: TLS` and `tls.mode: Passthrough`. TLSRoute graduated to
+  # Gateway API's Standard (stable) channel in v1.5 (April 2026); install the Gateway API CRDs and check which apiVersion
+  # your implementation actually serves before changing the default below.
   tlsRoute:
     enabled: false
     apiVersion: gateway.networking.k8s.io/v1alpha2

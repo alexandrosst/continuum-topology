@@ -27,10 +27,11 @@ helm install continuum oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --create-namespace \
   --set agent.service.type=NodePort \
   --set agent.service.nodePort=30443 \
-  --set agent.publicAddress=NODE_IP:30443
+  --set agent.publicAddress=NODE_IP:30443 \
+  --set admin.behindTlsProxy=true
 ```
 
-This installs the latest release. `agent.publicAddress` is the one value the chart cannot guess for you — it's the address your future agents will dial, and it's baked into the server's own TLS certificate, so it has to be exactly right. [Installation](../installation/index.md) covers the other exposure options (a cloud load balancer, an Ingress) once you're ready to move past a trial.
+This installs the latest release. `agent.publicAddress` is the one value the chart cannot guess for you — it's the address your future agents will dial, and it's baked into the server's own TLS certificate, so it has to be exactly right. `admin.behindTlsProxy=true` is what lets step 5 below (`kubectl port-forward`) reach the UI at all for this trial: the admin port carries your sign-in password and session cookie, so the server otherwise refuses to serve it in clear text — `kubectl port-forward` tunnels over an already-encrypted connection to the API server, so this is safe for exactly that case. [Installation](../installation/index.md) covers the other exposure options (a cloud load balancer, an Ingress) once you're ready to move past a trial.
 
 :::tip[Pinning a version]
 Leaving out `--version` always installs the newest release, which is right for a first trial. For a reproducible deploy later, add `--version X.Y.Z` — see the [Releases page](https://github.com/alexandrosst/continuum-topology/releases) for available versions.

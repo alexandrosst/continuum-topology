@@ -16,13 +16,18 @@ The commands below install the newest release, same as the Quickstart. For a pro
 
 `agent.publicAddress` has to be set at install time — it's baked into the server's TLS certificate — but if you're using a cloud load balancer, you don't know its external IP or hostname *until after* the Service exists. So this is genuinely a two-step process:
 
-**Install once**, with a placeholder address (the chart just needs something shaped like `host:port` — it doesn't have to resolve yet):
+**Install once**, with a placeholder address (the chart just needs something shaped like `host:port` — it doesn't have to resolve yet). `admin.behindTlsProxy=true` is required at this point because nothing is exposing the UI yet — see the note below:
 
 ```bash
 helm install continuum oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --create-namespace \
-  --set agent.publicAddress=pending.example.com:8443
+  --set agent.publicAddress=pending.example.com:8443 \
+  --set admin.behindTlsProxy=true
 ```
+
+:::info[Why `admin.behindTlsProxy=true` here]
+The admin port carries your sign-in password and session cookie, so the chart refuses to serve it in clear text unless something is already protecting it. At this point in the two-step process there's no Ingress or HTTPRoute in front of it yet, so this flag is what lets the install succeed at all — use `kubectl port-forward` to reach the UI until [Exposing the UI properly](#exposing-the-ui-properly), below, is done. Leaving the flag set after that is harmless; it's also what the chart sets automatically once `ui.ingress` or `httproute` is enabled.
+:::
 
 `agent.service.type` defaults to `LoadBalancer`, so this already asked your cloud for one. **Watch for the address:**
 
@@ -57,6 +62,20 @@ helm upgrade continuum oci://ghcr.io/alexandrosst/continuum-server \
 ```
 
 Once this is set, `admin.behindTlsProxy` switches on automatically (the server trusts `X-Forwarded-For`/`X-Forwarded-Proto` from whatever sits in front of it) — you don't need to set it yourself.
+
+:::tip[Already running Gateway API instead of an Ingress controller?]
+`httproute.enabled` is the `HTTPRoute` equivalent of `ui.ingress`, for a cluster with a `Gateway` already set up:
+
+```bash
+helm upgrade continuum oci://ghcr.io/alexandrosst/continuum-server \
+  --namespace continuum --reuse-values \
+  --set httproute.enabled=true \
+  --set-json httproute.parentRefs='[{"name":"shared-gateway","namespace":"gateways","sectionName":"https"}]' \
+  --set-json httproute.hostnames='["continuum.example.com"]'
+```
+
+Same effect as `ui.ingress` — `admin.behindTlsProxy` switches on automatically here too. Use one or the other, not both. The agent port has the same choice; see [Gateway API TLSRoute](../architecture/exposure-options.md#gateway-api-tlsroute-agenttlsroute).
+:::
 
 ## Should you turn on Neo4j?
 

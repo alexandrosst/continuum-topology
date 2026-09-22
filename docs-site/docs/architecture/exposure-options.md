@@ -1,7 +1,7 @@
 ---
 id: exposure-options
 title: Exposing the agent port
-description: LoadBalancer, NodePort, or a TLS-passthrough Ingress — three ways to get real traffic to the agent port.
+description: LoadBalancer, NodePort, a TLS-passthrough Ingress, or Gateway API TLSRoute — ways to get real traffic to the agent port.
 ---
 
 import useBaseUrl from '@docusaurus/useBaseUrl';
@@ -25,7 +25,7 @@ Reachable on every node, at a fixed port you choose. This works on literally any
 
 ## Ingress with TLS passthrough (`agent.ingress`)
 
-Lets the agent port share the same `:443` an HTTP ingress already uses, routed by SNI hostname rather than terminated. This only works if the ingress controller is explicitly told not to touch TLS for this route:
+Lets the agent port share the same `:443` an HTTP ingress already uses, routed by SNI hostname rather than terminated. This only works if the ingress controller is explicitly told not to touch TLS for this route. With ingress-nginx, for example:
 
 ```bash
 helm upgrade ingress-nginx ingress-nginx/ingress-nginx --reuse-values \
@@ -33,6 +33,26 @@ helm upgrade ingress-nginx ingress-nginx/ingress-nginx --reuse-values \
 ```
 
 Skip that flag and nothing errors loudly — the controller just quietly terminates TLS anyway, and the agent's handshake fails in a way that looks like a networking problem rather than a one-line missing flag. This is the most capable option (no extra load balancer, shares infrastructure you already run) and also the easiest to get subtly wrong, which is why it's marked advanced rather than default.
+
+:::info[ingress-nginx specifically is no longer maintained]
+The command above is the ingress-nginx project's own flag, shown because it's the most widely deployed controller. That project reached end-of-life in March 2026 — no further releases, bug fixes or security patches. If you're choosing a controller today, either pick one still being maintained (Traefik, HAProxy Ingress and others all support TLS passthrough with their own annotation or CRD) or use [Gateway API TLSRoute](#gateway-api-tlsroute-agenttlsroute), below, which isn't tied to any one project.
+:::
+
+## Gateway API TLSRoute (`agent.tlsRoute`)
+
+The Gateway API equivalent of the option above: a `TLSRoute` attached to a `Gateway` listener configured with `protocol: TLS` and `tls.mode: Passthrough`, routed by SNI exactly like the Ingress option. It needs the Gateway API CRDs and a Gateway already running in the cluster — if you don't have either yet, LoadBalancer or NodePort are the simpler starting points.
+
+```bash
+helm upgrade continuum oci://ghcr.io/alexandrosst/continuum-server \
+  --namespace continuum --reuse-values \
+  --set agent.tlsRoute.enabled=true \
+  --set-json agent.tlsRoute.parentRefs='[{"name":"shared-gateway","namespace":"gateways","sectionName":"agents-tls"}]' \
+  --set-json agent.tlsRoute.hostnames='["continuum.example.com"]'
+```
+
+TLSRoute graduated to Gateway API's stable Standard channel in v1.5 (April 2026); check which `apiVersion` your specific Gateway implementation actually serves it at (`agent.tlsRoute.apiVersion` defaults to `gateway.networking.k8s.io/v1alpha2` for the widest compatibility) before relying on a newer one. Unlike ingress-nginx's flag above, this isn't any single project's feature to deprecate out from under you — it's part of the Gateway API spec itself, implemented by whatever Gateway controller you're already running (Envoy Gateway, Istio, Cilium, NGINX Gateway Fabric, and most cloud-managed Gateways all support it).
+
+The admin/UI port has the same choice available: `httproute` is the Gateway API `HTTPRoute` alternative to `ui.ingress`, covered in [Production cluster](../installation/production-cluster.md#exposing-the-ui-properly).
 
 ## Meanwhile, the admin port
 

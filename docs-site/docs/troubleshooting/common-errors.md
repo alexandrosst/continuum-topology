@@ -8,6 +8,14 @@ description: The handful of mistakes that are easy to make once, and the exact f
 
 These are errors you can hit while deploying and running the server or an agent. If you're setting up this repository's own releases or GitHub Pages rather than deploying the product, see [Release process](../contributing/release-process.md) instead — a couple of one-time repository settings live there.
 
+## `the admin listener (UI and API) ... refuses to serve it in clear text without TLS`
+
+The admin port carries your sign-in password and session cookie, so the chart refuses to install or upgrade until something protects it. Pick one:
+
+- **Trial, reachable only via `kubectl port-forward`:** `--set admin.behindTlsProxy=true` (this is what the [Quickstart](../getting-started/quickstart.md) uses — `port-forward` already tunnels over an encrypted connection to the API server, so plain HTTP inside the pod is fine).
+- **Real Ingress or HTTPRoute in front, terminating TLS:** enable `ui.ingress` or `httproute` — either one sets this automatically, no separate flag needed. See [Production cluster](../installation/production-cluster.md).
+- **The server should serve HTTPS itself:** set `admin.tls.secretName` to a `kubernetes.io/tls` Secret.
+
 ## `agent.publicAddress is required: ...`
 
 The chart refuses to render without this value — it's the address your agents will dial, and it becomes a name in the server's own TLS certificate, so it has to be set explicitly rather than defaulted to something that would silently be wrong. Set it to `host:port`, for example `continuum.example.com:8443` or, for a NodePort setup, `NODE_IP:30443`. See the [Quickstart](../getting-started/quickstart.md) for a working example end to end.
