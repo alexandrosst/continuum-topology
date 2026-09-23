@@ -291,38 +291,42 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                       why="Times how long a TCP connection takes to open, and how often it fails, to the busiest outside addresses this cluster already connects to plus any you add on the Sites page. Nothing is sent over the connection; loopback, link-local and metadata addresses are always refused, and the agent refuses any address the server did not issue."
                     />
                   )}
-                  {max >= 2 && (
-                  <div className={`rounded-lg border px-4 py-3 ${scopeOn ? 'border-accent/60 bg-accent-soft' : 'border-nb-850 bg-nb-930'}`}>
-                    <label className="flex cursor-pointer items-start gap-3">
-                      <input type="checkbox" className="mt-1 accent-[var(--color-accent)]" checked={scopeOn} disabled={tier < 2} onChange={(e) => setScopeOn(e.target.checked)} data-testid="scope-toggle" />
-                      <span>
-                        <span className="block text-sm font-medium text-white">Only look at some namespaces</span>
-                        <span className="block text-sm text-nb-500">
-                          By default the agent reports every namespace. What is left out never leaves the cluster.
-                          <InfoTip>This is a privacy boundary, not a permission: the agent's read-only access is unchanged. System namespaces are still read to recognise the cluster but never drawn. Any namespace labelled continuum.io/observe=false is left out whatever you choose here.</InfoTip>
-                        </span>
-                      </span>
-                    </label>
-                    {scopeOn && tier >= 2 && (
-                      <div className="mt-3 grid gap-3 pl-7 sm:grid-cols-2">
-                        <Field label="Only these namespaces" hint="Names, separated by spaces or commas. Empty: all.">
-                          <Input value={inc} onChange={(e) => setInc(e.target.value)} placeholder="shop payments" data-testid="scope-include" />
-                        </Field>
-                        <Field label="Never these" hint="Wins over the other two.">
-                          <Input value={exc} onChange={(e) => setExc(e.target.value)} placeholder="hr-data" data-testid="scope-exclude" />
-                        </Field>
-                        <Field label="Or namespaces with this label" hint="key=value, on a label starting continuum.io/; added to the names on the left.">
-                          <Input value={sel} onChange={(e) => setSel(e.target.value)} placeholder="continuum.io/scope=yes" data-testid="scope-label" />
-                        </Field>
-                        <p className="self-end text-xs text-nb-500">
-                          {scopeActive(scope) ? 'The install command below will carry this scope.' : 'Nothing narrowed yet: the agent would report every namespace.'}
-                        </p>
-                        {problems.length > 0 && <p role="alert" className="text-xs text-red-300 sm:col-span-2">{problems.join('. ')}.</p>}
-                      </div>
-                    )}
-                  </div>
-                  )}
                 </fieldset>
+                {max >= 2 && (
+                  <fieldset className="border-t border-nb-850 pt-3">
+                    <legend className="mb-0.5 text-sm font-medium text-nb-300">Namespace scope</legend>
+                    <p className="-mt-2 mb-2 text-xs text-nb-500">Not an extra pod - a narrower view: what's left out is never installed on, only never reported.</p>
+                    <div className={`rounded-lg border px-4 py-3 ${scopeOn ? 'border-accent/60 bg-accent-soft' : 'border-nb-850 bg-nb-930'}`}>
+                      <label className="flex cursor-pointer items-start gap-3">
+                        <input type="checkbox" className="mt-1 accent-[var(--color-accent)]" checked={scopeOn} disabled={tier < 2} onChange={(e) => setScopeOn(e.target.checked)} data-testid="scope-toggle" />
+                        <span>
+                          <span className="block text-sm font-medium text-white">Only look at some namespaces</span>
+                          <span className="block text-sm text-nb-500">
+                            By default the agent reports every namespace. What is left out never leaves the cluster.
+                            <InfoTip>This is a privacy boundary, not a permission: the agent's read-only access is unchanged. System namespaces are still read to recognise the cluster but never drawn. Any namespace labelled continuum.io/observe=false is left out whatever you choose here.</InfoTip>
+                          </span>
+                        </span>
+                      </label>
+                      {scopeOn && tier >= 2 && (
+                        <div className="mt-3 grid gap-3 pl-7 sm:grid-cols-2">
+                          <Field label="Only these namespaces" hint="Names, separated by spaces or commas. Empty: all.">
+                            <Input value={inc} onChange={(e) => setInc(e.target.value)} placeholder="shop payments" data-testid="scope-include" />
+                          </Field>
+                          <Field label="Never these" hint="Wins over the other two.">
+                            <Input value={exc} onChange={(e) => setExc(e.target.value)} placeholder="hr-data" data-testid="scope-exclude" />
+                          </Field>
+                          <Field label="Or namespaces with this label" hint="key=value, on a label starting continuum.io/; added to the names on the left.">
+                            <Input value={sel} onChange={(e) => setSel(e.target.value)} placeholder="continuum.io/scope=yes" data-testid="scope-label" />
+                          </Field>
+                          <p className="self-end text-xs text-nb-500">
+                            {scopeActive(scope) ? 'The install command below will carry this scope.' : 'Nothing narrowed yet: the agent would report every namespace.'}
+                          </p>
+                          {problems.length > 0 && <p role="alert" className="text-xs text-red-300 sm:col-span-2">{problems.join('. ')}.</p>}
+                        </div>
+                      )}
+                    </div>
+                  </fieldset>
+                )}
               </div>
             </details>
           )}

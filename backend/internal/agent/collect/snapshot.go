@@ -2,6 +2,7 @@ package collect
 
 import (
 	"fmt"
+	"net/netip"
 	"sort"
 	"strings"
 
@@ -80,6 +81,9 @@ func (c *Collector) Snapshot() *continuumv1.Sync {
 		s.Workloads, mesh = c.workloads(pods)
 		s.Cluster.Mesh = mesh
 		s.Modules = c.setMeshModule(mesh)
+		if c.svcs != nil {
+			s.Cluster.ServiceCidr = detectServiceCIDR(c.svcs.List())
+		}
 	}
 	return s
 }
@@ -300,6 +304,61 @@ func (c *Collector) setMeshModule(m *continuumv1.MeshFacts) []*continuumv1.Modul
 	c.meshMod = st
 	c.mu.Unlock()
 	return c.Modules()
+}
+
+// detectServiceCIDR guesses the cluster's Service CIDR from the smallest IPv4 range covering every
+// ClusterIP currently assigned - the same "smallest bounding prefix" trick commonPodCIDR uses server-side
+// for node pod CIDRs, but computed here from individual addresses rather than published per-node ranges,
+// and sent up as a single already-derived value: like joinServices, the server never sees a raw ClusterIP.
+func detectServiceCIDR(svcs []any) string {
+	var addrs []netip.Addr
+	each(svcs, func(s *corev1.Service) {
+		ips := s.Spec.ClusterIPs
+		if len(ips) == 0 && s.Spec.ClusterIP != "" {
+			ips = []string{s.Spec.ClusterIP}
+		}
+		for _, raw := range ips {
+			if raw == "" || raw == corev1.ClusterIPNone {
+				continue
+			}
+			if a, err := netip.ParseAddr(raw); err == nil && a.Is4() {
+				addrs = append(addrs, a)
+			}
+		}
+	})
+	if len(addrs) == 0 {
+		return ""
+	}
+	bits := 32
+	first := addrs[0]
+	for _, a := range addrs[1:] {
+		if b := commonAddrBits(first, a); b < bits {
+			bits = b
+		}
+	}
+	p, err := first.Prefix(bits)
+	if err != nil {
+		return ""
+	}
+	return p.Masked().String()
+}
+
+// commonAddrBits is how many leading bits two IPv4 addresses share.
+func commonAddrBits(a, b netip.Addr) int {
+	x, y := a.As4(), b.As4()
+	n := 0
+	for i := 0; i < 4; i++ {
+		d := x[i] ^ y[i]
+		if d == 0 {
+			n += 8
+			continue
+		}
+		for m := byte(0x80); m != 0 && d&m == 0; m >>= 1 {
+			n++
+		}
+		break
+	}
+	return n
 }
 
 var exposureRank = map[string]int{"internal": 0, "node-port": 1, "load-balancer": 2, "ingress": 3}

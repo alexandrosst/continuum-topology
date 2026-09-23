@@ -31,7 +31,7 @@ function Row({ label, children, wrap }: { label: string; children: ReactNode; wr
   return (
     <div className="flex items-baseline justify-between gap-4 py-1.5 text-sm">
       <span className="shrink-0 text-nb-500">{label}</span>
-      <span className={wrap ? 'min-w-0 break-words text-right text-nb-300' : 'min-w-0 overflow-x-auto whitespace-nowrap text-right text-nb-300'}>{children}</span>
+      <span className={wrap ? 'min-w-0 break-words text-right text-nb-300' : 'scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap text-right text-nb-300'}>{children}</span>
     </div>
   )
 }

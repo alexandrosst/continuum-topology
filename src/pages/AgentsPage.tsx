@@ -8,7 +8,7 @@ import ApprovalCard from '@/components/discovery/ApprovalCard'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import { ConfirmModal } from '@/components/forms'
 import { DistroIcon, WithIcon } from '@/components/ui/brand'
-import { Button, EmptyState, ErrorBanner, PageHeader, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
+import { Button, EmptyState, ErrorBanner, PageHeader, PulseDot, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
 import { api, ApiError } from '@/lib/api'
 import { skewLabel, skewWarning } from '@/lib/clock'
 import { extrasOf, type AgentExtras } from '@/lib/consent'
@@ -235,7 +235,7 @@ export default function AgentsPage() {
                         </Td>
                         <Td valign="top">
                           <div className="flex items-center gap-2 whitespace-nowrap">
-                            <span className={clsx('size-2 rounded-full', st.dot)} aria-hidden />
+                            <PulseDot color={st.dot} pulse={h === 'ok'} />
                             <span className={st.text}>{st.label}</span>
                           </div>
                           <div className="text-xs text-nb-500" title={a.lastHeartbeat ? when(a.lastHeartbeat) : undefined}>
@@ -537,7 +537,7 @@ function AgentMap({ rows, clusterOf, selected, onSelect }: { rows: { a: Agent; h
                 data-testid="agent-node"
               >
                 <span className="flex items-center gap-2 text-sm font-medium text-white">
-                  <span className={clsx('size-2 shrink-0 rounded-full', st.dot)} aria-hidden />
+                  <PulseDot color={st.dot} pulse={p.h === 'ok'} />
                   <span className="truncate">{p.a.name}</span>
                 </span>
                 <span className="mt-0.5 truncate text-xs text-nb-500">{c ? c.name : 'no cluster yet'} · {p.a.lastHeartbeat ? shortAge(p.a.lastHeartbeat) : st.label.toLowerCase()}</span>

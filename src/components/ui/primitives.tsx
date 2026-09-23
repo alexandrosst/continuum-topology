@@ -317,6 +317,22 @@ export function SourceBadge({ source, overridden, stacked }: { source: Source; o
 }
 
 /**
+ * A small round dot in an arbitrary color, with an optional pulsing "ping" ring around it — the same animation
+ * LiveStatus uses for "this is current right now". Pass `pulse` only for the one state that means actively
+ * live/connected, not for idle, error or neutral dots, so the blink stays a meaningful signal rather than
+ * decoration everywhere. Distinct from StatusDot below, which renders one of the app's own named Status values
+ * (healthy/degraded/offline/...) with its fixed palette; this one takes any Tailwind color class directly.
+ */
+export function PulseDot({ color, pulse, size = 'size-2', className }: { color: string; pulse?: boolean; size?: string; className?: string }) {
+  return (
+    <span className={clsx('relative inline-flex shrink-0', size, className)} aria-hidden>
+      {pulse && <span className={clsx('absolute inline-flex size-full animate-ping rounded-full opacity-75', color)} />}
+      <span className={clsx('relative inline-flex rounded-full', size, color)} />
+    </span>
+  )
+}
+
+/**
  * How far a record can be trusted right now: live, disconnected, stale 2 h, revoked or gone. Nothing for records
  * nobody observes (typed by hand): they have nothing to be stale about. The tooltip says why.
  */
@@ -325,7 +341,9 @@ export function ObservationChip({ info, className, quiet }: { info: ObsInfo | un
   // In a table of records that are mostly fine, the ordinary case is a small dot; anything else keeps its chip.
   if (quiet && info.kind === 'live') {
     return (
-      <span title="Live: connected and heard from recently." data-observation="live" role="img" aria-label="live" className={clsx('inline-block size-1.5 rounded-full bg-emerald-400 align-middle', className)} />
+      <span title="Live: connected and heard from recently." data-observation="live" role="img" aria-label="live" className="inline-block align-middle">
+        <PulseDot color="bg-emerald-400" pulse size="size-1.5" className={className} />
+      </span>
     )
   }
   return (
@@ -334,7 +352,11 @@ export function ObservationChip({ info, className, quiet }: { info: ObsInfo | un
       data-observation={info.kind}
       className={clsx('inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-px text-[11px] font-medium leading-4', TONE_CLASS[info.tone], className)}
     >
-      <span aria-hidden className={clsx('size-1.5 rounded-full', info.kind === 'live' ? 'bg-emerald-400' : info.kind === 'gone' ? 'bg-nb-500' : info.kind === 'revoked' ? 'bg-red-400' : 'bg-amber-400')} />
+      <PulseDot
+        color={info.kind === 'live' ? 'bg-emerald-400' : info.kind === 'gone' ? 'bg-nb-500' : info.kind === 'revoked' ? 'bg-red-400' : 'bg-amber-400'}
+        pulse={info.kind === 'live'}
+        size="size-1.5"
+      />
       {info.label}
     </span>
   )

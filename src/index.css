@@ -38,6 +38,15 @@ body {
 
 * { scrollbar-width: thin; scrollbar-color: var(--color-nb-700) transparent; }
 
+/*
+ * For a single line of overflow text that scrolls sideways in its own small cell (an inspector row's value, an
+ * evidence value) rather than a whole panel: even the thin scrollbar above reads as a broken/dirty pixel at that
+ * size, and the browser's own hover state brightens its thumb further. Hide it there - the content still scrolls
+ * with a trackpad or shift+wheel, it just doesn't draw a bar to look at.
+ */
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
 /* React Flow theming */
 .react-flow { --xy-background-color: var(--color-nb-910); --xy-edge-stroke-default: #59636c; }
 .react-flow__attribution { display: none; }

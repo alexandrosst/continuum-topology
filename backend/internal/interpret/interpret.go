@@ -31,6 +31,32 @@ func systemNamespace(ns string) bool {
 	return ns == "kube-system" || ns == "kube-public" || ns == "kube-node-lease"
 }
 
+// continuumOwnedNamespaces finds namespaces whose only workloads are continuum's own agent/server -
+// installed into a cluster it also happens to be monitoring. Those workloads are already left out of the
+// topology (below, by the app.kubernetes.io/part-of=continuum label), but without this the namespace that
+// held them would still show up as if it were a namespace of the user's own, just an empty-looking one. This
+// works regardless of what the namespace happens to be named (continuum, continuum-system, or anything an
+// operator chose at install time), by asking what is actually in it rather than matching a fixed name.
+// A namespace the agent never saw any workload in at all is left alone: it may simply be a real, empty
+// namespace of the user's, and there is nothing here to tell the two cases apart.
+func continuumOwnedNamespaces(st *facts.State) map[string]bool {
+	hasOther := map[string]bool{}
+	hasAny := map[string]bool{}
+	for _, w := range st.Workloads {
+		hasAny[w.Namespace] = true
+		if w.Labels["app.kubernetes.io/part-of"] != "continuum" {
+			hasOther[w.Namespace] = true
+		}
+	}
+	owned := map[string]bool{}
+	for ns := range hasAny {
+		if !hasOther[ns] {
+			owned[ns] = true
+		}
+	}
+	return owned
+}
+
 func nodeID(cluster, key string) string { return "nd-" + hash(cluster, key) }
 
 // NodeID is the id a node has when nothing better is known: a hash of the cluster and the node's key (its name).
@@ -141,13 +167,24 @@ func Interpret(in Input) model.Topology {
 			cl.Evidence["podCidr"] = ev("node podCIDR values", "medium", "smallest range covering the nodes' CIDRs")
 		}
 	}
+	if st.Cluster != nil && st.Cluster.ServiceCidr != "" {
+		sc := st.Cluster.ServiceCidr
+		cl.ServiceCIDR = sc
+		if (dist == DistK3s || dist == DistRKE2) && strings.HasPrefix(sc, "10.43.") {
+			cl.ServiceCIDR = "10.43.0.0/16"
+			cl.Evidence["serviceCidr"] = ev("default cluster CIDR of "+dist, "medium", "ClusterIPs seen fall inside 10.43.0.0/16")
+		} else {
+			cl.Evidence["serviceCidr"] = ev("Service ClusterIPs", "low", "smallest range covering the ClusterIPs currently assigned - the cluster's configured range may be wider")
+		}
+	}
 	cl.CNI, cl.Ingress = detectAddons(st, nodes)
 	out.Clusters = append(out.Clusters, cl)
 
 	// ---- namespaces ----
+	ownNS := continuumOwnedNamespaces(st)
 	var nsNames []string
 	for _, n := range st.Namespaces {
-		if !systemNamespace(n.Name) {
+		if !systemNamespace(n.Name) && !ownNS[n.Name] {
 			nsNames = append(nsNames, n.Name)
 		}
 	}

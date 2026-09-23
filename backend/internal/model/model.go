@@ -45,6 +45,7 @@ type Cluster struct {
 	CNI            string            `json:"cni,omitempty"`
 	Ingress        string            `json:"ingress,omitempty"`
 	PodCIDR        string            `json:"podCidr,omitempty"`
+	ServiceCIDR    string            `json:"serviceCidr,omitempty"`
 	StorageClasses []string          `json:"storageClasses,omitempty"`
 	CreatedAt      string            `json:"createdAt,omitempty"` // when the cluster was created (kube-system's creation time)
 	// Mesh is the service mesh found in the cluster, if any. What it says is what the mesh is configured to do.

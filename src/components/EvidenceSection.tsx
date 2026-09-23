@@ -46,7 +46,7 @@ export function EvidenceSection({ kind, id }: { kind: string; id: string }) {
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-nb-500">{r.attribute}</span>
               <span className="flex min-w-0 items-baseline gap-1.5 text-right text-nb-300">
-                <span className="min-w-0 overflow-x-auto whitespace-nowrap" title={r.value}>{r.value}</span>
+                <span className="scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap" title={r.value}>{r.value}</span>
                 <EvidenceChip level={r.confidence} always why={r.why} />
               </span>
             </div>

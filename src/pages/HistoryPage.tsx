@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { CheckCircle2, CircleAlert, Clock, History as HistoryIcon, Radio, Save, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button, EmptyState, ErrorBanner, Field, Input, PageHeader, Pill, Select, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, EmptyState, ErrorBanner, Field, Input, PageHeader, Pill, PulseDot, Select, Table, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast, type Conn, type StorageInfo } from '@/lib/api'
 import { ageOf, EVENT_KINDS, EVENT_RETENTION_MAX, EVENT_RETENTION_MIN, kindLabel, parseEventRetention, pointAt, type AppSettings, type ChangeEvent, type HistoryIndex, type TrafficRate } from '@/lib/history'
 import { ago, bytesPerSec } from '@/lib/observed'
@@ -538,7 +538,7 @@ function StorageCard({ conn, admin, tick }: { conn: Conn; admin: boolean; tick: 
           <>
             <div className="flex flex-wrap items-center gap-3">
               <span className={clsx('inline-flex items-center gap-2 font-medium', info.connected ? 'text-emerald-300' : 'text-amber-300')} data-testid="storage-state">
-                <span className={clsx('size-2 rounded-full', info.connected ? 'bg-emerald-400' : 'bg-amber-400')} aria-hidden />
+                <PulseDot color={info.connected ? 'bg-emerald-400' : 'bg-amber-400'} pulse={info.connected} />
                 {info.connected ? 'Neo4j connected' : info.ready ? 'Neo4j not reachable' : 'Neo4j starting'}
               </span>
               {info.buffering && <Pill>catching up: some recordings are waiting to be moved across</Pill>}

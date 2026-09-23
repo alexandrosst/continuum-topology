@@ -189,6 +189,13 @@ message ClusterFacts {
   ScopeFacts scope = 7;
   // The service mesh found in the cluster, if any. Absent: none was found (or the mesh module is off).
   MeshFacts mesh = 8;
+  // The cluster's Service CIDR, as best the agent can tell: the smallest IPv4 range covering every
+  // ClusterIP currently assigned. A floor, not a fact - only as wide as what happens to be allocated so
+  // far, same limitation as the node pod CIDRs this same message carries; the server may widen it to a
+  // distribution's well-known default the same way it does for pod_cidr. Computed on the agent, from
+  // Service objects that never themselves leave the cluster (see joinServices): only this one summary
+  // value is sent, never an individual ClusterIP.
+  string service_cidr = 9;
 }
 
 // Which namespaces the agent reports on. Out-of-scope namespaces are dropped in the agent, so nothing

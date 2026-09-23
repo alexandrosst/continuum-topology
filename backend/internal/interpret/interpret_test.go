@@ -136,7 +136,10 @@ func TestApplicationGroupingPrecedence(t *testing.T) {
 
 func k3sFixture() *facts.State {
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{Uid: "8f3c2a9e-1111-4222-8333-944455556666", Version: "v1.30.5+k3s1", ApiHost: "10.0.0.5:6443", StorageClasses: []string{"local-path"}}
+	s.Cluster = &continuumv1.ClusterFacts{
+		Uid: "8f3c2a9e-1111-4222-8333-944455556666", Version: "v1.30.5+k3s1", ApiHost: "10.0.0.5:6443",
+		StorageClasses: []string{"local-path"}, ServiceCidr: "10.43.5.0/24",
+	}
 	s.Nodes["edge-1"] = node("edge-1", func(n *N) {
 		n.Labels["node-role.kubernetes.io/control-plane"] = "true"
 		n.Labels["node.kubernetes.io/instance-type"] = "k3s"
@@ -179,6 +182,12 @@ func TestInterpretK3sCluster(t *testing.T) {
 	if cl.PodCIDR != "10.42.0.0/16" {
 		t.Errorf("podCidr = %s", cl.PodCIDR)
 	}
+	if cl.ServiceCIDR != "10.43.0.0/16" {
+		t.Errorf("serviceCidr = %s, want the agent's estimate widened to k3s's well-known default", cl.ServiceCIDR)
+	}
+	if cl.Evidence["serviceCidr"].Signal == "" {
+		t.Error("serviceCidr should carry evidence explaining where it came from")
+	}
 	if cl.Status != "degraded" {
 		t.Errorf("one of two nodes down should be degraded, got %s", cl.Status)
 	}
@@ -191,11 +200,18 @@ func TestInterpretK3sCluster(t *testing.T) {
 	if out.Nodes[0].InstanceType != "" {
 		t.Error("the k3s pseudo instance type should not be shown as an instance type")
 	}
-	// kube-system and the agent's own namespace's workloads are not part of the topology.
+	// kube-system is a system namespace, and continuum-system holds nothing but continuum's own agent here -
+	// neither belongs in the topology as if it were one of the user's own namespaces.
 	for _, ns := range out.Namespaces {
 		if ns.Name == "kube-system" {
 			t.Error("kube-system leaked into namespaces")
 		}
+		if ns.Name == "continuum-system" {
+			t.Error("a namespace holding only continuum's own workloads leaked into namespaces")
+		}
+	}
+	if len(out.Namespaces) != 2 {
+		t.Errorf("expected only default and shop, got %+v", out.Namespaces)
 	}
 	var names []string
 	for _, s := range out.Services {
@@ -269,6 +285,31 @@ func TestInterpretIsDeterministicAndIDsSurviveChanges(t *testing.T) {
 		if !ids[s.ID] {
 			t.Fatalf("id of %s changed after adding another workload", s.Name)
 		}
+	}
+}
+
+// Off the k3s/RKE2 fast path, a reported Service CIDR passes through as the agent's own best-effort estimate
+// (never widened to a guessed default), and no Service CIDR at all leaves the field simply unset.
+func TestServiceCIDRPassesThroughOnNonK3sDistributions(t *testing.T) {
+	s := facts.New()
+	s.Cluster = &continuumv1.ClusterFacts{Uid: "u", Version: "v1.29.3-eks-abc123", ServiceCidr: "172.20.0.0/16"}
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "eks", State: s, Now: time.Now()})
+	cl := out.Clusters[0]
+	if cl.Distribution != DistEKS {
+		t.Fatalf("distribution = %s, want EKS for this test to mean anything", cl.Distribution)
+	}
+	if cl.ServiceCIDR != "172.20.0.0/16" {
+		t.Errorf("serviceCidr = %s, want the agent's own value passed through unchanged", cl.ServiceCIDR)
+	}
+	if cl.Evidence["serviceCidr"].Confidence != "low" {
+		t.Errorf("an unwidened bounding estimate should say so plainly, got confidence %q", cl.Evidence["serviceCidr"].Confidence)
+	}
+
+	s2 := facts.New()
+	s2.Cluster = &continuumv1.ClusterFacts{Uid: "u"}
+	out2 := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-y", Name: "bare", State: s2, Now: time.Now()})
+	if got := out2.Clusters[0].ServiceCIDR; got != "" {
+		t.Errorf("serviceCidr = %q, want unset when the agent never reported one", got)
 	}
 }
 
