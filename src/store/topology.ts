@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { applyEdit, applyEffective } from '@/lib/effective'
+import { applyEdit, applyEffective, describeEdit, effective } from '@/lib/effective'
 import { normalize, pruneDependencies } from '@/lib/migrate'
 import { withObserved } from '@/lib/observed'
 import { atSnapshot } from '@/lib/history'
@@ -143,24 +143,46 @@ export const useRawTopology = create<RawState>()(
         const next = { ...pick(s), ...over }
         return { ...over, dependencies: pruneDependencies(next.dependencies, next) }
       }
+      // A save is only worth an audit entry when it changes something a person already had in front of
+      // them - a brand-new manual entity (raw undefined) has nothing to diff against and would otherwise
+      // log every one of its fields as "changed", so creation is left to speak for itself by existing
+      // (same as `deleteCluster` logging deletes but not creates, further down).
+      const editAudit = <T extends { overrides?: Record<string, unknown>; name?: string }>(s: RawState, raw: T | undefined, kind: string, id: string, next: T): AuditEvent[] => {
+        if (!raw) return s.auditLog
+        const diff = describeEdit(effective(raw), next)
+        return diff ? audit(s, { actor: ACTOR, action: 'edit', targetKind: kind, targetId: id, detail: next.name ? `${next.name} — ${diff}` : diff }) : s.auditLog
+      }
 
       return {
         ...seedTopology(),
 
-        saveCluster: (c) => set((s) => ({ clusters: upsert(s.clusters, applyEdit(s.clusters.find((x) => x.id === c.id), c)) })),
+        saveCluster: (c) =>
+          set((s) => {
+            const raw = s.clusters.find((x) => x.id === c.id)
+            return { clusters: upsert(s.clusters, applyEdit(raw, c)), auditLog: editAudit(s, raw, 'cluster', c.id, c) }
+          }),
         saveNode: (n) =>
           set((s) => {
-            const saved = applyEdit(s.nodes.find((x) => x.id === n.id), n)
+            const raw = s.nodes.find((x) => x.id === n.id)
+            const saved = applyEdit(raw, n)
             // If a node moved cluster, drop placements that no longer make sense.
             const services = s.services.map((w) =>
               w.nodeIds.includes(saved.id) && w.clusterId !== saved.clusterId
                 ? { ...w, nodeIds: w.nodeIds.filter((id) => id !== saved.id) }
                 : w,
             )
-            return { nodes: upsert(s.nodes, saved), services }
+            return { nodes: upsert(s.nodes, saved), services, auditLog: editAudit(s, raw, 'node', n.id, n) }
           }),
-        saveService: (w) => set((s) => ({ services: upsert(s.services, applyEdit(s.services.find((x) => x.id === w.id), w)) })),
-        saveDevice: (d) => set((s) => ({ devices: upsert(s.devices, applyEdit(s.devices.find((x) => x.id === d.id), d)) })),
+        saveService: (w) =>
+          set((s) => {
+            const raw = s.services.find((x) => x.id === w.id)
+            return { services: upsert(s.services, applyEdit(raw, w)), auditLog: editAudit(s, raw, 'service', w.id, w) }
+          }),
+        saveDevice: (d) =>
+          set((s) => {
+            const raw = s.devices.find((x) => x.id === d.id)
+            return { devices: upsert(s.devices, applyEdit(raw, d)), auditLog: editAudit(s, raw, 'device', d.id, d) }
+          }),
 
         upsertCluster: (c) => set((s) => ({ clusters: upsert(s.clusters, c) })),
         upsertNode: (n) => set((s) => ({ nodes: upsert(s.nodes, n) })),
@@ -215,7 +237,13 @@ export const useRawTopology = create<RawState>()(
             namespaces: s.namespaces.map((n) => (n.applicationId === id ? { ...n, applicationId: undefined } : n)),
           })),
 
-        upsertSite: (site) => set((s) => ({ sites: upsert(s.sites, site) })),
+        upsertSite: (site) =>
+          set((s) => {
+            const raw = s.sites.find((x) => x.id === site.id)
+            const diff = raw && describeEdit(raw, site)
+            const detail = diff ? `${site.name} — ${diff}` : ''
+            return { sites: upsert(s.sites, site), ...(detail ? { auditLog: audit(s, { actor: ACTOR, action: 'edit', targetKind: 'site', targetId: site.id, detail }) } : {}) }
+          }),
         deleteSite: (id) =>
           set((s) => ({
             sites: s.sites.filter((x) => x.id !== id),

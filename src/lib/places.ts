@@ -483,3 +483,33 @@ export function derivePlacementSuggestions(idx: PlaceIndex, m: PlacementModel): 
   }
   return out
 }
+
+/**
+ * A placement suggestion built from a person's own pick (a city they searched for, or "use where I am"
+ * right now) instead of a ranked candidate - for exactly the moment `placementCandidates` found nothing at
+ * all to go on (see PlacementHint's "no suggestion" branch, and ConnectClusterWizard right after a cluster
+ * with no cloud region, no city in a label and no usable GeoIP finishes connecting). Confidence is always
+ * `'high'`: a person said so, not a table. Goes through `decideDerived` exactly like any other suggestion,
+ * so it is logged the same way and a site already on the map within `NEAR_KM` is reused rather than duplicated.
+ */
+export function suggestionFromCity(cluster: Pick<Cluster, 'id' | 'orgId' | 'provider' | 'tier' | 'createdAt' | 'agentId'>, city: Pick<City, 'name' | 'cc' | 'lat' | 'lng'>, sites: Site[] = []): PlacementSuggestion {
+  const evidence: Evidence[] = [{ signal: 'picked by a person', confidence: 'high', detail: `Set by hand as ${city.name}, ${nameOf(city.cc)}.` }]
+  const cand: PlaceCandidate = { city: city.name, country: city.cc, lat: city.lat, lng: city.lng, confidence: 'high', evidence }
+  const site = sites.find((s) => Number.isFinite(s.lat) && s.country?.toUpperCase() === city.cc && distanceKm(s.lat, s.lng, city.lat, city.lng) <= NEAR_KM)
+  const place = placeLabel({ city: cand.city, country: cand.country })
+  return {
+    id: placeSuggestionId(cluster.id),
+    orgId: cluster.orgId,
+    kind: 'site',
+    title: `Put ${place}`,
+    detail: evidence[0].detail ?? '',
+    agentId: cluster.agentId,
+    createdAt: cluster.createdAt ?? new Date().toISOString(),
+    status: 'open',
+    place,
+    country: cand.country,
+    confidence: 'high',
+    evidence,
+    apply: site ? { type: 'set-cluster-site', clusterId: cluster.id, siteId: site.id } : { type: 'place-cluster', clusterId: cluster.id, site: siteFromCandidate(cand, cluster) },
+  }
+}

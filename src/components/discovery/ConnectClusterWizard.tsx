@@ -1,17 +1,101 @@
 import clsx from 'clsx'
-import { Check, CheckCircle2, ChevronRight, Loader2, Pin, X } from 'lucide-react'
+import { Check, CheckCircle2, ChevronRight, Loader2, MapPin, Pin, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { Flag } from '@/components/ui/brand'
 import { Button, CopyButton, ErrorBanner, Field, InfoTip, Input, Modal } from '@/components/ui/primitives'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError, type CreatedToken } from '@/lib/api'
 import { discoveryStatus, extrasOf } from '@/lib/consent'
+import { effective } from '@/lib/effective'
 import { previewImage } from '@/lib/image'
 import { emptyScope, scopeActive, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '@/lib/install'
-import type { AccessTier } from '@/lib/types'
+import { findCities, nearestCity, suggestionFromCity, type City } from '@/lib/places'
+import { usePlaceIndex } from '@/lib/places-data'
+import { countryName } from '@/lib/present'
+import type { AccessTier, Cluster } from '@/lib/types'
 import { useServer } from '@/store/server'
 import { useRawTopology } from '@/store/topology'
 import ApprovalCard from './ApprovalCard'
+
+/**
+ * Shown once a wizard-connected cluster has finished its first discovery and still has no place: none of
+ * `placementCandidates`'s three automatic signals resolved (see places.ts) - no cloud region, no city
+ * recognisable in a label, no usable GeoIP. Rather than leaving the cluster to sit unplaced until someone
+ * finds it later on its own page, this asks once, right here, for a city (typed, or "Use my location" via
+ * the browser) and applies it the same way accepting any other placement suggestion does - see
+ * `suggestionFromCity`, which goes through the same `decideDerived` as `PlacementHint`'s "Use" button, so
+ * it is declared, audited and reuses a nearby site instead of duplicating one.
+ */
+function WhereIsThis({ cluster }: { cluster: Cluster }) {
+  const decide = useRawTopology((s) => s.decideDerived)
+  const sites = useRawTopology((s) => s.sites)
+  const places = usePlaceIndex()
+  const [search, setSearch] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+  const hits = useMemo(() => (places ? findCities(places, search, 6) : []), [places, search])
+
+  const pick = (c: City) => {
+    decide(suggestionFromCity(cluster, c, sites), 'accepted')
+    setSearch('')
+    setNote('')
+  }
+
+  const useHere = () => {
+    if (!places || !navigator.geolocation) return
+    setNote('')
+    setBusy(true)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setBusy(false)
+        const near = nearestCity(places, pos.coords.latitude, pos.coords.longitude, 60)
+        if (near) pick(near.city)
+        else setNote('Nothing in the city table is close enough to where your browser is right now.')
+      },
+      () => {
+        setBusy(false)
+        setNote('Location was not available, or you said no to sharing it.')
+      },
+      { timeout: 10_000 },
+    )
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-nb-850 bg-nb-925 p-3" data-testid="wizard-where">
+      <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-white">
+        <MapPin size={14} className="text-accent" aria-hidden /> Where is this?
+      </div>
+      <p className="mb-2 text-xs text-nb-500">
+        Nothing about its location could be worked out on its own: no cloud region, no city recognised in a label, and IP lookup found nothing (or is not set up on this server). Type a city, or leave it - you can always set it later from the cluster's own page.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={places ? 'Type a city name…' : 'Loading the city table…'} disabled={!places} aria-label="Find a city" className="min-w-48 flex-1" data-testid="wizard-where-search" />
+        <Button
+          size="sm"
+          onClick={useHere}
+          disabled={!places || busy || !navigator.geolocation}
+          title="Uses your browser's own location, not the cluster's - only a fair guess if you happen to be where the cluster is"
+          data-testid="wizard-where-here"
+        >
+          {busy ? 'Locating…' : 'Use my location'}
+        </Button>
+      </div>
+      {hits.length > 0 && (
+        <ul className="mt-1.5 overflow-hidden rounded-md border border-nb-800 bg-nb-930" role="listbox" aria-label="Matching cities">
+          {hits.map((c) => (
+            <li key={`${c.name}-${c.cc}-${c.lat}-${c.lng}`}>
+              <button type="button" role="option" aria-selected={false} className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-sm text-nb-300 hover:bg-nb-850 hover:text-white" onClick={() => pick(c)} data-testid="wizard-where-hit">
+                <Flag code={c.cc} /> {c.name}, <span className="text-nb-500">{countryName(c.cc)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {note && <p className="mt-1.5 text-xs text-amber-300" role="status">{note}</p>}
+    </div>
+  )
+}
 
 /** Where Settings → Installation lives. Inside the wizard's token step it opens in a new tab, so the command (shown once) is not lost. */
 function SettingsLink({ onNavigate, newTab }: { onNavigate?: () => void; newTab?: boolean }) {
@@ -134,11 +218,23 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
   const [created, setCreated] = useState<CreatedToken | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // Whether "More options" is expanded. Seeded from whether anything non-default is already selected (so
+  // reopening the wizard with leftover choices doesn't hide why), but from then on this is the only thing
+  // that decides it - a native click toggles it via onToggle below. Deriving `open` straight from
+  // tier/probe/flows/measure/scopeOn on every render instead would fight the user's own click: picking
+  // Infrastructure then Services, say, flips that expression back to `false` (2 is the default tier, nothing
+  // else set) and slams the section shut mid-use.
+  const [moreOpen, setMoreOpen] = useState(false)
 
   // A default name so Create works the moment the wizard opens; still yours to change, and renameable later either way.
   // Deliberately keyed on `open` alone: it should fill in once per open, not re-fill while the count changes under it.
   useEffect(() => {
     if (open) setName((n) => n || `cluster-${raw.clusters.length + 1}`)
+  }, [open])
+  // Deliberately keyed on `open` alone too, for the same reason: seed once per open from whatever was left
+  // over from before, not on every change to the values it's seeded from (see `moreOpen` above).
+  useEffect(() => {
+    if (open) setMoreOpen((v) => v || tier !== 2 || probe || flows || measure || scopeOn)
   }, [open])
 
   const scope = useMemo(() => (scopeOn && tier >= 2 ? { ...emptyScope, namespaces: splitNames(inc), exclude: splitNames(exc), selector: sel } : emptyScope), [scopeOn, tier, inc, exc, sel])
@@ -168,6 +264,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
     setInc('')
     setExc('')
     setSel('')
+    setMoreOpen(false)
     setError('')
     onClose()
   }
@@ -242,7 +339,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
           </Field>
           <p className="text-xs text-nb-500">Installs read-only at the recommended access level. It can never read Secrets or ConfigMaps, or change anything in the cluster — change what it may see under More options.</p>
           {max >= 1 && (
-            <details className="group rounded-lg border border-nb-850 bg-nb-925" data-testid="advanced-options" open={tier !== 2 || probe || flows || measure || scopeOn}>
+            <details className="group rounded-lg border border-nb-850 bg-nb-925" data-testid="advanced-options" open={moreOpen} onToggle={(e) => setMoreOpen(e.currentTarget.open)}>
               <summary className="flex cursor-pointer select-none items-center gap-1.5 px-4 py-3 text-sm font-medium text-nb-300 marker:content-none">
                 <ChevronRight size={14} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
                 More options <span className="font-normal text-nb-500">(access level, node probe, traffic observer, path measurements, namespace scope)</span>
@@ -421,9 +518,12 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
             </p>
           )}
           {phase === 'done' && counts && (
-            <p className="flex items-center gap-2 text-sm text-emerald-300">
-              <CheckCircle2 size={16} /> Connected. Found {counts.nodes} {counts.nodes === 1 ? 'node' : 'nodes'} and {counts.services} {counts.services === 1 ? 'service' : 'services'}. Review the grouping suggestions in the Discovery inbox.
-            </p>
+            <>
+              <p className="flex items-center gap-2 text-sm text-emerald-300">
+                <CheckCircle2 size={16} /> Connected. Found {counts.nodes} {counts.nodes === 1 ? 'node' : 'nodes'} and {counts.services} {counts.services === 1 ? 'service' : 'services'}. Review the grouping suggestions in the Discovery inbox.
+              </p>
+              {cluster && !effective(cluster).siteId && <WhereIsThis cluster={cluster} />}
+            </>
           )}
           {phase === 'stopped' && <p className="text-sm text-amber-300">This enrollment was {agent?.status}{agent?.reason ? ` (${agent.reason})` : ''}. Create a new install command to try again.</p>}
         </div>
