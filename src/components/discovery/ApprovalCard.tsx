@@ -50,7 +50,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
     return () => clearInterval(t)
   }, [])
 
-  const act = async (fn: (c: NonNullable<ReturnType<typeof conn>>) => Promise<void>) => {
+  const act = async (fn: (c: NonNullable<ReturnType<typeof conn>>) => Promise<void>, fallback: string) => {
     const c = conn()
     if (!c) return setError('Not connected to the server.')
     setBusy(true)
@@ -68,7 +68,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
         if (e.body?.locked === true) lock(agent.id)
         else field.current?.select()
       } else {
-        setError('Something went wrong.')
+        setError(fallback)
       }
     } finally {
       setBusy(false)
@@ -177,7 +177,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
                   setInput(fromPaste(e.clipboardData.getData('text')))
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && ready && !busy) act((c) => api.approve(c, agent.id, cleanCode(input), tier))
+                  if (e.key === 'Enter' && ready && !busy) act((c) => api.approve(c, agent.id, cleanCode(input), tier), 'Could not approve this agent.')
                 }}
                 placeholder="K7QM-4TXD"
                 maxLength={9}
@@ -198,7 +198,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
                   <code className="break-all rounded border border-nb-850 bg-nb-950 px-2 py-1 font-mono text-[11px] text-nb-300">{CODE_LOG_COMMAND}</code>
                   <CopyButton text={CODE_LOG_COMMAND} label="Copy" />
                 </span>
-                <span className="mt-1.5 block">and look for the line starting with “APPROVAL CODE: …” — it leads the line, so it's easy to spot. Typing it proves you are looking at this cluster, not another one that is waiting too. Pasting the whole line works.</span>
+                <span className="mt-1.5 block">That prints just the code itself, nothing else — paste it straight in here. Typing it proves you are looking at this cluster, not another one that is waiting too.</span>
               </p>
               {left < 5 && (
                 <p className="mt-2 text-xs text-amber-300" data-testid="attempts-left">
@@ -216,10 +216,10 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
         </ErrorBanner>
       )}
       <div className="mt-4 flex justify-end gap-2">
-        <Button variant="danger" disabled={busy} onClick={() => act((c) => api.reject(c, agent.id, 'rejected in the UI'))}>
+        <Button variant="danger" disabled={busy} onClick={() => act((c) => api.reject(c, agent.id, 'rejected in the UI'), 'Could not reject this agent.')}>
           Reject
         </Button>
-        <Button variant="primary" disabled={busy || !ready} onClick={() => act((c) => api.approve(c, agent.id, legacy ? input.trim() : cleanCode(input), tier))}>
+        <Button variant="primary" disabled={busy || !ready} onClick={() => act((c) => api.approve(c, agent.id, legacy ? input.trim() : cleanCode(input), tier), 'Could not approve this agent.')}>
           Approve
         </Button>
       </div>

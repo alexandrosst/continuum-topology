@@ -66,6 +66,17 @@ spec:
         - {port: {{ . }}, protocol: TCP}
         {{- end }}
     {{- end }}
+    {{- with $np.egress.geoipPublicIpCIDRs }}
+    # geoip.publicIpService (--geoip-public-ip-service): the server's own occasional "what is my public IP" call
+    - to:
+        {{- range . }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        {{- range $np.egress.geoipPublicIpPorts }}
+        - {port: {{ . }}, protocol: TCP}
+        {{- end }}
+    {{- end }}
     {{- with $np.egress.extra }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

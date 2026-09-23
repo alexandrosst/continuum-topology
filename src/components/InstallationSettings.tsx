@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { CircleAlert, Pin, Save, TriangleAlert } from 'lucide-react'
 import { useId, useState } from 'react'
-import { Button, Input } from '@/components/ui/primitives'
+import { Button, Input, SavedNote } from '@/components/ui/primitives'
 import { atLeast, type Conn } from '@/lib/api'
 import { imageOk, imageProblems, previewImage } from '@/lib/image'
 import { useServer } from '@/store/server'
@@ -164,7 +164,7 @@ export default function InstallationSettings({ conn }: { conn: Conn }) {
               <Button type="submit" variant="primary" disabled={!dirty || !ok || !loaded || busy} data-testid="save-image">
                 <Save size={15} /> {busy ? 'Saving…' : 'Save'}
               </Button>
-              {saved && !dirty && <span className="text-sm text-emerald-300" role="status" data-testid="image-saved">Saved. New install commands use these values.</span>}
+              {saved && !dirty && <SavedNote data-testid="image-saved">Saved. New install commands use these values.</SavedNote>}
             </>
           ) : (
             <p className="text-xs text-nb-500">Only administrators can change these.</p>

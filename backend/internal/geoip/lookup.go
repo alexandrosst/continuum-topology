@@ -18,6 +18,54 @@ type Result struct {
 	AccuracyKm  *int     `json:"accuracyKm,omitempty"`
 	Level       string   `json:"level"` // "city" when a city and coordinates are known, else "country"
 	Database    string   `json:"database,omitempty"`
+	// Estimated is set by a caller (see server.Geo), never by Lookup itself: this package only ever
+	// looks up the address it is given, and has no notion of a fallback address standing in for another.
+	Estimated bool `json:"estimated,omitempty"`
+	// ASN and ASOrg say which network the address belongs to (its autonomous system number and the
+	// organisation that announces it, e.g. 15169 / "Google LLC") rather than where it is: often a
+	// steadier signal than city or country, and unaffected by the city/country database having no
+	// record at all for an address. Set by a caller (see server.Geo) from a second, ASN-shaped
+	// database - Lookup itself never touches them, the same way it never touches Estimated.
+	ASN   uint32 `json:"asn,omitempty"`
+	ASOrg string `json:"asOrg,omitempty"`
+}
+
+// ASNResult is which network an address belongs to, as an ASN-shaped database (GeoLite2-ASN,
+// DB-IP ASN Lite) answers it: a different file, and a different record shape, from the
+// city/country one Lookup reads.
+type ASNResult struct {
+	ASN uint32
+	Org string
+}
+
+// LookupASN is Lookup's counterpart for an ASN-shaped database: same file format and the same
+// *DB, opened from a file whose records carry autonomous_system_number / autonomous_system_organization
+// rather than city/country. It reports false for addresses that can never be located, when the
+// database has no record, and when the record is unreadable.
+func (db *DB) LookupASN(ip netip.Addr) (ASNResult, bool) {
+	ip = ip.Unmap().WithZone("")
+	if !Locatable(ip) {
+		return ASNResult{}, false
+	}
+	var rec map[string]any
+	var found bool
+	var err error
+	if ip.Is4() {
+		a := ip.As4()
+		rec, found, err = db.find(a[:], true)
+	} else if db.ipVersion == 6 {
+		a := ip.As16()
+		rec, found, err = db.find(a[:], false)
+	}
+	if err != nil || !found {
+		return ASNResult{}, false
+	}
+	asn, hasASN := number(rec["autonomous_system_number"])
+	org := text(rec["autonomous_system_organization"])
+	if !hasASN && org == "" {
+		return ASNResult{}, false
+	}
+	return ASNResult{ASN: uint32(asn), Org: org}, true
 }
 
 var cgnat = netip.MustParsePrefix("100.64.0.0/10")

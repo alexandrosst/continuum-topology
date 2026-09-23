@@ -8,7 +8,7 @@ interface SettingsStore {
   loaded: boolean
   error?: string
   load: (c: Conn) => Promise<void>
-  save: (c: Conn, s: Partial<AppSettings>) => Promise<boolean>
+  save: (c: Conn, s: Partial<AppSettings> & { deciderSecret?: string; clearDeciderSecret?: boolean }) => Promise<boolean>
   clear: () => void
 }
 

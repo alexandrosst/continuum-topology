@@ -21,33 +21,42 @@ type appRef struct {
 	name, origin, confidence, signal string
 }
 
-// applicationFor decides which application a workload belongs to. The first rule that
-// matches wins. Everything here works from labels and annotations alone; nothing needs a
+// applicationFor decides which application a workload belongs to: the strongest match from
+// applicationCandidates. Everything here works from labels and annotations alone; nothing needs a
 // service mesh or any other tool to be installed.
 func applicationFor(w *continuumv1.WorkloadFacts) appRef {
+	return applicationCandidates(w)[0]
+}
+
+// applicationCandidates tries every grouping rule against the workload, strongest first, instead of
+// stopping at the first match: applicationFor uses only the first result, and the rest are offered as
+// alternatives a person can regroup onto instead of the winning one, without typing a name by hand.
+// Always returns at least one candidate (the namespace fallback never fails to match).
+func applicationCandidates(w *continuumv1.WorkloadFacts) []appRef {
 	l, a := w.Labels, w.Annotations
+	var out []appRef
 	if v := l["continuum.io/application"]; v != "" {
-		return appRef{v, OriginExplicit, "high", "label continuum.io/application=" + v}
+		out = append(out, appRef{v, OriginExplicit, "high", "label continuum.io/application=" + v})
 	}
-	// Argo CD's tracking id looks like "<app>:<group>/<kind>:<namespace>/<name>".
-	if v := a["argocd.argoproj.io/tracking-id"]; v != "" {
-		if i := strings.Index(v, ":"); i > 0 {
-			return appRef{v[:i], OriginArgo, "high", "annotation argocd.argoproj.io/tracking-id"}
-		}
+	// Argo CD's tracking id looks like "<app>:<group>/<kind>:<namespace>/<name>". A malformed one (no
+	// colon) is not usable, so the instance label is tried next, same as applicationFor used to fall through.
+	switch v := a["argocd.argoproj.io/tracking-id"]; {
+	case v != "" && strings.Index(v, ":") > 0:
+		out = append(out, appRef{v[:strings.Index(v, ":")], OriginArgo, "high", "annotation argocd.argoproj.io/tracking-id"})
+	case l["argocd.argoproj.io/instance"] != "":
+		out = append(out, appRef{l["argocd.argoproj.io/instance"], OriginArgo, "high", "label argocd.argoproj.io/instance=" + l["argocd.argoproj.io/instance"]})
 	}
-	if v := l["argocd.argoproj.io/instance"]; v != "" {
-		return appRef{v, OriginArgo, "high", "label argocd.argoproj.io/instance=" + v}
-	}
-	if v := a["meta.helm.sh/release-name"]; v != "" {
-		return appRef{v, OriginHelm, "high", "annotation meta.helm.sh/release-name=" + v}
-	}
-	if strings.EqualFold(l["app.kubernetes.io/managed-by"], "Helm") && l["app.kubernetes.io/instance"] != "" {
-		return appRef{l["app.kubernetes.io/instance"], OriginHelm, "medium", "labels managed-by=Helm, instance=" + l["app.kubernetes.io/instance"]}
+	switch {
+	case a["meta.helm.sh/release-name"] != "":
+		out = append(out, appRef{a["meta.helm.sh/release-name"], OriginHelm, "high", "annotation meta.helm.sh/release-name=" + a["meta.helm.sh/release-name"]})
+	case strings.EqualFold(l["app.kubernetes.io/managed-by"], "Helm") && l["app.kubernetes.io/instance"] != "":
+		out = append(out, appRef{l["app.kubernetes.io/instance"], OriginHelm, "medium", "labels managed-by=Helm, instance=" + l["app.kubernetes.io/instance"]})
 	}
 	if v := l["app.kubernetes.io/part-of"]; v != "" {
-		return appRef{v, OriginPartOf, "medium", "label app.kubernetes.io/part-of=" + v}
+		out = append(out, appRef{v, OriginPartOf, "medium", "label app.kubernetes.io/part-of=" + v})
 	}
-	return appRef{w.Namespace, OriginNamespace, "low", "namespace " + w.Namespace}
+	out = append(out, appRef{w.Namespace, OriginNamespace, "low", "namespace " + w.Namespace})
+	return out
 }
 
 func managedBy(w *continuumv1.WorkloadFacts) string {

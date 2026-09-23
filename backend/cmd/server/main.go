@@ -69,6 +69,7 @@ func main() {
 	adminCert := flag.String("admin-tls-cert", "", "TLS certificate for the admin listener (needed when it is not on loopback)")
 	adminKey := flag.String("admin-tls-key", "", "TLS key for the admin listener")
 	behindProxy := flag.Bool("admin-behind-tls-proxy", false, "serve plain HTTP on a non-loopback address because a TLS-terminating proxy in front protects it. With it, the client address (used for rate limits and the audit trail) is the LAST entry of X-Forwarded-For, the address your proxy itself saw, and X-Forwarded-Proto: https marks the session cookie Secure and enables HSTS. Only set it when the proxy is the sole way to reach this port and overwrites those headers; otherwise a client can forge them")
+	agentBehindProxy := flag.Bool("agent-behind-proxy", os.Getenv("CONTINUUM_AGENT_BEHIND_PROXY") == "true", "an L4 load balancer or reverse proxy sits in front of --agent-listen and is configured to send a PROXY protocol header (v1 or v2) ahead of each connection - the way to preserve the real client address through a TCP passthrough, since the agent's own mTLS handshake rules out a TLS-terminating HTTP proxy here. With it, every connection must carry that header (one that doesn't is refused) and its declared address - not the proxy's own - is what approval cards, rate limits, the audit trail and an agent's suggested location use. Only set it when the proxy is the sole way to reach this port and is actually configured to send the header; env CONTINUUM_AGENT_BEHIND_PROXY=true")
 	deciderAllow := flag.String("decider-allow-cidrs", os.Getenv("CONTINUUM_DECIDER_ALLOW_CIDRS"), "comma-separated CIDRs (10.0.0.0/8,127.0.0.1/32) the server may call for the external decider although they are private or loopback. By default only public addresses are allowed, so a decider address cannot be used to reach internal services. Cloud metadata and link-local addresses are never allowed; env CONTINUUM_DECIDER_ALLOW_CIDRS")
 	caPassFile := flag.String("ca-key-passphrase-file", os.Getenv("CONTINUUM_CA_KEY_PASSPHRASE_FILE"), "file holding a passphrase (at least 12 characters) that encrypts the CA private key at rest (argon2id + AES-256-GCM). A plaintext key is encrypted the first time this is given; an encrypted key without it stops the server. Never give the passphrase itself as a flag value; env CONTINUUM_CA_KEY_PASSPHRASE_FILE. Without it the key is stored unencrypted (mode 0600) and a warning is logged. See internal/pki/ROTATION.md")
 	looseOK := flag.Bool("allow-loose-permissions", os.Getenv("CONTINUUM_ALLOW_LOOSE_PERMISSIONS") == "true", "start although the data directory, the CA key or the database is readable or writable by group or other users (by default the server refuses and prints the chmod to run). For platforms that set modes themselves, such as a Kubernetes fsGroup volume only this pod can reach; env CONTINUUM_ALLOW_LOOSE_PERMISSIONS=true")
@@ -80,6 +81,8 @@ func main() {
 	org := flag.String("org", "default", "id of the organization created together with the first account, on a fresh database")
 	registration := flag.String("registration", os.Getenv("CONTINUUM_REGISTRATION"), "who may create an account: open (anyone, and they get an organization of their own), invite (only with an invitation from an organization) or closed (nobody; use the create-org and reset-password commands); env CONTINUUM_REGISTRATION. Default: open while --admin-listen is a loopback address (local use), invite otherwise")
 	geoDB := flag.String("geoip-db", os.Getenv("CONTINUUM_GEOIP_DB"), "optional MaxMind-format .mmdb (DB-IP Lite, GeoLite2) used offline to suggest a location for each agent's connecting address; env CONTINUUM_GEOIP_DB")
+	geoPublicIP := flag.String("geoip-public-ip-service", os.Getenv("CONTINUUM_GEOIP_PUBLIC_IP_SERVICE"), "needs --geoip-db. An http(s) URL that answers with this server's own public IP as plain text (a well known one: https://api.ipify.org). Used only as a fallback: when an agent's connecting address cannot be located at all (private, loopback, CGNAT - agent and server sharing a network is exactly why it looks that way), this server's own public address is the closest honest guess, looked up and returned marked estimated rather than exact. Called once at startup and then on an hourly cache, never per request; empty (default) never guesses, only an agent's own address is ever used. Nothing about your topology, applications or data goes out in the request - just an empty GET, to a URL you chose; env CONTINUUM_GEOIP_PUBLIC_IP_SERVICE")
+	geoASNDB := flag.String("geoip-asn-db", os.Getenv("CONTINUUM_GEOIP_ASN_DB"), "needs --geoip-db. A second, optional MaxMind-format .mmdb in ASN shape (GeoLite2-ASN, DB-IP ASN Lite) rather than city/country shape. Whenever --geoip-db places an address (including an --geoip-public-ip-service estimate), this adds which network it belongs to - its AS number and the organisation that announces it, e.g. 15169 / \"Google LLC\" - a steadier signal than city or country, and unaffected by a VPN or cloud egress moving the place shown. Shown only alongside a location, never on its own: an address --geoip-db has no record for stays unanswered even when this database recognises it. Entirely offline, same as --geoip-db: nothing is looked up over the network; env CONTINUUM_GEOIP_ASN_DB")
 	neoURL := flag.String("neo4j-url", os.Getenv("CONTINUUM_NEO4J_URL"), "Neo4j HTTP address (http://host:7474). When set, topology history, events, audit and workspace revisions are kept in a Neo4j graph; env CONTINUUM_NEO4J_URL")
 	neoUser := flag.String("neo4j-user", envOr("CONTINUUM_NEO4J_USER", "neo4j"), "Neo4j user; env CONTINUUM_NEO4J_USER")
 	neoDB := flag.String("neo4j-database", envOr("CONTINUUM_NEO4J_DATABASE", "neo4j"), "Neo4j database name; env CONTINUUM_NEO4J_DATABASE")
@@ -136,7 +139,7 @@ func main() {
 	if err != nil {
 		fatal(log, fmt.Errorf("--image-registry/--image-tag/--image-digest: %w", err))
 	}
-	if err := run(log, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *uiDir, *chartRef, img, *org, regMode, *geoDB, decider, neo, keyOpts{PassphraseFile: *caPassFile, AllowLoose: *looseOK}, origins); err != nil {
+	if err := run(log, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, keyOpts{PassphraseFile: *caPassFile, AllowLoose: *looseOK}, origins); err != nil {
 		fatal(log, err)
 	}
 }
@@ -159,7 +162,7 @@ func fatal(log *slog.Logger, err error) {
 	os.Exit(1)
 }
 
-func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, extraHosts, adminListen, adminCert, adminKey string, behindProxy bool, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath string, decider *server.DeciderPolicy, neo *graph.Config, keys keyOpts, origins []string) error {
+func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *server.DeciderPolicy, neo *graph.Config, keys keyOpts, origins []string) error {
 	// Fail closed: a database that was asked for but cannot be used stops the server rather than silently turning the feature off.
 	var geo *server.Geo
 	if geoPath != "" {
@@ -170,6 +173,22 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 		geo = server.NewGeo(db)
 		gi := geo.Info()
 		log.Info("geoip database loaded", "type", gi.Database, "description", gi.Description, "built", gi.BuiltAt)
+		if geoASNPath != "" {
+			asnDB, err := geoip.Open(geoASNPath)
+			if err != nil {
+				return fmt.Errorf("--geoip-asn-db %s: %w", geoASNPath, err)
+			}
+			geo.SetASN(asnDB)
+			ai := asnDB.Info()
+			log.Info("geoip ASN database loaded: locations will also carry which network the address belongs to", "type", ai.DatabaseType, "description", ai.Description)
+		}
+	} else {
+		if geoPublicIP != "" {
+			return errors.New("--geoip-public-ip-service needs --geoip-db (it is only ever a fallback for addresses the database would otherwise place)")
+		}
+		if geoASNPath != "" {
+			return errors.New("--geoip-asn-db needs --geoip-db (it only ever adds to a location that database found)")
+		}
 	}
 	if err := ensurePrivateDir(dataDir); err != nil {
 		return err
@@ -202,6 +221,12 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 	var graphStore *graph.Store
 	runCtx, stopRun := context.WithCancel(context.Background())
 	defer stopRun()
+	if geo != nil && geoPublicIP != "" {
+		finder := server.NewPublicIPFinder(geoPublicIP, 0)
+		finder.Start(runCtx)
+		geo.SetPublicIPFallback(finder)
+		log.Info("an unlocatable agent (private, loopback or CGNAT address) is estimated from this server's own public address", "service", geoPublicIP)
+	}
 	if neo != nil {
 		client, err := graph.NewClient(*neo)
 		if err != nil {
@@ -230,6 +255,7 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 	core := server.NewCore(st, ca, "", log)
 	core.DefaultOrg, core.RegMode, core.Decider = org, registration, decider
 	core.PendingTTL, core.RefuseLegacyApproval = *pendingTTL, *refuseLegacy
+	core.TrustAgentProxy = agentBehindProxy
 	created, firstPassword, err := core.BootstrapAdmin(context.Background(), os.Getenv("CONTINUUM_ADMIN_PASSWORD"))
 	if err != nil {
 		return err

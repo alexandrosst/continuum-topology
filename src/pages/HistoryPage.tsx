@@ -1,8 +1,8 @@
 import clsx from 'clsx'
-import { CheckCircle2, CircleAlert, Clock, History as HistoryIcon, Radio, Save, TriangleAlert } from 'lucide-react'
+import { Bell, CheckCircle2, ChevronRight, CircleAlert, Clock, History as HistoryIcon, Info, Radio, Save, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button, EmptyState, ErrorBanner, Field, Input, PageHeader, Pill, PulseDot, Select, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, EmptyState, ErrorBanner, Field, Input, PageHeader, Pill, PulseDot, SavedNote, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast, type Conn, type StorageInfo } from '@/lib/api'
 import { ageOf, EVENT_KINDS, EVENT_RETENTION_MAX, EVENT_RETENTION_MIN, kindLabel, parseEventRetention, pointAt, type AppSettings, type ChangeEvent, type HistoryIndex, type TrafficRate } from '@/lib/history'
 import { ago, bytesPerSec } from '@/lib/observed'
@@ -19,7 +19,12 @@ const WINDOWS = [
   { hours: 24 * 30, label: 'Last 30 days' },
 ]
 
-const SEVERITY: Record<ChangeEvent['severity'], string> = { info: 'bg-nb-500', notice: 'bg-sky-400', warning: 'bg-amber-400' }
+// Shape carries severity, not just color: a colorblind reader (or a printed screenshot) still tells warning from notice from info.
+const SEVERITY: Record<ChangeEvent['severity'], { dot: string; text: string; icon: typeof Info; label: string }> = {
+  info: { dot: 'bg-nb-500', text: 'text-nb-400', icon: Info, label: 'Info' },
+  notice: { dot: 'bg-sky-400', text: 'text-sky-300', icon: Bell, label: 'Notice' },
+  warning: { dot: 'bg-amber-400', text: 'text-amber-300', icon: TriangleAlert, label: 'Warning' },
+}
 const stamp = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
 
 export default function HistoryPage() {
@@ -179,7 +184,7 @@ function Timeline({ hours, setHours, index, events }: { hours: number; setHours:
               <span key={p.at} className="absolute top-[26px] h-2 w-px bg-nb-600" style={{ left: `${pos(p.at)}%` }} aria-hidden />
             ))}
             {events.filter((e) => new Date(e.at).getTime() >= start).map((e) => (
-              <span key={e.id} className={clsx('absolute top-3 size-2 -translate-x-1/2 rounded-full', SEVERITY[e.severity])} style={{ left: `${pos(e.at)}%` }} title={`${kindLabel(e.kind)}: ${e.name}`} aria-hidden />
+              <span key={e.id} className={clsx('absolute top-3 size-2 -translate-x-1/2 rounded-full', SEVERITY[e.severity].dot)} style={{ left: `${pos(e.at)}%` }} title={`${SEVERITY[e.severity].label} · ${kindLabel(e.kind)}: ${e.name}`} aria-hidden />
             ))}
             <input
               type="range"
@@ -284,7 +289,7 @@ function Events({ events, hours }: { events: ChangeEvent[] | null; hours: number
   const navigate = useNavigate()
   const conn = useConn()
   const view = useHistoryView((s) => s.view)
-  if (events === null) return <p className="text-sm text-nb-500" role="status">Loading…</p>
+  if (events === null) return <TableSkeleton colCount={5} />
   if (events.length === 0) {
     return <EmptyState title="Nothing changed in this window" description={`No changes were recorded in the last ${hours < 48 ? `${hours} hour${hours === 1 ? '' : 's'}` : `${Math.round(hours / 24)} days`} for this selection.`} />
   }
@@ -307,8 +312,8 @@ function Events({ events, hours }: { events: ChangeEvent[] | null; hours: number
               <div className="text-xs text-nb-500">{new Date(e.at).toLocaleDateString()}</div>
             </Td>
             <Td>
-              <span className="inline-flex items-center gap-2 whitespace-nowrap">
-                <span className={clsx('size-2 shrink-0 rounded-full', SEVERITY[e.severity])} aria-label={e.severity} />
+              <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                {(() => { const S = SEVERITY[e.severity]; return <S.icon size={14} className={clsx('shrink-0', S.text)} aria-label={S.label} /> })()}
                 {kindLabel(e.kind)}
               </span>
             </Td>
@@ -360,7 +365,7 @@ function Traffic({ conn }: { conn: Conn }) {
     <section aria-label="Busiest links">
       <h2 className="mb-2 text-sm font-medium text-white">Busiest links, last 24 hours</h2>
       {rates === null ? (
-        <p className="text-sm text-nb-500" role="status">Loading…</p>
+        <TableSkeleton colCount={3} rows={3} />
       ) : rows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-nb-850 px-4 py-6 text-sm text-nb-500">
           No traffic figures over this period. They come from the traffic observer, from at least two recordings; see Discovery to switch it on.
@@ -404,6 +409,10 @@ const FIELDS: { key: keyof Pick<AppSettings, 'snapshotMinutes' | 'retentionDays'
   { key: 'staleAfterBeats', label: 'Mark stale after', unit: 'missed heartbeats', min: 2, max: 20, hint: 'An agent beats every 30 s. Its records are shown as stale once this many are missed.' },
   { key: 'flowStaleHours', label: 'Link is quiet after', unit: 'hours', min: 1, max: 720, hint: 'How long an observed link may go unseen before it is shown as quiet.' },
 ]
+// The handful of these that most people ever have a reason to touch (how much history to keep, and
+// roughly how much room it can take up); the rest are operational tuning for edge cases, not a policy
+// decision, so they sit behind "Advanced" instead of competing for attention with the two that matter.
+const PRIMARY_KEYS = new Set<(typeof FIELDS)[number]['key']>(['snapshotMinutes', 'retentionDays', 'maxHistoryMb'])
 
 function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn }) {
   const { settings, save, error, loaded } = useSettings()
@@ -422,70 +431,83 @@ function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn }) {
   })
   const eventParsed = parseEventRetention(eventOn, eventDraft)
   const dirty = FIELDS.some((f) => String(settings[f.key]) !== draft[f.key]) || settings.eventRetentionDays !== eventParsed.days
+  const renderField = (f: (typeof FIELDS)[number]) => {
+    const invalid = bad.includes(f)
+    return (
+      <Field key={f.key} label={f.label} hint={invalid ? `Between ${f.min} and ${f.max}.` : f.hint}>
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            inputMode="numeric"
+            min={f.min}
+            max={f.max}
+            value={draft[f.key] ?? ''}
+            disabled={!admin}
+            aria-invalid={invalid}
+            onChange={(e) => { setSaved(false); setDraft((d) => ({ ...d, [f.key]: e.target.value })) }}
+            className={clsx('w-28', invalid && 'border-red-400/60')}
+            data-testid={`setting-${f.key}`}
+          />
+          <span className="whitespace-nowrap text-xs text-nb-500">{f.unit}</span>
+        </div>
+      </Field>
+    )
+  }
+  const deleteOldEventsField = (
+    <Field
+      label="Delete old events"
+      hint={
+        eventOn && !eventParsed.ok
+          ? `Between ${EVENT_RETENTION_MIN} and ${EVENT_RETENTION_MAX} days.`
+          : 'Only the event/drift log below, never the audit trail: actions people took are kept forever regardless of this setting.'
+      }
+    >
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-1.5 text-xs text-nb-400">
+          <input
+            type="checkbox"
+            className="accent-[var(--color-accent)]"
+            checked={eventOn}
+            disabled={!admin}
+            onChange={(e) => { setSaved(false); setEventOn(e.target.checked) }}
+            data-testid="setting-eventRetentionEnabled"
+          />
+          after
+        </label>
+        <Input
+          type="number"
+          inputMode="numeric"
+          min={EVENT_RETENTION_MIN}
+          max={EVENT_RETENTION_MAX}
+          value={eventDraft}
+          disabled={!admin || !eventOn}
+          placeholder={eventOn ? undefined : 'kept forever'}
+          aria-invalid={eventOn && !eventParsed.ok}
+          onChange={(e) => { setSaved(false); setEventDraft(e.target.value) }}
+          className={clsx('w-28', eventOn && !eventParsed.ok && 'border-red-400/60')}
+          data-testid="setting-eventRetentionDays"
+        />
+        <span className="whitespace-nowrap text-xs text-nb-500">days</span>
+      </div>
+    </Field>
+  )
   return (
     <section aria-label="Recording settings">
       <h2 className="mb-2 text-sm font-medium text-white">Recording and checks</h2>
       <div className="rounded-xl border border-nb-850 bg-nb-925 p-5">
         <div className="grid gap-4 sm:grid-cols-2">
-          {FIELDS.map((f) => {
-            const invalid = bad.includes(f)
-            return (
-              <Field key={f.key} label={f.label} hint={invalid ? `Between ${f.min} and ${f.max}.` : f.hint}>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    min={f.min}
-                    max={f.max}
-                    value={draft[f.key] ?? ''}
-                    disabled={!admin}
-                    aria-invalid={invalid}
-                    onChange={(e) => { setSaved(false); setDraft((d) => ({ ...d, [f.key]: e.target.value })) }}
-                    className={clsx('w-28', invalid && 'border-red-400/60')}
-                    data-testid={`setting-${f.key}`}
-                  />
-                  <span className="whitespace-nowrap text-xs text-nb-500">{f.unit}</span>
-                </div>
-              </Field>
-            )
-          })}
-          <Field
-            label="Delete old events"
-            hint={
-              eventOn && !eventParsed.ok
-                ? `Between ${EVENT_RETENTION_MIN} and ${EVENT_RETENTION_MAX} days.`
-                : 'Only the event/drift log below, never the audit trail: actions people took are kept forever regardless of this setting.'
-            }
-          >
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1.5 text-xs text-nb-400">
-                <input
-                  type="checkbox"
-                  className="accent-[var(--color-accent)]"
-                  checked={eventOn}
-                  disabled={!admin}
-                  onChange={(e) => { setSaved(false); setEventOn(e.target.checked) }}
-                  data-testid="setting-eventRetentionEnabled"
-                />
-                after
-              </label>
-              <Input
-                type="number"
-                inputMode="numeric"
-                min={EVENT_RETENTION_MIN}
-                max={EVENT_RETENTION_MAX}
-                value={eventDraft}
-                disabled={!admin || !eventOn}
-                placeholder={eventOn ? undefined : 'kept forever'}
-                aria-invalid={eventOn && !eventParsed.ok}
-                onChange={(e) => { setSaved(false); setEventDraft(e.target.value) }}
-                className={clsx('w-28', eventOn && !eventParsed.ok && 'border-red-400/60')}
-                data-testid="setting-eventRetentionDays"
-              />
-              <span className="whitespace-nowrap text-xs text-nb-500">days</span>
-            </div>
-          </Field>
+          {FIELDS.filter((f) => PRIMARY_KEYS.has(f.key)).map(renderField)}
         </div>
+        <details className="group mt-4" data-testid="recording-advanced">
+          <summary className="flex cursor-pointer select-none items-center gap-1 text-xs text-nb-500 marker:content-none">
+            <ChevronRight size={12} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
+            Advanced
+          </summary>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            {FIELDS.filter((f) => !PRIMARY_KEYS.has(f.key)).map(renderField)}
+            {deleteOldEventsField}
+          </div>
+        </details>
         {error && <p className="mt-3 text-sm text-red-300" role="alert"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{error}</p>}
         <div className="mt-4 flex items-center gap-3">
           {admin ? (
@@ -498,7 +520,7 @@ function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn }) {
               >
                 <Save size={15} /> Save
               </Button>
-              {saved && <span className="text-sm text-emerald-300" role="status">Saved. Agents were told.</span>}
+              {saved && <SavedNote>Saved. Agents were told.</SavedNote>}
             </>
           ) : (
             <p className="text-xs text-nb-500">Only administrators can change these.</p>

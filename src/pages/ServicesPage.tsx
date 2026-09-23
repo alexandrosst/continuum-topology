@@ -64,7 +64,7 @@ export default function ServicesPage() {
         <EmptyState
           title="No service is known yet"
           action={!clusters.length && connect.canStart ? <Button variant="primary" onClick={connect.start}><Plug size={16} /> Connect a cluster</Button> : undefined}
-          description={clusters.length ? 'No service is on record for these clusters. Connect an agent that reads at the Services level, or add one by hand.' : 'No cluster is connected or declared yet. Connect a cluster and its agent reports its services, or add a cluster by hand first.'} />
+          description={clusters.length ? 'No service is on record for these clusters. Connect an agent that reads at the Services access level, or add one by hand.' : 'No cluster is connected or declared yet. Connect a cluster and its agent reports its services, or add a cluster by hand first.'} />
       ) : (
         <Table>
           <thead>

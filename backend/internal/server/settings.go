@@ -40,6 +40,12 @@ type Settings struct {
 	DeciderURL        string `json:"deciderUrl"`
 	DeciderName       string `json:"deciderName"`
 	DeciderTimeoutSec int    `json:"deciderTimeoutSec"`
+	// DeciderSecret, when set, signs every request this server sends to DeciderURL (HMAC-SHA256 over the request
+	// timestamp and body; see decideSign.go), so the decider can tell a call from this server apart from anyone
+	// who guesses or intercepts its address. Unlike DeciderURL it is never sent back to a client once saved, even
+	// to an administrator: the API only ever says whether one is set (SettingsDoc.DeciderSecretSet), the same way
+	// a password or API key field would. See putSettings for how a client sets, keeps or clears it.
+	DeciderSecret string `json:"deciderSecret,omitempty"`
 	// ImageRegistry, ImageTag and ImageDigest say where the agent image (and the chart) come from in this
 	// organisation's install commands. They are per organisation on purpose: any account can create an organisation,
 	// so a server-wide value editable by "an administrator" would let a stranger redirect everyone's installs; here
@@ -147,6 +153,9 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 	s.DeciderName = strings.TrimSpace(s.DeciderName)
 	if len(s.DeciderName) > 60 {
 		return s, fmt.Errorf("the decider's name is at most 60 characters")
+	}
+	if n := len(s.DeciderSecret); n > 0 && (n < 16 || n > 200) {
+		return s, fmt.Errorf("the decider secret must be between 16 and 200 characters")
 	}
 	img, err := ImageConfig{s.ImageRegistry, s.ImageTag, s.ImageDigest}.Normalize()
 	if err != nil {
@@ -269,6 +278,16 @@ func settingsDiff(a, b Settings) string {
 				host = u.Hostname()
 			}
 			d = append(d, "external decider set ("+host+")")
+		}
+	}
+	if a.DeciderSecret != b.DeciderSecret {
+		switch {
+		case b.DeciderSecret == "":
+			d = append(d, "decider secret removed")
+		case a.DeciderSecret == "":
+			d = append(d, "decider secret set")
+		default:
+			d = append(d, "decider secret changed")
 		}
 	}
 	// Which images clusters are told to pull is a supply-chain decision, so every change is recorded with both values.

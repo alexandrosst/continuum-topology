@@ -1,14 +1,57 @@
-import { ArrowRight, Check, KeyRound, Plug, PlugZap, X } from 'lucide-react'
+import clsx from 'clsx'
+import { ArrowRight, Check, ChevronDown, KeyRound, Plug, PlugZap, X } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { when } from '@/components/discovery/AgentParts'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
 import { GoneRecords, ObservedClusters } from '@/components/Observations'
 import { Button, EmptyState, PageHeader, Pill } from '@/components/ui/primitives'
+import { originLabel } from '@/lib/present'
+import type { GroupingAlternative, Suggestion } from '@/lib/types'
 import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { useApprovalLocks } from '@/store/approvalLocks'
 import { useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
+
+/**
+ * A `create-application` suggestion only shows the label that won. Some services carry more than one
+ * of the labels discovery understands (an Argo app that is also part of a bigger Helm release, say),
+ * and the one that wins by precedence is not always the one a person wants grouped by. This lets them
+ * regroup onto a runner-up instead of dismissing the suggestion and typing a name from scratch.
+ */
+function AlternativeLabelPicker({ suggestion, alternatives }: { suggestion: Suggestion; alternatives: GroupingAlternative[] }) {
+  const applyAlternative = useTopology((s) => s.applyAlternative)
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 text-xs text-nb-500 hover:text-accent"
+        aria-expanded={open}
+      >
+        <ChevronDown size={12} className={open ? 'rotate-180' : ''} aria-hidden />
+        Use a different label instead
+      </button>
+      {open && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5" role="group" aria-label="Alternative labels">
+          {alternatives.map((alt) => (
+            <button
+              key={`${alt.origin}-${alt.name}`}
+              type="button"
+              title={alt.signal}
+              onClick={() => applyAlternative(suggestion.id, alt)}
+              className="rounded-full border border-nb-800 bg-nb-930 px-2.5 py-1 text-xs text-nb-400 transition-colors hover:border-accent/60 hover:text-white"
+            >
+              {originLabel(alt.origin)}: <span className="font-medium text-nb-200">{alt.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function DiscoveryPage() {
   const { agents, suggestions, decideSuggestion, decideDerived } = useTopology()
@@ -25,7 +68,15 @@ export default function DiscoveryPage() {
   const rejectedLocked = agents.filter((a) => a.status === 'rejected' && locked[a.id])
   const derivedIds = new Set(placement.map((s) => s.id))
   const open = [...suggestions.filter((s) => s.status === 'open'), ...placement]
-  const decide = (s: (typeof open)[number], d: 'accepted' | 'dismissed') => (derivedIds.has(s.id) ? decideDerived(s, d) : decideSuggestion(s.id, d))
+  // A decided suggestion eases out instead of cutting to the next row: the row plays its exit animation
+  // first (row-exit, in index.css), and only then is the decision actually applied, which is what removes
+  // it from `open`. ROW_EXIT_MS must match that animation's duration.
+  const ROW_EXIT_MS = 200
+  const [exiting, setExiting] = useState<Set<string>>(new Set())
+  const decide = (s: (typeof open)[number], d: 'accepted' | 'dismissed') => {
+    setExiting((prev) => new Set(prev).add(s.id))
+    setTimeout(() => (derivedIds.has(s.id) ? decideDerived(s, d) : decideSuggestion(s.id, d)), ROW_EXIT_MS)
+  }
   const agentName = (id?: string) => agents.find((a) => a.id === id)?.name
   const showStarted = started && !started.dismissed
   const approved = agents.filter((a) => a.status === 'approved')
@@ -93,7 +144,13 @@ export default function DiscoveryPage() {
       ) : (
         <div className="mb-8 space-y-2">
           {open.map((s) => (
-            <div key={s.id} className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 rounded-xl border border-nb-850 bg-nb-925 px-5 py-4">
+            <div
+              key={s.id}
+              className={clsx(
+                'flex flex-wrap items-start justify-between gap-x-6 gap-y-3 rounded-xl border border-nb-850 bg-nb-925 px-5 py-4',
+                exiting.has(s.id) && 'row-exit',
+              )}
+            >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-white">{s.title}</span>
@@ -104,6 +161,9 @@ export default function DiscoveryPage() {
                   {agentName(s.agentId) ?? (derivedIds.has(s.id) ? 'worked out from place tables' : s.kind === 'infrastructure' ? 'worked out from observed traffic' : 'unknown agent')}{s.createdAt ? ` · ${when(s.createdAt)}` : ''}
                   {!s.apply && ' · informational: acknowledging only records the decision'}
                 </p>
+                {s.apply?.type === 'create-application' && !!s.apply.alternatives?.length && (
+                  <AlternativeLabelPicker suggestion={s} alternatives={s.apply.alternatives} />
+                )}
               </div>
               <div className="flex shrink-0 gap-2">
                 <Button size="sm" onClick={() => decide(s, 'dismissed')} aria-label={`Dismiss ${s.title}`}>

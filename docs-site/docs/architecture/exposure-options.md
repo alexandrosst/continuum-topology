@@ -25,11 +25,12 @@ Reachable on every node, at a fixed port you choose. This works on literally any
 
 ## Gateway API TLSRoute (`agent.tlsRoute`)
 
-Lets the agent port share the same `:443` a Gateway already uses, routed by SNI hostname rather than terminated: a `TLSRoute` attached to a `Gateway` listener configured with `protocol: TLS` and `tls.mode: Passthrough`. It needs the Gateway API CRDs and a Gateway already running in the cluster — if you don't have either yet, LoadBalancer or NodePort are the simpler starting points.
+Lets the agent port share the same `:443` a Gateway already uses, routed by SNI hostname rather than terminated: a `TLSRoute` attached to a `Gateway` listener configured with `protocol: TLS` and `tls.mode: Passthrough`. It needs the Gateway API CRDs and a Gateway already running in the cluster — if you don't have either yet, LoadBalancer or NodePort are the simpler starting points. The Gateway becomes the only front door for the agent port, so `agent.service.type` also switches to `ClusterIP` — the chart refuses to install or upgrade with `agent.tlsRoute.enabled=true` and a `LoadBalancer` or `NodePort` still sitting next to it, since that would quietly leave a second, unintended way in (and, on a cloud LoadBalancer, a second bill for it).
 
 ```bash
 helm upgrade continuum oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --reuse-values \
+  --set agent.service.type=ClusterIP \
   --set agent.tlsRoute.enabled=true \
   --set-json agent.tlsRoute.parentRefs='[{"name":"shared-gateway","namespace":"gateways","sectionName":"agents-tls"}]' \
   --set-json agent.tlsRoute.hostnames='["continuum.example.com"]'
@@ -51,6 +52,16 @@ If nginx, Traefik, Caddy or similar already sits in front of your cluster, the t
   2. **One address for everything, still no termination:** if your proxy supports raw TCP/SNI passthrough (nginx's `stream` module, Traefik's TCP routers, Caddy's `layer4`), point that at the agent Service without touching TLS — the same idea as Gateway API TLSRoute above, just configured in your proxy instead of in-cluster. Gateway API TLSRoute is the better-tested path if you're open to running a Gateway controller; reserve your own proxy's TCP passthrough for when you'd rather not add one.
 
 Whichever you pick, once the real address is live, **Settings → Server address** in the UI turns it into the exact `helm upgrade` command for your release — you don't have to reconstruct it from these docs by hand (see [The two-step address problem](../installation/production-cluster.md#the-two-step-address-problem)).
+
+### Passthrough loses the client's own address unless the proxy sends it separately
+
+A LoadBalancer or NodePort with nothing else in the path hands the server the agent's real source address, same as any direct TCP connection would. The moment something forwards the connection on your own infrastructure — your reverse proxy's TCP passthrough above, or occasionally a load balancer mode that source-NATs — that stops being true: the server sees the forwarder's address, not the agent's. That address is what powers the approval card's "from X.X.X.X" line, per-address rate limits, the audit trail, and the location an agent is suggested to be at, so losing it isn't cosmetic.
+
+TLS is still what's passed through unbroken (nothing in this section terminates it), so there's no HTTP request to carry a header on the way in — the fix is [PROXY protocol](https://www.haproxy.org/download/2.8/doc/proxy-protocol.txt) instead, a short preamble (v1 text or v2 binary — either is fine, the server accepts both) most TCP/SNI-passthrough proxies can be configured to send ahead of the connection: `proxy_protocol on;` in nginx's `stream` module, `proxyProtocol.transport: true` on a Traefik TCP router, `proxy_protocol` in Caddy's `layer4`. Once your proxy sends it, pass `--set agent.behindProxy=true` (`CONTINUUM_AGENT_BEHIND_PROXY=true`) so the server actually trusts it: with that set, every connection is required to carry a valid header — one that doesn't is refused outright, since accepting it without one would defeat the point of trusting the header at all. Leave it unset (the default) whenever nothing forwards the agent connection, which includes plain LoadBalancer, NodePort, and Gateway API TLSRoute — the common cases need nothing here.
+
+None of this helps when there's no forwarder to fix in the first place — an agent and the server genuinely sharing one network (a home lab, a single on-prem site), where the connecting address is private because the traffic never leaves that network at all. There is no address to recover there, PROXY protocol or not. If you'd still like a location shown rather than none, `--geoip-public-ip-service` (needs `--geoip-db`) is a different, explicitly opt-in fallback: the server asks a public "what is my address" service (of your choosing) for its own public IP once in a while, and estimates that agent's location from it — correct exactly when the two share a network, which is the case this is for. Every result from it is marked `estimated` and never better than low confidence. See `geoip.publicIpService` in the [main project README](https://github.com/alexandrosst/continuum-topology/blob/main/deploy/README.md#troubleshooting) for the full explanation.
+
+Separately, `--geoip-asn-db` (also needs `--geoip-db`) adds which network a connecting address belongs to — its AS number and the organisation behind it — alongside wherever the location ended up, real or estimated. It reads a second, ASN-shaped offline database (GeoLite2-ASN, DB-IP ASN Lite), makes no network call of its own, and is often steadier than the place name: a VPN or a cloud provider's egress can move the city shown without changing whose network is actually carrying the traffic.
 
 ## Meanwhile, the admin port
 

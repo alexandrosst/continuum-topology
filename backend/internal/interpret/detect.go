@@ -4,6 +4,7 @@
 package interpret
 
 import (
+	"fmt"
 	"net/netip"
 	"regexp"
 	"strings"
@@ -121,8 +122,10 @@ func detectProvider(nodes []*continuumv1.NodeFacts) (string, model.Evidence) {
 	for _, n := range nodes {
 		p := n.ProviderId
 		for prefix, name := range map[string]string{
-			"aws://": "AWS", "gce://": "Google Cloud", "azure://": "Azure", "hcloud://": "Hetzner",
-			"hrobot://": "Hetzner", "digitalocean://": "DigitalOcean", "openstack://": "OpenStack",
+			"aws://": "AWS", "gce://": "Google Cloud", "azure://": "Azure", "hcloud://": "Hetzner Cloud",
+			// hrobot:// is Hetzner's dedicated-server product (Robot), not the Cloud API: a rented physical
+			// box, not a hyperscaler VM, so it is named and tiered differently from hcloud://.
+			"hrobot://": "Hetzner Robot", "digitalocean://": "DigitalOcean", "openstack://": "OpenStack",
 			"vsphere://": "VMware vSphere", "linode://": "Linode", "scaleway://": "Scaleway", "ovhcloud://": "OVHcloud",
 			"kind://": "Local (kind)",
 		} {
@@ -247,24 +250,37 @@ func nodeStatus(n *continuumv1.NodeFacts) string {
 	return "healthy"
 }
 
-// tierFor places a cluster on the continuum. It is a suggestion the UI lets a person override.
+// tierFor places a cluster on the continuum. It is a suggestion the UI lets a person override -
+// see Cluster.overrides in the frontend model, which keeps a corrected tier even after rediscovery.
 func tierFor(provider string, nodes []*continuumv1.NodeFacts, kinds map[string]string) (string, model.Evidence) {
 	switch provider {
-	case "AWS", "Google Cloud", "Azure", "DigitalOcean", "Linode", "Scaleway", "OVHcloud":
+	// A hyperscaler or another public cloud API: real VMs, not something anyone racked themselves.
+	// Hetzner's dedicated-server product (Robot, hrobot://) is deliberately left out here - it is rented
+	// hardware, not a cloud API, and detectNodeKind already calls its nodes bare-metal.
+	case "AWS", "Google Cloud", "Azure", "DigitalOcean", "Linode", "Scaleway", "OVHcloud", "Hetzner Cloud":
 		return "cloud", ev("provider "+provider, "medium", "hyperscaler or public cloud")
 	}
-	if len(nodes) > 0 {
-		all := true
-		for _, n := range nodes {
-			if kinds[n.Key] != "edge-device" {
-				all = false
+	// far-edge: most or all nodes are single-board computers (Pi/Jetson class - see detectNodeKind).
+	// A cluster is rarely purely uniform: one node without a probe, or a slightly bigger box acting as
+	// control plane at the same site, is common and shouldn't by itself demote the whole cluster back to
+	// the generic "edge" bucket. Nodes whose kind could not be determined at all are left out of the
+	// count rather than treated as evidence either way.
+	edge, known := 0, 0
+	for _, n := range nodes {
+		if k := kinds[n.Key]; k != "" {
+			known++
+			if k == "edge-device" {
+				edge++
 			}
 		}
-		if all {
-			return "far-edge", ev("all nodes are single-board edge devices", "low", "")
-		}
 	}
-	return "edge", ev("not a public cloud", "low", "on-prem and edge share this default; change it if it is a data center")
+	switch {
+	case known > 0 && edge == known:
+		return "far-edge", ev("every node is a single-board edge device", "medium", "no bare-metal server or VM was seen among them")
+	case known > 0 && float64(edge)/float64(known) > 0.5:
+		return "far-edge", ev(fmt.Sprintf("%d of %d nodes are single-board edge devices", edge, known), "low", "the rest may be a control-plane box or gateway at the same site")
+	}
+	return "edge", ev("not a public cloud", "low", "on-prem and edge share this default; open the cluster and set the tier if this is a data center")
 }
 
 // commonPodCIDR returns the smallest prefix covering all nodes' pod CIDRs.

@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Lock } from 'lucide-react'
+import { Check, Lock } from 'lucide-react'
 import { ACCESS_TIERS, ACCESS_TIER_CAPTIONS, type AccessTier } from '@/lib/types'
 
 const ICON_SIZE = { sm: 18, md: 24 } as const
@@ -49,6 +49,11 @@ export interface TierLevelsProps {
   markAt?: AccessTier
   markLabel?: string
   size?: 'sm' | 'md'
+  /** 'stack': one rung per row (the default - approval card, consent panel, read-only indicators).
+   *  'cards': the same rungs side by side instead, sized for a handful of options a person compares
+   *  before picking one. Meant for the connect wizard, where there is room and a decision to make;
+   *  the stack reads better once there are more rungs than fit a row, or no room to spare. */
+  layout?: 'stack' | 'cards'
   className?: string
   'data-testid'?: string
   'aria-labelledby'?: string
@@ -58,10 +63,16 @@ export interface TierLevelsProps {
  *  (see TierIcon) and spelled out in its caption ("Everything in X, plus..."), which a radio list or a `<select>`
  *  never said either way. Used both as the picker (wizard, approval card, the agent's consent panel) and, in
  *  read-only form, as a compact "what this agent can see" indicator. */
-export default function TierLevels({ tiers, value, max, onSelect, markAt, markLabel, size = 'md', className, 'data-testid': testId, 'aria-labelledby': labelledBy }: TierLevelsProps) {
+export default function TierLevels({ tiers, value, max, onSelect, markAt, markLabel, size = 'md', layout = 'stack', className, 'data-testid': testId, 'aria-labelledby': labelledBy }: TierLevelsProps) {
   const compact = size === 'sm'
+  const cards = layout === 'cards'
   return (
-    <div className={clsx('flex flex-col', compact ? 'gap-1' : 'gap-1.5', className)} data-testid={testId} role={onSelect ? 'radiogroup' : undefined} aria-labelledby={labelledBy}>
+    <div
+      className={clsx(cards ? 'grid gap-3 sm:grid-cols-2' : clsx('flex flex-col', compact ? 'gap-1' : 'gap-1.5'), className)}
+      data-testid={testId}
+      role={onSelect ? 'radiogroup' : undefined}
+      aria-labelledby={labelledBy}
+    >
       {tiers.map((t) => {
         const filled = value !== undefined && t <= value
         const locked = max !== undefined && t > max
@@ -70,16 +81,46 @@ export default function TierLevels({ tiers, value, max, onSelect, markAt, markLa
         const caption = ACCESS_TIER_CAPTIONS[t]
         const isCurrent = value === t
         const Tag = onSelect ? 'button' : 'div'
+        const shared = {
+          type: onSelect ? 'button' : undefined,
+          role: onSelect ? 'radio' : undefined,
+          'aria-checked': onSelect ? isCurrent : undefined,
+          'aria-disabled': locked || undefined,
+          title: locked ? 'Above what this install allows.' : undefined,
+          onClick: onSelect ? () => onSelect(t) : undefined,
+          'data-testid': testId ? `${testId}-${t}` : undefined,
+        } as const
+        if (cards) {
+          return (
+            <Tag
+              key={t}
+              {...shared}
+              className={clsx(
+                'relative flex flex-col items-start gap-2.5 rounded-xl border p-4 text-left transition-all',
+                onSelect && !locked && 'cursor-pointer hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20',
+                locked && 'cursor-default opacity-60',
+                isCurrent ? 'border-accent bg-accent-soft ring-1 ring-accent/40' : locked ? 'border-nb-850 bg-nb-930' : 'border-nb-850 bg-nb-925 hover:border-nb-800 hover:bg-nb-930',
+              )}
+            >
+              {isCurrent && (
+                <span className="absolute right-3 top-3 flex size-5 items-center justify-center rounded-full bg-accent text-nb-950" aria-hidden>
+                  <Check size={13} strokeWidth={3} />
+                </span>
+              )}
+              <TierIcon level={t} tone={locked ? 'locked' : filled ? 'filled' : 'idle'} marked={marked} size={28} />
+              <span className="flex items-center gap-1.5 text-sm font-medium text-white">
+                {label}
+                {locked && <Lock size={12} className="text-nb-500" aria-hidden />}
+              </span>
+              <span className="text-sm leading-snug text-nb-400">{caption}</span>
+              {marked && <span className="text-xs text-amber-300">{markLabel ?? `Approved up to here`}</span>}
+            </Tag>
+          )
+        }
         return (
           <Tag
             key={t}
-            type={onSelect ? 'button' : undefined}
-            role={onSelect ? 'radio' : undefined}
-            aria-checked={onSelect ? isCurrent : undefined}
-            aria-disabled={locked || undefined}
-            title={locked ? 'Above what this install allows.' : undefined}
-            onClick={onSelect ? () => onSelect(t) : undefined}
-            data-testid={testId ? `${testId}-${t}` : undefined}
+            {...shared}
             className={clsx(
               'flex items-start gap-3 rounded-lg border text-left transition-colors',
               compact ? 'px-2.5 py-1.5' : 'px-4 py-3',

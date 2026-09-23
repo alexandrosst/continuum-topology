@@ -229,6 +229,19 @@ type CreateApplication struct {
 	Type        string      `json:"type"` // "create-application"
 	Application Application `json:"application"`
 	ServiceIDs  []string    `json:"serviceIds"`
+	// Other labels or annotations found on these services that could have named the application
+	// instead, strongest first. The winning one above is always index -1 of the full cascade; these
+	// are what it beat, offered so a person can pick one of them instead of typing a name by hand.
+	Alternatives []GroupingAlternative `json:"alternatives,omitempty"`
+}
+
+// GroupingAlternative is a different name discovery could have used for this application, from a
+// label or annotation that the winning rule outranked. Never applied on its own - a person chooses it.
+type GroupingAlternative struct {
+	Name       string `json:"name"`
+	Origin     string `json:"origin"`
+	Confidence string `json:"confidence"`
+	Signal     string `json:"signal"`
 }
 
 type Topology struct {

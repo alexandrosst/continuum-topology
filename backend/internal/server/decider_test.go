@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/binary"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -186,6 +187,90 @@ func TestDecideNeedsAnEditorAndEveryCallIsAudited(t *testing.T) {
 	}
 	if !strings.Contains(rows[1].Detail, "status 200") || rows[1].Actor != "ed" || !strings.Contains(rows[1].Detail, "request 1") {
 		t.Fatalf("good call row: %+v", rows[1])
+	}
+}
+
+// TestDeciderSecretIsWriteOnlyAndSignsRequests covers the whole lifecycle of Settings.DeciderSecret: setting it
+// signs every request the server makes to the decider, it is never echoed back by GET (even to an administrator),
+// saving unrelated fields afterwards (what the UI actually does: it always sends the full document back) leaves
+// it in place, and clearing it - only via the explicit clearDeciderSecret flag - switches signing off again.
+func TestDeciderSecretIsWriteOnlyAndSignsRequests(t *testing.T) {
+	a, admin, editor, _, _, _ := rigWithDecider(t, "127.0.0.0/8")
+	var gotSig, gotTS string
+	var gotBody []byte
+	dec := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSig, gotTS = r.Header.Get("X-Continuum-Signature"), r.Header.Get("X-Continuum-Timestamp")
+		gotBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"recommendations":[]}`))
+	}))
+	defer dec.Close()
+
+	const secret = "s3cr3t-long-enough-to-pass-validation"
+	if r := a.do("PUT", "/api/v1/settings", map[string]any{"deciderUrl": dec.URL, "deciderSecret": secret}, withCookie(admin)); r.Code != 200 {
+		t.Fatalf("saving the secret: %d %s", r.Code, r.Body.String())
+	}
+	adm := a.do("GET", "/api/v1/settings", nil, withCookie(admin)).json(t)
+	if v, has := adm["deciderSecret"]; has && v != "" {
+		t.Fatalf("the secret was echoed back to an administrator: %v", adm)
+	}
+	if adm["deciderSecretSet"] != true {
+		t.Fatalf("deciderSecretSet was not reported once a secret is saved: %v", adm)
+	}
+
+	if r := a.do("POST", "/api/v1/decide", map[string]any{"schema": 1}, withCookie(editor)); r.Code != 200 {
+		t.Fatalf("decide: %d %s", r.Code, r.Body.String())
+	}
+	if gotSig == "" || gotTS == "" {
+		t.Fatal("the request to the decider was not signed although a secret is configured")
+	}
+	sig, ok := strings.CutPrefix(gotSig, "sha256=")
+	if !ok {
+		t.Fatalf("unexpected signature header shape: %q", gotSig)
+	}
+	if !verifyDeciderSignature(secret, gotBody, gotTS, sig, time.Now(), time.Minute) {
+		t.Fatal("the signature does not verify against the body and timestamp the decider actually received")
+	}
+
+	// The UI always PUTs the whole settings document back; since GET never carried the secret, it is naturally
+	// absent here too. That must not be read as "clear it".
+	gotSig = ""
+	if r := a.do("PUT", "/api/v1/settings", map[string]any{"deciderUrl": dec.URL, "deciderName": "Renamed"}, withCookie(admin)); r.Code != 200 {
+		t.Fatalf("re-saving other fields: %d %s", r.Code, r.Body.String())
+	}
+	if r := a.do("POST", "/api/v1/decide", map[string]any{"schema": 1}, withCookie(editor)); r.Code != 200 {
+		t.Fatalf("decide after re-save: %d %s", r.Code, r.Body.String())
+	}
+	if gotSig == "" {
+		t.Fatal("the secret was lost by a save that never mentioned it")
+	}
+
+	// Explicitly clearing it switches signing off again.
+	if r := a.do("PUT", "/api/v1/settings", map[string]any{"deciderUrl": dec.URL, "clearDeciderSecret": true}, withCookie(admin)); r.Code != 200 {
+		t.Fatalf("clearing the secret: %d %s", r.Code, r.Body.String())
+	}
+	if adm := a.do("GET", "/api/v1/settings", nil, withCookie(admin)).json(t); adm["deciderSecretSet"] != false {
+		t.Fatalf("deciderSecretSet still true after clearing: %v", adm)
+	}
+	gotSig = ""
+	if r := a.do("POST", "/api/v1/decide", map[string]any{"schema": 1}, withCookie(editor)); r.Code != 200 {
+		t.Fatalf("decide after clear: %d %s", r.Code, r.Body.String())
+	}
+	if gotSig != "" {
+		t.Fatal("a request was still signed after the secret was cleared")
+	}
+}
+
+func TestDeciderSecretNeverAppearsInTheAuditTrail(t *testing.T) {
+	a, admin, _, _, _, url := rigWithDecider(t, "127.0.0.0/8")
+	const secret = "another-secret-well-past-sixteen-chars"
+	if r := a.do("PUT", "/api/v1/settings", map[string]any{"deciderUrl": url, "deciderSecret": secret}, withCookie(admin)); r.Code != 200 {
+		t.Fatalf("saving: %d %s", r.Code, r.Body.String())
+	}
+	evs, _ := a.st.ListAudit(a.ctx, "org-1", 50)
+	for _, e := range evs {
+		if strings.Contains(e.Detail, secret) {
+			t.Fatalf("the secret leaked into the audit trail: %+v", e)
+		}
 	}
 }
 

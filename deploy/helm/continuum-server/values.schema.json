@@ -160,6 +160,10 @@
               "type": "object"
             }
           }
+        },
+        "behindProxy": {
+          "type": "boolean",
+          "description": "a hop in front of the agent Service (your own reverse proxy's TCP/SNI passthrough, typically) sends a PROXY protocol header ahead of each connection; the server then requires and trusts it for the connecting address instead of the raw TCP peer. Leave false for plain LoadBalancer, NodePort or agent.tlsRoute."
         }
       }
     },
@@ -494,6 +498,14 @@
       "properties": {
         "path": {
           "type": "string"
+        },
+        "publicIpService": {
+          "type": "string",
+          "description": "needs geoip.path. An http(s) URL that answers with this server's own public IP as plain text, used only to estimate the location of an agent whose own connecting address cannot be located at all (private, loopback, CGNAT). Empty (default): never guessed."
+        },
+        "asnPath": {
+          "type": "string",
+          "description": "needs geoip.path. A second, optional .mmdb in ASN shape (GeoLite2-ASN, DB-IP ASN Lite), not city/country shape. Adds which network an address belongs to (AS number and organisation) alongside wherever geoip.path placed it. Entirely offline; empty (default) turns it off."
         }
       }
     },
@@ -680,6 +692,20 @@
               }
             },
             "deciderPorts": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              }
+            },
+            "geoipPublicIpCIDRs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "geoipPublicIpPorts": {
               "type": "array",
               "items": {
                 "type": "integer",

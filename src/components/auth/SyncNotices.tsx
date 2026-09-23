@@ -25,13 +25,13 @@ export default function SyncNotices() {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
   if (status !== 'connected') return null
-  const run = async (f: () => Promise<void>) => {
+  const run = async (f: () => Promise<void>, fallback: string) => {
     setBusy(true)
     setFailed(null)
     try {
       await f()
     } catch (e) {
-      setFailed(e instanceof Error ? e.message : 'That did not work. Try again.')
+      setFailed(e instanceof Error ? e.message : fallback)
     } finally {
       setBusy(false)
     }
@@ -45,10 +45,10 @@ export default function SyncNotices() {
             <strong className="font-medium">{conflict.updatedBy || 'Someone'}</strong> saved a newer version{conflict.updatedAt ? ` (${when(conflict.updatedAt)})` : ''} while you had unsaved changes.
           </span>
           <span className="flex gap-2">
-            <Button size="sm" disabled={busy} onClick={() => run(useTheirs)}>Load theirs (discard mine)</Button>
-            <Button size="sm" variant="danger" disabled={busy} onClick={() => run(overwrite)}>Keep mine (overwrite theirs)</Button>
+            <Button size="sm" disabled={busy} onClick={() => run(useTheirs, 'Could not load their version.')}>Load theirs (discard mine)</Button>
+            <Button size="sm" variant="danger" disabled={busy} onClick={() => run(overwrite, 'Could not overwrite their version.')}>Keep mine (overwrite theirs)</Button>
           </span>
-          {failed && <span className="w-full text-xs text-red-300">Could not do that: {failed}</span>}
+          {failed && <span className="w-full text-xs text-red-300">{failed}</span>}
         </Banner>
       )}
       {note && (
@@ -63,13 +63,14 @@ export default function SyncNotices() {
       <Modal
         open={sync === 'choose'}
         onClose={() => {}}
+        dismissible={false}
         title="This server has no workspace yet"
         description="This browser holds a topology of its own. Do you want to keep working on it here, on the server, or start clean?"
         width="max-w-lg"
         footer={
           <>
-            <Button disabled={busy} onClick={() => run(startEmpty)}>Start with an empty workspace</Button>
-            <Button variant="primary" disabled={busy} onClick={() => run(adoptLocal)}>Upload this browser&apos;s topology</Button>
+            <Button disabled={busy} onClick={() => run(startEmpty, 'Could not start an empty workspace.')}>Start with an empty workspace</Button>
+            <Button variant="primary" disabled={busy} onClick={() => run(adoptLocal, 'Could not upload this browser’s topology.')}>Upload this browser&apos;s topology</Button>
           </>
         }
       >
@@ -78,6 +79,7 @@ export default function SyncNotices() {
             {local.clusters} clusters, {local.nodes} nodes, {local.services} services, {local.devices} devices, {local.applications} applications. Uploading makes it the shared workspace everyone signs in to. Starting empty removes it from this browser.
           </p>
         )}
+        {failed && <p className="mt-3 text-sm text-red-300" role="alert">{failed}</p>}
       </Modal>
     </>
   )

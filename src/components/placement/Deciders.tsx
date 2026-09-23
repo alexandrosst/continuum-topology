@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { CircleAlert, Play, Save } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Button, Field, Input, Pill } from '@/components/ui/primitives'
+import { Button, CopyButton, Field, Input, Pill, SavedNote } from '@/components/ui/primitives'
 import { api, atLeast, type Conn } from '@/lib/api'
 import { BUILTIN_DECIDERS, buildDecisionInput, compare, externalDecider, runDecider, type Decider, type DeciderResult } from '@/lib/placement/deciders'
 import type { Policy } from '@/lib/placement/types'
@@ -195,21 +195,38 @@ export default function Deciders({ world, policy }: { world: World; policy: Poli
   )
 }
 
+/** A 32-byte secret, hex-encoded (64 characters): plenty of entropy, and copy/paste-safe everywhere a URL or a
+ * shell command is (no characters that need escaping or that a form field might trim). */
+function generateSecret(): string {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 function ExternalConfig({ admin, connected, conn }: { admin: boolean; connected: boolean; conn: Conn }) {
   const { settings, save, error } = useSettings()
   const [name, setName] = useState('')
   const [addr, setAddr] = useState('')
   const [timeout, setTimeoutSec] = useState('10')
+  // The secret itself never round-trips through `settings` (see AppSettings.deciderSecretSet): these three hold
+  // only what this form is actively doing to it right now, and reset once that lands.
+  const [secret, setSecret] = useState('')
+  const [editingSecret, setEditingSecret] = useState(false)
+  const [clearSecret, setClearSecret] = useState(false)
   const [saved, setSaved] = useState(false)
   useEffect(() => {
     setName(settings.deciderName)
     setAddr(settings.deciderUrl)
     setTimeoutSec(String(settings.deciderTimeoutSec))
+    setSecret('')
+    setEditingSecret(false)
+    setClearSecret(false)
   }, [settings])
   const t = Number(timeout)
   const badTimeout = !Number.isInteger(t) || t < 1 || t > 25
   const badUrl = addr !== '' && !/^https?:\/\/[^\s/]+/i.test(addr)
-  const dirty = name !== settings.deciderName || addr !== settings.deciderUrl || String(settings.deciderTimeoutSec) !== timeout
+  const badSecret = secret !== '' && (secret.length < 16 || secret.length > 200)
+  const dirty = name !== settings.deciderName || addr !== settings.deciderUrl || String(settings.deciderTimeoutSec) !== timeout || secret !== '' || clearSecret
 
   return (
     <Card title="Plug in your own decider">
@@ -222,7 +239,10 @@ function ExternalConfig({ admin, connected, conn }: { admin: boolean; connected:
       ) : (
         <>
           <p className="mb-4 max-w-2xl text-sm text-nb-400">
-            Any HTTP service that accepts a JSON POST of the estate and answers with recommendations: a scheduler, an optimiser, a learned policy, a script. The server calls it, refuses redirects and internal addresses it should not reach, and every answer is checked like the built-in ones.
+            Any HTTP service that accepts a JSON POST of the estate and answers with recommendations: a scheduler, an optimiser, a learned policy, a script. The server calls it, refuses redirects and internal addresses it should not reach, and every answer is checked like the built-in ones. The full contract - what is sent, what to answer with, and how to check a signed request - is in the{' '}
+            <a className="text-accent hover:underline" href="https://github.com/alexandrosst/continuum-topology/blob/main/backend/docs/decider-webhook.openapi.yaml" target="_blank" rel="noreferrer">
+              decider webhook spec
+            </a>.
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Name" hint="Shown in comparisons.">
@@ -235,17 +255,74 @@ function ExternalConfig({ admin, connected, conn }: { admin: boolean; connected:
               <Input value={addr} onChange={(e) => { setSaved(false); setAddr(e.target.value) }} placeholder="https://decider.example.org/decide" className={clsx(badUrl && 'border-red-400/60')} data-testid="decider-url" />
             </Field>
           </div>
+
+          <div className="mt-4">
+            <span className="mb-1.5 block text-sm font-medium text-nb-300">Shared secret</span>
+            {editingSecret ? (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    value={secret}
+                    onChange={(e) => { setSaved(false); setSecret(e.target.value) }}
+                    placeholder="Paste one, or generate one"
+                    className={clsx('max-w-md font-mono text-xs', badSecret && 'border-red-400/60')}
+                    data-testid="decider-secret"
+                  />
+                  <Button size="sm" type="button" onClick={() => { setSaved(false); setSecret(generateSecret()) }} data-testid="decider-secret-generate">Generate</Button>
+                  <Button size="sm" type="button" onClick={() => { setSecret(''); setEditingSecret(false) }}>Cancel</Button>
+                </div>
+                {badSecret && <p className="text-xs text-red-300">Between 16 and 200 characters.</p>}
+                {secret && !badSecret && (
+                  <p className="fade-in flex items-center gap-2 text-xs text-amber-200/90">
+                    Copy this now - once saved, it is shown only as “set”, never again.
+                    <CopyButton text={secret} />
+                  </p>
+                )}
+              </div>
+            ) : clearSecret ? (
+              <p className="flex flex-wrap items-center gap-2 text-sm text-amber-200/90">
+                Removing the shared secret on save: requests to the decider will no longer be signed.
+                <button type="button" className="text-xs text-accent hover:underline" onClick={() => setClearSecret(false)}>Undo</button>
+              </p>
+            ) : (
+              <p className="flex flex-wrap items-center gap-3 text-sm text-nb-400">
+                {settings.deciderSecretSet
+                  ? 'A shared secret is set: requests to the decider carry an HMAC-SHA256 signature it can check.'
+                  : 'No shared secret is set: requests are not signed.'}
+                <button type="button" className="text-xs text-accent hover:underline" onClick={() => { setSaved(false); setEditingSecret(true) }} data-testid="decider-secret-edit">
+                  {settings.deciderSecretSet ? 'Replace' : 'Set one'}
+                </button>
+                {settings.deciderSecretSet && (
+                  <button type="button" className="text-xs text-accent hover:underline" onClick={() => { setSaved(false); setClearSecret(true) }} data-testid="decider-secret-remove">
+                    Remove
+                  </button>
+                )}
+              </p>
+            )}
+          </div>
+
           {error && <p className="mt-3 text-sm text-red-300" role="alert"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{error}</p>}
           <div className="mt-4 flex items-center gap-3">
             <Button
               variant="primary"
-              disabled={!dirty || badTimeout || badUrl}
-              onClick={async () => setSaved(await save(conn, { ...settings, deciderName: name.trim(), deciderUrl: addr.trim(), deciderTimeoutSec: t }))}
+              disabled={!dirty || badTimeout || badUrl || badSecret}
+              onClick={async () => {
+                const ok = await save(conn, {
+                  ...settings,
+                  deciderName: name.trim(),
+                  deciderUrl: addr.trim(),
+                  deciderTimeoutSec: t,
+                  ...(secret ? { deciderSecret: secret } : {}),
+                  ...(clearSecret ? { clearDeciderSecret: true } : {}),
+                })
+                setSaved(ok)
+                if (ok) { setSecret(''); setEditingSecret(false); setClearSecret(false) }
+              }}
               data-testid="save-decider"
             >
               <Save size={15} /> Save
             </Button>
-            {saved && <span className="text-sm text-emerald-300" role="status">Saved.</span>}
+            {saved && <SavedNote>Saved.</SavedNote>}
           </div>
         </>
       )}

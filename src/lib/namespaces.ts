@@ -25,8 +25,8 @@ export interface NamespaceRow {
   clusterId: string
   clusterName: string
   name: string
-  /** Every record of the namespace is a workload (Deployment, StatefulSet, DaemonSet, Job): what the Services page calls a service. */
-  workloads: number
+  /** Every record of the namespace (Deployment, StatefulSet, DaemonSet, Job) is what the Services page calls a service. */
+  services: number
   /** "3 Deployments · 1 StatefulSet". */
   kinds: string
   /** Workloads a Kubernetes Service or ingress reaches from outside the cluster (node port, load balancer, ingress). */
@@ -145,7 +145,7 @@ export function buildNamespaceRows(t: { clusters: Cluster[]; namespaces: Namespa
         clusterId: c.id,
         clusterName: c.name,
         name,
-        workloads: mine.length,
+        services: mine.length,
         kinds: kindsLine(mine),
         exposed: mine.filter((s) => s.exposure && OUTSIDE.has(s.exposure)).length,
         mesh: namespaceMesh(c, rec, mine),

@@ -473,7 +473,9 @@ func (v *view) consentDoc() *ConsentDoc {
 }
 
 // diagDoc turns the stored message into its document. Every string is cut to a sensible length: it came from the agent.
-func (v *view) diagDoc(tier int) *DiagnosticsDoc {
+// Callers already gate this to editors/administrators before calling it (see DiagnosticsDoc's own doc comment) - there
+// is no further, per-tier redaction here, so it takes no tier of its own.
+func (v *view) diagDoc() *DiagnosticsDoc {
 	d := v.ext.diag
 	if d == nil {
 		return nil
@@ -511,6 +513,5 @@ func (v *view) diagDoc(tier int) *DiagnosticsDoc {
 		}
 		out.Problems = append(out.Problems, pd)
 	}
-	_ = tier
 	return out
 }

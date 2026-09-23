@@ -254,6 +254,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                     tiers={([1, 2] as AccessTier[]).filter((t) => t <= max)}
                     value={tier}
                     onSelect={(t) => setTier(t)}
+                    layout="cards"
                     data-testid="wizard-tier"
                   />
                 </fieldset>
@@ -421,7 +422,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
           )}
           {phase === 'done' && counts && (
             <p className="flex items-center gap-2 text-sm text-emerald-300">
-              <CheckCircle2 size={16} /> Connected. Found {counts.nodes} {counts.nodes === 1 ? 'node' : 'nodes'} and {counts.services} {counts.services === 1 ? 'workload' : 'workloads'}. Review the grouping suggestions in the Discovery inbox.
+              <CheckCircle2 size={16} /> Connected. Found {counts.nodes} {counts.nodes === 1 ? 'node' : 'nodes'} and {counts.services} {counts.services === 1 ? 'service' : 'services'}. Review the grouping suggestions in the Discovery inbox.
             </p>
           )}
           {phase === 'stopped' && <p className="text-sm text-amber-300">This enrollment was {agent?.status}{agent?.reason ? ` (${agent.reason})` : ''}. Create a new install command to try again.</p>}

@@ -109,7 +109,7 @@ export default function ClustersPage() {
                         <Place site={site} fallback={c.region} />
                         {site && <div className="whitespace-nowrap pl-[26px] text-xs text-nb-500">{site.name}</div>}
                         {!site && chip('region') && <div className="mt-0.5">{chip('region')}</div>}
-                        {!site && <PlacementHint compact suggestion={placement.get(c.id)} />}
+                        {!site && <PlacementHint compact suggestion={placement.get(c.id)} egressIp={c.egressIp} />}
                       </div>
                     )
                   })()}

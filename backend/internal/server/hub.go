@@ -966,7 +966,7 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 			}
 			d.Observer = v.obs.doc(h.C.Now())
 			if a.Status == store.StatusApproved {
-				d.Diagnostics = v.diagDoc(a.AccessTier)
+				d.Diagnostics = v.diagDoc()
 				d.Consent = v.consentDoc()
 			}
 			d.Measuring = len(v.targets)

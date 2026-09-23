@@ -186,6 +186,11 @@ const (
 type GRPCServer struct {
 	tlsCfg     *tls.Config
 	anon, auth *grpc.Server
+	// trustProxy is Core.TrustAgentProxy, copied in at construction: every connection must present a
+	// valid PROXY protocol header before its TLS handshake (readProxyHeader in proxyproto.go), and the
+	// address it declares - not the TCP socket's own peer, which would be the proxy itself - is what
+	// peerIP and gRPC's peer.FromContext report from here on.
+	trustProxy bool
 
 	mu      sync.Mutex
 	l       net.Listener
@@ -210,7 +215,7 @@ func (c *Core) NewGRPC(certs *pki.ServerCerts, agentSvc continuumv1.AgentService
 		continuumv1.RegisterAgentServiceServer(s, agentSvc)
 		return s
 	}
-	return &GRPCServer{tlsCfg: cfg, anon: build(maxEnrollMessage), auth: build(maxAgentMessage)}
+	return &GRPCServer{tlsCfg: cfg, anon: build(maxEnrollMessage), auth: build(maxAgentMessage), trustProxy: c.TrustAgentProxy}
 }
 
 // handshaken is the transport credentials of a server that is handed connections whose TLS handshake is
@@ -318,6 +323,21 @@ func (g *GRPCServer) accept(l net.Listener, anonQ, authQ *connQueue) error {
 		}
 		go func() {
 			defer func() { <-slots }()
+			if g.trustProxy {
+				// The header must arrive promptly, same as the handshake that follows it - a source that
+				// opens a connection and sends nothing is exactly what this deadline (and, later,
+				// maxHandshakes) exist to bound.
+				_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
+				addr, ok, err := readProxyHeader(conn)
+				if err != nil {
+					conn.Close()
+					return
+				}
+				_ = conn.SetReadDeadline(time.Time{})
+				if ok {
+					conn = &proxiedConn{Conn: conn, remote: addr}
+				}
+			}
 			tc := tls.Server(conn, g.tlsCfg)
 			ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
 			defer cancel()

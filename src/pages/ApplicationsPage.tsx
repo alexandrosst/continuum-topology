@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { ApplicationForm, ConfirmModal } from '@/components/forms'
 import { Button, EmptyState, PageHeader, Pill, SourceBadge, Table, Td, Th } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
+import { originLabel } from '@/lib/present'
 import type { Application } from '@/lib/types'
 import { useTopology } from '@/store/topology'
 import { matches, RowActions, SearchBox } from './shared'
@@ -61,7 +62,7 @@ export default function ApplicationsPage() {
                   <Td>{mine.length}</Td>
                   <Td>{devices.filter((d) => d.applicationId === a.id).reduce((s, d) => s + d.count, 0) || '—'}</Td>
                   <Td className="text-nb-400">{cIds.map((id) => clusters.find((c) => c.id === id)?.name).filter(Boolean).join(', ') || '—'}</Td>
-                  <Td><Pill>{a.origin}</Pill></Td>
+                  <Td><Pill title={a.origin}>{originLabel(a.origin)}</Pill></Td>
                   <Td className="sticky right-0 bg-nb-925 group-hover:bg-nb-930"><RowActions onEdit={() => setEditing(a)} onDelete={() => setDeleting(a)} /></Td>
                 </tr>
               )

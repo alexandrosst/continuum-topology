@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom'
 import { ConfirmModal } from '@/components/forms'
 import InstallationSettings from '@/components/InstallationSettings'
 import ServerAddressSettings from '@/components/ServerAddressSettings'
-import { Button, PageHeader } from '@/components/ui/primitives'
+import { Button, PageHeader, PulseDot, SavedNote } from '@/components/ui/primitives'
 import { atLeast } from '@/lib/api'
 import { declaredNote, rehydrate, toDeclared } from '@/lib/declared'
 import { useConn, useServer } from '@/store/server'
@@ -103,16 +103,18 @@ export default function SettingsPage() {
         </Card>
       </div>
 
-      {msg && (
-        <p className={'mt-4 text-sm ' + (msg.ok ? 'text-emerald-400' : 'text-red-400')} role="status">{msg.text}</p>
-      )}
+      {msg && <SavedNote className="mt-4 block" tone={msg.ok ? 'ok' : 'error'}>{msg.text}</SavedNote>}
 
       {connected && (
         <p className="mt-10 flex max-w-2xl items-start gap-2 text-xs leading-5 text-nb-500">
-          <span className={`mt-1.5 inline-block size-1.5 shrink-0 rounded-full ${geoip?.enabled ? 'bg-emerald-400' : 'bg-nb-700'}`} />
+          <PulseDot size="size-1.5" className="mt-1.5" color={geoip?.enabled ? 'bg-emerald-400' : 'bg-nb-700'} />
           <span>
             {geoip?.enabled ? (
-              <>IP-based location suggestions are on, using {geoip.database || 'an offline GeoIP database'}{geoip.builtAt ? `, built ${new Date(geoip.builtAt).toLocaleDateString()}` : ''}. Placement still asks for confirmation before it changes anything.</>
+              <>
+                IP-based location suggestions are on, using {geoip.database || 'an offline GeoIP database'}{geoip.builtAt ? `, built ${new Date(geoip.builtAt).toLocaleDateString()}` : ''}. Placement still asks for confirmation before it changes anything.
+                {geoip.publicIpFallback && ' A cluster with a private connecting address (sharing a network with this server) is estimated from this server\'s own public address instead of left unplaced - marked "estimated" and never better than low confidence.'}
+                {geoip.asn && ' Locations also show which network the address belongs to (AS number and organisation), from a second offline database.'}
+              </>
             ) : (
               <>IP-based location suggestions are off: this server has no offline GeoIP database configured. Cloud region codes and city names in cluster labels still place clusters automatically; an administrator can turn this on too by pointing the server at a DB-IP or MaxMind file (see the deployment guide).</>
             )}

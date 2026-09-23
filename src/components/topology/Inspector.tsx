@@ -6,7 +6,7 @@ import { EvidenceSection, WeakValues } from '@/components/EvidenceSection'
 import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
 import ServiceAdvice from '@/components/placement/ServiceAdvice'
-import { DistroIcon, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
+import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
 import { Button, CompletenessBadge, Input, IpAddress, ObservationChip, Pill, Select, SourceBadge, StatusDot, TierBadge } from '@/components/ui/primitives'
 import { completeness } from '@/lib/completeness'
 import { observation } from '@/lib/provenance'
@@ -248,16 +248,23 @@ export default function Inspector({
     const agent = agents.find((a) => a.clusterId === c.id)
     const overlap = c.podCidr ? clusters.filter((o) => o.id !== c.id && o.podCidr === c.podCidr) : []
     title = c.name
-    subtitle = <TierBadge tier={c.tier} />
+    subtitle = (
+      <span className="flex flex-wrap items-center gap-2">
+        <StatusDot status={c.status} withLabel />
+        <TierBadge tier={c.tier} />
+      </span>
+    )
     body = (
       <>
-        <div className="px-5 py-3">
-          <Row label="Status"><StatusDot status={c.status} withLabel /></Row>
+        <Section title="Identity">
           <Row label="Distribution"><WithIcon icon={<DistroIcon distribution={c.distribution} size={16} />}>{c.distribution} {c.version}</WithIcon></Row>
-          <Why ev={c.evidence?.distribution} />
           <Row label="Provider">{c.provider ? <WithIcon icon={<ProviderIcon provider={c.provider} size={16} />}>{c.provider}</WithIcon> : '—'}</Row>
+          <Maybe label="Age">{c.createdAt ? `${ageLabel(c.createdAt)} (${new Date(c.createdAt).toLocaleDateString()})` : undefined}</Maybe>
+          <Maybe label="Trust zone · residency">{[c.trustZone, c.dataResidency].filter(Boolean).join(' · ')}</Maybe>
+        </Section>
+        <Section title="Location & network">
           <Row label="Location"><Place site={sites.find((x) => x.id === c.siteId)} fallback={c.region} /></Row>
-          {!sites.some((x) => x.id === c.siteId) && <PlacementHint suggestion={placement.get(c.id)} />}
+          {!sites.some((x) => x.id === c.siteId) && <PlacementHint suggestion={placement.get(c.id)} egressIp={c.egressIp} />}
           <Maybe label="Site">{siteName(c.siteId)}</Maybe>
           <Maybe label="Region label">{c.region}</Maybe>
           <Maybe label="CNI · Ingress">{[c.cni, c.ingress].filter(Boolean).join(' · ')}</Maybe>
@@ -270,15 +277,38 @@ export default function Inspector({
           {c.apiEndpoint && <Row label="API endpoint"><IpAddress ip={c.apiEndpoint} inline /></Row>}
           {c.egressIp && <Row label="Exit IP"><IpAddress ip={c.egressIp} inline /></Row>}
           {agent?.connectingGeo && (
-            <Row label="GeoIP says">
-              <span title="Where a GeoIP database places the address this cluster connects from. A hint only: a VPN, a mobile network or a cloud provider's egress can put it far from the cluster.">
-                {[agent.connectingGeo.city, agent.connectingGeo.countryName || agent.connectingGeo.country].filter(Boolean).join(', ')}
-                {agent.connectingGeo.accuracyKm ? <span className="text-nb-500"> ±{agent.connectingGeo.accuracyKm} km</span> : null}
-              </span>
-            </Row>
+            <div className="mt-2 rounded-md border border-nb-850 bg-nb-930/40 px-2.5 py-2 text-xs">
+              <div className="mb-1 text-nb-500">GeoIP says</div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span
+                  className="inline-flex items-center gap-2 text-nb-300"
+                  title={
+                    agent.connectingGeo.estimated
+                      ? "This cluster's own connecting address is private, so this is where this server's own internet connection appears to be instead - accurate if they share a network, off if they don't."
+                      : "Where a GeoIP database places the address this cluster connects from. A hint only: a VPN, a mobile network or a cloud provider's egress can put it far from the cluster."
+                  }
+                >
+                  <Flag code={agent.connectingGeo.country} />
+                  <span>
+                    {[agent.connectingGeo.city, agent.connectingGeo.countryName || agent.connectingGeo.country].filter(Boolean).join(', ')}
+                    {agent.connectingGeo.accuracyKm ? <span className="text-nb-500"> ±{agent.connectingGeo.accuracyKm} km</span> : null}
+                    {agent.connectingGeo.estimated && <span className="ml-1 text-nb-500">(estimated)</span>}
+                  </span>
+                </span>
+                {agent.connectingGeo.asOrg && (
+                  <span
+                    className="text-nb-500"
+                    title="Which network this address belongs to, from a separate ASN database - independent of the city/country guess, and unaffected by a VPN or cloud egress moving it."
+                  >
+                    · {agent.connectingGeo.asOrg}
+                    {agent.connectingGeo.asn ? ` (AS${agent.connectingGeo.asn})` : ''}
+                  </span>
+                )}
+              </div>
+            </div>
           )}
-          <Maybe label="Age">{c.createdAt ? `${ageLabel(c.createdAt)} (${new Date(c.createdAt).toLocaleDateString()})` : undefined}</Maybe>
-          <Maybe label="Trust zone · residency">{[c.trustZone, c.dataResidency].filter(Boolean).join(' · ')}</Maybe>
+        </Section>
+        <Section title="Access & discovery">
           <Row label="Discovered"><CompletenessBadge c={completeness(c, nodes, services, dependencies)} /></Row>
           {agent && (
             <Row label="Agent">
@@ -293,7 +323,7 @@ export default function Inspector({
           )}
           <Origin e={c} />
           <WeakValues kind="cluster" rec={c} />
-        </div>
+        </Section>
         {c.mesh && (
           <Section title="Service mesh">
             <Row label="Mesh">{meshName(c.mesh.kind)}{c.mesh.version ? ` ${c.mesh.version}` : ''}</Row>
@@ -318,11 +348,11 @@ export default function Inspector({
         )}
         <Section title={`Nodes (${ns.length})`}>
           {ns.map((n) => <LinkRow key={n.id} label={n.name} sub={n.role === 'control-plane' ? 'control plane' : ''} onClick={() => onSelect({ kind: 'node', id: n.id })} />)}
-          {ns.length === 0 && <p className="text-sm text-nb-500">{c.source === 'discovered' ? 'No node has been reported for this cluster (the agent may read below the Infrastructure level).' : 'No nodes declared.'}</p>}
+          {ns.length === 0 && <p className="text-sm text-nb-500">{c.source === 'discovered' ? 'No node has been reported for this cluster (the agent may read below the Infrastructure access level).' : 'No nodes declared.'}</p>}
         </Section>
         <Section title={`Services (${ws.length})`}>
           {ws.map((w) => <LinkRow key={w.id} label={w.name} sub={w.namespace} onClick={() => onSelect({ kind: 'service', id: w.id })} />)}
-          {ws.length === 0 && <p className="text-sm text-nb-500">{c.source === 'discovered' ? 'No service has been reported for this cluster (the agent may read below the Services level).' : 'No services declared.'}</p>}
+          {ws.length === 0 && <p className="text-sm text-nb-500">{c.source === 'discovered' ? 'No service has been reported for this cluster (the agent may read below the Services access level).' : 'No services declared.'}</p>}
         </Section>
         {spaces.length > 0 && (
           <Section title={`Namespaces (${spaces.length})`}>
@@ -348,31 +378,34 @@ export default function Inspector({
     const ws = services.filter((w) => w.nodeIds.includes(n.id))
     const attached = devices.filter((d) => d.gatewayNodeId === n.id)
     title = n.name
-    subtitle = <Pill>{n.role === 'control-plane' ? 'Control plane' : 'Worker'}</Pill>
+    subtitle = (
+      <span className="flex flex-wrap items-center gap-2">
+        <StatusDot status={n.status} withLabel />
+        <Pill>{n.role === 'control-plane' ? 'Control plane' : 'Worker'}</Pill>
+      </span>
+    )
     body = (
       <>
-        <div className="px-5 py-3">
-          <Row label="Status"><StatusDot status={n.status} withLabel /></Row>
+        <Section title="Identity">
           <Row label="Cluster">
             <button className="text-accent hover:underline" onClick={() => onSelect({ kind: 'cluster', id: n.clusterId })}>{clusterName(n.clusterId)}</button>
           </Row>
           <Row label="Type">{n.kind === 'vm' ? 'VM' : n.kind === 'bare-metal' ? 'Bare metal' : 'Edge device'}</Row>
-          <Why ev={n.evidence?.kind} />
           {!n.probed && n.source === 'discovered' && !n.overrides?.kind && n.evidence?.kind?.confidence === 'low' && (
             <Row label="Not sure" wrap>
               <span className="text-nb-400">This type is a guess from the Kubernetes API. Turn on the node probe when connecting the cluster to have the machine tell for itself, or set it here.</span>
             </Row>
           )}
           <Maybe label="Virtualization">{n.virtualization}</Maybe>
-          <Why ev={n.evidence?.virtualization} />
           <Maybe label="Hardware">{n.hardwareModel}</Maybe>
-          {n.probed && <Why ev={n.evidence?.hardwareModel} />}
           <Maybe label="Instance">{[n.instanceType, n.zone].filter(Boolean).join(' · ')}</Maybe>
-          <Row label="IP"><IpAddress ip={n.ip} inline /></Row>
-          <Maybe label="Age">{n.createdAt ? `${ageLabel(n.createdAt)} (${new Date(n.createdAt).toLocaleDateString()})` : undefined}</Maybe>
           <Row label="OS">{n.os}</Row>
           <Maybe label="Architecture">{n.arch}</Maybe>
           <Maybe label="Kernel · runtime">{[n.kernel, n.runtime].filter(Boolean).join(' · ')}</Maybe>
+          <Maybe label="Age">{n.createdAt ? `${ageLabel(n.createdAt)} (${new Date(n.createdAt).toLocaleDateString()})` : undefined}</Maybe>
+        </Section>
+        <Section title="Capacity">
+          <Row label="IP"><IpAddress ip={n.ip} inline /></Row>
           <Row label="Capacity">{n.cpu} vCPU · {n.memoryGb} GB</Row>
           <Maybe label="Allocatable">{res(n.allocatable)}</Maybe>
           <Maybe label="Requested">{res(n.requested)}</Maybe>
@@ -384,14 +417,17 @@ export default function Inspector({
             ) : n.podCapacity ? `max ${n.podCapacity}` : undefined}
           </Maybe>
           <Maybe label="Accelerators">{n.accelerators?.map((a) => `${a.count}× ${a.vendor} ${a.model}`).join(', ')}</Maybe>
+        </Section>
+        <Section title="Network & health">
           <Maybe label="Uplink">{connLabel(n.connectivity)}</Maybe>
-          {n.connectivity && <Why ev={n.evidence?.connectivity} />}
           {n.hasBattery && <Row label="Power">Has a battery: can run without mains power</Row>}
           <Maybe label="Taints">{list(n.taints)}</Maybe>
           {n.conditions && n.conditions.length > 0 && <Row label="Conditions"><span className="text-amber-300">{n.conditions.join(', ')}</span></Row>}
+        </Section>
+        <Section title="Discovery">
           <Origin e={n} />
           <WeakValues kind="node" rec={n} />
-        </div>
+        </Section>
         <Section title={`Services on this node (${ws.length})`}>
           {ws.map((w) => <LinkRow key={w.id} label={w.name} sub={w.namespace} onClick={() => onSelect({ kind: 'service', id: w.id })} />)}
           {ws.length === 0 && <p className="text-sm text-nb-500">Nothing scheduled here.</p>}
@@ -411,11 +447,15 @@ export default function Inspector({
     const rq = [w.cpuRequestM !== undefined ? `${w.cpuRequestM}m` : '', w.memRequestMi !== undefined ? `${w.memRequestMi} Mi` : ''].filter(Boolean).join(' · ')
     const lim = [w.cpuLimitM !== undefined ? `${w.cpuLimitM}m` : '', w.memLimitMi !== undefined ? `${w.memLimitMi} Mi` : ''].filter(Boolean).join(' · ')
     title = w.name
-    subtitle = <Pill>{w.kind}</Pill>
+    subtitle = (
+      <span className="flex flex-wrap items-center gap-2">
+        <StatusDot status={w.status} withLabel />
+        <Pill>{w.kind}</Pill>
+      </span>
+    )
     body = (
       <>
-        <div className="px-5 py-3">
-          <Row label="Status"><StatusDot status={w.status} withLabel /></Row>
+        <Section title="Identity">
           <Row label="Cluster">
             <button className="text-accent hover:underline" onClick={() => onSelect({ kind: 'cluster', id: w.clusterId })}>{clusterName(w.clusterId)}</button>
           </Row>
@@ -423,17 +463,14 @@ export default function Inspector({
           <Row label="Namespace">{w.namespace}</Row>
           <Row label="Image"><span className="font-mono text-xs">{w.image || '—'}</span></Row>
           <Maybe label="Digest"><span className="font-mono text-xs">{w.imageDigest?.slice(0, 19)}</span></Maybe>
+          <Maybe label="Managed by">{w.managedBy}</Maybe>
+          <Maybe label="Age">{w.createdAt ? `${ageLabel(w.createdAt)} (${new Date(w.createdAt).toLocaleDateString()})` : undefined}</Maybe>
+        </Section>
+        <Section title="Resources & scaling">
           <Row label="Replicas">{ready}</Row>
           <Maybe label="Restarts">{w.restarts ? String(w.restarts) : undefined}</Maybe>
           <Maybe label="Requests">{rq}</Maybe>
           <Maybe label="Limits">{lim}</Maybe>
-          <Maybe label="Exposure">{[w.exposure, list(w.hosts)].filter(Boolean).join(' · ')}</Maybe>
-          <Maybe label="Ports">{w.ports?.join(', ')}</Maybe>
-          <Maybe label="Managed by">{w.managedBy}</Maybe>
-          <Maybe label="Node selector">{kv(w.nodeSelector)}</Maybe>
-          <Maybe label="Tolerations">{list(w.tolerations)}</Maybe>
-          <Maybe label="Sensitivity">{w.sensitivity}</Maybe>
-          <Maybe label="Age">{w.createdAt ? `${ageLabel(w.createdAt)} (${new Date(w.createdAt).toLocaleDateString()})` : undefined}</Maybe>
           {w.autoscaler && (
             <Row label="Autoscaling" wrap>
               {autoscalerRange(w.autoscaler)}, now {w.autoscaler.current}
@@ -445,9 +482,18 @@ export default function Inspector({
               {disruptionLabel(w.disruption)} <span className="text-nb-500">· {w.disruption.allowed} may be evicted now</span>
             </Row>
           )}
+        </Section>
+        <Section title="Networking">
+          <Maybe label="Exposure">{[w.exposure, list(w.hosts)].filter(Boolean).join(' · ')}</Maybe>
+          <Maybe label="Ports">{w.ports?.join(', ')}</Maybe>
+          <Maybe label="Node selector">{kv(w.nodeSelector)}</Maybe>
+          <Maybe label="Tolerations">{list(w.tolerations)}</Maybe>
+          <Maybe label="Sensitivity">{w.sensitivity}</Maybe>
+        </Section>
+        <Section title="Discovery">
           <Origin e={w} />
           <WeakValues kind="service" rec={w} />
-        </div>
+        </Section>
         {w.mesh && (
           <Section title="Service mesh">
             <Row label="Mesh">{meshName(w.mesh.mesh)}</Row>
@@ -531,16 +577,25 @@ export default function Inspector({
     const { calls, calledBy } = depSections(d.id)
     const gw = nodes.find((n) => n.id === d.gatewayNodeId)
     title = d.name
-    subtitle = <Pill>{DEVICE_KINDS.find((k) => k.value === d.kind)?.label ?? d.kind}{d.count > 1 ? ` ×${d.count}` : ''}</Pill>
+    subtitle = (
+      <span className="flex flex-wrap items-center gap-2">
+        <StatusDot status={d.status} withLabel />
+        <Pill>{DEVICE_KINDS.find((k) => k.value === d.kind)?.label ?? d.kind}{d.count > 1 ? ` ×${d.count}` : ''}</Pill>
+      </span>
+    )
     body = (
       <>
-        <div className="px-5 py-3">
-          <Row label="Status"><StatusDot status={d.status} withLabel /></Row>
+        <Section title="Identity">
           <Why ev={d.evidence?.kind} />
           <Row label="Application">{appName(d.applicationId) ?? '—'}</Row>
           <Row label="Site">{d.siteId ? (
             <button className="text-accent hover:underline" onClick={() => onSelect({ kind: 'site', id: d.siteId! })}>{siteName(d.siteId)}</button>
           ) : '—'}</Row>
+          <Maybe label="Hardware">{d.hardwareModel}</Maybe>
+          <Maybe label="Firmware">{d.firmware}</Maybe>
+          <Maybe label="Labels">{kv(d.labels)}</Maybe>
+        </Section>
+        <Section title="Connectivity">
           <Row label="Units">{d.count}</Row>
           <Row label="Protocol">{d.protocol || '—'}</Row>
           <Maybe label="Connectivity">{connLabel(d.connectivity)}</Maybe>
@@ -549,11 +604,10 @@ export default function Inspector({
               <button className="text-accent hover:underline" onClick={() => onSelect({ kind: 'node', id: gw.id })}>{gw.name}</button>
             </Row>
           )}
-          <Maybe label="Hardware">{d.hardwareModel}</Maybe>
-          <Maybe label="Firmware">{d.firmware}</Maybe>
-          <Maybe label="Labels">{kv(d.labels)}</Maybe>
+        </Section>
+        <Section title="Discovery">
           <Origin e={d} />
-        </div>
+        </Section>
         <Section title={`Sends data to (${calls.length})`}>
           {calls.map((x) => {
             const t = end(x.toKind, x.to)
@@ -581,14 +635,14 @@ export default function Inspector({
     body = (
       <>
         {s && (
-          <div className="px-5 py-3">
+          <Section title="Location">
             <Row label="Location"><Place site={s} /></Row>
             <Row label="Coordinates"><span className="font-mono text-xs">{s.lat.toFixed(2)}, {s.lng.toFixed(2)}</span></Row>
             {exitIps(cs).length > 0 && (
               <Row label="Exit IP"><span className="flex flex-col gap-1">{exitIps(cs).map((ip) => <IpAddress key={ip} ip={ip} inline />)}</span></Row>
             )}
             <Maybe label="Trust zone · residency">{[s.trustZone, s.dataResidency].filter(Boolean).join(' · ')}</Maybe>
-          </div>
+          </Section>
         )}
         {cs.length > 0 && (
           <Section title={`Clusters (${cs.length})`}>
@@ -604,7 +658,7 @@ export default function Inspector({
             {links.map((l) => {
               const other = l.a === s!.id ? l.b : l.a
               const bits = [l.rttMs !== undefined ? `${l.rttMs} ms` : '', l.lossPct !== undefined ? `${l.lossPct}% loss` : '', l.mbps !== undefined ? `${l.mbps} Mbps` : ''].filter(Boolean).join(' · ')
-              return <LinkRow key={l.id} label={siteName(other) ?? other} sub={`${bits}${l.source === 'declared' ? ' (declared)' : ''}`} />
+              return <LinkRow key={l.id} label={siteName(other) ?? other} sub={`${bits}${l.source === 'declared' ? ' (declared)' : ''}`} onClick={sites.some((x) => x.id === other) ? () => onSelect({ kind: 'site', id: other }) : undefined} />
             })}
           </Section>
         )}
@@ -620,13 +674,13 @@ export default function Inspector({
     editable = false
     body = (
       <>
-        <div className="px-5 py-3">
+        <Section title="Identity">
           {e.name && <Row label="Address"><span className="font-mono text-xs">{e.host}</span></Row>}
           <Maybe label="Port">{e.port ? String(e.port) : undefined}</Maybe>
           {seenOnly && <Maybe label="Seen">{`${ago(e.lastSeen)} · found in traffic, not declared anywhere`}</Maybe>}
           <Why ev={e.evidence?.identity} />
           <Origin e={e} />
-        </div>
+        </Section>
         <NameEndpoint key={e.id} endpoint={e} />
         <Section title={`Called by (${calledBy.length})`}>
           {calledBy.map((d) => {
@@ -690,7 +744,7 @@ export default function Inspector({
               {d.stale && <p className="mt-1 text-xs text-amber-300">No traffic since {ago(d.lastSeen)}.</p>}
             </>
           ) : (
-            <p className="text-sm text-nb-500">{seen ? 'Seen, but no rates were reported.' : 'Nobody has seen this in traffic; it comes from what was declared. Turn on the traffic observer in Discovery to check it.'}</p>
+            <p className="text-sm text-nb-500">{seen ? 'Seen, but no rates were reported.' : 'No traffic has been seen for this; it comes from what was declared. Turn on the traffic observer in Discovery to check it.'}</p>
           )}
         </Section>
         {verdict && (

@@ -208,6 +208,28 @@ test('applySuggestion(): setting a discovered cluster\'s site is stored as an ov
   assert.equal(applySuggestion(seed, app).services!.find((x) => x.id === 'w-gw')!.applicationId, 'app-ml') // manual entity: base value
 })
 
+test('applySuggestion(): create-application groups the listed services under a fresh application', () => {
+  const newApp = { id: 'app-fresh', orgId: DEFAULT_ORG, name: 'checkout', description: '', origin: 'explicit', confidence: 'high' as const, source: 'discovered' as const }
+  const s = { ...seed.suggestions[0], apply: { type: 'create-application' as const, application: newApp, serviceIds: ['w-gw', 'w-orch'] } }
+  const out = applySuggestion(seed, s)
+  assert.ok(out.applications!.some((a) => a.id === 'app-fresh' && a.name === 'checkout'))
+  assert.equal(out.services!.find((x) => x.id === 'w-gw')!.applicationId, 'app-fresh')
+  assert.equal(out.services!.find((x) => x.id === 'w-orch')!.applicationId, 'app-fresh')
+})
+
+test('applySuggestion(): regrouping onto an alternative label creates its own application, not the original one', () => {
+  // What the Discovery page's "use a different label instead" picker does: it swaps the suggestion's
+  // application for a fresh one named after the runner-up label before accepting, rather than the
+  // one discovery originally proposed.
+  const original = { id: 'app-orig', orgId: DEFAULT_ORG, name: 'my-release', description: '', origin: 'helm', confidence: 'high' as const, source: 'discovered' as const }
+  const reworked = { ...original, id: 'app-alt', name: 'shop-suite', origin: 'part-of', confidence: 'medium' as const }
+  const s = { ...seed.suggestions[0], apply: { type: 'create-application' as const, application: reworked, serviceIds: ['w-gw'] } }
+  const out = applySuggestion(seed, s)
+  assert.ok(!out.applications!.some((a) => a.id === 'app-orig'), 'the label that was passed over should never be created')
+  assert.ok(out.applications!.some((a) => a.id === 'app-alt' && a.name === 'shop-suite'))
+  assert.equal(out.services!.find((x) => x.id === 'w-gw')!.applicationId, 'app-alt')
+})
+
 test('upgrade(): rejects non-objects, missing arrays and future schema versions', () => {
   assert.throws(() => upgrade(null), /not a JSON object/)
   assert.throws(() => upgrade({ clusters: 1 }), /Missing or invalid "clusters"/)
@@ -589,6 +611,38 @@ test('places: GeoIP is a low-confidence hint, and agreement raises confidence', 
   assert.equal(co[0].city, 'Athens')
   assert.equal(co[0].confidence, 'low')
   assert.match(co[0].evidence[0].detail ?? '', /only knows the country/)
+})
+
+test('places: an estimated GeoIP result (the server\'s own public IP, standing in for a private address) never beats low confidence and says so', () => {
+  const geoBase = { country: 'GR', countryName: 'Greece', city: 'Athens', lat: 37.98, lng: 23.73, accuracyKm: 20, level: 'city' as const, database: 'DB-IP' }
+  const estimated = { ...geoBase, estimated: true }
+  // on-prem, matching the region label too - would normally reach "high" via agreement, but an
+  // estimated address is never trusted that far since it isn't really the cluster's own address.
+  const c = placementCandidates(places, { region: 'Athens', provider: 'on-prem', geo: estimated })
+  assert.equal(c[0].confidence, 'low')
+  assert.ok(c.find((x) => x.city === 'Athens')!.evidence.some((e) => /this server's own internet connection/.test(e.detail ?? '')))
+  // a normal (non-estimated) GeoIP result under the same inputs does reach high via agreement -
+  // confirms the low ceiling above is specifically about `estimated`, not the region label losing effect.
+  const notEstimated = placementCandidates(places, { region: 'Athens', provider: 'on-prem', geo: geoBase })
+  assert.equal(notEstimated.length, 1)
+  assert.equal(notEstimated[0].confidence, 'high')
+})
+
+test('places: a placement suggestion carries every signal that went into its confidence, not just the flattened sentence', () => {
+  const cl = (over: Partial<Cluster>): Cluster => ({ ...manual, id: 'cl-new', siteId: undefined, region: 'Athens', provider: 'On-prem', tier: 'edge', source: 'discovered', ...over })
+  const geo = { country: 'GR', countryName: 'Greece', city: 'Athens', lat: 37.98, lng: 23.73, level: 'city' as const, database: 'DB-IP' }
+  const model = { clusters: [cl({})], sites: [], nodes: [], agents: [{ clusterId: 'cl-new', connectingGeo: geo }], suggestions: [] as Suggestion[] }
+  const [s] = derivePlacementSuggestions(places, model)
+  // The region label and the agent's GeoIP address agree on Athens, which is exactly the two-source
+  // agreement placementCandidates rewards with 'high' - so there must be two evidence entries here,
+  // each with its own confidence, not one string that has already thrown that breakdown away.
+  assert.equal(s.confidence, 'high')
+  assert.equal(s.evidence.length, 2)
+  assert.ok(s.evidence.every((e) => e.signal && e.confidence))
+  assert.ok(s.evidence.some((e) => /names/.test(e.signal))) // the region label match
+  assert.ok(s.evidence.some((e) => /GeoIP/.test(e.signal))) // the agent's connecting address
+  // detail (the flattened sentence other UI still reads, e.g. the Inbox list) keeps working alongside it
+  assert.match(s.detail, /Confidence: high/)
 })
 
 test('places: an existing site nearby is reused, not duplicated', () => {

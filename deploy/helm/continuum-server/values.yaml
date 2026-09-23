@@ -9,6 +9,14 @@
 #     meant to sit behind a Gateway (HTTPRoute) that terminates TLS, or serve TLS itself (admin.tls) - which, if you
 #     don't give it a certificate, this chart generates a self-signed one for automatically (admin.tls.selfSigned).
 #  2. The server is stateful and NOT horizontally scalable: one replica, one PersistentVolumeClaim. See `persistence`.
+#
+# ┌───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+# │ QUICK START — most installs only ever touch these two values; everything else already has a sensible default:     │
+# │   image.repository        your registry (this chart does not publish the image anywhere for you)                  │
+# │   agent.publicAddress     the host:port agents will dial, e.g. continuum.example.com:8443                         │
+# │ A section headed "(advanced)" below is safe to skip entirely on a first install - come back to it only if you     │
+# │ need what it does. deploy/README.md has copy-pasteable install commands for a trial and for production.           │
+# └───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 nameOverride: ""
 fullnameOverride: ""
@@ -67,10 +75,25 @@ agent:
     loadBalancerIP: ""         # deprecated upstream, still honoured by some clouds
     loadBalancerClass: ""
     loadBalancerSourceRanges: []
-    # Local keeps the agent's real source address, which the server uses to suggest a location (geoip-db). With a single
-    # replica it also avoids a second hop. With NodePort, only the node running the pod answers. Empty = cluster default.
+    # Local keeps the agent's real source address, which the server uses to suggest a location (geoip-db), for approval
+    # cards, and for per-address rate limits. The cluster default (Cluster, what "" resolves to) can SNAT a connection
+    # that lands on a node other than the one running the pod, replacing the agent's address with that node's - the
+    # most common reason a real, non-local deployment still shows no location or a puzzling one. With a single replica
+    # Local also avoids that second hop entirely. With NodePort, Local means only the node actually running the pod
+    # answers on the NodePort, which is worth knowing if you point DNS at several nodes for it.
+    # If Local isn't an option here (multiple replicas need to share the NodePort, say) and connecting addresses still
+    # come through wrong, agent.behindProxy plus a PROXY-protocol-speaking hop in front is the other way to keep them -
+    # see "Exposing the agent port" → "Passthrough loses the client's own address" in the docs.
     externalTrafficPolicy: ""
     labels: {}
+  # Set when something between agents and this Service forwards the TCP connection in a way this chart doesn't already
+  # account for (your own reverse proxy's TCP/SNI passthrough - see the "Already run your own reverse proxy?" section
+  # of "Exposing the agent port" in the docs) and that hop is configured to send a PROXY protocol header (v1 or v2)
+  # ahead of the connection. With this on, the server requires that header on every agent connection and trusts the
+  # address it declares for approval cards, rate limits, the audit trail and location - which also means a connection
+  # that skips your proxy is refused outright, not silently accepted under the proxy's own address. Leave this false
+  # for plain LoadBalancer, NodePort or agent.tlsRoute (Gateway API TLSRoute) - none of those need it.
+  behindProxy: false
 
   # Gateway API TLSRoute in a Gateway listener with `protocol: TLS` and `tls.mode: Passthrough`. TLSRoute graduated to
   # Gateway API's Standard (stable) channel in v1.5 (April 2026); install the Gateway API CRDs and check which apiVersion
@@ -154,6 +177,7 @@ persistence:
   # helm.sh/resource-policy: keep on the PVC, so `helm uninstall` does not delete the CA key. Delete the PVC by hand when you mean it.
   keepOnUninstall: true
 
+# (advanced: the default below is already secure - read on only if you want to bring your own passphrase Secret.)
 # The private key of the enrollment CA lives in /data/pki and signs every certificate this server ever issues to an
 # agent; anyone who reads it (a node compromise, a stray backup, a misconfigured volume snapshot) can mint a
 # certificate every agent would trust. encryptAtRest (default true) protects it with a passphrase: this chart
@@ -217,9 +241,9 @@ neo4j:
     size: 10Gi
     annotations: {}
 
-  # bundled: memory. Neo4j does not size itself to the container, so heap and page cache are set explicitly. The pod's limit must
-  # exceed heap + pagecache by ~400-500Mi for the JVM's own use (metaspace, threads, direct buffers). Defaults suit a small install
-  # (tens of clusters, a few months of history); raise all three together as the graph grows.
+  # (advanced) bundled: memory. Neo4j does not size itself to the container, so heap and page cache are set explicitly. The
+  # pod's limit must exceed heap + pagecache by ~400-500Mi for the JVM's own use (metaspace, threads, direct buffers).
+  # Defaults suit a small install (tens of clusters, a few months of history); raise all three together as the graph grows.
   memory:
     heapInitial: 512m
     heapMax: 512m
@@ -259,7 +283,7 @@ neo4j:
   extraEnv: []                 # e.g. more NEO4J_* settings; see the Neo4j Docker docs for the naming rules
 
 # ---------------------------------------------------------------------------------------------------------------------
-# The install command the server prints for each agent (Connect a cluster screen).
+# (advanced) The install command the server prints for each agent (Connect a cluster screen).
 # Empty values change nothing: the server uses its own defaults (a built-in registry and the chart it serves). Set them for
 # a private or air-gapped registry, or to pin the agent version.
 # ---------------------------------------------------------------------------------------------------------------------
@@ -276,6 +300,23 @@ agentInstall:
 # The server refuses to start if the file is set and unreadable (fail closed).
 geoip:
   path: ""
+  # Needs geoip.path. An http(s) URL that answers with this server's own public IP as plain text (a well known one:
+  # https://api.ipify.org) - --geoip-public-ip-service. Used only as a fallback: when an agent's connecting address
+  # cannot be located at all (private, loopback, CGNAT - which means the agent shares this server's own network,
+  # directly or through NAT), this server's own public address is the closest honest guess, returned marked
+  # "estimated" rather than exact, never better than low confidence. Called once at startup and then on an hourly
+  # cache, never per request. Empty (default): never guessed, only an agent's own address is ever used - the
+  # privacy-conserving default, since this is the one call in the whole server that goes to a third party the
+  # operator picks rather than one this chart or the server hardcodes. If networkPolicy.enabled, also open
+  # networkPolicy.egress.geoipPublicIpCIDRs (the rule is closed, like the decider's, until you do).
+  publicIpService: ""
+  # Needs geoip.path. A second, optional .mmdb - in ASN shape (GeoLite2-ASN, DB-IP ASN Lite), not city/country
+  # shape - --geoip-asn-db. Adds which network an address belongs to (its AS number and the organisation that
+  # announces it, e.g. 15169 / "Google LLC") alongside wherever geoip.path placed it, including a
+  # publicIpService estimate. Entirely offline, same as geoip.path: nothing is looked up over the network.
+  # Mount it the same way, e.g. into the same volume as geoip.path:
+  #   geoip.asnPath: /geoip/dbip-asn-lite.mmdb
+  asnPath: ""
 
 # The external decider an administrator can configure in the UI (Settings) is called from inside the pod. By default the server
 # only calls PUBLIC addresses (so a decider URL cannot be used to reach internal services). List the private ranges your decider
@@ -285,7 +326,8 @@ decider:
   allowCIDRs: []               # e.g. ["10.20.0.0/16"]
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Pod
+# Pod (mostly advanced: the defaults already give you a hardened, right-sized pod - resources is the one you may want
+# to revisit as your install grows).
 # ---------------------------------------------------------------------------------------------------------------------
 # One replica, always: the server holds SQLite in /data (one writer), the in-memory agent sessions, and the CA. It is not
 # horizontally scalable today, and replicas is not a value. Recreate is used because a ReadWriteOnce volume cannot be
@@ -349,15 +391,15 @@ extraInitContainers: []
 # Any further manifests to deploy with the release (a cert-manager Certificate, an ExternalSecret, ...). Strings are templated with `tpl`.
 extraObjects: []
 
-# A PodDisruptionBudget on a single replica: minAvailable 1 blocks node drains until you delete it; maxUnavailable 1 allows the
-# eviction and protects nothing. Off by default for that reason. Enable it only if you want drains to require your attention.
+# (advanced) A PodDisruptionBudget on a single replica: minAvailable 1 blocks node drains until you delete it; maxUnavailable 1
+# allows the eviction and protects nothing. Off by default for that reason. Enable it only if you want drains to require your attention.
 podDisruptionBudget:
   enabled: false
   minAvailable: 1
   maxUnavailable: null
 
 # ---------------------------------------------------------------------------------------------------------------------
-# NetworkPolicy for the server pod (needs a CNI that enforces it; ignored silently otherwise).
+# (advanced) NetworkPolicy for the server pod (needs a CNI that enforces it; ignored silently otherwise).
 # Ingress: only the agent and admin ports. Egress: DNS, Neo4j, and what you add for deciders. Off by default.
 # ---------------------------------------------------------------------------------------------------------------------
 networkPolicy:
@@ -381,10 +423,16 @@ networkPolicy:
     # give the CIDRs it lives in. Empty = no rule, the call is blocked by the policy.
     deciderCIDRs: []
     deciderPorts: [443]
+    # geoip.publicIpService's own address(es), if you set it. Empty = no rule, the call is blocked by the policy,
+    # same as the decider above. A CDN-backed service (api.ipify.org and most others) doesn't publish a fixed
+    # range; check what it actually resolves to for you, or self-host a trivial echo endpoint if you'd rather pin one.
+    geoipPublicIpCIDRs: []
+    geoipPublicIpPorts: [443]
     extra: []                  # raw NetworkPolicyEgressRule objects appended as they are
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Backups. The data (SQLite in WAL mode + the CA key) lives on ONE volume, and a live copy of the database file is not a
+# (advanced, but worth turning on once you have a real deployment) Backups. The data (SQLite in WAL mode + the CA key)
+# lives on ONE volume, and a live copy of the database file is not a
 # correct backup (recent commits sit in the -wal file). This chart offers exactly one automated design, values-gated:
 # CSI VolumeSnapshots of the data volume, taken on a schedule. A snapshot is crash-consistent: restoring it is like
 # restarting after a power cut, which SQLite in WAL mode recovers from cleanly (the last moments before the snapshot may be

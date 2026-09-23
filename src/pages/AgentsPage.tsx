@@ -1,13 +1,13 @@
 import clsx from 'clsx'
 import { ChevronDown, ChevronRight, List, Network, Plug, Server } from 'lucide-react'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { CanSee, ConsentPanel, CopyCommand as CopyableCommand, DiscoveryChip, HealthChip, Problems } from '@/components/agents/AgentInsight'
 import { CheckLine, MODULE_STYLE, ObserverLine, ScopeLine, STATUS_STYLE, when } from '@/components/discovery/AgentParts'
 import ApprovalCard from '@/components/discovery/ApprovalCard'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import { ConfirmModal } from '@/components/forms'
-import { DistroIcon, WithIcon } from '@/components/ui/brand'
+import { DistroIcon, Flag, WithIcon } from '@/components/ui/brand'
 import { Button, EmptyState, ErrorBanner, PageHeader, PulseDot, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
 import { api, ApiError } from '@/lib/api'
 import { skewLabel, skewWarning } from '@/lib/clock'
@@ -365,7 +365,26 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
         <Facts
           rows={[
             ['Connecting from', ip ? `${ip}${ipScopeLabel(ipScope(ip)) ? ` (${ipScopeLabel(ipScope(ip)).toLowerCase()})` : ''}` : undefined],
-            ['Located', a.connectingGeo ? [a.connectingGeo.city, a.connectingGeo.country].filter(Boolean).join(', ') : undefined],
+            [
+              'Located',
+              a.connectingGeo ? (
+                <span key="located" className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span className="inline-flex items-center gap-2">
+                    <Flag code={a.connectingGeo.country} />
+                    <span>
+                      {[a.connectingGeo.city, a.connectingGeo.countryName || a.connectingGeo.country].filter(Boolean).join(', ')}
+                      {a.connectingGeo.estimated && <span className="ml-1 text-nb-500">(estimated)</span>}
+                    </span>
+                  </span>
+                  {a.connectingGeo.asOrg && (
+                    <span className="text-nb-500" title="Which network this address belongs to, from a separate ASN database.">
+                      · {a.connectingGeo.asOrg}
+                      {a.connectingGeo.asn ? ` (AS${a.connectingGeo.asn})` : ''}
+                    </span>
+                  )}
+                </span>
+              ) : undefined,
+            ],
             ['Connected since', l?.connectedSince ? when(l.connectedSince) : a.connected === false ? 'not connected' : undefined],
             ['Connections since server start', l ? String(l.connects) : undefined],
             ['Last heartbeat', a.lastHeartbeat ? `${when(a.lastHeartbeat)} (${ageOf(a.lastHeartbeat)})` : undefined],
@@ -449,10 +468,10 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
 
 const Heading = ({ children }: { children: string }) => <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-nb-500">{children}</div>
 
-function Facts({ rows }: { rows: [string, string | undefined][] }) {
+function Facts({ rows }: { rows: [string, ReactNode][] }) {
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-      {rows.filter((r): r is [string, string] => !!r[1]).map(([k, v]) => (
+      {rows.filter((r): r is [string, ReactNode] => !!r[1]).map(([k, v]) => (
         <Fragment key={k}>
           <dt className="text-nb-500">{k}</dt>
           <dd className="min-w-0 break-words text-nb-300">{v}</dd>

@@ -174,6 +174,51 @@ func TestObservedTopologyAcrossClusters(t *testing.T) {
 	}
 }
 
+// A workload very commonly talks to the same peer on the same port over both UDP and TCP - DNS being
+// the textbook case (UDP first, a TCP fallback for answers too large for one datagram). flowTable keys
+// on protocol too, so these arrive as two distinct edges; observedTopology's own dependency id must not
+// collapse them back into one, or the merged record's Protocol and traffic counters become a coin flip
+// depending on Go's (randomized) map iteration order.
+func TestObservedTopologyKeepsDifferentProtocolsOnTheSameServiceAndPortSeparate(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	edge := cluster("edge", "", nil, wk("iot", "Deployment", "ingest"), wk("kube-system", "Deployment", "dns"))
+	ingest, dns := "iot/Deployment/ingest", "kube-system/Deployment/dns"
+
+	udpFlow := flowOf(wep(ingest), wep(dns), 53, 20)
+	udpFlow.Protocol = "udp"
+	tcpFlow := flowOf(wep(ingest), wep(dns), 53, 3) // flowOf defaults to "tcp"
+
+	feed(&edge, now, 60, udpFlow, tcpFlow)
+
+	deps, _ := observedTopology("org", []observedCluster{edge}, now, 24*time.Hour)
+	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
+
+	var udpConns, tcpConns uint64
+	var sawUDP, sawTCP bool
+	for _, d := range deps {
+		if d.From != sv("edge", ingest) || d.To != sv("edge", dns) || d.Port != 53 {
+			continue
+		}
+		switch d.Protocol {
+		case "UDP":
+			sawUDP, udpConns = true, d.Connections
+		case "TCP":
+			sawTCP, tcpConns = true, d.Connections
+		default:
+			t.Fatalf("unexpected protocol %q on a merged dependency: %+v", d.Protocol, d)
+		}
+	}
+	if !sawUDP || !sawTCP {
+		t.Fatalf("expected separate UDP and TCP dependencies on iot/dns:53, got udp=%v tcp=%v (all: %+v)", sawUDP, sawTCP, deps)
+	}
+	if udpConns != 20 {
+		t.Errorf("UDP dependency's connections = %d, want 20 (must not include the TCP flow's count)", udpConns)
+	}
+	if tcpConns != 3 {
+		t.Errorf("TCP dependency's connections = %d, want 3 (must not include the UDP flow's count)", tcpConns)
+	}
+}
+
 func TestObservedStaleAndUnknownWorkloads(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	c := cluster("c", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))

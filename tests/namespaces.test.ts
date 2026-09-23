@@ -8,7 +8,7 @@ const ns = (name: string, over: Partial<Namespace> = {}) => ({ id: `ns-${name}`,
 const svc = (name: string, namespace: string, over: Partial<Service> = {}) => ({ id: `s-${namespace}-${name}`, clusterId: 'c1', name, namespace, kind: 'Deployment', source: 'discovered', state: 'live', orgId: 'o', ...over }) as Service
 const ag = (over: Partial<Agent> = {}) => ({ id: 'a1', clusterId: 'c1', status: 'approved', kubernetesVersion: 'v1.30', ...over }) as Agent
 
-test('one row per namespace, alphabetical, with workload counts and how many are reachable from outside', () => {
+test('one row per namespace, alphabetical, with service counts and how many are reachable from outside', () => {
   const rows = buildNamespaceRows({
     clusters: [cl()],
     namespaces: [ns('shop'), ns('data')],
@@ -17,7 +17,7 @@ test('one row per namespace, alphabetical, with workload counts and how many are
   })
   assert.deepEqual(rows.map((r) => (r.kind === 'namespace' ? r.name : 'x')), ['data', 'shop'])
   const shop = rows[1]
-  assert.equal(shop.kind === 'namespace' && shop.workloads, 2)
+  assert.equal(shop.kind === 'namespace' && shop.services, 2)
   assert.equal(shop.kind === 'namespace' && shop.exposed, 1)
   assert.equal(shop.kind === 'namespace' && shop.kinds, '2 Deployments')
   assert.equal(rows[0].kind === 'namespace' && rows[0].kinds, '1 StatefulSet')

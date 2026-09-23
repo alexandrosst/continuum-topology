@@ -203,9 +203,10 @@ func Interpret(in Input) model.Topology {
 
 	// ---- services and application suggestions ----
 	type group struct {
-		ref appRef
-		ids []string
-		ns  map[string]bool
+		ref  appRef
+		alts []appRef // what the winning label beat, from the first workload seen for this group
+		ids  []string
+		ns   map[string]bool
 	}
 	groups := map[string]*group{}
 	var wl []*continuumv1.WorkloadFacts
@@ -218,7 +219,8 @@ func Interpret(in Input) model.Topology {
 	sort.Slice(wl, func(i, j int) bool { return wl[i].Key < wl[j].Key })
 	for _, w := range wl {
 		id := svcID(in.ClusterID, w.Key)
-		ref := applicationFor(w)
+		cands := applicationCandidates(w)
+		ref := cands[0]
 		appID := applicationID(in.OrgID, ref, in.ClusterID)
 		controlPlane := w.Mesh != nil && w.Mesh.ControlPlane
 		s := model.Service{
@@ -267,7 +269,7 @@ func Interpret(in Input) model.Topology {
 
 		g := groups[appID]
 		if g == nil {
-			g = &group{ref: ref, ns: map[string]bool{}}
+			g = &group{ref: ref, alts: cands[1:], ns: map[string]bool{}}
 			groups[appID] = g
 		}
 		g.ids = append(g.ids, id)
@@ -299,11 +301,21 @@ func Interpret(in Input) model.Topology {
 			Provenance: prov("app/"+strings.ToLower(name), st.Seq), ID: appID, Name: name, Description: desc, Origin: g.ref.origin, Confidence: g.ref.confidence,
 		}
 		app.Evidence = map[string]model.Evidence{"grouping": ev(g.ref.signal, g.ref.confidence, "")}
+		seen := map[string]bool{strings.ToLower(name): true}
+		var alts []model.GroupingAlternative
+		for _, a := range g.alts {
+			key := strings.ToLower(a.name)
+			if seen[key] {
+				continue // the same name under another label is not a distinct choice
+			}
+			seen[key] = true
+			alts = append(alts, model.GroupingAlternative{Name: a.name, Origin: a.origin, Confidence: a.confidence, Signal: a.signal})
+		}
 		out.Suggestions = append(out.Suggestions, model.Suggestion{
 			ID: "sg-app-" + appID + "-" + in.ClusterID, OrgID: in.OrgID, Kind: "application", AgentID: in.AgentID, CreatedAt: stamp, Status: "open",
 			Title:  fmt.Sprintf("Group %d %s in %s as “%s”", len(g.ids), plural(len(g.ids), "service", "services"), in.Name, name),
 			Detail: fmt.Sprintf("Detected from %s (%s confidence). Accepting creates the application and puts these services in it.", g.ref.signal, g.ref.confidence),
-			Apply:  model.CreateApplication{Type: "create-application", Application: app, ServiceIDs: g.ids},
+			Apply:  model.CreateApplication{Type: "create-application", Application: app, ServiceIDs: g.ids, Alternatives: alts},
 		})
 	}
 	return out

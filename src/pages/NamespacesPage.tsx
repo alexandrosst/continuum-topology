@@ -49,7 +49,7 @@ export default function NamespacesPage() {
           description={
             live.length === 0
               ? 'Namespaces are read from a cluster by its agent, so there is nothing to list until one is connected.'
-              : 'The clusters here have no namespaces or workloads on record. An agent below the Services access level does not read them.'
+              : 'The clusters here have no namespaces or services on record. An agent below the Services access level does not read them.'
           }
           action={live.length === 0 && (!connected || connect.canStart) ? <Button variant="primary" onClick={connect.start}><Plug size={16} /> Connect a cluster</Button> : undefined}
         />
@@ -60,7 +60,7 @@ export default function NamespacesPage() {
               <tr>
                 <Th>Namespace</Th>
                 <Th>Cluster</Th>
-                <Th>Workloads</Th>
+                <Th>Services</Th>
                 <Th>Exposed</Th>
                 <Th>Service mesh</Th>
                 <Th>Agent scope</Th>
@@ -86,7 +86,7 @@ export default function NamespacesPage() {
                     </Td>
                     <Td className="truncate" title={r.clusterName}>{r.clusterName}</Td>
                     <Td className="whitespace-nowrap">
-                      {r.workloads}
+                      {r.services}
                       {r.kinds && <div className="whitespace-normal text-xs text-nb-500">{r.kinds}</div>}
                     </Td>
                     <Td>{r.exposed > 0 ? r.exposed : <span className="text-nb-600">none</span>}</Td>
