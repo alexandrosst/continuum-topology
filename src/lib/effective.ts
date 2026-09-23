@@ -42,6 +42,36 @@ export function applyEdit<T extends Layered & { source: string }>(raw: T | undef
   return { ...raw, overrides: Object.keys(overrides).length ? overrides : undefined }
 }
 
+/**
+ * A short "field: old → new" summary of what changed between two shapes of the same entity, for the audit
+ * log (see `saveCluster`/`saveNode`/`saveService`/`saveDevice`/`upsertSite` in `store/topology.ts`). Compares
+ * the *effective* (override-merged) shape a person saw and edited, not the raw stored one, since that is what
+ * their edit is actually a change from - this is also what makes turning a guessed/unknown value into a
+ * declared one show up here, the same way it clears an "unknown" evidence chip: both read off the same
+ * effective value. Skips bookkeeping (see META) and prints only the cheap-to-read values (strings, numbers,
+ * booleans); anything else (labels, nested objects) is still named, just without old/new. Empty when nothing
+ * meaningful differs, so a no-op save writes no entry.
+ */
+export function describeEdit<T extends object>(before: T | undefined, after: T): string {
+  // Entity types (Cluster, Site, ...) have no string index signature, so they cannot be typed as
+  // Record<string, unknown> directly; this reads them that way without demanding one from callers.
+  const b0 = before as Record<string, unknown> | undefined
+  const a0 = after as Record<string, unknown>
+  const scalar = (v: unknown) => v === undefined || v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+  const label = (v: unknown) => (v === undefined || v === null || v === '' ? '(unset)' : String(v))
+  const changed: string[] = []
+  for (const k of new Set([...(b0 ? Object.keys(b0) : []), ...Object.keys(a0)])) {
+    if (META.has(k)) continue
+    const a = b0?.[k]
+    const b = a0[k]
+    if (JSON.stringify(a) === JSON.stringify(b)) continue
+    changed.push(scalar(a) && scalar(b) ? `${k}: ${label(a)} → ${label(b)}` : k)
+  }
+  if (!changed.length) return ''
+  const shown = changed.slice(0, 3)
+  return shown.join(', ') + (changed.length > shown.length ? ` (+${changed.length - shown.length} more)` : '')
+}
+
 const live = <T extends { deletedAt?: string }>(l: T[]) => l.filter((e) => !e.deletedAt)
 
 /**

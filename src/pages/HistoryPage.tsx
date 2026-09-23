@@ -107,6 +107,7 @@ function Connected({ conn, admin }: { conn: Conn; admin: boolean }) {
         </div>
       </div>
       <Events events={events} hours={hours} />
+      <Actions />
       <div className="mt-8 grid gap-6 xl:grid-cols-2">
         <Traffic conn={conn} />
         <RecordingSettings admin={admin} conn={conn} />
@@ -334,6 +335,69 @@ function Events({ events, hours }: { events: ChangeEvent[] | null; hours: number
         ))}
       </tbody>
     </Table>
+  )
+}
+
+/* ---------- actions people took (edits, suggestion decisions, saved views) ---------- */
+
+// Only the action kinds the store actually writes today (see topology.ts's `audit`/`editAudit` calls);
+// an unrecognised one still renders, just under its raw name, so a future action never disappears silently.
+const ACTION_LABEL: Record<string, string> = {
+  edit: 'Edited',
+  delete: 'Deleted',
+  'accept-suggestion': 'Accepted a suggestion',
+  'dismiss-suggestion': 'Dismissed a suggestion',
+  'save-view': 'Saved a view',
+}
+const TARGET_LABEL: Record<string, string> = {
+  cluster: 'Cluster',
+  node: 'Node',
+  service: 'Service',
+  device: 'Device',
+  site: 'Site',
+  suggestion: 'Suggestion',
+  view: 'View',
+}
+
+function Actions() {
+  const auditLog = useTopology((s) => s.auditLog)
+  const rows = useMemo(() => [...auditLog].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 200), [auditLog])
+  return (
+    <section className="mt-8" aria-label="Actions taken in this workspace">
+      <h2 className="mb-1 text-sm font-medium text-white">Actions</h2>
+      <p className="mb-3 text-xs text-nb-500">
+        Edits, suggestion decisions and saved views - kept forever regardless of the history settings below, and synced across browsers along with the changes themselves.
+      </p>
+      {rows.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-nb-850 px-4 py-6 text-sm text-nb-500">Nothing taken yet.</p>
+      ) : (
+        <Table>
+          <thead>
+            <tr>
+              <Th>When</Th>
+              <Th>Who</Th>
+              <Th>Action</Th>
+              <Th>What</Th>
+              <Th>Detail</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((e) => (
+              <tr key={e.id} data-testid="audit-row">
+                <Td className="whitespace-nowrap text-nb-400">
+                  <div>{new Date(e.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+                  <div className="text-xs text-nb-500">{new Date(e.at).toLocaleDateString()}</div>
+                </Td>
+                <Td className="text-nb-400">{e.actor}</Td>
+                <Td className="whitespace-nowrap">{ACTION_LABEL[e.action] ?? e.action}</Td>
+                <Td className="whitespace-nowrap text-nb-400">{TARGET_LABEL[e.targetKind] ?? e.targetKind}</Td>
+                <Td className="max-w-xl text-nb-400">{e.detail || '—'}</Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
+    </section>
   )
 }
 

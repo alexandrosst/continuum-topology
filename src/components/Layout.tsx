@@ -10,6 +10,7 @@ import CommandPalette from '@/components/CommandPalette'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import HistoryBanner from '@/components/HistoryBanner'
 import SampleBanner from '@/components/SampleBanner'
+import { useAutoPlaceClusters } from '@/lib/usePlacement'
 import { resumeServer, useServer } from '@/store/server'
 import { useRawTopology } from '@/store/topology'
 
@@ -148,6 +149,7 @@ function useServerPolling() {
 
 export default function Layout() {
   useServerPolling()
+  useAutoPlaceClusters()
   return (
     <AuthGate>
       <Shell />
