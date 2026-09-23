@@ -1,6 +1,6 @@
 import { ScrollText } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { Button, EmptyState, ErrorBanner, Input, PageHeader, Select, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, EmptyState, ErrorBanner, Input, PageHeader, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast, type AuditRow, type WorkspaceRevision } from '@/lib/api'
 import { useConn, useServer } from '@/store/server'
 
@@ -78,7 +78,7 @@ export default function ActivityPage() {
         <span className="ml-auto text-xs text-nb-500">{source === 'graph' ? 'Searchable, kept in Neo4j' : 'Latest 500, kept on this server'}</span>
       </div>
       {rows === null ? (
-        <p className="text-sm text-nb-500" role="status">Loading…</p>
+        <TableSkeleton cols={COLS} />
       ) : rows.length === 0 ? (
         <EmptyState title="Nothing matches" description="No recorded action fits these filters in this window." />
       ) : (

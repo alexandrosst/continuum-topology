@@ -326,7 +326,13 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 
 	add := func(from, fromKind, to, toKind string, e *continuumv1.FlowEdge, cross bool, note string) {
 		port := int(e.Key.Port)
-		id := "dep-obs-" + interpret.Hash(from, to, fmt.Sprint(port))
+		// Protocol is part of the identity, not just a field on it: a workload very commonly talks to
+		// the same peer on the same port over both UDP and TCP (DNS being the obvious case - UDP first,
+		// TCP fallback for large answers), and those are two distinct edges in flowTable/flowKey. Leaving
+		// protocol out of this hash used to merge such pairs into one Dependency, whose Protocol field
+		// then depended on map iteration order (non-deterministic) and whose Connections/Bytes silently
+		// summed traffic from two different protocols under one label.
+		id := "dep-obs-" + interpret.Hash(from, to, e.Key.Protocol, fmt.Sprint(port))
 		d := deps[id]
 		if d == nil {
 			d = &model.Dependency{ID: id, OrgID: org, From: from, FromKind: fromKind, To: to, ToKind: toKind, Sources: []string{"observed"},

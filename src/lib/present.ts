@@ -15,6 +15,20 @@ export function countryName(code?: string): string {
   }
 }
 
+/* ---------- application groupings ---------- */
+
+/** How a grouping's origin reads in a sentence: `Application.origin` and a `Suggestion`'s are the same vocabulary. */
+export const ORIGIN_LABEL: Record<string, string> = {
+  explicit: 'continuum.io/application label',
+  argo: 'Argo CD app',
+  helm: 'Helm release',
+  'part-of': 'part-of label',
+  namespace: 'namespace',
+}
+
+/** The words for a grouping origin, or the raw value itself for one this build does not yet name. */
+export const originLabel = (origin: string): string => ORIGIN_LABEL[origin] ?? origin
+
 /** "Athens, Greece"; just the country or just the city when that is all that is known. */
 export function placeLabel(s?: Pick<Site, 'city' | 'country'>): string {
   if (!s) return ''

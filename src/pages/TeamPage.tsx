@@ -146,13 +146,13 @@ export default function TeamPage() {
     void load()
   }, [load, info?.orgId])
 
-  const act = async (f: () => Promise<void>) => {
+  const act = async (f: () => Promise<void>, fallback: string) => {
     try {
       setError('')
       await f()
       await load()
     } catch (e) {
-      setError(problem(e, 'That did not work.'))
+      setError(problem(e, fallback))
     }
   }
 
@@ -164,7 +164,7 @@ export default function TeamPage() {
       setInviting(false)
       setLabel('')
       setCreated(r)
-    })
+    }, 'Could not send the invite.')
 
   if (!role) return null
   const open = invites.filter((i) => !i.used && !i.expired)
@@ -191,7 +191,7 @@ export default function TeamPage() {
                 <Td><span className="text-white">{m.username}</span>{m.you && <span className="ml-2 text-xs text-nb-500">(you)</span>}</Td>
                 <Td>
                   {manageable ? (
-                    <Select value={m.role} aria-label={`Role of ${m.username}`} onChange={(e) => void act(async () => { const c = conn(); if (c) await api.setMemberRole(c, m.id, e.target.value as Role) })} className="h-8 w-36">
+                    <Select value={m.role} aria-label={`Role of ${m.username}`} onChange={(e) => void act(async () => { const c = conn(); if (c) await api.setMemberRole(c, m.id, e.target.value as Role) }, 'Could not change the role.')} className="h-8 w-36">
                       {mine.map((r) => (
                         <option key={r} value={r}>{ROLE_LABEL[r]}</option>
                       ))}
@@ -204,10 +204,10 @@ export default function TeamPage() {
                 <Td className="text-nb-500">{when(m.lastLogin)}</Td>
                 <Td className="text-right">
                   {manageable && (
-                    <Button size="sm" variant="danger" onClick={() => void act(async () => { const c = conn(); if (c) await api.removeMember(c, m.id) })}>Remove</Button>
+                    <Button size="sm" variant="danger" onClick={() => void act(async () => { const c = conn(); if (c) await api.removeMember(c, m.id) }, 'Could not remove the member.')}>Remove</Button>
                   )}
                   {m.you && (
-                    <Button size="sm" onClick={() => void act(async () => { const c = conn(); if (!c) return; await api.leaveOrg(c); await reloadOrgs() })} data-testid="leave-org">Leave</Button>
+                    <Button size="sm" onClick={() => void act(async () => { const c = conn(); if (!c) return; await api.leaveOrg(c); await reloadOrgs() }, 'Could not leave the organisation.')} data-testid="leave-org">Leave</Button>
                   )}
                 </Td>
               </tr>
@@ -235,7 +235,7 @@ export default function TeamPage() {
                     <Td className="text-nb-500">{i.used ? `used by ${i.usedBy || 'someone'}` : i.expired ? 'expired' : `open until ${when(i.expiresAt)}`}</Td>
                     <Td className="text-right">
                       {!i.used && !i.expired && mine.includes(i.role) && (
-                        <Button size="sm" variant="danger" onClick={() => void act(async () => { const c = conn(); if (c) await api.revokeInvite(c, i.id) })}>Withdraw</Button>
+                        <Button size="sm" variant="danger" onClick={() => void act(async () => { const c = conn(); if (c) await api.revokeInvite(c, i.id) }, 'Could not withdraw the invite.')}>Withdraw</Button>
                       )}
                     </Td>
                   </tr>

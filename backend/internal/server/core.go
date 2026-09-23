@@ -107,7 +107,16 @@ type Core struct {
 	OnWorkspace func(rev int64)
 	// OnOrgDeleted lets the platform stop the organisation's hub once its data is gone.
 	OnOrgDeleted func(org string)
-	settings     *settingsHolder
+	// TrustAgentProxy is set when an L4 load balancer or reverse proxy sits in front of the agent
+	// listener and is configured to send a PROXY protocol header ahead of each connection (see
+	// proxyproto.go). With it, NewGRPC requires that header on every connection and uses the address it
+	// declares - not the TCP socket's own peer, which would be the proxy - for approval cards, rate
+	// limits, the audit trail and the location a connecting agent is placed at. Only correct when the
+	// proxy is the sole way to reach this port and always sends the header; otherwise a connection could
+	// forge its address, or (since the header is then mandatory) a real agent behind a proxy that isn't
+	// sending it would be refused outright.
+	TrustAgentProxy bool
+	settings        *settingsHolder
 }
 
 // ForOrg returns a view of the same server scoped to one organisation. It shares the database, the

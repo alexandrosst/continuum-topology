@@ -4,11 +4,10 @@ import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import { ConfirmModal, NodeForm } from '@/components/forms'
 import { WithIcon } from '@/components/ui/brand'
 import { GoneRecords } from '@/components/Observations'
-import { Button, DeclaredMark, EmptyState, EvidenceChip, IpAddress, Meter, ObservationChip, PageHeader, Select, SourceBadge, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, DeclaredMark, EmptyState, EvidenceChip, IpAddress, Meter, ObservationChip, PageHeader, Select, SourceBadge, StatusDot, Table, Td, Th } from '@/components/ui/primitives'
 import { observation } from '@/lib/provenance'
 import { useWeakValue } from '@/store/rowEvidence'
 import { useTopology } from '@/store/topology'
-import { STATUS_COLOR } from '@/lib/types'
 import { hasOverrides } from '@/lib/effective'
 import { accelSummary, ageLabel, formatCpu, formatMemory, podsLabel, podsPercent, requestedPercent } from '@/lib/present'
 import type { MachineNode } from '@/lib/types'
@@ -53,7 +52,7 @@ export default function NodesPage() {
       {nodes.length === 0 ? (
         <EmptyState
           title="No node is known yet"
-          description={clusters.length ? 'No machine is on record for these clusters. An agent reads nodes at the Infrastructure level or above; or describe them by hand.' : 'No cluster is connected or declared yet, so there are no machines to list. Connect a cluster and its agent reports its nodes, or add a cluster by hand first.'}
+          description={clusters.length ? 'No machine is on record for these clusters. An agent reads nodes at the Infrastructure access level or above; or describe them by hand.' : 'No cluster is connected or declared yet, so there are no machines to list. Connect a cluster and its agent reports its nodes, or add a cluster by hand first.'}
           action={!clusters.length && connect.canStart ? <Button variant="primary" onClick={connect.start}><Plug size={16} /> Connect a cluster</Button> : undefined}
         />
       ) : (
@@ -66,7 +65,7 @@ export default function NodesPage() {
               <Th>IP</Th>
               <Th>CPU</Th>
               <Th>Memory</Th>
-              <Th>Workload</Th>
+              <Th>Services</Th>
               <Th className="sticky right-0 bg-nb-925" />
             </tr>
           </thead>
@@ -81,13 +80,9 @@ export default function NodesPage() {
               <tr key={n.id} className="group hover:bg-nb-930/60">
                 <Td>
                   <div className="flex items-center gap-2 whitespace-nowrap font-medium text-white">
-                    <span
-                      title={obs && obs.kind !== 'live' ? `Last known: ${n.status}. ${obs.reason ?? obs.label}` : n.status}
-                      role="img"
-                      aria-label={obs && obs.kind !== 'live' ? `Status: was ${n.status}, not current` : `Status: ${n.status}`}
-                      className={obs && obs.kind !== 'live' ? 'size-2 shrink-0 rounded-full border bg-transparent' : 'size-2 shrink-0 rounded-full'}
-                      style={obs && obs.kind !== 'live' ? { borderColor: STATUS_COLOR[n.status] } : { background: STATUS_COLOR[n.status] }}
-                    />
+                    <span className="shrink-0">
+                      <StatusDot status={n.status} notCurrent={obs && obs.kind !== 'live' ? (obs.reason ?? obs.label) : undefined} />
+                    </span>
                     <span>{n.name}</span>
                     <SourceBadge source={n.source} overridden={hasOverrides(n)} />
                     <ObservationChip quiet info={obs} />

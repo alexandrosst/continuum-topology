@@ -36,10 +36,15 @@ func TestSettingsDefaultsAndBounds(t *testing.T) {
 		"one missed beat":       {StaleAfterBeats: 1},
 		"measure too often":     {MeasureSeconds: 1},
 		"decider timeout":       {DeciderTimeoutSec: 26},
+		"decider secret short":  {DeciderSecret: "too-short"},
+		"decider secret long":   {DeciderSecret: strings.Repeat("x", 201)},
 	} {
 		if _, err := s.Normalize(); err == nil {
 			t.Errorf("%s was accepted", name)
 		}
+	}
+	if n, err := (Settings{DeciderSecret: strings.Repeat("x", 32)}).Normalize(); err != nil || n.DeciderSecret != strings.Repeat("x", 32) {
+		t.Fatalf("a decider secret of reasonable length was rejected: %v", err)
 	}
 }
 

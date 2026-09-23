@@ -90,6 +90,52 @@ body {
 @keyframes menu-pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .menu-pop { animation: menu-pop 0.12s ease-out; transform-origin: top right; }
 
+/* A dialog eases in the same way a popover does, just a touch slower and centred (it is the bigger interruption
+   of the two) - Modal's own box, never its backdrop, which still simply appears: two things fading in at once
+   reads as flicker, not polish. */
+@keyframes modal-pop { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.modal-pop { animation: modal-pop 0.16s ease-out; }
+
+/* A confirmation ("Saved.") or other small status text that replaces nothing - see SavedNote - eases in rather
+   than snapping into the layout. */
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.fade-in { animation: fade-in 0.15s ease-out; }
+
+/* A loading placeholder shimmers left to right instead of sitting as flat grey - the same "something is about to
+   arrive" cue a spinner gives, without a spinner's rotation, and shaped like what it will become instead of a
+   generic bar. See SkeletonBlock/TableSkeleton/SkeletonLines in primitives.tsx. */
+@keyframes skeleton-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+.skeleton-shimmer {
+  background: linear-gradient(90deg, var(--color-nb-930) 25%, var(--color-nb-900) 50%, var(--color-nb-930) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+/* A status dot briefly rings outward when its value changes, so a live/offline/stale swap reads as an event
+   instead of the color just cutting over. Runs once (not infinite) and works over any dot color. See useFlash
+   in primitives.tsx (StatusDot, ObservationChip). */
+@keyframes flash-ring {
+  0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.55); }
+  70% { box-shadow: 0 0 0 5px rgba(255, 255, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+}
+.flash-ring { animation: flash-ring 800ms ease-out; }
+
+/* A status chip briefly brightens when its value changes, the badge equivalent of flash-ring above. */
+@keyframes flash-bg { 0% { background-color: rgba(255, 255, 255, 0.35); } 100% { background-color: transparent; } }
+.flash-bg { animation: flash-bg 800ms ease-out; }
+
+/* A load gauge's bar eases its width and color to a refreshed reading instead of snapping there - see Meter
+   in primitives.tsx. The number beside it uses fade-in (defined above) instead, since a width transition
+   doesn't apply to text. */
+.meter-bar { transition: width 500ms ease, background-color 500ms ease; }
+
+/* A dismissed or accepted row eases out instead of vanishing the instant the decision is applied. The caller
+   removes the row from its list only after this plays (see DiscoveryPage's ROW_EXIT_MS, kept in sync with the
+   200ms below). pointer-events: none guards against a second click mid-exit. */
+@keyframes row-exit { from { opacity: 1; transform: scale(1) translateY(0); } to { opacity: 0; transform: scale(0.98) translateY(-4px); } }
+.row-exit { animation: row-exit 200ms ease-in forwards; pointer-events: none; }
+
 /* Map dots: no browser focus box; keyboard focus shows a dashed ring instead. */
 .map-dot:focus { outline: none; }
 .map-dot:focus-visible .map-hit { stroke: var(--color-accent); stroke-width: 1.5; stroke-dasharray: 3 3; }

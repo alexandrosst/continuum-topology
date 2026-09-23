@@ -308,6 +308,24 @@ func sample(recordSize, ipVersion int) spec {
 	return s
 }
 
+func asnRec(asn uint32, org string) mapv {
+	return mapv{{"autonomous_system_number", u32(asn)}, {"autonomous_system_organization", org}}
+}
+
+// asnSample mirrors sample() but with the ASN database's own record shape (no city/country at all):
+// LookupASN must read it, and the plain Lookup must find nothing useful in it.
+func asnSample(recordSize, ipVersion int) spec {
+	s := spec{recordSize: recordSize, ipVersion: ipVersion, dbType: "GeoLite2-ASN", desc: "GeoLite2 ASN test", built: 1789000000, pointers: true}
+	s.entries = []entry{
+		{"203.0.113.0/24", asnRec(64512, "Example Networks LLC")},
+		{"198.51.100.0/24", asnRec(15169, "Google LLC")},
+	}
+	if ipVersion == 6 {
+		s.entries = append(s.entries, entry{"2001:db8::/32", asnRec(64512, "Example Networks LLC")})
+	}
+	return s
+}
+
 func writeTemp(t *testing.T, b []byte) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "t.mmdb")

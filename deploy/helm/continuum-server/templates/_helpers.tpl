@@ -220,6 +220,13 @@ checks for that and never mounts anything or passes --ca-key-passphrase-file in 
 {{- if and .Values.agent.tlsRoute.enabled (or (not .Values.agent.tlsRoute.parentRefs) (not .Values.agent.tlsRoute.hostnames)) -}}
 {{- fail "agent.tlsRoute.enabled needs agent.tlsRoute.parentRefs and agent.tlsRoute.hostnames" -}}
 {{- end -}}
+{{- /* the agent Service always renders (there is no toggle for it): with tlsRoute also on and the Service still a
+       LoadBalancer or NodePort, agents get TWO working front doors to the same backend - the Gateway's TLSRoute
+       AND the Service's own public address - which is confusing at best and, on a cloud LoadBalancer, a second
+       bill for a listener nobody meant to keep. Route through the Gateway alone by setting the Service ClusterIP. */ -}}
+{{- if and .Values.agent.tlsRoute.enabled (ne .Values.agent.service.type "ClusterIP") -}}
+{{- fail (printf "agent.tlsRoute.enabled routes agents through a Gateway; agent.service.type is %q, which also stands up its own %s for the same port. Set agent.service.type=ClusterIP so the Gateway is the only way in." (toString .Values.agent.service.type) .Values.agent.service.type) -}}
+{{- end -}}
 {{- /* pki */ -}}
 {{- if and .Values.pki.caKeyPassphraseSecret.name (not .Values.pki.caKeyPassphraseSecret.key) -}}
 {{- fail "pki.caKeyPassphraseSecret.key must be set together with .name" -}}

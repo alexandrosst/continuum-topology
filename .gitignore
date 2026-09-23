@@ -13,6 +13,11 @@ dist-ssr
 *.local
 .tmp-*.mjs
 
+# docs-site/ is a standalone Docusaurus project (published to GitHub Pages by .github/workflows/docs.yml);
+# its own build output and cache are exactly as disposable as the main app's dist/ above.
+docs-site/build
+docs-site/.docusaurus
+
 # Go backend: compiled binaries from the README's `go build -o server/-o agent` examples, and local run data
 # (--data-dir ./data, sample SQLite files) - never something to commit, whatever it's named locally.
 backend/server

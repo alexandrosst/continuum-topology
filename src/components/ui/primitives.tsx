@@ -42,7 +42,7 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
         setTimeout(() => setDone(false), 1500)
       }}
     >
-      <Copy size={12} /> {done ? 'Copied' : label}
+      {done ? <Check size={12} className="fade-in text-emerald-400" /> : <Copy size={12} />} {done ? 'Copied' : label}
     </Button>
   )
 }
@@ -238,6 +238,20 @@ export function Field({ label, hint, children, className }: { label: string; hin
   )
 }
 
+/**
+ * A small "it worked" confirmation after a save - the same short ease-in as a popover opening (see `.menu-pop` in
+ * index.css), so it registers as a change rather than snapping into place. Always announced to assistive tech.
+ * Several pages hand-roll this same `{saved && <span role="status">Saved…</span>}` shape; sharing it here means
+ * the touch stays consistent instead of each caller inventing its own timing (or none).
+ */
+export function SavedNote({ children, tone = 'ok', className, ...p }: ComponentProps<'span'> & { tone?: 'ok' | 'error' }) {
+  return (
+    <span {...p} role="status" className={clsx('fade-in text-sm', tone === 'ok' ? 'text-emerald-300' : 'text-red-400', className)}>
+      {children}
+    </span>
+  )
+}
+
 /** A form/page-level error message: this is the shape most of the app already uses for "something went wrong,
  * here's why" (as opposed to `role="alert"` text inlined next to whatever it explains). Prefer this over
  * hand-writing the same border/background/text classes again. */
@@ -270,10 +284,28 @@ export function InfoTip({ children }: { children: string }) {
  * dot hollow and the word as the last one known, because "healthy" said of a picture that has gone quiet is a claim
  * nobody is making any more.
  */
+/**
+ * True for a moment right after `value` changes from what it was, so a status swap can flash briefly instead of
+ * cutting over instantly. Stays false on the first render (nothing to flash yet) and while `value` is unchanged.
+ */
+function useFlash<T>(value: T, ms = 800): boolean {
+  const prev = useRef(value)
+  const [flash, setFlash] = useState(false)
+  useEffect(() => {
+    if (prev.current === value) return
+    prev.current = value
+    setFlash(true)
+    const t = setTimeout(() => setFlash(false), ms)
+    return () => clearTimeout(t)
+  }, [value, ms])
+  return flash
+}
+
 export function StatusDot({ status, withLabel, notCurrent }: { status: Status; withLabel?: boolean; notCurrent?: string }) {
+  const flash = useFlash(status)
   return (
     <span className="inline-flex items-center gap-2 text-sm" title={notCurrent ? `Last known: ${status}. ${notCurrent}` : undefined}>
-      <span className={clsx('size-2 rounded-full', notCurrent && 'border bg-transparent')} style={notCurrent ? { borderColor: STATUS_COLOR[status] } : { background: STATUS_COLOR[status] }} />
+      <span className={clsx('size-2 rounded-full', flash && 'flash-ring', notCurrent && 'border bg-transparent')} style={notCurrent ? { borderColor: STATUS_COLOR[status] } : { background: STATUS_COLOR[status] }} />
       {withLabel && <span className={clsx('capitalize', notCurrent ? 'text-nb-500' : 'text-nb-400')}>{notCurrent ? `was ${status}` : status}</span>}
     </span>
   )
@@ -337,11 +369,12 @@ export function PulseDot({ color, pulse, size = 'size-2', className }: { color: 
  * nobody observes (typed by hand): they have nothing to be stale about. The tooltip says why.
  */
 export function ObservationChip({ info, className, quiet }: { info: ObsInfo | undefined; className?: string; quiet?: boolean }) {
+  const flash = useFlash(info?.kind)
   if (!info) return null
   // In a table of records that are mostly fine, the ordinary case is a small dot; anything else keeps its chip.
   if (quiet && info.kind === 'live') {
     return (
-      <span title="Live: connected and heard from recently." data-observation="live" role="img" aria-label="live" className="inline-block align-middle">
+      <span title="Live: connected and heard from recently." data-observation="live" role="img" aria-label="live" className={clsx('inline-block align-middle rounded-full', flash && 'flash-ring')}>
         <PulseDot color="bg-emerald-400" pulse size="size-1.5" className={className} />
       </span>
     )
@@ -350,7 +383,7 @@ export function ObservationChip({ info, className, quiet }: { info: ObsInfo | un
     <span
       title={info.reason ?? (info.kind === 'live' ? 'Connected and heard from recently.' : info.label)}
       data-observation={info.kind}
-      className={clsx('inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-px text-[11px] font-medium leading-4', TONE_CLASS[info.tone], className)}
+      className={clsx('inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-px text-[11px] font-medium leading-4', TONE_CLASS[info.tone], flash && 'flash-bg', className)}
     >
       <PulseDot
         color={info.kind === 'live' ? 'bg-emerald-400' : info.kind === 'gone' ? 'bg-nb-500' : info.kind === 'revoked' ? 'bg-red-400' : 'bg-amber-400'}
@@ -437,9 +470,9 @@ export function IpAddress({ ip, inline }: { ip?: string; inline?: boolean }) {
   )
 }
 
-export function Pill({ children }: { children: ReactNode }) {
+export function Pill({ children, title }: { children: ReactNode; title?: string }) {
   return (
-    <span className="inline-flex items-center whitespace-nowrap rounded-md border border-nb-800 bg-nb-930 px-2 py-0.5 text-xs text-nb-400">
+    <span title={title} className="inline-flex items-center whitespace-nowrap rounded-md border border-nb-800 bg-nb-930 px-2 py-0.5 text-xs text-nb-400">
       {children}
     </span>
   )
@@ -487,6 +520,7 @@ export function Modal({
   children,
   footer,
   width = 'max-w-xl',
+  dismissible = true,
 }: {
   open: boolean
   onClose: () => void
@@ -495,6 +529,13 @@ export function Modal({
   children: ReactNode
   footer?: ReactNode
   width?: string
+  /**
+   * false for a modal a person must resolve from its own footer buttons (a one-time choice with no safe
+   * default). Hides the header close button and stops the backdrop click and Escape from doing anything -
+   * without this, all three still looked clickable/pressable while silently doing nothing, which reads as
+   * broken rather than intentional. Default true: every other modal keeps closing exactly as before.
+   */
+  dismissible?: boolean
 }) {
   const box = useRef<HTMLDivElement>(null)
   const closeRef = useRef(onClose)
@@ -510,7 +551,7 @@ export function Modal({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation()
-        closeRef.current()
+        if (dismissible) closeRef.current()
         return
       }
       if (e.key !== 'Tab') return
@@ -533,7 +574,7 @@ export function Modal({
       window.removeEventListener('keydown', onKey)
       opener?.focus?.()
     }
-  }, [open]) // onClose is read through a ref: a new function each render must not re-run this and steal focus
+  }, [open, dismissible]) // onClose is read through a ref: a new function each render must not re-run this and steal focus
 
   if (!open) return null
   // Portaled to the document body: some callers (the sidebar's account menu) render this from inside an
@@ -541,14 +582,14 @@ export function Modal({
   // descendants and confine the dialog to that element's box instead of the viewport - the same reason
   // Select's own list is portaled below.
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-[8vh] backdrop-blur-[2px]" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-[8vh] backdrop-blur-[2px]" onMouseDown={dismissible ? onClose : undefined}>
       <div
         ref={box}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={clsx('w-full rounded-xl border border-nb-850 bg-nb-920 shadow-2xl', width)}
+        className={clsx('modal-pop w-full rounded-xl border border-nb-850 bg-nb-920 shadow-2xl', width)}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 border-b border-nb-850 px-6 py-4">
@@ -556,9 +597,11 @@ export function Modal({
             <h2 className="text-base font-medium text-white">{title}</h2>
             {description && <p className="mt-1 text-sm text-nb-500">{description}</p>}
           </div>
-          <button onClick={onClose} aria-label="Close" className="rounded p-1 text-nb-500 hover:bg-nb-940 hover:text-nb-300">
-            <X size={16} />
-          </button>
+          {dismissible && (
+            <button onClick={onClose} aria-label="Close" className="rounded p-1 text-nb-500 hover:bg-nb-940 hover:text-nb-300">
+              <X size={16} />
+            </button>
+          )}
         </div>
         <div className="px-6 py-5">{children}</div>
         {footer && <div className="flex justify-end gap-2 border-t border-nb-850 px-6 py-4">{footer}</div>}
@@ -617,21 +660,78 @@ export const Td = ({ children, className, valign = 'middle', ...p }: ComponentPr
   <td {...p} className={clsx('border-b border-nb-850/60 px-3 py-3 text-nb-300', valign === 'top' ? 'align-top' : 'align-middle', className)}>{children}</td>
 )
 
+/* ---------- Loading skeletons ---------- */
+/**
+ * A shimmering placeholder shaped like what it will become, so a page doesn't jump-cut from "Loading…" text to
+ * real content once data arrives. `aria-hidden`: the loading state itself is announced once, by the container
+ * around these (`role="status"` on TableSkeleton/SkeletonLines), not once per placeholder bar.
+ */
+export function SkeletonBlock({ className }: { className?: string }) {
+  return <div className={clsx('skeleton-shimmer rounded', className)} aria-hidden />
+}
+
+/**
+ * A Table-shaped placeholder: the same rounded/bordered container as the real table that will replace it, so
+ * nothing reflows when data arrives. Pass `cols` when the real table below also fixes its column widths with
+ * one; otherwise just say how many columns with `colCount`.
+ */
+export function TableSkeleton({ cols, colCount, rows = 5 }: { cols?: string[]; colCount?: number; rows?: number }) {
+  const n = cols?.length ?? colCount ?? 4
+  return (
+    <Table cols={cols} role="status" aria-label="Loading">
+      <tbody>
+        {Array.from({ length: rows }, (_, r) => (
+          <tr key={r} className={r > 0 ? 'border-t border-nb-850/60' : undefined}>
+            {Array.from({ length: n }, (_, c) => (
+              <Td key={c}><SkeletonBlock className={clsx('h-3.5', c === 0 ? 'w-24' : 'w-full max-w-[10rem]')} /></Td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </Table>
+  )
+}
+
+/** A few placeholder text lines, for a small loading area that isn't a table (a panel, a list, a page body). */
+export function SkeletonLines({ lines = 3, className }: { lines?: number; className?: string }) {
+  return (
+    <div className={clsx('space-y-2', className)} role="status" aria-label="Loading">
+      {Array.from({ length: lines }, (_, i) => (
+        <SkeletonBlock key={i} className={clsx('h-3', i === lines - 1 && lines > 1 ? 'w-2/3' : 'w-full')} />
+      ))}
+    </div>
+  )
+}
+
+/** A whole page's worth of placeholder, for a route-level Suspense fallback that doesn't know which page is coming. */
+export function PageSkeleton() {
+  return (
+    <div className="p-6 sm:p-8" role="status" aria-label="Loading">
+      <SkeletonBlock className="mb-2 h-7 w-56" />
+      <SkeletonBlock className="mb-6 h-4 w-full max-w-md" />
+      <SkeletonBlock className="h-64 w-full" />
+    </div>
+  )
+}
+
 /**
  * A capacity figure with an optional bar for how much of it is already requested by pods.
  * The number comes first and the unit is quieter, so a column of them reads at a glance.
  */
 export function Meter({ value, unit, pct, title }: { value: string; unit?: string; pct?: number; title?: string }) {
   const color = pct === undefined ? '' : { ok: 'bg-emerald-400', warn: 'bg-amber-400', hot: 'bg-red-400' }[loadBand(pct)]
+  // A refreshed reading fades the new number in rather than popping over the old one; the bar itself just
+  // transitions its width/color in CSS (meter-bar), no JS tweening needed for that part.
+  const flash = useFlash(value)
   return (
     <div className="w-[5rem]" title={title}>
       <div className="flex items-baseline gap-1 whitespace-nowrap">
-        <span className="text-sm font-medium tabular-nums text-nb-300">{value}</span>
+        <span className={clsx('text-sm font-medium tabular-nums text-nb-300', flash && 'fade-in')}>{value}</span>
         {unit && <span className="text-xs text-nb-500">{unit}</span>}
-        {pct !== undefined && <span className="ml-auto text-[11px] tabular-nums text-nb-500">{pct}%</span>}
+        {pct !== undefined && <span className={clsx('ml-auto text-[11px] tabular-nums text-nb-500', flash && 'fade-in')}>{pct}%</span>}
       </div>
       <div className={clsx('mt-1 h-1 overflow-hidden rounded-full', pct !== undefined && 'bg-nb-850')}>
-        {pct !== undefined && <div className={clsx('h-full rounded-full', color)} style={{ width: `${pct}%` }} />}
+        {pct !== undefined && <div className={clsx('h-full rounded-full meter-bar', color)} style={{ width: `${pct}%` }} />}
       </div>
     </div>
   )

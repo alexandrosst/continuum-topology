@@ -19,17 +19,21 @@ import (
 // ---- settings ----
 
 // SettingsDoc is Settings as the UI sees it. Only administrators see the decider's address (it may
-// carry a secret in its query); everyone else learns only that one is configured.
+// carry a secret in its query); everyone else learns only that one is configured. The decider secret is
+// stricter still: nobody ever sees it again once saved, administrator included, the same as a password field -
+// only whether one is set is exposed.
 type SettingsDoc struct {
 	Settings
 	DeciderConfigured bool `json:"deciderConfigured"`
+	DeciderSecretSet  bool `json:"deciderSecretSet"`
 	// ImageDefaults is what the server's --image-* flags say: what install commands use while this organisation's
 	// own image settings are empty. Derived; the UI shows it and never sends it back.
 	ImageDefaults ImageConfig `json:"imageDefaults"`
 }
 
 func settingsDoc(s Settings, admin bool) SettingsDoc {
-	d := SettingsDoc{Settings: s, DeciderConfigured: s.DeciderURL != ""}
+	d := SettingsDoc{Settings: s, DeciderConfigured: s.DeciderURL != "", DeciderSecretSet: s.DeciderSecret != ""}
+	d.Settings.DeciderSecret = "" // write-only, always - see SettingsDoc
 	if !admin {
 		d.DeciderURL = ""
 	}
@@ -42,11 +46,25 @@ func (a *Admin) getSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, d)
 }
 
+// putSettings never lets a client blank the decider secret by accident: a GET never carries it (see settingsDoc),
+// so a client that reads its settings and PUTs most of it back unchanged - which is exactly what the UI does -
+// naturally sends no `deciderSecret` at all, or "". Both are treated as "leave it alone". A client sets a new
+// secret by sending a non-empty `deciderSecret`, and removes it, explicitly, with `clearDeciderSecret: true`.
 func (a *Admin) putSettings(w http.ResponseWriter, r *http.Request) {
-	var s Settings
-	if err := decode(r, &s); err != nil {
+	var body struct {
+		Settings
+		ClearDeciderSecret bool `json:"clearDeciderSecret"`
+	}
+	if err := decode(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
 		return
+	}
+	s := body.Settings
+	switch {
+	case body.ClearDeciderSecret:
+		s.DeciderSecret = ""
+	case s.DeciderSecret == "":
+		s.DeciderSecret = a.core(r).Settings().DeciderSecret
 	}
 	n, err := a.core(r).SaveSettings(r.Context(), actor(r), s)
 	if err != nil {
@@ -289,6 +307,11 @@ func (a *Admin) decide(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "continuum-server/"+a.Version)
+	if set.DeciderSecret != "" {
+		ts, sig := signDeciderRequest(set.DeciderSecret, body, c.Now())
+		req.Header.Set("X-Continuum-Timestamp", ts)
+		req.Header.Set("X-Continuum-Signature", "sha256="+sig)
+	}
 	resp, err := c.Decider.client(time.Duration(set.DeciderTimeoutSec) * time.Second).Do(req)
 	if err != nil {
 		if isDeciderDenied(err) {

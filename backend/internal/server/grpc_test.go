@@ -48,6 +48,83 @@ func (r *rig) dial(t *testing.T, cfg *tls.Config) *grpc.ClientConn {
 
 func code(err error) codes.Code { return status.Code(err) }
 
+// newRigTrustProxy is newRig with TrustAgentProxy on: every connection must carry a PROXY protocol
+// header before its TLS handshake, and the address it declares - not the raw TCP peer, always
+// 127.0.0.1 in this test process - is what gets recorded as the connecting agent's address.
+func newRigTrustProxy(t *testing.T) *rig {
+	t.Helper()
+	e := newEnv(t)
+	e.base.TrustAgentProxy = true
+	certs := pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"})
+	srv := e.base.NewGRPC(certs, &BaseAgentService{C: e.base})
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Serve(l)
+	t.Cleanup(srv.Stop)
+	return &rig{env: e, addr: l.Addr().String()}
+}
+
+// dialProxied is r.dial, but first writes a v1 PROXY protocol line declaring proxiedIP on the raw TCP
+// connection, the way a load balancer configured to send it would - before grpc-go layers TLS on top of
+// the same connection.
+func (r *rig) dialProxied(t *testing.T, cfg *tls.Config, proxiedIP string) *grpc.ClientConn {
+	t.Helper()
+	cc, err := grpc.NewClient(r.addr,
+		grpc.WithTransportCredentials(credentials.NewTLS(cfg)),
+		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+			c, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := c.Write([]byte("PROXY TCP4 " + proxiedIP + " 127.0.0.1 54321 8443\r\n")); err != nil {
+				c.Close()
+				return nil, err
+			}
+			return c, nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cc.Close() })
+	return cc
+}
+
+func TestAgentBehindProxyUsesTheDeclaredAddressNotTheTCPPeer(t *testing.T) {
+	r := newRigTrustProxy(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	secret, _, _ := r.core.CreateToken(ctx, "admin", "edge", 2)
+	d, _ := csr(t)
+	enr := continuumv1.NewEnrollmentClient(r.dialProxied(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", nil), "203.0.113.42"))
+	resp, err := enr.Enroll(ctx, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := r.core.Store.GetAgent(ctx, resp.AgentId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.ConnectingIP != "203.0.113.42" {
+		t.Fatalf("ConnectingIP = %q, want the proxy-declared address, not the TCP peer", a.ConnectingIP)
+	}
+}
+
+func TestAgentBehindProxyRefusesAConnectionThatSkippedTheProxy(t *testing.T) {
+	r := newRigTrustProxy(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	d, _ := csr(t)
+	// A plain dial with no PROXY protocol header in front - what a client would look like if it reached
+	// this listener directly, bypassing the proxy TrustAgentProxy assumes is the only way in.
+	enr := continuumv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", nil)))
+	if _, err := enr.Enroll(ctx, &continuumv1.EnrollRequest{Token: "cnt_x", CsrDer: d, ClusterFingerprint: fp}); code(err) != codes.Unavailable {
+		t.Fatalf("connection without a PROXY protocol header was accepted: %v", err)
+	}
+}
+
 func TestTransportEnrollThenMutualTLS(t *testing.T) {
 	r := newRig(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

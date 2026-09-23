@@ -518,6 +518,21 @@ export interface GeoHint {
   /** "city" when a city and coordinates are known, else "country". */
   level: 'city' | 'country'
   database?: string
+  /**
+   * The cluster's own connecting address was private (loopback, NAT, CGNAT…) and could not be placed at
+   * all; this is this server's own public address instead, looked up because the two share a network -
+   * that is exactly why the cluster's own address looked private to us. Set only when an operator turned
+   * this fallback on (off by default); never as precise as the cluster's own address would have been.
+   */
+  estimated?: boolean
+  /**
+   * Which network the address belongs to, from a second, optional ASN database - independent of
+   * city/country, and usually steadier: a VPN or a cloud provider's egress can move the place shown
+   * without changing whose network is actually carrying the traffic. Absent unless an operator
+   * configured that second database.
+   */
+  asn?: number
+  asOrg?: string
 }
 
 /** What the traffic observer says about itself. Absent until a collector has reported. */
@@ -622,6 +637,17 @@ export interface ConsistencyStatus {
   summary?: string
 }
 
+/**
+ * A different label or annotation found on these services that could have named the application
+ * instead of the one discovery picked - what the winning signal outranked, not applied on its own.
+ */
+export interface GroupingAlternative {
+  name: string
+  origin: string
+  confidence: Confidence
+  signal: string
+}
+
 /** What approving a suggestion does. Suggestions without one are informational. */
 export type SuggestionAction =
   | { type: 'add-device'; device: Device }
@@ -630,7 +656,7 @@ export type SuggestionAction =
   /** Create the site (or keep it, if a person already made it) and put the cluster there. */
   | { type: 'place-cluster'; clusterId: string; site: Site }
   | { type: 'set-service-application'; serviceIds: string[]; applicationId: string }
-  | { type: 'create-application'; application: Application; serviceIds: string[] }
+  | { type: 'create-application'; application: Application; serviceIds: string[]; alternatives?: GroupingAlternative[] }
   /** Unmanaged infrastructure the traffic hints at: opens the Connect wizard. */
   | { type: 'connect-cluster'; addresses: string[] }
 

@@ -55,6 +55,9 @@ The chart only renders flags the server understands **when you ask for the featu
 | `geoip.path` | `--geoip-db` | all builds |
 | always (`neo4j.mode` is mandatory: `bundled` or `external`) | `--neo4j-url --neo4j-database --neo4j-password-file`, env `CONTINUUM_NEO4J_USER` | all builds |
 | `decider.allowCIDRs` | `--decider-allow-cidrs` | builds that have it (present in this tree) |
+| `agent.behindProxy` | `--agent-behind-proxy` | builds that have it (present in this tree) |
+| `geoip.publicIpService` | `--geoip-public-ip-service` | builds that have it (present in this tree) |
+| `geoip.asnPath` | `--geoip-asn-db` | builds that have it (present in this tree) |
 | `pki.caKeyPassphraseSecret.name` | `--ca-key-passphrase-file` | **newer**: a server that adds it (not in the tree this chart was written against) |
 | `neo4j.allowInsecureHttp=true` | `--neo4j-allow-insecure-http` | **newer**: same |
 
@@ -96,9 +99,10 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 | `agent.port` | `8443` | agent listener in the pod |
 | `agent.service.type` | `LoadBalancer` | `LoadBalancer`, `NodePort`, `ClusterIP` |
 | `agent.service.port` / `nodePort` | `8443` / `30443` | `nodePort` only applies when `agent.service.type=NodePort`; set it `null` to let Kubernetes choose instead |
-| `agent.service.externalTrafficPolicy` | `""` | `Local` keeps the agent's source address (used for geoip) |
+| `agent.service.externalTrafficPolicy` | `""` | `Local` keeps the agent's source address (used for geoip); `Cluster` can SNAT it away when the connection lands on a node other than the pod's |
 | `agent.service.annotations`, `loadBalancerIP`, `loadBalancerClass`, `loadBalancerSourceRanges` | empty | cloud load balancer tuning |
-| `agent.tlsRoute.enabled` / `apiVersion` / `parentRefs` / `hostnames` | `false` / `gateway.networking.k8s.io/v1alpha2` | Gateway API TLSRoute (passthrough) |
+| `agent.tlsRoute.enabled` / `apiVersion` / `parentRefs` / `hostnames` | `false` / `gateway.networking.k8s.io/v1alpha2` | Gateway API TLSRoute (passthrough); requires `agent.service.type=ClusterIP` (checked at install time), so the Gateway is the only way in rather than a second, unintended LoadBalancer or NodePort to the same backend |
+| `agent.behindProxy` | `false` | pass `--agent-behind-proxy`: require and trust a PROXY protocol header from a hop in front (your own reverse proxy's TCP/SNI passthrough, typically) instead of the raw TCP peer |
 | `admin.port` | `8080` | admin listener in the pod |
 | `admin.behindTlsProxy` | `null` (auto) | pass `--admin-behind-tls-proxy`; auto is true when `httproute` is enabled |
 | `admin.tls.secretName` / `certKey` / `keyKey` | `""` / `tls.crt` / `tls.key` | serve HTTPS from the pod |
@@ -123,6 +127,8 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 | `neo4j.networkPolicy.enabled` | `false` | only the server pod may reach Neo4j (7474) |
 | `agentInstall.imageRegistry` / `imageTag` / `chartRef` | `""` | `--image-registry`, `--image-tag`, `--chart-ref` (empty: the server's own defaults) |
 | `geoip.path` | `""` | `--geoip-db`; mount the file with `extraVolumes` |
+| `geoip.publicIpService` | `""` | needs `geoip.path`; `--geoip-public-ip-service`: estimate an unlocatable agent from this server's own public IP |
+| `geoip.asnPath` | `""` | needs `geoip.path`; `--geoip-asn-db`: add which network an address belongs to (AS number, organisation) alongside its location |
 | `decider.allowCIDRs` | `[]` | `--decider-allow-cidrs`: private ranges an external decider may live in |
 | `terminationGracePeriodSeconds` | `30` | |
 | `priorityClassName` | `""` | |

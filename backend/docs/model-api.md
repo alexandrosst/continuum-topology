@@ -273,6 +273,13 @@ The external decider (`POST /api/v1/orgs/{org}/decide`, editor or above) is fed 
 browser builds is forwarded as it is, and the server **adds fields only**: nothing is renamed or removed, so a
 decider written against the earlier contract keeps working, and one that reads the additions can do better.
 
+The formal version of everything below - the exact request and response shapes, and the optional HMAC request
+signing scheme - is [`decider-webhook.openapi.yaml`](decider-webhook.openapi.yaml) (OpenAPI 3.1, described as a
+`webhooks` operation since the server is the one making the call). This section stays as the prose walkthrough;
+the schema is kept by hand against the same TypeScript (`src/lib/placement/deciders.ts`) and Go types described
+here, not generated or cross-checked by a test the way [advice.md](advice.md)'s vectors are - if the two ever
+disagree, this prose and the code it describes are the source of truth.
+
 | Addition | Where | Meaning |
 |---|---|---|
 | `modelVersion` | request | The version of the effective model the check was made against. |

@@ -85,6 +85,40 @@ func TestLookupAcrossRecordSizesAndVersions(t *testing.T) {
 	}
 }
 
+func TestLookupASN(t *testing.T) {
+	for _, rs := range []int{24, 28, 32} {
+		for _, ver := range []int{4, 6} {
+			db := openSpec(t, asnSample(rs, ver))
+
+			a, ok := db.LookupASN(ip("203.0.113.24"))
+			if !ok || a.ASN != 64512 || a.Org != "Example Networks LLC" {
+				t.Fatalf("rs=%d v%d: %+v %v", rs, ver, a, ok)
+			}
+			if a, ok = db.LookupASN(ip("198.51.100.5")); !ok || a.ASN != 15169 || a.Org != "Google LLC" {
+				t.Fatalf("rs=%d v%d: %+v", rs, ver, a)
+			}
+			if _, ok = db.LookupASN(ip("199.1.1.1")); ok {
+				t.Fatal("an address in no range must miss")
+			}
+			if _, ok = db.LookupASN(ip("10.0.0.1")); ok {
+				t.Fatal("a private address must never reach the database")
+			}
+
+			if ver == 6 {
+				if a, ok = db.LookupASN(ip("2001:db8::1")); !ok || a.ASN != 64512 {
+					t.Fatalf("rs=%d v6: %+v", rs, a)
+				}
+			}
+
+			// An ASN-shaped record has no city/country fields at all: the ordinary Lookup must find nothing
+			// usable in it rather than returning a zero-value hit.
+			if _, ok := db.Lookup(ip("203.0.113.24")); ok {
+				t.Fatal("Lookup must not treat an ASN record as a location")
+			}
+		}
+	}
+}
+
 func TestInfo(t *testing.T) {
 	db := openSpec(t, sample(24, 6))
 	in := db.Info()

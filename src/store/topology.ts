@@ -19,6 +19,7 @@ import {
   type Dependency,
   type Device,
   type ExternalEndpoint,
+  type GroupingAlternative,
   type MachineNode,
   type Model,
   type Namespace,
@@ -69,6 +70,11 @@ interface Actions {
   decideSuggestion: (id: string, decision: 'accepted' | 'dismissed') => void
   /** Decide a suggestion that was worked out on the fly (not stored yet): the decision is what gets stored. */
   decideDerived: (sug: Suggestion, decision: 'accepted' | 'dismissed') => void
+  /**
+   * Accept an application-grouping suggestion, but under one of its alternatives instead of the label
+   * that won by default - a fresh application named after that label, not the one the suggestion offered.
+   */
+  applyAlternative: (suggestionId: string, alt: GroupingAlternative) => void
   addAudit: (e: Omit<AuditEvent, 'id' | 'orgId' | 'at'>) => void
   /** Save the given view options under a name; a view with the same name is replaced. */
   saveView: (name: string, params: string) => void
@@ -234,6 +240,25 @@ export const useRawTopology = create<RawState>()(
             const stored = s.suggestions.find((x) => x.id === sug.id)
             if (stored) return decide(s, stored, decision)
             return decide({ ...s, suggestions: [...s.suggestions, sug] }, sug, decision)
+          }),
+        applyAlternative: (suggestionId, alt) =>
+          set((s) => {
+            const sug = s.suggestions.find((x) => x.id === suggestionId)
+            if (!sug || sug.status !== 'open' || sug.apply?.type !== 'create-application') return {}
+            // A fresh application, named after the chosen label instead of the one that won by default.
+            // It gets its own id rather than the server's stable hash: a person picking an alternative
+            // here is overriding discovery's own answer, not confirming it, so there is nothing to keep
+            // in step with what a future resync would compute for that name.
+            const app: Application = { ...sug.apply.application, id: uid('app'), name: alt.name, origin: alt.origin, confidence: alt.confidence }
+            const reworked: Suggestion = {
+              ...sug,
+              title: sug.title.replace(/“[^”]*”$/, `“${alt.name}”`),
+              detail: `Grouped as "${alt.name}" instead - ${alt.signal}${alt.confidence !== 'high' ? ` (${alt.confidence} confidence)` : ''}.`,
+              apply: { ...sug.apply, application: app },
+            }
+            // Replace the stored suggestion with the reworked one before deciding, so status/decidedAt
+            // land on the version that reflects what was actually applied, not the original wording.
+            return decide({ ...s, suggestions: s.suggestions.map((x) => (x.id === suggestionId ? reworked : x)) }, reworked, 'accepted')
           }),
         addAudit: (e) => set((s) => ({ auditLog: audit(s, e) })),
         saveView: (name, params) =>

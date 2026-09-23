@@ -1,5 +1,6 @@
 import { History, UserRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { SkeletonLines } from '@/components/ui/primitives'
 import { api, type Timeline } from '@/lib/api'
 import { kindLabel } from '@/lib/history'
 import { useConn, useServer } from '@/store/server'
@@ -52,7 +53,7 @@ export default function EntityHistory({ kind, id }: { kind: string; id: string }
           <History size={14} aria-hidden /> Show how this changed over time
         </button>
       )}
-      {state === 'loading' && <p className="text-sm text-nb-500" role="status">Loading…</p>}
+      {state === 'loading' && <SkeletonLines lines={3} className="max-w-sm" />}
       {state === 'none' && <p className="text-sm text-nb-500">Nothing has been recorded for this yet. It appears after the next recording.</p>}
       {state === 'error' && <p className="text-sm text-red-300" role="alert">The history could not be read.</p>}
       {tl && (

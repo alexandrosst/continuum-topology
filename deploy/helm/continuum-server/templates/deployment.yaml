@@ -63,6 +63,9 @@ spec:
             {{- with .Values.agent.extraHosts }}
             - --agent-hosts={{ join "," . }}
             {{- end }}
+            {{- if .Values.agent.behindProxy }}
+            - --agent-behind-proxy
+            {{- end }}
             - --admin-listen=0.0.0.0:{{ .Values.admin.port }}
             {{- if $tls }}
             - --admin-tls-cert=/etc/continuum/admin-tls/{{ .Values.admin.tls.certKey }}
@@ -84,6 +87,12 @@ spec:
             {{- end }}
             {{- with .Values.geoip.path }}
             - --geoip-db={{ . }}
+            {{- end }}
+            {{- with .Values.geoip.publicIpService }}
+            - --geoip-public-ip-service={{ . }}
+            {{- end }}
+            {{- with .Values.geoip.asnPath }}
+            - --geoip-asn-db={{ . }}
             {{- end }}
             {{- with .Values.decider.allowCIDRs }}
             - --decider-allow-cidrs={{ join "," . }}

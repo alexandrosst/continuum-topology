@@ -47,7 +47,7 @@ export interface ServerInfo {
    * has to bring their own offline database (see Settings). Cloud region codes and city names typed into labels
    * still work as placement signals either way; this only covers the IP-based one.
    */
-  geoip?: { enabled: boolean; database?: string; description?: string; builtAt?: string; attribution?: string }
+  geoip?: { enabled: boolean; database?: string; description?: string; builtAt?: string; attribution?: string; publicIpFallback?: boolean; asn?: boolean }
 }
 
 export interface CreatedToken {
@@ -281,9 +281,11 @@ export const api = {
 
   // settings, history and decisions (viewers read; administrators change settings and force a recording)
   settings: (c: Conn) => call<Partial<AppSettings>>(c, 'GET', '/api/v1/settings').then(normalizeSettings),
-  // `deciderConfigured` and `imageDefaults` are derived by the server; it refuses a document that carries them back.
-  saveSettings: (c: Conn, s: Partial<AppSettings>) => {
-    const { deciderConfigured: _derived, imageDefaults: _defaults, ...body } = s
+  // `deciderConfigured`, `deciderSecretSet` and `imageDefaults` are derived by the server; it refuses a document
+  // that carries them back. `deciderSecret` (set a new one) and `clearDeciderSecret` (remove it) are write-only:
+  // never part of `AppSettings` (a GET never carries the secret to round-trip), only ever sent on the way in.
+  saveSettings: (c: Conn, s: Partial<AppSettings> & { deciderSecret?: string; clearDeciderSecret?: boolean }) => {
+    const { deciderConfigured: _derived, deciderSecretSet: _secretSet, imageDefaults: _defaults, ...body } = s
     return call<Partial<AppSettings>>(c, 'PUT', '/api/v1/settings', body).then(normalizeSettings)
   },
   history: (c: Conn, since?: string) =>

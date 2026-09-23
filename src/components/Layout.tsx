@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BookOpen, Boxes, Cable, Cpu, Folders, History, Layers, MapPin, Menu, Network, Package, Radar, Radio, Route, Search, Server, Settings2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Copyright } from '@/components/ui/brand'
 import AccountMenu from '@/components/auth/AccountMenu'
@@ -51,10 +51,16 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
   },
 ]
 
-function NavItem({ to, label, icon: Icon, badge }: NavEntry & { badge?: number }) {
+/**
+ * `slid`: an ancestor already renders a single sliding accent bar (`NavIndicator`, below) that tracks
+ * whichever of its items is active, so this item skips drawing its own - a `slid` group and a `NavIndicator`
+ * always come as a pair. Items outside that group (Settings, in the footer) keep the plain static bar.
+ */
+function NavItem({ to, label, icon: Icon, badge, slid }: NavEntry & { badge?: number; slid?: boolean }) {
   return (
     <NavLink
       to={to}
+      data-nav-to={slid ? to : undefined}
       className={({ isActive }) =>
         clsx(
           'group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
@@ -64,7 +70,7 @@ function NavItem({ to, label, icon: Icon, badge }: NavEntry & { badge?: number }
     >
       {({ isActive }) => (
         <>
-          {isActive && <span className="absolute -left-3 h-5 w-0.5 rounded-r bg-accent" />}
+          {isActive && !slid && <span className="absolute -left-3 h-5 w-0.5 rounded-r bg-accent" />}
           <Icon size={16} className={isActive ? 'text-accent' : ''} />
           {label}
           {!!badge && (
@@ -75,6 +81,49 @@ function NavItem({ to, label, icon: Icon, badge }: NavEntry & { badge?: number }
         </>
       )}
     </NavLink>
+  )
+}
+
+/** True where NavLink's own default matching would call `to` active: an exact match, or a path under it. */
+const isNavActive = (to: string, pathname: string) => pathname === to || pathname.startsWith(`${to}/`)
+
+/**
+ * The current page's accent bar, but one element that slides to the active item instead of one bar vanishing
+ * as another appears. No animation library here, so this measures the active NavLink's own position with
+ * getBoundingClientRect - the same hand-rolled approach `Select` uses to place its dropdown - and lets CSS
+ * (`transition-[transform,height]`) ease the move.
+ */
+const NAV_INDICATOR_H = 20 // matches the old static bar's h-5, so switching to a sliding one changes no other sizing
+
+function NavIndicator({ containerRef, activeTo }: { containerRef: RefObject<HTMLElement | null>; activeTo: string | null }) {
+  const [top, setTop] = useState<number | null>(null)
+
+  useLayoutEffect(() => {
+    const container = containerRef.current
+    if (!container || !activeTo) {
+      setTop(null)
+      return
+    }
+    const measure = () => {
+      const item = container.querySelector<HTMLElement>(`[data-nav-to="${activeTo}"]`)
+      if (!item) return setTop(null)
+      const c = container.getBoundingClientRect()
+      const r = item.getBoundingClientRect()
+      setTop(r.top - c.top + (r.height - NAV_INDICATOR_H) / 2)
+    }
+    measure()
+    // The sidebar can reflow under the browser's own resize (drawer breakpoint) without a route change.
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [containerRef, activeTo])
+
+  if (top === null) return null
+  return (
+    <span
+      className="pointer-events-none absolute -left-3 w-0.5 rounded-r bg-accent transition-transform duration-200 ease-out"
+      style={{ height: NAV_INDICATOR_H, transform: `translateY(${top}px)` }}
+      aria-hidden
+    />
   )
 }
 
@@ -117,6 +166,8 @@ function Shell() {
   // The canvas page wants the full viewport; table pages get a padded container.
   const full = pathname.startsWith('/topology')
   const [searching, setSearching] = useState(false)
+  const navRef = useRef<HTMLElement>(null)
+  const activeTo = NAV_GROUPS.flatMap((g) => g.items).find((n) => isNavActive(n.to, pathname))?.to ?? null
   // Below the desktop breakpoint the menu is a drawer, so the page gets the whole width.
   const [menu, setMenu] = useState(false)
   useEffect(() => setMenu(false), [pathname])
@@ -160,12 +211,13 @@ function Shell() {
           <Search size={14} aria-hidden /> Search
           <kbd className="ml-auto rounded border border-nb-800 px-1.5 text-[11px]">{SHORTCUT}</kbd>
         </button>
-        <nav className="flex flex-col gap-3">
+        <nav ref={navRef} className="relative flex flex-col gap-3">
+          <NavIndicator containerRef={navRef} activeTo={activeTo} />
           {NAV_GROUPS.map((group) => (
             <div key={group.label} className="flex flex-col gap-1">
               <div className="px-3 text-[11px] font-medium uppercase tracking-wide text-nb-600">{group.label}</div>
               {group.items.map((n) => (
-                <NavItem key={n.to} {...n} badge={n.to === '/discovery' ? found : n.to === '/agents' ? approvals : undefined} />
+                <NavItem key={n.to} {...n} slid badge={n.to === '/discovery' ? found : n.to === '/agents' ? approvals : undefined} />
               ))}
             </div>
           ))}

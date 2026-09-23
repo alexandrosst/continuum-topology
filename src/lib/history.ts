@@ -22,6 +22,11 @@ export interface AppSettings {
   deciderName: string
   deciderTimeoutSec: number
   deciderConfigured: boolean
+  /** Whether a shared secret is set to sign requests to the external decider (HMAC-SHA256; see the decider
+   * webhook contract). Write-only: once saved, the secret itself is never sent back to anyone, administrators
+   * included - only this flag is. To set one, save `deciderSecret`; to remove it, save `clearDeciderSecret: true`
+   * (see `api.saveSettings`). Derived; never sent back either. */
+  deciderSecretSet: boolean
   /** Where install commands get the agent image and chart (Settings → Installation); empty registry: use the server's default. */
   imageRegistry: string
   imageTag: string
@@ -53,6 +58,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   deciderName: '',
   deciderTimeoutSec: 10,
   deciderConfigured: false,
+  deciderSecretSet: false,
   imageRegistry: '',
   imageTag: '',
   imageDigest: '',

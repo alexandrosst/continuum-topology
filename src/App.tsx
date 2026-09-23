@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from '@/components/Layout'
+import { PageSkeleton } from '@/components/ui/primitives'
 
 // Pages load on demand: the map, wizard and tables are big and most visits
 // touch only one or two of them.
@@ -20,14 +21,10 @@ const TopologyPage = lazy(() => import('@/pages/TopologyPage'))
 const TeamPage = lazy(() => import('@/pages/TeamPage'))
 const ServicesPage = lazy(() => import('@/pages/ServicesPage'))
 
-function Loading() {
-  return <div className="p-8 text-sm text-nb-500" role="status">Loading…</div>
-}
-
 export default function App() {
   return (
     <BrowserRouter>
-      <Suspense fallback={<Loading />}>
+      <Suspense fallback={<PageSkeleton />}>
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<Navigate to="/topology" replace />} />

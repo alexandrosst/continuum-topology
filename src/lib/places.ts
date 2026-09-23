@@ -212,6 +212,12 @@ export interface PlaceCandidate {
   siteId?: string
   /** Extra name for a new site, e.g. the cloud region code. */
   siteName?: string
+  /**
+   * From GeoHint.estimated: not this cluster's own address, so agreeing with another source is not
+   * independent corroboration the way two real signals agreeing is - merging must never lift it above
+   * "low", however confident the other source is.
+   */
+  estimated?: boolean
 }
 
 const RANK: Record<Confidence, number> = { high: 3, medium: 2, low: 1 }
@@ -308,10 +314,17 @@ export function placementCandidates(idx: PlaceIndex, input: PlaceInput, sites: S
   const g = input.geo
   if (g && g.country) {
     const cloudy = isPublicCloud(input.provider)
-    const caveat = cloudy ? ' The address belongs to a cloud provider, so this can be the provider\'s network rather than the cluster.' : ' A cluster behind a VPN or a mobile network may appear elsewhere.'
+    // g.estimated: the cluster's own connecting address was private (it shares a network with this
+    // server, directly or through NAT/CGNAT), so this is this server's own internet connection instead -
+    // a fair guess exactly because they share a network, but never better than low, and said plainly.
+    const caveat = g.estimated
+      ? ' This is an estimate: the cluster\'s own address is private, so this is where this server\'s own internet connection appears to be instead - right if the two share a network, off if they do not.'
+      : cloudy
+        ? ' The address belongs to a cloud provider, so this can be the provider\'s network rather than the cluster.'
+        : ' A cluster behind a VPN or a mobile network may appear elsewhere.'
     if (g.lat !== undefined && g.lng !== undefined && g.level === 'city') {
       const acc = g.accuracyKm ?? 100
-      const conf: Confidence = !cloudy && acc <= 50 ? 'medium' : 'low'
+      const conf: Confidence = g.estimated ? 'low' : !cloudy && acc <= 50 ? 'medium' : 'low'
       // Prefer the table's spelling of the city when it is the same place.
       const snap = nearestCity(idx, g.lat, g.lng, 25)
       found.push({
@@ -320,6 +333,7 @@ export function placementCandidates(idx: PlaceIndex, input: PlaceInput, sites: S
         lat: g.lat,
         lng: g.lng,
         confidence: conf,
+        estimated: g.estimated,
         evidence: [{ signal: `GeoIP ${input.egressIp ?? 'address'}`, confidence: conf, detail: `${g.database || 'GeoIP database'} places the address in ${[g.city, g.countryName || g.country].filter(Boolean).join(', ')}${g.accuracyKm ? ` (±${g.accuracyKm} km)` : ''}.${caveat}` }],
       })
     } else {
@@ -330,6 +344,7 @@ export function placementCandidates(idx: PlaceIndex, input: PlaceInput, sites: S
           city: big.name,
           country: big.cc,
           lat: big.lat,
+          estimated: g.estimated,
           lng: big.lng,
           confidence: 'low',
           evidence: [{ signal: `GeoIP ${input.egressIp ?? 'address'}`, confidence: 'low', detail: `The database only knows the country (${g.countryName || g.country}); ${big.name} is its largest city, used as a starting point.${caveat}` }],
@@ -346,9 +361,18 @@ export function placementCandidates(idx: PlaceIndex, input: PlaceInput, sites: S
       continue
     }
     twin.evidence.push(...c.evidence)
-    // two independent sources agreeing lift the better one a step (never above "high")
-    const best = Math.max(RANK[twin.confidence], RANK[c.confidence])
-    twin.confidence = (['low', 'medium', 'high'] as const)[Math.min(2, best)]
+    if (twin.estimated || c.estimated) {
+      // An estimated source isn't independent evidence about this particular cluster (it's a guess
+      // about the network, not the cluster), so agreeing with it is not real corroboration - the merge
+      // still records both pieces of evidence, but confidence never rises above what a real source on
+      // its own would get, however confident that other source is.
+      twin.confidence = 'low'
+    } else {
+      // two independent sources agreeing lift the better one a step (never above "high")
+      const best = Math.max(RANK[twin.confidence], RANK[c.confidence])
+      twin.confidence = (['low', 'medium', 'high'] as const)[Math.min(2, best)]
+    }
+    twin.estimated ||= c.estimated
     twin.siteName ??= c.siteName
   }
   // Country of the region table wins over a label that points to another country: keep both, ranked.
@@ -411,7 +435,15 @@ export interface PlacementModel {
 export interface PlacementSuggestion extends Suggestion {
   /** "Patras, Greece". */
   place: string
+  /** ISO 3166-1 alpha-2, for a flag next to `place`. */
+  country: string
   confidence: Confidence
+  /**
+   * Every signal that went into `confidence`, each with its own rating - not just the winning one.
+   * `detail` (on the base Suggestion) is these flattened into one sentence for callers that just want
+   * text; this is for a UI that wants to show why, signal by signal (see PlacementHint).
+   */
+  evidence: Evidence[]
 }
 
 export function derivePlacementSuggestions(idx: PlaceIndex, m: PlacementModel): PlacementSuggestion[] {
@@ -441,7 +473,9 @@ export function derivePlacementSuggestions(idx: PlaceIndex, m: PlacementModel): 
       createdAt: c.lastSeen ?? c.createdAt ?? '',
       status: 'open',
       place,
+      country: top.country,
       confidence: top.confidence,
+      evidence: top.evidence,
       apply: top.siteId
         ? { type: 'set-cluster-site', clusterId: c.id, siteId: top.siteId }
         : { type: 'place-cluster', clusterId: c.id, site: siteFromCandidate(top, c) },

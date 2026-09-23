@@ -30,8 +30,13 @@ export function hasStrayCharacters(raw: string): boolean {
   return [...raw.toUpperCase()].some((ch) => !/[\s\-_]/.test(ch) && !ALPHABET.includes(ch === 'O' ? '0' : ch === 'I' || ch === 'L' ? '1' : ch))
 }
 
-/** Where the code is printed, and the command that shows it. */
-export const CODE_LOG_COMMAND = 'kubectl -n continuum-system logs deploy/continuum-agent'
+/**
+ * Where the code is printed, and the command that shows it: piped through grep twice, so what comes back is
+ * the code itself - "K7QM-4TXD", nothing else - not the whole log stream or even the whole log line. `-E`/`-o`
+ * (not `-P`) on purpose: those work the same on the BSD grep macOS ships and on GNU grep, so the command does
+ * not silently fail for half the people who paste it.
+ */
+export const CODE_LOG_COMMAND = "kubectl -n continuum-system logs deploy/continuum-agent | grep -i 'approval code' | grep -oE '[A-Z0-9]{4}-[A-Z0-9]{4}'"
 
 /**
  * What to take from pasted text. A person may copy the whole log line ("APPROVAL CODE: K7QM-4TXD (enter it

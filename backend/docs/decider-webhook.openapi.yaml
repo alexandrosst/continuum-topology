@@ -1,0 +1,275 @@
+openapi: 3.1.0
+info:
+  title: Continuum decider webhook
+  version: "1"
+  description: |
+    The contract between a Continuum server and an external placement **decider**: an HTTP service an
+    administrator points the server at (Settings → Deciders → Address), which the server calls with the
+    estate's current shape and which answers with where services should move.
+
+    Continuum makes this call outward; a decider never calls in. That is why it is documented as a
+    **webhook** rather than an ordinary path: the one operation below (`decide`) is something *this API's
+    implementer* (a decider author) must serve, not something a decider calls on the server. If your
+    tooling reads `webhooks` as just another set of paths, that is fine too — the request and response
+    schemas are identical either way.
+
+    A decider recommends; a person decides. Nothing a decider proposes is ever applied automatically:
+    every proposal is re-checked against the same hard constraints the built-in deciders are held to
+    (service exists, cluster exists, not a duplicate, not already there, movable, not pinned, and
+    certified to fit) before a person ever sees it as an option.
+
+    This document mirrors, field for field, the TypeScript contract in
+    [`src/lib/placement/deciders.ts`](https://github.com/alexandrosst/continuum-topology/blob/main/src/lib/placement/deciders.ts)
+    (`DecisionInput`, `DecisionOutput`) and the Go side that builds and sends it
+    (`internal/server/admin_history.go`, `internal/server/decide_advice.go`, `internal/advice`). None of
+    the three may add a field the others do not know about; `schema` changes only for a break, and a
+    reader must ignore fields it does not recognise. See
+    [`backend/docs/model-api.md#the-placement-decider-request`](https://github.com/alexandrosst/continuum-topology/blob/main/backend/docs/model-api.md#the-placement-decider-request)
+    for the prose walkthrough this schema formalises, and
+    [`backend/docs/advice.md`](https://github.com/alexandrosst/continuum-topology/blob/main/backend/docs/advice.md)
+    for the uncertainty rules behind `verdict`, `confidence`, `facts` and `wouldChange`.
+  contact:
+    url: https://github.com/alexandrosst/continuum-topology
+externalDocs:
+  description: The effective model and decision-request contract, in prose
+  url: https://github.com/alexandrosst/continuum-topology/blob/main/backend/docs/model-api.md#the-placement-decider-request
+
+webhooks:
+  decide:
+    post:
+      operationId: decide
+      summary: A placement decision request (implement this)
+      description: |
+        Sent by the Continuum server whenever a person on the Deciders tab runs a comparison, or an
+        automated caller does the same through the browser API. One request per decider per run; the
+        server does not batch several organisations' requests together, and it never retries on your
+        behalf (a timeout or a non-`2xx` status is simply shown to the person as "the external decider
+        could not be reached or did not answer in time" / "answered with status …").
+
+        **Signing (optional, recommended).** When an administrator sets a shared secret (Settings →
+        Deciders → Shared secret), every request carries `X-Continuum-Signature` and
+        `X-Continuum-Timestamp`, computed the way Stripe and GitHub sign their own webhooks:
+
+        ```text
+        signature = hex(HMAC-SHA256(secret, "<X-Continuum-Timestamp>." + <raw request body>))
+        ```
+
+        Recompute it over the exact bytes you received (not a re-serialisation — whitespace and key
+        order must not be assumed) and compare in constant time; reject anything where it does not
+        match, or where the timestamp is further from your own clock than you are willing to accept
+        (a few minutes is reasonable). This is what lets you tell "a Continuum server that knows the
+        secret, moments ago" apart from a guess at your address, a network path that can read the body,
+        or a captured request replayed later. A reference implementation
+        (`signDeciderRequest`/`verifyDeciderSignature`, deliberately small enough to port line for line
+        into whatever language a decider is written in) lives next to the server code that calls it, in
+        [`internal/server/decide_sign.go`](https://github.com/alexandrosst/continuum-topology/blob/main/backend/internal/server/decide_sign.go).
+        No secret configured means no signature headers at all — a decider that never checks them works
+        exactly as it did before one existed.
+      security:
+        - {}
+        - deciderSignature: []
+      parameters:
+        - name: X-Continuum-Signature
+          in: header
+          required: false
+          description: Present only when a shared secret is configured. `sha256=<hex HMAC-SHA256 digest>`.
+          schema:
+            type: string
+            pattern: '^sha256=[0-9a-f]{64}$'
+        - name: X-Continuum-Timestamp
+          in: header
+          required: false
+          description: Present only alongside the signature. Unix seconds, the instant the request was signed; part of what is signed, so it cannot be changed without invalidating the signature.
+          schema:
+            type: string
+            pattern: '^[0-9]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionInput'
+      responses:
+        '200':
+          description: |
+            Recommendations. Unknown top-level fields are ignored (forward compatible). Every
+            recommendation is independently re-checked; one that fails is dropped and reported to the
+            person under "Proposals that were refused" rather than failing the whole answer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecisionOutput'
+        '4XX':
+          description: Treated by the server as "the decider answered with status …"; shown to the person, the body is not parsed as a decision.
+        '5XX':
+          description: Same as 4XX. A decider under load should prefer a fast error over running past the server's configured timeout (1–25 s, administrator-chosen).
+
+components:
+  securitySchemes:
+    deciderSignature:
+      type: apiKey
+      in: header
+      name: X-Continuum-Signature
+      description: HMAC-SHA256 over `"<X-Continuum-Timestamp>." + body`, keyed by the organisation's decider secret. See the `decide` operation description for the exact scheme and a reference implementation.
+
+  schemas:
+    Policy:
+      type: object
+      description: How much each kind of cost matters, exactly as configured on the Placement page. 1 point is one millisecond of round trip on a link in constant use.
+      required: [latency, traffic, migration, headroom, minBenefit, minAbsolute, fallbackMs]
+      properties:
+        latency: { type: number, description: Per millisecond of round trip, per unit of activity on the edge. }
+        traffic: { type: number, description: Per MB/s of traffic that crosses between two sites. }
+        migration: { type: number, description: Per GB of persistent data that would have to be copied. }
+        headroom: { type: number, description: Up to this much when the target would be full (scaled from 80% to 100%). }
+        minBenefit: { type: number, description: A move must improve the service's cost by at least this share of its current cost. }
+        minAbsolute: { type: number, description: ...and by at least this many points. }
+        fallbackMs: { type: number, description: The round trip assumed when nothing is known about a path. Deliberately pessimistic. }
+
+    ClusterState:
+      type: string
+      description: Added in schema 1, additively. Absent for a cluster nobody observes (declared only).
+      enum: [live, disconnected, stale, revoked]
+
+    DecisionInput:
+      type: object
+      description: What a decider is told. Everything in it is already shown in the dashboard; nothing more leaves the server.
+      required: [schema, question, generatedAt, policy, clusters, links, services, flows]
+      properties:
+        schema:
+          type: integer
+          const: 1
+        question:
+          type: string
+          const: placement
+        generatedAt:
+          type: string
+          format: date-time
+        policy:
+          $ref: '#/components/schemas/Policy'
+        clusters:
+          type: array
+          items:
+            type: object
+            required: [id, name, tier]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              tier: { type: string }
+              site: { type: string }
+              country: { type: string }
+              residency: { type: string }
+              trustZone: { type: string }
+              freeCpu:
+                type: number
+                description: Only when every node of the cluster reported it (a sum over some nodes is not "what the cluster has free").
+              freeMemGb: { type: number }
+              state:
+                $ref: '#/components/schemas/ClusterState'
+              eligible:
+                type: boolean
+                description: Whether it may be proposed as a target. False for anything not live, or whose capacity is unknown.
+              stateReason:
+                type: string
+                description: 'Why it may not, when `eligible` is false: "stale for 2 h", "agent revoked 3 h ago", "capacity unknown".'
+        excluded:
+          type: array
+          description: Clusters left out as targets, with why. Nothing in any service's `candidates` is ever one of them.
+          items:
+            type: object
+            required: [cluster, name, state, reason, kind]
+            properties:
+              cluster: { type: string }
+              name: { type: string }
+              state: { type: string }
+              reason: { type: string }
+              kind:
+                type: string
+                enum: [not-live, capacity-unknown]
+        links:
+          type: array
+          description: Best known round trip between clusters, in milliseconds, and how it was obtained.
+          items:
+            type: object
+            required: [from, to, rttMs, basis]
+            properties:
+              from: { type: string }
+              to: { type: string }
+              rttMs: { type: number }
+              basis:
+                type: string
+                enum: [same-cluster, measured, declared, same-site, estimated, unknown]
+        services:
+          type: array
+          items:
+            type: object
+            required: [id, name, namespace, cluster, kind, replicas, volumesGb, mobility, candidates, constraints]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              namespace: { type: string }
+              cluster: { type: string }
+              kind: { type: string }
+              replicas: { type: integer }
+              cpuRequestM: { type: number }
+              memRequestMi: { type: number }
+              volumesGb: { type: number }
+              sensitivity: { type: string }
+              mobility:
+                type: string
+                description: free | careful | pinned
+              clusterState:
+                $ref: '#/components/schemas/ClusterState'
+              candidates:
+                type: array
+                items: { type: string }
+                description: The only clusters it may be proposed for — every hard constraint is already certified to hold there (verdict "fits"). A recommendation naming any other cluster is refused.
+              undecided:
+                type: array
+                items: { type: string }
+                description: Clusters where it cannot be told whether it fits (something unknown or too uncertain). Not candidates, but not ruled out either.
+              constraints:
+                type: array
+                items: { type: string }
+                description: Why it is pinned, or needs care.
+        flows:
+          type: array
+          description: What talks to what. `to` is a service id, a device id, or an external address.
+          items:
+            type: object
+            required: [from, to, toKind, observed]
+            properties:
+              from: { type: string }
+              to: { type: string }
+              toKind:
+                type: string
+                enum: [service, device, external]
+              bytesPerSec: { type: number }
+              connectionsPerMin: { type: number }
+              observed: { type: boolean }
+
+    ProposedMove:
+      type: object
+      required: [serviceId, to]
+      properties:
+        serviceId: { type: string }
+        to:
+          type: string
+          description: A cluster id. Ideally one of the service's own `candidates`; anything else is refused individually and reported to the person, not treated as a fatal answer.
+        reason:
+          type: string
+          description: Shown to the person alongside the proposal. Truncated at 400 characters.
+
+    DecisionOutput:
+      type: object
+      description: What a decider must answer with. Unknown fields are ignored.
+      required: [recommendations]
+      properties:
+        schema:
+          type: integer
+          description: Optional; informational only today. A future breaking change to the response shape would introduce a check against it.
+        recommendations:
+          type: array
+          maxItems: 5000
+          items:
+            $ref: '#/components/schemas/ProposedMove'
