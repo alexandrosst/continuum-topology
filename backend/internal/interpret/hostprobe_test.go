@@ -1,6 +1,7 @@
 package interpret
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +33,15 @@ func TestNodeKindFromProbe(t *testing.T) {
 		{"VMware", node("a", func(n *N) {
 			n.Probe = &P{HypervisorBit: true, SysVendor: "VMware, Inc.", ProductName: "VMware Virtual Platform"}
 		}), "vm", "", "VMware", "", "high"},
+		{"CPUID vendor ID alone, no DMI at all (minimal/hardened cloud image)", node("a", func(n *N) {
+			n.Probe = &P{HypervisorBit: true, HypervisorVendorId: "KVMKVMKVM"}
+		}), "vm", "", "KVM/QEMU", "", "high"},
+		{"CPUID vendor ID disagrees with DMI: the CPU wins", node("a", func(n *N) {
+			n.Probe = &P{HypervisorBit: true, HypervisorVendorId: "VMwareVMware", SysVendor: "QEMU"}
+		}), "vm", "", "VMware", "", "high"},
+		{"unrecognized CPUID vendor ID falls back to DMI", node("a", func(n *N) {
+			n.Probe = &P{HypervisorBit: true, HypervisorVendorId: "SomeNewHV12", SysVendor: "QEMU"}
+		}), "vm", "", "KVM/QEMU", "", "high"},
 		{"Xen via sysfs", node("a", func(n *N) { n.Probe = &P{HypervisorBit: true, HypervisorType: "xen"} }), "vm", "", "Xen", "", "high"},
 		{"Raspberry Pi over Wi-Fi", node("a", func(n *N) {
 			n.Architecture, n.MemoryCapacityBytes = "arm64", 4<<30
@@ -119,6 +129,53 @@ func TestInterpretCarriesProbeFacts(t *testing.T) {
 	for i := range out.Nodes {
 		if out.Nodes[i].ID != again.Nodes[i].ID || out.Nodes[i].Kind != again.Nodes[i].Kind {
 			t.Fatal("interpretation must be deterministic")
+		}
+	}
+}
+
+func TestKindFromProbeNamesTheStrongestVirtSignal(t *testing.T) {
+	// kindFromProbe must name the strongest signal it actually has, in priority order: the CPUID vendor
+	// ID (read from the CPU, so it survives a minimal image with blank DMI) beats DMI, which beats a bare
+	// hypervisor bit with nothing else to name.
+	cases := []struct {
+		name string
+		p    *P
+		want string // substring expected in r.virtEv.Signal
+	}{
+		{"CPUID vendor ID known: named directly, no DMI needed", &P{HypervisorBit: true, HypervisorVendorId: "KVMKVMKVM"}, "CPUID vendor ID KVMKVMKVM"},
+		{"CPUID vendor ID known and DMI also present: CPUID still wins", &P{HypervisorBit: true, HypervisorVendorId: "KVMKVMKVM", SysVendor: "QEMU"}, "CPUID vendor ID KVMKVMKVM"},
+		{"no CPUID vendor ID, DMI names one: falls back to DMI", &P{HypervisorBit: true, SysVendor: "QEMU"}, "DMI QEMU"},
+		{"neither CPUID nor DMI: just the bare bit", &P{HypervisorBit: true}, "node probe: hypervisor bit"},
+	}
+	for _, c := range cases {
+		p := c.p
+		n := node("a", func(n *N) { n.Probe = p })
+		r := detectNodeKind(n)
+		if r.virtEv == nil {
+			t.Errorf("%s: virtEv is nil", c.name)
+			continue
+		}
+		if !strings.Contains(r.virtEv.Signal, c.want) {
+			t.Errorf("%s: virtEv.Signal = %q, want it to contain %q", c.name, r.virtEv.Signal, c.want)
+		}
+	}
+}
+
+func TestVMPlatformPrefersCPUIDOverDMI(t *testing.T) {
+	cases := []struct {
+		name string
+		p    *P
+		want string
+	}{
+		{"CPUID only", &P{HypervisorVendorId: "XenVMMXenVMM"}, "Xen"},
+		{"CPUID and DMI disagree: CPUID wins", &P{HypervisorVendorId: "VBoxVBoxVBox", SysVendor: "QEMU"}, "VirtualBox"},
+		{"unknown CPUID vendor ID: falls through to DMI", &P{HypervisorVendorId: "totally-unknown", ProductName: "VMware Virtual Platform"}, "VMware"},
+		{"no CPUID vendor ID: DMI as before", &P{SysVendor: "innotek GmbH"}, "VirtualBox"},
+		{"neither: empty", &P{}, ""},
+	}
+	for _, c := range cases {
+		if got := vmPlatform(c.p); got != c.want {
+			t.Errorf("%s: vmPlatform = %q, want %q", c.name, got, c.want)
 		}
 	}
 }
