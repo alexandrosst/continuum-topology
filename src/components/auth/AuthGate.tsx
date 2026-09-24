@@ -1,4 +1,5 @@
-import { Cpu } from 'lucide-react'
+import clsx from 'clsx'
+import { Check, Cpu, Minus, X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Copyright } from '@/components/ui/brand'
 import { Button, ErrorBanner, Field, Input } from '@/components/ui/primitives'
@@ -31,6 +32,36 @@ function Shell({ title, description, children }: { title: string; description: s
 
 function ErrorLine({ text }: { text?: string }) {
   return text ? <ErrorBanner>{text}</ErrorBanner> : null
+}
+
+/** The three real rules the server enforces (see backend/internal/server/password.go) - no composition rules. */
+function passwordRules(password: string, username: string) {
+  const repeatedChar = password.length > 0 && [...password].every((c) => c === password[0])
+  return [
+    { key: 'length', label: '12–128 characters', ok: password.length >= 12 && password.length <= 128 },
+    { key: 'username', label: 'Not the same as your username', ok: password.length > 0 && password.toLowerCase() !== username.trim().toLowerCase() },
+    { key: 'repeat', label: 'Not a single character repeated', ok: password.length > 0 && !repeatedChar },
+  ]
+}
+
+/**
+ * Live checklist of the password policy, one line per rule: gray and unmarked before the person has
+ * typed anything, then green or red as it starts matching or missing each one. Shared between sign-up
+ * and the forced change-password screen, the only two places someone picks a new password.
+ */
+function PasswordRequirements({ password, username }: { password: string; username: string }) {
+  const empty = password === ''
+  return (
+    <ul className="space-y-1">
+      {passwordRules(password, username).map((r) => (
+        <li key={r.key} className={clsx('flex items-center gap-1.5 text-xs', empty ? 'text-nb-500' : r.ok ? 'text-emerald-400' : 'text-red-400')}>
+          {empty ? <Minus size={12} aria-hidden /> : r.ok ? <Check size={12} className="fade-in" aria-hidden /> : <X size={12} className="fade-in" aria-hidden />}
+          {r.label}
+          {!empty && <span className="sr-only">{r.ok ? ' satisfied' : ' not satisfied'}</span>}
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 /** The invitation someone arrived with, shown above the sign-in and sign-up forms. */
@@ -143,7 +174,6 @@ function RegisterScreen({ onBack }: { onBack: () => void }) {
   const [password, setPassword] = useState('')
   const [org, setOrg] = useState('')
   const [busy, setBusy] = useState(false)
-  const short = password !== '' && password.length < 12
   const joining = !!invite?.preview
 
   const submit = async () => {
@@ -169,15 +199,15 @@ function RegisterScreen({ onBack }: { onBack: () => void }) {
         <Field label="Username" hint="3-64 characters: letters, digits and . _ @ -">
           <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus spellCheck={false} autoCapitalize="none" data-testid="reg-username" />
         </Field>
-        <Field label="Password" hint="At least 12 characters. A few random words work well.">
+        <Field label="Password" hint="A few random words work well.">
           <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" data-testid="reg-password" />
         </Field>
+        <PasswordRequirements password={password} username={username} />
         {!joining && (
           <Field label="Name of your organisation" hint="Optional. You can rename it later.">
             <Input value={org} onChange={(e) => setOrg(e.target.value)} placeholder={username ? `${username}'s organisation` : ''} data-testid="reg-org" />
           </Field>
         )}
-        {short && <p className="text-xs text-amber-300">Too short: use at least 12 characters.</p>}
         <ErrorLine text={error} />
         <Button type="submit" variant="primary" className="w-full" disabled={busy || username.trim().length < 3 || password.length < 12} data-testid="reg-submit">
           {busy ? 'Creating…' : 'Create account'}
@@ -270,13 +300,13 @@ function ChangePasswordScreen() {
         <Field label="Current password">
           <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" autoFocus />
         </Field>
-        <Field label="New password" hint="At least 12 characters. A few random words work well.">
+        <Field label="New password" hint="A few random words work well.">
           <Input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
         </Field>
+        <PasswordRequirements password={next} username={user?.username ?? ''} />
         <Field label="New password again">
           <Input type="password" value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" />
         </Field>
-        {short && <p className="text-xs text-amber-300">Too short: use at least 12 characters.</p>}
         {mismatch && <p className="text-xs text-amber-300">The two passwords differ.</p>}
         <ErrorLine text={error} />
         <Button type="submit" variant="primary" className="w-full" disabled={busy || !current || short || !next || !again || mismatch}>
