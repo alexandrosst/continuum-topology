@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"continuum/internal/store"
@@ -201,6 +202,19 @@ func TestPasskeyRegistrationRejectsAForgedResponse(t *testing.T) {
 	a.do("POST", "/api/v1/auth/webauthn/register/begin", nil, withCookie(cookie))
 	if r := a.do("POST", "/api/v1/auth/webauthn/register/finish", map[string]any{"response": json.RawMessage(fakeResponse(t, "cred-x"))}, withCookie(cookie)); r.Code != 400 {
 		t.Fatalf("finish with a provider error: %d %s", r.Code, r.Body.String())
+	}
+}
+
+// finishPasskeyLogin has no session yet for guard() to bound the body of the way every other route is, so it
+// needs its own explicit limit the same as its sibling beginPasskeyLogin - this is a regression test for that
+// (it was briefly missing). The oversized body is rejected while it's still being read, before pending or
+// response are ever inspected, so a made-up pending token is enough here.
+func TestFinishPasskeyLoginRejectsAnOversizedBody(t *testing.T) {
+	a := newAdminRig(t)
+	a.base.WebAuthn = &fakeWebAuthn{}
+	huge := []byte(`{"pending":"x","response":"` + strings.Repeat("a", 1<<20) + `"}`)
+	if r := a.do("POST", "/api/v1/auth/login/2fa/webauthn/finish", huge, fromIP("10.9.6.3")); r.Code != 400 && r.Code != 413 {
+		t.Fatalf("oversized finish body: %d %s", r.Code, r.Body.String())
 	}
 }
 
