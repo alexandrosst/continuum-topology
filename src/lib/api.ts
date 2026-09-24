@@ -14,10 +14,13 @@ export class ApiError extends Error {
 }
 
 /** True when `login` stopped short of a session because the account also needs a two-factor code: `pending`
- *  is what `login2FA` must be called with next. */
-export function twoFactorPending(err: unknown): err is ApiError & { body: { pending: string } } {
+ *  is what `login2FA` must be called with next, `methods` is which of them apply (`totp` covers an
+ *  authenticator app and recovery codes together, since login2FA takes either back in the same field). */
+export function twoFactorPending(err: unknown): err is ApiError & { body: { pending: string; methods: TwoFactorMethod[] } } {
   return err instanceof ApiError && typeof err.body?.pending === 'string'
 }
+
+export type TwoFactorMethod = 'totp' | 'email'
 
 export interface ServerInfo {
   orgId: string
@@ -79,6 +82,12 @@ export interface User {
   createdAt: string
   lastLogin?: string
   twoFactorEnabled: boolean
+  /** Shown even while unverified, so Settings can say "verifying jane@example.com...". Absent until set. */
+  email?: string
+  emailVerified: boolean
+  emailOtpEnabled: boolean
+  /** Whether this server can send mail at all - when false, email-OTP isn't offered regardless of the above. */
+  mailConfigured: boolean
 }
 
 export interface OrgRef {
@@ -233,6 +242,9 @@ export const api = {
   // Called after `login` throws with `twoFactorPending(err)` true, with the code from an authenticator app
   // (or one of the account's recovery codes) and the `pending` token that error carried.
   login2FA: (c: Conn, pending: string, code: string) => call<Session>(c, 'POST', '/api/v1/auth/login/2fa', { pending, code }),
+  // Mails a fresh code for a pending sign-in that offers 'email' as a method; the code comes back through
+  // login2FA's `code` field exactly like a TOTP or recovery code.
+  requestLoginEmailCode: (c: Conn, pending: string) => call<void>(c, 'POST', '/api/v1/auth/login/2fa/email', { pending }),
   register: (c: Conn, username: string, password: string, opts: { org?: string; invite?: string } = {}) =>
     call<Session>(c, 'POST', '/api/v1/auth/register', { username, password, ...(opts.org ? { org: opts.org } : {}), ...(opts.invite ? { invite: opts.invite } : {}) }),
   logout: (c: Conn) => call<void>(c, 'POST', '/api/v1/auth/logout'),
@@ -243,6 +255,15 @@ export const api = {
   setup2FA: (c: Conn) => call<{ secret: string; otpauthUrl: string }>(c, 'POST', '/api/v1/auth/2fa/setup'),
   enable2FA: (c: Conn, code: string) => call<{ recoveryCodes: string[] }>(c, 'POST', '/api/v1/auth/2fa/enable', { code }),
   disable2FA: (c: Conn, password: string) => call<Session>(c, 'POST', '/api/v1/auth/2fa/disable', { password }),
+  // Email as a second factor: requestEmailVerification mails a code to a (possibly new) address and shows it
+  // right away, unverified; confirmEmail proves the account can read it. Changing the address this way resets
+  // verification and turns email-OTP back off (enforced server-side), so re-verifying is always required after
+  // a change. enableEmailOTP needs no code of its own since verification already proved deliverability;
+  // disableEmailOTP needs the current password and leaves the address itself verified.
+  requestEmailVerification: (c: Conn, email: string) => call<Session>(c, 'POST', '/api/v1/auth/email/request', { email }),
+  confirmEmail: (c: Conn, code: string) => call<Session>(c, 'POST', '/api/v1/auth/email/confirm', { code }),
+  enableEmailOTP: (c: Conn) => call<Session>(c, 'POST', '/api/v1/auth/email-otp/enable'),
+  disableEmailOTP: (c: Conn, password: string) => call<Session>(c, 'POST', '/api/v1/auth/email-otp/disable', { password }),
 
   // organisations, members, invitations
   orgs: (c: Conn) => call<OrgRef[]>(c, 'GET', '/api/v1/orgs'),

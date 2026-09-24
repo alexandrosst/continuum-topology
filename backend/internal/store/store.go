@@ -116,6 +116,14 @@ type User struct {
 	// TOTPRecovery holds SHA-256 hashes of unused one-time recovery codes (HashSecret, hex-encoded); each is
 	// removed the moment it is spent. Empty once 2FA is off.
 	TOTPRecovery []string
+	// Email is set from account settings, not at sign-up (there is no email field there at all - see
+	// RegisterScreen). EmailVerifiedAt is nil until a code sent to it is confirmed, and is reset to nil
+	// the moment Email changes again, so a stale or mistyped address can never be trusted. EmailOTPEnabledAt
+	// is a separate flag from verification: turning email-as-a-second-factor off does not forget the address,
+	// the same way it stays usable elsewhere on the account even while this particular use of it is off.
+	Email             string
+	EmailVerifiedAt   *time.Time
+	EmailOTPEnabledAt *time.Time
 }
 
 // Org is a tenant: one private topology with its own agents, history, settings and members.
@@ -262,6 +270,14 @@ type Store interface {
 	// zeroed). There being one setter rather than four keeps "what does 2FA state even look like right now"
 	// answerable from a single row instead of several independent flags that could drift out of sync.
 	SetTOTP(ctx context.Context, id, secret string, enabledAt *time.Time, recovery []string) error
+	// SetEmail replaces the account's email address and its verified-at timestamp together: verifiedAt nil
+	// always means the address just set has not been confirmed yet, and setting it also turns off
+	// EmailOTPEnabledAt (a second factor cannot keep pointing at an address nobody has proven receives mail).
+	// Confirming an address calls this again with the same email and now's time.
+	SetEmail(ctx context.Context, id, email string, verifiedAt *time.Time) error
+	// SetEmailOTPEnabled turns email-as-a-second-factor on (enabledAt non-nil) or off (nil), independently of
+	// the address itself. The caller is responsible for only turning it on once EmailVerifiedAt is set.
+	SetEmailOTPEnabled(ctx context.Context, id string, enabledAt *time.Time) error
 
 	// ---- tenants ----
 

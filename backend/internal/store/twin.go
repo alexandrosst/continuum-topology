@@ -19,8 +19,9 @@ import (
 //
 // History: 1 organisations, 2 audit hash chain, 3 approval codes and token binding, 4 the twin (observation
 // tombstones, node identities, the model version, declared-only workspaces), 5 optional TOTP two-factor
-// authentication on accounts.
-const SchemaVersion = 5
+// authentication on accounts, 6 an optional email address on accounts (verified-at, and whether it is turned
+// on as a second sign-in factor).
+const SchemaVersion = 6
 
 // ErrSchemaNewer is returned when the database was written by a newer version of the software.
 var ErrSchemaNewer = errors.New("the database was written by a newer version of Continuum")

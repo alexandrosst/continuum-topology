@@ -123,11 +123,17 @@ function SignInScreen({ onRegister }: { onRegister: () => void }) {
   )
 }
 
-/** Shown after a correct password when the account also has two-factor authentication on. */
+/** Shown after a correct password when the account also has two-factor authentication on. Which methods apply
+ *  (an authenticator app / recovery code, an emailed code, or both) comes from `pendingMethods`, set by `signIn`
+ *  from the 401's error body - `login2FA` accepts a code from any of them back in the same field. */
 function TwoFactorScreen() {
-  const { error, verifyTwoFactor, cancelTwoFactor } = useServer()
+  const { error, verifyTwoFactor, cancelTwoFactor, requestLoginEmailCode, pendingMethods } = useServer()
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
+  const [emailBusy, setEmailBusy] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
+  const hasTotp = pendingMethods.includes('totp')
+  const hasEmail = pendingMethods.includes('email')
 
   const submit = async () => {
     setBusy(true)
@@ -136,8 +142,22 @@ function TwoFactorScreen() {
     if (!ok) setCode('')
   }
 
+  const sendEmailCode = async () => {
+    setEmailBusy(true)
+    const ok = await requestLoginEmailCode()
+    setEmailBusy(false)
+    if (ok) setEmailSent(true)
+  }
+
+  const description =
+    hasTotp && hasEmail
+      ? 'Open your authenticator app, use a recovery code, or have a code emailed to you.'
+      : hasEmail
+        ? 'We can email you a code to finish signing in.'
+        : 'Open your authenticator app, or use one of your recovery codes if you no longer have it.'
+
   return (
-    <Shell title="Enter your code" description="Open your authenticator app, or use one of your recovery codes if you no longer have it.">
+    <Shell title="Enter your code" description={description}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -161,6 +181,16 @@ function TwoFactorScreen() {
           {busy ? 'Checking…' : 'Continue'}
         </Button>
       </form>
+      {hasEmail && (
+        <button
+          onClick={() => void sendEmailCode()}
+          disabled={emailBusy}
+          className="mt-3 w-full text-center text-xs text-accent hover:text-accent/80 disabled:opacity-50"
+          data-testid="email-2fa-code"
+        >
+          {emailBusy ? 'Sending…' : emailSent ? 'Code sent — send another' : 'Email me a code'}
+        </button>
+      )}
       <button onClick={cancelTwoFactor} className="mt-4 w-full text-center text-xs text-nb-500 hover:text-nb-300">
         Back to sign in
       </button>
