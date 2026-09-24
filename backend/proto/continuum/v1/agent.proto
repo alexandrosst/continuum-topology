@@ -304,6 +304,14 @@ message HostProbe {
   repeated string uplinks = 11;
   // The machine has a battery, i.e. it can run without mains power.
   bool has_battery = 12;
+  // CPUID leaf 0x40000000's 12-character hypervisor vendor ID (e.g. "KVMKVMKVM\0\0\0"), read directly
+  // from the CPU (amd64 only) when hypervisor_bit is set - the same signal systemd-detect-virt and
+  // virt-what use to name a hypervisor. Unlike sys_vendor/product_name/bios_vendor, this cannot be blank
+  // on a minimal or hardened cloud image: any hypervisor that sets the CPUID hypervisor bit is expected
+  // to answer this leaf, so it is a stronger, independent corroboration of vmPlatform's DMI-string match
+  // rather than a replacement for it - a hypervisor absent from the known-vendor-ID table still falls
+  // back to whatever DMI names.
+  string hypervisor_vendor_id = 13;
 }
 
 message NamespaceFacts {
@@ -473,6 +481,11 @@ message RawFlow {
   // Bytes sent by the caller and by the callee. Zero when bytes_known is false on the report.
   uint64 bytes_out = 7;
   uint64 bytes_in = 8;
+  // The local machine's physical network interface this traffic actually routes over (e.g. "eth0",
+  // "wlan0"), read from the kernel's own resolved route for the socket - not a guess from the address,
+  // and never set for a socket the kernel has not (yet) routed. Empty means not known, not "none": a
+  // multi-homed edge node's route can also change over a long-lived connection's life.
+  string iface = 9;
 }
 
 message FlowReport {
@@ -510,6 +523,10 @@ message Flow {
   bool bytes_known = 9;
   // "" | dns | system: traffic that is machinery rather than the applications' own.
   string noise = 10;
+  // The caller's physical network interface, when known - see RawFlow.iface. Descriptive only: never
+  // part of an edge's identity, so a route flapping between interfaces does not fork one dependency
+  // into two.
+  string iface = 11;
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
