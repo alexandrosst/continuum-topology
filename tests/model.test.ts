@@ -16,7 +16,7 @@ import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
 import { buildGraph } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
-import { applySuggestion } from '../src/lib/suggestions'
+import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type Service, type Suggestion } from '../src/lib/types'
 
 let failed = 0
@@ -276,6 +276,33 @@ test('applySuggestion(): regrouping onto an alternative label creates its own ap
   assert.ok(!out.applications!.some((a) => a.id === 'app-orig'), 'the label that was passed over should never be created')
   assert.ok(out.applications!.some((a) => a.id === 'app-alt' && a.name === 'shop-suite'))
   assert.equal(out.services!.find((x) => x.id === 'w-gw')!.applicationId, 'app-alt')
+})
+
+test('groupingAlternativesFor(): gathers alternatives from the suggestion(s) that produced this application', () => {
+  const app = { id: 'app-x', name: 'my-release' }
+  const withAlts = (id: string, alts: { name: string; origin: string; confidence: 'high' | 'medium' | 'low'; signal: string }[]): Suggestion => ({
+    ...seed.suggestions[0],
+    id,
+    apply: { type: 'create-application', application: { id: 'app-x', orgId: DEFAULT_ORG, name: 'my-release', description: '', origin: 'helm', confidence: 'high', source: 'discovered' }, serviceIds: [], alternatives: alts },
+  })
+  const a = withAlts('sg-1', [{ name: 'shop-suite', origin: 'part-of', confidence: 'medium', signal: 'label app.kubernetes.io/part-of=shop-suite' }])
+  const b = withAlts('sg-2', [
+    { name: 'shop-suite', origin: 'part-of', confidence: 'medium', signal: 'label app.kubernetes.io/part-of=shop-suite' }, // same name as `a`'s: not repeated
+    { name: 'checkout', origin: 'namespace', confidence: 'low', signal: 'namespace checkout' },
+  ])
+  const unrelated: Suggestion = { ...seed.suggestions[0], id: 'sg-other', apply: { type: 'create-application', application: { id: 'app-other', orgId: DEFAULT_ORG, name: 'other', description: '', origin: 'helm', confidence: 'high', source: 'discovered' }, serviceIds: [], alternatives: [{ name: 'not-this', origin: 'helm', confidence: 'high', signal: 'x' }] } }
+  const alts = groupingAlternativesFor(app, [a, b, unrelated])
+  assert.deepEqual(alts.map((x) => x.name), ['shop-suite', 'checkout'])
+})
+
+test('groupingAlternativesFor(): never offers the application\'s own current name, and is empty when nothing suggested it', () => {
+  const app = { id: 'app-x', name: 'shop-suite' }
+  const s: Suggestion = {
+    ...seed.suggestions[0],
+    apply: { type: 'create-application', application: { id: 'app-x', orgId: DEFAULT_ORG, name: 'shop-suite', description: '', origin: 'part-of', confidence: 'medium', source: 'discovered' }, serviceIds: [], alternatives: [{ name: 'Shop-Suite', origin: 'helm', confidence: 'high', signal: 'x' }] },
+  }
+  assert.deepEqual(groupingAlternativesFor(app, [s]), []) // case-insensitive match against its own name
+  assert.deepEqual(groupingAlternativesFor({ id: 'app-manual', name: 'hand-made' }, seed.suggestions), [])
 })
 
 test('upgrade(): rejects non-objects, missing arrays and future schema versions', () => {

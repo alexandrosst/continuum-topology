@@ -1,13 +1,13 @@
 import clsx from 'clsx'
-import { ArrowRight, Check, ChevronDown, KeyRound, Plug, PlugZap, X } from 'lucide-react'
+import { ArrowRight, Check, KeyRound, Plug, PlugZap, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { when } from '@/components/discovery/AgentParts'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
+import { GroupingPicker } from '@/components/GroupingPicker'
 import { GoneRecords, ObservedClusters } from '@/components/Observations'
 import { Button, EmptyState, PageHeader, Pill } from '@/components/ui/primitives'
-import { originLabel } from '@/lib/present'
 import type { GroupingAlternative, Suggestion } from '@/lib/types'
 import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { useApprovalLocks } from '@/store/approvalLocks'
@@ -18,39 +18,12 @@ import { useTopology } from '@/store/topology'
  * A `create-application` suggestion only shows the label that won. Some services carry more than one
  * of the labels discovery understands (an Argo app that is also part of a bigger Helm release, say),
  * and the one that wins by precedence is not always the one a person wants grouped by. This lets them
- * regroup onto a runner-up instead of dismissing the suggestion and typing a name from scratch.
+ * regroup onto a runner-up instead of dismissing the suggestion and typing a name from scratch - and
+ * the same choice stays available from the application itself afterwards (see ApplicationForm).
  */
 function AlternativeLabelPicker({ suggestion, alternatives }: { suggestion: Suggestion; alternatives: GroupingAlternative[] }) {
   const applyAlternative = useTopology((s) => s.applyAlternative)
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="mt-1.5">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1 text-xs text-nb-500 hover:text-accent"
-        aria-expanded={open}
-      >
-        <ChevronDown size={12} className={open ? 'rotate-180' : ''} aria-hidden />
-        Use a different label instead
-      </button>
-      {open && (
-        <div className="mt-1.5 flex flex-wrap gap-1.5" role="group" aria-label="Alternative labels">
-          {alternatives.map((alt) => (
-            <button
-              key={`${alt.origin}-${alt.name}`}
-              type="button"
-              title={alt.signal}
-              onClick={() => applyAlternative(suggestion.id, alt)}
-              className="rounded-full border border-nb-800 bg-nb-930 px-2.5 py-1 text-xs text-nb-400 transition-colors hover:border-accent/60 hover:text-white"
-            >
-              {originLabel(alt.origin)}: <span className="font-medium text-nb-200">{alt.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+  return <GroupingPicker label="Use a different label instead" alternatives={alternatives} onPick={(alt) => applyAlternative(suggestion.id, alt)} />
 }
 
 export default function DiscoveryPage() {

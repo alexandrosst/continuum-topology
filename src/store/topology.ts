@@ -81,6 +81,13 @@ interface Actions {
    * that won by default - a fresh application named after that label, not the one the suggestion offered.
    */
   applyAlternative: (suggestionId: string, alt: GroupingAlternative) => void
+  /**
+   * Rename an existing application onto one of its grouping alternatives (see
+   * `groupingAlternativesFor`) - in place, keeping its id, so every service, device, dependency and site
+   * assignment that already points at it keeps working. Unlike `applyAlternative`, there is no suggestion
+   * left to decide: this can be done any time, long after the application was created.
+   */
+  regroupApplication: (id: string, alt: GroupingAlternative) => void
   addAudit: (e: Omit<AuditEvent, 'id' | 'orgId' | 'at'>) => void
   /** Save the given view options under a name; a view with the same name is replaced. */
   saveView: (name: string, params: string) => void
@@ -307,6 +314,16 @@ export const useRawTopology = create<RawState>()(
             // Replace the stored suggestion with the reworked one before deciding, so status/decidedAt
             // land on the version that reflects what was actually applied, not the original wording.
             return decide({ ...s, suggestions: s.suggestions.map((x) => (x.id === suggestionId ? reworked : x)) }, reworked, 'accepted')
+          }),
+        regroupApplication: (id, alt) =>
+          set((s) => {
+            const app = s.applications.find((a) => a.id === id)
+            if (!app || app.name === alt.name) return {}
+            const next: Application = { ...app, name: alt.name, origin: alt.origin, confidence: alt.confidence }
+            return {
+              applications: upsert(s.applications, next),
+              auditLog: audit(s, { actor: ACTOR, action: 'regroup', targetKind: 'application', targetId: id, detail: `${app.name} → ${alt.name} — ${alt.signal}` }),
+            }
           }),
         addAudit: (e) => set((s) => ({ auditLog: audit(s, e) })),
         saveView: (name, params) =>

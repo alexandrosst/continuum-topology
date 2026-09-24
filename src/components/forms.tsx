@@ -1,11 +1,13 @@
 import { countries } from 'country-flag-icons'
 import { Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { GroupingPicker } from '@/components/GroupingPicker'
 import { Button, Field, Input, Modal, Select } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
 import { countryName } from '@/lib/present'
 import { countryAt, findCities, nearestCity, siteLocationIssue, type City } from '@/lib/places'
 import { usePlaceIndex } from '@/lib/places-data'
+import { groupingAlternativesFor } from '@/lib/suggestions'
 import { uid, useTopology } from '@/store/topology'
 import { useServer } from '@/store/server'
 import {
@@ -709,9 +711,12 @@ export function DeviceForm({ initial, onClose }: { initial: Device | null; onClo
 /* ---------- Application ---------- */
 export function ApplicationForm({ initial, onClose }: { initial: Application | null; onClose: () => void }) {
   const upsert = useTopology((s) => s.upsertApplication)
+  const regroup = useTopology((s) => s.regroupApplication)
+  const suggestions = useTopology((s) => s.suggestions)
   const [f, setF] = useState<Application>(
     initial ?? { id: uid('app'), orgId: DEFAULT_ORG, name: '', description: '', origin: 'explicit', confidence: 'high', source: 'manual' },
   )
+  const alternatives = initial ? groupingAlternativesFor(initial, suggestions) : []
   return (
     <Modal
       open
@@ -733,6 +738,14 @@ export function ApplicationForm({ initial, onClose }: { initial: Application | n
       <div className="grid gap-4">
         <Field label="Name">
           <Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Sensor ingestion" />
+          <GroupingPicker
+            label="Group by a different label instead"
+            alternatives={alternatives}
+            onPick={(alt) => {
+              regroup(initial!.id, alt)
+              onClose()
+            }}
+          />
         </Field>
         <Field label="Description">
           <Input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
