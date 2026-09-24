@@ -20,7 +20,7 @@ export function twoFactorPending(err: unknown): err is ApiError & { body: { pend
   return err instanceof ApiError && typeof err.body?.pending === 'string'
 }
 
-export type TwoFactorMethod = 'totp' | 'email'
+export type TwoFactorMethod = 'totp' | 'email' | 'webauthn'
 
 export interface ServerInfo {
   orgId: string
@@ -75,6 +75,15 @@ export const atLeast = (have: Role | undefined, need: Role) => !!have && ROLES.i
 /** Which roles `by` may give to or take from another person. */
 export const grantable = (by: Role | undefined): Role[] => (by === 'owner' ? ROLES : by === 'admin' ? ['viewer', 'editor'] : [])
 
+/** One passkey or security key registered to an account. id is what rename/remove address it by; it never
+ *  carries anything that could be used to sign in with it. */
+export interface Passkey {
+  id: string
+  name: string
+  createdAt: string
+  lastUsedAt?: string
+}
+
 export interface User {
   id: string
   username: string
@@ -88,6 +97,9 @@ export interface User {
   emailOtpEnabled: boolean
   /** Whether this server can send mail at all - when false, email-OTP isn't offered regardless of the above. */
   mailConfigured: boolean
+  /** Every passkey/security key on the account, oldest first. Unlike the other two methods there is no
+   *  separate enabled flag: having at least one of these is what turns "webauthn" on as a sign-in method. */
+  passkeys: Passkey[]
 }
 
 export interface OrgRef {
@@ -264,6 +276,17 @@ export const api = {
   confirmEmail: (c: Conn, code: string) => call<Session>(c, 'POST', '/api/v1/auth/email/confirm', { code }),
   enableEmailOTP: (c: Conn) => call<Session>(c, 'POST', '/api/v1/auth/email-otp/enable'),
   disableEmailOTP: (c: Conn, password: string) => call<Session>(c, 'POST', '/api/v1/auth/email-otp/disable', { password }),
+  // Passkeys (WebAuthn): begin* returns the options object exactly as the server's provider built it - hand
+  // it straight to lib/webauthn's createPasskey/getPasskey, and send what they return back as `response`
+  // unchanged. Registering and signing in with a passkey are each two calls for that reason: the browser
+  // ceremony has to happen between them.
+  beginPasskeyRegistration: (c: Conn) => call<unknown>(c, 'POST', '/api/v1/auth/webauthn/register/begin'),
+  finishPasskeyRegistration: (c: Conn, name: string, response: unknown) => call<Session>(c, 'POST', '/api/v1/auth/webauthn/register/finish', { name, response }),
+  renamePasskey: (c: Conn, id: string, name: string) => call<Session>(c, 'POST', `/api/v1/auth/webauthn/${encodeURIComponent(id)}/rename`, { name }),
+  removePasskey: (c: Conn, id: string, password: string) => call<Session>(c, 'POST', `/api/v1/auth/webauthn/${encodeURIComponent(id)}/remove`, { password }),
+  // The login half needs no session yet, same as login/login2FA: `pending` is the token login() returned.
+  beginPasskeyLogin: (c: Conn, pending: string) => call<unknown>(c, 'POST', '/api/v1/auth/login/2fa/webauthn/begin', { pending }),
+  finishPasskeyLogin: (c: Conn, pending: string, response: unknown) => call<Session>(c, 'POST', '/api/v1/auth/login/2fa/webauthn/finish', { pending, response }),
 
   // organisations, members, invitations
   orgs: (c: Conn) => call<OrgRef[]>(c, 'GET', '/api/v1/orgs'),

@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Check, Cpu, Minus, X } from 'lucide-react'
+import { Check, Cpu, KeyRound, Minus, X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Copyright } from '@/components/ui/brand'
 import { Button, ErrorBanner, Field, Input } from '@/components/ui/primitives'
@@ -124,16 +124,21 @@ function SignInScreen({ onRegister }: { onRegister: () => void }) {
 }
 
 /** Shown after a correct password when the account also has two-factor authentication on. Which methods apply
- *  (an authenticator app / recovery code, an emailed code, or both) comes from `pendingMethods`, set by `signIn`
- *  from the 401's error body - `login2FA` accepts a code from any of them back in the same field. */
+ *  (a passkey, an authenticator app / recovery code, an emailed code, any combination) comes from
+ *  `pendingMethods`, set by `signIn` from the 401's error body - `login2FA` accepts a code from an
+ *  authenticator app or by email back in the same field, while a passkey runs its own browser ceremony via
+ *  `signInWithPasskey` and opens the session directly. */
 function TwoFactorScreen() {
-  const { error, verifyTwoFactor, cancelTwoFactor, requestLoginEmailCode, pendingMethods } = useServer()
+  const { error, verifyTwoFactor, cancelTwoFactor, requestLoginEmailCode, signInWithPasskey, pendingMethods } = useServer()
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [emailBusy, setEmailBusy] = useState(false)
   const [emailSent, setEmailSent] = useState(false)
+  const [passkeyBusy, setPasskeyBusy] = useState(false)
   const hasTotp = pendingMethods.includes('totp')
   const hasEmail = pendingMethods.includes('email')
+  const hasPasskey = pendingMethods.includes('webauthn')
+  const hasCode = hasTotp || hasEmail
 
   const submit = async () => {
     setBusy(true)
@@ -149,8 +154,17 @@ function TwoFactorScreen() {
     if (ok) setEmailSent(true)
   }
 
-  const description =
-    hasTotp && hasEmail
+  const usePasskey = async () => {
+    setPasskeyBusy(true)
+    await signInWithPasskey()
+    setPasskeyBusy(false)
+  }
+
+  const description = hasPasskey
+    ? hasCode
+      ? 'Use your passkey, enter a two-factor code, or have one emailed to you.'
+      : 'Use your passkey to finish signing in.'
+    : hasTotp && hasEmail
       ? 'Open your authenticator app, use a recovery code, or have a code emailed to you.'
       : hasEmail
         ? 'We can email you a code to finish signing in.'
@@ -158,38 +172,65 @@ function TwoFactorScreen() {
 
   return (
     <Shell title="Enter your code" description={description}>
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault()
-          void submit()
-        }}
-      >
-        <Field label="Code">
-          <Input
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            autoFocus
-            autoComplete="one-time-code"
-            inputMode="numeric"
-            placeholder="123456"
-            data-testid="totp-code"
-          />
-        </Field>
-        <ErrorLine text={error} />
-        <Button type="submit" variant="primary" className="w-full" disabled={busy || !code.trim()}>
-          {busy ? 'Checking…' : 'Continue'}
-        </Button>
-      </form>
-      {hasEmail && (
-        <button
-          onClick={() => void sendEmailCode()}
-          disabled={emailBusy}
-          className="mt-3 w-full text-center text-xs text-accent hover:text-accent/80 disabled:opacity-50"
-          data-testid="email-2fa-code"
+      {hasPasskey && (
+        <Button
+          variant={hasCode ? 'secondary' : 'primary'}
+          className="w-full"
+          onClick={() => void usePasskey()}
+          disabled={passkeyBusy}
+          data-testid="webauthn-2fa"
         >
-          {emailBusy ? 'Sending…' : emailSent ? 'Code sent — send another' : 'Email me a code'}
-        </button>
+          <KeyRound size={15} aria-hidden />
+          {passkeyBusy ? 'Waiting for your passkey…' : 'Use your passkey'}
+        </Button>
+      )}
+      {hasCode && (
+        <>
+          {hasPasskey && (
+            <div className="my-4 flex items-center gap-2 text-[11px] text-nb-600" aria-hidden="true">
+              <div className="h-px flex-1 bg-nb-850" />
+              or
+              <div className="h-px flex-1 bg-nb-850" />
+            </div>
+          )}
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              void submit()
+            }}
+          >
+            <Field label="Code">
+              <Input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                autoFocus={!hasPasskey}
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                placeholder="123456"
+                data-testid="totp-code"
+              />
+            </Field>
+            <Button type="submit" variant="primary" className="w-full" disabled={busy || !code.trim()}>
+              {busy ? 'Checking…' : 'Continue'}
+            </Button>
+          </form>
+          {hasEmail && (
+            <button
+              onClick={() => void sendEmailCode()}
+              disabled={emailBusy}
+              className="mt-3 w-full text-center text-xs text-accent hover:text-accent/80 disabled:opacity-50"
+              data-testid="email-2fa-code"
+            >
+              {emailBusy ? 'Sending…' : emailSent ? 'Code sent — send another' : 'Email me a code'}
+            </button>
+          )}
+        </>
+      )}
+      {error && (
+        <div className="mt-4">
+          <ErrorLine text={error} />
+        </div>
       )}
       <button onClick={cancelTwoFactor} className="mt-4 w-full text-center text-xs text-nb-500 hover:text-nb-300">
         Back to sign in

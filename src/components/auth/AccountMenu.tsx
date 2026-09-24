@@ -1,8 +1,9 @@
-import { ChevronsUpDown, KeyRound, LogOut, Mail, Plus, ScrollText, ShieldCheck, Ticket, Users } from 'lucide-react'
+import { ChevronsUpDown, Fingerprint, KeyRound, LogOut, Mail, Plus, ScrollText, ShieldCheck, Ticket, Users } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { Button, CopyButton, ErrorBanner, Field, Input, Modal, Select } from '@/components/ui/primitives'
-import { atLeast, ROLE_LABEL } from '@/lib/api'
+import { atLeast, ROLE_LABEL, type Passkey } from '@/lib/api'
+import { passkeysSupported } from '@/lib/webauthn'
 import { useServer } from '@/store/server'
 import { useWorkspace, type SyncStatus } from '@/store/workspace'
 
@@ -334,6 +335,142 @@ function EmailDisableModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+/** One registered passkey, either shown plainly with rename/remove buttons, or swapped for a small inline
+ *  form while one of those is in progress - a passkey has no single "are you sure" dialog the way disabling
+ *  two-factor entirely does, since removing one of several is much lower-stakes than turning the whole thing
+ *  off, but it still needs the password check RemovePasskey requires. */
+function PasskeyRow({ passkey, busy, setBusy }: { passkey: Passkey; busy: boolean; setBusy: (b: boolean) => void }) {
+  const { renamePasskey, removePasskey, error } = useServer()
+  const [mode, setMode] = useState<'idle' | 'rename' | 'remove'>('idle')
+  const [name, setName] = useState(passkey.name)
+  const [password, setPassword] = useState('')
+
+  const saveRename = async () => {
+    setBusy(true)
+    const ok = await renamePasskey(passkey.id, name)
+    setBusy(false)
+    if (ok) setMode('idle')
+  }
+
+  const confirmRemove = async () => {
+    setBusy(true)
+    const ok = await removePasskey(passkey.id, password)
+    setBusy(false)
+    setPassword('')
+    if (ok) setMode('idle')
+  }
+
+  if (mode === 'rename') {
+    return (
+      <li className="rounded-md border border-nb-800 bg-nb-925 p-3">
+        <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (name.trim()) void saveRename() }}>
+          <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus className="h-8 flex-1 text-sm" />
+          <Button type="submit" size="sm" variant="primary" disabled={busy || !name.trim()}>Save</Button>
+          <Button type="button" size="sm" onClick={() => { setMode('idle'); setName(passkey.name) }}>Cancel</Button>
+        </form>
+        {error && <ErrorBanner className="mt-2">{error}</ErrorBanner>}
+      </li>
+    )
+  }
+  if (mode === 'remove') {
+    return (
+      <li className="rounded-md border border-nb-800 bg-nb-925 p-3">
+        <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); if (password) void confirmRemove() }}>
+          <p className="text-xs text-nb-400">Enter your password to remove <strong className="text-nb-200">{passkey.name}</strong>.</p>
+          <div className="flex items-center gap-2">
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="current-password" className="h-8 flex-1 text-sm" />
+            <Button type="submit" size="sm" variant="danger" disabled={busy || !password}>Remove</Button>
+            <Button type="button" size="sm" onClick={() => { setMode('idle'); setPassword('') }}>Cancel</Button>
+          </div>
+        </form>
+        {error && <ErrorBanner className="mt-2">{error}</ErrorBanner>}
+      </li>
+    )
+  }
+  return (
+    <li className="flex items-center justify-between gap-2 rounded-md border border-nb-800 bg-nb-925 p-3">
+      <div className="min-w-0">
+        <div className="truncate text-sm text-nb-200">{passkey.name}</div>
+        <div className="text-[11px] text-nb-500">
+          Added {new Date(passkey.createdAt).toLocaleDateString()}
+          {passkey.lastUsedAt ? `, last used ${new Date(passkey.lastUsedAt).toLocaleDateString()}` : ', never used to sign in'}
+        </div>
+      </div>
+      <div className="flex shrink-0 gap-1">
+        <Button size="sm" onClick={() => setMode('rename')}>Rename</Button>
+        <Button size="sm" variant="danger" onClick={() => setMode('remove')}>Remove</Button>
+      </div>
+    </li>
+  )
+}
+
+/**
+ * Passkeys, unlike TOTP and email, have no single on/off switch to toggle - an account can hold several at
+ * once (a laptop, a phone, a hardware key), so this is a small management list rather than a two-step setup
+ * flow. Adding one runs the browser's own create() ceremony (see lib/webauthn) between asking for a name and
+ * actually registering it.
+ */
+function PasskeysModal({ onClose }: { onClose: () => void }) {
+  const user = useServer((s) => s.user)
+  const registerPasskey = useServer((s) => s.registerPasskey)
+  const error = useServer((s) => s.error)
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const supported = passkeysSupported()
+  const passkeys = user?.passkeys ?? []
+
+  const add = async () => {
+    setBusy(true)
+    const ok = await registerPasskey(name)
+    setBusy(false)
+    if (ok) {
+      setAdding(false)
+      setName('')
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Passkeys"
+      description="A passkey or security key can finish signing in as your second factor, with no code to type."
+      width="max-w-md"
+      footer={<Button variant="primary" onClick={onClose}>Done</Button>}
+    >
+      <div className="space-y-4">
+        {!supported && <ErrorBanner>Passkeys are not supported in this browser.</ErrorBanner>}
+        {passkeys.length === 0 && !adding && <p className="text-sm text-nb-500">No passkeys on this account yet.</p>}
+        {passkeys.length > 0 && (
+          <ul className="space-y-2" data-testid="passkey-list">
+            {passkeys.map((p) => (
+              <PasskeyRow key={p.id} passkey={p} busy={busy} setBusy={setBusy} />
+            ))}
+          </ul>
+        )}
+        {supported &&
+          (adding ? (
+            <form className="space-y-3 border-t border-nb-850 pt-4" onSubmit={(e) => { e.preventDefault(); void add() }}>
+              <Field label="Name it" hint="So you can tell it apart later.">
+                <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="MacBook Touch ID" data-testid="passkey-name" />
+              </Field>
+              <div className="flex gap-2">
+                <Button type="submit" variant="primary" disabled={busy}>{busy ? 'Waiting for your passkey…' : 'Continue'}</Button>
+                <Button type="button" onClick={() => setAdding(false)} disabled={busy}>Cancel</Button>
+              </div>
+              {error && <ErrorBanner>{error}</ErrorBanner>}
+            </form>
+          ) : (
+            <button type="button" onClick={() => setAdding(true)} className="text-sm text-accent hover:text-accent/80" data-testid="add-passkey">
+              + Add a passkey
+            </button>
+          ))}
+      </div>
+    </Modal>
+  )
+}
+
 function NewOrgModal({ onClose }: { onClose: () => void }) {
   const createOrg = useServer((s) => s.createOrg)
   const error = useServer((s) => s.error)
@@ -405,6 +542,7 @@ export default function AccountMenu() {
   const [pw, setPw] = useState(false)
   const [twoFA, setTwoFA] = useState(false)
   const [emailOTP, setEmailOTP] = useState(false)
+  const [passkeys, setPasskeys] = useState(false)
   const [newOrg, setNewOrg] = useState(false)
   const [join, setJoin] = useState(false)
   const [open, setOpen] = useState(false)
@@ -473,6 +611,9 @@ export default function AccountMenu() {
                 <Mail size={15} className="text-nb-500" /> {user.emailOtpEnabled ? 'Email codes (on)' : 'Turn on email codes'}
               </button>
             )}
+            <button onClick={pick(() => setPasskeys(true))} className={item} role="menuitem" data-testid="passkeys-open">
+              <Fingerprint size={15} className="text-nb-500" /> {user.passkeys.length > 0 ? `Passkeys (${user.passkeys.length})` : 'Add a passkey'}
+            </button>
             <button onClick={pick(() => void signOut())} className={item} role="menuitem" data-testid="sign-out"><LogOut size={15} className="text-nb-500" /> Sign out</button>
           </div>
         </>
@@ -508,6 +649,7 @@ export default function AccountMenu() {
       {pw && <ChangePasswordModal onClose={() => setPw(false)} />}
       {twoFA && (user.twoFactorEnabled ? <TwoFactorDisableModal onClose={() => setTwoFA(false)} /> : <TwoFactorSetupModal onClose={() => setTwoFA(false)} />)}
       {emailOTP && (user.emailOtpEnabled ? <EmailDisableModal onClose={() => setEmailOTP(false)} /> : <EmailSetupModal onClose={() => setEmailOTP(false)} />)}
+      {passkeys && <PasskeysModal onClose={() => setPasskeys(false)} />}
       {newOrg && <NewOrgModal onClose={() => setNewOrg(false)} />}
       {join && <JoinModal onClose={() => setJoin(false)} />}
     </div>
