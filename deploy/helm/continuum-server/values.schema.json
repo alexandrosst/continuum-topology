@@ -501,11 +501,11 @@
         },
         "publicIpService": {
           "type": "string",
-          "description": "needs geoip.path. An http(s) URL that answers with this server's own public IP as plain text, used only to estimate the location of an agent whose own connecting address cannot be located at all (private, loopback, CGNAT). Empty (default): never guessed."
+          "description": "An http(s) URL that answers with this server's own public IP as plain text, used only to estimate the location of an agent whose own connecting address cannot be located at all (private, loopback, CGNAT) - the common case when the server and its agents share a network. Empty (default): never guessed, the privacy-conserving default. Recommended value: https://api.ipify.org."
         },
         "asnPath": {
           "type": "string",
-          "description": "needs geoip.path. A second, optional .mmdb in ASN shape (GeoLite2-ASN, DB-IP ASN Lite), not city/country shape. Adds which network an address belongs to (AS number and organisation) alongside wherever geoip.path placed it. Entirely offline; empty (default) turns it off."
+          "description": "A second, optional .mmdb in ASN shape (GeoLite2-ASN, DB-IP ASN Lite), not city/country shape. Adds which network an address belongs to (AS number and organisation) alongside wherever the city/country database placed it. Entirely offline. Empty (default): a bundled free DB-IP ASN Lite database is already used; set this only to use a different one."
         }
       }
     },

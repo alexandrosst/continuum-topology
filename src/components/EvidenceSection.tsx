@@ -4,6 +4,7 @@ import { ageLabel, evidenceRows, observation, weakAttributes, type ModelEntity }
 import type { Provenance } from '@/lib/types'
 import { useEntityEvidence } from '@/store/effectiveModel'
 import { useServer } from '@/store/server'
+import { useTopology } from '@/store/topology'
 
 const SHOWN = 8
 
@@ -69,9 +70,15 @@ export function EvidenceSection({ kind, id }: { kind: string; id: string }) {
   )
 }
 
-/** The values of a discovered record that are guessed or not known, each with its evidence chip. Nothing when there are none. */
-export function WeakValues({ kind, rec }: { kind: 'cluster' | 'node' | 'service'; rec: Provenance }) {
-  const weak = weakAttributes(kind, rec as Provenance & Record<string, unknown>)
+/**
+ * The values of a discovered record that are guessed or not known, each with its evidence chip. Nothing when
+ * there are none. A "guess" carries a real value discovery is unsure of, so it can be confirmed as-is in one
+ * click (see `confirmOverride`); an "unknown" has no value to freeze and genuinely needs the edit form instead.
+ */
+export function WeakValues({ kind, rec }: { kind: 'cluster' | 'node' | 'service'; rec: Provenance & { id: string } }) {
+  const weak = weakAttributes(kind, rec as unknown as Provenance & Record<string, unknown>)
+  const confirmField = useTopology((s) => s.confirmField)
+  const by = useServer((s) => s.user?.username)
   if (weak.length === 0) return null
   return (
     <div className="py-1.5 text-sm" data-testid="weak-values">
@@ -80,7 +87,18 @@ export function WeakValues({ kind, rec }: { kind: 'cluster' | 'node' | 'service'
         {weak.map((w) => (
           <li key={w.field} className="flex items-baseline justify-between gap-3" title={w.why}>
             <span className="text-nb-400">{w.label}</span>
-            <EvidenceChip level={w.level} always why={w.why} />
+            <span className="flex items-center gap-2">
+              <EvidenceChip level={w.level} always why={w.why} />
+              {w.level === 'guess' && by && (
+                <button
+                  onClick={() => confirmField(kind, rec.id, w.field, by)}
+                  className="text-[11px] text-accent hover:underline"
+                  title="Keep this value as it is; it will not be overwritten by rediscovery."
+                >
+                  confirm
+                </button>
+              )}
+            </span>
           </li>
         ))}
       </ul>

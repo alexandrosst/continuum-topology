@@ -127,8 +127,8 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 | `neo4j.networkPolicy.enabled` | `false` | only the server pod may reach Neo4j (7474) |
 | `agentInstall.imageRegistry` / `imageTag` / `chartRef` | `""` | `--image-registry`, `--image-tag`, `--chart-ref` (empty: the server's own defaults) |
 | `geoip.path` | `""` | `--geoip-db`; mount the file with `extraVolumes` |
-| `geoip.publicIpService` | `""` | needs `geoip.path`; `--geoip-public-ip-service`: estimate an unlocatable agent from this server's own public IP |
-| `geoip.asnPath` | `""` | needs `geoip.path`; `--geoip-asn-db`: add which network an address belongs to (AS number, organisation) alongside its location |
+| `geoip.publicIpService` | `""` | `--geoip-public-ip-service`: estimate an unlocatable agent from this server's own public IP (recommended when server and agents share a network, e.g. `https://api.ipify.org`) |
+| `geoip.asnPath` | `""` | `--geoip-asn-db`: add which network an address belongs to (AS number, organisation) alongside its location; a free DB-IP ASN Lite database is already bundled and used by default, same as `geoip.path`'s city/country one |
 | `decider.allowCIDRs` | `[]` | `--decider-allow-cidrs`: private ranges an external decider may live in |
 | `terminationGracePeriodSeconds` | `30` | |
 | `priorityClassName` | `""` | |

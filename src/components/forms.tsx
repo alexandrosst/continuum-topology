@@ -7,6 +7,7 @@ import { countryName } from '@/lib/present'
 import { countryAt, findCities, nearestCity, siteLocationIssue, type City } from '@/lib/places'
 import { usePlaceIndex } from '@/lib/places-data'
 import { uid, useTopology } from '@/store/topology'
+import { useServer } from '@/store/server'
 import {
   CONNECTIVITY,
   DEFAULT_ORG,
@@ -128,6 +129,7 @@ export function ClusterForm({ initial, onClose }: { initial: Cluster | null; onC
   const save = useTopology((s) => s.saveCluster)
   const resetOverrides = useTopology((s) => s.resetOverrides)
   const sites = useTopology((s) => s.sites)
+  const by = useServer((s) => s.user?.username)
   const [f, setF] = useState<Cluster>(
     initial ?? {
       id: uid('cl'),
@@ -158,7 +160,7 @@ export function ClusterForm({ initial, onClose }: { initial: Cluster | null; onC
           disabled={!f.name.trim()}
           onCancel={onClose}
           onSave={() => {
-            save({ ...f, name: f.name.trim(), labels: parseLabels(labels) })
+            save({ ...f, name: f.name.trim(), labels: parseLabels(labels) }, by)
             onClose()
           }}
           onReset={
@@ -233,6 +235,7 @@ export function NodeForm({ initial, onClose, defaultClusterId }: { initial: Mach
   const clusters = useTopology((s) => s.clusters)
   const save = useTopology((s) => s.saveNode)
   const resetOverrides = useTopology((s) => s.resetOverrides)
+  const by = useServer((s) => s.user?.username)
   const [f, setF] = useState<MachineNode>(
     initial ?? {
       id: uid('n'),
@@ -265,7 +268,7 @@ export function NodeForm({ initial, onClose, defaultClusterId }: { initial: Mach
           disabled={!f.name.trim() || !f.clusterId}
           onCancel={onClose}
           onSave={() => {
-            save({ ...f, name: f.name.trim(), labels: parseLabels(labels) })
+            save({ ...f, name: f.name.trim(), labels: parseLabels(labels) }, by)
             onClose()
           }}
           onReset={
@@ -347,6 +350,7 @@ export function NodeForm({ initial, onClose, defaultClusterId }: { initial: Mach
 /* ---------- Service (+ outgoing dependencies) ---------- */
 export function ServiceForm({ initial, onClose, defaultClusterId }: { initial: Service | null; onClose: () => void; defaultClusterId?: string }) {
   const { clusters, nodes, services, dependencies, applications, saveService, resetOverrides, upsertDependency, deleteDependency } = useTopology()
+  const by = useServer((s) => s.user?.username)
   const [f, setF] = useState<Service>(
     initial ?? {
       id: uid('w'),
@@ -374,7 +378,7 @@ export function ServiceForm({ initial, onClose, defaultClusterId }: { initial: S
   const clusterName = (id: string) => clusters.find((c) => c.id === id)?.name ?? '?'
 
   const save = () => {
-    saveService({ ...f, name: f.name.trim(), labels: parseLabels(labels) })
+    saveService({ ...f, name: f.name.trim(), labels: parseLabels(labels) }, by)
     const kept = new Set(deps.map((d) => d.id))
     dependencies.filter((d) => isEditable(d) && !kept.has(d.id)).forEach((d) => deleteDependency(d.id))
     deps.filter((d) => d.to).forEach((d) => upsertDependency({ ...d, from: f.id }))
@@ -541,6 +545,7 @@ export function ServiceForm({ initial, onClose, defaultClusterId }: { initial: S
 /* ---------- Device (+ what it talks to) ---------- */
 export function DeviceForm({ initial, onClose }: { initial: Device | null; onClose: () => void }) {
   const { clusters, nodes, services, sites, applications, dependencies, saveDevice, resetOverrides, upsertDependency, deleteDependency } = useTopology()
+  const by = useServer((s) => s.user?.username)
   const [f, setF] = useState<Device>(
     initial ?? {
       id: uid('dev'),
@@ -562,7 +567,7 @@ export function DeviceForm({ initial, onClose }: { initial: Device | null; onClo
   const clusterName = (id: string) => clusters.find((c) => c.id === id)?.name ?? '?'
 
   const save = () => {
-    saveDevice({ ...f, name: f.name.trim(), count: Math.max(1, Math.round(f.count) || 1), labels: parseLabels(labels) })
+    saveDevice({ ...f, name: f.name.trim(), count: Math.max(1, Math.round(f.count) || 1), labels: parseLabels(labels) }, by)
     const kept = new Set(deps.map((d) => d.id))
     dependencies.filter((d) => isEditable(d) && !kept.has(d.id)).forEach((d) => deleteDependency(d.id))
     deps.filter((d) => d.to).forEach((d) => upsertDependency({ ...d, from: f.id }))

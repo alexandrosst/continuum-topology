@@ -775,6 +775,13 @@ type AgentDoc struct {
 	ReleaseName string `json:"releaseName,omitempty"`
 	// ConnectingGeo is only a suggestion derived offline from ConnectingIP; a cloud cluster resolves to its provider's egress.
 	ConnectingGeo *geoip.Result `json:"connectingGeo,omitempty"`
+	// ConnectingGeoReason is set only when ConnectingGeo is nil because ConnectingIP itself could not be
+	// located at all (as opposed to being locatable but simply unrecorded): "cgnat" | "private" |
+	// "loopback" | "link-local" | "link-local-multicast" | "multicast" | "unspecified". The first two mean
+	// the agent is reaching this server through some NAT (derived from the address's own range, not a live
+	// probe - see geoip.UnlocatableReason), which is exactly the case deploy/README.md's Troubleshooting
+	// section covers with geoip.publicIpService.
+	ConnectingGeoReason string `json:"connectingGeoReason,omitempty"`
 	CertExpiresAt string        `json:"certExpiresAt,omitempty"`
 	LastHeartbeat string        `json:"lastHeartbeat,omitempty"`
 	RequestedAt   string        `json:"requestedAt"`
@@ -935,6 +942,9 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 			d.PendingExpiresAt = rfc(a.CreatedAt.Add(h.C.pendingTTL()))
 		}
 		d.ConnectingGeo = h.Geo.Locate(a.ConnectingIP)
+		if d.ConnectingGeo == nil {
+			d.ConnectingGeoReason = h.Geo.UnlocatableReason(a.ConnectingIP)
+		}
 		if v != nil {
 			d.Namespace, d.ReleaseName = v.ext.namespace, v.ext.releaseName
 		}

@@ -486,6 +486,14 @@ message RawFlow {
   // and never set for a socket the kernel has not (yet) routed. Empty means not known, not "none": a
   // multi-homed edge node's route can also change over a long-lived connection's life.
   string iface = 9;
+  // TCP segments retransmitted since the previous report, from the kernel's own congestion-control
+  // counter (struct tcp_sock.total_retrans) - never inferred from packet timing or loss heuristics of
+  // our own. Always 0 on a conntrack-derived report, which has no socket to read this from.
+  uint32 retransmits = 10;
+  // The most recently sampled smoothed round-trip time, in microseconds, from the kernel's own TCP RTT
+  // estimator (struct tcp_sock.srtt_us). A gauge, not a sum: 0 means no sample yet (a connection that
+  // exchanged too little to measure one, or a conntrack-derived report), not "no delay".
+  uint32 rtt_us = 11;
 }
 
 message FlowReport {
@@ -527,6 +535,11 @@ message Flow {
   // part of an edge's identity, so a route flapping between interfaces does not fork one dependency
   // into two.
   string iface = 11;
+  // Retransmitted segments observed in this report - see RawFlow.retransmits. Also descriptive only.
+  uint64 retransmits = 12;
+  // The most recently sampled smoothed RTT, in microseconds - see RawFlow.rtt_us. A gauge: the latest
+  // sample, not a sum.
+  uint32 rtt_us = 13;
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
@@ -559,6 +572,12 @@ message FlowEdge {
   int32 window_seconds = 7;
   uint64 window_connections = 8;
   uint64 window_bytes = 9;
+  // Cumulative retransmitted segments over the life of this edge, summed the same way bytes/connections
+  // are; 0 on an edge with no eBPF-observed report yet (conntrack cannot see this).
+  uint64 retransmits = 10;
+  uint64 window_retransmits = 11;
+  // The latest smoothed-RTT sample lives on key.rtt_us, not here - a gauge is descriptive, not part of
+  // the edge's running totals, the same treatment key.iface already gets.
 }
 
 message FlowTable {

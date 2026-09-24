@@ -122,7 +122,8 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 		}
 		return "", false
 	}
-	f := &continuumv1.Flow{Port: raw.Port, Protocol: raw.Protocol, Connections: raw.Connections, BytesOut: raw.BytesOut, BytesIn: raw.BytesIn, Method: method, BytesKnown: bytesKnown, Iface: raw.Iface}
+	f := &continuumv1.Flow{Port: raw.Port, Protocol: raw.Protocol, Connections: raw.Connections, BytesOut: raw.BytesOut, BytesIn: raw.BytesIn, Method: method, BytesKnown: bytesKnown, Iface: raw.Iface,
+		Retransmits: uint64(raw.Retransmits), RttUs: raw.RttUs}
 
 	if raw.Client {
 		src, ok := pod(local)

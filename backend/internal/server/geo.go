@@ -91,6 +91,23 @@ func (g *Geo) Locate(addr string) *geoip.Result {
 	return r
 }
 
+// UnlocatableReason explains why addr itself could not be located directly: "cgnat" | "private" |
+// "loopback" | "link-local" | "link-local-multicast" | "multicast" | "unspecified" | "invalid", or "" when
+// addr is itself locatable (Locate may still have returned nil for it - a database miss, a different
+// "don't know" than this). It does not say whether Locate ultimately produced an *estimated* result for
+// addr via the public-IP fallback - only whether addr's own address needed one at all. "cgnat" and
+// "private" both mean addr is behind some NAT, derived from the address alone (see geoip.UnlocatableReason).
+func (g *Geo) UnlocatableReason(addr string) string {
+	if g == nil {
+		return ""
+	}
+	ip, err := netip.ParseAddr(addr)
+	if err != nil {
+		return ""
+	}
+	return geoip.UnlocatableReason(ip.Unmap().WithZone(""))
+}
+
 // addASN fills in r.ASN/r.ASOrg from the optional ASN database, for whichever address actually
 // produced r's location (the agent's own, or - under the fallback - this server's public one).
 // Deliberately not folded into lookup's cache: lookup's cache is filled once per address and never

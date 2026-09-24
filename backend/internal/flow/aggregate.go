@@ -77,6 +77,10 @@ func (a *Aggregator) Add(f *continuumv1.Flow) {
 		cur.Connections += f.Connections
 		cur.BytesOut += f.BytesOut
 		cur.BytesIn += f.BytesIn
+		cur.Retransmits += f.Retransmits
+		if f.RttUs != 0 {
+			cur.RttUs = f.RttUs // a gauge, not a sum: the latest sample replaces the last, same as Iface
+		}
 		cur.BytesKnown = cur.BytesKnown || f.BytesKnown
 		if f.Method == "ebpf" {
 			cur.Method = "ebpf"

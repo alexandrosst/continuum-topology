@@ -36,6 +36,12 @@ export interface Evidence {
   detail?: string
 }
 
+/** Who set an override by hand, and when - shown next to the value so a confirmed field says who stands behind it. */
+export interface OverrideMeta {
+  by: string
+  at: string
+}
+
 export interface Provenance {
   orgId: string
   source: Source
@@ -66,6 +72,13 @@ export interface Provenance {
    * to the detected value.
    */
   overrides?: Record<string, unknown>
+  /**
+   * Who confirmed or set each overridden field, and when - keyed the same way as `overrides`. Only present for
+   * fields a person actually touched from this browser onward; older overrides (or ones restored from an import
+   * that predates this) simply have no entry, and are shown as "you confirmed this" with no attribution rather
+   * than guessing one.
+   */
+  overrideMeta?: Record<string, OverrideMeta>
   /**
    * How far a discovered record can be trusted right now, as the server computed it from the clock, the agent's
    * connection and the staleness setting. Absent on records nobody observes.
@@ -99,6 +112,8 @@ export interface Tombstone {
 export interface DeclaredRef {
   kind: 'cluster' | 'node' | 'namespace' | 'service'
   overrides?: Record<string, unknown>
+  /** Who set each overridden field, and when - see Provenance.overrideMeta; carried through the same way overrides are. */
+  overrideMeta?: Record<string, OverrideMeta>
   applicationId?: string
   siteId?: string
 }
@@ -180,6 +195,9 @@ export interface ExternalEndpoint extends Provenance {
   name?: string
   port?: number
   kind: ExternalKind
+  /** The application usually found on `port` (e.g. "PostgreSQL", "Kafka") - a guess from the port number
+   * alone, same caveat as Dependency.service: a workload can run anything on any port. */
+  service?: string
 }
 
 export interface Cluster extends Provenance {
@@ -423,6 +441,9 @@ export type EndpointKind = 'service' | 'device' | 'external'
 export interface DependencyStats {
   bytesPerSec?: number
   connectionsPerMin?: number
+  /** 0 both when there is genuinely no loss and when nothing eBPF-observed has reported yet (conntrack
+   * cannot see retransmits at all) - Dependency.via says which case it is. */
+  retransmitsPerMin?: number
   reqPerSec?: number
   errorRate?: number // 0..1
   p95Ms?: number
@@ -442,6 +463,11 @@ export interface Dependency {
   lastSeen?: string
   protocol: string // HTTP, gRPC, MQTT, Kafka, TCP ...
   port?: number
+  /** The application usually found on `port` (e.g. "PostgreSQL", "Redis") - a guess from the port number
+   * alone, set only on an observed dependency (never a declared one). A workload can run anything on any
+   * port, so this is descriptive, never part of identity: two dependencies differing only in this field
+   * are still the same dependency. Unset means no well-known port matched, not "unknown protocol". */
+  service?: string
   label?: string
   /** Rolling-window summary, not a time series. */
   stats?: DependencyStats
@@ -459,6 +485,15 @@ export interface Dependency {
    * know it). Unset means not known, which matters on a multi-homed node (an edge box with both ethernet
    * and a cellular backhaul) more than a single-homed one. */
   iface?: string
+  /** Cumulative TCP segments retransmitted over this edge's whole life, from the kernel's own
+   * congestion-control counters - never inferred from timing, and only ever set by eBPF. Always 0 on a
+   * conntrack-only edge (via !== 'ebpf'), which has no socket to read this from: there, 0 means "not
+   * measured", not "no loss". */
+  retransmits?: number
+  /** The most recently sampled smoothed round-trip time, in milliseconds, from the kernel's own TCP RTT
+   * estimator. A gauge (the latest sample), not an average over the edge's life. Unset means no sample
+   * yet - most often too little exchanged to measure one, or a conntrack-only edge. */
+  rttMs?: number
   /** How the far end was identified, when it was not certain. */
   note?: string
   connections?: number
@@ -540,6 +575,10 @@ export interface GeoHint {
   asOrg?: string
 }
 
+/** Why a connecting address could not be located at all - see GeoHint and Agent.connectingGeoReason.
+ * "cgnat" and "private" both mean the address is, by construction, behind some NAT. */
+export type GeoUnlocatableReason = 'cgnat' | 'private' | 'loopback' | 'link-local' | 'link-local-multicast' | 'multicast' | 'unspecified'
+
 /** What the traffic observer says about itself. Absent until a collector has reported. */
 export interface ObserverStatus {
   lastReport: string
@@ -570,6 +609,7 @@ export interface Agent {
   fingerprint: string
   connectingIp?: string
   connectingGeo?: GeoHint
+  connectingGeoReason?: GeoUnlocatableReason
   certExpiresAt?: string
   lastHeartbeat?: string
   modules: AgentModule[]

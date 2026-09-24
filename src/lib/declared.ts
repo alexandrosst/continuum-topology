@@ -34,7 +34,15 @@ export interface DeclareReport {
 
 const isRefEmpty = (r: DeclaredRef) => !(r.overrides && Object.keys(r.overrides).length > 0) && !r.applicationId && !r.siteId
 
-type Rec = { id: string; source?: string; overrides?: Record<string, unknown>; applicationId?: string; applicationHint?: string; siteId?: string } & Record<string, unknown>
+type Rec = {
+  id: string
+  source?: string
+  overrides?: Record<string, unknown>
+  overrideMeta?: DeclaredRef['overrideMeta']
+  applicationId?: string
+  applicationHint?: string
+  siteId?: string
+} & Record<string, unknown>
 
 /** Is this a record an agent produced (as opposed to one a person typed)? */
 export const isDiscovered = (r: { source?: string }) => r.source === 'discovered'
@@ -45,7 +53,10 @@ export function refOf(kind: RefKind, r: Rec): DeclaredRef | undefined {
   // An application the service's own label suggests (applicationHint) is derived, not something a person chose.
   if (r.applicationId && r.applicationId !== r.applicationHint) ref.applicationId = r.applicationId
   if (kind === 'cluster' && r.siteId) ref.siteId = r.siteId
-  if (r.overrides && Object.keys(r.overrides).length > 0) ref.overrides = r.overrides
+  if (r.overrides && Object.keys(r.overrides).length > 0) {
+    ref.overrides = r.overrides
+    if (r.overrideMeta && Object.keys(r.overrideMeta).length > 0) ref.overrideMeta = r.overrideMeta
+  }
   return isRefEmpty(ref) ? undefined : ref
 }
 
@@ -132,7 +143,7 @@ export function declaredNote(r: DeclareReport): string {
 
 /** Put a ref's overrides and assignments onto a discovered record. */
 export function applyRef<T extends Rec>(record: T, ref: DeclaredRef | undefined, kind: RefKind): T {
-  const out: Rec = { ...record, overrides: ref?.overrides }
+  const out: Rec = { ...record, overrides: ref?.overrides, overrideMeta: ref?.overrideMeta }
   if (ref?.applicationId) out.applicationId = ref.applicationId
   else if (out.applicationId && !record.applicationHint) delete out.applicationId
   if (kind === 'cluster') {

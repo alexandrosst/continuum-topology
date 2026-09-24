@@ -78,6 +78,42 @@ func Locatable(ip netip.Addr) bool {
 		!ip.IsMulticast() && !ip.IsUnspecified() && !cgnat.Contains(ip)
 }
 
+// UnlocatableReason says which rule in Locatable rejected an address, for a caller that wants to explain
+// why no location was even attempted rather than just showing nothing: "cgnat" | "private" | "loopback" |
+// "link-local" | "link-local-multicast" | "multicast" | "unspecified" | "invalid". Empty means Locatable
+// would accept it - Lookup can still come back with no record for it, which is a different, unrelated
+// "don't know" (the database simply has nothing for that address).
+//
+// "cgnat" and "private" both mean the address is, by construction, only ever reachable through network
+// address translation: RFC 6598's carrier-grade NAT range exists specifically for ISPs to NAT subscribers
+// behind a shared pool of public addresses, and a private (RFC 1918) address reaching a server on the
+// public internet at all only got there through some NAT or proxy translating it along the way. Neither
+// case is a live NAT-traversal probe (that would need STUN-style active probing from the agent, a
+// different and much larger feature) - this is a static, offline classification of the address itself,
+// exactly as honest as everything else Lookup reports.
+func UnlocatableReason(ip netip.Addr) string {
+	ip = ip.Unmap()
+	switch {
+	case !ip.IsValid():
+		return "invalid"
+	case ip.IsLoopback():
+		return "loopback"
+	case cgnat.Contains(ip):
+		return "cgnat"
+	case ip.IsPrivate():
+		return "private"
+	case ip.IsLinkLocalUnicast():
+		return "link-local"
+	case ip.IsLinkLocalMulticast():
+		return "link-local-multicast"
+	case ip.IsMulticast():
+		return "multicast"
+	case ip.IsUnspecified():
+		return "unspecified"
+	}
+	return ""
+}
+
 // Lookup returns the suggested location of ip. It reports false for addresses that can never be
 // located (without consulting the database), when the database has no record, and when the record
 // is unreadable.

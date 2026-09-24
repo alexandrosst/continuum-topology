@@ -46,9 +46,21 @@ RUN npm run build
 # that reference it, then set --geoip-db / geoip.path yourself as before. --geoip-db (and the chart's
 # geoip.path) always override this default with a different or newer file - MaxMind GeoLite2, a paid tier,
 # whatever the deployment wants instead.
+#
+# Alongside it, the same free, same-licence DB-IP ASN Lite database (which network an address belongs to,
+# not where it is - see --geoip-asn-db) straight from DB-IP's own monthly download, since - unlike the city
+# one - it is not mirrored on jsdelivr. The file name is dated (dbip-asn-lite-YYYY-MM.mmdb.gz); this tries
+# the current month first and falls back to the previous one for the first few days after a month turns over,
+# before DB-IP has published that month's file yet.
 FROM --platform=$BUILDPLATFORM alpine:3.20 AS geoip
 RUN apk add --no-cache curl && mkdir -p /geoip \
- && curl -fSL https://cdn.jsdelivr.net/npm/dbip-city-lite/dbip-city-lite.mmdb.gz | gunzip > /geoip/dbip-city-lite.mmdb
+ && curl -fSL https://cdn.jsdelivr.net/npm/dbip-city-lite/dbip-city-lite.mmdb.gz | gunzip > /geoip/dbip-city-lite.mmdb \
+ && Y=$(date +%Y) && M=$(date +%m) && M=${M#0} \
+ && if [ "$M" -eq 1 ]; then PY=$((Y-1)); PM=12; else PY=$Y; PM=$((M-1)); fi \
+ && CUR=$(date +%Y-%m) && PREV=$(printf '%04d-%02d' "$PY" "$PM") \
+ && (curl -fSL "https://download.db-ip.com/free/dbip-asn-lite-$CUR.mmdb.gz" -o /tmp/asn.mmdb.gz \
+     || curl -fSL "https://download.db-ip.com/free/dbip-asn-lite-$PREV.mmdb.gz" -o /tmp/asn.mmdb.gz) \
+ && gunzip -c /tmp/asn.mmdb.gz > /geoip/dbip-asn-lite.mmdb && rm -f /tmp/asn.mmdb.gz
 
 # The Go build always runs natively and cross-compiles, so a multi-arch build (amd64 for servers, arm64 for
 # boards) does not go through emulation.
@@ -93,8 +105,12 @@ EXPOSE 8443 8080
 # CONTINUUM_GEOIP_DB is only a default: an explicit --geoip-db flag (Kubernetes args:, or docker run IMAGE
 # --geoip-db=...) always wins over it, same as any env-defaulted flag - see main.go. That is how the chart's
 # geoip.path, when someone sets it, replaces this bundled database with their own rather than needing to know
-# this path exists at all.
+# this path exists at all. CONTINUUM_GEOIP_ASN_DB is the same story for --geoip-asn-db / geoip.asnPath: bundled
+# and on by default, entirely offline, for the same reason - a location result gaining an AS number and
+# organisation name costs nothing further to ship and beats nothing every time the city/country database has
+# a record at all.
 ENV CONTINUUM_GEOIP_DB=/geoip/dbip-city-lite.mmdb
+ENV CONTINUUM_GEOIP_ASN_DB=/geoip/dbip-asn-lite.mmdb
 # ENTRYPOINT fixes where things live. Its --admin-listen=0.0.0.0:8080 makes the admin port reachable from outside the container, and
 # the server then REFUSES to start unless it is given --admin-tls-cert/--admin-tls-key, or --admin-behind-tls-proxy to state that a
 # TLS-terminating proxy protects the port (see the docker run example above; the Helm chart does this for you).

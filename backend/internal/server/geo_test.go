@@ -308,6 +308,29 @@ func TestGeoPublicIPFallback(t *testing.T) {
 	}
 }
 
+func TestGeoUnlocatableReason(t *testing.T) {
+	db, err := geoip.Open(tinyGeoDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := NewGeo(db)
+	if got := g.UnlocatableReason("10.0.0.7"); got != "private" {
+		t.Errorf("private address: %q, want private", got)
+	}
+	if got := g.UnlocatableReason("100.64.1.1"); got != "cgnat" {
+		t.Errorf("cgnat address: %q, want cgnat", got)
+	}
+	if got := g.UnlocatableReason("203.0.113.24"); got != "" {
+		t.Errorf("a locatable address must give no reason, got %q", got)
+	}
+	if got := g.UnlocatableReason("not-an-ip"); got != "" {
+		t.Errorf("an unparseable address must give no reason (not a claim about it), got %q", got)
+	}
+	if got := (*Geo)(nil).UnlocatableReason("10.0.0.7"); got != "" {
+		t.Errorf("a nil Geo must give no reason, got %q", got)
+	}
+}
+
 func TestStateCarriesEstimatedGeoThroughTheFallback(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", RoleAdmin)
@@ -351,6 +374,49 @@ func TestStateCarriesEstimatedGeoThroughTheFallback(t *testing.T) {
 	info := a.do("GET", "/api/v1/info", nil, withCookie(cookie)).json(t)["geoip"].(map[string]any)
 	if info["publicIpFallback"] != true {
 		t.Fatalf("info should report the fallback as on: %v", info)
+	}
+}
+
+func TestStateCarriesConnectingGeoReasonWithoutFallback(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleAdmin)
+	secret, _, err := a.core.CreateToken(a.ctx, "admin", "c-priv", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, _ := csr(t)
+	resp, err := a.core.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := geoip.Open(tinyGeoDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gdb := NewGeo(db) // no public-IP fallback configured
+	a.hub().Geo, a.a.P.Geo = gdb, gdb
+
+	r := a.do("GET", "/api/v1/state", nil, withCookie(cookie))
+	if r.Code != 200 {
+		t.Fatalf("state: %d", r.Code)
+	}
+	var found bool
+	for _, ag := range r.json(t)["agents"].([]any) {
+		m := ag.(map[string]any)
+		if m["id"] != resp.AgentId {
+			continue
+		}
+		found = true
+		if _, hasGeo := m["connectingGeo"]; hasGeo {
+			t.Fatalf("no fallback configured: connectingGeo should be absent, got %v", m["connectingGeo"])
+		}
+		if m["connectingGeoReason"] != "private" {
+			t.Errorf("connectingGeoReason = %v, want private (10.0.0.0/8)", m["connectingGeoReason"])
+		}
+	}
+	if !found {
+		t.Fatal("agent not found in state")
 	}
 }
 
