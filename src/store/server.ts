@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 import { api, ApiError, atLeast, probe, twoFactorPending, type Conn, type InvitePreview, type OrgRef, type Registration, type Role, type ServerInfo, type Session, type TwoFactorMethod, type User } from '@/lib/api'
 import { mergeDiscovered, type ServerState } from '@/lib/discovered'
+import { createPasskey, getPasskey, passkeyErrorMessage } from '@/lib/webauthn'
 import { useHistoryView } from './history'
 import { useObserved } from './observed'
 import { useSettings } from './settings'
@@ -72,6 +73,10 @@ interface ServerStore {
   verifyTwoFactor: (code: string) => Promise<boolean>
   /** Mails a fresh code for the pending sign-in (only meaningful when pendingMethods includes 'email'). */
   requestLoginEmailCode: () => Promise<boolean>
+  /** Finishes a sign-in that offers 'webauthn' as a method, running the browser's passkey ceremony in
+   *  between (only meaningful when pendingMethods includes 'webauthn'). Unlike verifyTwoFactor this opens
+   *  the session itself rather than taking a typed code. */
+  signInWithPasskey: () => Promise<boolean>
   /** Abandons a pending two-factor sign-in and goes back to the sign-in form. */
   cancelTwoFactor: () => void
   register: (username: string, password: string, orgName: string, invite?: string) => Promise<boolean>
@@ -99,6 +104,13 @@ interface ServerStore {
   enableEmailOTP: () => Promise<boolean>
   /** Turns email-OTP off; needs the current password. Leaves the address itself verified. */
   disableEmailOTP: (password: string) => Promise<boolean>
+  /** Registers a new passkey/security key on the signed-in account, running the browser ceremony in
+   *  between; name labels it in settings (blank gets a generic default from the server). */
+  registerPasskey: (name: string) => Promise<boolean>
+  /** Changes only a passkey's own label. */
+  renamePasskey: (id: string, name: string) => Promise<boolean>
+  /** Removes one passkey; needs the current password, the same as turning off any other second factor. */
+  removePasskey: (id: string, password: string) => Promise<boolean>
   /** Stop using the server without signing out (its session stays valid); the browser keeps working alone. */
   disconnect: () => void
   refresh: () => Promise<void>
@@ -270,6 +282,23 @@ export const useServer = create<ServerStore>((set, get) => {
         return true
       } catch (e) {
         set({ error: messageOf(e) })
+        return false
+      }
+    },
+
+    signInWithPasskey: async () => {
+      const pending = get().pendingLogin
+      if (!pending) return false
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        const options = await api.beginPasskeyLogin(c, pending)
+        const response = await getPasskey(options)
+        await enter(await api.finishPasskeyLogin(c, pending, response))
+        set({ pendingLogin: undefined, pendingMethods: [] })
+        return true
+      } catch (e) {
+        set({ error: passkeyErrorMessage(e) })
         return false
       }
     },
@@ -454,6 +483,47 @@ export const useServer = create<ServerStore>((set, get) => {
       set({ error: undefined })
       try {
         const session = await api.disableEmailOTP(c, password)
+        set({ user: session.user })
+        return true
+      } catch (e) {
+        set({ error: messageOf(e) })
+        return false
+      }
+    },
+
+    registerPasskey: async (name) => {
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        const options = await api.beginPasskeyRegistration(c)
+        const response = await createPasskey(options)
+        const session = await api.finishPasskeyRegistration(c, name.trim(), response)
+        set({ user: session.user })
+        return true
+      } catch (e) {
+        set({ error: passkeyErrorMessage(e) })
+        return false
+      }
+    },
+
+    renamePasskey: async (id, name) => {
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        const session = await api.renamePasskey(c, id, name.trim())
+        set({ user: session.user })
+        return true
+      } catch (e) {
+        set({ error: messageOf(e) })
+        return false
+      }
+    },
+
+    removePasskey: async (id, password) => {
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        const session = await api.removePasskey(c, id, password)
         set({ user: session.user })
         return true
       } catch (e) {
