@@ -124,6 +124,22 @@ func (o *Observer) Close() error {
 
 func addr(b [16]uint8) string { return netip.AddrFrom16(b).Unmap().String() }
 
+// ifaceName reads a NUL-terminated interface name out of the fixed-size buffer flow.c wrote (IFNAMSIZ, so
+// it is never longer than 15 visible characters). Kernel interface names are restricted to printable
+// ASCII, but this is still firmware-adjacent, untrusted-shaped input from a raw kernel struct read, so it
+// is bounded and NUL-trimmed the same cautious way the node probe treats DMI strings.
+func ifaceName(b [16]int8) string {
+	n := 0
+	for n < len(b) && b[n] != 0 {
+		n++
+	}
+	raw := make([]byte, n)
+	for i := 0; i < n; i++ {
+		raw[i] = byte(b[i])
+	}
+	return string(raw)
+}
+
 // Collect returns everything counted since the previous call, and empties the counters. A connection is
 // counted when it is established. Its bytes are counted when it closes, and also once per call while it
 // is open when live counting is running.
@@ -161,10 +177,19 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			continue
 		}
 		var sum flowFlowVal
+		var iface string
 		for _, v := range vals {
 			sum.Connections += v.Connections
 			sum.BytesOut += v.BytesOut
 			sum.BytesIn += v.BytesIn
+			// Every CPU that ever handled this socket's traffic put_iface'd the same route, so any
+			// non-empty reading is as good as another; take the first rather than requiring them to agree,
+			// since a route change mid-life would otherwise blank it out for no good reason.
+			if iface == "" {
+				if s := ifaceName(v.Ifname); s != "" {
+					iface = s
+				}
+			}
 		}
 		if sum.Connections == 0 && sum.BytesOut == 0 && sum.BytesIn == 0 {
 			continue
@@ -178,6 +203,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			Connections: sum.Connections,
 			BytesOut:    sum.BytesOut,
 			BytesIn:     sum.BytesIn,
+			Iface:       iface,
 		})
 	}
 

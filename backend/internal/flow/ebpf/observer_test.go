@@ -132,6 +132,29 @@ func TestCountsRealConnectionsAndBytes(t *testing.T) {
 	}
 }
 
+// The loopback route always resolves to the "lo" device, so this is a real, kernel-verified check that
+// put_iface's pointer chase (sk -> sk_dst_cache -> dst_entry.dev -> net_device.ifindex/name) actually reads
+// what it is supposed to, not just that it compiles and the verifier accepts it.
+func TestReportsTheInterface(t *testing.T) {
+	o := open(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := uint32(ln.Addr().(*net.TCPAddr).Port)
+	exchange(t, ln, 1, 10, 10)
+	client, server := collectFor(t, o, port, 1)
+	for name, f := range map[string]*continuumv1.RawFlow{"client": client, "server": server} {
+		if f == nil {
+			t.Fatalf("%s: no observation", name)
+		}
+		if f.Iface != "lo" {
+			t.Errorf("%s: iface = %q, want \"lo\"", name, f.Iface)
+		}
+	}
+}
+
 func TestCollectEmptiesTheCounters(t *testing.T) {
 	o := open(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

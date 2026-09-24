@@ -320,7 +320,12 @@ type Dependency struct {
 	// CrossCluster: the two ends are in different onboarded clusters.
 	CrossCluster bool `json:"crossCluster,omitempty"`
 	// Via is how it was observed (ebpf | conntrack); Note says how the far end was identified, when it was not certain.
-	Via         string           `json:"via,omitempty"`
+	Via string `json:"via,omitempty"`
+	// The caller's physical network interface (e.g. "eth0", "wlan0"), when the collector's kernel route
+	// lookup could name one - never guessed from the port or address. Empty means not known, which on a
+	// single-homed node is simply not interesting and on a multi-homed one (an edge box with both
+	// ethernet and a cellular backhaul, say) is worth surfacing rather than assuming.
+	Iface       string           `json:"iface,omitempty"`
 	Note        string           `json:"note,omitempty"`
 	Connections uint64           `json:"connections,omitempty"`
 	Bytes       uint64           `json:"bytes,omitempty"`

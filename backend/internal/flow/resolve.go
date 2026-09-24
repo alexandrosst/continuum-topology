@@ -122,7 +122,7 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 		}
 		return "", false
 	}
-	f := &continuumv1.Flow{Port: raw.Port, Protocol: raw.Protocol, Connections: raw.Connections, BytesOut: raw.BytesOut, BytesIn: raw.BytesIn, Method: method, BytesKnown: bytesKnown}
+	f := &continuumv1.Flow{Port: raw.Port, Protocol: raw.Protocol, Connections: raw.Connections, BytesOut: raw.BytesOut, BytesIn: raw.BytesIn, Method: method, BytesKnown: bytesKnown, Iface: raw.Iface}
 
 	if raw.Client {
 		src, ok := pod(local)

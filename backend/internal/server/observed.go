@@ -354,6 +354,9 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		if e.Key.Method == "ebpf" {
 			d.Via = "ebpf"
 		}
+		if e.Key.Iface != "" {
+			d.Iface = e.Key.Iface
+		}
 		if e.Key.Noise == "" {
 			d.Noise = ""
 		}

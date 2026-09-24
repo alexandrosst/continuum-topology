@@ -454,6 +454,11 @@ export interface Dependency {
   crossCluster?: boolean
   /** How it was observed: eBPF counts every connection and its bytes; conntrack may not know bytes. */
   via?: 'ebpf' | 'conntrack'
+  /** The caller's physical network interface (e.g. "eth0", "wlan0"), read from the kernel's own route for
+   * the socket - never guessed from the port or address, and only ever set by eBPF (conntrack has no way to
+   * know it). Unset means not known, which matters on a multi-homed node (an edge box with both ethernet
+   * and a cellular backhaul) more than a single-homed one. */
+  iface?: string
   /** How the far end was identified, when it was not certain. */
   note?: string
   connections?: number
