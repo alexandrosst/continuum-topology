@@ -202,6 +202,10 @@ func OpenSQLite(path string) (*SQLite, error) {
 		db.Close()
 		return nil, fmt.Errorf("upgrading to two-factor accounts: %w", err)
 	}
+	if err := migrateEmail(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("upgrading to email accounts: %w", err)
+	}
 	return &SQLite{db: db}, nil
 }
 

@@ -1,4 +1,4 @@
-import { ChevronsUpDown, KeyRound, LogOut, Plus, ScrollText, ShieldCheck, Ticket, Users } from 'lucide-react'
+import { ChevronsUpDown, KeyRound, LogOut, Mail, Plus, ScrollText, ShieldCheck, Ticket, Users } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { Button, CopyButton, ErrorBanner, Field, Input, Modal, Select } from '@/components/ui/primitives'
@@ -190,6 +190,150 @@ function TwoFactorDisableModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+/**
+ * Turning on email as a second factor. Starts on 'confirm' when an address is already on file (whether or
+ * not it is verified yet - the step itself tells those two apart), otherwise 'address', so re-opening this
+ * after a partial attempt never asks for an address already set. "Confirm" and "turn on" are chained under
+ * one button: from here, the only reason to verify an address is to use it for codes, so there is no
+ * separate step where it sits verified but still off.
+ */
+function EmailSetupModal({ onClose }: { onClose: () => void }) {
+  const { user, requestEmailVerification, confirmEmail, enableEmailOTP, error } = useServer()
+  const [step, setStep] = useState<'address' | 'confirm' | 'done'>(user?.email ? 'confirm' : 'address')
+  const [email, setEmail] = useState(user?.email ?? '')
+  const [confirmedAddress, setConfirmedAddress] = useState(user?.email ?? '')
+  const [alreadyVerified] = useState(!!user?.emailVerified)
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [resent, setResent] = useState(false)
+
+  const submitAddress = async () => {
+    setBusy(true)
+    const ok = await requestEmailVerification(email)
+    setBusy(false)
+    if (ok) {
+      setConfirmedAddress(email)
+      setStep('confirm')
+    }
+  }
+
+  const resend = async () => {
+    setBusy(true)
+    const ok = await requestEmailVerification(confirmedAddress)
+    setBusy(false)
+    if (ok) setResent(true)
+  }
+
+  const submitCode = async () => {
+    setBusy(true)
+    // Skip straight to turning codes on when the address was already verified from an earlier attempt -
+    // there is no fresh code to confirm in that case.
+    const ok = alreadyVerified || (await confirmEmail(code))
+    if (ok) {
+      const enabled = await enableEmailOTP()
+      setBusy(false)
+      if (enabled) setStep('done')
+      else setCode('')
+    } else {
+      setBusy(false)
+      setCode('')
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Turn on email codes"
+      width="max-w-md"
+      footer={
+        step === 'done' ? (
+          <Button variant="primary" onClick={onClose}>Done</Button>
+        ) : (
+          <>
+            <Button onClick={onClose}>Cancel</Button>
+            {step === 'address' && (
+              <Button variant="primary" onClick={submitAddress} disabled={busy || !email.trim()}>
+                {busy ? 'Sending…' : 'Send a code'}
+              </Button>
+            )}
+            {step === 'confirm' && (
+              <Button variant="primary" onClick={submitCode} disabled={busy || (!alreadyVerified && code.trim().length !== 6)}>
+                {busy ? 'Checking…' : alreadyVerified ? 'Turn on' : 'Confirm & turn on'}
+              </Button>
+            )}
+          </>
+        )
+      }
+    >
+      {step === 'address' && (
+        <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (email.trim()) void submitAddress() }}>
+          <p className="text-sm text-nb-400">We will email a code to this address whenever it is used to finish signing in.</p>
+          <Field label="Email address">
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus autoComplete="email" placeholder="you@example.com" data-testid="email-address" />
+          </Field>
+          {error && <ErrorBanner>{error}</ErrorBanner>}
+        </form>
+      )}
+      {step === 'confirm' && (
+        <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (alreadyVerified || code.trim().length === 6) void submitCode() }}>
+          {alreadyVerified ? (
+            <p className="text-sm text-nb-400"><strong className="text-nb-200">{confirmedAddress}</strong> is already verified. Turn codes on to use it as a second factor.</p>
+          ) : (
+            <>
+              <p className="text-sm text-nb-400">Enter the code we emailed to <strong className="text-nb-200">{confirmedAddress}</strong>.</p>
+              <Field label="Code">
+                <Input value={code} onChange={(e) => setCode(e.target.value)} autoFocus inputMode="numeric" autoComplete="one-time-code" placeholder="123456" data-testid="email-code" />
+              </Field>
+              <button type="button" onClick={() => void resend()} disabled={busy} className="text-xs text-accent hover:text-accent/80 disabled:opacity-50">
+                {resent ? 'Code sent — send another' : 'Resend code'}
+              </button>
+            </>
+          )}
+          <div>
+            <button type="button" onClick={() => setStep('address')} className="text-xs text-nb-500 hover:text-nb-300">
+              Use a different address
+            </button>
+          </div>
+          {error && <ErrorBanner>{error}</ErrorBanner>}
+        </form>
+      )}
+      {step === 'done' && <p className="text-sm text-emerald-300">Email codes are on. Signing in will now offer a code sent to {confirmedAddress}.</p>}
+    </Modal>
+  )
+}
+
+/** Turning email codes off: needs the current password, the same as TOTP. Leaves the address itself verified. */
+function EmailDisableModal({ onClose }: { onClose: () => void }) {
+  const { disableEmailOTP, error } = useServer()
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const submit = async () => {
+    setBusy(true)
+    const ok = await disableEmailOTP(password)
+    setBusy(false)
+    if (ok) onClose()
+    else setPassword('')
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Turn off email codes"
+      description="Your verified address stays on file, but signing in will not offer a mailed code again until you turn it back on."
+      width="max-w-md"
+      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit} disabled={busy || !password}>{busy ? 'Turning off…' : 'Turn off'}</Button></>}
+    >
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (password) void submit() }}>
+        <Field label="Current password"><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus /></Field>
+        {error && <ErrorBanner>{error}</ErrorBanner>}
+      </form>
+    </Modal>
+  )
+}
+
 function NewOrgModal({ onClose }: { onClose: () => void }) {
   const createOrg = useServer((s) => s.createOrg)
   const error = useServer((s) => s.error)
@@ -260,6 +404,7 @@ export default function AccountMenu() {
   const sync = useWorkspace((s) => s.status)
   const [pw, setPw] = useState(false)
   const [twoFA, setTwoFA] = useState(false)
+  const [emailOTP, setEmailOTP] = useState(false)
   const [newOrg, setNewOrg] = useState(false)
   const [join, setJoin] = useState(false)
   const [open, setOpen] = useState(false)
@@ -323,6 +468,11 @@ export default function AccountMenu() {
             <button onClick={pick(() => setTwoFA(true))} className={item} role="menuitem" data-testid="two-factor-open">
               <ShieldCheck size={15} className="text-nb-500" /> {user.twoFactorEnabled ? 'Two-factor authentication (on)' : 'Turn on two-factor authentication'}
             </button>
+            {user.mailConfigured && (
+              <button onClick={pick(() => setEmailOTP(true))} className={item} role="menuitem" data-testid="email-otp-open">
+                <Mail size={15} className="text-nb-500" /> {user.emailOtpEnabled ? 'Email codes (on)' : 'Turn on email codes'}
+              </button>
+            )}
             <button onClick={pick(() => void signOut())} className={item} role="menuitem" data-testid="sign-out"><LogOut size={15} className="text-nb-500" /> Sign out</button>
           </div>
         </>
@@ -357,6 +507,7 @@ export default function AccountMenu() {
       </div>
       {pw && <ChangePasswordModal onClose={() => setPw(false)} />}
       {twoFA && (user.twoFactorEnabled ? <TwoFactorDisableModal onClose={() => setTwoFA(false)} /> : <TwoFactorSetupModal onClose={() => setTwoFA(false)} />)}
+      {emailOTP && (user.emailOtpEnabled ? <EmailDisableModal onClose={() => setEmailOTP(false)} /> : <EmailSetupModal onClose={() => setEmailOTP(false)} />)}
       {newOrg && <NewOrgModal onClose={() => setNewOrg(false)} />}
       {join && <JoinModal onClose={() => setJoin(false)} />}
     </div>

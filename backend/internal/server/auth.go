@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -47,6 +48,13 @@ const (
 	// start over - long enough to type a 6-digit code, short enough that an abandoned attempt does not sit
 	// around as a live secret.
 	pendingLoginTTL = 5 * time.Minute
+
+	// emailChallengeTTL is how long a mailed code stays valid - long enough to check an inbox and come back,
+	// short enough that a code nobody used does not sit around as a live secret.
+	emailChallengeTTL = 10 * time.Minute
+	// emailResendCooldown bounds how often a person can ask for a fresh code for the same purpose, so mashing
+	// "resend" cannot be used to spam an address or exhaust the mail relay.
+	emailResendCooldown = 60 * time.Second
 
 	maxConcurrentHashes = 4 // each argon2 run needs 64 MiB
 	// maxHashQueue is how many further password checks may wait for one of those slots. Beyond it a request
@@ -89,12 +97,30 @@ type authState struct {
 	// half-finished sign-in is not worth a database round trip or surviving a restart.
 	pendingMu sync.Mutex
 	pending   map[string]pendingLogin
+
+	// email holds outstanding "a code was mailed" challenges, keyed by a subject string that names what the
+	// code is for (see emailVerifySubject / emailLoginSubject): either an account confirming a new address
+	// from Settings, or a pending sign-in that asked for its code by email instead of an authenticator app.
+	// Like pending, this is memory-only and swept opportunistically rather than on a timer.
+	emailMu sync.Mutex
+	email   map[string]emailChallenge
 }
 
 // pendingLogin is one entry in authState.pending.
 type pendingLogin struct {
 	userID    string
 	expiresAt time.Time
+	// methods is which second factors this sign-in may complete with, decided once at beginTwoFactor time
+	// (totp, recovery counts as totp, and/or email) - what TwoFactorScreen offers a choice between.
+	methods []string
+}
+
+// emailChallenge is one entry in authState.email.
+type emailChallenge struct {
+	codeHash  string
+	email     string
+	expiresAt time.Time
+	lastSent  time.Time
 }
 
 func newAuthState() *authState {
@@ -127,11 +153,12 @@ func newPendingSecret() (string, error) {
 	return pendingPrefix + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// beginTwoFactor records that userID's password has checked out and it is waiting on a TOTP code, and
-// returns the one-time token the caller must send back with it. Expired entries are swept out opportunistically
-// here rather than on a timer, since a login server does not need a background goroutine to reclaim a handful
-// of small map entries.
-func (c *Core) beginTwoFactor(userID string) (string, error) {
+// beginTwoFactor records that userID's password has checked out and it is waiting on a second factor, and
+// returns the one-time token the caller must send back with it. methods is which factors this account has
+// turned on (see twoFactorMethods), frozen at this moment so a setting changed mid-login cannot retarget an
+// already-issued token. Expired entries are swept out opportunistically here rather than on a timer, since a
+// login server does not need a background goroutine to reclaim a handful of small map entries.
+func (c *Core) beginTwoFactor(userID string, methods []string) (string, error) {
 	token, err := newPendingSecret()
 	if err != nil {
 		return "", err
@@ -148,26 +175,26 @@ func (c *Core) beginTwoFactor(userID string) (string, error) {
 			delete(a.pending, k)
 		}
 	}
-	a.pending[token] = pendingLogin{userID: userID, expiresAt: now.Add(pendingLoginTTL)}
+	a.pending[token] = pendingLogin{userID: userID, expiresAt: now.Add(pendingLoginTTL), methods: methods}
 	return token, nil
 }
 
 // peekPendingLogin looks up a pending token without consuming it, so a wrong code can still be followed by
 // a correct one instead of sending the person all the way back to their password. An expired entry is
 // removed on sight (nothing else touches it before then).
-func (c *Core) peekPendingLogin(token string) (userID string, ok bool) {
+func (c *Core) peekPendingLogin(token string) (pl pendingLogin, ok bool) {
 	a := c.auth
 	a.pendingMu.Lock()
 	defer a.pendingMu.Unlock()
 	pl, found := a.pending[token]
 	if !found {
-		return "", false
+		return pendingLogin{}, false
 	}
 	if c.Now().After(pl.expiresAt) {
 		delete(a.pending, token)
-		return "", false
+		return pendingLogin{}, false
 	}
-	return pl.userID, true
+	return pl, true
 }
 
 // consumePendingLogin removes a pending token once it has done its job, so it cannot be replayed.
@@ -178,10 +205,82 @@ func (c *Core) consumePendingLogin(token string) {
 	a.pendingMu.Unlock()
 }
 
-// errTwoFactorRequired is what Login returns when the password was right but the account also needs a TOTP
-// code: pending is the one-time token Login2FA must be called with next.
-func errTwoFactorRequired(pending string) *Error {
-	return &Error{Kind: KindTwoFactorRequired, Msg: "enter the code from your authenticator app", Data: map[string]any{"pending": pending}}
+// twoFactorMethods lists which second factors an account currently has turned on, in the order
+// TwoFactorScreen should offer them. Empty means the account has none - Login never calls beginTwoFactor
+// in that case.
+func twoFactorMethods(u store.User) []string {
+	var methods []string
+	if u.TOTPEnabledAt != nil {
+		methods = append(methods, "totp")
+	}
+	if u.EmailOTPEnabledAt != nil {
+		methods = append(methods, "email")
+	}
+	return methods
+}
+
+// errTwoFactorRequired is what Login returns when the password was right but the account also needs a
+// second factor: pending is the one-time token Login2FA must be called with next, methods is what it may be
+// completed with.
+func errTwoFactorRequired(pending string, methods []string) *Error {
+	msg := "enter the code from your authenticator app"
+	if len(methods) == 1 && methods[0] == "email" {
+		msg = "request a code by email"
+	} else if len(methods) > 1 {
+		msg = "enter a two-factor code, or request one by email"
+	}
+	return &Error{Kind: KindTwoFactorRequired, Msg: msg, Data: map[string]any{"pending": pending, "methods": methods}}
+}
+
+// emailVerifySubject/emailLoginSubject name what an outstanding emailChallenge is for, so the same map can
+// hold both kinds of code without one being usable in place of the other.
+func emailVerifySubject(userID string) string { return "verify:" + userID }
+func emailLoginSubject(pending string) string { return "login:" + pending }
+
+// beginEmailChallenge mails a fresh code for subject/email and remembers its hash to check later, refusing
+// if one was already sent for the same subject within emailResendCooldown.
+func (c *Core) beginEmailChallenge(subject, email string) (string, error) {
+	a := c.auth
+	now := c.Now()
+	a.emailMu.Lock()
+	defer a.emailMu.Unlock()
+	if a.email == nil {
+		a.email = map[string]emailChallenge{}
+	}
+	for k, v := range a.email {
+		if now.After(v.expiresAt) {
+			delete(a.email, k)
+		}
+	}
+	if prev, ok := a.email[subject]; ok && now.Sub(prev.lastSent) < emailResendCooldown {
+		return "", errf(KindRateLimited, "a code was just sent; wait a little before asking for another")
+	}
+	code, err := NewEmailCode()
+	if err != nil {
+		return "", err
+	}
+	a.email[subject] = emailChallenge{codeHash: emailCodeHash(code), email: email, expiresAt: now.Add(emailChallengeTTL), lastSent: now}
+	return code, nil
+}
+
+// checkEmailChallenge reports whether code matches the outstanding challenge for subject, consuming it on a
+// match (so a code works exactly once) and leaving it in place on a miss (so a mistyped code can be retried
+// until it expires, the same as a TOTP code can).
+func (c *Core) checkEmailChallenge(subject, code string) bool {
+	a := c.auth
+	now := c.Now()
+	a.emailMu.Lock()
+	defer a.emailMu.Unlock()
+	ch, ok := a.email[subject]
+	if !ok || now.After(ch.expiresAt) {
+		delete(a.email, subject)
+		return false
+	}
+	if !emailCodeMatches(ch.codeHash, code) {
+		return false
+	}
+	delete(a.email, subject)
+	return true
 }
 
 // errBusy is what a caller gets when the password workers are saturated.
@@ -267,12 +366,12 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 		return "", store.User{}, errf(KindUnauthenticated, "wrong username or password")
 	}
 	c.auth.failures.succeed(name)
-	if u.TOTPEnabledAt != nil {
-		pending, perr := c.beginTwoFactor(u.ID)
+	if methods := twoFactorMethods(u); len(methods) > 0 {
+		pending, perr := c.beginTwoFactor(u.ID, methods)
 		if perr != nil {
 			return "", store.User{}, perr
 		}
-		return "", store.User{}, errTwoFactorRequired(pending)
+		return "", store.User{}, errTwoFactorRequired(pending, methods)
 	}
 	secret, err = c.openSession(ctx, u, ip)
 	if err != nil {
@@ -282,21 +381,22 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 	return secret, u, nil
 }
 
-// Login2FA finishes a sign-in that Login left pending on a TOTP code: pending is the token Login returned,
-// code is either a 6-digit authenticator code or one of the account's recovery codes. The pending token
-// survives a wrong code (so a mistyped one can simply be retried, bounded by the same per-account backoff as
-// a wrong password) and is consumed only once a code actually matches, or once it expires on its own.
+// Login2FA finishes a sign-in that Login left pending on a second factor: pending is the token Login
+// returned, code is a 6-digit authenticator or emailed code, or one of the account's recovery codes -
+// whichever of the account's active methods it matches. The pending token survives a wrong code (so a
+// mistyped one can simply be retried, bounded by the same per-account backoff as a wrong password) and is
+// consumed only once a code actually matches, or once it expires on its own.
 func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret string, u store.User, err error) {
 	key := LimitKey(ip)
 	if !c.auth.loginIP.Allow(key) {
 		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
-	userID, ok := c.peekPendingLogin(pending)
+	pl, ok := c.peekPendingLogin(pending)
 	if !ok {
 		return "", store.User{}, errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
-	u, gerr := c.Store.GetUser(ctx, userID)
-	if gerr != nil || u.DisabledAt != nil || u.TOTPEnabledAt == nil {
+	u, gerr := c.Store.GetUser(ctx, pl.userID)
+	if gerr != nil || u.DisabledAt != nil || len(twoFactorMethods(u)) == 0 {
 		return "", store.User{}, errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	if !c.auth.loginUser.Allow(key + "|" + u.Username) {
@@ -306,14 +406,17 @@ func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret s
 		return "", store.User{}, errf(KindRateLimited, "too many failed sign-in attempts for this account; try again in %s", roundWait(wait))
 	}
 	via := "with a two-factor code"
-	matched := VerifyTOTP(u.TOTPSecret, code, c.Now())
-	if !matched {
+	matched := u.TOTPEnabledAt != nil && VerifyTOTP(u.TOTPSecret, code, c.Now())
+	if !matched && u.TOTPEnabledAt != nil {
 		if remaining, used := consumeRecoveryCode(u.TOTPRecovery, code); used {
 			if err := c.Store.SetTOTP(ctx, u.ID, u.TOTPSecret, u.TOTPEnabledAt, remaining); err != nil {
 				return "", store.User{}, err
 			}
 			matched, via = true, fmt.Sprintf("with a recovery code (%d left)", len(remaining))
 		}
+	}
+	if !matched && u.EmailOTPEnabledAt != nil && c.checkEmailChallenge(emailLoginSubject(pending), code) {
+		matched, via = true, "with an emailed code"
 	}
 	if !matched {
 		c.auth.failures.fail(u.Username, c.Now())
@@ -329,6 +432,36 @@ func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret s
 	}
 	c.auditUser(ctx, u, "login", via, ip)
 	return secret, u, nil
+}
+
+// RequestLoginEmailCode mails a fresh code for a sign-in Login left pending with email among its methods.
+// Login2FA accepts it back in its code parameter exactly like an authenticator code. Nothing is sent unless
+// the account actually has email turned on: a pending token alone does not choose which methods apply, the
+// account's own settings at beginTwoFactor time did (see twoFactorMethods).
+func (c *Core) RequestLoginEmailCode(ctx context.Context, ip, pending string) error {
+	key := LimitKey(ip)
+	if !c.auth.loginIP.Allow(key) {
+		return errf(KindRateLimited, "too many attempts, wait a minute")
+	}
+	pl, ok := c.peekPendingLogin(pending)
+	if !ok {
+		return errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+	}
+	if !slices.Contains(pl.methods, "email") {
+		return errf(KindConflict, "email is not one of this account's two-factor methods")
+	}
+	u, err := c.Store.GetUser(ctx, pl.userID)
+	if err != nil || u.EmailOTPEnabledAt == nil || u.Email == "" {
+		return errf(KindConflict, "email is not one of this account's two-factor methods")
+	}
+	code, err := c.beginEmailChallenge(emailLoginSubject(pending), u.Email)
+	if err != nil {
+		return err
+	}
+	if err := c.Mailer.send(u.Email, "Your Continuum sign-in code", emailCodeBody(code, "sign in")); err != nil {
+		return errf(KindInternal, "could not send the sign-in email: %v", err)
+	}
+	return nil
 }
 
 func (c *Core) openSession(ctx context.Context, u store.User, ip string) (string, error) {
@@ -522,6 +655,104 @@ func (c *Core) Disable2FA(ctx context.Context, p Principal, password string) err
 		return err
 	}
 	c.auditUser(ctx, u, "2fa-disabled", "", "")
+	return nil
+}
+
+// RequestEmailVerification starts confirming an email address for the signed-in account: it mails a 6-digit
+// code first, and only once that send succeeds does it store the address (unverified) on the account, so a
+// bad address or a mail failure never leaves a stray value behind. ConfirmEmail is the other half.
+func (c *Core) RequestEmailVerification(ctx context.Context, p Principal, email string) error {
+	if !c.Mailer.Enabled() {
+		return errf(KindConflict, "this server has no outgoing mail configured; ask an administrator")
+	}
+	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+		return errf(KindRateLimited, "too many attempts, wait a minute")
+	}
+	addr, ok := validEmail(email)
+	if !ok {
+		return errf(KindInvalid, "that does not look like an email address")
+	}
+	code, err := c.beginEmailChallenge(emailVerifySubject(p.User.ID), addr)
+	if err != nil {
+		return err
+	}
+	if err := c.Mailer.send(addr, "Your Continuum verification code", emailCodeBody(code, "confirm this email address")); err != nil {
+		return errf(KindInternal, "could not send the verification email: %v", err)
+	}
+	return c.Store.SetEmail(ctx, p.User.ID, addr, nil)
+}
+
+// ConfirmEmail finishes RequestEmailVerification: code must match what was just mailed. Marks the address
+// verified, which is what makes it eligible for EnableEmailOTP.
+func (c *Core) ConfirmEmail(ctx context.Context, p Principal, code string) error {
+	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+		return errf(KindRateLimited, "too many attempts, wait a minute")
+	}
+	u, err := c.Store.GetUser(ctx, p.User.ID)
+	if err != nil {
+		return errf(KindUnauthenticated, "sign in required")
+	}
+	if u.Email == "" {
+		return errf(KindConflict, "no email address is waiting to be confirmed")
+	}
+	if !c.checkEmailChallenge(emailVerifySubject(p.User.ID), code) {
+		return errf(KindInvalid, "that code is not right, or it expired; ask for a new one")
+	}
+	now := c.Now()
+	if err := c.Store.SetEmail(ctx, u.ID, u.Email, &now); err != nil {
+		return err
+	}
+	c.auditUser(ctx, u, "email-verified", "", "")
+	return nil
+}
+
+// EnableEmailOTP turns emailing a code into an accepted second sign-in factor. The address must already be
+// verified; there is no separate "type a code to turn it on" step the way TOTP has, because sending and
+// checking that code is exactly what verifying the address already did.
+func (c *Core) EnableEmailOTP(ctx context.Context, p Principal) error {
+	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+		return errf(KindRateLimited, "too many attempts, wait a minute")
+	}
+	u, err := c.Store.GetUser(ctx, p.User.ID)
+	if err != nil {
+		return errf(KindUnauthenticated, "sign in required")
+	}
+	if u.Email == "" || u.EmailVerifiedAt == nil {
+		return errf(KindConflict, "verify an email address first")
+	}
+	if u.EmailOTPEnabledAt != nil {
+		return errf(KindConflict, "email codes are already turned on")
+	}
+	now := c.Now()
+	if err := c.Store.SetEmailOTPEnabled(ctx, u.ID, &now); err != nil {
+		return err
+	}
+	c.auditUser(ctx, u, "email-otp-enabled", "", "")
+	return nil
+}
+
+// DisableEmailOTP turns it back off, with the same proof-of-presence (current password) Disable2FA
+// requires. The address itself, and its verified state, are left alone - only whether it is trusted as a
+// sign-in factor changes, the same asymmetry SetEmail documents.
+func (c *Core) DisableEmailOTP(ctx context.Context, p Principal, password string) error {
+	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+		return errf(KindRateLimited, "too many attempts, wait a minute")
+	}
+	u, err := c.Store.GetUser(ctx, p.User.ID)
+	if err != nil {
+		return errf(KindUnauthenticated, "sign in required")
+	}
+	ok, verr := c.verifyPassword(ctx, password, u.PasswordHash)
+	if verr != nil || !ok {
+		return errf(KindInvalid, "your current password is not correct")
+	}
+	if u.EmailOTPEnabledAt == nil {
+		return errf(KindConflict, "email codes are not on")
+	}
+	if err := c.Store.SetEmailOTPEnabled(ctx, u.ID, nil); err != nil {
+		return err
+	}
+	c.auditUser(ctx, u, "email-otp-disabled", "", "")
 	return nil
 }
 

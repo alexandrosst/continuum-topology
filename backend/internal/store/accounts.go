@@ -10,7 +10,7 @@ import (
 
 // ---- users ----
 
-const userCols = `id, username, password_hash, must_change, created_at, disabled_at, last_login, totp_secret, totp_enabled_at, totp_recovery`
+const userCols = `id, username, password_hash, must_change, created_at, disabled_at, last_login, totp_secret, totp_enabled_at, totp_recovery, email, email_verified_at, email_otp_enabled_at`
 
 // totpRecoveryJSON encodes/decodes User.TOTPRecovery as a JSON array; a blank or unparsable column (an
 // older row, or one never touched) reads back as no codes rather than an error.
@@ -31,9 +31,9 @@ func scanUser(r scanner) (User, error) {
 	var u User
 	var mc int
 	var created int64
-	var dis, last, enabledAt sql.NullInt64
+	var dis, last, enabledAt, emailVerifiedAt, emailOTPEnabledAt sql.NullInt64
 	var recovery string
-	if err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &mc, &created, &dis, &last, &u.TOTPSecret, &enabledAt, &recovery); err != nil {
+	if err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &mc, &created, &dis, &last, &u.TOTPSecret, &enabledAt, &recovery, &u.Email, &emailVerifiedAt, &emailOTPEnabledAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return User{}, ErrNotFound
 		}
@@ -42,6 +42,8 @@ func scanUser(r scanner) (User, error) {
 	u.MustChange, u.CreatedAt, u.DisabledAt, u.LastLogin = mc != 0, fromMS(created), fromNullMS(dis), fromNullMS(last)
 	u.TOTPEnabledAt = fromNullMS(enabledAt)
 	u.TOTPRecovery = parseTOTPRecovery(recovery)
+	u.EmailVerifiedAt = fromNullMS(emailVerifiedAt)
+	u.EmailOTPEnabledAt = fromNullMS(emailOTPEnabledAt)
 	return u, nil
 }
 
@@ -63,6 +65,37 @@ func (s *SQLite) SetTOTP(ctx context.Context, id, secret string, enabledAt *time
 		v = ms(*enabledAt)
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE users SET totp_secret=?, totp_enabled_at=?, totp_recovery=? WHERE id=?`, secret, v, totpRecoveryJSON(recovery), id)
+	if err != nil {
+		return err
+	}
+	return needFound(res)
+}
+
+// SetEmail is documented on the Store interface.
+func (s *SQLite) SetEmail(ctx context.Context, id, email string, verifiedAt *time.Time) error {
+	var v any
+	if verifiedAt != nil {
+		v = ms(*verifiedAt)
+	}
+	q := `UPDATE users SET email=?, email_verified_at=? WHERE id=?`
+	if verifiedAt == nil {
+		// A freshly-set (or cleared) address can't still back a second factor nobody has proven it can reach.
+		q = `UPDATE users SET email=?, email_verified_at=?, email_otp_enabled_at=NULL WHERE id=?`
+	}
+	res, err := s.db.ExecContext(ctx, q, email, v, id)
+	if err != nil {
+		return err
+	}
+	return needFound(res)
+}
+
+// SetEmailOTPEnabled is documented on the Store interface.
+func (s *SQLite) SetEmailOTPEnabled(ctx context.Context, id string, enabledAt *time.Time) error {
+	var v any
+	if enabledAt != nil {
+		v = ms(*enabledAt)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET email_otp_enabled_at=? WHERE id=?`, v, id)
 	if err != nil {
 		return err
 	}

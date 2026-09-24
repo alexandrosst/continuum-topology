@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
-import { api, ApiError, atLeast, probe, twoFactorPending, type Conn, type InvitePreview, type OrgRef, type Registration, type Role, type ServerInfo, type Session, type User } from '@/lib/api'
+import { api, ApiError, atLeast, probe, twoFactorPending, type Conn, type InvitePreview, type OrgRef, type Registration, type Role, type ServerInfo, type Session, type TwoFactorMethod, type User } from '@/lib/api'
 import { mergeDiscovered, type ServerState } from '@/lib/discovered'
 import { useHistoryView } from './history'
 import { useObserved } from './observed'
@@ -63,11 +63,15 @@ interface ServerStore {
   checked: boolean
   /** Set while status is 'twofactor': the token verifyTwoFactor must send back with the code. */
   pendingLogin?: string
+  /** Set alongside pendingLogin: which methods this account can complete the sign-in with. */
+  pendingMethods: TwoFactorMethod[]
 
   connect: (url: string) => Promise<boolean>
   signIn: (username: string, password: string) => Promise<boolean>
-  /** Finishes a sign-in that stopped at status 'twofactor': code is a 6-digit authenticator code or a recovery code. */
+  /** Finishes a sign-in that stopped at status 'twofactor': code is a 6-digit authenticator code, a recovery code, or an emailed code. */
   verifyTwoFactor: (code: string) => Promise<boolean>
+  /** Mails a fresh code for the pending sign-in (only meaningful when pendingMethods includes 'email'). */
+  requestLoginEmailCode: () => Promise<boolean>
   /** Abandons a pending two-factor sign-in and goes back to the sign-in form. */
   cancelTwoFactor: () => void
   register: (username: string, password: string, orgName: string, invite?: string) => Promise<boolean>
@@ -87,6 +91,14 @@ interface ServerStore {
   enableTwoFactor: (code: string) => Promise<string[] | undefined>
   /** Turns two-factor authentication off; needs the current password. */
   disableTwoFactor: (password: string) => Promise<boolean>
+  /** Mails a verification code to a (possibly new) address; the address shows up right away, unverified. */
+  requestEmailVerification: (email: string) => Promise<boolean>
+  /** Proves the mailed code was received, marking the address verified. */
+  confirmEmail: (code: string) => Promise<boolean>
+  /** Turns email-OTP on; only possible once the address is verified. */
+  enableEmailOTP: () => Promise<boolean>
+  /** Turns email-OTP off; needs the current password. Leaves the address itself verified. */
+  disableEmailOTP: (password: string) => Promise<boolean>
   /** Stop using the server without signing out (its session stays valid); the browser keeps working alone. */
   disconnect: () => void
   refresh: () => Promise<void>
@@ -174,6 +186,7 @@ export const useServer = create<ServerStore>((set, get) => {
     checked: false,
     orgs: [],
     registration: 'open',
+    pendingMethods: [],
 
     conn: () => (get().status === 'connected' && !get().user?.mustChangePassword && get().orgId ? { url: get().url, org: get().orgId } : null),
     isAdmin: () => atLeast(get().role, 'admin'),
@@ -218,13 +231,13 @@ export const useServer = create<ServerStore>((set, get) => {
 
     signIn: async (username, password) => {
       const c = { url: get().url }
-      set({ error: undefined, pendingLogin: undefined })
+      set({ error: undefined, pendingLogin: undefined, pendingMethods: [] })
       try {
         await enter(await api.login(c, username.trim(), password))
         return true
       } catch (e) {
         if (twoFactorPending(e)) {
-          set({ pendingLogin: e.body.pending, status: 'twofactor' })
+          set({ pendingLogin: e.body.pending, pendingMethods: e.body.methods, status: 'twofactor' })
           return false
         }
         set({ error: messageOf(e), status: get().status === 'connected' ? 'connected' : 'signin' })
@@ -239,7 +252,21 @@ export const useServer = create<ServerStore>((set, get) => {
       set({ error: undefined })
       try {
         await enter(await api.login2FA(c, pending, code.trim()))
-        set({ pendingLogin: undefined })
+        set({ pendingLogin: undefined, pendingMethods: [] })
+        return true
+      } catch (e) {
+        set({ error: messageOf(e) })
+        return false
+      }
+    },
+
+    requestLoginEmailCode: async () => {
+      const pending = get().pendingLogin
+      if (!pending) return false
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        await api.requestLoginEmailCode(c, pending)
         return true
       } catch (e) {
         set({ error: messageOf(e) })
@@ -248,7 +275,7 @@ export const useServer = create<ServerStore>((set, get) => {
     },
 
     cancelTwoFactor: () => {
-      set({ pendingLogin: undefined, error: undefined, status: 'signin' })
+      set({ pendingLogin: undefined, pendingMethods: [], error: undefined, status: 'signin' })
     },
 
     register: async (username, password, orgName, invite) => {
@@ -375,6 +402,58 @@ export const useServer = create<ServerStore>((set, get) => {
       set({ error: undefined })
       try {
         const session = await api.disable2FA(c, password)
+        set({ user: session.user })
+        return true
+      } catch (e) {
+        set({ error: messageOf(e) })
+        return false
+      }
+    },
+
+    requestEmailVerification: async (email) => {
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        const session = await api.requestEmailVerification(c, email.trim())
+        set({ user: session.user })
+        return true
+      } catch (e) {
+        set({ error: messageOf(e) })
+        return false
+      }
+    },
+
+    confirmEmail: async (code) => {
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        const session = await api.confirmEmail(c, code.trim())
+        set({ user: session.user })
+        return true
+      } catch (e) {
+        set({ error: messageOf(e) })
+        return false
+      }
+    },
+
+    enableEmailOTP: async () => {
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        const session = await api.enableEmailOTP(c)
+        set({ user: session.user })
+        return true
+      } catch (e) {
+        set({ error: messageOf(e) })
+        return false
+      }
+    },
+
+    disableEmailOTP: async (password) => {
+      const c = { url: get().url }
+      set({ error: undefined })
+      try {
+        const session = await api.disableEmailOTP(c, password)
         set({ user: session.user })
         return true
       } catch (e) {

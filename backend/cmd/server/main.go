@@ -88,6 +88,11 @@ func main() {
 	neoDB := flag.String("neo4j-database", envOr("CONTINUUM_NEO4J_DATABASE", "neo4j"), "Neo4j database name; env CONTINUUM_NEO4J_DATABASE")
 	neoPassFile := flag.String("neo4j-password-file", os.Getenv("CONTINUUM_NEO4J_PASSWORD_FILE"), "file holding the Neo4j password (or set CONTINUUM_NEO4J_PASSWORD); env CONTINUUM_NEO4J_PASSWORD_FILE")
 	neoInsecure := flag.Bool("neo4j-allow-insecure-http", os.Getenv("CONTINUUM_NEO4J_ALLOW_INSECURE_HTTP") == "true", "allow the Neo4j password and the topology to be sent over plain HTTP to a host that is not loopback. By default the server refuses to start: use an https:// address, or, on a network you trust (a pod-to-pod link inside one cluster, say), pass this flag; env CONTINUUM_NEO4J_ALLOW_INSECURE_HTTP=true")
+	smtpHost := flag.String("smtp-host", os.Getenv("CONTINUUM_SMTP_HOST"), "SMTP server for outgoing mail (a login or email-verification code - nothing else is ever sent). Without it, email is simply not offered as a second factor and Settings has no way to add an address; env CONTINUUM_SMTP_HOST")
+	smtpPort := flag.String("smtp-port", envOr("CONTINUUM_SMTP_PORT", "587"), "SMTP submission port. STARTTLS is used automatically when the server offers it; env CONTINUUM_SMTP_PORT")
+	smtpUser := flag.String("smtp-username", os.Getenv("CONTINUUM_SMTP_USERNAME"), "SMTP username, if the relay requires authentication; env CONTINUUM_SMTP_USERNAME")
+	smtpPassFile := flag.String("smtp-password-file", os.Getenv("CONTINUUM_SMTP_PASSWORD_FILE"), "file holding the SMTP password (or set CONTINUUM_SMTP_PASSWORD); never given as a flag value, which would show in the process list; env CONTINUUM_SMTP_PASSWORD_FILE")
+	smtpFrom := flag.String("smtp-from", os.Getenv("CONTINUUM_SMTP_FROM"), "From: address on mailed codes. Required with --smtp-host; env CONTINUUM_SMTP_FROM")
 	flag.Var(&origins, "allow-origin", "browser origin allowed to call the API cross-origin (repeatable, development)")
 	flag.Parse()
 
@@ -139,7 +144,22 @@ func main() {
 	if err != nil {
 		fatal(log, fmt.Errorf("--image-registry/--image-tag/--image-digest: %w", err))
 	}
-	if err := run(log, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, keyOpts{PassphraseFile: *caPassFile, AllowLoose: *looseOK}, origins); err != nil {
+	var mail server.MailConfig
+	if *smtpHost != "" {
+		if *smtpFrom == "" {
+			fatal(log, errors.New("--smtp-host needs --smtp-from"))
+		}
+		pw := os.Getenv("CONTINUUM_SMTP_PASSWORD")
+		if *smtpPassFile != "" {
+			b, err := os.ReadFile(*smtpPassFile)
+			if err != nil {
+				fatal(log, fmt.Errorf("--smtp-password-file: %w", err))
+			}
+			pw = strings.TrimSpace(string(b))
+		}
+		mail = server.MailConfig{Host: *smtpHost, Port: *smtpPort, Username: *smtpUser, Password: pw, From: *smtpFrom}
+	}
+	if err := run(log, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AllowLoose: *looseOK}, origins); err != nil {
 		fatal(log, err)
 	}
 }
@@ -162,7 +182,7 @@ func fatal(log *slog.Logger, err error) {
 	os.Exit(1)
 }
 
-func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *server.DeciderPolicy, neo *graph.Config, keys keyOpts, origins []string) error {
+func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *server.DeciderPolicy, neo *graph.Config, mail server.MailConfig, keys keyOpts, origins []string) error {
 	// Fail closed: a database that was asked for but cannot be used stops the server rather than silently turning the feature off.
 	var geo *server.Geo
 	if geoPath != "" {
@@ -253,7 +273,7 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 	// The platform-wide core has no organization of its own: accounts, sign-in and the calls that arrive
 	// before an agent is known belong to it, and each organization gets a scoped view of it.
 	core := server.NewCore(st, ca, "", log)
-	core.DefaultOrg, core.RegMode, core.Decider = org, registration, decider
+	core.DefaultOrg, core.RegMode, core.Decider, core.Mailer = org, registration, decider, mail
 	core.PendingTTL, core.RefuseLegacyApproval = *pendingTTL, *refuseLegacy
 	core.TrustAgentProxy = agentBehindProxy
 	created, firstPassword, err := core.BootstrapAdmin(context.Background(), os.Getenv("CONTINUUM_ADMIN_PASSWORD"))

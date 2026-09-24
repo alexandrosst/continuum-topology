@@ -110,6 +110,7 @@ func (a *Admin) Handler() http.Handler {
 	api.HandleFunc("GET /api/v1/server", a.serverInfo)
 	api.HandleFunc("POST /api/v1/auth/login", a.login)
 	api.HandleFunc("POST /api/v1/auth/login/2fa", a.login2FA)
+	api.HandleFunc("POST /api/v1/auth/login/2fa/email", a.requestLoginEmailCode)
 	api.HandleFunc("POST /api/v1/auth/register", a.register)
 	api.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	api.HandleFunc("POST /api/v1/invites/preview", a.previewInvite)
@@ -118,6 +119,10 @@ func (a *Admin) Handler() http.Handler {
 	route("POST /api/v1/auth/2fa/setup", anySession, a.setup2FA)
 	route("POST /api/v1/auth/2fa/enable", anySession, a.enable2FA)
 	route("POST /api/v1/auth/2fa/disable", anySession, a.disable2FA)
+	route("POST /api/v1/auth/email/request", anySession, a.requestEmailVerification)
+	route("POST /api/v1/auth/email/confirm", anySession, a.confirmEmail)
+	route("POST /api/v1/auth/email-otp/enable", anySession, a.enableEmailOTP)
+	route("POST /api/v1/auth/email-otp/disable", anySession, a.disableEmailOTP)
 	route("GET /api/v1/orgs", settled, a.listOrgs)
 	route("POST /api/v1/orgs", settled, a.createOrg)
 	route("POST /api/v1/invites/accept", settled, a.acceptInvite)
@@ -402,12 +407,19 @@ type userDoc struct {
 	CreatedAt          string `json:"createdAt"`
 	LastLogin          string `json:"lastLogin,omitempty"`
 	TwoFactorEnabled   bool   `json:"twoFactorEnabled"`
+	// Email is shown even while unverified, so Settings can say "verifying jane@example.com...".
+	Email           string `json:"email,omitempty"`
+	EmailVerified   bool   `json:"emailVerified"`
+	EmailOTPEnabled bool   `json:"emailOtpEnabled"`
+	MailConfigured  bool   `json:"mailConfigured"` // whether the server can send mail at all
 }
 
-func toUserDoc(u store.User) userDoc {
+func toUserDoc(u store.User, mailConfigured bool) userDoc {
 	return userDoc{
 		ID: u.ID, Username: u.Username, MustChangePassword: u.MustChange, CreatedAt: rfc(u.CreatedAt), LastLogin: rfcp(u.LastLogin),
 		TwoFactorEnabled: u.TOTPEnabledAt != nil,
+		Email:            u.Email, EmailVerified: u.EmailVerifiedAt != nil, EmailOTPEnabled: u.EmailOTPEnabledAt != nil,
+		MailConfigured: mailConfigured,
 	}
 }
 
@@ -426,7 +438,7 @@ func (a *Admin) session(ctx context.Context, u store.User) map[string]any {
 			orgs = append(orgs, orgDoc{ID: o.ID, Name: o.Name, Role: o.Role})
 		}
 	}
-	return map[string]any{"user": toUserDoc(u), "orgs": orgs}
+	return map[string]any{"user": toUserDoc(u, a.C.Mailer.Enabled()), "orgs": orgs}
 }
 
 // setCookie sets (or, with a negative maxAge, clears) the session cookie. Secure is on whenever the admin
@@ -638,6 +650,85 @@ func (a *Admin) disable2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.C.Disable2FA(r.Context(), principal(r), req.Password); err != nil {
+		a.fail(w, err)
+		return
+	}
+	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
+	writeJSON(w, 200, a.session(r.Context(), u))
+}
+
+// requestLoginEmailCode is called from the pending-2FA screen when a person picks "email me a code"
+// instead of typing one from an authenticator app; login2FA then accepts the mailed code back exactly like
+// a TOTP one. No session exists yet at this point, same as login and login2FA themselves.
+func (a *Admin) requestLoginEmailCode(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	var req struct {
+		Pending string `json:"pending"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	if err := a.C.RequestLoginEmailCode(r.Context(), a.clientIP(r), req.Pending); err != nil {
+		a.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// requestEmailVerification starts confirming a new email address on the signed-in account.
+func (a *Admin) requestEmailVerification(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	if err := a.C.RequestEmailVerification(r.Context(), principal(r), req.Email); err != nil {
+		a.fail(w, err)
+		return
+	}
+	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
+	writeJSON(w, 200, a.session(r.Context(), u))
+}
+
+// confirmEmail finishes requestEmailVerification with the code that was mailed.
+func (a *Admin) confirmEmail(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	if err := a.C.ConfirmEmail(r.Context(), principal(r), req.Code); err != nil {
+		a.fail(w, err)
+		return
+	}
+	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
+	writeJSON(w, 200, a.session(r.Context(), u))
+}
+
+// enableEmailOTP turns on email as a second sign-in factor for the already-verified address on the account.
+func (a *Admin) enableEmailOTP(w http.ResponseWriter, r *http.Request) {
+	if err := a.C.EnableEmailOTP(r.Context(), principal(r)); err != nil {
+		a.fail(w, err)
+		return
+	}
+	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
+	writeJSON(w, 200, a.session(r.Context(), u))
+}
+
+func (a *Admin) disableEmailOTP(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	if err := a.C.DisableEmailOTP(r.Context(), principal(r), req.Password); err != nil {
 		a.fail(w, err)
 		return
 	}

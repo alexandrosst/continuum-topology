@@ -116,7 +116,11 @@ type Core struct {
 	// forge its address, or (since the header is then mandatory) a real agent behind a proxy that isn't
 	// sending it would be refused outright.
 	TrustAgentProxy bool
-	settings        *settingsHolder
+	// Mailer is how a login or email-verification code is sent. Its zero value has Enabled() false: nothing
+	// that needs to send mail (RequestEmailVerification, RequestLoginEmailCode) is reachable until an
+	// operator configures one, the same way Decider being nil keeps decider-only paths unreachable.
+	Mailer   MailConfig
+	settings *settingsHolder
 }
 
 // ForOrg returns a view of the same server scoped to one organisation. It shares the database, the
