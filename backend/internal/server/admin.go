@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -111,6 +112,8 @@ func (a *Admin) Handler() http.Handler {
 	api.HandleFunc("POST /api/v1/auth/login", a.login)
 	api.HandleFunc("POST /api/v1/auth/login/2fa", a.login2FA)
 	api.HandleFunc("POST /api/v1/auth/login/2fa/email", a.requestLoginEmailCode)
+	api.HandleFunc("POST /api/v1/auth/login/2fa/webauthn/begin", a.beginPasskeyLogin)
+	api.HandleFunc("POST /api/v1/auth/login/2fa/webauthn/finish", a.finishPasskeyLogin)
 	api.HandleFunc("POST /api/v1/auth/register", a.register)
 	api.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	api.HandleFunc("POST /api/v1/invites/preview", a.previewInvite)
@@ -123,6 +126,10 @@ func (a *Admin) Handler() http.Handler {
 	route("POST /api/v1/auth/email/confirm", anySession, a.confirmEmail)
 	route("POST /api/v1/auth/email-otp/enable", anySession, a.enableEmailOTP)
 	route("POST /api/v1/auth/email-otp/disable", anySession, a.disableEmailOTP)
+	route("POST /api/v1/auth/webauthn/register/begin", anySession, a.beginPasskeyRegistration)
+	route("POST /api/v1/auth/webauthn/register/finish", anySession, a.finishPasskeyRegistration)
+	route("POST /api/v1/auth/webauthn/{id}/rename", anySession, a.renamePasskey)
+	route("POST /api/v1/auth/webauthn/{id}/remove", anySession, a.removePasskey)
 	route("GET /api/v1/orgs", settled, a.listOrgs)
 	route("POST /api/v1/orgs", settled, a.createOrg)
 	route("POST /api/v1/invites/accept", settled, a.acceptInvite)
@@ -287,6 +294,22 @@ func (a *Admin) secure(r *http.Request) bool {
 	return r.TLS != nil || (a.TrustProxy && r.Header.Get("X-Forwarded-Proto") == "https")
 }
 
+// relyingParty derives this request's WebAuthn relying party from the address the browser actually has
+// loaded: r.Host, the same source of truth originAllowed's same-origin check already trusts (rather than a
+// value configured once at startup, since this server has no single fixed public domain the way a hosted
+// SaaS would).
+func (a *Admin) relyingParty(r *http.Request) RelyingParty {
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	scheme := "http"
+	if a.secure(r) {
+		scheme = "https"
+	}
+	return RelyingParty{ID: host, Origin: scheme + "://" + r.Host, Name: totpIssuer}
+}
+
 // sessionCookie is the session secret the request carries, under either name: the __Host- one is what a
 // Secure cookie is called, the plain one what a session opened over loopback HTTP (or by an earlier
 // version) is called, and neither may lock the other out.
@@ -412,14 +435,29 @@ type userDoc struct {
 	EmailVerified   bool   `json:"emailVerified"`
 	EmailOTPEnabled bool   `json:"emailOtpEnabled"`
 	MailConfigured  bool   `json:"mailConfigured"` // whether the server can send mail at all
+	// Passkeys never carries a public key or anything else needed to verify a login, only what settings needs
+	// to show a person their own credentials and let them rename or remove one.
+	Passkeys []passkeyDoc `json:"passkeys"`
+}
+
+type passkeyDoc struct {
+	ID         string `json:"id"` // base64url CredentialID - what rename/remove address it by
+	Name       string `json:"name"`
+	CreatedAt  string `json:"createdAt"`
+	LastUsedAt string `json:"lastUsedAt,omitempty"`
 }
 
 func toUserDoc(u store.User, mailConfigured bool) userDoc {
+	passkeys := make([]passkeyDoc, len(u.WebAuthnCredentials))
+	for i, cr := range u.WebAuthnCredentials {
+		passkeys[i] = passkeyDoc{ID: base64.RawURLEncoding.EncodeToString(cr.CredentialID), Name: cr.Name, CreatedAt: rfc(cr.CreatedAt), LastUsedAt: rfcp(cr.LastUsedAt)}
+	}
 	return userDoc{
 		ID: u.ID, Username: u.Username, MustChangePassword: u.MustChange, CreatedAt: rfc(u.CreatedAt), LastLogin: rfcp(u.LastLogin),
 		TwoFactorEnabled: u.TOTPEnabledAt != nil,
 		Email:            u.Email, EmailVerified: u.EmailVerifiedAt != nil, EmailOTPEnabled: u.EmailOTPEnabledAt != nil,
 		MailConfigured: mailConfigured,
+		Passkeys:       passkeys,
 	}
 }
 
@@ -729,6 +767,114 @@ func (a *Admin) disableEmailOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.C.DisableEmailOTP(r.Context(), principal(r), req.Password); err != nil {
+		a.fail(w, err)
+		return
+	}
+	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
+	writeJSON(w, 200, a.session(r.Context(), u))
+}
+
+// writeOptions hands back a WebAuthn options object exactly as the provider built it - already valid JSON,
+// so unlike writeJSON this never re-encodes it.
+func writeOptions(w http.ResponseWriter, options []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(options)
+}
+
+// beginPasskeyRegistration starts registering a new passkey or security key on the signed-in account. The
+// response is the CredentialCreationOptions object navigator.credentials.create() takes directly.
+func (a *Admin) beginPasskeyRegistration(w http.ResponseWriter, r *http.Request) {
+	options, err := a.C.BeginPasskeyRegistration(r.Context(), principal(r), a.relyingParty(r))
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeOptions(w, options)
+}
+
+// finishPasskeyRegistration completes a registration beginPasskeyRegistration started.
+func (a *Admin) finishPasskeyRegistration(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name     string          `json:"name"`
+		Response json.RawMessage `json:"response"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	if err := a.C.FinishPasskeyRegistration(r.Context(), principal(r), a.relyingParty(r), req.Name, req.Response); err != nil {
+		a.fail(w, err)
+		return
+	}
+	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
+	writeJSON(w, 200, a.session(r.Context(), u))
+}
+
+// beginPasskeyLogin starts the passkey half of a pending two-factor sign-in. No session exists yet, same as
+// login and login2FA.
+func (a *Admin) beginPasskeyLogin(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	var req struct {
+		Pending string `json:"pending"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	options, err := a.C.BeginPasskeyLogin(r.Context(), a.clientIP(r), req.Pending, a.relyingParty(r))
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeOptions(w, options)
+}
+
+// finishPasskeyLogin completes a passkey sign-in and, unlike login2FA, opens the session itself: a passkey's
+// response is a signed assertion object, not a short code that fits login2FA's single field.
+func (a *Admin) finishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Pending  string          `json:"pending"`
+		Response json.RawMessage `json:"response"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	secret, u, err := a.C.FinishPasskeyLogin(r.Context(), a.clientIP(r), req.Pending, a.relyingParty(r), req.Response)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	a.setCookie(w, r, secret, int(SessionMax.Seconds()))
+	writeJSON(w, 200, a.session(r.Context(), u))
+}
+
+func (a *Admin) renamePasskey(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	if err := a.C.RenamePasskey(r.Context(), principal(r), r.PathValue("id"), req.Name); err != nil {
+		a.fail(w, err)
+		return
+	}
+	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
+	writeJSON(w, 200, a.session(r.Context(), u))
+}
+
+func (a *Admin) removePasskey(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	if err := a.C.RemovePasskey(r.Context(), principal(r), r.PathValue("id"), req.Password); err != nil {
 		a.fail(w, err)
 		return
 	}

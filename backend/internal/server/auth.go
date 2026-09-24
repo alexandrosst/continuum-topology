@@ -104,6 +104,23 @@ type authState struct {
 	// Like pending, this is memory-only and swept opportunistically rather than on a timer.
 	emailMu sync.Mutex
 	email   map[string]emailChallenge
+
+	// webauthnReg holds an in-progress passkey registration challenge, keyed by the account's own ID: unlike
+	// a pending login this needs no separate token, since both halves of registration already share one
+	// authenticated session cookie. webauthnLogin holds the login-side equivalent, keyed by the same pending
+	// token beginTwoFactor issued - a passkey sign-in is a second ceremony next to a typed code, not a value
+	// that fits Login2FA's one code field. Both are memory-only, single-use and swept the same way as pending.
+	webauthnRegMu   sync.Mutex
+	webauthnReg     map[string]webauthnSession
+	webauthnLoginMu sync.Mutex
+	webauthnLogin   map[string]webauthnSession
+}
+
+// webauthnSession is one outstanding BeginRegistration/BeginLogin challenge: opaque to everything here
+// except the WebAuthnProvider that produced it and will later consume it in Finish*.
+type webauthnSession struct {
+	data      []byte
+	expiresAt time.Time
 }
 
 // pendingLogin is one entry in authState.pending.
@@ -216,18 +233,29 @@ func twoFactorMethods(u store.User) []string {
 	if u.EmailOTPEnabledAt != nil {
 		methods = append(methods, "email")
 	}
+	if len(u.WebAuthnCredentials) > 0 {
+		methods = append(methods, "webauthn")
+	}
 	return methods
 }
 
 // errTwoFactorRequired is what Login returns when the password was right but the account also needs a
-// second factor: pending is the one-time token Login2FA must be called with next, methods is what it may be
-// completed with.
+// second factor: pending is the one-time token Login2FA (or the passkey endpoints) must be called with
+// next, methods is what it may be completed with.
 func errTwoFactorRequired(pending string, methods []string) *Error {
-	msg := "enter the code from your authenticator app"
-	if len(methods) == 1 && methods[0] == "email" {
-		msg = "request a code by email"
-	} else if len(methods) > 1 {
+	hasTOTP, hasEmail, hasWebAuthn := slices.Contains(methods, "totp"), slices.Contains(methods, "email"), slices.Contains(methods, "webauthn")
+	msg := "enter a two-factor code"
+	switch {
+	case hasWebAuthn && !hasTOTP && !hasEmail:
+		msg = "use your passkey"
+	case hasWebAuthn:
+		msg = "use your passkey, enter a two-factor code, or request one by email"
+	case hasTOTP && hasEmail:
 		msg = "enter a two-factor code, or request one by email"
+	case hasEmail:
+		msg = "request a code by email"
+	case hasTOTP:
+		msg = "enter the code from your authenticator app"
 	}
 	return &Error{Kind: KindTwoFactorRequired, Msg: msg, Data: map[string]any{"pending": pending, "methods": methods}}
 }

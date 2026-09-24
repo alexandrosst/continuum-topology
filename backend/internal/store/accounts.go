@@ -1,8 +1,10 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"time"
@@ -10,7 +12,7 @@ import (
 
 // ---- users ----
 
-const userCols = `id, username, password_hash, must_change, created_at, disabled_at, last_login, totp_secret, totp_enabled_at, totp_recovery, email, email_verified_at, email_otp_enabled_at`
+const userCols = `id, username, password_hash, must_change, created_at, disabled_at, last_login, totp_secret, totp_enabled_at, totp_recovery, email, email_verified_at, email_otp_enabled_at, webauthn_credentials`
 
 // totpRecoveryJSON encodes/decodes User.TOTPRecovery as a JSON array; a blank or unparsable column (an
 // older row, or one never touched) reads back as no codes rather than an error.
@@ -27,13 +29,78 @@ func parseTOTPRecovery(s string) []string {
 	return codes
 }
 
+// webauthnCredentialJSON is WebAuthnCredential's on-disk shape: the binary fields as base64url (compact and
+// readable in a database dump) rather than JSON arrays of numbers, and unix-millisecond timestamps to match
+// every other stored time in this package.
+type webauthnCredentialJSON struct {
+	CredentialID string   `json:"credentialId"`
+	PublicKey    string   `json:"publicKey"`
+	SignCount    uint32   `json:"signCount"`
+	Transports   []string `json:"transports,omitempty"`
+	Name         string   `json:"name"`
+	CreatedAt    int64    `json:"createdAt"`
+	LastUsedAt   *int64   `json:"lastUsedAt,omitempty"`
+}
+
+// webauthnCredentialsJSON/parseWebAuthnCredentials encode and decode User.WebAuthnCredentials the same way
+// totpRecoveryJSON does for recovery codes: the whole list, read, modified and written back as one column -
+// see updateWebAuthnCredentials. A blank or unparsable column reads back as no credentials, not an error.
+func webauthnCredentialsJSON(creds []WebAuthnCredential) string {
+	out := make([]webauthnCredentialJSON, len(creds))
+	for i, c := range creds {
+		var lastUsed *int64
+		if c.LastUsedAt != nil {
+			v := ms(*c.LastUsedAt)
+			lastUsed = &v
+		}
+		out[i] = webauthnCredentialJSON{
+			CredentialID: base64.RawURLEncoding.EncodeToString(c.CredentialID),
+			PublicKey:    base64.RawURLEncoding.EncodeToString(c.PublicKey),
+			SignCount:    c.SignCount,
+			Transports:   c.Transports,
+			Name:         c.Name,
+			CreatedAt:    ms(c.CreatedAt),
+			LastUsedAt:   lastUsed,
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+func parseWebAuthnCredentials(s string) []WebAuthnCredential {
+	var raw []webauthnCredentialJSON
+	if err := json.Unmarshal([]byte(s), &raw); err != nil {
+		return nil
+	}
+	out := make([]WebAuthnCredential, 0, len(raw))
+	for _, r := range raw {
+		credID, err := base64.RawURLEncoding.DecodeString(r.CredentialID)
+		if err != nil {
+			continue // a row this package never wrote; skip rather than fail the whole account
+		}
+		pub, err := base64.RawURLEncoding.DecodeString(r.PublicKey)
+		if err != nil {
+			continue
+		}
+		c := WebAuthnCredential{CredentialID: credID, PublicKey: pub, SignCount: r.SignCount, Transports: r.Transports, Name: r.Name, CreatedAt: fromMS(r.CreatedAt)}
+		if r.LastUsedAt != nil {
+			c.LastUsedAt = fromNullMS(sql.NullInt64{Int64: *r.LastUsedAt, Valid: true})
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 func scanUser(r scanner) (User, error) {
 	var u User
 	var mc int
 	var created int64
 	var dis, last, enabledAt, emailVerifiedAt, emailOTPEnabledAt sql.NullInt64
-	var recovery string
-	if err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &mc, &created, &dis, &last, &u.TOTPSecret, &enabledAt, &recovery, &u.Email, &emailVerifiedAt, &emailOTPEnabledAt); err != nil {
+	var recovery, webauthnCreds string
+	if err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &mc, &created, &dis, &last, &u.TOTPSecret, &enabledAt, &recovery, &u.Email, &emailVerifiedAt, &emailOTPEnabledAt, &webauthnCreds); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return User{}, ErrNotFound
 		}
@@ -44,6 +111,7 @@ func scanUser(r scanner) (User, error) {
 	u.TOTPRecovery = parseTOTPRecovery(recovery)
 	u.EmailVerifiedAt = fromNullMS(emailVerifiedAt)
 	u.EmailOTPEnabledAt = fromNullMS(emailOTPEnabledAt)
+	u.WebAuthnCredentials = parseWebAuthnCredentials(webauthnCreds)
 	return u, nil
 }
 
@@ -100,6 +168,87 @@ func (s *SQLite) SetEmailOTPEnabled(ctx context.Context, id string, enabledAt *t
 		return err
 	}
 	return needFound(res)
+}
+
+// AddWebAuthnCredential is documented on the Store interface.
+func (s *SQLite) AddWebAuthnCredential(ctx context.Context, id string, cred WebAuthnCredential) error {
+	return s.updateWebAuthnCredentials(ctx, id, func(creds []WebAuthnCredential) ([]WebAuthnCredential, error) {
+		for _, c := range creds {
+			if bytes.Equal(c.CredentialID, cred.CredentialID) {
+				return nil, ErrExists
+			}
+		}
+		return append(creds, cred), nil
+	})
+}
+
+// RenameWebAuthnCredential is documented on the Store interface.
+func (s *SQLite) RenameWebAuthnCredential(ctx context.Context, id string, credentialID []byte, name string) error {
+	return s.updateWebAuthnCredentials(ctx, id, func(creds []WebAuthnCredential) ([]WebAuthnCredential, error) {
+		for i := range creds {
+			if bytes.Equal(creds[i].CredentialID, credentialID) {
+				creds[i].Name = name
+				return creds, nil
+			}
+		}
+		return nil, ErrNotFound
+	})
+}
+
+// TouchWebAuthnCredential is documented on the Store interface.
+func (s *SQLite) TouchWebAuthnCredential(ctx context.Context, id string, credentialID []byte, signCount uint32, usedAt time.Time) error {
+	return s.updateWebAuthnCredentials(ctx, id, func(creds []WebAuthnCredential) ([]WebAuthnCredential, error) {
+		for i := range creds {
+			if bytes.Equal(creds[i].CredentialID, credentialID) {
+				creds[i].SignCount, creds[i].LastUsedAt = signCount, &usedAt
+				return creds, nil
+			}
+		}
+		return nil, ErrNotFound
+	})
+}
+
+// RemoveWebAuthnCredential is documented on the Store interface.
+func (s *SQLite) RemoveWebAuthnCredential(ctx context.Context, id string, credentialID []byte) error {
+	return s.updateWebAuthnCredentials(ctx, id, func(creds []WebAuthnCredential) ([]WebAuthnCredential, error) {
+		for i, c := range creds {
+			if bytes.Equal(c.CredentialID, credentialID) {
+				return append(append([]WebAuthnCredential{}, creds[:i]...), creds[i+1:]...), nil
+			}
+		}
+		return nil, ErrNotFound
+	})
+}
+
+// updateWebAuthnCredentials is the read-modify-write every credential change shares: load the account's
+// current list inside a transaction, let fn compute the new one (or refuse with an error such as
+// ErrNotFound or ErrExists, in which case nothing is written), and write the result back in the same
+// transaction so two concurrent changes to one account's credentials never race.
+func (s *SQLite) updateWebAuthnCredentials(ctx context.Context, id string, fn func([]WebAuthnCredential) ([]WebAuthnCredential, error)) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var raw string
+	if err := tx.QueryRowContext(ctx, `SELECT webauthn_credentials FROM users WHERE id=?`, id).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	next, err := fn(parseWebAuthnCredentials(raw))
+	if err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE users SET webauthn_credentials=? WHERE id=?`, webauthnCredentialsJSON(next), id)
+	if err != nil {
+		return err
+	}
+	if err := needFound(res); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *SQLite) GetUser(ctx context.Context, id string) (User, error) {

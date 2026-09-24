@@ -119,7 +119,12 @@ type Core struct {
 	// Mailer is how a login or email-verification code is sent. Its zero value has Enabled() false: nothing
 	// that needs to send mail (RequestEmailVerification, RequestLoginEmailCode) is reachable until an
 	// operator configures one, the same way Decider being nil keeps decider-only paths unreachable.
-	Mailer   MailConfig
+	Mailer MailConfig
+	// WebAuthn is the passkey/security key ceremony implementation (see webauthn.go): nil keeps every
+	// passkey-only path unreachable, the same way a nil Decider or an unconfigured Mailer does. Unlike
+	// Mailer this needs no operator configuration to be worth setting - cmd/server wires in the real one
+	// unconditionally - so nil in practice only ever means a build that omitted it (a test, say).
+	WebAuthn WebAuthnProvider
 	settings *settingsHolder
 }
 
