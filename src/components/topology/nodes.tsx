@@ -1,11 +1,31 @@
 import { Handle, useStore, type NodeProps } from '@xyflow/react'
 import clsx from 'clsx'
-import { ArrowUpRight, Box, Camera, Cog, Cpu, Factory, Gauge, Globe, HardDrive, Radio, Router, Server, Tag, Truck, type LucideIcon } from 'lucide-react'
+import {
+  ArrowUpRight,
+  Box,
+  Camera,
+  Clock,
+  Cog,
+  Cpu,
+  Database,
+  Factory,
+  Gauge,
+  Globe,
+  HardDrive,
+  Layers,
+  Radio,
+  Router,
+  Server,
+  Shield,
+  Tag,
+  Truck,
+  type LucideIcon,
+} from 'lucide-react'
 import { memo } from 'react'
 import { LoadRow, peakLoad } from '@/components/topology/Load'
 import { DistroIcon, Flag } from '@/components/ui/brand'
 import { SIDES, type CardNode, type GroupNode, type NamespaceNode } from '@/lib/graph'
-import { STATUS_COLOR, TIER_COLOR, type DeviceKind } from '@/lib/types'
+import { STATUS_COLOR, TIER_COLOR, type DeviceKind, type ServiceKind } from '@/lib/types'
 
 export const DEVICE_ICON: Record<DeviceKind, LucideIcon> = {
   sensor: Gauge,
@@ -111,11 +131,27 @@ export const NamespaceBox = memo(function NamespaceBox({ data }: NodeProps<Names
 
 /* ---------- Service / machine card ---------- */
 const MACHINE_ICON = { vm: Server, 'bare-metal': HardDrive, 'edge-device': Cpu } as const
+// A bare Service with no controller behind it (or one whose kind isn't one of these four) keeps the
+// generic Box - same as before this map existed.
+export const WORKLOAD_ICON: Record<ServiceKind, LucideIcon> = {
+  Deployment: Layers,
+  StatefulSet: Database,
+  DaemonSet: Shield,
+  Job: Clock,
+}
 
 export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) {
   const isMachine = data.kind === 'machine'
   const Icon =
-    data.kind === 'device' ? DEVICE_ICON[data.deviceKind ?? 'other'] : data.kind === 'external' ? Globe : isMachine ? MACHINE_ICON[data.machineKind ?? 'vm'] : Box
+    data.kind === 'device'
+      ? DEVICE_ICON[data.deviceKind ?? 'other']
+      : data.kind === 'external'
+        ? Globe
+        : isMachine
+          ? MACHINE_ICON[data.machineKind ?? 'vm']
+          : data.serviceKind
+            ? WORKLOAD_ICON[data.serviceKind]
+            : Box
   const far = useFar()
   const color = TIER_COLOR[data.tier]
   return (
