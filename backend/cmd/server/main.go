@@ -21,6 +21,7 @@ import (
 
 	"continuum/internal/geoip"
 	"continuum/internal/graph"
+	"continuum/internal/passkey"
 	"continuum/internal/pki"
 	"continuum/internal/server"
 	"continuum/internal/store"
@@ -276,6 +277,9 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 	core.DefaultOrg, core.RegMode, core.Decider, core.Mailer = org, registration, decider, mail
 	core.PendingTTL, core.RefuseLegacyApproval = *pendingTTL, *refuseLegacy
 	core.TrustAgentProxy = agentBehindProxy
+	// Unlike Mailer, passkeys need no operator configuration - go-webauthn works out of the relying party
+	// info Admin derives from each request's own Host header, so the provider is simply always on.
+	core.WebAuthn = passkey.New()
 	created, firstPassword, err := core.BootstrapAdmin(context.Background(), os.Getenv("CONTINUUM_ADMIN_PASSWORD"))
 	if err != nil {
 		return err
