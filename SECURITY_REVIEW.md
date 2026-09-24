@@ -14,40 +14,45 @@ sources of real vulnerabilities elsewhere — SQL/Cypher injection, cross-tenant
 SSRF via the decider/geoip integrations, timing-based account enumeration, agent identity spoofing — turned
 up nothing exploitable, largely because the existing test suite (`security_test.go`, `dos_test.go`,
 `tenancy_test.go`, `decider_test.go`, and more) already pins down the specific attack scenarios a reviewer
-would otherwise have to discover by hand. One finding below is worth fixing promptly (the SMTP STARTTLS
-downgrade); the rest are smaller hardening improvements or already-accepted, well-documented trade-offs
-worth having written down in one place.
+would otherwise have to discover by hand. The one finding that mattered enough to fix immediately (an SMTP
+STARTTLS downgrade) and a smaller passkey-login DoS gap the same review turned up were both fixed in this same
+pass rather than left as a to-do; the rest are smaller hardening improvements or already-accepted,
+well-documented trade-offs worth having written down in one place.
 
 ## Findings, ranked by severity
 
-### High — SMTP STARTTLS can be silently downgraded to plain text
+### High — SMTP STARTTLS could be silently downgraded to plain text (fixed)
 
-`backend/internal/server/mail.go` sends mail through `net/smtp.SendMail`, which only upgrades to TLS when the
-server's EHLO response advertises the `STARTTLS` extension — it has no "fail if TLS isn't available" mode. A
-network-position attacker between this server and the configured `--smtp-host` can strip the `STARTTLS` line
-from the plaintext EHLO reply, and `SendMail` will proceed unencrypted without complaint. `smtp.PlainAuth`'s
-built-in guard refuses to send credentials over a non-TLS, non-loopback connection, so a real remote relay is
-protected on the credential side — but the message body (a login or email-verification OTP code) still goes
-out as unauthenticated `DATA` over that same plaintext connection either way, and if the relay is configured
-as `localhost` (a common local-relay setup), even the SMTP credentials lose that protection, since Go's guard
-exempts loopback addresses.
+`backend/internal/server/mail.go` sent mail through `net/smtp.SendMail`, which only upgrades to TLS when the
+server's EHLO response advertises the `STARTTLS` extension and has no "fail if TLS isn't available" mode. A
+network-position attacker between this server and the configured `--smtp-host` could strip the `STARTTLS`
+line from the plaintext EHLO reply, and `SendMail` would proceed unencrypted without complaint.
+`smtp.PlainAuth`'s built-in guard refuses to send credentials over a non-TLS, non-loopback connection, so a
+real remote relay was protected on the credential side — but the message body (a login or email-verification
+OTP code) still went out as unauthenticated `DATA` over that same plaintext connection either way, and for a
+relay configured as `localhost` (a common local-relay setup) even the SMTP credentials lost that protection,
+since Go's guard exempts loopback addresses.
 
-Fix: after `Hello`, check `ok, _ := c.Extension("STARTTLS")` and fail the send rather than falling through to
-plaintext when it's false, or replace `smtp.SendMail` with a small wrapper around `smtp.Dial`/`smtp.Client`
-that calls `StartTLS` explicitly and errors out if it's unavailable, before `Auth`/`Mail`/`Rcpt`/`Data`. Port
-465 (implicit TLS) is a second option that removes the plaintext negotiation window entirely.
+**Fixed**: `mail.go` now has its own `sendMail`, built around `smtp.Dial`/`smtp.Client` instead of
+`smtp.SendMail`, which checks `c.Extension("STARTTLS")` after `Hello` and refuses to proceed — via the small,
+independently-tested `requireSTARTTLS` — unless either TLS was actually offered or the host is loopback
+(`mailLoopback`, the same trust boundary `smtp.PlainAuth` already assumes for credentials). `mail_test.go`
+covers the decision logic directly (`TestMailLoopback`, `TestRequireSTARTTLS`) and runs the full protocol
+against a minimal fake local SMTP server to confirm the loopback-exempt path — the common "local relay, no
+TLS" deployment — still works end to end, with and without `AUTH PLAIN`
+(`TestSendMailOverLoopbackWithoutSTARTTLS`, `TestSendMailAuthenticatesWhenOffered`).
 
-### Medium — `finishPasskeyLogin` has no request-body size limit
+### Medium — `finishPasskeyLogin` had no request-body size limit (fixed)
 
 Every other pre-session auth endpoint (`login`, `login2FA`, `requestLoginEmailCode`, `beginPasskeyLogin`,
 `register`, `previewInvite`) explicitly sets `r.Body = http.MaxBytesReader(w, r.Body, 4<<10)` before decoding,
 and every session-gated route gets the same treatment from `guard()`. `finishPasskeyLogin`
-(`backend/internal/server/admin.go`) is the one exception: it decodes a body containing a
+(`backend/internal/server/admin.go`) was the one exception: it decoded a body containing a
 `Response json.RawMessage` field with no size bound at all, reachable by anyone with no session and no rate
 limiting gate ahead of the body read. An unauthenticated `POST` with a multi-hundred-megabyte `response` field
-is buffered in full by the JSON decoder before WebAuthn validation ever runs, which is a straightforward
-memory/CPU exhaustion path. Fix is one line: add the same `http.MaxBytesReader` call its sibling
-`beginPasskeyLogin` already has.
+would be buffered in full by the JSON decoder before WebAuthn validation ever ran, a straightforward
+memory/CPU exhaustion path. **Fixed**: the same `http.MaxBytesReader` call its sibling `beginPasskeyLogin`
+already had, plus a regression test (`TestFinishPasskeyLoginRejectsAnOversizedBody`).
 
 ### Low-Medium — TOTP codes have no anti-replay window
 
@@ -181,13 +186,13 @@ logged to the console, and the new WebAuthn helper (`src/lib/webauthn.ts`) uses 
 base64url/ArrayBuffer implementation, which is exactly where that kind of code most often introduces subtle
 bugs.
 
-## Suggested order to work through this
+## Suggested order to work through what's left
 
-If only one thing gets fixed immediately, it should be the SMTP STARTTLS downgrade — it's the one finding
-with a genuinely realistic path to credential or OTP-code disclosure. The passkey-login body-size limit is a
-one-line fix worth doing in the same pass. The TOTP replay window, the PROXY-protocol allow-list, and the CA
-key KDF ceiling are all worth doing but lower urgency, since each needs an attacker who already has something
-significant (the password, network-path access to the raw agent port, or write access to the key file
-itself). Everything in the informational section is a "write it down and decide on purpose" item rather than
-a bug: the audit chain's DB-tamper caveat, the missing CPU limits, the `extraArgs` escape hatch, and the
-absent CSP are all things worth a one-line decision in the docs rather than urgent code changes.
+The two findings with a genuinely realistic path to real harm — the SMTP STARTTLS downgrade and the
+passkey-login body-size gap — are already fixed as of this same pass. What remains is lower urgency by
+comparison: the TOTP replay window, the PROXY-protocol allow-list, and the CA key KDF ceiling are all worth
+doing, but each needs an attacker who already has something significant (the password, network-path access to
+the raw agent port, or write access to the key file itself). Everything in the informational section is a
+"write it down and decide on purpose" item rather than a bug: the audit chain's DB-tamper caveat, the missing
+CPU limits, the `extraArgs` escape hatch, and the absent CSP are all things worth a one-line decision in the
+docs rather than urgent code changes.
