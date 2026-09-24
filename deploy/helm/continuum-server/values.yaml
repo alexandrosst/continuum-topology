@@ -292,12 +292,16 @@ agentInstall:
   imageTag: ""                 # --image-tag: agent image tag; empty means the agent chart's own appVersion
   chartRef: ""                 # --chart-ref: an OCI, repository or https chart reference; "local" makes the server hand out the chart it carries
 
-# Optional offline geolocation of agent addresses (--geoip-db): a MaxMind-format .mmdb (DB-IP Lite, GeoLite2). The file is not part
-# of the image or the chart; put it in a volume and point at it:
-#   geoip.path: /geoip/dbip-city-lite.mmdb
-#   extraVolumes:      [{name: geoip, persistentVolumeClaim: {claimName: geoip-db, readOnly: true}}]
-#   extraVolumeMounts: [{name: geoip, mountPath: /geoip, readOnly: true}]
-# The server refuses to start if the file is set and unreadable (fail closed).
+# Offline geolocation of agent addresses (--geoip-db): a MaxMind-format .mmdb (DB-IP Lite, GeoLite2). The
+# server image already bundles a small, free DB-IP City Lite database (see backend/Dockerfile's `geoip`
+# stage) and uses it by default - leave path empty (the default below) to just get that. Set path only to
+# use a different or newer database instead (a paid MaxMind tier, your own more-current DB-IP pull, ...):
+# it is not part of the chart, so put it in a volume and point at it, e.g.
+#   geoip.path: /geoip-custom/geolite2-city.mmdb
+#   extraVolumes:      [{name: geoip-custom, persistentVolumeClaim: {claimName: geoip-db, readOnly: true}}]
+#   extraVolumeMounts: [{name: geoip-custom, mountPath: /geoip-custom, readOnly: true}]
+# The server refuses to start if path is set and unreadable (fail closed) - it does not fall back to the
+# bundled database in that case, so double-check the mount before rolling out a change here.
 geoip:
   path: ""
   # Needs geoip.path. An http(s) URL that answers with this server's own public IP as plain text (a well known one:
