@@ -833,6 +833,10 @@ func (a *Admin) beginPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 // finishPasskeyLogin completes a passkey sign-in and, unlike login2FA, opens the session itself: a passkey's
 // response is a signed assertion object, not a short code that fits login2FA's single field.
 func (a *Admin) finishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
+	// Unlike finishPasskeyRegistration this has no session yet for guard() to bound the body of, so it needs
+	// its own limit the same way its sibling beginPasskeyLogin, login and login2FA do - otherwise an
+	// unauthenticated caller could hand this a response of any size before WebAuthn verification ever runs.
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
 	var req struct {
 		Pending  string          `json:"pending"`
 		Response json.RawMessage `json:"response"`
