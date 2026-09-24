@@ -32,7 +32,29 @@ var vmSignatures = []struct{ match, name string }{
 	{"cloud hypervisor", "Cloud Hypervisor"},
 }
 
+// cpuidHypervisorNames maps CPUID leaf 0x40000000's vendor ID (see HostProbe.hypervisor_vendor_id) to a
+// hypervisor name - the exact strings the Linux kernel and systemd-detect-virt themselves hardcode
+// (arch/x86/kernel/cpu/{kvm,vmware}.c and hyperv/hv_common.c; already cleaned of trailing NULs/padding by
+// probe.Clean the same way any other firmware-adjacent string here is). Checked before the DMI table
+// below: it is read from the CPU directly rather than through sysfs, so it cannot be blank or stripped
+// on a minimal or hardened cloud image the way sys_vendor/product_name sometimes are. A hypervisor absent
+// from this table (or one that hides the leaf on purpose) still falls through to the DMI match.
+var cpuidHypervisorNames = map[string]string{
+	"KVMKVMKVM":    "KVM/QEMU",
+	"TCGTCGTCGTCG": "QEMU (TCG)",
+	"VMwareVMware": "VMware",
+	"Microsoft Hv": "Hyper-V",
+	"XenVMMXenVMM": "Xen",
+	"VBoxVBoxVBox": "VirtualBox",
+	"prl hyperv":   "Parallels",
+	"bhyve bhyve":  "bhyve",
+	"ACRNACRNACRN": "ACRN",
+}
+
 func vmPlatform(h *continuumv1.HostProbe) string {
+	if name, ok := cpuidHypervisorNames[h.HypervisorVendorId]; ok {
+		return name
+	}
 	hay := strings.ToLower(strings.Join([]string{h.SysVendor, h.ProductName, h.BoardVendor, h.BiosVendor}, " | "))
 	// "Microsoft Corporation" with "Virtual Machine" is Hyper-V; a Surface tablet is not.
 	for _, s := range vmSignatures {
@@ -102,7 +124,16 @@ func kindFromProbe(n *continuumv1.NodeFacts, apiHardware string, apiHwEv *model.
 		r.kind = "vm"
 		r.virt = firstNonEmpty(platform, "unidentified hypervisor")
 		r.kindEv = ev("node probe: CPU reports a hypervisor", "high", "the CPUID hypervisor bit is set")
-		r.virtEv = virtEv("node probe: "+firstNonEmpty(fw, "hypervisor bit"), "high", "")
+		// Name the strongest signal actually available, in the order vmPlatform trusts them: the CPUID
+		// vendor ID (read from the CPU, so it survives a minimal image that leaves DMI blank), then DMI,
+		// then just the bare hypervisor bit when neither named anything.
+		signal := "hypervisor bit"
+		if _, ok := cpuidHypervisorNames[h.HypervisorVendorId]; ok {
+			signal = "CPUID vendor ID " + h.HypervisorVendorId
+		} else if fw != "" {
+			signal = "DMI " + fw
+		}
+		r.virtEv = virtEv("node probe: "+signal, "high", "")
 	case platform != "":
 		r.kind, r.virt = "vm", platform
 		conf, detail := "high", "the firmware identifies a virtual machine"

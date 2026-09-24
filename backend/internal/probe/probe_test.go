@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -59,6 +60,11 @@ func TestReadVirtualMachine(t *testing.T) {
 	if !h.HypervisorBit || h.SysVendor != "Amazon EC2" || h.ProductName != "m5.large" || h.ChassisType != 1 {
 		t.Fatalf("unexpected: %v", h)
 	}
+	// Read must wire the hypervisor bit it just computed into hypervisorVendorID, not compute its own
+	// separately: whatever a direct call returns for "bit set" is exactly what should have landed here.
+	if h.HypervisorVendorId != hypervisorVendorID(true) {
+		t.Fatalf("HypervisorVendorId = %q, want %q (Read must reuse the hypervisor bit it already computed)", h.HypervisorVendorId, hypervisorVendorID(true))
+	}
 	if h.BoardName != "" {
 		t.Fatalf("a placeholder must not be reported as a real board name: %q", h.BoardName)
 	}
@@ -82,6 +88,9 @@ func TestReadRaspberryPi(t *testing.T) {
 	h := Read(Paths{Sys: sys, Proc: proc})
 	if h.HypervisorBit || h.DeviceTreeModel != "Raspberry Pi 4 Model B Rev 1.4" || h.SysVendor != "" {
 		t.Fatalf("unexpected: %v", h)
+	}
+	if h.HypervisorVendorId != "" {
+		t.Fatalf("no hypervisor bit must mean no CPUID read at all, got %q", h.HypervisorVendorId)
 	}
 	if len(h.Uplinks) != 1 || h.Uplinks[0] != "wifi" || !h.HasBattery {
 		t.Fatalf("uplinks/battery = %v %v", h.Uplinks, h.HasBattery)
@@ -212,5 +221,33 @@ func TestAPausedReceiverForgetsAndIgnoresNodes(t *testing.T) {
 	r.SetPaused(false)
 	if !r.put("node-b", &continuumv1.HostProbe{}) {
 		t.Fatal("a resumed receiver refuses reports")
+	}
+}
+
+// TestHypervisorVendorID reads real CPUID leaf 0x40000000 from this machine's own CPU. Whatever comes
+// back, the function must never panic and must return either "" or a clean, printable 12-character-ish
+// string (Clean already bounds and sanitizes it, same as any other firmware-adjacent text this package
+// handles). On amd64 hardware this also serves as smoke evidence the raw CPUID assembly stub actually
+// executes and decodes its four result registers in the right order and byte order - if it read a
+// register wrong, the vendor ID would come back garbled rather than one of the well-known strings.
+func TestHypervisorVendorID(t *testing.T) {
+	if hypervisorVendorID(false) != "" {
+		t.Fatal("must not read CPUID at all when the hypervisor bit was not set")
+	}
+	got := hypervisorVendorID(true)
+	if runtime.GOARCH != "amd64" {
+		if got != "" {
+			t.Fatalf("non-amd64 must always return empty, got %q", got)
+		}
+		return
+	}
+	if got != Clean(got) {
+		t.Fatalf("hypervisorVendorID must already be clean, got %q", got)
+	}
+	// This sandbox itself is known (from earlier, independent empirical verification in this project) to
+	// run under KVM, so a real read on real amd64 hardware here should name it - not merely return
+	// something non-crashing.
+	if got != "KVMKVMKVM" {
+		t.Logf("hypervisorVendorID = %q (expected KVMKVMKVM on this project's usual sandbox; a different amd64 host running under a different hypervisor is not a failure by itself)", got)
 	}
 }

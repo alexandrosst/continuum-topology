@@ -87,18 +87,20 @@ func readText(path string) string {
 // (a Raspberry Pi has no DMI; a VM has a hypervisor bit).
 func Read(p Paths) *continuumv1.HostProbe {
 	dmi := filepath.Join(p.Sys, "class", "dmi", "id")
+	hyp := cpuHypervisorBit(filepath.Join(p.Proc, "cpuinfo"))
 	h := &continuumv1.HostProbe{
-		ProbeVersion:    Version,
-		HypervisorBit:   cpuHypervisorBit(filepath.Join(p.Proc, "cpuinfo")),
-		HypervisorType:  Clean(readText(filepath.Join(p.Sys, "hypervisor", "type"))),
-		SysVendor:       firmware(readText(filepath.Join(dmi, "sys_vendor"))),
-		ProductName:     firmware(readText(filepath.Join(dmi, "product_name"))),
-		BoardVendor:     firmware(readText(filepath.Join(dmi, "board_vendor"))),
-		BoardName:       firmware(readText(filepath.Join(dmi, "board_name"))),
-		BiosVendor:      firmware(readText(filepath.Join(dmi, "bios_vendor"))),
-		DeviceTreeModel: Clean(readText(filepath.Join(p.Sys, "firmware", "devicetree", "base", "model"))),
-		Uplinks:         uplinks(filepath.Join(p.Sys, "class", "net")),
-		HasBattery:      hasBattery(filepath.Join(p.Sys, "class", "power_supply")),
+		ProbeVersion:       Version,
+		HypervisorBit:      hyp,
+		HypervisorVendorId: hypervisorVendorID(hyp),
+		HypervisorType:     Clean(readText(filepath.Join(p.Sys, "hypervisor", "type"))),
+		SysVendor:          firmware(readText(filepath.Join(dmi, "sys_vendor"))),
+		ProductName:        firmware(readText(filepath.Join(dmi, "product_name"))),
+		BoardVendor:        firmware(readText(filepath.Join(dmi, "board_vendor"))),
+		BoardName:          firmware(readText(filepath.Join(dmi, "board_name"))),
+		BiosVendor:         firmware(readText(filepath.Join(dmi, "bios_vendor"))),
+		DeviceTreeModel:    Clean(readText(filepath.Join(p.Sys, "firmware", "devicetree", "base", "model"))),
+		Uplinks:            uplinks(filepath.Join(p.Sys, "class", "net")),
+		HasBattery:         hasBattery(filepath.Join(p.Sys, "class", "power_supply")),
 	}
 	if n, err := strconv.Atoi(strings.TrimSpace(readText(filepath.Join(dmi, "chassis_type")))); err == nil && n > 0 && n < 64 {
 		h.ChassisType = int32(n)
@@ -191,7 +193,7 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 		return nil
 	}
 	out := &continuumv1.HostProbe{
-		ProbeVersion: Clean(h.ProbeVersion), HypervisorBit: h.HypervisorBit, HypervisorType: Clean(h.HypervisorType),
+		ProbeVersion: Clean(h.ProbeVersion), HypervisorBit: h.HypervisorBit, HypervisorVendorId: Clean(h.HypervisorVendorId), HypervisorType: Clean(h.HypervisorType),
 		SysVendor: Clean(h.SysVendor), ProductName: Clean(h.ProductName), BoardVendor: Clean(h.BoardVendor), BoardName: Clean(h.BoardName),
 		BiosVendor: Clean(h.BiosVendor), DeviceTreeModel: Clean(h.DeviceTreeModel), HasBattery: h.HasBattery,
 	}
