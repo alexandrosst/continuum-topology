@@ -33,7 +33,7 @@ func TestOpeningANewerDatabaseIsRefused(t *testing.T) {
 	if !errors.As(err, &ne) || ne.Have != 99 || ne.Know != SchemaVersion {
 		t.Fatalf("err = %#v", err)
 	}
-	for _, want := range []string{"version 99", "up to version 6", "newer Continuum", "nothing was touched"} {
+	for _, want := range []string{"version 99", "up to version 7", "newer Continuum", "nothing was touched"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("message lacks %q: %v", want, err)
 		}

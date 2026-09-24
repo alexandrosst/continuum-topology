@@ -206,6 +206,10 @@ func OpenSQLite(path string) (*SQLite, error) {
 		db.Close()
 		return nil, fmt.Errorf("upgrading to email accounts: %w", err)
 	}
+	if err := migrateWebAuthn(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("upgrading to passkey accounts: %w", err)
+	}
 	return &SQLite{db: db}, nil
 }
 

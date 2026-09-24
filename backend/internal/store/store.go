@@ -124,6 +124,32 @@ type User struct {
 	Email             string
 	EmailVerifiedAt   *time.Time
 	EmailOTPEnabledAt *time.Time
+	// WebAuthnCredentials lists every passkey or security key registered to this account, oldest first.
+	// Unlike TOTP and email there is no separate enabled flag: a credential only ever lands here once
+	// FinishRegistration has verified it end to end, so its mere presence means it can be used to sign in.
+	WebAuthnCredentials []WebAuthnCredential
+}
+
+// WebAuthnCredential is one passkey or security key registered to an account (a phone's platform
+// authenticator and a hardware key, say, both at once - nothing here limits an account to one).
+type WebAuthnCredential struct {
+	// CredentialID is the authenticator's own opaque handle for this credential; unique per account, and how
+	// a login response is matched back to the row whose PublicKey should verify it.
+	CredentialID []byte
+	// PublicKey is the COSE-encoded public key returned at registration, opaque to everything here except
+	// the WebAuthn library that verifies a login's signature against it.
+	PublicKey []byte
+	// SignCount is bumped on every successful login; a count that fails to advance is how a cloned
+	// authenticator gets caught, so it is the caller's job to reject a login where it does not.
+	SignCount uint32
+	// Transports is the authenticator's own best-effort hints (usb, nfc, ble, internal, hybrid), passed back
+	// to the browser on a later login so it can skip straight to the right one instead of guessing.
+	Transports []string
+	// Name is the person's own label for telling their credentials apart in settings ("MacBook Touch ID"),
+	// never shown to, or trusted from, anything but the account's own owner.
+	Name       string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
 }
 
 // Org is a tenant: one private topology with its own agents, history, settings and members.
@@ -278,6 +304,19 @@ type Store interface {
 	// SetEmailOTPEnabled turns email-as-a-second-factor on (enabledAt non-nil) or off (nil), independently of
 	// the address itself. The caller is responsible for only turning it on once EmailVerifiedAt is set.
 	SetEmailOTPEnabled(ctx context.Context, id string, enabledAt *time.Time) error
+	// AddWebAuthnCredential appends one newly-registered passkey or security key. ErrExists if this account
+	// already has a credential with the same CredentialID (a browser retrying a registration it already
+	// completed, say).
+	AddWebAuthnCredential(ctx context.Context, id string, cred WebAuthnCredential) error
+	// RenameWebAuthnCredential changes only a credential's own label. ErrNotFound if id has no credential
+	// with that CredentialID.
+	RenameWebAuthnCredential(ctx context.Context, id string, credentialID []byte, name string) error
+	// TouchWebAuthnCredential updates one credential's sign counter and last-used time after a login that
+	// used it. The caller must have already rejected the login if signCount failed to advance.
+	TouchWebAuthnCredential(ctx context.Context, id string, credentialID []byte, signCount uint32, usedAt time.Time) error
+	// RemoveWebAuthnCredential deletes one credential. Removing the last one simply leaves the account with
+	// none - there being no separate enabled flag means there is nothing else to turn off.
+	RemoveWebAuthnCredential(ctx context.Context, id string, credentialID []byte) error
 
 	// ---- tenants ----
 
