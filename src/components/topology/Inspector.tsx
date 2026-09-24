@@ -62,6 +62,22 @@ function LinkRow({ label, sub, onClick, stacked }: { label: string; sub?: string
 }
 
 /** Why discovery believes a value. Shown so a guess never looks like a fact. */
+/**
+ * A small "you confirmed this" tag for a field a person set by hand over a guessed or unknown value - the
+ * positive counterpart to the "Not sure" caveat below (and to weakAttributes' evidence chips): those disappear
+ * once a field is overridden, but disappearing is easy to miss, especially when there was nothing to notice in
+ * the first place (a probe-based guess never showed a caveat at all - see the Type row). This makes the edit
+ * visible right where the value is, instead of only in the Evidence section further down (where it does show up,
+ * as "declared by a person" with the old guess kept beneath it) or the History page's audit entry.
+ */
+function Confirmed() {
+  return (
+    <span className="ml-1.5 whitespace-nowrap rounded-full border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-px text-[10px] font-medium text-emerald-300" title="You set this by hand; it will not be overwritten by rediscovery.">
+      you confirmed this
+    </span>
+  )
+}
+
 function Why({ ev }: { ev?: Evidence }) {
   if (!ev) return null
   return (
@@ -257,8 +273,14 @@ export default function Inspector({
     body = (
       <>
         <Section title="Identity">
-          <Row label="Distribution"><WithIcon icon={<DistroIcon distribution={c.distribution} size={16} />}>{c.distribution} {c.version}</WithIcon></Row>
-          <Row label="Provider">{c.provider ? <WithIcon icon={<ProviderIcon provider={c.provider} size={16} />}>{c.provider}</WithIcon> : '—'}</Row>
+          <Row label="Distribution">
+            <WithIcon icon={<DistroIcon distribution={c.distribution} size={16} />}>{c.distribution} {c.version}</WithIcon>
+            {!!c.overrides?.distribution && <Confirmed />}
+          </Row>
+          <Row label="Provider">
+            {c.provider ? <WithIcon icon={<ProviderIcon provider={c.provider} size={16} />}>{c.provider}</WithIcon> : '—'}
+            {!!c.overrides?.provider && <Confirmed />}
+          </Row>
           <Maybe label="Age">{c.createdAt ? `${ageLabel(c.createdAt)} (${new Date(c.createdAt).toLocaleDateString()})` : undefined}</Maybe>
           <Maybe label="Trust zone · residency">{[c.trustZone, c.dataResidency].filter(Boolean).join(' · ')}</Maybe>
         </Section>
@@ -390,10 +412,17 @@ export default function Inspector({
           <Row label="Cluster">
             <button className="text-accent hover:underline" onClick={() => onSelect({ kind: 'cluster', id: n.clusterId })}>{clusterName(n.clusterId)}</button>
           </Row>
-          <Row label="Type">{n.kind === 'vm' ? 'VM' : n.kind === 'bare-metal' ? 'Bare metal' : 'Edge device'}</Row>
-          {!n.probed && n.source === 'discovered' && !n.overrides?.kind && n.evidence?.kind?.confidence === 'low' && (
+          <Row label="Type">
+            {n.kind === 'vm' ? 'VM' : n.kind === 'bare-metal' ? 'Bare metal' : 'Edge device'}
+            {!!n.overrides?.kind && <Confirmed />}
+          </Row>
+          {!n.overrides?.kind && n.source === 'discovered' && (n.probed ? n.evidence?.kind?.confidence === 'medium' : n.evidence?.kind?.confidence === 'low') && (
             <Row label="Not sure" wrap>
-              <span className="text-nb-400">This type is a guess from the Kubernetes API. Turn on the node probe when connecting the cluster to have the machine tell for itself, or set it here.</span>
+              <span className="text-nb-400">
+                {n.probed
+                  ? 'The node probe saw no hypervisor flag or firmware name for this - it inferred the type from the chassis or battery instead, which can be wrong. Set it here if it is.'
+                  : 'This type is a guess from the Kubernetes API. Turn on the node probe when connecting the cluster to have the machine tell for itself, or set it here.'}
+              </span>
             </Row>
           )}
           <Maybe label="Virtualization">{n.virtualization}</Maybe>
