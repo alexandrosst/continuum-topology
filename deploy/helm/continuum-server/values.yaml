@@ -311,22 +311,37 @@ agentInstall:
 # bundled database in that case, so double-check the mount before rolling out a change here.
 geoip:
   path: ""
-  # Needs geoip.path. An http(s) URL that answers with this server's own public IP as plain text (a well known one:
-  # https://api.ipify.org) - --geoip-public-ip-service. Used only as a fallback: when an agent's connecting address
-  # cannot be located at all (private, loopback, CGNAT - which means the agent shares this server's own network,
-  # directly or through NAT), this server's own public address is the closest honest guess, returned marked
-  # "estimated" rather than exact, never better than low confidence. Called once at startup and then on an hourly
-  # cache, never per request. Empty (default): never guessed, only an agent's own address is ever used - the
-  # privacy-conserving default, since this is the one call in the whole server that goes to a third party the
-  # operator picks rather than one this chart or the server hardcodes. If networkPolicy.enabled, also open
-  # networkPolicy.egress.geoipPublicIpCIDRs (the rule is closed, like the decider's, until you do).
+  # An http(s) URL that answers with this server's own public IP as plain text (a well known one:
+  # https://api.ipify.org) - --geoip-public-ip-service. Despite the flag's own "needs --geoip-db" wording
+  # (true of the flag in isolation), this does NOT need geoip.path to be set here: the bundled database
+  # above is already active by default, which already satisfies it. Used only as a fallback: when an
+  # agent's connecting address cannot be located at all (private, loopback, CGNAT - which means the agent
+  # shares this server's own network, directly or through NAT), this server's own public address is the
+  # closest honest guess, returned marked "estimated" rather than exact, never better than low confidence.
+  # Called once at startup and then on an hourly cache, never per request. Empty (default): never guessed,
+  # only an agent's own address is ever used - the privacy-conserving default, since this is the one call
+  # in the whole server that goes to a third party the operator picks rather than one this chart or the
+  # server hardcodes. Left off by default for that reason even though it is the single highest-precision
+  # thing you can turn on here: recommended whenever the server and its agents can share a network (a
+  # self-hosted/on-prem/edge testbed monitoring itself, most obviously) since a connecting address that
+  # never crosses the public internet can otherwise never be located at all - see deploy/README.md's
+  # Troubleshooting section. If you turn it on:
+  #   geoip.publicIpService: https://api.ipify.org
+  # If networkPolicy.enabled, also open networkPolicy.egress.geoipPublicIpCIDRs (the rule is closed, like
+  # the decider's, until you do).
   publicIpService: ""
-  # Needs geoip.path. A second, optional .mmdb - in ASN shape (GeoLite2-ASN, DB-IP ASN Lite), not city/country
-  # shape - --geoip-asn-db. Adds which network an address belongs to (its AS number and the organisation that
-  # announces it, e.g. 15169 / "Google LLC") alongside wherever geoip.path placed it, including a
-  # publicIpService estimate. Entirely offline, same as geoip.path: nothing is looked up over the network.
-  # Mount it the same way, e.g. into the same volume as geoip.path:
-  #   geoip.asnPath: /geoip/dbip-asn-lite.mmdb
+  # A second .mmdb - in ASN shape (GeoLite2-ASN, DB-IP ASN Lite), not city/country shape - --geoip-asn-db.
+  # Adds which network an address belongs to (its AS number and the organisation that announces it, e.g.
+  # 15169 / "Google LLC") alongside wherever the city/country database placed it, including a
+  # publicIpService estimate: a steadier corroborating signal than city/country alone, since it comes from
+  # routing registration data rather than a geolocation heuristic. The server image already bundles a
+  # small, free DB-IP ASN Lite database (see backend/Dockerfile's `geoip` stage) and uses it by default,
+  # same as geoip.path's city/country database - leave this empty (the default) to just get that. Set it
+  # only to use a different .mmdb instead; entirely offline either way, nothing is looked up over the
+  # network. Mount it the same way as a custom geoip.path:
+  #   geoip.asnPath: /geoip-custom/geolite2-asn.mmdb
+  #   extraVolumes:      [{name: geoip-custom, persistentVolumeClaim: {claimName: geoip-db, readOnly: true}}]
+  #   extraVolumeMounts: [{name: geoip-custom, mountPath: /geoip-custom, readOnly: true}]
   asnPath: ""
 
 # The external decider an administrator can configure in the UI (Settings) is called from inside the pod. By default the server

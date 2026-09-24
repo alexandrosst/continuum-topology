@@ -182,6 +182,13 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			sum.Connections += v.Connections
 			sum.BytesOut += v.BytesOut
 			sum.BytesIn += v.BytesIn
+			sum.Retransmits += v.Retransmits
+			// A gauge, not a sum: whichever CPU last sampled it wins, same as the interface below. A zero
+			// value on one CPU's slice must never overwrite a real sample from another CPU's, since 0 here
+			// means "no sample yet", not "no delay".
+			if v.RttUs != 0 {
+				sum.RttUs = v.RttUs
+			}
 			// Every CPU that ever handled this socket's traffic put_iface'd the same route, so any
 			// non-empty reading is as good as another; take the first rather than requiring them to agree,
 			// since a route change mid-life would otherwise blank it out for no good reason.
@@ -204,6 +211,8 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			BytesOut:    sum.BytesOut,
 			BytesIn:     sum.BytesIn,
 			Iface:       iface,
+			Retransmits: sum.Retransmits,
+			RttUs:       sum.RttUs,
 		})
 	}
 

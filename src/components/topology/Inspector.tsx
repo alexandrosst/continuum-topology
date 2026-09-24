@@ -20,7 +20,7 @@ import { bytesPerSec, isObserved, trafficSummary } from '@/lib/observed'
 import { lossBand, pathQuality, rttLabel } from '@/lib/metrics'
 import { usePaths } from '@/store/topology'
 import { connectionVerdict, meshName, MTLS_WORDS, proxyWords, VERDICT_COLOR } from '@/lib/mesh'
-import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Evidence, type ExternalEndpoint, type ExternalKind, type Provenance, type Resources, type Tier } from '@/lib/types'
+import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Evidence, type ExternalEndpoint, type ExternalKind, type OverrideMeta, type Provenance, type Resources, type Tier } from '@/lib/types'
 
 export type Selection = { kind: 'cluster' | 'tier' | 'node' | 'service' | 'device' | 'site' | 'external' | 'dependency'; id: string } | null
 
@@ -63,17 +63,21 @@ function LinkRow({ label, sub, onClick, stacked }: { label: string; sub?: string
 
 /** Why discovery believes a value. Shown so a guess never looks like a fact. */
 /**
- * A small "you confirmed this" tag for a field a person set by hand over a guessed or unknown value - the
- * positive counterpart to the "Not sure" caveat below (and to weakAttributes' evidence chips): those disappear
- * once a field is overridden, but disappearing is easy to miss, especially when there was nothing to notice in
- * the first place (a probe-based guess never showed a caveat at all - see the Type row). This makes the edit
- * visible right where the value is, instead of only in the Evidence section further down (where it does show up,
- * as "declared by a person" with the old guess kept beneath it) or the History page's audit entry.
+ * A small "confirmed" tag for a field a person set by hand over a guessed or unknown value - the positive
+ * counterpart to the "Not sure" caveat below (and to weakAttributes' evidence chips): those disappear once a
+ * field is overridden, but disappearing is easy to miss, especially when there was nothing to notice in the
+ * first place (a probe-based guess never showed a caveat at all - see the Type row). This makes the edit visible
+ * right where the value is, instead of only in the Evidence section further down (where it does show up, as
+ * "declared by a person" with the old guess kept beneath it) or the History page's audit entry.
+ *
+ * `meta` names who confirmed it and when, when that is known (see Provenance.overrideMeta); older overrides made
+ * before this existed have no `meta`, and fall back to the generic wording rather than guessing an author.
  */
-function Confirmed() {
+function Confirmed({ meta }: { meta?: OverrideMeta }) {
+  const title = meta ? `${meta.by} set this by hand ${ageLabel(meta.at)} ago; it will not be overwritten by rediscovery.` : 'You set this by hand; it will not be overwritten by rediscovery.'
   return (
-    <span className="ml-1.5 whitespace-nowrap rounded-full border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-px text-[10px] font-medium text-emerald-300" title="You set this by hand; it will not be overwritten by rediscovery.">
-      you confirmed this
+    <span className="ml-1.5 whitespace-nowrap rounded-full border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-px text-[10px] font-medium text-emerald-300" title={title}>
+      {meta ? `confirmed by ${meta.by}` : 'you confirmed this'}
     </span>
   )
 }
@@ -275,11 +279,11 @@ export default function Inspector({
         <Section title="Identity">
           <Row label="Distribution">
             <WithIcon icon={<DistroIcon distribution={c.distribution} size={16} />}>{c.distribution} {c.version}</WithIcon>
-            {!!c.overrides?.distribution && <Confirmed />}
+            {!!c.overrides?.distribution && <Confirmed meta={c.overrideMeta?.distribution} />}
           </Row>
           <Row label="Provider">
             {c.provider ? <WithIcon icon={<ProviderIcon provider={c.provider} size={16} />}>{c.provider}</WithIcon> : '—'}
-            {!!c.overrides?.provider && <Confirmed />}
+            {!!c.overrides?.provider && <Confirmed meta={c.overrideMeta?.provider} />}
           </Row>
           <Maybe label="Age">{c.createdAt ? `${ageLabel(c.createdAt)} (${new Date(c.createdAt).toLocaleDateString()})` : undefined}</Maybe>
           <Maybe label="Trust zone · residency">{[c.trustZone, c.dataResidency].filter(Boolean).join(' · ')}</Maybe>
@@ -414,7 +418,7 @@ export default function Inspector({
           </Row>
           <Row label="Type">
             {n.kind === 'vm' ? 'VM' : n.kind === 'bare-metal' ? 'Bare metal' : 'Edge device'}
-            {!!n.overrides?.kind && <Confirmed />}
+            {!!n.overrides?.kind && <Confirmed meta={n.overrideMeta?.kind} />}
           </Row>
           {!n.overrides?.kind && n.source === 'discovered' && (n.probed ? n.evidence?.kind?.confidence === 'medium' : n.evidence?.kind?.confidence === 'low') && (
             <Row label="Not sure" wrap>
@@ -706,6 +710,7 @@ export default function Inspector({
         <Section title="Identity">
           {e.name && <Row label="Address"><span className="font-mono text-xs">{e.host}</span></Row>}
           <Maybe label="Port">{e.port ? String(e.port) : undefined}</Maybe>
+          <Maybe label="Likely">{e.service ? `${e.service} (guessed from the port)` : undefined}</Maybe>
           {seenOnly && <Maybe label="Seen">{`${ago(e.lastSeen)} · found in traffic, not declared anywhere`}</Maybe>}
           <Why ev={e.evidence?.identity} />
           <Origin e={e} />
@@ -754,6 +759,7 @@ export default function Inspector({
           {t && <LinkRow label={t.label} sub="is called" onClick={() => onSelect(t.sel)} />}
           <div className="mt-1">
             <Row label="Protocol">{d.protocol}{d.port ? `:${d.port}` : ''}</Row>
+            <Maybe label="Likely">{d.service ? `${d.service} (guessed from the port)` : undefined}</Maybe>
             <Row label="Found by">{d.sources.join(' + ')}{how ? ` (${how})` : ''}</Row>
             <Maybe label="Interface">{d.iface}</Maybe>
             <Row label="Confidence">{d.confidence}</Row>
@@ -770,6 +776,14 @@ export default function Inspector({
               <Maybe label="Requests">{s.reqPerSec !== undefined ? `${s.reqPerSec} per second` : undefined}</Maybe>
               <Maybe label="Errors">{s.errorRate !== undefined ? `${(s.errorRate * 100).toFixed(s.errorRate < 0.1 ? 1 : 0)}%` : undefined}</Maybe>
               <Maybe label="p95 latency">{s.p95Ms !== undefined ? `${s.p95Ms} ms` : undefined}</Maybe>
+              <Maybe label="TCP round trip">
+                {d.rttMs !== undefined ? (
+                  <span title="Smoothed RTT sampled from the kernel's own TCP stack for this dependency's traffic - not an active probe, and not the same measurement as Network path's Round trip below.">
+                    {rttLabel(d.rttMs)}
+                  </span>
+                ) : undefined}
+              </Maybe>
+              <Maybe label="Retransmits">{d.via === 'ebpf' ? `${Math.round((s.retransmitsPerMin ?? 0) * 10) / 10} per minute${d.retransmits ? ` (${d.retransmits} total)` : ''}` : undefined}</Maybe>
               <Maybe label="Window">{s.windowSec ? `${Math.round(s.windowSec / 60) || '<1'} min` : undefined}</Maybe>
               {d.stale && <p className="mt-1 text-xs text-amber-300">No traffic since {ago(d.lastSeen)}.</p>}
             </>

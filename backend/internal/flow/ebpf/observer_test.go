@@ -86,6 +86,10 @@ func collectFor(t *testing.T, o *Observer, port uint32, want int) (client, serve
 				(*tgt).Connections += f.Connections
 				(*tgt).BytesOut += f.BytesOut
 				(*tgt).BytesIn += f.BytesIn
+				(*tgt).Retransmits += f.Retransmits
+				if f.RttUs != 0 {
+					(*tgt).RttUs = f.RttUs // a gauge, not a sum: the latest sample wins, same as Iface
+				}
 			}
 		}
 		cn, sn = 0, 0
@@ -151,6 +155,40 @@ func TestReportsTheInterface(t *testing.T) {
 		}
 		if f.Iface != "lo" {
 			t.Errorf("%s: iface = %q, want \"lo\"", name, f.Iface)
+		}
+	}
+}
+
+// TestReportsRTTAndCleanRetransmits is a real, kernel-verified check that struct tcp_sock's srtt_us and
+// total_retrans relocate correctly under CO-RE - not just that the program compiles and the verifier
+// accepts it. A wrong offset would show up here as either a load failure or a nonsense value, not
+// silently: srtt_us must come back positive (a real sample from an actual round trip) and total_retrans
+// must come back exactly zero (nothing was lost on loopback, so a wrong relocation reading a neighboring
+// field would very likely make this nonzero).
+//
+// Deliberately forcing a real retransmit would need packet-loss injection (tc/netem or similar), which
+// this sandbox does not have and a portable unit test should not depend on; the delta/gauge accounting
+// for a nonzero retransmit count (accumulate across reports, never go backwards) is covered instead at
+// the Go level by TestFlowTableCarriesIfaceRetransmitsAndRTT in the server package, with synthetic values.
+func TestReportsRTTAndCleanRetransmits(t *testing.T) {
+	o := open(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := uint32(ln.Addr().(*net.TCPAddr).Port)
+	exchange(t, ln, 3, 4096, 4096)
+	client, server := collectFor(t, o, port, 3)
+	for name, f := range map[string]*continuumv1.RawFlow{"client": client, "server": server} {
+		if f == nil {
+			t.Fatalf("%s: no observation", name)
+		}
+		if f.RttUs == 0 {
+			t.Errorf("%s: rtt_us = 0, want a real sample from the kernel's RTT estimator", name)
+		}
+		if f.Retransmits != 0 {
+			t.Errorf("%s: retransmits = %d, want 0 on an undisturbed loopback connection", name, f.Retransmits)
 		}
 	}
 }

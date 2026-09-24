@@ -1,7 +1,7 @@
 import { pruneDependencies } from './migrate'
-import type { Topology } from './types'
+import type { OverrideMeta, Topology } from './types'
 
-type Layered = { overrides?: Record<string, unknown> }
+type Layered = { overrides?: Record<string, unknown>; overrideMeta?: Record<string, OverrideMeta> }
 
 /** The value everyone sees: detected/base fields with human overrides on top. */
 export function effective<T extends Layered>(e: T): T {
@@ -23,6 +23,7 @@ const META = new Set([
   'deletedAt',
   'evidence',
   'overrides',
+  'overrideMeta',
 ])
 
 /**
@@ -31,15 +32,58 @@ const META = new Set([
  *  - discovered entities: the base (detected) values are kept; only fields that
  *    differ from them are stored as overrides, and fields edited back to the
  *    detected value drop their override.
+ *
+ * `by` (a username) attributes any field whose *value* actually moved this save. A field left at what was
+ * already shown (its previous effective value) is untouched by definition, and keeps whatever override and
+ * attribution it already had, verbatim - including a one-click "confirm" (see `confirmOverride`), whose frozen
+ * value can equal the detected one; diffing that case against the base value alone would wrongly read it as
+ * "reverted to detected" and silently drop it the next time an unrelated field on the same record is saved. Only
+ * a field whose value genuinely moved this save is diffed against the base value to decide whether it is a real
+ * override (fresh attribution) or a deliberate reset back to the detected value (override and attribution both
+ * dropped). `now` is only a parameter so it can be pinned in tests.
  */
-export function applyEdit<T extends Layered & { source: string }>(raw: T | undefined, next: T): T {
-  if (!raw || raw.source !== 'discovered') return { ...next, overrides: undefined }
+export function applyEdit<T extends Layered & { source: string }>(raw: T | undefined, next: T, by?: string, now: string = new Date().toISOString()): T {
+  if (!raw || raw.source !== 'discovered') return { ...next, overrides: undefined, overrideMeta: undefined }
+  const prevEffective = effective(raw) as Record<string, unknown>
   const overrides: Record<string, unknown> = {}
+  const meta: Record<string, OverrideMeta> = {}
   for (const k of Object.keys(next) as (keyof T & string)[]) {
     if (META.has(k)) continue
-    if (JSON.stringify(next[k]) !== JSON.stringify(raw[k])) overrides[k] = next[k]
+    const nextVal = (next as Record<string, unknown>)[k]
+    const baseVal = (raw as Record<string, unknown>)[k]
+    if (JSON.stringify(nextVal) === JSON.stringify(prevEffective[k])) {
+      // Untouched this save: carry over whatever was already there, unchanged - do not re-derive it from the
+      // base value, which can coincidentally match a confirmed override's value.
+      if (raw.overrides && k in raw.overrides) {
+        overrides[k] = raw.overrides[k]
+        if (raw.overrideMeta?.[k]) meta[k] = raw.overrideMeta[k]
+      }
+      continue
+    }
+    if (JSON.stringify(nextVal) === JSON.stringify(baseVal)) continue // deliberately set back to the detected value: override and attribution both drop
+    overrides[k] = nextVal
+    if (by) meta[k] = { by, at: now } // a genuinely new value: fresh attribution
   }
-  return { ...raw, overrides: Object.keys(overrides).length ? overrides : undefined }
+  return {
+    ...raw,
+    overrides: Object.keys(overrides).length ? overrides : undefined,
+    overrideMeta: Object.keys(meta).length ? meta : undefined,
+  }
+}
+
+/**
+ * One-click "this guess is right": freezes the record's currently-effective value for `field` as a human
+ * override, with no value change - so nothing about what the record shows moves, only who now stands behind
+ * it. Distinct from `applyEdit` because there is no edited copy to diff against; the guess itself becomes the
+ * override.
+ */
+export function confirmOverride<T extends Layered>(raw: T, field: string, by: string, now: string = new Date().toISOString()): T {
+  const value = (effective(raw) as Record<string, unknown>)[field]
+  return {
+    ...raw,
+    overrides: { ...raw.overrides, [field]: value },
+    overrideMeta: { ...raw.overrideMeta, [field]: { by, at: now } },
+  }
 }
 
 /**

@@ -86,6 +86,9 @@ func TestObservedTopologyAcrossClusters(t *testing.T) {
 	if in == nil || deps[in.d].CrossCluster || deps[in.d].Confidence != "high" || deps[in.d].Via != "ebpf" || deps[in.d].Connections != 10 {
 		t.Fatalf("in-cluster edge = %+v", in)
 	}
+	if deps[in.d].Service != "Redis" {
+		t.Errorf("a well-known port must be named as a guess, got Service=%q", deps[in.d].Service)
+	}
 	if st := deps[in.d].Stats; st == nil || st.ConnectionsPerMin != 10 || st.BytesPerSec != float64(10*4000)/60 {
 		t.Errorf("rates = %+v", st)
 	}
@@ -121,7 +124,7 @@ func TestObservedTopologyAcrossClusters(t *testing.T) {
 	for _, e := range exts {
 		if e.Host == "93.184.216.34" {
 			web = e.ID
-			if e.Kind != "database" || e.Port != 5432 {
+			if e.Kind != "database" || e.Port != 5432 || e.Service != "PostgreSQL" {
 				t.Errorf("external = %+v", e)
 			}
 		}
@@ -322,5 +325,119 @@ func TestFlowCountersSaturateInsteadOfWrapping(t *testing.T) {
 		if e.WindowBytes != max {
 			t.Errorf("window bytes wrapped: %d", e.WindowBytes)
 		}
+	}
+}
+
+// A regression test for a real bug: apply() used to build a stored edge's Key without ever copying
+// Iface or RttUs onto it, so both fields silently stayed empty forever no matter what the collector
+// reported - the eBPF side, resolve.go and aggregate.go could all be working perfectly and the UI would
+// still never show an interface or an RTT. Retransmits, the cumulative counter, is checked alongside it.
+func TestFlowTableCarriesIfaceRetransmitsAndRTT(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	tbl := newFlowTable()
+	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
+	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, BytesOut: 100, BytesIn: 200,
+		Method: "ebpf", BytesKnown: true, Iface: "eth0", Retransmits: 3, RttUs: 15000}
+	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+
+	k := flowKey(f1)
+	e := tbl.edges[k]
+	if e == nil {
+		t.Fatal("edge not recorded")
+	}
+	if e.Key.Iface != "eth0" {
+		t.Errorf("iface = %q, want %q", e.Key.Iface, "eth0")
+	}
+	if e.Key.RttUs != 15000 {
+		t.Errorf("rtt_us = %d, want 15000", e.Key.RttUs)
+	}
+	if e.Retransmits != 3 || e.WindowRetransmits != 3 {
+		t.Errorf("retransmits = %d/%d, want 3/3", e.Retransmits, e.WindowRetransmits)
+	}
+
+	// A route change and more loss on the next report: iface/rtt are gauges (latest wins), retransmits accumulate.
+	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Iface: "wlan0", Retransmits: 2, RttUs: 20000}
+	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	e = tbl.edges[k]
+	if e.Key.Iface != "wlan0" {
+		t.Errorf("iface after route change = %q, want %q", e.Key.Iface, "wlan0")
+	}
+	if e.Key.RttUs != 20000 {
+		t.Errorf("rtt_us after new sample = %d, want 20000", e.Key.RttUs)
+	}
+	if e.Retransmits != 5 {
+		t.Errorf("cumulative retransmits = %d, want 5", e.Retransmits)
+	}
+
+	// A conntrack report (no iface, no RTT, no retransmits) must not blank out what eBPF already established.
+	f3 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, Method: "conntrack"}
+	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f3}}, now.Add(2*time.Minute))
+	e = tbl.edges[k]
+	if e.Key.Iface != "wlan0" || e.Key.RttUs != 20000 {
+		t.Errorf("a zero-value report must not blank a previously known iface/rtt, got %q / %d", e.Key.Iface, e.Key.RttUs)
+	}
+}
+
+// TestDependencyStatsIncludeRetransmitsAndRTT checks the fields surface all the way to model.Dependency,
+// not just onto the stored FlowEdge.
+func TestDependencyStatsIncludeRetransmitsAndRTT(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	x, y := "a/Deployment/x", "a/Deployment/y"
+	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
+	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 2, BytesOut: 1000, BytesIn: 2000,
+		Method: "ebpf", BytesKnown: true, Iface: "eth0", Retransmits: 4, RttUs: 8000}
+	feed(&c, now, 60, f)
+
+	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	var d *struct {
+		iface       string
+		retransmits uint64
+		rttMs       float64
+		perMin      float64
+	}
+	for _, dep := range deps {
+		if dep.Port == 5432 {
+			d = &struct {
+				iface       string
+				retransmits uint64
+				rttMs       float64
+				perMin      float64
+			}{dep.Iface, dep.Retransmits, dep.RttMs, 0}
+			if dep.Stats != nil {
+				d.perMin = dep.Stats.RetransmitsPerMin
+			}
+		}
+	}
+	if d == nil {
+		t.Fatal("dependency not found")
+	}
+	if d.iface != "eth0" {
+		t.Errorf("iface = %q, want eth0", d.iface)
+	}
+	if d.retransmits != 4 {
+		t.Errorf("retransmits = %d, want 4", d.retransmits)
+	}
+	if d.rttMs != 8 {
+		t.Errorf("rttMs = %v, want 8 (8000us)", d.rttMs)
+	}
+	if want := float64(4) * 60 / 60; d.perMin != want {
+		t.Errorf("retransmitsPerMin = %v, want %v", d.perMin, want)
+	}
+}
+
+func TestWellKnownPort(t *testing.T) {
+	if name, isDB := wellKnownPort(5432); name != "PostgreSQL" || !isDB {
+		t.Errorf("postgres = %q %v", name, isDB)
+	}
+	if name, isDB := wellKnownPort(80); name != "HTTP" || isDB {
+		t.Errorf("http must be named but not a database: %q %v", name, isDB)
+	}
+	if name, isDB := wellKnownPort(54321); name != "" || isDB {
+		t.Errorf("an unlisted port must guess nothing: %q %v", name, isDB)
+	}
+	// dbPort is kept only as the narrower, pre-existing "is this a database port" question ExternalEndpoint.Kind
+	// still asks; it must agree with wellKnownPort's own isDatabase bit rather than drifting into its own list.
+	if !dbPort(6379) || dbPort(80) {
+		t.Error("dbPort must track wellKnownPorts' isDatabase bit")
 	}
 }

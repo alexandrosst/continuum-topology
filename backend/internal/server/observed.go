@@ -111,14 +111,15 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		k := flowKey(f)
 		e := t.edges[k]
 		if e == nil {
-			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method}, FirstSeen: timestamppb.New(now)}
+			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs}, FirstSeen: timestamppb.New(now)}
 			t.edges[k] = e
 		}
 		e.LastSeen = timestamppb.New(now)
 		e.Connections = satAdd(e.Connections, f.Connections)
 		e.BytesOut = satAdd(e.BytesOut, f.BytesOut)
 		e.BytesIn = satAdd(e.BytesIn, f.BytesIn)
-		e.WindowSeconds, e.WindowConnections, e.WindowBytes = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn)
+		e.Retransmits = satAdd(e.Retransmits, f.Retransmits)
+		e.WindowSeconds, e.WindowConnections, e.WindowBytes, e.WindowRetransmits = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn), f.Retransmits
 		if f.BytesKnown {
 			e.Key.BytesKnown = true
 		}
@@ -126,6 +127,15 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 			e.Key.Method = "ebpf"
 		}
 		e.Key.Noise = f.Noise
+		// Iface and RttUs are gauges, not identity or running totals: a route can change and RTT drifts
+		// over a long-lived edge's life, so each report's non-empty/non-zero reading replaces the last
+		// rather than being merged with it (see flow.c's own put_iface comment for the same reasoning).
+		if f.Iface != "" {
+			e.Key.Iface = f.Iface
+		}
+		if f.RttUs != 0 {
+			e.Key.RttUs = f.RttUs
+		}
 	}
 	if len(t.edges) > maxFlowEdges { // forget the edges unseen for longest
 		type kv struct {
@@ -231,12 +241,55 @@ func buildAddrIndex(cs []observedCluster) *addrIndex {
 	return ix
 }
 
-func dbPort(p uint32) bool {
-	switch p {
-	case 1433, 1521, 3306, 5432, 6379, 9042, 27017, 11211:
-		return true
+// wellKnownPort names the application usually found on a port, purely from the port number: a guess,
+// the same way any other soft signal in this system is a guess, never a fact - a workload can run
+// anything on any port, and this never claims otherwise (nothing here reads a single byte of payload;
+// see flow.c's own boundary comment). It exists because the port is already known for free from what
+// the collector already reports, so naming a well-known one costs nothing further to compute and beats
+// showing only "tcp:5432" when the number means something to nobody who doesn't have it memorized.
+// The database-only subset (isDatabase) keeps dbPort's older, narrower classification for
+// ExternalEndpoint.Kind, whose three values ("saas" | "database" | "unknown") predate this table and
+// stay as they are; the full name additionally lands in the new Service field on both Dependency and
+// ExternalEndpoint.
+var wellKnownPorts = map[uint32]struct {
+	name       string
+	isDatabase bool
+}{
+	5432:  {"PostgreSQL", true},
+	3306:  {"MySQL/MariaDB", true},
+	6379:  {"Redis", true},
+	27017: {"MongoDB", true},
+	9042:  {"Cassandra", true},
+	11211: {"Memcached", true},
+	1433:  {"SQL Server", true},
+	1521:  {"Oracle", true},
+	5984:  {"CouchDB", true},
+	7000:  {"Cassandra (inter-node)", true},
+	9200:  {"Elasticsearch", true},
+	2181:  {"ZooKeeper", true},
+	9092:  {"Kafka", true},
+	5672:  {"RabbitMQ (AMQP)", true},
+	53:    {"DNS", false},
+	80:    {"HTTP", false},
+	443:   {"HTTPS/TLS", false},
+	8080:  {"HTTP", false},
+	8443:  {"HTTPS/TLS", false},
+	22:    {"SSH", false},
+	25:    {"SMTP", false},
+	587:   {"SMTP (submission)", false},
+}
+
+func wellKnownPort(p uint32) (name string, isDatabase bool) {
+	w, ok := wellKnownPorts[p]
+	if !ok {
+		return "", false
 	}
-	return false
+	return w.name, w.isDatabase
+}
+
+func dbPort(p uint32) bool {
+	_, isDatabase := wellKnownPort(p)
+	return isDatabase
 }
 
 // observedTopology derives dependencies and external endpoints from every cluster's flows.
@@ -254,12 +307,13 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		id := "ext-" + interpret.Hash("obs", ip, fmt.Sprint(port))
 		if _, ok := exts[id]; !ok {
 			kind := "unknown"
-			if dbPort(port) {
+			svc, isDatabase := wellKnownPort(port)
+			if isDatabase {
 				kind = "database"
 			}
 			e := model.ExternalEndpoint{
 				Provenance: model.Provenance{OrgID: org, Source: "discovered", Key: "obs/" + ip, LastSeen: stamp, DetectedAt: stamp, AgentID: agentID},
-				ID:         id, Host: ip, Port: int(port), Kind: kind,
+				ID:         id, Host: ip, Port: int(port), Kind: kind, Service: svc,
 			}
 			if note != "" {
 				e.Evidence = map[string]model.Evidence{"identity": {Signal: note, Confidence: "low"}}
@@ -335,8 +389,9 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		id := "dep-obs-" + interpret.Hash(from, to, e.Key.Protocol, fmt.Sprint(port))
 		d := deps[id]
 		if d == nil {
+			svc, _ := wellKnownPort(e.Key.Port)
 			d = &model.Dependency{ID: id, OrgID: org, From: from, FromKind: fromKind, To: to, ToKind: toKind, Sources: []string{"observed"},
-				Confidence: "high", Protocol: strings.ToUpper(e.Key.Protocol), Port: port, Via: e.Key.Method, CrossCluster: cross, Noise: e.Key.Noise, Note: note,
+				Confidence: "high", Protocol: strings.ToUpper(e.Key.Protocol), Port: port, Service: svc, Via: e.Key.Method, CrossCluster: cross, Noise: e.Key.Noise, Note: note,
 				FirstSeen: e.FirstSeen.AsTime().UTC().Format(time.RFC3339), LastSeen: e.LastSeen.AsTime().UTC().Format(time.RFC3339)}
 			if cross && note != "" {
 				d.Confidence = "medium"
@@ -357,6 +412,10 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		if e.Key.Iface != "" {
 			d.Iface = e.Key.Iface
 		}
+		if e.Key.RttUs != 0 {
+			d.RttMs = float64(e.Key.RttUs) / 1000
+		}
+		d.Retransmits = satAdd(d.Retransmits, e.Retransmits)
 		if e.Key.Noise == "" {
 			d.Noise = ""
 		}
@@ -368,6 +427,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 			}
 			st.WindowSec = e.WindowSeconds
 			st.ConnectionsPerMin += float64(e.WindowConnections) * 60 / float64(e.WindowSeconds)
+			st.RetransmitsPerMin += float64(e.WindowRetransmits) * 60 / float64(e.WindowSeconds)
 			if e.Key.BytesKnown {
 				st.BytesPerSec += float64(e.WindowBytes) / float64(e.WindowSeconds)
 			}

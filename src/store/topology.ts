@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { applyEdit, applyEffective, describeEdit, effective } from '@/lib/effective'
+import { applyEdit, applyEffective, confirmOverride, describeEdit, effective } from '@/lib/effective'
 import { normalize, pruneDependencies } from '@/lib/migrate'
 import { withObserved } from '@/lib/observed'
 import { atSnapshot } from '@/lib/history'
@@ -23,6 +23,7 @@ import {
   type MachineNode,
   type Model,
   type Namespace,
+  type Provenance,
   type Service,
   type Site,
   type SavedView,
@@ -39,11 +40,16 @@ export const uid = (prefix: string) =>
 type Layered = 'cluster' | 'node' | 'service' | 'device'
 
 interface Actions {
-  /** Edit-aware saves used by the forms: on discovered entities they write overrides, not base values. */
-  saveCluster: (c: Cluster) => void
-  saveNode: (n: MachineNode) => void
-  saveService: (s: Service) => void
-  saveDevice: (d: Device) => void
+  /**
+   * Edit-aware saves used by the forms: on discovered entities they write overrides, not base values. `by` (the
+   * signed-in username) attributes whichever fields actually changed this save - see `applyEdit`'s doc comment.
+   */
+  saveCluster: (c: Cluster, by?: string) => void
+  saveNode: (n: MachineNode, by?: string) => void
+  saveService: (s: Service, by?: string) => void
+  saveDevice: (d: Device, by?: string) => void
+  /** One-click "this guess is right": freezes a discovered field's current value as a confirmed override. */
+  confirmField: (kind: Layered, id: string, field: string, by: string) => void
   /** Raw upserts (used by importers / the future agent, which own the base values). */
   upsertCluster: (c: Cluster) => void
   upsertNode: (n: MachineNode) => void
@@ -156,15 +162,15 @@ export const useRawTopology = create<RawState>()(
       return {
         ...seedTopology(),
 
-        saveCluster: (c) =>
+        saveCluster: (c, by) =>
           set((s) => {
             const raw = s.clusters.find((x) => x.id === c.id)
-            return { clusters: upsert(s.clusters, applyEdit(raw, c)), auditLog: editAudit(s, raw, 'cluster', c.id, c) }
+            return { clusters: upsert(s.clusters, applyEdit(raw, c, by)), auditLog: editAudit(s, raw, 'cluster', c.id, c) }
           }),
-        saveNode: (n) =>
+        saveNode: (n, by) =>
           set((s) => {
             const raw = s.nodes.find((x) => x.id === n.id)
-            const saved = applyEdit(raw, n)
+            const saved = applyEdit(raw, n, by)
             // If a node moved cluster, drop placements that no longer make sense.
             const services = s.services.map((w) =>
               w.nodeIds.includes(saved.id) && w.clusterId !== saved.clusterId
@@ -173,15 +179,29 @@ export const useRawTopology = create<RawState>()(
             )
             return { nodes: upsert(s.nodes, saved), services, auditLog: editAudit(s, raw, 'node', n.id, n) }
           }),
-        saveService: (w) =>
+        saveService: (w, by) =>
           set((s) => {
             const raw = s.services.find((x) => x.id === w.id)
-            return { services: upsert(s.services, applyEdit(raw, w)), auditLog: editAudit(s, raw, 'service', w.id, w) }
+            return { services: upsert(s.services, applyEdit(raw, w, by)), auditLog: editAudit(s, raw, 'service', w.id, w) }
           }),
-        saveDevice: (d) =>
+        saveDevice: (d, by) =>
           set((s) => {
             const raw = s.devices.find((x) => x.id === d.id)
-            return { devices: upsert(s.devices, applyEdit(raw, d)), auditLog: editAudit(s, raw, 'device', d.id, d) }
+            return { devices: upsert(s.devices, applyEdit(raw, d, by)), auditLog: editAudit(s, raw, 'device', d.id, d) }
+          }),
+        confirmField: (kind, id, field, by) =>
+          set((s) => {
+            const apply = <T extends Provenance & { id: string }>(l: T[]) => l.map((x) => (x.id === id ? confirmOverride(x, field, by) : x))
+            switch (kind) {
+              case 'cluster':
+                return { clusters: apply(s.clusters), auditLog: audit(s, { actor: by, action: 'confirm', targetKind: 'cluster', targetId: id, detail: field }) }
+              case 'node':
+                return { nodes: apply(s.nodes), auditLog: audit(s, { actor: by, action: 'confirm', targetKind: 'node', targetId: id, detail: field }) }
+              case 'device':
+                return { devices: apply(s.devices), auditLog: audit(s, { actor: by, action: 'confirm', targetKind: 'device', targetId: id, detail: field }) }
+              default:
+                return { services: apply(s.services), auditLog: audit(s, { actor: by, action: 'confirm', targetKind: 'service', targetId: id, detail: field }) }
+            }
           }),
 
         upsertCluster: (c) => set((s) => ({ clusters: upsert(s.clusters, c) })),
@@ -301,7 +321,7 @@ export const useRawTopology = create<RawState>()(
 
         resetOverrides: (kind, id) =>
           set((s) => {
-            const strip = <T extends { id: string }>(l: T[]) => l.map((x) => (x.id === id ? { ...x, overrides: undefined } : x))
+            const strip = <T extends { id: string }>(l: T[]) => l.map((x) => (x.id === id ? { ...x, overrides: undefined, overrideMeta: undefined } : x))
             switch (kind) {
               case 'cluster':
                 return { clusters: strip(s.clusters) }

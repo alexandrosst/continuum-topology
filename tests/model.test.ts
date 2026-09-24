@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { completeness } from '../src/lib/completeness'
 import { mergeDiscovered, normalizeServerState, type ServerAgent, type ServerState } from '../src/lib/discovered'
-import { applyEdit, applyEffective, effective } from '../src/lib/effective'
+import { applyEdit, applyEffective, confirmOverride, effective } from '../src/lib/effective'
 import { normalize, upgrade } from '../src/lib/migrate'
 import { accelSummary, ageLabel, autoscalerRange, countryName, disruptionLabel, ipScope, podsLabel, podsPercent, distroKey, formatCpu, formatMemory, loadBand, placeLabel, providerKey, requestedPercent, shortVersion } from '../src/lib/present'
 import { buildMapSites, clampPan, dominantTier, exitIps, groupByProximity, groupLabel, siteConnections, unplacedClusters, worstStatus } from '../src/lib/geo'
@@ -99,6 +99,54 @@ test('applyEdit(): bookkeeping fields can never be overridden', () => {
   assert.equal(saved.overrides, undefined)
   assert.equal(saved.source, 'discovered')
   assert.equal(saved.id, discovered.id)
+})
+
+test('applyEdit(): a genuinely changed field is attributed to whoever saved it', () => {
+  const saved = applyEdit<Cluster>(discovered, { ...discovered, region: 'Patras HQ' }, 'alexandros')
+  assert.equal(saved.overrideMeta?.region?.by, 'alexandros')
+  assert.ok(saved.overrideMeta?.region?.at)
+})
+
+test('applyEdit(): re-saving an unrelated field keeps a field\'s existing attribution untouched', () => {
+  const once = applyEdit<Cluster>(discovered, { ...discovered, region: 'Patras HQ' }, 'alexandros', '2026-01-01T00:00:00.000Z')
+  // A second save by someone else that leaves `region` exactly as shown, but changes `version` too.
+  const twice = applyEdit<Cluster>(once, { ...effective(once), version: 'v9' }, 'someone-else', '2026-06-01T00:00:00.000Z')
+  assert.deepEqual(twice.overrideMeta?.region, { by: 'alexandros', at: '2026-01-01T00:00:00.000Z' })
+  assert.deepEqual(twice.overrideMeta?.version, { by: 'someone-else', at: '2026-06-01T00:00:00.000Z' })
+})
+
+test('applyEdit(): a field edited back to the detected value drops its attribution along with its override', () => {
+  const once = applyEdit<Cluster>(discovered, { ...discovered, region: 'Patras HQ' }, 'alexandros')
+  const back = applyEdit<Cluster>(once, { ...effective(once), region: discovered.region }, 'alexandros')
+  assert.equal(back.overrides, undefined)
+  assert.equal(back.overrideMeta, undefined)
+})
+
+test('applyEdit(): a field changed again to a different value is re-attributed to the new editor', () => {
+  const once = applyEdit<Cluster>(discovered, { ...discovered, region: 'Patras HQ' }, 'alexandros', '2026-01-01T00:00:00.000Z')
+  const changed = applyEdit<Cluster>(once, { ...effective(once), region: 'Athens HQ' }, 'someone-else', '2026-06-01T00:00:00.000Z')
+  assert.deepEqual(changed.overrideMeta?.region, { by: 'someone-else', at: '2026-06-01T00:00:00.000Z' })
+})
+
+test('applyEdit(): no `by` given leaves the override in place with no attribution (backward compatible)', () => {
+  const saved = applyEdit<Cluster>(discovered, { ...discovered, region: 'Patras HQ' })
+  assert.deepEqual(saved.overrides, { region: 'Patras HQ' })
+  assert.equal(saved.overrideMeta, undefined)
+})
+
+test('confirmOverride(): freezes a guessed value as-is, with who confirmed it and when', () => {
+  assert.equal(discovered.overrides?.provider, undefined)
+  const confirmed = confirmOverride(discovered, 'provider', 'alexandros', '2026-01-01T00:00:00.000Z')
+  assert.equal(confirmed.overrides?.provider, discovered.provider) // no value change
+  assert.deepEqual(confirmed.overrideMeta?.provider, { by: 'alexandros', at: '2026-01-01T00:00:00.000Z' })
+})
+
+test('confirmOverride(): a confirmation survives an unrelated later applyEdit() save', () => {
+  const confirmed = confirmOverride(discovered, 'provider', 'alexandros', '2026-01-01T00:00:00.000Z')
+  const saved = applyEdit<Cluster>(confirmed, { ...effective(confirmed), region: 'Patras HQ' }, 'someone-else', '2026-06-01T00:00:00.000Z')
+  assert.equal(saved.overrides?.provider, discovered.provider)
+  assert.deepEqual(saved.overrideMeta?.provider, { by: 'alexandros', at: '2026-01-01T00:00:00.000Z' }) // untouched
+  assert.deepEqual(saved.overrideMeta?.region, { by: 'someone-else', at: '2026-06-01T00:00:00.000Z' }) // the actual edit
 })
 
 test('upgrade(): v1 file (workloads, no org ids, plain dependencies) becomes v3', () => {

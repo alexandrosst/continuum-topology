@@ -84,6 +84,12 @@ struct bpf_iter__task_file {
 struct tcp_sock {
 	__u64 bytes_received;
 	__u64 bytes_acked;
+	// Cumulative retransmitted-segment count for the life of the socket, and the smoothed round-trip
+	// time (an 8x fixed-point average of real samples, in microseconds - see the >>3 on the read side).
+	// Both are ordinary TCP congestion-control bookkeeping the kernel already keeps; nothing here samples
+	// packets or timing of its own.
+	__u32 total_retrans;
+	__u32 srtt_us;
 } __attribute__((preserve_access_index));
 
 // One direction of one relationship. Addresses are 16 bytes; IPv4 is stored as ::ffff:a.b.c.d.
@@ -104,6 +110,11 @@ struct flow_val {
 	// left unset rather than defaulted to something plausible-looking.
 	__s32 ifindex;
 	char ifname[16]; // IFNAMSIZ
+	// Retransmits are summed like the byte counters (each socket's growth since it was last accounted).
+	// rtt_us is a gauge, not a sum: it is overwritten by the latest sample rather than accumulated, the
+	// same latest-wins treatment as ifindex/ifname above. 0 means no sample yet, not "no delay".
+	__u32 retransmits;
+	__u32 rtt_us;
 };
 
 // Remembered from ESTABLISHED until the socket closes.
@@ -112,6 +123,7 @@ struct sock_info {
 	// The kernel counters at the last time this socket was accounted, so only the growth is added next time.
 	__u64 last_out;
 	__u64 last_in;
+	__u32 last_retrans;
 };
 
 struct {
@@ -173,7 +185,7 @@ static __always_inline void put_iface(struct flow_val *v, struct sock *sk) {
 	bpf_probe_read_kernel_str(v->ifname, sizeof(v->ifname), dev->name);
 }
 
-static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in) {
+static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rtt_us) {
 	struct flow_val zero = {};
 	struct flow_val *v = bpf_map_lookup_elem(&flows, key);
 	if (!v) {
@@ -193,6 +205,9 @@ static __always_inline void add_flow(const struct flow_key *key, struct sock *sk
 		v->bytes_out += in;
 		v->bytes_in += out;
 	}
+	v->retransmits += retrans;
+	if (rtt_us)
+		v->rtt_us = rtt_us;
 	put_iface(v, sk);
 }
 
@@ -227,13 +242,15 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		if (tp) {
 			si.last_out = tp->bytes_acked;
 			si.last_in = tp->bytes_received;
+			si.last_retrans = tp->total_retrans;
 		}
 		if (bpf_map_update_elem(&socks, &id, &si, BPF_ANY) != 0) {
 			count_lost();
 			return 0;
 		}
-		// Counted now, so a connection that lives for days is a dependency from its first second.
-		add_flow(&si.key, sk, 1, 0, 0);
+		// Counted now, so a connection that lives for days is a dependency from its first second. No RTT
+		// sample exists yet this early, so 0 (unknown) rather than a guess.
+		add_flow(&si.key, sk, 1, 0, 0, 0, 0);
 		return 0;
 	}
 
@@ -254,7 +271,11 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 	struct tcp_sock *tp = bpf_skc_to_tcp_sock(sk);
 	if (tp) {
 		__u64 out = tp->bytes_acked, in = tp->bytes_received;
-		add_flow(&si->key, sk, 0, out - si->last_out, in - si->last_in);
+		__u32 retrans = tp->total_retrans;
+		__u32 dretrans = retrans > si->last_retrans ? retrans - si->last_retrans : 0;
+		// srtt_us is kept as an 8x fixed-point average (see struct tcp_sock's comment); >>3 recovers
+		// microseconds. A connection that never left slow start can close with no sample at all (0).
+		add_flow(&si->key, sk, 0, out - si->last_out, in - si->last_in, dretrans, tp->srtt_us >> 3);
 	}
 	bpf_map_delete_elem(&socks, &id);
 	return 0;
@@ -287,12 +308,19 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 	__u64 out = 0, in = 0;
 	if (bpf_probe_read_kernel(&out, sizeof(out), &tp->bytes_acked) != 0 || bpf_probe_read_kernel(&in, sizeof(in), &tp->bytes_received) != 0)
 		return 0;
-	if (out > si->last_out || in > si->last_in) {
+	__u32 retrans = 0, srtt_raw = 0;
+	// Best-effort: a socket this old is already tracked by role/key regardless of whether these two reads
+	// succeed, so a failure here just means no retransmit/RTT update this round, not a dropped flow.
+	bpf_probe_read_kernel(&retrans, sizeof(retrans), &tp->total_retrans);
+	bpf_probe_read_kernel(&srtt_raw, sizeof(srtt_raw), &tp->srtt_us);
+	if (out > si->last_out || in > si->last_in || retrans > si->last_retrans) {
 		__u64 dout = out > si->last_out ? out - si->last_out : 0;
 		__u64 din = in > si->last_in ? in - si->last_in : 0;
+		__u32 dretrans = retrans > si->last_retrans ? retrans - si->last_retrans : 0;
 		si->last_out = out > si->last_out ? out : si->last_out;
 		si->last_in = in > si->last_in ? in : si->last_in;
-		add_flow(&si->key, sk, 0, dout, din);
+		si->last_retrans = retrans > si->last_retrans ? retrans : si->last_retrans;
+		add_flow(&si->key, sk, 0, dout, din, dretrans, srtt_raw >> 3);
 	}
 	return 0;
 }

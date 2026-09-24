@@ -29,15 +29,19 @@ type flowFlowVal struct {
 	BytesIn     uint64
 	Ifindex     int32
 	Ifname      [16]int8
+	Retransmits uint32
+	RttUs       uint32
 	_           [4]byte
 }
 
 type flowSockInfo struct {
-	_       structs.HostLayout
-	Key     flowFlowKey
-	_       [4]byte
-	LastOut uint64
-	LastIn  uint64
+	_           structs.HostLayout
+	Key         flowFlowKey
+	_           [4]byte
+	LastOut     uint64
+	LastIn      uint64
+	LastRetrans uint32
+	_           [4]byte
 }
 
 // Names of all BPF objects in the ELF.

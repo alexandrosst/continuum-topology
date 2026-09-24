@@ -14,7 +14,7 @@ import { skewLabel, skewWarning } from '@/lib/clock'
 import { extrasOf, type AgentExtras } from '@/lib/consent'
 import { ageOf } from '@/lib/history'
 import { bytesTotal } from '@/lib/observed'
-import { ipScope, ipScopeLabel } from '@/lib/present'
+import { GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipScope, ipScopeLabel } from '@/lib/present'
 import { ACCESS_TIERS, type Agent, type Cluster, type Tier } from '@/lib/types'
 import { useApprovalLocks } from '@/store/approvalLocks'
 import { useServer } from '@/store/server'
@@ -329,6 +329,7 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
   const l = a.link
   const certLeft = msUntil(a.certExpiresAt)
   const ip = a.connectingIp
+  const publicIpFallbackOn = useServer((s) => s.info?.geoip?.publicIpFallback)
   return (
     <div className="grid gap-x-10 gap-y-5 text-sm md:grid-cols-2 xl:grid-cols-3">
       {a.status === 'approved' && extras.diagnostics && (
@@ -382,6 +383,12 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
                       {a.connectingGeo.asn ? ` (AS${a.connectingGeo.asn})` : ''}
                     </span>
                   )}
+                </span>
+              ) : a.connectingGeoReason ? (
+                <span key="located" className="text-nb-500" title={GEO_UNLOCATABLE_HELP[a.connectingGeoReason]}>
+                  No location — {GEO_UNLOCATABLE_LABEL[a.connectingGeoReason].toLowerCase()}
+                  {(a.connectingGeoReason === 'cgnat' || a.connectingGeoReason === 'private') && !publicIpFallbackOn &&
+                    ' (an administrator can turn on estimating this from the server\'s own address in the deployment settings)'}
                 </span>
               ) : undefined,
             ],

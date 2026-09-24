@@ -155,6 +155,46 @@ func TestUnlocatableAddressesNeverReachTheDatabase(t *testing.T) {
 	}
 }
 
+func TestUnlocatableReason(t *testing.T) {
+	cases := []struct {
+		addr, want string
+	}{
+		{"10.1.2.3", "private"},
+		{"172.16.0.1", "private"},
+		{"192.168.1.1", "private"},
+		{"127.0.0.1", "loopback"},
+		{"169.254.1.1", "link-local"},
+		{"100.64.0.1", "cgnat"},
+		{"100.127.255.255", "cgnat"},
+		{"0.0.0.0", "unspecified"},
+		{"224.0.0.1", "link-local-multicast"}, // 224.0.0.0/24 is IPv4's link-local multicast block
+		{"239.1.1.1", "multicast"},
+		{"::1", "loopback"},
+		{"::", "unspecified"},
+		{"fe80::1", "link-local"},
+		{"fc00::1", "private"},   // RFC 4193 unique local address
+		{"fd12:3456::1", "private"},
+		{"ff02::1", "link-local-multicast"},
+		{"::ffff:10.0.0.1", "private"}, // 4-in-6 unwraps before classifying, same as Locatable
+		{"100.63.255.255", ""},         // just outside the CGNAT range
+		{"100.128.0.0", ""},            // just past it on the other side
+		{"172.32.0.1", ""},             // just outside RFC 1918's 172.16.0.0/12
+		{"203.0.113.24", ""},
+		{"2001:4860:4860::8888", ""},
+	}
+	for _, c := range cases {
+		if got := UnlocatableReason(ip(c.addr)); got != c.want {
+			t.Errorf("UnlocatableReason(%s) = %q, want %q", c.addr, got, c.want)
+		}
+		if got := UnlocatableReason(ip(c.addr)); (got == "") != Locatable(ip(c.addr)) {
+			t.Errorf("%s: UnlocatableReason and Locatable disagree (reason=%q, locatable=%v)", c.addr, got, Locatable(ip(c.addr)))
+		}
+	}
+	if got := UnlocatableReason(netip.Addr{}); got != "invalid" {
+		t.Errorf("the zero address = %q, want invalid", got)
+	}
+}
+
 func TestIPv4MissesWhenTheV6TreeHasNoMappedSubtree(t *testing.T) {
 	s := spec{recordSize: 28, ipVersion: 6, dbType: "x", entries: []entry{{"2001:db8::/32", countryRec("DE", "Germany")}}}
 	db := openSpec(t, s)

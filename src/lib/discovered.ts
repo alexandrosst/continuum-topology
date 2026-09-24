@@ -1,6 +1,6 @@
 import { ipScope } from './present'
 import { applyRef } from './declared'
-import type { AccessTier, Agent, AgentLink, AgentScope, AuditEvent, ConsistencyStatus, DeclaredRef, ObserverStatus, Path, Cluster, Dependency, ExternalEndpoint, GeoHint, MachineNode, Model, Namespace, Service, Suggestion, Tombstone } from './types'
+import type { AccessTier, Agent, AgentLink, AgentScope, AuditEvent, ConsistencyStatus, DeclaredRef, ObserverStatus, Path, Cluster, Dependency, ExternalEndpoint, GeoHint, GeoUnlocatableReason, MachineNode, Model, Namespace, Service, Suggestion, Tombstone } from './types'
 
 /** What the Continuum server returns from GET /api/v1/state. */
 export interface ServerAgent {
@@ -18,6 +18,9 @@ export interface ServerAgent {
   connectingIp?: string
   /** Where the GeoIP database (when the server has one) places `connectingIp`. */
   connectingGeo?: GeoHint
+  /** Set only when connectingGeo is absent because connectingIp itself could not be located at all -
+   * never when it was simply not in the database. See GeoUnlocatableReason. */
+  connectingGeoReason?: GeoUnlocatableReason
   certExpiresAt?: string
   lastHeartbeat?: string
   requestedAt: string
@@ -155,6 +158,7 @@ export function mergeDiscovered(m: Model, doc: ServerState): Partial<Model> {
     fingerprint: a.fingerprint,
     connectingIp: a.connectingIp,
     connectingGeo: a.connectingGeo ?? undefined,
+    connectingGeoReason: a.connectingGeoReason ?? undefined,
     certExpiresAt: a.certExpiresAt,
     lastHeartbeat: a.lastHeartbeat,
     modules: a.modules,

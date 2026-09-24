@@ -3197,7 +3197,15 @@ type RawFlow struct {
 	// "wlan0"), read from the kernel's own resolved route for the socket - not a guess from the address,
 	// and never set for a socket the kernel has not (yet) routed. Empty means not known, not "none": a
 	// multi-homed edge node's route can also change over a long-lived connection's life.
-	Iface         string `protobuf:"bytes,9,opt,name=iface,proto3" json:"iface,omitempty"`
+	Iface string `protobuf:"bytes,9,opt,name=iface,proto3" json:"iface,omitempty"`
+	// TCP segments retransmitted since the previous report, from the kernel's own congestion-control
+	// counter (struct tcp_sock.total_retrans) - never inferred from packet timing or loss heuristics of
+	// our own. Always 0 on a conntrack-derived report, which has no socket to read this from.
+	Retransmits uint32 `protobuf:"varint,10,opt,name=retransmits,proto3" json:"retransmits,omitempty"`
+	// The most recently sampled smoothed round-trip time, in microseconds, from the kernel's own TCP RTT
+	// estimator (struct tcp_sock.srtt_us). A gauge, not a sum: 0 means no sample yet (a connection that
+	// exchanged too little to measure one, or a conntrack-derived report), not "no delay".
+	RttUs         uint32 `protobuf:"varint,11,opt,name=rtt_us,json=rttUs,proto3" json:"rtt_us,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3293,6 +3301,20 @@ func (x *RawFlow) GetIface() string {
 		return x.Iface
 	}
 	return ""
+}
+
+func (x *RawFlow) GetRetransmits() uint32 {
+	if x != nil {
+		return x.Retransmits
+	}
+	return 0
+}
+
+func (x *RawFlow) GetRttUs() uint32 {
+	if x != nil {
+		return x.RttUs
+	}
+	return 0
 }
 
 type FlowReport struct {
@@ -3457,7 +3479,12 @@ type Flow struct {
 	// The caller's physical network interface, when known - see RawFlow.iface. Descriptive only: never
 	// part of an edge's identity, so a route flapping between interfaces does not fork one dependency
 	// into two.
-	Iface         string `protobuf:"bytes,11,opt,name=iface,proto3" json:"iface,omitempty"`
+	Iface string `protobuf:"bytes,11,opt,name=iface,proto3" json:"iface,omitempty"`
+	// Retransmitted segments observed in this report - see RawFlow.retransmits. Also descriptive only.
+	Retransmits uint64 `protobuf:"varint,12,opt,name=retransmits,proto3" json:"retransmits,omitempty"`
+	// The most recently sampled smoothed RTT, in microseconds - see RawFlow.rtt_us. A gauge: the latest
+	// sample, not a sum.
+	RttUs         uint32 `protobuf:"varint,13,opt,name=rtt_us,json=rttUs,proto3" json:"rtt_us,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3567,6 +3594,20 @@ func (x *Flow) GetIface() string {
 		return x.Iface
 	}
 	return ""
+}
+
+func (x *Flow) GetRetransmits() uint64 {
+	if x != nil {
+		return x.Retransmits
+	}
+	return 0
+}
+
+func (x *Flow) GetRttUs() uint32 {
+	if x != nil {
+		return x.RttUs
+	}
+	return 0
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
@@ -3722,6 +3763,10 @@ type FlowEdge struct {
 	WindowSeconds     int32  `protobuf:"varint,7,opt,name=window_seconds,json=windowSeconds,proto3" json:"window_seconds,omitempty"`
 	WindowConnections uint64 `protobuf:"varint,8,opt,name=window_connections,json=windowConnections,proto3" json:"window_connections,omitempty"`
 	WindowBytes       uint64 `protobuf:"varint,9,opt,name=window_bytes,json=windowBytes,proto3" json:"window_bytes,omitempty"`
+	// Cumulative retransmitted segments over the life of this edge, summed the same way bytes/connections
+	// are; 0 on an edge with no eBPF-observed report yet (conntrack cannot see this).
+	Retransmits       uint64 `protobuf:"varint,10,opt,name=retransmits,proto3" json:"retransmits,omitempty"`
+	WindowRetransmits uint64 `protobuf:"varint,11,opt,name=window_retransmits,json=windowRetransmits,proto3" json:"window_retransmits,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -3815,6 +3860,20 @@ func (x *FlowEdge) GetWindowConnections() uint64 {
 func (x *FlowEdge) GetWindowBytes() uint64 {
 	if x != nil {
 		return x.WindowBytes
+	}
+	return 0
+}
+
+func (x *FlowEdge) GetRetransmits() uint64 {
+	if x != nil {
+		return x.Retransmits
+	}
+	return 0
+}
+
+func (x *FlowEdge) GetWindowRetransmits() uint64 {
+	if x != nil {
+		return x.WindowRetransmits
 	}
 	return 0
 }
@@ -4606,7 +4665,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2\x18.continuum.v1.PathResultR\aresults\x12\x18\n" +
 	"\arefused\x18\x02 \x01(\rR\arefused\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xf5\x01\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xae\x02\n" +
 	"\aRawFlow\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\bR\x06client\x12\x19\n" +
 	"\blocal_ip\x18\x02 \x01(\tR\alocalIp\x12\x17\n" +
@@ -4616,7 +4675,10 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\vconnections\x18\x06 \x01(\x04R\vconnections\x12\x1b\n" +
 	"\tbytes_out\x18\a \x01(\x04R\bbytesOut\x12\x19\n" +
 	"\bbytes_in\x18\b \x01(\x04R\abytesIn\x12\x14\n" +
-	"\x05iface\x18\t \x01(\tR\x05iface\"\xc1\x01\n" +
+	"\x05iface\x18\t \x01(\tR\x05iface\x12 \n" +
+	"\vretransmits\x18\n" +
+	" \x01(\rR\vretransmits\x12\x15\n" +
+	"\x06rtt_us\x18\v \x01(\rR\x05rttUs\"\xc1\x01\n" +
 	"\n" +
 	"FlowReport\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
@@ -4635,7 +4697,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"UNRESOLVED\x10\x00\x12\f\n" +
 	"\bWORKLOAD\x10\x01\x12\b\n" +
 	"\x04NODE\x10\x02\x12\f\n" +
-	"\bEXTERNAL\x10\x03\"\xd1\x02\n" +
+	"\bEXTERNAL\x10\x03\"\x8a\x03\n" +
 	"\x04Flow\x12,\n" +
 	"\x03src\x18\x01 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03src\x12,\n" +
 	"\x03dst\x18\x02 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03dst\x12\x12\n" +
@@ -4649,7 +4711,9 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"bytesKnown\x12\x14\n" +
 	"\x05noise\x18\n" +
 	" \x01(\tR\x05noise\x12\x14\n" +
-	"\x05iface\x18\v \x01(\tR\x05iface\"\\\n" +
+	"\x05iface\x18\v \x01(\tR\x05iface\x12 \n" +
+	"\vretransmits\x18\f \x01(\x04R\vretransmits\x12\x15\n" +
+	"\x06rtt_us\x18\r \x01(\rR\x05rttUs\"\\\n" +
 	"\rCollectorInfo\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12\x1f\n" +
@@ -4662,7 +4726,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x05flows\x18\x04 \x03(\v2\x12.continuum.v1.FlowR\x05flows\x12;\n" +
 	"\n" +
 	"collectors\x18\x05 \x03(\v2\x1b.continuum.v1.CollectorInfoR\n" +
-	"collectors\"\xf7\x02\n" +
+	"collectors\"\xc8\x03\n" +
 	"\bFlowEdge\x12$\n" +
 	"\x03key\x18\x01 \x01(\v2\x12.continuum.v1.FlowR\x03key\x129\n" +
 	"\n" +
@@ -4673,7 +4737,10 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\bbytes_in\x18\x06 \x01(\x04R\abytesIn\x12%\n" +
 	"\x0ewindow_seconds\x18\a \x01(\x05R\rwindowSeconds\x12-\n" +
 	"\x12window_connections\x18\b \x01(\x04R\x11windowConnections\x12!\n" +
-	"\fwindow_bytes\x18\t \x01(\x04R\vwindowBytes\"9\n" +
+	"\fwindow_bytes\x18\t \x01(\x04R\vwindowBytes\x12 \n" +
+	"\vretransmits\x18\n" +
+	" \x01(\x04R\vretransmits\x12-\n" +
+	"\x12window_retransmits\x18\v \x01(\x04R\x11windowRetransmits\"9\n" +
 	"\tFlowTable\x12,\n" +
 	"\x05edges\x18\x01 \x03(\v2\x16.continuum.v1.FlowEdgeR\x05edges\"\xc2\x05\n" +
 	"\vDiagnostics\x12#\n" +

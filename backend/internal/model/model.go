@@ -291,11 +291,18 @@ type ExternalEndpoint struct {
 	Host string `json:"host"`
 	Port int    `json:"port,omitempty"`
 	Kind string `json:"kind"` // saas | database | unknown
+	// Service names the application usually found on Port (e.g. "PostgreSQL", "Kafka") - a guess from the
+	// port number alone, the same way Kind's "database" bucket already was; empty when the port isn't one
+	// of the well-known ones. Never inferred from payload: nothing here reads a byte of one.
+	Service string `json:"service,omitempty"`
 }
 
 type DependencyStats struct {
 	BytesPerSec       float64 `json:"bytesPerSec,omitempty"`
 	ConnectionsPerMin float64 `json:"connectionsPerMin,omitempty"`
+	// RetransmitsPerMin is 0 both when there is genuinely no loss and when nothing eBPF-observed has
+	// reported yet (conntrack cannot see retransmits at all) - Dependency.Via says which case it is.
+	RetransmitsPerMin float64 `json:"retransmitsPerMin,omitempty"`
 	WindowSec         int32   `json:"windowSec,omitempty"`
 }
 
@@ -313,8 +320,14 @@ type Dependency struct {
 	LastSeen   string   `json:"lastSeen,omitempty"`
 	Protocol   string   `json:"protocol"`
 	Port       int      `json:"port,omitempty"`
-	Label      string   `json:"label,omitempty"`
-	Stale      bool     `json:"stale,omitempty"`
+	// Service names the application usually found on Port (e.g. "PostgreSQL", "Kafka") - inferred from the
+	// port number alone, same as ExternalEndpoint.Service, and just as much a guess: a workload can run
+	// anything on any port. Empty when the port isn't one of the well-known ones. Never a substitute for
+	// Protocol, which is the transport (tcp/udp) and part of this Dependency's identity; Service is purely
+	// descriptive and never affects identity or grouping.
+	Service string `json:"service,omitempty"`
+	Label   string `json:"label,omitempty"`
+	Stale   bool   `json:"stale,omitempty"`
 	// Noise marks traffic that is machinery rather than the applications' own: dns | system.
 	Noise string `json:"noise,omitempty"`
 	// CrossCluster: the two ends are in different onboarded clusters.
@@ -325,7 +338,17 @@ type Dependency struct {
 	// lookup could name one - never guessed from the port or address. Empty means not known, which on a
 	// single-homed node is simply not interesting and on a multi-homed one (an edge box with both
 	// ethernet and a cellular backhaul, say) is worth surfacing rather than assuming.
-	Iface       string           `json:"iface,omitempty"`
+	Iface string `json:"iface,omitempty"`
+	// Retransmits is the cumulative count of TCP segments retransmitted over this edge's whole life, from
+	// the kernel's own congestion-control counters - never inferred from timing. Always 0 on a
+	// conntrack-only edge (Via != "ebpf"), which has no socket to read this from, so a 0 there means
+	// "not measured", not "no loss".
+	Retransmits uint64 `json:"retransmits,omitempty"`
+	// RttMs is the most recently sampled smoothed round-trip time in milliseconds, from the kernel's own
+	// TCP RTT estimator. A gauge (the latest sample), not an average over the edge's life. 0 means no
+	// sample yet, not "no delay" - most often because too little has been exchanged to measure one, or
+	// because this edge is conntrack-only.
+	RttMs       float64          `json:"rttMs,omitempty"`
 	Note        string           `json:"note,omitempty"`
 	Connections uint64           `json:"connections,omitempty"`
 	Bytes       uint64           `json:"bytes,omitempty"`

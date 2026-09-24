@@ -1,5 +1,5 @@
 // Pure helpers that decide how model values are shown. Kept out of the components so they can be tested.
-import type { Resources, ServiceVolume, Site } from './types'
+import type { GeoUnlocatableReason, Resources, ServiceVolume, Site } from './types'
 
 /* ---------- places ---------- */
 
@@ -178,6 +178,31 @@ export const IP_SCOPE_HELP: Record<IpScope, string> = {
   'link-local': 'Link-local: only valid on one network segment.',
   reserved: 'Reserved or multicast range.',
   unknown: '',
+}
+
+/** Why the server could not even attempt a location for a connecting address - see GeoUnlocatableReason.
+ * "cgnat" and "private" both mean the address is, by construction, behind some NAT (derived from the
+ * address's own range, not a live probe): a router, load balancer or carrier NAT rewrote it somewhere
+ * between the cluster and this server, which is exactly why enabling geoip.publicIpService (this server's
+ * own public address, used as a fallback) is the documented way to get a location anyway. */
+export const GEO_UNLOCATABLE_LABEL: Record<GeoUnlocatableReason, string> = {
+  cgnat: 'Behind carrier-grade NAT',
+  private: 'Behind NAT (private address)',
+  loopback: 'Same machine as the server',
+  'link-local': 'Link-local address',
+  'link-local-multicast': 'Link-local multicast address',
+  multicast: 'Multicast address',
+  unspecified: 'Unspecified address',
+}
+
+export const GEO_UNLOCATABLE_HELP: Record<GeoUnlocatableReason, string> = {
+  cgnat: 'This address is in the carrier-grade NAT range (100.64.0.0/10): very likely an ISP sharing one public address across many subscribers. No location can be derived from it alone.',
+  private: 'This is a private address (RFC 1918 / unique-local). It only got here through some NAT or proxy along the way, so no location can be derived from it alone.',
+  loopback: 'This is a loopback address: the server is talking to itself, or the two share a network stack.',
+  'link-local': 'Link-local addresses are only valid on one network segment and never carry a location.',
+  'link-local-multicast': 'A link-local multicast address never carries a location.',
+  multicast: 'A multicast address never carries a location.',
+  unspecified: 'The unspecified address (0.0.0.0 / ::) never carries a location.',
 }
 
 /**
