@@ -76,15 +76,22 @@ agent:
     loadBalancerClass: ""
     loadBalancerSourceRanges: []
     # Local keeps the agent's real source address, which the server uses to suggest a location (geoip-db), for approval
-    # cards, and for per-address rate limits. The cluster default (Cluster, what "" resolves to) can SNAT a connection
-    # that lands on a node other than the one running the pod, replacing the agent's address with that node's - the
-    # most common reason a real, non-local deployment still shows no location or a puzzling one. With a single replica
-    # Local also avoids that second hop entirely. With NodePort, Local means only the node actually running the pod
-    # answers on the NodePort, which is worth knowing if you point DNS at several nodes for it.
-    # If Local isn't an option here (multiple replicas need to share the NodePort, say) and connecting addresses still
-    # come through wrong, agent.behindProxy plus a PROXY-protocol-speaking hop in front is the other way to keep them -
-    # see "Exposing the agent port" → "Passthrough loses the client's own address" in the docs.
-    externalTrafficPolicy: ""
+    # cards, and for per-address rate limits. The Kubernetes default (Cluster, what "" would resolve to) can instead
+    # SNAT a connection that lands on a node other than the one running the pod, replacing the agent's address with
+    # that node's - the most common reason a real, non-local deployment still shows no location or a puzzling one.
+    # Defaulted to Local here because that failure mode is worse than Local's own trade-off: this server is always
+    # exactly one replica (see the top of this file), so there is never a second replica for Local to fail to share
+    # traffic with. With a single node (a NUC, a single-node cluster) there is no trade-off at all - Local also avoids
+    # a needless second hop. The one real risk is a multi-node cluster reached over NodePort through a fixed IP or DNS
+    # name that isn't itself node-aware: with Local, only the node currently running the pod answers, so moving the
+    # pod to another node (a drain, a node failure) can silently stop that fixed entry point from working until it's
+    # updated. A LoadBalancer Service doesn't have this problem (the cloud balancer already health-checks which node
+    # to send to), so it's mainly a NodePort-behind-a-static-address concern; set this to "Cluster" explicitly there
+    # if you'd rather keep working through a node move than keep the real source address.
+    # If neither policy gets connecting addresses through correctly, agent.behindProxy plus a PROXY-protocol-speaking
+    # hop in front is the other way to keep them - see "Exposing the agent port" → "Passthrough loses the client's
+    # own address" in the docs.
+    externalTrafficPolicy: Local
     labels: {}
   # Set when something between agents and this Service forwards the TCP connection in a way this chart doesn't already
   # account for (your own reverse proxy's TCP/SNI passthrough - see the "Already run your own reverse proxy?" section
