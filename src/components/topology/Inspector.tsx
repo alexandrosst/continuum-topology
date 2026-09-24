@@ -726,6 +726,7 @@ export default function Inspector({
           <div className="mt-1">
             <Row label="Protocol">{d.protocol}{d.port ? `:${d.port}` : ''}</Row>
             <Row label="Found by">{d.sources.join(' + ')}{how ? ` (${how})` : ''}</Row>
+            <Maybe label="Interface">{d.iface}</Maybe>
             <Row label="Confidence">{d.confidence}</Row>
             <Maybe label="First seen">{ago(d.firstSeen)}</Maybe>
             <Maybe label="Last seen">{ago(d.lastSeen)}</Maybe>

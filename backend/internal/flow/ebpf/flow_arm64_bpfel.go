@@ -8,11 +8,13 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"structs"
 
 	"github.com/cilium/ebpf"
 )
 
 type flowFlowKey struct {
+	_     structs.HostLayout
 	Local [16]uint8
 	Peer  [16]uint8
 	Port  uint16
@@ -21,17 +23,33 @@ type flowFlowKey struct {
 }
 
 type flowFlowVal struct {
+	_           structs.HostLayout
 	Connections uint64
 	BytesOut    uint64
 	BytesIn     uint64
+	Ifindex     int32
+	Ifname      [16]int8
+	_           [4]byte
 }
 
 type flowSockInfo struct {
+	_       structs.HostLayout
 	Key     flowFlowKey
 	_       [4]byte
 	LastOut uint64
 	LastIn  uint64
 }
+
+// Names of all BPF objects in the ELF.
+//
+// Used for safe lookups in a Collection or CollectionSpec.
+const (
+	flowMapFlows     = "flows"
+	flowMapLost      = "lost"
+	flowMapSocks     = "socks"
+	flowProgOnState  = "on_state"
+	flowProgSnapshot = "snapshot"
+)
 
 // loadFlow returns the embedded CollectionSpec for flow.
 func loadFlow() (*ebpf.CollectionSpec, error) {
@@ -53,7 +71,7 @@ func loadFlow() (*ebpf.CollectionSpec, error) {
 //	*flowMaps
 //
 // See ebpf.CollectionSpec.LoadAndAssign documentation for details.
-func loadFlowObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
+func loadFlowObjects(obj any, opts *ebpf.CollectionOptions) error {
 	spec, err := loadFlow()
 	if err != nil {
 		return err
@@ -68,9 +86,10 @@ func loadFlowObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
 type flowSpecs struct {
 	flowProgramSpecs
 	flowMapSpecs
+	flowVariableSpecs
 }
 
-// flowSpecs contains programs before they are loaded into the kernel.
+// flowProgramSpecs contains programs before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type flowProgramSpecs struct {
@@ -87,12 +106,19 @@ type flowMapSpecs struct {
 	Socks *ebpf.MapSpec `ebpf:"socks"`
 }
 
+// flowVariableSpecs contains global variables before they are loaded into the kernel.
+//
+// It can be passed ebpf.CollectionSpec.Assign.
+type flowVariableSpecs struct {
+}
+
 // flowObjects contains all objects after they have been loaded into the kernel.
 //
 // It can be passed to loadFlowObjects or ebpf.CollectionSpec.LoadAndAssign.
 type flowObjects struct {
 	flowPrograms
 	flowMaps
+	flowVariables
 }
 
 func (o *flowObjects) Close() error {
@@ -117,6 +143,12 @@ func (m *flowMaps) Close() error {
 		m.Lost,
 		m.Socks,
 	)
+}
+
+// flowVariables contains all global variables after they have been loaded into the kernel.
+//
+// It can be passed to loadFlowObjects or ebpf.CollectionSpec.LoadAndAssign.
+type flowVariables struct {
 }
 
 // flowPrograms contains all programs after they have been loaded into the kernel.

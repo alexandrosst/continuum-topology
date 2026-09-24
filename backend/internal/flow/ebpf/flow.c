@@ -45,13 +45,27 @@ struct sock_common {
 } __attribute__((preserve_access_index));
 
 struct socket;
+struct dst_entry;
 struct sock {
 	struct sock_common __sk_common;
 	struct socket *sk_socket;
+	// The route the kernel already resolved for this socket - not the same thing as an explicit
+	// SO_BINDTODEVICE, which almost nothing sets. See put_iface.
+	struct dst_entry *sk_dst_cache;
 } __attribute__((preserve_access_index));
 
 struct socket {
 	struct sock *sk;
+} __attribute__((preserve_access_index));
+
+// Only what names the physical device a resolved route goes out over.
+struct net_device {
+	char name[16]; // IFNAMSIZ
+	int ifindex;
+} __attribute__((preserve_access_index));
+
+struct dst_entry {
+	struct net_device *dev;
 } __attribute__((preserve_access_index));
 
 struct file {
@@ -85,6 +99,11 @@ struct flow_val {
 	__u64 connections;
 	__u64 bytes_out; // sent by the caller
 	__u64 bytes_in;  // sent by the callee
+	// The physical interface this socket's traffic is actually routed over right now (see put_iface). 0 /
+	// empty when the kernel has not resolved a route for it yet - a fact of its own, not a guess, so it is
+	// left unset rather than defaulted to something plausible-looking.
+	__s32 ifindex;
+	char ifname[16]; // IFNAMSIZ
 };
 
 // Remembered from ESTABLISHED until the socket closes.
@@ -135,7 +154,26 @@ static __always_inline void put_addr(__u8 dst[16], __be32 v4, const struct in6_a
 	}
 }
 
-static __always_inline void add_flow(const struct flow_key *key, __u64 conns, __u64 out, __u64 in) {
+// Best-effort: which physical interface this socket's traffic is actually going out over, from the
+// destination cache the kernel already keeps for it - never a new lookup or packet peek of our own, and
+// nothing kept if the cache is empty (a socket the kernel hasn't routed yet, or one that races us into
+// TCP_CLOSE before ever doing so). A route can change over a long-lived connection's life (a link
+// flaps, a route table updates), so this is refreshed on every add_flow call rather than read once at
+// ESTABLISHED and trusted forever.
+static __always_inline void put_iface(struct flow_val *v, struct sock *sk) {
+	struct dst_entry *dst = 0;
+	if (bpf_probe_read_kernel(&dst, sizeof(dst), &sk->sk_dst_cache) != 0 || !dst)
+		return;
+	struct net_device *dev = 0;
+	if (bpf_probe_read_kernel(&dev, sizeof(dev), &dst->dev) != 0 || !dev)
+		return;
+	int idx = 0;
+	if (bpf_probe_read_kernel(&idx, sizeof(idx), &dev->ifindex) == 0)
+		v->ifindex = idx;
+	bpf_probe_read_kernel_str(v->ifname, sizeof(v->ifname), dev->name);
+}
+
+static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in) {
 	struct flow_val zero = {};
 	struct flow_val *v = bpf_map_lookup_elem(&flows, key);
 	if (!v) {
@@ -155,6 +193,7 @@ static __always_inline void add_flow(const struct flow_key *key, __u64 conns, __
 		v->bytes_out += in;
 		v->bytes_in += out;
 	}
+	put_iface(v, sk);
 }
 
 SEC("tp_btf/inet_sock_set_state")
@@ -194,7 +233,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 			return 0;
 		}
 		// Counted now, so a connection that lives for days is a dependency from its first second.
-		add_flow(&si.key, 1, 0, 0);
+		add_flow(&si.key, sk, 1, 0, 0);
 		return 0;
 	}
 
@@ -215,7 +254,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 	struct tcp_sock *tp = bpf_skc_to_tcp_sock(sk);
 	if (tp) {
 		__u64 out = tp->bytes_acked, in = tp->bytes_received;
-		add_flow(&si->key, 0, out - si->last_out, in - si->last_in);
+		add_flow(&si->key, sk, 0, out - si->last_out, in - si->last_in);
 	}
 	bpf_map_delete_elem(&socks, &id);
 	return 0;
@@ -253,7 +292,7 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 		__u64 din = in > si->last_in ? in - si->last_in : 0;
 		si->last_out = out > si->last_out ? out : si->last_out;
 		si->last_in = in > si->last_in ? in : si->last_in;
-		add_flow(&si->key, 0, dout, din);
+		add_flow(&si->key, sk, 0, dout, din);
 	}
 	return 0;
 }
