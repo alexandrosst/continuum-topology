@@ -22,12 +22,13 @@ import {
   type MachineKind,
   type MachineNode,
   type Path,
+  type Service,
+  type ServiceKind,
   type Site,
   type Status,
   type Tier,
   type Topology,
   type ViewKind,
-  type Service,
 } from './types'
 
 /* ---------- node data ---------- */
@@ -65,6 +66,8 @@ export type CardData = {
   clusterName: string
   machineKind?: MachineKind
   deviceKind?: DeviceKind
+  /** Controller kind for a `service` card: Deployment, StatefulSet, DaemonSet or Job. */
+  serviceKind?: ServiceKind
   /** Units a device group stands for (used for the group total). */
   units?: number
   control?: boolean
@@ -573,6 +576,7 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint?: string
       status: w.status,
       tier: c.tier,
       clusterName: c.name,
+      serviceKind: w.kind,
       hint,
       notReady: notReady ? `${w.readyReplicas}/${w.replicas} ready` : undefined,
       mesh: mesh && w.mesh ? meshChip(w) : undefined,
