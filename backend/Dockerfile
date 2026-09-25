@@ -64,7 +64,7 @@ RUN apk add --no-cache curl && mkdir -p /geoip \
 
 # The Go build always runs natively and cross-compiles, so a multi-arch build (amd64 for servers, arm64 for
 # boards) does not go through emulation.
-FROM --platform=$BUILDPLATFORM golang:1.25 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 WORKDIR /src
