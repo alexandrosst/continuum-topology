@@ -431,13 +431,15 @@ As of this writing, a scan of this module found two kinds of reachable vulnerabi
   `net/textproto` - ranging from quadratic-complexity DoS and memory-exhaustion bugs to a couple of XSS-in-
   `html/template` findings (reachable through the agent's own `/healthz` page, see `internal/agent/health.go`).
   None of these are `go.mod` dependencies to bump; they're fixed by the Go toolchain patch version used to
-  *build* the binary. `backend/go.mod` now pins `toolchain go1.25.13` (the line has a comment explaining why and
+  *build* the binary. `backend/go.mod` now pins `toolchain go1.26.8` (the line has a comment explaining why and
   when to bump it again) - with `GOTOOLCHAIN=auto` (the default; nothing in `backend/Dockerfile` overrides it),
-  `go build`/`go test`/`go install` all download and use go1.25.13 automatically even on a machine whose own `go`
+  `go build`/`go test`/`go install` all download and use go1.26.8 automatically even on a machine whose own `go`
   binary is older, so this one line is what actually closes all 36 CVEs for anyone building this module, not just
-  a statement of intent. `backend/Dockerfile`'s `golang:1.25` build-stage tag already floats to the latest 1.25.x
+  a statement of intent. `backend/Dockerfile`'s `golang:1.26` build-stage tag already floats to the latest 1.26.x
   patch on each build; the `toolchain` pin is the belt-and-suspenders version that works even against a stale
-  cached image.
+  cached image. The module's minimum Go version (the `go` directive) moved from 1.25.0 to 1.26.0 alongside this
+  because `github.com/go-webauthn/webauthn` v0.18.1+ requires it - see `backend/go.mod`'s comment for why that
+  library bump was worth taking.
 - The three module-level CVEs govulncheck reported *before* this pass (`google.golang.org/grpc`, `github.com/
   cilium/ebpf`, and transitively `golang.org/x/net`/`golang.org/x/text`) are fixed by the dependency versions
   already in `go.mod` (`grpc` v1.84.0, `cilium/ebpf` v0.22.0) - confirmed by the same `govulncheck` re-run, and by

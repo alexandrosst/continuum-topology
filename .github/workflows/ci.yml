@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          # go-version-file respects backend/go.mod's own `toolchain` line (currently pinned to go1.25.13 for the
+          # go-version-file respects backend/go.mod's own `toolchain` line (currently pinned to go1.26.8 for the
           # standard-library CVE fixes it carries - see backend/go.mod's comment and deploy/README.md's
           # "Dependency scanning" section), so this always builds with at least that patch version without
           # needing to also update this workflow file every time that line changes.

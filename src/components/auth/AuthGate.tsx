@@ -154,7 +154,7 @@ function TwoFactorScreen() {
     if (ok) setEmailSent(true)
   }
 
-  const usePasskey = async () => {
+  const signInWithPasskeyClick = async () => {
     setPasskeyBusy(true)
     await signInWithPasskey()
     setPasskeyBusy(false)
@@ -176,7 +176,7 @@ function TwoFactorScreen() {
         <Button
           variant={hasCode ? 'secondary' : 'primary'}
           className="w-full"
-          onClick={() => void usePasskey()}
+          onClick={() => void signInWithPasskeyClick()}
           disabled={passkeyBusy}
           data-testid="webauthn-2fa"
         >

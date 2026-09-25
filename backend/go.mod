@@ -1,19 +1,23 @@
 module continuum
 
-go 1.25.0
+go 1.26.0
 
-// Pins the minimum Go PATCH release, not just the language version: go1.25.2 through go1.25.13 each fixed a
+// Pins the minimum Go PATCH release, not just the language version: go1.25.2 through go1.26.6 each fixed a
 // standard-library CVE that a govulncheck scan found reachable from this module's own call graph (crypto/tls,
 // crypto/x509, net/http, net/url, html/template, encoding/asn1, archive/tar - see deploy/README.md, "Dependency
-// scanning" for the full list and how this was found). With GOTOOLCHAIN=auto (the default), `go build`/`go test`/
-// `go install` download and use go1.25.13 automatically even if the machine's own `go` binary is older, so this
-// line is what actually closes those CVEs for anyone building this module - bumping it here is required again
-// whenever a future govulncheck run finds a new stdlib CVE with a fix in a later go1.25.x.
-toolchain go1.25.13
+// scanning" for the full list and how this was found). The `go` directive itself moved from 1.25.0 to 1.26.0
+// because github.com/go-webauthn/webauthn v0.18.1+ requires it - v0.18.0 was the last release supporting 1.25,
+// but v0.18.1/v0.18.2 carry real passkey-ceremony validation fixes (session-challenge checks on ceremony finish,
+// UV-flag authorization, FIDO-U2F/TPM certificate validation) worth taking. With GOTOOLCHAIN=auto (the default),
+// `go build`/`go test`/`go install` download and use go1.26.8 automatically even if the machine's own `go` binary
+// is older, so this line is what actually closes those CVEs for anyone building this module - bumping it here is
+// required again whenever a future govulncheck run finds a new stdlib CVE with a fix in a later go1.26.x.
+toolchain go1.26.8
 
 require (
 	github.com/cilium/ebpf v0.22.0
-	golang.org/x/crypto v0.54.0
+	github.com/go-webauthn/webauthn v0.18.2
+	golang.org/x/crypto v0.57.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.11
 	k8s.io/api v0.31.3
@@ -26,15 +30,19 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
-	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-openapi/jsonpointer v0.19.6 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.22.4 // indirect
+	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
+	github.com/go-webauthn/x v0.3.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/gnostic-models v0.6.8 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/imdario/mergo v0.3.6 // indirect
@@ -46,15 +54,17 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/term v0.45.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/term v0.46.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
