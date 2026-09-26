@@ -9,9 +9,9 @@ export const fmtMs = (n: number) => (Number.isFinite(n) ? (n < 10 ? n.toFixed(1)
 export const pts = (n: number) => (Math.abs(n) >= 100 ? Math.round(n).toString() : n.toFixed(1))
 
 const CONF: Record<Evaluation['confidence'], string> = {
-  high: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
-  medium: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
-  low: 'border-red-400/30 bg-red-400/10 text-red-300',
+  high: 'border-ok/30 bg-ok/10 text-ok',
+  medium: 'border-warn/30 bg-warn/10 text-warn',
+  low: 'border-bad/30 bg-bad/10 text-bad',
   none: 'border-nb-700 bg-nb-850 text-nb-300',
 }
 const CONF_HELP: Record<Evaluation['confidence'], string> = {
@@ -48,7 +48,7 @@ export function Verdict({ v }: { v: MoveVerdict }) {
 }
 
 export function Basis({ b }: { b: RttBasis }) {
-  const tone = b === 'measured' || b === 'same-cluster' ? 'text-emerald-300' : b === 'declared' || b === 'same-site' ? 'text-nb-400' : b === 'estimated' ? 'text-amber-300' : 'text-red-300'
+  const tone = b === 'measured' || b === 'same-cluster' ? 'text-ok' : b === 'declared' || b === 'same-site' ? 'text-nb-400' : b === 'estimated' ? 'text-warn' : 'text-bad'
   return <span className={clsx('text-xs', tone)}>{basisText(b)}</span>
 }
 
@@ -57,7 +57,7 @@ export function Card({ title, aside, children, className }: { title?: string; as
     <section className={clsx('rounded-xl border border-nb-850 bg-nb-925 p-5', className)}>
       {(title || aside) && (
         <div className="mb-3 flex items-center gap-3">
-          {title && <h3 className="text-sm font-medium text-white">{title}</h3>}
+          {title && <h3 className="text-sm font-medium text-nb-300">{title}</h3>}
           {aside && <div className="ml-auto">{aside}</div>}
         </div>
       )}

@@ -12,11 +12,11 @@ export default function Excluded({ world }: { world: World }) {
   const rows = excludedClusters(world)
   if (rows.length === 0) return null
   return (
-    <Card title={`${rows.length} cluster${rows.length === 1 ? '' : 's'} left out of placement`} className="border-amber-400/20">
+    <Card title={`${rows.length} cluster${rows.length === 1 ? '' : 's'} left out of placement`} className="border-warn/20">
       <ul className="space-y-1.5" data-testid="excluded-targets">
         {rows.map(({ cluster, status }) => (
           <li key={cluster.id} className="flex flex-wrap items-center gap-2 text-sm" data-testid="excluded-target" data-state={status.state}>
-            <span className="text-white">{cluster.name}</span>
+            <span className="text-nb-300">{cluster.name}</span>
             <ObservationChip info={observation(cluster)} />
             <span className="text-nb-400" data-testid="excluded-reason">{status.reason}</span>
           </li>

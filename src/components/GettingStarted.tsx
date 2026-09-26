@@ -52,7 +52,7 @@ function Marker({ step, n }: { step: ChecklistStep; n: number }) {
       aria-hidden
       className={clsx(
         MARK,
-        step.state === 'done' && 'bg-emerald-400/15 text-emerald-300',
+        step.state === 'done' && 'bg-ok/15 text-ok',
         step.state === 'current' && 'border border-accent bg-accent-soft text-accent',
         step.state === 'todo' && 'border border-nb-700 text-nb-500',
       )}
@@ -90,7 +90,7 @@ export default function GettingStarted({ checklist, onConnect, onDismiss, varian
     <section aria-labelledby="gs-title" className={clsx('rounded-xl border border-nb-850 bg-nb-925', variant === 'hero' && 'w-full max-w-2xl')} data-testid="getting-started">
       <div className="flex items-start justify-between gap-3 border-b border-nb-850 px-5 py-4">
         <div>
-          <h2 id="gs-title" className="text-sm font-medium text-white">Getting started</h2>
+          <h2 id="gs-title" className="text-sm font-medium text-nb-300">Getting started</h2>
           <p className="mt-0.5 text-xs text-nb-500" data-testid="gs-progress">{checklist.done} of {total} done. Each step is checked against your server.</p>
         </div>
         {onDismiss && (
@@ -105,7 +105,7 @@ export default function GettingStarted({ checklist, onConnect, onDismiss, varian
             <Marker step={s} n={i + 1} />
             <div className="min-w-0 flex-1 basis-56">
               <div className="flex flex-wrap items-center gap-2">
-                <span className={clsx('text-sm font-medium', s.state === 'done' ? 'text-nb-400' : 'text-white')}>{s.title}</span>
+                <span className={clsx('text-sm font-medium', s.state === 'done' ? 'text-nb-400' : 'text-nb-300')}>{s.title}</span>
                 {s.optional && <Pill>optional</Pill>}
                 <span className="sr-only">{STATE_WORD[s.state]}</span>
               </div>

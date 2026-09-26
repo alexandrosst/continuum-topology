@@ -31,7 +31,7 @@ export function GroupingPicker({ label, alternatives, onPick }: { label: string;
               type="button"
               title={alt.signal}
               onClick={() => onPick(alt)}
-              className="rounded-full border border-nb-800 bg-nb-930 px-2.5 py-1 text-xs text-nb-400 transition-colors hover:border-accent/60 hover:text-white"
+              className="rounded-full border border-nb-800 bg-nb-930 px-2.5 py-1 text-xs text-nb-400 transition-colors hover:border-accent/60 hover:text-nb-300"
             >
               {originLabel(alt.origin)}: <span className="font-medium text-nb-200">{alt.name}</span>
             </button>

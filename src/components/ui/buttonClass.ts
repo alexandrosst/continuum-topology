@@ -16,7 +16,7 @@ export function buttonClass(variant: ButtonVariant = 'secondary', size: 'sm' | '
     size === 'md' ? 'h-9 px-4 text-sm' : 'h-7 px-2.5 text-xs',
     variant === 'primary' && 'bg-accent text-white hover:bg-accent-600',
     variant === 'secondary' && 'border border-nb-800 bg-nb-925 text-nb-300 hover:bg-nb-940',
-    variant === 'danger' && 'border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20',
+    variant === 'danger' && 'border border-bad/30 bg-bad/10 text-bad hover:bg-bad/20',
     variant === 'ghost' && 'text-nb-400 hover:bg-nb-940 hover:text-nb-300',
     className,
   )

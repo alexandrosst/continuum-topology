@@ -511,13 +511,13 @@ function HoverCard({ hover, host, load }: { hover: { dot: Dot; cx: number; cy: n
       {dot.members.slice(0, 5).map((m) => (
         <div key={m.site.id} className="mb-2 last:mb-0">
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-sm font-medium text-white">{m.site.name}</span>
+            <span className="truncate text-sm font-medium text-nb-300">{m.site.name}</span>
             <StatusDot status={m.status} />
           </div>
           <div className="text-nb-500">{placeLabel(m.site) || m.site.country}</div>
           {m.exitIps.length > 0 && (
             <div className="mt-0.5 text-nb-500" data-testid="map-exit-ip">
-              Exit IP <span className="font-mono text-nb-300">{m.exitIps.join(', ')}</span> <span className="text-amber-300">public</span>
+              Exit IP <span className="font-mono text-nb-300">{m.exitIps.join(', ')}</span> <span className="text-warn">public</span>
             </div>
           )}
           <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -549,7 +549,7 @@ function LinkCard({ hover, host, names }: { hover: LinkHover; host: HTMLElement 
   const src = c.measured ? 'measured' : 'declared'
   return (
     <div className="pointer-events-none absolute z-10 w-60 -translate-y-full rounded-lg border border-nb-800 bg-nb-920 p-3 text-xs shadow-xl" style={{ left, top }} data-testid="map-link-card">
-      <div className="text-sm font-medium text-white">{names(c.a)} ↔ {names(c.b)}</div>
+      <div className="text-sm font-medium text-nb-300">{names(c.a)} ↔ {names(c.b)}</div>
       <dl className="mt-1.5 grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-0.5 text-nb-400">
         <dt>Dependencies</dt>
         <dd className="text-nb-200">{c.dependencies}{c.dependencies > 0 && <span className="text-nb-500"> ({c.active} seen in traffic)</span>}</dd>
@@ -574,7 +574,7 @@ function LinkCard({ hover, host, names }: { hover: LinkHover; host: HTMLElement 
         {c.lossPct !== undefined && (
           <>
             <dt>Loss</dt>
-            <dd className={lossBand(c.lossPct) === 'ok' ? 'text-nb-200' : lossBand(c.lossPct) === 'warn' ? 'text-amber-300' : 'text-red-300'}>{c.lossPct.toFixed(c.lossPct < 10 ? 1 : 0)}%</dd>
+            <dd className={lossBand(c.lossPct) === 'ok' ? 'text-nb-200' : lossBand(c.lossPct) === 'warn' ? 'text-warn' : 'text-bad'}>{c.lossPct.toFixed(c.lossPct < 10 ? 1 : 0)}%</dd>
           </>
         )}
       </dl>

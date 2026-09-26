@@ -78,12 +78,12 @@ export default function DiscoveryPage() {
           <Button size="sm" onClick={connect.start}>Connect to server</Button>
         </div>
       )}
-      {connected && server.error && <p role="status" className="mb-4 text-sm text-amber-300">{server.error} Retrying…</p>}
+      {connected && server.error && <p role="status" className="mb-4 text-sm text-warn">{server.error} Retrying…</p>}
 
       {/* Approving is the Agents page's job: this page only says that something waits there. */}
       {needAttention > 0 && (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/30 bg-amber-400/5 px-5 py-3" role="status" data-testid="approvals-banner">
-          <p className="flex items-center gap-2.5 text-sm text-amber-200">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn/5 px-5 py-3" role="status" data-testid="approvals-banner">
+          <p className="flex items-center gap-2.5 text-sm text-warn">
             <KeyRound size={16} className="shrink-0" aria-hidden />
             {waiting.length > 0
               ? `${waiting.length} cluster${waiting.length === 1 ? ' is' : 's are'} waiting for approval.${canAdminister ? '' : ' An administrator has to approve it.'}`
@@ -101,7 +101,7 @@ export default function DiscoveryPage() {
         </div>
       )}
 
-      <h2 className="mb-2 text-sm font-medium text-white">Inbox {open.length > 0 && <span className="ml-1 text-nb-500">({open.length})</span>}</h2>
+      <h2 className="mb-2 text-sm font-medium text-nb-300">Inbox {open.length > 0 && <span className="ml-1 text-nb-500">({open.length})</span>}</h2>
       {open.length === 0 ? (
         <div className="mb-8">
           {approved.length === 0 ? (
@@ -126,7 +126,7 @@ export default function DiscoveryPage() {
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-white">{s.title}</span>
+                  <span className="text-sm font-medium text-nb-300">{s.title}</span>
                   <Pill>{s.kind === 'infrastructure' ? 'possible new cluster' : s.kind.replace('-', ' ')}</Pill>
                 </div>
                 <p className="mt-1 max-w-2xl text-sm text-nb-500">{s.detail}</p>
@@ -172,7 +172,7 @@ export default function DiscoveryPage() {
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-nb-850 bg-nb-925 px-5 py-4" data-testid="agents-summary">
           <p className="text-sm text-nb-300">
             {approved.length} approved · {agents.filter((a) => a.connected).length} connected now
-            {waiting.length > 0 && <span className="text-amber-300"> · {waiting.length} waiting for approval</span>}
+            {waiting.length > 0 && <span className="text-warn"> · {waiting.length} waiting for approval</span>}
           </p>
           <Link to="/agents" className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline" data-testid="see-agents">
             Agents: enrollment, approval, consent and health <ArrowRight size={14} aria-hidden />

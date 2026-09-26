@@ -24,7 +24,7 @@ function TierIcon({ level, tone, marked, size }: { level: number; tone: 'filled'
   const step = size / (level * 2.4)
   return (
     <span
-      className={clsx('relative shrink-0', marked && 'rounded-[3px] ring-2 ring-amber-400/70 ring-offset-1 ring-offset-nb-925')}
+      className={clsx('relative shrink-0', marked && 'rounded-[3px] ring-2 ring-warn/70 ring-offset-1 ring-offset-nb-925')}
       style={{ width: size, height: size }}
     >
       {Array.from({ length: level }, (_, i) => (
@@ -108,12 +108,12 @@ export default function TierLevels({ tiers, value, max, onSelect, markAt, markLa
                 </span>
               )}
               <TierIcon level={t} tone={locked ? 'locked' : filled ? 'filled' : 'idle'} marked={marked} size={28} />
-              <span className="flex items-center gap-1.5 text-sm font-medium text-white">
+              <span className="flex items-center gap-1.5 text-sm font-medium text-nb-300">
                 {label}
                 {locked && <Lock size={12} className="text-nb-500" aria-hidden />}
               </span>
               <span className="text-sm leading-snug text-nb-400">{caption}</span>
-              {marked && <span className="text-xs text-amber-300">{markLabel ?? `Approved up to here`}</span>}
+              {marked && <span className="text-xs text-warn">{markLabel ?? `Approved up to here`}</span>}
             </Tag>
           )
         }
@@ -133,12 +133,12 @@ export default function TierLevels({ tiers, value, max, onSelect, markAt, markLa
               <TierIcon level={t} tone={locked ? 'locked' : filled ? 'filled' : 'idle'} marked={marked} size={ICON_SIZE[size]} />
             </span>
             <span className="min-w-0 flex-1">
-              <span className={clsx('flex items-center gap-1.5 font-medium text-white', compact ? 'text-xs' : 'text-sm')}>
+              <span className={clsx('flex items-center gap-1.5 font-medium text-nb-300', compact ? 'text-xs' : 'text-sm')}>
                 {label}
                 {locked && <Lock size={11} className="text-nb-500" aria-hidden />}
               </span>
               {!compact && <span className="block text-sm text-nb-500">{caption}</span>}
-              {marked && <span className="block text-xs text-amber-300">{markLabel ?? `Approved up to here`}</span>}
+              {marked && <span className="block text-xs text-warn">{markLabel ?? `Approved up to here`}</span>}
             </span>
           </Tag>
         )

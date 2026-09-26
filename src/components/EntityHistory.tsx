@@ -55,14 +55,14 @@ export default function EntityHistory({ kind, id }: { kind: string; id: string }
       )}
       {state === 'loading' && <SkeletonLines lines={3} className="max-w-sm" />}
       {state === 'none' && <p className="text-sm text-nb-500">Nothing has been recorded for this yet. It appears after the next recording.</p>}
-      {state === 'error' && <p className="text-sm text-red-300" role="alert">The history could not be read.</p>}
+      {state === 'error' && <p className="text-sm text-bad" role="alert">The history could not be read.</p>}
       {tl && (
         <div className="space-y-4">
           <ol className="space-y-3" data-testid="entity-versions">
             {tl.versions.map((v, i) => (
               <li key={v.from} className="border-l border-nb-800 pl-3">
                 <div className="text-xs text-nb-500">
-                  {when(v.from)} {v.to ? `→ ${when(v.to)}` : <span className="text-emerald-300">→ now</span>}
+                  {when(v.from)} {v.to ? `→ ${when(v.to)}` : <span className="text-ok">→ now</span>}
                 </div>
                 <div className="text-sm text-nb-300">
                   {i === tl.versions.length - 1 ? 'First recorded' : 'Changed'}

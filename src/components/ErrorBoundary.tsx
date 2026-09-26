@@ -17,7 +17,7 @@ export default class ErrorBoundary extends Component<{ children: ReactNode; labe
     if (this.state.error) {
       return (
         <div className="flex h-full min-h-40 flex-col items-center justify-center gap-2 p-8 text-center" role="alert">
-          <p className="text-sm font-medium text-white">Something went wrong showing this page.</p>
+          <p className="text-sm font-medium text-nb-300">Something went wrong showing this page.</p>
           <p className="max-w-md text-sm text-nb-500">{this.state.error.message || 'An unexpected error occurred.'} Switching pages usually recovers; if it keeps happening, tell an administrator.</p>
         </div>
       )

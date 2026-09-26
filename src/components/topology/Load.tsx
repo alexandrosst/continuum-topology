@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import type { ClusterLoad } from '@/lib/metrics'
 import { loadBand } from '@/lib/present'
 
-const BAND = { ok: 'bg-emerald-400', warn: 'bg-amber-400', hot: 'bg-red-400' } as const
+const BAND = { ok: 'bg-ok', warn: 'bg-warn', hot: 'bg-bad' } as const
 
 /** A thin bar with its number: what share of something is already promised. */
 export function MiniBar({ label, pct, title }: { label: string; pct?: number; title?: string }) {
@@ -26,8 +26,8 @@ export function LoadRow({ load, className }: { load: ClusterLoad; className?: st
       <MiniBar label="CPU" pct={load.cpuPct} title={load.cpuPct === undefined ? undefined : `${load.cpuPct}% of the cluster's allocatable CPU is requested by pods`} />
       <MiniBar label="Mem" pct={load.memPct} title={load.memPct === undefined ? undefined : `${load.memPct}% of the cluster's allocatable memory is requested by pods`} />
       <MiniBar label="Pods" pct={load.podPct} title={load.pods === undefined ? undefined : `${load.pods} of ${load.podCap} pods`} />
-      {load.nodes > 0 && down > 0 && <span className="text-[10px] text-amber-300">{load.ready}/{load.nodes} nodes ready</span>}
-      {load.unready > 0 && <span className="text-[10px] text-amber-300">{load.unready} service{load.unready === 1 ? '' : 's'} not fully up</span>}
+      {load.nodes > 0 && down > 0 && <span className="text-[10px] text-warn">{load.ready}/{load.nodes} nodes ready</span>}
+      {load.unready > 0 && <span className="text-[10px] text-warn">{load.unready} service{load.unready === 1 ? '' : 's'} not fully up</span>}
     </div>
   )
 }

@@ -90,7 +90,7 @@ export default function ActivityPage() {
             {rows.map((r) => (
               <tr key={r.id} data-testid="audit-row">
                 <Td className="whitespace-nowrap text-nb-400">{stamp(r.at)}</Td>
-                <Td className="font-medium text-white">{r.actor}</Td>
+                <Td className="font-medium text-nb-300">{r.actor}</Td>
                 <Td>{words(r.action)}</Td>
                 <Td className="text-nb-400">{r.targetKind ? `${r.targetKind}${r.targetId ? ` ${r.targetId}` : ''}` : '—'}</Td>
                 <Td className="max-w-md break-words text-nb-400">{r.detail || ''}</Td>
@@ -101,7 +101,7 @@ export default function ActivityPage() {
       )}
 
       <section className="mt-10" aria-label="Saved versions of the shared workspace">
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-white"><ScrollText size={14} className="text-nb-500" aria-hidden /> Saves of the shared workspace</h2>
+        <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-nb-300"><ScrollText size={14} className="text-nb-500" aria-hidden /> Saves of the shared workspace</h2>
         {revs.length === 0 ? (
           <p className="text-sm text-nb-500">{source === 'graph' ? 'No saves have been kept yet.' : 'Past saves of the workspace are kept when the server is connected to Neo4j.'}</p>
         ) : (
@@ -111,7 +111,7 @@ export default function ActivityPage() {
               {revs.slice(0, 20).map((r) => (
                 <tr key={r.rev}>
                   <Td className="whitespace-nowrap text-nb-400">{stamp(r.at)}</Td>
-                  <Td className="font-medium text-white">{r.by}</Td>
+                  <Td className="font-medium text-nb-300">{r.by}</Td>
                   <Td className="tabular-nums">{r.rev}</Td>
                   <Td className="tabular-nums text-nb-400">{(r.bytes / 1024).toFixed(1)} KB</Td>
                   <Td />

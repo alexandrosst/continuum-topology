@@ -6,7 +6,7 @@ import { useWorkspace } from '@/store/workspace'
 const when = (iso?: string) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '')
 
 function Banner({ tone, children }: { tone: 'red' | 'amber' | 'neutral'; children: React.ReactNode }) {
-  const c = tone === 'red' ? 'border-red-500/30 bg-red-500/10 text-red-200' : tone === 'amber' ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-nb-800 bg-nb-925 text-nb-300'
+  const c = tone === 'red' ? 'border-bad/30 bg-bad/10 text-bad' : tone === 'amber' ? 'border-warn/30 bg-warn/10 text-warn' : 'border-nb-800 bg-nb-925 text-nb-300'
   return (
     <div role="alert" className={`flex flex-wrap items-center justify-between gap-3 border-b px-6 py-2.5 text-sm ${c}`}>
       {children}
@@ -48,7 +48,7 @@ export default function SyncNotices() {
             <Button size="sm" disabled={busy} onClick={() => run(useTheirs, 'Could not load their version.')}>Load theirs (discard mine)</Button>
             <Button size="sm" variant="danger" disabled={busy} onClick={() => run(overwrite, 'Could not overwrite their version.')}>Keep mine (overwrite theirs)</Button>
           </span>
-          {failed && <span className="w-full text-xs text-red-300">{failed}</span>}
+          {failed && <span className="w-full text-xs text-bad">{failed}</span>}
         </Banner>
       )}
       {note && (
@@ -79,7 +79,7 @@ export default function SyncNotices() {
             {local.clusters} clusters, {local.nodes} nodes, {local.services} services, {local.devices} devices, {local.applications} applications. Uploading makes it the shared workspace everyone signs in to. Starting empty removes it from this browser.
           </p>
         )}
-        {failed && <p className="mt-3 text-sm text-red-300" role="alert">{failed}</p>}
+        {failed && <p className="mt-3 text-sm text-bad" role="alert">{failed}</p>}
       </Modal>
     </>
   )

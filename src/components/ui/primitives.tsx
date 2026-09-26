@@ -42,7 +42,7 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
         setTimeout(() => setDone(false), 1500)
       }}
     >
-      {done ? <Check size={12} className="fade-in text-emerald-400" /> : <Copy size={12} />} {done ? 'Copied' : label}
+      {done ? <Check size={12} className="fade-in text-ok" /> : <Copy size={12} />} {done ? 'Copied' : label}
     </Button>
   )
 }
@@ -234,7 +234,7 @@ export function Select({ className, children, value, defaultValue, onChange, dis
                 onClick={() => choose(o)}
                 className={clsx(
                   'flex cursor-pointer items-center justify-between gap-2 rounded px-2.5 py-1.5 text-sm',
-                  o.disabled ? 'cursor-not-allowed text-nb-700' : i === active ? 'bg-nb-940 text-white' : 'text-nb-300',
+                  o.disabled ? 'cursor-not-allowed text-nb-700' : i === active ? 'bg-nb-940 text-nb-300' : 'text-nb-300',
                 )}
               >
                 <span className="truncate">{o.label || '—'}</span>
@@ -273,7 +273,7 @@ export function Field({ label, hint, children, className, adornment }: { label: 
  */
 export function SavedNote({ children, tone = 'ok', className, ...p }: ComponentProps<'span'> & { tone?: 'ok' | 'error' }) {
   return (
-    <span {...p} role="status" className={clsx('fade-in text-sm', tone === 'ok' ? 'text-emerald-300' : 'text-red-400', className)}>
+    <span {...p} role="status" className={clsx('fade-in text-sm', tone === 'ok' ? 'text-ok' : 'text-bad', className)}>
       {children}
     </span>
   )
@@ -284,7 +284,7 @@ export function SavedNote({ children, tone = 'ok', className, ...p }: ComponentP
  * hand-writing the same border/background/text classes again. */
 export function ErrorBanner({ children, className, ...p }: ComponentProps<'p'>) {
   return (
-    <p role="alert" {...p} className={clsx('rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300', className)}>
+    <p role="alert" {...p} className={clsx('rounded-md border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad', className)}>
       {children}
     </p>
   )
@@ -361,7 +361,7 @@ export function SourceBadge({ source, overridden, stacked }: { source: Source; o
   return (
     <span className={clsx('inline-flex items-center gap-1 align-middle', stacked ? 'mt-1' : 'ml-2')}>
       {source !== 'manual' && (
-        <span className="rounded border border-sky-400/30 bg-sky-400/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-sky-300">{label}</span>
+        <span className="rounded border border-info/30 bg-info/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-info">{label}</span>
       )}
       {overridden && (
         <span
@@ -402,7 +402,7 @@ export function ObservationChip({ info, className, quiet }: { info: ObsInfo | un
   if (quiet && info.kind === 'live') {
     return (
       <span title="Live: connected and heard from recently." data-observation="live" role="img" aria-label="live" className={clsx('inline-block align-middle rounded-full', flash && 'flash-ring')}>
-        <PulseDot color="bg-emerald-400" pulse size="size-1.5" className={className} />
+        <PulseDot color="bg-ok" pulse size="size-1.5" className={className} />
       </span>
     )
   }
@@ -413,7 +413,7 @@ export function ObservationChip({ info, className, quiet }: { info: ObsInfo | un
       className={clsx('inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-px text-[11px] font-medium leading-4', TONE_CLASS[info.tone], flash && 'flash-bg', className)}
     >
       <PulseDot
-        color={info.kind === 'live' ? 'bg-emerald-400' : info.kind === 'gone' ? 'bg-nb-500' : info.kind === 'revoked' ? 'bg-red-400' : 'bg-amber-400'}
+        color={info.kind === 'live' ? 'bg-ok' : info.kind === 'gone' ? 'bg-nb-500' : info.kind === 'revoked' ? 'bg-bad' : 'bg-warn'}
         pulse={info.kind === 'live'}
         size="size-1.5"
       />
@@ -453,7 +453,7 @@ export function CompletenessBadge({ c, compact }: { c: CompletenessInfo; compact
   // A tick for what is known and a dash for what is not, so the column reads as a checklist.
   const item = (on: boolean, text: string) => (
     <span className={clsx('inline-flex items-center gap-1', on ? 'text-nb-300' : 'text-nb-600')}>
-      {on ? <Check size={11} className="text-emerald-400" aria-hidden /> : <Minus size={11} aria-hidden />}
+      {on ? <Check size={11} className="text-ok" aria-hidden /> : <Minus size={11} aria-hidden />}
       {text}
       <span className="sr-only">{on ? ' known' : ' not known'}</span>
     </span>
@@ -474,7 +474,7 @@ export function Trait({ icon, children, title, warn }: { icon: ReactNode; childr
       title={title}
       className={clsx(
         'inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-px text-[11px] leading-4',
-        warn ? 'border-amber-400/30 bg-amber-400/10 text-amber-300' : 'border-nb-800 bg-nb-930 text-nb-400',
+        warn ? 'border-warn/30 bg-warn/10 text-warn' : 'border-nb-800 bg-nb-930 text-nb-400',
       )}
     >
       {icon}
@@ -488,7 +488,7 @@ export function IpAddress({ ip, inline }: { ip?: string; inline?: boolean }) {
   if (!ip) return <span className="text-nb-700">—</span>
   const scope = ipScope(ip)
   const label = ipScopeLabel(scope)
-  const tone = scope === 'public' ? 'text-amber-300' : 'text-nb-500'
+  const tone = scope === 'public' ? 'text-warn' : 'text-nb-500'
   return (
     <span className={clsx('whitespace-nowrap', inline ? 'inline-flex items-baseline gap-2' : 'inline-flex flex-col')}>
       <span className="font-mono text-xs text-nb-300">{ip}</span>
@@ -621,7 +621,7 @@ export function Modal({
       >
         <div className="flex items-start justify-between gap-4 border-b border-nb-850 px-6 py-4">
           <div>
-            <h2 className="text-base font-medium text-white">{title}</h2>
+            <h2 className="text-base font-medium text-nb-300">{title}</h2>
             {description && <p className="mt-1 text-sm text-nb-500">{description}</p>}
           </div>
           {dismissible && (
@@ -643,7 +643,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-medium text-white">{title}</h1>
+        <h1 className="text-2xl font-medium text-nb-300">{title}</h1>
         {description && <p className="mt-1 max-w-2xl text-sm text-nb-500">{description}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
@@ -654,7 +654,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
 export function EmptyState({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
   return (
     <div className="flex flex-col items-center rounded-xl border border-dashed border-nb-850 px-6 py-14 text-center">
-      <h3 className="text-base font-medium text-white">{title}</h3>
+      <h3 className="text-base font-medium text-nb-300">{title}</h3>
       <p className="mt-1 max-w-md text-sm text-nb-500">{description}</p>
       {action && <div className="mt-5">{action}</div>}
     </div>
@@ -746,7 +746,7 @@ export function PageSkeleton() {
  * The number comes first and the unit is quieter, so a column of them reads at a glance.
  */
 export function Meter({ value, unit, pct, title }: { value: string; unit?: string; pct?: number; title?: string }) {
-  const color = pct === undefined ? '' : { ok: 'bg-emerald-400', warn: 'bg-amber-400', hot: 'bg-red-400' }[loadBand(pct)]
+  const color = pct === undefined ? '' : { ok: 'bg-ok', warn: 'bg-warn', hot: 'bg-bad' }[loadBand(pct)]
   // A refreshed reading fades the new number in rather than popping over the old one; the bar itself just
   // transitions its width/color in CSS (meter-bar), no JS tweening needed for that part.
   const flash = useFlash(value)

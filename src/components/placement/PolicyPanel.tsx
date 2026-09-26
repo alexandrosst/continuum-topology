@@ -20,8 +20,8 @@ export default function PolicyPanel() {
   return (
     <details className="group rounded-xl border border-nb-850 bg-nb-925" data-testid="policy">
       <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-3 text-sm text-nb-300">
-        <span className="font-medium text-white">Policy: how the advice is weighed</span>
-        {changed && <span className="rounded-md bg-amber-400/10 px-2 py-0.5 text-xs text-amber-300">changed from the defaults</span>}
+        <span className="font-medium text-nb-300">Policy: how the advice is weighed</span>
+        {changed && <span className="rounded-md bg-warn/10 px-2 py-0.5 text-xs text-warn">changed from the defaults</span>}
         <span className="ml-auto text-xs text-nb-500 group-open:hidden">Show</span>
       </summary>
       <div className="border-t border-nb-850 px-5 py-4">

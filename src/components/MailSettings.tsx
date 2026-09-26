@@ -51,7 +51,7 @@ export default function MailSettings({ conn }: { conn: Conn }) {
   if (loading || !cfg) {
     return (
       <section id="email" className="mb-8 scroll-mt-6">
-        <h2 className="mb-1 text-sm font-medium text-white">Email (SMTP)</h2>
+        <h2 className="mb-1 text-sm font-medium text-nb-300">Email (SMTP)</h2>
         <p className="text-sm text-nb-500">{error || 'Loading…'}</p>
       </section>
     )
@@ -84,7 +84,7 @@ export default function MailSettings({ conn }: { conn: Conn }) {
 
   return (
     <section id="email" className="mb-8 scroll-mt-6">
-      <h2 className="mb-1 text-sm font-medium text-white">Email (SMTP)</h2>
+      <h2 className="mb-1 text-sm font-medium text-nb-300">Email (SMTP)</h2>
       <p className="mb-3 max-w-2xl text-sm text-nb-500">
         Used for a sign-in code and address verification - nothing else is ever sent. Only owners of the default organisation can see or change this; leave the host empty to switch email off entirely.
       </p>
@@ -94,13 +94,13 @@ export default function MailSettings({ conn }: { conn: Conn }) {
             <Input value={host} onChange={(e) => { setSaved(false); setHost(e.target.value) }} placeholder="smtp.example.com" data-testid="mail-host" />
           </Field>
           <Field label="Port" hint={badPort ? 'A number between 1 and 65535.' : 'Usually 587 (STARTTLS) or 465.'}>
-            <Input value={port} onChange={(e) => { setSaved(false); setPort(e.target.value) }} placeholder="587" className={clsx('w-28', badPort && 'border-red-400/60')} data-testid="mail-port" />
+            <Input value={port} onChange={(e) => { setSaved(false); setPort(e.target.value) }} placeholder="587" className={clsx('w-28', badPort && 'border-bad/60')} data-testid="mail-port" />
           </Field>
           <Field label="Username" hint="Leave empty for a relay that needs no authentication.">
             <Input value={username} onChange={(e) => { setSaved(false); setUsername(e.target.value) }} data-testid="mail-username" />
           </Field>
           <Field label="From address" hint={badFrom ? 'Looks incomplete.' : 'What recipients see the code arrive from.'}>
-            <Input value={from} onChange={(e) => { setSaved(false); setFrom(e.target.value) }} placeholder="continuum@example.com" className={clsx(badFrom && 'border-red-400/60')} data-testid="mail-from" />
+            <Input value={from} onChange={(e) => { setSaved(false); setFrom(e.target.value) }} placeholder="continuum@example.com" className={clsx(badFrom && 'border-bad/60')} data-testid="mail-from" />
           </Field>
         </div>
 
@@ -120,7 +120,7 @@ export default function MailSettings({ conn }: { conn: Conn }) {
               <Button size="sm" type="button" onClick={() => { setPassword(''); setEditingPassword(false) }}>Cancel</Button>
             </div>
           ) : clearPassword ? (
-            <p className="flex flex-wrap items-center gap-2 text-sm text-amber-200/90">
+            <p className="flex flex-wrap items-center gap-2 text-sm text-warn/90">
               Removing the password on save.
               <button type="button" className="text-xs text-accent hover:underline" onClick={() => setClearPassword(false)}>Undo</button>
             </p>
@@ -140,7 +140,7 @@ export default function MailSettings({ conn }: { conn: Conn }) {
         </div>
 
         {error && (
-          <p className="mt-3 text-sm text-red-300" role="alert">
+          <p className="mt-3 text-sm text-bad" role="alert">
             <CircleAlert size={13} className="mr-1 inline" aria-hidden />
             {error}
           </p>

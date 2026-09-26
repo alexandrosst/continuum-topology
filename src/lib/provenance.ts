@@ -81,9 +81,9 @@ export type Tone = 'ok' | 'warn' | 'bad' | 'muted'
  * emerald/amber/red shades again - map your enum to a `Tone` (see `VERDICT_TONE` in lib/movability.ts for the
  * pattern), then look up its classes here. */
 export const TONE_CLASS: Record<Tone, string> = {
-  ok: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
-  warn: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
-  bad: 'border-red-400/30 bg-red-400/10 text-red-300',
+  ok: 'border-ok/30 bg-ok/10 text-ok',
+  warn: 'border-warn/30 bg-warn/10 text-warn',
+  bad: 'border-bad/30 bg-bad/10 text-bad',
   muted: 'border-nb-700 bg-nb-930 text-nb-400',
 }
 

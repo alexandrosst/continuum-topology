@@ -58,13 +58,13 @@ export default function SitesPage() {
           <tbody>
             {rows.map((s) => (
               <tr key={s.id} className="group hover:bg-nb-930/60">
-                <Td className="font-medium text-white">{s.name}</Td>
+                <Td className="font-medium text-nb-300">{s.name}</Td>
                 <Td><Pill>{kindLabel(s.kind)}</Pill></Td>
                 <Td>
                   <Place site={s} />
                   <div className="whitespace-nowrap pl-[26px] font-mono text-xs text-nb-500">{s.lat.toFixed(2)}, {s.lng.toFixed(2)}</div>
                   {issues.has(s.id) && (
-                    <div className="mt-0.5 flex items-center gap-1 pl-[26px] text-xs text-amber-300" title={issues.get(s.id)}>
+                    <div className="mt-0.5 flex items-center gap-1 pl-[26px] text-xs text-warn" title={issues.get(s.id)}>
                       <AlertTriangle size={12} aria-hidden /> Country and coordinates disagree
                     </div>
                   )}

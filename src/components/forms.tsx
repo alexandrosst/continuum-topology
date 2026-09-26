@@ -860,7 +860,7 @@ export function SiteForm({ initial, onClose }: { initial: Site | null; onClose: 
             <ul className="mt-1 overflow-hidden rounded-md border border-nb-800 bg-nb-930" role="listbox" aria-label="Matching cities">
               {hits.map((c) => (
                 <li key={`${c.name}-${c.cc}-${c.lat}-${c.lng}`}>
-                  <button type="button" role="option" aria-selected={false} className="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-sm text-nb-300 hover:bg-nb-850 hover:text-white" onClick={() => pick(c)}>
+                  <button type="button" role="option" aria-selected={false} className="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-sm text-nb-300 hover:bg-nb-850 hover:text-nb-300" onClick={() => pick(c)}>
                     <span>{c.name}, <span className="text-nb-500">{countryName(c.cc)}</span></span>
                     <span className="text-xs text-nb-600">{c.pop >= 1000 ? `${Math.round(c.pop / 1000).toLocaleString()}k people` : ''}</span>
                   </button>
@@ -902,11 +902,11 @@ export function SiteForm({ initial, onClose }: { initial: Site | null; onClose: 
         <Field label="Trust zone">
           <TrustSelect value={f.trustZone} onChange={(v) => setF({ ...f, trustZone: v })} />
         </Field>
-        {!valid && <p className="col-span-2 text-xs text-red-300">Enter a latitude between -90 and 90 and a longitude between -180 and 180.</p>}
+        {!valid && <p className="col-span-2 text-xs text-bad">Enter a latitude between -90 and 90 and a longitude between -180 and 180.</p>}
         {here?.issue && (
-          <p className="col-span-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200" role="alert">
+          <p className="col-span-2 flex flex-wrap items-center gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" role="alert">
             {here.issue}
-            {here.cc && <button type="button" className="rounded border border-amber-400/40 px-1.5 py-0.5 hover:bg-amber-400/10" onClick={() => setF({ ...f, country: here.cc! })}>Set country to {countryName(here.cc)}</button>}
+            {here.cc && <button type="button" className="rounded border border-warn/40 px-1.5 py-0.5 hover:bg-warn/10" onClick={() => setF({ ...f, country: here.cc! })}>Set country to {countryName(here.cc)}</button>}
           </p>
         )}
         {here && !here.issue && (!f.country || !f.city) && (here.cc || here.near) && (

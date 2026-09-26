@@ -55,7 +55,7 @@ export default function PlacementPage() {
       />
 
       {shownAt && (
-        <p className="mb-4 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-200" role="status">
+        <p className="mb-4 flex items-start gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-sm text-warn" role="status">
           <Info size={15} className="mt-0.5 shrink-0" aria-hidden />
           You are looking at the estate as it was {ageOf(shownAt)}. The advice below is computed for that moment, which is useful for asking “what would I have been told then?”, not for deciding today.
         </p>
@@ -76,7 +76,7 @@ export default function PlacementPage() {
               }
               setParams(next, { replace: true })
             }}
-            className={clsx('-mb-px border-b-2 px-4 py-2 text-sm transition-colors', tab === t.id ? 'border-accent text-white' : 'border-transparent text-nb-400 hover:text-white')}
+            className={clsx('-mb-px border-b-2 px-4 py-2 text-sm transition-colors', tab === t.id ? 'border-accent text-nb-300' : 'border-transparent text-nb-400 hover:text-nb-300')}
             data-testid={`tab-${t.id}`}
           >
             {t.label}
@@ -117,7 +117,7 @@ export default function PlacementPage() {
                           <Stat label="One-off data copying" value={`${pts(plan.recommendations.reduce((n, r) => n + r.target.migrationCost, 0))}`} sub="points, already subtracted" />
                         </div>
                         {all.warnings.length > 0 && (
-                          <ul className="mt-3 space-y-1 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-xs text-amber-200/90">
+                          <ul className="mt-3 space-y-1 rounded-lg border border-warn/20 bg-warn/5 px-3 py-2 text-xs text-warn/90">
                             {all.warnings.map((x) => (
                               <li key={x}>{x}</li>
                             ))}
@@ -143,7 +143,7 @@ export default function PlacementPage() {
                         <summary className="cursor-pointer text-nb-300">{plan.skipped.length} cannot be moved</summary>
                         <ul className="mt-2 space-y-1 text-nb-400">
                           {plan.skipped.map((s) => (
-                            <li key={s.serviceId}><span className="text-white">{s.serviceName}</span> — {s.why}</li>
+                            <li key={s.serviceId}><span className="text-nb-300">{s.serviceName}</span> — {s.why}</li>
                           ))}
                         </ul>
                       </details>
@@ -170,7 +170,7 @@ function Stat({ label, value, sub, good }: { label: string; value: string; sub?:
   return (
     <div>
       <div className="text-xs text-nb-500">{label}</div>
-      <div className={clsx('text-2xl font-medium tabular-nums', good ? 'text-emerald-300' : 'text-white')}>{value}</div>
+      <div className={clsx('text-2xl font-medium tabular-nums', good ? 'text-ok' : 'text-nb-300')}>{value}</div>
       {sub && <div className="text-xs tabular-nums text-nb-500">{sub}</div>}
     </div>
   )

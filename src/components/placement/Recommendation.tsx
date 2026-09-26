@@ -20,18 +20,18 @@ export default function RecommendationCard({ r, world }: { r: Recommendation; wo
   const sensitivity = (r.target.advice?.dims ?? []).map(sensitivityText).filter((t) => t !== '')
   return (
     <article
-      className={clsx('rounded-xl border bg-nb-925 p-5', hedged ? 'border-dashed border-amber-400/40' : 'border-nb-850')}
+      className={clsx('rounded-xl border bg-nb-925 p-5', hedged ? 'border-dashed border-warn/40' : 'border-nb-850')}
       data-testid="recommendation"
       data-service={r.serviceId}
       data-confidence={r.confidence}
       data-fit={r.fit}
     >
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h3 className="text-base font-medium text-white">{r.serviceName}</h3>
+        <h3 className="text-base font-medium text-nb-300">{r.serviceName}</h3>
         <span className="flex items-center gap-2 text-sm text-nb-400">
           {from?.name ?? r.from} {from && <TierBadge tier={from.tier} />}
           <ArrowRight size={14} aria-hidden />
-          <span className="text-white">{to?.name ?? r.to}</span> {to && <TierBadge tier={to.tier} />}
+          <span className="text-nb-300">{to?.name ?? r.to}</span> {to && <TierBadge tier={to.tier} />}
         </span>
         <span className="ml-auto flex flex-wrap items-center gap-2">
           <Verdict v={r.verdict} />
@@ -58,7 +58,7 @@ export default function RecommendationCard({ r, world }: { r: Recommendation; wo
         {r.reasons.length === 0 && <li className="text-nb-500">The combined effect of several small differences.</li>}
       </ul>
       {r.caveats.length > 0 && (
-        <ul className="mt-3 space-y-1 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-xs text-amber-200/90">
+        <ul className="mt-3 space-y-1 rounded-lg border border-warn/20 bg-warn/5 px-3 py-2 text-xs text-warn/90">
           {r.caveats.map((x) => (
             <li key={x}>{x}</li>
           ))}
@@ -66,11 +66,11 @@ export default function RecommendationCard({ r, world }: { r: Recommendation; wo
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
-        <button onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1 text-nb-400 hover:text-white" aria-expanded={open}>
+        <button onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1 text-nb-400 hover:text-nb-300" aria-expanded={open}>
           {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Evidence ({r.current.edges.length} connection{r.current.edges.length === 1 ? '' : 's'})
         </button>
         <Link to={`/placement?tab=whatif&service=${encodeURIComponent(r.serviceId)}&to=${encodeURIComponent(r.to)}`} className="text-accent hover:underline">Try it in what-if</Link>
-        <Link to={`/topology?sel=service:${encodeURIComponent(r.serviceId)}`} className="text-nb-400 hover:text-white hover:underline">Open the service</Link>
+        <Link to={`/topology?sel=service:${encodeURIComponent(r.serviceId)}`} className="text-nb-400 hover:text-nb-300 hover:underline">Open the service</Link>
         {r.alternatives.length > 0 && (
           <span className="text-nb-500">
             Other options: {r.alternatives.map((a) => `${world.byCluster.get(a.clusterId)?.name ?? a.clusterId} (${pts(r.current.cost - a.cost)})`).join(', ')}

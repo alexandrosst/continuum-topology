@@ -79,7 +79,7 @@ export default function NodesPage() {
               return (
               <tr key={n.id} className="group hover:bg-nb-930/60">
                 <Td>
-                  <div className="flex items-center gap-2 whitespace-nowrap font-medium text-white">
+                  <div className="flex items-center gap-2 whitespace-nowrap font-medium text-nb-300">
                     <span className="shrink-0">
                       <StatusDot status={n.status} notCurrent={obs && obs.kind !== 'live' ? (obs.reason ?? obs.label) : undefined} />
                     </span>
@@ -89,7 +89,7 @@ export default function NodesPage() {
                     {n.source === 'manual' && <DeclaredMark />}
                     {n.status !== 'healthy' && <span className="text-xs font-normal capitalize text-nb-400">{obs && obs.kind !== 'live' ? `was ${n.status}` : n.status}</span>}
                     {n.conditions && n.conditions.length > 0 && (
-                      <span className="inline-flex text-amber-300" title={`Active conditions: ${n.conditions.join(', ')}`}>
+                      <span className="inline-flex text-warn" title={`Active conditions: ${n.conditions.join(', ')}`}>
                         <AlertTriangle size={14} aria-label={n.conditions.join(', ')} />
                       </span>
                     )}
@@ -133,7 +133,7 @@ export default function NodesPage() {
                   <div>{(() => { const c = services.filter((w) => w.nodeIds.includes(n.id)).length; return <>{c} <span className="text-nb-500">{c === 1 ? 'service' : 'services'}</span></> })()}</div>
                   {n.podCount !== undefined && (
                     <div
-                      className={(podsPercent(n.podCount, n.podCapacity) ?? 0) >= 90 ? 'text-xs text-red-300' : 'text-xs text-nb-500'}
+                      className={(podsPercent(n.podCount, n.podCapacity) ?? 0) >= 90 ? 'text-xs text-bad' : 'text-xs text-nb-500'}
                       title={n.podCapacity ? `${n.podCount} pods placed of the ${n.podCapacity} the kubelet will run` : `${n.podCount} pods placed`}
                     >
                       {podsLabel(n.podCount, n.podCapacity)} pods

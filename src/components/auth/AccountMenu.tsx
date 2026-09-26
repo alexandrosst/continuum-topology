@@ -13,13 +13,13 @@ import { useWorkspace, type SyncStatus } from '@/store/workspace'
 const SYNC_LABEL: Record<SyncStatus, { text: string; tone: string }> = {
   off: { text: '', tone: '' },
   loading: { text: 'Loading workspace…', tone: 'text-nb-500' },
-  saved: { text: 'All changes saved', tone: 'text-emerald-300' },
-  dirty: { text: 'Unsaved changes…', tone: 'text-amber-300' },
+  saved: { text: 'All changes saved', tone: 'text-ok' },
+  dirty: { text: 'Unsaved changes…', tone: 'text-warn' },
   saving: { text: 'Saving…', tone: 'text-nb-400' },
-  conflict: { text: 'Changed elsewhere', tone: 'text-red-300' },
-  error: { text: 'Could not save. Retrying…', tone: 'text-red-300' },
+  conflict: { text: 'Changed elsewhere', tone: 'text-bad' },
+  error: { text: 'Could not save. Retrying…', tone: 'text-bad' },
   readonly: { text: 'Read-only access', tone: 'text-nb-400' },
-  choose: { text: 'Waiting for your choice', tone: 'text-amber-300' },
+  choose: { text: 'Waiting for your choice', tone: 'text-warn' },
 }
 
 /** A scannable QR code for an otpauth:// (or any) URI, generated entirely client-side - no image request
@@ -81,7 +81,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
       }
     >
       {done ? (
-        <p className="text-sm text-emerald-300">Password changed. Your other browsers were signed out.</p>
+        <p className="text-sm text-ok">Password changed. Your other browsers were signed out.</p>
       ) : (
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (!bad) void submit() }}>
           <Field label="Current password"><PasswordInput value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" autoFocus /></Field>
@@ -179,7 +179,7 @@ function TwoFactorSetupModal({ onClose }: { onClose: () => void }) {
       )}
       {step === 'recovery' && (
         <div className="space-y-4">
-          <p className="text-sm text-emerald-300">Two-factor authentication is on.</p>
+          <p className="text-sm text-ok">Two-factor authentication is on.</p>
           <p className="text-sm text-nb-400">
             Save these recovery codes somewhere safe. Each works once, in place of a code from your app, if you ever lose access to it. They will not be shown again.
           </p>
@@ -332,7 +332,7 @@ function EmailSetupModal({ onClose }: { onClose: () => void }) {
           {error && <ErrorBanner>{error}</ErrorBanner>}
         </form>
       )}
-      {step === 'done' && <p className="text-sm text-emerald-300">Email codes are on. Signing in will now offer a code sent to {confirmedAddress}.</p>}
+      {step === 'done' && <p className="text-sm text-ok">Email codes are on. Signing in will now offer a code sent to {confirmedAddress}.</p>}
     </Modal>
   )
 }
@@ -530,7 +530,7 @@ function TwoFactorMethodRow({
         <span className="mt-0.5 shrink-0 text-nb-500" aria-hidden>{icon}</span>
         <div className="min-w-0">
           <div className="text-sm font-medium text-nb-200">{title}</div>
-          <div className={`text-xs ${on ? 'text-emerald-300' : 'text-nb-500'}`}>{status}</div>
+          <div className={`text-xs ${on ? 'text-ok' : 'text-nb-500'}`}>{status}</div>
           {note && <div className="mt-1 text-xs text-nb-500">{note}</div>}
         </div>
       </div>
@@ -710,7 +710,7 @@ export default function AccountMenu() {
   }, [open])
   if (status !== 'connected' || !user) return null
   const label = SYNC_LABEL[sync]
-  const item = 'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-nb-300 hover:bg-nb-940 hover:text-white'
+  const item = 'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-nb-300 hover:bg-nb-940'
   const twoFactorMethodsOn = [user.twoFactorEnabled, user.emailOtpEnabled, user.passkeys.length > 0].filter(Boolean).length
   const showTwoFactorNudge = twoFactorMethodsOn === 0 && !nudgeDismissed
   const dismissTwoFactorNudge = () => {
@@ -725,13 +725,13 @@ export default function AccountMenu() {
   return (
     <div className="relative mb-2" data-testid="account">
       {showTwoFactorNudge && (
-        <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 p-2.5 text-xs text-amber-100" data-testid="two-factor-nudge">
-          <ShieldCheck size={14} className="mt-0.5 shrink-0 text-amber-300" aria-hidden />
+        <div className="mb-2 flex items-start gap-2 rounded-lg border border-warn/30 bg-warn-soft p-2.5 text-xs text-nb-300" data-testid="two-factor-nudge">
+          <ShieldCheck size={14} className="mt-0.5 shrink-0 text-warn" aria-hidden />
           <p className="flex-1">
             Add a second sign-in step so a leaked password alone can't get in.{' '}
-            <button type="button" className="font-medium underline hover:text-white" onClick={() => setHub(true)} data-testid="two-factor-nudge-setup">Set up now</button>
+            <button type="button" className="font-medium underline hover:text-warn" onClick={() => setHub(true)} data-testid="two-factor-nudge-setup">Set up now</button>
           </p>
-          <button type="button" aria-label="Dismiss" className="shrink-0 text-amber-200/70 hover:text-white" onClick={dismissTwoFactorNudge} data-testid="two-factor-nudge-dismiss">
+          <button type="button" aria-label="Dismiss" className="shrink-0 text-warn/70 hover:text-warn" onClick={dismissTwoFactorNudge} data-testid="two-factor-nudge-dismiss">
             <X size={14} />
           </button>
         </div>
@@ -779,7 +779,7 @@ export default function AccountMenu() {
                   role="radio"
                   aria-checked={theme === value}
                   onClick={() => { setThemePreference(value); setTheme(value) }}
-                  className={`flex flex-1 flex-col items-center gap-1 rounded-md border py-1.5 text-xs ${theme === value ? 'border-accent/60 bg-accent-soft text-white' : 'border-nb-850 text-nb-500 hover:bg-nb-940 hover:text-nb-300'}`}
+                  className={`flex flex-1 flex-col items-center gap-1 rounded-md border py-1.5 text-xs ${theme === value ? 'border-accent/60 bg-accent-soft text-nb-300' : 'border-nb-850 text-nb-500 hover:bg-nb-940 hover:text-nb-300'}`}
                   data-testid={`theme-${value}`}
                 >
                   <Icon size={14} />
@@ -804,7 +804,7 @@ export default function AccountMenu() {
         >
           <span className="grid size-8 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold uppercase text-accent" aria-hidden>{user.username.slice(0, 1)}</span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium text-white" data-testid="account-name">{user.username}</span>
+            <span className="block truncate text-sm font-medium text-nb-300" data-testid="account-name">{user.username}</span>
             <span className="block text-[11px] text-nb-500" data-testid="account-role">{role ? ROLE_LABEL[role] : 'No organisation'}</span>
           </span>
           <ChevronsUpDown size={14} className="shrink-0 text-nb-500" aria-hidden />

@@ -278,7 +278,7 @@ function Canvas() {
     <div className="flex h-full min-h-0 flex-col">
       {/* Toolbar */}
       <div className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-nb-850 bg-nb-920 px-4 py-2 sm:px-5">
-        <h1 className="text-base font-medium text-white">Topology</h1>
+        <h1 className="text-base font-medium text-nb-300">Topology</h1>
         <div className="flex rounded-lg border border-nb-800 bg-nb-925 p-0.5" role="tablist" aria-label="View">
           {VIEWS.map((v) => (
             <button
@@ -293,7 +293,7 @@ function Canvas() {
               className={clsx(
                 'rounded-md px-3.5 py-1.5 text-sm',
                 PRESS_CLASS,
-                mode === v.value ? 'bg-nb-850 text-white' : 'text-nb-400 hover:text-nb-300',
+                mode === v.value ? 'bg-nb-850 text-nb-300' : 'text-nb-400 hover:text-nb-300',
               )}
             >
               {v.label}
@@ -439,7 +439,7 @@ function Canvas() {
               {started && !started.dismissed ? (
                 <div className="flex w-full flex-col items-center gap-5 py-4" data-testid="empty-topology">
                   <div className="text-center">
-                    <h2 className="text-base font-medium text-white">Your topology is empty</h2>
+                    <h2 className="text-base font-medium text-nb-300">Your topology is empty</h2>
                     <p className="mx-auto mt-1 max-w-md text-sm text-nb-500">Nothing is connected yet. These steps take a cluster from nothing to live; Continuum then discovers its nodes, services and traffic itself.</p>
                   </div>
                   <GettingStarted variant="hero" checklist={started.checklist} onConnect={connect.start} />

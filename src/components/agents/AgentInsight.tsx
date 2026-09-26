@@ -28,14 +28,14 @@ import type { Agent, AccessTier } from '@/lib/types'
 import { useServer } from '@/store/server'
 
 const SEVERITY_STYLE: Record<Severity, { chip: string; icon: typeof Info; label: string }> = {
-  error: { chip: 'border-red-400/30 bg-red-400/10 text-red-300', icon: AlertCircle, label: 'Error' },
-  warn: { chip: 'border-amber-400/30 bg-amber-400/10 text-amber-300', icon: AlertTriangle, label: 'Warning' },
+  error: { chip: 'border-bad/30 bg-bad/10 text-bad', icon: AlertCircle, label: 'Error' },
+  warn: { chip: 'border-warn/30 bg-warn/10 text-warn', icon: AlertTriangle, label: 'Warning' },
   info: { chip: 'border-nb-700 bg-nb-930 text-nb-400', icon: Info, label: 'Notice' },
 }
 
 const LEVEL_STYLE: Record<HealthSummary['level'], string> = {
   unknown: 'border-nb-700 bg-nb-930 text-nb-400',
-  healthy: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
+  healthy: 'border-ok/30 bg-ok/10 text-ok',
   warn: SEVERITY_STYLE.warn.chip,
   error: SEVERITY_STYLE.error.chip,
 }
@@ -62,7 +62,7 @@ export function DiscoveryChip({ diagnostics }: { diagnostics?: AgentDiagnostics 
   if (s.state === 'done') {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-px text-[11px] font-medium text-emerald-300"
+        className="inline-flex items-center gap-1 rounded-full border border-ok/30 bg-ok/10 px-2 py-px text-[11px] font-medium text-ok"
         data-testid="discovery-chip"
         data-state="done"
         title={`Every watch this agent runs (${s.total}) has completed its first full read of the cluster.`}
@@ -106,7 +106,7 @@ export function Problems({ problems }: { problems: AgentProblem[] }) {
   )
 }
 
-const TONE: Record<string, string> = { ok: 'text-emerald-300', warn: 'text-amber-300', paused: 'text-sky-300', off: 'text-nb-500' }
+const TONE: Record<string, string> = { ok: 'text-ok', warn: 'text-warn', paused: 'text-info', off: 'text-nb-500' }
 
 /** "What this agent can see": the ceiling the install sets, what was approved, what it collects now, and how much of the cluster is in view. */
 export function CanSee({ agent, diagnostics: d }: { agent: Agent; diagnostics: AgentDiagnostics }) {
@@ -125,7 +125,7 @@ export function CanSee({ agent, diagnostics: d }: { agent: Agent; diagnostics: A
         size="sm"
         data-testid="can-see-tier"
       />
-      {note && <p className="mt-1 text-xs text-amber-300" data-testid="tier-note">{note}</p>}
+      {note && <p className="mt-1 text-xs text-warn" data-testid="tier-note">{note}</p>}
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
         <dt className="text-nb-500">Namespaces</dt>
         <dd className="text-nb-300" data-testid="scope-words">{scopeWords(d)}</dd>
@@ -133,7 +133,7 @@ export function CanSee({ agent, diagnostics: d }: { agent: Agent; diagnostics: A
         <dd className="text-nb-300">
           {d.informers.length === 0 ? 'none yet' : `${d.informers.filter((i) => i.synced).length} of ${d.informers.length} read`}
           {failing.map((i) => (
-            <span key={i.name} className="block break-words text-xs text-amber-300">{i.name}: {i.lastError || 'not read yet'}</span>
+            <span key={i.name} className="block break-words text-xs text-warn">{i.name}: {i.lastError || 'not read yet'}</span>
           ))}
         </dd>
         <dt className="text-nb-500">Agent</dt>
@@ -277,7 +277,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
         </div>
       )}
       {agent.hardenHelm && (
-        <div className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-nb-500" data-testid="harden-hint">
+        <div className="mt-2 rounded-md border border-warn/20 bg-warn/5 px-3 py-2 text-xs leading-relaxed text-nb-500" data-testid="harden-hint">
           Approved access here is narrower than what this install allows in the cluster. The agent already stopped reading and reporting at the wider tier, but that is a software-level change only: its <span className="text-nb-300">Kubernetes RBAC still grants the wider tier</span> until the cluster's owner runs this there too:
           <CopyCommand text={agent.hardenHelm} />
         </div>
@@ -320,7 +320,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
           <Input value={excl} onChange={(e) => { setExcl(e.target.value); setSaved(false) }} placeholder="e.g. payments, batch" aria-invalid={!valid} data-testid="exclude-input" />
         </Field>
         {!valid && (
-          <ul className="mt-1 text-xs text-red-300" role="alert" data-testid="exclude-problems">
+          <ul className="mt-1 text-xs text-bad" role="alert" data-testid="exclude-problems">
             {parsed.problems.map((p) => <li key={p}>{p}</li>)}
           </ul>
         )}
@@ -330,13 +330,13 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
         <Button variant="primary" size="sm" disabled={!dirty || !valid || busy} onClick={() => void save()} data-testid="consent-save">{busy ? 'Saving…' : 'Save'}</Button>
         {dirty && !busy && <button type="button" className="text-xs text-nb-500 hover:text-nb-300" onClick={() => { setTier(agent.accessTier); setPaused(stored.pausedCollectors); setExcl(stored.excludedNamespaces.join(', ')); setError(''); setHelm('') }}>Discard changes</button>}
         {saved && !dirty && !error && (
-          <span className={clsx('text-xs', confirmed ? 'text-emerald-300' : 'text-nb-400')} role="status" data-testid="consent-status">
+          <span className={clsx('text-xs', confirmed ? 'text-ok' : 'text-nb-400')} role="status" data-testid="consent-status">
             {confirmed ? 'Saved, and the agent confirms it is in force.' : 'Saved. The agent applies this within seconds; the state on the left updates when it does.'}
           </span>
         )}
       </div>
       {error && (
-        <div role="alert" className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300" data-testid="consent-error">
+        <div role="alert" className="mt-2 rounded-md border border-bad/30 bg-bad/10 px-3 py-2 text-xs text-bad" data-testid="consent-error">
           {error}
           {helm && <CopyCommand text={helm} />}
         </div>

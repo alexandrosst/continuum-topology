@@ -70,7 +70,7 @@ function Dialog({ onClose }: { onClose: () => void }) {
                 go(at)
               }
             }}
-            className="h-12 w-full bg-transparent text-sm text-white placeholder:text-nb-500 focus:outline-none"
+            className="h-12 w-full bg-transparent text-sm text-nb-300 placeholder:text-nb-500 focus:outline-none"
           />
           <kbd className="rounded border border-nb-800 px-1.5 py-0.5 text-[11px] text-nb-500">Esc</kbd>
         </div>

@@ -58,8 +58,8 @@ function AllHandles() {
 export const FAR_ZOOM = 0.62
 const useFar = () => useStore((s) => s.transform[2] < FAR_ZOOM)
 
-const TONE = { good: 'bg-emerald-400/10 text-emerald-300', warn: 'bg-amber-400/10 text-amber-300', bad: 'bg-red-400/10 text-red-300' } as const
-const MESH_TONE = { in: 'bg-emerald-400/10 text-emerald-300', control: 'bg-violet-400/10 text-violet-300', out: 'bg-nb-900 text-nb-400' } as const
+const TONE = { good: 'bg-ok/10 text-ok', warn: 'bg-warn/10 text-warn', bad: 'bg-bad/10 text-bad' } as const
+const MESH_TONE = { in: 'bg-ok/10 text-ok', control: 'bg-violet-400/10 text-violet-300', out: 'bg-nb-900 text-nb-400' } as const
 
 /* ---------- Cluster / tier boundary ---------- */
 export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<GroupNode>) {
@@ -81,9 +81,9 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
           <div className="flex items-center gap-2">
             <span className="size-2 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
             {data.distribution && <DistroIcon distribution={data.distribution} size={16} />}
-            <span className={clsx('truncate font-medium text-white', far ? 'text-[26px] leading-8' : 'text-sm')}>{data.title}</span>
+            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')}>{data.title}</span>
             {far && peak !== undefined && peak >= 70 && (
-              <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-red-400/15 text-red-300' : 'bg-amber-400/15 text-amber-300')} title="Busiest resource: share requested by pods">{peak}%</span>
+              <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
             )}
           </div>
           {!far && (
@@ -172,7 +172,7 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className={clsx('truncate font-medium text-white', far ? 'text-[21px]' : 'text-[13px]')}>{data.title}</span>
+            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[21px]' : 'text-[13px]')}>{data.title}</span>
           </div>
           {!far && <div className="truncate text-[11px] text-nb-500">{data.subtitle}</div>}
           {!far && isMachine && <div className="truncate text-[11px] text-nb-500">{data.meta}</div>}
@@ -180,7 +180,7 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <span className={clsx('rounded-full', far ? 'size-3' : 'size-2')} style={{ background: STATUS_COLOR[data.status] }} title={data.status} />
           {!far && !isMachine && <span className="text-[11px] text-nb-500">{data.meta}</span>}
-          {far && (data.hint || data.notReady) && <span className={clsx('size-2.5 rounded-sm', data.notReady ? 'bg-amber-400' : 'bg-accent')} title={data.notReady ?? `Better in ${data.hint}`} />}
+          {far && (data.hint || data.notReady) && <span className={clsx('size-2.5 rounded-sm', data.notReady ? 'bg-warn' : 'bg-accent')} title={data.notReady ?? `Better in ${data.hint}`} />}
         </div>
       </div>
       {!far && (data.hint || data.notReady || data.mesh) && (
@@ -190,7 +190,7 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
               <span className="truncate">{data.mesh.label}</span>
             </span>
           )}
-          {data.notReady && <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-amber-300" title="Fewer replicas are ready than wanted">{data.notReady}</span>}
+          {data.notReady && <span className="rounded bg-warn/10 px-1.5 py-0.5 text-warn" title="Fewer replicas are ready than wanted">{data.notReady}</span>}
           {data.hint && (
             <span className="inline-flex max-w-full items-center gap-1 truncate rounded bg-accent-soft px-1.5 py-0.5 text-accent" title={`The placement advice would move this to ${data.hint}. Open it for the evidence.`} data-testid="placement-hint">
               <ArrowUpRight size={10} className="shrink-0" aria-hidden />

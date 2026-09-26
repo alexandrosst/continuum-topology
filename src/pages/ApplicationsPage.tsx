@@ -56,7 +56,7 @@ export default function ApplicationsPage() {
               return (
                 <tr key={a.id} className="group hover:bg-nb-930/60">
                   <Td>
-                    <div className="font-medium text-white">{a.name}<SourceBadge source={a.source} overridden={hasOverrides(a)} /></div>
+                    <div className="font-medium text-nb-300">{a.name}<SourceBadge source={a.source} overridden={hasOverrides(a)} /></div>
                     {a.description && <div className="text-xs text-nb-500">{a.description}</div>}
                   </Td>
                   <Td>{mine.length}</Td>
