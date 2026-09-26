@@ -31,6 +31,7 @@ import { applyFilter, encodeList, filterActive, knownOnly, parseFilter } from '@
 import { buildGraph, cardId, groupId, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
+import { useAutoPlaceClusters } from '@/lib/usePlacement'
 import { usePlan } from '@/lib/placement/usePlacement'
 import { parseSel } from '@/lib/search'
 import { TIER_COLOR, TIERS, type GroupBy, type ViewKind } from '@/lib/types'
@@ -82,6 +83,9 @@ function Canvas() {
   const [sp, setSp] = useSearchParams()
   const connect = useConnectFlow()
   const started = useGettingStarted()
+  // The canvas is where a cluster's placement is actually seen, so it's a fair place to also resolve
+  // a missing one silently (see Layout.tsx's comment for why this no longer runs on every route).
+  useAutoPlaceClusters()
 
   const mode: Mode = sp.get('view') === 'infrastructure' ? 'infrastructure' : sp.get('view') === 'map' ? 'map' : 'application'
   const isMap = mode === 'map'
@@ -172,9 +176,18 @@ function Canvas() {
     return cardId(selection.id)
   }, [selection, groupBy])
 
-  // Re-sync when the model / plane changes (keeps selection highlight).
+  // Re-sync when the model / plane changes (keeps selection highlight). A node that was already on the
+  // canvas keeps the position it has there (a manual drag, or a prior layout pass) instead of jumping back
+  // to the graph's freshly computed one - which would otherwise happen on every poll, even one that changed
+  // nothing about this node, because `graph` gets a new identity whenever any upstream data is refreshed.
   useEffect(() => {
-    setNodes(graph.nodes.map((n) => ({ ...n, selected: n.id === selectedRfId })))
+    setNodes((prev) => {
+      const prevById = new Map(prev.map((n) => [n.id, n]))
+      return graph.nodes.map((n) => {
+        const old = prevById.get(n.id)
+        return { ...n, position: old ? old.position : n.position, selected: n.id === selectedRfId }
+      })
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, setNodes])
   useEffect(() => {

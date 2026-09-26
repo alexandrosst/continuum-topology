@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Select } from '@/components/ui/primitives'
 import { bytesPerSec } from '@/lib/observed'
 import { evacuate, isMovableKind, whatIf, type Evacuation } from '@/lib/placement/engine'
@@ -32,8 +32,17 @@ export default function WhatIf({ world, policy, initial }: { world: World; polic
   const [target, setTarget] = useState('')
   const [drain, setDrain] = useState('')
   const [evac, setEvac] = useState<Evacuation | null>(null)
+  // Seed the scenario from a deep link's preset move, but only when that move is actually a different
+  // one - not every time `initial` gets a fresh (but equivalent) array from the parent's memo, which
+  // happens on every placement recompute. Otherwise a scenario the person built by hand keeps getting
+  // stomped back down to just the one preset move.
+  const seededMoveKey = useRef<string | null>(null)
   useEffect(() => {
-    if (initial && initial.length) setMoves(initial)
+    if (!initial || !initial.length) return
+    const key = initial.map((m) => `${m.serviceId}:${m.to}`).join(',')
+    if (key === seededMoveKey.current) return
+    seededMoveKey.current = key
+    setMoves(initial)
   }, [initial])
 
   const movable = useMemo(() => world.services.filter(isMovableKind).sort((a, b) => a.name.localeCompare(b.name)), [world])

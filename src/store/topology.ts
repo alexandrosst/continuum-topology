@@ -380,6 +380,23 @@ export function useTopology(): RawState
 export function useTopology<T>(selector: (s: RawState) => T): T
 export function useTopology<T>(selector?: (s: RawState) => T) {
   const raw = useRawTopology()
+  // Subscribed individually (rather than depending on `raw` itself, which is a new object identity on
+  // every store write) so the memo below only recomputes when a field it actually reads has changed -
+  // not on every poll that reports back unchanged data. See lib/discovered.ts's mergeList/mergeDiscovered,
+  // which is what makes these fields keep their old identity when nothing in them changed.
+  const clusters = useRawTopology((s) => s.clusters)
+  const nodes = useRawTopology((s) => s.nodes)
+  const namespaces = useRawTopology((s) => s.namespaces)
+  const services = useRawTopology((s) => s.services)
+  const devices = useRawTopology((s) => s.devices)
+  const dependencies = useRawTopology((s) => s.dependencies)
+  const applications = useRawTopology((s) => s.applications)
+  const sites = useRawTopology((s) => s.sites)
+  const siteLinks = useRawTopology((s) => s.siteLinks)
+  const externalEndpoints = useRawTopology((s) => s.externalEndpoints)
+  const agents = useRawTopology((s) => s.agents)
+  const suggestions = useRawTopology((s) => s.suggestions)
+  const auditLog = useRawTopology((s) => s.auditLog)
   const liveDeps = useObserved((s) => s.dependencies)
   const liveExt = useObserved((s) => s.externalEndpoints)
   const past = useHistoryView((s) => s.snapshot)
@@ -388,7 +405,11 @@ export function useTopology<T>(selector?: (s: RawState) => T) {
     const e = { ...model, ...applyEffective(model) }
     const seen = past ? { dependencies: past.dependencies, externalEndpoints: past.externalEndpoints } : { dependencies: liveDeps, externalEndpoints: liveExt }
     return { ...e, ...withObserved(e, seen) }
-  }, [raw, liveDeps, liveExt, past])
+    // raw is read fresh above (always current for this render); it's deliberately left out of the
+    // deps below so unrelated store writes (e.g. a rename of an action, none exist here, or a future
+    // field) don't force a recompute - only the fields actually used do.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents, suggestions, auditLog, liveDeps, liveExt, past])
   return selector ? selector(eff) : eff
 }
 

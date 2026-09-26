@@ -29,8 +29,20 @@ export default function Deciders({ world, policy }: { world: World; policy: Poli
     () => (external ? [...BUILTIN_DECIDERS, externalDecider(settings.deciderName || 'External decider', (i) => api.decide(conn, i))] : BUILTIN_DECIDERS),
     [external, settings.deciderName, conn],
   )
-  // the picture or the policy changed, so an earlier comparison no longer describes it
-  useEffect(() => setResults(null), [world, policy, external])
+  // The picture or the policy changed, so an earlier comparison no longer describes it. Keyed on which
+  // clusters/services/agents actually exist rather than `world` itself, which gets a new identity on every
+  // placement recompute (including a plain data refresh that changed nothing) - keyed on `world` directly,
+  // this would throw away a just-computed comparison every time the page polls.
+  const worldKey = useMemo(
+    () =>
+      [
+        world.clusters.map((c) => c.id).sort().join(','),
+        world.services.map((s) => s.id).sort().join(','),
+        world.agents.map((a) => a.id).sort().join(','),
+      ].join('|'),
+    [world],
+  )
+  useEffect(() => setResults(null), [worldKey, policy, external])
 
   const run = async () => {
     setRunning(true)

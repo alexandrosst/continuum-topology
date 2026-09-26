@@ -2,7 +2,7 @@ import { geoContains, geoGraticule10, geoNaturalEarth1, geoPath } from 'd3-geo'
 import type { GeoPermissibleObjects } from 'd3-geo'
 import type { Feature, FeatureCollection, Geometry } from 'geojson'
 import { Home, Minus, Plus } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { feature } from 'topojson-client'
 import type { GeometryCollection, Topology } from 'topojson-specification'
@@ -65,9 +65,20 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
   const measured = usePaths()
   const [linkHover, setLinkHover] = useState<LinkHover | null>(null)
   const svg = useRef<SVGSVGElement>(null)
+  const [host, setHost] = useState<HTMLElement | null>(null)
+  // Tracks the <svg> node itself (for imperative reads like getScreenCTM/pointer capture) and, from the
+  // same callback, its parent element in state - HoverCard/LinkCard read that during render, and a ref
+  // read during render can be stale on the mounting frame.
+  const svgRef = useCallback((node: SVGSVGElement | null) => {
+    svg.current = node
+    setHost(node?.parentElement ?? null)
+  }, [])
   const [view, setView] = useState<View>({ k: 1, x: 0, y: 0 })
   const viewRef = useRef(view)
-  viewRef.current = view
+  // Written after render/commit rather than during render, so render stays a pure function of state.
+  useLayoutEffect(() => {
+    viewRef.current = view
+  }, [view])
   const [countries, setCountries] = useState<Countries | null>(null)
   const [detailed, setDetailed] = useState(false)
   const [connections, setConnections] = useState(true)
@@ -266,7 +277,7 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
   return (
     <div className="relative h-full w-full overflow-hidden bg-nb-910">
       <svg
-        ref={svg}
+        ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="xMidYMid meet"
         role="img"
@@ -462,8 +473,8 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
       )}
 
       {/* hover card */}
-      {hover && <HoverCard hover={hover} host={svg.current?.parentElement ?? null} load={(c) => clusterLoad(c, nodes, services)} />}
-      {linkHover && !hover && <LinkCard hover={linkHover} host={svg.current?.parentElement ?? null} names={siteName} />}
+      {hover && <HoverCard hover={hover} host={host} load={(c) => clusterLoad(c, nodes, services)} />}
+      {linkHover && !hover && <LinkCard hover={linkHover} host={host} names={siteName} />}
       {filterActive(filter) && (
         <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md bg-nb-925/90 px-2.5 py-1 text-[11px] text-accent" data-testid="map-filtered">
           Filtered: only the chosen clusters and applications are shown

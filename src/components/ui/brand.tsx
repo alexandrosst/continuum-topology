@@ -131,18 +131,37 @@ type FlagModule = Record<string, React.ComponentType<React.SVGProps<SVGSVGElemen
 let flags: FlagModule | undefined
 let loading: Promise<void> | undefined
 
-/** The flag set is large, so it is fetched once, on first use, as its own chunk. */
+/** Runs `fn` when the browser is next idle (falling back to a plain macrotask where that API is
+ * missing, e.g. Safari), and returns a canceller - so a component that unmounts before its turn never
+ * triggers the work at all. */
+function onIdle(fn: () => void): () => void {
+  if (typeof requestIdleCallback === 'function') {
+    const id = requestIdleCallback(fn)
+    return () => cancelIdleCallback(id)
+  }
+  const id = setTimeout(fn, 1)
+  return () => clearTimeout(id)
+}
+
+/**
+ * The flag set is large (~235KB), so it is fetched once, on first use, as its own chunk - and deferred to
+ * idle time rather than fired the instant a `<Flag>` mounts, so it never competes with the initial paint
+ * of a canvas that renders one for every node with country data (the common case on the default landing view).
+ */
 function useFlags(): FlagModule | undefined {
   const [mod, setMod] = useState(flags)
   useEffect(() => {
     if (flags) return void setMod(flags)
     let live = true
-    loading ??= import('country-flag-icons/react/3x2').then((m) => {
-      flags = m as unknown as FlagModule
+    const cancel = onIdle(() => {
+      loading ??= import('country-flag-icons/react/3x2').then((m) => {
+        flags = m as unknown as FlagModule
+      })
+      void loading.then(() => live && setMod(flags))
     })
-    void loading.then(() => live && setMod(flags))
     return () => {
       live = false
+      cancel()
     }
   }, [])
   return mod

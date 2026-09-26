@@ -9,7 +9,7 @@ import { observation } from '@/lib/provenance'
 import { ageLabel, shortVersion } from '@/lib/present'
 import { completeness } from '@/lib/completeness'
 import { hasOverrides } from '@/lib/effective'
-import { usePlacementSuggestions } from '@/lib/usePlacement'
+import { useAutoPlaceClusters, usePlacementSuggestions } from '@/lib/usePlacement'
 import { useWeakValue } from '@/store/rowEvidence'
 import { useTopology } from '@/store/topology'
 import type { Cluster } from '@/lib/types'
@@ -17,6 +17,8 @@ import { matches, RowActions, SearchBox } from './shared'
 
 export default function ClustersPage() {
   const { clusters, nodes, services, dependencies, sites, deleteCluster } = useTopology()
+  // This page shows and accepts placement hints, so it's a fair place to also resolve them silently.
+  useAutoPlaceClusters()
   const placement = usePlacementSuggestions().byCluster
   const weak = useWeakValue('cluster')
   const connect = useConnectFlow()
