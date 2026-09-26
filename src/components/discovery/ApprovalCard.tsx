@@ -78,9 +78,9 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
   // The request was rejected after too many wrong codes. It is no longer pending, so say what happened.
   if (locked || agent.status === 'rejected') {
     return (
-      <div className="rounded-xl border border-red-400/30 bg-red-400/5 px-5 py-4" data-testid="approval-locked" role="alert">
-        <div className="flex items-center gap-2 text-sm font-medium text-white">
-          <ShieldX size={16} className="text-red-300" /> The request from {agent.name} was rejected
+      <div className="rounded-xl border border-bad/30 bg-bad/5 px-5 py-4" data-testid="approval-locked" role="alert">
+        <div className="flex items-center gap-2 text-sm font-medium text-nb-300">
+          <ShieldX size={16} className="text-bad" /> The request from {agent.name} was rejected
         </div>
         <p className="mt-1 text-sm text-nb-400">
           {agent.reason || 'Too many wrong approval codes were typed.'} The agent has stopped for good. To connect this cluster, create a new install command with a new token and run it again.
@@ -98,11 +98,11 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
   const ipLabel = ipScopeLabel(ipScope(agent.connectingIp ?? ''))
 
   return (
-    <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 px-5 py-4" data-testid="approval-card">
+    <div className="rounded-xl border border-warn/30 bg-warn/5 px-5 py-4" data-testid="approval-card">
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-medium text-white">
-            <ShieldCheck size={16} className="shrink-0 text-amber-300" /> <span className="truncate">{agent.name}</span> wants to connect
+          <div className="flex items-center gap-2 text-sm font-medium text-nb-300">
+            <ShieldCheck size={16} className="shrink-0 text-warn" /> <span className="truncate">{agent.name}</span> wants to connect
           </div>
           <p className="mt-1 text-sm text-nb-500">
             An agent enrolled with a valid token. It gets a certificate and can start reporting only after you approve it.
@@ -145,7 +145,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
           {legacy ? (
             <div data-testid="legacy-approval">
               <div className="mb-1.5 flex items-center gap-2 text-sm font-medium text-nb-300">
-                Legacy enrollment <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-px text-[11px] font-medium text-amber-300">no approval code</span>
+                Legacy enrollment <span className="rounded-full border border-warn/40 bg-warn/10 px-2 py-px text-[11px] font-medium text-warn">no approval code</span>
               </div>
               <p className="mb-2 text-xs text-nb-500">
                 This agent is an older version and shows no approval code, so the check is weaker: type the first 8 characters of the cluster’s fingerprint, which you read from the cluster itself with the command on the left. Update the agent to get approval codes.
@@ -165,7 +165,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
           ) : (
             <div>
               <label htmlFor={`approval-code-${agent.id}`} className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-nb-300">
-                <KeyRound size={14} className="text-amber-300" aria-hidden /> Approval code
+                <KeyRound size={14} className="text-warn" aria-hidden /> Approval code
               </label>
               <Input
                 id={`approval-code-${agent.id}`}
@@ -201,7 +201,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
                 <span className="mt-1.5 block">That prints just the code itself, nothing else — paste it straight in here. Typing it proves you are looking at this cluster, not another one that is waiting too.</span>
               </p>
               {left < 5 && (
-                <p className="mt-2 text-xs text-amber-300" data-testid="attempts-left">
+                <p className="mt-2 text-xs text-warn" data-testid="attempts-left">
                   {left} {left === 1 ? 'attempt' : 'attempts'} left. After that the request is rejected and the agent must be installed again with a new token.
                 </p>
               )}

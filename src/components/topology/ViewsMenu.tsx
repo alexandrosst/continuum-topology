@@ -62,7 +62,7 @@ export default function ViewsMenu({
                 </span>
               </button>
               <button
-                className="mr-1 rounded p-1.5 text-nb-600 opacity-0 hover:bg-nb-850 hover:text-red-300 focus-visible:opacity-100 group-hover:opacity-100"
+                className="mr-1 rounded p-1.5 text-nb-600 opacity-0 hover:bg-nb-850 hover:text-bad focus-visible:opacity-100 group-hover:opacity-100"
                 aria-label={`Delete view ${v.name}`}
                 onClick={() => setToDelete(v.id)}
               >

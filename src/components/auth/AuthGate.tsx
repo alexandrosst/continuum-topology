@@ -15,12 +15,12 @@ function Shell({ title, description, children }: { title: string; description: s
             <Cpu size={20} />
           </div>
           <div className="leading-tight">
-            <div className="text-sm font-semibold text-white">Continuum</div>
+            <div className="text-sm font-semibold text-nb-300">Continuum</div>
             <div className="text-[11px] text-nb-500">Topology Studio</div>
           </div>
         </div>
         <div className="rounded-xl border border-nb-850 bg-nb-920 p-6 shadow-2xl">
-          <h1 className="text-lg font-medium text-white">{title}</h1>
+          <h1 className="text-lg font-medium text-nb-300">{title}</h1>
           <p className="mt-1 text-sm text-nb-500">{description}</p>
           <div className="mt-5">{children}</div>
         </div>
@@ -60,7 +60,7 @@ export function PasswordRequirements({ password, username }: { password: string;
   return (
     <ul className="space-y-1">
       {passwordRules(password, username).map((r) => (
-        <li key={r.key} className={clsx('flex items-center gap-1.5 text-xs', empty ? 'text-nb-500' : r.ok ? 'text-emerald-400' : 'text-red-400')}>
+        <li key={r.key} className={clsx('flex items-center gap-1.5 text-xs', empty ? 'text-nb-500' : r.ok ? 'text-ok' : 'text-bad')}>
           {empty ? <Minus size={12} aria-hidden /> : r.ok ? <Check size={12} className="fade-in" aria-hidden /> : <X size={12} className="fade-in" aria-hidden />}
           {r.label}
           {!empty && <span className="sr-only">{r.ok ? ' satisfied' : ' not satisfied'}</span>}
@@ -75,7 +75,7 @@ function InviteNote() {
   const invite = useServer((s) => s.invite)
   if (!invite?.preview) return null
   return (
-    <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-white" data-testid="invite-note">
+    <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-nb-300" data-testid="invite-note">
       You have been invited to <strong>{invite.preview.organisation}</strong> as {ROLE_LABEL[invite.preview.role].toLowerCase()}. Sign in, or create an account, to join.
     </p>
   )
@@ -384,7 +384,7 @@ function ChangePasswordScreen() {
         <Field label="New password again">
           <PasswordInput value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" />
         </Field>
-        {mismatch && <p className="text-xs text-amber-300">The two passwords differ.</p>}
+        {mismatch && <p className="text-xs text-warn">The two passwords differ.</p>}
         <ErrorLine text={error} />
         <Button type="submit" variant="primary" className="w-full" disabled={busy || !current || short || !next || !again || mismatch}>
           {busy ? 'Saving…' : 'Save new password'}

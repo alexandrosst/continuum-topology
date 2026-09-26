@@ -78,7 +78,7 @@ export default function ClustersPage() {
               }
               return (
               <tr key={c.id} className="group hover:bg-nb-930/60">
-                <Td className="whitespace-nowrap font-medium text-white">
+                <Td className="whitespace-nowrap font-medium text-nb-300">
                   <div>{c.name}</div>
                   {c.createdAt && <div className="text-xs font-normal text-nb-500" title={`Created ${new Date(c.createdAt).toLocaleDateString()}`}>{ageLabel(c.createdAt)} old</div>}
                   <SourceBadge stacked source={c.source} overridden={hasOverrides(c)} />

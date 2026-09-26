@@ -84,7 +84,7 @@ export default function ServicesPage() {
             {rows.map((w) => (
               <tr key={w.id} className="group hover:bg-nb-930/60">
                 <Td>
-                  <div className="font-medium text-white">{w.name}<SourceBadge source={w.source} overridden={hasOverrides(w)} /> <ObservationChip quiet info={observation(w)} />{w.source === 'manual' && <> <DeclaredMark /></>}</div>
+                  <div className="font-medium text-nb-300">{w.name}<SourceBadge source={w.source} overridden={hasOverrides(w)} /> <ObservationChip quiet info={observation(w)} />{w.source === 'manual' && <> <DeclaredMark /></>}</div>
                   <div className="font-mono text-xs text-nb-500">{w.image || '—'} · ×{w.replicas}</div>
                   <ServiceTraits w={w} nodeName={nodeName} />
                 </Td>

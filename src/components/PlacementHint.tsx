@@ -6,14 +6,14 @@ import { IP_SCOPE_HELP, ipScope, type IpScope } from '@/lib/present'
 import { useTopology } from '@/store/topology'
 
 const CONF: Record<Confidence, string> = {
-  high: 'text-emerald-300',
-  medium: 'text-amber-300',
+  high: 'text-ok',
+  medium: 'text-warn',
   low: 'text-nb-400',
 }
 
 const DOT: Record<Confidence, string> = {
-  high: 'bg-emerald-400',
-  medium: 'bg-amber-400',
+  high: 'bg-ok',
+  medium: 'bg-warn',
   low: 'bg-nb-500',
 }
 
@@ -64,7 +64,7 @@ export default function PlacementHint({ suggestion, compact, egressIp }: { sugge
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" title={compact ? evidenceTitle(suggestion) : undefined}>
         <MapPin size={12} className="shrink-0 text-accent" aria-hidden />
         <span className="inline-flex items-center gap-1.5 text-nb-300">
-          Looks like <Flag code={suggestion.country} /> <span className="font-medium text-white">{suggestion.place}</span>
+          Looks like <Flag code={suggestion.country} /> <span className="font-medium text-nb-300">{suggestion.place}</span>
         </span>
         <span className={CONF[suggestion.confidence]}>{suggestion.confidence}</span>
         <button
@@ -77,7 +77,7 @@ export default function PlacementHint({ suggestion, compact, egressIp }: { sugge
         </button>
         <button
           type="button"
-          className="inline-flex items-center rounded p-0.5 text-nb-500 hover:text-white"
+          className="inline-flex items-center rounded p-0.5 text-nb-500 hover:text-nb-300"
           onClick={() => decide(suggestion, 'dismissed')}
           aria-label={`Dismiss the suggestion ${suggestion.place}`}
           title="Not there"

@@ -26,7 +26,7 @@ export default function MeasuredPaths() {
   return (
     <section className="mt-10" aria-label="Measured paths" data-testid="measured-paths">
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <h2 className="flex items-center gap-2 text-lg font-medium text-white">
+        <h2 className="flex items-center gap-2 text-lg font-medium text-nb-300">
           <Gauge size={17} className="text-accent" aria-hidden /> Measured paths
         </h2>
         {status === 'connected' && (
@@ -60,16 +60,16 @@ export default function MeasuredPaths() {
           <tbody>
             {ordered.map((p) => (
               <tr key={p.id} className={clsx(p.stale && 'opacity-60')} data-testid="path-row">
-                <Td className="font-medium text-white">{p.fromName}</Td>
+                <Td className="font-medium text-nb-300">{p.fromName}</Td>
                 <Td>
                   <div>{p.toName ?? p.label ?? p.host}</div>
                   <div className="font-mono text-xs text-nb-500">{p.host}:{p.port} · {p.source === 'manual' ? 'you asked' : 'seen in traffic'}</div>
                 </Td>
-                <Td className="tabular-nums text-white">{ms(p.rttP50Ms)} ms</Td>
+                <Td className="tabular-nums text-nb-300">{ms(p.rttP50Ms)} ms</Td>
                 <Td className="tabular-nums text-nb-400">{ms(p.rttMinMs)} · {ms(p.rttP95Ms)} ms</Td>
-                <Td className={clsx('tabular-nums', p.lossPct > 0 ? 'text-amber-300' : 'text-nb-400')}>{p.lossPct > 0 ? `${p.lossPct.toFixed(0)} %` : 'none'}</Td>
+                <Td className={clsx('tabular-nums', p.lossPct > 0 ? 'text-warn' : 'text-nb-400')}>{p.lossPct > 0 ? `${p.lossPct.toFixed(0)} %` : 'none'}</Td>
                 <Td className="tabular-nums text-nb-400">{p.samples}</Td>
-                <Td className="whitespace-nowrap text-nb-400">{p.stale ? <span className="text-amber-300">stale · </span> : null}{ago(p.at)}</Td>
+                <Td className="whitespace-nowrap text-nb-400">{p.stale ? <span className="text-warn">stale · </span> : null}{ago(p.at)}</Td>
               </tr>
             ))}
           </tbody>
@@ -105,7 +105,7 @@ function Targets({ admin, clusterOptions, clusters }: { admin: boolean; clusterO
 
   return (
     <div className="mt-6 rounded-xl border border-nb-850 bg-nb-925 p-5">
-      <h3 className="mb-1 text-sm font-medium text-white">Addresses you asked to be measured</h3>
+      <h3 className="mb-1 text-sm font-medium text-nb-300">Addresses you asked to be measured</h3>
       <p className="mb-3 text-xs text-nb-500">For places no cluster talks to yet, such as a site you plan to move something to. Loopback, link-local and metadata addresses are always refused.</p>
       {settings.probeTargets.length === 0 ? (
         <p className="text-sm text-nb-400">None.</p>
@@ -126,7 +126,7 @@ function Targets({ admin, clusterOptions, clusters }: { admin: boolean; clusterO
           ))}
         </ul>
       )}
-      {error && <p className="mt-3 text-sm text-red-300" role="alert"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{error}</p>}
+      {error && <p className="mt-3 text-sm text-bad" role="alert"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{error}</p>}
       {admin ? (
         <div className="mt-4 grid gap-3 border-t border-nb-850 pt-4 md:grid-cols-[1fr_1.4fr_6rem_1fr_auto] md:items-end">
           <Field label="Measured from">

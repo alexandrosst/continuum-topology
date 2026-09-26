@@ -17,7 +17,7 @@ export default function ServerAddressSettings() {
 
   return (
     <section id="server-address" aria-labelledby="server-address-title" className="mb-8 scroll-mt-6" data-testid="server-address-settings">
-      <h2 id="server-address-title" className="mb-1 text-sm font-medium text-white">Server address</h2>
+      <h2 id="server-address-title" className="mb-1 text-sm font-medium text-nb-300">Server address</h2>
       <p className="mb-3 max-w-2xl text-sm text-nb-500">What every agent dials to reach this server. Changing it re-issues the server's TLS certificate, not its identity - agents trust the CA, not the certificate, so they keep working once they can reach the new address.</p>
       <div className="rounded-xl border border-nb-850 bg-nb-925 p-5">
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">

@@ -73,7 +73,7 @@ export default function DevicesPage() {
               const gw = nodes.find((n) => n.id === d.gatewayNodeId)
               return (
                 <tr key={d.id} className="group hover:bg-nb-930/60">
-                  <Td className="font-medium text-white">
+                  <Td className="font-medium text-nb-300">
                     <span className="inline-flex items-center gap-2"><Icon size={14} className="text-nb-500" />{d.name}</span>
                     <SourceBadge source={d.source} overridden={hasOverrides(d)} />
                     {gw && <div className="whitespace-nowrap pl-6 text-xs font-normal text-nb-500">attached to {gw.name}</div>}

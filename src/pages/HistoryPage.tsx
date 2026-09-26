@@ -22,8 +22,8 @@ const WINDOWS = [
 // Shape carries severity, not just color: a colorblind reader (or a printed screenshot) still tells warning from notice from info.
 const SEVERITY: Record<ChangeEvent['severity'], { dot: string; text: string; icon: typeof Info; label: string }> = {
   info: { dot: 'bg-nb-500', text: 'text-nb-400', icon: Info, label: 'Info' },
-  notice: { dot: 'bg-sky-400', text: 'text-sky-300', icon: Bell, label: 'Notice' },
-  warning: { dot: 'bg-amber-400', text: 'text-amber-300', icon: TriangleAlert, label: 'Warning' },
+  notice: { dot: 'bg-info', text: 'text-info', icon: Bell, label: 'Notice' },
+  warning: { dot: 'bg-warn', text: 'text-warn', icon: TriangleAlert, label: 'Warning' },
 }
 const stamp = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
 
@@ -88,7 +88,7 @@ function Connected({ conn, admin }: { conn: Conn; admin: boolean }) {
         <Consistency />
       </div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="mr-auto text-sm font-medium text-white">Changes</h2>
+        <h2 className="mr-auto text-sm font-medium text-nb-300">Changes</h2>
         <div className="w-44">
           <Select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind of change">
             <option value="">All kinds of change</option>
@@ -164,7 +164,7 @@ function Timeline({ hours, setHours, index, events }: { hours: number; setHours:
   return (
     <section className="rounded-xl border border-nb-850 bg-nb-925 p-5" aria-label="Timeline">
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <h2 className="mr-auto flex items-center gap-2 text-sm font-medium text-white">
+        <h2 className="mr-auto flex items-center gap-2 text-sm font-medium text-nb-300">
           <HistoryIcon size={15} className="text-accent" aria-hidden /> Go back to a moment
         </h2>
         <div className="w-40">
@@ -205,8 +205,8 @@ function Timeline({ hours, setHours, index, events }: { hours: number; setHours:
             <div className="min-w-0 flex-1 text-sm text-nb-400">
               {point ? (
                 <>
-                  Nearest recording: <strong className="font-medium text-white">{stamp(point.at)}</strong> <span className="text-nb-500">({ageOf(point.at)})</span>
-                  {shown === point.at && <span className="ml-2 text-amber-300">showing now</span>}
+                  Nearest recording: <strong className="font-medium text-nb-300">{stamp(point.at)}</strong> <span className="text-nb-500">({ageOf(point.at)})</span>
+                  {shown === point.at && <span className="ml-2 text-warn">showing now</span>}
                 </>
               ) : (
                 'Pick a moment on the line.'
@@ -240,7 +240,7 @@ function Timeline({ hours, setHours, index, events }: { hours: number; setHours:
             <Button type="submit" disabled={!exact || loading} data-testid="view-exact">View the estate then</Button>
             <span className="min-w-0 flex-1 basis-48 text-xs text-nb-500">You get the newest recording at or before that time; the banner says exactly which.</span>
           </form>
-          {viewError && <p className="mt-2 text-sm text-red-300" role="alert">{viewError}</p>}
+          {viewError && <p className="mt-2 text-sm text-bad" role="alert">{viewError}</p>}
         </>
       )}
     </section>
@@ -257,7 +257,7 @@ function Consistency() {
   const live = agents.filter((a) => a.status === 'approved')
   return (
     <section className="rounded-xl border border-nb-850 bg-nb-925 p-5" aria-label="Consistency checks">
-      <h2 className="mb-1 flex items-center gap-2 text-sm font-medium text-white">
+      <h2 className="mb-1 flex items-center gap-2 text-sm font-medium text-nb-300">
         <CheckCircle2 size={15} className="text-nb-400" aria-hidden /> Is this picture complete?
       </h2>
       <p className="mb-3 text-xs leading-5 text-nb-500">
@@ -270,11 +270,11 @@ function Consistency() {
           return (
             <li key={a.id} className="text-sm" data-testid="consistency-row">
               <div className="flex items-center gap-2">
-                {!c ? <Clock size={14} className="text-nb-500" aria-hidden /> : c.differences === 0 ? <CheckCircle2 size={14} className="text-emerald-300" aria-hidden /> : <TriangleAlert size={14} className="text-amber-300" aria-hidden />}
+                {!c ? <Clock size={14} className="text-nb-500" aria-hidden /> : c.differences === 0 ? <CheckCircle2 size={14} className="text-ok" aria-hidden /> : <TriangleAlert size={14} className="text-warn" aria-hidden />}
                 <span className="font-medium text-nb-300">{a.name}</span>
                 <span className="ml-auto text-xs text-nb-500">{c ? `checked ${ago(c.lastCheck)}` : 'not checked yet'}</span>
               </div>
-              {c && c.differences > 0 && <div className="ml-6 mt-0.5 text-xs text-amber-300/90">Found {c.differences} difference{c.differences === 1 ? '' : 's'}: {c.summary}. Corrected.</div>}
+              {c && c.differences > 0 && <div className="ml-6 mt-0.5 text-xs text-warn/90">Found {c.differences} difference{c.differences === 1 ? '' : 's'}: {c.summary}. Corrected.</div>}
               {c && c.differences === 0 && <div className="ml-6 text-xs text-nb-500">Matched the cluster ({c.checks} check{c.checks === 1 ? '' : 's'} so far).</div>}
             </li>
           )
@@ -319,7 +319,7 @@ function Events({ events, hours }: { events: ChangeEvent[] | null; hours: number
               </span>
             </Td>
             <Td>
-              <div className="font-medium text-white">{e.name || '—'}</div>
+              <div className="font-medium text-nb-300">{e.name || '—'}</div>
               {e.clusterName && e.clusterName !== e.name && <div className="text-xs text-nb-500">{e.clusterName}</div>}
             </Td>
             <Td className="max-w-xl text-nb-400">
@@ -364,7 +364,7 @@ function Actions() {
   const rows = useMemo(() => [...auditLog].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 200), [auditLog])
   return (
     <section className="mt-8" aria-label="Actions taken in this workspace">
-      <h2 className="mb-1 text-sm font-medium text-white">Actions</h2>
+      <h2 className="mb-1 text-sm font-medium text-nb-300">Actions</h2>
       <p className="mb-3 text-xs text-nb-500">
         Edits, suggestion decisions and saved views - kept forever regardless of the history settings below, and synced across browsers along with the changes themselves.
       </p>
@@ -427,7 +427,7 @@ function Traffic({ conn }: { conn: Conn }) {
   const rows = (rates ?? []).filter((r) => r.avgBytesPerSec > 0).sort((a, b) => b.avgBytesPerSec - a.avgBytesPerSec).slice(0, 8)
   return (
     <section aria-label="Busiest links">
-      <h2 className="mb-2 text-sm font-medium text-white">Busiest links, last 24 hours</h2>
+      <h2 className="mb-2 text-sm font-medium text-nb-300">Busiest links, last 24 hours</h2>
       {rates === null ? (
         <TableSkeleton colCount={3} rows={3} />
       ) : rows.length === 0 ? (
@@ -509,7 +509,7 @@ function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn }) {
             disabled={!admin}
             aria-invalid={invalid}
             onChange={(e) => { setSaved(false); setDraft((d) => ({ ...d, [f.key]: e.target.value })) }}
-            className={clsx('w-28', invalid && 'border-red-400/60')}
+            className={clsx('w-28', invalid && 'border-bad/60')}
             data-testid={`setting-${f.key}`}
           />
           <span className="whitespace-nowrap text-xs text-nb-500">{f.unit}</span>
@@ -548,7 +548,7 @@ function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn }) {
           placeholder={eventOn ? undefined : 'kept forever'}
           aria-invalid={eventOn && !eventParsed.ok}
           onChange={(e) => { setSaved(false); setEventDraft(e.target.value) }}
-          className={clsx('w-28', eventOn && !eventParsed.ok && 'border-red-400/60')}
+          className={clsx('w-28', eventOn && !eventParsed.ok && 'border-bad/60')}
           data-testid="setting-eventRetentionDays"
         />
         <span className="whitespace-nowrap text-xs text-nb-500">days</span>
@@ -557,7 +557,7 @@ function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn }) {
   )
   return (
     <section aria-label="Recording settings">
-      <h2 className="mb-2 text-sm font-medium text-white">Recording and checks</h2>
+      <h2 className="mb-2 text-sm font-medium text-nb-300">Recording and checks</h2>
       <div className="rounded-xl border border-nb-850 bg-nb-925 p-5">
         <div className="grid gap-4 sm:grid-cols-2">
           {FIELDS.filter((f) => PRIMARY_KEYS.has(f.key)).map(renderField)}
@@ -572,7 +572,7 @@ function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn }) {
             {deleteOldEventsField}
           </div>
         </details>
-        {error && <p className="mt-3 text-sm text-red-300" role="alert"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{error}</p>}
+        {error && <p className="mt-3 text-sm text-bad" role="alert"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{error}</p>}
         <div className="mt-4 flex items-center gap-3">
           {admin ? (
             <>
@@ -613,7 +613,7 @@ function StorageCard({ conn, admin, tick }: { conn: Conn; admin: boolean; tick: 
   const st = info.stats
   return (
     <section className="mt-8" aria-label="Where history is kept" data-testid="storage-card">
-      <h2 className="mb-2 text-sm font-medium text-white">Where history is kept</h2>
+      <h2 className="mb-2 text-sm font-medium text-nb-300">Where history is kept</h2>
       <div className="rounded-xl border border-nb-850 bg-nb-925 p-5 text-sm">
         {!graph ? (
           <p className="text-nb-400">
@@ -623,8 +623,8 @@ function StorageCard({ conn, admin, tick }: { conn: Conn; admin: boolean; tick: 
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-3">
-              <span className={clsx('inline-flex items-center gap-2 font-medium', info.connected ? 'text-emerald-300' : 'text-amber-300')} data-testid="storage-state">
-                <PulseDot color={info.connected ? 'bg-emerald-400' : 'bg-amber-400'} pulse={info.connected} />
+              <span className={clsx('inline-flex items-center gap-2 font-medium', info.connected ? 'text-ok' : 'text-warn')} data-testid="storage-state">
+                <PulseDot color={info.connected ? 'bg-ok' : 'bg-warn'} pulse={info.connected} />
                 {info.connected ? 'Neo4j connected' : info.ready ? 'Neo4j not reachable' : 'Neo4j starting'}
               </span>
               {info.buffering && <Pill>catching up: some recordings are waiting to be moved across</Pill>}
@@ -632,13 +632,13 @@ function StorageCard({ conn, admin, tick }: { conn: Conn; admin: boolean; tick: 
             <p className="mt-2 text-xs leading-5 text-nb-500">
               Every recording, change, workspace save and action people took is kept as a graph you can ask about any moment. If the database is away, Continuum keeps recording locally and moves everything across when it is back, so nothing is lost.
             </p>
-            {admin && info.error && !info.connected && <p className="mt-2 text-xs text-amber-300/90" role="status">{info.error}</p>}
+            {admin && info.error && !info.connected && <p className="mt-2 text-xs text-warn/90" role="status">{info.error}</p>}
             {admin && st && (
               <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-xs sm:grid-cols-5">
                 {([['Recordings', st.snapshots], ['Record versions', st.versions], ['Records', st.entities], ['Events', st.events], ['Actions', st.audit]] as const).map(([l, v]) => (
                   <div key={l}>
                     <dt className="text-nb-500">{l}</dt>
-                    <dd className="text-base font-medium tabular-nums text-white">{v}</dd>
+                    <dd className="text-base font-medium tabular-nums text-nb-300">{v}</dd>
                   </div>
                 ))}
               </dl>

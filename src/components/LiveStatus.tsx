@@ -18,8 +18,8 @@ export default function LiveStatus() {
   return (
     <span className="hidden items-center gap-1.5 whitespace-nowrap text-xs text-nb-500 sm:inline-flex" title={`Data from your Continuum server, as of ${new Date(at).toLocaleTimeString()}`} data-testid="live-status">
       <span className="relative inline-flex size-1.5">
-        {!stale && <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
-        <span className={`relative inline-flex size-1.5 rounded-full ${stale ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+        {!stale && <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-75" />}
+        <span className={`relative inline-flex size-1.5 rounded-full ${stale ? 'bg-warn' : 'bg-ok'}`} />
       </span>
       {text}
     </span>

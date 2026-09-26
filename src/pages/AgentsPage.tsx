@@ -23,10 +23,10 @@ import { useTopology } from '@/store/topology'
 /** How an agent is doing right now, from what the server can tell. */
 type Health = 'ok' | 'late' | 'offline' | 'waiting' | 'expired' | 'gone' | 'unknown'
 const HEALTH: Record<Health, { label: string; dot: string; text: string }> = {
-  ok: { label: 'Connected', dot: 'bg-emerald-400', text: 'text-emerald-300' },
-  late: { label: 'Heartbeat late', dot: 'bg-amber-400', text: 'text-amber-300' },
-  offline: { label: 'Disconnected', dot: 'bg-red-400', text: 'text-red-300' },
-  waiting: { label: 'Waiting for approval', dot: 'bg-amber-400', text: 'text-amber-300' },
+  ok: { label: 'Connected', dot: 'bg-ok', text: 'text-ok' },
+  late: { label: 'Heartbeat late', dot: 'bg-warn', text: 'text-warn' },
+  offline: { label: 'Disconnected', dot: 'bg-bad', text: 'text-bad' },
+  waiting: { label: 'Waiting for approval', dot: 'bg-warn', text: 'text-warn' },
   expired: { label: 'Request expired', dot: 'bg-nb-600', text: 'text-nb-400' },
   gone: { label: 'Revoked', dot: 'bg-nb-600', text: 'text-nb-500' },
   unknown: { label: 'Not live', dot: 'bg-nb-600', text: 'text-nb-400' },
@@ -129,7 +129,7 @@ export default function AgentsPage() {
       {/* While the wizard is open it shows the same card, so it is not repeated behind the dialog. */}
       {pending.length > 0 && !connect.wizardOpen && (
         <section id="approvals" tabIndex={-1} aria-labelledby="approvals-title" className="mb-8 scroll-mt-6 space-y-3 focus:outline-none" data-testid="approvals">
-          <h2 id="approvals-title" className="text-sm font-medium text-white">Waiting for your approval</h2>
+          <h2 id="approvals-title" className="text-sm font-medium text-nb-300">Waiting for your approval</h2>
           {canAdminister ? (
             pending.map((a) => (
               <div key={a.id} id={`approval-${a.id}`} tabIndex={-1} className="scroll-mt-6 focus:outline-none">
@@ -181,7 +181,7 @@ export default function AgentsPage() {
                   role="tab"
                   aria-selected={map === id}
                   onClick={() => setSp((p) => { const n = new URLSearchParams(p); if (id) n.set('view', 'map'); else n.delete('view'); return n }, { replace: true })}
-                  className={clsx('flex items-center gap-1.5 px-3 py-1.5 text-sm', map === id ? 'bg-nb-940 text-white' : 'text-nb-400 hover:text-nb-300')}
+                  className={clsx('flex items-center gap-1.5 px-3 py-1.5 text-sm', map === id ? 'bg-nb-940 text-nb-300' : 'text-nb-400 hover:text-nb-300')}
                   data-testid={`agents-${label.toLowerCase()}`}
                 >
                   <I size={14} aria-hidden /> {label}
@@ -220,7 +220,7 @@ export default function AgentsPage() {
                         data-testid="agent-row"
                       >
                         <Td valign="top">
-                          <div className="flex items-center gap-2 whitespace-nowrap font-medium text-white">
+                          <div className="flex items-center gap-2 whitespace-nowrap font-medium text-nb-300">
                             {expanded ? <ChevronDown size={14} className="text-nb-500" aria-hidden /> : <ChevronRight size={14} className="text-nb-500" aria-hidden />}
                             {a.name}
                           </div>
@@ -229,12 +229,12 @@ export default function AgentsPage() {
                         <Td valign="top">
                           {c ? (
                             <>
-                              <Link to={`/topology?sel=${encodeURIComponent(`cluster:${c.id}`)}`} onClick={(e) => e.stopPropagation()} className="hover:text-white hover:underline">
+                              <Link to={`/topology?sel=${encodeURIComponent(`cluster:${c.id}`)}`} onClick={(e) => e.stopPropagation()} className="hover:text-nb-300 hover:underline">
                                 <WithIcon icon={<DistroIcon distribution={c.distribution} size={16} />}>{c.name}</WithIcon>
                               </Link>
                               <div className="mt-0.5 flex items-center gap-2 text-xs text-nb-500"><TierBadge tier={c.tier as Tier} />{s?.name ?? c.region}</div>
                               {a.scope && a.scope.inScope < a.scope.namespaces && (
-                                <div className="mt-0.5 text-xs text-amber-300" title={a.scope.description} data-testid="scope-badge">{a.scope.inScope} of {a.scope.namespaces} namespaces</div>
+                                <div className="mt-0.5 text-xs text-warn" title={a.scope.description} data-testid="scope-badge">{a.scope.inScope} of {a.scope.namespaces} namespaces</div>
                               )}
                             </>
                           ) : (
@@ -257,7 +257,7 @@ export default function AgentsPage() {
                             </div>
                           )}
                           {skewWarning(a.clockSkewMs) && a.clockSkewMs !== undefined && (
-                            <span className="mt-1 inline-block rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-px text-[11px] font-medium text-amber-300" title={skewWarning(a.clockSkewMs)} data-testid="clock-chip">
+                            <span className="mt-1 inline-block rounded-full border border-warn/40 bg-warn/10 px-2 py-px text-[11px] font-medium text-warn" title={skewWarning(a.clockSkewMs)} data-testid="clock-chip">
                               {skewLabel(a.clockSkewMs)}
                             </span>
                           )}
@@ -298,7 +298,7 @@ export default function AgentsPage() {
           {map && openAgent && (
             <div className="mt-4 rounded-xl border border-nb-850 bg-nb-925 px-5 py-4" data-testid="agent-detail">
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-medium text-white">{openAgent.name}</h2>
+                <h2 className="text-sm font-medium text-nb-300">{openAgent.name}</h2>
                 <button className="text-xs text-nb-500 hover:text-nb-300" onClick={() => setOpen(null)}>Close</button>
               </div>
               <AgentDetail agent={openAgent} extras={extrasOf(rawAgents, openAgent.id)} canConsent={canConsent} onRevoke={canAdminister && connected && openAgent.status === 'approved' ? () => setRevoking(openAgent) : undefined} />
@@ -326,9 +326,9 @@ function Stat({ label, value, sub, warn, to }: { label: string; value: string; s
   // makes a change visible instead of a number silently flipping underneath the viewer.
   const flash = useFlash(value)
   const body = (
-    <div className={clsx('h-full rounded-xl border bg-nb-925 px-5 py-4', warn ? 'border-amber-400/30' : 'border-nb-850')}>
+    <div className={clsx('h-full rounded-xl border bg-nb-925 px-5 py-4', warn ? 'border-warn/30' : 'border-nb-850')}>
       <div className="text-xs text-nb-500">{label}</div>
-      <div className={clsx('mt-1 text-2xl font-medium tabular-nums', warn ? 'text-amber-300' : 'text-white', flash && 'fade-in')}>{value}</div>
+      <div className={clsx('mt-1 text-2xl font-medium tabular-nums', warn ? 'text-warn' : 'text-nb-300', flash && 'fade-in')}>{value}</div>
       <div className="mt-0.5 text-xs text-nb-500">{sub}</div>
     </div>
   )
@@ -451,7 +451,7 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
           <p className="max-w-2xl text-xs leading-relaxed text-nb-500">
             {a.status === 'revoked' ? 'Revoking closed the connection and stopped this agent from being trusted, but it did not remove anything from the cluster.' : 'Rejecting stopped this enrollment, but nothing already installed in the cluster was removed.'}
             {' '}The ServiceAccount, its RBAC and the running pods stay until you remove them there:
-            {a.teardown.namespaceGuessed && <span className="text-amber-300"> this agent never reported enough about its install to be sure — the commands below assume namespace <code>continuum-system</code> and release <code>continuum-agent</code>, so check both are right before running them.</span>}
+            {a.teardown.namespaceGuessed && <span className="text-warn"> this agent never reported enough about its install to be sure — the commands below assume namespace <code>continuum-system</code> and release <code>continuum-agent</code>, so check both are right before running them.</span>}
           </p>
           <div className="mt-2 space-y-2">
             <CopyableCommand text={a.teardown.helm} />
@@ -558,7 +558,7 @@ function AgentMap({ rows, clusterOf, selected, onSelect }: { rows: { a: Agent; h
         <g transform={`translate(${hub.x - 70} ${hub.y - 20})`}>
           <rect width={140} height={40} rx={10} style={{ fill: 'var(--color-nb-920)', stroke: 'var(--color-accent)' }} strokeWidth={1.4} />
           <foreignObject x={0} y={0} width={140} height={40}>
-            <div className="flex h-full items-center justify-center gap-2 text-sm font-medium text-white"><Server size={15} className="text-accent" aria-hidden /> This server</div>
+            <div className="flex h-full items-center justify-center gap-2 text-sm font-medium text-nb-300"><Server size={15} className="text-accent" aria-hidden /> This server</div>
           </foreignObject>
         </g>
         {labels.map((l) => (
@@ -576,7 +576,7 @@ function AgentMap({ rows, clusterOf, selected, onSelect }: { rows: { a: Agent; h
                 className={clsx('flex h-full w-full flex-col justify-center rounded-lg border bg-nb-920 px-3 text-left transition-colors hover:border-nb-700', sel ? 'border-accent' : 'border-nb-850')}
                 data-testid="agent-node"
               >
-                <span className="flex items-center gap-2 text-sm font-medium text-white">
+                <span className="flex items-center gap-2 text-sm font-medium text-nb-300">
                   <PulseDot color={st.dot} pulse={p.h === 'ok'} />
                   <span className="truncate">{p.a.name}</span>
                 </span>

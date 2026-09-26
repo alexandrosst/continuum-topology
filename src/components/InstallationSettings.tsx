@@ -25,10 +25,10 @@ function TextField({ label, help, problem, value, onChange, disabled, placeholde
         aria-invalid={!!problem}
         aria-describedby={`${id}-help ${id}-problem`}
         onChange={(e) => onChange(e.target.value)}
-        className={clsx('font-mono text-[13px]', problem && 'border-red-400/60')}
+        className={clsx('font-mono text-[13px]', problem && 'border-bad/60')}
         data-testid={testId}
       />
-      <p id={`${id}-problem`} role={problem ? 'alert' : undefined} className={clsx('mt-1 text-xs text-red-300', !problem && 'hidden')} data-testid={`${testId}-problem`}>{problem}</p>
+      <p id={`${id}-problem`} role={problem ? 'alert' : undefined} className={clsx('mt-1 text-xs text-bad', !problem && 'hidden')} data-testid={`${testId}-problem`}>{problem}</p>
       <p id={`${id}-help`} className="mt-1 text-xs text-nb-500">{help}</p>
     </div>
   )
@@ -75,7 +75,7 @@ export default function InstallationSettings({ conn }: { conn: Conn }) {
 
   return (
     <section id="installation" aria-labelledby="installation-title" className="mb-8 scroll-mt-6" data-testid="installation-settings">
-      <h2 id="installation-title" className="mb-1 text-sm font-medium text-white">Installation</h2>
+      <h2 id="installation-title" className="mb-1 text-sm font-medium text-nb-300">Installation</h2>
       <p className="mb-3 max-w-2xl text-sm text-nb-500">
         Where the install command for this organisation’s clusters gets the agent image and chart. Whoever controls this registry controls what runs in your clusters, so nothing is preset: point it at a registry you publish to.
       </p>
@@ -145,7 +145,7 @@ export default function InstallationSettings({ conn }: { conn: Conn }) {
           )}
           {ok && preview.fromServer && <p className="mt-1.5 text-nb-500">Not set here: these are the server’s defaults (its <Code>--image-registry</Code> settings). Saving a registry above replaces them for this organisation.</p>}
           {ok && preview.configured && (
-            <p className={clsx('mt-2 flex items-start gap-1.5', preview.digest ? 'text-emerald-300' : 'text-nb-500')} data-testid="preview-pin">
+            <p className={clsx('mt-2 flex items-start gap-1.5', preview.digest ? 'text-ok' : 'text-nb-500')} data-testid="preview-pin">
               {preview.digest ? <Pin size={13} className="mt-px shrink-0" aria-hidden /> : <TriangleAlert size={13} className="mt-px shrink-0" aria-hidden />}
               {preview.digest ? 'Pinned by digest: every install pulls exactly this image.' : 'Not pinned: a tag is mutable, so pin a digest for reproducible installs.'}
             </p>
@@ -153,7 +153,7 @@ export default function InstallationSettings({ conn }: { conn: Conn }) {
         </div>
 
         {error && (
-          <p className="mt-3 text-sm text-red-300" role="alert" data-testid="image-error">
+          <p className="mt-3 text-sm text-bad" role="alert" data-testid="image-error">
             <CircleAlert size={13} className="mr-1 inline" aria-hidden />
             {error}
           </p>

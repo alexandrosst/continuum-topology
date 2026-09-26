@@ -13,10 +13,10 @@ const Delta = ({ before, after, unit, fmt }: { before: number; after: number; un
   const d = after - before
   return (
     <div>
-      <div className="text-2xl font-medium tabular-nums text-white">{fmt(after)}<span className="ml-1 text-sm text-nb-500">{unit}</span></div>
+      <div className="text-2xl font-medium tabular-nums text-nb-300">{fmt(after)}<span className="ml-1 text-sm text-nb-500">{unit}</span></div>
       <div className="text-xs tabular-nums text-nb-500">
         was {fmt(before)} ·{' '}
-        <span className={clsx(d < 0 ? 'text-emerald-300' : d > 0 ? 'text-amber-300' : 'text-nb-500')}>{d === 0 ? 'no change' : `${d < 0 ? '' : '+'}${fmt(d)}`}</span>
+        <span className={clsx(d < 0 ? 'text-ok' : d > 0 ? 'text-warn' : 'text-nb-500')}>{d === 0 ? 'no change' : `${d < 0 ? '' : '+'}${fmt(d)}`}</span>
       </div>
     </div>
   )
@@ -121,14 +121,14 @@ export default function WhatIf({ world, policy, initial }: { world: World; polic
               </div>
               <div>
                 <div className="mb-1 text-xs uppercase tracking-wide text-nb-500">Moves</div>
-                <div className="text-2xl font-medium tabular-nums text-white">{result.moves.length}</div>
+                <div className="text-2xl font-medium tabular-nums text-nb-300">{result.moves.length}</div>
                 <div className="text-xs text-nb-500" data-testid="move-counts">
                   {result.moves.filter((m) => m.verdict === 'doesNotFit').length} blocked by hard limits · {result.moves.filter((m) => m.verdict === 'cantTell').length} can’t be told
                 </div>
               </div>
             </div>
             {result.warnings.length > 0 && (
-              <ul className="mt-4 space-y-1 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-xs text-amber-200/90" role="alert">
+              <ul className="mt-4 space-y-1 rounded-lg border border-warn/20 bg-warn/5 px-3 py-2 text-xs text-warn/90" role="alert">
                 {result.warnings.map((w) => (
                   <li key={w} className="flex gap-2"><TriangleAlert size={13} className="mt-0.5 shrink-0" aria-hidden />{w}</li>
                 ))}
@@ -141,17 +141,17 @@ export default function WhatIf({ world, policy, initial }: { world: World; polic
               {result.moves.map((m) => (
                 <li key={m.serviceId} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-sm" data-testid="whatif-move" data-fits={m.fits} data-verdict={m.verdict} data-confidence={m.confidence}>
                   <FitBadge verdict={m.verdict} />
-                  <span className="font-medium text-white">{svcName(m.serviceId)}</span>
+                  <span className="font-medium text-nb-300">{svcName(m.serviceId)}</span>
                   <span className="text-nb-400">{name(m.from)} → {name(m.to)}</span>
                   <Confidence level={m.confidence} />
-                  <span className={clsx('ml-auto tabular-nums', m.benefit > 0 ? 'text-emerald-300' : m.benefit < 0 ? 'text-amber-300' : 'text-nb-500')}>
+                  <span className={clsx('ml-auto tabular-nums', m.benefit > 0 ? 'text-ok' : m.benefit < 0 ? 'text-warn' : 'text-nb-500')}>
                     {m.benefit > 0 ? 'saves' : m.benefit < 0 ? 'costs' : 'no change'} {m.benefit !== 0 && `${pts(Math.abs(m.benefit))} points`}
                   </span>
                   <button onClick={() => setMoves((x) => x.filter((y) => y.serviceId !== m.serviceId))} aria-label={`Remove ${svcName(m.serviceId)} from the scenario`} className="rounded p-1 text-nb-500 hover:bg-nb-940 hover:text-nb-300">
                     <Trash2 size={13} />
                   </button>
-                  {m.verdict === 'doesNotFit' && <div className="basis-full text-xs text-red-300/90">{m.blockers.join('; ')}</div>}
-                  {m.verdict === 'cantTell' && <div className="basis-full text-xs text-amber-200/90" data-testid="cant-tell-why">Can’t tell: {m.unchecked.join('; ')}</div>}
+                  {m.verdict === 'doesNotFit' && <div className="basis-full text-xs text-bad/90">{m.blockers.join('; ')}</div>}
+                  {m.verdict === 'cantTell' && <div className="basis-full text-xs text-warn/90" data-testid="cant-tell-why">Can’t tell: {m.unchecked.join('; ')}</div>}
                   {m.verdict === 'fits' && m.unchecked.length > 0 && <div className="basis-full text-xs text-nb-500">Not checked: {m.unchecked.join('; ')}</div>}
                   {m.sensitivity.length > 0 && (
                     <ul className="basis-full space-y-0.5 text-xs text-nb-400" data-testid="sensitivity">
@@ -175,9 +175,9 @@ export default function WhatIf({ world, policy, initial }: { world: World; polic
                   const a = Math.round((l.after ?? 0) * 100)
                   return (
                     <li key={l.clusterId} className="text-sm">
-                      <div className="flex justify-between text-nb-300"><span>{l.name}</span><span className="tabular-nums text-nb-400">{b}% → <span className={clsx(a > 100 ? 'text-red-300' : a > 90 ? 'text-amber-300' : 'text-white')}>{a}%</span></span></div>
+                      <div className="flex justify-between text-nb-300"><span>{l.name}</span><span className="tabular-nums text-nb-400">{b}% → <span className={clsx(a > 100 ? 'text-bad' : a > 90 ? 'text-warn' : 'text-nb-300')}>{a}%</span></span></div>
                       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-nb-850">
-                        <div className={clsx('h-full rounded-full', a > 100 ? 'bg-red-400' : a > 90 ? 'bg-amber-400' : 'bg-emerald-400')} style={{ width: `${Math.min(100, a)}%` }} />
+                        <div className={clsx('h-full rounded-full', a > 100 ? 'bg-bad' : a > 90 ? 'bg-warn' : 'bg-ok')} style={{ width: `${Math.min(100, a)}%` }} />
                       </div>
                     </li>
                   )
@@ -192,7 +192,7 @@ export default function WhatIf({ world, policy, initial }: { world: World; polic
         <Card title={`Would stop: ${evac.lost.length} service${evac.lost.length === 1 ? '' : 's'} with nowhere to go`}>
           <ul className="space-y-1.5 text-sm">
             {evac.lost.map((l) => (
-              <li key={l.serviceId} data-testid="evac-lost"><span className="font-medium text-white">{l.serviceName}</span> <span className="text-nb-400">— {l.why}</span></li>
+              <li key={l.serviceId} data-testid="evac-lost"><span className="font-medium text-nb-300">{l.serviceName}</span> <span className="text-nb-400">— {l.why}</span></li>
             ))}
           </ul>
         </Card>

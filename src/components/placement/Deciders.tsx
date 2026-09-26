@@ -69,7 +69,7 @@ export default function Deciders({ world, policy }: { world: World; policy: Poli
         <ul className="space-y-3 text-sm">
           {deciders.map((d) => (
             <li key={d.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="font-medium text-white">{d.name}</span>
+              <span className="font-medium text-nb-300">{d.name}</span>
               <Pill>{d.kind === 'builtin' ? 'built in' : 'external'}</Pill>
               <span className="basis-full text-nb-400">{d.description}</span>
             </li>
@@ -99,18 +99,18 @@ export default function Deciders({ world, policy }: { world: World; policy: Poli
                     const r = results.find((x) => x.deciderId === t.deciderId)
                     return (
                       <tr key={t.deciderId} className="border-t border-nb-850/60 text-nb-300">
-                        <td className="py-2 pr-4 text-white">{t.name}</td>
+                        <td className="py-2 pr-4 text-nb-300">{t.name}</td>
                         {t.ok ? (
                           <>
                             <td className="py-2 pr-4 tabular-nums">{t.moves}</td>
-                            <td className={clsx('py-2 pr-4 tabular-nums', t.costChange < 0 ? 'text-emerald-300' : t.costChange > 0 ? 'text-amber-300' : 'text-nb-500')}>
+                            <td className={clsx('py-2 pr-4 tabular-nums', t.costChange < 0 ? 'text-ok' : t.costChange > 0 ? 'text-warn' : 'text-nb-500')}>
                               {t.moves === 0 ? 'no change' : `${t.costChange > 0 ? '+' : ''}${pts(t.costChange)} points`}
                             </td>
                             <td className="py-2 pr-4 tabular-nums">{r?.rejected.length ?? 0}</td>
                             <td className="py-2 pr-4 tabular-nums text-nb-500">{r?.tookMs} ms</td>
                           </>
                         ) : (
-                          <td colSpan={4} className="py-2 pr-4 text-red-300"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{t.error}</td>
+                          <td colSpan={4} className="py-2 pr-4 text-bad"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{t.error}</td>
                         )}
                       </tr>
                     )
@@ -119,8 +119,8 @@ export default function Deciders({ world, policy }: { world: World; policy: Poli
               </table>
             </div>
             {results.some((r) => (r.outcome?.warnings.length ?? 0) > 0) && (
-              <ul className="mt-3 space-y-1 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-xs text-amber-200/90" data-testid="decider-warnings">
-                {results.flatMap((r) => (r.outcome?.warnings ?? []).map((w) => <li key={`${r.deciderId}-${w}`}><span className="text-white">{r.name}:</span> {w}</li>))}
+              <ul className="mt-3 space-y-1 rounded-lg border border-warn/20 bg-warn/5 px-3 py-2 text-xs text-warn/90" data-testid="decider-warnings">
+                {results.flatMap((r) => (r.outcome?.warnings ?? []).map((w) => <li key={`${r.deciderId}-${w}`}><span className="text-nb-300">{r.name}:</span> {w}</li>))}
               </ul>
             )}
           </Card>
@@ -142,10 +142,10 @@ export default function Deciders({ world, policy }: { world: World; policy: Poli
                   </thead>
                   <tbody>
                     {comparison.rows.map((row) => (
-                      <tr key={row.serviceId} className={clsx('border-t border-nb-850/60 text-nb-300', !row.agree && 'bg-amber-400/5')}>
-                        <td className="py-2 pr-4 text-white">
+                      <tr key={row.serviceId} className={clsx('border-t border-nb-850/60 text-nb-300', !row.agree && 'bg-warn/5')}>
+                        <td className="py-2 pr-4 text-nb-300">
                           {row.serviceName}
-                          {!row.agree && <span className="ml-2 text-xs text-amber-300">disagree</span>}
+                          {!row.agree && <span className="ml-2 text-xs text-warn">disagree</span>}
                         </td>
                         <td className="py-2 pr-4 text-nb-400">{cname(row.from)}</td>
                         {results.map((r) => {
@@ -176,7 +176,7 @@ export default function Deciders({ world, policy }: { world: World; policy: Poli
                 {results.flatMap((r) =>
                   r.rejected.map((x, i) => (
                     <li key={`${r.deciderId}-${x.serviceId}-${i}`}>
-                      <span className="text-white">{r.name}</span> proposed <span className="text-white">{world.byService.get(x.serviceId)?.name ?? x.serviceId}</span> → {cname(x.to)}: <span className="text-amber-200/90">{x.why}</span>
+                      <span className="text-nb-300">{r.name}</span> proposed <span className="text-nb-300">{world.byService.get(x.serviceId)?.name ?? x.serviceId}</span> → {cname(x.to)}: <span className="text-warn/90">{x.why}</span>
                     </li>
                   )),
                 )}
@@ -261,10 +261,10 @@ function ExternalConfig({ admin, connected, conn }: { admin: boolean; connected:
               <Input value={name} onChange={(e) => { setSaved(false); setName(e.target.value) }} placeholder="My scheduler" maxLength={60} data-testid="decider-name" />
             </Field>
             <Field label="Timeout" hint={badTimeout ? 'Between 1 and 25 seconds.' : 'Seconds the server waits for an answer.'}>
-              <Input type="number" min={1} max={25} value={timeout} onChange={(e) => { setSaved(false); setTimeoutSec(e.target.value) }} className={clsx('w-28', badTimeout && 'border-red-400/60')} data-testid="decider-timeout" />
+              <Input type="number" min={1} max={25} value={timeout} onChange={(e) => { setSaved(false); setTimeoutSec(e.target.value) }} className={clsx('w-28', badTimeout && 'border-bad/60')} data-testid="decider-timeout" />
             </Field>
             <Field label="Address" hint={badUrl ? 'Start with http:// or https://.' : 'Leave empty to switch it off.'} className="sm:col-span-2">
-              <Input value={addr} onChange={(e) => { setSaved(false); setAddr(e.target.value) }} placeholder="https://decider.example.org/decide" className={clsx(badUrl && 'border-red-400/60')} data-testid="decider-url" />
+              <Input value={addr} onChange={(e) => { setSaved(false); setAddr(e.target.value) }} placeholder="https://decider.example.org/decide" className={clsx(badUrl && 'border-bad/60')} data-testid="decider-url" />
             </Field>
           </div>
 
@@ -277,22 +277,22 @@ function ExternalConfig({ admin, connected, conn }: { admin: boolean; connected:
                     value={secret}
                     onChange={(e) => { setSaved(false); setSecret(e.target.value) }}
                     placeholder="Paste one, or generate one"
-                    className={clsx('max-w-md font-mono text-xs', badSecret && 'border-red-400/60')}
+                    className={clsx('max-w-md font-mono text-xs', badSecret && 'border-bad/60')}
                     data-testid="decider-secret"
                   />
                   <Button size="sm" type="button" onClick={() => { setSaved(false); setSecret(generateSecret()) }} data-testid="decider-secret-generate">Generate</Button>
                   <Button size="sm" type="button" onClick={() => { setSecret(''); setEditingSecret(false) }}>Cancel</Button>
                 </div>
-                {badSecret && <p className="text-xs text-red-300">Between 16 and 200 characters.</p>}
+                {badSecret && <p className="text-xs text-bad">Between 16 and 200 characters.</p>}
                 {secret && !badSecret && (
-                  <p className="fade-in flex items-center gap-2 text-xs text-amber-200/90">
+                  <p className="fade-in flex items-center gap-2 text-xs text-warn/90">
                     Copy this now - once saved, it is shown only as “set”, never again.
                     <CopyButton text={secret} />
                   </p>
                 )}
               </div>
             ) : clearSecret ? (
-              <p className="flex flex-wrap items-center gap-2 text-sm text-amber-200/90">
+              <p className="flex flex-wrap items-center gap-2 text-sm text-warn/90">
                 Removing the shared secret on save: requests to the decider will no longer be signed.
                 <button type="button" className="text-xs text-accent hover:underline" onClick={() => setClearSecret(false)}>Undo</button>
               </p>
@@ -313,7 +313,7 @@ function ExternalConfig({ admin, connected, conn }: { admin: boolean; connected:
             )}
           </div>
 
-          {error && <p className="mt-3 text-sm text-red-300" role="alert"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{error}</p>}
+          {error && <p className="mt-3 text-sm text-bad" role="alert"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{error}</p>}
           <div className="mt-4 flex items-center gap-3">
             <Button
               variant="primary"

@@ -12,7 +12,7 @@ import type { Service } from '@/lib/types'
 import { useEffectiveModel } from '@/store/effectiveModel'
 import { useTopology } from '@/store/topology'
 
-const DOT: Record<ReasonSeverity, string> = { blocker: 'bg-red-400', caution: 'bg-amber-400', info: 'bg-nb-500' }
+const DOT: Record<ReasonSeverity, string> = { blocker: 'bg-bad', caution: 'bg-warn', info: 'bg-nb-500' }
 
 /** The model as movability() wants it, plus which clusters actually report their volumes. */
 export function useMoveModel(): { model: MoveModel; forService: (w: Service) => MoveModel } {
@@ -111,25 +111,25 @@ export default function MobilityPanel({ service, onSelectCluster }: { service: S
 }
 
 function TargetRow({ t, now, onSelectCluster }: { t: MoveTarget; now: number; onSelectCluster?: (id: string) => void }) {
-  const dim = t.fits ? 'text-nb-300' : t.verdict === 'cantTell' ? 'text-amber-200' : 'text-nb-500'
+  const dim = t.fits ? 'text-nb-300' : t.verdict === 'cantTell' ? 'text-warn' : 'text-nb-500'
   const hedged = t.confidence === 'low' || t.confidence === 'none'
   return (
     <li className="text-xs" data-testid="move-target" data-fits={t.fits} data-verdict={t.verdict} data-confidence={t.confidence}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <FitBadge verdict={t.verdict} />
         {onSelectCluster ? (
-          <button className={`${dim} hover:text-white hover:underline`} onClick={() => onSelectCluster(t.cluster.id)}>{t.cluster.name}</button>
+          <button className={`${dim} hover:text-nb-300 hover:underline`} onClick={() => onSelectCluster(t.cluster.id)}>{t.cluster.name}</button>
         ) : (
           <span className={dim}>{t.cluster.name}</span>
         )}
         <TierBadge tier={t.cluster.tier} />
         <ObservationChip info={observation(t.cluster)} />
-        {t.excluded && <span className="rounded border border-red-400/30 bg-red-400/10 px-1.5 py-px text-[11px] text-red-300" data-testid="excluded-reason" title={t.excluded.reason}>excluded</span>}
+        {t.excluded && <span className="rounded border border-bad/30 bg-bad/10 px-1.5 py-px text-[11px] text-bad" data-testid="excluded-reason" title={t.excluded.reason}>excluded</span>}
         {t.verdict !== 'doesNotFit' && <Confidence level={t.confidence} />}
       </div>
-      {t.blockers.length > 0 && <div className="mt-0.5 text-red-300/90" data-testid="blockers">{t.blockers.join('; ')}</div>}
+      {t.blockers.length > 0 && <div className="mt-0.5 text-bad/90" data-testid="blockers">{t.blockers.join('; ')}</div>}
       {t.unknown.length > 0 && (
-        <div className="mt-0.5 text-amber-200/90" data-testid="cant-tell-why">
+        <div className="mt-0.5 text-warn/90" data-testid="cant-tell-why">
           {t.verdict === 'cantTell' ? 'Can’t tell: ' : 'Not checked: '}
           {t.unknown.join('; ')}
         </div>

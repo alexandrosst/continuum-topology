@@ -18,7 +18,7 @@ export function GoneRecords({ kinds, className }: { kinds?: Tombstone['kind'][];
   const clusterName = (id?: string) => clusters.find((c) => c.id === id)?.name ?? id ?? ''
   return (
     <section className={className} data-testid="gone-records" aria-label="Records that are gone">
-      <h2 className="mb-2 text-sm font-medium text-white">
+      <h2 className="mb-2 text-sm font-medium text-nb-300">
         Gone <span className="ml-1 text-nb-500">({list.length})</span>
       </h2>
       <p className="mb-2 text-xs text-nb-500">No longer reported by their agents. Kept for a while so a change can be explained; not used for anything.</p>
@@ -50,7 +50,7 @@ export function ObservedClusters({ className }: { className?: string }) {
   if (seen.length === 0) return null
   return (
     <section className={className} data-testid="observed-clusters">
-      <h2 className="mb-2 text-sm font-medium text-white">What the agents see</h2>
+      <h2 className="mb-2 text-sm font-medium text-nb-300">What the agents see</h2>
       <ul className="divide-y divide-nb-850 rounded-xl border border-nb-850 bg-nb-925">
         {seen.map((c) => {
           const info = observation(c)

@@ -63,7 +63,7 @@ function WhereIsThis({ cluster }: { cluster: Cluster }) {
 
   return (
     <div className="mt-3 rounded-lg border border-nb-850 bg-nb-925 p-3" data-testid="wizard-where">
-      <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-white">
+      <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-nb-300">
         <MapPin size={14} className="text-accent" aria-hidden /> Where is this?
       </div>
       <p className="mb-2 text-xs text-nb-500">
@@ -85,14 +85,14 @@ function WhereIsThis({ cluster }: { cluster: Cluster }) {
         <ul className="mt-1.5 overflow-hidden rounded-md border border-nb-800 bg-nb-930" role="listbox" aria-label="Matching cities">
           {hits.map((c) => (
             <li key={`${c.name}-${c.cc}-${c.lat}-${c.lng}`}>
-              <button type="button" role="option" aria-selected={false} className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-sm text-nb-300 hover:bg-nb-850 hover:text-white" onClick={() => pick(c)} data-testid="wizard-where-hit">
+              <button type="button" role="option" aria-selected={false} className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-sm text-nb-300 hover:bg-nb-850 hover:text-nb-300" onClick={() => pick(c)} data-testid="wizard-where-hit">
                 <Flag code={c.cc} /> {c.name}, <span className="text-nb-500">{countryName(c.cc)}</span>
               </button>
             </li>
           ))}
         </ul>
       )}
-      {note && <p className="mt-1.5 text-xs text-amber-300" role="status">{note}</p>}
+      {note && <p className="mt-1.5 text-xs text-warn" role="status">{note}</p>}
     </div>
   )
 }
@@ -109,7 +109,7 @@ function SettingsLink({ onNavigate, newTab }: { onNavigate?: () => void; newTab?
 /** The honest notice for a server with no image registry set anywhere: the chart's own names are used, and nobody publishes them for you. */
 function NoRegistryNotice({ onNavigate, newTab }: { onNavigate?: () => void; newTab?: boolean }) {
   return (
-    <p className="rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200" role="note" data-testid="no-registry-notice">
+    <p className="rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" role="note" data-testid="no-registry-notice">
       No image registry configured: the command below uses the chart’s built-in image names, which you must have published yourself. Set your registry in <SettingsLink onNavigate={onNavigate} newTab={newTab} />.
     </p>
   )
@@ -122,7 +122,7 @@ function OptionToggle({ testId, checked, disabled, onChange, title, summary, why
     <label className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 ${checked ? 'border-accent/60 bg-accent-soft' : 'border-nb-850 bg-nb-925 hover:bg-nb-930'}`}>
       <input type="checkbox" className="mt-1 accent-[var(--color-accent)]" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} data-testid={testId} />
       <span>
-        <span className="block text-sm font-medium text-white">{title}</span>
+        <span className="block text-sm font-medium text-nb-300">{title}</span>
         <span className="block text-sm text-nb-500">
           {summary}
           <InfoTip>{why}</InfoTip>
@@ -166,9 +166,9 @@ function Stepper({ phase, stoppedAt }: { phase: Phase; stoppedAt: number }) {
                 className={clsx(
                   'relative flex size-5 items-center justify-center rounded-full border text-[10px] font-medium',
                   failed
-                    ? 'border-red-400/50 bg-red-400/15 text-red-300'
+                    ? 'border-bad/50 bg-bad/15 text-bad'
                     : done
-                      ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300'
+                      ? 'border-ok/50 bg-ok/15 text-ok'
                       : current
                         ? 'border-accent bg-accent-soft text-accent'
                         : 'border-nb-800 text-nb-600',
@@ -177,8 +177,8 @@ function Stepper({ phase, stoppedAt }: { phase: Phase; stoppedAt: number }) {
                 {failed ? <X size={11} /> : done ? <Check size={11} /> : i + 1}
               </span>
             </span>
-            <span className={clsx('ml-1.5 whitespace-nowrap text-[11px]', failed ? 'text-red-300' : done ? 'text-nb-400' : current ? 'text-nb-200' : 'text-nb-600')}>{s.label}</span>
-            {i < STEPS.length - 1 && <span className={clsx('mx-2 h-px flex-1', done ? 'bg-emerald-400/30' : 'bg-nb-850')} />}
+            <span className={clsx('ml-1.5 whitespace-nowrap text-[11px]', failed ? 'text-bad' : done ? 'text-nb-400' : current ? 'text-nb-200' : 'text-nb-600')}>{s.label}</span>
+            {i < STEPS.length - 1 && <span className={clsx('mx-2 h-px flex-1', done ? 'bg-ok/30' : 'bg-nb-850')} />}
           </div>
         )
       })}
@@ -400,7 +400,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                       <label className="flex cursor-pointer items-start gap-3">
                         <input type="checkbox" className="mt-1 accent-[var(--color-accent)]" checked={scopeOn} disabled={tier < 2} onChange={(e) => setScopeOn(e.target.checked)} data-testid="scope-toggle" />
                         <span>
-                          <span className="block text-sm font-medium text-white">Only look at some namespaces</span>
+                          <span className="block text-sm font-medium text-nb-300">Only look at some namespaces</span>
                           <span className="block text-sm text-nb-500">
                             By default the agent reports every namespace. What is left out never leaves the cluster.
                             <InfoTip>This is a privacy boundary, not a permission: the agent's read-only access is unchanged. System namespaces are still read to recognise the cluster but never drawn. Any namespace labelled continuum.io/observe=false is left out whatever you choose here.</InfoTip>
@@ -421,7 +421,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                           <p className="self-end text-xs text-nb-500">
                             {scopeActive(scope) ? 'The install command below will carry this scope.' : 'Nothing narrowed yet: the agent would report every namespace.'}
                           </p>
-                          {problems.length > 0 && <p role="alert" className="text-xs text-red-300 sm:col-span-2">{problems.join('. ')}.</p>}
+                          {problems.length > 0 && <p role="alert" className="text-xs text-bad sm:col-span-2">{problems.join('. ')}.</p>}
                         </div>
                       )}
                     </div>
@@ -481,7 +481,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                       <li data-testid="install-image">
                         The image: <code className="break-all font-mono">{img.reference}</code>
                         {img.digest ? (
-                          <span className="ml-1.5 inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-px align-middle text-[11px] text-emerald-300" data-testid="image-pinned" title="Pinned by digest: every install pulls exactly this image">
+                          <span className="ml-1.5 inline-flex items-center gap-1 rounded border border-ok/30 bg-ok/10 px-1.5 py-px align-middle text-[11px] text-ok" data-testid="image-pinned" title="Pinned by digest: every install pulls exactly this image">
                             <Pin size={11} aria-hidden /> pinned
                           </span>
                         ) : (
@@ -521,13 +521,13 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
           )}
           {phase === 'done' && counts && (
             <>
-              <p className="flex items-center gap-2 text-sm text-emerald-300">
+              <p className="flex items-center gap-2 text-sm text-ok">
                 <CheckCircle2 size={16} /> Connected. Found {counts.nodes} {counts.nodes === 1 ? 'node' : 'nodes'} and {counts.services} {counts.services === 1 ? 'service' : 'services'}. Review the grouping suggestions in the Discovery inbox.
               </p>
               {cluster && !effective(cluster).siteId && <WhereIsThis cluster={cluster} />}
             </>
           )}
-          {phase === 'stopped' && <p className="text-sm text-amber-300">This enrollment was {agent?.status}{agent?.reason ? ` (${agent.reason})` : ''}. Create a new install command to try again.</p>}
+          {phase === 'stopped' && <p className="text-sm text-warn">This enrollment was {agent?.status}{agent?.reason ? ` (${agent.reason})` : ''}. Create a new install command to try again.</p>}
         </div>
       )}
     </Modal>

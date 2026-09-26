@@ -12,7 +12,7 @@ export const STATUS_STYLE: Record<Agent['status'], string> = {
   expired: TONE_CLASS.muted,
 }
 
-export const MODULE_STYLE = { ok: 'text-emerald-300', skipped: 'text-nb-500', error: 'text-red-300' } as const
+export const MODULE_STYLE = { ok: 'text-ok', skipped: 'text-nb-500', error: 'text-bad' } as const
 
 /** One line about the traffic observer: which method runs on how many nodes, or how to turn it on. */
 export function ObserverLine({ agent: a }: { agent: Agent }) {
@@ -44,7 +44,7 @@ export function CheckLine({ agent: a }: { agent: Agent }) {
       <span className="text-nb-300">Consistency check:</span>{' '}
       {c ? (
         <>
-          {c.differences === 0 ? <span className="text-emerald-300">matched</span> : <span className="text-amber-300">{c.differences} thing{c.differences === 1 ? '' : 's'} had been missed and {c.differences === 1 ? 'was' : 'were'} corrected</span>}
+          {c.differences === 0 ? <span className="text-ok">matched</span> : <span className="text-warn">{c.differences} thing{c.differences === 1 ? '' : 's'} had been missed and {c.differences === 1 ? 'was' : 'were'} corrected</span>}
           {' · '}{ageOf(c.lastCheck)} · {c.checks} check{c.checks === 1 ? '' : 's'} so far
         </>
       ) : (
@@ -76,7 +76,7 @@ export function ScopeLine({ agent: a }: { agent: Agent }) {
         `all ${sc.namespaces}`
       ) : (
         <>
-          <span className="text-amber-300">{sc.inScope} of {sc.namespaces}</span>
+          <span className="text-warn">{sc.inScope} of {sc.namespaces}</span>
           {sc.description ? ` · ${sc.description}` : ''}
           {' · the rest never leave the cluster'}
         </>

@@ -81,7 +81,7 @@ export default function NamespacesPage() {
                   </tr>
                 ) : (
                   <tr key={r.key} className="group cursor-pointer hover:bg-nb-930/60" onClick={() => navigate(servicesOf(r))} data-testid="namespace-row" data-namespace={r.name} data-cluster={r.clusterName}>
-                    <Td className="font-medium text-white">
+                    <Td className="font-medium text-nb-300">
                       <Link to={servicesOf(r)} onClick={(e) => e.stopPropagation()} className="rounded hover:underline" title="Show this namespace’s services">{r.name}</Link>
                     </Td>
                     <Td className="truncate" title={r.clusterName}>{r.clusterName}</Td>

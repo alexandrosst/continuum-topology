@@ -18,7 +18,7 @@ export default function ServiceAdvice({ serviceId }: { serviceId: string }) {
       {rec ? (
         <>
           <p className="flex flex-wrap items-center gap-2 text-nb-300">
-            <span>{name(rec.from)}</span> <ArrowRight size={13} aria-hidden /> <span className="text-white">{name(rec.to)}</span>
+            <span>{name(rec.from)}</span> <ArrowRight size={13} aria-hidden /> <span className="text-nb-300">{name(rec.to)}</span>
             <span className="rounded-md bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">saves {pts(rec.net)} points</span>
           </p>
           <p className="mt-2 text-xs text-nb-400">{rec.reasons[0] ?? 'The combined effect of several small differences.'}</p>

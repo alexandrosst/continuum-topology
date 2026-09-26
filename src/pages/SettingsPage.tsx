@@ -15,7 +15,7 @@ function Card({ title, description, children }: { title: string; description: st
   return (
     <div className="flex items-center justify-between gap-6 rounded-xl border border-nb-850 bg-nb-925 p-5">
       <div>
-        <div className="text-sm font-medium text-white">{title}</div>
+        <div className="text-sm font-medium text-nb-300">{title}</div>
         <div className="mt-1 max-w-lg text-sm text-nb-500">{description}</div>
       </div>
       <div className="shrink-0">{children}</div>
@@ -82,7 +82,7 @@ export default function SettingsPage() {
 
       {connected && (serverVersion || chartVersion) && (
         <section id="about" aria-labelledby="about-title" className="mb-8 scroll-mt-6" data-testid="about-server">
-          <h2 id="about-title" className="mb-1 text-sm font-medium text-white">About this server</h2>
+          <h2 id="about-title" className="mb-1 text-sm font-medium text-nb-300">About this server</h2>
           <p className="mb-3 max-w-2xl text-sm text-nb-500">What this server and the agent chart it hands out report themselves to be.</p>
           <dl className="grid max-w-md grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border border-nb-850 bg-nb-925 px-4 py-3 text-sm">
             {serverVersion && (
@@ -101,13 +101,13 @@ export default function SettingsPage() {
         </section>
       )}
 
-      <h2 className="mb-1 text-sm font-medium text-white">Import / Export</h2>
+      <h2 className="mb-1 text-sm font-medium text-nb-300">Import / Export</h2>
       <p className="mb-3 max-w-2xl text-sm text-nb-500">{onServer ? "Your topology is saved to the server and shared with everyone who signs in. Export it as JSON to keep a copy." : "Your topology is stored in this browser. Export it as JSON to back it up or share it."}</p>
 
       <div className="mb-6 grid grid-cols-3 gap-3 lg:grid-cols-7">
         {[['Clusters', clusters.length], ['Nodes', nodes.length], ['Services', services.length], ['Devices', devices.length], ['Dependencies', dependencies.length], ['Applications', applications.length], ['Sites', sites.length]].map(([l, v]) => (
           <div key={l} className="rounded-xl border border-nb-850 bg-nb-925 px-5 py-4">
-            <div className="text-2xl font-medium text-white">{v}</div>
+            <div className="text-2xl font-medium text-nb-300">{v}</div>
             <div className="text-xs text-nb-500">{l}</div>
           </div>
         ))}
@@ -133,7 +133,7 @@ export default function SettingsPage() {
 
       {connected && (
         <p className="mt-10 flex max-w-2xl items-start gap-2 text-xs leading-5 text-nb-500">
-          <PulseDot size="size-1.5" className="mt-1.5" color={geoip?.enabled ? 'bg-emerald-400' : 'bg-nb-700'} />
+          <PulseDot size="size-1.5" className="mt-1.5" color={geoip?.enabled ? 'bg-ok' : 'bg-nb-700'} />
           <span>
             {geoip?.enabled ? (
               <>

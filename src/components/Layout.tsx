@@ -65,7 +65,7 @@ function NavItem({ to, label, icon: Icon, badge, slid }: NavEntry & { badge?: nu
       className={({ isActive }) =>
         clsx(
           'group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-          isActive ? 'bg-nb-940 text-white' : 'text-nb-400 hover:bg-nb-930 hover:text-nb-300',
+          isActive ? 'bg-nb-940 text-nb-300' : 'text-nb-400 hover:bg-nb-930 hover:text-nb-300',
         )
       }
     >
@@ -75,7 +75,7 @@ function NavItem({ to, label, icon: Icon, badge, slid }: NavEntry & { badge?: nu
           <Icon size={16} className={isActive ? 'text-accent' : ''} />
           {label}
           {!!badge && (
-            <span className="ml-auto rounded-full bg-amber-400/15 px-1.5 text-[11px] font-medium text-amber-300" aria-label={`${badge} waiting`}>
+            <span className="ml-auto rounded-full bg-warn-soft px-1.5 text-[11px] font-medium text-warn" aria-label={`${badge} waiting`}>
               {badge}
             </span>
           )}
@@ -206,7 +206,7 @@ function Shell() {
       <aside
         id="main-menu"
         className={clsx(
-          'fixed inset-y-0 left-0 z-50 flex w-60 shrink-0 flex-col overflow-y-auto border-r border-nb-850 bg-nb-920 px-3 py-4 transition-transform duration-200 xl:static xl:z-auto xl:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 flex w-60 shrink-0 flex-col overflow-y-auto border-r border-nb-850 bg-nb-920 px-3 py-4 transition-transform duration-200 xl:static xl:z-auto xl:min-h-0 xl:translate-x-0',
           menu ? 'translate-x-0' : '-translate-x-full',
         )}
       >
@@ -215,7 +215,7 @@ function Shell() {
             <Cpu size={18} />
           </div>
           <div className="leading-tight">
-            <div className="text-sm font-semibold text-white">Continuum</div>
+            <div className="text-sm font-semibold text-nb-300">Continuum</div>
             <div className="text-[11px] text-nb-500">Topology Studio</div>
           </div>
         </div>
@@ -263,11 +263,11 @@ function Shell() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-12 shrink-0 items-center gap-3 border-b border-nb-850 bg-nb-920 px-3 xl:hidden">
-          <button onClick={() => setMenu(true)} aria-label="Open menu" aria-controls="main-menu" aria-expanded={menu} className="grid size-9 place-items-center rounded-md text-nb-400 hover:bg-nb-930 hover:text-white">
+          <button onClick={() => setMenu(true)} aria-label="Open menu" aria-controls="main-menu" aria-expanded={menu} className="grid size-9 place-items-center rounded-md text-nb-400 hover:bg-nb-930 hover:text-nb-300">
             <Menu size={18} />
           </button>
-          <span className="text-sm font-semibold text-white">Continuum</span>
-          <button onClick={() => setSearching(true)} aria-label="Search" className="ml-auto grid size-9 place-items-center rounded-md text-nb-400 hover:bg-nb-930 hover:text-white">
+          <span className="text-sm font-semibold text-nb-300">Continuum</span>
+          <button onClick={() => setSearching(true)} aria-label="Search" className="ml-auto grid size-9 place-items-center rounded-md text-nb-400 hover:bg-nb-930 hover:text-nb-300">
             <Search size={16} />
           </button>
         </div>

@@ -26,21 +26,21 @@ function InviteCreated({ token, invite, url, org, onClose }: { token: string; in
   return (
     <Modal open onClose={onClose} title="Invitation created" width="max-w-lg" footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
       <p className="text-sm text-nb-400">
-        Send this to {invite.label ? <strong className="text-white">{invite.label}</strong> : 'the person you are inviting'}. It lets one person join <strong className="text-white">{org}</strong> as {ROLE_LABEL[invite.role].toLowerCase()}, once, until {when(invite.expiresAt)}.
+        Send this to {invite.label ? <strong className="text-nb-300">{invite.label}</strong> : 'the person you are inviting'}. It lets one person join <strong className="text-nb-300">{org}</strong> as {ROLE_LABEL[invite.role].toLowerCase()}, once, until {when(invite.expiresAt)}.
         It is shown only now; if it is lost, make another.
       </p>
       <div className="mt-4 space-y-3">
         <div>
           <div className="mb-1 text-xs text-nb-500">Link</div>
           <div className="flex items-center gap-2 rounded-md border border-nb-800 bg-nb-925 px-3 py-2">
-            <code className="flex-1 select-all break-all font-mono text-xs text-white" data-testid="invite-link">{link}</code>
+            <code className="flex-1 select-all break-all font-mono text-xs text-nb-300" data-testid="invite-link">{link}</code>
             <Button size="sm" onClick={() => void copy('link', link)}><Link2 size={13} /> {copied === 'link' ? 'Copied' : 'Copy'}</Button>
           </div>
         </div>
         <div>
           <div className="mb-1 text-xs text-nb-500">Or just the code, for someone who already has an account</div>
           <div className="flex items-center gap-2 rounded-md border border-nb-800 bg-nb-925 px-3 py-2">
-            <code className="flex-1 select-all break-all font-mono text-xs text-white" data-testid="invite-code">{token}</code>
+            <code className="flex-1 select-all break-all font-mono text-xs text-nb-300" data-testid="invite-code">{token}</code>
             <Button size="sm" onClick={() => void copy('code', token)}><Copy size={13} /> {copied === 'code' ? 'Copied' : 'Copy'}</Button>
           </div>
         </div>
@@ -89,14 +89,14 @@ function Danger() {
 
   return (
     <section className="mt-10" aria-labelledby="org-h">
-      <h2 id="org-h" className="mb-3 text-sm font-medium text-white">Organisation</h2>
+      <h2 id="org-h" className="mb-3 text-sm font-medium text-nb-300">Organisation</h2>
       <ErrorLine text={error} />
       <form className="flex max-w-lg items-end gap-2" onSubmit={(e) => { e.preventDefault(); void rename() }}>
         <Field label="Name" className="flex-1"><Input value={name} onChange={(e) => { setName(e.target.value); setSaved(false) }} data-testid="org-name" /></Field>
         <Button type="submit" disabled={name.trim().length < 2 || name.trim() === info?.orgName}>{saved ? 'Saved' : 'Rename'}</Button>
       </form>
-      <div className="mt-6 max-w-lg rounded-lg border border-red-500/25 bg-red-500/5 p-4">
-        <div className="text-sm font-medium text-red-200">Delete this organisation</div>
+      <div className="mt-6 max-w-lg rounded-lg border border-bad/25 bg-bad/5 p-4">
+        <div className="text-sm font-medium text-bad">Delete this organisation</div>
         <p className="mt-1 text-xs text-nb-400">Erases its agents, topology, history and memberships for good. The people keep their accounts and their other organisations. The audit trail of who deleted it is kept.</p>
         <Button className="mt-3" variant="danger" onClick={() => { setConfirm(''); setOpen(true) }} data-testid="org-delete"><Trash2 size={14} /> Delete organisation…</Button>
       </div>
@@ -188,7 +188,7 @@ export default function TeamPage() {
             const manageable = !m.you && mine.includes(m.role)
             return (
               <tr key={m.id} className="group hover:bg-nb-930/60" data-testid={`member-${m.username}`}>
-                <Td><span className="text-white">{m.username}</span>{m.you && <span className="ml-2 text-xs text-nb-500">(you)</span>}</Td>
+                <Td><span className="text-nb-300">{m.username}</span>{m.you && <span className="ml-2 text-xs text-nb-500">(you)</span>}</Td>
                 <Td>
                   {manageable ? (
                     <Select value={m.role} aria-label={`Role of ${m.username}`} onChange={(e) => void act(async () => { const c = conn(); if (c) await api.setMemberRole(c, m.id, e.target.value as Role) }, 'Could not change the role.')} className="h-8 w-36">
@@ -218,7 +218,7 @@ export default function TeamPage() {
 
       {canInvite && (
         <section className="mt-10" aria-labelledby="inv-h">
-          <h2 id="inv-h" className="mb-3 text-sm font-medium text-white">Invitations</h2>
+          <h2 id="inv-h" className="mb-3 text-sm font-medium text-nb-300">Invitations</h2>
           {invites.length === 0 ? (
             <p className="text-sm text-nb-500">None yet. An invitation is one link that lets one person join with the role you choose. It works once and expires after seven days.</p>
           ) : (
@@ -229,7 +229,7 @@ export default function TeamPage() {
               <tbody>
                 {[...open, ...past].map((i) => (
                   <tr key={i.id} className="group hover:bg-nb-930/60" data-testid={`invite-${i.label || i.id}`}>
-                    <Td className="text-white">{i.label || <span className="text-nb-500">anyone with the link</span>}</Td>
+                    <Td className="text-nb-300">{i.label || <span className="text-nb-500">anyone with the link</span>}</Td>
                     <Td><Pill>{ROLE_LABEL[i.role]}</Pill></Td>
                     <Td className="text-nb-500">{i.createdBy}</Td>
                     <Td className="text-nb-500">{i.used ? `used by ${i.usedBy || 'someone'}` : i.expired ? 'expired' : `open until ${when(i.expiresAt)}`}</Td>
@@ -247,14 +247,14 @@ export default function TeamPage() {
       )}
 
       <details className="group mt-10">
-        <summary className="flex cursor-pointer select-none items-center gap-1.5 text-sm font-medium text-white marker:content-none">
+        <summary className="flex cursor-pointer select-none items-center gap-1.5 text-sm font-medium text-nb-300 marker:content-none">
           <ChevronRight size={14} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
           What each role can do
         </summary>
         <dl className="mt-3 grid max-w-3xl gap-x-6 gap-y-2 pl-[1.375rem] text-sm sm:grid-cols-[8rem_1fr]">
           {(['viewer', 'editor', 'admin', 'owner'] as Role[]).map((r) => (
             <div key={r} className="contents">
-              <dt className="text-white">{ROLE_LABEL[r]}</dt>
+              <dt className="text-nb-300">{ROLE_LABEL[r]}</dt>
               <dd className="text-nb-400">{ROLE_HELP[r]}</dd>
             </div>
           ))}

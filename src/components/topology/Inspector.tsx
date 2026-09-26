@@ -77,7 +77,7 @@ function LinkRow({ label, sub, onClick, stacked }: { label: string; sub?: string
 function Confirmed({ meta }: { meta?: OverrideMeta }) {
   const title = meta ? `${meta.by} set this by hand ${ageLabel(meta.at)} ago; it will not be overwritten by rediscovery.` : 'You set this by hand; it will not be overwritten by rediscovery.'
   return (
-    <span className="ml-1.5 whitespace-nowrap rounded-full border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-px text-[10px] font-medium text-emerald-300" title={title}>
+    <span className="ml-1.5 inline-block align-middle whitespace-nowrap rounded-full border border-ok/30 bg-ok/10 px-1.5 py-px text-[10px] font-medium text-ok" title={title}>
       {meta ? `confirmed by ${meta.by}` : 'you confirmed this'}
     </span>
   )
@@ -88,7 +88,7 @@ function Why({ ev }: { ev?: Evidence }) {
   return (
     <Row label="Detected via" wrap>
       <span title={ev.detail}>
-        {ev.signal} <span className={ev.confidence === 'high' ? 'text-emerald-400' : ev.confidence === 'medium' ? 'text-amber-300' : 'text-red-300'}>({ev.confidence})</span>
+        {ev.signal} <span className={ev.confidence === 'high' ? 'text-ok' : ev.confidence === 'medium' ? 'text-warn' : 'text-bad'}>({ev.confidence})</span>
       </span>
     </Row>
   )
@@ -109,7 +109,7 @@ function Origin({ e }: { e: Provenance }) {
       <Row label="Origin">
         {e.source === 'manual' ? 'Entered manually' : e.source === 'discovered' ? 'Detected' : 'Imported'}
         <SourceBadge source="manual" overridden={hasOverrides(e)} />
-        {observation(e) ? <ObservationChip className="ml-2" info={observation(e)} /> : e.stale && <span className="ml-2 rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-amber-300">Stale</span>}
+        {observation(e) ? <ObservationChip className="ml-2" info={observation(e)} /> : e.stale && <span className="ml-2 rounded border border-warn/30 bg-warn/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-warn">Stale</span>}
       </Row>
       <Maybe label="Last seen">{ago(e.lastSeen)}</Maybe>
     </>
@@ -146,7 +146,7 @@ function ObserverRow({ agent, nodeNames }: { agent: Agent; nodeNames: string[] }
     <>
       <Row label="Traffic" wrap>
         {o.collectors.length === 0 ? (
-          <span className="text-amber-300">No collector reporting (last heard {ago(o.lastReport)})</span>
+          <span className="text-warn">No collector reporting (last heard {ago(o.lastReport)})</span>
         ) : (
           <span title={o.collectors.map((c) => `${c.node}: ${c.method}${c.bytesKnown ? '' : ', bytes not measured'}`).join('\n')}>
             {parts.join(', ')} · {watched.size} of {nodeNames.length || watched.size} nodes
@@ -154,10 +154,10 @@ function ObserverRow({ agent, nodeNames }: { agent: Agent; nodeNames: string[] }
         )}
       </Row>
       {missing.length > 0 && o.collectors.length > 0 && (
-        <Row label="Not observed" wrap><span className="text-amber-300" title="No collector has reported from these nodes, so traffic to or from their pods is missing.">{missing.slice(0, 3).join(', ')}{missing.length > 3 ? ` +${missing.length - 3}` : ''}</span></Row>
+        <Row label="Not observed" wrap><span className="text-warn" title="No collector has reported from these nodes, so traffic to or from their pods is missing.">{missing.slice(0, 3).join(', ')}{missing.length > 3 ? ` +${missing.length - 3}` : ''}</span></Row>
       )}
       {o.lost > 0 && (
-        <Row label="Dropped" wrap><span className="text-amber-300" title="Connections a collector could not attribute or count, for example ones that were already open when it started.">{o.lost.toLocaleString()} observations</span></Row>
+        <Row label="Dropped" wrap><span className="text-warn" title="Connections a collector could not attribute or count, for example ones that were already open when it started.">{o.lost.toLocaleString()} observations</span></Row>
       )}
     </>
   )
@@ -292,7 +292,7 @@ export default function Inspector({
           <Maybe label="Trust zone · residency">{[c.trustZone, c.dataResidency].filter(Boolean).join(' · ')}</Maybe>
           {!c.trustZone && !clusterSite?.trustZone && (
             <Row label="Trust zone" wrap>
-              <span className="text-amber-300">
+              <span className="text-warn">
                 Not set: placement can't tell whether a workload here is allowed to move to a more sensitive zone, or leave for a less trusted one. Set it here, or on its site.
               </span>
             </Row>
@@ -306,7 +306,7 @@ export default function Inspector({
           <Maybe label="CNI · Ingress">{[c.cni, c.ingress].filter(Boolean).join(' · ')}</Maybe>
           <Maybe label="Pod CIDR"><span className="font-mono text-xs">{c.podCidr}</span></Maybe>
           {overlap.length > 0 && (
-            <Row label="CIDR overlap"><span className="text-amber-300" title="Overlapping pod CIDRs can break direct cross-cluster routing.">{overlap.map((o) => o.name).join(', ')}</span></Row>
+            <Row label="CIDR overlap"><span className="text-warn" title="Overlapping pod CIDRs can break direct cross-cluster routing.">{overlap.map((o) => o.name).join(', ')}</span></Row>
           )}
           <Maybe label="Service CIDR"><span className="font-mono text-xs">{c.serviceCidr}</span></Maybe>
           <Maybe label="Storage">{list(c.storageClasses)}</Maybe>
@@ -470,7 +470,7 @@ export default function Inspector({
           <Maybe label="Requested">{res(n.requested)}</Maybe>
           <Maybe label="Pods">
             {n.podCount !== undefined ? (
-              <span className={(podsPercent(n.podCount, n.podCapacity) ?? 0) >= 90 ? 'text-red-300' : undefined}>
+              <span className={(podsPercent(n.podCount, n.podCapacity) ?? 0) >= 90 ? 'text-bad' : undefined}>
                 {podsLabel(n.podCount, n.podCapacity)}{n.podCapacity ? ` (max ${n.podCapacity})` : ''}
               </span>
             ) : n.podCapacity ? `max ${n.podCapacity}` : undefined}
@@ -488,7 +488,7 @@ export default function Inspector({
           </Maybe>
           {n.hasBattery && <Row label="Power">Has a battery: can run without mains power</Row>}
           <Maybe label="Taints">{list(n.taints)}</Maybe>
-          {n.conditions && n.conditions.length > 0 && <Row label="Conditions"><span className="text-amber-300">{n.conditions.join(', ')}</span></Row>}
+          {n.conditions && n.conditions.length > 0 && <Row label="Conditions"><span className="text-warn">{n.conditions.join(', ')}</span></Row>}
         </Section>
         <Section title="Discovery">
           <Origin e={n} />
@@ -591,14 +591,14 @@ export default function Inspector({
                   {[v.storageClass, v.accessModes?.join(', '), v.phase].filter(Boolean).join(' · ')}
                 </div>
                 {v.pinnedNodeIds && v.pinnedNodeIds.length > 0 && (
-                  <div className="mt-0.5 text-xs text-amber-300" title="A local volume: this service cannot be moved without moving or copying the data.">
+                  <div className="mt-0.5 text-xs text-warn" title="A local volume: this service cannot be moved without moving or copying the data.">
                     Data only on{' '}
                     {v.pinnedNodeIds.map((id, i) => {
                       const pn = nodes.find((x) => x.id === id)
                       return (
                         <span key={id}>
                           {i > 0 && ', '}
-                          {pn ? <button className="underline hover:text-amber-200" onClick={() => onSelect({ kind: 'node', id })}>{pn.name}</button> : id}
+                          {pn ? <button className="underline hover:text-warn" onClick={() => onSelect({ kind: 'node', id })}>{pn.name}</button> : id}
                         </span>
                       )
                     })}
@@ -710,7 +710,7 @@ export default function Inspector({
             <Maybe label="Trust zone · residency">{[s.trustZone, s.dataResidency].filter(Boolean).join(' · ')}</Maybe>
             {!s.trustZone && cs.some((c) => !c.trustZone) && (
               <Row label="Trust zone" wrap>
-                <span className="text-amber-300">
+                <span className="text-warn">
                   Not set: {cs.filter((c) => !c.trustZone).length === cs.length ? 'none of its clusters have one either' : 'some of its clusters have their own, but the rest fall back to this'}. Placement can't tell whether workloads there are allowed to move to a more sensitive zone, or leave for a less trusted one. <Link to="/sites" className="text-accent hover:underline">Set it</Link>.
                 </span>
               </Row>
@@ -825,7 +825,7 @@ export default function Inspector({
               </Maybe>
               <Maybe label="Retransmits">{d.via === 'ebpf' ? `${Math.round((s.retransmitsPerMin ?? 0) * 10) / 10} per minute${d.retransmits ? ` (${d.retransmits} total)` : ''}` : undefined}</Maybe>
               <Maybe label="Window">{s.windowSec ? `${Math.round(s.windowSec / 60) || '<1'} min` : undefined}</Maybe>
-              {d.stale && <p className="mt-1 text-xs text-amber-300">No traffic since {ago(d.lastSeen)}.</p>}
+              {d.stale && <p className="mt-1 text-xs text-warn">No traffic since {ago(d.lastSeen)}.</p>}
             </>
           ) : (
             <p className="text-sm text-nb-500">{seen ? 'Seen, but no rates were reported.' : 'No traffic has been seen for this; it comes from what was declared. Turn on the traffic observer in Discovery to check it.'}</p>
@@ -843,7 +843,7 @@ export default function Inspector({
             {q ? (
               <>
                 <Row label="Round trip"><span title="TCP connect time, median">{rttLabel(q.rttMs)}</span></Row>
-                <Row label="Loss"><span className={lossBand(q.lossPct) === 'hot' ? 'text-red-300' : lossBand(q.lossPct) === 'warn' ? 'text-amber-300' : undefined}>{q.lossPct.toFixed(q.lossPct < 10 ? 1 : 0)}% of connection attempts failed</span></Row>
+                <Row label="Loss"><span className={lossBand(q.lossPct) === 'hot' ? 'text-bad' : lossBand(q.lossPct) === 'warn' ? 'text-warn' : undefined}>{q.lossPct.toFixed(q.lossPct < 10 ? 1 : 0)}% of connection attempts failed</span></Row>
                 <p className="mt-1 text-xs text-nb-500">
                   Measured from {clusterName(q.reversed ? tc : fc)} to {clusterName(q.reversed ? fc : tc)}{q.reversed ? ' (the other direction; the round trip is the same, loss may differ)' : ''}.
                 </p>
@@ -860,10 +860,10 @@ export default function Inspector({
   }
 
   return (
-    <aside className="fixed inset-x-0 bottom-0 z-30 flex max-h-[65vh] flex-col overflow-y-auto rounded-t-xl border-t border-nb-850 bg-nb-920 shadow-2xl lg:static lg:max-h-none lg:w-80 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
+    <aside className="fixed inset-x-0 bottom-0 z-30 flex max-h-[65vh] flex-col overflow-y-auto rounded-t-xl border-t border-nb-850 bg-nb-920 shadow-2xl lg:static lg:max-h-none lg:w-80 lg:min-h-0 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
       <div className="flex items-start justify-between gap-3 px-5 py-4">
         <div className="min-w-0">
-          <h2 className="truncate text-base font-medium text-white">{title}</h2>
+          <h2 className="truncate text-base font-medium text-nb-300">{title}</h2>
           <div className="mt-1.5">{subtitle}</div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
