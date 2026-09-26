@@ -15,7 +15,14 @@
       (function () {
         try {
           var t = localStorage.getItem('continuum:theme')
-          if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t)
+          if (t !== 'light' && t !== 'dark') {
+            // No pinned choice: resolve the OS preference now, in JS, rather than leaving data-theme
+            // absent for a `@media (prefers-color-scheme)` rule in index.css to pick up - see the long
+            // comment atop src/lib/theme.ts for the story behind that choice.
+            t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark'
+          }
+          document.documentElement.setAttribute('data-theme', t)
+          document.documentElement.style.colorScheme = t
         } catch (e) {}
       })()
     </script>
