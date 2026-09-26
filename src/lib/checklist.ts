@@ -155,3 +155,26 @@ export function dismiss(org: string | undefined, storage?: Pick<Storage, 'setIte
     /* storage unavailable: the card simply comes back next visit */
   }
 }
+
+/* ---------- "already shown once this session", so onboarding doesn't visibly repeat on a second page ---------- */
+
+const SEEN_KEY = 'continuum-getting-started/seen-on'
+
+/**
+ * True once the checklist has already been shown on a *different* page this session. The first page that asks
+ * claims it for the rest of the session (kept in sessionStorage, so a fresh tab always gets one full showing,
+ * and a page that already claimed it keeps showing it on its own later renders); every other page then treats
+ * the checklist as already seen and falls back to its plainer state instead of repeating it. Storage that is
+ * blocked reads as "not seen elsewhere", same fail-open choice as wasDismissed.
+ */
+export function gettingStartedSeenElsewhere(page: string, storage?: Pick<Storage, 'getItem' | 'setItem'>): boolean {
+  try {
+    const s = storage ?? sessionStorage
+    const seenOn = s.getItem(SEEN_KEY)
+    if (seenOn && seenOn !== page) return true
+    if (!seenOn) s.setItem(SEEN_KEY, page)
+    return false
+  } catch {
+    return false
+  }
+}

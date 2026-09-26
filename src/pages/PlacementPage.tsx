@@ -9,7 +9,7 @@ import PolicyPanel from '@/components/placement/PolicyPanel'
 import RecommendationCard from '@/components/placement/Recommendation'
 import { Card, pts } from '@/components/placement/shared'
 import WhatIf from '@/components/placement/WhatIf'
-import { EmptyState, PageHeader } from '@/components/ui/primitives'
+import { EmptyState, PageHeader, useFlash } from '@/components/ui/primitives'
 import { coverage, totals, whatIf } from '@/lib/placement/engine'
 import type { Move } from '@/lib/placement/types'
 import { usePlan } from '@/lib/placement/usePlacement'
@@ -27,6 +27,10 @@ export default function PlacementPage() {
   const [params, setParams] = useSearchParams()
   const tab: Tab = TABS.some((t) => t.id === params.get('tab')) ? (params.get('tab') as Tab) : 'recommendations'
   const { world, plan, policy } = usePlan()
+  // Signals "new advice" when the recommendation set itself changes (a real replan, not a data refresh
+  // that happened to change nothing) - see usePlan/useWorld's stability fix, which is what makes this
+  // array's identity actually mean something now.
+  const recsChanged = useFlash(plan.recommendations)
   const shownAt = useHistoryView((s) => s.at)
 
   const initial: Move[] | undefined = useMemo(() => {
@@ -122,7 +126,7 @@ export default function PlacementPage() {
                         <p className="mt-3 text-xs text-nb-500">Each recommendation assumes the ones above it have happened, so their numbers add up and two services are never told to swap places.</p>
                       </Card>
                     )}
-                    <div className="space-y-4">
+                    <div className={clsx('space-y-4', recsChanged && 'fade-in')}>
                       {plan.recommendations.map((r) => (
                         <RecommendationCard key={r.serviceId} r={r} world={world} />
                       ))}

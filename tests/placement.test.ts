@@ -92,7 +92,7 @@ test('recommend: a busy service moves next to what it talks to, with evidence, a
   assert.ok(api.reasons.some((r) => /crosses between sites now stays local/.test(r) && /db/.test(r)), api.reasons.join(' | '))
   assert.ok(api.reasons.some((r) => /round trip/.test(r)))
   assert.equal(api.target.crossSiteBps, 200 * 1024) // the cache stays behind at the edge
-  assert.equal(api.current.crossSiteBps, 4 * 1024 * 1024 + 200 * 1024 * 0) // the cache is local now, the db is not
+  assert.equal(api.current.crossSiteBps, 4 * 1024 * 1024) // the cache is local now, the db is not
   // the database is stateful with a volume: moving it is careful, and copying 20 GB is a cost
   assert.ok(!plan.recommendations.some((r) => r.serviceId === 'db'))
   // the recommendation never claims to have applied anything

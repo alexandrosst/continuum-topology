@@ -1,7 +1,7 @@
 import { ChevronsUpDown, Fingerprint, KeyRound, LogOut, Mail, Plus, ScrollText, ShieldCheck, Ticket, Users } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { Button, CopyButton, ErrorBanner, Field, Input, Modal, Select } from '@/components/ui/primitives'
+import { Button, CopyButton, ErrorBanner, Field, Input, Modal, PasswordInput, Select } from '@/components/ui/primitives'
 import { atLeast, ROLE_LABEL, type Passkey } from '@/lib/api'
 import { passkeysSupported } from '@/lib/webauthn'
 import { useServer } from '@/store/server'
@@ -58,9 +58,9 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
         <p className="text-sm text-emerald-300">Password changed. Your other browsers were signed out.</p>
       ) : (
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (!bad) void submit() }}>
-          <Field label="Current password"><Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" autoFocus /></Field>
-          <Field label="New password" hint="At least 12 characters."><Input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></Field>
-          <Field label="New password again"><Input type="password" value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" /></Field>
+          <Field label="Current password"><PasswordInput value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" autoFocus /></Field>
+          <Field label="New password" hint="At least 12 characters."><PasswordInput value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></Field>
+          <Field label="New password again"><PasswordInput value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" /></Field>
           {error && <ErrorBanner>{error}</ErrorBanner>}
         </form>
       )}
@@ -184,7 +184,7 @@ function TwoFactorDisableModal({ onClose }: { onClose: () => void }) {
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit} disabled={busy || !password}>{busy ? 'Turning off…' : 'Turn off'}</Button></>}
     >
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (password) void submit() }}>
-        <Field label="Current password"><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus /></Field>
+        <Field label="Current password"><PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus /></Field>
         {error && <ErrorBanner>{error}</ErrorBanner>}
       </form>
     </Modal>
@@ -328,7 +328,7 @@ function EmailDisableModal({ onClose }: { onClose: () => void }) {
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit} disabled={busy || !password}>{busy ? 'Turning off…' : 'Turn off'}</Button></>}
     >
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (password) void submit() }}>
-        <Field label="Current password"><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus /></Field>
+        <Field label="Current password"><PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus /></Field>
         {error && <ErrorBanner>{error}</ErrorBanner>}
       </form>
     </Modal>
@@ -378,7 +378,7 @@ function PasskeyRow({ passkey, busy, setBusy }: { passkey: Passkey; busy: boolea
         <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); if (password) void confirmRemove() }}>
           <p className="text-xs text-nb-400">Enter your password to remove <strong className="text-nb-200">{passkey.name}</strong>.</p>
           <div className="flex items-center gap-2">
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="current-password" className="h-8 flex-1 text-sm" />
+            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="current-password" className="h-8 flex-1 text-sm" />
             <Button type="submit" size="sm" variant="danger" disabled={busy || !password}>Remove</Button>
             <Button type="button" size="sm" onClick={() => { setMode('idle'); setPassword('') }}>Cancel</Button>
           </div>
@@ -587,6 +587,7 @@ export default function AccountMenu() {
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div ref={menu} role="menu" aria-label="Account" className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-lg border border-nb-850 bg-nb-920 p-1 shadow-xl" data-testid="account-menu">
+            <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-nb-600" aria-hidden>Organisation</div>
             {orgId && (
               <NavLink to="/team" className={item} role="menuitem" data-testid="nav-team">
                 <Users size={15} className="text-nb-500" /> Members &amp; access
@@ -602,6 +603,7 @@ export default function AccountMenu() {
             )}
             <button onClick={pick(() => setJoin(true))} className={item} role="menuitem" data-testid="join-open"><Ticket size={15} className="text-nb-500" /> Join with a code</button>
             <div className="my-1 border-t border-nb-850" />
+            <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-nb-600" aria-hidden>Account &amp; security</div>
             <button onClick={pick(() => setPw(true))} className={item} role="menuitem"><KeyRound size={15} className="text-nb-500" /> Change password</button>
             <button onClick={pick(() => setTwoFA(true))} className={item} role="menuitem" data-testid="two-factor-open">
               <ShieldCheck size={15} className="text-nb-500" /> {user.twoFactorEnabled ? 'Two-factor authentication (on)' : 'Turn on two-factor authentication'}
@@ -614,6 +616,7 @@ export default function AccountMenu() {
             <button onClick={pick(() => setPasskeys(true))} className={item} role="menuitem" data-testid="passkeys-open">
               <Fingerprint size={15} className="text-nb-500" /> {user.passkeys.length > 0 ? `Passkeys (${user.passkeys.length})` : 'Add a passkey'}
             </button>
+            <div className="my-1 border-t border-nb-850" />
             <button onClick={pick(() => void signOut())} className={item} role="menuitem" data-testid="sign-out"><LogOut size={15} className="text-nb-500" /> Sign out</button>
           </div>
         </>

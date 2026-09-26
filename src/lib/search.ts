@@ -32,7 +32,10 @@ export const PAGES: { to: string; label: string; keywords: string }[] = [
   { to: '/sites', label: 'Sites', keywords: 'places locations regions' },
   { to: '/discovery', label: 'Discovery', keywords: 'inbox suggestions found gone' },
   { to: '/agents', label: 'Agents', keywords: 'approve approval enroll connect consent health' },
+  { to: '/placement', label: 'Placement', keywords: 'recommendations what-if deciders capacity' },
   { to: '/history', label: 'History', keywords: 'past changes events time' },
+  { to: '/activity', label: 'Activity', keywords: 'audit log trail who did what' },
+  { to: '/team', label: 'Team', keywords: 'members invite roles users people' },
   { to: '/settings', label: 'Settings', keywords: 'preferences server' },
 ]
 

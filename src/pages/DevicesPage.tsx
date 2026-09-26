@@ -90,7 +90,7 @@ export default function DevicesPage() {
               )
             })}
             {rows.length === 0 && (
-              <tr><Td className="py-8 text-center text-nb-500">No devices match your filters.</Td></tr>
+              <tr><Td colSpan={9} className="py-8 text-center text-nb-500">No devices match your filters.</Td></tr>
             )}
           </tbody>
         </Table>

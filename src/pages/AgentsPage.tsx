@@ -8,7 +8,7 @@ import ApprovalCard from '@/components/discovery/ApprovalCard'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import { ConfirmModal } from '@/components/forms'
 import { DistroIcon, Flag, WithIcon } from '@/components/ui/brand'
-import { Button, EmptyState, ErrorBanner, PageHeader, PulseDot, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
+import { Button, EmptyState, ErrorBanner, PageHeader, PulseDot, Table, Td, Th, TierBadge, useFlash } from '@/components/ui/primitives'
 import { api, ApiError } from '@/lib/api'
 import { skewLabel, skewWarning } from '@/lib/clock'
 import { extrasOf, type AgentExtras } from '@/lib/consent'
@@ -210,7 +210,15 @@ export default function AgentsPage() {
                   const st = HEALTH[h]
                   return (
                     <Fragment key={a.id}>
-                      <tr className="group cursor-pointer hover:bg-nb-930/60" onClick={() => setOpen(expanded ? null : a.id)} data-testid="agent-row">
+                      <tr
+                        className="group cursor-pointer hover:bg-nb-930/60"
+                        onClick={() => setOpen(expanded ? null : a.id)}
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={expanded}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(expanded ? null : a.id) } }}
+                        data-testid="agent-row"
+                      >
                         <Td valign="top">
                           <div className="flex items-center gap-2 whitespace-nowrap font-medium text-white">
                             {expanded ? <ChevronDown size={14} className="text-nb-500" aria-hidden /> : <ChevronRight size={14} className="text-nb-500" aria-hidden />}
@@ -314,10 +322,13 @@ export default function AgentsPage() {
 }
 
 function Stat({ label, value, sub, warn, to }: { label: string; value: string; sub: string; warn?: boolean; to?: string }) {
+  // These counts update on the same poll as the rest of the page; fading the new value in (like Meter does)
+  // makes a change visible instead of a number silently flipping underneath the viewer.
+  const flash = useFlash(value)
   const body = (
     <div className={clsx('h-full rounded-xl border bg-nb-925 px-5 py-4', warn ? 'border-amber-400/30' : 'border-nb-850')}>
       <div className="text-xs text-nb-500">{label}</div>
-      <div className={clsx('mt-1 text-2xl font-medium tabular-nums', warn ? 'text-amber-300' : 'text-white')}>{value}</div>
+      <div className={clsx('mt-1 text-2xl font-medium tabular-nums', warn ? 'text-amber-300' : 'text-white', flash && 'fade-in')}>{value}</div>
       <div className="mt-0.5 text-xs text-nb-500">{sub}</div>
     </div>
   )
@@ -430,6 +441,9 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
             ['Requested', a.requestedAt ? when(a.requestedAt) : undefined],
           ]}
         />
+        <p className="mt-2 text-xs text-nb-600">
+          Approved access is what actually runs. It can never be approved above the enrollment ceiling set when the agent joined, and stays capped at whatever the cluster's installed RBAC allows (Installed allows) until that install is upgraded to match.
+        </p>
       </div>
       {(a.status === 'revoked' || a.status === 'rejected') && a.teardown && (
         <div className="md:col-span-2 xl:col-span-3">

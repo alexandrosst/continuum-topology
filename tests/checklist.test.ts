@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { deriveChecklist, dismiss, wasDismissed, type ChecklistInput } from '../src/lib/checklist'
+import { deriveChecklist, dismiss, gettingStartedSeenElsewhere, wasDismissed, type ChecklistInput } from '../src/lib/checklist'
 
 const agent = (over: Partial<ChecklistInput['agents'][number]> = {}) => ({ id: 'a1', name: 'edge-1', status: 'approved' as const, connected: true, ...over })
 const cluster = (over: Partial<ChecklistInput['clusters'][number]> = {}) => ({ id: 'c1', name: 'edge-1', source: 'discovered' as const, state: 'live' as const, ...over })
@@ -87,4 +87,18 @@ test('dismissal is kept per organisation and works without storage', () => {
   const broken = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') } }
   assert.equal(wasDismissed('org-a', broken), false, 'blocked storage reads as not dismissed')
   assert.doesNotThrow(() => dismiss('org-a', broken))
+})
+
+test('the checklist is claimed by the first page that asks, and only that page keeps seeing it', () => {
+  const mem = new Map<string, string>()
+  const storage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) }
+  assert.equal(gettingStartedSeenElsewhere('topology', storage), false, 'nobody has claimed it yet')
+  assert.equal(gettingStartedSeenElsewhere('topology', storage), false, 'the page that claimed it keeps seeing it on later renders')
+  assert.equal(gettingStartedSeenElsewhere('discovery', storage), true, 'a different page finds it already claimed')
+  assert.equal(gettingStartedSeenElsewhere('topology', storage), false, 'the original claimant is unaffected by the other page asking')
+})
+
+test('blocked storage reads as not seen elsewhere, same fail-open choice as dismissal', () => {
+  const broken = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') } }
+  assert.equal(gettingStartedSeenElsewhere('topology', broken), false)
 })

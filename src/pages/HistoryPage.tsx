@@ -79,7 +79,7 @@ function Connected({ conn, admin }: { conn: Conn; admin: boolean }) {
     <>
       <PageHeader
         title="History"
-        description="Every change Continuum noticed, with its likely cause, and a recording of the estate you can go back to."
+        description="Every change Continuum noticed, with its likely cause, and a recording of the estate you can go back to. For who made a change, see Activity; for changes still waiting on a decision, see Discovery."
         actions={admin ? <RecordNow onDone={() => setTick((t) => t + 1)} conn={conn} /> : undefined}
       />
       {error && <ErrorBanner className="mb-4">{error}</ErrorBanner>}

@@ -126,7 +126,7 @@ export default function ClustersPage() {
             })}
             {rows.length === 0 && (
               <tr>
-                <Td className="py-8 text-center text-nb-500" >No clusters match “{q}”.</Td>
+                <Td colSpan={9} className="py-8 text-center text-nb-500" >No clusters match “{q}”.</Td>
               </tr>
             )}
           </tbody>

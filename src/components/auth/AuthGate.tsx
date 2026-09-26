@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { Check, Cpu, KeyRound, Minus, X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Copyright } from '@/components/ui/brand'
-import { Button, ErrorBanner, Field, Input } from '@/components/ui/primitives'
+import { Button, ErrorBanner, Field, Input, PasswordInput } from '@/components/ui/primitives'
 import { ROLE_LABEL } from '@/lib/api'
 import { useServer } from '@/store/server'
 
@@ -103,7 +103,7 @@ function SignInScreen({ onRegister }: { onRegister: () => void }) {
           <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus spellCheck={false} autoCapitalize="none" />
         </Field>
         <Field label="Password">
-          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
         </Field>
         <ErrorLine text={error} />
         <Button type="submit" variant="primary" className="w-full" disabled={busy || !username.trim() || !password}>
@@ -271,7 +271,7 @@ function RegisterScreen({ onBack }: { onBack: () => void }) {
           <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus spellCheck={false} autoCapitalize="none" data-testid="reg-username" />
         </Field>
         <Field label="Password" hint="A few random words work well.">
-          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" data-testid="reg-password" />
+          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" data-testid="reg-password" />
         </Field>
         <PasswordRequirements password={password} username={username} />
         {!joining && (
@@ -369,14 +369,14 @@ function ChangePasswordScreen() {
         }}
       >
         <Field label="Current password">
-          <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" autoFocus />
+          <PasswordInput value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" autoFocus />
         </Field>
         <Field label="New password" hint="A few random words work well.">
-          <Input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
+          <PasswordInput value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
         </Field>
         <PasswordRequirements password={next} username={user?.username ?? ''} />
         <Field label="New password again">
-          <Input type="password" value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" />
+          <PasswordInput value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" />
         </Field>
         {mismatch && <p className="text-xs text-amber-300">The two passwords differ.</p>}
         <ErrorLine text={error} />

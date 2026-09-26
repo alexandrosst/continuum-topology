@@ -82,7 +82,7 @@ function Canvas() {
   const { fitView } = useReactFlow()
   const [sp, setSp] = useSearchParams()
   const connect = useConnectFlow()
-  const started = useGettingStarted()
+  const started = useGettingStarted('topology')
   // The canvas is where a cluster's placement is actually seen, so it's a fair place to also resolve
   // a missing one silently (see Layout.tsx's comment for why this no longer runs on every route).
   useAutoPlaceClusters()
