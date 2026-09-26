@@ -160,6 +160,16 @@ admin:
   existingPasswordSecret: ""
   existingPasswordSecretKey: password
 
+  # Trusted-header SSO (--admin-sso-header): let a reverse proxy that already verified who someone is (an OAuth2
+  # proxy, an Envoy/Istio ext_authz filter, an IdP-integrated gateway) sign that identity straight into Continuum,
+  # with no separate password or second factor here. It never creates or changes an account - the header's value
+  # must already match an existing username exactly. Requires behindTlsProxy=true (enforced at startup): trusting
+  # a header for WHO someone is is a much bigger step than trusting one for their address, and is only safe when
+  # your proxy is the sole way to reach this port and always overwrites the header itself, for every request -
+  # authenticated or not. Leave headerName empty (default) to keep this off entirely.
+  sso:
+    headerName: ""
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Web UI exposure (HTTPS to browsers). Gateway API HTTPRoute in a Gateway with an HTTPS listener (TLS terminated at the
 # Gateway; see admin.behindTlsProxy). Needs the Gateway API CRDs and a Gateway already running in the cluster.

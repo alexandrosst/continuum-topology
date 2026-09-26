@@ -74,6 +74,9 @@ spec:
             {{- if include "continuum.behindProxy" . }}
             - --admin-behind-tls-proxy
             {{- end }}
+            {{- with .Values.admin.sso.headerName }}
+            - --admin-sso-header={{ . }}
+            {{- end }}
             - --registration={{ .Values.registration }}
             - --org={{ .Values.org }}
             {{- with .Values.agentInstall.imageRegistry }}

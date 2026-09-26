@@ -51,6 +51,66 @@ If nginx, Traefik, Caddy or similar already sits in front of your cluster, the t
   1. **Simplest: let it bypass your proxy.** Point a LoadBalancer or NodePort straight at the agent port, on its own address or port, and leave your reverse proxy out of that path entirely. Agents dialing a different port than browsers do is normal, not a workaround.
   2. **One address for everything, still no termination:** if your proxy supports raw TCP/SNI passthrough (nginx's `stream` module, Traefik's TCP routers, Caddy's `layer4`), point that at the agent Service without touching TLS — the same idea as Gateway API TLSRoute above, just configured in your proxy instead of in-cluster. Gateway API TLSRoute is the better-tested path if you're open to running a Gateway controller; reserve your own proxy's TCP passthrough for when you'd rather not add one.
 
+### Configuring SNI passthrough in nginx, Traefik, and Caddy
+
+Same idea as the TLSRoute example above — route on the SNI hostname from the client's TLS ClientHello, and hand the connection to the agent Service without touching TLS at all.
+
+**nginx**, in the `stream` module (not `http`), with `ssl_preread on;` so nginx reads the SNI hostname before it has decided where to send the connection:
+
+```nginx
+stream {
+    map $ssl_preread_server_name $agent_backend {
+        continuum.example.com  continuum-agent.continuum.svc.cluster.local:8443;
+        default                continuum-agent.continuum.svc.cluster.local:8443;
+    }
+
+    server {
+        listen 443;
+        ssl_preread on;
+        proxy_pass $agent_backend;
+        proxy_protocol on;  # see "Passthrough loses the client's own address" below
+    }
+}
+```
+
+**Traefik**, a TCP router matching on `HostSNI` with `tls.passthrough: true` so Traefik routes on SNI without terminating:
+
+```yaml
+tcp:
+  routers:
+    continuum-agent:
+      rule: "HostSNI(`continuum.example.com`)"
+      entryPoints:
+        - agent-tls
+      tls:
+        passthrough: true
+      service: continuum-agent
+
+  services:
+    continuum-agent:
+      loadBalancer:
+        proxyProtocol:
+          transport: true  # see "Passthrough loses the client's own address" below
+        servers:
+          - address: continuum-agent.continuum.svc.cluster.local:8443
+```
+
+**Caddy**, via the third-party [`layer4`](https://github.com/mholt/caddy-l4) app (not the built-in `reverse_proxy` — it needs a custom build, e.g. with `xcaddy`), matching SNI with a named matcher and routing on it:
+
+```caddyfile
+{
+    layer4 {
+        :443 {
+            @agent tls sni continuum.example.com
+            route @agent {
+                proxy_protocol  # see "Passthrough loses the client's own address" below
+                proxy continuum-agent.continuum.svc.cluster.local:8443
+            }
+        }
+    }
+}
+```
+
 Whichever you pick, once the real address is live, **Settings → Server address** in the UI turns it into the exact `helm upgrade` command for your release — you don't have to reconstruct it from these docs by hand (see [The two-step address problem](../installation/production-cluster.md#the-two-step-address-problem)).
 
 ### Passthrough loses the client's own address unless the proxy sends it separately

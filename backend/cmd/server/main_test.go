@@ -79,6 +79,25 @@ func TestVerifyAuditReportsTheFirstBrokenLink(t *testing.T) {
 	}
 }
 
+func TestSSOHeaderRequiresTheProxyFlag(t *testing.T) {
+	if err := checkSSOHeader("", false); err != nil {
+		t.Errorf("SSO off: %v", err)
+	}
+	if err := checkSSOHeader("", true); err != nil {
+		t.Errorf("SSO off, behind a proxy anyway: %v", err)
+	}
+	if err := checkSSOHeader("X-Remote-User", true); err != nil {
+		t.Errorf("SSO on, behind a proxy: %v", err)
+	}
+	err := checkSSOHeader("X-Remote-User", false)
+	if err == nil {
+		t.Fatal("SSO on without --admin-behind-tls-proxy should be refused: a header could be forged directly")
+	}
+	if !strings.Contains(err.Error(), "--admin-behind-tls-proxy") {
+		t.Errorf("the refusal should name the flag: %v", err)
+	}
+}
+
 func TestNeo4jCredentialsOverPlainHTTPNeedAnExplicitFlagOffLoopback(t *testing.T) {
 	log, _ := testLog()
 	for _, c := range []struct {

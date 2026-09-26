@@ -70,6 +70,7 @@ func main() {
 	adminCert := flag.String("admin-tls-cert", "", "TLS certificate for the admin listener (needed when it is not on loopback)")
 	adminKey := flag.String("admin-tls-key", "", "TLS key for the admin listener")
 	behindProxy := flag.Bool("admin-behind-tls-proxy", false, "serve plain HTTP on a non-loopback address because a TLS-terminating proxy in front protects it. With it, the client address (used for rate limits and the audit trail) is the LAST entry of X-Forwarded-For, the address your proxy itself saw, and X-Forwarded-Proto: https marks the session cookie Secure and enables HSTS. Only set it when the proxy is the sole way to reach this port and overwrites those headers; otherwise a client can forge them")
+	ssoHeader := flag.String("admin-sso-header", os.Getenv("CONTINUUM_ADMIN_SSO_HEADER"), "name of a request header a trusted reverse proxy sets to a signed-in person's username (e.g. X-Remote-User), after verifying who they are itself (an OAuth2 proxy, an Envoy/Istio ext_authz filter, an IdP-integrated gateway). When set, GET /api/v1/auth/sso signs that username straight in - no password, no second factor - if it already names an existing, enabled account; it never creates or changes one. Requires --admin-behind-tls-proxy, because trusting this header is only safe when that proxy is the sole way to reach this port and always overwrites it, for every request; otherwise anyone who can reach this port directly could set it themselves and sign in as anyone. Empty (default) disables the endpoint entirely; env CONTINUUM_ADMIN_SSO_HEADER")
 	agentBehindProxy := flag.Bool("agent-behind-proxy", os.Getenv("CONTINUUM_AGENT_BEHIND_PROXY") == "true", "an L4 load balancer or reverse proxy sits in front of --agent-listen and is configured to send a PROXY protocol header (v1 or v2) ahead of each connection - the way to preserve the real client address through a TCP passthrough, since the agent's own mTLS handshake rules out a TLS-terminating HTTP proxy here. With it, every connection must carry that header (one that doesn't is refused) and its declared address - not the proxy's own - is what approval cards, rate limits, the audit trail and an agent's suggested location use. Only set it when the proxy is the sole way to reach this port and is actually configured to send the header; env CONTINUUM_AGENT_BEHIND_PROXY=true")
 	deciderAllow := flag.String("decider-allow-cidrs", os.Getenv("CONTINUUM_DECIDER_ALLOW_CIDRS"), "comma-separated CIDRs (10.0.0.0/8,127.0.0.1/32) the server may call for the external decider although they are private or loopback. By default only public addresses are allowed, so a decider address cannot be used to reach internal services. Cloud metadata and link-local addresses are never allowed; env CONTINUUM_DECIDER_ALLOW_CIDRS")
 	caPassFile := flag.String("ca-key-passphrase-file", os.Getenv("CONTINUUM_CA_KEY_PASSPHRASE_FILE"), "file holding a passphrase (at least 12 characters) that encrypts the CA private key at rest (argon2id + AES-256-GCM). A plaintext key is encrypted the first time this is given; an encrypted key without it stops the server. Never give the passphrase itself as a flag value; env CONTINUUM_CA_KEY_PASSPHRASE_FILE. Without it the key is stored unencrypted (mode 0600) and a warning is logged. See internal/pki/ROTATION.md")
@@ -160,7 +161,7 @@ func main() {
 		}
 		mail = server.MailConfig{Host: *smtpHost, Port: *smtpPort, Username: *smtpUser, Password: pw, From: *smtpFrom}
 	}
-	if err := run(log, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AllowLoose: *looseOK}, origins); err != nil {
+	if err := run(log, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *ssoHeader, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AllowLoose: *looseOK}, origins); err != nil {
 		fatal(log, err)
 	}
 }
@@ -183,7 +184,10 @@ func fatal(log *slog.Logger, err error) {
 	os.Exit(1)
 }
 
-func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *server.DeciderPolicy, neo *graph.Config, mail server.MailConfig, keys keyOpts, origins []string) error {
+func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, ssoHeader, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *server.DeciderPolicy, neo *graph.Config, mail server.MailConfig, keys keyOpts, origins []string) error {
+	if err := checkSSOHeader(ssoHeader, behindProxy); err != nil {
+		return err
+	}
 	// Fail closed: a database that was asked for but cannot be used stops the server rather than silently turning the feature off.
 	var geo *server.Geo
 	if geoPath != "" {
@@ -300,7 +304,7 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 		}
 	}()
 
-	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, Origins: origins, UIDir: uiDir, Version: version, AgentChartVersion: agentChartVersion}
+	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, Origins: origins, UIDir: uiDir, Version: version, AgentChartVersion: agentChartVersion}
 	admin.Readiness = &server.Readiness{AgentsListening: grpcSrv.Serving}
 	if graphStore != nil {
 		admin.Readiness.Graph = func() (bool, bool) { return true, graphStore.Ready() }
@@ -407,6 +411,16 @@ func verifyAudit(args []string, out, errw io.Writer) int {
 	}
 	fmt.Fprintln(out, "OK: every link in the chain holds.")
 	return 0
+}
+
+// checkSSOHeader refuses trusted-header SSO unless the operator also said a TLS-terminating proxy is the
+// sole way to reach the admin port: trusting a header for identity is a much bigger step than trusting one
+// for the client address, and is only safe under the same "proxy is the only door in" condition.
+func checkSSOHeader(ssoHeader string, behindProxy bool) error {
+	if ssoHeader != "" && !behindProxy {
+		return errors.New("--admin-sso-header requires --admin-behind-tls-proxy: trusting a proxy-asserted identity header is only safe when that same proxy is the sole way to reach this port")
+	}
+	return nil
 }
 
 // checkNeo4jTransport refuses to send the Neo4j credentials, and the topology, in clear text to another

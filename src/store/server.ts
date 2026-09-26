@@ -214,8 +214,11 @@ export const useServer = create<ServerStore>((set, get) => {
       }
       write(URL_KEY, c.url)
       set({ url: c.url, checked: true })
+      let sso = false
       try {
-        set({ registration: (await api.serverInfo(c)).registration })
+        const info = await api.serverInfo(c)
+        set({ registration: info.registration })
+        sso = info.sso ?? false
       } catch {
         /* an older server: assume sign-up is not offered */
         set({ registration: 'closed' })
@@ -229,6 +232,17 @@ export const useServer = create<ServerStore>((set, get) => {
         }
       }
       if (found === 'signin') {
+        // The server's reverse proxy may have already verified who this is; try that silently before
+        // falling back to the password form. A 401 here (no identity asserted, or it matches no account)
+        // is the ordinary case for anyone the proxy hasn't authenticated, not an error worth surfacing.
+        if (sso) {
+          try {
+            await enter(await api.ssoLogin(c))
+            return true
+          } catch {
+            /* fall through to the ordinary sign-in form */
+          }
+        }
         set({ status: 'signin' })
         return true
       }
