@@ -205,6 +205,18 @@ type Session struct {
 	IP        string
 }
 
+// APIToken is a personal access token: a long-lived secret a person can use to call the HTTP API
+// without a signed-in browser (scripts, CI, curl). Only the SHA-256 of its secret is stored, the same
+// as a session - the difference is that nothing about it expires or goes idle on its own, and it
+// carries a name instead of an IP, since revoking it (rather than it lapsing) is the only way it ends.
+type APIToken struct {
+	ID        string
+	UserID    string
+	Name      string
+	CreatedAt time.Time
+	LastUsed  *time.Time
+}
+
 // Workspace is the human layer of the topology (manual records, overrides, decisions), one
 // JSON document per organisation. The server treats the content as opaque.
 type Workspace struct {
@@ -353,6 +365,20 @@ type Store interface {
 	// DeleteUserSessions signs a user out everywhere, optionally keeping one session (except may be nil).
 	DeleteUserSessions(ctx context.Context, userID string, except []byte) error
 	PurgeSessions(ctx context.Context, olderThan time.Time) error
+
+	// CreateAPIToken records a freshly minted personal access token; id and hash are the caller's to
+	// generate (see server.NewAPITokenSecret), matching how sessions and invites are created.
+	CreateAPIToken(ctx context.Context, id string, hash []byte, userID, name string, now time.Time) error
+	// ListAPITokens lists one person's own tokens, newest first. Never returns a secret or hash - only
+	// what CreateAPIToken already committed the person to seeing again.
+	ListAPITokens(ctx context.Context, userID string) ([]APIToken, error)
+	// LookupAPIToken resolves a token's hash to the account it belongs to. ErrNotFound for an unknown
+	// (or already-revoked) hash.
+	LookupAPIToken(ctx context.Context, hash []byte) (APIToken, User, error)
+	TouchAPIToken(ctx context.Context, hash []byte, now time.Time) error
+	// RevokeAPIToken deletes one of a person's own tokens. ErrNotFound if id does not belong to userID,
+	// so one account can never revoke another's by guessing an id.
+	RevokeAPIToken(ctx context.Context, userID, id string) error
 
 	// GetWorkspace returns Rev 0 and no data when nothing was ever saved.
 	GetWorkspace(ctx context.Context, org string) (Workspace, error)

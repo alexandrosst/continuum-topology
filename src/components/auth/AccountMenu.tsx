@@ -1,10 +1,10 @@
-import { ChevronsUpDown, Fingerprint, KeyRound, LogOut, Mail, Monitor, Moon, Plus, ScrollText, ShieldCheck, Sun, Ticket, Users, X } from 'lucide-react'
+import { ChevronsUpDown, Fingerprint, KeyRound, LogOut, Mail, Monitor, Moon, Plus, ScrollText, ShieldCheck, Sun, Terminal, Ticket, Users, X } from 'lucide-react'
 import QRCode from 'qrcode'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Button, CopyButton, ErrorBanner, Field, Input, Modal, PasswordInput, Select } from '@/components/ui/primitives'
 import { PasswordRequirements, passwordRules } from '@/components/auth/AuthGate'
-import { atLeast, ROLE_LABEL, type Passkey } from '@/lib/api'
+import { api, ApiError, atLeast, ROLE_LABEL, type ApiToken, type CreatedApiToken, type Passkey } from '@/lib/api'
 import { bareIpHost, passkeysSupported } from '@/lib/webauthn'
 import { getThemePreference, setThemePreference, type ThemePreference } from '@/lib/theme'
 import { useServer } from '@/store/server'
@@ -511,6 +511,165 @@ function PasskeysModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+/** One issued token: its name and dates, or a small inline confirmation before it's gone for good - a
+ *  token has no password check the way removing a passkey does, since revoking one of several scripts'
+ *  credentials is routine, not a whole sign-in method disappearing. */
+function ApiTokenRow({ token, onRevoked }: { token: ApiToken; onRevoked: () => void }) {
+  const conn = useServer((s) => s.conn)
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const revoke = async () => {
+    const c = conn()
+    if (!c) return
+    setBusy(true)
+    try {
+      await api.revokeApiToken(c, token.id)
+      onRevoked()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not revoke this token.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <li className="rounded-md border border-nb-800 bg-nb-925 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-sm text-nb-200">{token.name}</div>
+          <div className="text-[11px] text-nb-500">
+            Created {new Date(token.createdAt).toLocaleDateString()}
+            {token.lastUsedAt ? `, last used ${new Date(token.lastUsedAt).toLocaleDateString()}` : ', never used'}
+          </div>
+        </div>
+        {confirming ? (
+          <div className="flex shrink-0 gap-1">
+            <Button size="sm" variant="danger" disabled={busy} onClick={() => void revoke()}>{busy ? 'Revoking…' : 'Confirm'}</Button>
+            <Button size="sm" onClick={() => setConfirming(false)} disabled={busy}>Cancel</Button>
+          </div>
+        ) : (
+          <Button size="sm" variant="danger" className="shrink-0" onClick={() => setConfirming(true)}>Revoke</Button>
+        )}
+      </div>
+      {error && <ErrorBanner className="mt-2">{error}</ErrorBanner>}
+    </li>
+  )
+}
+
+/**
+ * Personal access tokens: long-lived secrets a script (a CI job, a curl one-liner) can use to call the
+ * API without a signed-in browser, sent as `Authorization: Bearer ...` instead of the session cookie.
+ * Unlike passkeys and two-factor these are not part of the session document `user` already carries, so
+ * this modal loads and refreshes its own list rather than reading one off it - the same pattern
+ * TeamPage uses for members and invitations. A freshly minted secret is shown once, in the same
+ * "copy it now, it will not be shown again" shape as a freshly created invitation link.
+ */
+function ApiTokensModal({ onClose }: { onClose: () => void }) {
+  const conn = useServer((s) => s.conn)
+  const [tokens, setTokens] = useState<ApiToken[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [created, setCreated] = useState<CreatedApiToken | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const load = useCallback(async () => {
+    const c = conn()
+    if (!c) return
+    try {
+      setTokens(await api.listApiTokens(c))
+      setError('')
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not load your tokens.')
+    } finally {
+      setLoaded(true)
+    }
+  }, [conn])
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const create = async () => {
+    const c = conn()
+    if (!c) return
+    setBusy(true)
+    try {
+      const tok = await api.createApiToken(c, name.trim())
+      setCreated(tok)
+      setCopied(false)
+      setAdding(false)
+      setName('')
+      await load()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not create a token.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copy = async () => {
+    if (!created) return
+    try {
+      await navigator.clipboard.writeText(created.token)
+      setCopied(true)
+    } catch {
+      /* clipboard unavailable: the text is selectable */
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Personal API tokens"
+      description="A long-lived secret for calling the API from a script or CI job, without a signed-in browser."
+      width="max-w-md"
+      footer={<Button variant="primary" onClick={onClose}>Done</Button>}
+    >
+      <div className="space-y-4">
+        {created && (
+          <div className="space-y-2 rounded-md border border-accent/30 bg-accent-soft p-3" data-testid="api-token-secret">
+            <p className="text-xs text-nb-300">
+              Copy <strong className="text-nb-200">{created.name}</strong> now - for your own safety, it won&apos;t be shown again.
+            </p>
+            <div className="flex items-center gap-2 rounded-md border border-nb-800 bg-nb-950 px-3 py-2">
+              <code className="flex-1 select-all break-all font-mono text-xs text-nb-300">{created.token}</code>
+              <Button size="sm" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</Button>
+            </div>
+          </div>
+        )}
+        {error && <ErrorBanner>{error}</ErrorBanner>}
+        {loaded && tokens.length === 0 && !adding && <p className="text-sm text-nb-500">No API tokens yet.</p>}
+        {tokens.length > 0 && (
+          <ul className="space-y-2" data-testid="api-token-list">
+            {tokens.map((t) => (
+              <ApiTokenRow key={t.id} token={t} onRevoked={() => { setCreated(null); void load() }} />
+            ))}
+          </ul>
+        )}
+        {adding ? (
+          <form className="space-y-3 border-t border-nb-850 pt-4" onSubmit={(e) => { e.preventDefault(); void create() }}>
+            <Field label="Name it" hint="So you can tell it apart later - the machine or script it's for.">
+              <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="CI pipeline" data-testid="api-token-name" />
+            </Field>
+            <div className="flex gap-2">
+              <Button type="submit" variant="primary" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Button>
+              <Button type="button" onClick={() => setAdding(false)} disabled={busy}>Cancel</Button>
+            </div>
+          </form>
+        ) : (
+          <button type="button" onClick={() => { setCreated(null); setAdding(true) }} className="text-sm text-accent hover:text-accent/80" data-testid="add-api-token">
+            + Create a token
+          </button>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 /**
  * The single entry point for "how does this account sign in with a second factor": one screen listing all
  * three methods with their current state, instead of three separately-worded menu items that each dropped
@@ -664,6 +823,7 @@ export default function AccountMenu() {
   const [twoFA, setTwoFA] = useState(false)
   const [emailOTP, setEmailOTP] = useState(false)
   const [passkeys, setPasskeys] = useState(false)
+  const [apiTokens, setApiTokens] = useState(false)
   const [newOrg, setNewOrg] = useState(false)
   const [join, setJoin] = useState(false)
   const [open, setOpen] = useState(false)
@@ -763,6 +923,9 @@ export default function AccountMenu() {
               Two-factor authentication
               {twoFactorMethodsOn > 0 && <span className="ml-auto text-xs text-nb-500">{twoFactorMethodsOn} on</span>}
             </button>
+            <button onClick={pick(() => setApiTokens(true))} className={item} role="menuitem" data-testid="api-tokens-open">
+              <Terminal size={15} className="text-nb-500" /> Personal API tokens
+            </button>
             <div className="my-1 border-t border-nb-850" />
             <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-nb-600" aria-hidden>Appearance</div>
             <div className="flex gap-1 px-2.5 pb-1.5" role="radiogroup" aria-label="Theme">
@@ -832,6 +995,7 @@ export default function AccountMenu() {
       {twoFA && (user.twoFactorEnabled ? <TwoFactorDisableModal onClose={() => setTwoFA(false)} /> : <TwoFactorSetupModal onClose={() => setTwoFA(false)} />)}
       {emailOTP && (user.emailOtpEnabled ? <EmailDisableModal onClose={() => setEmailOTP(false)} /> : <EmailSetupModal onClose={() => setEmailOTP(false)} />)}
       {passkeys && <PasskeysModal onClose={() => setPasskeys(false)} />}
+      {apiTokens && <ApiTokensModal onClose={() => setApiTokens(false)} />}
       {newOrg && <NewOrgModal onClose={() => setNewOrg(false)} />}
       {join && <JoinModal onClose={() => setJoin(false)} />}
     </div>

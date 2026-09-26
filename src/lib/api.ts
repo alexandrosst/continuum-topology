@@ -84,6 +84,22 @@ export interface Passkey {
   lastUsedAt?: string
 }
 
+/** One personal access token: a long-lived secret for calling the HTTP API without a signed-in browser
+ *  (a script, a CI job, curl). Never carries the secret itself - only what settings needs to tell one
+ *  apart from another before revoking it. */
+export interface ApiToken {
+  id: string
+  name: string
+  createdAt: string
+  lastUsedAt?: string
+}
+
+/** The one-time answer to creating a token: the same fields as ApiToken, plus the secret itself. It is
+ *  shown once, here, and never appears in a later call - listApiTokens returns only ApiToken. */
+export interface CreatedApiToken extends ApiToken {
+  token: string
+}
+
 export interface User {
   id: string
   username: string
@@ -308,6 +324,11 @@ export const api = {
   // The login half needs no session yet, same as login/login2FA: `pending` is the token login() returned.
   beginPasskeyLogin: (c: Conn, pending: string) => call<unknown>(c, 'POST', '/api/v1/auth/login/2fa/webauthn/begin', { pending }),
   finishPasskeyLogin: (c: Conn, pending: string, response: unknown) => call<Session>(c, 'POST', '/api/v1/auth/login/2fa/webauthn/finish', { pending, response }),
+  // Personal API tokens: a self-service list, entirely separate from the session/passkey machinery above -
+  // revoking or creating one never touches (or returns) the signed-in session itself.
+  listApiTokens: (c: Conn) => call<ApiToken[]>(c, 'GET', '/api/v1/auth/tokens'),
+  createApiToken: (c: Conn, name: string) => call<CreatedApiToken>(c, 'POST', '/api/v1/auth/tokens', { name }),
+  revokeApiToken: (c: Conn, id: string) => call<void>(c, 'POST', `/api/v1/auth/tokens/${encodeURIComponent(id)}/revoke`),
 
   // organisations, members, invitations
   orgs: (c: Conn) => call<OrgRef[]>(c, 'GET', '/api/v1/orgs'),

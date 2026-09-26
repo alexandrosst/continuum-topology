@@ -37,7 +37,7 @@ type Admin struct {
 	// --release-namespace. Also purely descriptive, also empty on an older install; together with AgentExposure they
 	// let Settings → Installation print an exact, ready-to-run helm upgrade command instead of one with blanks in it.
 	ReleaseName, ReleaseNamespace string
-	ChartRef  string // an explicit chart reference for install commands; empty means the copy the server serves
+	ChartRef                      string // an explicit chart reference for install commands; empty means the copy the server serves
 	// ImageRegistry, ImageTag and ImageDigest are the server-wide defaults (--image-registry, --image-tag,
 	// --image-digest) for where install commands pull the agent image and chart from. An organisation's own
 	// Settings → Installation wins over them; with neither, the chart's built-in image names apply. There is no
@@ -144,6 +144,9 @@ func (a *Admin) Handler() http.Handler {
 	route("POST /api/v1/auth/webauthn/register/finish", anySession, a.finishPasskeyRegistration)
 	route("POST /api/v1/auth/webauthn/{id}/rename", anySession, a.renamePasskey)
 	route("POST /api/v1/auth/webauthn/{id}/remove", anySession, a.removePasskey)
+	route("GET /api/v1/auth/tokens", anySession, a.listAPITokens)
+	route("POST /api/v1/auth/tokens", anySession, a.createAPIToken)
+	route("POST /api/v1/auth/tokens/{id}/revoke", anySession, a.revokeAPIToken)
 	route("GET /api/v1/orgs", settled, a.listOrgs)
 	route("POST /api/v1/orgs", settled, a.createOrg)
 	route("POST /api/v1/invites/accept", settled, a.acceptInvite)
@@ -266,13 +269,19 @@ func (a *Admin) csrf(next http.Handler) http.Handler {
 		switch r.Method {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
 		default:
-			if o := r.Header.Get("Origin"); o != "" && !a.originAllowed(o, r.Host) {
-				writeErr(w, http.StatusForbidden, "request came from an origin this server does not trust")
-				return
-			}
-			if r.Header.Get("X-Requested-With") == "" {
-				writeErr(w, http.StatusForbidden, "missing X-Requested-With header")
-				return
+			// A request authenticated by a personal API token (Authorization: Bearer ...) needs none of
+			// this: a browser never attaches an Authorization header on its own the way it does a cookie,
+			// so nothing here defends against forging one. Login and every cookie-authenticated request
+			// still go through the check below - a bearer token is the one, narrow exception.
+			if _, isBearer := bearerToken(r); !isBearer {
+				if o := r.Header.Get("Origin"); o != "" && !a.originAllowed(o, r.Host) {
+					writeErr(w, http.StatusForbidden, "request came from an origin this server does not trust")
+					return
+				}
+				if r.Header.Get("X-Requested-With") == "" {
+					writeErr(w, http.StatusForbidden, "missing X-Requested-With header")
+					return
+				}
 			}
 		}
 		next.ServeHTTP(w, r)
@@ -341,6 +350,17 @@ func sessionCookie(r *http.Request) (string, bool) {
 	return "", false
 }
 
+// bearerToken is the personal access token a script call carries, as an Authorization: Bearer header -
+// never a cookie, since a script has no cookie jar to keep one in.
+func bearerToken(r *http.Request) (string, bool) {
+	const p = "Bearer "
+	h := r.Header.Get("Authorization")
+	if !strings.HasPrefix(h, p) {
+		return "", false
+	}
+	return strings.TrimSpace(h[len(p):]), true
+}
+
 // guard authenticates the session, places the caller in the organisation named in the path, applies
 // the role rule and bounds the request body. A person who is not a member of an organisation gets
 // the same 404 as for one that does not exist; a member with too little standing gets 403.
@@ -350,6 +370,8 @@ func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 		var err error
 		if secret, ok := sessionCookie(r); ok {
 			p, err = a.C.Authenticate(r.Context(), secret)
+		} else if secret, ok := bearerToken(r); ok {
+			p, err = a.C.AuthenticateAPIToken(r.Context(), secret)
 		} else {
 			err = errf(KindUnauthenticated, "sign in required")
 		}
@@ -929,6 +951,61 @@ func (a *Admin) removePasskey(w http.ResponseWriter, r *http.Request) {
 	}
 	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
 	writeJSON(w, 200, a.session(r.Context(), u))
+}
+
+// ---- personal API tokens ----
+
+// apiTokenDoc never carries a secret or hash - only what settings needs to show a person their own
+// tokens and let them tell one apart from another before revoking it.
+type apiTokenDoc struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	CreatedAt  string `json:"createdAt"`
+	LastUsedAt string `json:"lastUsedAt,omitempty"`
+}
+
+func toAPITokenDoc(t store.APIToken) apiTokenDoc {
+	return apiTokenDoc{ID: t.ID, Name: t.Name, CreatedAt: rfc(t.CreatedAt), LastUsedAt: rfcp(t.LastUsed)}
+}
+
+func (a *Admin) listAPITokens(w http.ResponseWriter, r *http.Request) {
+	toks, err := a.C.ListAPITokens(r.Context(), principal(r))
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	out := make([]apiTokenDoc, len(toks))
+	for i, t := range toks {
+		out[i] = toAPITokenDoc(t)
+	}
+	writeJSON(w, 200, out)
+}
+
+// createAPIToken is the one response that ever carries the raw secret: the caller must save it now,
+// exactly like a freshly created invitation link.
+func (a *Admin) createAPIToken(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	secret, tok, err := a.C.CreateAPIToken(r.Context(), principal(r), req.Name)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	doc := toAPITokenDoc(tok)
+	writeJSON(w, 200, map[string]any{"token": secret, "id": doc.ID, "name": doc.Name, "createdAt": doc.CreatedAt})
+}
+
+func (a *Admin) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
+	if err := a.C.RevokeAPIToken(r.Context(), principal(r), r.PathValue("id")); err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
 // ---- organisations, members, invitations ----

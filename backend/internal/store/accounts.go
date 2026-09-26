@@ -623,6 +623,72 @@ func (s *SQLite) PurgeSessions(ctx context.Context, olderThan time.Time) error {
 	return err
 }
 
+// ---- personal API tokens ----
+
+func (s *SQLite) CreateAPIToken(ctx context.Context, id string, hash []byte, userID, name string, now time.Time) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO api_tokens(id, user_id, hash, name, created_at) VALUES(?,?,?,?,?)`,
+		id, userID, hash, name, ms(now))
+	return err
+}
+
+func (s *SQLite) ListAPITokens(ctx context.Context, userID string) ([]APIToken, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, last_used FROM api_tokens WHERE user_id=? ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []APIToken
+	for rows.Next() {
+		t := APIToken{UserID: userID}
+		var created int64
+		var used sql.NullInt64
+		if err := rows.Scan(&t.ID, &t.Name, &created, &used); err != nil {
+			return nil, err
+		}
+		t.CreatedAt = fromMS(created)
+		if used.Valid {
+			lu := fromMS(used.Int64)
+			t.LastUsed = &lu
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLite) LookupAPIToken(ctx context.Context, hash []byte) (APIToken, User, error) {
+	var t APIToken
+	var created int64
+	var used sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `SELECT id, user_id, name, created_at, last_used FROM api_tokens WHERE hash=?`, hash).
+		Scan(&t.ID, &t.UserID, &t.Name, &created, &used)
+	if errors.Is(err, sql.ErrNoRows) {
+		return APIToken{}, User{}, ErrNotFound
+	}
+	if err != nil {
+		return APIToken{}, User{}, err
+	}
+	t.CreatedAt = fromMS(created)
+	if used.Valid {
+		lu := fromMS(used.Int64)
+		t.LastUsed = &lu
+	}
+	u, err := s.GetUser(ctx, t.UserID)
+	return t, u, err
+}
+
+func (s *SQLite) TouchAPIToken(ctx context.Context, hash []byte, now time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE api_tokens SET last_used=? WHERE hash=?`, ms(now), hash)
+	return err
+}
+
+func (s *SQLite) RevokeAPIToken(ctx context.Context, userID, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM api_tokens WHERE user_id=? AND id=?`, userID, id)
+	if err != nil {
+		return err
+	}
+	return needFound(res)
+}
+
 // ---- workspace ----
 
 func (s *SQLite) GetWorkspace(ctx context.Context, org string) (Workspace, error) {

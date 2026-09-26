@@ -600,6 +600,77 @@ func (c *Core) Logout(ctx context.Context, p Principal) {
 	c.auditUser(ctx, p.User, "logout", "", "")
 }
 
+// ---- personal API tokens ----
+
+// maxAPITokenNameLen bounds a token's own label the same way an invite's is bounded.
+const maxAPITokenNameLen = 80
+
+// CreateAPIToken mints a personal access token for p, named name (blank becomes a generic default).
+// The secret is returned once, exactly like an invite or a freshly opened session: only its hash is
+// ever stored, so it cannot be shown again after this call returns.
+func (c *Core) CreateAPIToken(ctx context.Context, p Principal, name string) (secret string, tok store.APIToken, err error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "Unnamed token"
+	}
+	if len(name) > maxAPITokenNameLen {
+		name = name[:maxAPITokenNameLen]
+	}
+	secret, err = NewAPITokenSecret()
+	if err != nil {
+		return "", store.APIToken{}, err
+	}
+	now := c.Now()
+	id := newAPITokenID()
+	if err := c.Store.CreateAPIToken(ctx, id, HashSecret(secret), p.User.ID, name, now); err != nil {
+		return "", store.APIToken{}, err
+	}
+	c.auditUser(ctx, p.User, "api-token-create", name, "")
+	return secret, store.APIToken{ID: id, UserID: p.User.ID, Name: name, CreatedAt: now}, nil
+}
+
+// ListAPITokens lists p's own tokens, newest first.
+func (c *Core) ListAPITokens(ctx context.Context, p Principal) ([]store.APIToken, error) {
+	return c.Store.ListAPITokens(ctx, p.User.ID)
+}
+
+// RevokeAPIToken ends one of p's own tokens right away; any request already using it fails its next
+// call. There is no confirmation step the way disabling two-factor entirely needs one: a token exists
+// precisely so a script can act without a person present, so revoking one of several is routine, not
+// a whole method of signing in going away.
+func (c *Core) RevokeAPIToken(ctx context.Context, p Principal, id string) error {
+	if err := c.Store.RevokeAPIToken(ctx, p.User.ID, id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return errf(KindNotFound, "no such token")
+		}
+		return err
+	}
+	c.auditUser(ctx, p.User, "api-token-revoke", id, "")
+	return nil
+}
+
+// AuthenticateAPIToken resolves a personal access token to the account it belongs to, for the
+// Authorization: Bearer header a script sends instead of a session cookie. Unlike Authenticate it
+// never expires or times out on idleness - only an explicit RevokeAPIToken ends it - since the whole
+// point is to keep working unattended; a disabled account still ends it immediately, the same as it
+// would a session.
+func (c *Core) AuthenticateAPIToken(ctx context.Context, secret string) (Principal, error) {
+	deny := errf(KindUnauthenticated, "sign in required")
+	if !looksLikeAPIToken(secret) {
+		return Principal{}, deny
+	}
+	h := HashSecret(secret)
+	tok, u, err := c.Store.LookupAPIToken(ctx, h)
+	if err != nil || u.DisabledAt != nil {
+		return Principal{}, deny
+	}
+	now := c.Now()
+	if tok.LastUsed == nil || now.Sub(*tok.LastUsed) > touchEvery {
+		_ = c.Store.TouchAPIToken(ctx, h, now)
+	}
+	return Principal{User: u, SessionHash: h}, nil
+}
+
 // ChangePassword lets a person replace their own password. Every other browser they were signed
 // in on is signed out.
 func (c *Core) ChangePassword(ctx context.Context, p Principal, current, next string) error {

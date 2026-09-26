@@ -10,6 +10,11 @@ import (
 
 const tokenPrefix = "cnt_"
 
+// patPrefix marks a personal access token - distinct from tokenPrefix's enrollment tokens and
+// sessionPrefix's browser sessions, so a secret's own shape says which kind it is before anything
+// looks it up.
+const patPrefix = "cnk_"
+
 // newSecret returns 32 random bytes as URL-safe text.
 func newSecret() (string, error) {
 	b := make([]byte, 32)
@@ -39,6 +44,22 @@ func LooksLikeToken(s string) bool {
 	return err == nil
 }
 
+// NewAPITokenSecret returns a fresh personal access token. Only HashSecret(secret) is stored - the
+// same rule as an enrollment token or a session.
+func NewAPITokenSecret() (string, error) {
+	s, err := newSecret()
+	return patPrefix + s, err
+}
+
+// looksLikeAPIToken cheaply rejects malformed input before touching the database.
+func looksLikeAPIToken(s string) bool {
+	if !strings.HasPrefix(s, patPrefix) || len(s) != len(patPrefix)+43 {
+		return false
+	}
+	_, err := base64.RawURLEncoding.DecodeString(s[len(patPrefix):])
+	return err == nil
+}
+
 func randHex(n int) string {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
@@ -47,8 +68,9 @@ func randHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-func newAgentID() string { return "ag-" + randHex(6) }
-func newTokenID() string { return "tk-" + randHex(6) }
+func newAgentID() string    { return "ag-" + randHex(6) }
+func newTokenID() string    { return "tk-" + randHex(6) }
+func newAPITokenID() string { return "pat-" + randHex(6) }
 
 // ClusterIDFor is stable for a cluster (its kube-system UID), so records keep the same id
 // even if the agent is replaced.

@@ -115,6 +115,15 @@ CREATE TABLE IF NOT EXISTS sessions (
   ip TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  hash BLOB NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  last_used INTEGER
+);
+CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens(user_id);
 CREATE TABLE IF NOT EXISTS workspace (
   org_id TEXT PRIMARY KEY,
   rev INTEGER NOT NULL,
