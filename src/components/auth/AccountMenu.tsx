@@ -1,4 +1,4 @@
-import { ChevronsUpDown, Fingerprint, KeyRound, LogOut, Mail, Plus, ScrollText, ShieldCheck, Ticket, Users, X } from 'lucide-react'
+import { ChevronsUpDown, Fingerprint, KeyRound, LogOut, Mail, Monitor, Moon, Plus, ScrollText, ShieldCheck, Sun, Ticket, Users, X } from 'lucide-react'
 import QRCode from 'qrcode'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
@@ -6,6 +6,7 @@ import { Button, CopyButton, ErrorBanner, Field, Input, Modal, PasswordInput, Se
 import { PasswordRequirements, passwordRules } from '@/components/auth/AuthGate'
 import { atLeast, ROLE_LABEL, type Passkey } from '@/lib/api'
 import { bareIpHost, passkeysSupported } from '@/lib/webauthn'
+import { getThemePreference, setThemePreference, type ThemePreference } from '@/lib/theme'
 import { useServer } from '@/store/server'
 import { useWorkspace, type SyncStatus } from '@/store/workspace'
 
@@ -30,7 +31,10 @@ function useQrDataUrl(value: string): string | undefined {
   useEffect(() => {
     if (!value) return // initial state is already undefined; nothing to derive yet
     let live = true
-    QRCode.toDataURL(value, { margin: 1, width: 176, color: { dark: '#e5e5e5ff', light: '#00000000' } })
+    // Always render as solid black-on-white, in its own fixed-white box below (not tinted to the app's own
+    // theme): some phone camera scanners are unreliable on inverted or low-contrast QR codes, and a code that
+    // has to stay scannable is not the place to experiment with theme-matching colors.
+    QRCode.toDataURL(value, { margin: 1, width: 176, color: { dark: '#000000ff', light: '#ffffffff' } })
       .then((u) => { if (live) setUrl(u) })
       .catch(() => { if (live) setUrl(undefined) })
     return () => {
@@ -151,7 +155,7 @@ function TwoFactorSetupModal({ onClose }: { onClose: () => void }) {
           <p className="text-sm text-nb-400">Scan this with an authenticator app (Google Authenticator, 1Password, Authy, …), or add the key by hand, then enter the 6-digit code it shows.</p>
           {qr && (
             <div className="flex justify-center">
-              <img src={qr} alt="Scan with your authenticator app" width={176} height={176} className="rounded-md border border-nb-800 bg-nb-950 p-2" data-testid="totp-qr" />
+              <img src={qr} alt="Scan with your authenticator app" width={176} height={176} className="rounded-md border border-nb-800 bg-white p-2" data-testid="totp-qr" />
             </div>
           )}
           <Field label="Secret key">
@@ -663,6 +667,7 @@ export default function AccountMenu() {
   const [newOrg, setNewOrg] = useState(false)
   const [join, setJoin] = useState(false)
   const [open, setOpen] = useState(false)
+  const [theme, setTheme] = useState<ThemePreference>(getThemePreference)
   // Nudges to set up a second sign-in step: shown from first login onward (there is nothing to have
   // dismissed yet the first time) until either a method is turned on or this account dismisses it on this
   // browser - a light, ongoing reminder rather than a one-shot that is easy to miss and never see again.
@@ -758,6 +763,30 @@ export default function AccountMenu() {
               Two-factor authentication
               {twoFactorMethodsOn > 0 && <span className="ml-auto text-xs text-nb-500">{twoFactorMethodsOn} on</span>}
             </button>
+            <div className="my-1 border-t border-nb-850" />
+            <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-nb-600" aria-hidden>Appearance</div>
+            <div className="flex gap-1 px-2.5 pb-1.5" role="radiogroup" aria-label="Theme">
+              {(
+                [
+                  { value: 'system' as const, label: 'System', icon: Monitor },
+                  { value: 'light' as const, label: 'Light', icon: Sun },
+                  { value: 'dark' as const, label: 'Dark', icon: Moon },
+                ]
+              ).map(({ value, label, icon: Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={theme === value}
+                  onClick={() => { setThemePreference(value); setTheme(value) }}
+                  className={`flex flex-1 flex-col items-center gap-1 rounded-md border py-1.5 text-xs ${theme === value ? 'border-accent/60 bg-accent-soft text-white' : 'border-nb-850 text-nb-500 hover:bg-nb-940 hover:text-nb-300'}`}
+                  data-testid={`theme-${value}`}
+                >
+                  <Icon size={14} />
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="my-1 border-t border-nb-850" />
             <button onClick={pick(() => void signOut())} className={item} role="menuitem" data-testid="sign-out"><LogOut size={15} className="text-nb-500" /> Sign out</button>
           </div>

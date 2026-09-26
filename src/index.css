@@ -1,6 +1,12 @@
 @import "tailwindcss";
 
-/* NetBird-inspired palette: near-black neutrals + orange accent */
+/* NetBird-inspired palette: near-black neutrals + orange accent (dark, the default look) - see the
+ * [data-theme="light"] and prefers-color-scheme blocks below for the light-mode values of the same
+ * tokens. @theme has to declare *a* value for Tailwind to generate the bg-nb-900/text-accent/etc.
+ * utilities at all; which theme's value it declares here only matters as the fallback before
+ * src/lib/theme.ts's inline script runs (see index.html) - functionally invisible since that script
+ * runs before first paint.
+ */
 @theme {
   --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
@@ -28,12 +34,81 @@
   --color-tier-far: #c084fc;
 }
 
+/* Light mode: the same tokens, re-pointed at a light surface ramp and darker (AA-safe as text on white)
+ * steps of the same accent/tier hues. Every bg-nb-*/text-nb-*/text-accent/text-tier-* utility in the app
+ * repaints from this alone - no component references a color literally. Applies when data-theme="light"
+ * is set explicitly (see src/lib/theme.ts), or when nothing is set yet and the OS itself prefers light
+ * (the @media block), so a first-time visitor gets a sensible default before ever touching the toggle.
+ */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-nb-900: #ffffff;
+  --color-nb-910: #f7f8f9;
+  --color-nb-920: #f7f7f8;
+  --color-nb-925: #f2f3f4;
+  --color-nb-930: #eef0f1;
+  --color-nb-940: #e7e9eb;
+  --color-nb-850: #dde1e4;
+  --color-nb-800: #cfd4d8;
+  --color-nb-700: #b8bec4;
+  --color-nb-600: #757f8a; /* tertiary text: ~4.6:1 on nb-900/910 */
+  --color-nb-500: #5b6570; /* secondary text: ~6.3:1 on nb-900/910 */
+  --color-nb-400: #45505c; /* ~8.7:1 on nb-900/910 */
+  --color-nb-300: #14171a; /* primary text: ~15.5:1 on nb-900/910 */
+
+  --color-accent: #c2410c; /* darker step of the same orange - ~4.6:1 as text on white, unlike the vivid dark-mode value */
+  --color-accent-600: #9a3412;
+  --color-accent-soft: rgba(194, 65, 12, 0.1);
+
+  --color-tier-cloud: #2563eb;
+  --color-tier-edge: #059669;
+  --color-tier-far: #9333ea;
+}
+/* Explicit dark selection: values already match @theme's defaults above, only color-scheme differs
+ * from the bare-:root default (which leaves it as "light dark" - see body - so the browser picks by OS
+ * even when nothing has been chosen yet). */
+:root[data-theme='dark'] { color-scheme: dark; }
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --color-nb-900: #ffffff;
+    --color-nb-910: #f7f8f9;
+    --color-nb-920: #f7f7f8;
+    --color-nb-925: #f2f3f4;
+    --color-nb-930: #eef0f1;
+    --color-nb-940: #e7e9eb;
+    --color-nb-850: #dde1e4;
+    --color-nb-800: #cfd4d8;
+    --color-nb-700: #b8bec4;
+    --color-nb-600: #757f8a;
+    --color-nb-500: #5b6570;
+    --color-nb-400: #45505c;
+    --color-nb-300: #14171a;
+    --color-accent: #c2410c;
+    --color-accent-600: #9a3412;
+    --color-accent-soft: rgba(194, 65, 12, 0.1);
+    --color-tier-cloud: #2563eb;
+    --color-tier-edge: #059669;
+    --color-tier-far: #9333ea;
+  }
+}
+
+/* Status/verdict/mesh-state colors used in the topology graph and map canvas (TIER_COLOR, STATUS_COLOR,
+ * VERDICT_COLOR and similar plain-hex maps in src/lib) are deliberately NOT re-pointed here: those are
+ * drawn as small SVG fills/strokes (dots, edges, badges), not body text, so the stricter text-contrast
+ * reasoning above doesn't apply the same way, and they read as reasonably against both a white and a
+ * near-black canvas already. Only the canvas' own chrome - its background and grid - is theme-aware,
+ * via the nb-910/nb-850 references already in TopologyPage.tsx/index.css rather than a hardcoded hex.
+ */
+
 html, body, #root { height: 100%; }
 body {
   background: var(--color-nb-900);
   color: var(--color-nb-300);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  color-scheme: light dark; /* lets the browser pick sensible native scrollbars/form-control chrome too */
 }
 
 * { scrollbar-width: thin; scrollbar-color: var(--color-nb-700) transparent; }

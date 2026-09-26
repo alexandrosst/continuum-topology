@@ -12,7 +12,7 @@ import { completeness } from '@/lib/completeness'
 import { observation } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
 import { exitIps } from '@/lib/geo'
-import { ageLabel, autoscalerRange, disruptionLabel, GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipInCidr, podsLabel, podsPercent, volumeSize } from '@/lib/present'
+import { ageLabel, autoscalerRange, disruptionLabel, formatMemory, GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipInCidr, podsLabel, podsPercent, volumeSize } from '@/lib/present'
 import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { useHistoryView } from '@/store/history'
 import { useServer } from '@/store/server'
@@ -477,6 +477,9 @@ export default function Inspector({
           </Maybe>
           <Maybe label="Accelerators">{n.accelerators?.map((a) => `${a.count}× ${a.vendor} ${a.model}`).join(', ')}</Maybe>
           <Maybe label="CPU model">{[n.cpuModel, n.cpuThreads ? `${n.cpuThreads} threads` : undefined].filter(Boolean).join(' · ')}</Maybe>
+          <Maybe label="Disks">
+            {n.disks?.map((d) => `${d.model || d.type || 'disk'}${d.sizeBytes ? ` (${formatMemory(d.sizeBytes / 1024 ** 3)})` : ''}`).join(', ')}
+          </Maybe>
         </Section>
         <Section title="Network & health">
           <Maybe label="Uplink">{connLabel(n.connectivity)}</Maybe>

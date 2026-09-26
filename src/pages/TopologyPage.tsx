@@ -238,7 +238,7 @@ function Canvas() {
           animationDuration: e.className === 'edge-animated' ? `${(2.4 - 1.7 * (e.data?.weight ?? 0)).toFixed(2)}s` : undefined,
         },
         labelStyle: { fill: hot ? '#f68330' : '#a7b1b9', fontSize: 10.5, opacity: dim ? 0.3 : 1 },
-        labelBgStyle: { fill: '#16181a', fillOpacity: 0.95 },
+        labelBgStyle: { fill: 'var(--color-nb-910)', fillOpacity: 0.95 },
         labelBgPadding: [6, 3] as [number, number],
         labelBgBorderRadius: 4,
         markerEnd: e.markerEnd && typeof e.markerEnd === 'object' ? { ...e.markerEnd, color: stroke } : e.markerEnd,
@@ -485,7 +485,7 @@ function Canvas() {
               proOptions={{ hideAttribution: true }}
               colorMode="dark"
             >
-              <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="#2b2f33" />
+              <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="var(--color-nb-850)" />
               <Controls showInteractive={false} />
               <MiniMap className="!hidden sm:!block" pannable zoomable nodeColor={miniColor} nodeStrokeWidth={0} maskColor="rgba(22,24,26,0.7)" />
               <Panel position="bottom-left" className="!mb-3 !ml-16 hidden sm:block">
