@@ -366,6 +366,7 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 			SysVendor: "Dell Inc.", ProductName: "PowerEdge R640",
 			CpuModel: "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz", CpuThreads: 32,
 			Interfaces: []*continuumv1.NetworkInterface{{Name: "eno1", Kind: "ethernet", SpeedMbps: 10000, Mtu: 9000}},
+			Disks:      []*continuumv1.Disk{{Name: "nvme0n1", Model: "Samsung SSD 970 EVO", SizeBytes: 1 << 40, Type: "nvme"}},
 		}
 	})
 	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
@@ -378,6 +379,9 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 	}
 	if len(n.NetworkInterfaces) != 1 || n.NetworkInterfaces[0] != (model.NetworkInterface{Name: "eno1", Kind: "ethernet", SpeedMbps: 10000, MTU: 9000}) {
 		t.Errorf("network interfaces = %+v", n.NetworkInterfaces)
+	}
+	if len(n.Disks) != 1 || n.Disks[0] != (model.Disk{Name: "nvme0n1", Model: "Samsung SSD 970 EVO", SizeBytes: 1 << 40, Type: "nvme"}) {
+		t.Errorf("disks = %+v", n.Disks)
 	}
 }
 
