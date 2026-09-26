@@ -103,8 +103,39 @@ const LOCAL_KEYS = ['applicationId', 'siteId'] as const
  *    picture from that agent (so an empty or restarted server never wipes anything).
  *  - Records and settings that were typed by hand, and agents this server does not know, are left alone.
  */
+/**
+ * Structural equality, independent of key order: two records that describe the same values compare equal
+ * even when one was just rebuilt from scratch. Used so a poll that reports unchanged data hands back the
+ * *same* object/array identities it was given - otherwise every memo and effect downstream would see
+ * "new" data every time, even when nothing changed (dropping dragged canvas positions, clobbering an
+ * in-progress what-if scenario, wiping decider results).
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((x, i) => deepEqual(x, b[i]))
+  }
+  const ao = a as Record<string, unknown>
+  const bo = b as Record<string, unknown>
+  // Compare the union of both objects' keys, not just one side's: a field that is explicitly `undefined`
+  // and one that was never set at all read the same way (`obj.k` is `undefined` either way), and a record
+  // rebuilt via `{ ...other, overrides: e.overrides }` often ends up with an explicit `undefined` where the
+  // original never had the key, which would otherwise look like a spurious change on every single merge.
+  const keys = new Set([...Object.keys(ao), ...Object.keys(bo)])
+  for (const k of keys) if (!deepEqual(ao[k], bo[k])) return false
+  return true
+}
+
+/** True when both arrays hold the exact same items (by reference) in the same order. */
+function sameItems<T>(a: T[], b: T[]): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i])
+}
+
 function mergeList<T extends Rec>(existing: T[], incoming: T[], synced: Set<string>, now: string, tweak?: (merged: T) => T, refs?: { kind: DeclaredRef['kind']; left: Record<string, DeclaredRef> }): T[] {
   const inc = new Map(incoming.map((r) => [r.id, r]))
+  let changed = false
   const out = existing.map((e) => {
     const n = inc.get(e.id)
     if (n) {
@@ -112,19 +143,26 @@ function mergeList<T extends Rec>(existing: T[], incoming: T[], synced: Set<stri
       const merged: Record<string, unknown> = { ...n, overrides: e.overrides }
       const old = e as unknown as Record<string, unknown>
       for (const k of LOCAL_KEYS) if (old[k] !== undefined && merged[k] === undefined) merged[k] = old[k]
-      return tweak ? tweak(merged as unknown as T) : (merged as unknown as T)
+      const result = tweak ? tweak(merged as unknown as T) : (merged as unknown as T)
+      if (deepEqual(result, e)) return e
+      changed = true
+      return result
     }
-    if (e.source === 'discovered' && e.agentId && synced.has(e.agentId) && !e.deletedAt) return { ...e, deletedAt: now }
+    if (e.source === 'discovered' && e.agentId && synced.has(e.agentId) && !e.deletedAt) {
+      changed = true
+      return { ...e, deletedAt: now }
+    }
     return e
   })
   for (const n of inc.values()) {
+    changed = true
     // Something a person said about this record before it was known here (a reload, another browser) lands on it now.
     const ref = refs?.left[n.id]
     const rec = ref && refs?.kind === ref.kind ? (applyRef(n as never, ref, refs.kind) as T) : { ...n }
     if (ref && refs) delete refs.left[n.id]
     out.push(tweak ? tweak(rec) : rec)
   }
-  return out
+  return changed ? out : existing
 }
 
 export function mergeDiscovered(m: Model, doc: ServerState): Partial<Model> {
@@ -145,40 +183,48 @@ export function mergeDiscovered(m: Model, doc: ServerState): Partial<Model> {
     ref('service'),
   )
 
-  // Agents: server-known ones are replaced by id; local (sample) agents stay.
+  // Agents: server-known ones are replaced by id; local (sample) agents stay. An agent whose reported
+  // fields haven't moved keeps its old object identity, and the whole list keeps its old identity when
+  // nothing in it changed (see deepEqual's doc comment above).
   const known = new Map(doc.agents.map((a) => [a.id, a]))
-  const mapped: Agent[] = doc.agents.map((a) => ({
-    id: a.id,
-    orgId: a.orgId,
-    name: a.name,
-    clusterId: a.clusterId || undefined,
-    version: a.version,
-    accessTier: a.accessTier,
-    status: a.status,
-    fingerprint: a.fingerprint,
-    connectingIp: a.connectingIp,
-    connectingGeo: a.connectingGeo ?? undefined,
-    connectingGeoReason: a.connectingGeoReason ?? undefined,
-    certExpiresAt: a.certExpiresAt,
-    lastHeartbeat: a.lastHeartbeat,
-    modules: a.modules,
-    kubernetesVersion: a.kubernetesVersion,
-    installedTier: a.installedTier,
-    tierCap: a.tierCap,
-    requestedAt: a.requestedAt,
-    reason: a.reason,
-    connected: a.connected,
-    observer: a.observer,
-    consistency: a.consistency,
-    measuring: a.measuring,
-    link: a.link,
-    scope: a.scope,
-    clockSkewMs: a.clockSkewMs,
-    legacyEnrollment: a.legacyEnrollment,
-    approvalAttemptsLeft: a.approvalAttemptsLeft,
-    pendingExpiresAt: a.pendingExpiresAt,
-  }))
-  const agents = [...m.agents.filter((a) => !known.has(a.id)), ...mapped]
+  const existingAgents = new Map(m.agents.map((a) => [a.id, a]))
+  const mapped: Agent[] = doc.agents.map((a) => {
+    const next: Agent = {
+      id: a.id,
+      orgId: a.orgId,
+      name: a.name,
+      clusterId: a.clusterId || undefined,
+      version: a.version,
+      accessTier: a.accessTier,
+      status: a.status,
+      fingerprint: a.fingerprint,
+      connectingIp: a.connectingIp,
+      connectingGeo: a.connectingGeo ?? undefined,
+      connectingGeoReason: a.connectingGeoReason ?? undefined,
+      certExpiresAt: a.certExpiresAt,
+      lastHeartbeat: a.lastHeartbeat,
+      modules: a.modules,
+      kubernetesVersion: a.kubernetesVersion,
+      installedTier: a.installedTier,
+      tierCap: a.tierCap,
+      requestedAt: a.requestedAt,
+      reason: a.reason,
+      connected: a.connected,
+      observer: a.observer,
+      consistency: a.consistency,
+      measuring: a.measuring,
+      link: a.link,
+      scope: a.scope,
+      clockSkewMs: a.clockSkewMs,
+      legacyEnrollment: a.legacyEnrollment,
+      approvalAttemptsLeft: a.approvalAttemptsLeft,
+      pendingExpiresAt: a.pendingExpiresAt,
+    }
+    const old = existingAgents.get(a.id)
+    return old && deepEqual(next, old) ? old : next
+  })
+  const nextAgents = [...m.agents.filter((a) => !known.has(a.id)), ...mapped]
+  const agents = sameItems(nextAgents, m.agents) ? m.agents : nextAgents
 
   // Suggestions: new ones arrive open; a decision a person made is never reopened; derived
   // grouping suggestions that discovery no longer makes disappear.
@@ -189,23 +235,30 @@ export function mergeDiscovered(m: Model, doc: ServerState): Partial<Model> {
     const byId = new Map(services.map((x) => [x.id, x]))
     return appIds.has(a.application.id) && a.serviceIds.every((id) => !byId.has(id) || byId.get(id)!.applicationId === a.application.id)
   }
-  const suggestions: Suggestion[] = []
+  const nextSuggestions: Suggestion[] = []
   for (const s of m.suggestions) {
     const n = inc.get(s.id)
     if (n) {
       inc.delete(s.id)
-      suggestions.push(s.status === 'open' ? { ...s, title: n.title, detail: n.detail, apply: n.apply } : s)
+      if (s.status === 'open') {
+        const updated = { ...s, title: n.title, detail: n.detail, apply: n.apply }
+        nextSuggestions.push(deepEqual(updated, s) ? s : updated)
+      } else {
+        nextSuggestions.push(s)
+      }
     } else if (s.status === 'open' && s.id.startsWith('sg-app-') && s.agentId && synced.has(s.agentId)) {
       continue
     } else if (s.status === 'open' && s.id.startsWith('sg-unk-') && doc.agents.some((a) => a.synced && a.status === 'approved')) {
       continue // a suspicion the traffic no longer supports (the cluster was onboarded, or the calls stopped)
-    } else suggestions.push(s)
+    } else nextSuggestions.push(s)
   }
-  for (const n of inc.values()) if (!nothingToDo(n)) suggestions.push(n)
+  for (const n of inc.values()) if (!nothingToDo(n)) nextSuggestions.push(n)
+  const suggestions = sameItems(nextSuggestions, m.suggestions) ? m.suggestions : nextSuggestions
 
   // Server audit events are append-only and keyed by id.
   const have = new Set(m.auditLog.map((e) => e.id))
-  const auditLog = [...m.auditLog, ...doc.auditLog.filter((e) => !have.has(e.id))]
+  const newAuditEvents = doc.auditLog.filter((e) => !have.has(e.id))
+  const auditLog = newAuditEvents.length ? [...m.auditLog, ...newAuditEvents] : m.auditLog
 
   return { clusters, nodes, namespaces, services, agents, suggestions, auditLog, refs: left }
 }

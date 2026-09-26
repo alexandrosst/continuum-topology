@@ -10,7 +10,6 @@ import CommandPalette from '@/components/CommandPalette'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import HistoryBanner from '@/components/HistoryBanner'
 import SampleBanner from '@/components/SampleBanner'
-import { useAutoPlaceClusters } from '@/lib/usePlacement'
 import { resumeServer, useServer } from '@/store/server'
 import { useRawTopology } from '@/store/topology'
 
@@ -149,7 +148,10 @@ function useServerPolling() {
 
 export default function Layout() {
   useServerPolling()
-  useAutoPlaceClusters()
+  // Auto-placing a siteless cluster needs the ~1.6MB city/country tables (see lib/places-data.ts); it used to
+  // run here, globally, on every route, downloading that data on first paint whenever any cluster lacked a
+  // site - an ordinary state (e.g. right after connecting one) - even for a person who never opens the map.
+  // It now runs only from the pages where placement is actually surfaced: ClustersPage and TopologyPage.
   return (
     <AuthGate>
       <Shell />
