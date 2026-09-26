@@ -47,7 +47,7 @@ func TestEmailVerificationRequiresMailConfigured(t *testing.T) {
 
 func TestEmailVerifyRejectsABadAddressWithoutSendingOrStoringIt(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.Mailer = MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"}
+	a.base.SetMailerDefault(MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
 	sent := captureMail(t)
 	a.account(t, "bea")
 	cookie := a.login(t, "bea", goodPW)
@@ -66,7 +66,7 @@ func TestEmailVerifyRejectsABadAddressWithoutSendingOrStoringIt(t *testing.T) {
 
 func TestEmailVerifyResendCooldown(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.Mailer = MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"}
+	a.base.SetMailerDefault(MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
 	sent := captureMail(t)
 	a.account(t, "cara")
 	cookie := a.login(t, "cara", goodPW)
@@ -87,7 +87,7 @@ func TestEmailVerifyResendCooldown(t *testing.T) {
 
 func TestEmailConfirmWrongCodeAndEnableBeforeVerified(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.Mailer = MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"}
+	a.base.SetMailerDefault(MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
 	captureMail(t)
 	a.account(t, "dee")
 	cookie := a.login(t, "dee", goodPW)
@@ -106,7 +106,7 @@ func TestEmailConfirmWrongCodeAndEnableBeforeVerified(t *testing.T) {
 // the wrong-code and replay edge cases to their own tests above so this one cannot spuriously hit that limit.
 func TestEmailVerifyConfirmEnableLoginAndDisable(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.Mailer = MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"}
+	a.base.SetMailerDefault(MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
 	sent := captureMail(t)
 	a.account(t, "elle")
 	cookie := a.login(t, "elle", goodPW)
@@ -188,7 +188,7 @@ func TestEmailVerifyConfirmEnableLoginAndDisable(t *testing.T) {
 
 func TestEmailChangeResetsVerificationAndTurnsOtpOff(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.Mailer = MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"}
+	a.base.SetMailerDefault(MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
 	sent := captureMail(t)
 	a.account(t, "fay")
 	cookie := a.login(t, "fay", goodPW)

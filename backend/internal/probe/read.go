@@ -88,6 +88,8 @@ func readText(path string) string {
 func Read(p Paths) *continuumv1.HostProbe {
 	dmi := filepath.Join(p.Sys, "class", "dmi", "id")
 	hyp := cpuHypervisorBit(filepath.Join(p.Proc, "cpuinfo"))
+	cpuinfo := filepath.Join(p.Proc, "cpuinfo")
+	ifaces := interfaces(filepath.Join(p.Sys, "class", "net"))
 	h := &continuumv1.HostProbe{
 		ProbeVersion:       Version,
 		HypervisorBit:      hyp,
@@ -99,13 +101,60 @@ func Read(p Paths) *continuumv1.HostProbe {
 		BoardName:          firmware(readText(filepath.Join(dmi, "board_name"))),
 		BiosVendor:         firmware(readText(filepath.Join(dmi, "bios_vendor"))),
 		DeviceTreeModel:    Clean(readText(filepath.Join(p.Sys, "firmware", "devicetree", "base", "model"))),
-		Uplinks:            uplinks(filepath.Join(p.Sys, "class", "net")),
+		Uplinks:            uplinkKinds(ifaces),
+		Interfaces:         ifaces,
 		HasBattery:         hasBattery(filepath.Join(p.Sys, "class", "power_supply")),
+		CpuModel:           cpuModel(cpuinfo),
+		CpuThreads:         cpuThreads(cpuinfo),
 	}
 	if n, err := strconv.Atoi(strings.TrimSpace(readText(filepath.Join(dmi, "chassis_type")))); err == nil && n > 0 && n < 64 {
 		h.ChassisType = int32(n)
 	}
 	return h
+}
+
+// cpuModel reads the CPU model name the kernel reports (e.g. "Intel(R) Xeon(R) Platinum ..."). It is
+// the same for every logical CPU, so the first line decides. This is the real host's CPU, unlike
+// NodeFacts' Kubernetes-visible millicore capacity, which a cgroup limit can shrink well below it.
+func cpuModel(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for sc.Scan() {
+		line := sc.Text()
+		if !strings.HasPrefix(line, "model name") {
+			continue
+		}
+		_, after, ok := strings.Cut(line, ":")
+		if !ok {
+			return ""
+		}
+		return Clean(after)
+	}
+	return ""
+}
+
+// cpuThreads counts the logical CPUs (hardware threads) the kernel sees: one "processor" line per
+// thread in /proc/cpuinfo. Like cpuModel, this reflects the real host regardless of any cgroup quota.
+func cpuThreads(path string) int32 {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	var n int32
+	for sc.Scan() {
+		if strings.HasPrefix(sc.Text(), "processor") {
+			n++
+		}
+	}
+	return n
 }
 
 // cpuHypervisorBit reports whether the first CPU's flags contain "hypervisor" (x86 CPUID leaf 1, bit 31).
@@ -136,14 +185,15 @@ func cpuHypervisorBit(path string) bool {
 	return false
 }
 
-// uplinks lists the kinds of physical network interface that are up. Virtual interfaces (veth,
-// bridges, tunnels, VLANs) live under /sys/devices/virtual and are skipped.
-func uplinks(dir string) []string {
+// interfaces lists the physical network interfaces that are up, with whatever speed and MTU sysfs
+// reports for each. Virtual interfaces (veth, bridges, tunnels, VLANs) live under
+// /sys/devices/virtual and are skipped. Never carries an address: this package never reads MACs.
+func interfaces(dir string) []*continuumv1.NetworkInterface {
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
-	seen := map[string]bool{}
+	var out []*continuumv1.NetworkInterface
 	for _, e := range ents {
 		name := e.Name()
 		target, err := os.Readlink(filepath.Join(dir, name))
@@ -154,14 +204,35 @@ func uplinks(dir string) []string {
 		if state != "up" && state != "unknown" {
 			continue
 		}
+		var kind string
 		switch {
 		case exists(filepath.Join(dir, name, "wireless")) || exists(filepath.Join(dir, name, "phy80211")):
-			seen["wifi"] = true
+			kind = "wifi"
 		case strings.HasPrefix(name, "wwan") || strings.Contains(readText(filepath.Join(dir, name, "uevent")), "DEVTYPE=wwan"):
-			seen["cellular"] = true
+			kind = "cellular"
 		default:
-			seen["ethernet"] = true
+			kind = "ethernet"
 		}
+		iface := &continuumv1.NetworkInterface{Name: Clean(name), Kind: kind}
+		// speed_mbps: absent, unreadable, or -1 (no link) all mean "not known"; 0 says that, not "no link".
+		if n, err := strconv.Atoi(strings.TrimSpace(readText(filepath.Join(dir, name, "speed")))); err == nil && n > 0 {
+			iface.SpeedMbps = int32(n)
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(readText(filepath.Join(dir, name, "mtu")))); err == nil && n > 0 {
+			iface.Mtu = int32(n)
+		}
+		out = append(out, iface)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// uplinkKinds derives the legacy kind-only uplinks list from the richer interfaces list, kept for
+// consumers that only ever cared about which kinds of link a node has.
+func uplinkKinds(ifaces []*continuumv1.NetworkInterface) []string {
+	seen := map[string]bool{}
+	for _, i := range ifaces {
+		seen[i.Kind] = true
 	}
 	var out []string
 	for k := range seen {
@@ -196,9 +267,13 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 		ProbeVersion: Clean(h.ProbeVersion), HypervisorBit: h.HypervisorBit, HypervisorVendorId: Clean(h.HypervisorVendorId), HypervisorType: Clean(h.HypervisorType),
 		SysVendor: Clean(h.SysVendor), ProductName: Clean(h.ProductName), BoardVendor: Clean(h.BoardVendor), BoardName: Clean(h.BoardName),
 		BiosVendor: Clean(h.BiosVendor), DeviceTreeModel: Clean(h.DeviceTreeModel), HasBattery: h.HasBattery,
+		CpuModel: Clean(h.CpuModel),
 	}
 	if h.ChassisType > 0 && h.ChassisType < 64 {
 		out.ChassisType = h.ChassisType
+	}
+	if h.CpuThreads > 0 && h.CpuThreads <= 4096 {
+		out.CpuThreads = h.CpuThreads
 	}
 	seen := map[string]bool{}
 	for _, u := range h.Uplinks {
@@ -208,5 +283,24 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 		}
 	}
 	sort.Strings(out.Uplinks)
+	// Interfaces: bound the count, drop anything with no name or an unrecognized kind, and cap
+	// speed/MTU to plausible ranges. A hostile or buggy sender gets none of this taken on faith.
+	for _, iface := range h.Interfaces {
+		if iface == nil || len(out.Interfaces) >= 32 {
+			continue
+		}
+		name := Clean(iface.Name)
+		if name == "" || (iface.Kind != "ethernet" && iface.Kind != "wifi" && iface.Kind != "cellular") {
+			continue
+		}
+		ni := &continuumv1.NetworkInterface{Name: name, Kind: iface.Kind}
+		if iface.SpeedMbps > 0 && iface.SpeedMbps <= 1_000_000 {
+			ni.SpeedMbps = iface.SpeedMbps
+		}
+		if iface.Mtu > 0 && iface.Mtu <= 65536 {
+			ni.Mtu = iface.Mtu
+		}
+		out.Interfaces = append(out.Interfaces, ni)
+	}
 	return out
 }

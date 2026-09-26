@@ -22,6 +22,7 @@ import (
 	"continuum/internal/measure"
 	"continuum/internal/probe"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -131,6 +132,9 @@ func Main(args []string) int {
 	if u, err := url.Parse(rc.Host); err == nil && u.Host != "" {
 		apiHost = u.Host
 	}
+	if real := resolveApiEndpoint(client); real != "" {
+		apiHost = real
+	}
 
 	var ids agent.IdentityStore
 	if *stateDir != "" {
@@ -192,4 +196,36 @@ func Main(args []string) int {
 func envDuration(k string) time.Duration {
 	d, _ := time.ParseDuration(cli.Env(k, ""))
 	return d
+}
+
+// resolveApiEndpoint tries to name the API server's real address instead of the virtual ClusterIP every
+// in-cluster client (this agent included) is handed by default via KUBERNETES_SERVICE_HOST/PORT: it reads
+// the Endpoints object for "kubernetes" in "default", which every Kubernetes cluster carries under that
+// exact, reserved name - not a guess, a fixed part of the API - and which lists the control plane's actual
+// backend address(es). Read-only, one named resource, in a fixed namespace unrelated to rbac.mode's
+// namespace scoping; reveals nothing an operator could not already see with `kubectl get endpoints
+// kubernetes`. Returns "" on any failure (RBAC not granted - access.resolveApiEndpoint=false in the chart,
+// or an older install that predates this - a non-standard cluster with no such Service, or simply no
+// subset ready yet): the caller keeps whatever address it already had, exactly as before this existed.
+func resolveApiEndpoint(client kubernetes.Interface) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ep, err := client.CoreV1().Endpoints("default").Get(ctx, "kubernetes", metav1.GetOptions{})
+	if err != nil {
+		return ""
+	}
+	for _, s := range ep.Subsets {
+		if len(s.Addresses) == 0 || len(s.Ports) == 0 {
+			continue
+		}
+		port := s.Ports[0].Port
+		for _, p := range s.Ports {
+			if p.Name == "https" || p.Port == 443 { // the API server's port, if named or guessable; else the first one listed
+				port = p.Port
+				break
+			}
+		}
+		return net.JoinHostPort(s.Addresses[0].IP, strconv.Itoa(int(port)))
+	}
+	return ""
 }

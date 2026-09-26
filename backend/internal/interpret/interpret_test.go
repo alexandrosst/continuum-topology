@@ -358,6 +358,50 @@ func TestAddonsAndAccelerators(t *testing.T) {
 	}
 }
 
+func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
+	s := facts.New()
+	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-probe"}
+	s.Nodes["a"] = node("a", func(n *N) {
+		n.Probe = &P{
+			SysVendor: "Dell Inc.", ProductName: "PowerEdge R640",
+			CpuModel: "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz", CpuThreads: 32,
+			Interfaces: []*continuumv1.NetworkInterface{{Name: "eno1", Kind: "ethernet", SpeedMbps: 10000, Mtu: 9000}},
+		}
+	})
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
+	if len(out.Nodes) != 1 {
+		t.Fatalf("nodes = %+v", out.Nodes)
+	}
+	n := out.Nodes[0]
+	if n.CPUModel != "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz" || n.CPUThreads != 32 {
+		t.Errorf("cpu model/threads = %q %d", n.CPUModel, n.CPUThreads)
+	}
+	if len(n.NetworkInterfaces) != 1 || n.NetworkInterfaces[0] != (model.NetworkInterface{Name: "eno1", Kind: "ethernet", SpeedMbps: 10000, MTU: 9000}) {
+		t.Errorf("network interfaces = %+v", n.NetworkInterfaces)
+	}
+}
+
+// TestInterpretKeepsProbeFactsWhenKindFromProbeGivesUp covers kindFromProbe's own `default` fallthrough
+// (an ARM board with neither DMI nor a device-tree model, so it cannot decide vm vs bare-metal and
+// returns probed=false) - CPU model/threads/interfaces must still surface, since they are plain
+// observed facts unrelated to that kind decision, not something to lose just because the kind guess did.
+func TestInterpretKeepsProbeFactsWhenKindFromProbeGivesUp(t *testing.T) {
+	s := facts.New()
+	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-probe-2"}
+	s.Nodes["a"] = node("a", func(n *N) {
+		n.Architecture = "arm64"
+		n.Probe = &P{CpuModel: "Cortex-A72", CpuThreads: 4}
+	})
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
+	n := out.Nodes[0]
+	if n.Probed {
+		t.Fatalf("this probe should not be enough for kindFromProbe to decide a kind: %+v", n)
+	}
+	if n.CPUModel != "Cortex-A72" || n.CPUThreads != 4 {
+		t.Errorf("probe facts must survive even when kindFromProbe gives up: cpuModel=%q cpuThreads=%d", n.CPUModel, n.CPUThreads)
+	}
+}
+
 func TestInterpretExtendedFacts(t *testing.T) {
 	st := k3sFixture()
 	cnt := int32(7)

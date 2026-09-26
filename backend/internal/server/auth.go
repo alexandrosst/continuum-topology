@@ -515,7 +515,7 @@ func (c *Core) RequestLoginEmailCode(ctx context.Context, ip, pending string) er
 	if err != nil {
 		return err
 	}
-	if err := c.Mailer.send(u.Email, "Your Continuum sign-in code", emailCodeBody(code, "sign in")); err != nil {
+	if err := c.Mailer().send(u.Email, "Your Continuum sign-in code", emailCodeBody(code, "sign in")); err != nil {
 		return errf(KindInternal, "could not send the sign-in email: %v", err)
 	}
 	return nil
@@ -719,7 +719,7 @@ func (c *Core) Disable2FA(ctx context.Context, p Principal, password string) err
 // code first, and only once that send succeeds does it store the address (unverified) on the account, so a
 // bad address or a mail failure never leaves a stray value behind. ConfirmEmail is the other half.
 func (c *Core) RequestEmailVerification(ctx context.Context, p Principal, email string) error {
-	if !c.Mailer.Enabled() {
+	if !c.Mailer().Enabled() {
 		return errf(KindConflict, "this server has no outgoing mail configured; ask an administrator")
 	}
 	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
@@ -733,7 +733,7 @@ func (c *Core) RequestEmailVerification(ctx context.Context, p Principal, email 
 	if err != nil {
 		return err
 	}
-	if err := c.Mailer.send(addr, "Your Continuum verification code", emailCodeBody(code, "confirm this email address")); err != nil {
+	if err := c.Mailer().send(addr, "Your Continuum verification code", emailCodeBody(code, "confirm this email address")); err != nil {
 		return errf(KindInternal, "could not send the verification email: %v", err)
 	}
 	return c.Store.SetEmail(ctx, p.User.ID, addr, nil)

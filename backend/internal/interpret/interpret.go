@@ -130,6 +130,22 @@ func Interpret(in Input) model.Topology {
 				mn.Evidence["connectivity"] = *k.connEv
 			}
 		}
+		// CPU model/threads and interfaces are plain observed facts, unrelated to the kind-detection
+		// decision above, so they are read straight from the probe rather than gated behind k.probed
+		// (kindFromProbe can return probed=false for a board it could not classify even though a probe
+		// did report - that must not also hide these unrelated facts).
+		if n.Probe != nil {
+			mn.CPUModel = n.Probe.CpuModel
+			mn.CPUThreads = n.Probe.CpuThreads
+			for _, iface := range n.Probe.Interfaces {
+				if iface == nil {
+					continue
+				}
+				mn.NetworkInterfaces = append(mn.NetworkInterfaces, model.NetworkInterface{
+					Name: iface.Name, Kind: iface.Kind, SpeedMbps: iface.SpeedMbps, MTU: iface.Mtu,
+				})
+			}
+		}
 		mn.Accelerators = accelerators(n)
 		if nodeStatus(n) == "healthy" {
 			healthy++

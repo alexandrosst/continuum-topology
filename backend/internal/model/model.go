@@ -88,6 +88,15 @@ type Accelerator struct {
 	Count  int64  `json:"count"`
 }
 
+// NetworkInterface is one physical uplink a node probe saw on the machine itself: never an address,
+// only what the kind of link, its negotiated speed and its MTU are (any of which may be unknown).
+type NetworkInterface struct {
+	Name      string `json:"name"`
+	Kind      string `json:"kind"` // ethernet | wifi | cellular
+	SpeedMbps int32  `json:"speedMbps,omitempty"`
+	MTU       int32  `json:"mtu,omitempty"`
+}
+
 type Node struct {
 	Provenance
 	ID        string `json:"id"`
@@ -119,16 +128,25 @@ type Node struct {
 	// HasBattery: the machine can run without mains power (laptop, board with a battery hat).
 	HasBattery bool `json:"hasBattery,omitempty"`
 	// Probed: a node probe reported on this machine, so kind and hardware come from the machine itself.
-	Probed       bool          `json:"probed,omitempty"`
-	ProviderID   string        `json:"providerId,omitempty"`
-	Allocatable  *Resources    `json:"allocatable,omitempty"`
-	Requested    *Resources    `json:"requested,omitempty"`
-	Accelerators []Accelerator `json:"accelerators,omitempty"`
-	Taints       []string      `json:"taints,omitempty"`
-	Conditions   []string      `json:"conditions,omitempty"`
-	CreatedAt    string        `json:"createdAt,omitempty"`
-	PodCapacity  int32         `json:"podCapacity,omitempty"` // most pods the kubelet will run
-	PodCount     *int32        `json:"podCount,omitempty"`    // nil when pods are not read (unknown, not zero)
+	Probed bool `json:"probed,omitempty"`
+	// CPUModel is the CPU model name the probe read from the machine (e.g. "Intel(R) Xeon(R) Platinum
+	// 8259CL CPU @ 2.50GHz"), the real host CPU regardless of any cgroup limit - unlike CPU below, which
+	// is Kubernetes' allocatable millicore view and can be far smaller on a shared or throttled node.
+	CPUModel string `json:"cpuModel,omitempty"`
+	// CPUThreads is the number of logical CPUs (hardware threads) the probe saw on the machine itself.
+	CPUThreads int32 `json:"cpuThreads,omitempty"`
+	// NetworkInterfaces are the physical uplinks the probe saw, with whatever speed/MTU sysfs reported.
+	// Connectivity above is derived from these (the kinds present); this is the fuller, per-interface view.
+	NetworkInterfaces []NetworkInterface `json:"networkInterfaces,omitempty"`
+	ProviderID        string             `json:"providerId,omitempty"`
+	Allocatable       *Resources         `json:"allocatable,omitempty"`
+	Requested         *Resources         `json:"requested,omitempty"`
+	Accelerators      []Accelerator      `json:"accelerators,omitempty"`
+	Taints            []string           `json:"taints,omitempty"`
+	Conditions        []string           `json:"conditions,omitempty"`
+	CreatedAt         string             `json:"createdAt,omitempty"`
+	PodCapacity       int32              `json:"podCapacity,omitempty"` // most pods the kubelet will run
+	PodCount          *int32             `json:"podCount,omitempty"`    // nil when pods are not read (unknown, not zero)
 }
 
 type Namespace struct {

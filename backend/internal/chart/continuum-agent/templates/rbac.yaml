@@ -44,6 +44,34 @@ metadata:
   labels: {{- include "agent.labels" . | nindent 4 }}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ include "agent.name" . }}-identity}
 subjects: [{kind: ServiceAccount, name: {{ include "agent.name" . }}, namespace: {{ .Release.Namespace }}}]
+{{- if .Values.access.resolveApiEndpoint }}
+---
+# Resolves a more useful "API endpoint" than the raw ClusterIP every in-cluster client, including this
+# agent, is handed by default (KUBERNETES_SERVICE_HOST/PORT): the Endpoints object for the "kubernetes"
+# Service in "default" (a fixed, reserved name every cluster carries) names its actual backend address(es)
+# - the control plane's real host, not a virtual service IP. One named resource, read-only, in one fixed
+# namespace that has nothing to do with rbac.mode's namespace scoping (see resolveApiEndpoint above).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "agent.name" . }}-api-endpoint
+  namespace: default
+  labels: {{- include "agent.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    resourceNames: ["kubernetes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "agent.name" . }}-api-endpoint
+  namespace: default
+  labels: {{- include "agent.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ include "agent.name" . }}-api-endpoint}
+subjects: [{kind: ServiceAccount, name: {{ include "agent.name" . }}, namespace: {{ .Release.Namespace }}}]
+{{- end }}
 ---
 # Tier 0: the cluster's identity (the UID of kube-system) and nothing else.
 apiVersion: rbac.authorization.k8s.io/v1
