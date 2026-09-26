@@ -279,6 +279,15 @@ export interface NetworkInterface {
   mtu?: number
 }
 
+/** One physical block device a node probe saw on the machine itself: capacity and type only, never a
+ * serial number, WWN or any other per-disk identifier. */
+export interface Disk {
+  name: string // kernel device name, e.g. "sda", "nvme0n1" - not stable across reboots
+  model?: string
+  sizeBytes?: number
+  type?: 'hdd' | 'ssd' | 'nvme' | string
+}
+
 export interface Resources {
   cpu: number
   memoryGb: number
@@ -321,6 +330,8 @@ export interface MachineNode extends Provenance {
   /** Physical uplinks the probe saw, with whatever speed/MTU sysfs reported. `connectivity` above is
    * derived from these (the kinds present); this is the fuller, per-interface view. Node probe only. */
   networkInterfaces?: NetworkInterface[]
+  /** Physical disks the probe saw, capacity and type only (never a serial/WWN). Node probe only. */
+  disks?: Disk[]
   providerId?: string
   allocatable?: Resources
   requested?: Resources
