@@ -25,10 +25,10 @@ func TestNodeKindFromProbe(t *testing.T) {
 		{"EC2 instance", node("a", func(n *N) { n.Probe = &P{HypervisorBit: true, SysVendor: "Amazon EC2", ProductName: "m5.large"} }), "vm", "", "Amazon EC2", "", "high"},
 		{"EC2 metal", node("a", func(n *N) {
 			n.Probe = &P{SysVendor: "Amazon EC2", ProductName: "m5.metal", Uplinks: []string{"ethernet"}}
-		}), "bare-metal", "Amazon EC2 m5.metal", "", "ethernet", "high"},
+		}), "bare-metal", "Amazon EC2 m5.metal", "No hypervisor detected", "ethernet", "high"},
 		{"Dell server", node("a", func(n *N) {
 			n.Probe = &P{SysVendor: "Dell Inc.", ProductName: "PowerEdge R640", ChassisType: 23, Uplinks: []string{"ethernet"}}
-		}), "bare-metal", "Dell Inc. PowerEdge R640", "", "ethernet", "high"},
+		}), "bare-metal", "Dell Inc. PowerEdge R640", "No hypervisor detected", "ethernet", "high"},
 		{"firmware names KVM, CPU hides the bit", node("a", func(n *N) { n.Probe = &P{SysVendor: "QEMU"} }), "vm", "", "KVM/QEMU", "", "medium"},
 		{"VMware", node("a", func(n *N) {
 			n.Probe = &P{HypervisorBit: true, SysVendor: "VMware, Inc.", ProductName: "VMware Virtual Platform"}
@@ -46,23 +46,23 @@ func TestNodeKindFromProbe(t *testing.T) {
 		{"Raspberry Pi over Wi-Fi", node("a", func(n *N) {
 			n.Architecture, n.MemoryCapacityBytes = "arm64", 4<<30
 			n.Probe = &P{DeviceTreeModel: "Raspberry Pi 4 Model B Rev 1.4", Uplinks: []string{"wifi"}}
-		}), "edge-device", "Raspberry Pi 4 Model B", "", "wifi", "high"},
+		}), "edge-device", "Raspberry Pi 4 Model B", "No hypervisor detected", "wifi", "high"},
 		{"Jetson", node("a", func(n *N) {
 			n.Architecture, n.MemoryCapacityBytes = "arm64", 8<<30
 			n.Probe = &P{DeviceTreeModel: "NVIDIA Jetson Orin Nano Developer Kit", Uplinks: []string{"ethernet", "wifi"}}
-		}), "edge-device", "NVIDIA Jetson Orin Nano Developer Kit", "", "ethernet", "high"},
+		}), "edge-device", "NVIDIA Jetson Orin Nano Developer Kit", "No hypervisor detected", "ethernet", "high"},
 		{"big ARM server with a device tree stays bare metal", node("a", func(n *N) {
 			n.Architecture, n.MemoryCapacityBytes = "arm64", 256<<30
 			n.Probe = &P{DeviceTreeModel: "Ampere Altra Dev Kit"}
-		}), "bare-metal", "Ampere Altra Dev Kit", "", "", "high"},
+		}), "bare-metal", "Ampere Altra Dev Kit", "No hypervisor detected", "", "high"},
 		{"ARM cloud VM identified by firmware", node("a", func(n *N) {
 			n.Architecture = "arm64"
 			n.Probe = &P{SysVendor: "Amazon EC2", ProductName: "c7g.large"}
 		}), "vm", "", "Amazon EC2", "", "high"},
 		{"laptop acting as a node", node("a", func(n *N) {
 			n.Probe = &P{SysVendor: "LENOVO", ProductName: "ThinkPad T14", ChassisType: 10, HasBattery: true, Uplinks: []string{"wifi"}}
-		}), "edge-device", "LENOVO ThinkPad T14", "", "wifi", "medium"},
-		{"placeholder firmware, still bare metal", node("a", func(n *N) { n.Probe = &P{} }), "bare-metal", "", "", "", "high"},
+		}), "edge-device", "LENOVO ThinkPad T14", "No hypervisor detected", "wifi", "medium"},
+		{"placeholder firmware, still bare metal", node("a", func(n *N) { n.Probe = &P{} }), "bare-metal", "", "No hypervisor detected", "", "high"},
 	}
 	for _, c := range cases {
 		r := detectNodeKind(c.n)
@@ -112,7 +112,8 @@ func TestInterpretCarriesProbeFacts(t *testing.T) {
 			}
 		case second.Name:
 			seen++
-			if !n.Probed || n.Kind != "bare-metal" || n.HardwareModel != "Supermicro SYS-1029" || n.Connectivity != "ethernet" || n.Evidence["connectivity"].Signal == "" || n.Virtualization != "" {
+			if !n.Probed || n.Kind != "bare-metal" || n.HardwareModel != "Supermicro SYS-1029" || n.Connectivity != "ethernet" || n.Evidence["connectivity"].Signal == "" ||
+				n.Virtualization != "No hypervisor detected" || n.Evidence["virtualization"].Signal == "" {
 				t.Errorf("metal node = %+v", n)
 			}
 		default:

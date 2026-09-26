@@ -45,7 +45,7 @@ func nic(t *testing.T, sys, name, devPath, state string, files ...string) {
 func TestReadVirtualMachine(t *testing.T) {
 	root := t.TempDir()
 	sys, proc := filepath.Join(root, "sys"), filepath.Join(root, "proc")
-	write(t, proc, "cpuinfo", "processor\t: 0\nflags\t\t: fpu vme de hypervisor lahf_lm\n\nprocessor\t: 1\nflags\t\t: fpu\n")
+	write(t, proc, "cpuinfo", "processor\t: 0\nmodel name\t: Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz\nflags\t\t: fpu vme de hypervisor lahf_lm\n\nprocessor\t: 1\nmodel name\t: Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz\nflags\t\t: fpu\n")
 	write(t, sys, "class/dmi/id/sys_vendor", "Amazon EC2\n")
 	write(t, sys, "class/dmi/id/product_name", "m5.large\n")
 	write(t, sys, "class/dmi/id/board_vendor", "Amazon EC2\n")
@@ -53,12 +53,20 @@ func TestReadVirtualMachine(t *testing.T) {
 	write(t, sys, "class/dmi/id/chassis_type", "1\n")
 	write(t, sys, "class/dmi/id/product_serial", "SECRET-SERIAL")
 	// ens5 is a real NIC; veth and docker0 are virtual and must be ignored.
-	nic(t, sys, "ens5", "pci0000:00/0000:00:05.0/net/ens5", "up")
+	nic(t, sys, "ens5", "pci0000:00/0000:00:05.0/net/ens5", "up", "speed", "mtu")
+	write(t, sys, "devices/pci0000:00/0000:00:05.0/net/ens5/speed", "25000\n")
+	write(t, sys, "devices/pci0000:00/0000:00:05.0/net/ens5/mtu", "9001\n")
 	nic(t, sys, "veth1", "virtual/net/veth1", "up")
 
 	h := Read(Paths{Sys: sys, Proc: proc})
 	if !h.HypervisorBit || h.SysVendor != "Amazon EC2" || h.ProductName != "m5.large" || h.ChassisType != 1 {
 		t.Fatalf("unexpected: %v", h)
+	}
+	if h.CpuModel != "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz" || h.CpuThreads != 2 {
+		t.Fatalf("cpu model/threads = %q %d", h.CpuModel, h.CpuThreads)
+	}
+	if len(h.Interfaces) != 1 || h.Interfaces[0].Name != "ens5" || h.Interfaces[0].Kind != "ethernet" || h.Interfaces[0].SpeedMbps != 25000 || h.Interfaces[0].Mtu != 9001 {
+		t.Fatalf("interfaces = %v", h.Interfaces)
 	}
 	// Read must wire the hypervisor bit it just computed into hypervisorVendorID, not compute its own
 	// separately: whatever a direct call returns for "bit set" is exactly what should have landed here.
@@ -102,6 +110,24 @@ func TestReadEmptyHostIsNotAnError(t *testing.T) {
 	if h.ProbeVersion != Version || h.HypervisorBit || len(h.Uplinks) != 0 {
 		t.Fatalf("unexpected: %v", h)
 	}
+	if h.CpuModel != "" || h.CpuThreads != 0 || len(h.Interfaces) != 0 {
+		t.Fatalf("a host with no /proc/cpuinfo and no /sys/class/net must report absence, not zeroes-as-guesses: %v", h)
+	}
+}
+
+// TestReadInterfaceWithNoSpeedFile covers a NIC whose driver does not expose "speed" (or reports it as
+// unreadable, which is common when the link is down) - the interface must still be listed, just
+// without a speed, since 0 already means "not known" per the field's own contract.
+func TestReadInterfaceWithNoSpeedFile(t *testing.T) {
+	root := t.TempDir()
+	sys, proc := filepath.Join(root, "sys"), filepath.Join(root, "proc")
+	nic(t, sys, "eth0", "platform/soc/net/eth0", "unknown", "mtu")
+	write(t, sys, "devices/platform/soc/net/eth0/mtu", "1500\n")
+
+	h := Read(Paths{Sys: sys, Proc: proc})
+	if len(h.Interfaces) != 1 || h.Interfaces[0].SpeedMbps != 0 || h.Interfaces[0].Mtu != 1500 {
+		t.Fatalf("interfaces = %v", h.Interfaces)
+	}
 }
 
 func TestCleanAndSanitize(t *testing.T) {
@@ -114,6 +140,42 @@ func TestCleanAndSanitize(t *testing.T) {
 	s := Sanitize(&continuumv1.HostProbe{ProductName: "<script>x", ChassisType: 9000, Uplinks: []string{"wifi", "wifi", "evil", "ethernet"}})
 	if s.ChassisType != 0 || len(s.Uplinks) != 2 || s.Uplinks[0] != "ethernet" {
 		t.Fatalf("Sanitize = %v", s)
+	}
+
+	untrusted := &continuumv1.HostProbe{
+		CpuModel:   "Xeon\x00 Gold",
+		CpuThreads: 999999,
+		Interfaces: []*continuumv1.NetworkInterface{
+			{Name: "eth0", Kind: "ethernet", SpeedMbps: 10000, Mtu: 1500},
+			{Name: "", Kind: "ethernet"},                             // no name: dropped
+			{Name: "tun0", Kind: "vpn"},                              // unknown kind: dropped
+			{Name: "eth1", Kind: "wifi", SpeedMbps: -1, Mtu: 999999}, // out-of-range: cleared, not dropped
+			nil, // must not panic
+		},
+	}
+	su := Sanitize(untrusted)
+	if su.CpuModel != "Xeon Gold" {
+		t.Fatalf("CpuModel = %q", su.CpuModel)
+	}
+	if su.CpuThreads != 0 {
+		t.Fatalf("an implausible CpuThreads must be dropped, got %d", su.CpuThreads)
+	}
+	if len(su.Interfaces) != 2 {
+		t.Fatalf("Interfaces = %v", su.Interfaces)
+	}
+	if su.Interfaces[0].Name != "eth0" || su.Interfaces[0].SpeedMbps != 10000 || su.Interfaces[0].Mtu != 1500 {
+		t.Fatalf("Interfaces[0] = %v", su.Interfaces[0])
+	}
+	if su.Interfaces[1].Name != "eth1" || su.Interfaces[1].SpeedMbps != 0 || su.Interfaces[1].Mtu != 0 {
+		t.Fatalf("an out-of-range speed/mtu must be cleared rather than trusted: %v", su.Interfaces[1])
+	}
+
+	many := &continuumv1.HostProbe{}
+	for i := 0; i < 50; i++ {
+		many.Interfaces = append(many.Interfaces, &continuumv1.NetworkInterface{Name: "eth", Kind: "ethernet"})
+	}
+	if got := Sanitize(many); len(got.Interfaces) != 32 {
+		t.Fatalf("Interfaces must be capped at 32, got %d", len(got.Interfaces))
 	}
 }
 

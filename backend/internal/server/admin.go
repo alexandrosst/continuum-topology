@@ -148,6 +148,11 @@ func (a *Admin) Handler() http.Handler {
 	route("POST /api/v1/orgs", settled, a.createOrg)
 	route("POST /api/v1/invites/accept", settled, a.acceptInvite)
 
+	// Mail is server-wide, not one organisation's, and is gated to an owner of the default organisation
+	// specifically - see requireDefaultOwner - rather than to any of the per-org role checks above.
+	route("GET /api/v1/mail", settled, a.getMailConfig)
+	route("PUT /api/v1/mail", settled, a.putMailConfig)
+
 	const o = "/api/v1/orgs/{org}"
 	route("GET "+o+"/info", memberRole, a.info)
 	route("POST "+o+"/rename", ownerRole, a.renameOrg)
@@ -449,6 +454,10 @@ type userDoc struct {
 	EmailVerified   bool   `json:"emailVerified"`
 	EmailOTPEnabled bool   `json:"emailOtpEnabled"`
 	MailConfigured  bool   `json:"mailConfigured"` // whether the server can send mail at all
+	// CanManageMail is true only for an owner of the default organisation specifically (see
+	// requireDefaultOwner) - the same eligibility /api/v1/mail itself enforces, exposed here so Settings
+	// knows whether to show that section at all rather than showing it and letting the request 403.
+	CanManageMail bool `json:"canManageMail"`
 	// Passkeys never carries a public key or anything else needed to verify a login, only what settings needs
 	// to show a person their own credentials and let them rename or remove one.
 	Passkeys []passkeyDoc `json:"passkeys"`
@@ -461,7 +470,7 @@ type passkeyDoc struct {
 	LastUsedAt string `json:"lastUsedAt,omitempty"`
 }
 
-func toUserDoc(u store.User, mailConfigured bool) userDoc {
+func toUserDoc(u store.User, mailConfigured, canManageMail bool) userDoc {
 	passkeys := make([]passkeyDoc, len(u.WebAuthnCredentials))
 	for i, cr := range u.WebAuthnCredentials {
 		passkeys[i] = passkeyDoc{ID: base64.RawURLEncoding.EncodeToString(cr.CredentialID), Name: cr.Name, CreatedAt: rfc(cr.CreatedAt), LastUsedAt: rfcp(cr.LastUsedAt)}
@@ -471,6 +480,7 @@ func toUserDoc(u store.User, mailConfigured bool) userDoc {
 		TwoFactorEnabled: u.TOTPEnabledAt != nil,
 		Email:            u.Email, EmailVerified: u.EmailVerifiedAt != nil, EmailOTPEnabled: u.EmailOTPEnabledAt != nil,
 		MailConfigured: mailConfigured,
+		CanManageMail:  canManageMail,
 		Passkeys:       passkeys,
 	}
 }
@@ -485,12 +495,16 @@ type orgDoc struct {
 // belong to, so the UI needs no second call to know where it may go.
 func (a *Admin) session(ctx context.Context, u store.User) map[string]any {
 	orgs := []orgDoc{}
+	canManageMail := false
 	if mine, err := a.C.Store.ListMyOrgs(ctx, u.ID); err == nil {
 		for _, o := range mine {
 			orgs = append(orgs, orgDoc{ID: o.ID, Name: o.Name, Role: o.Role})
+			if o.ID == a.C.DefaultOrg && roleRank[o.Role] >= roleRank[RoleOwner] {
+				canManageMail = true
+			}
 		}
 	}
-	return map[string]any{"user": toUserDoc(u, a.C.Mailer.Enabled()), "orgs": orgs}
+	return map[string]any{"user": toUserDoc(u, a.C.Mailer().Enabled(), canManageMail), "orgs": orgs}
 }
 
 // setCookie sets (or, with a negative maxAge, clears) the session cookie. Secure is on whenever the admin

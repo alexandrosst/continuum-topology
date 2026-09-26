@@ -35,6 +35,10 @@
             "2"
           ],
           "description": "0 registered only, 1 infrastructure, 2 services"
+        },
+        "resolveApiEndpoint": {
+          "type": "boolean",
+          "description": "Read the 'kubernetes' Service's Endpoints in 'default' to report the API server's real backend address instead of the virtual ClusterIP. On by default."
         }
       }
     },

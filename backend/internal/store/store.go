@@ -380,6 +380,12 @@ type Store interface {
 	GetSettings(ctx context.Context, org string) ([]byte, error)
 	PutSettings(ctx context.Context, org string, data []byte, now time.Time) error
 
+	// ---- mail configuration: server-wide, not scoped to any organisation (see server.Core.Mailer) ----
+
+	// GetMailConfig returns nil data when nothing was ever saved.
+	GetMailConfig(ctx context.Context) ([]byte, error)
+	PutMailConfig(ctx context.Context, data []byte, now time.Time) error
+
 	// ---- the twin: what was observed and then went away, machine identities, the model version ----
 
 	ListTombstones(ctx context.Context, org string) ([]Tombstone, error)

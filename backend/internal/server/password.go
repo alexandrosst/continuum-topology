@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -69,8 +70,13 @@ func VerifyPassword(password, encoded string) (bool, error) {
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
 
-// CheckPasswordPolicy enforces length (NIST SP 800-63B favours length over composition rules)
-// and refuses the obvious: the username itself, or a single repeated character.
+// CheckPasswordPolicy enforces length first (NIST SP 800-63B favours length over composition rules: a
+// long passphrase resists brute force better than a short, mangled one) and refuses the obvious - the
+// username itself, or a single repeated character - then adds one deliberate exception on top: a digit
+// and a symbol are both required. That is not NIST's recommendation, but a long, all-letters password is
+// still an easy target for a dictionary/pattern-based guess (unlike a brute-force search over the whole
+// keyspace, which is what length alone defends against), and it is what people expect "password rules" to
+// mean. Length stays the primary defense; this is belt-and-suspenders on top of it, not instead of it.
 func CheckPasswordPolicy(username, password string) error {
 	if len(password) < MinPasswordLen {
 		return fmt.Errorf("password must be at least %d characters", MinPasswordLen)
@@ -83,6 +89,23 @@ func CheckPasswordPolicy(username, password string) error {
 	}
 	if strings.Trim(password, password[:1]) == "" {
 		return errors.New("password must not be a single repeated character")
+	}
+	var hasDigit, hasSymbol bool
+	for _, r := range password {
+		switch {
+		case unicode.IsDigit(r):
+			hasDigit = true
+		case unicode.IsLetter(r):
+			// a letter, in any case or script: doesn't count toward either requirement below
+		default:
+			hasSymbol = true // punctuation, symbols, spaces, anything else
+		}
+	}
+	if !hasDigit {
+		return errors.New("password must include a number")
+	}
+	if !hasSymbol {
+		return errors.New("password must include a symbol (e.g. ! @ # $ %)")
 	}
 	return nil
 }

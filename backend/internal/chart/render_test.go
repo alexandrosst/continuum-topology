@@ -291,6 +291,23 @@ func TestEgressPolicy(t *testing.T) {
 	}
 }
 
+func TestApiEndpointRoleIsOnByDefaultAndOffSwitchable(t *testing.T) {
+	out, err := helmTemplate(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "continuum-agent-api-endpoint") || !strings.Contains(out, `resourceNames: ["kubernetes"]`) {
+		t.Errorf("the api-endpoint Role/RoleBinding should be on by default:\n%s", out)
+	}
+	out, err = helmTemplate(t, "--set", "access.resolveApiEndpoint=false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "api-endpoint") {
+		t.Errorf("access.resolveApiEndpoint=false should drop the Role/RoleBinding entirely:\n%s", out)
+	}
+}
+
 func TestFlowReceiverPolicyIsHonest(t *testing.T) {
 	// Off by default: a node-address list nobody gave would silently drop every collector.
 	r := render(t, "--set", "flowObserver.enabled=true")

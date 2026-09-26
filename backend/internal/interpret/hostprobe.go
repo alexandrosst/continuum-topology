@@ -116,10 +116,20 @@ func kindFromProbe(n *continuumv1.NodeFacts, apiHardware string, apiHwEv *model.
 	fw := machineModel(h)
 	r := nodeKindResult{hardware: apiHardware, hwEv: apiHwEv, probed: true, battery: h.HasBattery}
 	virtEv := func(signal, conf, detail string) *model.Evidence { e := ev(signal, conf, detail); return &e }
+	// A bare-metal branch below always had a real signal to reach it (that is what tells it apart from the
+	// `default` case, which falls through with no kind decided at all) - so it is not merely "no evidence
+	// either way", it is a checked, negative result. Record that explicitly as the same evidence that
+	// decided "bare-metal", so Virtualization reads "No hypervisor detected" rather than sitting blank the
+	// same way an actually-unprobed node's would (see `probed` on the result, which is true either way -
+	// the two are told apart by whether Virtualization itself is set, not by this field).
+	bareMetal := func(signal, conf, detail string) {
+		r.kind, r.kindEv = "bare-metal", ev(signal, conf, detail)
+		r.virt, r.virtEv = "No hypervisor detected", virtEv(signal, conf, detail)
+	}
 
 	switch {
 	case metal:
-		r.kind, r.kindEv = "bare-metal", ev("node probe: DMI "+h.SysVendor+" "+h.ProductName, "high", "an AWS .metal instance runs without a hypervisor")
+		bareMetal("node probe: DMI "+h.SysVendor+" "+h.ProductName, "high", "an AWS .metal instance runs without a hypervisor")
 	case h.HypervisorBit:
 		r.kind = "vm"
 		r.virt = firstNonEmpty(platform, "unidentified hypervisor")
@@ -143,15 +153,11 @@ func kindFromProbe(n *continuumv1.NodeFacts, apiHardware string, apiHwEv *model.
 		r.kindEv = ev("node probe: DMI "+fw, conf, detail)
 		r.virtEv = virtEv("node probe: DMI "+fw, conf, "")
 	case !arm:
-		r.kind = "bare-metal"
-		detail := "no hypervisor bit and firmware does not name a hypervisor"
-		r.kindEv = ev("node probe: no hypervisor bit on the CPU", "high", detail)
+		bareMetal("node probe: no hypervisor bit on the CPU", "high", "no hypervisor bit and firmware does not name a hypervisor")
 	case h.DeviceTreeModel != "":
-		r.kind = "bare-metal"
-		r.kindEv = ev("node probe: device tree "+h.DeviceTreeModel, "high", "a board described by a device tree, no hypervisor named")
+		bareMetal("node probe: device tree "+h.DeviceTreeModel, "high", "a board described by a device tree, no hypervisor named")
 	case h.SysVendor != "" || h.ProductName != "":
-		r.kind = "bare-metal"
-		r.kindEv = ev("node probe: DMI "+fw, "medium", "ARM has no hypervisor bit; firmware does not name a hypervisor")
+		bareMetal("node probe: DMI "+fw, "medium", "ARM has no hypervisor bit; firmware does not name a hypervisor")
 	default:
 		return nodeKindResult{}, false
 	}

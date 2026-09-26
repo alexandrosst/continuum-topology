@@ -1,11 +1,15 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"net/smtp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -15,12 +19,109 @@ import (
 // submission port is a well-specified handful of lines, not something worth a dependency for. Sending itself
 // goes through sendMail below rather than smtp.SendMail directly - see its doc comment for why.
 type MailConfig struct {
-	Host, Port, Username, Password, From string
+	Host     string `json:"host"`
+	Port     string `json:"port"`
+	Username string `json:"username"`
+	// Password is never sent back to a client once saved, even to the owner who set it - see MailConfigDoc
+	// and putMailConfig, the same convention Settings.DeciderSecret uses.
+	Password string `json:"password,omitempty"`
+	From     string `json:"from"`
+}
+
+// maxMailField bounds each MailConfig string so a client cannot store something absurd in a single-row
+// table meant for a hostname, a port, a username, an address - the same kind of bound NormalizeFor
+// applies to Settings.DeciderURL.
+const maxMailField = 320
+
+// Normalize trims whitespace and rejects a field that is unreasonably long. It does not require Host to
+// be set - a blank one is exactly how mail stays disabled (see Enabled) - and does not attempt to
+// resolve or dial anything: the only way to really know an SMTP config works is to use it, which sending
+// the next real code already exercises.
+func (m MailConfig) Normalize() (MailConfig, error) {
+	m.Host, m.Port, m.Username, m.From = strings.TrimSpace(m.Host), strings.TrimSpace(m.Port), strings.TrimSpace(m.Username), strings.TrimSpace(m.From)
+	for name, v := range map[string]string{"the SMTP host": m.Host, "the SMTP port": m.Port, "the SMTP username": m.Username, "the from address": m.From, "the SMTP password": m.Password} {
+		if len(v) > maxMailField {
+			return m, fmt.Errorf("%s is at most %d characters", name, maxMailField)
+		}
+	}
+	return m, nil
 }
 
 // Enabled reports whether an operator has configured outgoing mail at all. Nothing that needs to send a
 // message should be reachable unless this is true - see RequestEmailVerification and RequestLoginEmailCode.
 func (m MailConfig) Enabled() bool { return strings.TrimSpace(m.Host) != "" }
+
+// mailHolder is Mailer's storage: a pointer so every organisation's Core (see Core.ForOrg, whose shallow
+// copy shares this same pointer rather than resetting it the way it resets settings) sees one live,
+// server-wide configuration, mutex-guarded the same way settingsHolder guards Settings.
+type mailHolder struct {
+	mu sync.RWMutex
+	m  MailConfig
+}
+
+func (h *mailHolder) get() MailConfig {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.m
+}
+
+func (h *mailHolder) set(m MailConfig) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.m = m
+}
+
+// Mailer returns the current mail configuration. It is the same for every organisation's Core - SMTP is
+// one setting for the whole server, not per organisation the way Settings is, the same way DefaultOrg
+// and RegMode are not per organisation either - so which Core this is called through does not matter.
+func (c *Core) Mailer() MailConfig { return c.mailer.get() }
+
+// SetMailerDefault seeds the in-memory mail configuration without persisting it. cmd/server calls this
+// once at boot with whatever the --smtp-* flags say, before LoadMailConfig may overwrite it with
+// whatever an owner of DefaultOrg last saved through Settings - the same relationship a CLI flag has to
+// a value stored in the database everywhere else in this file's package.
+func (c *Core) SetMailerDefault(m MailConfig) { c.mailer.set(m) }
+
+// LoadMailConfig reads the persisted mail configuration at startup, the same way LoadSettings does for
+// per-organisation Settings. Unreadable JSON or nothing ever saved leaves whatever SetMailerDefault (or
+// the zero value) already set - it never disables mail as a side effect of a storage hiccup.
+func (c *Core) LoadMailConfig(ctx context.Context) {
+	data, err := c.Store.GetMailConfig(ctx)
+	if err != nil || data == nil {
+		return
+	}
+	var m MailConfig
+	if err := json.Unmarshal(data, &m); err != nil {
+		return
+	}
+	c.mailer.set(m)
+}
+
+// SaveMailConfig validates, persists and makes a new mail configuration visible to every organisation's
+// Core at once (see ForOrg), returning it normalized the way SaveSettings returns Settings. Callers are
+// responsible for authorization - see requireDefaultOwner. It always writes to the server's own audit
+// trail ("" - see auditOrg), not this Core's OrgID, because SMTP is one setting for the whole server and
+// this may be called through any organisation's Core.
+func (c *Core) SaveMailConfig(ctx context.Context, by string, m MailConfig) (MailConfig, error) {
+	m, err := m.Normalize()
+	if err != nil {
+		return MailConfig{}, errf(KindInvalid, "%v", err)
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		return MailConfig{}, err
+	}
+	if err := c.Store.AddAudit(ctx, c.auditRow("", by, "mail-config-changed", "server", "", "")); err != nil {
+		c.Log.Error("audit write failed; the action was not carried out", "action", "mail-config-changed", "err", err)
+		return MailConfig{}, errf(KindInternal, "the audit trail could not be written, so nothing was changed. Check the server's database and try again")
+	}
+	if err := c.Store.PutMailConfig(ctx, data, c.Now()); err != nil {
+		c.auditOrg(ctx, "", by, "mail-config-changed-failed", "server", "", err.Error())
+		return MailConfig{}, err
+	}
+	c.mailer.set(m)
+	return m, nil
+}
 
 // smtpSendMail is sendMail by default; tests replace it with a fake that records the message instead of
 // opening a real connection, the same seam Core.Now gives tests over the clock.
@@ -134,4 +235,79 @@ func mimeMessage(from, to, subject, body string) []byte {
 	b.WriteString(body)
 	b.WriteString("\r\n")
 	return []byte(b.String())
+}
+
+// ---- HTTP: server-wide, not one organisation's - see requireDefaultOwner ----
+
+// MailConfigDoc is MailConfig as the UI sees it: the password is never sent back, only whether one is
+// set, the same way SettingsDoc hides the decider secret.
+type MailConfigDoc struct {
+	Host        string `json:"host"`
+	Port        string `json:"port"`
+	Username    string `json:"username"`
+	From        string `json:"from"`
+	PasswordSet bool   `json:"passwordSet"`
+	Enabled     bool   `json:"enabled"`
+}
+
+func mailConfigDoc(m MailConfig) MailConfigDoc {
+	return MailConfigDoc{Host: m.Host, Port: m.Port, Username: m.Username, From: m.From, PasswordSet: m.Password != "", Enabled: m.Enabled()}
+}
+
+// requireDefaultOwner reports whether p is specifically an owner of the default organisation - regardless
+// of which organisation, if any, their current request happens to be scoped to (mail configuration is not
+// a /api/v1/orgs/{org} route, so guard never places them in one). This is the same GetMembership lookup
+// Member itself makes, just against the fixed DefaultOrg instead of whatever org a path names. SMTP
+// credentials can relay mail as this server and are worth restricting more tightly than an "admin" of some
+// org a stranger could just create for themselves (see Settings.ImageRegistry's comment for that same
+// reasoning) - an owner of the one organisation that exists from first boot is the closest thing this
+// server has to "the operator".
+func (a *Admin) requireDefaultOwner(ctx context.Context, p Principal) error {
+	m, err := a.C.Member(ctx, p, a.C.DefaultOrg)
+	if err != nil || roleRank[m.Role] < roleRank[RoleOwner] {
+		return errf(KindForbidden, "only an owner of the default organisation may do this")
+	}
+	return nil
+}
+
+func (a *Admin) getMailConfig(w http.ResponseWriter, r *http.Request) {
+	if err := a.requireDefaultOwner(r.Context(), principal(r)); err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, mailConfigDoc(a.C.Mailer()))
+}
+
+// putMailConfig never lets a client blank the password by accident: a GET never carries it (see
+// mailConfigDoc), so a client that reads its config and PUTs most of it back unchanged - which is exactly
+// what the UI does - naturally sends no `password` at all, or "". Both are treated as "leave it alone". A
+// client sets a new password by sending a non-empty `password`, and removes it, explicitly, with
+// `clearPassword: true` - the same three-way convention putSettings uses for the decider secret.
+func (a *Admin) putMailConfig(w http.ResponseWriter, r *http.Request) {
+	p := principal(r)
+	if err := a.requireDefaultOwner(r.Context(), p); err != nil {
+		a.fail(w, err)
+		return
+	}
+	var body struct {
+		MailConfig
+		ClearPassword bool `json:"clearPassword"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	m := body.MailConfig
+	switch {
+	case body.ClearPassword:
+		m.Password = ""
+	case m.Password == "":
+		m.Password = a.C.Mailer().Password
+	}
+	n, err := a.C.SaveMailConfig(r.Context(), p.User.Username, m)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, mailConfigDoc(n))
 }

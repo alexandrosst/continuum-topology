@@ -321,25 +321,25 @@ agentInstall:
 # bundled database in that case, so double-check the mount before rolling out a change here.
 geoip:
   path: ""
-  # An http(s) URL that answers with this server's own public IP as plain text (a well known one:
-  # https://api.ipify.org) - --geoip-public-ip-service. Despite the flag's own "needs --geoip-db" wording
-  # (true of the flag in isolation), this does NOT need geoip.path to be set here: the bundled database
-  # above is already active by default, which already satisfies it. Used only as a fallback: when an
-  # agent's connecting address cannot be located at all (private, loopback, CGNAT - which means the agent
-  # shares this server's own network, directly or through NAT), this server's own public address is the
-  # closest honest guess, returned marked "estimated" rather than exact, never better than low confidence.
-  # Called once at startup and then on an hourly cache, never per request. Empty (default): never guessed,
-  # only an agent's own address is ever used - the privacy-conserving default, since this is the one call
-  # in the whole server that goes to a third party the operator picks rather than one this chart or the
-  # server hardcodes. Left off by default for that reason even though it is the single highest-precision
-  # thing you can turn on here: recommended whenever the server and its agents can share a network (a
-  # self-hosted/on-prem/edge testbed monitoring itself, most obviously) since a connecting address that
-  # never crosses the public internet can otherwise never be located at all - see deploy/README.md's
-  # Troubleshooting section. If you turn it on:
-  #   geoip.publicIpService: https://api.ipify.org
+  # An http(s) URL that answers with this server's own public IP as plain text - --geoip-public-ip-service.
+  # Despite the flag's own "needs --geoip-db" wording (true of the flag in isolation), this does NOT need
+  # geoip.path to be set here: the bundled database above is already active by default, which already
+  # satisfies it. Used only as a fallback: when an agent's connecting address cannot be located at all
+  # (private, loopback, CGNAT - which means the agent shares this server's own network, directly or through
+  # NAT), this server's own public address is the closest honest guess, returned marked "estimated" rather
+  # than exact, never better than low confidence. Called once at startup and then on an hourly cache, never
+  # per request.
+  # On by default (api.ipify.org, a well-known, free "what is my IP" service): this is the one call in the
+  # whole server that goes to a third party the operator picks rather than one this chart or the server
+  # hardcodes, which is a real (if small - a periodic, unauthenticated GET revealing only this server's own
+  # already-public egress address) privacy tradeoff, so it is worth knowing about even though it is on. It
+  # earns the default because, without it, an agent behind NAT/CGNAT/on the server's own network cannot be
+  # located at all (see deploy/README.md's Troubleshooting section) - the exact situation for a self-hosted/
+  # on-prem/edge testbed monitoring itself, which is the common case this chart is deployed for. Set to ""
+  # to turn it off, or to a different URL to use another service.
   # If networkPolicy.enabled, also open networkPolicy.egress.geoipPublicIpCIDRs (the rule is closed, like
-  # the decider's, until you do).
-  publicIpService: ""
+  # the decider's, until you do) - see its own comment for why a CDN-backed service makes that fiddly.
+  publicIpService: "https://api.ipify.org"
   # A second .mmdb - in ASN shape (GeoLite2-ASN, DB-IP ASN Lite), not city/country shape - --geoip-asn-db.
   # Adds which network an address belongs to (its AS number and the organisation that announces it, e.g.
   # 15169 / "Google LLC") alongside wherever the city/country database placed it, including a

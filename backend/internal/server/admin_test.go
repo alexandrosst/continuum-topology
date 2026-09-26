@@ -18,7 +18,7 @@ func init() { // cheap argon2 for tests; production values are exercised by Test
 	argonMemoryKiB, argonTime, argonThreads = 1024, 1, 1
 }
 
-const goodPW = "correct horse battery"
+const goodPW = "correct horse battery 9" // a digit too, now that CheckPasswordPolicy requires one (the spaces already count as its required symbol)
 
 type adminRig struct {
 	*env
@@ -47,7 +47,7 @@ func (a *adminRig) hub() *Hub {
 // orgPath sends the organisation-scoped routes to org-1, so tests can keep writing /api/v1/state.
 func orgPath(p string) string {
 	rest := strings.TrimPrefix(p, "/api/v1/")
-	for _, g := range []string{"auth/", "server", "orgs", "invites/preview", "invites/accept"} {
+	for _, g := range []string{"auth/", "server", "orgs", "invites/preview", "invites/accept", "mail"} {
 		if strings.HasPrefix(rest, g) {
 			return p
 		}
@@ -179,7 +179,7 @@ func TestBootstrapAdminForcesAPasswordChangeAndSignsOutOtherBrowsers(t *testing.
 	if change(first, first) != 400 {
 		t.Error("unchanged password accepted")
 	}
-	if change(first, "a brand new passphrase") != 200 {
+	if change(first, "a brand new passphrase 2") != 200 {
 		t.Fatal("valid change refused")
 	}
 	if r := a.do("GET", "/api/v1/state", nil, withCookie(c1)); r.Code != 200 {
@@ -530,6 +530,16 @@ func TestPasswordHashing(t *testing.T) {
 	if CheckPasswordPolicy("alex", "Alex") == nil || CheckPasswordPolicy("alex", "aaaaaaaaaaaaaaaa") == nil ||
 		CheckPasswordPolicy("alex", strings.Repeat("x1", 65)) == nil || CheckPasswordPolicy("alex", goodPW) != nil {
 		t.Error("password policy")
+	}
+	// Digit and symbol: both required on top of length, even once length/username/repeat all pass.
+	if CheckPasswordPolicy("alex", "correcthorsebattery") == nil { // letters only: neither
+		t.Error("password policy: should have required a digit and a symbol")
+	}
+	if CheckPasswordPolicy("alex", "correcthorsebattery9") == nil { // a digit, but still no symbol
+		t.Error("password policy: should have required a symbol")
+	}
+	if err := CheckPasswordPolicy("alex", "correct horse battery9"); err != nil { // a digit, and the space is a symbol
+		t.Errorf("password policy: a digit plus a space should have been enough: %v", err)
 	}
 }
 

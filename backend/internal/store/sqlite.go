@@ -148,6 +148,13 @@ CREATE TABLE IF NOT EXISTS settings (
   data BLOB NOT NULL,
   updated_at INTEGER NOT NULL
 );
+-- One row only (id is always 1): the server's mail configuration is not scoped to any organisation,
+-- unlike settings above which is keyed per org_id.
+CREATE TABLE IF NOT EXISTS mail_config (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  data BLOB NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS snapshots (
   agent_id TEXT PRIMARY KEY,
   data BLOB NOT NULL,

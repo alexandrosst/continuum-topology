@@ -116,10 +116,14 @@ type Core struct {
 	// forge its address, or (since the header is then mandatory) a real agent behind a proxy that isn't
 	// sending it would be refused outright.
 	TrustAgentProxy bool
-	// Mailer is how a login or email-verification code is sent. Its zero value has Enabled() false: nothing
-	// that needs to send mail (RequestEmailVerification, RequestLoginEmailCode) is reachable until an
+	// mailer holds the mail configuration behind a pointer, not a plain value, because it is server-wide -
+	// shared by every organisation's Core, unlike Settings - and can change at runtime from Settings once an
+	// owner of DefaultOrg saves one (see SaveMailConfig). ForOrg's shallow copy (n := *c) copies the pointer,
+	// not what it points to, so every tenant sees the same live configuration; a plain MailConfig value here
+	// would instead give each tenant its own independently stale copy. Its zero value has Enabled() false:
+	// nothing that needs to send mail (RequestEmailVerification, RequestLoginEmailCode) is reachable until an
 	// operator configures one, the same way Decider being nil keeps decider-only paths unreachable.
-	Mailer MailConfig
+	mailer *mailHolder
 	// WebAuthn is the passkey/security key ceremony implementation (see webauthn.go): nil keeps every
 	// passkey-only path unreachable, the same way a nil Decider or an unconfigured Mailer does. Unlike
 	// Mailer this needs no operator configuration to be worth setting - cmd/server wires in the real one
@@ -148,7 +152,7 @@ func NewCore(st store.Store, ca *pki.CA, org string, log *slog.Logger) *Core {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, auth: newAuthState(), userMu: &sync.Mutex{}, RegMode: RegOpen, settings: &settingsHolder{}, trafficCache: &trafficCache{}}
+	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, auth: newAuthState(), userMu: &sync.Mutex{}, RegMode: RegOpen, settings: &settingsHolder{}, trafficCache: &trafficCache{}, mailer: &mailHolder{}}
 }
 
 // audit records something that happened. It is best effort: a failure is logged and the caller carries on.
