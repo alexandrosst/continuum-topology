@@ -1,9 +1,11 @@
-import { ChevronsUpDown, Fingerprint, KeyRound, LogOut, Mail, Plus, ScrollText, ShieldCheck, Ticket, Users } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { ChevronsUpDown, Fingerprint, KeyRound, LogOut, Mail, Plus, ScrollText, ShieldCheck, Ticket, Users, X } from 'lucide-react'
+import QRCode from 'qrcode'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Button, CopyButton, ErrorBanner, Field, Input, Modal, PasswordInput, Select } from '@/components/ui/primitives'
+import { PasswordRequirements, passwordRules } from '@/components/auth/AuthGate'
 import { atLeast, ROLE_LABEL, type Passkey } from '@/lib/api'
-import { passkeysSupported } from '@/lib/webauthn'
+import { bareIpHost, passkeysSupported } from '@/lib/webauthn'
 import { useServer } from '@/store/server'
 import { useWorkspace, type SyncStatus } from '@/store/workspace'
 
@@ -19,14 +21,34 @@ const SYNC_LABEL: Record<SyncStatus, { text: string; tone: string }> = {
   choose: { text: 'Waiting for your choice', tone: 'text-amber-300' },
 }
 
+/** A scannable QR code for an otpauth:// (or any) URI, generated entirely client-side - no image request
+ * leaves the browser, which matters here since the secret is embedded in the URL. `undefined` while it is
+ * still being drawn or if `value` is empty; a caller shows the text fallback (already needed for apps
+ * without a camera) either way. */
+function useQrDataUrl(value: string): string | undefined {
+  const [url, setUrl] = useState<string>()
+  useEffect(() => {
+    if (!value) return // initial state is already undefined; nothing to derive yet
+    let live = true
+    QRCode.toDataURL(value, { margin: 1, width: 176, color: { dark: '#e5e5e5ff', light: '#00000000' } })
+      .then((u) => { if (live) setUrl(u) })
+      .catch(() => { if (live) setUrl(undefined) })
+    return () => {
+      live = false
+    }
+  }, [value])
+  return url
+}
+
 function ChangePasswordModal({ onClose }: { onClose: () => void }) {
-  const { changePassword, error } = useServer()
+  const { changePassword, error, user } = useServer()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [again, setAgain] = useState('')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
-  const bad = next.length < 12 || next !== again || !current
+  const meetsPolicy = passwordRules(next, user?.username ?? '').every((r) => r.ok)
+  const bad = !meetsPolicy || next !== again || !current
 
   const submit = async () => {
     setBusy(true)
@@ -59,7 +81,8 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
       ) : (
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (!bad) void submit() }}>
           <Field label="Current password"><PasswordInput value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" autoFocus /></Field>
-          <Field label="New password" hint="At least 12 characters."><PasswordInput value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></Field>
+          <Field label="New password"><PasswordInput value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></Field>
+          <PasswordRequirements password={next} username={user?.username ?? ''} />
           <Field label="New password again"><PasswordInput value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" /></Field>
           {error && <ErrorBanner>{error}</ErrorBanner>}
         </form>
@@ -77,6 +100,7 @@ function TwoFactorSetupModal({ onClose }: { onClose: () => void }) {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [codes, setCodes] = useState<string[]>([])
+  const qr = useQrDataUrl(otpauthUrl)
 
   useEffect(() => {
     void setupTwoFactor().then((r) => {
@@ -124,7 +148,12 @@ function TwoFactorSetupModal({ onClose }: { onClose: () => void }) {
       {step === 'loading' && <p className="text-sm text-nb-500">Generating a secret…</p>}
       {step === 'confirm' && (
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (code.trim().length === 6) void submit() }}>
-          <p className="text-sm text-nb-400">Add this key to an authenticator app (Google Authenticator, 1Password, Authy, …), then enter the 6-digit code it shows.</p>
+          <p className="text-sm text-nb-400">Scan this with an authenticator app (Google Authenticator, 1Password, Authy, …), or add the key by hand, then enter the 6-digit code it shows.</p>
+          {qr && (
+            <div className="flex justify-center">
+              <img src={qr} alt="Scan with your authenticator app" width={176} height={176} className="rounded-md border border-nb-800 bg-nb-950 p-2" data-testid="totp-qr" />
+            </div>
+          )}
           <Field label="Secret key">
             <div className="flex items-center gap-2">
               <code className="min-w-0 flex-1 truncate rounded-md border border-nb-800 bg-nb-925 px-3 py-2 text-sm text-nb-200" data-testid="totp-secret">{secret}</code>
@@ -418,6 +447,7 @@ function PasskeysModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const supported = passkeysSupported()
+  const bareIp = bareIpHost()
   const passkeys = user?.passkeys ?? []
 
   const add = async () => {
@@ -441,6 +471,12 @@ function PasskeysModal({ onClose }: { onClose: () => void }) {
     >
       <div className="space-y-4">
         {!supported && <ErrorBanner>Passkeys are not supported in this browser.</ErrorBanner>}
+        {supported && bareIp && (
+          <ErrorBanner>
+            This server is reached at a bare IP address, and passkeys require a real domain name (browsers will not register one otherwise). Give it a hostname - even a private DNS
+            entry or an /etc/hosts line works - or put it behind the SSO reverse-proxy setup, then come back here.
+          </ErrorBanner>
+        )}
         {passkeys.length === 0 && !adding && <p className="text-sm text-nb-500">No passkeys on this account yet.</p>}
         {passkeys.length > 0 && (
           <ul className="space-y-2" data-testid="passkey-list">
@@ -449,7 +485,7 @@ function PasskeysModal({ onClose }: { onClose: () => void }) {
             ))}
           </ul>
         )}
-        {supported &&
+        {supported && !bareIp &&
           (adding ? (
             <form className="space-y-3 border-t border-nb-850 pt-4" onSubmit={(e) => { e.preventDefault(); void add() }}>
               <Field label="Name it" hint="So you can tell it apart later.">
@@ -466,6 +502,81 @@ function PasskeysModal({ onClose }: { onClose: () => void }) {
               + Add a passkey
             </button>
           ))}
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * The single entry point for "how does this account sign in with a second factor": one screen listing all
+ * three methods with their current state, instead of three separately-worded menu items that each dropped
+ * straight into their own setup flow (the confusing part - see TwoFactorSetupModal - was landing on a raw
+ * secret key with no sense of the other choices). Picking a method closes this and opens its existing,
+ * unchanged setup modal; nothing about how a method is turned on or off changes, only how a person gets there.
+ */
+/** One method's row in the hub above: its icon, name, current state, and the single action available on
+ *  it (or none, when it is unavailable here). Module-scope, not nested in TwoFactorHubModal, so React
+ *  never mistakes it for a fresh component type on every render. */
+function TwoFactorMethodRow({
+  icon, title, status, on, action, note,
+}: { icon: ReactNode; title: string; status: string; on?: boolean; action: { label: string; onClick: () => void } | null; note?: ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-md border border-nb-800 bg-nb-925 p-3">
+      <div className="flex min-w-0 gap-2.5">
+        <span className="mt-0.5 shrink-0 text-nb-500" aria-hidden>{icon}</span>
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-nb-200">{title}</div>
+          <div className={`text-xs ${on ? 'text-emerald-300' : 'text-nb-500'}`}>{status}</div>
+          {note && <div className="mt-1 text-xs text-nb-500">{note}</div>}
+        </div>
+      </div>
+      {action && <Button size="sm" className="shrink-0" onClick={action.onClick}>{action.label}</Button>}
+    </div>
+  )
+}
+
+function TwoFactorHubModal({ onClose, open2FA, openEmail, openPasskeys }: { onClose: () => void; open2FA: () => void; openEmail: () => void; openPasskeys: () => void }) {
+  const user = useServer((s) => s.user)
+  const supported = passkeysSupported()
+  const bareIp = bareIpHost()
+  if (!user) return null
+  const passkeyCount = user.passkeys.length
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Two-factor authentication"
+      description="A second factor for signing in. Set up one method, or several - any one of them is enough."
+      width="max-w-md"
+      footer={<Button variant="primary" onClick={onClose}>Done</Button>}
+    >
+      <div className="space-y-2.5">
+        <TwoFactorMethodRow
+          icon={<ShieldCheck size={16} />}
+          title="Authenticator app"
+          status={user.twoFactorEnabled ? 'On' : 'Off - a code from an app like 1Password or Google Authenticator'}
+          on={user.twoFactorEnabled}
+          action={{ label: user.twoFactorEnabled ? 'Turn off' : 'Turn on', onClick: () => { onClose(); open2FA() } }}
+        />
+        <TwoFactorMethodRow
+          icon={<Mail size={16} />}
+          title="Email code"
+          status={!user.mailConfigured ? 'Not available' : user.emailOtpEnabled ? 'On' : 'Off - a code sent to your address'}
+          on={user.mailConfigured && user.emailOtpEnabled}
+          action={user.mailConfigured ? { label: user.emailOtpEnabled ? 'Turn off' : 'Turn on', onClick: () => { onClose(); openEmail() } } : null}
+          note={!user.mailConfigured && (
+            <>This server has no outgoing mail set up yet. <Link to="/settings" className="text-accent hover:underline" onClick={onClose}>Set it up in Settings</Link>.</>
+          )}
+        />
+        <TwoFactorMethodRow
+          icon={<Fingerprint size={16} />}
+          title="Passkey"
+          status={!supported ? 'Not supported in this browser' : bareIp ? 'Not available' : passkeyCount > 0 ? `${passkeyCount} added - no code to type` : 'None added - no code to type'}
+          on={passkeyCount > 0}
+          action={supported && !bareIp ? { label: passkeyCount > 0 ? 'Manage' : 'Add', onClick: () => { onClose(); openPasskeys() } } : null}
+          note={supported && bareIp && 'Needs a real domain name - this server is currently reached at a bare IP address.'}
+        />
       </div>
     </Modal>
   )
@@ -529,6 +640,11 @@ function JoinModal({ onClose }: { onClose: () => void }) {
 }
 
 /** Bottom of the sidebar: who is signed in and where, whether their work is saved, and the account actions. */
+// twoFactorNudgeKey namespaces the "don't ask again" flag per account, in this browser only: dismissing it
+// signed in as one person on one machine should not silence it for anyone else, and a shared machine with
+// several accounts should not have one account's dismissal hide the nudge for the next person who signs in.
+const twoFactorNudgeKey = (userId: string) => `continuum:2fa-nudge-dismissed:${userId}`
+
 export default function AccountMenu() {
   const user = useServer((s) => s.user)
   const status = useServer((s) => s.status)
@@ -540,12 +656,26 @@ export default function AccountMenu() {
   const selectOrg = useServer((s) => s.selectOrg)
   const sync = useWorkspace((s) => s.status)
   const [pw, setPw] = useState(false)
+  const [hub, setHub] = useState(false)
   const [twoFA, setTwoFA] = useState(false)
   const [emailOTP, setEmailOTP] = useState(false)
   const [passkeys, setPasskeys] = useState(false)
   const [newOrg, setNewOrg] = useState(false)
   const [join, setJoin] = useState(false)
   const [open, setOpen] = useState(false)
+  // Nudges to set up a second sign-in step: shown from first login onward (there is nothing to have
+  // dismissed yet the first time) until either a method is turned on or this account dismisses it on this
+  // browser - a light, ongoing reminder rather than a one-shot that is easy to miss and never see again.
+  // Read directly during render (a plain, synchronous localStorage lookup, not a subscription to anything
+  // external) rather than mirrored into state through an effect; `dismissedNow` layers today's own dismiss
+  // click on top without waiting for a re-render to see it written back.
+  const userId = user?.id
+  const storedDismissed = useMemo(() => {
+    if (!userId) return false
+    try { return localStorage.getItem(twoFactorNudgeKey(userId)) === '1' } catch { return false }
+  }, [userId])
+  const [dismissedNow, setDismissedNow] = useState(false)
+  const nudgeDismissed = storedDismissed || dismissedNow
   const { pathname } = useLocation()
   // close the menu when the page changes (adjusting state while rendering, not in an effect)
   const [seenPath, setSeenPath] = useState(pathname)
@@ -576,6 +706,12 @@ export default function AccountMenu() {
   if (status !== 'connected' || !user) return null
   const label = SYNC_LABEL[sync]
   const item = 'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-nb-300 hover:bg-nb-940 hover:text-white'
+  const twoFactorMethodsOn = [user.twoFactorEnabled, user.emailOtpEnabled, user.passkeys.length > 0].filter(Boolean).length
+  const showTwoFactorNudge = twoFactorMethodsOn === 0 && !nudgeDismissed
+  const dismissTwoFactorNudge = () => {
+    setDismissedNow(true)
+    try { localStorage.setItem(twoFactorNudgeKey(user.id), '1') } catch { /* a private window or blocked storage just means it asks again next time */ }
+  }
   const pick = (fn: () => void) => () => {
     setOpen(false)
     fn()
@@ -583,6 +719,18 @@ export default function AccountMenu() {
 
   return (
     <div className="relative mb-2" data-testid="account">
+      {showTwoFactorNudge && (
+        <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 p-2.5 text-xs text-amber-100" data-testid="two-factor-nudge">
+          <ShieldCheck size={14} className="mt-0.5 shrink-0 text-amber-300" aria-hidden />
+          <p className="flex-1">
+            Add a second sign-in step so a leaked password alone can't get in.{' '}
+            <button type="button" className="font-medium underline hover:text-white" onClick={() => setHub(true)} data-testid="two-factor-nudge-setup">Set up now</button>
+          </p>
+          <button type="button" aria-label="Dismiss" className="shrink-0 text-amber-200/70 hover:text-white" onClick={dismissTwoFactorNudge} data-testid="two-factor-nudge-dismiss">
+            <X size={14} />
+          </button>
+        </div>
+      )}
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
@@ -605,16 +753,10 @@ export default function AccountMenu() {
             <div className="my-1 border-t border-nb-850" />
             <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-nb-600" aria-hidden>Account &amp; security</div>
             <button onClick={pick(() => setPw(true))} className={item} role="menuitem"><KeyRound size={15} className="text-nb-500" /> Change password</button>
-            <button onClick={pick(() => setTwoFA(true))} className={item} role="menuitem" data-testid="two-factor-open">
-              <ShieldCheck size={15} className="text-nb-500" /> {user.twoFactorEnabled ? 'Two-factor authentication (on)' : 'Turn on two-factor authentication'}
-            </button>
-            {user.mailConfigured && (
-              <button onClick={pick(() => setEmailOTP(true))} className={item} role="menuitem" data-testid="email-otp-open">
-                <Mail size={15} className="text-nb-500" /> {user.emailOtpEnabled ? 'Email codes (on)' : 'Turn on email codes'}
-              </button>
-            )}
-            <button onClick={pick(() => setPasskeys(true))} className={item} role="menuitem" data-testid="passkeys-open">
-              <Fingerprint size={15} className="text-nb-500" /> {user.passkeys.length > 0 ? `Passkeys (${user.passkeys.length})` : 'Add a passkey'}
+            <button onClick={pick(() => setHub(true))} className={item} role="menuitem" data-testid="two-factor-open">
+              <ShieldCheck size={15} className="text-nb-500" />
+              Two-factor authentication
+              {twoFactorMethodsOn > 0 && <span className="ml-auto text-xs text-nb-500">{twoFactorMethodsOn} on</span>}
             </button>
             <div className="my-1 border-t border-nb-850" />
             <button onClick={pick(() => void signOut())} className={item} role="menuitem" data-testid="sign-out"><LogOut size={15} className="text-nb-500" /> Sign out</button>
@@ -650,6 +792,14 @@ export default function AccountMenu() {
         {label.text && <div className={`mt-2 px-1 text-[11px] ${label.tone}`} role="status" data-testid="sync-status">{label.text}</div>}
       </div>
       {pw && <ChangePasswordModal onClose={() => setPw(false)} />}
+      {hub && (
+        <TwoFactorHubModal
+          onClose={() => setHub(false)}
+          open2FA={() => setTwoFA(true)}
+          openEmail={() => setEmailOTP(true)}
+          openPasskeys={() => setPasskeys(true)}
+        />
+      )}
       {twoFA && (user.twoFactorEnabled ? <TwoFactorDisableModal onClose={() => setTwoFA(false)} /> : <TwoFactorSetupModal onClose={() => setTwoFA(false)} />)}
       {emailOTP && (user.emailOtpEnabled ? <EmailDisableModal onClose={() => setEmailOTP(false)} /> : <EmailSetupModal onClose={() => setEmailOTP(false)} />)}
       {passkeys && <PasskeysModal onClose={() => setPasskeys(false)} />}

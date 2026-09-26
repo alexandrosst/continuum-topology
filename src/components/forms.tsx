@@ -2,12 +2,13 @@ import { countries } from 'country-flag-icons'
 import { Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { GroupingPicker } from '@/components/GroupingPicker'
-import { Button, Field, Input, Modal, Select } from '@/components/ui/primitives'
+import { Button, EvidenceChip, Field, Input, Modal, Select } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
 import { countryName } from '@/lib/present'
 import { countryAt, findCities, nearestCity, siteLocationIssue, type City } from '@/lib/places'
 import { usePlaceIndex } from '@/lib/places-data'
 import { groupingAlternativesFor } from '@/lib/suggestions'
+import { useWeakValue } from '@/store/rowEvidence'
 import { uid, useTopology } from '@/store/topology'
 import { useServer } from '@/store/server'
 import {
@@ -149,6 +150,33 @@ export function ClusterForm({ initial, onClose }: { initial: Cluster | null; onC
   )
   const [labels, setLabels] = useState(formatLabels(f.labels))
   const set = <K extends keyof Cluster>(k: K, v: Cluster[K]) => setF((p) => ({ ...p, [k]: v }))
+  // Same "is this field a guess, or not known at all" signal the Clusters table already shows per row (see
+  // NodesPage/ClustersPage's own `chip` helper) - reused here so editing a discovered value shows exactly the
+  // confidence a person would already have seen before opening this form, instead of a plain, unqualified input.
+  const weak = useWeakValue('cluster')
+  const confirmField = useTopology((s) => s.confirmField)
+  // A "guess" already has a real value showing below, so confirming it is one click - freeze it as a human
+  // override with no value change (see `confirmOverride`). The exact affordance the Inspector's "Guessed or not
+  // known" list already offers (see WeakValues), reused here so an edit form gives the same choice on the spot.
+  // An "unknown" has no value to freeze - it is resolved the ordinary way, by typing one into the field below.
+  const chip = (attr: string, field?: string) => {
+    const w = weak(f as never, attr, field)
+    if (!w) return undefined
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <EvidenceChip level={w.level} why={w.why} />
+        {w.level === 'guess' && initial && by && (
+          <button
+            onClick={() => confirmField('cluster', initial.id, field ?? attr, by)}
+            className="text-[11px] text-accent hover:underline"
+            title="Keep this value as it is; it will not be overwritten by rediscovery."
+          >
+            confirm
+          </button>
+        )}
+      </span>
+    )
+  }
 
   return (
     <Modal
@@ -181,7 +209,7 @@ export function ClusterForm({ initial, onClose }: { initial: Cluster | null; onC
         <Field label="Name" className="col-span-2">
           <Input autoFocus value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. edge-patras" />
         </Field>
-        <Field label="Tier" hint="Drives vertical placement in the topology.">
+        <Field label="Tier" hint="Drives vertical placement in the topology." adornment={chip('tier')}>
           <Select value={f.tier} onChange={(e) => set('tier', e.target.value as Cluster['tier'])}>
             {TIERS.map((t) => (
               <option key={t.value} value={t.value}>
@@ -193,16 +221,16 @@ export function ClusterForm({ initial, onClose }: { initial: Cluster | null; onC
         <Field label="Status">
           <StatusSelect value={f.status} onChange={(v) => set('status', v)} />
         </Field>
-        <Field label="Distribution">
+        <Field label="Distribution" adornment={chip('distribution')}>
           <Input value={f.distribution} onChange={(e) => set('distribution', e.target.value)} placeholder="EKS, k3s, kubeadm…" />
         </Field>
-        <Field label="Version">
+        <Field label="Version" adornment={chip('version')}>
           <Input value={f.version} onChange={(e) => set('version', e.target.value)} placeholder="v1.30.2" />
         </Field>
-        <Field label="Provider">
+        <Field label="Provider" adornment={chip('provider')}>
           <Input value={f.provider} onChange={(e) => set('provider', e.target.value)} placeholder="AWS, On-prem…" />
         </Field>
-        <Field label="Region label" hint="A cloud region code or a city name. If the cluster is not on a site yet, it is used to suggest where it is.">
+        <Field label="Region label" hint="A cloud region code or a city name. If the cluster is not on a site yet, it is used to suggest where it is." adornment={chip('region')}>
           <Input value={f.region} onChange={(e) => set('region', e.target.value)} placeholder="eu-central-1" />
         </Field>
         <Field label="Site" hint="Where it sits on the map. Manage sites under Sites." className="col-span-2">
@@ -257,6 +285,27 @@ export function NodeForm({ initial, onClose, defaultClusterId }: { initial: Mach
   )
   const [labels, setLabels] = useState(formatLabels(f.labels))
   const set = <K extends keyof MachineNode>(k: K, v: MachineNode[K]) => setF((p) => ({ ...p, [k]: v }))
+  // Same as ClusterForm above, including the one-click confirm for a guess.
+  const weak = useWeakValue('node')
+  const confirmField = useTopology((s) => s.confirmField)
+  const chip = (attr: string, field?: string) => {
+    const w = weak(f as never, attr, field)
+    if (!w) return undefined
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <EvidenceChip level={w.level} why={w.why} />
+        {w.level === 'guess' && initial && by && (
+          <button
+            onClick={() => confirmField('node', initial.id, field ?? attr, by)}
+            className="text-[11px] text-accent hover:underline"
+            title="Keep this value as it is; it will not be overwritten by rediscovery."
+          >
+            confirm
+          </button>
+        )}
+      </span>
+    )
+  }
 
   return (
     <Modal
@@ -305,7 +354,7 @@ export function NodeForm({ initial, onClose, defaultClusterId }: { initial: Mach
             <option value="control-plane">Control plane</option>
           </Select>
         </Field>
-        <Field label="Machine type">
+        <Field label="Machine type" adornment={chip('kind')}>
           <Select value={f.kind} onChange={(e) => set('kind', e.target.value as MachineNode['kind'])}>
             <option value="vm">VM</option>
             <option value="bare-metal">Bare metal</option>
@@ -324,7 +373,7 @@ export function NodeForm({ initial, onClose, defaultClusterId }: { initial: Mach
         <Field label="Memory (GB)">
           <Input type="number" min={1} value={f.memoryGb} onChange={(e) => set('memoryGb', Number(e.target.value))} />
         </Field>
-        <Field label="Architecture" hint="Decides which images can run here.">
+        <Field label="Architecture" hint="Decides which images can run here." adornment={chip('arch')}>
           <Select value={f.arch ?? ''} onChange={(e) => set('arch', e.target.value || undefined)}>
             <option value="">Unknown</option>
             {['amd64', 'arm64', 'arm', 'riscv64'].map((a) => (
@@ -332,10 +381,10 @@ export function NodeForm({ initial, onClose, defaultClusterId }: { initial: Mach
             ))}
           </Select>
         </Field>
-        <Field label="Hardware model">
+        <Field label="Hardware model" adornment={chip('hardwareModel')}>
           <Input value={f.hardwareModel ?? ''} onChange={(e) => set('hardwareModel', e.target.value || undefined)} placeholder="Raspberry Pi 5, Jetson Orin…" />
         </Field>
-        <Field label="Uplink" className="col-span-2">
+        <Field label="Uplink" className="col-span-2" adornment={chip('connectivity')}>
           <ConnectivitySelect value={f.connectivity} onChange={(v) => set('connectivity', v)} />
         </Field>
         <Field label="Status">

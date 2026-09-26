@@ -12,9 +12,10 @@ import { completeness } from '@/lib/completeness'
 import { observation } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
 import { exitIps } from '@/lib/geo'
-import { ageLabel, autoscalerRange, disruptionLabel, podsLabel, podsPercent, volumeSize } from '@/lib/present'
+import { ageLabel, autoscalerRange, disruptionLabel, GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipInCidr, podsLabel, podsPercent, volumeSize } from '@/lib/present'
 import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { useHistoryView } from '@/store/history'
+import { useServer } from '@/store/server'
 import { useRawTopology, useTopology } from '@/store/topology'
 import { bytesPerSec, isObserved, trafficSummary } from '@/lib/observed'
 import { lossBand, pathQuality, rttLabel } from '@/lib/metrics'
@@ -207,6 +208,7 @@ export default function Inspector({
   const placement = usePlacementSuggestions().byCluster
   const inPast = useHistoryView((s) => s.at !== null)
   const measured = usePaths()
+  const publicIpFallbackOn = useServer((s) => s.info?.geoip?.publicIpFallback)
   if (!selection) return null
 
   const clusterName = (id: string) => clusters.find((c) => c.id === id)?.name ?? '—'
@@ -267,6 +269,7 @@ export default function Inspector({
     const spaces = namespaces.filter((n) => n.clusterId === c.id)
     const agent = agents.find((a) => a.clusterId === c.id)
     const overlap = c.podCidr ? clusters.filter((o) => o.id !== c.id && o.podCidr === c.podCidr) : []
+    const clusterSite = sites.find((x) => x.id === c.siteId)
     title = c.name
     subtitle = (
       <span className="flex flex-wrap items-center gap-2">
@@ -287,6 +290,13 @@ export default function Inspector({
           </Row>
           <Maybe label="Age">{c.createdAt ? `${ageLabel(c.createdAt)} (${new Date(c.createdAt).toLocaleDateString()})` : undefined}</Maybe>
           <Maybe label="Trust zone · residency">{[c.trustZone, c.dataResidency].filter(Boolean).join(' · ')}</Maybe>
+          {!c.trustZone && !clusterSite?.trustZone && (
+            <Row label="Trust zone" wrap>
+              <span className="text-amber-300">
+                Not set: placement can't tell whether a workload here is allowed to move to a more sensitive zone, or leave for a less trusted one. Set it here, or on its site.
+              </span>
+            </Row>
+          )}
         </Section>
         <Section title="Location & network">
           <Row label="Location"><Place site={sites.find((x) => x.id === c.siteId)} fallback={c.region} /></Row>
@@ -301,6 +311,11 @@ export default function Inspector({
           <Maybe label="Service CIDR"><span className="font-mono text-xs">{c.serviceCidr}</span></Maybe>
           <Maybe label="Storage">{list(c.storageClasses)}</Maybe>
           {c.apiEndpoint && <Row label="API endpoint"><IpAddress ip={c.apiEndpoint} inline /></Row>}
+          {c.apiEndpoint && ipInCidr(c.apiEndpoint, c.serviceCidr) && (
+            <p className="-mt-1 text-xs text-nb-500">
+              This is the cluster's own API service address (inside its Service CIDR) - it works for the agent and other in-cluster clients, but is not reachable from outside the cluster.
+            </p>
+          )}
           {c.egressIp && <Row label="Exit IP"><IpAddress ip={c.egressIp} inline /></Row>}
           {agent?.connectingGeo && (
             <div className="mt-2 rounded-md border border-nb-850 bg-nb-930/40 px-2.5 py-2 text-xs">
@@ -331,6 +346,16 @@ export default function Inspector({
                   </span>
                 )}
               </div>
+            </div>
+          )}
+          {!agent?.connectingGeo && agent?.connectingGeoReason && (
+            <div className="mt-2 rounded-md border border-nb-850 bg-nb-930/40 px-2.5 py-2 text-xs">
+              <div className="mb-1 text-nb-500">GeoIP says</div>
+              <span className="text-nb-400" title={GEO_UNLOCATABLE_HELP[agent.connectingGeoReason]}>
+                No location — {GEO_UNLOCATABLE_LABEL[agent.connectingGeoReason].toLowerCase()}
+                {(agent.connectingGeoReason === 'cgnat' || agent.connectingGeoReason === 'private') && !publicIpFallbackOn &&
+                  ' (an administrator can turn on estimating this from the server\'s own address in the deployment settings)'}
+              </span>
             </div>
           )}
         </Section>
@@ -434,7 +459,8 @@ export default function Inspector({
           <Maybe label="Instance">{[n.instanceType, n.zone].filter(Boolean).join(' · ')}</Maybe>
           <Row label="OS">{n.os}</Row>
           <Maybe label="Architecture">{n.arch}</Maybe>
-          <Maybe label="Kernel · runtime">{[n.kernel, n.runtime].filter(Boolean).join(' · ')}</Maybe>
+          <Maybe label="Kernel">{n.kernel}</Maybe>
+          <Maybe label="Runtime">{n.runtime}</Maybe>
           <Maybe label="Age">{n.createdAt ? `${ageLabel(n.createdAt)} (${new Date(n.createdAt).toLocaleDateString()})` : undefined}</Maybe>
         </Section>
         <Section title="Capacity">
@@ -450,9 +476,13 @@ export default function Inspector({
             ) : n.podCapacity ? `max ${n.podCapacity}` : undefined}
           </Maybe>
           <Maybe label="Accelerators">{n.accelerators?.map((a) => `${a.count}× ${a.vendor} ${a.model}`).join(', ')}</Maybe>
+          <Maybe label="CPU model">{[n.cpuModel, n.cpuThreads ? `${n.cpuThreads} threads` : undefined].filter(Boolean).join(' · ')}</Maybe>
         </Section>
         <Section title="Network & health">
           <Maybe label="Uplink">{connLabel(n.connectivity)}</Maybe>
+          <Maybe label="Interfaces">
+            {n.networkInterfaces?.map((i) => `${i.name} (${[i.kind, i.speedMbps ? `${i.speedMbps} Mbps` : undefined, i.mtu ? `MTU ${i.mtu}` : undefined].filter(Boolean).join(', ')})`).join(', ')}
+          </Maybe>
           {n.hasBattery && <Row label="Power">Has a battery: can run without mains power</Row>}
           <Maybe label="Taints">{list(n.taints)}</Maybe>
           {n.conditions && n.conditions.length > 0 && <Row label="Conditions"><span className="text-amber-300">{n.conditions.join(', ')}</span></Row>}
@@ -675,6 +705,13 @@ export default function Inspector({
               <Row label="Exit IP"><span className="flex flex-col gap-1">{exitIps(cs).map((ip) => <IpAddress key={ip} ip={ip} inline />)}</span></Row>
             )}
             <Maybe label="Trust zone · residency">{[s.trustZone, s.dataResidency].filter(Boolean).join(' · ')}</Maybe>
+            {!s.trustZone && cs.some((c) => !c.trustZone) && (
+              <Row label="Trust zone" wrap>
+                <span className="text-amber-300">
+                  Not set: {cs.filter((c) => !c.trustZone).length === cs.length ? 'none of its clusters have one either' : 'some of its clusters have their own, but the rest fall back to this'}. Placement can't tell whether workloads there are allowed to move to a more sensitive zone, or leave for a less trusted one. <Link to="/sites" className="text-accent hover:underline">Set it</Link>.
+                </span>
+              </Row>
+            )}
           </Section>
         )}
         {cs.length > 0 && (

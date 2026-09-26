@@ -249,10 +249,16 @@ export function Select({ className, children, value, defaultValue, onChange, dis
   )
 }
 
-export function Field({ label, hint, children, className }: { label: string; hint?: string; children: ReactNode; className?: string }) {
+/** `adornment` sits right after the label text - e.g. an EvidenceChip marking the field's value as a guess or
+ * unknown, so a person editing it sees the same "how sure are we" signal this app already shows in tables and
+ * the inspector, without a separate lookup. Generic on purpose: Field itself knows nothing about evidence. */
+export function Field({ label, hint, children, className, adornment }: { label: string; hint?: string; children: ReactNode; className?: string; adornment?: ReactNode }) {
   return (
     <label className={clsx('block', className)}>
-      <span className="mb-1.5 block text-sm font-medium text-nb-300">{label}</span>
+      <span className="mb-1.5 flex flex-wrap items-center gap-1.5 text-sm font-medium text-nb-300">
+        {label}
+        {adornment}
+      </span>
       {children}
       {hint && <span className="mt-1 block text-xs text-nb-500">{hint}</span>}
     </label>

@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BookOpen, Boxes, Cable, Cpu, Folders, History, Layers, MapPin, Menu, Network, Package, Radar, Radio, Route, Search, Server, Settings2 } from 'lucide-react'
+import { BookOpen, Boxes, Cable, Cpu, Folders, History, Keyboard, Layers, MapPin, Menu, Network, Package, Radar, Radio, Route, Search, Server, Settings2 } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Copyright } from '@/components/ui/brand'
@@ -9,6 +9,7 @@ import SyncNotices from '@/components/auth/SyncNotices'
 import CommandPalette from '@/components/CommandPalette'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import HistoryBanner from '@/components/HistoryBanner'
+import KeyboardShortcutsModal from '@/components/KeyboardShortcutsModal'
 import SampleBanner from '@/components/SampleBanner'
 import { resumeServer, useServer } from '@/store/server'
 import { useRawTopology } from '@/store/topology'
@@ -170,6 +171,7 @@ function Shell() {
   // The canvas page wants the full viewport; table pages get a padded container.
   const full = pathname.startsWith('/topology')
   const [searching, setSearching] = useState(false)
+  const [shortcuts, setShortcuts] = useState(false)
   const navRef = useRef<HTMLElement>(null)
   const activeTo = NAV_GROUPS.flatMap((g) => g.items).find((n) => isNavActive(n.to, pathname))?.to ?? null
   // Below the desktop breakpoint the menu is a drawer, so the page gets the whole width.
@@ -182,10 +184,21 @@ function Shell() {
         setSearching((o) => !o)
       }
       if (e.key === 'Escape') setMenu(false)
+      // "?" opens the shortcuts panel, the same convention Gmail/GitHub/Slack use - but only away from any
+      // text input (including the search palette's own), so it stays typeable as an ordinary character
+      // everywhere a person might actually want to type a literal "?".
+      if (e.key === '?' && !searching) {
+        const el = document.activeElement
+        const typing = el instanceof HTMLElement && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
+        if (!typing) {
+          e.preventDefault()
+          setShortcuts((o) => !o)
+        }
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [searching])
 
   return (
     <div className="flex h-full">
@@ -237,6 +250,13 @@ function Shell() {
             <BookOpen size={16} /> Documentation
           </a>
           <NavItem to="/settings" label="Settings" icon={Settings2} />
+          <button
+            onClick={() => setShortcuts(true)}
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm text-nb-400 transition-colors hover:bg-nb-930 hover:text-nb-300"
+            data-testid="keyboard-shortcuts-open"
+          >
+            <Keyboard size={16} /> Keyboard shortcuts
+          </button>
           <Copyright className="mt-3 px-3" />
         </div>
       </aside>
@@ -267,6 +287,7 @@ function Shell() {
         </main>
       </div>
       <CommandPalette open={searching} onClose={() => setSearching(false)} />
+      {shortcuts && <KeyboardShortcutsModal onClose={() => setShortcuts(false)} />}
     </div>
   )
 }

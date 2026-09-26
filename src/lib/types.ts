@@ -270,6 +270,15 @@ export interface Accelerator {
   count: number
 }
 
+/** One physical uplink a node probe saw on the machine itself. Never an address - just what kind of
+ * link it is and, when the driver reports it, its negotiated speed and MTU. */
+export interface NetworkInterface {
+  name: string
+  kind: 'ethernet' | 'wifi' | 'cellular' | string
+  speedMbps?: number
+  mtu?: number
+}
+
 export interface Resources {
   cpu: number
   memoryGb: number
@@ -304,6 +313,14 @@ export interface MachineNode extends Provenance {
   hasBattery?: boolean
   /** A node probe reported on this machine, so type and hardware come from the machine itself. */
   probed?: boolean
+  /** The CPU model name the probe read from the machine, the real host CPU regardless of any cgroup
+   * limit - unlike `cpu` above, which is Kubernetes' allocatable millicore view. Node probe only. */
+  cpuModel?: string
+  /** Logical CPUs (hardware threads) the probe saw on the machine itself. Node probe only. */
+  cpuThreads?: number
+  /** Physical uplinks the probe saw, with whatever speed/MTU sysfs reported. `connectivity` above is
+   * derived from these (the kinds present); this is the fuller, per-interface view. Node probe only. */
+  networkInterfaces?: NetworkInterface[]
   providerId?: string
   allocatable?: Resources
   requested?: Resources
