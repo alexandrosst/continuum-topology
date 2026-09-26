@@ -213,6 +213,12 @@ checks for that and never mounts anything or passes --ca-key-passphrase-file in 
 {{- fail "the admin listener (UI and API) carries sign-in passwords and the session cookie, and the server refuses to serve it in clear text without TLS. You've set admin.tls.selfSigned=false, which turns off this chart's own self-signed-certificate fallback, so choose one explicitly: enable httproute so a Gateway terminates TLS (and leave admin.behindTlsProxy unset); set admin.tls.secretName to a kubernetes.io/tls Secret; or, if you put your own TLS in front (or only use kubectl port-forward to localhost), set admin.behindTlsProxy=true." -}}
 {{- end -}}
 {{- if and .Values.admin.tls.secretName (not .Values.admin.tls.certKey) -}}{{- fail "admin.tls.certKey must not be empty when admin.tls.secretName is set" -}}{{- end -}}
+{{- /* admin.sso.headerName: only safe when the admin port is reachable exclusively through a proxy that
+     overwrites the header itself - the same condition --admin-behind-tls-proxy already names, and the server
+     also enforces this at startup, so a stray --set can't skip it by rendering without this chart. */ -}}
+{{- if and .Values.admin.sso.headerName (not (include "continuum.behindProxy" .)) -}}
+{{- fail "admin.sso.headerName requires admin.behindTlsProxy=true (or httproute.enabled, which implies it): trusting a proxy-asserted identity header is only safe when that proxy is the sole way to reach this port and always overwrites the header itself." -}}
+{{- end -}}
 {{- /* exposure objects */ -}}
 {{- if and .Values.httproute.enabled (not .Values.httproute.parentRefs) -}}
 {{- fail "httproute.enabled needs httproute.parentRefs (the Gateway to attach to)" -}}

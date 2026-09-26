@@ -109,6 +109,7 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 | `admin.tls.selfSigned` / `selfSignedHosts` | `true` / `[]` | fallback: generate a self-signed cert when nothing else protects the port |
 | `admin.service.type` / `port` | `ClusterIP` / `8080` | |
 | `admin.existingPasswordSecret` / `...Key` | `""` / `password` | first administrator's password (`CONTINUUM_ADMIN_PASSWORD`) |
+| `admin.sso.headerName` | `""` (off) | pass `--admin-sso-header`: trust a header your reverse proxy already verified identity into (e.g. `X-Remote-User`) as an alternative to password/2FA sign-in - see the values.yaml comment. Requires `admin.behindTlsProxy=true` (or `httproute.enabled`); the chart refuses to render otherwise |
 | `httproute.enabled` / `parentRefs` / `hostnames` / `annotations` | `false` ... | UI Gateway API HTTPRoute |
 | `persistence.existingClaim` | `""` | use your own PVC |
 | `persistence.storageClass` | `""` | `""` cluster default, `"-"` none |

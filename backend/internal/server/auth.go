@@ -409,6 +409,35 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 	return secret, u, nil
 }
 
+// LoginSSO signs a person in on the strength of an identity a trusted reverse proxy has already verified
+// and handed to us in a header - see Admin.SSOHeaderName's doc comment for the trust this requires of the
+// deployment. It never creates or changes an account: the asserted name must already match an existing,
+// enabled username, exactly as Login requires of a username/password pair. There is no password or second
+// factor to check here (the proxy already did that verifying), so the only gate against abuse is the same
+// per-address rate limit Login uses; a wrong or unknown identity fails exactly like a wrong password does.
+func (c *Core) LoginSSO(ctx context.Context, ip, assertedUsername string) (secret string, u store.User, err error) {
+	name := strings.ToLower(strings.TrimSpace(assertedUsername))
+	if name == "" || len(name) > 64 {
+		return "", store.User{}, errf(KindUnauthenticated, "no identity asserted")
+	}
+	key := LimitKey(ip)
+	if !c.auth.loginIP.Allow(key) {
+		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+	}
+	u, gerr := c.Store.GetUserByName(ctx, name)
+	if gerr != nil || u.DisabledAt != nil {
+		Metrics.authFailures.Add(1)
+		c.auditOrg(ctx, "", "anonymous", "login-failed", "user", printable(name, 64), "sso, from "+ip)
+		return "", store.User{}, errf(KindUnauthenticated, "no account matches the identity your proxy asserted")
+	}
+	secret, err = c.openSession(ctx, u, ip)
+	if err != nil {
+		return "", store.User{}, err
+	}
+	c.auditUser(ctx, u, "login-sso", "", ip)
+	return secret, u, nil
+}
+
 // Login2FA finishes a sign-in that Login left pending on a second factor: pending is the token Login
 // returned, code is a 6-digit authenticator or emailed code, or one of the account's recovery codes -
 // whichever of the account's active methods it matches. The pending token survives a wrong code (so a

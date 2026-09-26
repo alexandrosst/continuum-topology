@@ -248,9 +248,14 @@ async function call<T>(c: Conn, method: string, path: string, body?: unknown, he
 
 export const api = {
   // session and accounts
-  serverInfo: (c: Conn) => call<{ registration: Registration; version: string }>(c, 'GET', '/api/v1/server'),
+  serverInfo: (c: Conn) => call<{ registration: Registration; version: string; sso?: boolean }>(c, 'GET', '/api/v1/server'),
   me: (c: Conn) => call<Session>(c, 'GET', '/api/v1/auth/me'),
   login: (c: Conn, username: string, password: string) => call<Session>(c, 'POST', '/api/v1/auth/login', { username, password }),
+  // Trusted-header SSO: succeeds only when the server has --admin-sso-header configured AND its reverse proxy
+  // asserted an identity that matches an existing account - see serverInfo's `sso` flag, which is what tells the
+  // UI it's worth trying this before showing the ordinary sign-in form. A 401 (no header, unknown identity, or
+  // the feature is off) is the everyday case, not a bug, so callers should expect and swallow it quietly.
+  ssoLogin: (c: Conn) => call<Session>(c, 'GET', '/api/v1/auth/sso'),
   // Called after `login` throws with `twoFactorPending(err)` true, with the code from an authenticator app
   // (or one of the account's recovery codes) and the `pending` token that error carried.
   login2FA: (c: Conn, pending: string, code: string) => call<Session>(c, 'POST', '/api/v1/auth/login/2fa', { pending, code }),

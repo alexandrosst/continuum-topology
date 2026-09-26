@@ -57,6 +57,17 @@ type Admin struct {
 	// when the proxy says so in X-Forwarded-Proto. Only correct when the proxy is the sole way in and
 	// replaces those headers; otherwise a client could forge its address and the scheme.
 	TrustProxy bool
+	// SSOHeaderName, when set, turns on trusted-header SSO: a GET to /api/v1/auth/sso reads the caller's
+	// asserted identity from this request header and, if it names an existing, enabled account, signs
+	// that account in with no password or second factor - because whatever sits in front of us (an
+	// OAuth2 proxy, an Envoy/Istio ext_authz filter, an IdP-integrated gateway) has already verified who
+	// they are. This is a much stronger trust than TrustProxy's client-address reading: it hands out
+	// real sessions on the header's say-so alone. Only set it when that proxy is the sole way to reach
+	// this port AND it always overwrites this header on the way in - never merely adds to it - for every
+	// request, authenticated or not; otherwise anyone who can reach this port directly can sign in as
+	// whoever they like just by setting it themselves. It never creates or changes an account: the name
+	// must already match an existing username exactly as a password sign-in's username would.
+	SSOHeaderName string
 	// SecureCookies marks the session cookie Secure (and gives it the __Host- prefix) on every response,
 	// which the server sets whenever the admin listener is not on loopback: a browser then never sends
 	// the session over plain HTTP. On loopback the cookie is Secure only when the request itself was HTTPS.
@@ -110,6 +121,9 @@ func (a *Admin) Handler() http.Handler {
 	route := func(pattern string, n need, h http.HandlerFunc) { api.Handle(pattern, a.guard(n, h)) }
 	api.HandleFunc("GET /api/v1/server", a.serverInfo)
 	api.HandleFunc("POST /api/v1/auth/login", a.login)
+	if a.SSOHeaderName != "" {
+		api.HandleFunc("GET /api/v1/auth/sso", a.ssoLogin)
+	}
 	api.HandleFunc("POST /api/v1/auth/login/2fa", a.login2FA)
 	api.HandleFunc("POST /api/v1/auth/login/2fa/email", a.requestLoginEmailCode)
 	api.HandleFunc("POST /api/v1/auth/login/2fa/webauthn/begin", a.beginPasskeyLogin)
@@ -499,7 +513,7 @@ func (a *Admin) setCookie(w http.ResponseWriter, r *http.Request, value string, 
 // serverInfo is public: what the sign-in and sign-up pages need before anyone is signed in.
 func (a *Admin) serverInfo(w http.ResponseWriter, r *http.Request) {
 	mode := a.C.RegMode
-	writeJSON(w, 200, map[string]any{"registration": mode, "version": a.Version})
+	writeJSON(w, 200, map[string]any{"registration": mode, "version": a.Version, "sso": a.SSOHeaderName != ""})
 }
 
 // chartFile is the packaged chart's file name. The server always serves its own copy, whether or not the
@@ -590,6 +604,23 @@ func (a *Admin) login2FA(w http.ResponseWriter, r *http.Request) {
 	}
 	secret, u, err := a.C.Login2FA(r.Context(), a.clientIP(r), req.Pending, req.Code)
 	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	a.setCookie(w, r, secret, int(SessionMax.Seconds()))
+	writeJSON(w, 200, a.session(r.Context(), u))
+}
+
+// ssoLogin trades a trusted proxy's identity header for a session - see SSOHeaderName's doc comment for
+// what "trusted" has to mean here. Registered only when SSOHeaderName is set, so the endpoint does not
+// even exist on a server that never configured it.
+func (a *Admin) ssoLogin(w http.ResponseWriter, r *http.Request) {
+	secret, u, err := a.C.LoginSSO(r.Context(), a.clientIP(r), r.Header.Get(a.SSOHeaderName))
+	if err != nil {
+		if !a.authRL.Allow(LimitKey(a.clientIP(r))) {
+			writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
+			return
+		}
 		a.fail(w, err)
 		return
 	}

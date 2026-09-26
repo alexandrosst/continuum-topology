@@ -235,6 +235,15 @@
         "existingPasswordSecretKey": {
           "type": "string",
           "minLength": 1
+        },
+        "sso": {
+          "type": "object",
+          "properties": {
+            "headerName": {
+              "type": "string",
+              "description": "name of a request header a trusted reverse proxy sets to a signed-in person's username; empty disables trusted-header SSO entirely. Requires admin.behindTlsProxy=true (or httproute.enabled)."
+            }
+          }
         }
       }
     },
