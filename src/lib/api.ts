@@ -97,6 +97,9 @@ export interface User {
   emailOtpEnabled: boolean
   /** Whether this server can send mail at all - when false, email-OTP isn't offered regardless of the above. */
   mailConfigured: boolean
+  /** Whether this account may read and change the server's SMTP configuration: true only for an owner of
+   *  the default organisation (the one created with the first account) - see Settings → Email. */
+  canManageMail: boolean
   /** Every passkey/security key on the account, oldest first. Unlike the other two methods there is no
    *  separate enabled flag: having at least one of these is what turns "webauthn" on as a sign-in method. */
   passkeys: Passkey[]
@@ -208,6 +211,19 @@ export interface WorkspaceRevision {
   bytes: number
 }
 
+/** The server's outgoing-mail (SMTP) configuration, server-wide rather than per organisation - see
+ *  Settings → Email. Only visible to and settable by an owner of the default organisation
+ *  (`User.canManageMail`); the password is never sent back, only `passwordSet`. */
+export interface MailConfig {
+  host: string
+  port: string
+  username: string
+  from: string
+  passwordSet: boolean
+  /** Derived: same as `host` being non-empty, for convenience. */
+  enabled: boolean
+}
+
 /** Where the server lives. An empty url means the address this page was loaded from. The session is a cookie, so there is no token here. */
 export interface Conn {
   url: string
@@ -216,7 +232,7 @@ export interface Conn {
 }
 
 /** Routes that are about the person or the server, not about one organisation. */
-const GLOBAL = /^\/api\/v1\/(auth\/|server$|orgs$|invites\/(preview|accept)$)/
+const GLOBAL = /^\/api\/v1\/(auth\/|server$|orgs$|invites\/(preview|accept)$|mail$)/
 
 export function scoped(c: Conn, path: string): string {
   if (GLOBAL.test(path) || path.startsWith('/api/v1/orgs/')) return path
@@ -337,6 +353,13 @@ export const api = {
     const { deciderConfigured: _derived, deciderSecretSet: _secretSet, imageDefaults: _defaults, ...body } = s
     return call<Partial<AppSettings>>(c, 'PUT', '/api/v1/settings', body).then(normalizeSettings)
   },
+  // The server's SMTP configuration (see MailConfig): global, not one organisation's, so these two are the
+  // only calls in this file that don't need `c.org` at all. Same write-only-password convention as
+  // saveSettings' decider secret: omit `password` (or send "") to leave it alone, `clearPassword: true` to
+  // remove it, a non-empty `password` to set a new one.
+  mailConfig: (c: Conn) => call<MailConfig>(c, 'GET', '/api/v1/mail'),
+  saveMailConfig: (c: Conn, m: { host: string; port: string; username: string; from: string; password?: string; clearPassword?: boolean }) =>
+    call<MailConfig>(c, 'PUT', '/api/v1/mail', m),
   history: (c: Conn, since?: string) =>
     call<Partial<HistoryIndex>>(c, 'GET', `/api/v1/history${since ? `?since=${encodeURIComponent(since)}` : ''}`).then((h) => ({ points: h.points ?? [], snapshotMinutes: h.snapshotMinutes ?? 5, retentionDays: h.retentionDays ?? 30 }) as HistoryIndex),
   snapshot: (c: Conn, at: string) => call<{ at: string; topology?: Partial<Snapshot['topology']> }>(c, 'GET', `/api/v1/history/snapshot?at=${encodeURIComponent(at)}`).then(normalizeSnapshot),

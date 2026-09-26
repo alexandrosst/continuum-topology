@@ -112,7 +112,8 @@ export default function NodesPage() {
                   {(() => { const K = KIND_ICON[n.kind]; return <WithIcon icon={<K size={15} className="text-nb-500" />}>{KIND_LABEL[n.kind]}</WithIcon> })()}
                   <div className="flex items-center gap-1.5 pl-[23px] text-xs text-nb-500">
                     {n.arch ? <span>{n.arch}</span> : chip('arch')}
-                    {n.virtualization && <span>· {n.virtualization}</span>}
+                    {/* Bare metal/edge rows now carry an explicit "No hypervisor detected" too (see hostprobe.go) - worth a full line in the Inspector, but repeating it on every row here would just be noise next to a kind icon that already says "Bare metal". Only the interesting case (it IS a VM) earns space in this dense list. */}
+                    {n.kind === 'vm' && n.virtualization && <span>· {n.virtualization}</span>}
                     {chip('kind')}
                   </div>
                 </Td>

@@ -34,13 +34,19 @@ function ErrorLine({ text }: { text?: string }) {
   return text ? <ErrorBanner>{text}</ErrorBanner> : null
 }
 
-/** The three real rules the server enforces (see backend/internal/server/password.go) - no composition rules. */
-function passwordRules(password: string, username: string) {
+/** The rules the server enforces (see backend/internal/server/password.go's CheckPasswordPolicy):
+ *  length first, then a digit and a symbol on top - not NIST's composition-free recommendation, but a
+ *  deliberate exception to it (see that function's own doc comment for why). */
+export function passwordRules(password: string, username: string) {
   const repeatedChar = password.length > 0 && [...password].every((c) => c === password[0])
+  const hasDigit = /\d/u.test(password)
+  const hasSymbol = [...password].some((c) => !/[\p{L}\d]/u.test(c))
   return [
     { key: 'length', label: '12–128 characters', ok: password.length >= 12 && password.length <= 128 },
     { key: 'username', label: 'Not the same as your username', ok: password.length > 0 && password.toLowerCase() !== username.trim().toLowerCase() },
     { key: 'repeat', label: 'Not a single character repeated', ok: password.length > 0 && !repeatedChar },
+    { key: 'digit', label: 'At least one number', ok: hasDigit },
+    { key: 'symbol', label: 'At least one symbol (e.g. ! @ # $ %)', ok: hasSymbol },
   ]
 }
 
@@ -49,7 +55,7 @@ function passwordRules(password: string, username: string) {
  * typed anything, then green or red as it starts matching or missing each one. Shared between sign-up
  * and the forced change-password screen, the only two places someone picks a new password.
  */
-function PasswordRequirements({ password, username }: { password: string; username: string }) {
+export function PasswordRequirements({ password, username }: { password: string; username: string }) {
   const empty = password === ''
   return (
     <ul className="space-y-1">

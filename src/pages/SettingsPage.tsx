@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { ConfirmModal } from '@/components/forms'
 import InstallationSettings from '@/components/InstallationSettings'
+import MailSettings from '@/components/MailSettings'
 import ServerAddressSettings from '@/components/ServerAddressSettings'
 import { Button, PageHeader, PulseDot, SavedNote } from '@/components/ui/primitives'
 import { atLeast } from '@/lib/api'
@@ -24,6 +25,7 @@ function Card({ title, description, children }: { title: string; description: st
 
 export default function SettingsPage() {
   const onServer = useServer((s) => s.status === 'connected' && atLeast(s.role, 'admin'))
+  const canManageMail = useServer((s) => s.status === 'connected' && !!s.user?.canManageMail)
   const geoip = useServer((s) => s.info?.geoip)
   const serverVersion = useServer((s) => s.info?.version)
   const chartVersion = useServer((s) => s.info?.install?.chartVersion)
@@ -76,6 +78,7 @@ export default function SettingsPage() {
 
       {connected && <ServerAddressSettings />}
       {connected && <InstallationSettings conn={conn} />}
+      {canManageMail && <MailSettings conn={conn} />}
 
       {connected && (serverVersion || chartVersion) && (
         <section id="about" aria-labelledby="about-title" className="mb-8 scroll-mt-6" data-testid="about-server">

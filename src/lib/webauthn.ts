@@ -13,6 +13,19 @@ export function passkeysSupported(): boolean {
   return typeof PublicKeyCredential !== 'undefined' && typeof PublicKeyCredential.parseCreationOptionsFromJSON === 'function' && typeof PublicKeyCredential.parseRequestOptionsFromJSON === 'function'
 }
 
+/**
+ * True when this page is loaded from a bare IP address rather than a domain name (or "localhost"). WebAuthn
+ * requires the relying party ID to be a registrable domain suffix - see the server's own
+ * `validRelyingPartyID` (backend/internal/server/webauthn.go), which every passkey ceremony is checked
+ * against. Checked client-side too, from the same `location.hostname` the server would see, so the UI can
+ * grey passkeys out with a plain explanation before a person tries, instead of only after the server
+ * rejects the ceremony.
+ */
+export function bareIpHost(hostname: string = window.location.hostname): boolean {
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true
+  return hostname.includes(':') // an IPv6 literal; location.hostname has no brackets
+}
+
 /** Human-readable reason a ceremony didn't produce a credential: cancelled, a timeout, or anything else,
  *  told apart because "the person just said no" deserves a calmer message than a real failure. */
 export function passkeyErrorMessage(err: unknown): string {

@@ -241,3 +241,30 @@ export function ipScope(input?: string): IpScope {
   if ((first & 0xe000) === 0x2000) return 'public' // 2000::/3 global unicast
   return 'reserved'
 }
+
+/**
+ * True when `host` (an IPv4 address, optionally with a trailing ":port") falls inside `cidr` (e.g.
+ * "10.43.0.0/16"). Used to tell a cluster's own API service address - a virtual ClusterIP from its
+ * Service CIDR, not a real, externally reachable host - apart from a private address that just happens
+ * to belong to a real machine on someone's LAN. IPv4 only: a discovered Service CIDR is effectively
+ * always IPv4 for the clusters this app talks to.
+ */
+export function ipInCidr(host: string, cidr?: string): boolean {
+  if (!cidr) return false
+  const [base, bitsStr] = cidr.split('/')
+  const bits = Number(bitsStr)
+  if (!base || Number.isNaN(bits) || bits < 0 || bits > 32) return false
+  const toInt = (ip: string): number | undefined => {
+    const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip.trim())
+    if (!m) return undefined
+    const o = m.slice(1).map(Number)
+    if (o.some((n) => n > 255)) return undefined
+    return ((o[0] << 24) | (o[1] << 16) | (o[2] << 8) | o[3]) >>> 0
+  }
+  const portMatch = /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d+$/.exec(host.trim())
+  const hostInt = toInt(portMatch ? portMatch[1] : host)
+  const baseInt = toInt(base)
+  if (hostInt === undefined || baseInt === undefined) return false
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0
+  return (hostInt & mask) === (baseInt & mask)
+}
