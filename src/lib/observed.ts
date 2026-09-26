@@ -35,14 +35,29 @@ export function withObserved(
   const has = (kind: Dependency['toKind'], id: string) => (kind === 'external' ? externalIds.has(id) : kind === 'service' ? services.has(id) : true)
 
   const out = base.dependencies.map((d) => ({ ...d }))
+  // Grouped by everything the match cares about except `port` (which is matched conditionally, not by
+  // equality - see below), so each observed edge only has to check the handful of existing edges between
+  // the same two ends, not scan the whole (and ever-growing, as this loop pushes into `out`) array.
+  const edgeKey = (fromKind: Dependency['fromKind'], from: string, toKind: Dependency['toKind'], to: string) => `${fromKind}:${from}=>${toKind}:${to}`
+  const byEnds = new Map<string, Dependency[]>()
+  for (const d of out) {
+    const k = edgeKey(d.fromKind, d.from, d.toKind, d.to)
+    const bucket = byEnds.get(k)
+    if (bucket) bucket.push(d)
+    else byEnds.set(k, [d])
+  }
   for (const o of observed.dependencies) {
     const from = o.fromKind === 'external' ? (remap.get(o.from) ?? o.from) : o.from
     const to = o.toKind === 'external' ? (remap.get(o.to) ?? o.to) : o.to
     if (!has(o.fromKind, from) || !has(o.toKind, to)) continue
     const seen: Dependency = { ...o, from, to }
-    const same = out.find((d) => d.from === from && d.to === to && d.fromKind === o.fromKind && d.toKind === o.toKind && (d.port === undefined || d.port === o.port))
+    const key = edgeKey(o.fromKind, from, o.toKind, to)
+    const bucket = byEnds.get(key)
+    const same = bucket?.find((d) => d.port === undefined || d.port === o.port)
     if (!same) {
       out.push(seen)
+      if (bucket) bucket.push(seen)
+      else byEnds.set(key, [seen])
       continue
     }
     same.sources = [...new Set([...same.sources, 'observed' as const])]

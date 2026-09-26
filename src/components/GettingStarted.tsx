@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { buttonClass } from '@/components/ui/buttonClass'
 import { Button, Pill } from '@/components/ui/primitives'
-import { deriveChecklist, dismiss, wasDismissed, type Checklist, type ChecklistStep } from '@/lib/checklist'
+import { deriveChecklist, dismiss, gettingStartedSeenElsewhere, wasDismissed, type Checklist, type ChecklistStep } from '@/lib/checklist'
 import { useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
 
@@ -12,8 +12,14 @@ import { useTopology } from '@/store/topology'
  * Where a new organisation stands, from what the server holds. Null when the list does not apply: no server in use, a
  * person who cannot connect clusters, or the server has not answered yet (so nothing false flashes first). It is also
  * null once a cluster is live: the list has done its job and leaves no gap behind.
+ *
+ * `page` names the call site (e.g. "topology", "discovery"). Two pages can each render the checklist while it is
+ * unfinished, so without this a person who lands on one empty page and then browses to the other sees the identical
+ * list twice in the same session. `dismissed` doubles as "don't show it here": true once the person dismisses it
+ * (kept per organisation) or once a different page already showed it this session (kept per browser tab) - either
+ * way there is nothing new to show, and every caller already treats `dismissed` as "fall back to the plain state".
  */
-export function useGettingStarted(): { checklist: Checklist; dismissed: boolean; dismiss: () => void } | null {
+export function useGettingStarted(page: string): { checklist: Checklist; dismissed: boolean; dismiss: () => void } | null {
   const connected = useServer((s) => s.status === 'connected')
   const admin = useServer((s) => s.isAdmin())
   const org = useServer((s) => s.orgId)
@@ -31,7 +37,11 @@ export function useGettingStarted(): { checklist: Checklist; dismissed: boolean;
     [agents, clusters, nodes],
   )
   if (!connected || !admin || !org || !info || !loaded || checklist.finished) return null
-  return { checklist, dismissed: dismissedNow || wasDismissed(org), dismiss: () => { dismiss(org); setDismissedNow(true) } }
+  return {
+    checklist,
+    dismissed: dismissedNow || wasDismissed(org) || gettingStartedSeenElsewhere(page),
+    dismiss: () => { dismiss(org); setDismissedNow(true) },
+  }
 }
 
 const MARK = 'grid size-6 shrink-0 place-items-center rounded-full text-xs font-medium tabular-nums'

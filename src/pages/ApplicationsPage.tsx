@@ -68,7 +68,7 @@ export default function ApplicationsPage() {
               )
             })}
             {rows.length === 0 && (
-              <tr><Td className="py-8 text-center text-nb-500">No applications match “{q}”.</Td></tr>
+              <tr><Td colSpan={6} className="py-8 text-center text-nb-500">No applications match “{q}”.</Td></tr>
             )}
           </tbody>
         </Table>

@@ -74,7 +74,7 @@ export default function SitesPage() {
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><Td className="py-8 text-center text-nb-500">No sites match “{q}”.</Td></tr>
+              <tr><Td colSpan={5} className="py-8 text-center text-nb-500">No sites match “{q}”.</Td></tr>
             )}
           </tbody>
         </Table>

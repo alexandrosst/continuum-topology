@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Check, ChevronDown, Copy, Minus, X } from 'lucide-react'
+import { Check, ChevronDown, Copy, Eye, EyeOff, Minus, X } from 'lucide-react'
 import {
   Children, isValidElement, useEffect, useId, useRef, useState,
   type ButtonHTMLAttributes, type ChangeEvent, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type SelectHTMLAttributes,
@@ -54,6 +54,27 @@ const control =
 
 export function Input({ className, ...p }: ComponentProps<'input'>) {
   return <input {...p} className={clsx(control, className)} />
+}
+
+/**
+ * A password field with a per-field show/hide toggle. Each instance keeps its own `show` state, so
+ * several password inputs on the same screen (current/new/confirm) toggle independently.
+ */
+export function PasswordInput({ className, ...p }: Omit<ComponentProps<'input'>, 'type'>) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className={clsx('relative', className)}>
+      <input {...p} type={show ? 'text' : 'password'} className={clsx(control, 'w-full pr-9', className)} />
+      <button
+        type="button"
+        onClick={() => setShow((s) => !s)}
+        aria-label={show ? 'Hide password' : 'Show password'}
+        className="absolute inset-y-0 right-0 grid w-9 place-items-center text-nb-500 hover:text-nb-300"
+      >
+        {show ? <EyeOff size={15} /> : <Eye size={15} />}
+      </button>
+    </div>
+  )
 }
 
 /**
@@ -288,7 +309,7 @@ export function InfoTip({ children }: { children: string }) {
  * True for a moment right after `value` changes from what it was, so a status swap can flash briefly instead of
  * cutting over instantly. Stays false on the first render (nothing to flash yet) and while `value` is unchanged.
  */
-function useFlash<T>(value: T, ms = 800): boolean {
+export function useFlash<T>(value: T, ms = 800): boolean {
   const prev = useRef(value)
   const [flash, setFlash] = useState(false)
   useEffect(() => {

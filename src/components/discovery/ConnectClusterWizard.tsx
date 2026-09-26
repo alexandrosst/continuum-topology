@@ -230,11 +230,13 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
   // Deliberately keyed on `open` alone: it should fill in once per open, not re-fill while the count changes under it.
   useEffect(() => {
     if (open) setName((n) => n || `cluster-${raw.clusters.length + 1}`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
   // Deliberately keyed on `open` alone too, for the same reason: seed once per open from whatever was left
   // over from before, not on every change to the values it's seeded from (see `moreOpen` above).
   useEffect(() => {
     if (open) setMoreOpen((v) => v || tier !== 2 || probe || flows || measure || scopeOn)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   const scope = useMemo(() => (scopeOn && tier >= 2 ? { ...emptyScope, namespaces: splitNames(inc), exclude: splitNames(exc), selector: sel } : emptyScope), [scopeOn, tier, inc, exc, sel])

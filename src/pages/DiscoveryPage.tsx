@@ -32,7 +32,7 @@ export default function DiscoveryPage() {
   const server = useServer()
   // One flow, shared with the Agents page: the same wizard, the same `?connect=1` link.
   const connect = useConnectFlow()
-  const started = useGettingStarted()
+  const started = useGettingStarted('discovery')
   const connected = server.status === 'connected'
   const canAdminister = connect.canStart
   // Approving is done on the Agents page. Here it is only pointed at: a request rejected for too many wrong codes counts too, because it still needs a look.
@@ -59,7 +59,7 @@ export default function DiscoveryPage() {
     <>
       <PageHeader
         title="Discovery"
-        description="What the agents found that needs your decision, and what they see now. Nothing here changes your topology until you accept it."
+        description="What the agents found that needs your decision, and what they see now. Nothing here changes your topology until you accept it. Once you decide, the outcome shows up in History and who approved it shows up in Activity."
         actions={
           canAdminister && (
             <Button variant="primary" onClick={connect.start}>

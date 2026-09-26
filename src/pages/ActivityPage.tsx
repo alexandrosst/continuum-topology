@@ -64,7 +64,7 @@ export default function ActivityPage() {
   }
   return (
     <>
-      <PageHeader title="Who did what" description="Every change people made to this organisation: agents approved or revoked, settings changed, people invited or removed, the shared workspace saved. Nothing here can be edited." />
+      <PageHeader title="Who did what" description="Every change people made to this organisation: agents approved or revoked, settings changed, people invited or removed, the shared workspace saved. Nothing here can be edited. For what changed in the estate itself, see History; for what still needs a decision, see Discovery." />
       {error && <ErrorBanner className="mb-4">{error}</ErrorBanner>}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="w-44"><Input value={actor} onChange={(e) => setActor(e.target.value)} placeholder="Person" aria-label="Person" data-testid="audit-actor" /></div>
