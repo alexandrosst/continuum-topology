@@ -97,6 +97,15 @@ type NetworkInterface struct {
 	MTU       int32  `json:"mtu,omitempty"`
 }
 
+// Disk is one physical block device a node probe saw on the machine itself: capacity and type only,
+// never a serial number, WWN or any other per-disk identifier.
+type Disk struct {
+	Name      string `json:"name"` // kernel device name, e.g. "sda", "nvme0n1" - not stable across reboots
+	Model     string `json:"model,omitempty"`
+	SizeBytes int64  `json:"sizeBytes,omitempty"`
+	Type      string `json:"type,omitempty"` // hdd | ssd | nvme
+}
+
 type Node struct {
 	Provenance
 	ID        string `json:"id"`
@@ -138,15 +147,17 @@ type Node struct {
 	// NetworkInterfaces are the physical uplinks the probe saw, with whatever speed/MTU sysfs reported.
 	// Connectivity above is derived from these (the kinds present); this is the fuller, per-interface view.
 	NetworkInterfaces []NetworkInterface `json:"networkInterfaces,omitempty"`
-	ProviderID        string             `json:"providerId,omitempty"`
-	Allocatable       *Resources         `json:"allocatable,omitempty"`
-	Requested         *Resources         `json:"requested,omitempty"`
-	Accelerators      []Accelerator      `json:"accelerators,omitempty"`
-	Taints            []string           `json:"taints,omitempty"`
-	Conditions        []string           `json:"conditions,omitempty"`
-	CreatedAt         string             `json:"createdAt,omitempty"`
-	PodCapacity       int32              `json:"podCapacity,omitempty"` // most pods the kubelet will run
-	PodCount          *int32             `json:"podCount,omitempty"`    // nil when pods are not read (unknown, not zero)
+	// Disks are the physical block devices the probe saw, capacity and type only (never a serial/WWN).
+	Disks        []Disk        `json:"disks,omitempty"`
+	ProviderID   string        `json:"providerId,omitempty"`
+	Allocatable  *Resources    `json:"allocatable,omitempty"`
+	Requested    *Resources    `json:"requested,omitempty"`
+	Accelerators []Accelerator `json:"accelerators,omitempty"`
+	Taints       []string      `json:"taints,omitempty"`
+	Conditions   []string      `json:"conditions,omitempty"`
+	CreatedAt    string        `json:"createdAt,omitempty"`
+	PodCapacity  int32         `json:"podCapacity,omitempty"` // most pods the kubelet will run
+	PodCount     *int32        `json:"podCount,omitempty"`    // nil when pods are not read (unknown, not zero)
 }
 
 type Namespace struct {

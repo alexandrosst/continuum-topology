@@ -324,6 +324,8 @@ message HostProbe {
   // (not just which kinds are present), each with its negotiated link speed and MTU when sysfs reports
   // them. uplinks is kept, unchanged, for what already reads it.
   repeated NetworkInterface interfaces = 16;
+  // Physical block devices (see the Disk message doc for exactly what is, and is not, read).
+  repeated Disk disks = 17;
 }
 
 // One physical network interface the node probe found up (see HostProbe.interfaces). Everything here is
@@ -337,6 +339,17 @@ message NetworkInterface {
   // here (e.g. certain cloud SR-IOV NICs): 0 means "not known", not "no link".
   int32 speed_mbps = 3;
   int32 mtu = 4;
+}
+
+// One physical block device the node probe found (see HostProbe.disks). Capacity and a model name are
+// read from sysfs, world-readable, the same as everything else in this file - never a serial number,
+// WWN or any other per-disk identifier: the package doc's "never reads serial numbers... or disks"
+// narrows, with this message, to "disk capacity and type, never a disk's own identity".
+message Disk {
+  string name = 1;       // kernel device name, e.g. "sda", "nvme0n1" - not a stable identifier across reboots
+  string model = 2;       // from /sys/block/<name>/device/model, e.g. "Samsung SSD 970 EVO"; empty when unreported
+  int64 size_bytes = 3;
+  string type = 4;        // hdd | ssd | nvme | "" when not determinable
 }
 
 message NamespaceFacts {

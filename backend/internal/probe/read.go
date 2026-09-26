@@ -2,8 +2,9 @@
 // the Continuum agent in the same cluster. It exists because the Kubernetes API cannot tell a VM
 // from a bare-metal server; the machine itself can.
 //
-// The probe only reads. It never reads serial numbers, MAC addresses, UUIDs, disks or processes,
-// and it needs no capabilities: sysfs and /proc/cpuinfo are world-readable.
+// The probe only reads. It never reads serial numbers, MAC addresses, UUIDs or processes, and never a
+// disk's own identity (serial, WWN) - only its capacity and type (see Disk). It needs no capabilities:
+// sysfs and /proc/cpuinfo are world-readable.
 package probe
 
 import (
@@ -106,6 +107,7 @@ func Read(p Paths) *continuumv1.HostProbe {
 		HasBattery:         hasBattery(filepath.Join(p.Sys, "class", "power_supply")),
 		CpuModel:           cpuModel(cpuinfo),
 		CpuThreads:         cpuThreads(cpuinfo),
+		Disks:              disks(filepath.Join(p.Sys, "block")),
 	}
 	if n, err := strconv.Atoi(strings.TrimSpace(readText(filepath.Join(dmi, "chassis_type")))); err == nil && n > 0 && n < 64 {
 		h.ChassisType = int32(n)
@@ -242,6 +244,45 @@ func uplinkKinds(ifaces []*continuumv1.NetworkInterface) []string {
 	return out
 }
 
+// disks lists the physical block devices found under /sys/block, with whatever capacity and type
+// sysfs reports for each. Virtual block devices (loop, ram, zram, device-mapper/LVM) live under
+// /sys/devices/virtual and are skipped, the same way virtual network interfaces are; optical drives
+// (sr*) are skipped too, since they are not storage capacity in any useful sense here. Never reads a
+// disk's serial, WWN or any other per-disk identifier - see the package doc.
+func disks(dir string) []*continuumv1.Disk {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []*continuumv1.Disk
+	for _, e := range ents {
+		name := e.Name()
+		if strings.HasPrefix(name, "sr") {
+			continue
+		}
+		target, err := os.Readlink(filepath.Join(dir, name))
+		if err != nil || strings.Contains(target, "/virtual/") {
+			continue
+		}
+		d := &continuumv1.Disk{Name: Clean(name)}
+		d.Model = firmware(readText(filepath.Join(dir, name, "device", "model")))
+		if n, err := strconv.ParseInt(strings.TrimSpace(readText(filepath.Join(dir, name, "size"))), 10, 64); err == nil && n > 0 {
+			d.SizeBytes = n * 512 // sysfs always reports size in 512-byte sectors, regardless of the real sector size
+		}
+		switch {
+		case strings.HasPrefix(name, "nvme"):
+			d.Type = "nvme"
+		case readText(filepath.Join(dir, name, "queue", "rotational")) == "0":
+			d.Type = "ssd"
+		case readText(filepath.Join(dir, name, "queue", "rotational")) == "1":
+			d.Type = "hdd"
+		}
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 func hasBattery(dir string) bool {
 	ents, err := os.ReadDir(dir)
 	if err != nil {
@@ -301,6 +342,22 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 			ni.Mtu = iface.Mtu
 		}
 		out.Interfaces = append(out.Interfaces, ni)
+	}
+	// Disks: bound the count, drop anything with no name or an unrecognized type, and cap size to a
+	// plausible range. Model is cosmetic text like any other firmware string - Clean is enough for it.
+	for _, d := range h.Disks {
+		if d == nil || len(out.Disks) >= 32 {
+			continue
+		}
+		name := Clean(d.Name)
+		if name == "" || (d.Type != "" && d.Type != "hdd" && d.Type != "ssd" && d.Type != "nvme") {
+			continue
+		}
+		nd := &continuumv1.Disk{Name: name, Model: Clean(d.Model), Type: d.Type}
+		if d.SizeBytes > 0 && d.SizeBytes <= 1<<60 { // 1 EiB: generous headroom, not a real disk size
+			nd.SizeBytes = d.SizeBytes
+		}
+		out.Disks = append(out.Disks, nd)
 	}
 	return out
 }

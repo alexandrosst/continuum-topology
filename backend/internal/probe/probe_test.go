@@ -42,6 +42,65 @@ func nic(t *testing.T, sys, name, devPath, state string, files ...string) {
 	}
 }
 
+// blockdev builds a block device the way sysfs does: a real directory under devices/ and a symlink to
+// it in block/ (or, for the virtual case, a symlink whose target itself says /virtual/, exactly like a
+// loop or ram device - no real directory is needed since disks() only inspects the symlink target then).
+func blockdev(t *testing.T, sys, name, devPath string, files map[string]string) {
+	t.Helper()
+	for f, content := range files {
+		write(t, sys, "devices/"+devPath+"/"+f, content)
+	}
+	l := filepath.Join(sys, "block", name)
+	if err := os.MkdirAll(filepath.Dir(l), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../devices/"+devPath, l); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReadDisks(t *testing.T) {
+	root := t.TempDir()
+	sys := filepath.Join(root, "sys")
+	blockdev(t, sys, "nvme0n1", "pci0000:00/0000:00:1d.0/nvme/nvme0/nvme0n1", map[string]string{
+		"device/model": "Samsung SSD 970 EVO Plus 1TB\x00", "size": "2000409264\n",
+	})
+	blockdev(t, sys, "sda", "pci0000:00/0000:00:11.0/ata1/host0/target0:0:0/0:0:0:0/block/sda", map[string]string{
+		"device/model": "ST1000DM010-2EP1\n", "size": "1953525168\n", "queue/rotational": "1\n",
+		"device/serial": "SECRET-SERIAL-1234", // must never be read, even though it sits right there
+	})
+	blockdev(t, sys, "sr0", "pci0000:00/0000:00:1f.2/ata2/host1/target1:0:0/1:0:0:0/block/sr0", map[string]string{
+		"size": "0\n",
+	})
+	// loop0 is virtual: its own symlink target says so, no real device/ directory behind it at all.
+	if err := os.MkdirAll(filepath.Join(sys, "block"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../devices/virtual/block/loop0", filepath.Join(sys, "block", "loop0")); err != nil {
+		t.Fatal(err)
+	}
+
+	h := Read(Paths{Sys: sys, Proc: filepath.Join(root, "proc")})
+	if len(h.Disks) != 2 {
+		t.Fatalf("disks = %v (sr0 and loop0 must be excluded)", h.Disks)
+	}
+	byName := map[string]*continuumv1.Disk{}
+	for _, d := range h.Disks {
+		byName[d.Name] = d
+	}
+	nvme := byName["nvme0n1"]
+	if nvme == nil || nvme.Model != "Samsung SSD 970 EVO Plus 1TB" || nvme.Type != "nvme" || nvme.SizeBytes != 2000409264*512 {
+		t.Fatalf("nvme0n1 = %v", nvme)
+	}
+	sda := byName["sda"]
+	if sda == nil || sda.Type != "hdd" || sda.SizeBytes != 1953525168*512 {
+		t.Fatalf("sda = %v", sda)
+	}
+	if strings.Contains(h.String(), "SECRET-SERIAL") {
+		t.Fatal("the probe must never read a disk's serial number")
+	}
+}
+
 func TestReadVirtualMachine(t *testing.T) {
 	root := t.TempDir()
 	sys, proc := filepath.Join(root, "sys"), filepath.Join(root, "proc")
@@ -173,9 +232,28 @@ func TestCleanAndSanitize(t *testing.T) {
 	many := &continuumv1.HostProbe{}
 	for i := 0; i < 50; i++ {
 		many.Interfaces = append(many.Interfaces, &continuumv1.NetworkInterface{Name: "eth", Kind: "ethernet"})
+		many.Disks = append(many.Disks, &continuumv1.Disk{Name: "sda", Type: "ssd"})
 	}
-	if got := Sanitize(many); len(got.Interfaces) != 32 {
-		t.Fatalf("Interfaces must be capped at 32, got %d", len(got.Interfaces))
+	if got := Sanitize(many); len(got.Interfaces) != 32 || len(got.Disks) != 32 {
+		t.Fatalf("Interfaces/Disks must be capped at 32, got %d/%d", len(got.Interfaces), len(got.Disks))
+	}
+
+	untrustedDisks := &continuumv1.HostProbe{Disks: []*continuumv1.Disk{
+		{Name: "sda", Model: "Evil\x00 Drive", Type: "ssd", SizeBytes: 500 << 30},
+		{Name: "", Type: "ssd"},                        // no name: dropped
+		{Name: "sdb", Type: "floppy"},                  // unknown type: dropped
+		{Name: "sdc", Type: "hdd", SizeBytes: 1 << 62}, // implausible size: cleared, not dropped
+		nil, // must not panic
+	}}
+	sd := Sanitize(untrustedDisks)
+	if len(sd.Disks) != 2 {
+		t.Fatalf("Disks = %v", sd.Disks)
+	}
+	if sd.Disks[0].Name != "sda" || sd.Disks[0].Model != "Evil Drive" || sd.Disks[0].SizeBytes != 500<<30 {
+		t.Fatalf("Disks[0] = %v", sd.Disks[0])
+	}
+	if sd.Disks[1].Name != "sdc" || sd.Disks[1].SizeBytes != 0 {
+		t.Fatalf("an implausible size must be cleared rather than trusted: %v", sd.Disks[1])
 	}
 }
 

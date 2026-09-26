@@ -145,6 +145,12 @@ func Interpret(in Input) model.Topology {
 					Name: iface.Name, Kind: iface.Kind, SpeedMbps: iface.SpeedMbps, MTU: iface.Mtu,
 				})
 			}
+			for _, d := range n.Probe.Disks {
+				if d == nil {
+					continue
+				}
+				mn.Disks = append(mn.Disks, model.Disk{Name: d.Name, Model: d.Model, SizeBytes: d.SizeBytes, Type: d.Type})
+			}
 		}
 		mn.Accelerators = accelerators(n)
 		if nodeStatus(n) == "healthy" {
