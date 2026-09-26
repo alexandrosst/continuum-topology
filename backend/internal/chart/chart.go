@@ -21,14 +21,21 @@ var files embed.FS
 const dir = "continuum-agent"
 
 var (
-	once    sync.Once
-	pkg     []byte
-	pkgErr  error
-	version string
+	once   sync.Once
+	pkg    []byte
+	pkgErr error
+
+	versionOnce sync.Once
+	versionVal  string
 )
 
 // Version is the chart version from Chart.yaml.
 func Version() string {
+	versionOnce.Do(func() { versionVal = parseVersion() })
+	return versionVal
+}
+
+func parseVersion() string {
 	b, err := files.ReadFile(dir + "/Chart.yaml")
 	if err != nil {
 		return "0.0.0"

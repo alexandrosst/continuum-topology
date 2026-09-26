@@ -87,9 +87,24 @@ func (d *DB) TenantIDs(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
+// forgetLock drops an org's entry from the lazily-created lock map: once purged, no write for this org
+// should ever be in flight again, so keeping its mutex around would just be an unreclaimed map entry for
+// the lifetime of the process (harmless at realistic org-deletion volume, but a real leak). Safe to call
+// even if a write for this org is still finishing: that goroutine already holds a reference to the old
+// *sync.Mutex and is unaffected by removing it from the map.
+func (d *DB) forgetLock(org string) {
+	d.mu.Lock()
+	delete(d.locks, org)
+	d.mu.Unlock()
+}
+
 // PurgeTenant deletes everything the graph holds for a tenant (the organisation was deleted).
 func (d *DB) PurgeTenant(ctx context.Context, org string) error {
-	defer d.lock(org)()
+	unlock := d.lock(org)
+	defer func() {
+		unlock()
+		d.forgetLock(org)
+	}()
 	sc := d.C.For(org)
 	for _, label := range []string{"Version", "Snapshot", "Event", "Audit", "Actor", "WorkspaceRev", "Counter", "Entity"} {
 		for {

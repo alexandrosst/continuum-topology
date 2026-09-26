@@ -16,10 +16,9 @@ sends a token or a certificate signing request.
   certificate is re-issued for the **same key** (new validity, same key). The server logs it at
   startup as `ca_spki_pin`.
 
-The agent's TLS verifier (`pki.ClientTLS`) accepts either form. The agent's enrollment, rejoin and
-renewal checks compare the returned CA with `pki.PinOf(...) != pki.NormalizePin(...)`, which only
-understands the legacy form; until those call sites use `pki.PinMatches`, an agent configured with a
-`sha256/...` pin will connect but fail at enrollment. Use the legacy pin for agents until then.
+The agent's TLS verifier (`pki.ClientTLS`) and its enrollment, rejoin, and renewal checks
+(`internal/agent/enroll.go`, `internal/agent/run.go`) all compare the returned CA with
+`pki.PinMatches`, which accepts either form - a `sha256/...` pin works everywhere a legacy pin does.
 
 The CA certificate is valid for ten years. After enrollment an agent stores the CA certificate it
 received (it was checked against the pin), and re-checks the pin on every rejoin and renewal.
@@ -78,7 +77,7 @@ under it. Pin unchanged; no agent is affected.
 **Certificate renewal, same key (before the ten years end).** Issue a new self-signed certificate over
 the same key with the same subject and replace `ca.crt`. The legacy pin changes; a public-key pin does
 not. Agents installed with a legacy pin must be re-installed (or their stored pin updated); agents
-installed with a `sha256/...` pin are unaffected once the agent-side checks use `PinMatches`.
+installed with a `sha256/...` pin are unaffected - this is exactly the case a public-key pin exists for.
 
 **New key (suspected compromise).**
 

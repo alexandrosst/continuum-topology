@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	"continuum/internal/history"
@@ -137,6 +138,48 @@ func (a *Admin) historySnapshot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"at": rfc(p.At), "topology": t})
 }
 
+// trafficCacheTTL is how long historyTraffic's SQLite slow path reuses a computed response before
+// recomputing it. Long enough to absorb a dashboard auto-refreshing this endpoint every few seconds;
+// short enough that a person watching it does not see badly stale numbers.
+const trafficCacheTTL = 45 * time.Second
+
+type trafficCacheEntry struct {
+	hours   int
+	at      time.Time
+	payload map[string]any
+}
+
+// trafficCache is a tiny per-organisation cache for historyTraffic's slow path: on a plain SQLite
+// deployment (no Neo4j), that path lists up to `hours` worth of history points, downsamples to 300,
+// and decodes 300 full gzip+JSON topology snapshots just to read one counter out of each - too
+// expensive to redo on every request a dashboard's auto-refresh makes. It lives on the organisation's
+// own *Core (see Core.ForOrg), so one organisation's cached traffic can never be served to another's.
+type trafficCache struct {
+	mu    sync.Mutex
+	entry *trafficCacheEntry
+}
+
+func (c *trafficCache) get(hours int, now time.Time) (map[string]any, bool) {
+	if c == nil {
+		return nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entry == nil || c.entry.hours != hours || now.Sub(c.entry.at) > trafficCacheTTL {
+		return nil, false
+	}
+	return c.entry.payload, true
+}
+
+func (c *trafficCache) set(hours int, now time.Time, payload map[string]any) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entry = &trafficCacheEntry{hours: hours, at: now, payload: payload}
+}
+
 func (a *Admin) historyTraffic(w http.ResponseWriter, r *http.Request) {
 	hours := 24
 	if v := r.URL.Query().Get("hours"); v != "" {
@@ -148,10 +191,11 @@ func (a *Admin) historyTraffic(w http.ResponseWriter, r *http.Request) {
 		hours = n
 	}
 	now := a.C.Now()
+	core := a.core(r)
 	if ts, ok := a.C.Store.(interface {
 		TrafficSamples(context.Context, string, time.Time, time.Time) ([]history.Sample, bool)
 	}); ok {
-		if samples, ok := ts.TrafficSamples(r.Context(), a.core(r).OrgID, now.Add(-time.Duration(hours)*time.Hour), time.Time{}); ok {
+		if samples, ok := ts.TrafficSamples(r.Context(), core.OrgID, now.Add(-time.Duration(hours)*time.Hour), time.Time{}); ok {
 			const most = 300
 			if len(samples) > most {
 				keep := make([]history.Sample, 0, most)
@@ -164,7 +208,11 @@ func (a *Admin) historyTraffic(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	pts, err := a.C.Store.ListHistory(r.Context(), a.core(r).OrgID, now.Add(-time.Duration(hours)*time.Hour), time.Time{})
+	if payload, ok := core.trafficCache.get(hours, now); ok {
+		writeJSON(w, 200, payload)
+		return
+	}
+	pts, err := a.C.Store.ListHistory(r.Context(), core.OrgID, now.Add(-time.Duration(hours)*time.Hour), time.Time{})
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -180,7 +228,7 @@ func (a *Admin) historyTraffic(w http.ResponseWriter, r *http.Request) {
 	}
 	var samples []history.Sample
 	for _, p := range pts {
-		_, data, err := a.C.Store.GetHistory(r.Context(), a.core(r).OrgID, p.At)
+		_, data, err := a.C.Store.GetHistory(r.Context(), core.OrgID, p.At)
 		if err != nil {
 			continue
 		}
@@ -194,7 +242,9 @@ func (a *Admin) historyTraffic(w http.ResponseWriter, r *http.Request) {
 		}
 		samples = append(samples, s)
 	}
-	writeJSON(w, 200, map[string]any{"hours": hours, "snapshots": len(samples), "rates": history.Rates(samples)})
+	payload := map[string]any{"hours": hours, "snapshots": len(samples), "rates": history.Rates(samples)}
+	core.trafficCache.set(hours, now, payload)
+	writeJSON(w, 200, payload)
 }
 
 type eventDoc struct {

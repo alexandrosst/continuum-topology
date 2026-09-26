@@ -52,6 +52,7 @@ PRAGMA user_version = 2;`
 	if st, err = OpenSQLite(path); err != nil {
 		t.Fatal(err)
 	}
+	defer st.Close()
 }
 
 func TestApprovalAttemptsAndExpiryInTheStore(t *testing.T) {

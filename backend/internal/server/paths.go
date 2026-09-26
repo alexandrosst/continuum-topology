@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"net/netip"
 	"sort"
 	"strings"
 	"time"
@@ -320,5 +319,3 @@ func (h *Hub) pathDocs(agents []store.Agent, observed []observedCluster, names m
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
-
-func isIP(s string) bool { _, err := netip.ParseAddr(s); return err == nil }
