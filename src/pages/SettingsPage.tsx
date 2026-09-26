@@ -25,6 +25,8 @@ function Card({ title, description, children }: { title: string; description: st
 export default function SettingsPage() {
   const onServer = useServer((s) => s.status === 'connected' && atLeast(s.role, 'admin'))
   const geoip = useServer((s) => s.info?.geoip)
+  const serverVersion = useServer((s) => s.info?.version)
+  const chartVersion = useServer((s) => s.info?.install?.chartVersion)
   const { replaceAll, reset, clear, clusters, nodes, services, devices, dependencies, applications, sites } = useTopology()
   const conn = useConn()
   const connected = useServer((s) => s.status === 'connected')
@@ -74,6 +76,27 @@ export default function SettingsPage() {
 
       {connected && <ServerAddressSettings />}
       {connected && <InstallationSettings conn={conn} />}
+
+      {connected && (serverVersion || chartVersion) && (
+        <section id="about" aria-labelledby="about-title" className="mb-8 scroll-mt-6" data-testid="about-server">
+          <h2 id="about-title" className="mb-1 text-sm font-medium text-white">About this server</h2>
+          <p className="mb-3 max-w-2xl text-sm text-nb-500">What this server and the agent chart it hands out report themselves to be.</p>
+          <dl className="grid max-w-md grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border border-nb-850 bg-nb-925 px-4 py-3 text-sm">
+            {serverVersion && (
+              <>
+                <dt className="text-nb-500">Server version</dt>
+                <dd className="break-all font-mono text-nb-300" data-testid="about-server-version">{serverVersion}</dd>
+              </>
+            )}
+            {chartVersion && (
+              <>
+                <dt className="text-nb-500">Agent chart version</dt>
+                <dd className="break-all font-mono text-nb-300" data-testid="about-chart-version">{chartVersion}</dd>
+              </>
+            )}
+          </dl>
+        </section>
+      )}
 
       <h2 className="mb-1 text-sm font-medium text-white">Import / Export</h2>
       <p className="mb-3 max-w-2xl text-sm text-nb-500">{onServer ? "Your topology is saved to the server and shared with everyone who signs in. Export it as JSON to keep a copy." : "Your topology is stored in this browser. Export it as JSON to back it up or share it."}</p>

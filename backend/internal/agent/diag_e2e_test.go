@@ -55,7 +55,6 @@ type dxOpts struct {
 	approve   int // the tier the administrator approves
 	objects   []runtime.Object
 	uid       string
-	limits    *facts.Limits
 	tune      func(*agent.Config, *server.Core, *server.Hub)
 	ids       func(agent.IdentityStore) agent.IdentityStore
 	noApprove bool
@@ -235,12 +234,48 @@ func TestDiagnosticsShowInstalledApprovedAndEffectiveTiers(t *testing.T) {
 	}
 	waitFor(t, "workloads at tier 2", 20*time.Second, func() bool { return services(d, "shop") == 1 })
 	g = d.waitDiag("effective 2", func(g *server.DiagnosticsDoc) bool { return g.EffectiveTier == 2 && g.ApprovedTier == 2 })
+	if g.InstalledTier != 2 || g.ApprovedTier != 2 || g.EffectiveTier != 2 {
+		t.Fatalf("tiers: installed %d approved %d effective %d", g.InstalledTier, g.ApprovedTier, g.EffectiveTier)
+	}
+	for _, c := range g.Collectors {
+		if c.Configured || c.Enabled {
+			t.Errorf("collector %s is configured though this test never turned it on: %+v", c.Name, c)
+		}
+	}
+	for _, i := range g.Informers {
+		if i.Module == "" && i.Name == "" {
+			t.Errorf("informer without a name: %+v", i)
+		}
+	}
+	for _, p := range g.Problems {
+		if p.Severity != "info" {
+			t.Errorf("a healthy agent reports a %s problem: %+v", p.Severity, p)
+		}
+	}
 	// Narrowing takes effect at once and the agent stops reading what it no longer may.
 	if _, err := d.hub.SetAgentTier(context.Background(), "test", d.id, 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	g = d.waitDiag("effective 0", func(g *server.DiagnosticsDoc) bool { return g.EffectiveTier == 0 && g.ApprovedTier == 0 })
 	waitFor(t, "no workloads at tier 0", 10*time.Second, func() bool { return services(d, "") == 0 && len(d.state().Topology.Nodes) == 0 })
+	if g.InstalledTier != 2 || g.ApprovedTier != 0 || g.EffectiveTier != 0 {
+		t.Fatalf("tiers: installed %d approved %d effective %d", g.InstalledTier, g.ApprovedTier, g.EffectiveTier)
+	}
+	for _, c := range g.Collectors {
+		if c.Configured || c.Enabled {
+			t.Errorf("collector %s is configured though this test never turned it on: %+v", c.Name, c)
+		}
+	}
+	for _, i := range g.Informers {
+		if i.Module == "" && i.Name == "" {
+			t.Errorf("informer without a name: %+v", i)
+		}
+	}
+	for _, p := range g.Problems {
+		if p.Severity != "info" {
+			t.Errorf("a healthy agent reports a %s problem: %+v", p.Severity, p)
+		}
+	}
 }
 
 func TestAnOverCeilingTierIsRefusedWithTheHelmCommand(t *testing.T) {

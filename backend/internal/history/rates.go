@@ -27,7 +27,7 @@ const minPeakInterval = 30 * time.Second
 // table that was reset) restart from zero instead of producing a negative rate.
 func Rates(samples []Sample) []Rate {
 	sort.Slice(samples, func(i, j int) bool { return samples[i].At.Before(samples[j].At) })
-	type acc struct{ bytes, secs, peak float64 }
+	type acc struct{ bytes, peak float64 }
 	all := map[string]*acc{}
 	var total float64
 	for i := 1; i < len(samples); i++ {

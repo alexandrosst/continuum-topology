@@ -19,7 +19,6 @@ import (
 type rig struct {
 	*env
 	addr string
-	stop func()
 }
 
 func newRig(t *testing.T) *rig {

@@ -43,8 +43,6 @@ func (c Consent) has(name string) bool {
 	return false
 }
 
-func (c Consent) empty() bool { return len(c.Paused) == 0 && len(c.Excluded) == 0 }
-
 // consentKey is where an agent's overrides are stored: next to its snapshot, under a name no agent id can have.
 func consentKey(agentID string) string { return agentID + "#consent" }
 

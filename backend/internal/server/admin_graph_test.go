@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -142,7 +141,7 @@ func TestHistoryTimelineAndAuditThroughTheAPIStayInsideTheirOrganisation(t *test
 	if c := a.do("GET", org(aOrg, "audit"), nil, withCookie(vera)).Code; c != 403 {
 		t.Errorf("viewer read the audit trail: %d", c)
 	}
-	if c := a.do("GET", org(aOrg, fmt.Sprintf("timeline?kind=service&id=svc-web")), nil, withCookie(vera)).Code; c != 200 {
+	if c := a.do("GET", org(aOrg, "timeline?kind=service&id=svc-web"), nil, withCookie(vera)).Code; c != 200 {
 		t.Errorf("viewer timeline: %d", c)
 	}
 

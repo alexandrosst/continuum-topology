@@ -7,7 +7,7 @@ import (
 )
 
 // sentMail is one message captureMail recorded instead of actually delivering.
-type sentMail struct{ to, subject, body string }
+type sentMail struct{ to, body string }
 
 // captureMail replaces the real SMTP delivery for the duration of the test with one that records what would
 // have been sent, so tests can read the code back out of the body instead of running a mail server.

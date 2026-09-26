@@ -6,7 +6,6 @@
 package pki
 
 import (
-	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -277,8 +276,10 @@ func ParseCSR(der []byte) (*x509.CertificateRequest, error) {
 	if !ok || pub.Curve != elliptic.P256() {
 		return nil, errors.New("pki: only ECDSA P-256 keys are accepted")
 	}
-	// Reject points that are not on the curve (ParseCertificateRequest already checks, this is defence in depth).
-	if _, err := ecdh.P256().NewPublicKey(elliptic.Marshal(pub.Curve, pub.X, pub.Y)); err != nil {
+	// Reject points that are not on the curve (ParseCertificateRequest already checks, this is defence in
+	// depth). PublicKey.ECDH does the same marshal-and-validate internally as the old elliptic.Marshal(pub.Curve,
+	// pub.X, pub.Y) call this replaced, without touching the deprecated raw-coordinate accessors.
+	if _, err := pub.ECDH(); err != nil {
 		return nil, errors.New("pki: public key is not a valid P-256 point")
 	}
 	return csr, nil

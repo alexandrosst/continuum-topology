@@ -290,6 +290,10 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 	for _, x := range prev.Dependencies {
 		pd[x.ID] = x
 	}
+	extHost := map[string]string{}
+	for _, e := range cur.ExternalEndpoints {
+		extHost[e.ID] = e.Host
+	}
 	endName := func(id, kind string) string {
 		if kind == "service" {
 			if s, ok := cs[id]; ok {
@@ -299,10 +303,8 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 				return s.Name
 			}
 		}
-		for _, e := range cur.ExternalEndpoints {
-			if e.ID == id {
-				return e.Host
-			}
+		if h, ok := extHost[id]; ok {
+			return h
 		}
 		return id
 	}
@@ -311,12 +313,12 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 			continue
 		}
 		p, had := pd[x.ID]
-		label := fmt.Sprintf("%s → %s (%s %d)", endName(x.From, x.FromKind), endName(x.To, x.ToKind), x.Protocol, x.Port)
 		clusterID := ""
 		if s, ok := cs[x.From]; ok {
 			clusterID = s.ClusterID
 		}
 		if !had {
+			label := fmt.Sprintf("%s → %s (%s %d)", endName(x.From, x.FromKind), endName(x.To, x.ToKind), x.Protocol, x.Port)
 			sev := "info"
 			if x.CrossCluster {
 				sev = "notice"
@@ -324,9 +326,11 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 			add(store.Event{Kind: "dependency-seen", TargetKind: "dependency", TargetID: x.ID, Name: label, ClusterID: clusterID, ClusterName: clusterName(clusterID),
 				Detail: label + " seen in traffic for the first time", Severity: sev})
 		} else if !p.Stale && x.Stale {
+			label := fmt.Sprintf("%s → %s (%s %d)", endName(x.From, x.FromKind), endName(x.To, x.ToKind), x.Protocol, x.Port)
 			add(store.Event{Kind: "dependency-quiet", TargetKind: "dependency", TargetID: x.ID, Name: label, ClusterID: clusterID, ClusterName: clusterName(clusterID),
 				Detail: label + " has gone quiet"})
 		} else if p.Stale && !x.Stale {
+			label := fmt.Sprintf("%s → %s (%s %d)", endName(x.From, x.FromKind), endName(x.To, x.ToKind), x.Protocol, x.Port)
 			add(store.Event{Kind: "dependency-seen", TargetKind: "dependency", TargetID: x.ID, Name: label, ClusterID: clusterID, ClusterName: clusterName(clusterID),
 				Detail: label + " is back in traffic"})
 		}

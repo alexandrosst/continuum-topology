@@ -57,6 +57,18 @@ func (s *Store) lock(org string) func() {
 	return m.Unlock
 }
 
+// forgetLocks drops an org's own lock and its "ev:"-namespaced event lock once the org is gone for good
+// (DeleteOrg, whether purged immediately or on a later retry) - otherwise both entries would sit in the
+// map for the rest of the process's life. Safe to call even if a write for this org is still finishing:
+// that goroutine already holds a reference to the old *sync.Mutex and is unaffected by removing it from
+// the map; a deleted org should never see a new write start afterward to race against a fresh one.
+func (s *Store) forgetLocks(org string) {
+	s.mu.Lock()
+	delete(s.locks, org)
+	delete(s.locks, "ev:"+org)
+	s.mu.Unlock()
+}
+
 func (s *Store) dirty(m map[string]bool, org string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -253,7 +265,9 @@ func (s *Store) DeleteOrg(ctx context.Context, id string) error {
 		s.mu.Lock()
 		s.pending[id] = true
 		s.mu.Unlock()
+		return nil
 	}
+	s.forgetLocks(id)
 	return nil
 }
 
@@ -477,6 +491,7 @@ func (s *Store) retryPurges(ctx context.Context) {
 			s.mu.Lock()
 			delete(s.pending, id)
 			s.mu.Unlock()
+			s.forgetLocks(id)
 		}
 	}
 }

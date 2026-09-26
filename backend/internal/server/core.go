@@ -126,6 +126,9 @@ type Core struct {
 	// unconditionally - so nil in practice only ever means a build that omitted it (a test, say).
 	WebAuthn WebAuthnProvider
 	settings *settingsHolder
+	// trafficCache is historyTraffic's short-TTL cache for its SQLite slow path (see admin_history.go).
+	// Reset per organisation in ForOrg so one organisation's cached traffic can never reach another's.
+	trafficCache *trafficCache
 }
 
 // ForOrg returns a view of the same server scoped to one organisation. It shares the database, the
@@ -136,6 +139,7 @@ func (c *Core) ForOrg(org string) *Core {
 	n := *c
 	n.OrgID = org
 	n.settings = &settingsHolder{}
+	n.trafficCache = &trafficCache{}
 	n.OnRevoke, n.OnSettings, n.OnWorkspace = nil, nil, nil
 	return &n
 }
@@ -144,7 +148,7 @@ func NewCore(st store.Store, ca *pki.CA, org string, log *slog.Logger) *Core {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, auth: newAuthState(), userMu: &sync.Mutex{}, RegMode: RegOpen, settings: &settingsHolder{}}
+	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, auth: newAuthState(), userMu: &sync.Mutex{}, RegMode: RegOpen, settings: &settingsHolder{}, trafficCache: &trafficCache{}}
 }
 
 // audit records something that happened. It is best effort: a failure is logged and the caller carries on.
