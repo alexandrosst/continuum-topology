@@ -2,7 +2,7 @@ import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import ColumnPicker from '@/components/ColumnPicker'
 import { ApplicationForm, ConfirmModal } from '@/components/forms'
-import { Button, EmptyState, PageHeader, Pill, SourceBadge, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, ChipList, EmptyState, PageHeader, Pill, SourceBadge, Table, Td, Th } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
 import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { originLabel } from '@/lib/present'
@@ -72,7 +72,7 @@ export default function ApplicationsPage() {
                   </Td>
                   {isVisible('services') && <Td>{mine.length}</Td>}
                   {isVisible('devices') && <Td>{devices.filter((d) => d.applicationId === a.id).reduce((s, d) => s + d.count, 0) || '—'}</Td>}
-                  {isVisible('clusters') && <Td className="text-nb-400">{cIds.map((id) => clusters.find((c) => c.id === id)?.name).filter(Boolean).join(', ') || '—'}</Td>}
+                  {isVisible('clusters') && <Td><ChipList items={cIds.map((id) => clusters.find((c) => c.id === id)?.name).filter((n): n is string => !!n)} /></Td>}
                   {isVisible('grouped') && <Td><Pill title={a.origin}>{originLabel(a.origin)}</Pill></Td>}
                   <Td className="sticky right-0 bg-nb-925 group-hover:bg-nb-930"><RowActions onEdit={() => setEditing(a)} onDelete={() => setDeleting(a)} /></Td>
                 </tr>

@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { GroupingPicker } from '@/components/GroupingPicker'
 import { Button, ComboField, EvidenceChip, Field, Input, LabelsEditor, Modal, Select } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
-import { countryName, DISTRIBUTION_OPTIONS, PROVIDER_OPTIONS } from '@/lib/present'
+import { CNI_OPTIONS, countryName, DEVICE_PROTOCOL_OPTIONS, DISTRIBUTION_OPTIONS, OS_OPTIONS, PROVIDER_OPTIONS } from '@/lib/present'
 import { countryAt, findCities, nearestCity, siteLocationIssue, type City } from '@/lib/places'
 import { usePlaceIndex } from '@/lib/places-data'
 import { groupingAlternativesFor } from '@/lib/suggestions'
@@ -227,7 +227,7 @@ export function ClusterForm({ initial, onClose }: { initial: Cluster | null; onC
           </Select>
         </Field>
         <Field label="CNI">
-          <Input value={f.cni ?? ''} onChange={(e) => set('cni', e.target.value || undefined)} placeholder="calico, flannel, cilium…" />
+          <ComboField value={f.cni ?? ''} onChange={(v) => set('cni', v || undefined)} options={CNI_OPTIONS} placeholder="calico, flannel, cilium…" />
         </Field>
         <Field label="Trust zone" hint="Policy input for placement.">
           <TrustSelect value={f.trustZone} onChange={(v) => set('trustZone', v)} />
@@ -348,7 +348,7 @@ export function NodeForm({ initial, onClose, defaultClusterId }: { initial: Mach
           <Input value={f.ip} onChange={(e) => set('ip', e.target.value)} placeholder="10.0.0.10" />
         </Field>
         <Field label="OS">
-          <Input value={f.os} onChange={(e) => set('os', e.target.value)} />
+          <ComboField value={f.os} onChange={(v) => set('os', v)} options={OS_OPTIONS} placeholder="Ubuntu 22.04" />
         </Field>
         <Field label="CPU cores">
           <Input type="number" min={1} value={f.cpu} onChange={(e) => set('cpu', Number(e.target.value))} />
@@ -673,7 +673,7 @@ export function DeviceForm({ initial, onClose }: { initial: Device | null; onClo
           </Select>
         </Field>
         <Field label="Protocol">
-          <Input value={f.protocol} onChange={(e) => set('protocol', e.target.value)} placeholder="MQTT, OPC UA, Modbus, RTSP…" />
+          <ComboField value={f.protocol} onChange={(v) => set('protocol', v)} options={DEVICE_PROTOCOL_OPTIONS} placeholder="MQTT, OPC UA, Modbus, RTSP…" />
         </Field>
         <Field label="Connectivity">
           <ConnectivitySelect value={f.connectivity} onChange={(v) => set('connectivity', v ?? 'unknown')} />

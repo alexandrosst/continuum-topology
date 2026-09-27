@@ -4,7 +4,7 @@ import ColumnPicker from '@/components/ColumnPicker'
 import { ConfirmModal, SiteForm } from '@/components/forms'
 import MeasuredPaths from '@/components/MeasuredPaths'
 import { Place } from '@/components/ui/brand'
-import { Button, EmptyState, PageHeader, Pill, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, ChipList, EmptyState, PageHeader, Pill, Table, Td, Th } from '@/components/ui/primitives'
 import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { siteLocationIssue } from '@/lib/places'
 import { usePlaceIndex } from '@/lib/places-data'
@@ -81,7 +81,7 @@ export default function SitesPage() {
                     )}
                   </Td>
                 )}
-                {isVisible('clusters') && <Td className="text-nb-400">{clusters.filter((c) => c.siteId === s.id).map((c) => c.name).join(', ') || '—'}</Td>}
+                {isVisible('clusters') && <Td><ChipList items={clusters.filter((c) => c.siteId === s.id).map((c) => c.name)} /></Td>}
                 <Td className="sticky right-0 bg-nb-925 group-hover:bg-nb-930"><RowActions onEdit={() => setEditing(s)} onDelete={() => setDeleting(s)} /></Td>
               </tr>
             ))}

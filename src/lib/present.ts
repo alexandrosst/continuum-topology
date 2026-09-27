@@ -121,6 +121,62 @@ export const PROVIDER_OPTIONS: { value: string; label: string }[] = [
   { value: 'Edge', label: 'Edge' },
 ]
 
+/** Common node operating systems - see `MachineNode.os`. Same picklist-plus-custom pattern as
+ * PROVIDER_OPTIONS: an appliance OS or something in-house still works via the picker's custom mode. */
+export const OS_OPTIONS: { value: string; label: string }[] = [
+  { value: 'Ubuntu 22.04', label: 'Ubuntu 22.04' },
+  { value: 'Ubuntu 24.04', label: 'Ubuntu 24.04' },
+  { value: 'Debian 12', label: 'Debian 12' },
+  { value: 'RHEL 9', label: 'RHEL 9' },
+  { value: 'Rocky Linux 9', label: 'Rocky Linux 9' },
+  { value: 'Amazon Linux 2023', label: 'Amazon Linux 2023' },
+  { value: 'Alpine', label: 'Alpine' },
+  { value: 'Flatcar', label: 'Flatcar' },
+  { value: 'Bottlerocket', label: 'Bottlerocket' },
+  { value: 'Talos', label: 'Talos' },
+  { value: 'Windows Server 2022', label: 'Windows Server 2022' },
+]
+
+/** Common Kubernetes CNI plugins, offered the same way PROVIDER_OPTIONS is: a picklist backed by a plain
+ * free-text field, so an uncommon or in-house CNI still works via the picker's custom mode. */
+export const CNI_OPTIONS: { value: string; label: string }[] = [
+  { value: 'Cilium', label: 'Cilium' },
+  { value: 'Calico', label: 'Calico' },
+  { value: 'Flannel', label: 'Flannel' },
+  { value: 'Weave Net', label: 'Weave Net' },
+  { value: 'AWS VPC CNI', label: 'AWS VPC CNI' },
+  { value: 'Azure CNI', label: 'Azure CNI' },
+  { value: 'kube-router', label: 'kube-router' },
+  { value: 'Antrea', label: 'Antrea' },
+]
+
+/** Common device-facing protocols (sensors, gateways, controllers) - see `Device.protocol`. Same
+ * picklist-plus-custom pattern as PROVIDER_OPTIONS and CNI_OPTIONS. */
+export const DEVICE_PROTOCOL_OPTIONS: { value: string; label: string }[] = [
+  { value: 'MQTT', label: 'MQTT' },
+  { value: 'OPC UA', label: 'OPC UA' },
+  { value: 'Modbus', label: 'Modbus' },
+  { value: 'CoAP', label: 'CoAP' },
+  { value: 'BACnet', label: 'BACnet' },
+  { value: 'AMQP', label: 'AMQP' },
+  { value: 'RTSP', label: 'RTSP' },
+  { value: 'HTTP', label: 'HTTP' },
+]
+
+/** Common protocols for a service-to-service or device-to-service dependency - see `Dependency.protocol`.
+ * Same picklist-plus-custom pattern as PROVIDER_OPTIONS. */
+export const DEPENDENCY_PROTOCOL_OPTIONS: { value: string; label: string }[] = [
+  { value: 'HTTP', label: 'HTTP' },
+  { value: 'HTTPS', label: 'HTTPS' },
+  { value: 'gRPC', label: 'gRPC' },
+  { value: 'MQTT', label: 'MQTT' },
+  { value: 'Kafka', label: 'Kafka' },
+  { value: 'AMQP', label: 'AMQP' },
+  { value: 'WebSocket', label: 'WebSocket' },
+  { value: 'TCP', label: 'TCP' },
+  { value: 'UDP', label: 'UDP' },
+]
+
 /** "v1.29.6+k3s1" -> "v1.29.6": the build suffix only makes a column wider. Keep the full string for tooltips. */
 export const shortVersion = (v?: string): string => (v ?? '').split('+')[0]
 

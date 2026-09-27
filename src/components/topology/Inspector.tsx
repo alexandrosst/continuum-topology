@@ -213,6 +213,32 @@ function KeyValueChips({ label, pairs }: { label: string; pairs?: Record<string,
     </div>
   )
 }
+/** A handful of short items (accelerators, disks, network interfaces, taints, conditions) as individually
+ *  wrapping chips instead of one long comma-joined line that only ever scrolled sideways - the same fix as
+ *  KeyValueChips, for plain values instead of key=value pairs. Renders nothing when there is nothing to show,
+ *  the same as Maybe. */
+function Chips({ label, items, tone, title }: { label: string; items?: string[]; tone?: 'warn'; title?: string }) {
+  if (!items || items.length === 0) return null
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-1.5 text-sm">
+      <span className="shrink-0 text-nb-500">{label}</span>
+      <div className="flex min-w-0 flex-wrap justify-end gap-1" title={title}>
+        {items.map((it, i) => (
+          <span
+            key={i}
+            className={
+              'max-w-full truncate rounded-md border border-nb-800 bg-nb-930 px-1.5 py-0.5 text-[11px] leading-none ' +
+              (tone === 'warn' ? 'text-warn' : 'text-nb-300')
+            }
+          >
+            {it}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 const connLabel = (c?: string) => CONNECTIVITY.find((x) => x.value === c)?.label
 
 export default function Inspector({
@@ -327,11 +353,9 @@ export default function Inspector({
           <Maybe label="Region label">{c.region}</Maybe>
           <Maybe label="CNI · Ingress">{[c.cni, c.ingress].filter(Boolean).join(' · ')}</Maybe>
           <Maybe label="Pod CIDR"><span className="font-mono text-xs">{c.podCidr}</span></Maybe>
-          {overlap.length > 0 && (
-            <Row label="CIDR overlap"><span className="text-warn" title="Overlapping pod CIDRs can break direct cross-cluster routing.">{overlap.map((o) => o.name).join(', ')}</span></Row>
-          )}
+          <Chips label="CIDR overlap" items={overlap.map((o) => o.name)} tone="warn" title="Overlapping pod CIDRs can break direct cross-cluster routing." />
           <Maybe label="Service CIDR"><span className="font-mono text-xs">{c.serviceCidr}</span></Maybe>
-          <Maybe label="Storage">{list(c.storageClasses)}</Maybe>
+          <Chips label="Storage" items={c.storageClasses} />
           {c.apiEndpoint && <Row label="API endpoint"><IpAddress ip={c.apiEndpoint} inline /></Row>}
           {c.apiEndpoint && ipInCidr(c.apiEndpoint, c.serviceCidr) && (
             <p className="-mt-1 text-xs text-nb-500">
@@ -497,20 +521,19 @@ export default function Inspector({
               </span>
             ) : n.podCapacity ? `max ${n.podCapacity}` : undefined}
           </Maybe>
-          <Maybe label="Accelerators">{n.accelerators?.map((a) => `${a.count}× ${a.vendor} ${a.model}`).join(', ')}</Maybe>
+          <Chips label="Accelerators" items={n.accelerators?.map((a) => `${a.count}× ${a.vendor} ${a.model}`)} />
           <Maybe label="CPU model">{[n.cpuModel, n.cpuThreads ? `${n.cpuThreads} threads` : undefined].filter(Boolean).join(' · ')}</Maybe>
-          <Maybe label="Disks">
-            {n.disks?.map((d) => `${d.model || d.type || 'disk'}${d.sizeBytes ? ` (${formatMemory(d.sizeBytes / 1024 ** 3)})` : ''}`).join(', ')}
-          </Maybe>
+          <Chips label="Disks" items={n.disks?.map((d) => `${d.model || d.type || 'disk'}${d.sizeBytes ? ` (${formatMemory(d.sizeBytes / 1024 ** 3)})` : ''}`)} />
         </Section>
         <Section title="Network & health">
           <Maybe label="Uplink">{connLabel(n.connectivity)}</Maybe>
-          <Maybe label="Interfaces">
-            {n.networkInterfaces?.map((i) => `${i.name} (${[i.kind, i.speedMbps ? `${i.speedMbps} Mbps` : undefined, i.mtu ? `MTU ${i.mtu}` : undefined].filter(Boolean).join(', ')})`).join(', ')}
-          </Maybe>
+          <Chips
+            label="Interfaces"
+            items={n.networkInterfaces?.map((i) => `${i.name} (${[i.kind, i.speedMbps ? `${i.speedMbps} Mbps` : undefined, i.mtu ? `MTU ${i.mtu}` : undefined].filter(Boolean).join(', ')})`)}
+          />
           {n.hasBattery && <Row label="Power">Has a battery: can run without mains power</Row>}
-          <Maybe label="Taints">{list(n.taints)}</Maybe>
-          {n.conditions && n.conditions.length > 0 && <Row label="Conditions"><span className="text-warn">{n.conditions.join(', ')}</span></Row>}
+          <Chips label="Taints" items={n.taints} />
+          <Chips label="Conditions" items={n.conditions} tone="warn" />
         </Section>
         <Section title="Discovery">
           <Origin e={n} />
@@ -573,9 +596,9 @@ export default function Inspector({
         </Section>
         <Section title="Networking">
           <Maybe label="Exposure">{[w.exposure, list(w.hosts)].filter(Boolean).join(' · ')}</Maybe>
-          <Maybe label="Ports">{w.ports?.join(', ')}</Maybe>
+          <Chips label="Ports" items={w.ports} />
           <KeyValueChips label="Node selector" pairs={w.nodeSelector} />
-          <Maybe label="Tolerations">{list(w.tolerations)}</Maybe>
+          <Chips label="Tolerations" items={w.tolerations} />
           <Maybe label="Sensitivity">{w.sensitivity}</Maybe>
         </Section>
         <Section title="Discovery">
@@ -586,9 +609,7 @@ export default function Inspector({
           <Section title="Service mesh">
             <Row label="Mesh">{meshName(w.mesh.mesh)}</Row>
             <Row label="Proxy" wrap>{proxyWords(w.mesh).replace(`${meshName(w.mesh.mesh)} · `, '')}</Row>
-            {w.mesh.excludedPorts && w.mesh.excludedPorts.length > 0 && (
-              <Row label="Kept out of proxy" wrap><span className="font-mono text-xs">{w.mesh.excludedPorts.join(', ')}</span></Row>
-            )}
+            <Chips label="Kept out of proxy" items={w.mesh.excludedPorts} />
             <p className="mt-2 text-xs text-nb-500">
               {w.mesh.controlPlane
                 ? 'This is part of the mesh itself, not one of your applications.'
