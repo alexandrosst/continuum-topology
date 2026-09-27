@@ -25,14 +25,28 @@ import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Ev
 
 export type Selection = { kind: 'cluster' | 'tier' | 'node' | 'service' | 'device' | 'site' | 'external' | 'dependency'; id: string } | null
 
-function Row({ label, children, wrap }: { label: string; children: ReactNode; wrap?: boolean }) {
+function Row({ label, children, wrap, badge }: { label: string; children: ReactNode; wrap?: boolean; badge?: ReactNode }) {
   // `wrap` values (prose - detection reasons, traffic summaries) break onto a second line. Everything else stays
   // one line but scrolls horizontally instead of just being cut off with an ellipsis: a long image reference or
   // pod CIDR is still there to read, not lost the moment it doesn't fit the sidebar's width.
+  //
+  // `badge` (the "confirmed by hand" tag) is kept out of that scrolling region on purpose: stuffing it in as
+  // just another inline child of the same nowrap span left it with no guaranteed position of its own, so a
+  // value+badge combination that didn't quite fit could put the badge somewhere other than right after the
+  // value instead of just scrolling the value underneath it. Splitting them into two flex items - one that
+  // scrolls, one that never does - makes "stays on the same line, right after the value" true regardless of
+  // how long the value is.
   return (
     <div className="flex items-baseline justify-between gap-4 py-1.5 text-sm">
       <span className="shrink-0 text-nb-500">{label}</span>
-      <span className={wrap ? 'min-w-0 break-words text-right text-nb-300' : 'scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap text-right text-nb-300'}>{children}</span>
+      {badge ? (
+        <span className="inline-flex min-w-0 items-center justify-end gap-1.5 text-right text-nb-300">
+          <span className="scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap">{children}</span>
+          {badge}
+        </span>
+      ) : (
+        <span className={wrap ? 'min-w-0 break-words text-right text-nb-300' : 'scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap text-right text-nb-300'}>{children}</span>
+      )}
     </div>
   )
 }
@@ -328,13 +342,11 @@ export default function Inspector({
     body = (
       <>
         <Section title="Identity">
-          <Row label="Distribution">
+          <Row label="Distribution" badge={!!c.overrides?.distribution && <Confirmed meta={c.overrideMeta?.distribution} />}>
             <WithIcon icon={<DistroIcon distribution={c.distribution} size={16} />}>{c.distribution} {c.version}</WithIcon>
-            {!!c.overrides?.distribution && <Confirmed meta={c.overrideMeta?.distribution} />}
           </Row>
-          <Row label="Provider">
+          <Row label="Provider" badge={!!c.overrides?.provider && <Confirmed meta={c.overrideMeta?.provider} />}>
             {c.provider ? <WithIcon icon={<ProviderIcon provider={c.provider} size={16} />}>{c.provider}</WithIcon> : '—'}
-            {!!c.overrides?.provider && <Confirmed meta={c.overrideMeta?.provider} />}
           </Row>
           <Maybe label="Age">{c.createdAt ? `${ageLabel(c.createdAt)} (${new Date(c.createdAt).toLocaleDateString()})` : undefined}</Maybe>
           <Maybe label="Trust zone · residency">{[c.trustZone, c.dataResidency].filter(Boolean).join(' · ')}</Maybe>
@@ -487,9 +499,8 @@ export default function Inspector({
           <Row label="Cluster">
             <button className="text-accent hover:underline" onClick={() => onSelect({ kind: 'cluster', id: n.clusterId })}>{clusterName(n.clusterId)}</button>
           </Row>
-          <Row label="Type">
+          <Row label="Type" badge={!!n.overrides?.kind && <Confirmed meta={n.overrideMeta?.kind} />}>
             {n.kind === 'vm' ? 'VM' : n.kind === 'bare-metal' ? 'Bare metal' : 'Edge device'}
-            {!!n.overrides?.kind && <Confirmed meta={n.overrideMeta?.kind} />}
           </Row>
           {!n.overrides?.kind && n.source === 'discovered' && (n.probed ? n.evidence?.kind?.confidence === 'medium' : n.evidence?.kind?.confidence === 'low') && (
             <Row label="Not sure" wrap>

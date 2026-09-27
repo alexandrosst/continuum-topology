@@ -865,8 +865,22 @@ export default function AccountMenu() {
         list[next].focus()
       }
     }
+    // Same pattern as Select's outside-click close (primitives.tsx): a document-level listener checked
+    // against the trigger and menu refs, rather than a full-screen click-catcher element. The sidebar this
+    // menu lives in is always transformed (translate-x-0/-full for the mobile slide-in), and any non-none
+    // transform on an ancestor turns it into the containing block for `position: fixed` descendants - so a
+    // `fixed inset-0` overlay here would only ever cover the sidebar's own ~240px, never the rest of the
+    // page, and clicking anywhere outside the sidebar would never reach it at all.
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (!button.current?.contains(t) && !menu.current?.contains(t)) setOpen(false)
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onDown)
+    }
   }, [open])
   if (status !== 'connected' || !user) return null
   const label = SYNC_LABEL[sync]
@@ -897,9 +911,7 @@ export default function AccountMenu() {
         </div>
       )}
       {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div ref={menu} role="menu" aria-label="Account" className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-lg border border-nb-850 bg-nb-920 p-1 shadow-xl" data-testid="account-menu">
+        <div ref={menu} role="menu" aria-label="Account" className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-lg border border-nb-850 bg-nb-920 p-1 shadow-xl" data-testid="account-menu">
             <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-nb-600" aria-hidden>Organisation</div>
             {orgId && (
               <NavLink to="/team" className={item} role="menuitem" data-testid="nav-team">
@@ -952,8 +964,7 @@ export default function AccountMenu() {
             </div>
             <div className="my-1 border-t border-nb-850" />
             <button onClick={pick(() => void signOut())} className={item} role="menuitem" data-testid="sign-out"><LogOut size={15} className="text-nb-500" /> Sign out</button>
-          </div>
-        </>
+        </div>
       )}
       <div className="rounded-lg border border-nb-850 bg-nb-925 p-2">
         <button
