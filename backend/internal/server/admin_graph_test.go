@@ -356,6 +356,95 @@ func TestSavingAWorkspaceVersionsItsApplicationsAndTheirMembersInTheGraph(t *tes
 	}
 }
 
+func depTopo(clusterID string, svcAReplicas int32) model.Topology {
+	return model.Topology{
+		Clusters: []model.Cluster{{ID: clusterID, Name: "edge", Status: "connected"}},
+		Services: []model.Service{
+			{ID: "svc-a", ClusterID: clusterID, Name: "a", Replicas: svcAReplicas, ReadyReplicas: svcAReplicas, Status: "ready"},
+			{ID: "svc-b", ClusterID: clusterID, Name: "b", Replicas: 1, ReadyReplicas: 1, Status: "ready"},
+		},
+		Dependencies: []model.Dependency{{ID: "dep-ab", From: "svc-a", FromKind: "service", To: "svc-b", ToKind: "service", Protocol: "tcp"}},
+	}
+}
+
+// TestGraphTraversalAndDiffThroughTheAPI exercises /graph/dependents, /graph/dependencies and
+// /graph/diff end to end: svc-a calls svc-b, so svc-a is what breaks if svc-b goes away and svc-b is
+// what svc-a needs; a later moment where svc-a scaled up shows up as a structural diff.
+func TestGraphTraversalAndDiffThroughTheAPI(t *testing.T) {
+	a, gs := graphRig(t)
+	alice, aOrg := a.register(t, "alice", "Alice Lab")
+	t0 := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
+	b, _, _ := history.Encode(history.Compact(depTopo("c-1", 1)))
+	if err := gs.AddHistory(a.ctx, aOrg, t0, b); err != nil {
+		t.Fatal(err)
+	}
+	gs.Sync(a.ctx)
+	at := t0.UTC().Format(time.RFC3339)
+
+	r := a.do("GET", org(aOrg, "graph/dependents?kind=service&id=svc-b&at="+at), nil, withCookie(alice))
+	if r.Code != 200 {
+		t.Fatalf("dependents: %d %s", r.Code, r.Body.String())
+	}
+	reached := r.json(t)["reached"].([]any)
+	if len(reached) != 1 || reached[0].(map[string]any)["id"] != "svc-a" {
+		t.Errorf("dependents of svc-b = %v", reached)
+	}
+
+	r = a.do("GET", org(aOrg, "graph/dependencies?kind=service&id=svc-a&at="+at), nil, withCookie(alice))
+	if r.Code != 200 {
+		t.Fatalf("dependencies: %d %s", r.Code, r.Body.String())
+	}
+	found := false
+	for _, d := range r.json(t)["reached"].([]any) {
+		if d.(map[string]any)["id"] == "svc-b" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("dependencies of svc-a should include svc-b: %v", r.json(t)["reached"])
+	}
+
+	if c := a.do("GET", org(aOrg, "graph/dependents?kind=service&id=nope&at="+at), nil, withCookie(alice)).Code; c != 404 {
+		t.Errorf("dependents of an unknown record: %d", c)
+	}
+	if c := a.do("GET", org(aOrg, "graph/dependents?kind=service&at="+at), nil, withCookie(alice)).Code; c != 400 {
+		t.Errorf("dependents without id: %d", c)
+	}
+
+	t1 := t0.Add(time.Hour)
+	b2, _, _ := history.Encode(history.Compact(depTopo("c-1", 3)))
+	if err := gs.AddHistory(a.ctx, aOrg, t1, b2); err != nil {
+		t.Fatal(err)
+	}
+	gs.Sync(a.ctx)
+	r = a.do("GET", org(aOrg, "graph/diff?from="+at+"&to="+t1.UTC().Format(time.RFC3339)), nil, withCookie(alice))
+	if r.Code != 200 {
+		t.Fatalf("diff: %d %s", r.Code, r.Body.String())
+	}
+	body := r.json(t)
+	sawReplicas := false
+	for _, c := range body["changed"].([]any) {
+		row := c.(map[string]any)
+		if row["id"] == "svc-a" {
+			for _, ch := range row["changes"].([]any) {
+				if ch.(map[string]any)["field"] == "replicas" {
+					sawReplicas = true
+				}
+			}
+		}
+	}
+	if !sawReplicas {
+		t.Errorf("diff should report svc-a's replica count changing: %v", body["changed"])
+	}
+	if len(body["added"].([]any)) != 0 || len(body["removed"].([]any)) != 0 {
+		t.Errorf("nothing was added or removed between the two moments, only changed: %v", body)
+	}
+
+	if c := a.do("GET", org(aOrg, "graph/diff?from="+at), nil, withCookie(alice)).Code; c != 400 {
+		t.Errorf("diff without to: %d", c)
+	}
+}
+
 func TestWithoutTheGraphTheSameRoutesSayWhatIsMissing(t *testing.T) {
 	a := newAdminRig(t)
 	alice, id := a.register(t, "alice", "Alice Lab")
@@ -367,6 +456,16 @@ func TestWithoutTheGraphTheSameRoutesSayWhatIsMissing(t *testing.T) {
 	}
 	if c := a.do("GET", org(id, "graph/snapshot?at="+time.Now().UTC().Format(time.RFC3339)), nil, withCookie(alice)).Code; c != 404 {
 		t.Errorf("graph snapshot without graph: %d", c)
+	}
+	at := time.Now().UTC().Format(time.RFC3339)
+	if c := a.do("GET", org(id, "graph/dependents?kind=service&id=x&at="+at), nil, withCookie(alice)).Code; c != 404 {
+		t.Errorf("graph dependents without graph: %d", c)
+	}
+	if c := a.do("GET", org(id, "graph/dependencies?kind=service&id=x&at="+at), nil, withCookie(alice)).Code; c != 404 {
+		t.Errorf("graph dependencies without graph: %d", c)
+	}
+	if c := a.do("GET", org(id, "graph/diff?from="+at+"&to="+at), nil, withCookie(alice)).Code; c != 404 {
+		t.Errorf("graph diff without graph: %d", c)
 	}
 	r := a.do("GET", org(id, "audit?action=org-created"), nil, withCookie(alice))
 	if r.Code != 200 || r.json(t)["source"] != "local" || len(r.json(t)["rows"].([]any)) != 1 {

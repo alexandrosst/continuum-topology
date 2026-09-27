@@ -637,3 +637,29 @@ func (s *Store) WorkspaceRevs(ctx context.Context, org string, limit int) ([]Wor
 func (s *Store) WorkspaceAt(ctx context.Context, org string, at time.Time) (WorkspaceRev, error) {
 	return s.DB.WorkspaceAt(ctx, org, at)
 }
+
+// Dependents returns what would be affected if an entity became unavailable (see DB.Dependents).
+// Best-effort in the same way RecordEntity is: while the graph is not ready there is simply nothing to
+// walk yet.
+func (s *Store) Dependents(ctx context.Context, org string, at time.Time, kind, id string, hops int) (time.Time, []Reached, error) {
+	if !s.ready.Load() {
+		return time.Time{}, nil, ErrUnavailable
+	}
+	return s.DB.Dependents(ctx, org, at, kind, id, hops)
+}
+
+// Dependencies returns what an entity itself relies on to do its job (see DB.Dependencies).
+func (s *Store) Dependencies(ctx context.Context, org string, at time.Time, kind, id string, hops int) (time.Time, []Reached, error) {
+	if !s.ready.Load() {
+		return time.Time{}, nil, ErrUnavailable
+	}
+	return s.DB.Dependencies(ctx, org, at, kind, id, hops)
+}
+
+// DiffEntities compares the estate at two moments, entity by entity (see DB.DiffEntities).
+func (s *Store) DiffEntities(ctx context.Context, org string, from, to time.Time) (StructuralDiff, error) {
+	if !s.ready.Load() {
+		return StructuralDiff{}, ErrUnavailable
+	}
+	return s.DB.DiffEntities(ctx, org, from, to)
+}

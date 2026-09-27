@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -753,6 +754,178 @@ RETURN toString(s.at), s.bytes, s.traffic, s.paths ORDER BY s.at DESC LIMIT 1`, 
 	sort.Slice(t.ExternalEndpoints, func(i, j int) bool { return t.ExternalEndpoints[i].ID < t.ExternalEndpoints[j].ID })
 	sort.Slice(t.Paths, func(i, j int) bool { return t.Paths[i].ID < t.Paths[j].ID })
 	out.Topology = t
+	return out, nil
+}
+
+// ---- multi-hop traversal ----
+
+// maxWalkHops bounds how far Dependents and Dependencies will walk. The hop count is spliced directly
+// into the Cypher below rather than passed as a parameter - Neo4j does not accept a parameter for a
+// variable-length pattern's bound - so it is clamped here rather than trusted from a caller, the same
+// discipline relType interpolation already follows against the closed relTypes list.
+const maxWalkHops = 8
+
+// Reached is one entity a graph walk found, alongside how many hops away it was. An entity reachable
+// by more than one path through the estate is reported once, at its shortest distance.
+type Reached struct {
+	EntitySnapshot
+	Hops int `json:"hops"`
+}
+
+// Dependents returns everything that would be affected, directly or transitively, if kind/id became
+// unavailable at `at`: every entity reached by walking the graph's relationship edges backward from
+// it, up to hops steps (clamped to [1, maxWalkHops]). Every relationship type this schema ever writes
+// points from the dependent thing to the thing it depends on - a service CALLS the service it queries,
+// a service RUNS_ON the node it is scheduled on, anything IN_CLUSTER the cluster that hosts it, a path
+// PATH_FROM/PATH_TO the cluster it measures, an application CONTAINS the services it groups - so
+// walking backward from the entity that failed finds exactly what would notice: whoever calls the
+// failed service, whatever was scheduled on the failed node, whatever the failed cluster hosted, any
+// path that measured it, any application it belonged to, and, one more hop out, whatever in turn
+// depended on those. This is a structural query, not a numeric estimate: it says what is connected,
+// not how badly each one would be hurt.
+func (d *DB) Dependents(ctx context.Context, org string, at time.Time, kind, id string, hops int) (time.Time, []Reached, error) {
+	return d.walk(ctx, org, at, kind, id, hops, false)
+}
+
+// Dependencies returns everything kind/id itself relies on to do its job at `at`: the same walk as
+// Dependents, in the opposite direction - what it calls, what it runs on, what cluster it belongs to,
+// what paths measure it, which application(s) contain it - out to hops steps. Where Dependents answers
+// "what breaks if this does," Dependencies answers "what does this need in order to keep working."
+func (d *DB) Dependencies(ctx context.Context, org string, at time.Time, kind, id string, hops int) (time.Time, []Reached, error) {
+	return d.walk(ctx, org, at, kind, id, hops, true)
+}
+
+func (d *DB) walk(ctx context.Context, org string, at time.Time, kind, id string, hops int, forward bool) (time.Time, []Reached, error) {
+	at = at.UTC().Truncate(time.Second)
+	if hops < 1 {
+		hops = 1
+	}
+	if hops > maxWalkHops {
+		hops = maxWalkHops
+	}
+	sc := d.C.For(org)
+
+	start, err := d.C.Run(ctx, sc.S(`MATCH (e:Entity {org:$org, kind:$kind, id:$id}) RETURN 1 LIMIT 1`, map[string]any{"kind": kind, "id": id}))
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	if len(start[0].Rows) == 0 {
+		return time.Time{}, nil, store.ErrNotFound
+	}
+
+	pattern := fmt.Sprintf(`(start)<-[rels:%s*1..%d]-(reached:Entity {org:$org})`, strings.Join(relTypes, "|"), hops)
+	if forward {
+		pattern = fmt.Sprintf(`(start)-[rels:%s*1..%d]->(reached:Entity {org:$org})`, strings.Join(relTypes, "|"), hops)
+	}
+	q := fmt.Sprintf(`MATCH (start:Entity {org:$org, kind:$kind, id:$id})
+MATCH %s
+WHERE reached <> start AND all(rel IN rels WHERE rel.validFrom <= datetime($at) AND (rel.validTo IS NULL OR rel.validTo > datetime($at)))
+WITH reached, min(size(rels)) AS hop
+MATCH (reached)-[:HAS_VERSION]->(v:Version {org:$org})
+WHERE v.validFrom <= datetime($at) AND (v.validTo IS NULL OR v.validTo > datetime($at))
+RETURN v.kind, v.id, v.name, v.status, v.cluster, v.doc, hop
+ORDER BY hop, v.kind, v.id`, pattern)
+	res, err := d.C.Run(ctx, sc.S(q, map[string]any{"kind": kind, "id": id, "at": ts(at)}))
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	out := make([]Reached, 0, len(res[0].Rows))
+	for _, row := range res[0].Rows {
+		out = append(out, Reached{
+			EntitySnapshot: EntitySnapshot{Kind: str(row[0]), ID: str(row[1]), Name: str(row[2]), Status: str(row[3]), Cluster: str(row[4]), Doc: json.RawMessage(str(row[5]))},
+			Hops:           int(i64(row[6])),
+		})
+	}
+	return at, out, nil
+}
+
+// ---- structural diff ----
+
+// EntityDiff describes how one entity looked different between two moments: which fields moved, from
+// what to what - the same per-field Change Timeline already reports between an entity's own successive
+// versions (see diffDocs), generalized here to compare two arbitrary instants rather than two adjacent
+// ones.
+type EntityDiff struct {
+	Kind    string   `json:"kind"`
+	ID      string   `json:"id"`
+	Name    string   `json:"name,omitempty"`
+	Changes []Change `json:"changes"`
+}
+
+// StructuralDiff is what changed across the whole estate between two moments: entities that came into
+// existence, entities that were retired, and entities present at both moments but that looked
+// different by the second one - down to which fields moved. Built from two AsOfEntities reads rather
+// than the event log, so it still answers precisely even across a span the event log has since pruned,
+// or for a kind (an application) that events were never written for.
+type StructuralDiff struct {
+	From    time.Time        `json:"from"`
+	To      time.Time        `json:"to"`
+	Added   []EntitySnapshot `json:"added"`
+	Removed []EntitySnapshot `json:"removed"`
+	Changed []EntityDiff     `json:"changed"`
+}
+
+// DiffEntities compares the estate as of `from` against the estate as of `to`, entity by entity. One
+// absent at `from` and present at `to` is Added; the reverse is Removed; one present at both, with a
+// doc that reads differently, is Changed, down to which fields moved. Neither moment needs anything to
+// have been recorded yet - an org with no history before `from` simply reports everything at `to` as
+// Added.
+func (d *DB) DiffEntities(ctx context.Context, org string, from, to time.Time) (StructuralDiff, error) {
+	fat, froms, err := d.AsOfEntities(ctx, org, from)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return StructuralDiff{}, err
+	}
+	tat, tos, err := d.AsOfEntities(ctx, org, to)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return StructuralDiff{}, err
+	}
+
+	byFrom := make(map[string]EntitySnapshot, len(froms))
+	for _, e := range froms {
+		byFrom[vkey(e.Kind, e.ID)] = e
+	}
+	byTo := make(map[string]EntitySnapshot, len(tos))
+	for _, e := range tos {
+		byTo[vkey(e.Kind, e.ID)] = e
+	}
+
+	out := StructuralDiff{From: fat, To: tat, Added: []EntitySnapshot{}, Removed: []EntitySnapshot{}, Changed: []EntityDiff{}}
+	for k, e := range byTo {
+		if _, ok := byFrom[k]; !ok {
+			out.Added = append(out.Added, e)
+		}
+	}
+	for k, e := range byFrom {
+		if _, ok := byTo[k]; !ok {
+			out.Removed = append(out.Removed, e)
+		}
+	}
+	for k, oe := range byFrom {
+		ne, ok := byTo[k]
+		if !ok {
+			continue
+		}
+		var od, nd map[string]any
+		_ = json.Unmarshal(oe.Doc, &od)
+		_ = json.Unmarshal(ne.Doc, &nd)
+		if ch := diffDocs(od, nd); len(ch) > 0 {
+			out.Changed = append(out.Changed, EntityDiff{Kind: ne.Kind, ID: ne.ID, Name: ne.Name, Changes: ch})
+		}
+	}
+	less := func(a, b EntitySnapshot) bool {
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		return a.ID < b.ID
+	}
+	sort.Slice(out.Added, func(i, j int) bool { return less(out.Added[i], out.Added[j]) })
+	sort.Slice(out.Removed, func(i, j int) bool { return less(out.Removed[i], out.Removed[j]) })
+	sort.Slice(out.Changed, func(i, j int) bool {
+		if out.Changed[i].Kind != out.Changed[j].Kind {
+			return out.Changed[i].Kind < out.Changed[j].Kind
+		}
+		return out.Changed[i].ID < out.Changed[j].ID
+	})
 	return out, nil
 }
 

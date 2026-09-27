@@ -213,6 +213,40 @@ export interface TimelineVersion {
   explains?: TimelineExplain[]
 }
 
+/** One entity a graph walk found or a structural diff reported, in the graph's own schema-agnostic
+ * shape - whatever kind it is, known to this UI or not. */
+export interface GraphEntity {
+  kind: string
+  id: string
+  name?: string
+  status?: string
+  cluster?: string
+  doc: unknown
+}
+
+/** One entity Dependents or Dependencies reached, alongside how many hops away it was. */
+export interface ReachedEntity extends GraphEntity {
+  hops: number
+}
+
+/** How one entity looked different between two moments a structural diff compared. */
+export interface EntityDiff {
+  kind: string
+  id: string
+  name?: string
+  changes: TimelineChange[]
+}
+
+/** What changed across the whole estate between two moments: entities added, entities removed, and
+ * entities present at both that looked different by the second one. */
+export interface StructuralDiff {
+  from: string
+  to: string
+  added: GraphEntity[]
+  removed: GraphEntity[]
+  changed: EntityDiff[]
+}
+
 export interface AuditRow {
   id: number
   at: string
@@ -403,6 +437,21 @@ export const api = {
   },
   storage: (c: Conn) => call<StorageInfo>(c, 'GET', '/api/v1/storage'),
   timeline: (c: Conn, kind: string, id: string) => call<Timeline>(c, 'GET', `/api/v1/timeline?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`),
+  // Dependents/Dependencies walk the graph's relationship edges backward/forward from one entity, as
+  // of a moment: "what breaks if this goes down" and "what this needs in order to keep working." hops
+  // defaults to 3 server-side when omitted.
+  dependents: (c: Conn, kind: string, id: string, at: string, hops?: number) =>
+    call<{ at: string; hops: number; reached?: ReachedEntity[] }>(
+      c, 'GET', `/api/v1/graph/dependents?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}&at=${encodeURIComponent(at)}${hops ? `&hops=${hops}` : ''}`,
+    ).then((r) => ({ ...r, reached: r.reached ?? [] })),
+  dependencies: (c: Conn, kind: string, id: string, at: string, hops?: number) =>
+    call<{ at: string; hops: number; reached?: ReachedEntity[] }>(
+      c, 'GET', `/api/v1/graph/dependencies?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}&at=${encodeURIComponent(at)}${hops ? `&hops=${hops}` : ''}`,
+    ).then((r) => ({ ...r, reached: r.reached ?? [] })),
+  structuralDiff: (c: Conn, from: string, to: string) =>
+    call<Partial<StructuralDiff>>(c, 'GET', `/api/v1/graph/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).then(
+      (r) => ({ from: r.from ?? from, to: r.to ?? to, added: r.added ?? [], removed: r.removed ?? [], changed: r.changed ?? [] }) as StructuralDiff,
+    ),
   audit: (c: Conn, q: { actor?: string; action?: string; target?: string; since?: string; until?: string; limit?: number } = {}) => {
     const p = new URLSearchParams()
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v))

@@ -437,6 +437,227 @@ func TestRecordDoesNotTouchAnEdgeItDidNotWrite(t *testing.T) {
 	}
 }
 
+func hasReached(rs []Reached, kind, id string) bool {
+	for _, r := range rs {
+		if r.Kind == kind && r.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// TestDependentsWalksBackwardAcrossRelationshipTypes checks the core claim behind "blast radius": every
+// relationship type this schema writes points from the dependent thing to the thing it depends on, so
+// walking backward from an entity finds what would notice if it disappeared - across more than one
+// relationship type in the same walk, not just the one nearest the start.
+func TestDependentsWalksBackwardAcrossRelationshipTypes(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate()) // s-1 CALLS s-2; both IN_CLUSTER their own cluster; p-1 PATH_TO c-2
+
+	sat, one, err := db.Dependents(ctx, org, t0, "service", "s-2", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sat.Equal(t0) {
+		t.Errorf("Dependents should resolve to the instant asked for: %v", sat)
+	}
+	if !hasReached(one, "service", "s-1") {
+		t.Errorf("s-1 calls s-2, so it should be one hop away: %v", one)
+	}
+	if hasReached(one, "cluster", "c-2") {
+		t.Errorf("c-2 does not depend on s-2, it hosts it: %v", one)
+	}
+
+	_, two, err := db.Dependents(ctx, org, t0, "cluster", "c-2", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		kind, id string
+		hop      int
+	}{{"node", "n-2", 1}, {"service", "s-2", 1}, {"path", "p-1", 1}, {"service", "s-1", 2}}
+	for _, w := range want {
+		found := false
+		for _, r := range two {
+			if r.Kind == w.kind && r.ID == w.id {
+				found = true
+				if r.Hops != w.hop {
+					t.Errorf("%s/%s: expected %d hops from c-2, got %d", w.kind, w.id, w.hop, r.Hops)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("walking backward from c-2 to 2 hops should reach %s/%s: %v", w.kind, w.id, two)
+		}
+	}
+}
+
+// TestDependenciesWalksForwardTheOppositeDirection is Dependents' mirror image: what an entity itself
+// needs, found by walking the same edges the other way.
+func TestDependenciesWalksForwardTheOppositeDirection(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate())
+
+	_, one, err := db.Dependencies(ctx, org, t0, "service", "s-1", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"service", "external", "cluster", "node"} {
+		found := false
+		for _, r := range one {
+			if r.Kind == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("s-1 depends directly on something of kind %s: %v", want, one)
+		}
+	}
+	if hasReached(one, "cluster", "c-2") {
+		t.Errorf("c-2 is two hops out (via s-2), should not appear at hops=1: %v", one)
+	}
+
+	_, two, err := db.Dependencies(ctx, org, t0, "service", "s-1", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasReached(two, "cluster", "c-2") {
+		t.Errorf("s-1 depends on s-2, which belongs to c-2, two hops out: %v", two)
+	}
+}
+
+// TestDependentsRespectsTheMomentAsked confirms the walk is temporal, not just structural: an edge
+// that closed before the moment asked about must not connect anything, the same discipline AsOfEntities
+// already holds for a single entity's own doc.
+func TestDependentsRespectsTheMomentAsked(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate())
+
+	after := estate()
+	after.Dependencies = after.Dependencies[1:] // drop d-1 (s-1 -> s-2): s-1 no longer calls s-2
+	t1 := t0.Add(time.Hour)
+	record(t, db, org, t1, after)
+
+	_, before, err := db.Dependents(ctx, org, t0, "service", "s-2", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasReached(before, "service", "s-1") {
+		t.Errorf("at t0, s-1 still called s-2: %v", before)
+	}
+	_, atT1, err := db.Dependents(ctx, org, t1, "service", "s-2", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasReached(atT1, "service", "s-1") {
+		t.Errorf("at t1, s-1 no longer calls s-2, so it should not be a dependent: %v", atT1)
+	}
+}
+
+func TestDependentsOfAnUnknownEntityIsNotFound(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	record(t, db, org, time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC), estate())
+	if _, _, err := db.Dependents(ctx, org, time.Now(), "service", "does-not-exist", 3); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("expected ErrNotFound for an unknown entity, got %v", err)
+	}
+}
+
+// TestWalkHopsAreClamped guards the reason the hop count is spliced into the Cypher rather than bound
+// the usual way: a caller-supplied hop count far beyond reason must not be trusted verbatim.
+func TestWalkHopsAreClamped(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate())
+	_, atMax, err := db.Dependencies(ctx, org, t0, "service", "s-1", maxWalkHops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, overMax, err := db.Dependencies(ctx, org, t0, "service", "s-1", maxWalkHops*10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(atMax) != len(overMax) {
+		t.Errorf("a hop count far beyond maxWalkHops should clamp to the same result: %d vs %d", len(atMax), len(overMax))
+	}
+}
+
+// TestDiffEntitiesReportsAddedRemovedAndChanged checks the three shapes a structural diff can take,
+// together: something new, something gone, and something that looked different by the second moment -
+// reusing diffDocs, Timeline's own per-field diff, rather than a new comparison of its own.
+func TestDiffEntitiesReportsAddedRemovedAndChanged(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate())
+
+	after := estate()
+	after.Services[0].Replicas = 3                                                                                  // s-1 changed
+	after.ExternalEndpoints = nil                                                                                   // ext-1 removed
+	after.Dependencies = after.Dependencies[:1]                                                                     // d-2 (s-1 -> ext-1) removed along with it
+	after.Nodes = append(after.Nodes, model.Node{ID: "n-3", ClusterID: "c-1", Name: "n3", Status: "ready", CPU: 2}) // n-3 added
+	t1 := t0.Add(time.Hour)
+	record(t, db, org, t1, after)
+
+	diff, err := db.DiffEntities(ctx, org, t0, t1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diff.From.Equal(t0) || !diff.To.Equal(t1) {
+		t.Errorf("diff should report the two moments it actually resolved to: %v -> %v", diff.From, diff.To)
+	}
+	addedHas := func(kind, id string) bool {
+		for _, e := range diff.Added {
+			if e.Kind == kind && e.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	removedHas := func(kind, id string) bool {
+		for _, e := range diff.Removed {
+			if e.Kind == kind && e.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	if !addedHas("node", "n-3") {
+		t.Errorf("n-3 is new at t1, should be Added: %v", diff.Added)
+	}
+	if !removedHas("external", "ext-1") {
+		t.Errorf("ext-1 dropped out at t1, should be Removed: %v", diff.Removed)
+	}
+	if !removedHas("dependency", "d-2") {
+		t.Errorf("d-2 dropped out along with ext-1, should be Removed: %v", diff.Removed)
+	}
+	var sChange *EntityDiff
+	for i := range diff.Changed {
+		if diff.Changed[i].Kind == "service" && diff.Changed[i].ID == "s-1" {
+			sChange = &diff.Changed[i]
+		}
+	}
+	if sChange == nil {
+		t.Fatalf("s-1's replica count changed, it should be reported as Changed: %v", diff.Changed)
+	}
+	found := false
+	for _, c := range sChange.Changes {
+		if c.Field == "replicas" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("s-1's Changed entry should include the replicas field: %+v", sChange.Changes)
+	}
+}
+
 func TestLinkEntitiesKeepsExactlyTheGivenMembersOpen(t *testing.T) {
 	db, org := testDB(t)
 	ctx := context.Background()

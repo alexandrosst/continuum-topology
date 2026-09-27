@@ -24,6 +24,9 @@ type GraphAPI interface {
 	WorkspaceRevs(ctx context.Context, org string, limit int) ([]graph.WorkspaceRev, error)
 	WorkspaceAt(ctx context.Context, org string, at time.Time) (graph.WorkspaceRev, error)
 	AsOfEntities(ctx context.Context, org string, at time.Time) (time.Time, []graph.EntitySnapshot, error)
+	Dependents(ctx context.Context, org string, at time.Time, kind, id string, hops int) (time.Time, []graph.Reached, error)
+	Dependencies(ctx context.Context, org string, at time.Time, kind, id string, hops int) (time.Time, []graph.Reached, error)
+	DiffEntities(ctx context.Context, org string, from, to time.Time) (graph.StructuralDiff, error)
 }
 
 func (a *Admin) graphAPI() GraphAPI {
@@ -75,6 +78,105 @@ func (a *Admin) graphSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"at": rfc(sat), "entities": entities})
+}
+
+// parseWalkParams reads the kind/id/at/hops query parameters Dependents and Dependencies share. hops
+// defaults to 3 when absent or not a positive number - enough to see past the entity's immediate
+// neighbours without walking the whole estate by default; DB.walk clamps it further regardless.
+func parseWalkParams(r *http.Request) (kind, id string, at time.Time, hops int, err error) {
+	kind, id = r.URL.Query().Get("kind"), r.URL.Query().Get("id")
+	if kind == "" || id == "" || len(id) > 300 {
+		return "", "", time.Time{}, 0, errors.New("give kind and id")
+	}
+	at, err = parseTime(r, "at")
+	if err != nil || at.IsZero() {
+		return "", "", time.Time{}, 0, errors.New("at must be an RFC 3339 time")
+	}
+	hops, _ = strconv.Atoi(r.URL.Query().Get("hops"))
+	if hops <= 0 {
+		hops = 3
+	}
+	return kind, id, at, hops, nil
+}
+
+// GET /graph/dependents?kind=&id=&at=&hops=: everything that would be affected, directly or
+// transitively, if this entity became unavailable at that moment - the graph walked backward along
+// every relationship type it knows (see DB.Dependents). "What breaks if this goes down."
+func (a *Admin) graphDependents(w http.ResponseWriter, r *http.Request) {
+	g := a.graphAPI()
+	if g == nil {
+		writeErr(w, 404, "graph traversal needs the graph database, which this server was started without")
+		return
+	}
+	kind, id, at, hops, err := parseWalkParams(r)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	sat, reached, err := g.Dependents(r.Context(), a.core(r).OrgID, at, kind, id, hops)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "no such record")
+		return
+	}
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"at": rfc(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
+}
+
+// GET /graph/dependencies?kind=&id=&at=&hops=: everything this entity itself relies on at that moment -
+// the same walk as dependents, outward instead of backward (see DB.Dependencies). "What this needs in
+// order to keep working."
+func (a *Admin) graphDependencies(w http.ResponseWriter, r *http.Request) {
+	g := a.graphAPI()
+	if g == nil {
+		writeErr(w, 404, "graph traversal needs the graph database, which this server was started without")
+		return
+	}
+	kind, id, at, hops, err := parseWalkParams(r)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	sat, reached, err := g.Dependencies(r.Context(), a.core(r).OrgID, at, kind, id, hops)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "no such record")
+		return
+	}
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"at": rfc(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
+}
+
+// GET /graph/diff?from=&to=: what changed structurally across the whole estate between two moments -
+// entities added, entities removed, and entities that looked different by the second moment, down to
+// which fields moved (see DB.DiffEntities). Two point-in-time reads compared, not a search through
+// events, so it still answers precisely even across a span the event log has since pruned.
+func (a *Admin) graphDiff(w http.ResponseWriter, r *http.Request) {
+	g := a.graphAPI()
+	if g == nil {
+		writeErr(w, 404, "a structural diff needs the graph database, which this server was started without")
+		return
+	}
+	from, err1 := parseTime(r, "from")
+	to, err2 := parseTime(r, "to")
+	if err := errors.Join(err1, err2); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if from.IsZero() || to.IsZero() {
+		writeErr(w, 400, "give both from and to as RFC 3339 times")
+		return
+	}
+	diff, err := g.DiffEntities(r.Context(), a.core(r).OrgID, from, to)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"from": rfc(diff.From), "to": rfc(diff.To), "added": diff.Added, "removed": diff.Removed, "changed": diff.Changed})
 }
 
 // GET /timeline?kind=service&id=...: every version of one record, what changed between them, the events
