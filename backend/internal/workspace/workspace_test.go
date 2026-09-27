@@ -173,6 +173,45 @@ func TestDeclareKeepsExistingRefsForRecordsThatAreGone(t *testing.T) {
 	}
 }
 
+func TestDeclareKeepsOverrideMetaAlongsideOverrides(t *testing.T) {
+	// This is the shape SaveWorkspace runs Declare() over on every save (see auth.go): a v4 document whose refs
+	// already carry a manual override's provenance. Before OverrideMeta existed on Ref, json.Unmarshal into
+	// map[string]Ref silently dropped the overrideMeta key here, and the re-marshal below wrote it back out -
+	// so a person's "who confirmed this, and when" was lost on the very next save, even though the frontend
+	// (src/lib/declared.ts) sends and expects it to round-trip exactly like overrides does.
+	doc := `{"schemaVersion":4,"clusters":[],"refs":{"cl-1":{"kind":"cluster","overrides":{"distribution":"k3s"},"overrideMeta":{"distribution":{"by":"alice","at":"2026-01-01T00:00:00Z"}}}}}`
+	out, _, err := Declare([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refs map[string]Ref
+	if err := json.Unmarshal(decode(t, out)["refs"], &refs); err != nil {
+		t.Fatal(err)
+	}
+	got := refs["cl-1"].OverrideMeta["distribution"]
+	if got.By != "alice" || got.At != "2026-01-01T00:00:00Z" {
+		t.Errorf("overrideMeta did not round-trip: refs[cl-1] = %+v", refs["cl-1"])
+	}
+}
+
+func TestDeclareCarriesOverrideMetaFromLegacyInlineRecords(t *testing.T) {
+	// Mirrors src/lib/declared.ts's refOf: an older (pre-v4) document can still carry overrideMeta inline on the
+	// discovered record itself, alongside overrides. Migrating it into a ref must keep the two together.
+	doc := `{"schemaVersion":3,"clusters":[{"id":"cl-1","source":"discovered","overrides":{"distribution":"k3s"},"overrideMeta":{"distribution":{"by":"bob","at":"2025-06-01T00:00:00Z"}}}]}`
+	out, _, err := Declare([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refs map[string]Ref
+	if err := json.Unmarshal(decode(t, out)["refs"], &refs); err != nil {
+		t.Fatal(err)
+	}
+	got := refs["cl-1"].OverrideMeta["distribution"]
+	if got.By != "bob" || got.At != "2025-06-01T00:00:00Z" {
+		t.Errorf("overrideMeta not migrated from inline record: refs[cl-1] = %+v", refs["cl-1"])
+	}
+}
+
 func TestDeclareRefusesNewerAndMalformed(t *testing.T) {
 	_, _, err := Declare([]byte(`{"schemaVersion":5,"clusters":[]}`))
 	var nw ErrNewer

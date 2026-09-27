@@ -43,13 +43,21 @@ var observedKinds = []struct{ Key, Kind string }{
 	{"services", "service"},
 }
 
+// OverrideMeta says who set an overridden field by hand, and when - shown next to the value in the UI so a
+// confirmed field says who stands behind it (see src/lib/types.ts's identical shape, which this mirrors).
+type OverrideMeta struct {
+	By string `json:"by"`
+	At string `json:"at"`
+}
+
 // Ref is what a person said about one observed record: the values they overrode and the assignments they made.
 // It is keyed by the record's stable id in the document's "refs" section.
 type Ref struct {
-	Kind          string         `json:"kind"`
-	Overrides     map[string]any `json:"overrides,omitempty"`
-	ApplicationID string         `json:"applicationId,omitempty"`
-	SiteID        string         `json:"siteId,omitempty"`
+	Kind          string                  `json:"kind"`
+	Overrides     map[string]any          `json:"overrides,omitempty"`
+	OverrideMeta  map[string]OverrideMeta `json:"overrideMeta,omitempty"`
+	ApplicationID string                  `json:"applicationId,omitempty"`
+	SiteID        string                  `json:"siteId,omitempty"`
 }
 
 func (r Ref) empty() bool { return len(r.Overrides) == 0 && r.ApplicationID == "" && r.SiteID == "" }
@@ -180,6 +188,10 @@ func Declare(data []byte) ([]byte, Report, error) {
 			var ov map[string]any
 			if raw, ok := r["overrides"]; ok && json.Unmarshal(raw, &ov) == nil && len(ov) > 0 {
 				ref.Overrides = ov
+				var meta map[string]OverrideMeta
+				if raw, ok := r["overrideMeta"]; ok && json.Unmarshal(raw, &meta) == nil && len(meta) > 0 {
+					ref.OverrideMeta = meta
+				}
 			}
 			if id != "" && !ref.empty() {
 				refs[id] = ref
