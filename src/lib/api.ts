@@ -394,7 +394,7 @@ export const api = {
     call<MailConfig>(c, 'PUT', '/api/v1/mail', m),
   history: (c: Conn, since?: string) =>
     call<Partial<HistoryIndex>>(c, 'GET', `/api/v1/history${since ? `?since=${encodeURIComponent(since)}` : ''}`).then((h) => ({ points: h.points ?? [], snapshotMinutes: h.snapshotMinutes ?? 5, retentionDays: h.retentionDays ?? 30 }) as HistoryIndex),
-  snapshot: (c: Conn, at: string) => call<{ at: string; topology?: Partial<Snapshot['topology']> }>(c, 'GET', `/api/v1/history/snapshot?at=${encodeURIComponent(at)}`).then(normalizeSnapshot),
+  snapshot: (c: Conn, at: string) => call<{ at: string; topology?: Partial<Snapshot['topology']>; agents?: Snapshot['agents'] }>(c, 'GET', `/api/v1/history/snapshot?at=${encodeURIComponent(at)}`).then(normalizeSnapshot),
   traffic: (c: Conn, hours: number) => call<{ hours: number; snapshots: number; rates?: TrafficRate[] }>(c, 'GET', `/api/v1/history/traffic?hours=${hours}`).then((r) => ({ ...r, rates: r.rates ?? [] })),
   events: (c: Conn, q: { since?: string; until?: string; kind?: string; cluster?: string; limit?: number } = {}) => {
     const p = new URLSearchParams()

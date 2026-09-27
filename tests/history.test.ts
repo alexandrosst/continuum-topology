@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { ageOf, atSnapshot, normalizeSettings, normalizeSnapshot, parseEventRetention, pointAt, kindLabel, DEFAULT_SETTINGS } from '../src/lib/history'
-import { DEFAULT_ORG, type Cluster, type Model, type Service } from '../src/lib/types'
+import { ageOf, atSnapshot, historicAgents, normalizeSettings, normalizeSnapshot, parseEventRetention, pointAt, kindLabel, DEFAULT_SETTINGS, type HistoricAgent } from '../src/lib/history'
+import { DEFAULT_ORG, type Agent, type Cluster, type Model, type Service } from '../src/lib/types'
 import { seedTopology } from '../src/lib/seed'
 
 let failed = 0
@@ -112,6 +112,44 @@ test('atSnapshot: hand-made records are kept as they are, since a recording of a
   const now: Model = { ...EMPTY, clusters: [cl('m', { source: 'manual' })] }
   const past = atSnapshot(now, normalizeSnapshot({ at: SEEN }).topology)
   assert.deepEqual(past.clusters.map((c) => c.id), ['m'])
+})
+
+const ag = (id: string, extra: Partial<Agent> = {}): Agent =>
+  ({ id, orgId: DEFAULT_ORG, name: id, version: '1.0.0', accessTier: 1, status: 'approved', fingerprint: 'fp', modules: [], installedTier: 1, tierCap: 1, connected: true, ...extra }) as Agent
+
+const hag = (id: string, extra: Partial<HistoricAgent> = {}): HistoricAgent =>
+  ({ id, name: id, status: 'approved', installedTier: 1, tierCap: 1, accessTier: 1, ...extra })
+
+test('historicAgents: the live agent is the base, the recording overlays what changed', () => {
+  const live = ag('a1', { name: 'edge-collector-now', clusterId: 'c-2', accessTier: 2, connected: true, fingerprint: 'live-fp' })
+  const recorded = hag('a1', { name: 'edge-collector-then', status: 'approved', clusterId: 'c-1', accessTier: 1, tierCap: 2, k8sVersion: 'v1.29', reason: 'narrowed' })
+  const [merged] = historicAgents([recorded], [live])
+  // what was recorded then
+  assert.equal(merged.name, 'edge-collector-then')
+  assert.equal(merged.clusterId, 'c-1')
+  assert.equal(merged.accessTier, 1)
+  assert.equal(merged.tierCap, 2)
+  assert.equal(merged.kubernetesVersion, 'v1.29')
+  assert.equal(merged.reason, 'narrowed')
+  // identity a recording never carries stays as the live agent's
+  assert.equal(merged.id, 'a1')
+  assert.equal(merged.orgId, DEFAULT_ORG)
+  assert.equal(merged.fingerprint, 'live-fp')
+  assert.equal(merged.connected, true)
+})
+
+test('historicAgents: a recorded agent with no live counterpart is left out', () => {
+  const merged = historicAgents([hag('gone')], [ag('a1')])
+  assert.deepEqual(merged, [])
+})
+
+test('historicAgents: an agent unchanged since it was recorded overlays identically onto itself', () => {
+  const live = ag('a1', { name: 'steady', clusterId: 'c-1', accessTier: 1, installedTier: 1, tierCap: 1 })
+  const recorded = hag('a1', { name: 'steady', clusterId: 'c-1', accessTier: 1, installedTier: 1, tierCap: 1 })
+  const [merged] = historicAgents([recorded], [live])
+  assert.equal(merged.name, 'steady')
+  assert.equal(merged.clusterId, 'c-1')
+  assert.equal(merged.id, 'a1')
 })
 
 console.log(failed ? `\n${failed} FAILED` : '\nall passed')

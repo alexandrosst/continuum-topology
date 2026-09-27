@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api, type Conn } from '@/lib/api'
-import type { HistoryPoint, SnapshotTopology } from '@/lib/history'
+import type { HistoricAgent, HistoryPoint, SnapshotTopology } from '@/lib/history'
 
 /**
  * "The estate as it was": while a recorded moment is chosen, every page reads that moment instead of now.
@@ -11,6 +11,10 @@ interface HistoryView {
   /** The recorded moment being shown (RFC 3339), or null for the live view. */
   at: string | null
   snapshot: SnapshotTopology | null
+  /** Agents as the graph recorded them as of `at`. Empty (not merely absent) when the server has no
+   *  memory of any agent that far back; the topology store treats an empty list the same as null here -
+   *  nothing recorded, so today's agents are shown unchanged. */
+  agents: HistoricAgent[]
   loading: boolean
   error?: string
   /** Recorded moments, oldest first (for stepping between them). */
@@ -29,6 +33,7 @@ let ticket = 0
 export const useHistoryView = create<HistoryView>((set) => ({
   at: null,
   snapshot: null,
+  agents: [],
   loading: false,
   points: [],
   refusedAt: 0,
@@ -47,7 +52,7 @@ export const useHistoryView = create<HistoryView>((set) => ({
     try {
       const s = await api.snapshot(c, at)
       if (mine !== ticket) return null // a newer request replaced this one
-      set({ at: s.at, snapshot: s.topology, loading: false })
+      set({ at: s.at, snapshot: s.topology, agents: s.agents, loading: false })
       return s.at
     } catch (e) {
       if (mine !== ticket) return null
@@ -58,7 +63,7 @@ export const useHistoryView = create<HistoryView>((set) => ({
 
   live: () => {
     ticket++
-    set({ at: null, snapshot: null, loading: false, error: undefined })
+    set({ at: null, snapshot: null, agents: [], loading: false, error: undefined })
   },
 }))
 

@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware'
 import { applyEdit, applyEffective, confirmOverride, describeEdit, effective } from '@/lib/effective'
 import { normalize, pruneDependencies } from '@/lib/migrate'
 import { withObserved } from '@/lib/observed'
-import { atSnapshot } from '@/lib/history'
+import { atSnapshot, historicAgents } from '@/lib/history'
 import { refuseEdit, useHistoryView, viewingThePast } from './history'
 import { useObserved } from './observed'
 import { seedTopology } from '@/lib/seed'
@@ -400,8 +400,14 @@ export function useTopology<T>(selector?: (s: RawState) => T) {
   const liveDeps = useObserved((s) => s.dependencies)
   const liveExt = useObserved((s) => s.externalEndpoints)
   const past = useHistoryView((s) => s.snapshot)
+  const pastAgents = useHistoryView((s) => s.agents)
   const eff = useMemo<RawState>(() => {
     const model = past ? { ...raw, ...atSnapshot(raw, past) } : raw
+    // Agents don't come back through atSnapshot: unlike the seven kinds it projects, a recorded agent
+    // is not already a complete Agent (see historicAgents), so it is merged onto the live list here
+    // instead. No recording that far back (pastAgents empty, whether or not a moment is even being
+    // viewed) means today's agents, unchanged - the honest answer when there is nothing to show instead.
+    if (past && pastAgents.length > 0) model.agents = historicAgents(pastAgents, raw.agents)
     const e = { ...model, ...applyEffective(model) }
     const seen = past ? { dependencies: past.dependencies, externalEndpoints: past.externalEndpoints } : { dependencies: liveDeps, externalEndpoints: liveExt }
     return { ...e, ...withObserved(e, seen) }
@@ -409,7 +415,7 @@ export function useTopology<T>(selector?: (s: RawState) => T) {
     // deps below so unrelated store writes (e.g. a rename of an action, none exist here, or a future
     // field) don't force a recompute - only the fields actually used do.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents, suggestions, auditLog, liveDeps, liveExt, past])
+  }, [clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents, suggestions, auditLog, liveDeps, liveExt, past, pastAgents])
   return selector ? selector(eff) : eff
 }
 

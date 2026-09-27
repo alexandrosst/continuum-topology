@@ -1,4 +1,4 @@
-import type { Cluster, Dependency, ExternalEndpoint, MachineNode, Model, Namespace, Path, Service } from './types'
+import type { AccessTier, Agent, Cluster, Dependency, ExternalEndpoint, MachineNode, Model, Namespace, Path, Service } from './types'
 
 /* ---------- what the server sends ---------- */
 
@@ -105,12 +105,39 @@ export interface SnapshotTopology {
   paths: Path[]
 }
 
+/**
+ * An agent's graph-recorded state as of a recorded moment: what the server's history has kept about it
+ * (see the backend's HistoricAgent/AgentSnapshot), deliberately narrower than the live `Agent` type -
+ * never an identity secret, and silent about anything purely observational (connection state, reported
+ * diagnostics) that was never worth versioning in the first place.
+ */
+export interface HistoricAgent {
+  id: string
+  name: string
+  status: string
+  clusterId?: string
+  installedTier: number
+  tierCap: number
+  accessTier: number
+  version?: string
+  k8sVersion?: string
+  createdAt?: string
+  approvedAt?: string
+  approvedBy?: string
+  revokedAt?: string
+  reason?: string
+  lastSeen?: string
+  pausedCollectors?: string[]
+  excludedNamespaces?: string[]
+}
+
 export interface Snapshot {
   at: string
   topology: SnapshotTopology
+  agents: HistoricAgent[]
 }
 
-export function normalizeSnapshot(s: { at: string; topology?: Partial<SnapshotTopology> | null }): Snapshot {
+export function normalizeSnapshot(s: { at: string; topology?: Partial<SnapshotTopology> | null; agents?: HistoricAgent[] | null }): Snapshot {
   const t = s.topology ?? {}
   return {
     at: s.at,
@@ -123,6 +150,7 @@ export function normalizeSnapshot(s: { at: string; topology?: Partial<SnapshotTo
       externalEndpoints: t.externalEndpoints ?? [],
       paths: t.paths ?? [],
     },
+    agents: s.agents ?? [],
   }
 }
 
@@ -216,6 +244,43 @@ export function atSnapshot(raw: Model, snap: SnapshotTopology): Model {
   // Dependencies people declared stay, but only between things that existed then.
   const dependencies = raw.dependencies.filter((d) => (d.fromKind !== 'service' || ids.has(d.from)) && (d.toKind !== 'service' || ids.has(d.to)))
   return { ...raw, clusters, nodes, namespaces, services, dependencies }
+}
+
+/**
+ * Agents as they were recorded, for the same "past view" `atSnapshot` gives the seven polled kinds -
+ * but merged the other way around. Those kinds' recordings are already a complete, valid record on
+ * their own (the graph's doc IS the model type), so `past` takes the recording as the base and grafts a
+ * few always-current fields on. An agent's recording (`HistoricAgent`) is deliberately not a complete
+ * `Agent` - it never carried an identity secret or a purely observational field like its live connection
+ * state to begin with - so this goes the other way: the live agent is the base (it alone has the id's
+ * permanent identity, its modules, its connection telemetry), with the recording's own fields laid over
+ * the top, since those are exactly what changed and are worth showing as they were.
+ *
+ * An agent recorded then but gone from the live list entirely (never observed since, in practice never
+ * happens - agents are revoked or rejected, not deleted) has no live record to build from and is left
+ * out, the same way a service the graph forgot would be: there is nothing honest to show for it.
+ */
+export function historicAgents(historic: HistoricAgent[], live: Agent[]): Agent[] {
+  const byId = new Map(live.map((a) => [a.id, a]))
+  const out: Agent[] = []
+  for (const h of historic) {
+    const base = byId.get(h.id)
+    if (!base) continue
+    out.push({
+      ...base,
+      name: h.name,
+      status: h.status as Agent['status'],
+      clusterId: h.clusterId,
+      installedTier: h.installedTier as AccessTier,
+      tierCap: h.tierCap as AccessTier,
+      accessTier: h.accessTier as AccessTier,
+      version: h.version ?? base.version,
+      kubernetesVersion: h.k8sVersion ?? base.kubernetesVersion,
+      reason: h.reason ?? base.reason,
+      lastHeartbeat: h.lastSeen ?? base.lastHeartbeat,
+    })
+  }
+  return out
 }
 
 /** The recorded point closest to a moment (at or before it; the first one when it is earlier than all). */
