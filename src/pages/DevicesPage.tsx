@@ -1,17 +1,29 @@
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
+import ColumnPicker from '@/components/ColumnPicker'
 import { ConfirmModal, DeviceForm } from '@/components/forms'
 import { DEVICE_ICON } from '@/components/topology/nodes'
 import { Button, EmptyState, PageHeader, Pill, Select, SourceBadge, StatusDot, Table, Td, Th } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
+import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { CONNECTIVITY, DEVICE_KINDS, type Device } from '@/lib/types'
 import { useTopology } from '@/store/topology'
 import { matches, RowActions, SearchBox } from './shared'
+
+const DEVICE_COLUMNS: ColumnDef[] = [
+  { key: 'kind', label: 'Kind' },
+  { key: 'units', label: 'Units' },
+  { key: 'application', label: 'Application' },
+  { key: 'site', label: 'Site' },
+  { key: 'protocol', label: 'Protocol · link' },
+  { key: 'sendsTo', label: 'Sends to' },
+]
 
 export default function DevicesPage() {
   const { devices, applications, sites, nodes, dependencies, deleteDevice } = useTopology()
   const [q, setQ] = useState('')
   const [siteFilter, setSiteFilter] = useState('')
+  const { isVisible, toggle } = useColumnVisibility('devices')
   const [editing, setEditing] = useState<Device | null | 'new'>(null)
   const [deleting, setDeleting] = useState<Device | null>(null)
 
@@ -43,6 +55,7 @@ export default function DevicesPage() {
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </Select>
+        <ColumnPicker columns={DEVICE_COLUMNS} isVisible={isVisible} onToggle={toggle} />
       </div>
 
       {devices.length === 0 ? (
@@ -56,12 +69,12 @@ export default function DevicesPage() {
           <thead>
             <tr>
               <Th>Name</Th>
-              <Th>Kind</Th>
-              <Th>Units</Th>
-              <Th>Application</Th>
-              <Th>Site</Th>
-              <Th>Protocol · link</Th>
-              <Th>Sends to</Th>
+              {isVisible('kind') && <Th>Kind</Th>}
+              {isVisible('units') && <Th>Units</Th>}
+              {isVisible('application') && <Th>Application</Th>}
+              {isVisible('site') && <Th>Site</Th>}
+              {isVisible('protocol') && <Th>Protocol · link</Th>}
+              {isVisible('sendsTo') && <Th>Sends to</Th>}
               <Th>Status</Th>
               <Th className="sticky right-0 bg-nb-925" />
             </tr>
@@ -78,19 +91,19 @@ export default function DevicesPage() {
                     <SourceBadge source={d.source} overridden={hasOverrides(d)} />
                     {gw && <div className="whitespace-nowrap pl-6 text-xs font-normal text-nb-500">attached to {gw.name}</div>}
                   </Td>
-                  <Td><Pill>{kindLabel(d.kind)}</Pill></Td>
-                  <Td>{d.count}</Td>
-                  <Td>{appName(d.applicationId) ?? <span className="text-nb-600">—</span>}</Td>
-                  <Td className="whitespace-nowrap text-nb-400">{siteName(d.siteId) ?? '—'}</Td>
-                  <Td className="whitespace-nowrap text-nb-400">{[d.protocol, CONNECTIVITY.find((c) => c.value === d.connectivity)?.label].filter(Boolean).join(' · ')}</Td>
-                  <Td>{out}</Td>
+                  {isVisible('kind') && <Td><Pill>{kindLabel(d.kind)}</Pill></Td>}
+                  {isVisible('units') && <Td>{d.count}</Td>}
+                  {isVisible('application') && <Td>{appName(d.applicationId) ?? <span className="text-nb-600">—</span>}</Td>}
+                  {isVisible('site') && <Td className="whitespace-nowrap text-nb-400">{siteName(d.siteId) ?? '—'}</Td>}
+                  {isVisible('protocol') && <Td className="whitespace-nowrap text-nb-400">{[d.protocol, CONNECTIVITY.find((c) => c.value === d.connectivity)?.label].filter(Boolean).join(' · ')}</Td>}
+                  {isVisible('sendsTo') && <Td>{out}</Td>}
                   <Td><StatusDot status={d.status} withLabel /></Td>
                   <Td className="sticky right-0 bg-nb-925 group-hover:bg-nb-930"><RowActions onEdit={() => setEditing(d)} onDelete={() => setDeleting(d)} /></Td>
                 </tr>
               )
             })}
             {rows.length === 0 && (
-              <tr><Td colSpan={9} className="py-8 text-center text-nb-500">No devices match your filters.</Td></tr>
+              <tr><Td colSpan={3 + DEVICE_COLUMNS.filter((c) => isVisible(c.key)).length} className="py-8 text-center text-nb-500">No devices match your filters.</Td></tr>
             )}
           </tbody>
         </Table>

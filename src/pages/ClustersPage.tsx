@@ -1,10 +1,12 @@
 import { Plug, Plus } from 'lucide-react'
 import { useState } from 'react'
+import ColumnPicker from '@/components/ColumnPicker'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import { ClusterForm, ConfirmModal } from '@/components/forms'
 import PlacementHint from '@/components/PlacementHint'
 import { DistroIcon, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
 import { Button, CompletenessBadge, DeclaredMark, EmptyState, EvidenceChip, ObservationChip, PageHeader, SourceBadge, StatusDot, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
+import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { observation } from '@/lib/provenance'
 import { ageLabel, shortVersion } from '@/lib/present'
 import { completeness } from '@/lib/completeness'
@@ -14,6 +16,15 @@ import { useWeakValue } from '@/store/rowEvidence'
 import { useTopology } from '@/store/topology'
 import type { Cluster } from '@/lib/types'
 import { matches, RowActions, SearchBox } from './shared'
+
+const CLUSTER_COLUMNS: ColumnDef[] = [
+  { key: 'tier', label: 'Tier' },
+  { key: 'distro', label: 'Distribution / provider' },
+  { key: 'location', label: 'Location' },
+  { key: 'nodes', label: 'Nodes' },
+  { key: 'services', label: 'Services' },
+  { key: 'discovered', label: 'Discovered' },
+]
 
 export default function ClustersPage() {
   const { clusters, nodes, services, dependencies, sites, deleteCluster } = useTopology()
@@ -25,6 +36,7 @@ export default function ClustersPage() {
   const [q, setQ] = useState('')
   const [editing, setEditing] = useState<Cluster | null | 'new'>(null)
   const [deleting, setDeleting] = useState<Cluster | null>(null)
+  const { isVisible, toggle } = useColumnVisibility('clusters')
 
   const rows = clusters.filter((c) => matches(q, c.name, c.distribution, c.provider, c.region, c.tier, sites.find((x) => x.id === c.siteId)?.name))
 
@@ -39,8 +51,9 @@ export default function ClustersPage() {
           </Button>
         }
       />
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap gap-3">
         <SearchBox value={q} onChange={setQ} placeholder="Search clusters…" />
+        <ColumnPicker columns={CLUSTER_COLUMNS} isVisible={isVisible} onToggle={toggle} />
       </div>
 
       {clusters.length === 0 ? (
@@ -59,12 +72,12 @@ export default function ClustersPage() {
           <thead>
             <tr>
               <Th>Name</Th>
-              <Th>Tier</Th>
-              <Th>Distribution / provider</Th>
-              <Th>Location</Th>
-              <Th>Nodes</Th>
-              <Th>Services</Th>
-              <Th>Discovered</Th>
+              {isVisible('tier') && <Th>Tier</Th>}
+              {isVisible('distro') && <Th>Distribution / provider</Th>}
+              {isVisible('location') && <Th>Location</Th>}
+              {isVisible('nodes') && <Th>Nodes</Th>}
+              {isVisible('services') && <Th>Services</Th>}
+              {isVisible('discovered') && <Th>Discovered</Th>}
               <Th>Status</Th>
               <Th className="sticky right-0 bg-nb-925" />
             </tr>
@@ -87,38 +100,44 @@ export default function ClustersPage() {
                     {c.source === 'manual' && <DeclaredMark />}
                   </div>
                 </Td>
-                <Td>
-                  <TierBadge tier={c.tier} />
-                  {chip('tier') && <div className="mt-1">{chip('tier')}</div>}
-                </Td>
-                <Td>
-                  <WithIcon icon={<DistroIcon distribution={c.distribution} />}>
-                    <span title={c.version}>{c.distribution || '—'} <span className="text-nb-500">{shortVersion(c.version)}</span></span>
-                  </WithIcon>
-                  {chip('distribution') && <span className="ml-1.5">{chip('distribution')}</span>}
-                  {c.provider && (
-                    <div className="mt-0.5 flex items-center gap-1.5 text-xs text-nb-500">
-                      <WithIcon icon={<ProviderIcon provider={c.provider} />}>{c.provider}</WithIcon>
-                      {chip('provider')}
-                    </div>
-                  )}
-                </Td>
-                <Td>
-                  {(() => {
-                    const site = sites.find((x) => x.id === c.siteId)
-                    return (
-                      <div>
-                        <Place site={site} fallback={c.region} />
-                        {site && <div className="whitespace-nowrap pl-[26px] text-xs text-nb-500">{site.name}</div>}
-                        {!site && chip('region') && <div className="mt-0.5">{chip('region')}</div>}
-                        {!site && <PlacementHint compact suggestion={placement.get(c.id)} egressIp={c.egressIp} />}
+                {isVisible('tier') && (
+                  <Td>
+                    <TierBadge tier={c.tier} />
+                    {chip('tier') && <div className="mt-1">{chip('tier')}</div>}
+                  </Td>
+                )}
+                {isVisible('distro') && (
+                  <Td>
+                    <WithIcon icon={<DistroIcon distribution={c.distribution} />}>
+                      <span title={c.version}>{c.distribution || '—'} <span className="text-nb-500">{shortVersion(c.version)}</span></span>
+                    </WithIcon>
+                    {chip('distribution') && <span className="ml-1.5">{chip('distribution')}</span>}
+                    {c.provider && (
+                      <div className="mt-0.5 flex items-center gap-1.5 text-xs text-nb-500">
+                        <WithIcon icon={<ProviderIcon provider={c.provider} />}>{c.provider}</WithIcon>
+                        {chip('provider')}
                       </div>
-                    )
-                  })()}
-                </Td>
-                <Td>{nodes.filter((n) => n.clusterId === c.id).length}</Td>
-                <Td>{services.filter((w) => w.clusterId === c.id).length}</Td>
-                <Td><CompletenessBadge compact c={completeness(c, nodes, services, dependencies)} /></Td>
+                    )}
+                  </Td>
+                )}
+                {isVisible('location') && (
+                  <Td>
+                    {(() => {
+                      const site = sites.find((x) => x.id === c.siteId)
+                      return (
+                        <div>
+                          <Place site={site} fallback={c.region} />
+                          {site && <div className="whitespace-nowrap pl-[26px] text-xs text-nb-500">{site.name}</div>}
+                          {!site && chip('region') && <div className="mt-0.5">{chip('region')}</div>}
+                          {!site && <PlacementHint compact suggestion={placement.get(c.id)} egressIp={c.egressIp} />}
+                        </div>
+                      )
+                    })()}
+                  </Td>
+                )}
+                {isVisible('nodes') && <Td>{nodes.filter((n) => n.clusterId === c.id).length}</Td>}
+                {isVisible('services') && <Td>{services.filter((w) => w.clusterId === c.id).length}</Td>}
+                {isVisible('discovered') && <Td><CompletenessBadge compact c={completeness(c, nodes, services, dependencies)} /></Td>}
                 <Td><StatusDot status={c.status} withLabel notCurrent={obs && obs.kind !== 'live' ? (obs.reason ?? obs.label) : undefined} /></Td>
                 <Td className="sticky right-0 bg-nb-925 group-hover:bg-nb-930"><RowActions onEdit={() => setEditing(c)} onDelete={() => setDeleting(c)} /></Td>
               </tr>
@@ -126,7 +145,7 @@ export default function ClustersPage() {
             })}
             {rows.length === 0 && (
               <tr>
-                <Td colSpan={9} className="py-8 text-center text-nb-500" >No clusters match “{q}”.</Td>
+                <Td colSpan={3 + CLUSTER_COLUMNS.filter((c) => isVisible(c.key)).length} className="py-8 text-center text-nb-500" >No clusters match “{q}”.</Td>
               </tr>
             )}
           </tbody>

@@ -1,9 +1,11 @@
 import { AlertTriangle, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import ColumnPicker from '@/components/ColumnPicker'
 import { ConfirmModal, SiteForm } from '@/components/forms'
 import MeasuredPaths from '@/components/MeasuredPaths'
 import { Place } from '@/components/ui/brand'
 import { Button, EmptyState, PageHeader, Pill, Table, Td, Th } from '@/components/ui/primitives'
+import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { siteLocationIssue } from '@/lib/places'
 import { usePlaceIndex } from '@/lib/places-data'
 import { countryName } from '@/lib/present'
@@ -11,9 +13,16 @@ import { SITE_KINDS, type Site } from '@/lib/types'
 import { useTopology } from '@/store/topology'
 import { matches, RowActions, SearchBox } from './shared'
 
+const SITE_COLUMNS: ColumnDef[] = [
+  { key: 'kind', label: 'Kind' },
+  { key: 'location', label: 'Location' },
+  { key: 'clusters', label: 'Clusters' },
+]
+
 export default function SitesPage() {
   const { sites, clusters, deleteSite } = useTopology()
   const [q, setQ] = useState('')
+  const { isVisible, toggle } = useColumnVisibility('sites')
   const [editing, setEditing] = useState<Site | null | 'new'>(null)
   const [deleting, setDeleting] = useState<Site | null>(null)
 
@@ -34,8 +43,9 @@ export default function SitesPage() {
           </Button>
         }
       />
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap gap-3">
         <SearchBox value={q} onChange={setQ} placeholder="Search sites…" />
+        <ColumnPicker columns={SITE_COLUMNS} isVisible={isVisible} onToggle={toggle} />
       </div>
 
       {sites.length === 0 ? (
@@ -49,9 +59,9 @@ export default function SitesPage() {
           <thead>
             <tr>
               <Th>Name</Th>
-              <Th>Kind</Th>
-              <Th>Location</Th>
-              <Th>Clusters</Th>
+              {isVisible('kind') && <Th>Kind</Th>}
+              {isVisible('location') && <Th>Location</Th>}
+              {isVisible('clusters') && <Th>Clusters</Th>}
               <Th className="sticky right-0 bg-nb-925" />
             </tr>
           </thead>
@@ -59,22 +69,24 @@ export default function SitesPage() {
             {rows.map((s) => (
               <tr key={s.id} className="group hover:bg-nb-930/60">
                 <Td className="font-medium text-nb-300">{s.name}</Td>
-                <Td><Pill>{kindLabel(s.kind)}</Pill></Td>
-                <Td>
-                  <Place site={s} />
-                  <div className="whitespace-nowrap pl-[26px] font-mono text-xs text-nb-500">{s.lat.toFixed(2)}, {s.lng.toFixed(2)}</div>
-                  {issues.has(s.id) && (
-                    <div className="mt-0.5 flex items-center gap-1 pl-[26px] text-xs text-warn" title={issues.get(s.id)}>
-                      <AlertTriangle size={12} aria-hidden /> Country and coordinates disagree
-                    </div>
-                  )}
-                </Td>
-                <Td className="text-nb-400">{clusters.filter((c) => c.siteId === s.id).map((c) => c.name).join(', ') || '—'}</Td>
+                {isVisible('kind') && <Td><Pill>{kindLabel(s.kind)}</Pill></Td>}
+                {isVisible('location') && (
+                  <Td>
+                    <Place site={s} />
+                    <div className="whitespace-nowrap pl-[26px] font-mono text-xs text-nb-500">{s.lat.toFixed(2)}, {s.lng.toFixed(2)}</div>
+                    {issues.has(s.id) && (
+                      <div className="mt-0.5 flex items-center gap-1 pl-[26px] text-xs text-warn" title={issues.get(s.id)}>
+                        <AlertTriangle size={12} aria-hidden /> Country and coordinates disagree
+                      </div>
+                    )}
+                  </Td>
+                )}
+                {isVisible('clusters') && <Td className="text-nb-400">{clusters.filter((c) => c.siteId === s.id).map((c) => c.name).join(', ') || '—'}</Td>}
                 <Td className="sticky right-0 bg-nb-925 group-hover:bg-nb-930"><RowActions onEdit={() => setEditing(s)} onDelete={() => setDeleting(s)} /></Td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><Td colSpan={5} className="py-8 text-center text-nb-500">No sites match “{q}”.</Td></tr>
+              <tr><Td colSpan={2 + SITE_COLUMNS.filter((c) => isVisible(c.key)).length} className="py-8 text-center text-nb-500">No sites match “{q}”.</Td></tr>
             )}
           </tbody>
         </Table>

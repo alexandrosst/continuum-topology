@@ -1,11 +1,13 @@
 import { Plug, Plus, X } from 'lucide-react'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import ColumnPicker from '@/components/ColumnPicker'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import { ConfirmModal, ServiceForm } from '@/components/forms'
 import { MobilityChip, useMoveModel } from '@/components/MobilityPanel'
 import { GoneRecords } from '@/components/Observations'
 import { Button, ChipList, DeclaredMark, EmptyState, EvidenceChip, ObservationChip, PageHeader, Pill, Select, SourceBadge, StatusDot, Table, Td, Th } from '@/components/ui/primitives'
+import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { observation } from '@/lib/provenance'
 import { useWeakValue } from '@/store/rowEvidence'
 import { useTopology } from '@/store/topology'
@@ -13,12 +15,22 @@ import { hasOverrides } from '@/lib/effective'
 import type { Service } from '@/lib/types'
 import { matches, RowActions, SearchBox, ServiceTraits } from './shared'
 
+const SERVICE_COLUMNS: ColumnDef[] = [
+  { key: 'cluster', label: 'Cluster' },
+  { key: 'application', label: 'Application' },
+  { key: 'kind', label: 'Kind' },
+  { key: 'runsOn', label: 'Runs on' },
+  { key: 'calls', label: 'Calls' },
+  { key: 'mobility', label: 'Mobility' },
+]
+
 export default function ServicesPage() {
   const { clusters, nodes, services, dependencies, applications, deleteService } = useTopology()
   const { forService } = useMoveModel()
   const weak = useWeakValue('service')
   const connect = useConnectFlow()
   const [q, setQ] = useState('')
+  const { isVisible, toggle } = useColumnVisibility('services')
   // The cluster and namespace filters live in the address (?cluster=…&namespace=…), so the Namespaces page can link here and a filtered view can be shared.
   const [sp, setSp] = useSearchParams()
   const wantCluster = sp.get('cluster') ?? ''
@@ -58,6 +70,7 @@ export default function ServicesPage() {
             Namespace {nsFilter} <X size={14} aria-hidden />
           </button>
         )}
+        <ColumnPicker columns={SERVICE_COLUMNS} isVisible={isVisible} onToggle={toggle} />
       </div>
 
       {services.length === 0 ? (
@@ -70,12 +83,12 @@ export default function ServicesPage() {
           <thead>
             <tr>
               <Th>Name</Th>
-              <Th>Cluster</Th>
-              <Th>Application</Th>
-              <Th>Kind</Th>
-              <Th>Runs on</Th>
-              <Th>Calls</Th>
-              <Th>Mobility</Th>
+              {isVisible('cluster') && <Th>Cluster</Th>}
+              {isVisible('application') && <Th>Application</Th>}
+              {isVisible('kind') && <Th>Kind</Th>}
+              {isVisible('runsOn') && <Th>Runs on</Th>}
+              {isVisible('calls') && <Th>Calls</Th>}
+              {isVisible('mobility') && <Th>Mobility</Th>}
               <Th>Status</Th>
               <Th className="sticky right-0 bg-nb-925" />
             </tr>
@@ -88,24 +101,28 @@ export default function ServicesPage() {
                   <div className="font-mono text-xs text-nb-500">{w.image || '—'} · ×{w.replicas}</div>
                   <ServiceTraits w={w} nodeName={nodeName} />
                 </Td>
-                <Td className="whitespace-nowrap">
-                  {clusterName(w.clusterId)}
-                  <div className="text-xs text-nb-500" title="Namespace">{w.namespace}</div>
-                </Td>
-                <Td className="whitespace-nowrap text-nb-400">
-                  {applications.find((a) => a.id === w.applicationId)?.name ?? '—'}
-                  {(() => { const g = w.applicationId ? weak(w as never, 'applicationId') : undefined; return g ? <> <EvidenceChip level={g.level} why={g.why} /></> : null })()}
-                </Td>
-                <Td><Pill>{w.kind}</Pill></Td>
-                <Td><ChipList items={w.nodeIds.map(nodeName)} /></Td>
-                <Td>{dependencies.filter((d) => d.from === w.id).length}</Td>
-                <Td><MobilityChip service={w} forService={forService} /></Td>
+                {isVisible('cluster') && (
+                  <Td className="whitespace-nowrap">
+                    {clusterName(w.clusterId)}
+                    <div className="text-xs text-nb-500" title="Namespace">{w.namespace}</div>
+                  </Td>
+                )}
+                {isVisible('application') && (
+                  <Td className="whitespace-nowrap text-nb-400">
+                    {applications.find((a) => a.id === w.applicationId)?.name ?? '—'}
+                    {(() => { const g = w.applicationId ? weak(w as never, 'applicationId') : undefined; return g ? <> <EvidenceChip level={g.level} why={g.why} /></> : null })()}
+                  </Td>
+                )}
+                {isVisible('kind') && <Td><Pill>{w.kind}</Pill></Td>}
+                {isVisible('runsOn') && <Td><ChipList items={w.nodeIds.map(nodeName)} /></Td>}
+                {isVisible('calls') && <Td>{dependencies.filter((d) => d.from === w.id).length}</Td>}
+                {isVisible('mobility') && <Td><MobilityChip service={w} forService={forService} /></Td>}
                 <Td>{(() => { const o = observation(w); return <StatusDot status={w.status} withLabel notCurrent={o && o.kind !== 'live' ? (o.reason ?? o.label) : undefined} /> })()}</Td>
                 <Td className="sticky right-0 bg-nb-925 group-hover:bg-nb-930"><RowActions onEdit={() => setEditing(w)} onDelete={() => setDeleting(w)} /></Td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><Td colSpan={9} className="py-8 text-center text-nb-500">No services match your filters.</Td></tr>
+              <tr><Td colSpan={3 + SERVICE_COLUMNS.filter((c) => isVisible(c.key)).length} className="py-8 text-center text-nb-500">No services match your filters.</Td></tr>
             )}
           </tbody>
         </Table>
