@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 
 /** One column a list page's ColumnPicker offers to hide - key is what is stored, label is what shows in
- *  the picker. A page's "core" columns (name, actions) simply never appear here: they're not optional. */
+ *  the picker. A page's "core" columns (name, actions) simply never appear here: they're not optional.
+ *  `width` is only needed by a page whose `<Table>` uses a fixed `cols` layout (most list pages don't -
+ *  see NamespacesPage for the one that does): keeping it on the same definition as the key/label means a
+ *  page doesn't hand-maintain a second, parallel array that has to stay in the same order as this one. */
 export interface ColumnDef {
   key: string
   label: string
+  width?: string
 }
 
 const PREFIX = 'continuum:columns:'

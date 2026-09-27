@@ -16,13 +16,12 @@ import { SearchBox } from './shared'
 const servicesOf = (r: Pick<NamespaceRow, 'clusterId' | 'name'>) => `/services?cluster=${encodeURIComponent(r.clusterId)}&namespace=${encodeURIComponent(r.name)}`
 
 const NAMESPACE_COLUMNS: ColumnDef[] = [
-  { key: 'services', label: 'Services' },
-  { key: 'exposed', label: 'Exposed' },
-  { key: 'mesh', label: 'Service mesh' },
-  { key: 'scope', label: 'Agent scope' },
-  { key: 'state', label: 'State' },
+  { key: 'services', label: 'Services', width: 'w-44' },
+  { key: 'exposed', label: 'Exposed', width: 'w-24' },
+  { key: 'mesh', label: 'Service mesh', width: 'w-52' },
+  { key: 'scope', label: 'Agent scope', width: 'w-32' },
+  { key: 'state', label: 'State', width: 'w-32' },
 ]
-const NAMESPACE_COL_WIDTH: Record<string, string> = { services: 'w-44', exposed: 'w-24', mesh: 'w-52', scope: 'w-32', state: 'w-32' }
 
 export default function NamespacesPage() {
   const { clusters, namespaces, services, agents } = useTopology()
@@ -68,7 +67,7 @@ export default function NamespacesPage() {
         />
       ) : (
         <>
-          <Table cols={['w-52', 'w-44', ...NAMESPACE_COLUMNS.filter((c) => isVisible(c.key)).map((c) => NAMESPACE_COL_WIDTH[c.key])]}>
+          <Table cols={['w-52', 'w-44', ...NAMESPACE_COLUMNS.filter((c) => isVisible(c.key)).map((c) => c.width!)]}>
             <thead>
               <tr>
                 <Th>Namespace</Th>
