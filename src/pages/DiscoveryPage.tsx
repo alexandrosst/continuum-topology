@@ -175,7 +175,7 @@ export default function DiscoveryPage() {
             {waiting.length > 0 && <span className="text-warn"> · {waiting.length} waiting for approval</span>}
           </p>
           <Link to="/agents" className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline" data-testid="see-agents">
-            Agents: enrollment, approval, consent and health <ArrowRight size={14} aria-hidden />
+            Agents: enrollment, approval, observability intent and health <ArrowRight size={14} aria-hidden />
           </Link>
         </div>
       )}

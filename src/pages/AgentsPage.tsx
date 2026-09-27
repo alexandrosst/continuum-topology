@@ -360,7 +360,7 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
             </div>
             {canConsent && (
               <div>
-                <Heading>Consent</Heading>
+                <Heading>Observability intent</Heading>
                 <ConsentPanel agent={a} diagnostics={extras.diagnostics} consent={extras.consent} />
               </div>
             )}
@@ -369,7 +369,7 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
       )}
       {a.status === 'approved' && !extras.diagnostics && canConsent && (
         <div className="md:col-span-2 xl:col-span-3">
-          <Heading>Consent</Heading>
+          <Heading>Observability intent</Heading>
           <ConsentPanel agent={a} diagnostics={undefined} consent={extras.consent} />
         </div>
       )}

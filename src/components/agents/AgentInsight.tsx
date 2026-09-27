@@ -249,7 +249,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
   return (
     <div data-testid="consent-panel">
       <p className="mb-3 text-xs leading-relaxed text-nb-500">
-        This can only <span className="text-nb-300">reduce</span> what this agent shares. What it may read at most is set by whoever owns the cluster, when it was installed (its access tier, permissions and scope), and this server cannot exceed it: the agent checks that itself and ignores anything that would widen it.
+        This is the agent's <span className="text-nb-300">observability intent</span> — the scope of what it reads and reports. It can only <span className="text-nb-300">reduce</span> what this agent shares. What it may read at most is set by whoever owns the cluster, when it was installed (its access tier, permissions and scope), and this server cannot exceed it: the agent checks that itself and ignores anything that would widen it.
       </p>
 
       <div>
