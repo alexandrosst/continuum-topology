@@ -28,15 +28,24 @@ var ErrOutOfOrder = errors.New("that moment is older than the newest recorded on
 // something about it changes, because its owner already knows that moment rather than needing to
 // notice it by comparing two snapshots. Both kinds of entity share the same Entity/Version shape, so
 // Timeline and AsOf do not need to know which path recorded a given one.
-var kinds = []struct{ Kind, Label string }{
-	{"cluster", "Cluster"},
-	{"node", "Node"},
-	{"namespace", "Namespace"},
-	{"service", "Service"},
-	{"external", "ExternalEndpoint"},
-	{"dependency", "Dependency"},
-	{"path", "Path"},
-	{"agent", "Agent"},
+var kinds = []struct {
+	Kind, Label string
+	// Polled is true for a kind Record's own topology-poll manages end to end: it diffs a full picture
+	// of every one of them against what is open every time it runs, so anything of that kind it does not
+	// see any more is gone and its edges close. A kind recorded only through RecordEntity (agent today)
+	// never hands Record such a full picture - RecordEntity versions one entity because its owner told it
+	// to, not because a poll swept the whole estate - so Record's edge sweep must leave its edges alone
+	// entirely, in every relationship type, or it would close them again the moment it next runs.
+	Polled bool
+}{
+	{"cluster", "Cluster", true},
+	{"node", "Node", true},
+	{"namespace", "Namespace", true},
+	{"service", "Service", true},
+	{"external", "ExternalEndpoint", true},
+	{"dependency", "Dependency", true},
+	{"path", "Path", true},
+	{"agent", "Agent", false},
 }
 
 func labelOf(kind string) string {
@@ -46,6 +55,16 @@ func labelOf(kind string) string {
 		}
 	}
 	return ""
+}
+
+// polledKind says whether Record's own edge sweep owns an entity of this kind - see kinds.Polled.
+func polledKind(kind string) bool {
+	for _, k := range kinds {
+		if k.Kind == kind {
+			return k.Polled
+		}
+	}
+	return false
 }
 
 type ver struct {
@@ -317,7 +336,10 @@ CREATE (e)-[:HAS_VERSION]->(v)`, k.Label), map[string]any{"rows": rows, "at": at
 	for _, rt := range relTypes {
 		var closing, opening []row
 		for k := range openEdge {
-			if e, ok := parseEdgeKey(k); ok && e.Type == rt {
+			// Only an edge belonging to a kind Record's own poll actually covers is a candidate for
+			// closing here - one RecordEntity opened (an agent's IN_CLUSTER edge) is invisible to
+			// extract(t) by construction, not because it went away, and must be left exactly as it is.
+			if e, ok := parseEdgeKey(k); ok && e.Type == rt && polledKind(e.FK) {
 				if _, still := es[k]; !still {
 					closing = append(closing, row{"key": k})
 				}

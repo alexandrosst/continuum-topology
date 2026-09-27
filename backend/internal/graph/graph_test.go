@@ -394,6 +394,49 @@ func TestAsOfEntitiesSaysWhenItHasNoMemoryThatFarBack(t *testing.T) {
 	}
 }
 
+// TestRecordDoesNotTouchAnEdgeItDidNotWrite guards a real bug: Record's own edge sweep for a
+// relationship type it shares with RecordEntity (IN_CLUSTER: polled kinds use it too) used to close
+// ANY currently-open edge of that type it did not see in the topology it was just given - including
+// one RecordEntity opened for an agent, which a topology poll never reports and so never "sees" by
+// design. In production that meant an agent's cluster edge was closed again by the very next scheduled
+// poll, minutes after RecordEntity opened it, silently breaking "which cluster was this agent in"
+// before anyone could query it. Record must leave an edge alone entirely unless the edge belongs to a
+// kind its own poll actually covers.
+func TestRecordDoesNotTouchAnEdgeItDidNotWrite(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	e := estate() // clusters c-1/c-2, services/nodes attached to them via their own IN_CLUSTER edges
+	record(t, db, org, t0, e)
+	if err := db.RecordEntity(ctx, org, t0.Add(time.Minute), "agent", "ag-1", "edge-collector", "approved", "c-1", map[string]any{"x": 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A normal poll, repeatedly, finding nothing new about the topology at all - what recorder.go's
+	// scan() does every few minutes regardless of whether anything about an agent ever changes.
+	for i := 1; i <= 3; i++ {
+		if err := db.Record(ctx, org, t0.Add(time.Duration(i+1)*time.Minute), e, fmt.Sprintf("fp%d", i), 10); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (:Entity {org:$org, kind:'agent', id:'ag-1'})-[r:IN_CLUSTER {org:$org}]->(c:Cluster) WHERE r.validTo IS NULL RETURN c.id`, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res[0].Rows) != 1 || str(res[0].Rows[0][0]) != "c-1" {
+		t.Fatalf("the agent's cluster edge should have survived three unrelated polls untouched, got %v", res[0].Rows)
+	}
+	// The polled kinds' own IN_CLUSTER edges are unaffected by the fix either way.
+	nodeEdges, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (:Entity {org:$org, kind:'node', id:'n-1'})-[r:IN_CLUSTER {org:$org}]->(c:Cluster) WHERE r.validTo IS NULL RETURN c.id`, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodeEdges[0].Rows) != 1 || str(nodeEdges[0].Rows[0][0]) != "c-1" {
+		t.Errorf("a polled kind's own edge should be exactly as the topology says: %v", nodeEdges[0].Rows)
+	}
+}
+
 func TestEventsExplainTheVersionTheyProduced(t *testing.T) {
 	db, org := testDB(t)
 	ctx := context.Background()
