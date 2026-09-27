@@ -42,6 +42,26 @@ That should print `Passthrough`. If it prints `Terminate` (or nothing), the Gate
 
 `agent.service.type=LoadBalancer` (the default) asked the cluster for an external address, and nothing is answering that request. This means there's no load-balancer controller available — common on bare-metal or fully self-managed clusters. Either switch to `agent.service.type=NodePort` (works everywhere, see the [Quickstart](../getting-started/quickstart.md)), or install something like MetalLB to get real LoadBalancer support.
 
+## `the graph database is not reachable: dial tcp ...: connect: no route to host`
+
+This is what the History page shows when the server can't reach Neo4j — and it's easy to assume the cause is a Kubernetes `NetworkPolicy`, since that's exactly the kind of thing that produces this error. Check that first, but don't stop there: `neo4j.networkPolicy.enabled` and the server-wide `networkPolicy.enabled` both default to `false`, so on a fresh install there usually isn't a `NetworkPolicy` involved at all (`kubectl get networkpolicy -A` returning nothing rules this cause out immediately).
+
+On a self-managed cluster (k3s, kubeadm, anything where you also administer the node's own OS) the more likely cause is a host firewall that has nothing to do with Kubernetes: `firewalld`, running independently of whatever `ufw` reports (`ufw status` being `inactive` tells you nothing about `firewalld` — they're two separate services, and both can be installed on the same box). If `firewalld` is active and the CNI bridge (`cni0`, plus `flannel.1` for cross-node traffic) was never assigned to one of its zones, that interface silently falls under `firewalld`'s restrictive default zone, and pod-to-pod traffic is rejected before it ever reaches Kubernetes' own networking — `kubectl` and every NetworkPolicy can look completely correct while this blocks everything:
+
+```bash
+sudo firewall-cmd --state
+sudo firewall-cmd --get-active-zones
+```
+
+If `cni0` isn't listed under any zone in that output, add it to one that allows traffic freely:
+
+```bash
+sudo firewall-cmd --permanent --zone=trusted --add-interface=cni0
+sudo firewall-cmd --reload
+```
+
+Add `flannel.1` the same way on a multi-node cluster. If `firewalld` isn't protecting anything you actually rely on there, `sudo systemctl disable --now firewalld` is the simpler fix long-term. Either way, this is entirely a host-level fix — the chart has no visibility into the node's firewall from inside a pod, so there's nothing it can detect or correct on its own.
+
 ## Forgot the admin password
 
 Stop the server and run, against its data directory:
