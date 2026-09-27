@@ -101,6 +101,12 @@ let lastSaved = '' // serialized document as the server last held it
 let timer: ReturnType<typeof setTimeout> | undefined
 let unsubscribe: (() => void) | undefined
 let saving: Promise<void> | undefined
+/**
+ * Bumped by every start/stop, so an async call from a session that has since ended (switched organisation,
+ * signed out, reconnected) recognises on return that it is no longer live and skips mutating shared state -
+ * the same guard useHistoryView.view() uses against a stale request resolving after a newer one replaced it.
+ */
+let epoch = 0
 
 /**
  * What is saved to the server is what people declared. What agents observe (clusters, nodes, namespaces and
@@ -190,11 +196,13 @@ export const useWorkspace = create<Workspace>((set, get) => {
     dismissNote: () => set({ note: undefined }),
 
     start: async (c, write) => {
+      const myEpoch = ++epoch
       conn = c
       canWrite = write
       set({ status: 'loading', error: undefined, conflict: undefined, local: undefined })
       try {
         const doc = await api.workspace(c)
+        if (myEpoch !== epoch) return // a later start/stop already replaced this session
         const unsaved = write ? pending.read() : null
         if (!write) pending.clear()
         if (unsaved && doc.rev > 0 && doc.data !== undefined) {
@@ -224,6 +232,7 @@ export const useWorkspace = create<Workspace>((set, get) => {
         }
         watch()
       } catch (e) {
+        if (myEpoch !== epoch) return
         set({ status: 'error', error: e instanceof Error ? e.message : 'Could not load the workspace.' })
       }
     },
@@ -233,6 +242,7 @@ export const useWorkspace = create<Workspace>((set, get) => {
       unsubscribe?.()
       unsubscribe = undefined
       if (flush && conn && canWrite && get().status === 'dirty') await get().saveNow()
+      epoch++ // invalidate a poll or a non-flushed save this session left in flight
       conn = null
       set({ status: 'off', rev: 0, conflict: undefined, local: undefined, error: undefined, updatedBy: undefined, updatedAt: undefined, note: undefined })
     },
@@ -240,17 +250,22 @@ export const useWorkspace = create<Workspace>((set, get) => {
     saveNow: async () => {
       if (saving) return saving
       const c = conn
+      const myEpoch = epoch
       if (!c || !canWrite) return
       const attempt = async () => {
         try {
           clearTimeout(timer)
           const body = serialize()
           if (body === lastSaved) {
-            set({ status: 'saved' })
+            if (myEpoch === epoch) set({ status: 'saved' })
             return
           }
-          set({ status: 'saving' })
+          if (myEpoch === epoch) set({ status: 'saving' })
           const meta = await api.saveWorkspace(c, get().rev, JSON.parse(body))
+          // The organisation this save was for may since have been left (a switch, a sign-out): the save itself
+          // still reached the server and is not undone, but this browser has moved on, so its local bookkeeping
+          // (lastSaved, rev, status) belongs to whatever session is current now, not to this one.
+          if (myEpoch !== epoch) return
           lastSaved = body
           pending.clear()
           // Edits made while the request was in flight are still pending.
@@ -260,6 +275,7 @@ export const useWorkspace = create<Workspace>((set, get) => {
             schedule()
           }
         } catch (e) {
+          if (myEpoch !== epoch) return
           if (e instanceof ApiError && e.status === 409 && e.body) {
             set({ status: 'conflict', conflict: { rev: Number(e.body.rev), updatedBy: String(e.body.updatedBy ?? ''), updatedAt: String(e.body.updatedAt ?? '') } })
           } else if (e instanceof ApiError && e.status === 403) {
@@ -281,10 +297,12 @@ export const useWorkspace = create<Workspace>((set, get) => {
 
     poll: async () => {
       const c = conn
+      const myEpoch = epoch
       const { status, rev } = get()
       if (!c || status === 'loading' || status === 'choose' || status === 'saving' || status === 'off') return
       try {
         const meta = await api.workspaceMeta(c)
+        if (myEpoch !== epoch) return // this session ended while the request was in flight
         if (meta.rev <= rev) return
         if (status === 'dirty' || status === 'conflict' || serialize() !== lastSaved) {
           if (canWrite) set({ status: 'conflict', conflict: { rev: meta.rev, updatedBy: meta.updatedBy, updatedAt: meta.updatedAt } })
@@ -299,16 +317,20 @@ export const useWorkspace = create<Workspace>((set, get) => {
 
     useTheirs: async () => {
       const c = conn
+      const myEpoch = epoch
       if (!c) return
       const doc = await api.workspace(c)
+      if (myEpoch !== epoch) return
       if (doc.data !== undefined) replaceLocal(doc.data, true)
       set({ status: canWrite ? 'saved' : 'readonly', rev: doc.rev, updatedBy: doc.updatedBy, updatedAt: doc.updatedAt, conflict: undefined, error: undefined })
     },
 
     overwrite: async () => {
       const c = conn
+      const myEpoch = epoch
       if (!c) return
       const latest = await api.workspaceMeta(c)
+      if (myEpoch !== epoch) return
       set({ rev: latest.rev, conflict: undefined, status: 'dirty' })
       await get().saveNow()
     },
