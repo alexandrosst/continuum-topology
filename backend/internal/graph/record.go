@@ -243,9 +243,24 @@ func (d *DB) Record(ctx context.Context, org string, at time.Time, t model.Topol
 	defer d.lock(org)()
 	sc := d.C.For(org)
 
-	vs, es, tr, pq := extract(t)
+	open, openEdge, last, err := d.openState(ctx, sc)
+	if err != nil {
+		return err
+	}
+	if !last.IsZero() && at.Before(last) {
+		return fmt.Errorf("%w (%s < %s)", ErrOutOfOrder, ts(at), ts(last))
+	}
 
-	// What is open now.
+	w := append([]Stmt{sc.S(`MERGE (t:Tenant {id:$org}) RETURN 1`, nil)}, diffEntities(sc, at, t, fp, size, open, openEdge)...)
+	_, err = d.C.Run(ctx, w...)
+	return err
+}
+
+// openState reads what Record and RecordCatchUp both need before they can diff anything: the newest
+// recorded moment (to refuse an out-of-order write), every entity's currently open version hash, and
+// every currently open edge's key. Pulled out so RecordCatchUp can read this exactly once for a whole
+// batch of buffered snapshots rather than once per snapshot, the same reads Record itself has always made.
+func (d *DB) openState(ctx context.Context, sc *Scope) (open map[string]string, openEdge map[string]bool, last time.Time, err error) {
 	reads := []Stmt{
 		sc.S(`MATCH (s:Snapshot {org:$org}) RETURN toString(s.at) ORDER BY s.at DESC LIMIT 1`, nil),
 		sc.S(`MATCH (v:Version {org:$org}) WHERE v.validTo IS NULL RETURN v.kind, v.id, v.hash`, nil),
@@ -255,23 +270,32 @@ func (d *DB) Record(ctx context.Context, org string, at time.Time, t model.Topol
 	}
 	res, err := d.C.Run(ctx, reads...)
 	if err != nil {
-		return err
+		return nil, nil, time.Time{}, err
 	}
 	if len(res[0].Rows) > 0 {
-		if last := tm(res[0].Rows[0][0]); at.Before(last) {
-			return fmt.Errorf("%w (%s < %s)", ErrOutOfOrder, ts(at), ts(last))
-		}
+		last = tm(res[0].Rows[0][0])
 	}
-	open := map[string]string{}
+	open = map[string]string{}
 	for _, r := range res[1].Rows {
 		open[vkey(str(r[0]), str(r[1]))] = str(r[2])
 	}
-	openEdge := map[string]bool{}
+	openEdge = map[string]bool{}
 	for i := range relTypes {
 		for _, r := range res[2+i].Rows {
 			openEdge[str(r[0])] = true
 		}
 	}
+	return open, openEdge, last, nil
+}
+
+// diffEntities is Record's own diff-and-build step, pulled out so RecordCatchUp can chain several
+// snapshots' diffs together against state it only reads from Neo4j once, instead of once per snapshot -
+// Record itself is now just openState followed by one call to this. open and openEdge are mutated in
+// place to reflect the state right after this snapshot is applied, so a caller chaining several of these
+// in sequence has each one diff against the last one's result: the same state Record would see if it
+// re-read the database in between, simulated in memory instead of actually re-read.
+func diffEntities(sc *Scope, at time.Time, t model.Topology, fp string, size int, open map[string]string, openEdge map[string]bool) []Stmt {
+	vs, es, tr, pq := extract(t)
 
 	// What must change.
 	type row = map[string]any
@@ -306,7 +330,7 @@ func (d *DB) Record(ctx context.Context, org string, at time.Time, t model.Topol
 	sortRows(goneRows)
 
 	atS := ts(at)
-	w := []Stmt{sc.S(`MERGE (t:Tenant {id:$org}) RETURN 1`, nil)}
+	var w []Stmt
 	if len(closeRows) > 0 {
 		// A version that began at this very instant is being replaced within it: drop it rather than
 		// leave a zero-length version behind (the moment is recorded once).
@@ -365,14 +389,92 @@ MATCH (a:Entity {org:$org, kind:row.fk, id:row.fid})
 MATCH (b:Entity {org:$org, kind:row.tk, id:row.tid})
 CREATE (a)-[:%s {org:$org, ekey:row.key, validFrom:datetime($at), port:row.port, protocol:row.proto}]->(b)`, rt), map[string]any{"rows": opening, "at": atS}))
 		}
+		// Carried into openEdge so a later snapshot in the same chained batch diffs against this one's
+		// result rather than what was open before any of the batch was applied.
+		for _, c := range closing {
+			delete(openEdge, c["key"].(string))
+		}
+		for _, o := range opening {
+			openEdge[o["key"].(string)] = true
+		}
 	}
 	w = append(w, sc.S(`MERGE (s:Snapshot {org:$org, at:datetime($at)})
 SET s.fp = $fp, s.bytes = $bytes, s.entities = $n, s.traffic = $traffic, s.paths = $paths
 WITH s MATCH (t:Tenant {id:$org}) MERGE (t)-[:HAS_SNAPSHOT]->(s)`, map[string]any{
 		"at": atS, "fp": fp, "bytes": size, "n": len(vs), "traffic": enc(tr), "paths": enc(pq),
 	}))
-	_, err = d.C.Run(ctx, w...)
-	return err
+
+	// Carried into open for the same reason as openEdge above.
+	for k := range open {
+		if _, ok := vs[k]; !ok {
+			delete(open, k)
+		}
+	}
+	for k, v := range vs {
+		open[k] = v.Hash
+	}
+
+	return w
+}
+
+// CatchUpPoint is one buffered snapshot waiting to be recorded, as Store's own drainHistory already has
+// it in hand once it decodes one: the same at/topology/fingerprint/size Record's own last four parameters
+// carry, bundled so RecordCatchUp can take several without an unwieldy signature.
+type CatchUpPoint struct {
+	At   time.Time
+	Topo model.Topology
+	FP   string
+	Size int
+}
+
+// RecordCatchUp applies several buffered snapshots, oldest first, as one Neo4j transaction rather than
+// one Record call - and therefore one round trip pair - per point. drainHistory exists specifically to
+// replay a backlog built up while Neo4j was unreachable, and replaying it one point at a time serialises
+// a full read-then-write round trip per buffered point behind the very per-org lock a live sync is also
+// waiting on; a backlog of a few hundred points made that a few hundred round trips where one pair would
+// do. The graph ends up exactly as it would from calling Record once per point in order: openState is
+// read once, and each point's diff is computed (via diffEntities) against the state the previous point in
+// this same batch left, the same state Record would see by re-reading the database in between - just
+// carried forward in memory instead of actually re-read, and all applied in the one transaction Run
+// already gives any set of statements passed to it together.
+//
+// A point at or before the newest moment already recorded - in the database, or earlier in this same
+// batch - is skipped rather than failing the whole batch, exactly as a lone out-of-order Record call
+// returns ErrOutOfOrder without touching anything rather than erroring the caller out of recording
+// anything newer; dropped reports which timestamps were skipped so the caller can log them the way it
+// already does for a single out-of-order Record call. An empty points slice is a safe no-op that makes no
+// request at all.
+func (d *DB) RecordCatchUp(ctx context.Context, org string, points []CatchUpPoint) (applied int, dropped []time.Time, err error) {
+	if len(points) == 0 {
+		return 0, nil, nil
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i].At.Before(points[j].At) })
+	defer d.lock(org)()
+	sc := d.C.For(org)
+
+	open, openEdge, last, err := d.openState(ctx, sc)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	w := []Stmt{sc.S(`MERGE (t:Tenant {id:$org}) RETURN 1`, nil)}
+	for _, p := range points {
+		at := p.At.UTC().Truncate(time.Second)
+		if !last.IsZero() && at.Before(last) {
+			dropped = append(dropped, p.At)
+			continue
+		}
+		w = append(w, diffEntities(sc, at, p.Topo, p.FP, p.Size, open, openEdge)...)
+		last = at
+		applied++
+	}
+	if applied == 0 {
+		return 0, dropped, nil
+	}
+	if _, err := d.C.Run(ctx, w...); err != nil {
+		return 0, dropped, err
+	}
+	return applied, dropped, nil
 }
 
 // RecordEntity versions one entity's state outside the periodic topology scan: for state whose owner

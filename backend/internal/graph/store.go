@@ -380,28 +380,52 @@ func (s *Store) drainHistory(ctx context.Context, org string) {
 		if len(pts) > 200 {
 			pts = pts[:200]
 		}
+
+		// The lock is held for the whole pass rather than reacquired per point: RecordCatchUp below turns
+		// this batch into one Neo4j round trip pair instead of one per point, so there is no longer a
+		// per-point boundary to release it at, and holding it across a decode-only loop plus one network
+		// call is no worse than what a single Record call already held it across before this change.
+		unlock := s.lock(org)
+		var batch []CatchUpPoint
+		var toDelete []time.Time
 		for _, p := range pts {
-			unlock := s.lock(org)
 			_, data, err := s.Store.GetHistory(ctx, org, p.At)
-			if err == nil {
-				topo, derr := history.Decode(data)
-				if derr != nil {
-					s.Log.Error("graph: dropping an unreadable buffered snapshot", "org", org, "at", p.At, "err", derr)
-				} else {
-					err = s.DB.Record(ctx, org, p.At, topo, history.Fingerprint(topo), len(data))
-				}
-			}
-			if err != nil && !errors.Is(err, ErrOutOfOrder) {
+			if err != nil {
 				unlock()
 				s.Log.Warn("graph: moving buffered history failed, will retry", "org", org, "err", err)
 				return
 			}
-			if errors.Is(err, ErrOutOfOrder) {
-				s.Log.Warn("graph: a buffered snapshot is older than the graph's newest and was dropped", "org", org, "at", p.At)
+			topo, derr := history.Decode(data)
+			if derr != nil {
+				// Unreadable now and forever - retrying buys nothing, so it is dropped rather than left to
+				// block every point behind it on every future pass.
+				s.Log.Error("graph: dropping an unreadable buffered snapshot", "org", org, "at", p.At, "err", derr)
+				toDelete = append(toDelete, p.At)
+				continue
 			}
-			_ = s.Store.DeleteHistory(ctx, org, []time.Time{p.At})
-			unlock()
+			batch = append(batch, CatchUpPoint{At: p.At, Topo: topo, FP: history.Fingerprint(topo), Size: len(data)})
 		}
+
+		if len(batch) > 0 {
+			_, dropped, err := s.DB.RecordCatchUp(ctx, org, batch)
+			if err != nil {
+				// Nothing in this batch was committed - Run applies it as one transaction - so only the
+				// permanently-unreadable points from above are dropped; the rest stays buffered for the
+				// next pass to retry in full.
+				_ = s.Store.DeleteHistory(ctx, org, toDelete)
+				unlock()
+				s.Log.Warn("graph: moving buffered history failed, will retry", "org", org, "err", err)
+				return
+			}
+			for _, at := range dropped {
+				s.Log.Warn("graph: a buffered snapshot is older than the graph's newest and was dropped", "org", org, "at", at)
+			}
+			for _, p := range batch {
+				toDelete = append(toDelete, p.At)
+			}
+		}
+		_ = s.Store.DeleteHistory(ctx, org, toDelete)
+		unlock()
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -597,6 +598,190 @@ func TestWalkHopsAreClamped(t *testing.T) {
 	}
 	if len(atMax) != len(overMax) {
 		t.Errorf("a hop count far beyond maxWalkHops should clamp to the same result: %d vs %d", len(atMax), len(overMax))
+	}
+}
+
+// TestWalkHopsBelowOneClampToOne is TestWalkHopsAreClamped's missing other half: the doc comment on the
+// clamp itself (record.go) claims hops < 1 becomes 1, but nothing previously proved that specific number -
+// only that a caller-supplied hops=0 or a negative value did not error. Unclamped, hops=0 would make the
+// walk's own "for h := 1; h <= hops" loop never run at all, reporting nothing; s-1 has four direct
+// forward edges in estate() across every relationship type Dependencies walks, not just CALLS - IN_CLUSTER
+// to c-1, RUNS_ON to n-1, and CALLS to s-2 and ext-1 - so a real clamp to 1 is visible as "found all four
+// direct neighbors," not just "found no fewer than some other call."
+func TestWalkHopsBelowOneClampToOne(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate())
+
+	_, atOne, err := db.Dependencies(ctx, org, t0, "service", "s-1", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(atOne) != 4 {
+		t.Fatalf("sanity check: hops=1 should reach s-1's four direct neighbors (c-1, n-1, s-2, ext-1), got %d: %+v", len(atOne), atOne)
+	}
+
+	for _, bad := range []int{0, -1, -5} {
+		_, got, err := db.Dependencies(ctx, org, t0, "service", "s-1", bad)
+		if err != nil {
+			t.Fatalf("hops=%d: %v", bad, err)
+		}
+		if len(got) != len(atOne) {
+			t.Errorf("hops=%d should clamp to 1 and match hops=1's result (%d reached), got %d: %+v", bad, len(atOne), len(got), got)
+		}
+	}
+}
+
+// topoStep1 and topoStep2 build a short, deliberately eventful history on top of estate(): a version
+// change (s-1 scales from 2 replicas to 3) and then an entity actually disappearing (s-2, along with the
+// dependency that pointed at it) - between them they exercise every branch diffEntities has to get right
+// when several snapshots are chained in one RecordCatchUp batch rather than applied one Record call at a
+// time: closing a version, opening a new one, marking an entity gone, and closing the edge that named it.
+func topoStep1() model.Topology {
+	t := estate()
+	svcs := append([]model.Service{}, t.Services...)
+	svcs[0].Replicas = 3
+	t.Services = svcs
+	return t
+}
+
+func topoStep2() model.Topology {
+	t := topoStep1()
+	var svcs []model.Service
+	for _, s := range t.Services {
+		if s.ID != "s-2" {
+			svcs = append(svcs, s)
+		}
+	}
+	t.Services = svcs
+	var deps []model.Dependency
+	for _, d := range t.Dependencies {
+		if d.To != "s-2" {
+			deps = append(deps, d)
+		}
+	}
+	t.Dependencies = deps
+	return t
+}
+
+// TestRecordCatchUpMatchesSequentialRecordCalls is RecordCatchUp's central correctness claim: replaying
+// several buffered snapshots as one batched transaction has to leave the graph exactly as calling Record
+// once per snapshot, in order, would have - a version closed and reopened, then an entity retired
+// entirely, chained across three points in one call rather than three separate ones. Passed out of order
+// on purpose, so this also proves RecordCatchUp sorts its input rather than trusting the caller to.
+func TestRecordCatchUpMatchesSequentialRecordCalls(t *testing.T) {
+	db, orgSeq := testDB(t)
+	orgBatch := orgN(t, db)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	t1 := t0.Add(time.Hour)
+	t2 := t1.Add(time.Hour)
+	topos := []model.Topology{estate(), topoStep1(), topoStep2()}
+	times := []time.Time{t0, t1, t2}
+
+	for i, topo := range topos {
+		record(t, db, orgSeq, times[i], topo)
+	}
+
+	var points []CatchUpPoint
+	for i, topo := range topos {
+		c := history.Compact(topo)
+		data, fp, err := history.Encode(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		points = append(points, CatchUpPoint{At: times[i], Topo: c, FP: fp, Size: len(data)})
+	}
+	points[0], points[2] = points[2], points[0] // shuffled: newest first, oldest last
+	applied, dropped, err := db.RecordCatchUp(ctx, orgBatch, points)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != 3 || len(dropped) != 0 {
+		t.Fatalf("expected all 3 points applied and none dropped, got applied=%d dropped=%v", applied, dropped)
+	}
+
+	_, snapSeq, err := db.AsOfEntities(ctx, orgSeq, t2.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, snapBatch, err := db.AsOfEntities(ctx, orgBatch, t2.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := func(e EntitySnapshot) string { return e.Kind + "/" + e.ID }
+	sort.Slice(snapSeq, func(i, j int) bool { return key(snapSeq[i]) < key(snapSeq[j]) })
+	sort.Slice(snapBatch, func(i, j int) bool { return key(snapBatch[i]) < key(snapBatch[j]) })
+	if len(snapSeq) != len(snapBatch) {
+		t.Fatalf("sequential Record left %d entities, RecordCatchUp left %d:\n  sequential: %+v\n  batched:    %+v", len(snapSeq), len(snapBatch), snapSeq, snapBatch)
+	}
+	for i := range snapSeq {
+		a, b := snapSeq[i], snapBatch[i]
+		if a.Kind != b.Kind || a.ID != b.ID || a.Name != b.Name || a.Status != b.Status || a.Cluster != b.Cluster || string(a.Doc) != string(b.Doc) {
+			t.Errorf("entity %d differs between sequential and batched recording:\n  sequential: %+v\n  batched:    %+v", i, a, b)
+		}
+	}
+	for _, e := range snapBatch {
+		if e.Kind == "service" && e.ID == "s-2" {
+			t.Errorf("s-2 disappeared in topoStep2 and should have been retired by t2 in the batched tenant too, found: %+v", e)
+		}
+	}
+
+	// Timeline for the entity that actually changed version (s-1) should show the same two versions
+	// either way - the batched path is not just leaving the same end state, it got there through the
+	// same intermediate step.
+	tlSeq, err := db.Timeline(ctx, orgSeq, "service", "s-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tlBatch, err := db.Timeline(ctx, orgBatch, "service", "s-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tlSeq.Versions) != len(tlBatch.Versions) {
+		t.Fatalf("s-1 has %d versions sequentially but %d batched: %+v vs %+v", len(tlSeq.Versions), len(tlBatch.Versions), tlSeq.Versions, tlBatch.Versions)
+	}
+}
+
+// TestRecordCatchUpDropsWhatIsAlreadyOlderThanRecorded is RecordCatchUp's other half of ErrOutOfOrder
+// parity: a lone Record call refuses an older-than-newest write outright, without touching anything.
+// RecordCatchUp instead has to keep going - the whole point is applying everything in a backlog that
+// still can be, not refusing the entire batch because one buffered point turned out to be stale (for
+// instance because a live sync already recorded something newer while the backlog was building up).
+func TestRecordCatchUpDropsWhatIsAlreadyOlderThanRecorded(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	t1 := t0.Add(time.Hour)
+	t2 := t1.Add(time.Hour)
+	record(t, db, org, t1, estate()) // as if a live sync already recorded t1 while a backlog was building
+
+	mk := func(at time.Time, topo model.Topology) CatchUpPoint {
+		c := history.Compact(topo)
+		data, fp, err := history.Encode(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return CatchUpPoint{At: at, Topo: c, FP: fp, Size: len(data)}
+	}
+	points := []CatchUpPoint{mk(t0, estate()), mk(t2, topoStep1())} // t0 is now stale; t2 is still new
+	applied, dropped, err := db.RecordCatchUp(ctx, org, points)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != 1 {
+		t.Errorf("expected exactly the t2 point to apply, got applied=%d", applied)
+	}
+	if len(dropped) != 1 || !dropped[0].Equal(t0) {
+		t.Errorf("expected t0 reported as dropped for being older than what is already recorded, got %v", dropped)
+	}
+	tl, err := db.Timeline(ctx, org, "service", "s-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.Versions) != 2 {
+		t.Fatalf("expected the t1 (live) and t2 (batch) versions only - the dropped t0 point should not have added a third: %+v", tl.Versions)
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -239,7 +240,8 @@ func (c *Client) Run(ctx context.Context, stmts ...Stmt) ([]Result, error) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		e := fmt.Errorf("%w: %v", ErrUnavailable, scrub(err))
+		se := scrub(err)
+		e := fmt.Errorf("%w: %v%s", ErrUnavailable, se, hostUnreachableHint(se))
 		c.markDown(e)
 		return nil, e
 	}
@@ -287,6 +289,20 @@ func scrub(err error) error {
 		return ue.Err
 	}
 	return err
+}
+
+// hostUnreachableHint appends a short, actionable pointer when the operating system itself said
+// there is no route to the destination at all (syscall.EHOSTUNREACH) - as opposed to a connection
+// being refused, timing out, or a Kubernetes NetworkPolicy rejecting it (which looks different at
+// this layer). In practice, on a self-managed cluster, EHOSTUNREACH between two pods almost always
+// means a host firewall Kubernetes doesn't know about - most commonly firewalld never having been
+// told about the CNI bridge - not anything wrong with this chart's own manifests. See
+// docs-site/docs/troubleshooting/common-errors.md for the full diagnostic path.
+func hostUnreachableHint(err error) string {
+	if errors.Is(err, syscall.EHOSTUNREACH) {
+		return " (a host firewall outside Kubernetes - such as firewalld not knowing about the CNI bridge - is the most common cause of exactly this error; see https://alexandrosst.github.io/continuum-topology/troubleshooting/common-errors)"
+	}
+	return ""
 }
 
 // Scope runs statements for exactly one tenant.
