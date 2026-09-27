@@ -231,6 +231,7 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	if tier < old {
 		h.narrowState(a.ID, tier) // what the server holds above the new tier goes now, not at the agent's next full picture
 	}
+	h.C.recordAgentGraph(ctx, a)
 	h.pushOne(a.ID)
 	return a, nil
 }
@@ -268,6 +269,7 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 	v := h.viewFor(a.ID)
 	v.ext.consent, v.ext.consentLoad = next, true
 	h.mu.Unlock()
+	h.C.recordAgentGraph(ctx, a)
 	h.pushOne(a.ID)
 	return next, nil
 }
@@ -339,12 +341,14 @@ func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 		}
 		h.C.audit(ctx, actor, "agent-ceiling-changed", "agent", agent.ID, fmt.Sprintf("%q: the install now allows up to tier %d (%s), was %d", agent.Name, ceiling, tierName(ceiling), fresh.InstalledTier))
 		agent.InstalledTier = ceiling
+		h.C.recordAgentGraph(ctx, agent)
 	}
 	if fresh.AccessTier > ceiling {
 		detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s), because the agent's install (Helm access.tier) now allows at most %d", agent.Name, fresh.AccessTier, tierName(fresh.AccessTier), ceiling, tierName(ceiling), ceiling)
 		if err := h.C.audited(ctx, actor, "agent-tier-changed", "agent", agent.ID, detail, func() error { return h.C.Store.SetAccessTier(ctx, agent.ID, ceiling) }); err == nil {
 			agent.AccessTier = ceiling
 			h.narrowState(agent.ID, ceiling)
+			h.C.recordAgentGraph(ctx, agent)
 		}
 	}
 	return agent
@@ -512,4 +516,94 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 		out.Problems = append(out.Problems, pd)
 	}
 	return out
+}
+
+// ---- versioning an agent's own state in the graph ----
+
+// AgentSnapshot is what the graph remembers about an agent over time: never an identity secret (CSR,
+// poll secret, leaf certificate, approval hash - those stay in the inner store, which is where trust is
+// actually checked and which works whether or not a graph is configured at all), only what a person
+// looking at this agent's history would want to see - its access, and the discovery intent narrowing it.
+type AgentSnapshot struct {
+	Name          string `json:"name"`
+	Status        string `json:"status"`
+	ClusterID     string `json:"clusterId,omitempty"`
+	InstalledTier int    `json:"installedTier"`
+	TierCap       int    `json:"tierCap"`
+	AccessTier    int    `json:"accessTier"`
+	Version       string `json:"version,omitempty"`
+	K8sVersion    string `json:"k8sVersion,omitempty"`
+	CreatedAt     string `json:"createdAt,omitempty"`
+	ApprovedAt    string `json:"approvedAt,omitempty"`
+	ApprovedBy    string `json:"approvedBy,omitempty"`
+	RevokedAt     string `json:"revokedAt,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	LastSeen      string `json:"lastSeen,omitempty"`
+	// PausedCollectors and ExcludedNamespaces are the discovery intent: what an administrator has asked
+	// this agent to leave out, on top of whatever its own install (Helm RBAC/scope) already leaves out.
+	PausedCollectors   []string `json:"pausedCollectors,omitempty"`
+	ExcludedNamespaces []string `json:"excludedNamespaces,omitempty"`
+}
+
+func agentSnapshot(a store.Agent, c Consent) AgentSnapshot {
+	s := AgentSnapshot{
+		Name: a.Name, Status: string(a.Status), ClusterID: a.ClusterID,
+		InstalledTier: a.InstalledTier, TierCap: a.TierCap, AccessTier: a.AccessTier,
+		Version: a.Version, K8sVersion: a.K8sVersion, Reason: a.Reason,
+		PausedCollectors: c.Paused, ExcludedNamespaces: c.Excluded,
+	}
+	if !a.CreatedAt.IsZero() {
+		s.CreatedAt = a.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	if a.ApprovedAt != nil {
+		s.ApprovedAt, s.ApprovedBy = a.ApprovedAt.UTC().Format(time.RFC3339), a.ApprovedBy
+	}
+	if a.RevokedAt != nil {
+		s.RevokedAt = a.RevokedAt.UTC().Format(time.RFC3339)
+	}
+	if a.LastSeen != nil {
+		s.LastSeen = a.LastSeen.UTC().Format(time.RFC3339)
+	}
+	return s
+}
+
+// consentFor loads an agent's overrides straight from the store, for a caller that is not the hub's live
+// view of a connected agent (recording history is one). Falls back to none rather than failing: a graph
+// version with no discovery intent recorded is far better than one skipped entirely over this.
+func consentFor(ctx context.Context, st store.Store, agentID string) Consent {
+	data, _, err := st.LoadSnapshot(ctx, consentKey(agentID))
+	if err != nil {
+		return Consent{}
+	}
+	var c Consent
+	if json.Unmarshal(data, &c) != nil {
+		return Consent{}
+	}
+	if cc, err := cleanConsent(c); err == nil {
+		return cc
+	}
+	return Consent{}
+}
+
+// entityRecorder is what a store adds when it keeps a graph: the ability to version one entity's state
+// directly, the moment something about it changed (see graph.DB.RecordEntity), rather than waiting to be
+// noticed by comparing two periodic scans. A plain store does not implement it, and that is fine - this
+// is enrichment on top of the audit trail, never a gate on it.
+type entityRecorder interface {
+	RecordEntity(ctx context.Context, org string, at time.Time, kind, id, name, status, cluster string, doc any) error
+}
+
+// recordAgentGraph versions an agent's non-secret state in the graph, right after something changed it -
+// its tier, its consent, its status. Best-effort and silent on failure by design: the action itself is
+// already durably audited (see audited) before this ever runs, so a graph outage narrows the timeline
+// view of the change, never the change itself.
+func (c *Core) recordAgentGraph(ctx context.Context, a store.Agent) {
+	er, ok := c.Store.(entityRecorder)
+	if !ok {
+		return
+	}
+	snap := agentSnapshot(a, consentFor(ctx, c.Store, a.ID))
+	if err := er.RecordEntity(ctx, c.OrgID, c.Now(), "agent", a.ID, a.Name, string(a.Status), a.ClusterID, snap); err != nil {
+		c.Log.Warn("history: could not record the agent's state", "agent", a.ID, "err", err)
+	}
 }

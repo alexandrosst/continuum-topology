@@ -23,7 +23,11 @@ var ErrOutOfOrder = errors.New("that moment is older than the newest recorded on
 // ---- what is versioned ----
 
 // kinds are the entity kinds, with the label each carries. The label is interpolated into
-// statements, so it comes from this list and nowhere else.
+// statements, so it comes from this list and nowhere else. The first seven are found by polling a
+// topology and diffed by Record; "agent" is versioned directly by RecordEntity instead, the moment
+// something about it changes, because its owner already knows that moment rather than needing to
+// notice it by comparing two snapshots. Both kinds of entity share the same Entity/Version shape, so
+// Timeline and AsOf do not need to know which path recorded a given one.
 var kinds = []struct{ Kind, Label string }{
 	{"cluster", "Cluster"},
 	{"node", "Node"},
@@ -32,6 +36,7 @@ var kinds = []struct{ Kind, Label string }{
 	{"external", "ExternalEndpoint"},
 	{"dependency", "Dependency"},
 	{"path", "Path"},
+	{"agent", "Agent"},
 }
 
 func labelOf(kind string) string {
@@ -342,6 +347,75 @@ SET s.fp = $fp, s.bytes = $bytes, s.entities = $n, s.traffic = $traffic, s.paths
 WITH s MATCH (t:Tenant {id:$org}) MERGE (t)-[:HAS_SNAPSHOT]->(s)`, map[string]any{
 		"at": atS, "fp": fp, "bytes": size, "n": len(vs), "traffic": enc(tr), "paths": enc(pq),
 	}))
+	_, err = d.C.Run(ctx, w...)
+	return err
+}
+
+// RecordEntity versions one entity's state outside the periodic topology scan: for state whose owner
+// already knows the exact moment and reason it changed (an agent's tier changed, it was revoked) rather
+// than noticing it by comparing two snapshots. It writes the same Version/HAS_VERSION shape Record uses
+// for a whole topology, one entity at a time, so Timeline and AsOf treat every kind alike regardless of
+// which path recorded it. If cluster is not empty, this entity's single IN_CLUSTER edge is opened or
+// moved to match, the same invariant Record keeps for the kinds it polls (at most one open edge of a
+// given type per entity). Idempotent: recording the same doc again is a no-op, so a caller can call this
+// unconditionally after anything that might have changed the entity, without tracking what actually did.
+func (d *DB) RecordEntity(ctx context.Context, org string, at time.Time, kind, id, name, status, cluster string, doc any) error {
+	label := labelOf(kind)
+	if label == "" {
+		return fmt.Errorf("graph: %q is not an entity kind", kind)
+	}
+	at = at.UTC().Truncate(time.Second)
+	defer d.lock(org)()
+	sc := d.C.For(org)
+
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	hash := hashDoc(raw)
+
+	res, err := d.C.Run(ctx, sc.S(`MATCH (v:Version {org:$org, kind:$kind, id:$id}) WHERE v.validTo IS NULL RETURN v.hash, v.cluster`, map[string]any{"kind": kind, "id": id}))
+	if err != nil {
+		return err
+	}
+	hadOpen := len(res[0].Rows) > 0
+	if hadOpen && str(res[0].Rows[0][0]) == hash && str(res[0].Rows[0][1]) == cluster {
+		return nil // unchanged, including which cluster it belongs to: nothing to version, nothing to move
+	}
+
+	atS := ts(at)
+	w := []Stmt{sc.S(`MERGE (t:Tenant {id:$org}) RETURN 1`, nil)}
+	if hadOpen {
+		// A version opened at this very instant is being replaced within it: drop it rather than leave a
+		// zero-length version behind, exactly as Record does for the kinds it polls.
+		w = append(w,
+			sc.S(`MATCH (v:Version {org:$org, kind:$kind, id:$id}) WHERE v.validTo IS NULL AND v.validFrom = datetime($at)
+DETACH DELETE v`, map[string]any{"kind": kind, "id": id, "at": atS}),
+			sc.S(`MATCH (v:Version {org:$org, kind:$kind, id:$id}) WHERE v.validTo IS NULL
+SET v.validTo = datetime($at)`, map[string]any{"kind": kind, "id": id, "at": atS}),
+		)
+	}
+	w = append(w, sc.S(fmt.Sprintf(`MERGE (e:Entity {org:$org, kind:$kind, id:$id})
+ON CREATE SET e.firstSeen = datetime($at)
+SET e:%s, e.name = $name, e.status = $status, e.cluster = $cluster, e.gone = null
+CREATE (v:Version {org:$org, kind:$kind, id:$id, validFrom:datetime($at), hash:$hash, doc:$doc, name:$name, status:$status, cluster:$cluster})
+CREATE (e)-[:HAS_VERSION]->(v)`, label), map[string]any{"kind": kind, "id": id, "at": atS, "name": name, "status": status, "cluster": cluster, "hash": hash, "doc": string(raw)}))
+
+	if cluster != "" {
+		// Kept in step the same way a polled kind's IN_CLUSTER edge is: at most one open, closed and
+		// reopened elsewhere if the entity moves. If the cluster itself has not been recorded yet (a very
+		// new one, not yet scanned), this quietly records no edge; the next call that finds it will.
+		ekey := edge{Type: "IN_CLUSTER", FK: kind, FID: id, TK: "cluster", TID: cluster}.ekey()
+		ep := map[string]any{"kind": kind, "id": id, "cluster": cluster, "ekey": ekey, "at": atS}
+		w = append(w,
+			sc.S(`MATCH (:Entity {org:$org, kind:$kind, id:$id})-[r:IN_CLUSTER {org:$org}]->() WHERE r.validTo IS NULL AND r.ekey <> $ekey
+SET r.validTo = datetime($at)`, ep),
+			sc.S(`MATCH (a:Entity {org:$org, kind:$kind, id:$id})
+MATCH (b:Cluster:Entity {org:$org, kind:'cluster', id:$cluster})
+MERGE (a)-[r:IN_CLUSTER {org:$org, ekey:$ekey}]->(b)
+ON CREATE SET r.validFrom = datetime($at)`, ep),
+		)
+	}
 	_, err = d.C.Run(ctx, w...)
 	return err
 }

@@ -6,6 +6,7 @@ import { CanSee, ConsentPanel, CopyCommand as CopyableCommand, DiscoveryChip, He
 import { CheckLine, MODULE_STYLE, ObserverLine, ScopeLine, STATUS_STYLE, when } from '@/components/discovery/AgentParts'
 import ApprovalCard from '@/components/discovery/ApprovalCard'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
+import EntityHistory from '@/components/EntityHistory'
 import { ConfirmModal } from '@/components/forms'
 import { DistroIcon, Flag, WithIcon } from '@/components/ui/brand'
 import { Button, EmptyState, ErrorBanner, PageHeader, PulseDot, Table, Td, Th, TierBadge, useFlash } from '@/components/ui/primitives'
@@ -483,6 +484,9 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
           <Button size="sm" variant="danger" onClick={onRevoke} aria-label={`Revoke ${a.name}`}>Revoke this agent</Button>
         </div>
       )}
+      <div className="md:col-span-2 xl:col-span-3">
+        <EntityHistory kind="agent" id={a.id} />
+      </div>
     </div>
   )
 }

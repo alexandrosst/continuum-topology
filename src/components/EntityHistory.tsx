@@ -13,7 +13,7 @@ const show = (v: unknown) => {
 }
 
 /** The kinds of record the graph keeps a history for. */
-export const HISTORY_KINDS = new Set(['cluster', 'node', 'service', 'external'])
+export const HISTORY_KINDS = new Set(['cluster', 'node', 'service', 'external', 'agent'])
 
 /**
  * One record's life, from the graph: every state it was in, what changed between them, the events about it,

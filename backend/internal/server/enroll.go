@@ -301,7 +301,7 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 	if err != nil {
 		return err
 	}
-	return c.audited(ctx, actor, "agent-approved", "agent", a.ID, fmt.Sprintf("%q at tier %d (%s)", a.Name, tier, how), func() error {
+	if err := c.audited(ctx, actor, "agent-approved", "agent", a.ID, fmt.Sprintf("%q at tier %d (%s)", a.Name, tier, how), func() error {
 		err := c.Store.ApproveAgent(ctx, a.ID, tier, actor, ClusterIDFor(c.OrgID, a.Fingerprint), leaf, notAfter, c.Now())
 		switch {
 		case errors.Is(err, store.ErrClusterEnrolled):
@@ -310,7 +310,13 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 			return errf(KindConflict, "agent changed state while approving")
 		}
 		return err
-	})
+	}); err != nil {
+		return err
+	}
+	if fresh, ferr := c.agentInOrg(ctx, a.ID); ferr == nil {
+		c.recordAgentGraph(ctx, fresh)
+	}
+	return nil
 }
 
 // errWrongCode is the answer to a code that did not fit. left is how many tries remain; locked says the

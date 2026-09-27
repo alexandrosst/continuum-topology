@@ -256,6 +256,61 @@ WHERE r.validFrom <= datetime($at) AND (r.validTo IS NULL OR r.validTo > datetim
 	}
 }
 
+func TestRecordEntityVersionsSomethingOutsideThePolledTopology(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate()) // clusters c-1/c-2 exist, so the entity's IN_CLUSTER edge has somewhere to land
+
+	type doc struct {
+		AccessTier int      `json:"accessTier"`
+		Excluded   []string `json:"excluded,omitempty"`
+	}
+	rec := func(at time.Time, status, cluster string, d doc) {
+		t.Helper()
+		if err := db.RecordEntity(ctx, org, at, "agent", "ag-1", "edge-collector", status, cluster, d); err != nil {
+			t.Fatalf("record entity %s: %v", at, err)
+		}
+	}
+
+	rec(t0.Add(time.Minute), "approved", "c-1", doc{AccessTier: 1})
+	rec(t0.Add(time.Minute), "approved", "c-1", doc{AccessTier: 1}) // identical: must not open a second version
+	rec(t0.Add(2*time.Hour), "approved", "c-1", doc{AccessTier: 2, Excluded: []string{"kube-system"}})
+	rec(t0.Add(3*time.Hour), "approved", "c-2", doc{AccessTier: 2, Excluded: []string{"kube-system"}}) // moves cluster, doc otherwise identical
+
+	tl, err := db.Timeline(ctx, org, "agent", "ag-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.Versions) != 3 {
+		t.Fatalf("expected 3 versions (the repeat should not have made a fourth): %+v", tl.Versions)
+	}
+	if tl.Versions[0].To != nil {
+		t.Errorf("the newest version should still be open: %+v", tl.Versions[0])
+	}
+
+	// The one open IN_CLUSTER edge should have moved to c-2, not accumulated a second one, even though
+	// the move alone (with no other field changing) is what triggered this version.
+	res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (:Entity {org:$org, kind:'agent', id:'ag-1'})-[r:IN_CLUSTER {org:$org}]->(c:Cluster) RETURN c.id, r.validTo IS NULL ORDER BY c.id`, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res[0].Rows) != 2 {
+		t.Fatalf("expected the c-1 edge closed and the c-2 edge open, got %v", res[0].Rows)
+	}
+	open := map[string]bool{}
+	for _, r := range res[0].Rows {
+		open[str(r[0])] = r[1].(bool)
+	}
+	if open["c-1"] || !open["c-2"] {
+		t.Errorf("edge did not move as expected: %v", res[0].Rows)
+	}
+
+	if err := db.RecordEntity(ctx, org, t0, "not-a-kind", "x", "x", "x", "", nil); err == nil {
+		t.Error("an unknown kind should be refused")
+	}
+}
+
 func TestRecordingTheSameInstantTwiceReplacesRatherThanBreaks(t *testing.T) {
 	db, org := testDB(t)
 	ctx := context.Background()

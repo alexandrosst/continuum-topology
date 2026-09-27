@@ -573,6 +573,19 @@ func (s *Store) Timeline(ctx context.Context, org, kind, id string, limit int) (
 	return s.DB.Timeline(ctx, org, kind, id, limit)
 }
 
+// RecordEntity versions one entity outside the periodic topology scan (see DB.RecordEntity): agents
+// today, anything else recorded because its own owner knows the moment it changed rather than because a
+// scan noticed a difference. Best-effort: while the graph is not ready, it is skipped rather than
+// buffered, the same as Timeline itself returns nothing until the graph is - the entity's own state (and
+// the fact that it changed) is never at risk, since that is what the audit trail is for; this is the
+// enrichment on top.
+func (s *Store) RecordEntity(ctx context.Context, org string, at time.Time, kind, id, name, status, cluster string, doc any) error {
+	if !s.ready.Load() {
+		return ErrUnavailable
+	}
+	return s.DB.RecordEntity(ctx, org, at, kind, id, name, status, cluster, doc)
+}
+
 func (s *Store) Audit(ctx context.Context, org string, q AuditQuery) ([]AuditRow, error) {
 	return s.DB.Audit(ctx, org, q)
 }

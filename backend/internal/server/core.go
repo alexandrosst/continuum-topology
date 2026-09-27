@@ -264,7 +264,7 @@ func (c *Core) Reject(ctx context.Context, actor, agentID, reason string) error 
 		return err
 	}
 	reason = printable(reason, maxReason)
-	return c.audited(ctx, actor, "agent-rejected", "agent", agentID, reason, func() error {
+	err := c.audited(ctx, actor, "agent-rejected", "agent", agentID, reason, func() error {
 		if err := c.Store.RejectAgent(ctx, agentID, reason, c.Now()); err != nil {
 			if errors.Is(err, store.ErrBadState) {
 				return errf(KindConflict, "only pending agents can be rejected")
@@ -273,6 +273,12 @@ func (c *Core) Reject(ctx context.Context, actor, agentID, reason string) error 
 		}
 		return nil
 	})
+	if err == nil {
+		if fresh, ferr := c.agentInOrg(ctx, agentID); ferr == nil {
+			c.recordAgentGraph(ctx, fresh)
+		}
+	}
+	return err
 }
 
 // Revoke takes effect on the agent's next call and drops its live stream immediately.
@@ -290,8 +296,13 @@ func (c *Core) Revoke(ctx context.Context, actor, agentID, reason string) error 
 		}
 		return nil
 	})
-	if err == nil && c.OnRevoke != nil {
-		c.OnRevoke(agentID)
+	if err == nil {
+		if fresh, ferr := c.agentInOrg(ctx, agentID); ferr == nil {
+			c.recordAgentGraph(ctx, fresh)
+		}
+		if c.OnRevoke != nil {
+			c.OnRevoke(agentID)
+		}
 	}
 	return err
 }
