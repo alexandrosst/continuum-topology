@@ -2,8 +2,10 @@ import { ArrowRight, Plug } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
+import ColumnPicker from '@/components/ColumnPicker'
 import { GoneRecords } from '@/components/Observations'
 import { Button, EmptyState, ObservationChip, PageHeader, Select, Table, Td, Th } from '@/components/ui/primitives'
+import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { buildNamespaceRows, excludedWords, rowMatches, scopeLabel, type NamespaceRow } from '@/lib/namespaces'
 import { TONE_CLASS } from '@/lib/provenance'
 import { useServer } from '@/store/server'
@@ -13,6 +15,15 @@ import { SearchBox } from './shared'
 /** Where a row leads: the services of that namespace. (The topology has no per-namespace focus, the Services page does.) */
 const servicesOf = (r: Pick<NamespaceRow, 'clusterId' | 'name'>) => `/services?cluster=${encodeURIComponent(r.clusterId)}&namespace=${encodeURIComponent(r.name)}`
 
+const NAMESPACE_COLUMNS: ColumnDef[] = [
+  { key: 'services', label: 'Services' },
+  { key: 'exposed', label: 'Exposed' },
+  { key: 'mesh', label: 'Service mesh' },
+  { key: 'scope', label: 'Agent scope' },
+  { key: 'state', label: 'State' },
+]
+const NAMESPACE_COL_WIDTH: Record<string, string> = { services: 'w-44', exposed: 'w-24', mesh: 'w-52', scope: 'w-32', state: 'w-32' }
+
 export default function NamespacesPage() {
   const { clusters, namespaces, services, agents } = useTopology()
   const connect = useConnectFlow()
@@ -20,6 +31,7 @@ export default function NamespacesPage() {
   const navigate = useNavigate()
   const [q, setQ] = useState('')
   const [clusterFilter, setClusterFilter] = useState('')
+  const { isVisible, toggle } = useColumnVisibility('namespaces')
 
   const all = useMemo(() => buildNamespaceRows({ clusters, namespaces, services, agents }), [clusters, namespaces, services, agents])
   const rows = all.filter((r) => (!clusterFilter || r.clusterId === clusterFilter) && rowMatches(r, q))
@@ -41,6 +53,7 @@ export default function NamespacesPage() {
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </Select>
+        <ColumnPicker columns={NAMESPACE_COLUMNS} isVisible={isVisible} onToggle={toggle} />
       </div>
 
       {count === 0 && left === 0 ? (
@@ -55,16 +68,16 @@ export default function NamespacesPage() {
         />
       ) : (
         <>
-          <Table cols={['w-52', 'w-44', 'w-44', 'w-24', 'w-52', 'w-32', 'w-32']}>
+          <Table cols={['w-52', 'w-44', ...NAMESPACE_COLUMNS.filter((c) => isVisible(c.key)).map((c) => NAMESPACE_COL_WIDTH[c.key])]}>
             <thead>
               <tr>
                 <Th>Namespace</Th>
                 <Th>Cluster</Th>
-                <Th>Services</Th>
-                <Th>Exposed</Th>
-                <Th>Service mesh</Th>
-                <Th>Agent scope</Th>
-                <Th>State</Th>
+                {isVisible('services') && <Th>Services</Th>}
+                {isVisible('exposed') && <Th>Exposed</Th>}
+                {isVisible('mesh') && <Th>Service mesh</Th>}
+                {isVisible('scope') && <Th>Agent scope</Th>}
+                {isVisible('state') && <Th>State</Th>}
               </tr>
             </thead>
             <tbody>
@@ -75,7 +88,7 @@ export default function NamespacesPage() {
                       <span className="font-medium">{r.count} more</span>
                     </Td>
                     <Td className="truncate text-nb-400" title={r.clusterName}>{r.clusterName}</Td>
-                    <Td colSpan={5} className="text-xs text-nb-500" title={r.description ? `How the scope was set: ${r.description}` : undefined}>
+                    <Td colSpan={NAMESPACE_COLUMNS.filter((c) => isVisible(c.key)).length} className="text-xs text-nb-500" title={r.description ? `How the scope was set: ${r.description}` : undefined}>
                       {excludedWords(r.count)}
                     </Td>
                   </tr>
@@ -85,32 +98,40 @@ export default function NamespacesPage() {
                       <Link to={servicesOf(r)} onClick={(e) => e.stopPropagation()} className="rounded hover:underline" title="Show this namespace’s services">{r.name}</Link>
                     </Td>
                     <Td className="truncate" title={r.clusterName}>{r.clusterName}</Td>
-                    <Td className="whitespace-nowrap">
-                      {r.services}
-                      {r.kinds && <div className="whitespace-normal text-xs text-nb-500">{r.kinds}</div>}
-                    </Td>
-                    <Td>{r.exposed > 0 ? r.exposed : <span className="text-nb-600">none</span>}</Td>
-                    <Td>
-                      {r.mesh ? (
-                        <span title={r.mesh.detail} className={`inline-flex max-w-full items-center truncate whitespace-nowrap rounded border px-1.5 py-px text-[11px] font-medium leading-4 ${TONE_CLASS[r.mesh.tone]}`} data-testid="namespace-mesh">
-                          {r.mesh.label}
-                        </span>
-                      ) : (
-                        <span className="text-nb-600">none</span>
-                      )}
-                      {r.mesh && r.mesh.total > 0 && <div className="mt-0.5 text-xs text-nb-500">{r.mesh.covered} of {r.mesh.total} in mesh</div>}
-                    </Td>
-                    <Td className="whitespace-nowrap" data-testid="namespace-scope">
-                      <span className={r.scope === 'in' ? 'text-nb-300' : 'text-nb-500'}>{scopeLabel(r)}</span>
-                    </Td>
-                    <Td>
-                      {r.observation ? <ObservationChip info={r.observation} /> : <span className="text-xs text-nb-500" title="Typed by a person; no agent observes it, so it has nothing to be stale about.">declared</span>}
-                    </Td>
+                    {isVisible('services') && (
+                      <Td className="whitespace-nowrap">
+                        {r.services}
+                        {r.kinds && <div className="whitespace-normal text-xs text-nb-500">{r.kinds}</div>}
+                      </Td>
+                    )}
+                    {isVisible('exposed') && <Td>{r.exposed > 0 ? r.exposed : <span className="text-nb-600">none</span>}</Td>}
+                    {isVisible('mesh') && (
+                      <Td>
+                        {r.mesh ? (
+                          <span title={r.mesh.detail} className={`inline-flex max-w-full items-center truncate whitespace-nowrap rounded border px-1.5 py-px text-[11px] font-medium leading-4 ${TONE_CLASS[r.mesh.tone]}`} data-testid="namespace-mesh">
+                            {r.mesh.label}
+                          </span>
+                        ) : (
+                          <span className="text-nb-600">none</span>
+                        )}
+                        {r.mesh && r.mesh.total > 0 && <div className="mt-0.5 text-xs text-nb-500">{r.mesh.covered} of {r.mesh.total} in mesh</div>}
+                      </Td>
+                    )}
+                    {isVisible('scope') && (
+                      <Td className="whitespace-nowrap" data-testid="namespace-scope">
+                        <span className={r.scope === 'in' ? 'text-nb-300' : 'text-nb-500'}>{scopeLabel(r)}</span>
+                      </Td>
+                    )}
+                    {isVisible('state') && (
+                      <Td>
+                        {r.observation ? <ObservationChip info={r.observation} /> : <span className="text-xs text-nb-500" title="Typed by a person; no agent observes it, so it has nothing to be stale about.">declared</span>}
+                      </Td>
+                    )}
                   </tr>
                 ),
               )}
               {rows.length === 0 && (
-                <tr><Td colSpan={7} className="py-8 text-center text-nb-500">No namespaces match your filters.</Td></tr>
+                <tr><Td colSpan={2 + NAMESPACE_COLUMNS.filter((c) => isVisible(c.key)).length} className="py-8 text-center text-nb-500">No namespaces match your filters.</Td></tr>
               )}
             </tbody>
           </Table>
