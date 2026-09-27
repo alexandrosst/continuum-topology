@@ -29,6 +29,8 @@ const sidebars: SidebarsConfig = {
       items: [
         'architecture/overview',
         'architecture/agent-trust-model',
+        'architecture/observability-intent',
+        'architecture/system-memory',
         'architecture/exposure-options',
       ],
     },

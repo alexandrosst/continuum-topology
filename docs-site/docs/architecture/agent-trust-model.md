@@ -36,3 +36,7 @@ Certificates last 24 hours and renew automatically at the halfway point. An agen
 ## Revocation
 
 Revoking an agent is immediate and checked on every call — a live stream drops at once. It's permanent by design: a revoked agent's pod will keep restarting and trying (Kubernetes doesn't know it's been told "no"), but it exits promptly every time with a clear reason in its log, backing off to a few attempts an hour rather than crash-looping. The fix is always the same: `helm upgrade` with a fresh token, which clears the revoked marker and enrolls fresh from step 1.
+
+## Where this connects
+
+Enrollment and approval decide *whether* an agent is trusted at all; they say nothing about *what* it is then allowed to see. That's a separate, ongoing question — see [Observability intent](./observability-intent.md) for the access tier, paused collectors and excluded namespaces that actually govern a connected agent's scope, all independent of trust.
