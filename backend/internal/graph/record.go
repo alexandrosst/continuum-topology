@@ -488,7 +488,72 @@ type Snapshot struct {
 	Topology model.Topology
 }
 
-// AsOf reconstructs the estate as of the newest recorded moment at or before `at`.
+// EntitySnapshot is one entity's versioned state as of a moment, independent of what kind of
+// thing it is. It is the schema-agnostic foundation everything that reads the past is built on:
+// AsOf projects it into the typed model.Topology shape the UI and the existing history API expect,
+// while a kind-agnostic consumer (an external API, an LLM) can read it directly without this
+// package knowing anything about that consumer. A new entity kind added later -- versioned through
+// either Record or RecordEntity -- shows up here with no change to this method; only a typed
+// projection like AsOf needs updating to expose it in a shape its callers expect.
+type EntitySnapshot struct {
+	Kind    string          `json:"kind"`
+	ID      string          `json:"id"`
+	Name    string          `json:"name,omitempty"`
+	Status  string          `json:"status,omitempty"`
+	Cluster string          `json:"cluster,omitempty"`
+	Doc     json.RawMessage `json:"doc"`
+}
+
+// AsOfEntities returns every entity's Version doc valid at `at`, whatever kind it is, alongside the
+// instant it was matched against (truncated to the second, the precision every Version is written
+// at). It is the schema-agnostic foundation everything that reads the past can be built on: AsOf
+// projects it into the typed model.Topology shape the UI and the existing history API expect, while a
+// kind-agnostic consumer -- an external API, an LLM walking the graph -- can read it directly without
+// this package knowing anything about that consumer. A new entity kind added later, versioned through
+// either Record or RecordEntity, shows up here with no change to this method.
+//
+// Unlike AsOf, this does not round down to the nearest full-topology poll. An entity recorded through
+// RecordEntity changes the moment its owner acts on it, not on the topology poll's schedule, so asking
+// "what was true at this instant" should see that change right away rather than waiting for the next
+// poll to catch up. AsOf keeps rounding, because the seven kinds it projects only ever change together
+// in lockstep with a poll, so "the last poll at or before this instant" is the question that matters
+// for them; AsOfEntities makes no such assumption about a kind it has never heard of.
+func (d *DB) AsOfEntities(ctx context.Context, org string, at time.Time) (time.Time, []EntitySnapshot, error) {
+	at = at.UTC().Truncate(time.Second)
+	sc := d.C.For(org)
+
+	exists, err := d.C.Run(ctx, sc.S(`MATCH (e:Entity {org:$org}) WHERE e.firstSeen <= datetime($at) RETURN 1 LIMIT 1`, map[string]any{"at": ts(at)}))
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	if len(exists[0].Rows) == 0 {
+		return time.Time{}, nil, store.ErrNotFound
+	}
+
+	docs, err := d.C.Run(ctx, sc.S(`MATCH (v:Version {org:$org}) WHERE v.validFrom <= datetime($at) AND (v.validTo IS NULL OR v.validTo > datetime($at))
+RETURN v.kind, v.id, v.name, v.status, v.cluster, v.doc`, map[string]any{"at": ts(at)}))
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	out := make([]EntitySnapshot, 0, len(docs[0].Rows))
+	for _, row := range docs[0].Rows {
+		out = append(out, EntitySnapshot{
+			Kind:    str(row[0]),
+			ID:      str(row[1]),
+			Name:    str(row[2]),
+			Status:  str(row[3]),
+			Cluster: str(row[4]),
+			Doc:     json.RawMessage(str(row[5])),
+		})
+	}
+	return at, out, nil
+}
+
+// AsOf reconstructs the estate as of the newest recorded moment at or before `at`, as the typed
+// model.Topology the UI and the existing history API already know. It is a projection of
+// AsOfEntities: the kinds it understands are unmarshaled into their model type, and anything else
+// (an "agent" version, or a future kind this function has not been taught about) is left out here --
+// present in AsOfEntities, absent from this narrower view, by design.
 func (d *DB) AsOf(ctx context.Context, org string, at time.Time) (Snapshot, error) {
 	sc := d.C.For(org)
 	res, err := d.C.Run(ctx, sc.S(`MATCH (s:Snapshot {org:$org}) WHERE s.at <= datetime($at)
@@ -507,16 +572,15 @@ RETURN toString(s.at), s.bytes, s.traffic, s.paths ORDER BY s.at DESC LIMIT 1`, 
 	_ = json.Unmarshal([]byte(str(r[2])), &tr)
 	_ = json.Unmarshal([]byte(str(r[3])), &pq)
 
-	docs, err := d.C.Run(ctx, sc.S(`MATCH (v:Version {org:$org}) WHERE v.validFrom <= datetime($at) AND (v.validTo IS NULL OR v.validTo > datetime($at))
-RETURN v.kind, v.doc`, map[string]any{"at": ts(sat)}))
-	if err != nil {
+	_, entities, err := d.AsOfEntities(ctx, org, sat)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return Snapshot{}, err
 	}
 	seen := ts(sat)
 	t := model.Topology{Clusters: []model.Cluster{}, Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Services: []model.Service{}, Suggestions: []model.Suggestion{}, Dependencies: []model.Dependency{}, ExternalEndpoints: []model.ExternalEndpoint{}, Paths: []model.Path{}}
-	for _, row := range docs[0].Rows {
-		doc := []byte(str(row[1]))
-		switch str(row[0]) {
+	for _, es := range entities {
+		doc := []byte(es.Doc)
+		switch es.Kind {
 		case "cluster":
 			var x model.Cluster
 			if json.Unmarshal(doc, &x) == nil {

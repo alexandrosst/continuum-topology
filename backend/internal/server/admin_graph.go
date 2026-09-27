@@ -23,6 +23,7 @@ type GraphAPI interface {
 	Audit(ctx context.Context, org string, q graph.AuditQuery) ([]graph.AuditRow, error)
 	WorkspaceRevs(ctx context.Context, org string, limit int) ([]graph.WorkspaceRev, error)
 	WorkspaceAt(ctx context.Context, org string, at time.Time) (graph.WorkspaceRev, error)
+	AsOfEntities(ctx context.Context, org string, at time.Time) (time.Time, []graph.EntitySnapshot, error)
 }
 
 func (a *Admin) graphAPI() GraphAPI {
@@ -47,6 +48,33 @@ func (a *Admin) storage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, out)
+}
+
+// GET /graph/snapshot?at=...: the estate's entities as of a moment, in the graph's own schema-agnostic
+// shape -- every kind that has ever been versioned, known to this server's UI or not -- rather than the
+// fixed, typed model.Topology historySnapshot projects. Meant for a consumer that walks the graph on its
+// own terms: an external integration, or an LLM being fed the estate's memory directly.
+func (a *Admin) graphSnapshot(w http.ResponseWriter, r *http.Request) {
+	g := a.graphAPI()
+	if g == nil {
+		writeErr(w, 404, "the graph's entities need the graph database, which this server was started without")
+		return
+	}
+	at, err := parseTime(r, "at")
+	if err != nil || at.IsZero() {
+		writeErr(w, 400, "at must be an RFC 3339 time")
+		return
+	}
+	sat, entities, err := g.AsOfEntities(r.Context(), a.core(r).OrgID, at)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "nothing was recorded at or before that time")
+		return
+	}
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"at": rfc(sat), "entities": entities})
 }
 
 // GET /timeline?kind=service&id=...: every version of one record, what changed between them, the events

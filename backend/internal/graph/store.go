@@ -162,6 +162,17 @@ func (s *Store) GetHistory(ctx context.Context, org string, at time.Time) (store
 	return store.HistoryPoint{At: snap.At, Bytes: len(data)}, data, nil
 }
 
+// AsOfEntities is the schema-agnostic view of the estate as of a moment: every entity's Version
+// doc, whatever kind it is, with no projection into model.Topology. Unlike GetHistory, there is no
+// SQLite-buffered fallback for this -- it is a graph-native read (an external API, or an LLM walking
+// the graph), so when the graph is away it says so rather than answering from a narrower buffer.
+func (s *Store) AsOfEntities(ctx context.Context, org string, at time.Time) (time.Time, []EntitySnapshot, error) {
+	if !s.ready.Load() {
+		return time.Time{}, nil, ErrUnavailable
+	}
+	return s.DB.AsOfEntities(ctx, org, at)
+}
+
 func (s *Store) DeleteHistory(ctx context.Context, org string, ats []time.Time) error {
 	if err := s.Store.DeleteHistory(ctx, org, ats); err != nil {
 		return err

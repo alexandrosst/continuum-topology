@@ -183,6 +183,7 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/decide", editorRole, a.decide)
 	route("GET "+o+"/storage", memberRole, a.storage)
 	route("GET "+o+"/timeline", memberRole, a.timeline)
+	route("GET "+o+"/graph/snapshot", memberRole, a.graphSnapshot)
 	route("GET "+o+"/audit", adminRole, a.audit)
 	route("GET "+o+"/workspace/revisions", memberRole, a.workspaceRevisions)
 	route("GET "+o+"/workspace/at", memberRole, a.workspaceAt)

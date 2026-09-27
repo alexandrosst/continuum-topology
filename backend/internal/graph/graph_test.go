@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -308,6 +309,88 @@ func TestRecordEntityVersionsSomethingOutsideThePolledTopology(t *testing.T) {
 
 	if err := db.RecordEntity(ctx, org, t0, "not-a-kind", "x", "x", "x", "", nil); err == nil {
 		t.Error("an unknown kind should be refused")
+	}
+}
+
+// TestAsOfEntitiesSeesEverythingAsOfProjectsOnlyWhatItKnows verifies the split this package's read
+// side is built on. AsOfEntities is the schema-agnostic foundation: it sees an "agent" version
+// (something outside the seven polled kinds) exactly like any other entity, and -- unlike AsOf -- it
+// reads the graph at the exact instant asked for rather than rounding down to the last full-topology
+// poll, so a RecordEntity write shows up the moment it happens rather than waiting for the next poll
+// to catch up. AsOf, projecting the same graph into the typed model.Topology shape the UI already
+// knows, keeps rounding to the last poll (the seven kinds it understands only ever change together, in
+// lockstep with one) and goes on quietly leaving "agent" out, since model.Topology has nowhere to put
+// it. Neither behavior is accidental; this pins both down so a future change to either one has to break
+// a test to break the split.
+func TestAsOfEntitiesSeesEverythingAsOfProjectsOnlyWhatItKnows(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate()) // the only full-topology poll: clusters/services/etc. as of t0
+
+	type doc struct {
+		AccessTier int `json:"accessTier"`
+	}
+	agentAt := t0.Add(2 * time.Hour) // long after the one poll, with no later poll to round down to
+	if err := db.RecordEntity(ctx, org, agentAt, "agent", "ag-1", "edge-collector", "approved", "c-1", doc{AccessTier: 1}); err != nil {
+		t.Fatalf("record entity: %v", err)
+	}
+
+	resolved, entities, err := db.AsOfEntities(ctx, org, agentAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resolved.Equal(agentAt.UTC().Truncate(time.Second)) {
+		t.Errorf("AsOfEntities should resolve to the instant asked for, not round it: %v", resolved)
+	}
+	byKey := map[string]EntitySnapshot{}
+	for _, e := range entities {
+		byKey[e.Kind+"/"+e.ID] = e
+	}
+	ag, ok := byKey["agent/ag-1"]
+	if !ok {
+		t.Fatalf("AsOfEntities dropped the agent entity, two hours after the last poll: %+v", entities)
+	}
+	if ag.Name != "edge-collector" || ag.Status != "approved" || ag.Cluster != "c-1" {
+		t.Errorf("agent entity carried the wrong fields: %+v", ag)
+	}
+	var d doc
+	if err := json.Unmarshal(ag.Doc, &d); err != nil || d.AccessTier != 1 {
+		t.Errorf("agent entity's doc did not round-trip: %s (err=%v)", ag.Doc, err)
+	}
+	if _, ok := byKey["cluster/c-1"]; !ok {
+		t.Errorf("AsOfEntities should still carry the seven polled kinds alongside agent: %+v", entities)
+	}
+
+	// AsOf, asked about that same instant, has no later poll to round down to, so it still lands on the
+	// t0 poll and its Topology has no field for the agent version at all -- a different, and correct,
+	// answer to a differently-scoped question.
+	snap, err := db.AsOf(ctx, org, agentAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snap.At.Equal(t0) {
+		t.Errorf("AsOf should have rounded down to the one poll at t0, got %v", snap.At)
+	}
+	if len(snap.Topology.Clusters) == 0 {
+		t.Error("AsOf lost the polled kinds it has always known")
+	}
+}
+
+// TestAsOfEntitiesSaysWhenItHasNoMemoryThatFarBack mirrors AsOf's own ErrNotFound contract for the
+// schema-agnostic path: asking about an instant before this org's very first recorded entity must fail
+// clearly, not answer with a silently empty list that looks identical to "nothing changed."
+func TestAsOfEntitiesSaysWhenItHasNoMemoryThatFarBack(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate())
+
+	if _, _, err := db.AsOfEntities(ctx, org, t0.Add(-time.Hour)); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("expected ErrNotFound before anything was recorded, got %v", err)
+	}
+	if _, entities, err := db.AsOfEntities(ctx, org, t0); err != nil || len(entities) == 0 {
+		t.Errorf("expected entities at the moment they were first recorded, got %d entities, err=%v", len(entities), err)
 	}
 }
 
