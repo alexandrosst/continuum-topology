@@ -249,6 +249,62 @@ export function Select({ className, children, value, defaultValue, onChange, dis
   )
 }
 
+const COMBO_CUSTOM = '__custom__'
+
+/**
+ * A dropdown of the common values for a field (a cloud provider, a Kubernetes distribution) plus an
+ * escape hatch for anything the list doesn't cover, instead of forcing free text for everyone to save
+ * the rare case - the "pick one, or type your own" shape most cloud consoles use for exactly this kind
+ * of field. Starts in the dropdown when the current value matches a listed option (or is empty), and in
+ * the text field otherwise - editing an existing record with an uncommon value never hides it. Picking
+ * "Other…" clears the value rather than leaving the last selection behind it; "List" clears the typed
+ * text the same way, so switching back and forth never leaves a stale value neither view is showing.
+ */
+export function ComboField({
+  value,
+  onChange,
+  options,
+  placeholder = 'Select…',
+  customLabel = 'Other…',
+}: {
+  value: string
+  onChange: (value: string) => void
+  options: { value: string; label: string }[]
+  placeholder?: string
+  customLabel?: string
+}) {
+  const matches = value === '' || options.some((o) => o.value === value)
+  const [customMode, setCustomMode] = useState(!matches)
+
+  if (customMode) {
+    return (
+      <div className="flex gap-2">
+        <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="min-w-0 flex-1" autoFocus />
+        <Button type="button" size="sm" onClick={() => { setCustomMode(false); onChange('') }}>List</Button>
+      </div>
+    )
+  }
+  return (
+    <Select
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => {
+        if (e.target.value === COMBO_CUSTOM) {
+          setCustomMode(true)
+          onChange('')
+        } else {
+          onChange(e.target.value)
+        }
+      }}
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+      <option value={COMBO_CUSTOM}>{customLabel}</option>
+    </Select>
+  )
+}
+
 /** `adornment` sits right after the label text - e.g. an EvidenceChip marking the field's value as a guess or
  * unknown, so a person editing it sees the same "how sure are we" signal this app already shows in tables and
  * the inspector, without a separate lookup. Generic on purpose: Field itself knows nothing about evidence. */

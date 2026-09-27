@@ -189,8 +189,30 @@ function NameEndpoint({ endpoint }: { endpoint: ExternalEndpoint }) {
 }
 
 const res = (r?: Resources) => (r ? `${r.cpu} vCPU · ${r.memoryGb} GB` : undefined)
-const kv = (o?: Record<string, string>) => (o && Object.keys(o).length ? Object.entries(o).map(([k, v]) => `${k}=${v}`).join(', ') : undefined)
 const list = (a?: string[]) => (a && a.length ? a.join(', ') : undefined)
+
+/** Kubernetes-style key=value pairs (a node selector, a device's labels) as individual chips instead of
+ *  one long comma-joined line that only ever scrolled sideways: each pair keeps its own wrap boundary,
+ *  and the key reads dimmer than the value so a long list still scans at a glance. Renders nothing when
+ *  there is nothing to show, the same as Maybe. */
+function KeyValueChips({ label, pairs }: { label: string; pairs?: Record<string, string> }) {
+  const entries = pairs ? Object.entries(pairs) : []
+  if (entries.length === 0) return null
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-1.5 text-sm">
+      <span className="shrink-0 text-nb-500">{label}</span>
+      <div className="flex min-w-0 flex-wrap justify-end gap-1">
+        {entries.map(([k, v]) => (
+          <span key={k} className="inline-flex max-w-full items-center gap-0.5 whitespace-nowrap rounded-md border border-nb-800 bg-nb-930 px-1.5 py-0.5 font-mono text-[11px] leading-none">
+            <span className="truncate text-nb-500">{k}</span>
+            <span className="text-nb-600">=</span>
+            <span className="truncate text-nb-300">{v}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
 const connLabel = (c?: string) => CONNECTIVITY.find((x) => x.value === c)?.label
 
 export default function Inspector({
@@ -552,7 +574,7 @@ export default function Inspector({
         <Section title="Networking">
           <Maybe label="Exposure">{[w.exposure, list(w.hosts)].filter(Boolean).join(' · ')}</Maybe>
           <Maybe label="Ports">{w.ports?.join(', ')}</Maybe>
-          <Maybe label="Node selector">{kv(w.nodeSelector)}</Maybe>
+          <KeyValueChips label="Node selector" pairs={w.nodeSelector} />
           <Maybe label="Tolerations">{list(w.tolerations)}</Maybe>
           <Maybe label="Sensitivity">{w.sensitivity}</Maybe>
         </Section>
@@ -659,7 +681,7 @@ export default function Inspector({
           ) : '—'}</Row>
           <Maybe label="Hardware">{d.hardwareModel}</Maybe>
           <Maybe label="Firmware">{d.firmware}</Maybe>
-          <Maybe label="Labels">{kv(d.labels)}</Maybe>
+          <KeyValueChips label="Labels" pairs={d.labels} />
         </Section>
         <Section title="Connectivity">
           <Row label="Units">{d.count}</Row>

@@ -2,9 +2,9 @@ import { countries } from 'country-flag-icons'
 import { Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { GroupingPicker } from '@/components/GroupingPicker'
-import { Button, EvidenceChip, Field, Input, Modal, Select } from '@/components/ui/primitives'
+import { Button, ComboField, EvidenceChip, Field, Input, Modal, Select } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
-import { countryName } from '@/lib/present'
+import { countryName, DISTRIBUTION_OPTIONS, PROVIDER_OPTIONS } from '@/lib/present'
 import { countryAt, findCities, nearestCity, siteLocationIssue, type City } from '@/lib/places'
 import { usePlaceIndex } from '@/lib/places-data'
 import { groupingAlternativesFor } from '@/lib/suggestions'
@@ -222,13 +222,13 @@ export function ClusterForm({ initial, onClose }: { initial: Cluster | null; onC
           <StatusSelect value={f.status} onChange={(v) => set('status', v)} />
         </Field>
         <Field label="Distribution" adornment={chip('distribution')}>
-          <Input value={f.distribution} onChange={(e) => set('distribution', e.target.value)} placeholder="EKS, k3s, kubeadm…" />
+          <ComboField value={f.distribution} onChange={(v) => set('distribution', v)} options={DISTRIBUTION_OPTIONS} placeholder="EKS, k3s, kubeadm…" />
         </Field>
         <Field label="Version" adornment={chip('version')}>
           <Input value={f.version} onChange={(e) => set('version', e.target.value)} placeholder="v1.30.2" />
         </Field>
         <Field label="Provider" adornment={chip('provider')}>
-          <Input value={f.provider} onChange={(e) => set('provider', e.target.value)} placeholder="AWS, On-prem…" />
+          <ComboField value={f.provider} onChange={(v) => set('provider', v)} options={PROVIDER_OPTIONS} placeholder="AWS, On-prem…" />
         </Field>
         <Field label="Region label" hint="A cloud region code or a city name. If the cluster is not on a site yet, it is used to suggest where it is." adornment={chip('region')}>
           <Input value={f.region} onChange={(e) => set('region', e.target.value)} placeholder="eu-central-1" />

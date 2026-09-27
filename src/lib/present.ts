@@ -39,6 +39,24 @@ export function placeLabel(s?: Pick<Site, 'city' | 'country'>): string {
 
 export type DistroKey = 'eks' | 'gke' | 'aks' | 'k3s' | 'rke2' | 'openshift' | 'microk8s' | 'talos' | 'k0s' | 'kind' | 'kubeadm' | 'kubernetes'
 
+/** The common Kubernetes distributions, offered as a picklist the same way PROVIDER_OPTIONS is: value
+ * is the compact form clusters already store (matching seed data's "EKS"/"k3s"/"kubeadm"), label spells
+ * out the vendor for anyone picking from the list. Deliberately leaves out the generic "kubernetes"
+ * DistroKey - it is what an unrecognised value already falls back to, not a choice of its own. */
+export const DISTRIBUTION_OPTIONS: { value: string; label: string }[] = [
+  { value: 'EKS', label: 'EKS (Amazon)' },
+  { value: 'GKE', label: 'GKE (Google)' },
+  { value: 'AKS', label: 'AKS (Azure)' },
+  { value: 'k3s', label: 'k3s' },
+  { value: 'RKE2', label: 'RKE2' },
+  { value: 'OpenShift', label: 'OpenShift' },
+  { value: 'MicroK8s', label: 'MicroK8s' },
+  { value: 'Talos', label: 'Talos' },
+  { value: 'k0s', label: 'k0s' },
+  { value: 'kind', label: 'kind / minikube' },
+  { value: 'kubeadm', label: 'kubeadm' },
+]
+
 /** Which known distribution a free-text value refers to. Anything unrecognised is plain Kubernetes. */
 export function distroKey(distribution?: string): DistroKey {
   const s = (distribution ?? '').toLowerCase().replace(/[\s_-]+/g, '')
@@ -79,6 +97,29 @@ export function providerKey(provider?: string): ProviderKey {
   if (/edge/.test(s)) return 'edge'
   return 'unknown'
 }
+
+/** The common providers, offered as a picklist (see ComboField) instead of a bare free-text field: the
+ * value stored is the display label itself (matching what clusters already carry, e.g. seed data's
+ * "AWS"/"On-prem"), and every one of these round-trips through providerKey() back to its own key. An
+ * uncommon provider still works - it just falls through to the picker's free-text mode. Ordered roughly
+ * by how often each shows up in a real fleet: the three big public clouds, then smaller/regional ones,
+ * then self-hosted and on-prem infrastructure. */
+export const PROVIDER_OPTIONS: { value: string; label: string }[] = [
+  { value: 'AWS', label: 'AWS' },
+  { value: 'Azure', label: 'Azure' },
+  { value: 'Google Cloud', label: 'Google Cloud' },
+  { value: 'DigitalOcean', label: 'DigitalOcean' },
+  { value: 'Hetzner', label: 'Hetzner' },
+  { value: 'OVHcloud', label: 'OVHcloud' },
+  { value: 'Scaleway', label: 'Scaleway' },
+  { value: 'Vultr', label: 'Vultr' },
+  { value: 'Alibaba Cloud', label: 'Alibaba Cloud' },
+  { value: 'OpenStack', label: 'OpenStack' },
+  { value: 'VMware', label: 'VMware' },
+  { value: 'Proxmox', label: 'Proxmox' },
+  { value: 'On-prem', label: 'On-prem' },
+  { value: 'Edge', label: 'Edge' },
+]
 
 /** "v1.29.6+k3s1" -> "v1.29.6": the build suffix only makes a column wider. Keep the full string for tooltips. */
 export const shortVersion = (v?: string): string => (v ?? '').split('+')[0]
