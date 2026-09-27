@@ -545,6 +545,16 @@ type AgentSnapshot struct {
 	ExcludedNamespaces []string `json:"excludedNamespaces,omitempty"`
 }
 
+// HistoricAgent is an agent's graph-recorded state as of some past moment, in the shape the frontend
+// overlays onto its live Agent type to answer "what did this agent look like then" -- AgentSnapshot's
+// fields (deliberately narrower than the live type: never an identity secret) plus the id that ties it
+// back to a specific agent, which AgentSnapshot itself does not carry since the graph already keys its
+// Version nodes by id separately from the doc.
+type HistoricAgent struct {
+	ID string `json:"id"`
+	AgentSnapshot
+}
+
 func agentSnapshot(a store.Agent, c Consent) AgentSnapshot {
 	s := AgentSnapshot{
 		Name: a.Name, Status: string(a.Status), ClusterID: a.ClusterID,

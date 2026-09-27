@@ -135,7 +135,40 @@ func (a *Admin) historySnapshot(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"at": rfc(p.At), "topology": t})
+	out := map[string]any{"at": rfc(p.At), "topology": t}
+	if agents := a.historicAgents(r, p.At); agents != nil {
+		out["agents"] = agents
+	}
+	writeJSON(w, 200, out)
+}
+
+// historicAgents projects AsOfEntities' "agent" kind into the shape the UI overlays onto live agent
+// state (HistoricAgent), asked about the exact moment GetHistory just resolved to so the agents shown
+// always describe the same instant as the topology returned beside them. It returns nil -- not an
+// error -- whenever that is not possible: no graph configured, or nothing recorded about any agent that
+// far back. The UI already treats a snapshot with no "agents" field as "show today's agents unchanged,"
+// which is the honest answer when this server has no memory of what they looked like then.
+func (a *Admin) historicAgents(r *http.Request, at time.Time) []HistoricAgent {
+	g := a.graphAPI()
+	if g == nil {
+		return nil
+	}
+	_, entities, err := g.AsOfEntities(r.Context(), a.core(r).OrgID, at)
+	if err != nil {
+		return nil
+	}
+	var out []HistoricAgent
+	for _, e := range entities {
+		if e.Kind != "agent" {
+			continue
+		}
+		var snap AgentSnapshot
+		if json.Unmarshal(e.Doc, &snap) != nil {
+			continue
+		}
+		out = append(out, HistoricAgent{ID: e.ID, AgentSnapshot: snap})
+	}
+	return out
 }
 
 // trafficCacheTTL is how long historyTraffic's SQLite slow path reuses a computed response before

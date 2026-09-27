@@ -178,6 +178,75 @@ func TestHistoryTimelineAndAuditThroughTheAPIStayInsideTheirOrganisation(t *test
 	}
 }
 
+func TestHistorySnapshotCarriesAgentsAsOfTheSameMomentAndGraphSnapshotIsSchemaAgnostic(t *testing.T) {
+	a, gs := graphRig(t)
+	alice, aOrg := a.register(t, "alice", "Alice Lab")
+	t0 := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
+
+	if err := gs.AddHistory(a.ctx, aOrg, t0, snap("web", 1)); err != nil {
+		t.Fatal(err)
+	}
+	agentDoc := AgentSnapshot{Name: "edge-collector", Status: "approved", ClusterID: "c-1", InstalledTier: 2, TierCap: 2, AccessTier: 1}
+	if err := gs.RecordEntity(a.ctx, aOrg, t0, "agent", "ag-1", agentDoc.Name, agentDoc.Status, agentDoc.ClusterID, agentDoc); err != nil {
+		t.Fatal(err)
+	}
+	gs.Sync(a.ctx)
+
+	at := t0.Add(time.Minute).UTC().Format(time.RFC3339)
+
+	// history/snapshot: the UI's typed view, now carrying the agents that existed as of the same moment
+	// as the topology beside them, alongside the seven kinds it has always understood.
+	r := a.do("GET", org(aOrg, "history/snapshot?at="+at), nil, withCookie(alice))
+	if r.Code != 200 {
+		t.Fatalf("snapshot: %d %s", r.Code, r.Body.String())
+	}
+	body := r.json(t)
+	if svcs := body["topology"].(map[string]any)["services"].([]any); len(svcs) != 1 {
+		t.Errorf("topology missing: %v", body["topology"])
+	}
+	agents, ok := body["agents"].([]any)
+	if !ok || len(agents) != 1 {
+		t.Fatalf("expected one historic agent, got %v", body["agents"])
+	}
+	ag := agents[0].(map[string]any)
+	if ag["id"] != "ag-1" || ag["name"] != "edge-collector" || ag["status"] != "approved" || ag["clusterId"] != "c-1" || ag["accessTier"].(float64) != 1 {
+		t.Errorf("historic agent = %v", ag)
+	}
+
+	// graph/snapshot: the schema-agnostic view of the same moment, every kind side by side with no
+	// projection into the UI's fixed shape -- an entity here needs no case anywhere to be seen.
+	r = a.do("GET", org(aOrg, "graph/snapshot?at="+at), nil, withCookie(alice))
+	if r.Code != 200 {
+		t.Fatalf("graph snapshot: %d %s", r.Code, r.Body.String())
+	}
+	gbody := r.json(t)
+	entities := gbody["entities"].([]any)
+	byKind := map[string]int{}
+	var rawAgentDoc map[string]any
+	for _, e := range entities {
+		row := e.(map[string]any)
+		byKind[row["kind"].(string)]++
+		if row["kind"] == "agent" {
+			rawAgentDoc = row["doc"].(map[string]any)
+		}
+	}
+	if byKind["service"] == 0 || byKind["cluster"] == 0 || byKind["agent"] == 0 {
+		t.Fatalf("expected the polled kinds and agent side by side, got %v", byKind)
+	}
+	if rawAgentDoc == nil || rawAgentDoc["accessTier"].(float64) != 1 {
+		t.Errorf("agent's raw doc did not come through: %v", rawAgentDoc)
+	}
+
+	// A moment before any of this existed: both endpoints say so the same way.
+	before := t0.Add(-time.Hour).UTC().Format(time.RFC3339)
+	if c := a.do("GET", org(aOrg, "history/snapshot?at="+before), nil, withCookie(alice)).Code; c != 404 {
+		t.Errorf("history/snapshot before anything existed: %d", c)
+	}
+	if c := a.do("GET", org(aOrg, "graph/snapshot?at="+before), nil, withCookie(alice)).Code; c != 404 {
+		t.Errorf("graph/snapshot before anything existed: %d", c)
+	}
+}
+
 func TestWithoutTheGraphTheSameRoutesSayWhatIsMissing(t *testing.T) {
 	a := newAdminRig(t)
 	alice, id := a.register(t, "alice", "Alice Lab")
@@ -186,6 +255,9 @@ func TestWithoutTheGraphTheSameRoutesSayWhatIsMissing(t *testing.T) {
 	}
 	if c := a.do("GET", org(id, "timeline?kind=service&id=x"), nil, withCookie(alice)).Code; c != 404 {
 		t.Errorf("timeline without graph: %d", c)
+	}
+	if c := a.do("GET", org(id, "graph/snapshot?at="+time.Now().UTC().Format(time.RFC3339)), nil, withCookie(alice)).Code; c != 404 {
+		t.Errorf("graph snapshot without graph: %d", c)
 	}
 	r := a.do("GET", org(id, "audit?action=org-created"), nil, withCookie(alice))
 	if r.Code != 200 || r.json(t)["source"] != "local" || len(r.json(t)["rows"].([]any)) != 1 {
