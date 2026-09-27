@@ -257,8 +257,9 @@ const COMBO_CUSTOM = '__custom__'
  * the rare case - the "pick one, or type your own" shape most cloud consoles use for exactly this kind
  * of field. Starts in the dropdown when the current value matches a listed option (or is empty), and in
  * the text field otherwise - editing an existing record with an uncommon value never hides it. Picking
- * "Other…" clears the value rather than leaving the last selection behind it; "List" clears the typed
- * text the same way, so switching back and forth never leaves a stale value neither view is showing.
+ * "Other…" clears the value rather than leaving the last selection behind it; "Pick from list" clears
+ * the typed text the same way, so switching back and forth never leaves a stale value neither view is
+ * showing.
  */
 export function ComboField({
   value,
@@ -280,7 +281,7 @@ export function ComboField({
     return (
       <div className="flex gap-2">
         <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="min-w-0 flex-1" autoFocus />
-        <Button type="button" size="sm" onClick={() => { setCustomMode(false); onChange('') }}>List</Button>
+        <Button type="button" size="sm" onClick={() => { setCustomMode(false); onChange('') }}>Pick from list</Button>
       </div>
     )
   }
