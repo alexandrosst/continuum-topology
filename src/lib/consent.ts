@@ -61,10 +61,31 @@ export interface AgentDiagnostics {
   problems: AgentProblem[]
 }
 
-/** What an administrator has asked one agent to leave out. */
+/** What an administrator has asked one agent to leave out, and whether the agent has caught up with it. */
 export interface AgentConsent {
   pausedCollectors: string[]
   excludedNamespaces: string[]
+  /**
+   * True once the agent's own diagnostics show this narrowing actually in force (or there was nothing
+   * narrowed to confirm in the first place). Computed server-side, from the agent's last report - not
+   * derived here, so it still reads correctly right after a page load, before any diagnostics have been
+   * fetched into this session. See `setAt` for how long it has been waiting.
+   */
+  confirmed?: boolean
+  /**
+   * When this narrowing was last changed (ISO 8601), present only while `confirmed` is false - the
+   * observability-intent panel's staleness signal, an elapsed-time indicator for a narrowing that has been
+   * waiting on the agent, rather than leaving the person to guess whether "not yet confirmed" means five
+   * seconds or five days.
+   */
+  setAt?: string
+  /**
+   * Excluded namespace names this agent has never actually reported. A likely typo, or one that simply has
+   * not rolled out yet - either way a warning, not a block: cleanConsent's own syntax checks already ran
+   * server-side, so anything named here was accepted and IS in force, just against a namespace that has
+   * not (yet) been seen.
+   */
+  unknownNamespaces?: string[]
 }
 
 export interface AgentExtras {
@@ -78,7 +99,15 @@ export function extrasOf(agents: readonly unknown[] | undefined, id: string): Ag
   if (!a) return {}
   return {
     diagnostics: a.diagnostics ? { ...a.diagnostics, pausedCollectors: a.diagnostics.pausedCollectors ?? [], collectors: a.diagnostics.collectors ?? [], informers: a.diagnostics.informers ?? [], problems: a.diagnostics.problems ?? [] } : undefined,
-    consent: a.consent ? { pausedCollectors: a.consent.pausedCollectors ?? [], excludedNamespaces: a.consent.excludedNamespaces ?? [] } : undefined,
+    consent: a.consent
+      ? {
+          pausedCollectors: a.consent.pausedCollectors ?? [],
+          excludedNamespaces: a.consent.excludedNamespaces ?? [],
+          confirmed: a.consent.confirmed,
+          setAt: a.consent.setAt,
+          unknownNamespaces: a.consent.unknownNamespaces ?? [],
+        }
+      : undefined,
   }
 }
 

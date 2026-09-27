@@ -152,11 +152,20 @@ test('what the agent can see, in words', () => {
 })
 
 test('the two fields only editors receive are read from the raw agent list', () => {
-  const agents = [{ id: 'a', diagnostics: { ...diag(), pausedCollectors: undefined, problems: undefined }, consent: { pausedCollectors: undefined, excludedNamespaces: ['x'] } }, { id: 'b' }]
+  const agents = [
+    { id: 'a', diagnostics: { ...diag(), pausedCollectors: undefined, problems: undefined }, consent: { pausedCollectors: undefined, excludedNamespaces: ['x'], confirmed: false, setAt: '2026-01-01T00:00:00Z' } },
+    { id: 'b' },
+  ]
   const a = extrasOf(agents, 'a')
   assert.deepEqual(a.diagnostics?.problems, [])
-  assert.deepEqual(a.consent, { pausedCollectors: [], excludedNamespaces: ['x'] })
+  assert.deepEqual(a.consent, { pausedCollectors: [], excludedNamespaces: ['x'], confirmed: false, setAt: '2026-01-01T00:00:00Z', unknownNamespaces: [] })
   assert.deepEqual(extrasOf(agents, 'b'), { diagnostics: undefined, consent: undefined })
   assert.deepEqual(extrasOf(agents, 'nope'), {})
   assert.deepEqual(extrasOf(undefined, 'a'), {})
+})
+
+test('an excluded namespace the agent has never reported is carried through as a warning, not dropped', () => {
+  const agents = [{ id: 'a', consent: { pausedCollectors: [], excludedNamespaces: ['batch'], confirmed: true, unknownNamespaces: ['batch'] } }]
+  const a = extrasOf(agents, 'a')
+  assert.deepEqual(a.consent?.unknownNamespaces, ['batch'])
 })

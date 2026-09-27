@@ -190,7 +190,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
   const installed = (agent.installedTier ?? d?.installedTier ?? agent.accessTier) as AccessTier
   const implemented = Math.min(info?.implementedTier ?? 2, 2) as AccessTier
   const tierLadder = useMemo(() => Array.from({ length: implemented + 1 }, (_, i) => i as AccessTier), [implemented])
-  const stored = consent ?? { pausedCollectors: [], excludedNamespaces: [] }
+  const stored = consent ?? { pausedCollectors: [], excludedNamespaces: [], confirmed: true, unknownNamespaces: [] }
 
   const [tier, setTier] = useState<AccessTier>(agent.accessTier)
   const [paused, setPaused] = useState<string[]>(stored.pausedCollectors)
@@ -220,7 +220,12 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
 
   const toShow = asked ?? (installed < implemented ? ((installed + 1) as AccessTier) : undefined)
   const valid = parsed.problems.length === 0
-  const confirmed = inForce(consent, agent.accessTier, d)
+  // The server's own confirmed/setAt take precedence once present (they read correctly on a fresh page
+  // load, before any diagnostics have come in this session); inForce is the fallback for an older server
+  // that has not started sending them yet.
+  const confirmed = stored.confirmed ?? inForce(consent, agent.accessTier, d)
+  const narrowed = stored.pausedCollectors.length > 0 || stored.excludedNamespaces.length > 0
+  const waitingWords = !confirmed && narrowed && stored.setAt ? `${uptimeWords((Date.now() - Date.parse(stored.setAt)) / 1000)} ago` : undefined
 
   const save = async () => {
     const c = server.conn()
@@ -324,14 +329,27 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
             {parsed.problems.map((p) => <li key={p}>{p}</li>)}
           </ul>
         )}
+        {valid && !dirty && stored.unknownNamespaces && stored.unknownNamespaces.length > 0 && (
+          <ul className="mt-1 text-xs text-warn" data-testid="exclude-unknown">
+            {stored.unknownNamespaces.map((n) => (
+              <li key={n}>“{n}” has not been reported by this agent yet — check the spelling, or it may not have rolled out.</li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Button variant="primary" size="sm" disabled={!dirty || !valid || busy} onClick={() => void save()} data-testid="consent-save">{busy ? 'Saving…' : 'Save'}</Button>
         {dirty && !busy && <button type="button" className="text-xs text-nb-500 hover:text-nb-300" onClick={() => { setTier(agent.accessTier); setPaused(stored.pausedCollectors); setExcl(stored.excludedNamespaces); setError(''); setHelm('') }}>Discard changes</button>}
-        {saved && !dirty && !error && (
+        {!dirty && !error && (saved || (narrowed && !confirmed)) && (
           <span className={clsx('text-xs', confirmed ? 'text-ok' : 'text-nb-400')} role="status" data-testid="consent-status">
-            {confirmed ? 'Saved, and the agent confirms it is in force.' : 'Saved. The agent applies this within seconds; the state on the left updates when it does.'}
+            {confirmed
+              ? saved
+                ? 'Saved, and the agent confirms it is in force.'
+                : 'The agent confirms this is in force.'
+              : saved
+                ? 'Saved. The agent applies this within seconds; the state on the left updates when it does.'
+                : `Waiting on the agent to confirm this${waitingWords ? ` — asked ${waitingWords}` : ''}.`}
           </span>
         )}
       </div>
