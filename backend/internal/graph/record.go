@@ -420,6 +420,40 @@ ON CREATE SET r.validFrom = datetime($at)`, ep),
 	return err
 }
 
+// LinkEventChanges connects each of this batch's events to the version of its target that was created at
+// the same moment, if there is one: the graph's own record of what an event explains, not just that they
+// happened close together in time. Events with no single target (a "many changes" summary, for instance)
+// are skipped - there is nothing for them to point at. Safe to call whether or not a version was actually
+// created for every event's target: an event with nothing to link to simply links to nothing.
+func (d *DB) LinkEventChanges(ctx context.Context, org string, at time.Time, evs []store.Event) error {
+	at = at.UTC().Truncate(time.Second)
+	seen := map[string]bool{}
+	var rows []map[string]any
+	for _, e := range evs {
+		if e.TargetKind == "" || e.TargetID == "" {
+			continue
+		}
+		k := e.TargetKind + "\x00" + e.TargetID
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		rows = append(rows, map[string]any{"kind": e.TargetKind, "id": e.TargetID})
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	// Events carry their own full-precision instant; the version they explain was written with its
+	// validFrom truncated to the second (see Record and RecordEntity). Both fall in the same one-second
+	// window starting at the truncated instant, since truncation only ever moves a moment earlier.
+	_, err := d.C.Run(ctx, d.C.For(org).S(`UNWIND $rows AS row
+MATCH (ev:Event {org:$org, targetKind:row.kind, targetId:row.id})
+WHERE ev.at >= datetime($at) AND ev.at < datetime($at) + duration({seconds: 1})
+MATCH (v:Version {org:$org, kind:row.kind, id:row.id, validFrom:datetime($at)})
+MERGE (ev)-[:EXPLAINS]->(v)`, map[string]any{"rows": rows, "at": ts(at)}))
+	return err
+}
+
 func splitKey(k string) (string, string) {
 	for i := 0; i < len(k); i++ {
 		if k[i] == 0 {

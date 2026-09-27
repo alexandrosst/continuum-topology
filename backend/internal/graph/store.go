@@ -586,6 +586,17 @@ func (s *Store) RecordEntity(ctx context.Context, org string, at time.Time, kind
 	return s.DB.RecordEntity(ctx, org, at, kind, id, name, status, cluster, doc)
 }
 
+// LinkEventChanges connects a batch of events to the versions they explain (see DB.LinkEventChanges).
+// Best-effort in the same way RecordEntity is: both the events and the version they explain are already
+// durably written by the time this runs, so a failure here only means the graph's causal edge is missing,
+// never that the change itself was lost.
+func (s *Store) LinkEventChanges(ctx context.Context, org string, at time.Time, evs []store.Event) error {
+	if !s.ready.Load() {
+		return ErrUnavailable
+	}
+	return s.DB.LinkEventChanges(ctx, org, at, evs)
+}
+
 func (s *Store) Audit(ctx context.Context, org string, q AuditQuery) ([]AuditRow, error) {
 	return s.DB.Audit(ctx, org, q)
 }

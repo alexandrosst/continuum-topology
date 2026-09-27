@@ -311,6 +311,49 @@ func TestRecordEntityVersionsSomethingOutsideThePolledTopology(t *testing.T) {
 	}
 }
 
+func TestEventsExplainTheVersionTheyProduced(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate())
+
+	e := estate()
+	e.Services[0].Replicas = 5 // s-1: 2 -> 5
+	scaled := store.Event{At: t0.Add(time.Hour).Add(137 * time.Millisecond), Kind: "service-scaled", TargetKind: "service", TargetID: "s-1", Detail: "2 -> 5", Cause: "autoscaler (1-6)"}
+	unrelated := store.Event{At: t0.Add(time.Hour), Kind: "cluster-status", TargetKind: "cluster", TargetID: "c-2", Detail: "reachable -> unreachable"} // no version for c-2 changed
+	if err := db.AddEvents(ctx, org, []store.Event{scaled, unrelated}); err != nil {
+		t.Fatal(err)
+	}
+	record(t, db, org, t0.Add(time.Hour), e)
+	if err := db.LinkEventChanges(ctx, org, t0.Add(time.Hour), []store.Event{scaled, unrelated}); err != nil {
+		t.Fatal(err)
+	}
+
+	tl, err := db.Timeline(ctx, org, "service", "s-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.Versions) != 2 {
+		t.Fatalf("versions: %+v", tl.Versions)
+	}
+	if len(tl.Versions[0].Explains) != 1 || tl.Versions[0].Explains[0].Kind != "service-scaled" || tl.Versions[0].Explains[0].Cause != "autoscaler (1-6)" {
+		t.Fatalf("the newest version should be explained by the scale event: %+v", tl.Versions[0].Explains)
+	}
+	if len(tl.Versions[1].Explains) != 0 {
+		t.Errorf("the first version was never produced by an event, it was just first seen: %+v", tl.Versions[1].Explains)
+	}
+
+	// The unrelated event (about a cluster that got no new version at this instant) should not have been
+	// linked to anything - not to s-1's version, and there should be no dangling EXPLAINS edge for it either.
+	res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (ev:Event {org:$org, targetKind:'cluster', targetId:'c-2'})-[:EXPLAINS]->() RETURN count(*)`, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i64(res[0].Rows[0][0]) != 0 {
+		t.Errorf("the unrelated event should not explain anything (no version was made for c-2 at that instant): %v", res[0].Rows)
+	}
+}
+
 func TestRecordingTheSameInstantTwiceReplacesRatherThanBreaks(t *testing.T) {
 	db, org := testDB(t)
 	ctx := context.Background()

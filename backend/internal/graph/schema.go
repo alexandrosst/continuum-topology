@@ -20,9 +20,17 @@ const SchemaVersion = 1
 //	(:Snapshot {org, at, fp, bytes, traffic, paths})   the moments the estate was recorded, plus the
 //	   volatile counters (traffic, path quality) that are not versioned
 //	(:Event {org, id, at, kind, targetKind, targetId, ...})  what changed, in words
+//	   -[:EXPLAINS]-> (:Version)   when the change was one that also produced a new version of its
+//	      target in the same moment: the graph's own record of what caused what, not just that they
+//	      happened close together
 //	(:Audit {org, id, at, action, targetKind, targetId, detail})-[:BY]->(:Actor {org, name})
 //	(:Actor)-[:MEMBER_OF {role, validFrom, validTo}]->(:Tenant)
 //	(:WorkspaceRev {org, rev, at, by, data})            every saved revision of the human layer
+//
+// Two more relationships exist for bookkeeping rather than for querying: (:Tenant)-[:HAS_SNAPSHOT]->
+// (:Snapshot) and (:Tenant)-[:HAS_WORKSPACE_REV]->(:WorkspaceRev), both write-only today (every read of
+// either goes by the org property, not by traversing from Tenant). A (:Counter {org, name, n}) holds the
+// one monotonic counter event ids are drawn from.
 var ddl = []string{
 	`CREATE CONSTRAINT tenant_id IF NOT EXISTS FOR (t:Tenant) REQUIRE t.id IS UNIQUE`,
 	`CREATE CONSTRAINT entity_key IF NOT EXISTS FOR (e:Entity) REQUIRE (e.org, e.kind, e.id) IS UNIQUE`,

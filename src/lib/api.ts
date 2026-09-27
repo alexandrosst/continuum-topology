@@ -193,6 +193,16 @@ export interface TimelineChange {
   to?: unknown
 }
 
+/** One event connected to a version by the graph's own EXPLAINS edge: why it looks the way it does, as
+ * opposed to Timeline.events, which is everything noticed about the record regardless of whether it
+ * produced this particular version. */
+export interface TimelineExplain {
+  id: number
+  kind: string
+  detail?: string
+  cause?: string
+}
+
 /** One period during which a record looked a certain way. `to` is absent while it is current. */
 export interface TimelineVersion {
   from: string
@@ -200,6 +210,7 @@ export interface TimelineVersion {
   name: string
   status?: string
   changes: TimelineChange[]
+  explains?: TimelineExplain[]
 }
 
 export interface AuditRow {

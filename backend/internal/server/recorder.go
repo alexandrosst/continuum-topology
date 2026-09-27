@@ -120,8 +120,25 @@ func (r *recorder) scan(ctx context.Context, now time.Time, periodic bool) {
 			return
 		}
 		r.lastSnap, r.lastFP = now, fp
+		// Now that both the events and the version they go with are written, connect them: the graph's own
+		// record of what an event explains, not just that the UI happened to show them at the same moment.
+		if len(evs) > 0 {
+			if el, ok := r.h.C.Store.(eventLinker); ok {
+				if err := el.LinkEventChanges(ctx, r.h.C.OrgID, now, evs); err != nil {
+					r.h.Log.Warn("history: could not link events to what they explain", "err", err)
+				}
+			}
+		}
 	}
 	r.prev = &cur
+}
+
+// eventLinker is what a store adds when it keeps a graph: the ability to connect a batch of events to
+// the versions they explain (see graph.DB.LinkEventChanges). A plain store does not implement it - the
+// events themselves are already durably stored either way, this is enrichment on top, the same optional-
+// capability pattern entityRecorder uses in consent.go.
+type eventLinker interface {
+	LinkEventChanges(ctx context.Context, org string, at time.Time, evs []store.Event) error
 }
 
 func (r *recorder) prune(ctx context.Context, now time.Time, set Settings) {

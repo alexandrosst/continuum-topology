@@ -187,12 +187,23 @@ type Change struct {
 
 // TimelineVersion is one period during which an entity looked a certain way.
 type TimelineVersion struct {
-	From    time.Time  `json:"from"`
-	To      *time.Time `json:"to,omitempty"` // nil while current
-	Name    string     `json:"name"`
-	Status  string     `json:"status,omitempty"`
-	Changes []Change   `json:"changes"` // against the version before; empty for the first
-	Doc     any        `json:"doc"`
+	From     time.Time         `json:"from"`
+	To       *time.Time        `json:"to,omitempty"` // nil while current
+	Name     string            `json:"name"`
+	Status   string            `json:"status,omitempty"`
+	Changes  []Change          `json:"changes"`            // against the version before; empty for the first
+	Explains []ExplainingEvent `json:"explains,omitempty"` // the events that produced this version (see EXPLAINS in schema.go)
+	Doc      any               `json:"doc"`
+}
+
+// ExplainingEvent is one event connected to a version by an EXPLAINS edge: why it looks the way it does,
+// as opposed to Timeline.Events, which is everything noticed about the entity regardless of whether it
+// produced this particular version.
+type ExplainingEvent struct {
+	ID     int64  `json:"id"`
+	Kind   string `json:"kind"`
+	Detail string `json:"detail,omitempty"`
+	Cause  string `json:"cause,omitempty"`
 }
 
 // Timeline is everything the graph knows about one entity over time: its versions, the events that
@@ -244,10 +255,21 @@ RETURN toString(v.validFrom), toString(v.validTo), v.name, v.status, v.doc ORDER
 	if len(res[0].Rows) == 0 {
 		return Timeline{}, store.ErrNotFound
 	}
+	explains, err := d.C.Run(ctx, sc.S(`MATCH (v:Version {org:$org, kind:$kind, id:$id})<-[:EXPLAINS]-(ev:Event {org:$org})
+RETURN toString(v.validFrom), ev.id, ev.kind, ev.detail, ev.cause ORDER BY ev.id`, map[string]any{"kind": kind, "id": id}))
+	if err != nil {
+		return Timeline{}, err
+	}
+	byFrom := map[string][]ExplainingEvent{}
+	for _, r := range explains[0].Rows {
+		k := str(r[0])
+		byFrom[k] = append(byFrom[k], ExplainingEvent{ID: i64(r[1]), Kind: str(r[2]), Detail: str(r[3]), Cause: str(r[4])})
+	}
+
 	tl := Timeline{Kind: kind, ID: id, Versions: []TimelineVersion{}}
 	docs := make([]map[string]any, len(res[0].Rows))
 	for i, r := range res[0].Rows {
-		v := TimelineVersion{From: tm(r[0]), Name: str(r[2]), Status: str(r[3]), Changes: []Change{}}
+		v := TimelineVersion{From: tm(r[0]), Name: str(r[2]), Status: str(r[3]), Changes: []Change{}, Explains: byFrom[str(r[0])]}
 		if to := tm(r[1]); !to.IsZero() {
 			v.To = &to
 		}

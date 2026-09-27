@@ -68,6 +68,16 @@ export default function EntityHistory({ kind, id }: { kind: string; id: string }
                   {i === tl.versions.length - 1 ? 'First recorded' : 'Changed'}
                   {v.status ? <span className="ml-2 text-xs text-nb-500">{v.status}</span> : null}
                 </div>
+                {v.explains && v.explains.length > 0 && (
+                  <ul className="mt-1 space-y-0.5 text-xs text-nb-500" data-testid="entity-version-explains">
+                    {v.explains.map((ex) => (
+                      <li key={ex.id}>
+                        because {kindLabel(ex.kind)}{ex.detail ? `: ${ex.detail}` : ''}
+                        {ex.cause && <span className="italic"> (likely {ex.cause})</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {v.changes.length > 0 && (
                   <ul className="mt-1 space-y-0.5 text-xs text-nb-400">
                     {v.changes.map((c) => (
