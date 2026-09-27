@@ -170,6 +170,12 @@ func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
 	if err := json.Unmarshal(r.Body.Bytes(), &got); err != nil || strings.Join(got.PausedCollectors, ",") != "flow,probes" || strings.Join(got.ExcludedNamespaces, ",") != "batch,shop" {
 		t.Fatalf("stored %+v %v", got, err)
 	}
+	// The save response is the same projection the agent list carries (see AgentDoc.Consent), not a bare
+	// echo of what was asked for: right after a save nothing has had time to apply yet, so it reads as
+	// unconfirmed with a fresh SetAt, not the zero value a plain echo would give.
+	if got.Confirmed || got.SetAt == "" {
+		t.Fatalf("a fresh narrowing should come back unconfirmed with a SetAt, not a bare echo: %+v", got)
+	}
 	evs, _ := a.st.ListAudit(a.ctx, "org-1", 50)
 	var audited bool
 	for _, e := range evs {
@@ -817,5 +823,310 @@ func TestRevokedAgentCarriesTeardownCommandsOnlyForEditorsAndAbove(t *testing.T)
 	dv := agentDoc(t, a, viewer, id)
 	if dv.Teardown != nil {
 		t.Fatalf("teardown shown to a viewer: %+v", dv.Teardown)
+	}
+}
+
+// ---- the server-side backstop for paused collectors and excluded namespaces (dropConsentOverrides, noteFlows, noteMeasurements) ----
+
+// TestDropConsentOverridesStripsPausedProbeFields checks the server's own defense in depth for a paused "probes"
+// collector: even if an agent kept sending machine-identity fields, applySync must not let them through.
+func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
+	r := newHubRig(t)
+	id, _, _ := r.approvedAgent(t, fp) // approved at tier 2
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Paused: []string{"probes"}}); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := r.st.GetAgent(r.ctx, id)
+	r.hub.mu.Lock()
+	r.hub.views[id] = newView()
+	r.hub.mu.Unlock()
+	n := &continuumv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
+		OsImage: "o", KernelVersion: "k", ContainerRuntime: "c", KubeletVersion: "kv", Architecture: "amd64"}
+	if _, _, err := r.hub.applySync(a, &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: []*continuumv1.NodeFacts{n}}, false); err != nil {
+		t.Fatal(err)
+	}
+	got := r.hub.views[id].state.Nodes["n"]
+	if got == nil {
+		t.Fatal("node was dropped entirely, not just its probe fields")
+	}
+	if got.MachineId != "" || got.SystemUuid != "" || got.ProviderId != "" || got.OsImage != "" || got.KernelVersion != "" || got.ContainerRuntime != "" || got.KubeletVersion != "" || got.Architecture != "" {
+		t.Fatalf("a paused probes collector's fields survived: %+v", got)
+	}
+
+	// Un-pausing lets the same fields through again (a fresh node: dropConsentOverrides mutates the one above in place).
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{}); err != nil {
+		t.Fatal(err)
+	}
+	n2 := &continuumv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
+		OsImage: "o", KernelVersion: "k", ContainerRuntime: "c", KubeletVersion: "kv", Architecture: "amd64"}
+	if _, _, err := r.hub.applySync(a, &continuumv1.Sync{Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: []*continuumv1.NodeFacts{n2}}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.hub.views[id].state.Nodes["n"]; got.MachineId != "m" || got.Architecture != "amd64" {
+		t.Fatalf("un-pausing did not restore the fields: %+v", got)
+	}
+}
+
+// TestDropConsentOverridesFiltersExcludedNamespaces checks the same backstop for excluded namespaces: they (and
+// the workloads in them) must not reach the stored state even if the agent still reports them, and this must be
+// independent from the tier check (both are tier-2 approvals here).
+func TestDropConsentOverridesFiltersExcludedNamespaces(t *testing.T) {
+	r := newHubRig(t)
+	id, _, _ := r.approvedAgent(t, fp) // approved at tier 2
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Excluded: []string{"batch"}}); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := r.st.GetAgent(r.ctx, id)
+	r.hub.mu.Lock()
+	r.hub.views[id] = newView()
+	r.hub.mu.Unlock()
+	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp},
+		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}},
+		Workloads:  []*continuumv1.WorkloadFacts{{Key: "shop/Deployment/web", Namespace: "shop"}, {Key: "batch/Job/x", Namespace: "batch"}}}
+	if _, _, err := r.hub.applySync(a, sy, false); err != nil {
+		t.Fatal(err)
+	}
+	st := r.hub.views[id].state
+	if _, ok := st.Namespaces["ns/batch"]; ok {
+		t.Fatal("an excluded namespace was kept")
+	}
+	if _, ok := st.Namespaces["ns/shop"]; !ok {
+		t.Fatal("a namespace that was not excluded was dropped too")
+	}
+	for k := range st.Workloads {
+		if strings.HasPrefix(k, "batch/") {
+			t.Fatalf("a workload in an excluded namespace was kept: %s", k)
+		}
+	}
+	if _, ok := st.Workloads["shop/Deployment/web"]; !ok {
+		t.Fatal("a workload outside the excluded namespace was dropped too")
+	}
+}
+
+// TestNoteFlowsRespectsTierAndPauseConsent covers noteFlows directly (no gRPC): the tier gate, the "flow" pause,
+// and that a genuinely malformed batch is still a real error, not another quiet skip.
+func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
+	r := newHubRig(t)
+	id, _, _ := r.approvedAgent(t, fp)
+	r.hub.mu.Lock()
+	r.hub.views[id] = newView()
+	r.hub.mu.Unlock()
+	fb := &continuumv1.FlowBatch{WindowSeconds: 60}
+
+	if applied, err := r.hub.noteFlows(id, 1, fb, time.Now()); applied || err != nil {
+		t.Fatalf("tier 1 (workloads not approved) should be quietly ignored: applied=%v err=%v", applied, err)
+	}
+	if applied, err := r.hub.noteFlows(id, 2, fb, time.Now()); !applied || err != nil {
+		t.Fatalf("tier 2 with no pause should apply: applied=%v err=%v", applied, err)
+	}
+	r.hub.mu.Lock()
+	dirty := r.hub.views[id].flowsDirty
+	r.hub.mu.Unlock()
+	if !dirty {
+		t.Fatal("an applied batch did not mark flows dirty")
+	}
+
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Paused: []string{"flow"}}); err != nil {
+		t.Fatal(err)
+	}
+	r.hub.mu.Lock()
+	r.hub.views[id].flowsDirty = false
+	r.hub.mu.Unlock()
+	if applied, err := r.hub.noteFlows(id, 2, fb, time.Now()); applied || err != nil {
+		t.Fatalf("a paused flow collector should be quietly ignored: applied=%v err=%v", applied, err)
+	}
+	r.hub.mu.Lock()
+	dirty = r.hub.views[id].flowsDirty
+	r.hub.mu.Unlock()
+	if dirty {
+		t.Fatal("a paused batch was applied anyway")
+	}
+
+	bad := &continuumv1.FlowBatch{WindowSeconds: 0} // malformed: still an error, not just skipped
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{}); err != nil {
+		t.Fatal(err)
+	}
+	if applied, err := r.hub.noteFlows(id, 2, bad, time.Now()); applied || err == nil {
+		t.Fatalf("a malformed batch must be a real error, not a quiet skip: applied=%v err=%v", applied, err)
+	}
+}
+
+// TestNoteMeasurementsRespectsPauseConsent covers the same backstop for the "measure" collector, using
+// noteMeasurements directly the way the existing tier tests use applySync directly.
+func TestNoteMeasurementsRespectsPauseConsent(t *testing.T) {
+	r := newHubRig(t)
+	id, _, _ := r.approvedAgent(t, fp)
+	r.hub.mu.Lock()
+	v := newView()
+	v.targets["t1"] = issuedTarget{ID: "t1", Host: "h", Port: 80, Label: "l", Source: "observed"}
+	r.hub.views[id] = v
+	r.hub.mu.Unlock()
+
+	m := &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: "t1", Samples: 5, RttMinMs: 1, RttP50Ms: 2, RttP95Ms: 3}}}
+	r.hub.noteMeasurements(id, m)
+	if len(v.paths["t1"].rounds) != 1 {
+		t.Fatalf("a measurement with no pause in force should be recorded: %+v", v.paths["t1"])
+	}
+
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Paused: []string{"measure"}}); err != nil {
+		t.Fatal(err)
+	}
+	r.hub.noteMeasurements(id, m)
+	if len(v.paths["t1"].rounds) != 1 {
+		t.Fatalf("a paused measure collector must not record anything new: %+v", v.paths["t1"])
+	}
+}
+
+// ---- the observability-intent panel's staleness signal (ConsentDoc.Confirmed / SetAt) ----
+
+// TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing covers consentDoc's own cross-check between
+// what an administrator asked for and what the agent's diagnostics say is actually in force: unconfirmed
+// until a matching report arrives, confirmed once one does, and unconfirmed again (with a fresh SetAt)
+// the moment the ask changes without a new report to match it - the elapsed-time signal the
+// observability-intent panel needs to show a narrowing that a stuck or too-old agent never picked up.
+func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
+	r := newHubRig(t)
+	id, _, _ := r.approvedAgent(t, fp)
+
+	// Nothing narrowed yet: trivially confirmed, nothing to time.
+	doc := r.hub.consentOf(id)
+	_ = doc
+	r.hub.mu.Lock()
+	v := r.hub.viewFor(id)
+	r.hub.mu.Unlock()
+	if cd := v.consentDoc(); !cd.Confirmed || cd.SetAt != "" {
+		t.Fatalf("nothing narrowed should read as confirmed with no SetAt: %+v", cd)
+	}
+
+	// Narrow it: unconfirmed until the agent is heard from, and the change is timestamped.
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Paused: []string{"flow"}}); err != nil {
+		t.Fatal(err)
+	}
+	if cd := v.consentDoc(); cd.Confirmed || cd.SetAt == "" {
+		t.Fatalf("a fresh narrowing with no agent report yet should be unconfirmed, with a SetAt: %+v", cd)
+	}
+
+	// The agent reports back something that does not yet match (an older report, or a different pause):
+	// still unconfirmed.
+	r.hub.mu.Lock()
+	noteDiagnostics(v, &continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{}}, false, *r.now)
+	r.hub.mu.Unlock()
+	if cd := v.consentDoc(); cd.Confirmed || cd.SetAt == "" {
+		t.Fatalf("a report that does not yet show the pause should stay unconfirmed: %+v", cd)
+	}
+
+	// The agent catches up: confirmed, and SetAt drops off since there is nothing stale to show any more.
+	r.hub.mu.Lock()
+	noteDiagnostics(v, &continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}}, false, *r.now)
+	r.hub.mu.Unlock()
+	if cd := v.consentDoc(); !cd.Confirmed || cd.SetAt != "" {
+		t.Fatalf("a report matching the ask should be confirmed with no SetAt: %+v", cd)
+	}
+
+	// Changing the ask again, with no new report yet, goes back to unconfirmed - the agent's last report
+	// matched the *previous* ask, not this one.
+	*r.now = r.now.Add(time.Minute)
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Paused: []string{"flow"}, Excluded: []string{"batch"}}); err != nil {
+		t.Fatal(err)
+	}
+	cd := v.consentDoc()
+	if cd.Confirmed || cd.SetAt == "" {
+		t.Fatalf("widening what is asked for should be unconfirmed again until the agent reports it: %+v", cd)
+	}
+	if cd.SetAt != rfc(*r.now) {
+		t.Fatalf("SetAt should be this change's own moment, not the earlier one: got %s want %s", cd.SetAt, rfc(*r.now))
+	}
+
+	// Excluded namespaces can only be confirmed by count (the agent never reports which ones - see
+	// ExcludedNamespaces's own doc comment): a report with the right paused collector and the right count
+	// of excluded namespaces reads as confirmed even though this test cannot tell the diagnostic "batch" is
+	// the same namespace, which is the documented, accepted limitation.
+	r.hub.mu.Lock()
+	noteDiagnostics(v, &continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}, ExcludedNamespaces: 1}, false, *r.now)
+	r.hub.mu.Unlock()
+	if cd := v.consentDoc(); !cd.Confirmed {
+		t.Fatalf("matching pause and matching excluded count should confirm: %+v", cd)
+	}
+}
+
+// TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported covers Fix 6: excluded namespace
+// names are checked against what the agent has actually reported, but only as a warning next to the
+// narrowing that named them - never blocking SetConsent itself, since an administrator may legitimately
+// pre-declare a namespace before its first workload appears.
+func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testing.T) {
+	r := newHubRig(t)
+	id, _, _ := r.approvedAgent(t, fp) // approved at tier 2
+	a, _ := r.st.GetAgent(r.ctx, id)
+
+	// Nothing has ever synced: no warning, even though nothing is known yet - there is no "reality" to
+	// check against, so silence here, not a false alarm about every excluded name.
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Excluded: []string{"batch"}}); err != nil {
+		t.Fatal(err)
+	}
+	r.hub.mu.Lock()
+	v := r.hub.viewFor(id)
+	r.hub.mu.Unlock()
+	if cd := v.consentDoc(); len(cd.UnknownNamespaces) != 0 {
+		t.Fatalf("no sync yet: nothing should be flagged: %+v", cd)
+	}
+
+	// The agent's first picture reports "shop" only. "batch" was asked to be excluded but the agent has
+	// never actually seen it - a likely typo, or one that has not rolled out yet either way.
+	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp},
+		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}}}
+	if _, _, err := r.hub.applySync(a, sy, false); err != nil {
+		t.Fatal(err)
+	}
+	if cd := v.consentDoc(); len(cd.UnknownNamespaces) != 1 || cd.UnknownNamespaces[0] != "batch" {
+		t.Fatalf("batch was never reported, should be the one namespace flagged: %+v", cd)
+	}
+
+	// Widen the exclusion to also cover "shop", which the agent does report: only "batch" stays flagged -
+	// this is not a blanket "something is excluded" warning, it is specific to the name that is not real.
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Excluded: []string{"batch", "shop"}}); err != nil {
+		t.Fatal(err)
+	}
+	if cd := v.consentDoc(); len(cd.UnknownNamespaces) != 1 || cd.UnknownNamespaces[0] != "batch" {
+		t.Fatalf("shop is real and excluded too, only batch should stay flagged: %+v", cd)
+	}
+
+	// The agent's next picture (a delta, on top of what it already reported) includes "batch" too - even
+	// though it is excluded and dropConsentOverrides strips it back out before it is ever stored, the name
+	// itself was seen before that filter ran, so the warning about it clears on the very next read.
+	sy2 := &continuumv1.Sync{Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/batch", Name: "batch"}}}
+	if _, _, err := r.hub.applySync(a, sy2, false); err != nil {
+		t.Fatal(err)
+	}
+	if cd := v.consentDoc(); len(cd.UnknownNamespaces) != 0 {
+		t.Fatalf("batch has now been reported, the warning should have cleared: %+v", cd)
+	}
+	// And dropConsentOverrides' own job is untouched by any of this: batch is still excluded from what is
+	// actually stored, only the metadata used to validate the exclusion's spelling learned about it.
+	if _, ok := r.hub.views[id].state.Namespaces["ns/batch"]; ok {
+		t.Fatal("batch is still excluded and should still be stripped from stored state")
+	}
+}
+
+// TestKnownNamespacesOnlyLearnsFromASyncTheServerActuallyAccepted guards against a rejected sync teaching
+// viewExt.knownNamespaces about namespaces that were never actually accepted: applySync's own doc comment
+// says a sync Check refuses "changes nothing", and that has to hold for what an excluded name is later
+// checked against too, not just for the stored state itself.
+func TestKnownNamespacesOnlyLearnsFromASyncTheServerActuallyAccepted(t *testing.T) {
+	r := newHubRig(t)
+	r.hub.Limits = &facts.Limits{Nodes: 100, Namespaces: 1, Workloads: 100, Bytes: 64 << 20}
+	id, _, _ := r.approvedAgent(t, fp)
+	a, _ := r.st.GetAgent(r.ctx, id)
+
+	// Two namespaces against a limit of one: refused outright, nothing merged.
+	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp},
+		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}}}
+	if _, _, err := r.hub.applySync(a, sy, false); err == nil {
+		t.Fatal("a sync over the namespace limit should have been refused")
+	}
+	r.hub.mu.Lock()
+	known := r.hub.viewFor(id).ext.knownNamespaces
+	r.hub.mu.Unlock()
+	if known["batch"] || known["shop"] {
+		t.Fatalf("a rejected sync should not have taught knownNamespaces anything: %v", known)
 	}
 }

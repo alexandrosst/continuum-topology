@@ -103,6 +103,7 @@ type viewExt struct {
 	diagAt      time.Time
 	diagPartial bool // only what Hello carried: the ceiling, before the agent had looked at the cluster
 	consent     Consent
+	consentAt   time.Time // when this consent was last changed (zero if it never has been); drives the staleness signal in consentDoc
 	consentLoad bool
 	// namespace is this agent's own Kubernetes namespace, from its Hello (empty before an agent that reports it has
 	// connected at least once since this server started; not persisted, same as diagnostics). Used to print a
@@ -112,6 +113,29 @@ type viewExt struct {
 	// namespace). Every object the chart creates has a fixed name regardless of the release, so this only matters for
 	// the two `helm` commands themselves; guessed as "continuum-agent" when unknown, same as namespace.
 	releaseName string
+	// knownNamespaces are the Kubernetes namespace names this agent has actually reported, captured from a Sync
+	// after the tier ceiling narrows it but before an admin's own exclusion list does - so an excluded name can
+	// still be checked against what is real, which is the whole point of tracking it (see ConsentDoc.UnknownNamespaces).
+	// Only names are kept, never a namespace's own facts, so nothing more survives its exclusion than the fact it
+	// exists. Best-effort like the rest of viewExt: not persisted, rebuilt from the agent's next full picture. A
+	// full sync replaces this outright; a delta sync only adds to it, so a namespace that genuinely disappears
+	// between two full syncs stays "known" until the next one rather than needing DeletedNamespaces (which carries
+	// keys, not names) resolved back to a name here too - an acceptable staleness for a signal that only ever warns.
+	knownNamespaces map[string]bool
+}
+
+// noteNamespaces folds a batch of namespace names an agent just reported into what it is known to have,
+// for later checking an excluded name against. full replaces the set outright (mirrors facts.State.Apply's
+// own handling of a full sync); otherwise names are only ever added.
+func (e *viewExt) noteNamespaces(names []string, full bool) {
+	if full {
+		e.knownNamespaces = make(map[string]bool, len(names))
+	} else if e.knownNamespaces == nil {
+		e.knownNamespaces = make(map[string]bool, len(names))
+	}
+	for _, n := range names {
+		e.knownNamespaces[n] = true
+	}
 }
 
 // viewFor returns the agent's view, making an empty one if the agent has never connected. Caller holds h.mu.
@@ -133,7 +157,9 @@ func (h *Hub) ensureConsent(id string, v *view) {
 		return
 	}
 	var c Consent
-	if data, _, err := h.C.Store.LoadSnapshot(bg(), consentKey(id)); err == nil {
+	var at time.Time
+	if data, savedAt, err := h.C.Store.LoadSnapshot(bg(), consentKey(id)); err == nil {
+		at = savedAt
 		if json.Unmarshal(data, &c) != nil {
 			c = Consent{}
 		} else if cc, err := cleanConsent(c); err == nil {
@@ -144,7 +170,7 @@ func (h *Hub) ensureConsent(id string, v *view) {
 	}
 	h.mu.Lock()
 	if !v.ext.consentLoad {
-		v.ext.consent, v.ext.consentLoad = c, true
+		v.ext.consent, v.ext.consentAt, v.ext.consentLoad = c, at, true
 	}
 	h.mu.Unlock()
 }
@@ -180,6 +206,20 @@ func (h *Hub) consentOf(id string) Consent {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return v.ext.consent
+}
+
+// ConsentDocFor is consentDoc for one agent by id: what has been asked of it, and whether it has confirmed
+// applying it. Used wherever an HTTP handler needs to hand back the same shape the agent list already
+// carries per agent (see AgentDoc.Consent) - so a client reading either one sees Confirmed and SetAt
+// computed the same way, not a bare echo of what was just asked for.
+func (h *Hub) ConsentDocFor(id string) *ConsentDoc {
+	h.mu.Lock()
+	v := h.viewFor(id)
+	h.mu.Unlock()
+	h.ensureConsent(id, v)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return v.consentDoc()
 }
 
 // SetAgentTier changes what a human approved for an agent that is already approved. Anything up to the ceiling the agent's
@@ -231,7 +271,7 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	if tier < old {
 		h.narrowState(a.ID, tier) // what the server holds above the new tier goes now, not at the agent's next full picture
 	}
-	h.C.recordAgentGraph(ctx, a)
+	h.C.recordAgentGraph(ctx, a, "agent-tier-changed", detail)
 	h.pushOne(a.ID)
 	return a, nil
 }
@@ -255,23 +295,67 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 	}
 	detail := fmt.Sprintf("%q: paused collectors [%s] to [%s]; extra namespaces left out [%s] to [%s]", a.Name,
 		strings.Join(cur.Paused, ", "), strings.Join(next.Paused, ", "), strings.Join(cur.Excluded, ", "), strings.Join(next.Excluded, ", "))
+	now := h.C.Now()
 	if err := h.C.audited(ctx, actor, "agent-consent-changed", "agent", a.ID, detail, func() error {
 		data, err := json.Marshal(next)
 		if err != nil {
 			return err
 		}
-		return h.C.Store.SaveSnapshot(ctx, consentKey(a.ID), data, h.C.Now())
+		return h.C.Store.SaveSnapshot(ctx, consentKey(a.ID), data, now)
 	}); err != nil {
 		return Consent{}, err
 	}
 	Metrics.consentChanges.Add(1)
 	h.mu.Lock()
 	v := h.viewFor(a.ID)
-	v.ext.consent, v.ext.consentLoad = next, true
+	v.ext.consent, v.ext.consentAt, v.ext.consentLoad = next, now, true
 	h.mu.Unlock()
-	h.C.recordAgentGraph(ctx, a)
+	h.C.recordAgentGraph(ctx, a, "agent-consent-changed", detail)
 	h.pushOne(a.ID)
 	return next, nil
+}
+
+// dropConsentOverrides removes from a picture whatever this agent has been asked to narrow beyond its tier: a
+// paused node-probe collector's machine-identifying fields, and any namespace (or workload in one) on the excluded
+// list. The agent already applies both itself and should never send them; this is dropAboveTier's own defense in
+// depth, extended to the two narrowing dimensions a tier check does not cover. flow and measure are dropped
+// whole, before they are ever applied, at the AgentMessage_Flows/AgentMessage_Measurements cases in Hub's stream
+// loop -- they arrive as their own message type, so there is nothing to filter here.
+//
+// A dependency a paused-but-still-arriving flow batch named, or a flow naming a workload in an excluded
+// namespace, is not separately hunted down here: the workload it would have pointed at is never recorded (this
+// function already drops it), so the edge has nothing to attach to and stays inert rather than invisible. Worth
+// tightening later if that residual is ever a problem in practice; not attempted here because it would mean
+// parsing a flow key's namespace reliably enough to trust filtering by it.
+func (h *Hub) dropConsentOverrides(id string, s *continuumv1.Sync) {
+	c := h.consentOf(id)
+	if c.has("probes") {
+		for _, n := range s.Nodes {
+			n.MachineId, n.SystemUuid, n.ProviderId = "", "", ""
+			n.OsImage, n.KernelVersion, n.ContainerRuntime, n.KubeletVersion, n.Architecture = "", "", "", "", ""
+		}
+	}
+	if len(c.Excluded) == 0 {
+		return
+	}
+	excluded := make(map[string]bool, len(c.Excluded))
+	for _, ns := range c.Excluded {
+		excluded[ns] = true
+	}
+	namespaces := make([]*continuumv1.NamespaceFacts, 0, len(s.Namespaces))
+	for _, n := range s.Namespaces {
+		if !excluded[n.Name] {
+			namespaces = append(namespaces, n)
+		}
+	}
+	s.Namespaces = namespaces
+	workloads := make([]*continuumv1.WorkloadFacts, 0, len(s.Workloads))
+	for _, w := range s.Workloads {
+		if !excluded[w.Namespace] {
+			workloads = append(workloads, w)
+		}
+	}
+	s.Workloads = workloads
 }
 
 // dropAboveTier removes from a picture whatever the approved tier does not cover. The agent already sends no more than
@@ -339,16 +423,17 @@ func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 			}
 			return agent
 		}
-		h.C.audit(ctx, actor, "agent-ceiling-changed", "agent", agent.ID, fmt.Sprintf("%q: the install now allows up to tier %d (%s), was %d", agent.Name, ceiling, tierName(ceiling), fresh.InstalledTier))
+		ceilingDetail := fmt.Sprintf("%q: the install now allows up to tier %d (%s), was %d", agent.Name, ceiling, tierName(ceiling), fresh.InstalledTier)
+		h.C.audit(ctx, actor, "agent-ceiling-changed", "agent", agent.ID, ceilingDetail)
 		agent.InstalledTier = ceiling
-		h.C.recordAgentGraph(ctx, agent)
+		h.C.recordAgentGraph(ctx, agent, "agent-ceiling-changed", ceilingDetail)
 	}
 	if fresh.AccessTier > ceiling {
 		detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s), because the agent's install (Helm access.tier) now allows at most %d", agent.Name, fresh.AccessTier, tierName(fresh.AccessTier), ceiling, tierName(ceiling), ceiling)
 		if err := h.C.audited(ctx, actor, "agent-tier-changed", "agent", agent.ID, detail, func() error { return h.C.Store.SetAccessTier(ctx, agent.ID, ceiling) }); err == nil {
 			agent.AccessTier = ceiling
 			h.narrowState(agent.ID, ceiling)
-			h.C.recordAgentGraph(ctx, agent)
+			h.C.recordAgentGraph(ctx, agent, "agent-tier-changed", detail)
 		}
 	}
 	return agent
@@ -364,10 +449,30 @@ func (h *Hub) reportsCeiling(id string) bool {
 
 // ---- what the state document says ----
 
-// ConsentDoc is what an administrator has asked an agent to leave out, next to what the agent says is in force.
+// ConsentDoc is what an administrator has asked an agent to leave out, next to whether the agent has
+// caught up with it.
 type ConsentDoc struct {
 	PausedCollectors   []string `json:"pausedCollectors"`
 	ExcludedNamespaces []string `json:"excludedNamespaces"`
+	// Confirmed is true once the agent's own diagnostics show it applying this narrowing (or there is
+	// nothing narrowed to confirm in the first place). False means either nothing has been heard from the
+	// agent since the change, or its last report still shows the narrowing not yet in force - a paused
+	// stream, a stuck rollout, a version too old to report it at all.
+	Confirmed bool `json:"confirmed"`
+	// SetAt is when this narrowing was last changed, present only while it is not yet Confirmed: the
+	// observability-intent panel's staleness signal - an elapsed-time indicator the UI can show next to a
+	// narrowing that has been waiting on the agent, rather than leaving the person to guess whether "not
+	// yet confirmed" means five seconds or five days.
+	SetAt string `json:"setAt,omitempty"`
+	// UnknownNamespaces are excluded namespace names this agent has never actually reported, checked once
+	// it has reported anything at all to check against. cleanConsent only rejects a name that cannot be a
+	// namespace (bad syntax, a system namespace); it cannot know whether "checkout-v2" is a typo for
+	// "checkout" or a namespace that simply has not rolled out yet, and an administrator may legitimately
+	// pre-declare one before its first workload appears - so this warns instead of blocking the request
+	// that set it. Recomputed on every read against the agent's current picture rather than judged once at
+	// set-time, so a name clears itself the moment the agent reports it, and a typo keeps showing up rather
+	// than being forgotten after the one response that first flagged it.
+	UnknownNamespaces []string `json:"unknownNamespaces,omitempty"`
 }
 
 type AgentCollectorDoc struct {
@@ -469,9 +574,64 @@ func noteDiagnostics(v *view, d *continuumv1.Diagnostics, partial bool, at time.
 	v.ext.diag, v.ext.diagAt, v.ext.diagPartial = d, at, partial
 }
 
-// consentDoc is what has been asked of the agent. Caller holds h.mu and has loaded the consent.
+// consentDoc is what has been asked of the agent, and whether it has confirmed applying it. Caller holds
+// h.mu and has loaded the consent.
 func (v *view) consentDoc() *ConsentDoc {
-	return &ConsentDoc{PausedCollectors: append([]string{}, v.ext.consent.Paused...), ExcludedNamespaces: append([]string{}, v.ext.consent.Excluded...)}
+	out := &ConsentDoc{PausedCollectors: append([]string{}, v.ext.consent.Paused...), ExcludedNamespaces: append([]string{}, v.ext.consent.Excluded...)}
+	if len(out.PausedCollectors) == 0 && len(out.ExcludedNamespaces) == 0 {
+		out.Confirmed = true // nothing narrowed here, so there is nothing for the agent to confirm
+		return out
+	}
+	if !v.lastSync.IsZero() {
+		// v.ext.knownNamespaces, not v.state.Namespaces: the latter has already had any currently-excluded
+		// namespace stripped out of it by dropConsentOverrides by the time it is stored, so it can never
+		// contain the very names this exists to check (see viewExt.knownNamespaces's own doc comment).
+		for _, ns := range out.ExcludedNamespaces {
+			if !v.ext.knownNamespaces[ns] {
+				out.UnknownNamespaces = append(out.UnknownNamespaces, ns)
+			}
+		}
+	}
+	d := v.ext.diag
+	if d != nil {
+		// Collector names are matched exactly - the agent reports the actual list, sorted the same way
+		// cleanConsent already sorts what was asked for. Excluded namespaces can only be matched by count:
+		// the agent's diagnostics carry how many extra namespaces it is leaving out, never their names (see
+		// Diagnostics.ExcludedNamespaces's own doc comment), so an agent that coincidentally excludes a
+		// different set of the same size would misreport as confirmed here. Good enough for the case this
+		// exists for - a narrowing a stuck or too-old agent never picked up at all - and tightening it
+		// further needs a proto change to carry the names, not just a count.
+		pausedConfirmed := sameStrings(d.PausedCollectors, v.ext.consent.Paused)
+		excludedConfirmed := int(d.ExcludedNamespaces) == len(v.ext.consent.Excluded)
+		out.Confirmed = pausedConfirmed && excludedConfirmed
+	}
+	// out.Confirmed is false here either because a report arrived that does not yet match, or because none
+	// has arrived at all (d == nil) - both are "not yet confirmed" and both deserve the same elapsed-time
+	// signal, so SetAt is filled in the same way regardless of which.
+	if !out.Confirmed && !v.ext.consentAt.IsZero() {
+		out.SetAt = rfc(v.ext.consentAt)
+	}
+	return out
+}
+
+// sameStrings says whether a and b hold the same strings, regardless of order or duplicates.
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := map[string]int{}
+	for _, x := range a {
+		seen[x]++
+	}
+	for _, x := range b {
+		seen[x]--
+	}
+	for _, n := range seen {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // diagDoc turns the stored message into its document. Every string is cut to a sensible length: it came from the agent.
@@ -604,16 +764,37 @@ type entityRecorder interface {
 }
 
 // recordAgentGraph versions an agent's non-secret state in the graph, right after something changed it -
-// its tier, its consent, its status. Best-effort and silent on failure by design: the action itself is
-// already durably audited (see audited) before this ever runs, so a graph outage narrows the timeline
-// view of the change, never the change itself.
-func (c *Core) recordAgentGraph(ctx context.Context, a store.Agent) {
+// its tier, its consent, its status - and, when the caller names one, records why: an Event with the same
+// kind and detail already written to the audit trail a moment ago, linked to the version it produced (see
+// graph.DB.LinkEventChanges) exactly the way the polled kinds' own differ links its events. kind is a
+// dash-named action ("agent-tier-changed", "agent-consent-changed", ...), the same vocabulary the audit
+// trail already uses; pass "" to version the state without an event, for a caller with nothing worth
+// explaining (there is none among the ones in this codebase, but a future one may only need the snapshot).
+// Best-effort and silent on failure by design: the action itself is already durably audited (see audited)
+// before this ever runs, so a graph outage narrows the timeline view of the change, never the change
+// itself.
+func (c *Core) recordAgentGraph(ctx context.Context, a store.Agent, kind, detail string) {
 	er, ok := c.Store.(entityRecorder)
 	if !ok {
 		return
 	}
+	now := c.Now()
 	snap := agentSnapshot(a, consentFor(ctx, c.Store, a.ID))
-	if err := er.RecordEntity(ctx, c.OrgID, c.Now(), "agent", a.ID, a.Name, string(a.Status), a.ClusterID, snap); err != nil {
+	if err := er.RecordEntity(ctx, c.OrgID, now, "agent", a.ID, a.Name, string(a.Status), a.ClusterID, snap); err != nil {
 		c.Log.Warn("history: could not record the agent's state", "agent", a.ID, "err", err)
+		return
+	}
+	if kind == "" {
+		return
+	}
+	ev := store.Event{At: now, Kind: kind, TargetKind: "agent", TargetID: a.ID, Name: a.Name, ClusterID: a.ClusterID, Detail: detail, Severity: "info"}
+	if err := c.Store.AddEvents(ctx, c.OrgID, []store.Event{ev}); err != nil {
+		c.Log.Warn("history: could not record why the agent's state changed", "agent", a.ID, "err", err)
+		return
+	}
+	if el, ok := c.Store.(eventLinker); ok {
+		if err := el.LinkEventChanges(ctx, c.OrgID, now, []store.Event{ev}); err != nil {
+			c.Log.Warn("history: could not link the agent's event to what it explains", "agent", a.ID, "err", err)
+		}
 	}
 }

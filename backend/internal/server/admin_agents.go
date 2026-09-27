@@ -88,12 +88,16 @@ func (a *Admin) setAgentConsent(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	got, err := a.tn(r).Hub.SetConsent(r.Context(), actor(r), r.PathValue("id"), Consent{Paused: req.PausedCollectors, Excluded: req.ExcludedNamespaces})
-	if err != nil {
+	hub := a.tn(r).Hub
+	id := r.PathValue("id")
+	if _, err := hub.SetConsent(r.Context(), actor(r), id, Consent{Paused: req.PausedCollectors, Excluded: req.ExcludedNamespaces}); err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, ConsentDoc{PausedCollectors: append([]string{}, got.Paused...), ExcludedNamespaces: append([]string{}, got.Excluded...)})
+	// The same projection the agent list already carries (see AgentDoc.Consent), not a bare echo of what was
+	// asked for: right after a save this is unconfirmed with a fresh SetAt (nothing has had time to apply
+	// yet), exactly as a client that reloaded the page a second later would also be told.
+	writeJSON(w, 200, hub.ConsentDocFor(id))
 }
 
 // withoutDiagnostics removes what only people who can change an agent's access may see.

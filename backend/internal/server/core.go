@@ -275,7 +275,7 @@ func (c *Core) Reject(ctx context.Context, actor, agentID, reason string) error 
 	})
 	if err == nil {
 		if fresh, ferr := c.agentInOrg(ctx, agentID); ferr == nil {
-			c.recordAgentGraph(ctx, fresh)
+			c.recordAgentGraph(ctx, fresh, "agent-rejected", reason)
 		}
 	}
 	return err
@@ -298,7 +298,7 @@ func (c *Core) Revoke(ctx context.Context, actor, agentID, reason string) error 
 	})
 	if err == nil {
 		if fresh, ferr := c.agentInOrg(ctx, agentID); ferr == nil {
-			c.recordAgentGraph(ctx, fresh)
+			c.recordAgentGraph(ctx, fresh, "agent-revoked", reason)
 		}
 		if c.OnRevoke != nil {
 			c.OnRevoke(agentID)

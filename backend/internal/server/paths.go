@@ -234,6 +234,11 @@ func (h *Hub) settingsChanged(Settings) { go h.pushConfigs() }
 
 // noteMeasurements stores what an agent measured, for the targets the server issued.
 func (h *Hub) noteMeasurements(agentID string, m *continuumv1.Measurements) {
+	if h.consentOf(agentID).has("measure") {
+		// The agent should already have stopped sending this; the same defense-in-depth dropAboveTier
+		// gives the tier ceiling, extended to a paused collector.
+		return
+	}
 	now := h.C.Now()
 	h.mu.Lock()
 	defer h.mu.Unlock()

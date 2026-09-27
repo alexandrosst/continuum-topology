@@ -6,7 +6,8 @@ import (
 )
 
 // SchemaVersion is bumped when the shape of the graph changes; Ensure applies what is missing.
-const SchemaVersion = 1
+// 2: added entity_org, the dedicated (org) index on :Entity.
+const SchemaVersion = 2
 
 // The graph, in one place:
 //
@@ -46,6 +47,12 @@ var ddl = []string{
 	`CREATE CONSTRAINT workspace_key IF NOT EXISTS FOR (r:WorkspaceRev) REQUIRE (r.org, r.rev) IS UNIQUE`,
 	`CREATE CONSTRAINT counter_key IF NOT EXISTS FOR (c:Counter) REQUIRE (c.org, c.name) IS UNIQUE`,
 	`CREATE CONSTRAINT projection_key IF NOT EXISTS FOR (p:Projection) REQUIRE p.name IS UNIQUE`,
+	// entity_key's own composite constraint covers (org, kind, id), which a range index can also serve for
+	// an org-only prefix lookup - but several real queries (AsOfEntities' existence check, PurgeTenant's
+	// sweep, Stats' count) match :Entity by org alone, with no kind at all, and every other frequently
+	// org-scoped label here (Event, Audit) already gets its own dedicated (org, ...) index rather than
+	// leaning on a composite constraint's incidental prefix support. This one closes that gap for Entity.
+	`CREATE INDEX entity_org IF NOT EXISTS FOR (e:Entity) ON (e.org)`,
 	`CREATE INDEX version_from IF NOT EXISTS FOR (v:Version) ON (v.org, v.validFrom)`,
 	`CREATE INDEX version_to IF NOT EXISTS FOR (v:Version) ON (v.org, v.validTo)`,
 	`CREATE INDEX event_at IF NOT EXISTS FOR (e:Event) ON (e.org, e.at)`,

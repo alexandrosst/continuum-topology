@@ -1352,6 +1352,10 @@ func (c *Core) SaveWorkspace(ctx context.Context, actor string, expectRev int64,
 	if err := checkWorkspaceJSON(data); err != nil {
 		return store.Workspace{}, errf(KindInvalid, "%v", err)
 	}
+	// Read before Put overwrites it: the only way recordApplicationsGraph, below, can tell what a save
+	// actually changed rather than just versioning the result. Best-effort like everything downstream of
+	// it - an error here just means every application in this save looks newly created to the graph.
+	prev, _ := c.Store.GetWorkspace(ctx, c.OrgID)
 	// Only what people declared is stored. Observed facts belong to the agents and are held apart from the workspace;
 	// a document from an older client that still carries them is reduced to what is declared, with a note.
 	data, rep, err := workspace.Declare(data)
@@ -1376,7 +1380,7 @@ func (c *Core) SaveWorkspace(ctx context.Context, actor string, expectRev int64,
 		c.OnWorkspace(w.Rev)
 	}
 	// The one moment this server can be sure an application was created, renamed, re-scoped or removed.
-	c.recordApplicationsGraph(ctx, data)
+	c.recordApplicationsGraph(ctx, prev.Data, data)
 	// One audit entry per save would drown everything else; the workspace has its own revision history in the row.
 	return w, nil
 }

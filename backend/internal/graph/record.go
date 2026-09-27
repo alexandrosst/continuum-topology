@@ -759,11 +759,16 @@ RETURN toString(s.at), s.bytes, s.traffic, s.paths ORDER BY s.at DESC LIMIT 1`, 
 
 // ---- multi-hop traversal ----
 
-// maxWalkHops bounds how far Dependents and Dependencies will walk. The hop count is spliced directly
-// into the Cypher below rather than passed as a parameter - Neo4j does not accept a parameter for a
-// variable-length pattern's bound - so it is clamped here rather than trusted from a caller, the same
-// discipline relType interpolation already follows against the closed relTypes list.
+// maxWalkHops bounds how far Dependents and Dependencies will walk. Clamped here rather than trusted
+// from a caller, the same discipline relType interpolation already follows against the closed relTypes
+// list.
 const maxWalkHops = 8
+
+// maxWalkResults bounds how many entities a single walk will ever report. Past this many, the walk
+// stops opening further hops and returns what it already found: a hub node (a shared cluster, a
+// heavily-called service) can otherwise turn a handful of hops into an unbounded fan-out, and a walk
+// exists to answer "what's connected", not to enumerate an entire estate.
+const maxWalkResults = 4000
 
 // Reached is one entity a graph walk found, alongside how many hops away it was. An entity reachable
 // by more than one path through the estate is reported once, at its shortest distance.
@@ -795,7 +800,39 @@ func (d *DB) Dependencies(ctx context.Context, org string, at time.Time, kind, i
 	return d.walk(ctx, org, at, kind, id, hops, true)
 }
 
+// vk is the (kind, id) pair a walk moves between - cheap to hold thousands of in memory, and the same
+// shape a level's frontier is sent back to Neo4j as for the next one.
+type vk struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+// walk finds everything connected to kind/id by the graph's relationship edges, out to hops steps, as
+// of `at`, moving level by level (breadth-first) rather than asking Neo4j to enumerate every path with
+// a single *1..hops variable-length pattern. This schema keeps every historical edge - a relationship
+// is closed (validTo set) when it changes, never deleted - so a node with real fan-out, or simply a
+// long history behind it, can carry far more edges than it has distinct neighbors; a variable-length
+// pattern walks every one of those edges as a separate path before min(size(rels)) can collapse them
+// back down to "reached, at its shortest distance", and the cost of that is exponential in the branching
+// it meets at each hop. One single-hop query per level, over only the entities the previous level
+// reached and not already visited, costs work proportional to the frontier's actual size instead - the
+// trade is up to `hops` round trips to the database instead of one, which is cheap next to a query that
+// might not return. maxWalkResults is the second, independent backstop: even a frontier that keeps
+// growing every level stops being followed once the estate found gets implausibly large for one answer.
+// walkTimeout bounds the whole of one Dependents/Dependencies call, across every one of the up to
+// maxWalkHops+2 round trips it now makes to Neo4j (see walk's own doc comment for why there are several).
+// Each individual call to the client is already bounded on its own (Client's http.Client carries its own
+// request timeout), but that bounds one round trip, not the operation: a walk that is unlucky on every
+// level could otherwise take that per-call timeout multiplied by the hop count. Shorter than the client's
+// own per-request timeout, so it is this budget, not that one, that actually governs a slow walk - and
+// once it fires, the in-flight call fails immediately rather than running out its own longer allowance.
+// A var, not a const, so a test can shrink it to prove the wiring actually cancels a walk rather than
+// just trusting that context.WithTimeout was spelled correctly.
+var walkTimeout = 20 * time.Second
+
 func (d *DB) walk(ctx context.Context, org string, at time.Time, kind, id string, hops int, forward bool) (time.Time, []Reached, error) {
+	ctx, cancel := context.WithTimeout(ctx, walkTimeout)
+	defer cancel()
 	at = at.UTC().Truncate(time.Second)
 	if hops < 1 {
 		hops = 1
@@ -804,6 +841,7 @@ func (d *DB) walk(ctx context.Context, org string, at time.Time, kind, id string
 		hops = maxWalkHops
 	}
 	sc := d.C.For(org)
+	atS := ts(at)
 
 	start, err := d.C.Run(ctx, sc.S(`MATCH (e:Entity {org:$org, kind:$kind, id:$id}) RETURN 1 LIMIT 1`, map[string]any{"kind": kind, "id": id}))
 	if err != nil {
@@ -813,29 +851,80 @@ func (d *DB) walk(ctx context.Context, org string, at time.Time, kind, id string
 		return time.Time{}, nil, store.ErrNotFound
 	}
 
-	pattern := fmt.Sprintf(`(start)<-[rels:%s*1..%d]-(reached:Entity {org:$org})`, strings.Join(relTypes, "|"), hops)
+	step := fmt.Sprintf(`UNWIND $frontier AS fr
+MATCH (f:Entity {org:$org, kind:fr.kind, id:fr.id})<-[rel:%s]-(n:Entity {org:$org})
+WHERE rel.validFrom <= datetime($at) AND (rel.validTo IS NULL OR rel.validTo > datetime($at))
+RETURN DISTINCT n.kind AS kind, n.id AS id`, strings.Join(relTypes, "|"))
 	if forward {
-		pattern = fmt.Sprintf(`(start)-[rels:%s*1..%d]->(reached:Entity {org:$org})`, strings.Join(relTypes, "|"), hops)
+		step = fmt.Sprintf(`UNWIND $frontier AS fr
+MATCH (f:Entity {org:$org, kind:fr.kind, id:fr.id})-[rel:%s]->(n:Entity {org:$org})
+WHERE rel.validFrom <= datetime($at) AND (rel.validTo IS NULL OR rel.validTo > datetime($at))
+RETURN DISTINCT n.kind AS kind, n.id AS id`, strings.Join(relTypes, "|"))
 	}
-	q := fmt.Sprintf(`MATCH (start:Entity {org:$org, kind:$kind, id:$id})
-MATCH %s
-WHERE reached <> start AND all(rel IN rels WHERE rel.validFrom <= datetime($at) AND (rel.validTo IS NULL OR rel.validTo > datetime($at)))
-WITH reached, min(size(rels)) AS hop
-MATCH (reached)-[:HAS_VERSION]->(v:Version {org:$org})
+
+	visited := map[string]int{vkey(kind, id): 0} // hop distance of everything already placed; the start is hop 0 and never reported
+	frontier := []vk{{Kind: kind, ID: id}}
+	var order []vk // discovery order: hop order first, which is what the final sort needs to be stable against
+
+	for h := 1; h <= hops && len(frontier) > 0 && len(visited) <= maxWalkResults; h++ {
+		fr := make([]map[string]any, len(frontier))
+		for i, f := range frontier {
+			fr[i] = map[string]any{"kind": f.Kind, "id": f.ID}
+		}
+		rows, err := d.C.Run(ctx, sc.S(step, map[string]any{"frontier": fr, "at": atS}))
+		if err != nil {
+			return time.Time{}, nil, err
+		}
+		next := make([]vk, 0, len(rows[0].Rows))
+		for _, r := range rows[0].Rows {
+			nk, nid := str(r[0]), str(r[1])
+			key := vkey(nk, nid)
+			if _, seen := visited[key]; seen {
+				continue
+			}
+			visited[key] = h
+			v := vk{Kind: nk, ID: nid}
+			next = append(next, v)
+			order = append(order, v)
+			if len(visited) >= maxWalkResults {
+				break // the cap bites mid-level: what is already placed stands, nothing later this level joins it
+			}
+		}
+		frontier = next
+	}
+
+	if len(order) == 0 {
+		return at, []Reached{}, nil
+	}
+
+	pairs := make([]map[string]any, len(order))
+	for i, o := range order {
+		pairs[i] = map[string]any{"kind": o.Kind, "id": o.ID}
+	}
+	res, err := d.C.Run(ctx, sc.S(`UNWIND $pairs AS p
+MATCH (e:Entity {org:$org, kind:p.kind, id:p.id})-[:HAS_VERSION]->(v:Version {org:$org})
 WHERE v.validFrom <= datetime($at) AND (v.validTo IS NULL OR v.validTo > datetime($at))
-RETURN v.kind, v.id, v.name, v.status, v.cluster, v.doc, hop
-ORDER BY hop, v.kind, v.id`, pattern)
-	res, err := d.C.Run(ctx, sc.S(q, map[string]any{"kind": kind, "id": id, "at": ts(at)}))
+RETURN v.kind, v.id, v.name, v.status, v.cluster, v.doc`, map[string]any{"pairs": pairs, "at": atS}))
 	if err != nil {
 		return time.Time{}, nil, err
 	}
 	out := make([]Reached, 0, len(res[0].Rows))
 	for _, row := range res[0].Rows {
+		k, i := str(row[0]), str(row[1])
 		out = append(out, Reached{
-			EntitySnapshot: EntitySnapshot{Kind: str(row[0]), ID: str(row[1]), Name: str(row[2]), Status: str(row[3]), Cluster: str(row[4]), Doc: json.RawMessage(str(row[5]))},
-			Hops:           int(i64(row[6])),
+			EntitySnapshot: EntitySnapshot{Kind: k, ID: i, Name: str(row[2]), Status: str(row[3]), Cluster: str(row[4]), Doc: json.RawMessage(str(row[5]))},
+			Hops:           visited[vkey(k, i)],
 		})
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Hops != out[j].Hops {
+			return out[i].Hops < out[j].Hops
+		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].ID < out[j].ID
+	})
 	return at, out, nil
 }
 

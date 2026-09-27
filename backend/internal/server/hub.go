@@ -458,21 +458,15 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 				}
 				h.persist(ctx, agent.ID, sy.Full)
 			case *continuumv1.AgentMessage_Flows:
-				// Observed traffic is workload-level information: it is only accepted when the approval covers workloads.
-				if cur.AccessTier < 2 {
-					continue
-				}
-				if err := validateFlowBatch(m.Flows); err != nil {
+				applied, err := h.noteFlows(agent.ID, cur.AccessTier, m.Flows, h.C.Now())
+				if err != nil {
 					h.refuseSync(ctx, cur, v, err)
 					return status.Error(codes.InvalidArgument, err.Error())
 				}
-				h.mu.Lock()
-				v.flows.apply(m.Flows, h.C.Now())
-				v.obs.note(m.Flows, h.C.Now())
-				v.flowsDirty = true
-				h.mu.Unlock()
-				h.rec.changed.Store(true)
-				h.persistFlows(ctx, agent.ID, false)
+				if applied {
+					h.rec.changed.Store(true)
+					h.persistFlows(ctx, agent.ID, false)
+				}
 			case *continuumv1.AgentMessage_Measurements:
 				h.noteMeasurements(agent.ID, m.Measurements)
 			case *continuumv1.AgentMessage_Heartbeat:
@@ -512,14 +506,24 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 // picture had drifted from it (checked is true); applying it afterwards repairs the difference.
 func (h *Hub) applySync(a store.Agent, s *continuumv1.Sync, fullSeen bool) (drift facts.Drift, checked bool, err error) {
 	dropAboveTier(a.AccessTier, s)
+	// Captured after the tier ceiling has narrowed s but before an admin's own exclusion list does, so a
+	// namespace the admin has asked to leave out is still counted as "reported" - see viewExt.knownNamespaces.
+	reportedNS := make([]string, 0, len(s.Namespaces))
+	for _, n := range s.Namespaces {
+		reportedNS = append(reportedNS, n.Name)
+	}
+	h.dropConsentOverrides(a.ID, s)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	v := h.views[a.ID]
 	// Whatever the agent claims, what the server ends up holding for it stays within the limits. Checked
-	// before anything is merged, so a refused message changes nothing.
+	// before anything is merged, so a refused message changes nothing - knownNamespaces included: it is
+	// folded in below, only once the sync is known to be accepted, not here where a Check failure would
+	// otherwise let a rejected sync's namespace names through anyway.
 	if err := v.state.Check(s, h.limits()); err != nil {
 		return drift, false, err
 	}
+	v.ext.noteNamespaces(reportedNS, s.Full)
 	if s.Full && fullSeen {
 		drift, checked = v.state.CheckDrift(s), true
 		v.consAt, v.consDrift = h.C.Now(), drift
@@ -531,6 +535,35 @@ func (h *Hub) applySync(a store.Agent, s *continuumv1.Sync, fullSeen bool) (drif
 	v.refusal = ""
 	v.lastSync, v.lastBeat, v.dirtyAt = h.C.Now(), h.C.Now(), h.C.Now()
 	return drift, checked, nil
+}
+
+// noteFlows applies an agent's observed-traffic batch, gated by the same tier ceiling and pause consent the
+// gRPC stream loop used to check inline. It reports whether the batch was applied (false when it was quietly
+// ignored because the approval doesn't cover workloads yet, or the "flow" collector is paused) and any protocol
+// error the batch itself contains (which the caller turns into a refused sync, unlike the two quiet cases).
+func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now time.Time) (applied bool, err error) {
+	// Observed traffic is workload-level information: it is only accepted when the approval covers workloads.
+	if tier < 2 {
+		return false, nil
+	}
+	if h.consentOf(agentID).has("flow") {
+		// The agent should already have stopped sending this; the same defense-in-depth dropAboveTier
+		// gives the tier ceiling, extended to a paused collector.
+		return false, nil
+	}
+	if err := validateFlowBatch(fb); err != nil {
+		return false, err
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	v := h.views[agentID]
+	if v == nil {
+		return false, nil
+	}
+	v.flows.apply(fb, now)
+	v.obs.note(fb, now)
+	v.flowsDirty = true
+	return true, nil
 }
 
 // snapshotCap is the most a stored copy of one agent's state may take: the state itself plus its framing.
@@ -781,14 +814,14 @@ type AgentDoc struct {
 	// the agent is reaching this server through some NAT (derived from the address's own range, not a live
 	// probe - see geoip.UnlocatableReason), which is exactly the case deploy/README.md's Troubleshooting
 	// section covers with geoip.publicIpService.
-	ConnectingGeoReason string `json:"connectingGeoReason,omitempty"`
-	CertExpiresAt string        `json:"certExpiresAt,omitempty"`
-	LastHeartbeat string        `json:"lastHeartbeat,omitempty"`
-	RequestedAt   string        `json:"requestedAt"`
-	Reason        string        `json:"reason,omitempty"`
-	Connected     bool          `json:"connected"`
-	Synced        bool          `json:"synced"`
-	Modules       []ModuleDoc   `json:"modules"`
+	ConnectingGeoReason string      `json:"connectingGeoReason,omitempty"`
+	CertExpiresAt       string      `json:"certExpiresAt,omitempty"`
+	LastHeartbeat       string      `json:"lastHeartbeat,omitempty"`
+	RequestedAt         string      `json:"requestedAt"`
+	Reason              string      `json:"reason,omitempty"`
+	Connected           bool        `json:"connected"`
+	Synced              bool        `json:"synced"`
+	Modules             []ModuleDoc `json:"modules"`
 	// Observer is what the traffic observer reports about itself; absent when no collector has ever reported.
 	Observer *ObserverDoc `json:"observer,omitempty"`
 	// Consistency is the result of the last check of the server's picture against the agent's full one.

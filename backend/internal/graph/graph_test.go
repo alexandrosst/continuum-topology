@@ -25,6 +25,17 @@ var orgSeq atomic.Int64
 
 func testDB(t *testing.T) (*DB, string) {
 	t.Helper()
+	return testDBTimeout(t, 0)
+}
+
+// testDBTimeout is testDB with the client's own per-request timeout overridden (0 keeps NewClient's
+// usual 30s default) - for the one test whose own setup, not the code under test, pushes an unusually
+// large bulk write through Neo4j (thousands of entities in a single transaction). A slow-but-genuine
+// response to that write is not the same thing as the database being unreachable, and walkTimeout (see
+// record.go) still bounds the walk under test on its own, independent, shorter budget regardless of what
+// this client's socket timeout is set to - so raising it here does not weaken what such a test proves.
+func testDBTimeout(t *testing.T, timeout time.Duration) (*DB, string) {
+	t.Helper()
 	u := os.Getenv("CONTINUUM_TEST_NEO4J")
 	if u == "" {
 		t.Skip("set CONTINUUM_TEST_NEO4J to run the Neo4j tests")
@@ -33,7 +44,7 @@ func testDB(t *testing.T) (*DB, string) {
 	if user == "" {
 		user = "neo4j"
 	}
-	c, err := NewClient(Config{URL: u, User: user, Password: os.Getenv("CONTINUUM_TEST_NEO4J_PASSWORD")})
+	c, err := NewClient(Config{URL: u, User: user, Password: os.Getenv("CONTINUUM_TEST_NEO4J_PASSWORD"), Timeout: timeout})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -569,8 +580,8 @@ func TestDependentsOfAnUnknownEntityIsNotFound(t *testing.T) {
 	}
 }
 
-// TestWalkHopsAreClamped guards the reason the hop count is spliced into the Cypher rather than bound
-// the usual way: a caller-supplied hop count far beyond reason must not be trusted verbatim.
+// TestWalkHopsAreClamped guards the reason a caller-supplied hop count is bounded before it drives the
+// walk: however far past reason it goes, the walk should stop opening new levels at the same place.
 func TestWalkHopsAreClamped(t *testing.T) {
 	db, org := testDB(t)
 	ctx := context.Background()
@@ -586,6 +597,101 @@ func TestWalkHopsAreClamped(t *testing.T) {
 	}
 	if len(atMax) != len(overMax) {
 		t.Errorf("a hop count far beyond maxWalkHops should clamp to the same result: %d vs %d", len(atMax), len(overMax))
+	}
+}
+
+// TestDependentsWalksACycleWithoutHangingOrDuplicating is the reason the walk was rewritten around a
+// visited set instead of Cypher's *1..hops variable-length pattern: a call graph with a cycle in it
+// gives a variable-length pattern infinitely many paths to enumerate at any hop bound above the cycle's
+// own length (every trip around it is a longer, still-valid path), which is exactly the kind of
+// explosion that made the old query dangerous on a real, long-lived estate. A visited-by-entity walk
+// instead reaches each member of the cycle exactly once, at its true shortest distance, and terminates
+// because there is nothing left to visit.
+func TestDependentsWalksACycleWithoutHangingOrDuplicating(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	cluster := model.Cluster{ID: "c-1", Name: "edge-a", Tier: "edge", Status: "connected"}
+	svc := func(id string) model.Service {
+		return model.Service{ID: id, ClusterID: "c-1", Name: id, Replicas: 1, ReadyReplicas: 1, Status: "ready"}
+	}
+	topo := model.Topology{
+		Clusters: []model.Cluster{cluster},
+		Services: []model.Service{svc("a"), svc("b"), svc("c")},
+		Dependencies: []model.Dependency{
+			{ID: "d-ab", From: "a", FromKind: "service", To: "b", ToKind: "service", Protocol: "tcp", Port: 80},
+			{ID: "d-bc", From: "b", FromKind: "service", To: "c", ToKind: "service", Protocol: "tcp", Port: 80},
+			{ID: "d-ca", From: "c", FromKind: "service", To: "a", ToKind: "service", Protocol: "tcp", Port: 80},
+		},
+	}
+	record(t, db, org, t0, topo)
+
+	done := make(chan struct{})
+	var reached []Reached
+	var err error
+	go func() {
+		_, reached, err = db.Dependents(ctx, org, t0, "service", "a", maxWalkHops)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Dependents did not return: a cycle made the walk hang")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]int{}
+	for _, r := range reached {
+		byID[r.ID] = r.Hops
+	}
+	if len(byID) != 2 {
+		t.Fatalf("a 3-node cycle has exactly two other members to reach, once each: %v", reached)
+	}
+	if byID["c"] != 1 {
+		t.Errorf("c calls a directly, should be 1 hop: %+v", byID)
+	}
+	if byID["b"] != 2 {
+		t.Errorf("b reaches a only via c, should be 2 hops, not re-counted every lap of the cycle: %+v", byID)
+	}
+}
+
+// TestDependentsBoundsRealFanOut is the other half of the same rewrite: a hub entity with fan-out well
+// past what anyone would page through must still answer promptly and correctly at hops=1 (every caller,
+// each exactly once), and past maxWalkResults callers the walk must stop growing rather than keep
+// following an ever-larger frontier out to the hop limit.
+func TestDependentsBoundsRealFanOut(t *testing.T) {
+	db, org := testDBTimeout(t, 90*time.Second)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	const callers = maxWalkResults + 200
+	cluster := model.Cluster{ID: "c-1", Name: "edge-a", Tier: "edge", Status: "connected"}
+	topo := model.Topology{Clusters: []model.Cluster{cluster}, Services: []model.Service{{ID: "hub", ClusterID: "c-1", Name: "hub", Replicas: 1, ReadyReplicas: 1, Status: "ready"}}}
+	for i := 0; i < callers; i++ {
+		sid := fmt.Sprintf("caller-%d", i)
+		topo.Services = append(topo.Services, model.Service{ID: sid, ClusterID: "c-1", Name: sid, Replicas: 1, ReadyReplicas: 1, Status: "ready"})
+		topo.Dependencies = append(topo.Dependencies, model.Dependency{ID: "d-" + sid, From: sid, FromKind: "service", To: "hub", ToKind: "service", Protocol: "tcp", Port: 80})
+	}
+	record(t, db, org, t0, topo)
+
+	start := time.Now()
+	_, reached, err := db.Dependents(ctx, org, t0, "service", "hub", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 20*time.Second {
+		t.Errorf("a single hop with real fan-out took %v", d)
+	}
+	if len(reached) != maxWalkResults-1 {
+		t.Fatalf("fan-out of %d callers past the cap should be held at maxWalkResults-1 (the start does not count against it): got %d", callers, len(reached))
+	}
+	for _, r := range reached {
+		if r.Hops != 1 {
+			t.Errorf("every caller here is one hop from hub, got %d for %s", r.Hops, r.ID)
+		}
+		if r.Kind != "service" {
+			t.Errorf("unexpected kind reached: %s/%s", r.Kind, r.ID)
+		}
 	}
 }
 
@@ -1435,5 +1541,45 @@ func TestOrgParameterDetectionIsStructural(t *testing.T) {
 		if got := usesParam(q, "org"); got != want {
 			t.Errorf("%q: got %v, want %v", q, got, want)
 		}
+	}
+}
+
+// TestEnsureCreatesTheEntityOrgIndex checks the dedicated (org) index on :Entity exists after Ensure runs
+// - the fix for AsOfEntities' existence check, PurgeTenant's sweep and Stats' count all matching :Entity by
+// org alone, with no kind to narrow by, unlike everything else that scans this label.
+func TestEnsureCreatesTheEntityOrgIndex(t *testing.T) {
+	db, _ := testDB(t)
+	ctx := context.Background()
+	res, err := db.C.Run(ctx, Global(`SHOW INDEXES YIELD name, labelsOrTypes, properties WHERE name = 'entity_org' RETURN labelsOrTypes, properties`, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res[0].Rows) != 1 {
+		t.Fatalf("entity_org index not found: %v", res[0].Rows)
+	}
+	labels, _ := res[0].Rows[0][0].([]any)
+	props, _ := res[0].Rows[0][1].([]any)
+	if len(labels) != 1 || labels[0] != "Entity" || len(props) != 1 || props[0] != "org" {
+		t.Fatalf("entity_org index is on the wrong thing: labels=%v properties=%v", labels, props)
+	}
+}
+
+// TestWalkTimeoutBoundsTheWholeOperation proves walk's overall deadline is actually wired in, not just
+// spelled correctly: with it shrunk to nothing, even a one-hop Dependencies call on data that exists must
+// fail promptly with a context error, rather than hanging or quietly succeeding on whatever finished
+// before the (nonexistent) deadline.
+func TestWalkTimeoutBoundsTheWholeOperation(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate())
+
+	old := walkTimeout
+	walkTimeout = time.Nanosecond
+	defer func() { walkTimeout = old }()
+
+	_, _, err := db.Dependencies(ctx, org, t0, "service", "s-1", 2)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("an all-but-zero walk timeout should fail with a context deadline error, got %v", err)
 	}
 }

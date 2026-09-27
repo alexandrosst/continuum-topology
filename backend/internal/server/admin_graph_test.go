@@ -3,6 +3,7 @@ package server
 import (
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -292,6 +293,12 @@ func TestSavingAWorkspaceVersionsItsApplicationsAndTheirMembersInTheGraph(t *tes
 	if got := members("app-1"); len(got) != 1 || got[0] != "svc-web" {
 		t.Fatalf("expected svc-web as the one member, got %v", got)
 	}
+	// The version this save produced carries why it looks the way it does, the same EXPLAINS mechanism
+	// the polled kinds already get from history.Diff - an application used to be versioned with no event
+	// behind it at all.
+	if ex := tl.Versions[0].Explains; len(ex) != 1 || ex[0].Kind != "application-added" {
+		t.Fatalf("a newly created application should explain itself as application-added: %+v", ex)
+	}
 
 	// Renamed and its membership cleared: a second version, and the CONTAINS edge closes.
 	doc2 := map[string]any{
@@ -312,6 +319,15 @@ func TestSavingAWorkspaceVersionsItsApplicationsAndTheirMembersInTheGraph(t *tes
 	}
 	if got := members("app-1"); len(got) != 0 {
 		t.Fatalf("expected no members after they were cleared, got %v", got)
+	}
+	// Two things changed in the same save (the name, and the membership going to none): both should be
+	// there, not just whichever one a single generic "application-changed" event would have picked.
+	kinds := map[string]bool{}
+	for _, ex := range tl2.Versions[0].Explains {
+		kinds[ex.Kind] = true
+	}
+	if !kinds["application-renamed"] || !kinds["application-membership"] {
+		t.Fatalf("a rename plus a membership change should both explain the new version: %+v", tl2.Versions[0].Explains)
 	}
 
 	// Read schema-agnostically too, while it is still open: /graph/snapshot shows it right alongside the
@@ -344,6 +360,19 @@ func TestSavingAWorkspaceVersionsItsApplicationsAndTheirMembersInTheGraph(t *tes
 	res, err := gs.DB.C.Run(a.ctx, gs.DB.C.For(aOrg).S(`MATCH (e:Entity {org:$org, kind:'application', id:'app-1'}) RETURN e.gone IS NOT NULL`, nil))
 	if err != nil || len(res[0].Rows) == 0 || res[0].Rows[0][0] != true {
 		t.Fatalf("app-1 should have been retired once removed from the document: %v, err=%v", res, err)
+	}
+	// The removal itself is an event too, even though there is no new version left to attach it to as an
+	// EXPLAINS edge - Timeline's plain Events list is where a removal like this belongs.
+	tl3, err := gs.Timeline(a.ctx, aOrg, "application", "app-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removedSeen := false
+	for _, ev := range tl3.Events {
+		removedSeen = removedSeen || ev.Kind == "application-removed"
+	}
+	if !removedSeen {
+		t.Fatalf("app-1's removal should show up as an application-removed event: %+v", tl3.Events)
 	}
 	// Once retired it is honestly absent from a snapshot taken at or after that moment - the same
 	// half-open validity window every other kind's version already has.
@@ -411,6 +440,20 @@ func TestGraphTraversalAndDiffThroughTheAPI(t *testing.T) {
 		t.Errorf("dependents without id: %d", c)
 	}
 
+	// hops is never trusted verbatim: garbage, negative or absurdly large values must not error, hang or
+	// crash the request - they fall back to the documented default, or are silently clamped downstream in
+	// DB.walk (see TestWalkHopsAreClamped in the graph package for the clamp itself).
+	for _, badHops := range []string{"", "0", "-5", "abc", "3.5", "99999999"} {
+		r := a.do("GET", org(aOrg, "graph/dependents?kind=service&id=svc-b&at="+at+"&hops="+badHops), nil, withCookie(alice))
+		if r.Code != 200 {
+			t.Errorf("hops=%q: %d %s", badHops, r.Code, r.Body.String())
+			continue
+		}
+		if _, ok := r.json(t)["reached"].([]any); !ok {
+			t.Errorf("hops=%q did not return a usable result: %v", badHops, r.json(t))
+		}
+	}
+
 	t1 := t0.Add(time.Hour)
 	b2, _, _ := history.Encode(history.Compact(depTopo("c-1", 3)))
 	if err := gs.AddHistory(a.ctx, aOrg, t1, b2); err != nil {
@@ -442,6 +485,54 @@ func TestGraphTraversalAndDiffThroughTheAPI(t *testing.T) {
 
 	if c := a.do("GET", org(aOrg, "graph/diff?from="+at), nil, withCookie(alice)).Code; c != 400 {
 		t.Errorf("diff without to: %d", c)
+	}
+}
+
+// TestAgentTierAndConsentChangesExplainThemselvesInTheGraph is recordAgentGraph's own version of the
+// applications test above: an agent's version in the graph used to carry only the "what" (a new doc,
+// unlike the last one) with no "why" behind it, unlike every polled kind. Both actions here are already
+// audited (see TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited and
+// TestConsentOverridesAreValidatedPersistedAndPushed in consent_test.go) - this checks that the same
+// detail also reaches the graph as an EXPLAINS-linked event, not just the audit trail.
+func TestAgentTierAndConsentChangesExplainThemselvesInTheGraph(t *testing.T) {
+	a, gs := graphRig(t)
+	alice, aOrg := a.register(t, "alice", "Alice Lab") // an owner, so no separate editor account is needed
+	a.core = a.base.ForOrg(aOrg)                       // approvedAgent below enrolls and approves through this org's own Core
+	id, _, _ := a.approvedAgent(t, fp)                 // approved at tier 2, installed at 2
+
+	if r := a.do("POST", org(aOrg, "agents/"+id+"/tier"), map[string]any{"tier": 0}, withCookie(alice)); r.Code != 200 {
+		t.Fatalf("narrow tier: %d %s", r.Code, r.Body.String())
+	}
+	tl, err := gs.Timeline(a.ctx, aOrg, "agent", id, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.Versions) == 0 {
+		t.Fatal("no version recorded for the agent")
+	}
+	var tierEvent *graph.ExplainingEvent
+	for i, ex := range tl.Versions[0].Explains {
+		if ex.Kind == "agent-tier-changed" {
+			tierEvent = &tl.Versions[0].Explains[i]
+		}
+	}
+	if tierEvent == nil || !strings.Contains(tierEvent.Detail, "access tier 2") {
+		t.Fatalf("the version after narrowing the tier should explain itself as agent-tier-changed, with the same detail the audit trail got: %+v", tl.Versions[0].Explains)
+	}
+
+	if r := a.do("POST", org(aOrg, "agents/"+id+"/consent"), map[string]any{"pausedCollectors": []string{"flow"}}, withCookie(alice)); r.Code != 200 {
+		t.Fatalf("set consent: %d %s", r.Code, r.Body.String())
+	}
+	tl2, err := gs.Timeline(a.ctx, aOrg, "agent", id, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawConsentEvent bool
+	for _, ex := range tl2.Versions[0].Explains {
+		sawConsentEvent = sawConsentEvent || ex.Kind == "agent-consent-changed"
+	}
+	if !sawConsentEvent {
+		t.Fatalf("the version after changing consent should explain itself as agent-consent-changed: %+v", tl2.Versions[0].Explains)
 	}
 }
 
