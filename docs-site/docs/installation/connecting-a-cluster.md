@@ -16,7 +16,7 @@ The printed command already contains everything it needs:
 - This server's **CA pin**, so the agent can verify it's really talking to your server on first contact.
 - A **one-time enrollment token**, valid for one hour and one use.
 
-Optionally, before you run it: narrow which namespaces the agent reports (**Only look at some namespaces**), or turn on the node probe and traffic observer checkboxes if you want that extra detail from the start (both are described in the [main project README](https://github.com/alexandrosst/continuum-topology#readme) — they're additive, and off by default). None of this is a Kubernetes *permission* boundary — the agent's RBAC stays cluster-wide read-only either way — it's a privacy boundary applied before anything leaves the cluster.
+Optionally, before you run it: narrow which namespaces the agent reports (**Only look at some namespaces**), or turn on the node probe, traffic observer and path measurements checkboxes if you want that extra detail from the start (all three are additive and off by default; see [Observability intent](../architecture/observability-intent.md) for what each one actually collects). None of this is a Kubernetes *permission* boundary — the agent's RBAC stays cluster-wide read-only either way — it's a privacy boundary applied before anything leaves the cluster.
 
 Run the printed command against the target cluster. See [Exposing the agent port](../architecture/exposure-options.md) if you're curious what's actually happening on the wire, or [Agent trust model](../architecture/agent-trust-model.md) for the enrollment sequence step by step.
 

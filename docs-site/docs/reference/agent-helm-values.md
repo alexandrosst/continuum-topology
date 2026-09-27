@@ -11,6 +11,6 @@ A rendered, searchable table is planned here. Until then, [`backend/internal/cha
 :::
 
 - `access.tier` and namespace scope (`scope.namespaces` / `scope.exclude` / `scope.selector`) — see [Namespaces and services](../user-guide/namespaces-and-services.md).
-- `nodeProbe.enabled` and `flowObserver.enabled` — the optional node-probe and traffic-observer collectors, both toggleable as checkboxes in the wizard itself.
+- `nodeProbe.enabled`, `flowObserver.enabled` and `measurements.enabled` — the optional node-probe, traffic-observer and path-measurements collectors (called `probes`, `flow` and `measure` in [Observability intent](../architecture/observability-intent.md)), all three toggleable as checkboxes in the wizard itself.
 
 `helm show values <chart-ref>` prints the whole file with its comments, from whatever chart reference the wizard gave you.

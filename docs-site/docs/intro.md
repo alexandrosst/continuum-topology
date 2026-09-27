@@ -2,14 +2,14 @@
 id: intro
 slug: /
 title: Continuum Topology Studio
-description: A read-only, agent-observed control plane for orchestration across the cloud-to-edge continuum.
+description: A read-only, agent-observed model of your infrastructure across the cloud-to-far-edge continuum, with placement advice you choose whether to act on.
 ---
 
 import useBaseUrl from '@docusaurus/useBaseUrl';
 
 # Continuum Topology Studio
 
-Continuum Topology Studio models your Kubernetes clusters across the cloud → edge continuum and shows them to you as two connected views: an **application view** (your services, grouped by cluster, with the dependencies between them) and an **infrastructure view** (the nodes underneath, grouped the same way). Both are projections of one model, kept up to date by a small read-only agent you install in each cluster.
+Continuum Topology Studio models your Kubernetes clusters across the cloud-to-far-edge continuum and shows them to you as two connected views: an **Application view** (your services, grouped by cluster, with the dependencies between them) and an **Infrastructure view** (the nodes underneath, grouped the same way). Both are projections of one model, kept up to date by a small read-only agent you install in each cluster.
 
 It does not deploy anything, and it does not move anything on its own. What it gives you is the picture — where things run, how healthy each cluster is, what talks to what, how far apart your sites really are — plus a **Placement** page that recommends where a service would run better and explains exactly why, with every recommendation showing its evidence and its confidence. Nothing moves until a person with the right role approves it.
 
@@ -26,7 +26,7 @@ If you operate clusters that span more than one place — a managed cloud region
 
 - **A server** (the control plane): one replica, a small durable store, a web UI, and a JSON API. It never holds a kubeconfig and never calls into your clusters.
 - **An agent per cluster**: a small pod with cluster-wide *read-only* RBAC. It dials **out** to the server over mutual TLS and reports what it sees. Revoking it, narrowing what it reports, or removing it entirely never touches the server's own security — the trust runs one way.
-- **Three tiers**, always in this order: what the agent's RBAC *lets* it see (installed), what an administrator has *agreed* to receive (approved), and what the agent is *actually* sending right now (effective). The server can only ever narrow that chain, never widen it — widening always needs a `helm upgrade` on the cluster's own side.
+- **Three tiers**, always in this order: what the agent's RBAC *lets* it see (the ceiling), what an administrator has *agreed* to receive (approved), and what the agent is *actually* sending right now (effective). The server can only ever narrow that chain, never widen it — widening always needs a `helm upgrade` on the cluster's own side.
 
 ## Where to go next
 

@@ -13,7 +13,7 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
   <figcaption className="diagram-caption">Nothing is ever edited or deleted here. A change closes the open version's validTo and opens a new one — "what did this look like an hour ago" is a filter on a timestamp, not a separate audit system bolted on afterward.</figcaption>
 </figure>
 
-Every entity this server has ever seen — a cluster, a service, a namespace, an agent, an application — is remembered the same way, regardless of which of the nine kinds it is or how it came to be recorded. That uniformity is deliberate: the topology views, the Timeline panel and the [Dependents/Dependencies graph](#what-depends-on-what) all work against one shape, not nine special cases.
+Every entity this server has ever seen — a cluster, a service, a namespace, an agent, an application — is remembered the same way, regardless of which of the nine kinds it is or how it came to be recorded. That uniformity is deliberate: the topology views, the History page's **Timeline**, and the [Dependents/Dependencies graph](#what-depends-on-what) all work against one shape, not nine special cases.
 
 ## Entities and versions
 
@@ -24,7 +24,7 @@ Recording is idempotent by design: every version's document is hashed, and handi
 Two families of caller produce versions, and both end up in exactly the same place:
 
 - **`Record`** takes a whole topology snapshot — everything a periodic scan found — and diffs it entity by entity against what the graph already holds, closing what has disappeared and opening what changed. This is how clusters, services, namespaces, workloads, dependencies and network paths get recorded: the seven kinds nothing outside a poll ever changes.
-- **`RecordEntity`** versions one entity at a time, for state whose owner already knows the exact moment and reason something changed rather than noticing it by comparing two snapshots — an agent's tier, its consent overrides, its approval status; an application's declared shape. Same `Version`/`HAS_VERSION` shape, same idempotence, so Timeline treats an agent's own history no differently from a service's.
+- **`RecordEntity`** versions one entity at a time, for state whose owner already knows the exact moment and reason something changed rather than noticing it by comparing two snapshots — an agent's tier, its paused collectors and excluded namespaces, its approval status; an application's declared shape. Same `Version`/`HAS_VERSION` shape, same idempotence, so Timeline treats an agent's own history no differently from a service's.
 
 ## Why, not just what
 
@@ -32,7 +32,7 @@ A version alone answers "what changed." Two of this server's nine kinds used to 
 
 The fix is the same mechanism extended to cover them: an **Event** — a timestamped, kind-named, human-readable record (`agent-tier-changed`, `application-renamed`, `application-membership`, …) — written at the same instant as the version it explains, then linked to it with an **`EXPLAINS`** edge. `LinkEventChanges` does the linking: it matches an event to whichever version of the same target opened in the same one-second window, so a caller only has to write the event and call it — it does not have to already know which version its own change produced. Timeline shows both sides of this: `Explains` on a version is *why this one looks the way it does*, and the plain `Events` list on an entity is *everything ever noticed about it*, including removals that have no surviving version left to attach to.
 
-One save can explain itself more than once. Renaming an application and clearing its membership in the same workspace save produces two events — `application-renamed` and `application-membership` — both linked to the one version that save produced, rather than a single flattened "something changed" event losing the distinction. The same discipline the polled diff already followed (one event per changed fact, not one per changed entity) now applies uniformly.
+One save can explain itself more than once. Renaming an application and clearing its membership in the same save produces two events — `application-renamed` and `application-membership` — both linked to the one version that save produced, rather than a single flattened "something changed" event losing the distinction. The same discipline the polled diff already followed (one event per changed fact, not one per changed entity) now applies uniformly.
 
 ## The relationships between entities
 

@@ -24,7 +24,7 @@ An administrator has to go read that code from the cluster's own logs and type i
 
 ## The six steps
 
-1. **You click "Connect a cluster"** in the UI. Nothing exists on the cluster side yet.
+1. **You click Connect a cluster** in the UI. Nothing exists on the cluster side yet.
 2. **The server mints a one-time token** — valid one hour, one use — and prints a ready-to-run `helm install` command with its CA pin already embedded.
 3. **You run that command** against the target cluster. Nothing to fill in by hand: the chart reference, image and CA pin are all already correct.
 4. **The agent starts, dials the server's `:8443`, and checks the pin.** Before it trusts anything the server sends back, it verifies the server's certificate against the CA pin from the install command — first contact is protected against a wrong pin, wrong host, or a foreign CA entirely.

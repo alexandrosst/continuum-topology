@@ -23,7 +23,7 @@ Edit something in one place — rename a service, correct a cluster's tier — a
 
 ## Agents
 
-**Agents** lists every connected cluster's agent: whether it's currently connected, its last heartbeat, certificate expiry, and — expand a row — exactly what it's allowed to see versus what it's actually sending right now (the installed / approved / effective tiers from [System overview](../architecture/overview.md)), plus any self-reported problems and their fixes. This is also where an administrator narrows what an agent shares (pausing an optional collector, excluding more namespaces) or requests it be widened — widening always needs a `helm upgrade` on the cluster's own side; the page shows you the exact command.
+**Agents** lists every connected cluster's agent: whether it's currently connected, its last heartbeat, certificate expiry, and — expand a row to open its **Agent insight panel** — exactly what it's allowed to see versus what it's actually sending right now (the ceiling / approved / effective tiers from [System overview](../architecture/overview.md); together these three settings are what the architecture docs call an agent's *observability intent*), plus any self-reported problems and their fixes. This is also where an administrator narrows what an agent shares (pausing an optional collector, excluding more namespaces) or requests it be widened — widening always needs a `helm upgrade` on the cluster's own side; the page shows you the exact command.
 
 ## Placement
 
@@ -45,4 +45,4 @@ Each person can also turn on two-factor authentication for their own account, fr
 
 ## History
 
-If Neo4j is enabled (see [System overview](../architecture/overview.md)), the **History** page adds a time scrubber and an exact-moment picker: "view the estate as of an hour ago" is one click, with a clear banner reminding you that you're looking at the past and editing is disabled until you return to now. Without Neo4j the same events are tracked in SQLite; you get the audit trail either way, just not the point-in-time views.
+If Neo4j is enabled (see [System overview](../architecture/overview.md)), the **History** page adds a time scrubber and an exact-moment picker: "view the estate as of an hour ago" is one click, with a clear banner reminding you that you're looking at the past and editing is disabled until you return to now. It also adds a per-entity **Timeline** — open any cluster, node or service to see what changed about it and why, event by event (see [System memory](../architecture/system-memory.md)). Without Neo4j the same events are tracked in SQLite; you get the audit trail either way, just not the point-in-time views or the Timeline.
