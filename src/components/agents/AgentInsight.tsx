@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { AlertCircle, AlertTriangle, Check, Copy, Info, Loader2, ShieldCheck } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Button, Field, Input } from '@/components/ui/primitives'
+import { Button, Field, TagsInput } from '@/components/ui/primitives'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError, type ServerInfo } from '@/lib/api'
 import {
@@ -194,7 +194,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
 
   const [tier, setTier] = useState<AccessTier>(agent.accessTier)
   const [paused, setPaused] = useState<string[]>(stored.pausedCollectors)
-  const [excl, setExcl] = useState(stored.excludedNamespaces.join(', '))
+  const [excl, setExcl] = useState<string[]>(stored.excludedNamespaces)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [helm, setHelm] = useState('')
@@ -204,7 +204,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
   // Follow the server while nothing has been edited (another editor may have changed it, or the agent confirmed).
   const storedKey = `${agent.accessTier}|${stored.pausedCollectors.join(',')}|${stored.excludedNamespaces.join(',')}`
   const [seen, setSeen] = useState(storedKey)
-  const parsed = useMemo(() => parseExclusions(excl), [excl])
+  const parsed = useMemo(() => parseExclusions(excl.join(', ')), [excl])
   const draft = { tier, paused, excluded: parsed.names }
   const change = consentChange(draft, agent.accessTier, stored)
   const dirty = change.tier || change.overrides
@@ -214,7 +214,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
     if (!dirty) {
       setTier(agent.accessTier)
       setPaused(stored.pausedCollectors)
-      setExcl(stored.excludedNamespaces.join(', '))
+      setExcl(stored.excludedNamespaces)
     }
   }
 
@@ -316,8 +316,8 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
       </div>
 
       <div className="mt-4">
-        <Field label="Leave more namespaces out" hint="Names separated by commas or spaces. The agent drops them before anything is sent; they can only be added to what the install already leaves out. System namespaces cannot be left out.">
-          <Input value={excl} onChange={(e) => { setExcl(e.target.value); setSaved(false) }} placeholder="e.g. payments, batch" aria-invalid={!valid} data-testid="exclude-input" />
+        <Field label="Leave more namespaces out" hint="The agent drops them before anything is sent; they can only be added to what the install already leaves out. System namespaces cannot be left out.">
+          <TagsInput value={excl} onChange={(v) => { setExcl(v); setSaved(false) }} placeholder="e.g. payments, batch" aria-invalid={!valid} data-testid="exclude-input" />
         </Field>
         {!valid && (
           <ul className="mt-1 text-xs text-bad" role="alert" data-testid="exclude-problems">
@@ -328,7 +328,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Button variant="primary" size="sm" disabled={!dirty || !valid || busy} onClick={() => void save()} data-testid="consent-save">{busy ? 'Saving…' : 'Save'}</Button>
-        {dirty && !busy && <button type="button" className="text-xs text-nb-500 hover:text-nb-300" onClick={() => { setTier(agent.accessTier); setPaused(stored.pausedCollectors); setExcl(stored.excludedNamespaces.join(', ')); setError(''); setHelm('') }}>Discard changes</button>}
+        {dirty && !busy && <button type="button" className="text-xs text-nb-500 hover:text-nb-300" onClick={() => { setTier(agent.accessTier); setPaused(stored.pausedCollectors); setExcl(stored.excludedNamespaces); setError(''); setHelm('') }}>Discard changes</button>}
         {saved && !dirty && !error && (
           <span className={clsx('text-xs', confirmed ? 'text-ok' : 'text-nb-400')} role="status" data-testid="consent-status">
             {confirmed ? 'Saved, and the agent confirms it is in force.' : 'Saved. The agent applies this within seconds; the state on the left updates when it does.'}

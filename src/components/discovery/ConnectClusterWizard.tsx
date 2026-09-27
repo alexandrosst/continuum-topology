@@ -3,13 +3,13 @@ import { Check, CheckCircle2, ChevronRight, Loader2, MapPin, Pin, X } from 'luci
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Flag } from '@/components/ui/brand'
-import { Button, CopyButton, ErrorBanner, Field, InfoTip, Input, Modal } from '@/components/ui/primitives'
+import { Button, CopyButton, ErrorBanner, Field, InfoTip, Input, Modal, TagsInput } from '@/components/ui/primitives'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError, type CreatedToken } from '@/lib/api'
 import { discoveryStatus, extrasOf } from '@/lib/consent'
 import { effective } from '@/lib/effective'
 import { previewImage } from '@/lib/image'
-import { emptyScope, scopeActive, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '@/lib/install'
+import { emptyScope, scopeActive, scopeProblems, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '@/lib/install'
 import { findCities, nearestCity, suggestionFromCity, type City } from '@/lib/places'
 import { usePlaceIndex } from '@/lib/places-data'
 import { countryName } from '@/lib/present'
@@ -212,8 +212,8 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
   const [flows, setFlows] = useState(false)
   const [measure, setMeasure] = useState(false)
   const [scopeOn, setScopeOn] = useState(false)
-  const [inc, setInc] = useState('')
-  const [exc, setExc] = useState('')
+  const [inc, setInc] = useState<string[]>([])
+  const [exc, setExc] = useState<string[]>([])
   const [sel, setSel] = useState('')
   const [created, setCreated] = useState<CreatedToken | null>(null)
   const [error, setError] = useState('')
@@ -239,7 +239,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  const scope = useMemo(() => (scopeOn && tier >= 2 ? { ...emptyScope, namespaces: splitNames(inc), exclude: splitNames(exc), selector: sel } : emptyScope), [scopeOn, tier, inc, exc, sel])
+  const scope = useMemo(() => (scopeOn && tier >= 2 ? { ...emptyScope, namespaces: inc, exclude: exc, selector: sel } : emptyScope), [scopeOn, tier, inc, exc, sel])
   const problems = scopeProblems(scope)
   const max = Math.min(info?.implementedTier ?? 2, 2)
   const agent = useMemo(() => {
@@ -409,11 +409,11 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                       </label>
                       {scopeOn && tier >= 2 && (
                         <div className="mt-3 grid gap-3 pl-7 sm:grid-cols-2">
-                          <Field label="Only these namespaces" hint="Names, separated by spaces or commas. Empty: all.">
-                            <Input value={inc} onChange={(e) => setInc(e.target.value)} placeholder="shop payments" data-testid="scope-include" />
+                          <Field label="Only these namespaces" hint="Empty: all.">
+                            <TagsInput value={inc} onChange={setInc} placeholder="shop payments" data-testid="scope-include" />
                           </Field>
                           <Field label="Never these" hint="Wins over the other two.">
-                            <Input value={exc} onChange={(e) => setExc(e.target.value)} placeholder="hr-data" data-testid="scope-exclude" />
+                            <TagsInput value={exc} onChange={setExc} placeholder="hr-data" data-testid="scope-exclude" />
                           </Field>
                           <Field label="Or namespaces with this label" hint="key=value, on a label starting continuum.io/; added to the names on the left.">
                             <Input value={sel} onChange={(e) => setSel(e.target.value)} placeholder="continuum.io/scope=yes" data-testid="scope-label" />

@@ -306,6 +306,75 @@ export function ComboField({
   )
 }
 
+/**
+ * A list of short free-text tokens (namespace names, an exclusion list) edited as individual removable
+ * chips with one text box to add more - instead of a line of comma- or space-separated text a person has
+ * to punctuate exactly right by eye. Splits on comma, space, or Enter as each is typed (matching how these
+ * lists already parse server-side), so pasting "a, b c" still produces three tags. `data-testid`, when
+ * given, lands on the actual text box, the same element a plain `Input` would have put it on.
+ */
+export function TagsInput({
+  value,
+  onChange,
+  placeholder,
+  'aria-invalid': ariaInvalid,
+  'data-testid': dataTestId,
+}: {
+  value: string[]
+  onChange: (value: string[]) => void
+  placeholder?: string
+  'aria-invalid'?: boolean
+  'data-testid'?: string
+}) {
+  const [draft, setDraft] = useState('')
+
+  const commit = (text: string) => {
+    const tokens = text
+      .split(/[,\s]+/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+    setDraft('')
+    if (tokens.length === 0) return
+    const next = [...value]
+    for (const t of tokens) if (!next.includes(t)) next.push(t)
+    onChange(next)
+  }
+
+  return (
+    <div className={clsx(control, 'flex h-auto min-h-9 flex-wrap items-center gap-1 py-1.5')}>
+      {value.map((tag) => (
+        <span key={tag} className="fade-in inline-flex items-center gap-1 rounded bg-nb-940 px-1.5 py-0.5 text-xs text-nb-300">
+          {tag}
+          <button type="button" onClick={() => onChange(value.filter((t) => t !== tag))} className="text-nb-500 hover:text-bad" aria-label={`Remove ${tag}`}>
+            <X size={10} />
+          </button>
+        </span>
+      ))}
+      <input
+        value={draft}
+        onChange={(e) => {
+          const v = e.target.value
+          if (/[,\s]$/.test(v)) commit(v)
+          else setDraft(v)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commit(draft)
+          } else if (e.key === 'Backspace' && draft === '' && value.length > 0) {
+            onChange(value.slice(0, -1))
+          }
+        }}
+        onBlur={() => commit(draft)}
+        placeholder={value.length === 0 ? placeholder : undefined}
+        aria-invalid={ariaInvalid}
+        data-testid={dataTestId}
+        className="min-w-[6rem] flex-1 bg-transparent text-sm text-nb-300 placeholder:text-nb-500 focus:outline-none"
+      />
+    </div>
+  )
+}
+
 type LabelPair = { key: string; value: string }
 const labelsToRows = (l: Record<string, string>): LabelPair[] => Object.entries(l).map(([key, value]) => ({ key, value }))
 const rowsToLabels = (rows: LabelPair[]): Record<string, string> =>
@@ -338,7 +407,7 @@ export function LabelsEditor({
   return (
     <div className="space-y-1.5">
       {rows.map((row, i) => (
-        <div key={i} className="flex items-center gap-1.5">
+        <div key={i} className="fade-in flex items-center gap-1.5">
           <Input
             value={row.key}
             onChange={(e) => update(rows.map((r, j) => (j === i ? { ...r, key: e.target.value } : r)))}
