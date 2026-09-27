@@ -596,7 +596,7 @@ export default function Inspector({
         </Section>
         <Section title="Networking">
           <Maybe label="Exposure">{[w.exposure, list(w.hosts)].filter(Boolean).join(' · ')}</Maybe>
-          <Chips label="Ports" items={w.ports} />
+          <Chips label="Ports" items={w.ports?.map(String)} />
           <KeyValueChips label="Node selector" pairs={w.nodeSelector} />
           <Chips label="Tolerations" items={w.tolerations} />
           <Maybe label="Sensitivity">{w.sensitivity}</Maybe>
