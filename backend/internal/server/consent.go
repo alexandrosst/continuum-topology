@@ -234,8 +234,13 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	if a.Status != store.StatusApproved {
 		return a, errf(KindConflict, "agent is %s: only an approved agent's access can be changed", a.Status)
 	}
-	if tier < 0 || tier > MaxTier {
-		return a, errf(KindInvalid, "access tier must be 0-%d", ImplementedTier)
+	// The only real ceiling below is ImplementedTier: MaxTier is the type's absolute upper bound (tiers reserved
+	// for a future release), not a separate limit worth its own message, and duplicating "the highest allowed
+	// tier" as two different numbers in two different checks is exactly how enroll.go's approval-time check and
+	// this one drifted apart in wording before - a tier of 5+ used to be rejected citing "0-2" as the range
+	// while MaxTier=4 said otherwise. Only a genuinely out-of-domain value (negative) gets its own message here.
+	if tier < 0 {
+		return a, errf(KindInvalid, "access tier must be 0 or more")
 	}
 	if tier == a.AccessTier {
 		return a, nil

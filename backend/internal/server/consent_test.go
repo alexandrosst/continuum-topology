@@ -106,8 +106,18 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	if got, _ := a.st.GetAgent(a.ctx, id); got.AccessTier != 1 {
 		t.Fatal("the refused request changed the tier")
 	}
-	if c := tier(editor, 9).Code; c != 400 {
-		t.Fatalf("tier 9: %d", c)
+	// A tier past MaxTier and one merely past ImplementedTier (3, already covered by "over the ceiling" above via
+	// InstalledTier=1) must read the same way: SetAgentTier used to have its own, differently-worded, differently
+	// numbered ceiling for anything above MaxTier, which drifted from the ImplementedTier message right below it.
+	r9 := tier(editor, 9)
+	if r9.Code != 400 {
+		t.Fatalf("tier 9: %d %s", r9.Code, r9.Body.String())
+	}
+	if msg, _ := r9.json(t)["error"].(string); !strings.Contains(msg, "access tier 9 is not available in this release (the highest is 2)") {
+		t.Fatalf("tier 9 should cite the release ceiling like any other too-high tier does, got %q", msg)
+	}
+	if c := tier(editor, -1).Code; c != 400 {
+		t.Fatalf("tier -1: %d", c)
 	}
 	if c := tier(editor, "x").Code; c != 400 {
 		t.Fatalf("tier x: %d", c)
