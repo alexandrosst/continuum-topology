@@ -81,6 +81,9 @@ jobs:
       - name: Unit tests
         run: npm run test:unit
 
+      - name: Component tests
+        run: npm run test:ui
+
       - name: Vulnerability scan (npm audit)
         run: npm audit --audit-level=high
         # `high` (not the default `low`) so this blocks on what's worth blocking on; see deploy/README.md's

@@ -44,7 +44,7 @@ CONTINUUM_SERVER=host:8443 CONTINUUM_CA_PIN=<pin> CONTINUUM_TOKEN=<token> \
 cd backend && go vet ./... && go test -race ./...
 ```
 
-Neo4j-backed tests skip themselves unless `CONTINUUM_TEST_NEO4J` is set — you don't need a Neo4j instance running to get a meaningful pass. The frontend has its own unit test suite (`npm run test:unit`) and lint (`npm run lint`); both run in CI on every push and pull request.
+Neo4j-backed tests skip themselves unless `CONTINUUM_TEST_NEO4J` is set — you don't need a Neo4j instance running to get a meaningful pass. The frontend has two test suites: pure logic (`npm run test:unit`, plain `node:test`, no DOM) and rendered components (`npm run test:ui`, Vitest + React Testing Library + jsdom, in `tests-ui/`) - plus lint (`npm run lint`). All three run in CI on every push and pull request.
 
 ## Where things live
 
