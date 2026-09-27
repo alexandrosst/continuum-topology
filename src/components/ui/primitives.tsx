@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Check, ChevronDown, Copy, Eye, EyeOff, Minus, X } from 'lucide-react'
+import { Check, ChevronDown, Copy, Eye, EyeOff, Minus, Plus, X } from 'lucide-react'
 import {
   Children, isValidElement, useEffect, useId, useRef, useState,
   type ButtonHTMLAttributes, type ChangeEvent, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type SelectHTMLAttributes,
@@ -303,6 +303,71 @@ export function ComboField({
       ))}
       <option value={COMBO_CUSTOM}>{customLabel}</option>
     </Select>
+  )
+}
+
+type LabelPair = { key: string; value: string }
+const labelsToRows = (l: Record<string, string>): LabelPair[] => Object.entries(l).map(([key, value]) => ({ key, value }))
+const rowsToLabels = (rows: LabelPair[]): Record<string, string> =>
+  Object.fromEntries(rows.filter((r) => r.key.trim() !== '').map((r) => [r.key.trim(), r.value.trim()]))
+
+/**
+ * A structured editor for small key/value maps (Kubernetes-style labels and selectors): one row per pair, its
+ * own key and value input, and a remove button - instead of a single "key=value, key=value" text field a person
+ * has to punctuate exactly right by eye. Mirrors the read-only `KeyValueChips` presentation (see Inspector.tsx)
+ * so the same data takes the same shape whether it's being read or edited. Uncontrolled after mount, the same
+ * way callers already hold a local draft for the old text field - `onChange` fires with the derived record on
+ * every edit, and it's the caller's job to persist it (typically on save, like every other field here).
+ */
+export function LabelsEditor({
+  value,
+  onChange,
+  keyPlaceholder = 'key',
+  valuePlaceholder = 'value',
+}: {
+  value: Record<string, string>
+  onChange: (value: Record<string, string>) => void
+  keyPlaceholder?: string
+  valuePlaceholder?: string
+}) {
+  const [rows, setRows] = useState<LabelPair[]>(() => labelsToRows(value))
+  const update = (next: LabelPair[]) => {
+    setRows(next)
+    onChange(rowsToLabels(next))
+  }
+  return (
+    <div className="space-y-1.5">
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <Input
+            value={row.key}
+            onChange={(e) => update(rows.map((r, j) => (j === i ? { ...r, key: e.target.value } : r)))}
+            placeholder={keyPlaceholder}
+            className="min-w-0 flex-1"
+            aria-label="Label key"
+          />
+          <span className="shrink-0 text-sm text-nb-600">=</span>
+          <Input
+            value={row.value}
+            onChange={(e) => update(rows.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)))}
+            placeholder={valuePlaceholder}
+            className="min-w-0 flex-1"
+            aria-label="Label value"
+          />
+          <button
+            type="button"
+            onClick={() => update(rows.filter((_, j) => j !== i))}
+            className="shrink-0 rounded-md p-1.5 text-nb-500 transition-colors hover:bg-nb-850 hover:text-bad"
+            aria-label={`Remove ${row.key || 'label'}`}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+      <Button type="button" size="sm" onClick={() => update([...rows, { key: '', value: '' }])}>
+        <Plus size={12} /> Add label
+      </Button>
+    </div>
   )
 }
 

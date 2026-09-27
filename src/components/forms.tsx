@@ -2,7 +2,7 @@ import { countries } from 'country-flag-icons'
 import { Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { GroupingPicker } from '@/components/GroupingPicker'
-import { Button, ComboField, EvidenceChip, Field, Input, Modal, Select } from '@/components/ui/primitives'
+import { Button, ComboField, EvidenceChip, Field, Input, LabelsEditor, Modal, Select } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
 import { countryName, DISTRIBUTION_OPTIONS, PROVIDER_OPTIONS } from '@/lib/present'
 import { countryAt, findCities, nearestCity, siteLocationIssue, type City } from '@/lib/places'
@@ -30,23 +30,6 @@ import {
   type ServiceKind,
   type TrustZone,
 } from '@/lib/types'
-
-/* ---------- helpers ---------- */
-export const parseLabels = (s: string): Record<string, string> =>
-  Object.fromEntries(
-    s
-      .split(',')
-      .map((p) => p.trim())
-      .filter(Boolean)
-      .map((p) => {
-        const i = p.indexOf('=')
-        return i === -1 ? [p, ''] : [p.slice(0, i).trim(), p.slice(i + 1).trim()]
-      }),
-  )
-export const formatLabels = (l: Record<string, string>) =>
-  Object.entries(l)
-    .map(([k, v]) => `${k}=${v}`)
-    .join(', ')
 
 const STATUSES: Status[] = ['healthy', 'degraded', 'offline', 'unknown']
 
@@ -148,7 +131,7 @@ export function ClusterForm({ initial, onClose }: { initial: Cluster | null; onC
       source: 'manual',
     },
   )
-  const [labels, setLabels] = useState(formatLabels(f.labels))
+  const [labels, setLabels] = useState(f.labels)
   const set = <K extends keyof Cluster>(k: K, v: Cluster[K]) => setF((p) => ({ ...p, [k]: v }))
   // Same "is this field a guess, or not known at all" signal the Clusters table already shows per row (see
   // NodesPage/ClustersPage's own `chip` helper) - reused here so editing a discovered value shows exactly the
@@ -190,7 +173,7 @@ export function ClusterForm({ initial, onClose }: { initial: Cluster | null; onC
           disabled={!f.name.trim()}
           onCancel={onClose}
           onSave={() => {
-            save({ ...f, name: f.name.trim(), labels: parseLabels(labels) }, by)
+            save({ ...f, name: f.name.trim(), labels }, by)
             onClose()
           }}
           onReset={
@@ -252,8 +235,8 @@ export function ClusterForm({ initial, onClose }: { initial: Cluster | null; onC
         <Field label="Data residency" hint="Jurisdiction data must stay in, e.g. EU." className="col-span-2">
           <Input value={f.dataResidency ?? ''} onChange={(e) => set('dataResidency', e.target.value || undefined)} placeholder="EU" />
         </Field>
-        <Field label="Labels" hint="Comma separated key=value pairs." className="col-span-2">
-          <Input value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="env=prod, team=ml" />
+        <Field label="Labels" className="col-span-2">
+          <LabelsEditor value={labels} onChange={setLabels} keyPlaceholder="env" valuePlaceholder="prod" />
         </Field>
       </div>
     </Modal>
@@ -283,7 +266,7 @@ export function NodeForm({ initial, onClose, defaultClusterId }: { initial: Mach
       source: 'manual',
     },
   )
-  const [labels, setLabels] = useState(formatLabels(f.labels))
+  const [labels, setLabels] = useState(f.labels)
   const set = <K extends keyof MachineNode>(k: K, v: MachineNode[K]) => setF((p) => ({ ...p, [k]: v }))
   // Same as ClusterForm above, including the one-click confirm for a guess.
   const weak = useWeakValue('node')
@@ -319,7 +302,7 @@ export function NodeForm({ initial, onClose, defaultClusterId }: { initial: Mach
           disabled={!f.name.trim() || !f.clusterId}
           onCancel={onClose}
           onSave={() => {
-            save({ ...f, name: f.name.trim(), labels: parseLabels(labels) }, by)
+            save({ ...f, name: f.name.trim(), labels }, by)
             onClose()
           }}
           onReset={
@@ -390,8 +373,8 @@ export function NodeForm({ initial, onClose, defaultClusterId }: { initial: Mach
         <Field label="Status">
           <StatusSelect value={f.status} onChange={(v) => set('status', v)} />
         </Field>
-        <Field label="Labels" hint="key=value, comma separated.">
-          <Input value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="accelerator=jetson-orin" />
+        <Field label="Labels" className="col-span-2">
+          <LabelsEditor value={labels} onChange={setLabels} keyPlaceholder="accelerator" valuePlaceholder="jetson-orin" />
         </Field>
       </div>
     </Modal>
@@ -418,7 +401,7 @@ export function ServiceForm({ initial, onClose, defaultClusterId }: { initial: S
       source: 'manual',
     },
   )
-  const [labels, setLabels] = useState(formatLabels(f.labels))
+  const [labels, setLabels] = useState(f.labels)
   // This form edits service → service calls; calls to devices or external endpoints are left untouched.
   const isEditable = (d: Dependency) => d.from === f.id && d.fromKind === 'service' && d.toKind === 'service'
   const [deps, setDeps] = useState<Dependency[]>(() => dependencies.filter(isEditable))
@@ -429,7 +412,7 @@ export function ServiceForm({ initial, onClose, defaultClusterId }: { initial: S
   const clusterName = (id: string) => clusters.find((c) => c.id === id)?.name ?? '?'
 
   const save = () => {
-    saveService({ ...f, name: f.name.trim(), labels: parseLabels(labels) }, by)
+    saveService({ ...f, name: f.name.trim(), labels }, by)
     const kept = new Set(deps.map((d) => d.id))
     dependencies.filter((d) => isEditable(d) && !kept.has(d.id)).forEach((d) => deleteDependency(d.id))
     deps.filter((d) => d.to).forEach((d) => upsertDependency({ ...d, from: f.id }))
@@ -542,8 +525,8 @@ export function ServiceForm({ initial, onClose, defaultClusterId }: { initial: S
           )}
         </div>
 
-        <Field label="Labels" hint="key=value, comma separated." className="col-span-2">
-          <Input value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="tier=backend" />
+        <Field label="Labels" className="col-span-2">
+          <LabelsEditor value={labels} onChange={setLabels} keyPlaceholder="tier" valuePlaceholder="backend" />
         </Field>
 
         <div className="col-span-2 rounded-lg border border-nb-850 bg-nb-930 p-4">
@@ -611,14 +594,14 @@ export function DeviceForm({ initial, onClose }: { initial: Device | null; onClo
       source: 'manual',
     },
   )
-  const [labels, setLabels] = useState(formatLabels(f.labels))
+  const [labels, setLabels] = useState(f.labels)
   const isEditable = (d: Dependency) => d.from === f.id && d.fromKind === 'device' && d.toKind === 'service'
   const [deps, setDeps] = useState<Dependency[]>(() => dependencies.filter(isEditable))
   const set = <K extends keyof Device>(k: K, v: Device[K]) => setF((p) => ({ ...p, [k]: v }))
   const clusterName = (id: string) => clusters.find((c) => c.id === id)?.name ?? '?'
 
   const save = () => {
-    saveDevice({ ...f, name: f.name.trim(), count: Math.max(1, Math.round(f.count) || 1), labels: parseLabels(labels) }, by)
+    saveDevice({ ...f, name: f.name.trim(), count: Math.max(1, Math.round(f.count) || 1), labels }, by)
     const kept = new Set(deps.map((d) => d.id))
     dependencies.filter((d) => isEditable(d) && !kept.has(d.id)).forEach((d) => deleteDependency(d.id))
     deps.filter((d) => d.to).forEach((d) => upsertDependency({ ...d, from: f.id }))
@@ -711,8 +694,8 @@ export function DeviceForm({ initial, onClose }: { initial: Device | null; onClo
         <Field label="Firmware">
           <Input value={f.firmware ?? ''} onChange={(e) => set('firmware', e.target.value || undefined)} />
         </Field>
-        <Field label="Labels" hint="key=value, comma separated." className="col-span-2">
-          <Input value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="line=3" />
+        <Field label="Labels" className="col-span-2">
+          <LabelsEditor value={labels} onChange={setLabels} keyPlaceholder="line" valuePlaceholder="3" />
         </Field>
 
         <div className="col-span-2 rounded-lg border border-nb-850 bg-nb-930 p-4">
