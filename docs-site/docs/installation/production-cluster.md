@@ -19,7 +19,7 @@ The commands below install the newest release, same as the Quickstart. For a pro
 **Install once**, with a placeholder address (the chart just needs something shaped like `host:port` — it doesn't have to resolve yet):
 
 ```bash
-helm install continuum oci://ghcr.io/alexandrosst/continuum-server \
+helm install continuum-server oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --create-namespace \
   --set agent.publicAddress=pending.example.com:8443
 ```
@@ -31,7 +31,7 @@ The admin port carries your sign-in password and session cookie, so the chart re
 `agent.service.type` defaults to `LoadBalancer`, so this already asked your cloud for one. **Watch for the address:**
 
 ```bash
-kubectl -n continuum get service continuum-agent -w
+kubectl -n continuum get service continuum-server-agent -w
 ```
 
 Once `EXTERNAL-IP` is no longer `<pending>`, point your real DNS name at it (an `A`/`AAAA` record, or a `CNAME` if your cloud gave you a hostname instead of an IP).
@@ -39,7 +39,7 @@ Once `EXTERNAL-IP` is no longer `<pending>`, point your real DNS name at it (an 
 **Upgrade with the real address:**
 
 ```bash
-helm upgrade continuum oci://ghcr.io/alexandrosst/continuum-server \
+helm upgrade continuum-server oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --reuse-values \
   --set agent.publicAddress=continuum.example.com:8443
 ```
@@ -55,7 +55,7 @@ Once the server is up — even with the placeholder address — **Settings → S
 Instead of `port-forward`, put the admin port behind a Gateway that terminates TLS: an `HTTPRoute` attached to a `Gateway` that already has an HTTPS listener set up (its certificate is cert-manager's or however else you manage it — that's configured on the Gateway itself, not by this chart).
 
 ```bash
-helm upgrade continuum oci://ghcr.io/alexandrosst/continuum-server \
+helm upgrade continuum-server oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --reuse-values \
   --set httproute.enabled=true \
   --set-json httproute.parentRefs='[{"name":"shared-gateway","namespace":"gateways","sectionName":"https"}]' \

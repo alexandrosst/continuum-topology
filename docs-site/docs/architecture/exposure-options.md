@@ -21,14 +21,14 @@ The chart asks your cloud for an external IP or hostname automatically. This is 
 
 ## NodePort (`agent.service.type=NodePort`)
 
-Reachable on every node, at a fixed port you choose. This works on literally any cluster — including a local trial with k3s, kind or minikube — which is why it's what the [Quickstart](../installation/index.md) uses. The trade-off is that you're pointing agents at a specific node's address rather than a stable name a load balancer would give you, so it's a better fit for a trial or a small, self-contained deployment than for something agents will dial from far outside a network you control.
+Reachable on every node, at a fixed port you choose. This works on literally any cluster — including a local trial with k3s, kind or minikube — which is why it's what the [Quickstart](../getting-started/quickstart.md) uses. The trade-off is that you're pointing agents at a specific node's address rather than a stable name a load balancer would give you, so it's a better fit for a trial or a small, self-contained deployment than for something agents will dial from far outside a network you control.
 
 ## Gateway API TLSRoute (`agent.tlsRoute`)
 
 Lets the agent port share the same `:443` a Gateway already uses, routed by SNI hostname rather than terminated: a `TLSRoute` attached to a `Gateway` listener configured with `protocol: TLS` and `tls.mode: Passthrough`. It needs the Gateway API CRDs and a Gateway already running in the cluster — if you don't have either yet, LoadBalancer or NodePort are the simpler starting points. The Gateway becomes the only front door for the agent port, so `agent.service.type` also switches to `ClusterIP` — the chart refuses to install or upgrade with `agent.tlsRoute.enabled=true` and a `LoadBalancer` or `NodePort` still sitting next to it, since that would quietly leave a second, unintended way in (and, on a cloud LoadBalancer, a second bill for it).
 
 ```bash
-helm upgrade continuum oci://ghcr.io/alexandrosst/continuum-server \
+helm upgrade continuum-server oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --reuse-values \
   --set agent.service.type=ClusterIP \
   --set agent.tlsRoute.enabled=true \

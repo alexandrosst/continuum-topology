@@ -23,7 +23,7 @@ Copy one `EXTERNAL-IP` (or `INTERNAL-IP` if there isn't one — fine for a trial
 Replace `NODE_IP` with the address from the previous step:
 
 ```bash
-helm install continuum oci://ghcr.io/alexandrosst/continuum-server \
+helm install continuum-server oci://ghcr.io/alexandrosst/continuum-server \
   --namespace continuum --create-namespace \
   --set agent.service.type=NodePort \
   --set agent.publicAddress=NODE_IP:30443
@@ -52,7 +52,7 @@ Ctrl+C once the pod shows `Running` and `1/1`.
 Generated once and printed to the log the first time the server starts on an empty database:
 
 ```bash
-kubectl -n continuum logs deployment/continuum | grep -A2 'First start'
+kubectl -n continuum logs deployment/continuum-server | grep -A2 'First start'
 ```
 
 ## 5. Open the UI
@@ -60,7 +60,7 @@ kubectl -n continuum logs deployment/continuum | grep -A2 'First start'
 Not exposed outside the cluster by default, so forward a port to it:
 
 ```bash
-kubectl -n continuum port-forward service/continuum 8080:8080
+kubectl -n continuum port-forward service/continuum-server 8080:8080
 ```
 
 Open `https://localhost:8080` — your browser will warn you the certificate isn't trusted (it's self-signed, generated automatically since nothing else was configured to protect this port); click through it. Sign in as `admin` with the password from step 4, and choose a real password.
