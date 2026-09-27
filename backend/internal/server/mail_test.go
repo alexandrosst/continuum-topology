@@ -144,6 +144,45 @@ func TestSendMailOverLoopbackWithoutSTARTTLS(t *testing.T) {
 	}
 }
 
+// TestSendMailTimesOutRatherThanHangingForever pins the fix for the missing-deadline bug: a host that accepts
+// the TCP connection and then never says a word (a stalled relay, or a firewall that drops packets instead of
+// refusing them - the same silent-failure shape this project's Neo4j firewalld incident had) must not hang the
+// request that triggered it forever. Before smtpIOTimeout existed, sendMail had no deadline anywhere and this
+// test would time out the whole `go test` run instead of failing cleanly.
+func TestSendMailTimesOutRatherThanHangingForever(t *testing.T) {
+	orig := smtpIOTimeout
+	smtpIOTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { smtpIOTimeout = orig })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		<-t.Context().Done() // accept the connection, then say nothing - ever
+	}()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- sendMail(ln.Addr().String(), nil, "continuum@example.com", []string{"person@example.com"}, mimeMessage("continuum@example.com", "person@example.com", "Your code", "000000"))
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("sendMail succeeded against a server that never spoke")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("sendMail hung well past smtpIOTimeout instead of returning an error")
+	}
+}
+
 func TestSendMailAuthenticatesWhenOffered(t *testing.T) {
 	s := startFakeSMTP(t, "AUTH PLAIN")
 	auth := smtp.PlainAuth("", "user", "pass", "127.0.0.1")

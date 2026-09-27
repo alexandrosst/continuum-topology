@@ -157,13 +157,32 @@ func requireSTARTTLS(host string, offered bool) error {
 // this server that means a login or email-verification code, and for a relay with no authentication guard of
 // its own, the SMTP credentials too. Loopback is exempted because there is no network for that attacker to
 // sit on, matching the trust boundary smtp.PlainAuth already assumes for credentials.
+// smtpIOTimeout bounds the whole exchange - the initial connect and every read/write after it (EHLO,
+// STARTTLS, AUTH, the message itself) - under one deadline. Without it, a misconfigured or unreachable mail
+// host (wrong address, a host that accepts the TCP connection and then never speaks, a firewall that drops
+// packets instead of refusing them) hangs this call indefinitely: net/smtp has no timeout of its own, and the
+// caller's request context is not threaded through here, so nothing else would ever time this out. A var, not
+// a const, so a test can shrink it rather than actually waiting out a production-sized timeout. 20s is
+// generous for a real mail relay and short enough that a person waiting on a login code notices a fast
+// failure instead of a hung request.
+var smtpIOTimeout = 20 * time.Second
+
 func sendMail(addr string, auth smtp.Auth, from string, to []string, msg []byte) error {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return err
 	}
-	c, err := smtp.Dial(addr)
+	conn, err := net.DialTimeout("tcp", addr, smtpIOTimeout)
 	if err != nil {
+		return err
+	}
+	if err := conn.SetDeadline(time.Now().Add(smtpIOTimeout)); err != nil {
+		conn.Close()
+		return err
+	}
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		conn.Close()
 		return err
 	}
 	defer c.Close()
