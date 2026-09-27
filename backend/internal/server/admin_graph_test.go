@@ -247,6 +247,115 @@ func TestHistorySnapshotCarriesAgentsAsOfTheSameMomentAndGraphSnapshotIsSchemaAg
 	}
 }
 
+func TestSavingAWorkspaceVersionsItsApplicationsAndTheirMembersInTheGraph(t *testing.T) {
+	a, gs := graphRig(t)
+	alice, aOrg := a.register(t, "alice", "Alice Lab")
+	t0 := time.Now().Add(-time.Hour).Truncate(time.Second)
+
+	// The service an application will point at, and a second one for it to later stop pointing at, must
+	// already exist as graph entities the way a topology poll would have put them there.
+	if err := gs.AddHistory(a.ctx, aOrg, t0, snap("web", 1)); err != nil {
+		t.Fatal(err)
+	}
+
+	members := func(appID string) []string {
+		t.Helper()
+		res, err := gs.DB.C.Run(a.ctx, gs.DB.C.For(aOrg).S(`MATCH (:Entity {org:$org, kind:'application', id:$id})-[r:CONTAINS {org:$org}]->(m:Entity) WHERE r.validTo IS NULL RETURN m.id ORDER BY m.id`, map[string]any{"id": appID}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, row := range res[0].Rows {
+			out = append(out, row[0].(string))
+		}
+		return out
+	}
+
+	// A discovered service's membership arrives as an inline field on the record, exactly like a real
+	// client's own document would carry it; the server files it under a ref, and this must still resolve.
+	doc := map[string]any{
+		"schemaVersion": 4,
+		"applications":  []map[string]any{{"id": "app-1", "name": "Shop", "origin": "manual", "confidence": "high"}},
+		"services":      []map[string]any{{"id": "svc-web", "source": "discovered", "applicationId": "app-1"}},
+	}
+	*a.now = a.now.Add(time.Minute) // each save needs its own instant, or it replaces the one before it
+	if r := a.do("PUT", org(aOrg, "workspace"), doc, withCookie(alice), withHeader("If-Match", "0")); r.Code != 200 {
+		t.Fatalf("save: %d %s", r.Code, r.Body.String())
+	}
+	tl, err := gs.Timeline(a.ctx, aOrg, "application", "app-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.Versions) != 1 || tl.Versions[0].Name != "Shop" {
+		t.Fatalf("application not recorded: %+v", tl.Versions)
+	}
+	if got := members("app-1"); len(got) != 1 || got[0] != "svc-web" {
+		t.Fatalf("expected svc-web as the one member, got %v", got)
+	}
+
+	// Renamed and its membership cleared: a second version, and the CONTAINS edge closes.
+	doc2 := map[string]any{
+		"schemaVersion": 4,
+		"applications":  []map[string]any{{"id": "app-1", "name": "Storefront", "origin": "manual", "confidence": "high"}},
+		"services":      []map[string]any{{"id": "svc-web", "source": "discovered"}},
+	}
+	*a.now = a.now.Add(time.Minute)
+	if r := a.do("PUT", org(aOrg, "workspace"), doc2, withCookie(alice), withHeader("If-Match", "1")); r.Code != 200 {
+		t.Fatalf("save 2: %d %s", r.Code, r.Body.String())
+	}
+	tl2, err := gs.Timeline(a.ctx, aOrg, "application", "app-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl2.Versions) != 2 || tl2.Versions[0].Name != "Storefront" {
+		t.Fatalf("rename not recorded: %+v", tl2.Versions)
+	}
+	if got := members("app-1"); len(got) != 0 {
+		t.Fatalf("expected no members after they were cleared, got %v", got)
+	}
+
+	// Read schema-agnostically too, while it is still open: /graph/snapshot shows it right alongside the
+	// polled kinds, with no case anywhere needed to make that so.
+	beforeRemoval := a.now.UTC().Format(time.RFC3339)
+	hasApp := func(at string) bool {
+		t.Helper()
+		r := a.do("GET", org(aOrg, "graph/snapshot?at="+at), nil, withCookie(alice))
+		if r.Code != 200 {
+			t.Fatalf("graph snapshot: %d %s", r.Code, r.Body.String())
+		}
+		for _, e := range r.json(t)["entities"].([]any) {
+			row := e.(map[string]any)
+			if row["kind"] == "application" && row["id"] == "app-1" {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasApp(beforeRemoval) {
+		t.Error("graph/snapshot should show the application while it still exists")
+	}
+
+	// Removed from the document entirely: the application is retired, not silently left open forever.
+	doc3 := map[string]any{"schemaVersion": 4}
+	*a.now = a.now.Add(time.Minute)
+	if r := a.do("PUT", org(aOrg, "workspace"), doc3, withCookie(alice), withHeader("If-Match", "2")); r.Code != 200 {
+		t.Fatalf("save 3: %d %s", r.Code, r.Body.String())
+	}
+	res, err := gs.DB.C.Run(a.ctx, gs.DB.C.For(aOrg).S(`MATCH (e:Entity {org:$org, kind:'application', id:'app-1'}) RETURN e.gone IS NOT NULL`, nil))
+	if err != nil || len(res[0].Rows) == 0 || res[0].Rows[0][0] != true {
+		t.Fatalf("app-1 should have been retired once removed from the document: %v, err=%v", res, err)
+	}
+	// Once retired it is honestly absent from a snapshot taken at or after that moment - the same
+	// half-open validity window every other kind's version already has.
+	if hasApp(a.now.UTC().Format(time.RFC3339)) {
+		t.Error("graph/snapshot should not show the application once it has been retired")
+	}
+	// But the past is still the past: asked about the moment before removal, it is still there.
+	if !hasApp(beforeRemoval) {
+		t.Error("graph/snapshot asked about an earlier moment should still show the application as it was then")
+	}
+}
+
 func TestWithoutTheGraphTheSameRoutesSayWhatIsMissing(t *testing.T) {
 	a := newAdminRig(t)
 	alice, id := a.register(t, "alice", "Alice Lab")

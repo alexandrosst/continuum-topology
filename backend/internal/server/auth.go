@@ -1375,6 +1375,8 @@ func (c *Core) SaveWorkspace(ctx context.Context, actor string, expectRev int64,
 	if c.OnWorkspace != nil {
 		c.OnWorkspace(w.Rev)
 	}
+	// The one moment this server can be sure an application was created, renamed, re-scoped or removed.
+	c.recordApplicationsGraph(ctx, data)
 	// One audit entry per save would drown everything else; the workspace has its own revision history in the row.
 	return w, nil
 }
