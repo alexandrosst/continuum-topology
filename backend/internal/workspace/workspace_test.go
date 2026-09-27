@@ -191,3 +191,55 @@ func TestPeek(t *testing.T) {
 		t.Error("Peek")
 	}
 }
+
+func TestApplicationsResolvesMembersFromRefsAndFromInlineManualServices(t *testing.T) {
+	apps, err := Applications([]byte(oldDoc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apps) != 1 || apps[0].ID != "app-1" {
+		t.Fatalf("apps = %+v", apps)
+	}
+	app := apps[0]
+	if app.Name != "Shop" || app.Origin != "helm" || app.Confidence != "high" {
+		t.Errorf("application fields did not come through: %+v", app)
+	}
+	// sv-1 is discovered with applicationId "app-1": Declare turned it into a ref, not a record.
+	if !equalStrings(app.ServiceIDs, []string{"sv-1"}) {
+		t.Errorf("expected the one discovered member via its ref, got %v", app.ServiceIDs)
+	}
+
+	// A manually authored service carries applicationId inline instead, since Declare never touches it.
+	doc := `{"schemaVersion":4,
+		"applications":[{"id":"app-2","name":"Manual App"}],
+		"services":[{"id":"sv-m","source":"manual","applicationId":"app-2","name":"hand-run"}]}`
+	apps2, err := Applications([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apps2) != 1 || apps2[0].ID != "app-2" || !equalStrings(apps2[0].ServiceIDs, []string{"sv-m"}) {
+		t.Fatalf("manual membership not resolved: %+v", apps2)
+	}
+}
+
+func TestApplicationsWithNoApplicationsIsEmptyNotNil(t *testing.T) {
+	apps, err := Applications([]byte(`{"schemaVersion":4}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apps) != 0 {
+		t.Errorf("apps = %+v", apps)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

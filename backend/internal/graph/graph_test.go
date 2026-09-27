@@ -437,6 +437,114 @@ func TestRecordDoesNotTouchAnEdgeItDidNotWrite(t *testing.T) {
 	}
 }
 
+func TestLinkEntitiesKeepsExactlyTheGivenMembersOpen(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate()) // s-1, s-2 exist as services for the application to point at
+
+	if err := db.RecordEntity(ctx, org, t0.Add(time.Minute), "application", "app-1", "Shop", "", "", map[string]any{"name": "Shop"}); err != nil {
+		t.Fatal(err)
+	}
+	open := func() []string {
+		t.Helper()
+		res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (:Entity {org:$org, kind:'application', id:'app-1'})-[r:CONTAINS {org:$org}]->(m:Entity) WHERE r.validTo IS NULL RETURN m.id ORDER BY m.id`, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, row := range res[0].Rows {
+			out = append(out, str(row[0]))
+		}
+		return out
+	}
+	validFromOf := func(memberID string) string {
+		t.Helper()
+		res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (:Entity {org:$org, kind:'application', id:'app-1'})-[r:CONTAINS {org:$org}]->(:Entity {id:$id}) WHERE r.validTo IS NULL RETURN toString(r.validFrom)`, map[string]any{"id": memberID}))
+		if err != nil || len(res[0].Rows) == 0 {
+			t.Fatalf("no open edge to %s", memberID)
+		}
+		return str(res[0].Rows[0][0])
+	}
+
+	if err := db.LinkEntities(ctx, org, t0.Add(time.Minute), "CONTAINS", "application", "app-1", "service", []string{"s-1", "s-2"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := open(); len(got) != 2 || got[0] != "s-1" || got[1] != "s-2" {
+		t.Fatalf("expected s-1 and s-2 open, got %v", got)
+	}
+	s2From := validFromOf("s-2")
+
+	// s-1 drops out; s-2 stays a member throughout and its edge must not be touched.
+	if err := db.LinkEntities(ctx, org, t0.Add(2*time.Minute), "CONTAINS", "application", "app-1", "service", []string{"s-2"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := open(); len(got) != 1 || got[0] != "s-2" {
+		t.Fatalf("expected only s-2 open after the change, got %v", got)
+	}
+	if validFromOf("s-2") != s2From {
+		t.Error("s-2's edge should never have been closed and reopened, only left alone")
+	}
+
+	// An empty member list retires membership entirely without touching the entity itself.
+	if err := db.LinkEntities(ctx, org, t0.Add(3*time.Minute), "CONTAINS", "application", "app-1", "service", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := open(); len(got) != 0 {
+		t.Fatalf("expected no open members, got %v", got)
+	}
+
+	if err := db.LinkEntities(ctx, org, t0, "NOT_A_TYPE", "application", "app-1", "service", nil); err == nil {
+		t.Error("an unknown relationship type should be refused")
+	}
+}
+
+func TestCloseMissingEntitiesRetiresGoneOnesAndLeavesOthersAlone(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+
+	mustRecord := func(at time.Time, id, name string) {
+		t.Helper()
+		if err := db.RecordEntity(ctx, org, at, "application", id, name, "", "", map[string]any{"name": name}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustRecord(t0, "app-1", "Shop")
+	mustRecord(t0, "app-2", "Billing")
+
+	closed, err := db.CloseMissingEntities(ctx, org, t0.Add(time.Minute), "application", []string{"app-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(closed) != 1 || closed[0] != "app-2" {
+		t.Fatalf("expected app-2 reported closed, got %v", closed)
+	}
+
+	res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (e:Entity {org:$org, kind:'application', id:'app-2'}) RETURN e.gone IS NOT NULL`, nil))
+	if err != nil || len(res[0].Rows) == 0 || res[0].Rows[0][0] != true {
+		t.Fatalf("app-2 should be marked gone: %v, err=%v", res, err)
+	}
+	tl, err := db.Timeline(ctx, org, "application", "app-2", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.Versions) != 1 || tl.Versions[0].To == nil {
+		t.Fatalf("app-2's one version should be closed, not open: %+v", tl.Versions)
+	}
+
+	res1, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (e:Entity {org:$org, kind:'application', id:'app-1'}) RETURN e.gone IS NOT NULL`, nil))
+	if err != nil || len(res1[0].Rows) == 0 || res1[0].Rows[0][0] != false {
+		t.Fatalf("app-1 should be untouched: %v, err=%v", res1, err)
+	}
+
+	// A second call with nothing new to close is a quiet no-op.
+	closed2, err := db.CloseMissingEntities(ctx, org, t0.Add(2*time.Minute), "application", []string{"app-1"})
+	if err != nil || len(closed2) != 0 {
+		t.Fatalf("expected nothing new to close, got %v, err=%v", closed2, err)
+	}
+}
+
 func TestEventsExplainTheVersionTheyProduced(t *testing.T) {
 	db, org := testDB(t)
 	ctx := context.Background()

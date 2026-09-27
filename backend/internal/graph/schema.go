@@ -15,8 +15,12 @@ const SchemaVersion = 1
 //	   also labelled :Cluster :Node :Namespace :Service :ExternalEndpoint :Dependency :Path
 //	   -[:HAS_VERSION]-> (:Version {org, kind, id, validFrom, validTo, hash, doc})
 //	      one row per distinct state; validTo is null while it is current
-//	(:Entity)-[:IN_CLUSTER|RUNS_ON|CALLS|PATH_FROM|PATH_TO {org, key, validFrom, validTo}]->(:Entity)
-//	   relationships are temporal too, so "what ran where on Tuesday" is a query
+//	(:Entity)-[:IN_CLUSTER|RUNS_ON|CALLS|PATH_FROM|PATH_TO|CONTAINS {org, key, validFrom, validTo}]->(:Entity)
+//	   relationships are temporal too, so "what ran where on Tuesday" is a query. CONTAINS is the odd one
+//	   out: the other four are diffed against a full topology poll every time Record runs, but CONTAINS
+//	   (an application's member services) is written only through LinkEntities, the moment a workspace
+//	   save says an application's membership changed - Record's own sweep leaves any edge whose source
+//	   kind it does not poll (kinds.Polled == false) alone entirely, so the two never fight over it.
 //	(:Snapshot {org, at, fp, bytes, traffic, paths})   the moments the estate was recorded, plus the
 //	   volatile counters (traffic, path quality) that are not versioned
 //	(:Event {org, id, at, kind, targetKind, targetId, ...})  what changed, in words
@@ -52,7 +56,16 @@ var ddl = []string{
 }
 
 // The temporal relationship types. They are interpolated into statements, so they are a closed list.
-var relTypes = []string{"IN_CLUSTER", "RUNS_ON", "CALLS", "PATH_FROM", "PATH_TO"}
+var relTypes = []string{"IN_CLUSTER", "RUNS_ON", "CALLS", "PATH_FROM", "PATH_TO", "CONTAINS"}
+
+func isRelType(rt string) bool {
+	for _, t := range relTypes {
+		if t == rt {
+			return true
+		}
+	}
+	return false
+}
 
 func init() {
 	for _, t := range relTypes {

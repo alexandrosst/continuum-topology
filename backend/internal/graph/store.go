@@ -597,6 +597,24 @@ func (s *Store) RecordEntity(ctx context.Context, org string, at time.Time, kind
 	return s.DB.RecordEntity(ctx, org, at, kind, id, name, status, cluster, doc)
 }
 
+// LinkEntities keeps one entity's own edges of a relationship type in step with a set of member ids (see
+// DB.LinkEntities). Best-effort in the same way RecordEntity is.
+func (s *Store) LinkEntities(ctx context.Context, org string, at time.Time, relType, kind, id, targetKind string, targetIDs []string) error {
+	if !s.ready.Load() {
+		return ErrUnavailable
+	}
+	return s.DB.LinkEntities(ctx, org, at, relType, kind, id, targetKind, targetIDs)
+}
+
+// CloseMissingEntities retires whichever entities of a kind are no longer in a full picture the caller
+// can enumerate (see DB.CloseMissingEntities). Best-effort in the same way RecordEntity is.
+func (s *Store) CloseMissingEntities(ctx context.Context, org string, at time.Time, kind string, keepIDs []string) ([]string, error) {
+	if !s.ready.Load() {
+		return nil, ErrUnavailable
+	}
+	return s.DB.CloseMissingEntities(ctx, org, at, kind, keepIDs)
+}
+
 // LinkEventChanges connects a batch of events to the versions they explain (see DB.LinkEventChanges).
 // Best-effort in the same way RecordEntity is: both the events and the version they explain are already
 // durably written by the time this runs, so a failure here only means the graph's causal edge is missing,

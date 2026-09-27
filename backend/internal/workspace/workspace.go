@@ -387,3 +387,58 @@ func Parse(data []byte) (Declared, error) {
 	}
 	return d, nil
 }
+
+// ApplicationDoc is one application as a document declares it, together with which services it
+// currently contains. A service's membership lives in one of two places depending on how the service
+// itself got into the document: a discovered one only ever has a ref (Declare strips the record itself
+// down to the ref the moment it sees "source": "discovered"), a manually authored one carries
+// applicationId inline on the record because it was never replaced by a ref at all. A caller asking
+// "what does this application contain right now" should not need to know which of the two it is.
+type ApplicationDoc struct {
+	ID          string
+	Name        string
+	Description string
+	Origin      string
+	Confidence  string
+	ServiceIDs  []string
+}
+
+// Applications reads every application a document declares, resolving each one's member services from
+// both places membership can live. Order is deterministic (by id, and each application's ServiceIDs
+// sorted) so a caller diffing two calls of this on unchanged input sees no difference.
+func Applications(data []byte) ([]ApplicationDoc, error) {
+	d, err := Parse(data)
+	if err != nil {
+		return nil, err
+	}
+	members := map[string][]string{}
+	for svcID, ref := range d.Refs {
+		if ref.Kind == "service" && ref.ApplicationID != "" {
+			members[ref.ApplicationID] = append(members[ref.ApplicationID], svcID)
+		}
+	}
+	for _, r := range d.Records["service"] {
+		appID, _ := r["applicationId"].(string)
+		id, _ := r["id"].(string)
+		if appID != "" && id != "" {
+			members[appID] = append(members[appID], id)
+		}
+	}
+	for _, ids := range members {
+		sort.Strings(ids)
+	}
+	out := make([]ApplicationDoc, 0, len(d.Records["application"]))
+	for _, r := range d.Records["application"] {
+		id, _ := r["id"].(string)
+		if id == "" {
+			continue
+		}
+		name, _ := r["name"].(string)
+		desc, _ := r["description"].(string)
+		origin, _ := r["origin"].(string)
+		conf, _ := r["confidence"].(string)
+		out = append(out, ApplicationDoc{ID: id, Name: name, Description: desc, Origin: origin, Confidence: conf, ServiceIDs: members[id]})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}

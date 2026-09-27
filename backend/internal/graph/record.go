@@ -46,6 +46,7 @@ var kinds = []struct {
 	{"dependency", "Dependency", true},
 	{"path", "Path", true},
 	{"agent", "Agent", false},
+	{"application", "Application", false},
 }
 
 func labelOf(kind string) string {
@@ -440,6 +441,93 @@ ON CREATE SET r.validFrom = datetime($at)`, ep),
 	}
 	_, err = d.C.Run(ctx, w...)
 	return err
+}
+
+// LinkEntities keeps kind/id's own open outgoing edges of relType, to entities of targetKind, in step
+// with exactly the ids given: whichever are open but not listed close, whichever are listed but not yet
+// open, open. It is RecordEntity's counterpart for a many-target relationship (an application's CONTAINS
+// to its member services) the way RecordEntity's own cluster parameter is for a single one (an agent's
+// IN_CLUSTER): built on the same edge-key convention Record's own topology sweep uses, so a future query
+// can walk any relationship in the graph uniformly regardless of which path wrote it. relType must be one
+// of relTypes; targetIDs may be empty (closes everything currently open, opens nothing) to retire an
+// entity's membership without retiring the entity itself.
+func (d *DB) LinkEntities(ctx context.Context, org string, at time.Time, relType, kind, id, targetKind string, targetIDs []string) error {
+	if !isRelType(relType) {
+		return fmt.Errorf("graph: %q is not a relationship type", relType)
+	}
+	at = at.UTC().Truncate(time.Second)
+	defer d.lock(org)()
+	sc := d.C.For(org)
+
+	want := map[string]edge{}
+	for _, tid := range targetIDs {
+		e := edge{Type: relType, FK: kind, FID: id, TK: targetKind, TID: tid}
+		want[e.ekey()] = e
+	}
+	res, err := d.C.Run(ctx, sc.S(fmt.Sprintf(`MATCH (:Entity {org:$org, kind:$kind, id:$id})-[r:%s {org:$org}]->() WHERE r.validTo IS NULL RETURN r.ekey`, relType),
+		map[string]any{"kind": kind, "id": id}))
+	if err != nil {
+		return err
+	}
+	type row = map[string]any
+	var closing, opening []row
+	for _, r := range res[0].Rows {
+		k := str(r[0])
+		if _, still := want[k]; still {
+			delete(want, k) // already open: nothing to do
+		} else {
+			closing = append(closing, row{"key": k})
+		}
+	}
+	for _, e := range want {
+		opening = append(opening, row{"key": e.ekey(), "fk": e.FK, "fid": e.FID, "tk": e.TK, "tid": e.TID})
+	}
+	sort.Slice(closing, func(i, j int) bool { return closing[i]["key"].(string) < closing[j]["key"].(string) })
+	sort.Slice(opening, func(i, j int) bool { return opening[i]["key"].(string) < opening[j]["key"].(string) })
+
+	var w []Stmt
+	if len(closing) > 0 {
+		w = append(w, sc.S(fmt.Sprintf(`UNWIND $rows AS row
+MATCH ()-[r:%s {org:$org, ekey:row.key}]->() WHERE r.validTo IS NULL
+SET r.validTo = datetime($at)`, relType), map[string]any{"rows": closing, "at": ts(at)}))
+	}
+	if len(opening) > 0 {
+		w = append(w, sc.S(fmt.Sprintf(`UNWIND $rows AS row
+MATCH (a:Entity {org:$org, kind:row.fk, id:row.fid})
+MATCH (b:Entity {org:$org, kind:row.tk, id:row.tid})
+CREATE (a)-[:%s {org:$org, ekey:row.key, validFrom:datetime($at)}]->(b)`, relType), map[string]any{"rows": opening, "at": ts(at)}))
+	}
+	if len(w) == 0 {
+		return nil
+	}
+	_, err = d.C.Run(ctx, w...)
+	return err
+}
+
+// CloseMissingEntities closes the still-open version of every entity of `kind` in this org that is not
+// in keepIDs, and marks it gone - the same "this poll's full picture says so-and-so no longer exists"
+// Record's own diff already does for the seven polled kinds, for the rare RecordEntity-driven kind whose
+// owner really can enumerate everything that currently exists (an application, declared in one document)
+// rather than only ever learning about one entity changing at a time. Returns the ids it closed, so a
+// caller can also retire whatever those entities were linked to (see LinkEntities) - closing an entity
+// here does not by itself touch its edges.
+func (d *DB) CloseMissingEntities(ctx context.Context, org string, at time.Time, kind string, keepIDs []string) ([]string, error) {
+	at = at.UTC().Truncate(time.Second)
+	defer d.lock(org)()
+	sc := d.C.For(org)
+	res, err := d.C.Run(ctx, sc.S(`MATCH (e:Entity {org:$org, kind:$kind}) WHERE e.gone IS NULL AND NOT e.id IN $keep
+OPTIONAL MATCH (e)-[:HAS_VERSION]->(v:Version {org:$org}) WHERE v.validTo IS NULL
+SET e.gone = datetime($at), v.validTo = datetime($at)
+RETURN DISTINCT e.id`, map[string]any{"kind": kind, "keep": keepIDs, "at": ts(at)}))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(res[0].Rows))
+	for i, r := range res[0].Rows {
+		out[i] = str(r[0])
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // LinkEventChanges connects each of this batch's events to the version of its target that was created at
