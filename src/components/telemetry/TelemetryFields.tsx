@@ -1,10 +1,134 @@
+import clsx from 'clsx'
 import { useState } from 'react'
 import { ComboField, Field, InfoTip, Input, Select, TagsInput } from '@/components/ui/primitives'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
 import { applyIntentPreset, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, TELEMETRY_UNIVERSAL_PERMISSION } from '@/lib/consent'
 import { telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
+import GuidedScope from './GuidedScope'
 
-type SignalId = 'resourceUsage' | 'energy' | 'kubernetesState' | 'nodeRuntime' | 'networkLatency' | 'applicationMetrics' | 'systemLogs' | 'kubernetesEvents' | 'applicationLogs' | 'traces' | 'accelerators'
+export type SignalId = 'resourceUsage' | 'energy' | 'kubernetesState' | 'nodeRuntime' | 'networkLatency' | 'applicationMetrics' | 'systemLogs' | 'kubernetesEvents' | 'applicationLogs' | 'traces' | 'accelerators'
+
+/** cluster/node scope needs no form control (cluster: physically unfilterable; node: the chart's own
+ * nodeSelector/tolerations values, structured k8s scheduling objects that don't fit this form's --set
+ * model) - so those two just get an honest caption here instead. application scope gets a real control,
+ * either the flat grid's own "Application scope overrides" details block or the guided wizard's scope step. */
+const scopeCaption = (s: (typeof TELEMETRY_SIGNALS)[number]): string | undefined => {
+  if (s.scope === 'cluster') return 'Always cluster-wide - cannot be narrowed.'
+  if (s.scope === 'node') return "Runs on every node - narrow which nodes with the chart's own nodeSelector/tolerations values, not from this form."
+  return undefined
+}
+
+/** Energy's own source picker, shown once `energy` is on. Exported so the guided wizard (GuidedScope.tsx)
+ * renders the exact same block right after its "pick signals" step, instead of a second, driftable copy. */
+export function EnergyFields({ value, onChange, testIdPrefix }: { value: TelemetryInput; onChange: (v: TelemetryInput) => void; testIdPrefix: string }) {
+  const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
+  return (
+    <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
+      <Field label="Energy source">
+        <Select
+          value={value.energySource}
+          onChange={(e) => set('energySource', e.target.value as TelemetryInput['energySource'])}
+          data-testid={`${testIdPrefix}-energy-source`}
+        >
+          <option value="bundle-kepler">Deploy Kepler (privileged, one pod per node)</option>
+          <option value="existing">Scrape one I already run</option>
+        </Select>
+      </Field>
+      {value.energySource === 'existing' && (
+        <Field label="Its Prometheus endpoint">
+          <Input
+            value={value.energyExistingEndpoint}
+            onChange={(e) => set('energyExistingEndpoint', e.target.value)}
+            placeholder="kepler.monitoring:9102/metrics"
+            data-testid={`${testIdPrefix}-energy-endpoint`}
+          />
+        </Field>
+      )}
+    </div>
+  )
+}
+
+/** Accelerators' own source picker and "apply the install's scope to GPU metrics" toggle, shown once
+ * `accelerators` is on. Exported for the same reason as EnergyFields above. */
+export function AcceleratorsFields({ value, onChange, testIdPrefix }: { value: TelemetryInput; onChange: (v: TelemetryInput) => void; testIdPrefix: string }) {
+  const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
+  const accelerators = TELEMETRY_SIGNALS.find((s) => s.id === 'accelerators')
+  return (
+    <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
+      <Field label="Accelerators source">
+        <Select
+          value={value.acceleratorsSource}
+          onChange={(e) => set('acceleratorsSource', e.target.value as TelemetryInput['acceleratorsSource'])}
+          data-testid={`${testIdPrefix}-accelerators-source`}
+        >
+          <option value="bundle-dcgm">Deploy dcgm-exporter (GPU nodes only, needs the NVIDIA driver + Container Toolkit already on the node)</option>
+          <option value="existing">Scrape one I already run</option>
+        </Select>
+      </Field>
+      {value.acceleratorsSource === 'existing' && (
+        <Field label="Its Prometheus endpoint">
+          <Input
+            value={value.acceleratorsExistingEndpoint}
+            onChange={(e) => set('acceleratorsExistingEndpoint', e.target.value)}
+            placeholder="dcgm-exporter.monitoring:9400/metrics"
+            data-testid={`${testIdPrefix}-accelerators-endpoint`}
+          />
+        </Field>
+      )}
+      {accelerators?.namespaceScopable && (
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm sm:col-span-2">
+          <input
+            type="checkbox"
+            className="mt-0.5 size-4 accent-[var(--color-accent)]"
+            checked={value.acceleratorsApplyScope}
+            onChange={(e) => set('acceleratorsApplyScope', e.target.checked)}
+            data-testid={`${testIdPrefix}-accelerators-apply-scope`}
+          />
+          <span>
+            <span className="text-nb-300">Apply the install's namespace scope to GPU metrics</span>
+            <InfoTip>Off by default. Accelerators are deployed per node (infrastructure), but GPU metrics can carry the namespace/pod using the GPU - turning this on asks dcgm-exporter to attach that identity, so the install's namespace scope narrows GPU metrics the same way it narrows application data.</InfoTip>
+            <span className="block text-xs text-nb-500">Only takes effect while deploying dcgm-exporter above, not when scraping one you already run.</span>
+          </span>
+        </label>
+      )}
+    </div>
+  )
+}
+
+/** One signal's checkbox row: the label, its permissions info tip, what it collects, and (cluster/node
+ * signals only) the caption explaining why there's no scope control for it. Exported so the guided wizard's
+ * "pick signals" step (GuidedScope.tsx) renders the exact same row the flat grid does, rather than a second,
+ * driftable copy. */
+export function SignalRow({
+  signal,
+  checked,
+  onChange,
+  testIdPrefix,
+}: {
+  signal: (typeof TELEMETRY_SIGNALS)[number]
+  checked: boolean
+  onChange: (v: boolean) => void
+  testIdPrefix: string
+}) {
+  const caption = scopeCaption(signal)
+  return (
+    <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+      <input
+        type="checkbox"
+        className="mt-0.5 size-4 accent-[var(--color-accent)]"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        data-testid={`${testIdPrefix}-${signal.id}`}
+      />
+      <span>
+        <span className="text-nb-300">{signal.label}</span>
+        <InfoTip>{signal.permissions}</InfoTip>
+        <span className="block text-xs text-nb-500">{signal.what}</span>
+        {caption && <span className="block text-xs text-nb-600">{caption}</span>}
+      </span>
+    </label>
+  )
+}
 
 /**
  * The telemetry form: intent presets, one checkbox per signal (grouped infrastructure/application,
@@ -32,7 +156,10 @@ export default function TelemetryFields({
   const destinationNote = unsupportedDestinationNote(value.exportEndpoint)
   const exportPreset = EXPORT_PRESETS.find((p) => p.endpointPattern === value.exportEndpoint)
   const grantedRules = TELEMETRY_SIGNALS.filter((s) => (value as unknown as Record<string, boolean>)[s.id])
-  const accelerators = TELEMETRY_SIGNALS.find((s) => s.id === 'accelerators')
+
+  // Which entry path is showing: local UI state, defaulting to the flat grid so a form nobody has opted
+  // into guided mode for renders exactly as it always has (see the plan note on TelemetryFields.tsx).
+  const [guided, setGuided] = useState(false)
 
   // A browsing aid only - local state, never written into TelemetryInput - so leaving every facet at
   // its "All" default reproduces byte-identical infra/app lists to before facets existed.
@@ -66,36 +193,9 @@ export default function TelemetryFields({
       value.tracesScope.exclude.length > 0,
   )
 
-  // cluster/node scope needs no form control (cluster: physically unfilterable; node: the chart's own
-  // nodeSelector/tolerations values, structured k8s scheduling objects that don't fit this form's --set
-  // model) - so those two just get an honest caption here instead. application scope gets a real control,
-  // the "Application scope overrides" details block below.
-  const scopeCaption = (s: (typeof TELEMETRY_SIGNALS)[number]): string | undefined => {
-    if (s.scope === 'cluster') return 'Always cluster-wide - cannot be narrowed.'
-    if (s.scope === 'node') return "Runs on every node - narrow which nodes with the chart's own nodeSelector/tolerations values, not from this form."
-    return undefined
-  }
-
   const row = (s: (typeof TELEMETRY_SIGNALS)[number]) => {
     const id = s.id as SignalId
-    const caption = scopeCaption(s)
-    return (
-      <label key={id} className="flex cursor-pointer items-start gap-2.5 text-sm">
-        <input
-          type="checkbox"
-          className="mt-0.5 size-4 accent-[var(--color-accent)]"
-          checked={value[id]}
-          onChange={(e) => set(id, e.target.checked)}
-          data-testid={`${testIdPrefix}-${id}`}
-        />
-        <span>
-          <span className="text-nb-300">{s.label}</span>
-          <InfoTip>{s.permissions}</InfoTip>
-          <span className="block text-xs text-nb-500">{s.what}</span>
-          {caption && <span className="block text-xs text-nb-600">{caption}</span>}
-        </span>
-      </label>
-    )
+    return <SignalRow key={id} signal={s} checked={value[id]} onChange={(v) => set(id, v)} testIdPrefix={testIdPrefix} />
   }
 
   return (
@@ -116,6 +216,35 @@ export default function TelemetryFields({
         </Select>
       </Field>
 
+      <div className="flex items-center gap-1 rounded-lg border border-nb-850 p-1 text-xs" role="radiogroup" aria-label="How to configure signals and scope">
+        {(
+          [
+            ['All fields', 'Every signal on one screen, exactly as before.'],
+            ['Guided setup', 'Step through scope first, then which signals use it - useful once you have namespaces to scope to.'],
+          ] as const
+        ).map(([label, hint], i) => (
+          <button
+            key={label}
+            type="button"
+            role="radio"
+            aria-checked={guided === (i === 1)}
+            title={hint}
+            onClick={() => setGuided(i === 1)}
+            className={clsx(
+              'flex-1 rounded-md px-2.5 py-1.5 font-medium transition-colors',
+              guided === (i === 1) ? 'bg-accent text-white' : 'text-nb-400 hover:text-nb-300',
+            )}
+            data-testid={`${testIdPrefix}-mode-${i === 1 ? 'guided' : 'flat'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {guided ? (
+        <GuidedScope value={value} onChange={onChange} testIdPrefix={testIdPrefix} />
+      ) : (
+      <>
       <div className="space-y-1.5">
         <p className="text-xs text-nb-500">Filter which signals are shown below - a browsing aid, doesn't change what's selected.</p>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -158,71 +287,9 @@ export default function TelemetryFields({
         </fieldset>
       </div>
 
-      {value.energy && (
-        <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
-          <Field label="Energy source">
-            <Select
-              value={value.energySource}
-              onChange={(e) => set('energySource', e.target.value as TelemetryInput['energySource'])}
-              data-testid={`${testIdPrefix}-energy-source`}
-            >
-              <option value="bundle-kepler">Deploy Kepler (privileged, one pod per node)</option>
-              <option value="existing">Scrape one I already run</option>
-            </Select>
-          </Field>
-          {value.energySource === 'existing' && (
-            <Field label="Its Prometheus endpoint">
-              <Input
-                value={value.energyExistingEndpoint}
-                onChange={(e) => set('energyExistingEndpoint', e.target.value)}
-                placeholder="kepler.monitoring:9102/metrics"
-                data-testid={`${testIdPrefix}-energy-endpoint`}
-              />
-            </Field>
-          )}
-        </div>
-      )}
+      {value.energy && <EnergyFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
 
-      {value.accelerators && (
-        <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
-          <Field label="Accelerators source">
-            <Select
-              value={value.acceleratorsSource}
-              onChange={(e) => set('acceleratorsSource', e.target.value as TelemetryInput['acceleratorsSource'])}
-              data-testid={`${testIdPrefix}-accelerators-source`}
-            >
-              <option value="bundle-dcgm">Deploy dcgm-exporter (GPU nodes only, needs the NVIDIA driver + Container Toolkit already on the node)</option>
-              <option value="existing">Scrape one I already run</option>
-            </Select>
-          </Field>
-          {value.acceleratorsSource === 'existing' && (
-            <Field label="Its Prometheus endpoint">
-              <Input
-                value={value.acceleratorsExistingEndpoint}
-                onChange={(e) => set('acceleratorsExistingEndpoint', e.target.value)}
-                placeholder="dcgm-exporter.monitoring:9400/metrics"
-                data-testid={`${testIdPrefix}-accelerators-endpoint`}
-              />
-            </Field>
-          )}
-          {accelerators?.namespaceScopable && (
-            <label className="flex cursor-pointer items-start gap-2.5 text-sm sm:col-span-2">
-              <input
-                type="checkbox"
-                className="mt-0.5 size-4 accent-[var(--color-accent)]"
-                checked={value.acceleratorsApplyScope}
-                onChange={(e) => set('acceleratorsApplyScope', e.target.checked)}
-                data-testid={`${testIdPrefix}-accelerators-apply-scope`}
-              />
-              <span>
-                <span className="text-nb-300">Apply the install's namespace scope to GPU metrics</span>
-                <InfoTip>Off by default. Accelerators are deployed per node (infrastructure), but GPU metrics can carry the namespace/pod using the GPU - turning this on asks dcgm-exporter to attach that identity, so the install's namespace scope narrows GPU metrics the same way it narrows application data.</InfoTip>
-                <span className="block text-xs text-nb-500">Only takes effect while deploying dcgm-exporter above, not when scraping one you already run.</span>
-              </span>
-            </label>
-          )}
-        </div>
-      )}
+      {value.accelerators && <AcceleratorsFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
 
       {(value.applicationMetrics || value.applicationLogs || value.traces) && (
         <details
@@ -301,6 +368,8 @@ export default function TelemetryFields({
             )}
           </div>
         </details>
+      )}
+      </>
       )}
 
       <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">

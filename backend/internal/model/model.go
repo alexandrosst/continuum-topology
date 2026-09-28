@@ -324,6 +324,11 @@ type ExternalEndpoint struct {
 	// port number alone, the same way Kind's "database" bucket already was; empty when the port isn't one
 	// of the well-known ones. Never inferred from payload: nothing here reads a byte of one.
 	Service string `json:"service,omitempty"`
+	// Name is a short, human label for who this address belongs to (e.g. "GitHub"), set only when the
+	// server matched it against a small, bundled table of provider-published ranges (see
+	// internal/netid) - never from anything sent in traffic. Empty means no match, same meaning as an
+	// empty Service: this is a filled-in-when-possible convenience, not a claim that nothing is there.
+	Name string `json:"name,omitempty"`
 }
 
 type DependencyStats struct {

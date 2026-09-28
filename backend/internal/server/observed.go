@@ -12,6 +12,7 @@ import (
 	"continuum/internal/facts"
 	"continuum/internal/interpret"
 	"continuum/internal/model"
+	"continuum/internal/netid"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -305,17 +306,45 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 
 	external := func(agentID, ip string, port uint32, note string) string {
 		id := "ext-" + interpret.Hash("obs", ip, fmt.Sprint(port))
+		// A match against a single-owner range (Shared == false) is a stable identity: every address
+		// that resolves to it really is "the same thing" (every GitHub IP is github.com), so those
+		// endpoints share one id instead of one per address - this is what lets several IPs collapse
+		// into one topology node. A Shared match (a CDN edge fronting many unrelated origins) never
+		// changes the id: two different sites sitting behind the same edge are not the same thing just
+		// because they share it, so each keeps its own per-(ip,port) identity as it does today.
+		match, matched := netid.Match{}, false
+		if addr, err := netip.ParseAddr(ip); err == nil {
+			match, matched = netid.Lookup(addr)
+			if matched && !match.Shared {
+				// Port stays part of the identity even for a known match: several IPs that are all
+				// "github.com" collapse into one node per port, so git-over-SSH (22) and the HTTPS API
+				// (443) still show as the separate endpoints they are, rather than one node hiding two
+				// different protocols worth of traffic.
+				id = "ext-" + interpret.Hash("obs-known", match.Name, fmt.Sprint(port))
+			}
+		}
 		if _, ok := exts[id]; !ok {
 			kind := "unknown"
 			svc, isDatabase := wellKnownPort(port)
 			if isDatabase {
 				kind = "database"
 			}
+			var name string
+			if matched {
+				kind, name = match.Kind, match.Name
+			}
 			e := model.ExternalEndpoint{
 				Provenance: model.Provenance{OrgID: org, Source: "discovered", Key: "obs/" + ip, LastSeen: stamp, DetectedAt: stamp, AgentID: agentID},
-				ID:         id, Host: ip, Port: int(port), Kind: kind, Service: svc,
+				ID:         id, Host: ip, Port: int(port), Kind: kind, Service: svc, Name: name,
 			}
-			if note != "" {
+			switch {
+			case matched:
+				ev := model.Evidence{Signal: "matched a known public range: " + match.Name, Confidence: "high"}
+				if match.Detail != "" {
+					ev.Detail = match.Detail
+				}
+				e.Evidence = map[string]model.Evidence{"identity": ev}
+			case note != "":
 				e.Evidence = map[string]model.Evidence{"identity": {Signal: note, Confidence: "low"}}
 			}
 			exts[id] = e

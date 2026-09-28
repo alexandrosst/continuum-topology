@@ -14,7 +14,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { buildGraph } from '../src/lib/graph'
+import { buildGraph, cardId } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type Service, type Suggestion } from '../src/lib/types'
@@ -1161,13 +1161,52 @@ test('mesh: the toggle brings the control plane and the chips; off, the mesh mac
   assert.ok(Number(card.style?.height) > Number(plain.style?.height))
 })
 
-test('lines between the same two boxes are spread apart, and a lone line is left alone', () => {
+test('lines between the same two boxes are spread apart, and a lone line at a quiet end is left alone', () => {
   const [a, b, c] = inCluster
   const t = { ...seed, dependencies: [seenDep({ from: a.id, to: b.id }), seenDep({ id: 'dep-2', from: a.id, to: b.id, port: 9090 }), seenDep({ id: 'dep-3', from: b.id, to: a.id, port: 80 }), seenDep({ id: 'dep-4', from: a.id, to: c.id })] }
   const g = buildGraph(t, { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
-  const offs = (id: string) => g.edges.find((e) => e.id === id)!.data!.offset
-  assert.equal(new Set(['dep-obs-1', 'dep-2', 'dep-3'].map(offs)).size, 3, 'three lines, three positions')
-  assert.equal(offs('dep-4'), undefined)
+  const offs = (id: string) => {
+    const e = g.edges.find((e) => e.id === id)!
+    return `${e.data!.sourceOffset ?? 0},${e.data!.targetOffset ?? 0}`
+  }
+  assert.equal(new Set(['dep-obs-1', 'dep-2', 'dep-3'].map(offs)).size, 3, 'three lines between a and b, three positions')
+  // c only ever hears from a, so the far end of dep-4 has nothing to fan out from and stays put.
+  assert.equal(g.edges.find((e) => e.id === 'dep-4')!.data!.targetOffset ?? 0, 0, 'a lone edge at a quiet node is left alone there')
+})
+
+test('edges to different destinations landing on the same side of a busy node fan out, ordered by where they are headed', () => {
+  const [a, b, c] = inCluster
+  // b and c both hang off a's right side; a lone edge elsewhere on a (to a fourth node) would not be touched.
+  const t = { ...seed, dependencies: [seenDep({ from: a.id, to: b.id }), seenDep({ id: 'dep-4', from: a.id, to: c.id })] }
+  const g = buildGraph(t, { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+  const toB = g.edges.find((e) => e.id === 'dep-obs-1')!
+  const toC = g.edges.find((e) => e.id === 'dep-4')!
+  assert.equal(toB.sourceHandle, toC.sourceHandle, 'both leave a from the same side')
+  assert.notEqual(toB.data!.sourceOffset ?? 0, toC.data!.sourceOffset ?? 0, 'fanned apart at the shared end')
+  // Neither b nor c hears from anyone else, so the arriving end of each line is left alone.
+  assert.equal(toB.data!.targetOffset ?? 0, 0)
+  assert.equal(toC.data!.targetOffset ?? 0, 0)
+})
+
+test('chain layout: services rank strictly by dependency depth, across clusters, with no cluster/tier boxes', () => {
+  const [a, b] = inCluster
+  const other = seed.services.find((w) => w.clusterId !== meshCluster.id)!
+  const t = { ...seed, dependencies: [seenDep({ from: a.id, to: b.id }), seenDep({ id: 'dep-2', from: b.id, to: other.id })] }
+  const g = buildGraph(t, { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false, chain: true })
+  assert.ok(!g.nodes.some((n) => n.data.kind === 'group'), 'no cluster/tier boxes in chain layout')
+  assert.ok(g.nodes.every((n) => n.parentId === undefined), 'every card sits directly on the canvas')
+  const xOf = (id: string) => g.nodes.find((n) => n.id === cardId(id))!.position.x
+  assert.ok(xOf(a.id) < xOf(b.id), 'a leads the service it calls')
+  assert.ok(xOf(b.id) < xOf(other.id), 'b leads its own callee, even one in a different cluster')
+})
+
+test('chain layout: a dependency cycle is broken for ranking, but both directions are still drawn', () => {
+  const [a, b] = inCluster
+  const t = { ...seed, dependencies: [seenDep({ from: a.id, to: b.id }), seenDep({ id: 'dep-back', from: b.id, to: a.id, port: 80 })] }
+  const g = buildGraph(t, { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false, chain: true })
+  assert.equal(g.edges.length, 2, 'the cycle is drawn in full even though only one direction sets rank')
+  assert.ok(g.edges.some((e) => e.id === 'dep-obs-1'))
+  assert.ok(g.edges.some((e) => e.id === 'dep-back'))
 })
 
 test('namespace sub-boxes nest cards under one box per namespace, only when asked for and only grouped by cluster', () => {

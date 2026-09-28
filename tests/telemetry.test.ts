@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { emptyTelemetry, telemetryActive, telemetryProblems, withTelemetry, type TelemetryInput } from '../src/lib/install'
+import { emptyTelemetry, scopeOverlap, telemetryActive, telemetryProblems, withTelemetry, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
 import { applyIntentPreset, seedTelemetryFromInstalled, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetryUpgradeCommand } from '../src/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '../src/lib/exportPresets'
 
@@ -274,4 +274,15 @@ test('an invalid namespace in a per-kind scope override is only flagged while it
 
   const on: TelemetryInput = { ...off, applicationMetrics: true }
   assert.deepEqual(telemetryProblems(on), ['"not valid!" is not a valid namespace name'])
+})
+
+
+test('scopeOverlap: the shared namespace names between two scopes, or none', () => {
+  const a: ScopeOverrideInput = { namespaces: ['shop', 'payments'], exclude: [] }
+  const b: ScopeOverrideInput = { namespaces: ['payments', 'ops'], exclude: [] }
+  assert.deepEqual(scopeOverlap(a, b), ['payments'])
+  assert.deepEqual(scopeOverlap(b, a), ['payments'], 'symmetric in content, whichever side is asked')
+  assert.deepEqual(scopeOverlap(a, { namespaces: ['ops'], exclude: [] }), [])
+  assert.deepEqual(scopeOverlap(a, { namespaces: [], exclude: ['shop'] }), [], 'a shared exclude is not a claim on the same namespace, so it is not an overlap')
+  assert.deepEqual(scopeOverlap({ namespaces: [], exclude: [] }, a), [], 'an empty scope (falls back to global) overlaps nothing')
 })

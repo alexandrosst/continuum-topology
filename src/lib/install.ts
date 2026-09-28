@@ -98,6 +98,18 @@ export interface ScopeOverrideInput {
 
 export const emptyScopeOverride: ScopeOverrideInput = { namespaces: [], exclude: [] }
 
+/**
+ * The namespace names two scope overrides both explicitly include, or [] if none - the guided telemetry
+ * wizard's overlap check (see GuidedScope.tsx). Only `namespaces` is compared: two overrides that merely
+ * exclude the same namespace aren't in tension the way two that both claim to *include* it are, and an
+ * empty `namespaces` list means "everything" in the chart's own fallback semantics, which every other
+ * override would trivially "overlap" if it were included here.
+ */
+export function scopeOverlap(a: ScopeOverrideInput, b: ScopeOverrideInput): string[] {
+  const bs = new Set(b.namespaces)
+  return a.namespaces.filter((n) => bs.has(n))
+}
+
 export interface TelemetryInput {
   resourceUsage: boolean
   energy: boolean

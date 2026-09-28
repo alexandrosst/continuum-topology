@@ -441,3 +441,84 @@ func TestWellKnownPort(t *testing.T) {
 		t.Error("dbPort must track wellKnownPorts' isDatabase bit")
 	}
 }
+
+func TestExternalKnownRangeSetsIdentityAndAggregates(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	c := cluster("c", "", nil, wk("app", "Deployment", "worker"))
+	worker := "app/Deployment/worker"
+
+	feed(&c, now, 60,
+		flowOf(wep(worker), xep("140.82.112.3"), 443, 3),  // GitHub - single-owner range
+		flowOf(wep(worker), xep("140.82.112.4"), 443, 2),  // a different GitHub IP, same port
+		flowOf(wep(worker), xep("140.82.112.3"), 22, 1),   // GitHub again, but a different port (git over SSH)
+		flowOf(wep(worker), xep("104.16.1.1"), 443, 4),    // Cloudflare edge - shared, must not merge with...
+		flowOf(wep(worker), xep("104.24.5.5"), 443, 1),    // ...a second, different Cloudflare-fronted address
+		flowOf(wep(worker), xep("93.184.216.34"), 443, 1), // not in the bundled table at all
+	)
+
+	_, exts := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	byID := map[string]struct {
+		host, kind, name string
+		port             int
+	}{}
+	for _, e := range exts {
+		byID[e.ID] = struct {
+			host, kind, name string
+			port             int
+		}{e.Host, e.Kind, e.Name, e.Port}
+	}
+
+	ghHTTPS, ghSSH := 0, 0
+	cfSeen := map[string]bool{}
+	unknownSeen := false
+	for _, e := range exts {
+		switch {
+		case e.Name == "GitHub" && e.Port == 443:
+			ghHTTPS++
+			if e.Kind != "saas" {
+				t.Errorf("github kind = %q, want saas", e.Kind)
+			}
+		case e.Name == "GitHub" && e.Port == 22:
+			ghSSH++
+		case e.Name == "Cloudflare":
+			cfSeen[e.Host] = true
+			if e.Kind != "saas" {
+				t.Errorf("cloudflare kind = %q, want saas", e.Kind)
+			}
+		case e.Host == "93.184.216.34":
+			unknownSeen = true
+			if e.Kind != "unknown" || e.Name != "" {
+				t.Errorf("unmatched address must stay unknown/unnamed, got kind=%q name=%q", e.Kind, e.Name)
+			}
+		}
+	}
+
+	// Two different GitHub IPs on the same port collapse into ONE node - this is the aggregation the
+	// known-range match is for.
+	if ghHTTPS != 1 {
+		t.Errorf("expected exactly one GitHub:443 node (two IPs should have merged), got %d", ghHTTPS)
+	}
+	// The same identity on a different port stays a separate node - port is still part of identity.
+	if ghSSH != 1 {
+		t.Errorf("expected a separate GitHub:22 node, got %d", ghSSH)
+	}
+	// Two different Cloudflare-fronted addresses must NOT merge - Shared means "don't aggregate."
+	if len(cfSeen) != 2 {
+		t.Errorf("expected two distinct Cloudflare-fronted nodes (Shared must not aggregate), got %d: %v", len(cfSeen), cfSeen)
+	}
+	if !unknownSeen {
+		t.Error("expected the unmatched address to still appear, classified unknown")
+	}
+
+	// Evidence: a known-range match is recorded at high confidence, distinctly from the low-confidence
+	// generic "seen in traffic" note used elsewhere.
+	for _, e := range exts {
+		if e.Name != "GitHub" || e.Port != 443 {
+			continue
+		}
+		ev, ok := e.Evidence["identity"]
+		if !ok || ev.Confidence != "high" || ev.Signal == "" {
+			t.Errorf("github evidence = %+v %v, want a high-confidence identity signal", ev, ok)
+		}
+	}
+}

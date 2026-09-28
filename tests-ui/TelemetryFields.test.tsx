@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, test } from 'vitest'
@@ -132,5 +132,72 @@ describe('TelemetryFields facets and application scope overrides', () => {
       />,
     )
     expect(screen.getByTestId('telemetry-scope-overrides')).toHaveAttribute('open')
+  })
+})
+
+
+describe('TelemetryFields guided mode', () => {
+  test('defaults to the flat grid, and switching modes does not lose what was already picked', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper initial={{ ...emptyTelemetry, resourceUsage: true }} />)
+    expect(screen.getByTestId('telemetry-mode-flat')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByTestId('telemetry-facet-scope')).toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-resourceUsage')).toBeChecked()
+
+    await user.click(screen.getByTestId('telemetry-mode-guided'))
+    expect(screen.getByTestId('telemetry-mode-guided')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByTestId('telemetry-facet-scope')).not.toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-resourceUsage')).toBeChecked()
+  })
+
+  test('the scope wizard only appears once an application-scoped signal is on', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper />)
+    await user.click(screen.getByTestId('telemetry-mode-guided'))
+    expect(screen.queryByTestId('telemetry-guided-add-scope')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('telemetry-applicationMetrics'))
+    expect(screen.getByTestId('telemetry-guided-add-scope')).toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-guided-attach-applicationMetrics')).toBeInTheDocument()
+  })
+
+  test('naming a scope and attaching a signal to it copies its namespaces into that signal\'s override', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper initial={{ ...emptyTelemetry, applicationMetrics: true }} />)
+    await user.click(screen.getByTestId('telemetry-mode-guided'))
+    await user.click(screen.getByTestId('telemetry-guided-add-scope'))
+    const nameInput = screen.getByPlaceholderText('Name this scope')
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Payments')
+    const draftBox = nameInput.closest('div[data-testid^="telemetry-guided-draft-"]') as HTMLElement
+    const nsInput = within(draftBox).getByPlaceholderText('shop payments')
+    await user.type(nsInput, 'shop{Enter}')
+
+    const attachSelect = screen.getByTestId('telemetry-guided-attach-applicationMetrics')
+    await user.selectOptions(attachSelect, 'Use Payments')
+
+    // Switching that signal to "custom" reveals its own fields pre-filled with what was just copied in.
+    await user.selectOptions(attachSelect, 'Custom, just for this signal')
+    const customNsInput = screen.getByTestId('telemetry-guided-custom-namespaces-applicationMetrics')
+    expect(customNsInput.closest('div')).toHaveTextContent('shop')
+  })
+
+  test('two scopes that both include the same namespace warn, and merging keeps only one', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper initial={{ ...emptyTelemetry, applicationMetrics: true, applicationLogs: true }} />)
+    await user.click(screen.getByTestId('telemetry-mode-guided'))
+    await user.click(screen.getByTestId('telemetry-guided-add-scope'))
+    await user.click(screen.getByTestId('telemetry-guided-add-scope'))
+
+    const nameInputs = screen.getAllByPlaceholderText('Name this scope')
+    expect(nameInputs).toHaveLength(2)
+    for (const nameInput of nameInputs) {
+      const draftBox = nameInput.closest('div[data-testid^="telemetry-guided-draft-"]') as HTMLElement
+      await user.type(within(draftBox).getByPlaceholderText('shop payments'), 'shop{Enter}')
+    }
+
+    const alerts = screen.getAllByRole('alert')
+    expect(alerts.some((a) => /shop/.test(a.textContent ?? ''))).toBe(true)
+    await user.click(screen.getAllByText(/Merge into/)[0])
+    expect(screen.getAllByPlaceholderText('Name this scope')).toHaveLength(1)
   })
 })

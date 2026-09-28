@@ -116,8 +116,10 @@ export type EdgeData = {
   quality?: PathQuality
   /** Service mesh overlay: what the mesh does to this connection, inferred from configuration. */
   mesh?: MeshVerdict
-  /** Pixels to shift the line sideways (across the line from the caller to the callee) so parallel lines between the same two boxes stay apart. */
-  offset?: number
+  /** Pixels to shift this line's source end sideways (perpendicular to the caller->callee line). */
+  sourceOffset?: number
+  /** Pixels to shift this line's target end sideways (perpendicular to the caller->callee line). Independent from sourceOffset, so a line can fan out at a busy node while still landing cleanly at a quiet one. */
+  targetOffset?: number
 }
 export type TopoEdge = Edge<EdgeData>
 
@@ -138,6 +140,11 @@ export interface GraphOptions {
   hints?: Map<string, string>
   /** Application view, grouped by cluster: draw a sub-box per namespace inside each cluster's box. */
   namespaces?: boolean
+  /** Application view: lay services out as a left-to-right dependency chain instead of grouping them into
+   * cluster/tier boxes. One flat ranking across every cluster - cross-cluster calls are already first-class
+   * (see the `crossCluster` flag on Dependency), so a chain that also respected cluster boundaries would
+   * fight the very ordering this is for. Each card still names its cluster in the subtitle. */
+  chain?: boolean
 }
 
 export const groupId = (key: string) => `g:${key}`
@@ -267,6 +274,7 @@ const worstStatus = (ss: Status[]): Status => {
 export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNode[]; edges: TopoEdge[] } {
   // Machinery traffic (DNS, kube-system) would bury the applications' own edges; it is opt-in.
   const t: Topology = o.noise ? topology : { ...topology, dependencies: topology.dependencies.filter((d) => !d.noise) }
+  if (o.view === 'application' && o.chain) return buildChainGraph(t, o)
   const clusterById = new Map(t.clusters.map((c) => [c.id, c]))
   const serviceById = new Map(t.services.map((w) => [w.id, w]))
   const siteById = new Map(t.sites.map((s) => [s.id, s]))
@@ -531,8 +539,50 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     }
   }
 
+  spreadFanned(edges, abs)
   spreadParallel(edges)
   return { nodes, edges }
+}
+
+/**
+ * Several different edges landing on the same side of a busy node would otherwise all converge on that
+ * one handle's point. Groups edges by (node, side) independently at each end (a line can fan out at one
+ * end and land cleanly at the other), and within a group orders by where each line is actually headed -
+ * so the fan-out visually tracks its destination instead of crossing itself near the node. Edges that
+ * share the very same other box land in the same slot here; spreadParallel (run right after) adds the
+ * fine, symmetric sub-offset that keeps those particular lines apart from each other.
+ */
+function spreadFanned(edges: TopoEdge[], abs: Map<string, Box>) {
+  const FAN_GAP = 16
+  type End = { edge: TopoEdge; role: 'source' | 'target' }
+  const groups = new Map<string, End[]>()
+  const add = (key: string, end: End) => groups.set(key, [...(groups.get(key) ?? []), end])
+  for (const e of edges) {
+    if (!e.sourceHandle || !e.targetHandle) continue
+    add(`${e.source}|${e.sourceHandle.split('-')[0]}`, { edge: e, role: 'source' })
+    add(`${e.target}|${e.targetHandle.split('-')[0]}`, { edge: e, role: 'target' })
+  }
+  const otherId = (en: End) => (en.role === 'source' ? en.edge.target : en.edge.source)
+  for (const [key, ends] of groups) {
+    const side = key.slice(key.indexOf('|') + 1) as Side
+    const axis: 'x' | 'y' = side === 'top' || side === 'bottom' ? 'x' : 'y'
+    const otherCenter = (en: End) => {
+      const box = abs.get(otherId(en))
+      if (!box) return 0
+      return axis === 'x' ? box.x + box.w / 2 : box.y + box.h / 2
+    }
+    const clusters = new Map<string, End[]>()
+    for (const en of ends) clusters.set(otherId(en), [...(clusters.get(otherId(en)) ?? []), en])
+    if (clusters.size < 2) continue // one destination on this side: nothing to fan out from another
+    const ordered = [...clusters.values()].sort((a, b) => otherCenter(a[0]) - otherCenter(b[0]) || a[0].edge.id.localeCompare(b[0].edge.id))
+    ordered.forEach((cluster, i) => {
+      const v = (i - (ordered.length - 1) / 2) * FAN_GAP
+      for (const en of cluster) {
+        en.edge.type = 'offset'
+        en.edge.data = { ...en.edge.data!, [en.role === 'source' ? 'sourceOffset' : 'targetOffset']: v }
+      }
+    })
+  }
 }
 
 /** Two lines between the same pair of boxes (two ports, or one each way) would be drawn on top of each other and one would vanish. */
@@ -548,10 +598,213 @@ function spreadParallel(edges: TopoEdge[]) {
     group.forEach((e, i) => {
       // The sideways direction is taken from the canonical order of the two boxes, so a line back the other way lands on the other side.
       const sign = e.source < e.target ? 1 : -1
+      const v = (i - (group.length - 1) / 2) * 14 * sign
       e.type = 'offset'
-      e.data = { ...e.data!, offset: (i - (group.length - 1) / 2) * 14 * sign }
+      // Additive on top of any coarse fan-out offset already set: this pass only needs to separate the
+      // handful of lines that share both endpoints, not decide where that whole bundle sits on the node.
+      e.data = { ...e.data!, sourceOffset: (e.data?.sourceOffset ?? 0) + v, targetOffset: (e.data?.targetOffset ?? 0) + v }
     })
   }
+}
+
+
+/* ---------- Application view: chain layout ---------- */
+
+const CHAIN_COL_GAP = 96
+const CHAIN_ROW_GAP = 28
+
+/**
+ * Left-to-right dependency chain: one column per rank (longest path from a source, over service-to-service
+ * calls only), ordered top-to-bottom within a column by a barycenter heuristic so lines cross as little as
+ * possible. Cycles (two services depending on each other) are broken with a DFS feedback-arc pass before
+ * ranking - the dropped back-edge is still drawn later, just without influencing anyone's column. Devices
+ * and external endpoints are not part of the ranking; each is hung one column past whichever service it's
+ * paired with (its first caller or callee found), stacked near that service's row.
+ */
+function layoutChain(
+  serviceIds: string[],
+  serviceDeps: { from: string; to: string }[],
+  leafIds: string[],
+  leafNear: Map<string, string | undefined>,
+): Map<string, { x: number; y: number }> {
+  const svc = new Set(serviceIds)
+  const adj = new Map<string, Set<string>>(serviceIds.map((id) => [id, new Set<string>()]))
+  const radj = new Map<string, Set<string>>(serviceIds.map((id) => [id, new Set<string>()]))
+  const byFrom = new Map<string, { from: string; to: string }[]>()
+  for (const e of serviceDeps) {
+    if (!svc.has(e.from) || !svc.has(e.to) || e.from === e.to) continue
+    byFrom.set(e.from, [...(byFrom.get(e.from) ?? []), e])
+  }
+
+  // DFS feedback-arc pass: an edge to a node still on the current path (GRAY) is a back-edge and is
+  // dropped from the DAG used for ranking (it's still drawn - see the caller - just doesn't set anyone's rank).
+  const WHITE = 0, GRAY = 1, BLACK = 2
+  const color = new Map<string, number>(serviceIds.map((id) => [id, WHITE]))
+  const dag: { from: string; to: string }[] = []
+  const visit = (id: string) => {
+    color.set(id, GRAY)
+    for (const e of byFrom.get(id) ?? []) {
+      if (color.get(e.to) === GRAY) continue
+      dag.push(e)
+      if (color.get(e.to) === WHITE) visit(e.to)
+    }
+    color.set(id, BLACK)
+  }
+  for (const id of serviceIds) if (color.get(id) === WHITE) visit(id)
+  for (const e of dag) {
+    adj.get(e.from)!.add(e.to)
+    radj.get(e.to)!.add(e.from)
+  }
+
+  // Rank = longest path from a source. Bounded relaxation rather than a topo-sort walk: simple, and safe
+  // even if a residual cycle somehow slipped through (it just stops after n rounds instead of looping).
+  const rank = new Map<string, number>(serviceIds.map((id) => [id, 0]))
+  for (let i = 0; i < serviceIds.length; i++) {
+    let changed = false
+    for (const e of dag) {
+      const r = (rank.get(e.from) ?? 0) + 1
+      if (r > (rank.get(e.to) ?? 0)) {
+        rank.set(e.to, r)
+        changed = true
+      }
+    }
+    if (!changed) break
+  }
+
+  const byRank = new Map<number, string[]>()
+  for (const id of serviceIds) {
+    const r = rank.get(id)!
+    byRank.set(r, [...(byRank.get(r) ?? []), id])
+  }
+  const maxRank = Math.max(0, ...byRank.keys())
+  const order = new Map<string, number>()
+  for (const ids of byRank.values()) ids.forEach((id, i) => order.set(id, i))
+
+  // A couple of sweeps - toward already-placed callers, then toward already-placed callees - untangles
+  // most of the avoidable crossings without needing a real crossing-count optimizer.
+  const sweep = (neighbors: (id: string) => Set<string>) => {
+    for (let r = 0; r <= maxRank; r++) {
+      const ids = byRank.get(r)
+      if (!ids || ids.length < 2) continue
+      const bc = (id: string) => {
+        const ns = [...neighbors(id)]
+        return ns.length ? ns.reduce((s, n) => s + (order.get(n) ?? 0), 0) / ns.length : (order.get(id) ?? 0)
+      }
+      ids.sort((a, b) => bc(a) - bc(b) || a.localeCompare(b))
+      ids.forEach((id, i) => order.set(id, i))
+    }
+  }
+  sweep((id) => radj.get(id)!)
+  sweep((id) => adj.get(id)!)
+
+  const pos = new Map<string, { x: number; y: number }>()
+  for (const [r, ids] of byRank) ids.forEach((id, i) => pos.set(id, { x: r * (APP_CARD.w + CHAIN_COL_GAP), y: i * (APP_CARD.h + CHAIN_ROW_GAP) }))
+
+  const leafRank = new Map<string, number>()
+  for (const id of leafIds) {
+    const near = leafNear.get(id)
+    leafRank.set(id, near !== undefined ? (rank.get(near) ?? 0) + 1 : maxRank + 1)
+  }
+  const byLeafRank = new Map<number, string[]>()
+  for (const id of leafIds) {
+    const r = leafRank.get(id)!
+    byLeafRank.set(r, [...(byLeafRank.get(r) ?? []), id])
+  }
+  for (const [r, ids] of byLeafRank) {
+    const nearY = (id: string) => {
+      const near = leafNear.get(id)
+      return near ? (pos.get(near)?.y ?? 0) : 0
+    }
+    ids.sort((a, b) => nearY(a) - nearY(b) || a.localeCompare(b))
+    ids.forEach((id, i) => pos.set(id, { x: r * (APP_CARD.w + CHAIN_COL_GAP), y: i * (APP_CARD.h + CHAIN_ROW_GAP) }))
+  }
+
+  return pos
+}
+
+/** The Application view's alternate layout: every service (across every cluster) placed in one flat
+ * left-to-right dependency chain instead of nested inside cluster/tier boxes. See `chain` on GraphOptions. */
+function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edges: TopoEdge[] } {
+  const clusterById = new Map(t.clusters.map((c) => [c.id, c]))
+  const siteById = new Map(t.sites.map((s) => [s.id, s]))
+  const serviceById = new Map(t.services.map((w) => [w.id, w]))
+
+  const services = t.services.filter((w) => {
+    const c = clusterById.get(w.clusterId)
+    return c && !(w.mesh?.controlPlane && !o.mesh)
+  })
+  const serviceIds = services.map((w) => w.id)
+
+  const serviceDeps = t.dependencies.filter((d) => d.fromKind === 'service' && d.toKind === 'service')
+
+  const wantedLeaves = new Set(
+    t.dependencies.flatMap((d) => [d.fromKind !== 'service' ? d.from : '', d.toKind !== 'service' ? d.to : '']).filter(Boolean),
+  )
+  const deviceLeaves = o.devices ? t.devices.filter((dv) => wantedLeaves.has(dv.id)) : []
+  const externalLeaves = o.devices ? t.externalEndpoints.filter((e) => wantedLeaves.has(e.id)) : []
+  const leafIds = [...deviceLeaves.map((d) => d.id), ...externalLeaves.map((e) => e.id)]
+
+  const leafNear = new Map<string, string | undefined>()
+  for (const id of leafIds) {
+    const dep = t.dependencies.find((d) => (d.from === id && serviceById.has(d.to)) || (d.to === id && serviceById.has(d.from)))
+    leafNear.set(id, dep ? (serviceById.has(dep.from) ? dep.from : dep.to) : undefined)
+  }
+
+  const positions = layoutChain(serviceIds, serviceDeps, leafIds, leafNear)
+
+  const nodes: TopoNode[] = []
+  const abs = new Map<string, Box>()
+
+  for (const w of services) {
+    const c = clusterById.get(w.clusterId)!
+    const item = serviceItem(w, c, true, o.hints?.get(w.id), o.mesh)
+    const p = positions.get(w.id) ?? { x: 0, y: 0 }
+    nodes.push({ id: item.id, type: 'card', position: { x: p.x, y: p.y }, style: { width: item.w, height: item.h }, zIndex: 10, data: item.data })
+    abs.set(item.id, { x: p.x, y: p.y, w: item.w, h: item.h })
+  }
+  for (const dv of deviceLeaves) {
+    const s = dv.siteId ? siteById.get(dv.siteId) : undefined
+    const item = deviceItem(dv, s, true)
+    const p = positions.get(dv.id) ?? { x: 0, y: 0 }
+    nodes.push({ id: item.id, type: 'card', position: { x: p.x, y: p.y }, style: { width: item.w, height: item.h }, zIndex: 10, data: item.data })
+    abs.set(item.id, { x: p.x, y: p.y, w: item.w, h: item.h })
+  }
+  for (const e of externalLeaves) {
+    const item = externalItem(e)
+    const p = positions.get(e.id) ?? { x: 0, y: 0 }
+    nodes.push({ id: item.id, type: 'card', position: { x: p.x, y: p.y }, style: { width: item.w, height: item.h }, zIndex: 10, data: item.data })
+    abs.set(item.id, { x: p.x, y: p.y, w: item.w, h: item.h })
+  }
+
+  const edges: TopoEdge[] = []
+  for (const d of t.dependencies) {
+    const s = cardId(d.from)
+    const tg = cardId(d.to)
+    if (!abs.has(s) || !abs.has(tg)) continue
+    const fc = serviceById.get(d.from)?.clusterId
+    const tc = serviceById.get(d.to)?.clusterId
+    const quality = o.paths && fc && tc && fc !== tc ? pathQuality(o.paths, fc, tc) : undefined
+    const verdict = o.mesh ? connectionVerdict(d, serviceById.get(d.from), serviceById.get(d.to), fc ? clusterById.get(fc) : undefined, t.namespaces) : undefined
+    edges.push(makeEdge(d.id, s, tg, abs, {
+      label: edgeLabel(d),
+      mesh: verdict,
+      quality,
+      // No boxes to cross here, so "crossGroup" styling is driven only by the model's own crossCluster flag.
+      cross: !!d.crossCluster,
+      aggregated: false,
+      from: d.from,
+      to: d.to,
+      sources: d.sources,
+      confidence: d.confidence,
+      observed: isObserved(d),
+      stale: d.stale,
+      weight: weightOf(d),
+    }))
+  }
+
+  spreadFanned(edges, abs)
+  spreadParallel(edges)
+  return { nodes, edges }
 }
 
 /* ---------- helpers ---------- */

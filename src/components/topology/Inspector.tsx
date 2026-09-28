@@ -183,9 +183,18 @@ function NameEndpoint({ endpoint }: { endpoint: ExternalEndpoint }) {
   const [name, setName] = useState(endpoint.name ?? '')
   const [kind, setKind] = useState<ExternalKind>(endpoint.kind)
   const changed = name.trim() !== (endpoint.name ?? '') || kind !== endpoint.kind
+  // The server fills this in itself when the address matches a small, bundled table of known public
+  // ranges (see backend/internal/netid) - shown only while the name still matches that guess, so it
+  // gets out of the way the moment a person names the endpoint themselves.
+  const detected = endpoint.source !== 'manual' && endpoint.name && endpoint.evidence?.identity
   return (
     <div className="border-t border-nb-850 px-5 py-4">
       <div className="mb-2 text-xs font-medium uppercase tracking-wide text-nb-500">What is it?</div>
+      {detected && (
+        <p className="mb-2 text-xs text-nb-500" title={endpoint.evidence?.identity?.detail}>
+          Detected automatically: {endpoint.evidence?.identity?.signal ?? `matched ${endpoint.name}`}.
+        </p>
+      )}
       <div className="space-y-2">
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name it, e.g. Payments API" aria-label="Name" maxLength={80} />
         <Select value={kind} onChange={(e) => setKind(e.target.value as ExternalKind)} aria-label="Kind">

@@ -2,17 +2,27 @@ import { BaseEdge, getBezierPath, type EdgeProps } from '@xyflow/react'
 import type { TopoEdge } from '@/lib/graph'
 
 /**
- * A line like the default one, moved sideways by `data.offset` pixels. Lines that join the same two boxes
- * (two ports, or one each way) would otherwise lie on top of each other and only the last would be visible.
+ * A line like the default one, with its source end moved sideways by `data.sourceOffset` pixels and its
+ * target end by `data.targetOffset`, independently. Equal values give the old parallel shift (two lines
+ * between the same pair of boxes, kept apart along their whole length); different values let a line fan
+ * out from a busy node while still landing cleanly at a quiet one on the other end.
  */
 export function OffsetEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, labelShowBg, markerEnd, style, interactionWidth }: EdgeProps<TopoEdge>) {
-  const off = data?.offset ?? 0
+  const sourceOff = data?.sourceOffset ?? 0
+  const targetOff = data?.targetOffset ?? 0
   const dx = targetX - sourceX
   const dy = targetY - sourceY
   const len = Math.hypot(dx, dy) || 1
-  const nx = (-dy / len) * off
-  const ny = (dx / len) * off
-  const [path, labelX, labelY] = getBezierPath({ sourceX: sourceX + nx, sourceY: sourceY + ny, sourcePosition, targetX: targetX + nx, targetY: targetY + ny, targetPosition })
+  const nx = -dy / len
+  const ny = dx / len
+  const [path, labelX, labelY] = getBezierPath({
+    sourceX: sourceX + nx * sourceOff,
+    sourceY: sourceY + ny * sourceOff,
+    sourcePosition,
+    targetX: targetX + nx * targetOff,
+    targetY: targetY + ny * targetOff,
+    targetPosition,
+  })
   return (
     <BaseEdge
       id={id}

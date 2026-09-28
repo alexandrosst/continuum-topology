@@ -101,8 +101,11 @@ function Canvas() {
   const showMesh = sp.get('mesh') === '1' && hasMesh
   // Only means something in the application view, grouped by cluster (a tier box already mixes clusters together).
   const showNamespaces = sp.get('namespaces') === '1' && groupBy === 'cluster'
+  // Chain lays every service out in one flat left-to-right order across every cluster, so it replaces the
+  // cluster/tier boxes and namespace sub-boxes rather than combining with them.
+  const showChain = sp.get('chain') === '1' && mode === 'application'
   // How many options differ from the defaults, so a hidden option is never a mystery.
-  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces].filter(Boolean).length
+  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain].filter(Boolean).length
   const setParam = (k: string, v: string | null) =>
     setSp((p) => {
       const n = new URLSearchParams(p)
@@ -160,8 +163,8 @@ function Canvas() {
     [clusters, machines, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, filter],
   )
   const graph = useMemo(
-    () => buildGraph(shown, { view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, paths, hints }),
-    [shown, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, paths, hints],
+    () => buildGraph(shown, { view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, chain: showChain, paths, hints }),
+    [shown, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints],
   )
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
 
@@ -372,17 +375,27 @@ function Canvas() {
                 {mode === 'application' && (
                   <Toggle
                     checked={showNamespaces}
-                    disabled={groupBy !== 'cluster'}
+                    disabled={groupBy !== 'cluster' || showChain}
                     onChange={(v) => setParam('namespaces', v ? '1' : null)}
                     label="Namespace sub-boxes"
-                    title={groupBy === 'cluster' ? 'Draw a box per namespace inside each cluster' : 'Only available grouped by cluster'}
+                    title={showChain ? 'Not available in chain layout' : groupBy === 'cluster' ? 'Draw a box per namespace inside each cluster' : 'Only available grouped by cluster'}
                   />
                 )}
-                <div className="mt-1 flex items-center justify-between gap-3 border-t border-nb-850 px-2 pb-1 pt-2.5 text-sm text-nb-400">
+                {mode === 'application' && (
+                  <Toggle
+                    checked={showChain}
+                    onChange={(v) => setParam('chain', v ? '1' : null)}
+                    label="Chain layout"
+                    title="Lay every service out left to right by who calls whom, across every cluster, instead of grouping them into boxes"
+                  />
+                )}
+                <div className={clsx('mt-1 flex items-center justify-between gap-3 border-t border-nb-850 px-2 pb-1 pt-2.5 text-sm', showChain ? 'text-nb-600' : 'text-nb-400')}>
                   Group by
                   <Select
                     className="h-8 w-32"
                     value={groupBy}
+                    disabled={showChain}
+                    title={showChain ? 'Not available in chain layout' : undefined}
                     onChange={(e) => {
                       setParam('group', e.target.value === 'tier' ? 'tier' : null)
                       setSelection(null)
