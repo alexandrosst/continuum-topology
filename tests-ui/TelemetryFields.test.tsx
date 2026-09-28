@@ -5,9 +5,9 @@ import { describe, expect, test } from 'vitest'
 import TelemetryFields from '@/components/telemetry/TelemetryFields'
 import { emptyTelemetry, type TelemetryInput } from '@/lib/install'
 
-function Wrapper({ initial = emptyTelemetry }: { initial?: TelemetryInput }) {
+function Wrapper({ initial = emptyTelemetry, initialScope }: { initial?: TelemetryInput; initialScope?: { name: string; namespaces: string[] } }) {
   const [value, setValue] = useState<TelemetryInput>(initial)
-  return <TelemetryFields value={value} onChange={setValue} />
+  return <TelemetryFields value={value} onChange={setValue} initialScope={initialScope} />
 }
 
 describe('TelemetryFields', () => {
@@ -179,6 +179,17 @@ describe('TelemetryFields guided mode', () => {
     await user.selectOptions(attachSelect, 'Custom, just for this signal')
     const customNsInput = screen.getByTestId('telemetry-guided-custom-namespaces-applicationMetrics')
     expect(customNsInput.closest('div')).toHaveTextContent('shop')
+  })
+
+  test('an initial scope (e.g. handed off from the topology canvas) starts the form in guided mode with a draft pre-filled from it', () => {
+    render(<Wrapper initial={{ ...emptyTelemetry, applicationMetrics: true }} initialScope={{ name: 'From topology', namespaces: ['payments', 'checkout'] }} />)
+    expect(screen.getByTestId('telemetry-mode-guided')).toHaveAttribute('aria-checked', 'true')
+    const nameInputs = screen.getAllByPlaceholderText('Name this scope') as HTMLInputElement[]
+    const seeded = nameInputs.find((i) => i.value === 'From topology')
+    expect(seeded).toBeTruthy()
+    const draftBox = seeded!.closest('div[data-testid^="telemetry-guided-draft-"]') as HTMLElement
+    expect(draftBox).toHaveTextContent('payments')
+    expect(draftBox).toHaveTextContent('checkout')
   })
 
   test('two scopes that both include the same namespace warn, and merging keeps only one', async () => {

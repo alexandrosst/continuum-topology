@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { applyFilter, knownOnly, NO_APP, parseFilter, encodeList } from '../src/lib/filter'
+import { applyFilter, isFreshApplicationView, knownOnly, NO_APP, parseFilter, encodeList } from '../src/lib/filter'
 import { clusterLoad, lossBand, pathQuality } from '../src/lib/metrics'
 import { siteConnections } from '../src/lib/geo'
 import { describeView, viewParams } from '../src/lib/views'
@@ -74,6 +74,19 @@ test('kinds combine with cluster/application (AND), and multiple kinds are OR am
   const jobsAndSets = applyFilter(seed, { clusters: [], apps: [], kinds: ['Job', 'StatefulSet'] })
   assert.ok(jobsAndSets.services.every((s) => s.kind === 'Job' || s.kind === 'StatefulSet'))
   assert.ok(jobsAndSets.services.some((s) => s.kind === 'Job') && jobsAndSets.services.some((s) => s.kind === 'StatefulSet'))
+})
+
+test('isFreshApplicationView: true only for a page with nothing yet to lose', () => {
+  const sp = (s: string) => new URLSearchParams(s)
+  assert.equal(isFreshApplicationView(sp('')), true, 'a bare visit is fresh')
+  assert.equal(isFreshApplicationView(sp('view=application')), true, 'an explicit but otherwise-empty application view is still fresh')
+  assert.equal(isFreshApplicationView(sp('group=tier&labels=1')), true, 'unrelated display options do not count as something to lose')
+  assert.equal(isFreshApplicationView(sp('view=infrastructure')), false, 'only the application view defaults this way')
+  assert.equal(isFreshApplicationView(sp('view=map')), false)
+  assert.equal(isFreshApplicationView(sp('kinds=StatefulSet')), false, 'an explicit kind choice is never overwritten')
+  assert.equal(isFreshApplicationView(sp('kinds=')), false, 'an explicitly-cleared kind list (kinds= present, even empty) still counts as chosen')
+  assert.equal(isFreshApplicationView(sp('clusters=cl-1')), false)
+  assert.equal(isFreshApplicationView(sp('apps=app-1')), false)
 })
 
 test('sites follow the clusters that are kept', () => {

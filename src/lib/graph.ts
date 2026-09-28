@@ -927,6 +927,16 @@ export function pickSides(a: Box, b: Box): [Side, Side] {
   return dx >= 0 ? ['right', 'left'] : ['left', 'right']
 }
 
+/** Which service entity ids a canvas selection (a set of React Flow node ids, e.g. from a shift-drag
+ * box-select) resolves to - the topology's "Define scope from selection" quick action (ScopeFromSelection.tsx)
+ * uses this to turn a raw selection into a telemetry scope draft, silently dropping anything selected that
+ * isn't a service card: a cluster/tier box, a namespace sub-box, or a machine/device/external card. Order
+ * follows `nodes`, not `selectedIds`, so a scope built from the same selection is stable across re-renders. */
+export function selectedServiceIds(nodes: TopoNode[], selectedIds: string[]): string[] {
+  const ids = new Set(selectedIds)
+  return nodes.filter((n) => ids.has(n.id) && n.data.kind === 'service').map((n) => n.data.entityId)
+}
+
 function makeEdge(
   id: string,
   source: string,

@@ -45,6 +45,16 @@ export const encodeList = (ids: string[]): string | null => (ids.length ? ids.ma
 
 export const filterActive = (f: Filter) => f.clusters.length > 0 || f.apps.length > 0 || f.kinds.length > 0
 
+/** Whether the Application view's Kind filter should default to Deployment-only ("real services") - true
+ * only for a page that arrived with no `kinds`, `clusters` or `apps` of its own to lose. Kept as a pure
+ * function of the URL rather than inline in the page component so it's cheap to test on its own, and so a
+ * caller can check it once, at first mount, without needing React: the whole point of defaulting this way
+ * (see the call site in TopologyPage.tsx) is that it only ever applies once, when there is nothing yet to
+ * conflict with - a person who explicitly asks for every kind (or a specific cluster/application) is always
+ * respected, and unchecking Deployment back down to "everything" later never gets silently overwritten. */
+export const isFreshApplicationView = (sp: URLSearchParams): boolean =>
+  sp.get('view') !== 'infrastructure' && sp.get('view') !== 'map' && !sp.has('kinds') && !sp.has('clusters') && !sp.has('apps')
+
 /** Drop ids that no longer exist (a cluster that was removed), and any kind that isn't a real one (a
  * hand-edited or stale link), so neither can filter everything away. */
 export function knownOnly(f: Filter, m: Pick<FilterModel, 'clusters' | 'applications'>): Filter {

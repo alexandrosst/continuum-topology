@@ -78,16 +78,26 @@ export default function GuidedScope({
   value,
   onChange,
   testIdPrefix,
+  initialDraft,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
   testIdPrefix: string
+  /** A scope pre-filled from outside the wizard, e.g. a topology-canvas selection handed off via
+   * ScopeFromSelection.tsx - consumed once, at first mount, same as `value`'s own seeded drafts below.
+   * Deliberately only adds a draft, never auto-attaches it to a signal: attaching stays the person's own
+   * explicit step, exactly as it already is for a hand-built draft. */
+  initialDraft?: { name: string; namespaces: string[] }
 }) {
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
   const infra = TELEMETRY_SIGNALS.filter((s) => s.layer === 'infrastructure')
   const app = TELEMETRY_SIGNALS.filter((s) => s.layer === 'application')
 
-  const [drafts, setDrafts] = useState<Draft[]>(() => seedDrafts(value))
+  const [drafts, setDrafts] = useState<Draft[]>(() => {
+    const seeded = seedDrafts(value)
+    if (!initialDraft) return seeded
+    return [...seeded, { id: newDraftId(), name: initialDraft.name, namespaces: initialDraft.namespaces, exclude: [] }]
+  })
   const [attach, setAttach] = useState<Record<AppScopedKind, string>>(() => seedAttach(value, drafts))
 
   const enabledKinds = APP_SCOPED_KINDS.filter((k) => value[k])

@@ -145,11 +145,16 @@ export default function TelemetryFields({
   onChange,
   measurementsOn,
   testIdPrefix = 'telemetry',
+  initialScope,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
   measurementsOn?: boolean
   testIdPrefix?: string
+  /** A scope pre-filled from outside this form (see GuidedScope.tsx) - when present, also starts the form
+   * in guided mode, so the person lands directly on their pre-filled draft instead of needing to notice
+   * and click into guided mode themselves first. */
+  initialScope?: { name: string; namespaces: string[] }
 }) {
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
   const problems = telemetryProblems(value, measurementsOn)
@@ -158,8 +163,10 @@ export default function TelemetryFields({
   const grantedRules = TELEMETRY_SIGNALS.filter((s) => (value as unknown as Record<string, boolean>)[s.id])
 
   // Which entry path is showing: local UI state, defaulting to the flat grid so a form nobody has opted
-  // into guided mode for renders exactly as it always has (see the plan note on TelemetryFields.tsx).
-  const [guided, setGuided] = useState(false)
+  // into guided mode for renders exactly as it always has (see the plan note on TelemetryFields.tsx) -
+  // unless a pre-filled scope was just handed to this form from outside, in which case guided is the only
+  // mode that has anywhere to show it.
+  const [guided, setGuided] = useState(() => !!initialScope)
 
   // A browsing aid only - local state, never written into TelemetryInput - so leaving every facet at
   // its "All" default reproduces byte-identical infra/app lists to before facets existed.
@@ -242,7 +249,7 @@ export default function TelemetryFields({
       </div>
 
       {guided ? (
-        <GuidedScope value={value} onChange={onChange} testIdPrefix={testIdPrefix} />
+        <GuidedScope value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialDraft={initialScope} />
       ) : (
       <>
       <div className="space-y-1.5">

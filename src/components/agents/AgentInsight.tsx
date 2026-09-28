@@ -376,9 +376,20 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
  * command - nothing here is pushed live, because telemetry is Helm-values-only in this chart, exactly like
  * the access-tier ceiling. There is no save button: the cluster's owner runs the command themselves.
  */
-export function TelemetryPanel({ diagnostics: d, install }: { diagnostics?: AgentDiagnostics; install?: InstallInfo }) {
+export function TelemetryPanel({
+  diagnostics: d,
+  install,
+  initialScope,
+}: {
+  diagnostics?: AgentDiagnostics
+  install?: InstallInfo
+  /** A scope draft handed off from the topology's "Define scope from selection" quick action (see
+   * AgentsPage.tsx, which reads it off the URL once) - pre-fills TelemetryFields' guided wizard and starts
+   * this panel's own disclosure open, so the person doesn't also have to notice and expand it by hand. */
+  initialScope?: { name: string; namespaces: string[] }
+}) {
   const installed = d?.installedTelemetry ?? []
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(() => !!initialScope)
   // Seeded from what the agent actually reports running, not a blank form: withTelemetry states every
   // signal explicitly on every call, so a blank draft would silently turn off everything the operator
   // didn't happen to re-check the moment they ran the generated command for an unrelated change.
@@ -409,7 +420,7 @@ export function TelemetryPanel({ diagnostics: d, install }: { diagnostics?: Agen
           Change telemetry
         </summary>
         <div className="mt-3 rounded-lg border border-nb-850 bg-nb-925 p-3">
-          <TelemetryFields value={draft} onChange={setDraft} testIdPrefix="telemetry-panel" />
+          <TelemetryFields value={draft} onChange={setDraft} testIdPrefix="telemetry-panel" initialScope={initialScope} />
           {telemetryActive(draft) && (
             <div className="mt-3 text-xs text-nb-500">
               The cluster's owner runs this in that cluster:

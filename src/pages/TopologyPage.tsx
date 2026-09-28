@@ -20,6 +20,7 @@ import { ClusterForm, DeviceForm, NodeForm, ServiceForm } from '@/components/for
 import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
 import Inspector, { type Selection } from '@/components/topology/Inspector'
 import MapView from '@/components/topology/MapView'
+import ScopeFromSelection from '@/components/topology/ScopeFromSelection'
 import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
 import { nodeTypes } from '@/components/topology/nodes'
@@ -27,8 +28,8 @@ import { edgeTypes } from '@/components/topology/OffsetEdge'
 import { Button, EmptyState, MenuPanel, Select } from '@/components/ui/primitives'
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu from '@/components/topology/FilterMenu'
-import { applyFilter, encodeList, filterActive, knownOnly, parseFilter } from '@/lib/filter'
-import { buildGraph, cardId, groupId, type TopoEdge, type TopoNode } from '@/lib/graph'
+import { applyFilter, encodeList, filterActive, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
+import { buildGraph, cardId, groupId, selectedServiceIds, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
@@ -75,7 +76,7 @@ type FormState =
 /** The toolbar's popovers (filter, saved views, options, add) all hang off the same row: at most one may be
  * open at a time, so opening one always closes any other that was already open, instead of both fighting over
  * their own click-outside backdrop. */
-type MenuKey = 'filter' | 'views' | 'options' | 'add'
+type MenuKey = 'filter' | 'views' | 'options' | 'add' | 'scope'
 
 function Canvas() {
   const topology = useTopology()
@@ -114,6 +115,20 @@ function Canvas() {
       return n
     }, { replace: true })
 
+  // The Application view defaults to "real services" (Deployment) rather than "everything": a fresh visit
+  // with no filter chosen yet is the common case, and starting there with just Deployment makes the canvas
+  // read as actual services (not DaemonSets/StatefulSets/Jobs) and gives a topology selection fewer, more
+  // relevant cards to choose from. A one-time URL rewrite, not a render-time default - deriving it at render
+  // time instead would break the moment someone unchecks the only active kind, since the resulting empty
+  // selection writes the exact same "no kinds param" URL the default itself would read, so the default would
+  // silently reassert itself on the very next render. Running once, on mount, means it can never re-fire
+  // after that no matter what the person does afterward (including clearing it right back to "everything").
+  useEffect(() => {
+    if (isFreshApplicationView(sp)) setParam('kinds', encodeList(['Deployment']))
+    // only meant to run once, at first mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const [selection, setSelection] = useState<Selection>(null)
 
   // Arriving from search (or a shared link) with ?sel=service:w-gw opens that thing in the inspector.
@@ -133,7 +148,7 @@ function Canvas() {
     return () => window.removeEventListener('keydown', onKey)
   }, [openMenu])
 
-  const { clusters, nodes: machines, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints } = topology
+  const { clusters, nodes: machines, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents } = topology
   // Discovered records come from the server with the first refresh, after the workspace loads: a link to one waits for them.
   const observedReady = useServer((s) => s.status === 'disconnected' || s.state !== undefined)
   useEffect(() => {
@@ -169,6 +184,17 @@ function Canvas() {
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
 
   const [nodes, setNodes, onNodesChange] = useNodesState<TopoNode>(graph.nodes)
+
+  // Box-select (shift-drag) already works today at the React Flow level - kept entirely separate from
+  // `selection`/`selectedRfId` above (the single-click Inspector highlight), which actively overwrites a
+  // node's own `.selected` flag below to track only the last clicked one. Reusing that flag for multi-select
+  // would fight that overwrite the moment a plain click landed after a box-select; a dedicated id list, only
+  // ever written by `onSelectionChange`, doesn't.
+  const [multiSelectedIds, setMultiSelectedIds] = useState<string[]>([])
+  const selectedServices = useMemo(() => {
+    const entityIds = new Set(selectedServiceIds(nodes, multiSelectedIds))
+    return services.filter((s) => entityIds.has(s.id))
+  }, [multiSelectedIds, nodes, services])
 
   // React Flow id of the current selection (if it is visible in this plane).
   const selectedRfId = useMemo(() => {
@@ -313,6 +339,15 @@ function Canvas() {
 
         <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
           <LiveStatus />
+          {!isMap && (
+            <ScopeFromSelection
+              selected={selectedServices}
+              clusters={clusters.filter((c) => !c.deletedAt)}
+              agents={agents}
+              open={openMenu === 'scope'}
+              onOpenChange={(o) => setOpenMenu(o ? 'scope' : null)}
+            />
+          )}
           <FilterMenu
             open={openMenu === 'filter'}
             onOpenChange={(o) => setOpenMenu(o ? 'filter' : null)}
@@ -492,6 +527,7 @@ function Canvas() {
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
               onNodesChange={onNodesChange}
+              onSelectionChange={({ nodes: sel }) => setMultiSelectedIds(sel.map((n) => n.id))}
               onNodeClick={(_, n) => select(fromNode(n))}
               onPaneClick={() => select(null)}
               onEdgeClick={(_, e) => { if (!e.data?.aggregated) select({ kind: 'dependency', id: e.id }) }}

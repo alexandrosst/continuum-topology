@@ -14,7 +14,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { buildGraph, cardId, pickSides } from '../src/lib/graph'
+import { buildGraph, cardId, pickSides, selectedServiceIds } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type Service, type Suggestion } from '../src/lib/types'
@@ -1193,6 +1193,17 @@ test('pickSides also works on two bare points (zero-size boxes) - OffsetEdge rel
   assert.deepEqual(pickSides({ x: 100, y: 0, w: 0, h: 0 }, { x: 0, y: 0, w: 0, h: 0 }), ['left', 'right'])
   assert.deepEqual(pickSides({ x: 0, y: 0, w: 0, h: 0 }, { x: 0, y: 100, w: 0, h: 0 }), ['bottom', 'top'])
   assert.deepEqual(pickSides({ x: 0, y: 100, w: 0, h: 0 }, { x: 0, y: 0, w: 0, h: 0 }), ['top', 'bottom'])
+})
+
+test('selectedServiceIds: resolves a canvas selection to service ids, dropping group/namespace boxes and anything not selected', () => {
+  const [a, b] = inCluster
+  const t = { ...seed, dependencies: [seenDep({ from: a.id, to: b.id })] }
+  const g = buildGraph(t, { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+  const clusterBoxId = g.nodes.find((n) => n.data.kind === 'group')!.id
+  const selection = [cardId(a.id), cardId(b.id), clusterBoxId, 'not-a-real-node-id']
+  assert.deepEqual(new Set(selectedServiceIds(g.nodes, selection)), new Set([a.id, b.id]), 'the two selected service cards, not the cluster box or the unknown id')
+  assert.deepEqual(selectedServiceIds(g.nodes, []), [], 'an empty selection resolves to nothing')
+  assert.deepEqual(selectedServiceIds(g.nodes, [clusterBoxId]), [], 'selecting only a group box resolves to no services')
 })
 
 test('chain layout: services rank strictly by dependency depth, across clusters, with no cluster/tier boxes', () => {
