@@ -410,6 +410,393 @@
           "description": "Removed: the collector runs the top-level image (with the argument `flow`). Accepted and ignored so an older install command does not fail."
         }
       }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "collectorImage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": [
+                "string",
+                "number"
+              ]
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^(sha256:[0-9a-f]{64})?$"
+            },
+            "pullPolicy": {
+              "enum": [
+                "",
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ]
+            }
+          }
+        },
+        "export": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "otlp": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "endpoint": {
+                  "type": "string"
+                },
+                "protocol": {
+                  "enum": [
+                    "grpc",
+                    "http"
+                  ]
+                },
+                "tls": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "insecure": {
+                      "type": "boolean"
+                    },
+                    "caFile": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "headerName": {
+                      "type": "string"
+                    },
+                    "secretName": {
+                      "type": "string"
+                    },
+                    "secretKey": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "resourceUsage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "enum": [
+                    "builtin"
+                  ]
+                },
+                "interval": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "energy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "enum": [
+                    "bundle-kepler",
+                    "existing"
+                  ]
+                },
+                "existing": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "prometheusEndpoint": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "keplerImage": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "repository": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "tag": {
+                      "type": [
+                        "string",
+                        "number"
+                      ]
+                    },
+                    "digest": {
+                      "type": "string",
+                      "pattern": "^(sha256:[0-9a-f]{64})?$"
+                    },
+                    "pullPolicy": {
+                      "enum": [
+                        "",
+                        "Always",
+                        "IfNotPresent",
+                        "Never"
+                      ]
+                    }
+                  }
+                }
+              },
+              "required": []
+            }
+          }
+        },
+        "kubernetesState": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "enum": [
+                    "builtin"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "nodeRuntime": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "enum": [
+                    "builtin"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "networkLatency": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "enum": [
+                    "builtin"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "applicationMetrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "enum": [
+                    "builtin"
+                  ]
+                },
+                "scrapeTargets": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "jobName",
+                      "namespace",
+                      "podLabelSelector",
+                      "port"
+                    ],
+                    "properties": {
+                      "jobName": {
+                        "type": "string"
+                      },
+                      "namespace": {
+                        "type": "string"
+                      },
+                      "podLabelSelector": {
+                        "type": "string"
+                      },
+                      "port": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 65535
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "required": []
+            }
+          }
+        },
+        "systemLogs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "logs": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "enum": [
+                    "builtin"
+                  ]
+                },
+                "journaling": {
+                  "enum": [
+                    "journald",
+                    "none"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "kubernetesEvents": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "logs": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "enum": [
+                    "builtin"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "applicationLogs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "logs": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "enum": [
+                    "builtin"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "traces": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "traces": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "enum": [
+                    "builtin"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "namespaces": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "selector": {
+              "type": "string"
+            }
+          }
+        },
+        "resources": {
+          "type": "object"
+        }
+      }
     }
   }
 }

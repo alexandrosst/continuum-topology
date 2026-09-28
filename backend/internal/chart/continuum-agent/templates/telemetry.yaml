@@ -1,0 +1,263 @@
+{{- include "agent.telemetryValidate" . -}}
+{{/* ============================== Host-scoped collector (DaemonSet) ==============================
+     Runs on every node: anything that can only be observed per-node (resource usage, kubelet-sourced
+     metrics, node/container logs). Its ConfigMap is templates/telemetry-host-config.yaml - kept in its own
+     file so this DaemonSet can checksum it via $.Template.BasePath without including (and re-executing)
+     itself. */}}
+{{- if include "agent.telemetryHostEnabled" . }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "agent.telemetryName" . }}-host
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-host
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: continuum-telemetry-host, app.kubernetes.io/instance: {{ .Release.Name }}}
+  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 10%}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: continuum-telemetry-host
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: continuum
+        {{- include "agent.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/telemetry-host-config.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "agent.name" . }}
+      # Not root, not privileged: every path this collector reads is one this chart mounts read-only, and
+      # the standard container-log/journal file permissions are readable by this GID on every distribution
+      # this chart has been run against. If your nodes lock file permissions down further than that, widen
+      # this group rather than the container's own capabilities.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: otel-collector
+          image: {{ include "agent.telemetryCollectorImage" . | quote }}
+          imagePullPolicy: {{ include "agent.telemetryCollectorImagePullPolicy" . }}
+          args: ["--config=/conf/otel-collector-config.yaml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            - name: NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            {{- include "agent.telemetryExporterEnv" . | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /conf, readOnly: true}
+            {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
+            - {name: host-fs, mountPath: /hostfs, readOnly: true}
+            {{- end }}
+            {{- if .Values.telemetry.systemLogs.logs.enabled }}
+            - {name: var-log-pods, mountPath: /var/log/pods, readOnly: true}
+            {{- if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}
+            - {name: journal, mountPath: /var/log/journal, readOnly: true}
+            {{- end }}
+            {{- end }}
+          resources: {{- toYaml .Values.telemetry.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap: {name: {{ include "agent.telemetryName" . }}-host-config}
+        {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
+        # Read-only, and only for the filesystem/network scrapers to see real host mounts and interfaces -
+        # the same trade-off nodeProbe.hostSys documents above. A namespace enforcing the Pod Security
+        # "baseline" or "restricted" profile refuses this hostPath volume; label the namespace privileged,
+        # or leave telemetry.resourceUsage off and rely on kubeletstats alone (container/pod metrics only,
+        # no host filesystem/network totals).
+        - name: host-fs
+          hostPath: {path: /, type: Directory}
+        {{- end }}
+        {{- if .Values.telemetry.systemLogs.logs.enabled }}
+        - name: var-log-pods
+          hostPath: {path: /var/log/pods, type: DirectoryOrCreate}
+        {{- if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}
+        - name: journal
+          hostPath: {path: /var/log/journal, type: Directory}
+        {{- end }}
+        {{- end }}
+      tolerations:
+        - operator: Exists
+      nodeSelector:
+        kubernetes.io/os: linux
+{{- end }}
+
+{{/* ============================== Cluster-scoped collector (Deployment) ==============================
+     Runs once: cluster-wide object watching (k8s state, events), anything applications push directly
+     (metrics, logs, traces via OTLP), and Prometheus-shaped scrape targets (Kepler, or an existing
+     endpoint of your own). Its ConfigMap is templates/telemetry-cluster-config.yaml, for the same
+     self-inclusion reason as the host collector above. */}}
+{{- if include "agent.telemetryClusterEnabled" . }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent.telemetryName" . }}-cluster
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-cluster
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: continuum-telemetry-cluster, app.kubernetes.io/instance: {{ .Release.Name }}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: continuum-telemetry-cluster
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: continuum
+        {{- include "agent.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/telemetry-cluster-config.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "agent.name" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: otel-collector
+          image: {{ include "agent.telemetryCollectorImage" . | quote }}
+          imagePullPolicy: {{ include "agent.telemetryCollectorImagePullPolicy" . }}
+          args: ["--config=/conf/otel-collector-config.yaml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            {{- include "agent.telemetryExporterEnv" . | nindent 12 }}
+          {{- if include "agent.telemetryOtlpReceiverEnabled" . }}
+          ports:
+            - {name: otlp-grpc, containerPort: 4317, protocol: TCP}
+            - {name: otlp-http, containerPort: 4318, protocol: TCP}
+          {{- end }}
+          volumeMounts:
+            - {name: config, mountPath: /conf, readOnly: true}
+          resources: {{- toYaml .Values.telemetry.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap: {name: {{ include "agent.telemetryName" . }}-cluster-config}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}
+{{- if include "agent.telemetryOtlpReceiverEnabled" . }}
+---
+# So in-cluster applications can push OTLP metrics/logs/traces to this collector without knowing its pod IP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agent.telemetryName" . }}-cluster
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  selector: {app.kubernetes.io/name: continuum-telemetry-cluster, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
+    - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
+{{- end }}
+{{- end }}
+
+{{/* ============================== Kepler (only when explicitly enabled AND bundled) ============================== */}}
+{{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
+{{- $keplerName := printf "%s-kepler" (include "agent.telemetryName" .) }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $keplerName }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-kepler
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: {{ $keplerName }}, app.kubernetes.io/instance: {{ .Release.Name }}}
+  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 10%}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $keplerName }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: continuum
+        {{- include "agent.podLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false   # Kepler reads host energy counters, never the Kubernetes API
+      hostPID: true   # required to attribute RAPL energy readings to the processes/pods actually using it
+      containers:
+        - name: kepler
+          image: {{ include "agent.telemetryKeplerImage" . | quote }}
+          imagePullPolicy: {{ include "agent.telemetryKeplerImagePullPolicy" . }}
+          # Privileged, deliberately, and more broadly than flowObserver's eBPF path above: flowObserver is
+          # this project's own code, so its exact kernel needs are known and scoped to three named
+          # capabilities (BPF, PERFMON, SYS_RESOURCE) with everything else dropped. Kepler is a third-party
+          # image upstream documents as needing privileged: true and hostPID: true with no capability-based
+          # alternative (raw /sys/class/powercap/intel-rapl and, on some kernels, MSR reads for RAPL energy
+          # counters, plus loading its own eBPF program to attribute power draw to individual pods) - see
+          # https://sustainable-computing.io/kepler/installation/guide/. Guessing a narrower capability set
+          # for code this chart does not control would risk silently breaking energy attribution on some
+          # kernels while giving little real isolation benefit. It is scoped here to one single-purpose pod
+          # instead of widening the collector, the agent, or anything else in this chart. If this trade-off
+          # is not acceptable on a given node pool, leave telemetry.energy off there, or point source at an
+          # existing endpoint you already trust instead of bundling this pod.
+          securityContext:
+            privileged: true
+          ports:
+            - {name: metrics, containerPort: 9103, protocol: TCP}
+          volumeMounts:
+            - {name: proc, mountPath: /proc, readOnly: true}
+            - {name: sys, mountPath: /sys, readOnly: true}
+          resources: {{- toYaml .Values.telemetry.resources | nindent 12 }}
+      volumes:
+        - name: proc
+          hostPath: {path: /proc}
+        - name: sys
+          hostPath: {path: /sys}
+      tolerations:
+        - operator: Exists
+      nodeSelector:
+        kubernetes.io/os: linux
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $keplerName }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector: {app.kubernetes.io/name: {{ $keplerName }}, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    - {name: metrics, port: 9103, targetPort: 9103}
+{{- end }}

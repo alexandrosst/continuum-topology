@@ -97,3 +97,102 @@ IfNotPresent
      over an older chart. These read them without failing. */}}
 {{- define "agent.healthEnabled" -}}{{- if (dig "health" "enabled" true .Values.AsMap) -}}true{{- end -}}{{- end -}}
 {{- define "agent.healthPort" -}}{{- dig "health" "port" 8082 .Values.AsMap | int -}}{{- end -}}
+
+{{/* Telemetry: which of the two collector workloads (if either) this release needs. A signal counts as
+     "host" when it can only be observed per-node (resource usage, kubelet-sourced metrics, node/container
+     logs) and must therefore run on every node as a DaemonSet; everything else - cluster-wide object
+     watching, and anything applications push directly - runs once as a Deployment. */}}
+{{- define "agent.telemetryHostEnabled" -}}
+{{- $t := .Values.telemetry -}}
+{{- if or $t.resourceUsage.metrics.enabled $t.nodeRuntime.metrics.enabled $t.systemLogs.logs.enabled -}}true{{- end -}}
+{{- end -}}
+{{- define "agent.telemetryClusterEnabled" -}}
+{{- $t := .Values.telemetry -}}
+{{- if or $t.energy.metrics.enabled $t.kubernetesState.metrics.enabled $t.kubernetesEvents.logs.enabled $t.applicationMetrics.metrics.enabled $t.applicationLogs.logs.enabled $t.traces.traces.enabled $t.networkLatency.metrics.enabled -}}true{{- end -}}
+{{- end -}}
+{{- define "agent.telemetryEnabled" -}}
+{{- if or (include "agent.telemetryHostEnabled" .) (include "agent.telemetryClusterEnabled" .) -}}true{{- end -}}
+{{- end -}}
+
+{{/* Whether the k8sattributes processor (pod/namespace/node metadata enrichment) is needed - true for every
+     telemetry signal, so its RBAC is granted whenever telemetry is on at all rather than per-signal. */}}
+{{- define "agent.telemetryK8sAttrsEnabled" -}}{{- include "agent.telemetryEnabled" . -}}{{- end -}}
+
+{{- define "agent.telemetryOtlpReceiverEnabled" -}}
+{{- $t := .Values.telemetry -}}
+{{- if or $t.applicationMetrics.metrics.enabled $t.applicationLogs.logs.enabled $t.traces.traces.enabled $t.networkLatency.metrics.enabled -}}true{{- end -}}
+{{- end -}}
+
+{{- define "agent.telemetryPrometheusReceiverEnabled" -}}
+{{- $t := .Values.telemetry -}}
+{{- if or (and $t.energy.metrics.enabled (eq $t.energy.metrics.source "bundle-kepler")) (and $t.energy.metrics.enabled (eq $t.energy.metrics.source "existing")) $t.applicationMetrics.metrics.enabled -}}true{{- end -}}
+{{- end -}}
+
+{{/* Validates the parts of telemetry that cross signals: an export endpoint is required once anything
+     is enabled, and networkLatency has nothing to re-emit unless the underlying measurement is itself on. */}}
+{{- define "agent.telemetryValidate" -}}
+{{- if include "agent.telemetryEnabled" . -}}
+{{- if not .Values.telemetry.export.otlp.endpoint -}}{{- fail "telemetry.export.otlp.endpoint is required once any telemetry.* signal is enabled" -}}{{- end -}}
+{{- end -}}
+{{- if and .Values.telemetry.networkLatency.metrics.enabled (not .Values.measurements.enabled) -}}
+{{- fail "telemetry.networkLatency.metrics.enabled requires measurements.enabled: true - there is nothing to re-emit otherwise" -}}
+{{- end -}}
+{{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "existing") (not .Values.telemetry.energy.metrics.existing.prometheusEndpoint) -}}
+{{- fail "telemetry.energy.metrics.source=existing requires telemetry.energy.metrics.existing.prometheusEndpoint" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "agent.telemetryName" -}}continuum-telemetry{{- end -}}
+
+{{/* The "exporters" stanza shared by both collector ConfigMaps. Emits at column 0; the caller nindents it
+     into place. The auth header's value is never written here - only a reference to the environment
+     variable the container injects it into from a Secret at start (see telemetryExporterEnv below). */}}
+{{- define "agent.telemetryExporterYAML" -}}
+otlp:
+  endpoint: {{ .Values.telemetry.export.otlp.endpoint | quote }}
+  tls:
+    insecure: {{ .Values.telemetry.export.otlp.tls.insecure }}
+    {{- if .Values.telemetry.export.otlp.tls.caFile }}
+    ca_file: {{ .Values.telemetry.export.otlp.tls.caFile | quote }}
+    {{- end }}
+  {{- if .Values.telemetry.export.otlp.auth.secretName }}
+  headers:
+    {{ .Values.telemetry.export.otlp.auth.headerName }}: "${env:CONTINUUM_TELEMETRY_AUTH}"
+  {{- end }}
+{{- end -}}
+
+{{/* The one extra env entry a telemetry collector container needs beyond NODE_NAME, only when an auth
+     header is configured. A no-op (empty) otherwise, so callers can always include it unconditionally. */}}
+{{- define "agent.telemetryExporterEnv" -}}
+{{- if .Values.telemetry.export.otlp.auth.secretName }}
+- name: CONTINUUM_TELEMETRY_AUTH
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.telemetry.export.otlp.auth.secretName }}
+      key: {{ .Values.telemetry.export.otlp.auth.secretKey }}
+{{- end }}
+{{- end -}}
+
+{{/* Telemetry's own images: the OTel Collector Contrib distribution, and (only when bundled) Kepler.
+     Digest-vs-tag resolution mirrors agent.image/agent.imagePullPolicy above exactly. */}}
+{{- define "agent.telemetryCollectorImage" -}}
+{{- $i := .Values.telemetry.collectorImage -}}
+{{- if $i.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (toString $i.digest)) -}}{{- fail (printf "telemetry.collectorImage.digest must look like sha256:<64 hex characters>, got %q" (toString $i.digest)) -}}{{- end -}}
+{{- printf "%s@%s" $i.repository $i.digest -}}
+{{- else -}}
+{{- printf "%s:%s" $i.repository (toString $i.tag) -}}
+{{- end -}}
+{{- end -}}
+{{- define "agent.telemetryCollectorImagePullPolicy" -}}{{- .Values.telemetry.collectorImage.pullPolicy | default "IfNotPresent" -}}{{- end -}}
+
+{{- define "agent.telemetryKeplerImage" -}}
+{{- $i := .Values.telemetry.energy.metrics.keplerImage -}}
+{{- if $i.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (toString $i.digest)) -}}{{- fail (printf "telemetry.energy.metrics.keplerImage.digest must look like sha256:<64 hex characters>, got %q" (toString $i.digest)) -}}{{- end -}}
+{{- printf "%s@%s" $i.repository $i.digest -}}
+{{- else -}}
+{{- printf "%s:%s" $i.repository (toString $i.tag) -}}
+{{- end -}}
+{{- end -}}
+{{- define "agent.telemetryKeplerImagePullPolicy" -}}{{- .Values.telemetry.energy.metrics.keplerImage.pullPolicy | default "IfNotPresent" -}}{{- end -}}

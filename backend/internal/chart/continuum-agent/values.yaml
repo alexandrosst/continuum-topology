@@ -240,3 +240,151 @@ flowObserver:
     - operator: Exists
   nodeSelector:
     kubernetes.io/os: linux
+
+# Telemetry: what to actually collect and export as metrics, logs and traces, on top of the topology
+# discovery above. Off by default, signal by signal. Every enabled signal is normalized to OpenTelemetry
+# the moment it is collected: one embedded OpenTelemetry Collector (the Contrib distribution) receives
+# from whichever sources are turned on below and forwards them, as OTLP, to telemetry.export - your own
+# backend, not this server. Continuum does not ingest or store telemetry itself yet; this chart only
+# collects it and hands it off in a standard, vendor-neutral shape.
+#
+# Each signal below names:
+#   domain     application and/or infrastructure - what is being observed. Informational: the server's UI
+#              uses it to group signals, it has no effect on what this chart deploys.
+#   modality   metrics, logs, or traces - fixed per signal, not a choice.
+#   source     off | builtin | existing | bundle-<tool>
+#     off       not collected. The default for every signal.
+#     builtin   this chart's own OpenTelemetry Collector receiver for the signal - preferred wherever one
+#               exists (hostmetrics, kubeletstats, k8scluster, k8sobjects, filelog, otlp). No pods beyond
+#               the collector itself.
+#     existing  you already run something that produces this signal; the collector is pointed at it
+#               instead of anything this chart would otherwise deploy (a Prometheus scrape target for a
+#               metric, or this collector's own OTLP receiver for anything that already pushes OTLP).
+#     bundle-*  deploy a specific well-known third-party tool alongside the collector, for the one signal
+#               that has no OpenTelemetry-native receiver at all. Only energy needs this today (bundle-kepler).
+telemetry:
+  # The collector this chart deploys is the upstream OpenTelemetry Collector Contrib distribution, not the
+  # Continuum image - it needs the community's receivers (hostmetrics, kubeletstats, k8scluster, k8sobjects,
+  # filelog) that only that distribution ships. Pin collectorImage.digest the same way image.digest works
+  # above, once you have picked a version to trust.
+  collectorImage:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.113.0"
+    digest: ""
+    pullPolicy: ""
+
+  # Where the collector sends everything it receives, regardless of signal. Required if any signal below
+  # is enabled.
+  export:
+    otlp:
+      endpoint: ""    # host:port of your OTLP receiver, e.g. an existing collector gateway or observability backend
+      protocol: grpc  # grpc | http
+      tls:
+        insecure: false
+        caFile: ""    # path to a CA bundle to mount and trust, if your endpoint's certificate isn't otherwise trusted
+      # A single credential header, for backends that require one - never put its value directly in
+      # values.yaml (it would render into a ConfigMap in plain text, and land in `helm get values`/git diff).
+      # Instead point at a Secret you create yourself, in this release's namespace, holding just that value.
+      # Leave secretName empty for a backend that needs no auth header at all.
+      auth:
+        headerName: Authorization   # e.g. Authorization, or X-Api-Key for a backend that expects that instead
+        secretName: ""              # a Secret in this release's namespace, created outside this chart
+        secretKey: token            # the key within that Secret holding the header's value, e.g. "Bearer ..."
+
+  # domain: infrastructure (node-level) + application (container/pod-level)
+  resourceUsage:
+    metrics:
+      enabled: false
+      source: builtin   # builtin -> hostmetricsreceiver (node CPU/memory/filesystem/network) plus
+                         #            kubeletstatsreceiver (per-container/pod CPU/memory from the kubelet)
+      interval: 30s
+
+  # domain: infrastructure
+  energy:
+    metrics:
+      enabled: false
+      source: bundle-kepler   # bundle-kepler (deploy Kepler, scoped read-only, scraped by this collector) | existing
+      existing:
+        prometheusEndpoint: ""   # required when source=existing: host:port/path already serving kepler-shaped metrics
+      # Only used when source=bundle-kepler. Kepler needs to read RAPL energy counters and, on most
+      # kernels, load an eBPF program to attribute power to individual pods - real host access this chart
+      # cannot avoid by construction, the same trade-off flowObserver documents above for its own eBPF use.
+      # It runs privileged, one pod per node, and only Prometheus-scrapes to this collector; nothing else in
+      # this chart runs privileged. Left disabled unless bundle-kepler is actually selected.
+      keplerImage:
+        repository: quay.io/sustainable_computing_io/kepler
+        tag: "release-0.7.12"
+        digest: ""
+        pullPolicy: ""
+
+  # domain: infrastructure
+  kubernetesState:
+    metrics:
+      enabled: false
+      source: builtin   # builtin -> k8sclusterreceiver (pod/deployment/replica status and counts, cluster-wide)
+
+  # domain: infrastructure
+  nodeRuntime:
+    metrics:
+      enabled: false
+      source: builtin   # builtin -> kubeletstatsreceiver (pod lifecycle and volume metrics from the kubelet)
+
+  # domain: infrastructure
+  networkLatency:
+    metrics:
+      enabled: false
+      source: builtin   # builtin -> re-emits this agent's own path measurements (see "measurements" above) as OTel
+                         # metrics instead of, or in addition to, reporting them to the server as topology data.
+                         # Requires measurements.enabled: true; turning this on without that reports nothing.
+
+  # domain: application
+  applicationMetrics:
+    metrics:
+      enabled: false
+      source: builtin   # builtin -> an OTLP receiver (apps push to it directly, the standard OpenTelemetry SDK
+                         # pattern) plus a Prometheus receiver scraping the targets listed below
+      scrapeTargets: []  # [{jobName: "", namespace: "", podLabelSelector: "", port: 0, path: /metrics}]
+
+  # domain: infrastructure. "systemLogs" means the node's own operating system and container runtime, never
+  # application output (see applicationLogs below for that).
+  systemLogs:
+    logs:
+      enabled: false
+      source: builtin
+      journaling: journald  # journald | none - how the node OS itself logs. Kubelet's own container log
+                             # directory (where every distro's container stdout/stderr actually lands) is
+                             # always read when this signal is enabled, regardless of this setting; this only
+                             # controls whether the systemd journal is additionally read, since not every
+                             # distribution runs one (journald fails closed with a clear error on a node that
+                             # has no journal, rather than silently reading nothing).
+
+  # domain: infrastructure
+  kubernetesEvents:
+    logs:
+      enabled: false
+      source: builtin   # builtin -> k8sobjectsreceiver watching Events cluster-wide
+
+  # domain: application
+  applicationLogs:
+    logs:
+      enabled: false
+      source: builtin   # builtin -> the same OTLP receiver as applicationMetrics (apps push logs directly)
+
+  # domain: application
+  traces:
+    traces:
+      enabled: false
+      source: builtin   # builtin -> the same OTLP receiver again; there is no scrape-based source for traces
+
+  # Which namespaces application-scoped signals (applicationMetrics, applicationLogs, traces) are collected
+  # from. Reuses the same shape as "scope" above rather than inventing new vocabulary; empty means every
+  # namespace already covered by "scope" above. Has no effect on infrastructure-scoped signals, which are
+  # node- or cluster-wide by nature.
+  scope:
+    namespaces: []
+    exclude: []
+    selector: ""
+
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}

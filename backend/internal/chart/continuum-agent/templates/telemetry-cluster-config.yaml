@@ -1,0 +1,101 @@
+{{- if include "agent.telemetryClusterEnabled" . }}
+{{- $cMetrics := list }}
+{{- if .Values.telemetry.kubernetesState.metrics.enabled }}{{ $cMetrics = append $cMetrics "k8s_cluster" }}{{ end }}
+{{- if include "agent.telemetryPrometheusReceiverEnabled" . }}{{ $cMetrics = append $cMetrics "prometheus" }}{{ end }}
+{{- if or .Values.telemetry.networkLatency.metrics.enabled .Values.telemetry.applicationMetrics.metrics.enabled }}{{ $cMetrics = append $cMetrics "otlp" }}{{ end }}
+{{- $cLogs := list }}
+{{- if .Values.telemetry.kubernetesEvents.logs.enabled }}{{ $cLogs = append $cLogs "k8sobjects" }}{{ end }}
+{{- if .Values.telemetry.applicationLogs.logs.enabled }}{{ $cLogs = append $cLogs "otlp" }}{{ end }}
+{{- $keplerName := printf "%s-kepler" (include "agent.telemetryName" .) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agent.telemetryName" . }}-cluster-config
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      {{- if .Values.telemetry.kubernetesState.metrics.enabled }}
+      k8s_cluster:
+        collection_interval: 30s
+        auth_type: serviceAccount
+        allocatable_types_to_report: [cpu, memory]
+      {{- end }}
+      {{- if .Values.telemetry.kubernetesEvents.logs.enabled }}
+      k8sobjects:
+        auth_type: serviceAccount
+        objects:
+          - name: events
+            mode: watch
+      {{- end }}
+      {{- if include "agent.telemetryOtlpReceiverEnabled" . }}
+      otlp:
+        protocols:
+          grpc: {endpoint: "0.0.0.0:4317"}
+          http: {endpoint: "0.0.0.0:4318"}
+      {{- end }}
+      {{- if include "agent.telemetryPrometheusReceiverEnabled" . }}
+      prometheus:
+        config:
+          scrape_configs:
+            {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
+            - job_name: kepler
+              kubernetes_sd_configs: [{role: pod}]
+              relabel_configs:
+                - {source_labels: ["__meta_kubernetes_pod_label_app_kubernetes_io_name"], regex: {{ $keplerName | quote }}, action: keep}
+                - {source_labels: ["__meta_kubernetes_pod_node_name"], target_label: node}
+            {{- end }}
+            {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "existing") }}
+            - job_name: energy-existing
+              static_configs: [{targets: [{{ .Values.telemetry.energy.metrics.existing.prometheusEndpoint | quote }}]}]
+            {{- end }}
+            {{- range $t := .Values.telemetry.applicationMetrics.metrics.scrapeTargets }}
+            - job_name: {{ $t.jobName | quote }}
+              # podLabelSelector is a standard Kubernetes label selector (e.g. "app=myapp" or
+              # "app=myapp,tier=frontend"), evaluated by the Kubernetes API itself via the discovery
+              # config's own "selectors" field - not reimplemented here as relabel_configs, which would
+              # only support a single "key=value" pair and silently mismatch anything else.
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces: {names: [{{ $t.namespace | quote }}]}
+                  selectors:
+                    - {role: pod, label: {{ $t.podLabelSelector | quote }}}
+              relabel_configs:
+                - {source_labels: ["__address__"], target_label: "__address__", replacement: "${1}:{{ $t.port }}", regex: "([^:]+)(?::\\d+)?"}
+              metrics_path: {{ $t.path | default "/metrics" | quote }}
+            {{- end }}
+      {{- end }}
+
+    processors:
+      batch: {}
+      k8sattributes:
+        auth_type: serviceAccount
+        passthrough: false
+        extract:
+          metadata: [k8s.namespace.name, k8s.pod.name, k8s.deployment.name]
+
+    exporters:
+      {{- include "agent.telemetryExporterYAML" . | nindent 6 }}
+
+    service:
+      pipelines:
+        {{- if $cMetrics }}
+        metrics:
+          receivers: {{ $cMetrics | toJson }}
+          processors: [k8sattributes, batch]
+          exporters: [otlp]
+        {{- end }}
+        {{- if $cLogs }}
+        logs:
+          receivers: {{ $cLogs | toJson }}
+          processors: [k8sattributes, batch]
+          exporters: [otlp]
+        {{- end }}
+        {{- if .Values.telemetry.traces.traces.enabled }}
+        traces:
+          receivers: [otlp]
+          processors: [k8sattributes, batch]
+          exporters: [otlp]
+        {{- end }}
+{{- end }}

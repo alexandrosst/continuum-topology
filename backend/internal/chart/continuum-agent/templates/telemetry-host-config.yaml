@@ -1,0 +1,94 @@
+{{- if include "agent.telemetryHostEnabled" . }}
+{{- $hMetrics := list }}
+{{- if .Values.telemetry.resourceUsage.metrics.enabled }}{{ $hMetrics = append $hMetrics "hostmetrics" }}{{ end }}
+{{- if or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled }}{{ $hMetrics = append $hMetrics "kubeletstats" }}{{ end }}
+{{- $hLogs := list }}
+{{- if .Values.telemetry.systemLogs.logs.enabled }}{{ $hLogs = append $hLogs "filelog/containers" }}{{ if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}{{ $hLogs = append $hLogs "journald" }}{{ end }}{{ end }}
+{{- $metricGroups := list "container" "pod" "node" }}
+{{- if .Values.telemetry.nodeRuntime.metrics.enabled }}{{ $metricGroups = append $metricGroups "volume" }}{{ end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agent.telemetryName" . }}-host-config
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
+      hostmetrics:
+        collection_interval: {{ .Values.telemetry.resourceUsage.metrics.interval }}
+        root_path: /hostfs
+        scrapers:
+          cpu: {}
+          memory: {}
+          filesystem:
+            exclude_mount_points:
+              match_type: regexp
+              mount_points: ["/hostfs/dev/.*", "/hostfs/proc/.*", "/hostfs/sys/.*", "/hostfs/var/lib/kubelet/.*"]
+          network: {}
+      {{- end }}
+      {{- if or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled }}
+      kubeletstats:
+        collection_interval: {{ .Values.telemetry.resourceUsage.metrics.interval | default "30s" }}
+        auth_type: serviceAccount
+        endpoint: "https://${env:NODE_NAME}:10250"
+        insecure_skip_verify: true
+        metric_groups: {{ $metricGroups | toJson }}
+      {{- end }}
+      {{- if .Values.telemetry.systemLogs.logs.enabled }}
+      filelog/containers:
+        # Kubelet owns this path on every distribution this chart supports (k3s, kubeadm, RKE2, EKS, GKE,
+        # AKS): unlike a node's own OS logs, where a distribution actually does control the location,
+        # kubelet always writes container stdout/stderr here regardless of the underlying OS or container
+        # runtime. This is deliberately NOT the reference implementation's approach of reading a specific
+        # distribution's own log files (e.g. /var/log/k3s.log) - that only works on the one distribution it
+        # was written for.
+        include: ["/var/log/pods/*/*/*.log"]
+        include_file_path: true
+        start_at: end
+        operators:
+          - type: container
+      {{- if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}
+      # The node OS's own logs, where journald.enabled and the node actually runs one. Distributions
+      # without systemd (most container-optimized OSes - GKE's COS, Bottlerocket, Talos) have no journal to
+      # read; set telemetry.systemLogs.logs.journaling: none on a node pool built from one of those; this
+      # receiver would otherwise sit idle rather than silently reading nothing, since journald fails its own
+      # health check when /var/log/journal does not exist.
+      journald:
+        directory: /var/log/journal
+      {{- end }}
+      {{- end }}
+
+    processors:
+      batch: {}
+      # Tags every signal with the pod/namespace/node it came from, the standard OpenTelemetry way apps and
+      # backends already expect this metadata to arrive (k8s.pod.name, k8s.namespace.name, ...), rather than
+      # a Continuum-specific shape.
+      k8sattributes:
+        auth_type: serviceAccount
+        passthrough: false
+        extract:
+          metadata: [k8s.namespace.name, k8s.pod.name, k8s.node.name, k8s.deployment.name]
+      resource/node:
+        attributes:
+          - {key: k8s.node.name, value: "${env:NODE_NAME}", action: upsert}
+
+    exporters:
+      {{- include "agent.telemetryExporterYAML" . | nindent 6 }}
+
+    service:
+      pipelines:
+        {{- if $hMetrics }}
+        metrics:
+          receivers: {{ $hMetrics | toJson }}
+          processors: [k8sattributes, resource/node, batch]
+          exporters: [otlp]
+        {{- end }}
+        {{- if $hLogs }}
+        logs:
+          receivers: {{ $hLogs | toJson }}
+          processors: [k8sattributes, resource/node, batch]
+          exporters: [otlp]
+        {{- end }}
+{{- end }}

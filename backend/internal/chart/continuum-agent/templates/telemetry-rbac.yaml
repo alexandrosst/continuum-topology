@@ -1,0 +1,62 @@
+{{- include "agent.telemetryValidate" . -}}
+{{- if include "agent.telemetryEnabled" . }}
+# Telemetry's own ClusterRole, additive and separate from the discovery ClusterRoles in rbac.yaml: turning
+# on a telemetry signal never depends on, and never widens, access.tier. Bound to the same ServiceAccount as
+# the agent (one release, one enrolled identity) rather than a second one, since both halves of this chart
+# share one trust relationship with the server. Every rule below is read-only, and only the rule a currently
+# enabled signal actually needs is present - re-render with `helm template` after changing telemetry.* to see
+# exactly what permission set a given configuration holds.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "agent.name" . }}-telemetry
+  labels: {{- include "agent.labels" . | nindent 4 }}
+rules:
+  {{- if include "agent.telemetryK8sAttrsEnabled" . }}
+  # k8sattributes processor: tags every collected signal with the pod/namespace/node it came from.
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+  {{- if or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled }}
+  # kubeletstatsreceiver: per-container/pod resource usage and pod lifecycle/volume metrics, read from each
+  # node's own kubelet (:10250/stats, :10250/pods), one node at a time via the DaemonSet below - never
+  # proxied through the API server, so this needs no nodes/proxy permission, only nodes/stats.
+  - apiGroups: [""]
+    resources: ["nodes/stats"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]
+    verbs: ["get"]
+  {{- end }}
+  {{- if .Values.telemetry.kubernetesState.metrics.enabled }}
+  # k8sclusterreceiver: pod/deployment/replica status and counts, cluster-wide. Read-only, the same
+  # object kinds kube-state-metrics itself watches.
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces", "pods", "replicationcontrollers", "resourcequotas", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+  {{- if .Values.telemetry.kubernetesEvents.logs.enabled }}
+  # k8sobjectsreceiver, watching Events only: nothing else this receiver could be pointed at is granted.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "agent.name" . }}-telemetry-{{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ include "agent.name" . }}-telemetry}
+subjects: [{kind: ServiceAccount, name: {{ include "agent.name" . }}, namespace: {{ .Release.Namespace }}}]
+{{- end }}
