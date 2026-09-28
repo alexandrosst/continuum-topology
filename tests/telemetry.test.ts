@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { emptyTelemetry, telemetryActive, telemetryProblems, withTelemetry, type TelemetryInput } from '../src/lib/install'
-import { applyIntentPreset, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetryUpgradeCommand } from '../src/lib/consent'
+import { applyIntentPreset, seedTelemetryFromInstalled, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetryUpgradeCommand } from '../src/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '../src/lib/exportPresets'
 
 const base = 'helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace'
@@ -175,4 +175,24 @@ test('every export preset resolves to the existing generic export.otlp shape (no
 test('a known unsupported destination is flagged with why, not silently ignored', () => {
   assert.match(unsupportedDestinationNote('otlp.aws.example.com') ?? '', /AWS/)
   assert.equal(unsupportedDestinationNote('otel-gateway.example.com:4317'), undefined)
+})
+
+test('seeding from installedTelemetry turns on exactly the reported signals, nothing else', () => {
+  const seeded = seedTelemetryFromInstalled(['resourceUsage', 'traces', 'accelerators'])
+  assert.equal(seeded.resourceUsage, true)
+  assert.equal(seeded.traces, true)
+  assert.equal(seeded.accelerators, true)
+  assert.equal(seeded.energy, false, 'a signal not reported as installed stays off')
+  assert.equal(seeded.redaction, true, 'non-signal fields fall back to the same defaults as a fresh install')
+
+  // The bug this guards against: seeding from what is actually running, then generating an upgrade command
+  // for one additional signal, must not silently turn off everything else that was already on - because
+  // withTelemetry states every signal explicitly on every call (see its own comment on why).
+  const draft = { ...seedTelemetryFromInstalled(['resourceUsage', 'traces']), energy: true, exportEndpoint: 'otel-gateway.example.com:4317' }
+  const cmd = withTelemetry(base, draft)
+  assert.match(cmd, /telemetry\.resourceUsage\.metrics\.enabled=true/, 'a signal already installed must survive seeding + one more change')
+  assert.match(cmd, /telemetry\.traces\.traces\.enabled=true/, 'a signal already installed must survive seeding + one more change')
+  assert.match(cmd, /telemetry\.energy\.metrics\.enabled=true/)
+
+  assert.deepEqual(seedTelemetryFromInstalled([]), emptyTelemetry, 'nothing installed seeds exactly the fresh-install defaults')
 })

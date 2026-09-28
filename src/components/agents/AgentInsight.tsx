@@ -18,6 +18,7 @@ import {
   scopeWords,
   sortProblems,
   telemetryUpgradeCommand,
+  seedTelemetryFromInstalled,
   TELEMETRY_SIGNALS,
   tierName,
   uptimeWords,
@@ -28,7 +29,7 @@ import {
   type InstallInfo,
   type Severity,
 } from '@/lib/consent'
-import { emptyTelemetry, telemetryActive, type TelemetryInput } from '@/lib/install'
+import { telemetryActive, type TelemetryInput } from '@/lib/install'
 import type { Agent, AccessTier } from '@/lib/types'
 import { useServer } from '@/store/server'
 
@@ -378,7 +379,10 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
 export function TelemetryPanel({ diagnostics: d, install }: { diagnostics?: AgentDiagnostics; install?: InstallInfo }) {
   const installed = d?.installedTelemetry ?? []
   const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState<TelemetryInput>(emptyTelemetry)
+  // Seeded from what the agent actually reports running, not a blank form: withTelemetry states every
+  // signal explicitly on every call, so a blank draft would silently turn off everything the operator
+  // didn't happen to re-check the moment they ran the generated command for an unrelated change.
+  const [draft, setDraft] = useState<TelemetryInput>(() => seedTelemetryFromInstalled(installed))
   const command = useMemo(() => telemetryUpgradeCommand(install, draft), [install, draft])
 
   return (

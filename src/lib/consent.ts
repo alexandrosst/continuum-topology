@@ -6,7 +6,7 @@
  * namespaces left out). Widening is done by the cluster's owner with `helm upgrade`, and this file builds the exact command.
  * Everything here is pure so that it can be tested without a browser.
  */
-import { scopeProblems, splitNames, withTelemetry, type TelemetryInput } from './install'
+import { emptyTelemetry, scopeProblems, splitNames, withTelemetry, type TelemetryInput } from './install'
 
 export type Severity = 'info' | 'warn' | 'error'
 
@@ -279,6 +279,23 @@ export function applyIntentPreset(current: TelemetryInput, preset: TelemetryInte
   const next: TelemetryInput = { ...current }
   const rec = next as unknown as Record<string, boolean>
   for (const s of TELEMETRY_SIGNALS) rec[s.id] = preset.signals.includes(s.id)
+  return next
+}
+
+/**
+ * Seeds a fresh TelemetryInput from the agent's own self-reported signal list (`installedTelemetry`) -
+ * only which signals are actually on right now, mirroring applyIntentPreset's shape - because that self-
+ * report is the only part of the effective configuration the agent currently sends back (see
+ * TelemetryPanel in AgentInsight.tsx). Everything else (destination, processors, accelerators source)
+ * starts at its install default, same as a fresh install, since there is nothing today to seed those from.
+ * Without this, the "change telemetry" panel starts blank on every open - and because withTelemetry always
+ * states every signal explicitly (see its own comment on why), running the generated command from a blank
+ * draft would silently turn off every signal the operator didn't happen to re-check.
+ */
+export function seedTelemetryFromInstalled(installed: string[]): TelemetryInput {
+  const next: TelemetryInput = { ...emptyTelemetry }
+  const rec = next as unknown as Record<string, boolean>
+  for (const s of TELEMETRY_SIGNALS) rec[s.id] = installed.includes(s.id)
   return next
 }
 
