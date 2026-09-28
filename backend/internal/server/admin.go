@@ -52,6 +52,9 @@ type Admin struct {
 	// for a `--version` flag against an OCI/registry chart reference; a local ./file.tgz reference (no registry
 	// configured) always serves the exact chart this binary was built from and needs no version at all.
 	AgentChartVersion string
+	// OperatorChartVersion is continuum-regional-operator's own equivalent of AgentChartVersion above - the
+	// version the release pipeline published this build's regional-operator chart under, when known.
+	OperatorChartVersion string
 	// TrustProxy is set when a TLS-terminating proxy sits in front: the client address is read from
 	// the last entry of X-Forwarded-For (what the proxy itself saw), and the request counts as HTTPS
 	// when the proxy says so in X-Forwarded-Proto. Only correct when the proxy is the sole way in and
@@ -199,6 +202,13 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/agents/{id}/revoke", adminRole, a.revoke)
 	route("POST "+o+"/agents/{id}/tier", editorRole, a.setAgentTier)
 	route("POST "+o+"/agents/{id}/consent", editorRole, a.setAgentConsent)
+
+	route("GET "+o+"/operators", adminRole, a.listOperators)
+	route("POST "+o+"/operators", adminRole, a.createOperator)
+	route("GET "+o+"/operators/{id}", adminRole, a.getOperator)
+	route("POST "+o+"/operators/{id}/scope", adminRole, a.updateOperatorScope)
+	route("POST "+o+"/operators/{id}/revoke", adminRole, a.revokeOperator)
+	route("DELETE "+o+"/operators/{id}", adminRole, a.deleteOperator)
 
 	mux.Handle("/api/", a.cors(a.csrf(api)))
 	if a.UIDir != "" {
@@ -558,7 +568,7 @@ func (a *Admin) serverInfo(w http.ResponseWriter, r *http.Request) {
 
 // chartFile is the packaged chart's file name. The server always serves its own copy, whether or not the
 // install command uses it, so an operator can fall back to it.
-func (a *Admin) chartFile() string { return chart.Filename() }
+func (a *Admin) chartFile() string { return chart.Agent.Filename() }
 
 // chartRef is the chart the install command names, or "" when it names the downloaded file. An explicit
 // --chart-ref wins ("local" forces the file). Otherwise a configured image registry also holds the chart, as an
@@ -571,6 +581,25 @@ func (a *Admin) chartRef(img ImageConfig) string {
 		return a.ChartRef
 	case img.Configured():
 		return "oci://" + OCIBase(img.Registry) + "/continuum-agent"
+	}
+	return ""
+}
+
+// operatorChartFile/operatorChartRef are chartFile/chartRef's own twins for the regional-operator chart -
+// same rules, parameterized on chart.RegionalOperator and the "continuum-regional-operator" OCI artifact
+// name instead of chart.Agent and "continuum-agent". There is no separate --chart-ref flag for it: an
+// explicit a.ChartRef (set once, server-wide) is assumed to point at a repository that holds both charts
+// under their own names, the same way a configured image registry does.
+func (a *Admin) operatorChartFile() string { return chart.RegionalOperator.Filename() }
+
+func (a *Admin) operatorChartRef(img ImageConfig) string {
+	switch {
+	case a.ChartRef == "local":
+		return ""
+	case a.ChartRef != "":
+		return a.ChartRef
+	case img.Configured():
+		return "oci://" + OCIBase(img.Registry) + "/continuum-regional-operator"
 	}
 	return ""
 }
@@ -594,17 +623,20 @@ func OCIBase(registry string) string {
 // serveChart hands out the packaged agent chart. It holds no secrets (the enrollment token and the CA pin are
 // passed on the command line), so it needs no sign-in; that lets `helm install` take the URL directly.
 func (a *Admin) serveChart(w http.ResponseWriter, r *http.Request) {
-	if r.PathValue("file") != chart.Filename() {
+	c := chart.Agent
+	if r.PathValue("file") == chart.RegionalOperator.Filename() {
+		c = chart.RegionalOperator
+	} else if r.PathValue("file") != chart.Agent.Filename() {
 		http.NotFound(w, r)
 		return
 	}
-	b, err := chart.Package()
+	b, err := c.Package()
 	if err != nil {
 		http.Error(w, "chart unavailable", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/gzip")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+chart.Filename()+`"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+c.Filename()+`"`)
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Write(b)
 }
@@ -1372,7 +1404,15 @@ func (a *Admin) agentChartVersion() string {
 	if a.AgentChartVersion != "" {
 		return a.AgentChartVersion
 	}
-	return chart.Version()
+	return chart.Agent.Version()
+}
+
+// operatorChartVersion is agentChartVersion's own twin for the regional-operator chart.
+func (a *Admin) operatorChartVersion() string {
+	if a.OperatorChartVersion != "" {
+		return a.OperatorChartVersion
+	}
+	return chart.RegionalOperator.Version()
 }
 
 // installCommand is what the operator runs on the cluster. The token appears here once, in the
