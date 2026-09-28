@@ -25,9 +25,6 @@ rules:
   - apiGroups: [""]
     resources: ["nodes/stats"]
     verbs: ["get"]
-  - apiGroups: [""]
-    resources: ["nodes/proxy"]
-    verbs: ["get"]
   {{- end }}
   {{- if .Values.telemetry.kubernetesState.metrics.enabled }}
   # k8sclusterreceiver: pod/deployment/replica status and counts, cluster-wide. Read-only, the same

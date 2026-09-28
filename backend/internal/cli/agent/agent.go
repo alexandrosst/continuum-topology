@@ -39,6 +39,7 @@ func Main(args []string) int {
 	secret := fs.String("identity-secret", cli.Env("CONTINUUM_IDENTITY_SECRET", "continuum-agent-identity"), "Secret (in the agent's namespace) that holds the identity")
 	ns := fs.String("namespace", cli.Env("POD_NAMESPACE", "continuum-system"), "the agent's namespace")
 	releaseName := fs.String("release-name", cli.Env("CONTINUUM_RELEASE_NAME", ""), "the Helm release this agent was installed as (the chart sets this; empty outside it)")
+	telemetrySignals := fs.String("telemetry-signals", cli.Env("CONTINUUM_TELEMETRY_SIGNALS", ""), "telemetry signals this install's chart enabled (telemetry.*.enabled), comma separated - purely informational, reported in Diagnostics; the chart sets this automatically")
 	rbacSelfCheck := fs.Bool("rbac-self-check", cli.Env("CONTINUUM_RBAC_SELF_CHECK", "true") == "true", "periodically ask the cluster (SelfSubjectAccessReview) whether it still grants more than --tier declares, and report it as a problem if so; catches a helm upgrade that narrowed access.tier locally but was never run against the cluster")
 	probeListen := fs.String("probe-listen", cli.Env("CONTINUUM_PROBE_LISTEN", ""), "address to listen on for node probe reports, e.g. :8081 (empty: no node probes)")
 	probeSecretFile := fs.String("probe-secret-file", cli.Env("CONTINUUM_PROBE_SECRET_FILE", ""), "file holding the secret shared with the node probes")
@@ -92,6 +93,12 @@ func Main(args []string) int {
 	scope, err := collect.ParseScope(*scopeNS, *scopeExclude, *scopeLabel)
 	if err != nil {
 		return cli.Fatal(log, err)
+	}
+	var telemetrySignalList []string
+	for _, s := range strings.Split(*telemetrySignals, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			telemetrySignalList = append(telemetrySignalList, s)
+		}
 	}
 	var rbacNamespaced bool
 	switch *rbacMode {
@@ -179,7 +186,7 @@ func Main(args []string) int {
 		}
 		defer stopHealth()
 	}
-	err = agent.Run(ctx, agent.Config{Server: *server, CAPin: *pin, Token: token, Tier: *tier, Kube: client, APIHost: apiHost, Identity: ids, Version: cli.Version, Log: log, Probes: probes, Flows: flows, FlowWindow: *flowWindow, Measure: *measureOn, ProbeListen: *probeListen, Scope: scope, Health: health, RevokedHold: *revokedHold, ProbeInterval: *probeEvery, FlowInterval: *flowEvery, Namespace: *ns, ReleaseName: *releaseName, RBACSelfCheck: *rbacSelfCheck, RBACNamespaced: rbacNamespaced})
+	err = agent.Run(ctx, agent.Config{Server: *server, CAPin: *pin, Token: token, Tier: *tier, Kube: client, APIHost: apiHost, Identity: ids, Version: cli.Version, Log: log, Probes: probes, Flows: flows, FlowWindow: *flowWindow, Measure: *measureOn, ProbeListen: *probeListen, Scope: scope, Health: health, RevokedHold: *revokedHold, ProbeInterval: *probeEvery, FlowInterval: *flowEvery, Namespace: *ns, ReleaseName: *releaseName, TelemetrySignals: telemetrySignalList, RBACSelfCheck: *rbacSelfCheck, RBACNamespaced: rbacNamespaced})
 	if errors.Is(err, agent.ErrRevoked) {
 		// Exit with a code of its own (agent.ExitRevoked) so `kubectl get pod` and the restart count say what
 		// happened. Run has already said why, in plain words, and has waited a random 5-10 minutes if this was a

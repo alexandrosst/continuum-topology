@@ -651,6 +651,13 @@ message Diagnostics {
   google.protobuf.Timestamp generated_at = 15;
   // Namespaces the agent's own install leaves out by name (count only; the names stay in the cluster).
   uint32 own_excluded_namespaces = 16;
+  // Telemetry signals this install's chart enables (telemetry.*.enabled in the Helm values), by name: e.g.
+  // "resourceUsage", "energy", "kubernetesState", "nodeRuntime", "networkLatency", "applicationMetrics",
+  // "systemLogs", "kubernetesEvents", "applicationLogs", "traces". Purely informational, exactly like
+  // installed_tier above: a Helm-values-only ceiling this server can never push or change, reported so the
+  // UI can show what telemetry is actually installed without a live control-plane channel for it. Empty:
+  // no telemetry signal is enabled, or an agent older than this field.
+  repeated string installed_telemetry_signals = 17;
 }
 
 // One optional collector: the node probe receiver ("probes"), the flow pipeline ("flow") or connection timing

@@ -12,15 +12,18 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
 
 // rendered is what `helm template` produced, by kind.
 type rendered struct {
-	deployments map[string]appsv1.Deployment
-	daemonsets  map[string]appsv1.DaemonSet
-	secrets     map[string]corev1.Secret
-	policies    map[string]networkingv1.NetworkPolicy
+	deployments  map[string]appsv1.Deployment
+	daemonsets   map[string]appsv1.DaemonSet
+	secrets      map[string]corev1.Secret
+	policies     map[string]networkingv1.NetworkPolicy
+	configmaps   map[string]corev1.ConfigMap
+	clusterroles map[string]rbacv1.ClusterRole
 }
 
 var baseSet = []string{"--set", "server.address=a.example:8443", "--set", "server.caPin=ab", "--set", "enrollment.token=t"}
@@ -52,7 +55,7 @@ func render(t *testing.T, extra ...string) rendered {
 	if err != nil {
 		t.Fatalf("helm template %v: %v\n%s", extra, err, out)
 	}
-	r := rendered{map[string]appsv1.Deployment{}, map[string]appsv1.DaemonSet{}, map[string]corev1.Secret{}, map[string]networkingv1.NetworkPolicy{}}
+	r := rendered{map[string]appsv1.Deployment{}, map[string]appsv1.DaemonSet{}, map[string]corev1.Secret{}, map[string]networkingv1.NetworkPolicy{}, map[string]corev1.ConfigMap{}, map[string]rbacv1.ClusterRole{}}
 	dec := yaml.NewYAMLOrJSONDecoder(strings.NewReader(out), 4096)
 	for {
 		var raw json.RawMessage
@@ -93,6 +96,14 @@ func render(t *testing.T, extra ...string) rendered {
 			var p networkingv1.NetworkPolicy
 			into(&p)
 			r.policies[name] = p
+		case "ConfigMap":
+			var c corev1.ConfigMap
+			into(&c)
+			r.configmaps[name] = c
+		case "ClusterRole":
+			var c rbacv1.ClusterRole
+			into(&c)
+			r.clusterroles[name] = c
 		}
 	}
 	return r

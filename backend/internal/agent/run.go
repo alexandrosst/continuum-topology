@@ -51,6 +51,12 @@ type Config struct {
 	// Namespace: so the server's `helm upgrade`/`helm uninstall` commands name the right release instead of guessing
 	// "continuum-agent". Empty outside the chart (dev, tests, an install that predates this field).
 	ReleaseName string
+	// TelemetrySignals is which telemetry.*.enabled signals this install's chart turned on (the chart computes
+	// and injects CONTINUUM_TELEMETRY_SIGNALS as a comma-separated list of signal names). Reported in
+	// Diagnostics, exactly like Tier - the agent never interprets or enforces these names itself; it only says
+	// what the chart was told to install, so the UI can show real state instead of a blind guess. Nil outside
+	// the chart, or when no telemetry signal is enabled.
+	TelemetrySignals []string
 
 	// RBACSelfCheck, when true, periodically asks the cluster (SelfSubjectAccessReview, which every ServiceAccount
 	// may always ask about itself, needing no permission of its own) whether it still grants more than Tier

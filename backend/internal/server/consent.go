@@ -532,14 +532,19 @@ type DiagnosticsDoc struct {
 	Collectors         []AgentCollectorDoc `json:"collectors"`
 	Informers          []InformerDoc       `json:"informers"`
 	Problems           []ProblemDoc        `json:"problems"`
+	// InstalledTelemetry is which telemetry signals this agent's chart install enabled (telemetry.*.enabled),
+	// by name - purely informational, exactly like InstalledTier: this server never pushes or changes it, and
+	// it never affects discovery. Empty: no telemetry signal installed, or an agent older than this field.
+	InstalledTelemetry []string `json:"installedTelemetry,omitempty"`
 }
 
 // maxDiag* bound what an agent may make the server hold about its own diagnostics.
 const (
-	maxDiagCollectors = 8
-	maxDiagInformers  = 64
-	maxDiagProblems   = 32
-	maxDiagBytes      = 128 << 10
+	maxDiagCollectors       = 8
+	maxDiagInformers        = 64
+	maxDiagProblems         = 32
+	maxDiagBytes            = 128 << 10
+	maxDiagTelemetrySignals = 16 // ten known signal names today; generous headroom, not unbounded
 )
 
 func tierName(t int) string {
@@ -575,6 +580,9 @@ func noteDiagnostics(v *view, d *continuumv1.Diagnostics, partial bool, at time.
 	}
 	if len(d.PausedCollectors) > maxDiagCollectors {
 		d.PausedCollectors = d.PausedCollectors[:maxDiagCollectors]
+	}
+	if len(d.InstalledTelemetrySignals) > maxDiagTelemetrySignals {
+		d.InstalledTelemetrySignals = d.InstalledTelemetrySignals[:maxDiagTelemetrySignals]
 	}
 	v.ext.diag, v.ext.diagAt, v.ext.diagPartial = d, at, partial
 }
@@ -658,6 +666,9 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 	}
 	for _, p := range d.PausedCollectors {
 		out.PausedCollectors = append(out.PausedCollectors, printable(p, 20))
+	}
+	for _, s := range d.InstalledTelemetrySignals {
+		out.InstalledTelemetry = append(out.InstalledTelemetry, printable(s, 40))
 	}
 	for _, c := range d.Collectors {
 		cd := AgentCollectorDoc{Name: printable(c.Name, 20), Configured: c.Configured, Enabled: c.Enabled, PausedByServer: c.PausedByServer, Producing: c.Producing,

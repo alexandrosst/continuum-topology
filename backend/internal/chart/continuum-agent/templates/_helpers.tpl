@@ -123,11 +123,6 @@ IfNotPresent
 {{- if or $t.applicationMetrics.metrics.enabled $t.applicationLogs.logs.enabled $t.traces.traces.enabled $t.networkLatency.metrics.enabled -}}true{{- end -}}
 {{- end -}}
 
-{{- define "agent.telemetryPrometheusReceiverEnabled" -}}
-{{- $t := .Values.telemetry -}}
-{{- if or (and $t.energy.metrics.enabled (eq $t.energy.metrics.source "bundle-kepler")) (and $t.energy.metrics.enabled (eq $t.energy.metrics.source "existing")) $t.applicationMetrics.metrics.enabled -}}true{{- end -}}
-{{- end -}}
-
 {{/* Validates the parts of telemetry that cross signals: an export endpoint is required once anything
      is enabled, and networkLatency has nothing to re-emit unless the underlying measurement is itself on. */}}
 {{- define "agent.telemetryValidate" -}}
@@ -139,6 +134,81 @@ IfNotPresent
 {{- end -}}
 {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "existing") (not .Values.telemetry.energy.metrics.existing.prometheusEndpoint) -}}
 {{- fail "telemetry.energy.metrics.source=existing requires telemetry.energy.metrics.existing.prometheusEndpoint" -}}
+{{- end -}}
+{{- if .Values.telemetry.scope.selector -}}
+{{- fail "telemetry.scope.selector is not implemented: filtering already-received telemetry by an arbitrary Kubernetes label selector isn't something the collector can do cleanly after the fact. Use telemetry.scope.namespaces / telemetry.scope.exclude instead." -}}
+{{- end -}}
+{{- if and .Values.telemetry.opamp.enabled (not .Values.telemetry.opamp.server.endpoint) -}}
+{{- fail "telemetry.opamp.enabled requires telemetry.opamp.server.endpoint" -}}
+{{- end -}}
+{{- end -}}
+
+{{/* True when either half of telemetry.scope is set - gates whether the filter/scope_* processors and the
+     split app/infra pipelines are emitted in telemetry-cluster-config.yaml at all. */}}
+{{- define "agent.telemetryScopeFilterEnabled" -}}
+{{- if or .Values.telemetry.scope.namespaces .Values.telemetry.scope.exclude -}}true{{- end -}}
+{{- end -}}
+
+{{/* Per-workload resource requests/limits: the override if the operator set one, else the shared default.
+     Sprig has no clean "is this map non-empty" beyond truthiness, which works fine here since an empty map
+     ({}) and an unset field both render as Go's nil/zero value and are falsy in a template {{- if }}. */}}
+{{- define "agent.telemetryHostCollectorResources" -}}
+{{- if .Values.telemetry.hostCollector.resources -}}{{- toYaml .Values.telemetry.hostCollector.resources -}}
+{{- else -}}{{- toYaml .Values.telemetry.resources -}}{{- end -}}
+{{- end -}}
+{{- define "agent.telemetryClusterCollectorResources" -}}
+{{- if .Values.telemetry.clusterCollector.resources -}}{{- toYaml .Values.telemetry.clusterCollector.resources -}}
+{{- else -}}{{- toYaml .Values.telemetry.resources -}}{{- end -}}
+{{- end -}}
+{{- define "agent.telemetryKeplerResources" -}}
+{{- if .Values.telemetry.energy.metrics.resources -}}{{- toYaml .Values.telemetry.energy.metrics.resources -}}
+{{- else -}}{{- toYaml .Values.telemetry.resources -}}{{- end -}}
+{{- end -}}
+
+{{/* Comma-separated list of enabled telemetry signal names, for the agent container's own
+     CONTINUUM_TELEMETRY_SIGNALS env var (see deployment.yaml): the agent self-reports this in its
+     Diagnostics, the same way it already self-reports its installed RBAC tier, so the UI can show what
+     telemetry is actually installed without needing a live control-plane channel for it. Purely
+     informational - the agent never interprets or enforces these names itself. */}}
+{{- define "agent.telemetrySignalNames" -}}
+{{- $t := .Values.telemetry -}}
+{{- $n := list -}}
+{{- if $t.resourceUsage.metrics.enabled }}{{ $n = append $n "resourceUsage" }}{{ end -}}
+{{- if $t.energy.metrics.enabled }}{{ $n = append $n "energy" }}{{ end -}}
+{{- if $t.kubernetesState.metrics.enabled }}{{ $n = append $n "kubernetesState" }}{{ end -}}
+{{- if $t.nodeRuntime.metrics.enabled }}{{ $n = append $n "nodeRuntime" }}{{ end -}}
+{{- if $t.networkLatency.metrics.enabled }}{{ $n = append $n "networkLatency" }}{{ end -}}
+{{- if $t.applicationMetrics.metrics.enabled }}{{ $n = append $n "applicationMetrics" }}{{ end -}}
+{{- if $t.systemLogs.logs.enabled }}{{ $n = append $n "systemLogs" }}{{ end -}}
+{{- if $t.kubernetesEvents.logs.enabled }}{{ $n = append $n "kubernetesEvents" }}{{ end -}}
+{{- if $t.applicationLogs.logs.enabled }}{{ $n = append $n "applicationLogs" }}{{ end -}}
+{{- if $t.traces.traces.enabled }}{{ $n = append $n "traces" }}{{ end -}}
+{{- join "," $n -}}
+{{- end -}}
+
+{{/* The OpAMP extension block (ALPHA status upstream), and its entry in service.extensions - both emit
+     nothing when telemetry.opamp.enabled is false, so callers can always include them unconditionally.
+     Report-only: reports_effective_config/reports_health/reports_available_components default to true in
+     the extension itself and are left at their defaults here rather than restated. */}}
+{{- define "agent.telemetryOpampExtensionYAML" -}}
+{{- if .Values.telemetry.opamp.enabled -}}
+opamp:
+  server:
+    ws:
+      endpoint: {{ .Values.telemetry.opamp.server.endpoint | quote }}
+      {{- if or .Values.telemetry.opamp.server.tls.insecure .Values.telemetry.opamp.server.tls.caFile }}
+      tls:
+        insecure: {{ .Values.telemetry.opamp.server.tls.insecure }}
+        {{- if .Values.telemetry.opamp.server.tls.caFile }}
+        ca_file: {{ .Values.telemetry.opamp.server.tls.caFile | quote }}
+        {{- end }}
+      {{- end }}
+      {{- if .Values.telemetry.opamp.server.headers }}
+      headers:
+        {{- range $k, $v := .Values.telemetry.opamp.server.headers }}
+        {{ $k }}: {{ $v | quote }}
+        {{- end }}
+      {{- end }}
 {{- end -}}
 {{- end -}}
 

@@ -6,7 +6,7 @@
  * namespaces left out). Widening is done by the cluster's owner with `helm upgrade`, and this file builds the exact command.
  * Everything here is pure so that it can be tested without a browser.
  */
-import { scopeProblems, splitNames } from './install'
+import { scopeProblems, splitNames, withTelemetry, type TelemetryInput } from './install'
 
 export type Severity = 'info' | 'warn' | 'error'
 
@@ -59,6 +59,10 @@ export interface AgentDiagnostics {
   collectors: AgentCollector[]
   informers: AgentInformer[]
   problems: AgentProblem[]
+  /** Telemetry signals this install's chart actually has enabled (telemetry.*.enabled), by name - what
+   *  really runs, as opposed to what the install command below merely offers to turn on. Empty: none enabled,
+   *  or an agent older than this field. */
+  installedTelemetry?: string[]
 }
 
 /** What an administrator has asked one agent to leave out, and whether the agent has caught up with it. */
@@ -98,7 +102,7 @@ export function extrasOf(agents: readonly unknown[] | undefined, id: string): Ag
   const a = (agents ?? []).find((x) => (x as { id?: string }).id === id) as AgentExtras | undefined
   if (!a) return {}
   return {
-    diagnostics: a.diagnostics ? { ...a.diagnostics, pausedCollectors: a.diagnostics.pausedCollectors ?? [], collectors: a.diagnostics.collectors ?? [], informers: a.diagnostics.informers ?? [], problems: a.diagnostics.problems ?? [] } : undefined,
+    diagnostics: a.diagnostics ? { ...a.diagnostics, pausedCollectors: a.diagnostics.pausedCollectors ?? [], collectors: a.diagnostics.collectors ?? [], informers: a.diagnostics.informers ?? [], problems: a.diagnostics.problems ?? [], installedTelemetry: a.diagnostics.installedTelemetry ?? [] } : undefined,
     consent: a.consent
       ? {
           pausedCollectors: a.consent.pausedCollectors ?? [],
@@ -222,6 +226,38 @@ export function collectorState(c: AgentCollector | undefined): CollectorState {
     return c.producing ? { tone: c.reporting < c.expected ? 'warn' : 'ok', label: `On, reporting from ${of}` } : { tone: 'warn', label: `On, but silent (${of} reporting)` }
   }
   return c.producing ? { tone: 'ok', label: c.note ? `On, ${c.note}` : 'On' } : { tone: 'warn', label: c.note ? `On, ${c.note}` : 'On, nothing yet' }
+}
+
+/* ---------- telemetry ---------- */
+
+/**
+ * The catalog shown in the telemetry panel and the wizard's telemetry section. `id` matches the key used
+ * everywhere else this signal is named: TelemetryInput's own field, the chart's `telemetry.<id>.enabled`
+ * path, and the exact string the agent self-reports in `installedTelemetry` - one vocabulary, not three.
+ */
+export const TELEMETRY_SIGNALS: { id: string; label: string; domain: 'infrastructure' | 'application'; what: string }[] = [
+  { id: 'resourceUsage', label: 'Resource usage', domain: 'infrastructure', what: 'Node and per-container CPU, memory, filesystem and network, from the kubelet and the host.' },
+  { id: 'energy', label: 'Energy', domain: 'infrastructure', what: 'Power draw per node/pod, from Kepler (bundled, or an existing one you already run).' },
+  { id: 'kubernetesState', label: 'Kubernetes state', domain: 'infrastructure', what: 'Pod, deployment and replica status and counts, cluster-wide.' },
+  { id: 'nodeRuntime', label: 'Node runtime', domain: 'infrastructure', what: 'Pod lifecycle and volume metrics from the kubelet.' },
+  { id: 'networkLatency', label: 'Network latency', domain: 'infrastructure', what: "This agent's own path measurements, re-emitted as OTel metrics." },
+  { id: 'applicationMetrics', label: 'Application metrics', domain: 'application', what: 'Metrics your applications push (OTLP) or that this collector scrapes (Prometheus).' },
+  { id: 'systemLogs', label: 'System logs', domain: 'infrastructure', what: "Each node's own OS/container runtime logs, never application output." },
+  { id: 'kubernetesEvents', label: 'Kubernetes events', domain: 'infrastructure', what: 'Cluster Events, watched cluster-wide.' },
+  { id: 'applicationLogs', label: 'Application logs', domain: 'application', what: 'Logs your applications push directly (OTLP).' },
+  { id: 'traces', label: 'Traces', domain: 'application', what: 'Distributed traces your applications push directly (OTLP).' },
+]
+
+/**
+ * The command to change an agent's telemetry after install - `--reuse-values` keeps everything else,
+ * mirroring `helmUpgradeCommand`'s tier-widening shape exactly. Command-generation only, like that one:
+ * nothing here is ever pushed live (see the panel that uses this).
+ */
+export function telemetryUpgradeCommand(install: InstallInfo | undefined, t: TelemetryInput): string {
+  const ref = install?.chartRef || `./${install?.chartFile || 'continuum-agent.tgz'}`
+  const version = install?.chartRef && !install.chartRef.endsWith('.tgz') && install.chartVersion ? ` --version ${install.chartVersion}` : ''
+  const base = `helm upgrade continuum-agent ${ref}${version} --namespace continuum-system --reuse-values`
+  return withTelemetry(base, t)
 }
 
 /* ---------- what an administrator may ask ---------- */

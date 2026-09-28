@@ -4135,8 +4135,15 @@ type Diagnostics struct {
 	GeneratedAt *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=generated_at,json=generatedAt,proto3" json:"generated_at,omitempty"`
 	// Namespaces the agent's own install leaves out by name (count only; the names stay in the cluster).
 	OwnExcludedNamespaces uint32 `protobuf:"varint,16,opt,name=own_excluded_namespaces,json=ownExcludedNamespaces,proto3" json:"own_excluded_namespaces,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Telemetry signals this install's chart enables (telemetry.*.enabled in the Helm values), by name: e.g.
+	// "resourceUsage", "energy", "kubernetesState", "nodeRuntime", "networkLatency", "applicationMetrics",
+	// "systemLogs", "kubernetesEvents", "applicationLogs", "traces". Purely informational, exactly like
+	// installed_tier above: a Helm-values-only ceiling this server can never push or change, reported so the
+	// UI can show what telemetry is actually installed without a live control-plane channel for it. Empty:
+	// no telemetry signal is enabled, or an agent older than this field.
+	InstalledTelemetrySignals []string `protobuf:"bytes,17,rep,name=installed_telemetry_signals,json=installedTelemetrySignals,proto3" json:"installed_telemetry_signals,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *Diagnostics) Reset() {
@@ -4279,6 +4286,13 @@ func (x *Diagnostics) GetOwnExcludedNamespaces() uint32 {
 		return x.OwnExcludedNamespaces
 	}
 	return 0
+}
+
+func (x *Diagnostics) GetInstalledTelemetrySignals() []string {
+	if x != nil {
+		return x.InstalledTelemetrySignals
+	}
+	return nil
 }
 
 // One optional collector: the node probe receiver ("probes"), the flow pipeline ("flow") or connection timing
@@ -4949,7 +4963,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	" \x01(\x04R\vretransmits\x12-\n" +
 	"\x12window_retransmits\x18\v \x01(\x04R\x11windowRetransmits\"9\n" +
 	"\tFlowTable\x12,\n" +
-	"\x05edges\x18\x01 \x03(\v2\x16.continuum.v1.FlowEdgeR\x05edges\"\xc2\x05\n" +
+	"\x05edges\x18\x01 \x03(\v2\x16.continuum.v1.FlowEdgeR\x05edges\"\x82\x06\n" +
 	"\vDiagnostics\x12#\n" +
 	"\ragent_version\x18\x01 \x01(\tR\fagentVersion\x12\x12\n" +
 	"\x04arch\x18\x02 \x01(\tR\x04arch\x12\x0e\n" +
@@ -4969,7 +4983,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x13excluded_namespaces\x18\r \x01(\rR\x12excludedNamespaces\x12!\n" +
 	"\fflow_dropped\x18\x0e \x01(\x04R\vflowDropped\x12=\n" +
 	"\fgenerated_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\vgeneratedAt\x126\n" +
-	"\x17own_excluded_namespaces\x18\x10 \x01(\rR\x15ownExcludedNamespaces\"\xac\x02\n" +
+	"\x17own_excluded_namespaces\x18\x10 \x01(\rR\x15ownExcludedNamespaces\x12>\n" +
+	"\x1binstalled_telemetry_signals\x18\x11 \x03(\tR\x19installedTelemetrySignals\"\xac\x02\n" +
 	"\rCollectorDiag\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +

@@ -344,6 +344,26 @@ func TestAnOversizedDiagnosticsAccountIsIgnoredNotRefused(t *testing.T) {
 	}
 }
 
+func TestInstalledTelemetrySignalsRoundTripAndTruncate(t *testing.T) {
+	v := newView()
+	noteDiagnostics(v, &continuumv1.Diagnostics{AgentVersion: "1", InstalledTelemetrySignals: []string{"traces", "energy"}}, false, time.Now())
+	doc := v.diagDoc()
+	if got := strings.Join(doc.InstalledTelemetry, ","); got != "traces,energy" {
+		t.Fatalf("InstalledTelemetry = %v, want [traces energy] (order preserved, the agent already sorts it)", doc.InstalledTelemetry)
+	}
+
+	// A longer-than-bound list is truncated, not refused outright - same treatment as PausedCollectors/Problems.
+	v2 := newView()
+	long := &continuumv1.Diagnostics{AgentVersion: "1"}
+	for i := 0; i < maxDiagTelemetrySignals+5; i++ {
+		long.InstalledTelemetrySignals = append(long.InstalledTelemetrySignals, fmt.Sprintf("signal%d", i))
+	}
+	noteDiagnostics(v2, long, false, time.Now())
+	if len(v2.ext.diag.InstalledTelemetrySignals) != maxDiagTelemetrySignals {
+		t.Fatalf("InstalledTelemetrySignals not truncated: %d entries", len(v2.ext.diag.InstalledTelemetrySignals))
+	}
+}
+
 // ---- chunked full sync ----
 
 func workloads(n int, prefix string) []*continuumv1.WorkloadFacts {

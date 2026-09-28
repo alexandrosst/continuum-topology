@@ -70,7 +70,7 @@ spec:
             - {name: journal, mountPath: /var/log/journal, readOnly: true}
             {{- end }}
             {{- end }}
-          resources: {{- toYaml .Values.telemetry.resources | nindent 12 }}
+          resources: {{- include "agent.telemetryHostCollectorResources" . | nindent 12 }}
       volumes:
         - name: config
           configMap: {name: {{ include "agent.telemetryName" . }}-host-config}
@@ -91,10 +91,8 @@ spec:
           hostPath: {path: /var/log/journal, type: Directory}
         {{- end }}
         {{- end }}
-      tolerations:
-        - operator: Exists
-      nodeSelector:
-        kubernetes.io/os: linux
+      tolerations: {{- toYaml .Values.telemetry.hostCollector.tolerations | nindent 8 }}
+      nodeSelector: {{- toYaml .Values.telemetry.hostCollector.nodeSelector | nindent 8 }}
 {{- end }}
 
 {{/* ============================== Cluster-scoped collector (Deployment) ==============================
@@ -159,7 +157,7 @@ spec:
           {{- end }}
           volumeMounts:
             - {name: config, mountPath: /conf, readOnly: true}
-          resources: {{- toYaml .Values.telemetry.resources | nindent 12 }}
+          resources: {{- include "agent.telemetryClusterCollectorResources" . | nindent 12 }}
       volumes:
         - name: config
           configMap: {name: {{ include "agent.telemetryName" . }}-cluster-config}
@@ -238,16 +236,14 @@ spec:
           volumeMounts:
             - {name: proc, mountPath: /proc, readOnly: true}
             - {name: sys, mountPath: /sys, readOnly: true}
-          resources: {{- toYaml .Values.telemetry.resources | nindent 12 }}
+          resources: {{- include "agent.telemetryKeplerResources" . | nindent 12 }}
       volumes:
         - name: proc
           hostPath: {path: /proc}
         - name: sys
           hostPath: {path: /sys}
-      tolerations:
-        - operator: Exists
-      nodeSelector:
-        kubernetes.io/os: linux
+      tolerations: {{- toYaml .Values.telemetry.energy.metrics.tolerations | nindent 8 }}
+      nodeSelector: {{- toYaml .Values.telemetry.energy.metrics.nodeSelector | nindent 8 }}
 ---
 apiVersion: v1
 kind: Service

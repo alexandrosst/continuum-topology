@@ -269,7 +269,7 @@ telemetry:
   # above, once you have picked a version to trust.
   collectorImage:
     repository: otel/opentelemetry-collector-contrib
-    tag: "0.113.0"
+    tag: "0.160.0"
     digest: ""
     pullPolicy: ""
 
@@ -316,6 +316,17 @@ telemetry:
         tag: "release-0.7.12"
         digest: ""
         pullPolicy: ""
+      # Scheduling overrides for the Kepler DaemonSet specifically (it needs its own: privileged and
+      # hostPID, most clusters want it kept off tainted/GPU pools deliberately, unlike the host collector
+      # below which usually should run everywhere). Defaults reproduce this chart's original hardcoded
+      # behavior (every Linux node).
+      tolerations:
+        - operator: Exists
+      nodeSelector:
+        kubernetes.io/os: linux
+      # Falls back to telemetry.resources below when left empty - override only if Kepler's actual profile
+      # (one small privileged pod per node) needs something different from the shared default.
+      resources: {}
 
   # domain: infrastructure
   kubernetesState:
@@ -328,6 +339,13 @@ telemetry:
     metrics:
       enabled: false
       source: builtin   # builtin -> kubeletstatsreceiver (pod lifecycle and volume metrics from the kubelet)
+      # Its own cadence, independent of resourceUsage.metrics.interval above: nodeRuntime can be enabled on
+      # its own (resourceUsage off), and previously silently inherited resourceUsage's interval even then -
+      # now it always has one. When resourceUsage is also on, both signals still share one kubeletstats
+      # receiver instance and resourceUsage.metrics.interval wins for that receiver's actual scrape cadence
+      # (see telemetry-host-config.yaml); this field only governs the case where nodeRuntime is the sole
+      # reason kubeletstats is running.
+      interval: 30s
 
   # domain: infrastructure
   networkLatency:
@@ -378,13 +396,57 @@ telemetry:
 
   # Which namespaces application-scoped signals (applicationMetrics, applicationLogs, traces) are collected
   # from. Reuses the same shape as "scope" above rather than inventing new vocabulary; empty means every
-  # namespace already covered by "scope" above. Has no effect on infrastructure-scoped signals, which are
-  # node- or cluster-wide by nature.
+  # namespace already covered by "scope" above. Has no effect on infrastructure-scoped signals (resourceUsage,
+  # energy, kubernetesState, nodeRuntime, systemLogs, kubernetesEvents), which are node- or cluster-wide by
+  # nature and always unfiltered by this.
+  #   - namespaces: keep only these (drop everything else app-scoped)
+  #   - exclude: drop these specifically (keep everything else app-scoped)
+  #   - selector is NOT implemented: filtering already-received telemetry by an arbitrary Kubernetes label
+  #     selector isn't something the collector can do cleanly after the fact (it only has the resource
+  #     attributes k8sattributes extracted, not a live label-selector evaluation against the API) - setting
+  #     it fails the release rather than being silently ignored. Use namespaces/exclude instead.
+  #   - networkLatency shares its OTLP receiver with applicationMetrics/traces (see telemetry-cluster-
+  #     config.yaml) and has no distinguishing tag of its own, so when both networkLatency and any
+  #     application-scoped signal are enabled together with a namespace scope active, the scope filter
+  #     applies to networkLatency's own re-emitted metrics too (they carry no k8s.namespace.name, so an
+  #     include-list scope drops them entirely). A real fix needs this agent to tag its own OTLP output,
+  #     which this chart alone can't do - known, accepted limitation for now.
   scope:
     namespaces: []
     exclude: []
     selector: ""
 
+  # Per-workload scheduling and sizing for the host DaemonSet (see telemetry.yaml). Kepler's own equivalent
+  # knobs live under energy.metrics above, next to its image, rather than a third top-level block; the
+  # cluster Deployment only needs resources (it isn't a DaemonSet, so tolerations/nodeSelector don't apply
+  # the same way - use a normal deployment-level scheduling override if you ever need one).
+  hostCollector:
+    tolerations:
+      - operator: Exists
+    nodeSelector:
+      kubernetes.io/os: linux
+    resources: {}   # falls back to telemetry.resources below when empty
+  clusterCollector:
+    resources: {}   # falls back to telemetry.resources below when empty
+
+  # Off by default. When enabled, adds the OpenTelemetry Collector Contrib "opamp" extension (ALPHA status
+  # upstream as of this chart's pinned collectorImage - the schema may still change) to both collector
+  # ConfigMaps: it reports this collector's health, effective config, and available components to an OpAMP
+  # server, if one is actually listening at server.endpoint. This is report-only and forward-compatible with
+  # a future Continuum-side OpAMP server / control-plane component - it does NOT accept remote config push
+  # itself (that needs the separate OpAMP "Supervisor" process pattern wrapping the collector, which this
+  # chart does not implement). Safe to leave off; nothing here works without a server to report to.
+  opamp:
+    enabled: false
+    server:
+      endpoint: ""   # e.g. wss://opamp.example.com:4320/v1/opamp
+      tls:
+        insecure: false
+        caFile: ""
+      headers: {}    # extra headers sent on the WebSocket handshake, e.g. for a bearer token - map[string]string
+
+  # Shared default for every telemetry workload's resource requests/limits (host collector, cluster
+  # collector, Kepler); override per-workload above when one of them needs something different.
   resources:
     requests: {cpu: 20m, memory: 64Mi}
     limits: {memory: 256Mi}

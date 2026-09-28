@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { ChevronDown, ChevronRight, List, Network, Plug, Server } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
-import { CanSee, ConsentPanel, CopyCommand as CopyableCommand, DiscoveryChip, HealthChip, Problems } from '@/components/agents/AgentInsight'
+import { CanSee, ConsentPanel, CopyCommand as CopyableCommand, DiscoveryChip, HealthChip, Problems, TelemetryPanel } from '@/components/agents/AgentInsight'
 import { CheckLine, MODULE_STYLE, ObserverLine, ScopeLine, STATUS_STYLE, when } from '@/components/discovery/AgentParts'
 import ApprovalCard from '@/components/discovery/ApprovalCard'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -342,11 +342,12 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
   const certLeft = msUntil(a.certExpiresAt)
   const ip = a.connectingIp
   const publicIpFallbackOn = useServer((s) => s.info?.geoip?.publicIpFallback)
+  const install = useServer((s) => s.info?.install)
   return (
     <div className="grid gap-x-10 gap-y-5 text-sm md:grid-cols-2 xl:grid-cols-3">
       {a.status === 'approved' && extras.diagnostics && (
         <div className="md:col-span-2 xl:col-span-3" data-testid="agent-health">
-          <div className="grid gap-x-10 gap-y-5 md:grid-cols-2">
+          <div className="grid gap-x-10 gap-y-5 md:grid-cols-2 xl:grid-cols-3">
             <div>
               <Heading>What this agent can see</Heading>
               <div className="mb-2 flex flex-wrap items-center gap-2"><HealthChip diagnostics={extras.diagnostics} connected={a.connected} /><DiscoveryChip diagnostics={extras.diagnostics} /><span className="text-xs text-nb-600">from the agent's own report, {ageOf(extras.diagnostics.reportedAt)}</span></div>
@@ -364,13 +365,25 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
                 <ConsentPanel agent={a} diagnostics={extras.diagnostics} consent={extras.consent} />
               </div>
             )}
+            {canConsent && (
+              <div>
+                <Heading>Telemetry</Heading>
+                <TelemetryPanel diagnostics={extras.diagnostics} install={install} />
+              </div>
+            )}
           </div>
         </div>
       )}
       {a.status === 'approved' && !extras.diagnostics && canConsent && (
-        <div className="md:col-span-2 xl:col-span-3">
-          <Heading>Observability intent</Heading>
-          <ConsentPanel agent={a} diagnostics={undefined} consent={extras.consent} />
+        <div className="grid gap-x-10 gap-y-5 md:grid-cols-2 md:col-span-2 xl:col-span-3">
+          <div>
+            <Heading>Observability intent</Heading>
+            <ConsentPanel agent={a} diagnostics={undefined} consent={extras.consent} />
+          </div>
+          <div>
+            <Heading>Telemetry</Heading>
+            <TelemetryPanel diagnostics={undefined} install={install} />
+          </div>
         </div>
       )}
       <div>

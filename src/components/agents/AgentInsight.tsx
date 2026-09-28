@@ -1,7 +1,8 @@
 import clsx from 'clsx'
-import { AlertCircle, AlertTriangle, Check, Copy, Info, Loader2, ShieldCheck } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Check, ChevronRight, Copy, Info, Loader2, ShieldCheck } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Button, Field, TagsInput } from '@/components/ui/primitives'
+import TelemetryFields from '@/components/telemetry/TelemetryFields'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError, type ServerInfo } from '@/lib/api'
 import {
@@ -16,14 +17,18 @@ import {
   parseExclusions,
   scopeWords,
   sortProblems,
+  telemetryUpgradeCommand,
+  TELEMETRY_SIGNALS,
   tierName,
   uptimeWords,
   type AgentConsent,
   type AgentDiagnostics,
   type AgentProblem,
   type HealthSummary,
+  type InstallInfo,
   type Severity,
 } from '@/lib/consent'
+import { emptyTelemetry, telemetryActive, type TelemetryInput } from '@/lib/install'
 import type { Agent, AccessTier } from '@/lib/types'
 import { useServer } from '@/store/server'
 
@@ -359,6 +364,56 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
           {helm && <CopyCommand text={helm} />}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * What telemetry this agent's chart install actually has enabled right now (self-reported by the agent,
+ * the same pattern `installedTier` above already uses), plus a "change telemetry" form that builds the
+ * `helm upgrade --reuse-values` command for it. Like ConsentPanel's widen-hint, this only ever writes a
+ * command - nothing here is pushed live, because telemetry is Helm-values-only in this chart, exactly like
+ * the access-tier ceiling. There is no save button: the cluster's owner runs the command themselves.
+ */
+export function TelemetryPanel({ diagnostics: d, install }: { diagnostics?: AgentDiagnostics; install?: InstallInfo }) {
+  const installed = d?.installedTelemetry ?? []
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState<TelemetryInput>(emptyTelemetry)
+  const command = useMemo(() => telemetryUpgradeCommand(install, draft), [install, draft])
+
+  return (
+    <div data-testid="telemetry-panel">
+      <div className="mb-1.5 text-sm font-medium text-nb-300">Installed now</div>
+      {installed.length === 0 ? (
+        <p className="text-xs text-nb-500">{d ? 'No telemetry signal is enabled in this install.' : 'Not reported yet.'}</p>
+      ) : (
+        <ul className="flex flex-wrap gap-1.5" data-testid="telemetry-installed">
+          {installed.map((id) => {
+            const s = TELEMETRY_SIGNALS.find((x) => x.id === id)
+            return (
+              <li key={id} title={s?.what} className="rounded border border-nb-800 bg-nb-930 px-1.5 py-0.5 text-xs text-nb-300">
+                {s?.label ?? id}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      <details className="group mt-3" open={open} onToggle={(e) => setOpen(e.currentTarget.open)} data-testid="telemetry-change">
+        <summary className="flex cursor-pointer select-none items-center gap-1 text-xs font-medium text-nb-400 hover:text-nb-300 marker:content-none">
+          <ChevronRight size={12} className="transition-transform group-open:rotate-90" aria-hidden />
+          Change telemetry
+        </summary>
+        <div className="mt-3 rounded-lg border border-nb-850 bg-nb-925 p-3">
+          <TelemetryFields value={draft} onChange={setDraft} testIdPrefix="telemetry-panel" />
+          {telemetryActive(draft) && (
+            <div className="mt-3 text-xs text-nb-500">
+              The cluster's owner runs this in that cluster:
+              <CopyCommand text={command} />
+            </div>
+          )}
+        </div>
+      </details>
     </div>
   )
 }

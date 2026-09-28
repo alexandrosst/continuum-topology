@@ -227,6 +227,10 @@ func (r *runner) diagnostics() *continuumv1.Diagnostics {
 	if r.cfg.Scope != nil {
 		d.OwnExcludedNamespaces = uint32(len(r.cfg.Scope.Exclude))
 	}
+	if len(r.cfg.TelemetrySignals) > 0 {
+		d.InstalledTelemetrySignals = append([]string(nil), r.cfg.TelemetrySignals...)
+		sort.Strings(d.InstalledTelemetrySignals)
+	}
 	if c != nil {
 		d.Scope = c.ScopeSummary()
 	} else {

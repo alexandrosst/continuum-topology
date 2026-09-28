@@ -1,7 +1,7 @@
 {{- if include "agent.telemetryHostEnabled" . }}
 {{- $hMetrics := list }}
 {{- if .Values.telemetry.resourceUsage.metrics.enabled }}{{ $hMetrics = append $hMetrics "hostmetrics" }}{{ end }}
-{{- if or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled }}{{ $hMetrics = append $hMetrics "kubeletstats" }}{{ end }}
+{{- if or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled }}{{ $hMetrics = append $hMetrics "kubelet_stats" }}{{ end }}
 {{- $hLogs := list }}
 {{- if .Values.telemetry.systemLogs.logs.enabled }}{{ $hLogs = append $hLogs "filelog/containers" }}{{ if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}{{ $hLogs = append $hLogs "journald" }}{{ end }}{{ end }}
 {{- $metricGroups := list "container" "pod" "node" }}
@@ -29,8 +29,12 @@ data:
           network: {}
       {{- end }}
       {{- if or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled }}
-      kubeletstats:
-        collection_interval: {{ .Values.telemetry.resourceUsage.metrics.interval | default "30s" }}
+      # "kubelet_stats" is this receiver's current canonical name (collector-contrib >= v0.152.0); the old
+      # "kubeletstats" name still works as a deprecated alias, but this chart uses the current one. Interval:
+      # resourceUsage's own cadence when it's on (it drives hostmetrics too, at that shared rate), else
+      # nodeRuntime's - so this receiver always has an interval that reflects why it's actually running.
+      kubelet_stats:
+        collection_interval: {{ if .Values.telemetry.resourceUsage.metrics.enabled }}{{ .Values.telemetry.resourceUsage.metrics.interval }}{{ else }}{{ .Values.telemetry.nodeRuntime.metrics.interval | default "30s" }}{{ end }}
         auth_type: serviceAccount
         endpoint: "https://${env:NODE_NAME}:10250"
         insecure_skip_verify: true
@@ -62,22 +66,40 @@ data:
 
     processors:
       batch: {}
-      # Tags every signal with the pod/namespace/node it came from, the standard OpenTelemetry way apps and
-      # backends already expect this metadata to arrive (k8s.pod.name, k8s.namespace.name, ...), rather than
-      # a Continuum-specific shape.
+      # Most receivers here already carry their own pod/namespace/node identity without this processor's
+      # help: kubelet_stats sets it itself from the kubelet API, and filelog/containers' "container" operator
+      # (below) sets k8s.pod.name/k8s.namespace.name/k8s.pod.uid/k8s.container.name as resource attributes
+      # straight from the /var/log/pods/<namespace>_<pod>_<uid>/<container>/ path - neither needs enrichment
+      # to have basic identity. hostmetrics has no pod identity at all (it's node-level by nature; resource/
+      # node below is what actually tags it). What k8sattributes adds on top, via pod_association keyed on
+      # the k8s.pod.uid every one of those already sets, is the extra metadata standard OpenTelemetry
+      # backends expect alongside it - k8s.deployment.name, and node name for anything that only had a raw
+      # UID before.
       k8sattributes:
         auth_type: serviceAccount
         passthrough: false
+        pod_association:
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.uid
         extract:
-          metadata: [k8s.namespace.name, k8s.pod.name, k8s.node.name, k8s.deployment.name]
+          metadata: [k8s.namespace.name, k8s.pod.name, k8s.pod.uid, k8s.node.name, k8s.deployment.name]
       resource/node:
         attributes:
           - {key: k8s.node.name, value: "${env:NODE_NAME}", action: upsert}
+
+    {{- if .Values.telemetry.opamp.enabled }}
+    extensions:
+      {{- include "agent.telemetryOpampExtensionYAML" . | nindent 6 }}
+    {{- end }}
 
     exporters:
       {{- include "agent.telemetryExporterYAML" . | nindent 6 }}
 
     service:
+      {{- if .Values.telemetry.opamp.enabled }}
+      extensions: [opamp]
+      {{- end }}
       pipelines:
         {{- if $hMetrics }}
         metrics:

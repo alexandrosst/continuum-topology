@@ -99,6 +99,21 @@ func codesOf(r *runner) map[string]*continuumv1.Problem {
 	return out
 }
 
+func TestDiagnosticsReportInstalledTelemetrySignals(t *testing.T) {
+	r := newTestRunner()
+	r.cfg.TelemetrySignals = []string{"traces", "energy"}
+	d := r.diagnostics()
+	if got := strings.Join(d.InstalledTelemetrySignals, ","); got != "energy,traces" {
+		t.Fatalf("InstalledTelemetrySignals = %q, want sorted \"energy,traces\"", got)
+	}
+
+	// No telemetry configured: nil, not an empty-but-present slice, matching an agent older than this field.
+	r2 := newTestRunner()
+	if d2 := r2.diagnostics(); len(d2.InstalledTelemetrySignals) != 0 {
+		t.Fatalf("InstalledTelemetrySignals = %v, want empty when no telemetry is configured", d2.InstalledTelemetrySignals)
+	}
+}
+
 func TestOverridesIgnoredAreReportedAndClearedWhenPutRight(t *testing.T) {
 	r := newTestRunner()
 	r.enforce(resolveOverrides(&continuumv1.Config{ApprovedAccessTier: 2}, 1))

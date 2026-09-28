@@ -567,6 +567,25 @@
                       ]
                     }
                   }
+                },
+                "tolerations": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                "nodeSelector": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean"
+                    ]
+                  }
+                },
+                "resources": {
+                  "type": "object"
                 }
               },
               "required": []
@@ -608,6 +627,9 @@
                   "enum": [
                     "builtin"
                   ]
+                },
+                "interval": {
+                  "type": "string"
                 }
               }
             }
@@ -795,6 +817,76 @@
         },
         "resources": {
           "type": "object"
+        },
+        "hostCollector": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tolerations": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "nodeSelector": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean"
+                ]
+              }
+            },
+            "resources": {
+              "type": "object"
+            }
+          }
+        },
+        "clusterCollector": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "resources": {
+              "type": "object"
+            }
+          }
+        },
+        "opamp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "server": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "endpoint": {
+                  "type": "string"
+                },
+                "tls": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "insecure": {
+                      "type": "boolean"
+                    },
+                    "caFile": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "headers": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
