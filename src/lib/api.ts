@@ -1,4 +1,5 @@
 import { normalizeServerState, type ServerState } from './discovered'
+import type { OperatorDestination, RegionalOperator } from './types'
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
 import type { EffectiveModel } from './provenance'
 
@@ -57,6 +58,24 @@ export interface CreatedToken {
   token: string
   install: string
   meta: { id: string; name: string; tier: number; createdAt: string; expiresAt: string }
+}
+
+/** What creating or updating a regional operator's scope returns, beyond the operator itself:
+ *  `reminders` is informational only (see the operators feature's own design note) - one `helm upgrade`
+ *  line per source cluster for pointing that cluster's own agent release at this operator, never applied
+ *  on the caller's behalf. `token` and `secretCommand` are present only on create, and only once: the
+ *  receiver bearer token is never retrievable again after this response. */
+export interface CreatedOperator {
+  operator: RegionalOperator
+  token: string
+  install: string
+  secretCommand: string
+  reminders: string[]
+}
+
+export interface UpdatedOperatorScope {
+  operator: RegionalOperator
+  reminders: string[]
 }
 
 /** What a person may do inside one organisation, weakest first. */
@@ -404,6 +423,18 @@ export const api = {
   setAgentTier: (c: Conn, id: string, tier: number) => call<{ accessTier: number; installedTier: number }>(c, 'POST', `/api/v1/agents/${id}/tier`, { tier }),
   setAgentConsent: (c: Conn, id: string, consent: { pausedCollectors: string[]; excludedNamespaces: string[] }) =>
     call<{ pausedCollectors: string[]; excludedNamespaces: string[] }>(c, 'POST', `/api/v1/agents/${id}/consent`, consent),
+
+  // regional operators: a fleet of standalone aggregation points, separate from the live agent connection
+  // model above - see lib/types.ts's own RegionalOperator doc comment. CRUD only, like tokens/invites/
+  // members: no live status to poll, so these are ordinary one-shot calls, not part of `state`.
+  listOperators: (c: Conn) => call<RegionalOperator[]>(c, 'GET', '/api/v1/operators'),
+  getOperator: (c: Conn, id: string) => call<RegionalOperator>(c, 'GET', `/api/v1/operators/${encodeURIComponent(id)}`),
+  createOperator: (c: Conn, name: string, sourceClusterIds: string[], destination: OperatorDestination) =>
+    call<CreatedOperator>(c, 'POST', '/api/v1/operators', { name, sourceClusterIds, destination }),
+  updateOperatorScope: (c: Conn, id: string, sourceClusterIds: string[], destination: OperatorDestination) =>
+    call<UpdatedOperatorScope>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/scope`, { sourceClusterIds, destination }),
+  revokeOperator: (c: Conn, id: string, reason: string) => call<void>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/revoke`, { reason }),
+  deleteOperator: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/operators/${encodeURIComponent(id)}`),
 
   // workspace: the human layer of the topology, shared by everyone who signs in
   workspace: (c: Conn) => call<WorkspaceDoc>(c, 'GET', '/api/v1/workspace'),

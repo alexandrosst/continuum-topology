@@ -701,6 +701,50 @@ export interface AgentLink {
   lastFlows?: string
 }
 
+/** A regional operator's lifecycle: unlike Agent, there is no "pending" state - creating one issues its
+ *  receiver credential immediately, since it never enrolls back to the server (see the operators feature's
+ *  own design note: it is CRUD over a record plus a minted credential, not a live connection). */
+export type OperatorStatus = 'active' | 'revoked'
+
+/** Where a regional operator re-exports what it aggregates. 'operator' (chaining to another regional
+ *  operator) is reserved for future use and rejected by the server today - only 'external' is accepted. */
+export type DestinationKind = 'external' | 'operator'
+
+/** An OTLP export target, shaped like TelemetryInput's own export block (see lib/install.ts) so the same
+ *  rendering logic applies to both a cluster's own telemetry export and a regional operator's. */
+export interface OperatorDestination {
+  kind: DestinationKind
+  endpoint: string
+  insecure?: boolean
+  caFile?: string
+  authHeaderName?: string
+  authSecretName?: string
+  authSecretKey?: string
+  /** Only meaningful for kind 'operator', which is not yet accepted - always absent today. */
+  targetOperatorId?: string
+}
+
+/**
+ * A regional operator: a standalone OTel Collector that aggregates telemetry already exported by a set of
+ * approved agents' clusters (sourceClusterIds) and re-exports it to destination. It never connects back to
+ * this server the way Agent does - not extending Provenance for the same reason Agent does not: this is
+ * control-plane bookkeeping a person created directly, not a discovered record.
+ */
+export interface RegionalOperator {
+  id: string
+  orgId: string
+  name: string
+  /** Optional: where this operator conceptually lives, for UI grouping only. */
+  siteId?: string
+  status: OperatorStatus
+  sourceClusterIds: string[]
+  destination: OperatorDestination
+  createdAt: string
+  createdBy: string
+  revokedAt?: string
+  reason?: string
+}
+
 /** Whether the server's picture of a cluster matched what the cluster itself reported at the last check. */
 export interface ConsistencyStatus {
   lastCheck: string
