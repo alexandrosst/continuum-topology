@@ -1,0 +1,79 @@
+{{- include "operator.validate" . -}}
+{{/* Processor chains per pipeline: memory_limiter always first, then resourcedetection/redaction (if
+     enabled), then - traces only - sampling, then the extraProcessorNames escape hatch (every pipeline),
+     then - traces only - extraTracesProcessorNames as well, then batch always last. Same ordering
+     discipline as continuum-agent's telemetry-cluster-config.yaml, minus k8sattributes and any scope
+     filter - this chart has neither, see values.yaml's own comment on why. */}}
+{{- $commonMid := list }}
+{{- if .Values.processors.resourceDetection.enabled }}{{ $commonMid = append $commonMid "resourcedetection" }}{{ end }}
+{{- if .Values.processors.redaction.enabled }}{{ $commonMid = append $commonMid "redaction" }}{{ end }}
+{{- $extraNames := .Values.processors.extraProcessorNames }}
+
+{{- $procSignal := concat (list "memory_limiter") $commonMid $extraNames (list "batch") }}
+
+{{- $procTraces := concat (list "memory_limiter") $commonMid }}
+{{- if lt (int .Values.processors.tracesSampling.percentage) 100 }}{{ $procTraces = append $procTraces "probabilistic_sampler" }}{{ end }}
+{{- $procTraces = concat $procTraces $extraNames .Values.processors.extraTracesProcessorNames (list "batch") }}
+
+{{- $extensions := list }}
+{{- if .Values.receiver.auth.enabled }}{{ $extensions = append $extensions "bearertokenauth" }}{{ end }}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "operator.name" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "operator.labels" . | nindent 4 }}
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:4317"
+            {{- if .Values.receiver.auth.enabled }}
+            auth:
+              authenticator: bearertokenauth
+            {{- end }}
+          http:
+            endpoint: "0.0.0.0:4318"
+            {{- if .Values.receiver.auth.enabled }}
+            auth:
+              authenticator: bearertokenauth
+            {{- end }}
+
+    processors:
+      {{- include "operator.memoryLimiterYAML" . | nindent 6 }}
+      {{- include "operator.resourceDetectionYAML" . | nindent 6 }}
+      {{- include "operator.redactionYAML" . | nindent 6 }}
+      {{- include "operator.probabilisticSamplerYAML" . | nindent 6 }}
+      {{- with .Values.processors.extraProcessors }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      batch: {}
+
+    {{- if $extensions }}
+    extensions:
+      {{- include "operator.receiverAuthExtensionYAML" . | nindent 6 }}
+    {{- end }}
+
+    exporters:
+      {{- include "operator.exporterYAML" . | nindent 6 }}
+
+    service:
+      {{- if $extensions }}
+      extensions: {{ $extensions | toJson }}
+      {{- end }}
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: {{ $procSignal | toJson }}
+          exporters: [otlp]
+        logs:
+          receivers: [otlp]
+          processors: {{ $procSignal | toJson }}
+          exporters: [otlp]
+        traces:
+          receivers: [otlp]
+          processors: {{ $procTraces | toJson }}
+          exporters: [otlp]

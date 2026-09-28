@@ -1,0 +1,157 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "continuum-regional-operator values",
+  "description": "Unknown keys are rejected on purpose: a misspelt setting would otherwise be ignored silently.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "replicaCount": { "type": "integer", "minimum": 1 },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string" },
+        "tag": { "type": "string" },
+        "digest": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["", "Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "name": { "type": "string" } }
+      }
+    },
+    "export": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "otlp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": { "type": "string" },
+            "protocol": { "type": "string", "enum": ["grpc", "http"] },
+            "tls": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "insecure": { "type": "boolean" },
+                "caFile": { "type": "string" }
+              }
+            },
+            "auth": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "headerName": { "type": "string" },
+                "secretName": { "type": "string" },
+                "secretKey": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "receiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "secretName": { "type": "string" },
+            "secretKey": { "type": "string" }
+          }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "allowedIngress": { "type": "array", "items": { "type": "object" } }
+          }
+        }
+      }
+    },
+    "processors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "memoryLimiter": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "checkInterval": { "type": "string" },
+            "limitPercentage": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "spikeLimitPercentage": { "type": "integer", "minimum": 0, "maximum": 100 }
+          }
+        },
+        "resourceDetection": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "detectors": { "type": "array", "items": { "type": "string" } },
+            "timeout": { "type": "string" }
+          }
+        },
+        "redaction": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "blockedKeyPatterns": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "tracesSampling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "percentage": { "type": "integer", "minimum": 0, "maximum": 100 }
+          }
+        },
+        "extraProcessors": { "type": "object" },
+        "extraProcessorNames": { "type": "array", "items": { "type": "string" } },
+        "extraTracesProcessorNames": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "resources": { "type": "object" },
+    "tolerations": { "type": "array", "items": { "type": "object" } },
+    "nodeSelector": { "type": "object" },
+    "affinity": { "type": "object" },
+    "podAnnotations": { "type": "object" },
+    "podLabels": { "type": "object" },
+    "priorityClassName": { "type": "string" },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "egress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "allowedEgress": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "cidr": { "type": "string" },
+                  "ports": { "type": "array", "items": { "type": "integer" } }
+                }
+              }
+            },
+            "dnsCIDRs": { "type": "array", "items": { "type": "string" } },
+            "extraEgress": { "type": "array", "items": { "type": "object" } }
+          }
+        }
+      }
+    }
+  }
+}

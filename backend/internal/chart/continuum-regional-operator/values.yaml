@@ -1,0 +1,114 @@
+# continuum-regional-operator: a standalone OTel Collector that aggregates telemetry a set of Continuum
+# agents' clusters already export (each cluster's own telemetry.export.otlp.endpoint is pointed at this
+# operator's receiver, separately - see the operator's own install command for the exact command to run
+# against each source cluster) and re-exports it to one destination below.
+#
+# Unlike continuum-agent, this chart never dials the Continuum server: there is no server.address or
+# enrollment here at all. Its only credential is the receiver bearer token it is installed with (minted
+# once, when the operator is created) - checked when something exports into it, never on startup. It also
+# needs no Kubernetes API access of its own (see serviceaccount.yaml): it only relays and re-processes
+# telemetry that already arrived over OTLP, it never watches this cluster's own object graph the way
+# continuum-agent's k8sattributes processor does.
+
+replicaCount: 1
+
+# The upstream OpenTelemetry Collector Contrib distribution - the same image continuum-agent's telemetry
+# collectors run, for the same reason (this chart needs nothing beyond OTLP receive/process/export, which
+# the community "contrib" distribution already covers).
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: "0.160.0"
+  digest: ""
+  pullPolicy: ""
+
+# Secrets (in the release namespace) that let the cluster pull the image from a private registry.
+imagePullSecrets: []
+
+# Where this operator sends whatever it aggregates: another regional operator's own receiver, or an
+# observability backend directly. Required.
+export:
+  otlp:
+    endpoint: ""    # host:port of the next hop, e.g. an observability backend's OTLP endpoint
+    protocol: grpc  # grpc | http
+    tls:
+      insecure: false
+      caFile: ""    # path to a CA bundle to mount and trust, if the destination's certificate isn't otherwise trusted
+    # Same "point at a Secret you create yourself" convention as continuum-agent's telemetry.export.otlp.auth -
+    # never put the header's value directly in values.yaml.
+    auth:
+      headerName: Authorization
+      secretName: ""
+      secretKey: token
+
+# The inbound side: what each source cluster's own telemetry.export.otlp.endpoint is pointed at. Off by
+# default in this file, but the operator's own install command always sets receiver.auth.enabled=true and
+# points secretName at the token minted when the operator was created - every regional operator this
+# server creates is installed with auth on, this default only matters if you hand-edit these values.
+receiver:
+  auth:
+    enabled: false
+    secretName: ""   # a Secret in this release's namespace, created outside this chart, holding the shared
+                      # bearer token minted for this operator
+    secretKey: token
+  networkPolicy:
+    enabled: false
+    # Raw NetworkPolicy ingress "from" peer entries (namespaceSelector / podSelector / ipBlock) - the same
+    # shape continuum-agent's telemetry.receiver.networkPolicy.allowedIngress uses.
+    allowedIngress: []
+
+# Processor-level controls, deliberately the same shape as continuum-agent's telemetry.processors so the
+# same configuration UI works for both charts unmodified. memory_limiter is always rendered; the rest are
+# opt-in/opt-out as documented per field. There is no telemetry.scope or k8sattributes equivalent here -
+# this chart only relays and re-processes what already arrived, it does not interpret a Kubernetes object
+# graph of its own.
+processors:
+  memoryLimiter:
+    checkInterval: 1s
+    limitPercentage: 80
+    spikeLimitPercentage: 20
+  resourceDetection:
+    enabled: false
+    detectors: [env, system]
+    timeout: 5s
+  redaction:
+    enabled: true
+    blockedKeyPatterns:
+      - ".*token.*"
+      - ".*password.*"
+      - ".*secret.*"
+      - ".*api[_-]?key.*"
+      - ".*authorization.*"
+      - ".*cookie.*"
+  # Traces only. 100 (default) means no sampling.
+  tracesSampling:
+    percentage: 100
+  # Escape hatch for anything not covered above: raw processor definitions merged into the collector
+  # config's top-level "processors" map, and the names to reference (in this order) in every pipeline,
+  # right after redaction and before batch. The same src/lib/processorCatalog.ts-driven editor that builds
+  # these values for continuum-agent builds them for this chart too - see the values shape note above.
+  extraProcessors: {}
+  extraProcessorNames: []
+  # Traces-only extras (tail_sampling, or anything else that only implements the traces processor
+  # interface) - appended after extraProcessorNames, still before batch, in the traces pipeline only.
+  extraTracesProcessorNames: []
+
+resources:
+  requests: {cpu: 50m, memory: 96Mi}
+  limits: {memory: 384Mi}
+
+tolerations: []
+nodeSelector: {}
+affinity: {}
+podAnnotations: {}
+podLabels: {}
+priorityClassName: ""
+
+# Egress lockdown for this operator's pod. Off by default: the right answer depends on your CNI and
+# network, and a wrong policy silently cuts export off - same reasoning as continuum-agent's
+# networkPolicy.telemetryEgress.
+networkPolicy:
+  egress:
+    enabled: false
+    allowedEgress: []   # [{cidr, ports}] matching where export.otlp.endpoint actually resolves to
+    dnsCIDRs: []
+    extraEgress: []

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: continuum-regional-operator
+description: Standalone OTel Collector that aggregates telemetry already exported by a set of Continuum agents' clusters and re-exports it to one destination. Never dials the Continuum server - its only credential is the receiver bearer token it is installed with.
+type: application
+version: 0.1.0
+appVersion: "0.1.0-dev"

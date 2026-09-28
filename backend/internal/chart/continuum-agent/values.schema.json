@@ -1140,6 +1140,12 @@
               "items": {
                 "type": "string"
               }
+            },
+            "extraTracesProcessorNames": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         },

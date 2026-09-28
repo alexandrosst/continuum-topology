@@ -1,5 +1,8 @@
-// Package chart carries the agent's Helm chart inside the server binary, so an install command never
-// points at a directory that only exists in a source checkout: the server hands out the packaged chart itself.
+// Package chart carries the server's Helm charts inside the server binary, so an install command never
+// points at a directory that only exists in a source checkout: the server hands out the packaged chart
+// itself. It holds two charts today - Agent (continuum-agent, dialed out to by every enrolled cluster) and
+// RegionalOperator (continuum-regional-operator, a standalone aggregation point - see its own Chart.yaml)
+// - each embedded and packaged independently.
 package chart
 
 import (
@@ -16,27 +19,46 @@ import (
 )
 
 //go:embed all:continuum-agent
-var files embed.FS
+var agentFiles embed.FS
 
-const dir = "continuum-agent"
+//go:embed all:continuum-regional-operator
+var operatorFiles embed.FS
 
-var (
+// Agent is the continuum-agent chart: what every enrolled cluster installs.
+var Agent = newChart(agentFiles, "continuum-agent")
+
+// RegionalOperator is the continuum-regional-operator chart: a standalone OTel Collector that aggregates
+// telemetry already exported by a set of agents' clusters and re-exports it further up. It never dials
+// the Continuum server (see store.Operator's own comment) - its only relationship to Agent is that both
+// are packaged and served the same way.
+var RegionalOperator = newChart(operatorFiles, "continuum-regional-operator")
+
+// Chart is one Helm chart embedded in the server binary, packaged and versioned independently of any
+// other chart this package also carries.
+type Chart struct {
+	files embed.FS
+	dir   string
+
 	once   sync.Once
 	pkg    []byte
 	pkgErr error
 
 	versionOnce sync.Once
 	versionVal  string
-)
-
-// Version is the chart version from Chart.yaml.
-func Version() string {
-	versionOnce.Do(func() { versionVal = parseVersion() })
-	return versionVal
 }
 
-func parseVersion() string {
-	b, err := files.ReadFile(dir + "/Chart.yaml")
+func newChart(files embed.FS, dir string) *Chart {
+	return &Chart{files: files, dir: dir}
+}
+
+// Version is the chart version from its Chart.yaml.
+func (c *Chart) Version() string {
+	c.versionOnce.Do(func() { c.versionVal = c.parseVersion() })
+	return c.versionVal
+}
+
+func (c *Chart) parseVersion() string {
+	b, err := c.files.ReadFile(c.dir + "/Chart.yaml")
 	if err != nil {
 		return "0.0.0"
 	}
@@ -49,18 +71,18 @@ func parseVersion() string {
 }
 
 // Filename is what `helm package` would call the archive.
-func Filename() string { return "continuum-agent-" + Version() + ".tgz" }
+func (c *Chart) Filename() string { return c.dir + "-" + c.Version() + ".tgz" }
 
 // Package returns the chart as a .tgz that `helm install` accepts. The bytes are identical on every call
 // (sorted entries, no timestamps), so a browser or cache can tell nothing changed.
-func Package() ([]byte, error) {
-	once.Do(func() { pkg, pkgErr = build() })
-	return pkg, pkgErr
+func (c *Chart) Package() ([]byte, error) {
+	c.once.Do(func() { c.pkg, c.pkgErr = c.build() })
+	return c.pkg, c.pkgErr
 }
 
-func build() ([]byte, error) {
+func (c *Chart) build() ([]byte, error) {
 	var names []string
-	err := fs.WalkDir(files, dir, func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(c.files, c.dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -77,7 +99,7 @@ func build() ([]byte, error) {
 	gz, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
 	tw := tar.NewWriter(gz)
 	for _, n := range names {
-		b, err := files.ReadFile(n)
+		b, err := c.files.ReadFile(n)
 		if err != nil {
 			return nil, err
 		}
@@ -96,3 +118,14 @@ func build() ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+// ---- package-level forwarders to Agent, kept so every pre-existing caller compiles unchanged ----
+
+// Version is Agent.Version().
+func Version() string { return Agent.Version() }
+
+// Filename is Agent.Filename().
+func Filename() string { return Agent.Filename() }
+
+// Package is Agent.Package().
+func Package() ([]byte, error) { return Agent.Package() }

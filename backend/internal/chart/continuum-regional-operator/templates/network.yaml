@@ -1,0 +1,68 @@
+{{- include "operator.validate" . -}}
+{{/* Egress lockdown for this operator's pod. Off by default: the right answer depends on your CNI and
+     network, and a wrong policy silently cuts export off - same reasoning and shape as continuum-agent's
+     networkPolicy.telemetryEgress. */}}
+{{- $ne := .Values.networkPolicy.egress }}
+{{- if $ne.enabled }}
+{{- if not $ne.allowedEgress }}{{ fail "networkPolicy.egress.enabled needs networkPolicy.egress.allowedEgress: at least one {cidr, ports} entry matching where your configured export.otlp.endpoint actually resolves to - an empty list would cut this operator's egress off entirely (a NetworkPolicy that selects a pod denies everything it does not list)." }}{{ end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "operator.name" . }}-egress
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "operator.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: continuum-regional-operator, app.kubernetes.io/instance: {{ .Release.Name }}}
+  policyTypes: [Egress]
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+        {{- range $ne.dnsCIDRs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # Your configured export destination(s).
+    {{- range $ne.allowedEgress }}
+    - to:
+        - ipBlock: {cidr: {{ .cidr | quote }}}
+      ports:
+        {{- range .ports }}
+        - {port: {{ . }}, protocol: TCP}
+        {{- end }}
+    {{- end }}
+    {{- with $ne.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+
+{{/* Ingress lockdown for the OTLP receiver - independent of receiver.auth (defense in depth: a
+     NetworkPolicy limits WHO can reach it at the network layer, auth limits what they can do once they're
+     allowed to reach it). Off by default, same reasoning as the egress policy above. */}}
+{{- $tr := .Values.receiver.networkPolicy }}
+{{- if $tr.enabled }}
+{{- if not $tr.allowedIngress }}{{ fail "receiver.networkPolicy.enabled needs receiver.networkPolicy.allowedIngress: at least one NetworkPolicy ingress \"from\" peer (namespaceSelector/podSelector/ipBlock) - an empty list would cut the OTLP receiver off from every client (a NetworkPolicy that selects a pod denies everything it does not list)." }}{{ end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "operator.name" . }}-receiver-ingress
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "operator.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: continuum-regional-operator, app.kubernetes.io/instance: {{ .Release.Name }}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- toYaml $tr.allowedIngress | nindent 8 }}
+      ports:
+        - {port: 4317, protocol: TCP}
+        - {port: 4318, protocol: TCP}
+{{- end }}

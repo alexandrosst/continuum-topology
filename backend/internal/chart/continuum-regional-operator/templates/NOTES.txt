@@ -1,0 +1,19 @@
+Continuum regional operator {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} in namespace {{ .Release.Namespace }} (release "{{ .Release.Name }}").
+
+This operator never dials the Continuum server - it only aggregates OTLP telemetry that source clusters'
+own agent releases export to it, and re-exports it to:
+  {{ .Values.export.otlp.endpoint }}
+
+RECEIVER
+  OTLP endpoint (grpc/http): {{ include "operator.name" . }}.{{ .Release.Namespace }}.svc:4317 / :4318
+{{- if .Values.receiver.auth.enabled }}
+  Auth: bearer token from Secret {{ .Values.receiver.auth.secretName }}/{{ .Values.receiver.auth.secretKey }} - present
+  it in every source cluster's telemetry.export.otlp.auth for this operator.
+{{- else }}
+  Auth: none. Anything that can reach this Service on the cluster network can push telemetry into it -
+  set receiver.auth.enabled and receiver.networkPolicy for a shared or multi-tenant cluster.
+{{- end }}
+
+Each source cluster's own agent release still needs its telemetry.export.otlp.endpoint pointed at this
+operator - that is a separate `helm upgrade` against that cluster's continuum-agent release, not something
+this chart or install applies for you.
