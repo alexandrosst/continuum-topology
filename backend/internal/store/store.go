@@ -87,6 +87,63 @@ type Agent struct {
 	ClockSkewMs int64
 }
 
+// OperatorStatus is the lifecycle of a regional operator's registration. There is no "pending" state:
+// unlike an agent, a regional operator never phones home to be approved - creating one issues its
+// receiver credential immediately.
+type OperatorStatus string
+
+const (
+	OperatorActive  OperatorStatus = "active"
+	OperatorRevoked OperatorStatus = "revoked"
+)
+
+// DestinationKind is where a regional operator re-exports what it aggregates. "operator" (chaining to
+// another regional operator) is reserved for future use and is rejected by validation today - see
+// Core.CreateOperator. Only "external" is accepted in this release.
+type DestinationKind string
+
+const (
+	DestinationExternal DestinationKind = "external"
+	DestinationOperator DestinationKind = "operator"
+)
+
+// Destination is an OTLP export target, shaped like the agent chart's own telemetry.export.otlp block
+// (endpoint/insecure/caFile/auth header+secret) so the same rendering logic applies to both.
+type Destination struct {
+	Kind           DestinationKind
+	Endpoint       string
+	Insecure       bool
+	CAFile         string
+	AuthHeaderName string
+	AuthSecretName string
+	AuthSecretKey  string
+	// TargetOperatorID is only meaningful for DestinationOperator, which is not yet accepted - always
+	// empty today.
+	TargetOperatorID string
+}
+
+// Operator is a regional operator: a standalone OTel Collector that aggregates telemetry already
+// exported by a set of approved agents' clusters (SourceClusterIDs) and re-exports it to Destination.
+// Unlike Agent it never connects back to the server - ReceiverAuthTokenHash is the only credential it
+// needs, checked when something exports into it, not when it starts up.
+type Operator struct {
+	ID    string
+	OrgID string
+	Name  string
+	// SiteID is optional: where this operator conceptually lives, for UI grouping only.
+	SiteID           string
+	Status           OperatorStatus
+	SourceClusterIDs []string
+	Destination      Destination
+	// ReceiverAuthTokenHash is the hash of the bearer token the operator's receiver expects; the token
+	// itself is minted and returned once, the same as an enrollment token.
+	ReceiverAuthTokenHash []byte
+	CreatedBy             string
+	CreatedAt             time.Time
+	RevokedAt             *time.Time
+	Reason                string
+}
+
 // Resume is what a retried enrollment changes on the agent it continues.
 type Resume struct {
 	PollSecretHash []byte
@@ -280,6 +337,20 @@ type Store interface {
 	SetLeaf(ctx context.Context, id string, leaf []byte, notAfter time.Time) error
 	ClearPollSecret(ctx context.Context, id string) error
 	Touch(ctx context.Context, id, ip, version, k8sVersion string, now time.Time) error
+
+	// ---- regional operators ----
+
+	// CreateOperator inserts a new regional operator together with the hash of its freshly minted
+	// receiver token, in one call (there being no separate "mint a token" step, unlike agent enrollment -
+	// nothing needs to phone home first).
+	CreateOperator(ctx context.Context, op Operator, tokenHash []byte) error
+	GetOperator(ctx context.Context, id string) (Operator, error)
+	ListOperators(ctx context.Context, org string) ([]Operator, error)
+	// UpdateOperatorScope replaces an operator's source clusters and destination together, atomically -
+	// there is no reason to leave them in an inconsistent combination between two separate calls.
+	UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination) error
+	RevokeOperator(ctx context.Context, id, reason string, now time.Time) error
+	DeleteOperator(ctx context.Context, id string) error
 
 	AddAudit(ctx context.Context, e AuditEvent) error
 	ListAudit(ctx context.Context, org string, limit int) ([]AuditEvent, error)

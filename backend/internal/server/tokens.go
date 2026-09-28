@@ -10,6 +10,11 @@ import (
 
 const tokenPrefix = "cnt_"
 
+// operatorPrefix marks a regional operator's receiver bearer token - distinct from an enrollment
+// token, since an operator never enrolls (see store.Operator's own comment); it is only ever checked
+// by the operator's own OTel Collector receiver, never by the enrollment/agent machinery.
+const operatorPrefix = "cno_"
+
 // patPrefix marks a personal access token - distinct from tokenPrefix's enrollment tokens and
 // sessionPrefix's browser sessions, so a secret's own shape says which kind it is before anything
 // looks it up.
@@ -44,6 +49,13 @@ func LooksLikeToken(s string) bool {
 	return err == nil
 }
 
+// NewOperatorReceiverSecret returns a fresh bearer token for a regional operator's OTLP receiver. Only
+// HashSecret(secret) is stored - the same rule as every other secret this package mints.
+func NewOperatorReceiverSecret() (string, error) {
+	s, err := newSecret()
+	return operatorPrefix + s, err
+}
+
 // NewAPITokenSecret returns a fresh personal access token. Only HashSecret(secret) is stored - the
 // same rule as an enrollment token or a session.
 func NewAPITokenSecret() (string, error) {
@@ -71,6 +83,7 @@ func randHex(n int) string {
 func newAgentID() string    { return "ag-" + randHex(6) }
 func newTokenID() string    { return "tk-" + randHex(6) }
 func newAPITokenID() string { return "pat-" + randHex(6) }
+func newOperatorID() string { return "op-" + randHex(6) }
 
 // ClusterIDFor is stable for a cluster (its kube-system UID), so records keep the same id
 // even if the agent is replaced.

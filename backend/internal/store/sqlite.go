@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -169,6 +170,23 @@ CREATE TABLE IF NOT EXISTS snapshots (
   data BLOB NOT NULL,
   at INTEGER NOT NULL
 );
+-- A regional operator never enrolls (see store.Operator's own comment), so unlike agents there is no
+-- separate pending/approved dance here - status is only active or revoked.
+CREATE TABLE IF NOT EXISTS operators (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  site_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  source_cluster_ids TEXT NOT NULL DEFAULT '[]',
+  destination TEXT NOT NULL DEFAULT '{}',
+  receiver_auth_token_hash BLOB NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  reason TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS operators_org ON operators(org_id);
 `
 
 type SQLite struct{ db *sql.DB }
@@ -549,6 +567,118 @@ func needOne(res sql.Result) error {
 
 func isUnique(err error) bool {
 	return err != nil && (strings.Contains(err.Error(), "UNIQUE constraint failed") || strings.Contains(err.Error(), "constraint failed: UNIQUE"))
+}
+
+// ---- regional operators ----
+
+// sourceClusterIDsJSON encodes/decodes Operator.SourceClusterIDs as a JSON array, the same convention
+// totpRecoveryJSON uses for User.TOTPRecovery: a list that is always read and written whole.
+func sourceClusterIDsJSON(ids []string) string {
+	if len(ids) == 0 {
+		return "[]"
+	}
+	b, _ := json.Marshal(ids)
+	return string(b)
+}
+func parseSourceClusterIDs(s string) []string {
+	var ids []string
+	_ = json.Unmarshal([]byte(s), &ids)
+	return ids
+}
+
+// destinationJSON encodes/decodes Operator.Destination as a JSON object - a small, nested struct with
+// nothing in it ever queried across rows, so a single JSON column is simpler than flattening it into
+// seven more table columns.
+func destinationJSON(d Destination) string {
+	b, _ := json.Marshal(d)
+	return string(b)
+}
+func parseDestination(s string) Destination {
+	var d Destination
+	_ = json.Unmarshal([]byte(s), &d)
+	return d
+}
+
+const operatorCols = `id, org_id, name, site_id, status, source_cluster_ids, destination, receiver_auth_token_hash, created_by, created_at, revoked_at, reason`
+
+func scanOperator(r scanner) (Operator, error) {
+	var op Operator
+	var st, sourceIDs, dest string
+	var created int64
+	var revoked sql.NullInt64
+	err := r.Scan(&op.ID, &op.OrgID, &op.Name, &op.SiteID, &st, &sourceIDs, &dest, &op.ReceiverAuthTokenHash, &op.CreatedBy, &created, &revoked, &op.Reason)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Operator{}, ErrNotFound
+		}
+		return Operator{}, err
+	}
+	op.Status = OperatorStatus(st)
+	op.SourceClusterIDs = parseSourceClusterIDs(sourceIDs)
+	op.Destination = parseDestination(dest)
+	op.CreatedAt = fromMS(created)
+	op.RevokedAt = fromNullMS(revoked)
+	return op, nil
+}
+
+func (s *SQLite) CreateOperator(ctx context.Context, op Operator, tokenHash []byte) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO operators(id, org_id, name, site_id, status, source_cluster_ids, destination, receiver_auth_token_hash, created_by, created_at, reason)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		op.ID, op.OrgID, op.Name, op.SiteID, string(op.Status), sourceClusterIDsJSON(op.SourceClusterIDs), destinationJSON(op.Destination), tokenHash, op.CreatedBy, ms(op.CreatedAt), op.Reason)
+	return err
+}
+
+func (s *SQLite) GetOperator(ctx context.Context, id string) (Operator, error) {
+	return scanOperator(s.db.QueryRowContext(ctx, `SELECT `+operatorCols+` FROM operators WHERE id=?`, id))
+}
+
+func (s *SQLite) ListOperators(ctx context.Context, org string) ([]Operator, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+operatorCols+` FROM operators WHERE org_id=? ORDER BY created_at`, org)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Operator
+	for rows.Next() {
+		op, err := scanOperator(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, op)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLite) UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE operators SET source_cluster_ids=?, destination=? WHERE id=? AND status='active'`,
+		sourceClusterIDsJSON(sourceClusterIDs), destinationJSON(dest), id)
+	if err != nil {
+		return err
+	}
+	return needOne(res)
+}
+
+func (s *SQLite) RevokeOperator(ctx context.Context, id, reason string, now time.Time) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE operators SET status='revoked', reason=?, revoked_at=? WHERE id=? AND status='active'`,
+		reason, ms(now), id)
+	if err != nil {
+		return err
+	}
+	return needOne(res)
+}
+
+func (s *SQLite) DeleteOperator(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM operators WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // ---- audit ----
