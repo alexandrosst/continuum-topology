@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { emptyTelemetry, scopeOverlap, telemetryActive, telemetryProblems, withTelemetry, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
+import { newProcessorEntry } from '../src/lib/processorCatalog'
 import { applyIntentPreset, seedTelemetryFromInstalled, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetryUpgradeCommand } from '../src/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '../src/lib/exportPresets'
 
@@ -117,6 +118,59 @@ test('non-default processor settings are carried', () => {
 test('traces sampling out of range is a problem', () => {
   const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317', tracesSamplingPercent: 150 }
   assert.deepEqual(telemetryProblems(t), ['Traces sampling must be between 0 and 100'])
+})
+
+test('with no extra processors, withTelemetry adds nothing for them (matches the chart default)', () => {
+  const t: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317' }
+  const cmd = withTelemetry(base, t)
+  assert.doesNotMatch(cmd, /extraProcessors/)
+  assert.doesNotMatch(cmd, /extraProcessorNames/)
+})
+
+test('a filter extra processor renders its JSON body and is referenced in the shared processor-names list, not the traces-only one', () => {
+  const filter = { ...newProcessorEntry('filter'), name: 'drop_debug', config: { signal: 'log' as const, conditions: [{ field: 'level', op: 'eq' as const, value: 'debug' }] } }
+  const t: TelemetryInput = { ...emptyTelemetry, applicationLogs: true, exportEndpoint: 'x:4317', extraProcessors: [filter] }
+  const cmd = withTelemetry(base, t)
+  // Built with JSON.stringify rather than a hand-written regex, so the expectation can't itself drift out of
+  // sync with how JSON escapes the nested double quotes inside the OTTL condition string.
+  const body = JSON.stringify({ 'filter/drop_debug': { error_mode: 'ignore', log_conditions: ['attributes["level"] == "debug"'] } })
+  assert.ok(cmd.includes(`--set-json telemetry.processors.extraProcessors='${body}'`), cmd)
+  assert.match(cmd, /--set-string telemetry\.processors\.extraProcessorNames\[0\]=filter\/drop_debug/)
+  assert.doesNotMatch(cmd, /extraTracesProcessorNames/)
+})
+
+test('an extra processor value containing a single quote is shell-escaped, not silently dropped', () => {
+  // Regression test: withTelemetry()'s shQuote helper previously used a nested template literal whose \'
+  // was a no-op escape (caught by oxlint's no-useless-escape) - it quietly dropped every embedded apostrophe
+  // instead of POSIX-escaping it, which would have corrupted any processor value containing one.
+  const filter = { ...newProcessorEntry('filter'), name: 'drop_named', config: { signal: 'log' as const, conditions: [{ field: 'user', op: 'eq' as const, value: "O'Brien" }] } }
+  const t: TelemetryInput = { ...emptyTelemetry, applicationLogs: true, exportEndpoint: 'x:4317', extraProcessors: [filter] }
+  const cmd = withTelemetry(base, t)
+  const body = JSON.stringify({ 'filter/drop_named': { error_mode: 'ignore', log_conditions: ['attributes["user"] == "O\'Brien"'] } })
+  // POSIX single-quote escaping, written independently of install.ts's own shQuote so this test doesn't just
+  // re-assert whatever that implementation happens to do: close the quote, emit an escaped literal quote,
+  // reopen the quote.
+  const posixQuote = (s: string) => "'" + s.split("'").join("'\\''") + "'"
+  assert.ok(cmd.includes(`--set-json telemetry.processors.extraProcessors=${posixQuote(body)}`), cmd)
+  assert.ok(cmd.includes('Brien'), 'the apostrophe-adjacent text must survive, not vanish along with the quote')
+})
+
+test('a tailSampling extra processor is referenced only in the traces-only processor-names list', () => {
+  const ts = { ...newProcessorEntry('tailSampling'), name: 'errors_only', config: { decisionWaitSeconds: 10, policies: [{ name: 'errors', type: 'statusCode' as const, probabilisticPercent: 10, statusCodes: 'ERROR', latencyThresholdMs: 500 }] } }
+  const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317', extraProcessors: [ts] }
+  const cmd = withTelemetry(base, t)
+  assert.match(cmd, /--set-string telemetry\.processors\.extraTracesProcessorNames\[0\]=tail_sampling\/errors_only/)
+  assert.doesNotMatch(cmd, /telemetry\.processors\.extraProcessorNames\[/)
+})
+
+test('an unnamed or empty extra processor is a problem, and blocks the command the same way any other problem does', () => {
+  // Captures its own entry rather than hard-coding an id string like "proc-1": newProcessorEntry()'s id
+  // counter is module-level and shared across every test in this file, so its exact value depends on how
+  // many other tests already called it - fragile to hard-code, trivial to read back off the entry itself.
+  const entry = newProcessorEntry('filter')
+  const t: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317', extraProcessors: [entry] }
+  assert.deepEqual(telemetryProblems(t), ['Every processor needs a name.', `"${entry.id}" (filter) has no conditions - it would drop nothing.`])
+  assert.equal(withTelemetry(base, t), base, 'a command with unresolved problems is left untouched, same as any other telemetryProblems() failure')
 })
 
 test('accelerators pointed at an existing source needs its endpoint, and carries the source + endpoint when valid', () => {

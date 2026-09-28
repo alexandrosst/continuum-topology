@@ -1,3 +1,5 @@
+import { buildExtraProcessors, processorProblems, processorTarget, processorKey, type ProcessorEntry } from './processorCatalog'
+
 /**
  * The install command the server prints, with optional in-cluster parts switched on.
  * They are separate opt-ins because they are the only parts of Continuum that run on every node.
@@ -164,6 +166,10 @@ export interface TelemetryInput {
   redaction: boolean
   /** Traces only. 100 = no sampling (every span kept), the same as if this were never set. */
   tracesSamplingPercent: number
+  /** Extra processors beyond the three fixed knobs above (filter, tail_sampling, transform/redaction) -
+   *  see processorCatalog.ts. Routed into the chart's own extraProcessors/extraProcessorNames escape
+   *  hatch; the chart's own memory_limiter-first/batch-last pipeline skeleton is never touched. */
+  extraProcessors: ProcessorEntry[]
 }
 
 export const emptyTelemetry: TelemetryInput = {
@@ -195,6 +201,7 @@ export const emptyTelemetry: TelemetryInput = {
   resourceDetection: false,
   redaction: true,
   tracesSamplingPercent: 100,
+  extraProcessors: [],
 }
 
 /** Whether any signal is on - the export endpoint (and every flag below) only matters once one is. */
@@ -216,6 +223,7 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   if (t.accelerators && t.acceleratorsSource === 'existing' && !t.acceleratorsExistingEndpoint.trim()) out.push('The existing Prometheus endpoint is required when accelerators points at an existing source')
   if (t.networkLatency && measurementsOn === false) out.push('Network latency re-emits the path measurements extra, so turn that on too, or it will report nothing')
   if (t.tracesSamplingPercent < 0 || t.tracesSamplingPercent > 100) out.push('Traces sampling must be between 0 and 100')
+  out.push(...processorProblems(t.extraProcessors))
   if (t.applicationMetrics) out.push(...namespaceListProblems([...t.applicationMetricsScope.namespaces, ...t.applicationMetricsScope.exclude]))
   if (t.applicationLogs) out.push(...namespaceListProblems([...t.applicationLogsScope.namespaces, ...t.applicationLogsScope.exclude]))
   if (t.traces) out.push(...namespaceListProblems([...t.tracesScope.namespaces, ...t.tracesScope.exclude]))
@@ -294,5 +302,22 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   add(`telemetry.processors.resourceDetection.enabled=${t.resourceDetection}`)
   add(`telemetry.processors.redaction.enabled=${t.redaction}`)
   add(`telemetry.processors.tracesSampling.percentage=${t.tracesSamplingPercent}`)
+  // Extra processors: the raw bodies all go in one --set-json (a map keyed by processorKey()), single-quoted
+  // for the shell like any other multi-character value pasted into a terminal (unlike the simple tokens
+  // addString/helmList above handle, a processor's JSON body can contain arbitrary characters, including a
+  // single quote, so it gets the one place in this function that actually escapes for the shell). Each
+  // entry's key is then separately referenced, in order, in whichever pipeline list it belongs in -
+  // tailSampling only ever the traces-only list, filter/transform the shared every-pipeline one (see
+  // processorTarget() in processorCatalog.ts for why they can't share one list). Omitted entirely when
+  // there are none, same as the chart's own default - an empty --set-json '{}' is harmless but adds
+  // nothing worth stating.
+  if (t.extraProcessors.length) {
+    const shQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
+    cmd += ` \
+  --set-json telemetry.processors.extraProcessors=${shQuote(JSON.stringify(buildExtraProcessors(t.extraProcessors)))}`
+    const byTarget = { extraProcessorNames: [] as string[], extraTracesProcessorNames: [] as string[] }
+    for (const e of t.extraProcessors) byTarget[processorTarget(e)].push(processorKey(e))
+    for (const [target, keys] of Object.entries(byTarget)) keys.forEach((key, i) => addString(`telemetry.processors.${target}[${i}]`, key))
+  }
   return cmd
 }

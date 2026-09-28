@@ -212,3 +212,81 @@ describe('TelemetryFields guided mode', () => {
     expect(screen.getAllByPlaceholderText('Name this scope')).toHaveLength(1)
   })
 })
+
+describe('TelemetryFields extra processors', () => {
+  const openProcessing = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByText('Credentials & processing'))
+  }
+
+  test('starts with no extra processors, and adding one opens it pre-expanded for editing', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper />)
+    await openProcessing(user)
+    expect(screen.getByText('No extra processors.')).toBeInTheDocument()
+    await user.click(screen.getByTestId('telemetry-processor-add-filter'))
+    expect(screen.queryByText('No extra processors.')).not.toBeInTheDocument()
+    const rows = screen.getAllByTestId('telemetry-processor-row')
+    expect(rows).toHaveLength(1)
+    expect(within(rows[0]).getByPlaceholderText('drop_debug_logs')).toBeVisible()
+  })
+
+  test('an unnamed processor with no conditions is flagged; naming it and adding a condition clears the problem', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper />)
+    await openProcessing(user)
+    await user.click(screen.getByTestId('telemetry-processor-add-filter'))
+    expect(screen.getByTestId('telemetry-processor-problems')).toHaveTextContent('Every processor needs a name.')
+
+    await user.type(screen.getByPlaceholderText('drop_debug_logs'), 'drop_debug')
+    expect(screen.getByTestId('telemetry-processor-problems')).toHaveTextContent('has no conditions')
+
+    await user.click(screen.getByRole('button', { name: 'Condition' }))
+    await user.type(screen.getByPlaceholderText('attribute'), 'level')
+    await user.type(screen.getByPlaceholderText('value'), 'debug')
+    expect(screen.queryByTestId('telemetry-processor-problems')).not.toBeInTheDocument()
+  })
+
+  test('a raw JSON override hides the typed form and marks the row "raw"', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper />)
+    await openProcessing(user)
+    await user.click(screen.getByTestId('telemetry-processor-add-filter'))
+    expect(screen.getByText('Signal')).toBeInTheDocument()
+    await user.click(screen.getByText('Raw JSON body instead'))
+    await user.type(screen.getByLabelText('Raw processor JSON body'), '{{"error_mode":"ignore"}}')
+    expect(screen.queryByText('Signal')).not.toBeInTheDocument()
+    expect(screen.getByText('raw')).toBeInTheDocument()
+  })
+
+  test('the up/down buttons reorder processors, and the first row\'s up button is disabled', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper />)
+    await openProcessing(user)
+    await user.click(screen.getByTestId('telemetry-processor-add-filter'))
+    await user.type(screen.getByPlaceholderText('drop_debug_logs'), 'first')
+    await user.click(screen.getByTestId('telemetry-processor-add-transform'))
+    const nameInputs = screen.getAllByPlaceholderText('drop_debug_logs')
+    await user.type(nameInputs[1], 'second')
+
+    let rows = screen.getAllByTestId('telemetry-processor-row')
+    expect(within(rows[0]).getByText('first')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('second')).toBeInTheDocument()
+    expect(screen.getByLabelText('Move first up')).toBeDisabled()
+
+    await user.click(screen.getByLabelText('Move second up'))
+    rows = screen.getAllByTestId('telemetry-processor-row')
+    expect(within(rows[0]).getByText('second')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('first')).toBeInTheDocument()
+  })
+
+  test('removing a processor drops its row', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper />)
+    await openProcessing(user)
+    await user.click(screen.getByTestId('telemetry-processor-add-filter'))
+    expect(screen.getAllByTestId('telemetry-processor-row')).toHaveLength(1)
+    await user.click(screen.getByLabelText('Remove Filter'))
+    expect(screen.queryAllByTestId('telemetry-processor-row')).toHaveLength(0)
+    expect(screen.getByText('No extra processors.')).toBeInTheDocument()
+  })
+})

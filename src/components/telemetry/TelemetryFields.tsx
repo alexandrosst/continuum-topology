@@ -5,6 +5,7 @@ import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
 import { applyIntentPreset, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, TELEMETRY_UNIVERSAL_PERMISSION } from '@/lib/consent'
 import { telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
 import GuidedScope from './GuidedScope'
+import ProcessorEditor from './ProcessorEditor'
 
 export type SignalId = 'resourceUsage' | 'energy' | 'kubernetesState' | 'nodeRuntime' | 'networkLatency' | 'applicationMetrics' | 'systemLogs' | 'kubernetesEvents' | 'applicationLogs' | 'traces' | 'accelerators'
 
@@ -493,6 +494,10 @@ export default function TelemetryFields({
               data-testid={`${testIdPrefix}-traces-sampling`}
             />
           </Field>
+          <legend className="border-t border-nb-850 pt-3 text-xs font-medium uppercase tracking-wide text-nb-500 sm:col-span-2">Extra processors</legend>
+          <div className="sm:col-span-2">
+            <ProcessorEditor entries={value.extraProcessors} onChange={(extraProcessors) => set('extraProcessors', extraProcessors)} testIdPrefix={testIdPrefix} />
+          </div>
         </div>
       </details>
 

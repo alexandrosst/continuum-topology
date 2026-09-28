@@ -343,12 +343,19 @@ telemetry:
     # rendering a no-op hop.
     tracesSampling:
       percentage: 100
-    # Escape hatch for anything not covered above (tail_sampling, attributes, transform, ...): raw
+    # Escape hatch for anything not covered above (attributes, transform, a custom filter, ...): raw
     # processor definitions merged into the collector config's top-level "processors" map, and the names
     # to actually reference (in this order) in every pipeline, right after redaction and before batch.
     # Same "give the chart raw YAML for this one case" pattern as networkPolicy.egress.extraEgress above.
     extraProcessors: {}
     extraProcessorNames: []
+    # Traces-only extras (tail_sampling, or anything else that only implements the traces processor
+    # interface) - kept separate from extraProcessorNames above because the OTel Collector refuses to
+    # start if a traces-only processor (tail_sampling is the common one) is referenced from a metrics or
+    # logs pipeline, and extraProcessorNames is inserted into every pipeline uniformly. Appended after
+    # extraProcessorNames, still before batch, in the traces pipeline only (there is no traces pipeline in
+    # the host collector, so this has nothing to do there).
+    extraTracesProcessorNames: []
 
   # The inbound side: hardening for the OTLP receiver applications/other collectors push to (cluster
   # collector only - see telemetry-cluster-config.yaml; the host collector has no OTLP receiver of its

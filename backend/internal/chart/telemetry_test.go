@@ -405,6 +405,45 @@ func TestTelemetryExtraProcessorsEscapeHatch(t *testing.T) {
 	}
 }
 
+// tail_sampling only implements the traces processor interface - referencing it from a metrics or logs
+// pipeline makes the collector refuse to start. extraTracesProcessorNames exists precisely so a traces-only
+// extra never lands in extraProcessorNames' shared, every-pipeline slot; this both proves it reaches the
+// traces pipeline and guards against a regression that would put it back in a metrics/logs one too.
+func TestTelemetryExtraTracesProcessorNamesOnlyInTracesPipeline(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.applicationMetrics.metrics.enabled=true", "--set", "telemetry.traces.traces.enabled=true",
+		"--set-json", `telemetry.processors.extraProcessors={"tail_sampling":{"decision_wait":"10s","policies":[{"name":"errors","type":"status_code","status_code":{"status_codes":["ERROR"]}}]}}`,
+		"--set", "telemetry.processors.extraTracesProcessorNames[0]=tail_sampling")
+	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cfg := otelConfig(t, cm.Data)
+	procs, _ := cfg["processors"].(map[string]any)
+	if _, ok := procs["tail_sampling"]; !ok {
+		t.Fatalf("extraTracesProcessorNames entry not merged into processors: %v", procs)
+	}
+	svc, _ := cfg["service"].(map[string]any)
+	pipelines, _ := svc["pipelines"].(map[string]any)
+
+	traces, _ := pipelines["traces"].(map[string]any)
+	tracesProcs, _ := traces["processors"].([]any)
+	if !containsAny(tracesProcs, "tail_sampling") {
+		t.Errorf("tail_sampling not referenced in the traces pipeline: %v", tracesProcs)
+	}
+	if tracesProcs[len(tracesProcs)-1] != "batch" {
+		t.Errorf("batch must stay last even with a traces-only extra added, got %v", tracesProcs)
+	}
+
+	for _, name := range []string{"metrics/app", "metrics/infra", "logs/app", "logs/infra"} {
+		pl, ok := pipelines[name].(map[string]any)
+		if !ok {
+			continue
+		}
+		plProcs, _ := pl["processors"].([]any)
+		if containsAny(plProcs, "tail_sampling") {
+			t.Errorf("tail_sampling must never appear in %s (traces-only processor), got %v", name, plProcs)
+		}
+	}
+}
+
 func TestTelemetryAcceleratorsBundleDcgmRendersDaemonSetWithNarrowSecurityContext(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm")

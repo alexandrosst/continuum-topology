@@ -108,8 +108,9 @@
 {{/* Processor chains per pipeline: memory_limiter and k8sattributes always first, then the shared
      resourcedetection/redaction pair (if enabled), then whatever is pipeline-specific (Kepler's node-
      identity transform for metrics/infra only; the scope filter - shared or per-kind - and, for traces,
-     sampling for the *_app pipelines and traces only), then the extraProcessorNames escape hatch, then
-     batch always last. */}}
+     sampling for the *_app pipelines and traces only), then the extraProcessorNames escape hatch (every
+     pipeline), then - traces only - extraTracesProcessorNames as well (tail_sampling and anything else
+     that isn't a valid metrics/logs processor, see the values.yaml comment on it), then batch always last. */}}
 {{- $commonMid := list }}
 {{- if .Values.telemetry.processors.resourceDetection.enabled }}{{ $commonMid = append $commonMid "resourcedetection" }}{{ end }}
 {{- if .Values.telemetry.processors.redaction.enabled }}{{ $commonMid = append $commonMid "redaction" }}{{ end }}
@@ -134,7 +135,7 @@
 {{- $procTraces := concat (list "memory_limiter" "k8sattributes") $commonMid }}
 {{- if $trConditions }}{{ $procTraces = append $procTraces $trProcessor }}{{ end }}
 {{- if lt (int .Values.telemetry.processors.tracesSampling.percentage) 100 }}{{ $procTraces = append $procTraces "probabilistic_sampler" }}{{ end }}
-{{- $procTraces = concat $procTraces $extraNames (list "batch") }}
+{{- $procTraces = concat $procTraces $extraNames .Values.telemetry.processors.extraTracesProcessorNames (list "batch") }}
 
 {{- $clusterExtensions := list }}
 {{- if .Values.telemetry.opamp.enabled }}{{ $clusterExtensions = append $clusterExtensions "opamp" }}{{ end }}
