@@ -222,6 +222,16 @@ function Canvas() {
       const prevById = new Map(prev.map((n) => [n.id, n]))
       return graph.nodes.map((n) => {
         const old = prevById.get(n.id)
+        // A poll landing mid-gesture must never touch the node React Flow is actively dragging right now
+        // (its own `dragging` flag, set by `onNodesChange` for as long as the pointer is down) - this
+        // effect's whole job is to fold in *upstream* changes (a refreshed poll, a toggled view option),
+        // and a node's own live drag is a much faster, purely-local interaction that already owns its
+        // position for the moment. Handing React Flow a brand new object for the node it is mid-gesture
+        // with, every few seconds, races whatever its own drag handling is doing with that same node -
+        // a very plausible way for a long trackpad drag (this page polls every 2-5s) to leave the canvas,
+        // or even clicks elsewhere on the page, not responding until a reload. Every other node still
+        // resyncs normally; only the one actively being dragged is left alone until it's dropped.
+        if (old?.dragging) return old
         const keepOldPosition = old && old.parentId === n.parentId
         return { ...n, position: keepOldPosition ? old.position : n.position, selected: n.id === selectedRfId }
       })
