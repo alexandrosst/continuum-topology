@@ -424,6 +424,15 @@ telemetry:
       existing:
         prometheusEndpoint: ""   # required when source=existing: host:port/path already serving dcgm-shaped metrics
       interval: 30s
+      # Off by default, preserving every existing install's behavior exactly. When true (and source is still
+      # bundle-dcgm), enables dcgm-exporter's own Kubernetes pod-label enrichment (DCGM_EXPORTER_KUBERNETES +
+      # DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS - no new mount needed, the pod-resources socket below is
+      # already there) and lets the shared telemetry.scope below actually reach GPU metrics: without this,
+      # accelerators is domain: infrastructure for RBAC/deployment-shape reasons but its data can carry
+      # namespace/workload identity, and today that identity is invisible to this collector - turning this on
+      # is the opt-in fix, not a default, because it's new capability (and a small resource-label overhead on
+      # dcgm-exporter itself), not a correction to existing behavior.
+      applyScope: false
       # Only used when source=bundle-dcgm. Needs an NVIDIA driver and the NVIDIA Container Toolkit on the
       # node already (a prerequisite this chart cannot install), runAsUser: 0 plus the SYS_ADMIN capability
       # (narrower than Kepler's full privileged: true above - dcgm-exporter's own documented requirement),
@@ -483,6 +492,13 @@ telemetry:
       source: builtin   # builtin -> an OTLP receiver (apps push to it directly, the standard OpenTelemetry SDK
                          # pattern) plus a Prometheus receiver scraping the targets listed below
       scrapeTargets: []  # [{jobName: "", namespace: "", podLabelSelector: "", port: 0, path: /metrics}]
+      # Per-signal override of the shared telemetry.scope below. Each field falls back to telemetry.scope's
+      # own field independently when left empty here - same fallback idiom as hostCollector.resources below
+      # falling back to telemetry.resources. Set this only if application metrics need a different namespace
+      # scope than logs/traces; otherwise leave both empty and keep using the one shared scope.
+      scope:
+        namespaces: []
+        exclude: []
 
   # domain: infrastructure. "systemLogs" means the node's own operating system and container runtime, never
   # application output (see applicationLogs below for that).
@@ -508,12 +524,22 @@ telemetry:
     logs:
       enabled: false
       source: builtin   # builtin -> the same OTLP receiver as applicationMetrics (apps push logs directly)
+      # Per-signal override of the shared telemetry.scope below - see applicationMetrics.metrics.scope above
+      # for the exact fallback rule.
+      scope:
+        namespaces: []
+        exclude: []
 
   # domain: application
   traces:
     traces:
       enabled: false
       source: builtin   # builtin -> the same OTLP receiver again; there is no scrape-based source for traces
+      # Per-signal override of the shared telemetry.scope below - see applicationMetrics.metrics.scope above
+      # for the exact fallback rule.
+      scope:
+        namespaces: []
+        exclude: []
 
   # Which namespaces application-scoped signals (applicationMetrics, applicationLogs, traces) are collected
   # from. Reuses the same shape as "scope" above rather than inventing new vocabulary; empty means every
@@ -527,11 +553,14 @@ telemetry:
   #     attributes k8sattributes extracted, not a live label-selector evaluation against the API) - setting
   #     it fails the release rather than being silently ignored. Use namespaces/exclude instead.
   #   - networkLatency shares its OTLP receiver with applicationMetrics/traces (see telemetry-cluster-
-  #     config.yaml) and has no distinguishing tag of its own, so when both networkLatency and any
-  #     application-scoped signal are enabled together with a namespace scope active, the scope filter
-  #     applies to networkLatency's own re-emitted metrics too (they carry no k8s.namespace.name, so an
-  #     include-list scope drops them entirely). A real fix needs this agent to tag its own OTLP output,
-  #     which this chart alone can't do - known, accepted limitation for now.
+  #     config.yaml), but is structurally exempt from this filter (and any per-signal override above): the
+  #     collector config carries a standing condition excluding resource.attributes["service.name"] ==
+  #     "continuum-network-latency" from every scope filter it renders. That's a reserved identifier this
+  #     agent's own path-measurement OTLP output must set once it exists (it doesn't yet - see
+  #     telemetry-intent.md) - documented here so the contract is visible before the emitter is built, not
+  #     discovered by a namespace scope silently dropping data later.
+  #   - accelerators (GPU metrics) ignores this block entirely unless telemetry.accelerators.metrics.applyScope
+  #     is also turned on - see that field's own comment above for why it's opt-in rather than automatic.
   scope:
     namespaces: []
     exclude: []

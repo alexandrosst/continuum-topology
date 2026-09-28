@@ -196,3 +196,82 @@ test('seeding from installedTelemetry turns on exactly the reported signals, not
 
   assert.deepEqual(seedTelemetryFromInstalled([]), emptyTelemetry, 'nothing installed seeds exactly the fresh-install defaults')
 })
+
+test('catalog metadata: every signal has a coherent layer/modality/scope, namespaceScopable only where it means something', () => {
+  const known: Record<string, { layer: string; modality: string; scope: string }> = {
+    resourceUsage: { layer: 'infrastructure', modality: 'metrics', scope: 'node' },
+    energy: { layer: 'infrastructure', modality: 'metrics', scope: 'node' },
+    kubernetesState: { layer: 'infrastructure', modality: 'metrics', scope: 'cluster' },
+    nodeRuntime: { layer: 'infrastructure', modality: 'metrics', scope: 'node' },
+    networkLatency: { layer: 'infrastructure', modality: 'metrics', scope: 'cluster' },
+    applicationMetrics: { layer: 'application', modality: 'metrics', scope: 'application' },
+    systemLogs: { layer: 'infrastructure', modality: 'logs', scope: 'node' },
+    kubernetesEvents: { layer: 'infrastructure', modality: 'logs', scope: 'cluster' },
+    applicationLogs: { layer: 'application', modality: 'logs', scope: 'application' },
+    traces: { layer: 'application', modality: 'traces', scope: 'application' },
+    accelerators: { layer: 'infrastructure', modality: 'metrics', scope: 'node' },
+  }
+  for (const s of TELEMETRY_SIGNALS) {
+    const want = known[s.id]
+    assert.ok(want, `${s.id} is not in the expected catalog - update this test alongside TELEMETRY_SIGNALS`)
+    assert.equal(s.layer, want.layer, `${s.id}.layer`)
+    assert.equal(s.modality, want.modality, `${s.id}.modality`)
+    assert.equal(s.scope, want.scope, `${s.id}.scope`)
+  }
+  // namespaceScopable is the one honest exception to layer/scope being the whole story (accelerators is
+  // node-scoped infrastructure, but its data can still carry namespace identity) - nothing else should claim it.
+  const scopable = TELEMETRY_SIGNALS.filter((s) => s.namespaceScopable).map((s) => s.id)
+  assert.deepEqual(scopable, ['accelerators'])
+  // application-layer kinds are exactly the application-scoped ones, and vice versa - if this ever drifts,
+  // the "Application scope overrides" panel (gated on layer === 'application' scope fields existing) and
+  // the chart's own per-kind override plumbing would silently disagree about which kinds it applies to.
+  const appLayer = TELEMETRY_SIGNALS.filter((s) => s.layer === 'application').map((s) => s.id).sort()
+  const appScope = TELEMETRY_SIGNALS.filter((s) => s.scope === 'application').map((s) => s.id).sort()
+  assert.deepEqual(appLayer, appScope)
+  assert.deepEqual(appLayer, ['applicationLogs', 'applicationMetrics', 'traces'])
+})
+
+test('acceleratorsApplyScope is stated explicitly, like the signal booleans, whether or not accelerators is on', () => {
+  const on: TelemetryInput = { ...emptyTelemetry, accelerators: true, acceleratorsApplyScope: true, exportEndpoint: 'x:4317' }
+  assert.match(withTelemetry(base, on), /--set telemetry\.accelerators\.metrics\.applyScope=true/)
+
+  // off by default, but still restated as false so a previous true left over from an earlier install
+  // doesn't survive a --reuse-values upgrade that merely unchecks accelerators without touching this box
+  const off: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317' }
+  assert.match(withTelemetry(base, off), /--set telemetry\.accelerators\.metrics\.applyScope=false/)
+})
+
+test('per-kind application scope override: stated only while its own kind is on, empty clears a stale prior override', () => {
+  const on: TelemetryInput = { ...emptyTelemetry, applicationMetrics: true, applicationLogs: true, traces: true, exportEndpoint: 'x:4317' }
+  const cmd = withTelemetry(base, on)
+  // nothing set on any override here, but each kind is on - so all six flags are still stated, to '{}',
+  // not omitted; omitting them would let a stale prior override survive a --reuse-values upgrade.
+  assert.match(cmd, /--set telemetry\.applicationMetrics\.metrics\.scope\.namespaces='\{\}'/)
+  assert.match(cmd, /--set telemetry\.applicationMetrics\.metrics\.scope\.exclude='\{\}'/)
+  assert.match(cmd, /--set telemetry\.applicationLogs\.logs\.scope\.namespaces='\{\}'/)
+  assert.match(cmd, /--set telemetry\.applicationLogs\.logs\.scope\.exclude='\{\}'/)
+  assert.match(cmd, /--set telemetry\.traces\.traces\.scope\.namespaces='\{\}'/)
+  assert.match(cmd, /--set telemetry\.traces\.traces\.scope\.exclude='\{\}'/)
+
+  const withOverride: TelemetryInput = {
+    ...on,
+    applicationMetricsScope: { namespaces: ['shop', 'payments'], exclude: ['hr-data'] },
+  }
+  const cmdOverride = withTelemetry(base, withOverride)
+  assert.match(cmdOverride, /--set telemetry\.applicationMetrics\.metrics\.scope\.namespaces='\{shop,payments\}'/)
+  assert.match(cmdOverride, /--set telemetry\.applicationMetrics\.metrics\.scope\.exclude='\{hr-data\}'/)
+
+  // the kind itself off: its scope fields are omitted entirely, matching the energy/accelerators-existing-
+  // endpoint precedent - the chart's own .enabled gate makes an unstated (or stale) override harmless.
+  const off: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317', applicationMetricsScope: { namespaces: ['shop'], exclude: [] } }
+  const cmdOff = withTelemetry(base, off)
+  assert.ok(!cmdOff.includes('telemetry.applicationMetrics.metrics.scope'))
+})
+
+test('an invalid namespace in a per-kind scope override is only flagged while its own kind is on', () => {
+  const off: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317', applicationMetricsScope: { namespaces: ['not valid!'], exclude: [] } }
+  assert.deepEqual(telemetryProblems(off), [], 'applicationMetrics is off, so its override is not even looked at')
+
+  const on: TelemetryInput = { ...off, applicationMetrics: true }
+  assert.deepEqual(telemetryProblems(on), ['"not valid!" is not a valid namespace name'])
+})

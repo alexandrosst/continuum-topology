@@ -707,6 +707,9 @@
                 },
                 "resources": {
                   "type": "object"
+                },
+                "applyScope": {
+                  "type": "boolean"
                 }
               }
             }
@@ -822,6 +825,24 @@
                       }
                     }
                   }
+                },
+                "scope": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "namespaces": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "exclude": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
                 }
               },
               "required": []
@@ -889,6 +910,24 @@
                   "enum": [
                     "builtin"
                   ]
+                },
+                "scope": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "namespaces": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "exclude": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -909,6 +948,24 @@
                   "enum": [
                     "builtin"
                   ]
+                },
+                "scope": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "namespaces": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "exclude": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
                 }
               }
             }

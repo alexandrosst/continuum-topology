@@ -535,3 +535,237 @@ func TestTelemetryCollectorsUseOwnServiceAccountIsolatedFromAccessTier(t *testin
 		}
 	}
 }
+
+// -----------------------------------------------------------------------------------------------------
+// Per-kind application scope overrides (telemetry.<kind>.scope) and the networkLatency exemption.
+// -----------------------------------------------------------------------------------------------------
+
+func TestTelemetryApplicationScopeOverrideFallsBackToGlobal(t *testing.T) {
+	// No per-kind override set anywhere: every app-domain pipeline must still carry the exact same shared
+	// "filter/scope" processor as before this change - this is the zero-regression guarantee for every
+	// existing install, which never sets telemetry.<kind>.scope.
+	r := render(t,
+		"--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.applicationMetrics.metrics.enabled=true",
+		"--set", "telemetry.applicationLogs.logs.enabled=true",
+		"--set", "telemetry.traces.traces.enabled=true",
+		"--set", "telemetry.scope.namespaces[0]=shop",
+	)
+	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cfg := otelConfig(t, cm.Data)
+	procs, _ := cfg["processors"].(map[string]any)
+	if _, ok := procs["filter/scope"]; !ok {
+		t.Fatalf("filter/scope processor missing: %v", procs)
+	}
+	for _, unwanted := range []string{"filter/scope_applicationMetrics", "filter/scope_applicationLogs", "filter/scope_traces"} {
+		if _, ok := procs[unwanted]; ok {
+			t.Errorf("%s should not render when no per-kind override is set", unwanted)
+		}
+	}
+	svc, _ := cfg["service"].(map[string]any)
+	pipelines, _ := svc["pipelines"].(map[string]any)
+	for _, name := range []string{"metrics/app", "logs/app", "traces"} {
+		p, ok := pipelines[name].(map[string]any)
+		if !ok {
+			t.Fatalf("%s pipeline missing", name)
+		}
+		procList, _ := p["processors"].([]any)
+		if !containsAny(procList, "filter/scope") {
+			t.Errorf("%s must carry the shared filter/scope, got %v", name, procList)
+		}
+	}
+}
+
+func TestTelemetryApplicationMetricsScopeOverrideUsesOwnProcessor(t *testing.T) {
+	r := render(t,
+		"--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.applicationMetrics.metrics.enabled=true",
+		"--set", "telemetry.applicationLogs.logs.enabled=true",
+		"--set", "telemetry.traces.traces.enabled=true",
+		"--set", "telemetry.scope.namespaces[0]=payments",
+		"--set", "telemetry.applicationMetrics.metrics.scope.namespaces[0]=shop",
+	)
+	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cfg := otelConfig(t, cm.Data)
+	procs, _ := cfg["processors"].(map[string]any)
+	amProc, ok := procs["filter/scope_applicationMetrics"].(map[string]any)
+	if !ok {
+		t.Fatalf("filter/scope_applicationMetrics missing: %v", procs)
+	}
+	conds, _ := amProc["metric_conditions"].([]any)
+	if len(conds) != 1 || !strings.Contains(conds[0].(string), `"^(shop)$"`) {
+		t.Errorf("filter/scope_applicationMetrics should use its own override (shop), got %v", conds)
+	}
+	// The shared filter/scope must still exist (logs/app and traces still use it, with the global scope).
+	shared, ok := procs["filter/scope"].(map[string]any)
+	if !ok {
+		t.Fatalf("filter/scope missing: %v", procs)
+	}
+	sharedConds, _ := shared["log_conditions"].([]any)
+	if len(sharedConds) != 1 || !strings.Contains(sharedConds[0].(string), `"^(payments)$"`) {
+		t.Errorf("filter/scope should still use the global scope (payments), got %v", sharedConds)
+	}
+
+	svc, _ := cfg["service"].(map[string]any)
+	pipelines, _ := svc["pipelines"].(map[string]any)
+	app, _ := pipelines["metrics/app"].(map[string]any)
+	appProcs, _ := app["processors"].([]any)
+	if !containsAny(appProcs, "filter/scope_applicationMetrics") {
+		t.Errorf("metrics/app must use filter/scope_applicationMetrics, got %v", appProcs)
+	}
+	if containsAny(appProcs, "filter/scope") {
+		t.Errorf("metrics/app must not also carry the shared filter/scope, got %v", appProcs)
+	}
+	logsApp, _ := pipelines["logs/app"].(map[string]any)
+	logsAppProcs, _ := logsApp["processors"].([]any)
+	if !containsAny(logsAppProcs, "filter/scope") {
+		t.Errorf("logs/app (no override) must still use the shared filter/scope, got %v", logsAppProcs)
+	}
+}
+
+func TestTelemetryNetworkLatencyExemptFromApplicationScopeFilter(t *testing.T) {
+	r := render(t,
+		"--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.applicationMetrics.metrics.enabled=true",
+		"--set", "telemetry.networkLatency.metrics.enabled=true",
+		"--set", "measurements.enabled=true",
+		"--set", "telemetry.scope.namespaces[0]=shop",
+	)
+	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cfg := otelConfig(t, cm.Data)
+	procs, _ := cfg["processors"].(map[string]any)
+	shared, ok := procs["filter/scope"].(map[string]any)
+	if !ok {
+		t.Fatalf("filter/scope missing: %v", procs)
+	}
+	conds, _ := shared["metric_conditions"].([]any)
+	if len(conds) != 1 || !strings.Contains(conds[0].(string), `service.name"] != "continuum-network-latency"`) {
+		t.Errorf("filter/scope should exempt continuum-network-latency when networkLatency is enabled, got %v", conds)
+	}
+}
+
+func TestTelemetryNoNetworkLatencyExemptionWhenSignalDisabled(t *testing.T) {
+	r := render(t,
+		"--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.applicationMetrics.metrics.enabled=true",
+		"--set", "telemetry.scope.namespaces[0]=shop",
+	)
+	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cfg := otelConfig(t, cm.Data)
+	procs, _ := cfg["processors"].(map[string]any)
+	shared, ok := procs["filter/scope"].(map[string]any)
+	if !ok {
+		t.Fatalf("filter/scope missing: %v", procs)
+	}
+	conds, _ := shared["metric_conditions"].([]any)
+	if len(conds) != 1 || strings.Contains(conds[0].(string), "continuum-network-latency") {
+		t.Errorf("filter/scope should carry no networkLatency exemption clause when the signal is off, got %v", conds)
+	}
+}
+
+// -----------------------------------------------------------------------------------------------------
+// Accelerators applyScope: off-by-default GPU-metrics namespace scoping.
+// -----------------------------------------------------------------------------------------------------
+
+func TestTelemetryAcceleratorsApplyScopeOffByDefaultRendersIdenticalConfig(t *testing.T) {
+	// Explicit zero-regression check: enabling accelerators without touching applyScope must render
+	// exactly as it did before this feature existed - no transform, no new filter, no new env vars.
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm",
+		"--set", "telemetry.scope.namespaces[0]=shop")
+	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cfg := otelConfig(t, cm.Data)
+	procs, _ := cfg["processors"].(map[string]any)
+	for _, unwanted := range []string{"transform/dcgm_pod", "filter/scope_accelerators"} {
+		if _, ok := procs[unwanted]; ok {
+			t.Errorf("%s should not render when applyScope is off (default)", unwanted)
+		}
+	}
+	ds, ok := r.daemonsets["continuum-telemetry-dcgm"]
+	if !ok {
+		t.Fatal("no continuum-telemetry-dcgm DaemonSet rendered")
+	}
+	if env := ds.Spec.Template.Spec.Containers[0].Env; len(env) != 0 {
+		t.Errorf("dcgm-exporter should have no env vars when applyScope is off, got %+v", env)
+	}
+}
+
+func TestTelemetryAcceleratorsApplyScopeAddsTransformAndScopedFilter(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm",
+		"--set", "telemetry.accelerators.metrics.applyScope=true",
+		"--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.energy.metrics.source=bundle-kepler",
+		"--set", "telemetry.scope.namespaces[0]=shop")
+	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cfg := otelConfig(t, cm.Data)
+	procs, _ := cfg["processors"].(map[string]any)
+
+	if _, ok := procs["transform/dcgm_pod"]; !ok {
+		t.Fatalf("transform/dcgm_pod missing when applyScope is on: %v", procs)
+	}
+	// Kepler's own transform must be untouched - accelerators' scoping must not interfere with it.
+	if _, ok := procs["transform/kepler_node"]; !ok {
+		t.Errorf("transform/kepler_node should still render alongside transform/dcgm_pod")
+	}
+
+	accFilter, ok := procs["filter/scope_accelerators"].(map[string]any)
+	if !ok {
+		t.Fatalf("filter/scope_accelerators missing when applyScope is on: %v", procs)
+	}
+	conds, _ := accFilter["metric_conditions"].([]any)
+	if len(conds) != 1 {
+		t.Fatalf("filter/scope_accelerators should have exactly one condition, got %v", conds)
+	}
+	cond := conds[0].(string)
+	if !strings.Contains(cond, `"^(shop)$"`) {
+		t.Errorf("filter/scope_accelerators should use the global scope (shop), got %q", cond)
+	}
+	if !strings.Contains(cond, `service.name"] == "dcgm-exporter"`) {
+		t.Errorf("filter/scope_accelerators must gate on service.name == dcgm-exporter so it never touches Kepler's records, got %q", cond)
+	}
+
+	svc, _ := cfg["service"].(map[string]any)
+	pipelines, _ := svc["pipelines"].(map[string]any)
+	infra, _ := pipelines["metrics/infra"].(map[string]any)
+	infraProcs, _ := infra["processors"].([]any)
+	if !containsAny(infraProcs, "transform/dcgm_pod") || !containsAny(infraProcs, "filter/scope_accelerators") {
+		t.Errorf("metrics/infra must carry both transform/dcgm_pod and filter/scope_accelerators, got %v", infraProcs)
+	}
+}
+
+func TestTelemetryAcceleratorsApplyScopeSetsDcgmEnvVars(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm",
+		"--set", "telemetry.accelerators.metrics.applyScope=true")
+	ds, ok := r.daemonsets["continuum-telemetry-dcgm"]
+	if !ok {
+		t.Fatal("no continuum-telemetry-dcgm DaemonSet rendered")
+	}
+	env := map[string]string{}
+	for _, e := range ds.Spec.Template.Spec.Containers[0].Env {
+		env[e.Name] = e.Value
+	}
+	if env["DCGM_EXPORTER_KUBERNETES"] != "true" {
+		t.Errorf("DCGM_EXPORTER_KUBERNETES = %q, want true", env["DCGM_EXPORTER_KUBERNETES"])
+	}
+	if env["DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS"] != "true" {
+		t.Errorf("DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS = %q, want true", env["DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS"])
+	}
+}
+
+func TestTelemetryAcceleratorsApplyScopeNoopWithoutGlobalScope(t *testing.T) {
+	// applyScope with no telemetry.scope set at all: nothing to filter by, so no filter/scope_accelerators
+	// should render (an empty metric_conditions list would be a no-op filter, not worth defining).
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm",
+		"--set", "telemetry.accelerators.metrics.applyScope=true")
+	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cfg := otelConfig(t, cm.Data)
+	procs, _ := cfg["processors"].(map[string]any)
+	if _, ok := procs["filter/scope_accelerators"]; ok {
+		t.Error("filter/scope_accelerators should not render when telemetry.scope is empty")
+	}
+	if _, ok := procs["transform/dcgm_pod"]; !ok {
+		t.Error("transform/dcgm_pod should still render (pod-identity enrichment doesn't depend on scope being set)")
+	}
+}

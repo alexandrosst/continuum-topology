@@ -41,10 +41,14 @@ export const selectableKey = (k: string) => SELECTABLE_EXACT.includes(k) || SELE
 
 const LABEL_VALUE = /^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$/
 
+/** Every name that isn't a valid Kubernetes namespace (DNS-1123 label), worded for a person to act on. */
+export function namespaceListProblems(names: string[]): string[] {
+  return names.filter((n) => !DNS_LABEL.test(n)).map((n) => `"${n}" is not a valid namespace name`)
+}
+
 /** What is wrong with the scope, in words a person can act on; empty when it is fine. */
 export function scopeProblems(s: ScopeInput): string[] {
-  const out: string[] = []
-  for (const n of [...s.namespaces, ...s.exclude]) if (!DNS_LABEL.test(n)) out.push(`"${n}" is not a valid namespace name`)
+  const out: string[] = [...namespaceListProblems([...s.namespaces, ...s.exclude])]
   if (s.selector.trim()) {
     const [k, ...rest] = s.selector.trim().split('=')
     if (!LABEL_KEY.test(k)) out.push(`"${k}" is not a valid label key`)
@@ -80,6 +84,20 @@ export function withScope(install: string, s: ScopeInput): string {
  * reason the wizard's own scope section already leaves out label selectors on unusual keys: they stay an
  * advanced, hand-written `--set` a person adds themselves, same as any other chart value this UI doesn't cover.
  */
+/**
+ * A per-signal override of the shared telemetry scope (see `applicationMetricsScope` etc. below): each
+ * field falls back to the install's global `telemetry.scope` field-by-field when left empty here, exactly
+ * like the chart's own values.yaml fallback. Distinct from `ScopeInput` above - no `selector`, since the
+ * chart's per-signal override doesn't support one either (same reasoning as the global scope: not
+ * implementable cleanly after the fact).
+ */
+export interface ScopeOverrideInput {
+  namespaces: string[]
+  exclude: string[]
+}
+
+export const emptyScopeOverride: ScopeOverrideInput = { namespaces: [], exclude: [] }
+
 export interface TelemetryInput {
   resourceUsage: boolean
   energy: boolean
@@ -92,16 +110,26 @@ export interface TelemetryInput {
   /** Re-emits the "Path measurements" extra's own TCP timings as OTel metrics; reports nothing without it. */
   networkLatency: boolean
   applicationMetrics: boolean
+  /** Per-signal scope override for applicationMetrics - see `ScopeOverrideInput`. */
+  applicationMetricsScope: ScopeOverrideInput
   systemLogs: boolean
   kubernetesEvents: boolean
   applicationLogs: boolean
+  /** Per-signal scope override for applicationLogs - see `ScopeOverrideInput`. */
+  applicationLogsScope: ScopeOverrideInput
   traces: boolean
+  /** Per-signal scope override for traces - see `ScopeOverrideInput`. */
+  tracesScope: ScopeOverrideInput
   /** GPU/accelerator utilization, memory and power, via NVIDIA DCGM - bundled, or an existing one already scraped. */
   accelerators: boolean
   /** Only meaningful when `accelerators` is on: deploy the bundled dcgm-exporter DaemonSet, or scrape one that already exists. */
   acceleratorsSource: 'bundle-dcgm' | 'existing'
   /** Required when `acceleratorsSource` is 'existing': host:port/path already serving dcgm-shaped metrics. */
   acceleratorsExistingEndpoint: string
+  /** Off by default. Accelerators is infrastructure-domain (no namespace filtering) unless this is on, in
+   *  which case dcgm-exporter's own pod-label enrichment is turned on and the install's namespace scope
+   *  (global or nothing - accelerators has no override of its own) reaches GPU metrics too. */
+  acceleratorsApplyScope: boolean
   /** Where every enabled signal is sent (`telemetry.export.otlp.*`). Required once any signal above is on. */
   exportEndpoint: string
   exportProtocol: 'grpc' | 'http'
@@ -135,13 +163,17 @@ export const emptyTelemetry: TelemetryInput = {
   nodeRuntime: false,
   networkLatency: false,
   applicationMetrics: false,
+  applicationMetricsScope: emptyScopeOverride,
   systemLogs: false,
   kubernetesEvents: false,
   applicationLogs: false,
+  applicationLogsScope: emptyScopeOverride,
   traces: false,
+  tracesScope: emptyScopeOverride,
   accelerators: false,
   acceleratorsSource: 'bundle-dcgm',
   acceleratorsExistingEndpoint: '',
+  acceleratorsApplyScope: false,
   exportEndpoint: '',
   exportProtocol: 'grpc',
   exportInsecure: false,
@@ -172,6 +204,9 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   if (t.accelerators && t.acceleratorsSource === 'existing' && !t.acceleratorsExistingEndpoint.trim()) out.push('The existing Prometheus endpoint is required when accelerators points at an existing source')
   if (t.networkLatency && measurementsOn === false) out.push('Network latency re-emits the path measurements extra, so turn that on too, or it will report nothing')
   if (t.tracesSamplingPercent < 0 || t.tracesSamplingPercent > 100) out.push('Traces sampling must be between 0 and 100')
+  if (t.applicationMetrics) out.push(...namespaceListProblems([...t.applicationMetricsScope.namespaces, ...t.applicationMetricsScope.exclude]))
+  if (t.applicationLogs) out.push(...namespaceListProblems([...t.applicationLogsScope.namespaces, ...t.applicationLogsScope.exclude]))
+  if (t.traces) out.push(...namespaceListProblems([...t.tracesScope.namespaces, ...t.tracesScope.exclude]))
   return out
 }
 
@@ -203,15 +238,37 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   add(`telemetry.nodeRuntime.metrics.enabled=${t.nodeRuntime}`)
   add(`telemetry.networkLatency.metrics.enabled=${t.networkLatency}`)
   add(`telemetry.applicationMetrics.metrics.enabled=${t.applicationMetrics}`)
+  // Stated unconditionally while the kind itself is on (even when both lists are empty) - an empty
+  // helmList still renders to a valid '{}' the chart accepts as "no override, fall back to global scope",
+  // and stating it is what lets clearing an override back to empty actually take effect on --reuse-values;
+  // leaving it unstated whenever empty would let a stale prior override survive. Omitted entirely while the
+  // kind itself is off, matching the existing energy/accelerators-existing-endpoint precedent - the chart's
+  // own gating (parent .enabled check) makes a stale value harmless there.
+  if (t.applicationMetrics) {
+    add(`telemetry.applicationMetrics.metrics.scope.namespaces=${helmList(t.applicationMetricsScope.namespaces)}`)
+    add(`telemetry.applicationMetrics.metrics.scope.exclude=${helmList(t.applicationMetricsScope.exclude)}`)
+  }
   add(`telemetry.systemLogs.logs.enabled=${t.systemLogs}`)
   add(`telemetry.kubernetesEvents.logs.enabled=${t.kubernetesEvents}`)
   add(`telemetry.applicationLogs.logs.enabled=${t.applicationLogs}`)
+  if (t.applicationLogs) {
+    add(`telemetry.applicationLogs.logs.scope.namespaces=${helmList(t.applicationLogsScope.namespaces)}`)
+    add(`telemetry.applicationLogs.logs.scope.exclude=${helmList(t.applicationLogsScope.exclude)}`)
+  }
   add(`telemetry.traces.traces.enabled=${t.traces}`)
+  if (t.traces) {
+    add(`telemetry.traces.traces.scope.namespaces=${helmList(t.tracesScope.namespaces)}`)
+    add(`telemetry.traces.traces.scope.exclude=${helmList(t.tracesScope.exclude)}`)
+  }
   add(`telemetry.accelerators.metrics.enabled=${t.accelerators}`)
   if (t.accelerators && t.acceleratorsSource === 'existing') {
     add('telemetry.accelerators.metrics.source=existing')
     addString('telemetry.accelerators.metrics.existing.prometheusEndpoint', t.acceleratorsExistingEndpoint.trim())
   }
+  // Stated explicitly and unconditionally, like the 11 signal flags above (not gated on t.accelerators) -
+  // the same --reuse-values staleness reasoning: a previous applyScope=true left unmentioned would survive
+  // a later edit that turns accelerators off and back on without re-checking this box.
+  add(`telemetry.accelerators.metrics.applyScope=${t.acceleratorsApplyScope}`)
   if (t.exportAuthSecretName.trim()) {
     addString('telemetry.export.otlp.auth.secretName', t.exportAuthSecretName.trim())
     addString('telemetry.export.otlp.auth.secretKey', t.exportAuthSecretKey.trim() || 'token')

@@ -78,3 +78,59 @@ describe('TelemetryFields', () => {
     expect(alerts.some((a) => /AWS/.test(a.textContent ?? ''))).toBe(true)
   })
 })
+
+describe('TelemetryFields facets and application scope overrides', () => {
+  test('facets narrow the visible signal checkboxes, and default to showing everything', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper />)
+    expect(screen.getByTestId('telemetry-resourceUsage')).toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-kubernetesState')).toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-traces')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('telemetry-facet-scope'))
+    await user.click(screen.getByRole('option', { name: 'Cluster' }))
+    expect(screen.getByTestId('telemetry-kubernetesState')).toBeInTheDocument()
+    expect(screen.queryByTestId('telemetry-resourceUsage')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('telemetry-traces')).not.toBeInTheDocument()
+
+    // purely a browsing aid - resetting back to "All" shows everything again, and nothing about it was
+    // ever written into the TelemetryInput value the checkboxes themselves are bound to
+    await user.click(screen.getByTestId('telemetry-facet-scope'))
+    await user.click(screen.getByRole('option', { name: 'All' }))
+    expect(screen.getByTestId('telemetry-resourceUsage')).toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-traces')).toBeInTheDocument()
+  })
+
+  test('the accelerators "apply scope" checkbox only appears once accelerators is checked', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper />)
+    expect(screen.queryByTestId('telemetry-accelerators-apply-scope')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('telemetry-accelerators'))
+    expect(screen.getByTestId('telemetry-accelerators-apply-scope')).toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-accelerators-apply-scope')).not.toBeChecked()
+  })
+
+  test('application scope overrides only appear once an application-layer signal is on, start collapsed, and open automatically when a kind already carries one', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(<Wrapper />)
+    expect(screen.queryByTestId('telemetry-scope-overrides')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('telemetry-applicationMetrics'))
+    expect(screen.getByTestId('telemetry-scope-overrides')).toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-scope-overrides')).not.toHaveAttribute('open')
+    expect(screen.getByTestId('telemetry-applicationMetrics-scope-namespaces')).not.toBeVisible()
+    await user.click(screen.getByText('Application scope overrides'))
+    expect(screen.getByTestId('telemetry-applicationMetrics-scope-namespaces')).toBeVisible()
+    unmount()
+
+    render(
+      <Wrapper
+        initial={{
+          ...emptyTelemetry,
+          applicationMetrics: true,
+          applicationMetricsScope: { namespaces: ['shop'], exclude: [] },
+        }}
+      />,
+    )
+    expect(screen.getByTestId('telemetry-scope-overrides')).toHaveAttribute('open')
+  })
+})

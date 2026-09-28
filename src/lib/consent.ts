@@ -235,18 +235,31 @@ export function collectorState(c: AgentCollector | undefined): CollectorState {
  * everywhere else this signal is named: TelemetryInput's own field, the chart's `telemetry.<id>.enabled`
  * path, and the exact string the agent self-reports in `installedTelemetry` - one vocabulary, not three.
  */
-export const TELEMETRY_SIGNALS: { id: string; label: string; domain: 'infrastructure' | 'application'; what: string; permissions: string }[] = [
-  { id: 'resourceUsage', label: 'Resource usage', domain: 'infrastructure', what: 'Node and per-container CPU, memory, filesystem and network, from the kubelet and the host.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
-  { id: 'energy', label: 'Energy', domain: 'infrastructure', what: 'Power draw per node/pod, from Kepler (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - Kepler reads host energy counters directly, never the Kubernetes API.' },
-  { id: 'kubernetesState', label: 'Kubernetes state', domain: 'infrastructure', what: 'Pod, deployment and replica status and counts, cluster-wide.', permissions: 'Read-only, cluster-wide access to pods, deployments, replica sets, stateful/daemon sets, jobs, cronjobs and autoscalers.' },
-  { id: 'nodeRuntime', label: 'Node runtime', domain: 'infrastructure', what: 'Pod lifecycle and volume metrics from the kubelet.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
-  { id: 'networkLatency', label: 'Network latency', domain: 'infrastructure', what: "This agent's own path measurements, re-emitted as OTel metrics.", permissions: 'None beyond identity enrichment below - reuses this agent\'s existing measurement capability.' },
-  { id: 'applicationMetrics', label: 'Application metrics', domain: 'application', what: 'Metrics your applications push (OTLP) or that this collector scrapes (Prometheus).', permissions: 'None beyond identity enrichment below.' },
-  { id: 'systemLogs', label: 'System logs', domain: 'infrastructure', what: "Each node's own OS/container runtime logs, never application output.", permissions: 'None beyond identity enrichment below - reads local log files only.' },
-  { id: 'kubernetesEvents', label: 'Kubernetes events', domain: 'infrastructure', what: 'Cluster Events, watched cluster-wide.', permissions: 'Read-only, cluster-wide access to Events only.' },
-  { id: 'applicationLogs', label: 'Application logs', domain: 'application', what: 'Logs your applications push directly (OTLP).', permissions: 'None beyond identity enrichment below.' },
-  { id: 'traces', label: 'Traces', domain: 'application', what: 'Distributed traces your applications push directly (OTLP).', permissions: 'None beyond identity enrichment below.' },
-  { id: 'accelerators', label: 'Accelerators (GPU)', domain: 'infrastructure', what: 'GPU utilization, memory, temperature and power per node/pod, from NVIDIA DCGM (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - dcgm-exporter reads GPU hardware and the kubelet\'s pod-resources socket directly, never the Kubernetes API.' },
+/**
+ * Four axes, kept honest rather than a free 4D cross-product: `id` (kind) is the only one a person actually
+ * chooses. `modality` is a physical fact about each kind's receiver (a metrics receiver never produces
+ * traces) - read-only metadata, not a toggle. `layer` is the architectural/RBAC classification (renamed
+ * from the chart's own `domain` field, same meaning). `scope` is where a signal is collected: 'cluster'
+ * (a singleton receiver, watched once, cluster-wide, never filterable), 'node' (a DaemonSet - already
+ * schedulable onto a subset of nodes via the chart's own nodeSelector/tolerations, just not through this
+ * form), or 'application' (namespace-filterable via telemetry.scope or, for these three kinds, a per-signal
+ * override - see TelemetryFields). `namespaceScopable` is the one honestly-named exception: accelerators is
+ * layer: infrastructure (deployment shape, no RBAC) but its GPU metrics can carry namespace/pod identity,
+ * so it can optionally opt into namespace scoping too (telemetry.accelerators.metrics.applyScope) without
+ * pretending that changes its architectural layer.
+ */
+export const TELEMETRY_SIGNALS: { id: string; label: string; layer: 'infrastructure' | 'application'; modality: 'metrics' | 'logs' | 'traces'; scope: 'cluster' | 'node' | 'application'; namespaceScopable?: boolean; what: string; permissions: string }[] = [
+  { id: 'resourceUsage', label: 'Resource usage', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Node and per-container CPU, memory, filesystem and network, from the kubelet and the host.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
+  { id: 'energy', label: 'Energy', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Power draw per node/pod, from Kepler (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - Kepler reads host energy counters directly, never the Kubernetes API.' },
+  { id: 'kubernetesState', label: 'Kubernetes state', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', what: 'Pod, deployment and replica status and counts, cluster-wide.', permissions: 'Read-only, cluster-wide access to pods, deployments, replica sets, stateful/daemon sets, jobs, cronjobs and autoscalers.' },
+  { id: 'nodeRuntime', label: 'Node runtime', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Pod lifecycle and volume metrics from the kubelet.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
+  { id: 'networkLatency', label: 'Network latency', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', what: "This agent's own path measurements, re-emitted as OTel metrics.", permissions: 'None beyond identity enrichment below - reuses this agent\'s existing measurement capability.' },
+  { id: 'applicationMetrics', label: 'Application metrics', layer: 'application', modality: 'metrics', scope: 'application', what: 'Metrics your applications push (OTLP) or that this collector scrapes (Prometheus).', permissions: 'None beyond identity enrichment below.' },
+  { id: 'systemLogs', label: 'System logs', layer: 'infrastructure', modality: 'logs', scope: 'node', what: "Each node's own OS/container runtime logs, never application output.", permissions: 'None beyond identity enrichment below - reads local log files only.' },
+  { id: 'kubernetesEvents', label: 'Kubernetes events', layer: 'infrastructure', modality: 'logs', scope: 'cluster', what: 'Cluster Events, watched cluster-wide.', permissions: 'Read-only, cluster-wide access to Events only.' },
+  { id: 'applicationLogs', label: 'Application logs', layer: 'application', modality: 'logs', scope: 'application', what: 'Logs your applications push directly (OTLP).', permissions: 'None beyond identity enrichment below.' },
+  { id: 'traces', label: 'Traces', layer: 'application', modality: 'traces', scope: 'application', what: 'Distributed traces your applications push directly (OTLP).', permissions: 'None beyond identity enrichment below.' },
+  { id: 'accelerators', label: 'Accelerators (GPU)', layer: 'infrastructure', modality: 'metrics', scope: 'node', namespaceScopable: true, what: 'GPU utilization, memory, temperature and power per node/pod, from NVIDIA DCGM (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - dcgm-exporter reads GPU hardware and the kubelet\'s pod-resources socket directly, never the Kubernetes API.' },
 ]
 
 /** The one RBAC grant every signal above shares once ANY of them is on: read-only pods/namespaces/nodes

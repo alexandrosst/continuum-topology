@@ -315,9 +315,20 @@ spec:
               add: ["SYS_ADMIN"]
           ports:
             - {name: metrics, containerPort: 9400, protocol: TCP}
+          {{- if .Values.telemetry.accelerators.metrics.applyScope }}
+          # Off by default (telemetry.accelerators.metrics.applyScope). Enables dcgm-exporter's own
+          # Kubernetes pod-label enrichment: DCGM_EXPORTER_KUBERNETES turns on GPU-to-pod mapping at all,
+          # DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS actually adds namespace/pod/container Prometheus
+          # labels to the metrics it emits. Needs no new mount - the pod-resources volume below already
+          # sits at DCGM's default kubelet socket path (.../pod-resources/kubelet.sock).
+          env:
+            - {name: DCGM_EXPORTER_KUBERNETES, value: "true"}
+            - {name: DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS, value: "true"}
+          {{- end }}
           volumeMounts:
             # Read-only: maps GPUs to the pods actually using them, the same read-only kubelet interface
-            # kubeletstats above uses for its own pod-resource accounting.
+            # kubeletstats above uses for its own pod-resource accounting. Also dcgm-exporter's own source
+            # for the namespace/pod/container labels above, when applyScope turns that on.
             - {name: pod-resources, mountPath: /var/lib/kubelet/pod-resources, readOnly: true}
           resources: {{- include "agent.telemetryAcceleratorsResources" . | nindent 12 }}
       volumes:

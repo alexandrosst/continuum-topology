@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ComboField, Field, InfoTip, Input, Select } from '@/components/ui/primitives'
+import { ComboField, Field, InfoTip, Input, Select, TagsInput } from '@/components/ui/primitives'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
 import { applyIntentPreset, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, TELEMETRY_UNIVERSAL_PERMISSION } from '@/lib/consent'
 import { telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
@@ -8,10 +8,11 @@ type SignalId = 'resourceUsage' | 'energy' | 'kubernetesState' | 'nodeRuntime' |
 
 /**
  * The telemetry form: intent presets, one checkbox per signal (grouped infrastructure/application,
- * following each signal's own `domain` in TELEMETRY_SIGNALS), energy's and accelerators' source pickers,
- * pipeline processor controls, and the shared export target - built once so the install wizard and the
- * post-install "change telemetry" panel render the exact same fields from the exact same TelemetryInput
- * shape (see install.ts), instead of two hand-rolled copies that drift apart.
+ * following each signal's own `layer` in TELEMETRY_SIGNALS), a browsing-only scope/layer/modality filter
+ * row, energy's and accelerators' source pickers, per-kind application scope overrides, pipeline processor
+ * controls, and the shared export target - built once so the install wizard and the post-install "change
+ * telemetry" panel render the exact same fields from the exact same TelemetryInput shape (see install.ts),
+ * instead of two hand-rolled copies that drift apart.
  * `measurementsOn` only feeds the networkLatency warning (see telemetryProblems); omit it where the caller
  * doesn't also control that separate extra.
  */
@@ -28,20 +29,56 @@ export default function TelemetryFields({
 }) {
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
   const problems = telemetryProblems(value, measurementsOn)
-  const infra = TELEMETRY_SIGNALS.filter((s) => s.domain === 'infrastructure')
-  const app = TELEMETRY_SIGNALS.filter((s) => s.domain === 'application')
   const destinationNote = unsupportedDestinationNote(value.exportEndpoint)
   const exportPreset = EXPORT_PRESETS.find((p) => p.endpointPattern === value.exportEndpoint)
   const grantedRules = TELEMETRY_SIGNALS.filter((s) => (value as unknown as Record<string, boolean>)[s.id])
+  const accelerators = TELEMETRY_SIGNALS.find((s) => s.id === 'accelerators')
+
+  // A browsing aid only - local state, never written into TelemetryInput - so leaving every facet at
+  // its "All" default reproduces byte-identical infra/app lists to before facets existed.
+  const [scopeFacet, setScopeFacet] = useState<'all' | 'cluster' | 'node' | 'application'>('all')
+  const [layerFacet, setLayerFacet] = useState<'all' | 'infrastructure' | 'application'>('all')
+  const [modalityFacet, setModalityFacet] = useState<'all' | 'metrics' | 'logs' | 'traces'>('all')
+  const visible = TELEMETRY_SIGNALS.filter(
+    (s) =>
+      (scopeFacet === 'all' || s.scope === scopeFacet) &&
+      (layerFacet === 'all' || s.layer === layerFacet) &&
+      (modalityFacet === 'all' || s.modality === modalityFacet),
+  )
+  const infra = visible.filter((s) => s.layer === 'infrastructure')
+  const app = visible.filter((s) => s.layer === 'application')
+
   // Credentials and processor tuning start collapsed - the same "hidden until it's on" instinct the
   // namespace-scope fieldset elsewhere in this app already applies to its own fields - but open on arrival
   // if any of them already hold a non-default value, so an existing configuration is never hidden.
   const [advancedOpen, setAdvancedOpen] = useState(
     () => value.exportAuthSecretName.trim() !== '' || value.resourceDetection || !value.redaction || value.tracesSamplingPercent !== 100,
   )
+  // Same "open if already non-default" instinct, for whichever app-layer kinds already carry their own
+  // scope override (e.g. seeded from an existing install) - otherwise an existing override would be hidden.
+  const [scopeOverridesOpen, setScopeOverridesOpen] = useState(
+    () =>
+      value.applicationMetricsScope.namespaces.length > 0 ||
+      value.applicationMetricsScope.exclude.length > 0 ||
+      value.applicationLogsScope.namespaces.length > 0 ||
+      value.applicationLogsScope.exclude.length > 0 ||
+      value.tracesScope.namespaces.length > 0 ||
+      value.tracesScope.exclude.length > 0,
+  )
+
+  // cluster/node scope needs no form control (cluster: physically unfilterable; node: the chart's own
+  // nodeSelector/tolerations values, structured k8s scheduling objects that don't fit this form's --set
+  // model) - so those two just get an honest caption here instead. application scope gets a real control,
+  // the "Application scope overrides" details block below.
+  const scopeCaption = (s: (typeof TELEMETRY_SIGNALS)[number]): string | undefined => {
+    if (s.scope === 'cluster') return 'Always cluster-wide - cannot be narrowed.'
+    if (s.scope === 'node') return "Runs on every node - narrow which nodes with the chart's own nodeSelector/tolerations values, not from this form."
+    return undefined
+  }
 
   const row = (s: (typeof TELEMETRY_SIGNALS)[number]) => {
     const id = s.id as SignalId
+    const caption = scopeCaption(s)
     return (
       <label key={id} className="flex cursor-pointer items-start gap-2.5 text-sm">
         <input
@@ -55,6 +92,7 @@ export default function TelemetryFields({
           <span className="text-nb-300">{s.label}</span>
           <InfoTip>{s.permissions}</InfoTip>
           <span className="block text-xs text-nb-500">{s.what}</span>
+          {caption && <span className="block text-xs text-nb-600">{caption}</span>}
         </span>
       </label>
     )
@@ -78,14 +116,45 @@ export default function TelemetryFields({
         </Select>
       </Field>
 
+      <div className="space-y-1.5">
+        <p className="text-xs text-nb-500">Filter which signals are shown below - a browsing aid, doesn't change what's selected.</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="Scope">
+            <Select value={scopeFacet} onChange={(e) => setScopeFacet(e.target.value as typeof scopeFacet)} data-testid={`${testIdPrefix}-facet-scope`}>
+              <option value="all">All</option>
+              <option value="cluster">Cluster</option>
+              <option value="node">Node</option>
+              <option value="application">Application</option>
+            </Select>
+          </Field>
+          <Field label="Layer">
+            <Select value={layerFacet} onChange={(e) => setLayerFacet(e.target.value as typeof layerFacet)} data-testid={`${testIdPrefix}-facet-layer`}>
+              <option value="all">All</option>
+              <option value="infrastructure">Infrastructure</option>
+              <option value="application">Application</option>
+            </Select>
+          </Field>
+          <Field label="Modality">
+            <Select value={modalityFacet} onChange={(e) => setModalityFacet(e.target.value as typeof modalityFacet)} data-testid={`${testIdPrefix}-facet-modality`}>
+              <option value="all">All</option>
+              <option value="metrics">Metrics</option>
+              <option value="logs">Logs</option>
+              <option value="traces">Traces</option>
+            </Select>
+          </Field>
+        </div>
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-2">
         <fieldset className="space-y-2.5">
           <legend className="mb-0.5 text-xs font-medium uppercase tracking-wide text-nb-500">Infrastructure</legend>
           {infra.map(row)}
+          {infra.length === 0 && <p className="text-xs text-nb-600">No infrastructure signal matches this filter.</p>}
         </fieldset>
         <fieldset className="space-y-2.5">
           <legend className="mb-0.5 text-xs font-medium uppercase tracking-wide text-nb-500">Application</legend>
           {app.map(row)}
+          {app.length === 0 && <p className="text-xs text-nb-600">No application signal matches this filter.</p>}
         </fieldset>
       </div>
 
@@ -136,7 +205,102 @@ export default function TelemetryFields({
               />
             </Field>
           )}
+          {accelerators?.namespaceScopable && (
+            <label className="flex cursor-pointer items-start gap-2.5 text-sm sm:col-span-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-[var(--color-accent)]"
+                checked={value.acceleratorsApplyScope}
+                onChange={(e) => set('acceleratorsApplyScope', e.target.checked)}
+                data-testid={`${testIdPrefix}-accelerators-apply-scope`}
+              />
+              <span>
+                <span className="text-nb-300">Apply the install's namespace scope to GPU metrics</span>
+                <InfoTip>Off by default. Accelerators are deployed per node (infrastructure), but GPU metrics can carry the namespace/pod using the GPU - turning this on asks dcgm-exporter to attach that identity, so the install's namespace scope narrows GPU metrics the same way it narrows application data.</InfoTip>
+                <span className="block text-xs text-nb-500">Only takes effect while deploying dcgm-exporter above, not when scraping one you already run.</span>
+              </span>
+            </label>
+          )}
         </div>
+      )}
+
+      {(value.applicationMetrics || value.applicationLogs || value.traces) && (
+        <details
+          className="group rounded-lg border border-nb-850"
+          open={scopeOverridesOpen}
+          onToggle={(e) => setScopeOverridesOpen(e.currentTarget.open)}
+          data-testid={`${testIdPrefix}-scope-overrides`}
+        >
+          <summary className="flex cursor-pointer select-none items-center gap-1.5 px-3 py-2 text-xs font-medium text-nb-400 hover:text-nb-300 marker:content-none">
+            Application scope overrides
+          </summary>
+          <div className="space-y-3 border-t border-nb-850 p-3">
+            <p className="text-xs text-nb-500">Each falls back to the install's own namespace scope; set either field below to narrow just that one signal instead.</p>
+            {value.applicationMetrics && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <legend className="text-xs font-medium uppercase tracking-wide text-nb-500 sm:col-span-2">Application metrics</legend>
+                <Field label="Only these namespaces" hint="Empty: falls back to the install's global scope.">
+                  <TagsInput
+                    value={value.applicationMetricsScope.namespaces}
+                    onChange={(v) => set('applicationMetricsScope', { ...value.applicationMetricsScope, namespaces: v })}
+                    placeholder="shop payments"
+                    data-testid={`${testIdPrefix}-applicationMetrics-scope-namespaces`}
+                  />
+                </Field>
+                <Field label="Never these" hint="Falls back to the install's global scope when empty.">
+                  <TagsInput
+                    value={value.applicationMetricsScope.exclude}
+                    onChange={(v) => set('applicationMetricsScope', { ...value.applicationMetricsScope, exclude: v })}
+                    placeholder="hr-data"
+                    data-testid={`${testIdPrefix}-applicationMetrics-scope-exclude`}
+                  />
+                </Field>
+              </div>
+            )}
+            {value.applicationLogs && (
+              <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
+                <legend className="text-xs font-medium uppercase tracking-wide text-nb-500 sm:col-span-2">Application logs</legend>
+                <Field label="Only these namespaces" hint="Empty: falls back to the install's global scope.">
+                  <TagsInput
+                    value={value.applicationLogsScope.namespaces}
+                    onChange={(v) => set('applicationLogsScope', { ...value.applicationLogsScope, namespaces: v })}
+                    placeholder="shop payments"
+                    data-testid={`${testIdPrefix}-applicationLogs-scope-namespaces`}
+                  />
+                </Field>
+                <Field label="Never these" hint="Falls back to the install's global scope when empty.">
+                  <TagsInput
+                    value={value.applicationLogsScope.exclude}
+                    onChange={(v) => set('applicationLogsScope', { ...value.applicationLogsScope, exclude: v })}
+                    placeholder="hr-data"
+                    data-testid={`${testIdPrefix}-applicationLogs-scope-exclude`}
+                  />
+                </Field>
+              </div>
+            )}
+            {value.traces && (
+              <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
+                <legend className="text-xs font-medium uppercase tracking-wide text-nb-500 sm:col-span-2">Traces</legend>
+                <Field label="Only these namespaces" hint="Empty: falls back to the install's global scope.">
+                  <TagsInput
+                    value={value.tracesScope.namespaces}
+                    onChange={(v) => set('tracesScope', { ...value.tracesScope, namespaces: v })}
+                    placeholder="shop payments"
+                    data-testid={`${testIdPrefix}-traces-scope-namespaces`}
+                  />
+                </Field>
+                <Field label="Never these" hint="Falls back to the install's global scope when empty.">
+                  <TagsInput
+                    value={value.tracesScope.exclude}
+                    onChange={(v) => set('tracesScope', { ...value.tracesScope, exclude: v })}
+                    placeholder="hr-data"
+                    data-testid={`${testIdPrefix}-traces-scope-exclude`}
+                  />
+                </Field>
+              </div>
+            )}
+          </div>
+        </details>
       )}
 
       <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">

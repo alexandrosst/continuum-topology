@@ -8,9 +8,10 @@
 {{- $cLogsInfra := list }}
 {{- if .Values.telemetry.kubernetesEvents.logs.enabled }}{{ $cLogsInfra = append $cLogsInfra "k8sobjects" }}{{ end }}
 
-{{/* App pipelines: whatever applications push over OTLP or expose for this collector to scrape - the only
-     data telemetry.scope's namespace filtering actually applies to (see the "known limitation" note in
-     values.yaml about networkLatency sharing the same otlp receiver with no distinguishing tag of its own). */}}
+{{/* App pipelines: whatever applications push over OTLP or expose for this collector to scrape - the data
+     telemetry.scope's namespace filtering (and any per-kind override below) applies to. networkLatency's
+     own re-emitted metrics also flow through metrics/app's otlp receiver but are structurally exempt from
+     every scope filter below - see the $nlExempt comment further down. */}}
 {{- $cMetricsApp := list }}
 {{- if .Values.telemetry.applicationMetrics.metrics.enabled }}{{ $cMetricsApp = append $cMetricsApp "prometheus/app" }}{{ end }}
 {{- if or .Values.telemetry.networkLatency.metrics.enabled .Values.telemetry.applicationMetrics.metrics.enabled }}{{ $cMetricsApp = append $cMetricsApp "otlp" }}{{ end }}
@@ -25,19 +26,90 @@
      does NOT match the allow-list regex", and "exclude" (drop these specifically) becomes "drop anything
      that DOES match the deny-list regex" - both can be set at once, and either resolves the same way for
      every signal because Kubernetes namespace names are DNS-1123 labels (lowercase alphanumeric and
-     hyphens only), so building a regex alternation directly from them needs no escaping. */}}
+     hyphens only), so building a regex alternation directly from them needs no escaping.
+
+     networkLatency shares metrics/app's otlp receiver with applicationMetrics but is tagged infrastructure,
+     not application (see telemetry.scope in values.yaml) - every condition below, global or per-kind, gets
+     an extra clause exempting its reserved resource.attributes["service.name"] value
+     ("continuum-network-latency" - the identifier this agent's own path-measurement OTLP output must set
+     once it exists, see telemetry-intent.md) from ever being dropped by a scope filter, whenever
+     networkLatency is enabled. That clause is a no-op on every other pipeline (nothing else ever carries
+     that service.name), so it's simpler to apply it everywhere than to track which one pipeline it
+     actually matters for. */}}
+{{- $nlExempt := "" }}
+{{- if .Values.telemetry.networkLatency.metrics.enabled }}{{ $nlExempt = " and resource.attributes[\"service.name\"] != \"continuum-network-latency\"" }}{{ end }}
+
 {{- $scopeConditions := list }}
 {{- if .Values.telemetry.scope.namespaces }}
-{{- $scopeConditions = append $scopeConditions (printf "not IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\")" (join "|" .Values.telemetry.scope.namespaces)) }}
+{{- $scopeConditions = append $scopeConditions (printf "(not IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" .Values.telemetry.scope.namespaces) $nlExempt) }}
 {{- end }}
 {{- if .Values.telemetry.scope.exclude }}
-{{- $scopeConditions = append $scopeConditions (printf "IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\")" (join "|" .Values.telemetry.scope.exclude)) }}
+{{- $scopeConditions = append $scopeConditions (printf "(IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" .Values.telemetry.scope.exclude) $nlExempt) }}
+{{- end }}
+
+{{/* Per-kind application-scope overrides: applicationMetrics/applicationLogs/traces each fall back to
+     telemetry.scope above, field-by-field, when their own scope.namespaces/scope.exclude are both empty -
+     the default for every existing install, which renders the exact same shared "filter/scope" processor
+     as before. Only a kind that actually sets its own override gets its own filter/scope_<kind> processor,
+     built from its own conditions instead of the shared ones. */}}
+{{- $amOverride := .Values.telemetry.applicationMetrics.metrics.scope }}
+{{- $amConditions := $scopeConditions }}
+{{- $amProcessor := "filter/scope" }}
+{{- if or $amOverride.namespaces $amOverride.exclude }}
+{{- $amNamespaces := $amOverride.namespaces }}
+{{- if not $amNamespaces }}{{ $amNamespaces = .Values.telemetry.scope.namespaces }}{{ end }}
+{{- $amExclude := $amOverride.exclude }}
+{{- if not $amExclude }}{{ $amExclude = .Values.telemetry.scope.exclude }}{{ end }}
+{{- $amConditions = list }}
+{{- if $amNamespaces }}{{ $amConditions = append $amConditions (printf "(not IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" $amNamespaces) $nlExempt) }}{{ end }}
+{{- if $amExclude }}{{ $amConditions = append $amConditions (printf "(IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" $amExclude) $nlExempt) }}{{ end }}
+{{- $amProcessor = "filter/scope_applicationMetrics" }}
+{{- end }}
+
+{{- $alOverride := .Values.telemetry.applicationLogs.logs.scope }}
+{{- $alConditions := $scopeConditions }}
+{{- $alProcessor := "filter/scope" }}
+{{- if or $alOverride.namespaces $alOverride.exclude }}
+{{- $alNamespaces := $alOverride.namespaces }}
+{{- if not $alNamespaces }}{{ $alNamespaces = .Values.telemetry.scope.namespaces }}{{ end }}
+{{- $alExclude := $alOverride.exclude }}
+{{- if not $alExclude }}{{ $alExclude = .Values.telemetry.scope.exclude }}{{ end }}
+{{- $alConditions = list }}
+{{- if $alNamespaces }}{{ $alConditions = append $alConditions (printf "(not IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" $alNamespaces) $nlExempt) }}{{ end }}
+{{- if $alExclude }}{{ $alConditions = append $alConditions (printf "(IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" $alExclude) $nlExempt) }}{{ end }}
+{{- $alProcessor = "filter/scope_applicationLogs" }}
+{{- end }}
+
+{{- $trOverride := .Values.telemetry.traces.traces.scope }}
+{{- $trConditions := $scopeConditions }}
+{{- $trProcessor := "filter/scope" }}
+{{- if or $trOverride.namespaces $trOverride.exclude }}
+{{- $trNamespaces := $trOverride.namespaces }}
+{{- if not $trNamespaces }}{{ $trNamespaces = .Values.telemetry.scope.namespaces }}{{ end }}
+{{- $trExclude := $trOverride.exclude }}
+{{- if not $trExclude }}{{ $trExclude = .Values.telemetry.scope.exclude }}{{ end }}
+{{- $trConditions = list }}
+{{- if $trNamespaces }}{{ $trConditions = append $trConditions (printf "(not IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" $trNamespaces) $nlExempt) }}{{ end }}
+{{- if $trExclude }}{{ $trConditions = append $trConditions (printf "(IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" $trExclude) $nlExempt) }}{{ end }}
+{{- $trProcessor = "filter/scope_traces" }}
+{{- end }}
+
+{{/* Accelerators scope (telemetry.accelerators.metrics.applyScope, off by default): unlike the app-domain
+     kinds above, accelerators has no scope override of its own - it either respects the shared
+     telemetry.scope as-is, or (default) is left alone entirely. Each shared condition is re-used verbatim
+     and additionally gated to resource.attributes["service.name"] == "dcgm-exporter" (the literal job_name
+     dcgm-exporter is scraped under, below) so this can only ever touch dcgm's own records within the
+     shared metrics/infra pipeline - never Kepler's, never kubernetesState's. */}}
+{{- $accConditions := list }}
+{{- if and .Values.telemetry.accelerators.metrics.enabled .Values.telemetry.accelerators.metrics.applyScope (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
+{{- range $c := $scopeConditions }}{{ $accConditions = append $accConditions (printf "(%s) and resource.attributes[\"service.name\"] == \"dcgm-exporter\"" $c) }}{{ end }}
 {{- end }}
 
 {{/* Processor chains per pipeline: memory_limiter and k8sattributes always first, then the shared
      resourcedetection/redaction pair (if enabled), then whatever is pipeline-specific (Kepler's node-
-     identity transform for metrics/infra only; the scope filter and, for traces, sampling for the *_app
-     pipelines and traces only), then the extraProcessorNames escape hatch, then batch always last. */}}
+     identity transform for metrics/infra only; the scope filter - shared or per-kind - and, for traces,
+     sampling for the *_app pipelines and traces only), then the extraProcessorNames escape hatch, then
+     batch always last. */}}
 {{- $commonMid := list }}
 {{- if .Values.telemetry.processors.resourceDetection.enabled }}{{ $commonMid = append $commonMid "resourcedetection" }}{{ end }}
 {{- if .Values.telemetry.processors.redaction.enabled }}{{ $commonMid = append $commonMid "redaction" }}{{ end }}
@@ -45,20 +117,22 @@
 
 {{- $procInfra := list "memory_limiter" "k8sattributes" }}
 {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}{{ $procInfra = append $procInfra "transform/kepler_node" }}{{ end }}
+{{- if and .Values.telemetry.accelerators.metrics.enabled .Values.telemetry.accelerators.metrics.applyScope (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}{{ $procInfra = append $procInfra "transform/dcgm_pod" }}{{ end }}
+{{- if $accConditions }}{{ $procInfra = append $procInfra "filter/scope_accelerators" }}{{ end }}
 {{- $procInfra = concat $procInfra $commonMid $extraNames (list "batch") }}
 
 {{- $procApp := concat (list "memory_limiter" "k8sattributes") $commonMid }}
-{{- if $scopeConditions }}{{ $procApp = append $procApp "filter/scope" }}{{ end }}
+{{- if $amConditions }}{{ $procApp = append $procApp $amProcessor }}{{ end }}
 {{- $procApp = concat $procApp $extraNames (list "batch") }}
 
 {{- $procLogsInfra := concat (list "memory_limiter" "k8sattributes") $commonMid $extraNames (list "batch") }}
 
 {{- $procLogsApp := concat (list "memory_limiter" "k8sattributes") $commonMid }}
-{{- if $scopeConditions }}{{ $procLogsApp = append $procLogsApp "filter/scope" }}{{ end }}
+{{- if $alConditions }}{{ $procLogsApp = append $procLogsApp $alProcessor }}{{ end }}
 {{- $procLogsApp = concat $procLogsApp $extraNames (list "batch") }}
 
 {{- $procTraces := concat (list "memory_limiter" "k8sattributes") $commonMid }}
-{{- if $scopeConditions }}{{ $procTraces = append $procTraces "filter/scope" }}{{ end }}
+{{- if $trConditions }}{{ $procTraces = append $procTraces $trProcessor }}{{ end }}
 {{- if lt (int .Values.telemetry.processors.tracesSampling.percentage) 100 }}{{ $procTraces = append $procTraces "probabilistic_sampler" }}{{ end }}
 {{- $procTraces = concat $procTraces $extraNames (list "batch") }}
 
@@ -186,15 +260,58 @@ data:
             statements:
               - set(resource.attributes["k8s.node.name"], datapoint.attributes["node"]) where datapoint.attributes["node"] != nil
       {{- end }}
+      {{- if and .Values.telemetry.accelerators.metrics.enabled .Values.telemetry.accelerators.metrics.applyScope (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
+      # Only when telemetry.accelerators.metrics.applyScope is on: dcgm-exporter's own Kubernetes pod-label
+      # enrichment (enabled via the DCGM_EXPORTER_KUBERNETES* env vars on its container, see telemetry.yaml)
+      # adds namespace/pod/container as plain Prometheus labels, not OTel resource attributes - promote them
+      # to the semconv k8s.namespace.name/k8s.pod.name/k8s.container.name resource attributes so the scope
+      # filter below (and k8sattributes-style correlation generally) can actually see them.
+      transform/dcgm_pod:
+        metric_statements:
+          - context: datapoint
+            statements:
+              - set(resource.attributes["k8s.namespace.name"], datapoint.attributes["namespace"]) where datapoint.attributes["namespace"] != nil
+              - set(resource.attributes["k8s.pod.name"], datapoint.attributes["pod"]) where datapoint.attributes["pod"] != nil
+              - set(resource.attributes["k8s.container.name"], datapoint.attributes["container"]) where datapoint.attributes["container"] != nil
+      {{- end }}
       {{- if $scopeConditions }}
-      # Applied only to the app pipelines below (metrics/app, logs/app, traces) - never to the infra ones,
-      # which have no k8s.namespace.name to begin with. See telemetry.scope in values.yaml for exactly what
-      # namespaces/exclude mean and the one known gap (networkLatency sharing otlp with no tag of its own).
+      # The shared scope filter: applied to whichever of the app pipelines below (metrics/app, logs/app,
+      # traces) hasn't been given its own per-kind override (see applicationMetrics/applicationLogs/traces
+      # .scope in values.yaml) - never to the infra pipelines, which have no k8s.namespace.name to begin
+      # with. May be defined but unreferenced by any pipeline if every app-domain kind has its own override
+      # active - a defined-but-unused processor is valid OTel Collector config and costs nothing at runtime.
       filter/scope:
         error_mode: ignore
         metric_conditions: {{ $scopeConditions | toJson }}
         log_conditions: {{ $scopeConditions | toJson }}
         trace_conditions: {{ $scopeConditions | toJson }}
+      {{- end }}
+      {{- if and (eq $amProcessor "filter/scope_applicationMetrics") $amConditions }}
+      # applicationMetrics' own scope override - governs metrics/app in place of the shared filter/scope
+      # above, including networkLatency's re-emitted metrics that share the same pipeline (see $nlExempt).
+      filter/scope_applicationMetrics:
+        error_mode: ignore
+        metric_conditions: {{ $amConditions | toJson }}
+      {{- end }}
+      {{- if and (eq $alProcessor "filter/scope_applicationLogs") $alConditions }}
+      # applicationLogs' own scope override - governs logs/app in place of the shared filter/scope above.
+      filter/scope_applicationLogs:
+        error_mode: ignore
+        log_conditions: {{ $alConditions | toJson }}
+      {{- end }}
+      {{- if and (eq $trProcessor "filter/scope_traces") $trConditions }}
+      # traces' own scope override - governs the traces pipeline in place of the shared filter/scope above.
+      filter/scope_traces:
+        error_mode: ignore
+        trace_conditions: {{ $trConditions | toJson }}
+      {{- end }}
+      {{- if $accConditions }}
+      # accelerators' opt-in scope filter (telemetry.accelerators.metrics.applyScope) - lives inside
+      # metrics/infra alongside Kepler and kubernetesState, but its own service.name gate (see the
+      # $accConditions comment above) means it only ever touches dcgm-exporter's own records.
+      filter/scope_accelerators:
+        error_mode: ignore
+        metric_conditions: {{ $accConditions | toJson }}
       {{- end }}
       {{- include "agent.telemetryResourceDetectionYAML" . | nindent 6 }}
       {{- include "agent.telemetryRedactionYAML" . | nindent 6 }}
