@@ -169,7 +169,7 @@ const NS_PAD = 14
 const NS_HEADER = 32
 const NS_GAP_Y = 22
 
-interface Box {
+export interface Box {
   x: number
   y: number
   w: number
@@ -912,11 +912,15 @@ function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: stri
   }
 }
 
-type Side = 'top' | 'bottom' | 'left' | 'right'
+export type Side = 'top' | 'bottom' | 'left' | 'right'
 const POS: Record<Side, Position> = { top: Position.Top, bottom: Position.Bottom, left: Position.Left, right: Position.Right }
 export const SIDES = POS
 
-function pickSides(a: Box, b: Box): [Side, Side] {
+/** Which side of each box a line between them should leave/enter from, purely from their relative
+ * position. Also used, with each box collapsed to a single point (w=h=0), to re-derive an edge's
+ * direction live from its current endpoints - see OffsetEdge.tsx, which needs the exact same heuristic
+ * so a node dragged around inside its box doesn't leave the arrowhead pointing the wrong way. */
+export function pickSides(a: Box, b: Box): [Side, Side] {
   const dx = b.x + b.w / 2 - (a.x + a.w / 2)
   const dy = b.y + b.h / 2 - (a.y + a.h / 2)
   if (Math.abs(dy) >= Math.abs(dx) * 0.6 && Math.abs(dy) > 8) return dy > 0 ? ['bottom', 'top'] : ['top', 'bottom']

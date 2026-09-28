@@ -14,7 +14,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { buildGraph, cardId } from '../src/lib/graph'
+import { buildGraph, cardId, pickSides } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type Service, type Suggestion } from '../src/lib/types'
@@ -1186,6 +1186,13 @@ test('edges to different destinations landing on the same side of a busy node fa
   // Neither b nor c hears from anyone else, so the arriving end of each line is left alone.
   assert.equal(toB.data!.targetOffset ?? 0, 0)
   assert.equal(toC.data!.targetOffset ?? 0, 0)
+})
+
+test('pickSides also works on two bare points (zero-size boxes) - OffsetEdge relies on this to re-derive a live direction while a node is dragged', () => {
+  assert.deepEqual(pickSides({ x: 0, y: 0, w: 0, h: 0 }, { x: 100, y: 0, w: 0, h: 0 }), ['right', 'left'])
+  assert.deepEqual(pickSides({ x: 100, y: 0, w: 0, h: 0 }, { x: 0, y: 0, w: 0, h: 0 }), ['left', 'right'])
+  assert.deepEqual(pickSides({ x: 0, y: 0, w: 0, h: 0 }, { x: 0, y: 100, w: 0, h: 0 }), ['bottom', 'top'])
+  assert.deepEqual(pickSides({ x: 0, y: 100, w: 0, h: 0 }, { x: 0, y: 0, w: 0, h: 0 }), ['top', 'bottom'])
 })
 
 test('chain layout: services rank strictly by dependency depth, across clusters, with no cluster/tier boxes', () => {
