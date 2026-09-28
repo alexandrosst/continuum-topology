@@ -1,0 +1,83 @@
+{{- include "agent.telemetryValidate" . -}}
+{{/* Egress lockdown for the telemetry workloads (host/cluster collectors, Kepler, and the accelerators
+     DaemonSet when enabled) - separate from networkPolicy.egress in egress.yaml, which only ever covers
+     the agent pod itself (different labels, and its egress targets - the API server, the Continuum server
+     - are fixed CIDR lists set once for the whole cluster, unlike a telemetry export destination, which is
+     whatever the operator configured under telemetry.export.otlp.endpoint). Off by default, same
+     reasoning as networkPolicy.egress: the right answer depends on your CNI and network, and a wrong
+     policy silently cuts telemetry export off. */}}
+{{- $te := .Values.networkPolicy.telemetryEgress }}
+{{- if $te.enabled }}
+{{- if not $te.allowedEgress }}{{ fail "networkPolicy.telemetryEgress.enabled needs networkPolicy.telemetryEgress.allowedEgress: at least one {cidr, ports} entry matching where your configured telemetry.export.otlp.endpoint actually resolves to - an empty list would cut off every telemetry pod's egress entirely (a NetworkPolicy that selects a pod denies everything it does not list)." }}{{ end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: continuum-telemetry-egress
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - continuum-telemetry-host
+          - continuum-telemetry-cluster
+          - {{ printf "%s-kepler" (include "agent.telemetryName" .) | quote }}
+          - {{ printf "%s-dcgm" (include "agent.telemetryName" .) | quote }}
+      - key: app.kubernetes.io/instance
+        operator: In
+        values: [{{ .Release.Name | quote }}]
+  policyTypes: [Egress]
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+        {{- range $te.dnsCIDRs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # Your configured telemetry export destination(s).
+    {{- range $te.allowedEgress }}
+    - to:
+        - ipBlock: {cidr: {{ .cidr | quote }}}
+      ports:
+        {{- range .ports }}
+        - {port: {{ . }}, protocol: TCP}
+        {{- end }}
+    {{- end }}
+    {{- with $te.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+
+{{/* Ingress lockdown for the cluster collector's OTLP receiver - independent of telemetry.receiver.auth
+     (defense in depth: a NetworkPolicy limits WHO can reach the receiver at the network layer, auth limits
+     what they can do once they're allowed to reach it). Off by default, same reasoning as the egress
+     policy above. */}}
+{{- $tr := .Values.telemetry.receiver.networkPolicy }}
+{{- if $tr.enabled }}
+{{- if not $tr.allowedIngress }}{{ fail "telemetry.receiver.networkPolicy.enabled needs telemetry.receiver.networkPolicy.allowedIngress: at least one NetworkPolicy ingress \"from\" peer (namespaceSelector/podSelector/ipBlock) - an empty list would cut the OTLP receiver off from every client (a NetworkPolicy that selects a pod denies everything it does not list)." }}{{ end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: continuum-telemetry-receiver-ingress
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: continuum-telemetry-cluster, app.kubernetes.io/instance: {{ .Release.Name }}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- toYaml $tr.allowedIngress | nindent 8 }}
+      ports:
+        - {port: 4317, protocol: TCP}
+        - {port: 4318, protocol: TCP}
+{{- end }}

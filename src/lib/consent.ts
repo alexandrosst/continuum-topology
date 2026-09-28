@@ -235,18 +235,52 @@ export function collectorState(c: AgentCollector | undefined): CollectorState {
  * everywhere else this signal is named: TelemetryInput's own field, the chart's `telemetry.<id>.enabled`
  * path, and the exact string the agent self-reports in `installedTelemetry` - one vocabulary, not three.
  */
-export const TELEMETRY_SIGNALS: { id: string; label: string; domain: 'infrastructure' | 'application'; what: string }[] = [
-  { id: 'resourceUsage', label: 'Resource usage', domain: 'infrastructure', what: 'Node and per-container CPU, memory, filesystem and network, from the kubelet and the host.' },
-  { id: 'energy', label: 'Energy', domain: 'infrastructure', what: 'Power draw per node/pod, from Kepler (bundled, or an existing one you already run).' },
-  { id: 'kubernetesState', label: 'Kubernetes state', domain: 'infrastructure', what: 'Pod, deployment and replica status and counts, cluster-wide.' },
-  { id: 'nodeRuntime', label: 'Node runtime', domain: 'infrastructure', what: 'Pod lifecycle and volume metrics from the kubelet.' },
-  { id: 'networkLatency', label: 'Network latency', domain: 'infrastructure', what: "This agent's own path measurements, re-emitted as OTel metrics." },
-  { id: 'applicationMetrics', label: 'Application metrics', domain: 'application', what: 'Metrics your applications push (OTLP) or that this collector scrapes (Prometheus).' },
-  { id: 'systemLogs', label: 'System logs', domain: 'infrastructure', what: "Each node's own OS/container runtime logs, never application output." },
-  { id: 'kubernetesEvents', label: 'Kubernetes events', domain: 'infrastructure', what: 'Cluster Events, watched cluster-wide.' },
-  { id: 'applicationLogs', label: 'Application logs', domain: 'application', what: 'Logs your applications push directly (OTLP).' },
-  { id: 'traces', label: 'Traces', domain: 'application', what: 'Distributed traces your applications push directly (OTLP).' },
+export const TELEMETRY_SIGNALS: { id: string; label: string; domain: 'infrastructure' | 'application'; what: string; permissions: string }[] = [
+  { id: 'resourceUsage', label: 'Resource usage', domain: 'infrastructure', what: 'Node and per-container CPU, memory, filesystem and network, from the kubelet and the host.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
+  { id: 'energy', label: 'Energy', domain: 'infrastructure', what: 'Power draw per node/pod, from Kepler (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - Kepler reads host energy counters directly, never the Kubernetes API.' },
+  { id: 'kubernetesState', label: 'Kubernetes state', domain: 'infrastructure', what: 'Pod, deployment and replica status and counts, cluster-wide.', permissions: 'Read-only, cluster-wide access to pods, deployments, replica sets, stateful/daemon sets, jobs, cronjobs and autoscalers.' },
+  { id: 'nodeRuntime', label: 'Node runtime', domain: 'infrastructure', what: 'Pod lifecycle and volume metrics from the kubelet.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
+  { id: 'networkLatency', label: 'Network latency', domain: 'infrastructure', what: "This agent's own path measurements, re-emitted as OTel metrics.", permissions: 'None beyond identity enrichment below - reuses this agent\'s existing measurement capability.' },
+  { id: 'applicationMetrics', label: 'Application metrics', domain: 'application', what: 'Metrics your applications push (OTLP) or that this collector scrapes (Prometheus).', permissions: 'None beyond identity enrichment below.' },
+  { id: 'systemLogs', label: 'System logs', domain: 'infrastructure', what: "Each node's own OS/container runtime logs, never application output.", permissions: 'None beyond identity enrichment below - reads local log files only.' },
+  { id: 'kubernetesEvents', label: 'Kubernetes events', domain: 'infrastructure', what: 'Cluster Events, watched cluster-wide.', permissions: 'Read-only, cluster-wide access to Events only.' },
+  { id: 'applicationLogs', label: 'Application logs', domain: 'application', what: 'Logs your applications push directly (OTLP).', permissions: 'None beyond identity enrichment below.' },
+  { id: 'traces', label: 'Traces', domain: 'application', what: 'Distributed traces your applications push directly (OTLP).', permissions: 'None beyond identity enrichment below.' },
+  { id: 'accelerators', label: 'Accelerators (GPU)', domain: 'infrastructure', what: 'GPU utilization, memory, temperature and power per node/pod, from NVIDIA DCGM (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - dcgm-exporter reads GPU hardware and the kubelet\'s pod-resources socket directly, never the Kubernetes API.' },
 ]
+
+/** The one RBAC grant every signal above shares once ANY of them is on: read-only pods/namespaces/nodes
+ *  access so the collector can tag what it collects with the pod/namespace/node it came from. */
+export const TELEMETRY_UNIVERSAL_PERMISSION = 'Once any signal above is on: read-only access to pods, namespaces and nodes, to tag collected data with the pod/namespace/node it came from.'
+
+/**
+ * A few named, one-click combinations of the signals above - "alter it anytime" starts from one of these
+ * as often as from a blank form. Applying one sets every signal to exactly this combination (not just
+ * turning listed ones on), so switching between presets never leaves a stale signal from a previous pick;
+ * everything else on the form (export destination, processors) is left as the person already set it.
+ */
+export interface TelemetryIntentPreset {
+  id: string
+  label: string
+  description: string
+  signals: string[]
+}
+
+export const TELEMETRY_INTENT_PRESETS: TelemetryIntentPreset[] = [
+  { id: 'minimal', label: 'Minimal / cost-aware', description: 'Resource usage and Kubernetes state only - the cheapest useful baseline.', signals: ['resourceUsage', 'kubernetesState'] },
+  { id: 'full-infra', label: 'Full infrastructure', description: 'Every infrastructure-scoped signal: resource usage, energy, cluster state, node runtime, events, system logs.', signals: ['resourceUsage', 'energy', 'kubernetesState', 'nodeRuntime', 'kubernetesEvents', 'systemLogs'] },
+  { id: 'full-infra-app', label: 'Full infrastructure + app tracing', description: 'Everything in "Full infrastructure" plus application metrics, logs and traces.', signals: ['resourceUsage', 'energy', 'kubernetesState', 'nodeRuntime', 'kubernetesEvents', 'systemLogs', 'applicationMetrics', 'applicationLogs', 'traces'] },
+  { id: 'debug-everything', label: 'Debug everything', description: 'Every signal on - for a short-lived, deep-dive investigation, not a steady state.', signals: TELEMETRY_SIGNALS.map((s) => s.id) },
+]
+
+/** Sets every signal to exactly the preset's combination; everything else on the form (export
+ *  destination, processors) is left untouched. */
+export function applyIntentPreset(current: TelemetryInput, preset: TelemetryIntentPreset): TelemetryInput {
+  const next: TelemetryInput = { ...current }
+  const rec = next as unknown as Record<string, boolean>
+  for (const s of TELEMETRY_SIGNALS) rec[s.id] = preset.signals.includes(s.id)
+  return next
+}
 
 /**
  * The command to change an agent's telemetry after install - `--reuse-values` keeps everything else,

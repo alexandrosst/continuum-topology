@@ -162,6 +162,16 @@ networkPolicy:
     serverCIDRs: []         # e.g. ["203.0.113.7/32"]: where server.address resolves to
     dnsCIDRs: []            # e.g. ["169.254.20.10/32"] for NodeLocal DNSCache
     extraEgress: []
+  # Egress lockdown for the telemetry workloads (host/cluster collectors, Kepler, and the accelerators
+  # DaemonSet when enabled) - separate from egress above, which only ever covers the agent pod (different
+  # labels, and a fixed CIDR list set once for the whole cluster, unlike a telemetry export destination
+  # which is whatever the operator configured under telemetry.export.otlp.endpoint). Off by default, same
+  # reasoning as egress above.
+  telemetryEgress:
+    enabled: false
+    allowedEgress: []   # e.g. [{cidr: "203.0.113.7/32", ports: [4317, 443]}] - your telemetry.export.otlp.endpoint's destination(s)
+    dnsCIDRs: []
+    extraEgress: []
 
 # Optional node probe: a tiny read-only DaemonSet that tells the agent what kind of machine each node
 # really is (virtual machine or bare metal, the hypervisor, the board model, how it connects). The
@@ -291,6 +301,75 @@ telemetry:
         secretName: ""              # a Secret in this release's namespace, created outside this chart
         secretKey: token            # the key within that Secret holding the header's value, e.g. "Bearer ..."
 
+  # Processor-level controls applied to the OTel Collector pipelines themselves, independent of which
+  # signals above are enabled. memory_limiter is always rendered (baseline collector hygiene, not a
+  # toggle); the rest are opt-in/opt-out as documented per field.
+  processors:
+    # Always on, first in every pipeline: protects the collector itself from an OOM kill when receivers
+    # get more data than expected (a misbehaving app, a burst of events). Paired with a computed
+    # GOMEMLIMIT env var (~80% of each collector container's own memory limit) so Go's own GC also backs
+    # off before the container's hard limit is hit - see the memory_limiter processor's own README for why
+    # both matter together.
+    memoryLimiter:
+      checkInterval: 1s
+      limitPercentage: 80
+      spikeLimitPercentage: 20
+    # Off by default: enriches every signal with resource attributes about the environment the collector
+    # itself runs in. Cloud-provider detectors (ec2/gcp/azure, ...) are NOT in the default list below -
+    # they make real network calls to cloud metadata endpoints, which a locked-down
+    # networkPolicy.telemetryEgress below would need to separately allow. Add them yourself if you need
+    # them.
+    resourceDetection:
+      enabled: false
+      detectors: [env, system]
+      timeout: 5s
+    # On by default: the one processor this chart turns on without being asked, because telemetry.receiver
+    # below has no auth on by default either - anything that can reach this collector's OTLP receiver can
+    # push attributes that end up in your telemetry backend. allow_all_keys: true means this is a
+    # deny-list, not an allow-list - it MASKS the VALUES of keys matching blockedKeyPatterns and leaves
+    # every other attribute completely untouched. The alternative, allow_all_keys: false with an empty
+    # allowed_keys list, would instead silently DROP every attribute - deliberately not used here.
+    redaction:
+      enabled: true
+      blockedKeyPatterns:
+        - ".*token.*"
+        - ".*password.*"
+        - ".*secret.*"
+        - ".*api[_-]?key.*"
+        - ".*authorization.*"
+        - ".*cookie.*"
+    # Traces only. 100 (default) means no sampling - every span is kept, exactly today's behavior. Lower
+    # it to cut trace volume/cost; the processor is omitted from the pipeline entirely at 100 rather than
+    # rendering a no-op hop.
+    tracesSampling:
+      percentage: 100
+    # Escape hatch for anything not covered above (tail_sampling, attributes, transform, ...): raw
+    # processor definitions merged into the collector config's top-level "processors" map, and the names
+    # to actually reference (in this order) in every pipeline, right after redaction and before batch.
+    # Same "give the chart raw YAML for this one case" pattern as networkPolicy.egress.extraEgress above.
+    extraProcessors: {}
+    extraProcessorNames: []
+
+  # The inbound side: hardening for the OTLP receiver applications/other collectors push to (cluster
+  # collector only - see telemetry-cluster-config.yaml; the host collector has no OTLP receiver of its
+  # own). Both off by default: turning either on is new capability, not a change to any existing install's
+  # behavior. Leaving both off means this receiver is unauthenticated and reachable from anywhere in the
+  # cluster that can route to it - acceptable inside a single trusted namespace/team, a real gap in a
+  # shared or multi-tenant cluster. telemetry.processors.redaction above is the complementary "don't trust
+  # what arrives" mitigation and stays on regardless of what's configured here.
+  receiver:
+    auth:
+      enabled: false
+      secretName: ""   # a Secret in this release's namespace, created outside this chart, holding a
+                        # shared bearer token every OTLP client must present in its Authorization header
+      secretKey: token
+    networkPolicy:
+      enabled: false
+      # Raw NetworkPolicy ingress "from" peer entries (namespaceSelector / podSelector / ipBlock) - the
+      # same shape Kubernetes' own NetworkPolicy spec.ingress[].from uses, and the same "give the chart raw
+      # YAML for this one case" pattern as networkPolicy.egress.extraEgress above.
+      allowedIngress: []
+
   # domain: infrastructure (node-level) + application (container/pod-level)
   resourceUsage:
     metrics:
@@ -326,6 +405,43 @@ telemetry:
         kubernetes.io/os: linux
       # Falls back to telemetry.resources below when left empty - override only if Kepler's actual profile
       # (one small privileged pod per node) needs something different from the shared default.
+      resources: {}
+
+  # domain: infrastructure. GPU/accelerator metrics (utilization, memory, temperature, power) via
+  # NVIDIA's DCGM exporter - the standard, and currently the only practical, path into an OTel Collector
+  # pipeline for this data (no purpose-built OTel-native GPU receiver exists upstream as of this chart's
+  # pinned collectorImage). Scraped by the cluster collector exactly like energy/Kepler above, not RBAC-
+  # gated: like Kepler, dcgm-exporter reads GPU hardware directly and needs zero Kubernetes API access.
+  accelerators:
+    metrics:
+      enabled: false
+      source: bundle-dcgm   # bundle-dcgm (deploy dcgm-exporter, scraped by this collector) | existing
+      existing:
+        prometheusEndpoint: ""   # required when source=existing: host:port/path already serving dcgm-shaped metrics
+      interval: 30s
+      # Only used when source=bundle-dcgm. Needs an NVIDIA driver and the NVIDIA Container Toolkit on the
+      # node already (a prerequisite this chart cannot install), runAsUser: 0 plus the SYS_ADMIN capability
+      # (narrower than Kepler's full privileged: true above - dcgm-exporter's own documented requirement),
+      # and a read-only mount of the kubelet's pod-resources socket to map GPUs to the pods using them.
+      # Left disabled unless bundle-dcgm is actually selected, and only worth enabling on GPU node pools -
+      # see tolerations/nodeSelector below.
+      dcgmImage:
+        repository: nvcr.io/nvidia/k8s/dcgm-exporter
+        tag: "4.6.0-4.8.3"
+        digest: ""
+        pullPolicy: ""
+      # Scheduling overrides for the dcgm-exporter DaemonSet specifically, mirroring energy.metrics above:
+      # defaults keep it off every node (nvidia.com/gpu.present is the standard label GPU device plugins
+      # set), since running it on non-GPU nodes would just fail to find a GPU. Point this at however your
+      # cluster actually labels/taints GPU nodes if that differs.
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      # Falls back to telemetry.resources below when left empty - override only if dcgm-exporter's actual
+      # profile needs something different from the shared default.
       resources: {}
 
   # domain: infrastructure

@@ -59,6 +59,11 @@ spec:
             - name: NODE_NAME
               valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
             {{- include "agent.telemetryExporterEnv" . | nindent 12 }}
+            {{- $hostGml := include "agent.telemetryGomemlimit" (include "agent.telemetryHostCollectorResources" . | fromYaml) }}
+            {{- if $hostGml }}
+            - name: GOMEMLIMIT
+              value: {{ $hostGml | quote }}
+            {{- end }}
           volumeMounts:
             - {name: config, mountPath: /conf, readOnly: true}
             {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
@@ -150,6 +155,12 @@ spec:
             capabilities: {drop: ["ALL"]}
           env:
             {{- include "agent.telemetryExporterEnv" . | nindent 12 }}
+            {{- include "agent.telemetryReceiverAuthEnv" . | nindent 12 }}
+            {{- $clusterGml := include "agent.telemetryGomemlimit" (include "agent.telemetryClusterCollectorResources" . | fromYaml) }}
+            {{- if $clusterGml }}
+            - name: GOMEMLIMIT
+              value: {{ $clusterGml | quote }}
+            {{- end }}
           {{- if include "agent.telemetryOtlpReceiverEnabled" . }}
           ports:
             - {name: otlp-grpc, containerPort: 4317, protocol: TCP}
@@ -256,4 +267,72 @@ spec:
   selector: {app.kubernetes.io/name: {{ $keplerName }}, app.kubernetes.io/instance: {{ .Release.Name }}}
   ports:
     - {name: metrics, port: 9103, targetPort: 9103}
+{{- end }}
+
+{{/* ============================== dcgm-exporter (only when explicitly enabled AND bundled) ============================== */}}
+{{- if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
+{{- $dcgmName := printf "%s-dcgm" (include "agent.telemetryName" .) }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $dcgmName }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-dcgm
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: {{ $dcgmName }}, app.kubernetes.io/instance: {{ .Release.Name }}}
+  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 10%}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $dcgmName }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: continuum
+        {{- include "agent.podLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false   # dcgm-exporter reads GPU hardware directly, never the Kubernetes API
+      containers:
+        - name: dcgm-exporter
+          image: {{ include "agent.telemetryAcceleratorsImage" . | quote }}
+          imagePullPolicy: {{ include "agent.telemetryAcceleratorsImagePullPolicy" . }}
+          # NVIDIA's own documented requirement for reading GPU state via DCGM: root plus SYS_ADMIN, not
+          # full privileged: true like Kepler above (a narrower ask - no hostPID, no arbitrary device
+          # access beyond what the NVIDIA Container Toolkit already exposes to this pod). Left disabled
+          # unless bundle-dcgm is actually selected; needs the NVIDIA driver and NVIDIA Container Toolkit
+          # already installed on the node, which this chart cannot install for you - see
+          # https://github.com/NVIDIA/dcgm-exporter.
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            capabilities:
+              add: ["SYS_ADMIN"]
+          ports:
+            - {name: metrics, containerPort: 9400, protocol: TCP}
+          volumeMounts:
+            # Read-only: maps GPUs to the pods actually using them, the same read-only kubelet interface
+            # kubeletstats above uses for its own pod-resource accounting.
+            - {name: pod-resources, mountPath: /var/lib/kubelet/pod-resources, readOnly: true}
+          resources: {{- include "agent.telemetryAcceleratorsResources" . | nindent 12 }}
+      volumes:
+        - name: pod-resources
+          hostPath: {path: /var/lib/kubelet/pod-resources}
+      tolerations: {{- toYaml .Values.telemetry.accelerators.metrics.tolerations | nindent 8 }}
+      nodeSelector: {{- toYaml .Values.telemetry.accelerators.metrics.nodeSelector | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $dcgmName }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector: {app.kubernetes.io/name: {{ $dcgmName }}, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    - {name: metrics, port: 9400, targetPort: 9400}
 {{- end }}

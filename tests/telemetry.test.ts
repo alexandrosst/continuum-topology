@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { emptyTelemetry, telemetryActive, telemetryProblems, withTelemetry, type TelemetryInput } from '../src/lib/install'
-import { TELEMETRY_SIGNALS, telemetryUpgradeCommand } from '../src/lib/consent'
+import { applyIntentPreset, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetryUpgradeCommand } from '../src/lib/consent'
+import { EXPORT_PRESETS, unsupportedDestinationNote } from '../src/lib/exportPresets'
 
 const base = 'helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace'
 
@@ -19,7 +20,7 @@ test('every signal in the catalog is a real TelemetryInput boolean field', () =>
     assert.equal(typeof (t as unknown as Record<string, unknown>)[s.id], 'boolean', `${s.id} is not a boolean field of TelemetryInput`)
   }
   assert.deepEqual(TELEMETRY_SIGNALS.map((s) => s.id).sort(), [
-    'applicationLogs', 'applicationMetrics', 'energy', 'kubernetesEvents', 'kubernetesState',
+    'accelerators', 'applicationLogs', 'applicationMetrics', 'energy', 'kubernetesEvents', 'kubernetesState',
     'networkLatency', 'nodeRuntime', 'resourceUsage', 'systemLogs', 'traces',
   ].sort())
 })
@@ -95,4 +96,83 @@ test('telemetryUpgradeCommand mirrors helmUpgradeCommand\'s shape exactly', () =
   assert.match(cmd, /--set telemetry\.traces\.traces\.enabled=true/)
   // nothing turned on: the command is the bare upgrade line, matching withTelemetry's own "untouched" case
   assert.equal(telemetryUpgradeCommand(undefined, emptyTelemetry), 'helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reuse-values')
+})
+
+test('processors are stated explicitly, matching the chart defaults, once any signal is on', () => {
+  const t: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317' }
+  const cmd = withTelemetry(base, t)
+  assert.match(cmd, /--set telemetry\.processors\.resourceDetection\.enabled=false/)
+  assert.match(cmd, /--set telemetry\.processors\.redaction\.enabled=true/)
+  assert.match(cmd, /--set telemetry\.processors\.tracesSampling\.percentage=100/)
+})
+
+test('non-default processor settings are carried', () => {
+  const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317', resourceDetection: true, redaction: false, tracesSamplingPercent: 25 }
+  const cmd = withTelemetry(base, t)
+  assert.match(cmd, /--set telemetry\.processors\.resourceDetection\.enabled=true/)
+  assert.match(cmd, /--set telemetry\.processors\.redaction\.enabled=false/)
+  assert.match(cmd, /--set telemetry\.processors\.tracesSampling\.percentage=25/)
+})
+
+test('traces sampling out of range is a problem', () => {
+  const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317', tracesSamplingPercent: 150 }
+  assert.deepEqual(telemetryProblems(t), ['Traces sampling must be between 0 and 100'])
+})
+
+test('accelerators pointed at an existing source needs its endpoint, and carries the source + endpoint when valid', () => {
+  const missing: TelemetryInput = { ...emptyTelemetry, accelerators: true, acceleratorsSource: 'existing', exportEndpoint: 'x:4317' }
+  assert.deepEqual(telemetryProblems(missing), ['The existing Prometheus endpoint is required when accelerators points at an existing source'])
+  assert.equal(withTelemetry(base, missing), base)
+
+  const ok: TelemetryInput = { ...missing, acceleratorsExistingEndpoint: 'dcgm-exporter.monitoring:9400/metrics' }
+  const cmd = withTelemetry(base, ok)
+  assert.match(cmd, /--set telemetry\.accelerators\.metrics\.enabled=true/)
+  assert.match(cmd, /--set telemetry\.accelerators\.metrics\.source=existing/)
+  assert.match(cmd, /--set-string telemetry\.accelerators\.metrics\.existing\.prometheusEndpoint=dcgm-exporter\.monitoring:9400\/metrics/)
+
+  // the bundled-dcgm default never sets `source` or the existing endpoint at all
+  const bundled: TelemetryInput = { ...emptyTelemetry, accelerators: true, exportEndpoint: 'x:4317' }
+  const bundledCmd = withTelemetry(base, bundled)
+  assert.ok(!bundledCmd.includes('telemetry.accelerators.metrics.source'))
+})
+
+test('an auth secret name carries the header and secret key, only when actually set', () => {
+  const noAuth: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317' }
+  assert.ok(!withTelemetry(base, noAuth).includes('telemetry.export.otlp.auth'))
+
+  const withAuth: TelemetryInput = { ...noAuth, exportAuthSecretName: 'telemetry-token', exportAuthHeaderName: 'x-honeycomb-team' }
+  const cmd = withTelemetry(base, withAuth)
+  assert.match(cmd, /--set-string telemetry\.export\.otlp\.auth\.secretName=telemetry-token/)
+  assert.match(cmd, /--set-string telemetry\.export\.otlp\.auth\.secretKey=token/)
+  assert.match(cmd, /--set-string telemetry\.export\.otlp\.auth\.headerName=x-honeycomb-team/)
+
+  // the default header (Authorization) is never restated, matching protocol/insecure's own precedent
+  const defaultHeader: TelemetryInput = { ...noAuth, exportAuthSecretName: 'telemetry-token' }
+  assert.ok(!withTelemetry(base, defaultHeader).includes('telemetry.export.otlp.auth.headerName'))
+})
+
+test('intent presets set every signal to exactly their combination, and leave everything else alone', () => {
+  const minimal = TELEMETRY_INTENT_PRESETS.find((p) => p.id === 'minimal')!
+  const t = applyIntentPreset({ ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317' }, minimal)
+  assert.equal(t.resourceUsage, true)
+  assert.equal(t.kubernetesState, true)
+  assert.equal(t.traces, false, 'a signal not in the preset is turned off, not merely left alone')
+  assert.equal(t.exportEndpoint, 'x:4317', 'export target is untouched by applying a preset')
+
+  const debugAll = TELEMETRY_INTENT_PRESETS.find((p) => p.id === 'debug-everything')!
+  const everything = applyIntentPreset(emptyTelemetry, debugAll)
+  for (const s of TELEMETRY_SIGNALS) assert.equal((everything as unknown as Record<string, boolean>)[s.id], true, `${s.id} should be on for debug-everything`)
+})
+
+test('every export preset resolves to the existing generic export.otlp shape (no destination-specific export mode)', () => {
+  for (const preset of EXPORT_PRESETS) {
+    const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: preset.endpointPattern, exportProtocol: preset.protocol }
+    const cmd = withTelemetry(base, t)
+    assert.match(cmd, /--set-string telemetry\.export\.otlp\.endpoint=/, `${preset.id} should still set telemetry.export.otlp.endpoint`)
+  }
+})
+
+test('a known unsupported destination is flagged with why, not silently ignored', () => {
+  assert.match(unsupportedDestinationNote('otlp.aws.example.com') ?? '', /AWS/)
+  assert.equal(unsupportedDestinationNote('otel-gateway.example.com:4317'), undefined)
 })

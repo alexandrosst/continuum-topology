@@ -6,6 +6,11 @@
 {{- if .Values.telemetry.systemLogs.logs.enabled }}{{ $hLogs = append $hLogs "filelog/containers" }}{{ if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}{{ $hLogs = append $hLogs "journald" }}{{ end }}{{ end }}
 {{- $metricGroups := list "container" "pod" "node" }}
 {{- if .Values.telemetry.nodeRuntime.metrics.enabled }}{{ $metricGroups = append $metricGroups "volume" }}{{ end }}
+{{- $hProcessors := list "memory_limiter" "k8sattributes" "resource/node" }}
+{{- if .Values.telemetry.processors.resourceDetection.enabled }}{{ $hProcessors = append $hProcessors "resourcedetection" }}{{ end }}
+{{- if .Values.telemetry.processors.redaction.enabled }}{{ $hProcessors = append $hProcessors "redaction" }}{{ end }}
+{{- range .Values.telemetry.processors.extraProcessorNames }}{{ $hProcessors = append $hProcessors . }}{{ end }}
+{{- $hProcessors = append $hProcessors "batch" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -65,7 +70,7 @@ data:
       {{- end }}
 
     processors:
-      batch: {}
+      {{- include "agent.telemetryMemoryLimiterYAML" . | nindent 6 }}
       # Most receivers here already carry their own pod/namespace/node identity without this processor's
       # help: kubelet_stats sets it itself from the kubelet API, and filelog/containers' "container" operator
       # (below) sets k8s.pod.name/k8s.namespace.name/k8s.pod.uid/k8s.container.name as resource attributes
@@ -87,6 +92,12 @@ data:
       resource/node:
         attributes:
           - {key: k8s.node.name, value: "${env:NODE_NAME}", action: upsert}
+      {{- include "agent.telemetryResourceDetectionYAML" . | nindent 6 }}
+      {{- include "agent.telemetryRedactionYAML" . | nindent 6 }}
+      {{- with .Values.telemetry.processors.extraProcessors }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      batch: {}
 
     {{- if .Values.telemetry.opamp.enabled }}
     extensions:
@@ -104,13 +115,13 @@ data:
         {{- if $hMetrics }}
         metrics:
           receivers: {{ $hMetrics | toJson }}
-          processors: [k8sattributes, resource/node, batch]
+          processors: {{ $hProcessors | toJson }}
           exporters: [otlp]
         {{- end }}
         {{- if $hLogs }}
         logs:
           receivers: {{ $hLogs | toJson }}
-          processors: [k8sattributes, resource/node, batch]
+          processors: {{ $hProcessors | toJson }}
           exporters: [otlp]
         {{- end }}
 {{- end }}

@@ -123,7 +123,7 @@ func TestOneImageThreeRoles(t *testing.T) {
 	agent := r.deployments["continuum-agent"].Spec.Template
 	probe := r.daemonsets["continuum-node-probe"].Spec.Template
 	flow := r.daemonsets["continuum-flow-collector"].Spec.Template
-	want := "continuum/continuum:0.1.0-dev"
+	want := "continuum/continuum:0.2.0-dev"
 	for name, p := range map[string]corev1.PodTemplateSpec{"agent": agent, "probe": probe, "flow": flow} {
 		if len(p.Spec.Containers) != 1 {
 			t.Fatalf("%s: %d containers", name, len(p.Spec.Containers))

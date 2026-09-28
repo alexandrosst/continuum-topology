@@ -4,7 +4,7 @@
      application-scoped data, see the app pipelines below. */}}
 {{- $cMetricsInfra := list }}
 {{- if .Values.telemetry.kubernetesState.metrics.enabled }}{{ $cMetricsInfra = append $cMetricsInfra "k8s_cluster" }}{{ end }}
-{{- if .Values.telemetry.energy.metrics.enabled }}{{ $cMetricsInfra = append $cMetricsInfra "prometheus/infra" }}{{ end }}
+{{- if or .Values.telemetry.energy.metrics.enabled .Values.telemetry.accelerators.metrics.enabled }}{{ $cMetricsInfra = append $cMetricsInfra "prometheus/infra" }}{{ end }}
 {{- $cLogsInfra := list }}
 {{- if .Values.telemetry.kubernetesEvents.logs.enabled }}{{ $cLogsInfra = append $cLogsInfra "k8sobjects" }}{{ end }}
 
@@ -18,6 +18,7 @@
 {{- if .Values.telemetry.applicationLogs.logs.enabled }}{{ $cLogsApp = append $cLogsApp "otlp" }}{{ end }}
 
 {{- $keplerName := printf "%s-kepler" (include "agent.telemetryName" .) }}
+{{- $dcgmName := printf "%s-dcgm" (include "agent.telemetryName" .) }}
 
 {{/* telemetry.scope, turned into filterprocessor OTTL conditions. The processor DROPS whatever matches a
      condition and ORs the list together, so: "namespaces" (keep only these) becomes "drop anything that
@@ -32,6 +33,38 @@
 {{- if .Values.telemetry.scope.exclude }}
 {{- $scopeConditions = append $scopeConditions (printf "IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\")" (join "|" .Values.telemetry.scope.exclude)) }}
 {{- end }}
+
+{{/* Processor chains per pipeline: memory_limiter and k8sattributes always first, then the shared
+     resourcedetection/redaction pair (if enabled), then whatever is pipeline-specific (Kepler's node-
+     identity transform for metrics/infra only; the scope filter and, for traces, sampling for the *_app
+     pipelines and traces only), then the extraProcessorNames escape hatch, then batch always last. */}}
+{{- $commonMid := list }}
+{{- if .Values.telemetry.processors.resourceDetection.enabled }}{{ $commonMid = append $commonMid "resourcedetection" }}{{ end }}
+{{- if .Values.telemetry.processors.redaction.enabled }}{{ $commonMid = append $commonMid "redaction" }}{{ end }}
+{{- $extraNames := .Values.telemetry.processors.extraProcessorNames }}
+
+{{- $procInfra := list "memory_limiter" "k8sattributes" }}
+{{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}{{ $procInfra = append $procInfra "transform/kepler_node" }}{{ end }}
+{{- $procInfra = concat $procInfra $commonMid $extraNames (list "batch") }}
+
+{{- $procApp := concat (list "memory_limiter" "k8sattributes") $commonMid }}
+{{- if $scopeConditions }}{{ $procApp = append $procApp "filter/scope" }}{{ end }}
+{{- $procApp = concat $procApp $extraNames (list "batch") }}
+
+{{- $procLogsInfra := concat (list "memory_limiter" "k8sattributes") $commonMid $extraNames (list "batch") }}
+
+{{- $procLogsApp := concat (list "memory_limiter" "k8sattributes") $commonMid }}
+{{- if $scopeConditions }}{{ $procLogsApp = append $procLogsApp "filter/scope" }}{{ end }}
+{{- $procLogsApp = concat $procLogsApp $extraNames (list "batch") }}
+
+{{- $procTraces := concat (list "memory_limiter" "k8sattributes") $commonMid }}
+{{- if $scopeConditions }}{{ $procTraces = append $procTraces "filter/scope" }}{{ end }}
+{{- if lt (int .Values.telemetry.processors.tracesSampling.percentage) 100 }}{{ $procTraces = append $procTraces "probabilistic_sampler" }}{{ end }}
+{{- $procTraces = concat $procTraces $extraNames (list "batch") }}
+
+{{- $clusterExtensions := list }}
+{{- if .Values.telemetry.opamp.enabled }}{{ $clusterExtensions = append $clusterExtensions "opamp" }}{{ end }}
+{{- if .Values.telemetry.receiver.auth.enabled }}{{ $clusterExtensions = append $clusterExtensions "bearertokenauth" }}{{ end }}
 
 apiVersion: v1
 kind: ConfigMap
@@ -58,26 +91,48 @@ data:
       {{- if include "agent.telemetryOtlpReceiverEnabled" . }}
       otlp:
         protocols:
-          grpc: {endpoint: "0.0.0.0:4317"}
-          http: {endpoint: "0.0.0.0:4318"}
+          grpc:
+            endpoint: "0.0.0.0:4317"
+            {{- if .Values.telemetry.receiver.auth.enabled }}
+            auth:
+              authenticator: bearertokenauth
+            {{- end }}
+          http:
+            endpoint: "0.0.0.0:4318"
+            {{- if .Values.telemetry.receiver.auth.enabled }}
+            auth:
+              authenticator: bearertokenauth
+            {{- end }}
       {{- end }}
-      {{- if .Values.telemetry.energy.metrics.enabled }}
-      # Infra-scoped: Kepler (this collector's own bundled DaemonSet) and/or an existing energy endpoint.
-      # Kept separate from prometheus/app below so telemetry.scope's namespace filter, which only ever
-      # applies to application-scoped data, can never accidentally touch either of these.
+      {{- if or .Values.telemetry.energy.metrics.enabled .Values.telemetry.accelerators.metrics.enabled }}
+      # Infra-scoped: Kepler and/or dcgm-exporter (this collector's own bundled DaemonSets) and/or an
+      # existing energy/accelerator endpoint. Kept separate from prometheus/app below so telemetry.scope's
+      # namespace filter, which only ever applies to application-scoped data, can never accidentally touch
+      # either of these.
       prometheus/infra:
         config:
           scrape_configs:
-            {{- if eq .Values.telemetry.energy.metrics.source "bundle-kepler" }}
+            {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
             - job_name: kepler
               kubernetes_sd_configs: [{role: pod}]
               relabel_configs:
                 - {source_labels: ["__meta_kubernetes_pod_label_app_kubernetes_io_name"], regex: {{ $keplerName | quote }}, action: keep}
                 - {source_labels: ["__meta_kubernetes_pod_node_name"], target_label: node}
             {{- end }}
-            {{- if eq .Values.telemetry.energy.metrics.source "existing" }}
+            {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "existing") }}
             - job_name: energy-existing
               static_configs: [{targets: [{{ .Values.telemetry.energy.metrics.existing.prometheusEndpoint | quote }}]}]
+            {{- end }}
+            {{- if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
+            - job_name: dcgm-exporter
+              kubernetes_sd_configs: [{role: pod}]
+              relabel_configs:
+                - {source_labels: ["__meta_kubernetes_pod_label_app_kubernetes_io_name"], regex: {{ $dcgmName | quote }}, action: keep}
+                - {source_labels: ["__meta_kubernetes_pod_node_name"], target_label: node}
+            {{- end }}
+            {{- if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "existing") }}
+            - job_name: accelerators-existing
+              static_configs: [{targets: [{{ .Values.telemetry.accelerators.metrics.existing.prometheusEndpoint | quote }}]}]
             {{- end }}
       {{- end }}
       {{- if .Values.telemetry.applicationMetrics.metrics.enabled }}
@@ -104,7 +159,7 @@ data:
       {{- end }}
 
     processors:
-      batch: {}
+      {{- include "agent.telemetryMemoryLimiterYAML" . | nindent 6 }}
       # Unlike the host collector, this one has a real inbound OTLP receiver apps connect to directly (the
       # standard k8sattributes recipe for that is connection-based association), alongside receivers that
       # already set their own k8s.pod.uid (kubeletstats-style attribution doesn't apply here, but Prometheus-
@@ -141,48 +196,56 @@ data:
         log_conditions: {{ $scopeConditions | toJson }}
         trace_conditions: {{ $scopeConditions | toJson }}
       {{- end }}
+      {{- include "agent.telemetryResourceDetectionYAML" . | nindent 6 }}
+      {{- include "agent.telemetryRedactionYAML" . | nindent 6 }}
+      {{- include "agent.telemetryProbabilisticSamplerYAML" . | nindent 6 }}
+      {{- with .Values.telemetry.processors.extraProcessors }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      batch: {}
 
-    {{- if .Values.telemetry.opamp.enabled }}
+    {{- if $clusterExtensions }}
     extensions:
       {{- include "agent.telemetryOpampExtensionYAML" . | nindent 6 }}
+      {{- include "agent.telemetryReceiverAuthExtensionYAML" . | nindent 6 }}
     {{- end }}
 
     exporters:
       {{- include "agent.telemetryExporterYAML" . | nindent 6 }}
 
     service:
-      {{- if .Values.telemetry.opamp.enabled }}
-      extensions: [opamp]
+      {{- if $clusterExtensions }}
+      extensions: {{ $clusterExtensions | toJson }}
       {{- end }}
       pipelines:
         {{- if $cMetricsInfra }}
         metrics/infra:
           receivers: {{ $cMetricsInfra | toJson }}
-          processors: [k8sattributes{{ if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}, transform/kepler_node{{ end }}, batch]
+          processors: {{ $procInfra | toJson }}
           exporters: [otlp]
         {{- end }}
         {{- if $cMetricsApp }}
         metrics/app:
           receivers: {{ $cMetricsApp | toJson }}
-          processors: [k8sattributes{{ if $scopeConditions }}, filter/scope{{ end }}, batch]
+          processors: {{ $procApp | toJson }}
           exporters: [otlp]
         {{- end }}
         {{- if $cLogsInfra }}
         logs/infra:
           receivers: {{ $cLogsInfra | toJson }}
-          processors: [k8sattributes, batch]
+          processors: {{ $procLogsInfra | toJson }}
           exporters: [otlp]
         {{- end }}
         {{- if $cLogsApp }}
         logs/app:
           receivers: {{ $cLogsApp | toJson }}
-          processors: [k8sattributes{{ if $scopeConditions }}, filter/scope{{ end }}, batch]
+          processors: {{ $procLogsApp | toJson }}
           exporters: [otlp]
         {{- end }}
         {{- if .Values.telemetry.traces.traces.enabled }}
         traces:
           receivers: [otlp]
-          processors: [k8sattributes{{ if $scopeConditions }}, filter/scope{{ end }}, batch]
+          processors: {{ $procTraces | toJson }}
           exporters: [otlp]
         {{- end }}
 {{- end }}

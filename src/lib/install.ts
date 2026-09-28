@@ -96,10 +96,34 @@ export interface TelemetryInput {
   kubernetesEvents: boolean
   applicationLogs: boolean
   traces: boolean
+  /** GPU/accelerator utilization, memory and power, via NVIDIA DCGM - bundled, or an existing one already scraped. */
+  accelerators: boolean
+  /** Only meaningful when `accelerators` is on: deploy the bundled dcgm-exporter DaemonSet, or scrape one that already exists. */
+  acceleratorsSource: 'bundle-dcgm' | 'existing'
+  /** Required when `acceleratorsSource` is 'existing': host:port/path already serving dcgm-shaped metrics. */
+  acceleratorsExistingEndpoint: string
   /** Where every enabled signal is sent (`telemetry.export.otlp.*`). Required once any signal above is on. */
   exportEndpoint: string
   exportProtocol: 'grpc' | 'http'
   exportInsecure: boolean
+  /** The header a destination expects its credential in (e.g. "Authorization", "X-Api-Key"). Only sent
+   *  once `exportAuthSecretName` names a Secret - see it below for why no credential value lives here. */
+  exportAuthHeaderName: string
+  /** A Secret already created in the release namespace, holding just the header's value - never the value
+   *  itself, which would otherwise render into a ConfigMap/Secret-less values file in plain text. Empty
+   *  means the destination needs no auth header at all. */
+  exportAuthSecretName: string
+  exportAuthSecretKey: string
+  /* ---------- Pipeline processors (telemetry.processors.*): independent of which signals above are on,
+     applied whenever any of them is. See the chart's own values.yaml for exactly what each one does. ---------- */
+  /** Off by default: enriches every signal with resource attributes about the collector's own environment. */
+  resourceDetection: boolean
+  /** On by default (matches the chart): masks values of keys that look like secrets/tokens/credentials
+   *  before anything leaves the cluster - the safety net for an OTLP receiver that, by default, has no
+   *  auth of its own (see telemetry.receiver below). */
+  redaction: boolean
+  /** Traces only. 100 = no sampling (every span kept), the same as if this were never set. */
+  tracesSamplingPercent: number
 }
 
 export const emptyTelemetry: TelemetryInput = {
@@ -115,15 +139,24 @@ export const emptyTelemetry: TelemetryInput = {
   kubernetesEvents: false,
   applicationLogs: false,
   traces: false,
+  accelerators: false,
+  acceleratorsSource: 'bundle-dcgm',
+  acceleratorsExistingEndpoint: '',
   exportEndpoint: '',
   exportProtocol: 'grpc',
   exportInsecure: false,
+  exportAuthHeaderName: '',
+  exportAuthSecretName: '',
+  exportAuthSecretKey: '',
+  resourceDetection: false,
+  redaction: true,
+  tracesSamplingPercent: 100,
 }
 
 /** Whether any signal is on - the export endpoint (and every flag below) only matters once one is. */
 export const telemetryActive = (t: TelemetryInput): boolean =>
   t.resourceUsage || t.energy || t.kubernetesState || t.nodeRuntime || t.networkLatency ||
-  t.applicationMetrics || t.systemLogs || t.kubernetesEvents || t.applicationLogs || t.traces
+  t.applicationMetrics || t.systemLogs || t.kubernetesEvents || t.applicationLogs || t.traces || t.accelerators
 
 /**
  * What is wrong with the telemetry selection, in words a person can act on; empty when it is fine.
@@ -136,7 +169,9 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   const out: string[] = []
   if (!t.exportEndpoint.trim()) out.push('An export endpoint is required once any telemetry signal is on')
   if (t.energy && t.energySource === 'existing' && !t.energyExistingEndpoint.trim()) out.push('The existing Prometheus endpoint is required when energy points at an existing source')
+  if (t.accelerators && t.acceleratorsSource === 'existing' && !t.acceleratorsExistingEndpoint.trim()) out.push('The existing Prometheus endpoint is required when accelerators points at an existing source')
   if (t.networkLatency && measurementsOn === false) out.push('Network latency re-emits the path measurements extra, so turn that on too, or it will report nothing')
+  if (t.tracesSamplingPercent < 0 || t.tracesSamplingPercent > 100) out.push('Traces sampling must be between 0 and 100')
   return out
 }
 
@@ -172,5 +207,23 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   add(`telemetry.kubernetesEvents.logs.enabled=${t.kubernetesEvents}`)
   add(`telemetry.applicationLogs.logs.enabled=${t.applicationLogs}`)
   add(`telemetry.traces.traces.enabled=${t.traces}`)
+  add(`telemetry.accelerators.metrics.enabled=${t.accelerators}`)
+  if (t.accelerators && t.acceleratorsSource === 'existing') {
+    add('telemetry.accelerators.metrics.source=existing')
+    addString('telemetry.accelerators.metrics.existing.prometheusEndpoint', t.acceleratorsExistingEndpoint.trim())
+  }
+  if (t.exportAuthSecretName.trim()) {
+    addString('telemetry.export.otlp.auth.secretName', t.exportAuthSecretName.trim())
+    addString('telemetry.export.otlp.auth.secretKey', t.exportAuthSecretKey.trim() || 'token')
+    if (t.exportAuthHeaderName.trim() && t.exportAuthHeaderName.trim() !== 'Authorization') {
+      addString('telemetry.export.otlp.auth.headerName', t.exportAuthHeaderName.trim())
+    }
+  }
+  // Processors: stated explicitly like the signals above (not conditionally, like protocol/insecure),
+  // for the same --reuse-values reason - a sampling percentage or a redaction toggle left unmentioned
+  // because it was reset back to its default in this panel would otherwise keep its old value.
+  add(`telemetry.processors.resourceDetection.enabled=${t.resourceDetection}`)
+  add(`telemetry.processors.redaction.enabled=${t.redaction}`)
+  add(`telemetry.processors.tracesSampling.percentage=${t.tracesSamplingPercent}`)
   return cmd
 }
