@@ -11,6 +11,7 @@ import {
   consentChange,
   discoveryStatus,
   effectiveNote,
+  measurementsRunning,
   healthSummary,
   helmUpgradeCommand,
   inForce,
@@ -380,13 +381,23 @@ export function TelemetryPanel({
   diagnostics: d,
   install,
   initialScope,
+  standalone = false,
+  testIdPrefix = 'telemetry-panel',
 }: {
   diagnostics?: AgentDiagnostics
   install?: InstallInfo
-  /** A scope draft handed off from the topology's "Define scope from selection" quick action (see
-   * AgentsPage.tsx, which reads it off the URL once) - pre-fills TelemetryFields' guided wizard and starts
-   * this panel's own disclosure open, so the person doesn't also have to notice and expand it by hand. */
+  /** A scope draft handed off from the topology's "Define scope from selection" quick action, or from the
+   * standalone telemetry wizard's own picker - pre-fills TelemetryFields' guided wizard and, in inline mode,
+   * starts this panel's own disclosure open, so the person doesn't also have to notice and expand it by hand. */
   initialScope?: { name: string; namespaces: string[] }
+  /** Skip the "Change telemetry" disclosure chrome and render the form section directly, always open. A
+   * modal whose entire purpose is configuring telemetry (the standalone TelemetryWizard) shouldn't hide its
+   * own form behind a second disclosure - the inline usage on an already-expanded agent row keeps it. */
+  standalone?: boolean
+  /** Forwarded to the outer container, the inline disclosure (inline mode only), and TelemetryFields' own
+   * testIdPrefix. Needed because an expanded Agents-page row and the standalone wizard can both be mounted
+   * for the same agent at once - without a distinguishing prefix they'd share every nested testid. */
+  testIdPrefix?: string
 }) {
   const installed = d?.installedTelemetry ?? []
   const [open, setOpen] = useState(() => !!initialScope)
@@ -395,9 +406,22 @@ export function TelemetryPanel({
   // didn't happen to re-check the moment they ran the generated command for an unrelated change.
   const [draft, setDraft] = useState<TelemetryInput>(() => seedTelemetryFromInstalled(installed))
   const command = useMemo(() => telemetryUpgradeCommand(install, draft), [install, draft])
+  const measurementsOn = measurementsRunning(d)
+
+  const form = (
+    <>
+      <TelemetryFields value={draft} onChange={setDraft} testIdPrefix={testIdPrefix} initialScope={initialScope} measurementsOn={measurementsOn} />
+      {telemetryActive(draft) && (
+        <div className="mt-3 text-xs text-nb-500">
+          The cluster's owner runs this in that cluster:
+          <CopyCommand text={command} />
+        </div>
+      )}
+    </>
+  )
 
   return (
-    <div data-testid="telemetry-panel">
+    <div data-testid={testIdPrefix}>
       <div className="mb-1.5 text-sm font-medium text-nb-300">Installed now</div>
       {installed.length === 0 ? (
         <p className="text-xs text-nb-500">{d ? 'No telemetry signal is enabled in this install.' : 'Not reported yet.'}</p>
@@ -414,21 +438,17 @@ export function TelemetryPanel({
         </ul>
       )}
 
-      <details className="group mt-3" open={open} onToggle={(e) => setOpen(e.currentTarget.open)} data-testid="telemetry-change">
-        <summary className="flex cursor-pointer select-none items-center gap-1 text-xs font-medium text-nb-400 hover:text-nb-300 marker:content-none">
-          <ChevronRight size={12} className="transition-transform group-open:rotate-90" aria-hidden />
-          Change telemetry
-        </summary>
-        <div className="mt-3 rounded-lg border border-nb-850 bg-nb-925 p-3">
-          <TelemetryFields value={draft} onChange={setDraft} testIdPrefix="telemetry-panel" initialScope={initialScope} />
-          {telemetryActive(draft) && (
-            <div className="mt-3 text-xs text-nb-500">
-              The cluster's owner runs this in that cluster:
-              <CopyCommand text={command} />
-            </div>
-          )}
-        </div>
-      </details>
+      {standalone ? (
+        <div className="mt-3 rounded-lg border border-nb-850 bg-nb-925 p-3">{form}</div>
+      ) : (
+        <details className="group mt-3" open={open} onToggle={(e) => setOpen(e.currentTarget.open)} data-testid={`${testIdPrefix}-change`}>
+          <summary className="flex cursor-pointer select-none items-center gap-1 text-xs font-medium text-nb-400 hover:text-nb-300 marker:content-none">
+            <ChevronRight size={12} className="transition-transform group-open:rotate-90" aria-hidden />
+            Change telemetry
+          </summary>
+          <div className="mt-3 rounded-lg border border-nb-850 bg-nb-925 p-3">{form}</div>
+        </details>
+      )}
     </div>
   )
 }

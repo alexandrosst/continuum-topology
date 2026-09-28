@@ -1,7 +1,5 @@
 import { Crosshair } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 import { Button, MenuPanel } from '@/components/ui/primitives'
-import { encodeList } from '@/lib/filter'
 import type { Agent, Cluster, Service } from '@/lib/types'
 
 /**
@@ -25,6 +23,7 @@ export default function ScopeFromSelection({
   agents,
   open,
   onOpenChange,
+  onScope,
 }: {
   /** The services resolved from the current canvas selection (already filtered to service cards). */
   selected: Service[]
@@ -32,9 +31,12 @@ export default function ScopeFromSelection({
   agents: Agent[]
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Opens the standalone telemetry wizard in place, on the canvas - owned by TopologyPage (a
+   * useTelemetryFlow instance), not by this component: this component returns null and unmounts whenever
+   * nothing is selected, so owning the wizard's own open state here would silently close it mid-configuration
+   * the moment the canvas selection is cleared. Mirrors why useConnectFlow is owned by TopologyPage too. */
+  onScope: (agentId: string, scope: { name: string; namespaces: string[] }) => void
 }) {
-  const navigate = useNavigate()
-
   if (selected.length === 0) return null
 
   const namespaces = [...new Set(selected.map((s) => s.namespace))]
@@ -46,11 +48,7 @@ export default function ScopeFromSelection({
 
   const goTo = (clusterName: string, agentId: string) => {
     const name = targets.length > 1 ? `${clusterName} scope (from topology)` : 'Scope from topology selection'
-    const params = new URLSearchParams()
-    params.set('openAgent', agentId)
-    params.set('scopeName', name)
-    params.set('scopeNamespaces', encodeList(namespaces) ?? '')
-    navigate(`/agents?${params.toString()}`)
+    onScope(agentId, { name, namespaces })
     onOpenChange(false)
   }
 

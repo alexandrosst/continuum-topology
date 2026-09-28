@@ -9,6 +9,7 @@ import {
   healthSummary,
   helmUpgradeCommand,
   inForce,
+  measurementsRunning,
   parseExclusions,
   scopeWords,
   sortProblems,
@@ -112,6 +113,15 @@ test('collectors are described honestly', () => {
   assert.equal(collectorState({ ...base, pausedByServer: true }).tone, 'paused')
   assert.equal(collectorState({ ...base, configured: false }).label, 'Not installed in this cluster')
   assert.equal(collectorState({ name: 'measure', configured: true, enabled: true, producing: true, reporting: 0, expected: 0, note: 'timing 2 addresses' }).label, 'On, timing 2 addresses')
+})
+
+test('measurementsRunning reads the "measure" collector\'s own enabled flag, not Agent.measuring', () => {
+  assert.equal(measurementsRunning(undefined), undefined)
+  assert.equal(measurementsRunning(diag({ collectors: [] })), undefined)
+  assert.equal(measurementsRunning(diag({ collectors: [{ name: 'measure', configured: true, enabled: false, producing: false, reporting: 0, expected: 0 }] })), false)
+  assert.equal(measurementsRunning(diag({ collectors: [{ name: 'measure', configured: true, enabled: true, producing: true, reporting: 0, expected: 0 }] })), true)
+  // A collector list with other names but no "measure" entry is the same as not having reported it yet.
+  assert.equal(measurementsRunning(diag({ collectors: [{ name: 'flow', configured: true, enabled: true, producing: true, reporting: 1, expected: 1 }] })), undefined)
 })
 
 test('namespaces to leave out are validated with the install wizard rules', () => {

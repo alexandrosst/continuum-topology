@@ -16,6 +16,7 @@ import { Boxes, ChevronDown, Filter as FilterIcon, Package, Plug, Plus, Radio, S
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
+import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
 import { ClusterForm, DeviceForm, NodeForm, ServiceForm } from '@/components/forms'
 import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
 import Inspector, { type Selection } from '@/components/topology/Inspector'
@@ -83,6 +84,7 @@ function Canvas() {
   const { fitView } = useReactFlow()
   const [sp, setSp] = useSearchParams()
   const connect = useConnectFlow()
+  const telemetry = useTelemetryFlow()
   const started = useGettingStarted('topology')
   // The canvas is where a cluster's placement is actually seen, so it's a fair place to also resolve
   // a missing one silently (see Layout.tsx's comment for why this no longer runs on every route).
@@ -346,6 +348,7 @@ function Canvas() {
               agents={agents}
               open={openMenu === 'scope'}
               onOpenChange={(o) => setOpenMenu(o ? 'scope' : null)}
+              onScope={telemetry.start}
             />
           )}
           <FilterMenu
@@ -607,6 +610,7 @@ function Canvas() {
         />
       )}
       {connect.dialogs}
+      {telemetry.dialogs}
     </div>
   )
 }

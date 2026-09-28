@@ -5,12 +5,11 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Flag } from '@/components/ui/brand'
 import { Button, CopyButton, ErrorBanner, Field, InfoTip, Input, Modal, TagsInput } from '@/components/ui/primitives'
 import TierLevels from '@/components/TierLevels'
-import TelemetryFields from '@/components/telemetry/TelemetryFields'
 import { api, ApiError, type CreatedToken } from '@/lib/api'
 import { discoveryStatus, extrasOf } from '@/lib/consent'
 import { effective } from '@/lib/effective'
 import { previewImage } from '@/lib/image'
-import { emptyScope, emptyTelemetry, scopeActive, scopeProblems, telemetryActive, telemetryProblems, withFlowObserver, withMeasurements, withNodeProbe, withScope, withTelemetry, type TelemetryInput } from '@/lib/install'
+import { emptyScope, scopeActive, scopeProblems, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '@/lib/install'
 import { findCities, nearestCity, suggestionFromCity, type City } from '@/lib/places'
 import { usePlaceIndex } from '@/lib/places-data'
 import { countryName } from '@/lib/present'
@@ -216,7 +215,6 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
   const [inc, setInc] = useState<string[]>([])
   const [exc, setExc] = useState<string[]>([])
   const [sel, setSel] = useState('')
-  const [telemetry, setTelemetry] = useState<TelemetryInput>(emptyTelemetry)
   const [created, setCreated] = useState<CreatedToken | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -237,13 +235,12 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
   // Deliberately keyed on `open` alone too, for the same reason: seed once per open from whatever was left
   // over from before, not on every change to the values it's seeded from (see `moreOpen` above).
   useEffect(() => {
-    if (open) setMoreOpen((v) => v || tier !== 2 || probe || flows || measure || scopeOn || telemetryActive(telemetry))
+    if (open) setMoreOpen((v) => v || tier !== 2 || probe || flows || measure || scopeOn)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   const scope = useMemo(() => (scopeOn && tier >= 2 ? { ...emptyScope, namespaces: inc, exclude: exc, selector: sel } : emptyScope), [scopeOn, tier, inc, exc, sel])
   const problems = scopeProblems(scope)
-  const telemetryProbs = telemetryProblems(telemetry, measure && tier >= 2)
   const max = Math.min(info?.implementedTier ?? 2, 2)
   const agent = useMemo(() => {
     if (!created) return undefined
@@ -269,7 +266,6 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
     setInc([])
     setExc([])
     setSel('')
-    setTelemetry(emptyTelemetry)
     setMoreOpen(false)
     setError('')
     onClose()
@@ -282,7 +278,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
     setError('')
     try {
       const t = await api.createToken(c, name.trim(), tier)
-      setCreated({ ...t, install: withTelemetry(withScope(withMeasurements(withFlowObserver(withNodeProbe(t.install, probe && tier >= 1), flows && tier >= 2), measure && tier >= 2), scope), telemetry, measure && tier >= 2) })
+      setCreated({ ...t, install: withScope(withMeasurements(withFlowObserver(withNodeProbe(t.install, probe && tier >= 1), flows && tier >= 2), measure && tier >= 2), scope) })
       await refresh()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not create the token.')
@@ -316,7 +312,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
         phase === 'form' ? (
           <>
             <Button onClick={close}>Cancel</Button>
-            <Button variant="primary" onClick={create} disabled={busy || !name.trim() || problems.length > 0 || telemetryProbs.length > 0}>
+            <Button variant="primary" onClick={create} disabled={busy || !name.trim() || problems.length > 0}>
               {busy ? 'Creating…' : 'Create install command'}
             </Button>
           </>
@@ -348,7 +344,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
             <details className="group rounded-lg border border-nb-850 bg-nb-925" data-testid="advanced-options" open={moreOpen} onToggle={(e) => setMoreOpen(e.currentTarget.open)}>
               <summary className="flex cursor-pointer select-none items-center gap-1.5 px-4 py-3 text-sm font-medium text-nb-300 marker:content-none">
                 <ChevronRight size={14} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
-                More options <span className="font-normal text-nb-500">(access level, node probe, traffic observer, path measurements, namespace scope, telemetry)</span>
+                More options <span className="font-normal text-nb-500">(access level, node probe, traffic observer, path measurements, namespace scope)</span>
               </summary>
               <div className="space-y-3 border-t border-nb-850 p-3">
                 <fieldset>
@@ -431,14 +427,6 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                     </div>
                   </fieldset>
                 )}
-                <fieldset className="border-t border-nb-850 pt-3">
-                  <legend className="mb-0.5 text-sm font-medium text-nb-300">Telemetry</legend>
-                  <p className="-mt-2 mb-2 text-xs text-nb-500">
-                    A separate opt-in OpenTelemetry pipeline, independent of the access level above: metrics, logs and traces sent to an observability backend you already run, not reported to this server at all.
-                    <InfoTip>Off by default. Turning one of these on installs the upstream OpenTelemetry Collector (plus Kepler, only if you pick it for energy) as extra pods, entirely separate from the read-only discovery agent above.</InfoTip>
-                  </p>
-                  <TelemetryFields value={telemetry} onChange={setTelemetry} measurementsOn={measure && tier >= 2} testIdPrefix="wizard-telemetry" />
-                </fieldset>
               </div>
             </details>
           )}

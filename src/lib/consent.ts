@@ -228,6 +228,13 @@ export function collectorState(c: AgentCollector | undefined): CollectorState {
   return c.producing ? { tone: 'ok', label: c.note ? `On, ${c.note}` : 'On' } : { tone: 'warn', label: c.note ? `On, ${c.note}` : 'On, nothing yet' }
 }
 
+/** Whether the "measure" collector is actually running for this agent right now - the source of truth for
+ *  TelemetryFields' measurementsOn once telemetry is configured after install, as opposed to the connect
+ *  wizard's own local toggle (which only means "will be enabled", not "is enabled"). */
+export function measurementsRunning(d?: AgentDiagnostics): boolean | undefined {
+  return d?.collectors.find((c) => c.name === 'measure')?.enabled
+}
+
 /* ---------- telemetry ---------- */
 
 /**

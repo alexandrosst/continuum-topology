@@ -6,7 +6,7 @@ import { useServer } from '@/store/server'
 
 /** Covers the screen the instant the wizard is asked for, before its chunk has even arrived - so a click aimed
  * at "Add manually" (or anything else) while it loads lands here instead of opening a second dialog behind it. */
-function WizardLoading() {
+export function WizardLoading() {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 backdrop-blur-[2px]" aria-hidden>
       <Loader2 size={28} className="animate-spin text-accent" />

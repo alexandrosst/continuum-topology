@@ -1,11 +1,12 @@
 import clsx from 'clsx'
-import { ChevronDown, ChevronRight, List, Network, Plug, Server } from 'lucide-react'
+import { ChevronDown, ChevronRight, List, Network, Plug, Radio, Server } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { CanSee, ConsentPanel, CopyCommand as CopyableCommand, DiscoveryChip, HealthChip, Problems, TelemetryPanel } from '@/components/agents/AgentInsight'
 import { CheckLine, MODULE_STYLE, ObserverLine, ScopeLine, STATUS_STYLE, when } from '@/components/discovery/AgentParts'
 import ApprovalCard from '@/components/discovery/ApprovalCard'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
+import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
 import EntityHistory from '@/components/EntityHistory'
 import { ConfirmModal } from '@/components/forms'
 import { DistroIcon, Flag, WithIcon } from '@/components/ui/brand'
@@ -74,6 +75,7 @@ export default function AgentsPage() {
   const connected = server.status === 'connected'
   const canConsent = connected && server.canEdit()
   const connect = useConnectFlow()
+  const telemetry = useTelemetryFlow()
   const canAdminister = connect.canStart
   // Enrollment is decided here: a request waits for its approval code, and one rejected for too many wrong codes stays (with the reason) until dismissed.
   const locked = useApprovalLocks((s) => s.locked)
@@ -88,38 +90,6 @@ export default function AgentsPage() {
     el?.scrollIntoView({ block: 'start' })
     el?.focus({ preventScroll: true })
   }, [target])
-
-  // A link from the topology's "Define scope from selection" quick action (?openAgent=&scopeName=&scopeNamespaces=,
-  // see ScopeFromSelection.tsx) opens that one agent's row with a telemetry scope draft ready to go. Two
-  // separate effects, deliberately not combined into one: the first only opens the row, so the render where
-  // TelemetryPanel/GuidedScope first mount for it still has `scopeName`/`scopeNamespaces` on the URL to read
-  // into their own one-time initial state (see `pendingScope` below); the second, gated on the row actually
-  // being open, clears those params one tick later, so reloading the page afterward doesn't keep reopening it.
-  const openAgentParam = sp.get('openAgent')
-  const pendingScope = useMemo(() => {
-    const name = sp.get('scopeName')
-    const namespaces = sp.get('scopeNamespaces')
-    if (!openAgentParam || !name) return null
-    return { agentId: openAgentParam, name: decodeURIComponent(name), namespaces: (namespaces ?? '').split(',').filter(Boolean).map(decodeURIComponent) }
-    // only meant to read the URL's shape once per handoff, not to re-derive on every unrelated sp change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openAgentParam])
-  useEffect(() => {
-    if (openAgentParam && agents.some((a) => a.id === openAgentParam)) setOpen(openAgentParam)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openAgentParam])
-  useEffect(() => {
-    if (!openAgentParam || open !== openAgentParam) return
-    document.getElementById(`agent-${openAgentParam}`)?.scrollIntoView({ block: 'start' })
-    setSp((p) => {
-      const n = new URLSearchParams(p)
-      n.delete('openAgent')
-      n.delete('scopeName')
-      n.delete('scopeNamespaces')
-      return n
-    }, { replace: true })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
 
   const cluster = (id?: string) => clusters.find((c) => c.id === id)
   const site = (c?: Cluster) => sites.find((s) => s.id === c?.siteId)
@@ -152,11 +122,22 @@ export default function AgentsPage() {
         title="Agents"
         description="The programs running inside your clusters that report to this server: where each runs, whether it is alive, and how much it has sent."
         actions={
-          canAdminister && (
-            <Button variant="primary" onClick={connect.start}>
-              <Plug size={16} /> Connect a cluster
-            </Button>
-          )
+          <>
+            {canConsent && (
+              <Button
+                onClick={() => telemetry.start()}
+                disabled={!agents.some((a) => a.status === 'approved')}
+                title={agents.some((a) => a.status === 'approved') ? undefined : 'Connect a cluster first'}
+              >
+                <Radio size={16} /> Configure telemetry
+              </Button>
+            )}
+            {canAdminister && (
+              <Button variant="primary" onClick={connect.start}>
+                <Plug size={16} /> Connect a cluster
+              </Button>
+            )}
+          </>
         }
       />
 
@@ -316,7 +297,7 @@ export default function AgentsPage() {
                       {expanded && (
                         <tr>
                           <Td colSpan={7} className="bg-nb-930/40 py-4">
-                            <AgentDetail agent={a} extras={extrasOf(rawAgents, a.id)} canConsent={canConsent} onRevoke={canAdminister && connected && a.status === 'approved' ? () => setRevoking(a) : undefined} initialScope={pendingScope?.agentId === a.id ? pendingScope : undefined} />
+                            <AgentDetail agent={a} extras={extrasOf(rawAgents, a.id)} canConsent={canConsent} onRevoke={canAdminister && connected && a.status === 'approved' ? () => setRevoking(a) : undefined} />
                           </Td>
                         </tr>
                       )}
@@ -343,6 +324,7 @@ export default function AgentsPage() {
       )}
 
       {connect.dialogs}
+      {telemetry.dialogs}
 
       {revoking && (
         <ConfirmModal
@@ -371,7 +353,7 @@ function Stat({ label, value, sub, warn, to }: { label: string; value: string; s
 }
 
 /** Everything the server knows about one agent that does not fit in a row. */
-function AgentDetail({ agent: a, extras, canConsent, onRevoke, initialScope }: { agent: Agent; extras: AgentExtras; canConsent: boolean; onRevoke?: () => void; initialScope?: { name: string; namespaces: string[] } }) {
+function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent; extras: AgentExtras; canConsent: boolean; onRevoke?: () => void }) {
   const l = a.link
   const certLeft = msUntil(a.certExpiresAt)
   const ip = a.connectingIp
@@ -402,7 +384,7 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke, initialScope }: {
             {canConsent && (
               <div>
                 <Heading>Telemetry</Heading>
-                <TelemetryPanel diagnostics={extras.diagnostics} install={install} initialScope={initialScope} />
+                <TelemetryPanel diagnostics={extras.diagnostics} install={install} />
               </div>
             )}
           </div>
@@ -416,7 +398,7 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke, initialScope }: {
           </div>
           <div>
             <Heading>Telemetry</Heading>
-            <TelemetryPanel diagnostics={undefined} install={install} initialScope={initialScope} />
+            <TelemetryPanel diagnostics={undefined} install={install} />
           </div>
         </div>
       )}
