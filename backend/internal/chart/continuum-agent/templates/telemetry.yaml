@@ -35,7 +35,8 @@ spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "agent.name" . }}
+      serviceAccountName: {{ include "agent.name" . }}-telemetry
+      automountServiceAccountToken: true   # k8sattributes (pod/namespace/node identity) needs the Kubernetes API
       # Not root, not privileged: every path this collector reads is one this chart mounts read-only, and
       # the standard container-log/journal file permissions are readable by this GID on every distribution
       # this chart has been run against. If your nodes lock file permissions down further than that, widen
@@ -138,7 +139,8 @@ spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "agent.name" . }}
+      serviceAccountName: {{ include "agent.name" . }}-telemetry
+      automountServiceAccountToken: true   # k8sattributes (pod/namespace/node identity) needs the Kubernetes API
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

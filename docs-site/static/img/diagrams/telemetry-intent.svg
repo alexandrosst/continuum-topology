@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 760" font-family="Inter, 'Segoe UI', ui-sans-serif, sans-serif">
+  <defs>
+    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <marker id="marker-8a97a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8a97a2"/>
+    </marker>
+    <marker id="marker-f68330" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f68330"/>
+    </marker>
+    <marker id="marker-34d399" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#34d399"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="980" height="760" fill="#16181a"/>
+
+  <!-- Panel A: one release, every node -->
+  <rect x="20" y="20" width="460" height="430" rx="14" fill="#25282c" stroke="#3f444b" stroke-width="1.5" filter="url(#soft-shadow)"/>
+  <text x="44" y="52" font-size="14" font-weight="700" fill="#e4e7e9" text-anchor="start">One release, every node</text>
+  <text x="44" y="70" font-size="9.5" font-weight="400" fill="#59636c" text-anchor="start">DaemonSet vs Deployment — Kubernetes' own fan-out, not a per-node chart</text>
+
+  <rect x="40" y="88" width="420" height="230" rx="12" fill="none" stroke="#59636c" stroke-width="1.3" stroke-dasharray="6 5"/>
+  <text x="54" y="106" font-size="10.5" font-weight="700" fill="#8a97a2" text-anchor="start">cluster (one helm install)</text>
+
+  <!-- three node boxes -->
+  <g>
+    <rect x="56" y="120" width="120" height="180" rx="10" fill="#1f2124" stroke="#34d399" stroke-width="1.3"/>
+    <text x="116" y="138" font-size="10" font-weight="700" fill="#e4e7e9" text-anchor="middle">node a</text>
+    <rect x="68" y="150" width="96" height="26" rx="6" fill="none" stroke="#34d399" stroke-width="1.1"/>
+    <text x="116" y="167" font-size="8.6" font-weight="600" fill="#34d399" text-anchor="middle">host collector</text>
+    <rect x="68" y="184" width="96" height="26" rx="6" fill="none" stroke="#34d399" stroke-width="1.1"/>
+    <text x="116" y="201" font-size="8.6" font-weight="600" fill="#34d399" text-anchor="middle">kepler</text>
+    <rect x="68" y="218" width="96" height="26" rx="6" fill="none" stroke="#34d399" stroke-width="1.1"/>
+    <text x="116" y="235" font-size="8.6" font-weight="600" fill="#34d399" text-anchor="middle">dcgm-exporter</text>
+    <text x="116" y="264" font-size="7.8" font-weight="400" fill="#59636c" text-anchor="middle">scheduled by</text>
+    <text x="116" y="276" font-size="7.8" font-weight="400" fill="#59636c" text-anchor="middle">the kubelet</text>
+  </g>
+  <g>
+    <rect x="188" y="120" width="120" height="180" rx="10" fill="#1f2124" stroke="#34d399" stroke-width="1.3"/>
+    <text x="248" y="138" font-size="10" font-weight="700" fill="#e4e7e9" text-anchor="middle">node b</text>
+    <rect x="200" y="150" width="96" height="26" rx="6" fill="none" stroke="#34d399" stroke-width="1.1"/>
+    <text x="248" y="167" font-size="8.6" font-weight="600" fill="#34d399" text-anchor="middle">host collector</text>
+    <rect x="200" y="184" width="96" height="26" rx="6" fill="none" stroke="#34d399" stroke-width="1.1"/>
+    <text x="248" y="201" font-size="8.6" font-weight="600" fill="#34d399" text-anchor="middle">kepler</text>
+    <rect x="200" y="218" width="96" height="26" rx="6" fill="none" stroke="#3f444b" stroke-width="1.1" stroke-dasharray="3 3"/>
+    <text x="248" y="235" font-size="8.6" font-weight="600" fill="#59636c" text-anchor="middle">dcgm-exporter</text>
+    <text x="248" y="264" font-size="7.8" font-weight="400" fill="#59636c" text-anchor="middle">no GPU here —</text>
+    <text x="248" y="276" font-size="7.8" font-weight="400" fill="#59636c" text-anchor="middle">nodeSelector skips it</text>
+  </g>
+  <g>
+    <rect x="320" y="120" width="120" height="180" rx="10" fill="#1f2124" stroke="#34d399" stroke-width="1.3"/>
+    <text x="380" y="138" font-size="10" font-weight="700" fill="#e4e7e9" text-anchor="middle">node c</text>
+    <rect x="332" y="150" width="96" height="26" rx="6" fill="none" stroke="#34d399" stroke-width="1.1"/>
+    <text x="380" y="167" font-size="8.6" font-weight="600" fill="#34d399" text-anchor="middle">host collector</text>
+    <rect x="332" y="184" width="96" height="26" rx="6" fill="none" stroke="#34d399" stroke-width="1.1"/>
+    <text x="380" y="201" font-size="8.6" font-weight="600" fill="#34d399" text-anchor="middle">kepler</text>
+    <rect x="332" y="218" width="96" height="26" rx="6" fill="none" stroke="#34d399" stroke-width="1.1"/>
+    <text x="380" y="235" font-size="8.6" font-weight="600" fill="#34d399" text-anchor="middle">dcgm-exporter</text>
+    <text x="380" y="264" font-size="7.8" font-weight="400" fill="#59636c" text-anchor="middle">new node joins →</text>
+    <text x="380" y="276" font-size="7.8" font-weight="400" fill="#59636c" text-anchor="middle">pods appear here too</text>
+  </g>
+  <text x="250" y="332" font-size="9.3" font-weight="700" fill="#8a97a2" text-anchor="middle">DaemonSet: one pod per matching node, automatically</text>
+
+  <line x1="250" y1="340" x2="250" y2="366" stroke="#f68330" stroke-width="1.6" marker-end="url(#marker-f68330)"/>
+  <rect x="140" y="366" width="220" height="64" rx="10" fill="#1f2124" stroke="#f68330" stroke-width="1.4"/>
+  <text x="250" y="388" font-size="10.5" font-weight="700" fill="#e4e7e9" text-anchor="middle">cluster collector</text>
+  <text x="250" y="404" font-size="8.6" font-weight="400" fill="#59636c" text-anchor="middle">Deployment · 1 replica</text>
+  <text x="250" y="418" font-size="8.6" font-weight="400" fill="#59636c" text-anchor="middle">k8s state, OTLP receiver, scraping</text>
+
+  <!-- Panel B: multi-cluster -->
+  <rect x="500" y="20" width="460" height="430" rx="14" fill="#25282c" stroke="#3f444b" stroke-width="1.5" filter="url(#soft-shadow)"/>
+  <text x="524" y="52" font-size="14" font-weight="700" fill="#e4e7e9" text-anchor="start">Multi-cluster: one release each</text>
+  <text x="524" y="70" font-size="9.5" font-weight="400" fill="#59636c" text-anchor="start">independent by default — same shape as discovery's own per-cluster identity</text>
+
+  <g>
+    <rect x="524" y="96" width="412" height="60" rx="10" fill="#1f2124" stroke="#8a97a2" stroke-width="1.3"/>
+    <text x="546" y="118" font-size="10.5" font-weight="700" fill="#e4e7e9" text-anchor="start">cluster-a</text>
+    <text x="546" y="136" font-size="8.6" font-weight="400" fill="#59636c" text-anchor="start">telemetry.* set by its own helm install</text>
+    <rect x="820" y="110" width="100" height="24" rx="12" fill="none" stroke="#34d399" stroke-width="1.1"/>
+    <text x="870" y="126" font-size="8.6" font-weight="700" fill="#34d399" text-anchor="middle">energy on</text>
+  </g>
+  <g>
+    <rect x="524" y="168" width="412" height="60" rx="10" fill="#1f2124" stroke="#8a97a2" stroke-width="1.3"/>
+    <text x="546" y="190" font-size="10.5" font-weight="700" fill="#e4e7e9" text-anchor="start">cluster-b</text>
+    <text x="546" y="208" font-size="8.6" font-weight="400" fill="#59636c" text-anchor="start">telemetry.* set by its own helm install</text>
+    <rect x="800" y="182" width="120" height="24" rx="12" fill="none" stroke="#f6c343" stroke-width="1.1"/>
+    <text x="860" y="198" font-size="8.6" font-weight="700" fill="#f6c343" text-anchor="middle">energy off</text>
+  </g>
+  <g>
+    <rect x="524" y="240" width="412" height="60" rx="10" fill="#1f2124" stroke="#8a97a2" stroke-width="1.3"/>
+    <text x="546" y="262" font-size="10.5" font-weight="700" fill="#e4e7e9" text-anchor="start">cluster-c</text>
+    <text x="546" y="280" font-size="8.6" font-weight="400" fill="#59636c" text-anchor="start">telemetry.* set by its own helm install</text>
+    <rect x="800" y="254" width="120" height="24" rx="12" fill="none" stroke="#34d399" stroke-width="1.1"/>
+    <text x="860" y="270" font-size="8.6" font-weight="700" fill="#34d399" text-anchor="middle">accel. on</text>
+  </g>
+
+  <line x1="730" y1="300" x2="730" y2="330" stroke="#f68330" stroke-width="1.6" stroke-dasharray="6 5" marker-end="url(#marker-f68330)"/>
+  <rect x="524" y="330" width="412" height="100" rx="10" fill="#1f2124" stroke="#f68330" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <text x="546" y="352" font-size="10.5" font-weight="700" fill="#e4e7e9" text-anchor="start">No fleet-wide policy today</text>
+  <text x="546" y="370" font-size="8.8" font-weight="400" fill="#8a97a2" text-anchor="start">turning on a signal in one cluster has no</text>
+  <text x="546" y="384" font-size="8.8" font-weight="400" fill="#8a97a2" text-anchor="start">effect on any other — each release's values</text>
+  <text x="546" y="398" font-size="8.8" font-weight="400" fill="#8a97a2" text-anchor="start">are its own, by the same one-way boundary</text>
+  <text x="546" y="412" font-size="8.8" font-weight="400" fill="#8a97a2" text-anchor="start">that keeps telemetry data off the server.</text>
+
+  <!-- bottom strip: one party not two -->
+  <rect x="20" y="474" width="940" height="130" rx="14" fill="#1f2124" stroke="#f68330" stroke-width="2" filter="url(#soft-shadow)"/>
+  <g transform="translate(44,496) scale(1.5)" fill="none" stroke="#f68330" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M7.5,1 13.5,3.2 V8 C13.5,12 10.7,14.7 7.5,16 C4.3,14.7 1.5,12 1.5,8 V3.2 Z"/>
+    <path d="M4.8,8.2 6.6,10 10.2,6"/>
+  </g>
+  <text x="80" y="508" font-size="15" font-weight="700" fill="#e4e7e9" text-anchor="start">One party, not two</text>
+  <text x="80" y="528" font-size="11" font-weight="400" fill="#8a97a2" text-anchor="start">Discovery has an agent that narrows itself AND a server that checks the result again. Telemetry payloads</text>
+  <text x="80" y="546" font-size="11" font-weight="400" fill="#8a97a2" text-anchor="start">never touch the server at all — they go straight from the collector to whatever backend you configured.</text>
+  <text x="80" y="564" font-size="10" font-weight="400" fill="#59636c" text-anchor="start" font-style="italic">redaction-on-by-default is the closest thing to a backstop — but it's the same actor checking its own work.</text>
+  <text x="80" y="584" font-size="9.5" font-weight="700" fill="#f68330" text-anchor="start">→ which is why the telemetry ServiceAccount is minimal on its own, not just bounded by a tier nobody re-checks.</text>
+
+  <!-- legend -->
+  <rect x="20" y="620" width="940" height="58" rx="10" fill="#25282c" stroke="#2b2f33" stroke-width="1"/>
+  <text x="34" y="640" font-size="11.5" font-weight="700" fill="#e4e7e9" text-anchor="start">How to read this</text>
+  <line x1="34" y1="664" x2="62" y2="664" stroke="#34d399" stroke-width="2.2"/>
+  <text x="70" y="668" font-size="11" font-weight="500" fill="#8a97a2" text-anchor="start">running now, this release</text>
+  <line x1="290" y1="664" x2="318" y2="664" stroke="#f68330" stroke-width="2.2"/>
+  <text x="326" y="668" font-size="11" font-weight="500" fill="#8a97a2" text-anchor="start">a gap named on purpose, not yet closed</text>
+  <line x1="620" y1="664" x2="648" y2="664" stroke="#59636c" stroke-width="2.2" stroke-dasharray="4 3"/>
+  <text x="656" y="668" font-size="11" font-weight="500" fill="#8a97a2" text-anchor="start">skipped where it genuinely doesn't apply</text>
+</svg>

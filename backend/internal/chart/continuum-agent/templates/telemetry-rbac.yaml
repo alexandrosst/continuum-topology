@@ -1,11 +1,23 @@
 {{- include "agent.telemetryValidate" . -}}
 {{- if include "agent.telemetryEnabled" . }}
+# The telemetry collectors' own identity: separate from the agent's own ServiceAccount (and, by extension,
+# from whatever access.tier ClusterRole that identity holds in rbac.yaml) on purpose. The cluster collector
+# below is the one workload in this chart with a receiver reachable from anywhere else in the cluster; if it
+# is ever compromised, the token an attacker gets should be able to reach exactly what telemetry itself
+# needs and nothing an access.tier ClusterRole grants, not the union of both. It does not enroll with the
+# server and holds no identity certificate of its own - it exists only to be bound to the ClusterRole below.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "agent.name" . }}-telemetry
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+automountServiceAccountToken: false   # only the two collector containers that call the Kubernetes API mount it, explicitly, below
+---
 # Telemetry's own ClusterRole, additive and separate from the discovery ClusterRoles in rbac.yaml: turning
-# on a telemetry signal never depends on, and never widens, access.tier. Bound to the same ServiceAccount as
-# the agent (one release, one enrolled identity) rather than a second one, since both halves of this chart
-# share one trust relationship with the server. Every rule below is read-only, and only the rule a currently
-# enabled signal actually needs is present - re-render with `helm template` after changing telemetry.* to see
-# exactly what permission set a given configuration holds.
+# on a telemetry signal never depends on, and never widens, access.tier. Every rule below is read-only, and
+# only the rule a currently enabled signal actually needs is present - re-render with `helm template` after
+# changing telemetry.* to see exactly what permission set a given configuration holds.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -55,5 +67,5 @@ metadata:
   name: {{ include "agent.name" . }}-telemetry-{{ .Release.Namespace }}
   labels: {{- include "agent.labels" . | nindent 4 }}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ include "agent.name" . }}-telemetry}
-subjects: [{kind: ServiceAccount, name: {{ include "agent.name" . }}, namespace: {{ .Release.Namespace }}}]
+subjects: [{kind: ServiceAccount, name: {{ include "agent.name" . }}-telemetry, namespace: {{ .Release.Namespace }}}]
 {{- end }}

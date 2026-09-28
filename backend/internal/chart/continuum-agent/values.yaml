@@ -398,11 +398,16 @@ telemetry:
       # Scheduling overrides for the Kepler DaemonSet specifically (it needs its own: privileged and
       # hostPID, most clusters want it kept off tainted/GPU pools deliberately, unlike the host collector
       # below which usually should run everywhere). Defaults reproduce this chart's original hardcoded
-      # behavior (every Linux node).
+      # behavior (every Linux node) plus one addition: kubernetes.io/arch=amd64, because the upstream
+      # Kepler image (quay.io/sustainable_computing_io/kepler) publishes no arm64 build as of the tag
+      # pinned above - without this, Kepler pods on an arm64 node (Graviton, Ampere, most edge/Arm SBCs)
+      # would crash-loop on ImagePullBackOff forever instead of simply not being scheduled there. Remove
+      # this line if you build or source your own arm64-capable Kepler image.
       tolerations:
         - operator: Exists
       nodeSelector:
         kubernetes.io/os: linux
+        kubernetes.io/arch: amd64
       # Falls back to telemetry.resources below when left empty - override only if Kepler's actual profile
       # (one small privileged pod per node) needs something different from the shared default.
       resources: {}

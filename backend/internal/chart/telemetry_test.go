@@ -487,3 +487,51 @@ func TestTelemetryAcceleratorsSignalNameAndExistingEndpointValidation(t *testing
 		t.Errorf("telemetry.accelerators.metrics.source=existing without an endpoint must fail with a message, got err=%v\n%s", err, out)
 	}
 }
+
+func TestTelemetryCollectorsUseOwnServiceAccountIsolatedFromAccessTier(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.kubernetesState.metrics.enabled=true", "--set", "access.tier=2")
+
+	host := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec
+	cluster := r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec
+	if host.ServiceAccountName != "continuum-agent-telemetry" {
+		t.Errorf("host collector ServiceAccountName = %q, want continuum-agent-telemetry", host.ServiceAccountName)
+	}
+	if cluster.ServiceAccountName != "continuum-agent-telemetry" {
+		t.Errorf("cluster collector ServiceAccountName = %q, want continuum-agent-telemetry", cluster.ServiceAccountName)
+	}
+	// The discovery agent's own Deployment must be unaffected: still its own ServiceAccount, not the
+	// telemetry one and vice versa - the whole point is that these are two separate identities now.
+	if agentSA := r.deployments["continuum-agent"].Spec.Template.Spec.ServiceAccountName; agentSA != "continuum-agent" {
+		t.Errorf("discovery agent ServiceAccountName = %q, want continuum-agent (unaffected by telemetry)", agentSA)
+	}
+
+	if _, ok := r.serviceaccounts["continuum-agent-telemetry"]; !ok {
+		t.Fatal("expected a dedicated continuum-agent-telemetry ServiceAccount to be rendered")
+	}
+
+	binding, ok := r.clusterrolebindings["continuum-agent-telemetry-default"]
+	if !ok {
+		t.Fatal("expected the telemetry ClusterRoleBinding continuum-agent-telemetry-default")
+	}
+	if binding.RoleRef.Name != "continuum-agent-telemetry" {
+		t.Errorf("telemetry ClusterRoleBinding roleRef = %q, want continuum-agent-telemetry", binding.RoleRef.Name)
+	}
+	if len(binding.Subjects) != 1 || binding.Subjects[0].Name != "continuum-agent-telemetry" {
+		t.Errorf("telemetry ClusterRoleBinding subjects = %+v, want exactly [continuum-agent-telemetry]", binding.Subjects)
+	}
+
+	// Isolation, the actual point of this change: with access.tier=2 the discovery agent holds t0/t1/t2
+	// ClusterRoleBindings too - none of THOSE may name the telemetry ServiceAccount as a subject, or the
+	// split would be cosmetic rather than a real credential boundary.
+	for name, b := range r.clusterrolebindings {
+		if name == "continuum-agent-telemetry-default" {
+			continue
+		}
+		for _, subj := range b.Subjects {
+			if subj.Name == "continuum-agent-telemetry" {
+				t.Errorf("ClusterRoleBinding %q (roleRef %q) must not bind the telemetry ServiceAccount - that would leak access.tier permissions into the telemetry identity", name, b.RoleRef.Name)
+			}
+		}
+	}
+}

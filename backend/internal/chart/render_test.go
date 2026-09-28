@@ -18,12 +18,14 @@ import (
 
 // rendered is what `helm template` produced, by kind.
 type rendered struct {
-	deployments  map[string]appsv1.Deployment
-	daemonsets   map[string]appsv1.DaemonSet
-	secrets      map[string]corev1.Secret
-	policies     map[string]networkingv1.NetworkPolicy
-	configmaps   map[string]corev1.ConfigMap
-	clusterroles map[string]rbacv1.ClusterRole
+	deployments         map[string]appsv1.Deployment
+	daemonsets          map[string]appsv1.DaemonSet
+	secrets             map[string]corev1.Secret
+	policies            map[string]networkingv1.NetworkPolicy
+	configmaps          map[string]corev1.ConfigMap
+	clusterroles        map[string]rbacv1.ClusterRole
+	serviceaccounts     map[string]corev1.ServiceAccount
+	clusterrolebindings map[string]rbacv1.ClusterRoleBinding
 }
 
 var baseSet = []string{"--set", "server.address=a.example:8443", "--set", "server.caPin=ab", "--set", "enrollment.token=t"}
@@ -55,7 +57,7 @@ func render(t *testing.T, extra ...string) rendered {
 	if err != nil {
 		t.Fatalf("helm template %v: %v\n%s", extra, err, out)
 	}
-	r := rendered{map[string]appsv1.Deployment{}, map[string]appsv1.DaemonSet{}, map[string]corev1.Secret{}, map[string]networkingv1.NetworkPolicy{}, map[string]corev1.ConfigMap{}, map[string]rbacv1.ClusterRole{}}
+	r := rendered{map[string]appsv1.Deployment{}, map[string]appsv1.DaemonSet{}, map[string]corev1.Secret{}, map[string]networkingv1.NetworkPolicy{}, map[string]corev1.ConfigMap{}, map[string]rbacv1.ClusterRole{}, map[string]corev1.ServiceAccount{}, map[string]rbacv1.ClusterRoleBinding{}}
 	dec := yaml.NewYAMLOrJSONDecoder(strings.NewReader(out), 4096)
 	for {
 		var raw json.RawMessage
@@ -104,6 +106,14 @@ func render(t *testing.T, extra ...string) rendered {
 			var c rbacv1.ClusterRole
 			into(&c)
 			r.clusterroles[name] = c
+		case "ServiceAccount":
+			var a corev1.ServiceAccount
+			into(&a)
+			r.serviceaccounts[name] = a
+		case "ClusterRoleBinding":
+			var b rbacv1.ClusterRoleBinding
+			into(&b)
+			r.clusterrolebindings[name] = b
 		}
 	}
 	return r

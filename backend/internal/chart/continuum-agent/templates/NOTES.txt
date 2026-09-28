@@ -97,3 +97,36 @@ TRAFFIC OBSERVER
 
     kubectl label namespace {{ .Release.Namespace }} pod-security.kubernetes.io/enforce=privileged --overwrite
 {{- end }}
+{{- if include "agent.telemetryEnabled" . }}
+
+TELEMETRY
+  Signals: {{ include "agent.telemetrySignalNames" . }}, sent to {{ if .Values.telemetry.export.otlp.endpoint }}{{ .Values.telemetry.export.otlp.endpoint }}{{ else }}(no destination set yet - see telemetry.export.otlp.endpoint){{ end }}. Independent of the
+  access tier above, on its own ServiceAccount, and never reported to this server.
+{{- if include "agent.telemetryHostEnabled" . }}
+  The host collector mounts several host paths read-only (kubelet stats, container/journal logs) and is refused outright
+  by Pod Security "baseline"/"restricted" and by GKE Autopilot/EKS Fargate (neither runs DaemonSets or hostPath at all).
+{{- end }}
+{{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
+  Kepler (energy) additionally runs privileged, one pod per Linux/amd64 node (the upstream image has no arm64 build;
+  arm64 nodes are skipped by nodeSelector rather than crash-looping).
+{{- end }}
+{{- if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
+  dcgm-exporter (accelerators) additionally runs as root with SYS_ADMIN, one pod per node labelled nvidia.com/gpu.present=true.
+{{- end }}
+{{- if or (include "agent.telemetryHostEnabled" .) (and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler")) (and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm")) }}
+
+  If any telemetry pod is refused with a "hostPath" or "PodSecurity" error, label the namespace privileged:
+
+    kubectl label namespace {{ .Release.Namespace }} pod-security.kubernetes.io/enforce=privileged --overwrite
+
+  On OpenShift, grant the telemetry ServiceAccount the privileged SCC instead (SCCs, not Pod Security labels, gate this there):
+
+    oc adm policy add-scc-to-user privileged -z {{ include "agent.name" . }}-telemetry -n {{ .Release.Namespace }}
+
+  On GKE Autopilot or EKS Fargate, none of the above will ever schedule - both platforms categorically refuse privileged
+  pods, hostPath volumes, and (Fargate) DaemonSets. Point the affected signal(s) at a Kepler/dcgm-exporter/collector you
+  already run elsewhere instead (telemetry.energy.metrics.source=existing, telemetry.accelerators.metrics.source=existing),
+  or collect only cluster-scoped signals (kubernetesState, applicationMetrics, applicationLogs, traces), which need none
+  of this.
+{{- end }}
+{{- end }}

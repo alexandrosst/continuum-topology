@@ -49,6 +49,20 @@ describe('TelemetryFields', () => {
     expect(screen.getByTestId('telemetry-permissions-summary')).toHaveTextContent('Resource usage')
   })
 
+  test('credentials & processing start collapsed by default, but open automatically when a non-default value is already set', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(<Wrapper />)
+    expect(screen.getByTestId('telemetry-redaction')).not.toBeVisible()
+    expect(screen.getByTestId('telemetry-advanced')).not.toHaveAttribute('open')
+    await user.click(screen.getByText('Credentials & processing'))
+    expect(screen.getByTestId('telemetry-redaction')).toBeVisible()
+    unmount()
+
+    render(<Wrapper initial={{ ...emptyTelemetry, resourceDetection: true }} />)
+    expect(screen.getByTestId('telemetry-advanced')).toHaveAttribute('open')
+    expect(screen.getByTestId('telemetry-resource-detection')).toBeVisible()
+  })
+
   test('typing a known-unsupported destination shows why, without hiding the field', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)

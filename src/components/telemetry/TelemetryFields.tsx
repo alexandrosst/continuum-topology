@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ComboField, Field, InfoTip, Input, Select } from '@/components/ui/primitives'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
 import { applyIntentPreset, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, TELEMETRY_UNIVERSAL_PERMISSION } from '@/lib/consent'
@@ -32,6 +33,12 @@ export default function TelemetryFields({
   const destinationNote = unsupportedDestinationNote(value.exportEndpoint)
   const exportPreset = EXPORT_PRESETS.find((p) => p.endpointPattern === value.exportEndpoint)
   const grantedRules = TELEMETRY_SIGNALS.filter((s) => (value as unknown as Record<string, boolean>)[s.id])
+  // Credentials and processor tuning start collapsed - the same "hidden until it's on" instinct the
+  // namespace-scope fieldset elsewhere in this app already applies to its own fields - but open on arrival
+  // if any of them already hold a non-default value, so an existing configuration is never hidden.
+  const [advancedOpen, setAdvancedOpen] = useState(
+    () => value.exportAuthSecretName.trim() !== '' || value.resourceDetection || !value.redaction || value.tracesSamplingPercent !== 100,
+  )
 
   const row = (s: (typeof TELEMETRY_SIGNALS)[number]) => {
     const id = s.id as SignalId
@@ -180,64 +187,74 @@ export default function TelemetryFields({
           <span className="text-nb-300">Skip TLS verification for this endpoint</span>
           <InfoTip>Only for a self-signed or internal endpoint you already trust by other means - the connection is still encrypted, its certificate is just not checked.</InfoTip>
         </label>
-        <Field label="Credential header" hint="Which header the destination expects its credential in.">
-          <Input
-            value={value.exportAuthHeaderName}
-            onChange={(e) => set('exportAuthHeaderName', e.target.value)}
-            placeholder="Authorization"
-            data-testid={`${testIdPrefix}-export-auth-header`}
-          />
-        </Field>
-        <Field label="Secret holding it" hint="A Secret you create in the release namespace, outside this chart - never the credential value itself.">
-          <Input
-            value={value.exportAuthSecretName}
-            onChange={(e) => set('exportAuthSecretName', e.target.value)}
-            placeholder="telemetry-export-token"
-            data-testid={`${testIdPrefix}-export-auth-secret`}
-          />
-        </Field>
       </div>
 
-      <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
-        <legend className="text-xs font-medium uppercase tracking-wide text-nb-500 sm:col-span-2">Processing</legend>
-        <label className="flex cursor-pointer items-start gap-2.5 text-sm">
-          <input
-            type="checkbox"
-            className="mt-0.5 size-4 accent-[var(--color-accent)]"
-            checked={value.resourceDetection}
-            onChange={(e) => set('resourceDetection', e.target.checked)}
-            data-testid={`${testIdPrefix}-resource-detection`}
-          />
-          <span>
-            <span className="text-nb-300">Enrich with collector environment</span>
-            <span className="block text-xs text-nb-500">Adds resource attributes about the collector's own runtime environment.</span>
-          </span>
-        </label>
-        <label className="flex cursor-pointer items-start gap-2.5 text-sm">
-          <input
-            type="checkbox"
-            className="mt-0.5 size-4 accent-[var(--color-accent)]"
-            checked={value.redaction}
-            onChange={(e) => set('redaction', e.target.checked)}
-            data-testid={`${testIdPrefix}-redaction`}
-          />
-          <span>
-            <span className="text-nb-300">Mask likely secrets</span>
-            <InfoTip>On by default. Masks the values of attributes whose key looks like a token/password/secret/API key before anything leaves the cluster - the receiver has no auth of its own unless you set one up separately.</InfoTip>
-            <span className="block text-xs text-nb-500">Recommended: turning this off sends attribute values through unmasked.</span>
-          </span>
-        </label>
-        <Field label="Traces sampling %" hint="100 keeps every span (the default). Lower it to cut trace volume and cost.">
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            value={value.tracesSamplingPercent}
-            onChange={(e) => set('tracesSamplingPercent', e.target.valueAsNumber || 0)}
-            data-testid={`${testIdPrefix}-traces-sampling`}
-          />
-        </Field>
-      </div>
+      <details
+        className="group rounded-lg border border-nb-850"
+        open={advancedOpen}
+        onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}
+        data-testid={`${testIdPrefix}-advanced`}
+      >
+        <summary className="flex cursor-pointer select-none items-center gap-1.5 px-3 py-2 text-xs font-medium text-nb-400 hover:text-nb-300 marker:content-none">
+          Credentials &amp; processing
+        </summary>
+        <div className="grid gap-3 border-t border-nb-850 p-3 sm:grid-cols-2">
+          <Field label="Credential header" hint="Which header the destination expects its credential in.">
+            <Input
+              value={value.exportAuthHeaderName}
+              onChange={(e) => set('exportAuthHeaderName', e.target.value)}
+              placeholder="Authorization"
+              data-testid={`${testIdPrefix}-export-auth-header`}
+            />
+          </Field>
+          <Field label="Secret holding it" hint="A Secret you create in the release namespace, outside this chart - never the credential value itself.">
+            <Input
+              value={value.exportAuthSecretName}
+              onChange={(e) => set('exportAuthSecretName', e.target.value)}
+              placeholder="telemetry-export-token"
+              data-testid={`${testIdPrefix}-export-auth-secret`}
+            />
+          </Field>
+          <legend className="text-xs font-medium uppercase tracking-wide text-nb-500 sm:col-span-2">Processing</legend>
+          <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4 accent-[var(--color-accent)]"
+              checked={value.resourceDetection}
+              onChange={(e) => set('resourceDetection', e.target.checked)}
+              data-testid={`${testIdPrefix}-resource-detection`}
+            />
+            <span>
+              <span className="text-nb-300">Enrich with collector environment</span>
+              <span className="block text-xs text-nb-500">Adds resource attributes about the collector's own runtime environment.</span>
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4 accent-[var(--color-accent)]"
+              checked={value.redaction}
+              onChange={(e) => set('redaction', e.target.checked)}
+              data-testid={`${testIdPrefix}-redaction`}
+            />
+            <span>
+              <span className="text-nb-300">Mask likely secrets</span>
+              <InfoTip>On by default. Masks the values of attributes whose key looks like a token/password/secret/API key before anything leaves the cluster - the receiver has no auth of its own unless you set one up separately.</InfoTip>
+              <span className="block text-xs text-nb-500">Recommended: turning this off sends attribute values through unmasked.</span>
+            </span>
+          </label>
+          <Field label="Traces sampling %" hint="100 keeps every span (the default). Lower it to cut trace volume and cost.">
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={value.tracesSamplingPercent}
+              onChange={(e) => set('tracesSamplingPercent', e.target.valueAsNumber || 0)}
+              data-testid={`${testIdPrefix}-traces-sampling`}
+            />
+          </Field>
+        </div>
+      </details>
 
       {telemetryActive(value) && (
         <p className="border-t border-nb-850 pt-3 text-xs text-nb-500" data-testid={`${testIdPrefix}-permissions-summary`}>

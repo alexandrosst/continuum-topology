@@ -30,6 +30,7 @@ const sidebars: SidebarsConfig = {
         'architecture/overview',
         'architecture/agent-trust-model',
         'architecture/observability-intent',
+        'architecture/telemetry-intent',
         'architecture/system-memory',
         'architecture/exposure-options',
       ],
