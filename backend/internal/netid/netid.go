@@ -1,11 +1,17 @@
 // Package netid resolves a public IP address against a small, hand-curated table of ranges the
-// provider itself has published (Cloudflare's own edge ranges, GitHub's own AS), never from a live
-// network call. This runs only on the server - the Continuum control plane already reasons about
-// every cluster's flows in one place, so identifying an address once there costs nothing extra in
-// permissions, unlike granting every per-cluster agent its own outbound DNS/lookup capability just to
-// do the same thing redundantly, once per cluster. A miss here means "not in this small table," not
-// "unknown to the internet" - the table stays small and reviewable on purpose; extending it with more
-// providers (a cloud's officially-published JSON range file, a registry, a CDN) follows the same shape.
+// provider itself has published (Cloudflare's own edge ranges, GitHub's own AS, GitLab's own webhook
+// range, Google Public DNS's two resolver addresses), never from a live network call. This runs only on
+// the server - the Continuum control plane already reasons about every cluster's flows in one place, so
+// identifying an address once there costs nothing extra in permissions, unlike granting every per-cluster
+// agent its own outbound DNS/lookup capability just to do the same thing redundantly, once per cluster. A
+// miss here means "not in this small table," not "unknown to the internet" - most of what a real
+// cluster's egress actually touches is a major cloud's own compute or CDN edge (AWS, GCP, Azure, Akamai,
+// Fastly, ...), which this table deliberately does NOT attempt to cover: those ranges are enormous,
+// change often, and - short of Cloudflare's own small, stable edge list - would mean either shipping and
+// refreshing a large third-party dataset or matching so broadly it stops meaning anything ("this address
+// is somewhere on AWS" tells a viewer little). The table stays small and reviewable on purpose; extending
+// it with a specific, stable, single-owner range (another SaaS's published webhook/API block, the way
+// GitHub and GitLab already are here) follows the same shape as everything above.
 package netid
 
 import "net/netip"
@@ -40,6 +46,21 @@ var github = Match{
 	Kind: "saas",
 }
 
+var gitlab = Match{
+	Name: "GitLab",
+	Kind: "saas",
+}
+
+// googleDNS is deliberately its own Match, not folded into a general "Google" entry: 8.8.8.8/8.8.4.4 are
+// two single-purpose anycast resolver addresses Google has published on their own, unlike the rest of
+// Google's IP space (search, Gmail, Cloud Platform tenants, ...), which all sit behind the same enormous,
+// constantly-changing, genuinely shared range - exactly the kind of address this package's own doc comment
+// says to leave out rather than guess at with a stale or approximate block.
+var googleDNS = Match{
+	Name: "Google Public DNS",
+	Kind: "saas",
+}
+
 // entries: hand-curated, not fetched. Bits() is used to break ties when ranges nest, so more specific
 // entries can be added later without reordering anything here.
 var entries = []struct {
@@ -67,6 +88,19 @@ var entries = []struct {
 	{netip.MustParsePrefix("190.93.240.0/20"), cloudflare},
 	{netip.MustParsePrefix("197.234.240.0/22"), cloudflare},
 	{netip.MustParsePrefix("198.41.128.0/17"), cloudflare},
+
+	// GitLab.com's own published outbound range for webhooks and repository mirroring
+	// (https://docs.gitlab.com/user/gitlab_com/#ip-range, fetched 2026-09-29). GitLab.com's own inbound
+	// traffic is fronted by Cloudflare (already covered above) and it publishes no static range for
+	// CI/CD runner egress, so this covers only that one specific, documented case - not "any GitLab.com
+	// traffic" in general.
+	{netip.MustParsePrefix("34.74.90.64/28"), gitlab},
+	{netip.MustParsePrefix("34.74.226.0/24"), gitlab},
+
+	// Google Public DNS's two anycast resolver addresses (https://developers.google.com/speed/public-dns,
+	// fetched 2026-09-29).
+	{netip.MustParsePrefix("8.8.8.8/32"), googleDNS},
+	{netip.MustParsePrefix("8.8.4.4/32"), googleDNS},
 }
 
 // Lookup reports the known identity of ip, if any bundled range contains it - the longest matching

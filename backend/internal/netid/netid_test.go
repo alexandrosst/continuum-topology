@@ -19,10 +19,27 @@ func TestLookupCloudflareIsShared(t *testing.T) {
 	}
 }
 
+func TestLookupGitLab(t *testing.T) {
+	m, ok := Lookup(netip.MustParseAddr("34.74.90.65"))
+	if !ok || m.Name != "GitLab" || m.Kind != "saas" || m.Shared {
+		t.Fatalf("gitlab = %+v %v, want {Name: GitLab, Kind: saas, Shared: false}, true", m, ok)
+	}
+}
+
+func TestLookupGoogleDNS(t *testing.T) {
+	for _, s := range []string{"8.8.8.8", "8.8.4.4"} {
+		m, ok := Lookup(netip.MustParseAddr(s))
+		if !ok || m.Name != "Google Public DNS" || m.Kind != "saas" || m.Shared {
+			t.Fatalf("%s = %+v %v, want {Name: Google Public DNS, Kind: saas, Shared: false}, true", s, m, ok)
+		}
+	}
+}
+
 func TestLookupNoMatch(t *testing.T) {
-	// A well-known public resolver, deliberately not in this small, curated table.
-	if m, ok := Lookup(netip.MustParseAddr("8.8.8.8")); ok {
-		t.Errorf("8.8.8.8 should not match any bundled range, got %+v", m)
+	// A well-known public address, deliberately not in this small, curated table (see the package doc for
+	// why broad cloud/CDN ranges like this one are left out on purpose).
+	if m, ok := Lookup(netip.MustParseAddr("142.250.80.46")); ok {
+		t.Errorf("142.250.80.46 (a Google front-end address, not the DNS resolver) should not match any bundled range, got %+v", m)
 	}
 }
 
