@@ -322,7 +322,7 @@ function Canvas() {
             onChange={(f) => {
               setSp((p) => {
                 const n = new URLSearchParams(p)
-                for (const [k, v] of [['clusters', encodeList(f.clusters)], ['apps', encodeList(f.apps)]] as const) {
+                for (const [k, v] of [['clusters', encodeList(f.clusters)], ['apps', encodeList(f.apps)], ['kinds', encodeList(f.kinds)]] as const) {
                   if (v === null) n.delete(k)
                   else n.set(k, v)
                 }

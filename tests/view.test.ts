@@ -21,12 +21,12 @@ const seed = seedTopology()
 const live = <T extends { deletedAt?: string }>(xs: T[]) => xs.filter((x) => !x.deletedAt)
 
 test('a filter that chooses nothing changes nothing', () => {
-  assert.equal(applyFilter(seed, { clusters: [], apps: [] }), seed)
+  assert.equal(applyFilter(seed, { clusters: [], apps: [], kinds: [] }), seed)
 })
 
 test('one cluster: only its services, nodes and the dependencies whose both ends remain', () => {
   const c = live(seed.clusters)[0]
-  const out = applyFilter(seed, { clusters: [c.id], apps: [] })
+  const out = applyFilter(seed, { clusters: [c.id], apps: [], kinds: [] })
   assert.deepEqual(out.clusters.map((x) => x.id), [c.id])
   assert.ok(out.services.length > 0)
   assert.ok(out.services.every((s) => s.clusterId === c.id))
@@ -37,14 +37,14 @@ test('one cluster: only its services, nodes and the dependencies whose both ends
 
 test('one application: every kept service belongs to it, and no other cluster keeps only unrelated services', () => {
   const app = live(seed.applications).find((a) => seed.services.some((s) => s.applicationId === a.id))!
-  const out = applyFilter(seed, { clusters: [], apps: [app.id] })
+  const out = applyFilter(seed, { clusters: [], apps: [app.id], kinds: [] })
   assert.ok(out.services.length > 0)
   assert.ok(out.services.every((s) => s.applicationId === app.id))
   for (const c of out.clusters) assert.ok(out.services.some((s) => s.clusterId === c.id), `cluster ${c.name} has nothing of the application`)
 })
 
 test('the "no application" choice keeps exactly the unassigned services', () => {
-  const out = applyFilter(seed, { clusters: [], apps: [NO_APP] })
+  const out = applyFilter(seed, { clusters: [], apps: [NO_APP], kinds: [] })
   assert.ok(out.services.every((s) => !s.applicationId))
   assert.equal(out.services.length, seed.services.filter((s) => !s.applicationId).length)
 })
@@ -52,25 +52,43 @@ test('the "no application" choice keeps exactly the unassigned services', () => 
 test('cluster and application together narrow (AND), never widen', () => {
   const c = live(seed.clusters)[0]
   const app = live(seed.applications)[0]
-  const both = applyFilter(seed, { clusters: [c.id], apps: [app.id] })
-  const onlyC = applyFilter(seed, { clusters: [c.id], apps: [] })
-  const onlyA = applyFilter(seed, { clusters: [], apps: [app.id] })
+  const both = applyFilter(seed, { clusters: [c.id], apps: [app.id], kinds: [] })
+  const onlyC = applyFilter(seed, { clusters: [c.id], apps: [], kinds: [] })
+  const onlyA = applyFilter(seed, { clusters: [], apps: [app.id], kinds: [] })
   const ids = (xs: { id: string }[]) => new Set(xs.map((x) => x.id))
   for (const s of both.services) assert.ok(ids(onlyC.services).has(s.id) && ids(onlyA.services).has(s.id))
 })
 
+test('one workload kind: only services of that kind, and clusters/namespaces left with nothing are dropped', () => {
+  const out = applyFilter(seed, { clusters: [], apps: [], kinds: ['Deployment'] })
+  assert.ok(out.services.length > 0)
+  assert.ok(out.services.every((s) => s.kind === 'Deployment'))
+  assert.ok(seed.services.some((s) => s.kind !== 'Deployment'), 'seed should have a non-Deployment kind for this test to mean anything')
+  for (const c of out.clusters) assert.ok(out.services.some((s) => s.clusterId === c.id), `cluster ${c.name} has nothing of the kept kind`)
+  for (const n of out.namespaces) assert.ok(out.services.some((s) => s.clusterId === n.clusterId && s.namespace === n.name), `namespace ${n.name} has nothing of the kept kind`)
+  const ids = new Set([...out.services.map((s) => s.id), ...out.devices.map((d) => d.id), ...out.externalEndpoints.map((e) => e.id)])
+  for (const d of out.dependencies) assert.ok(ids.has(d.from) && ids.has(d.to), `dependency ${d.id} draws a line to something that is not shown`)
+})
+
+test('kinds combine with cluster/application (AND), and multiple kinds are OR among themselves', () => {
+  const jobsAndSets = applyFilter(seed, { clusters: [], apps: [], kinds: ['Job', 'StatefulSet'] })
+  assert.ok(jobsAndSets.services.every((s) => s.kind === 'Job' || s.kind === 'StatefulSet'))
+  assert.ok(jobsAndSets.services.some((s) => s.kind === 'Job') && jobsAndSets.services.some((s) => s.kind === 'StatefulSet'))
+})
+
 test('sites follow the clusters that are kept', () => {
   const c = live(seed.clusters).find((x) => x.siteId)!
-  const out = applyFilter(seed, { clusters: [c.id], apps: [] })
+  const out = applyFilter(seed, { clusters: [c.id], apps: [], kinds: [] })
   assert.ok(out.sites.some((s) => s.id === c.siteId))
   assert.ok(out.sites.length <= seed.sites.length)
   assert.ok(out.siteLinks.every((l) => out.sites.some((s) => s.id === l.a) && out.sites.some((s) => s.id === l.b)))
 })
 
 test('knownOnly drops ids that no longer exist so a stale link cannot hide everything', () => {
-  const f = knownOnly({ clusters: ['gone', live(seed.clusters)[0].id], apps: ['gone', NO_APP] }, seed)
+  const f = knownOnly({ clusters: ['gone', live(seed.clusters)[0].id], apps: ['gone', NO_APP], kinds: ['gone' as never, 'Deployment'] }, seed)
   assert.equal(f.clusters.length, 1)
   assert.deepEqual(f.apps, [NO_APP])
+  assert.deepEqual(f.kinds, ['Deployment'])
 })
 
 test('filter round-trips through the URL, commas and all', () => {
@@ -85,6 +103,17 @@ test('saved views keep the filter and describe it', () => {
   assert.equal(viewParams('view=map&clusters=a,b'), 'clusters=a%2Cb&view=map')
   assert.match(describeView('view=infrastructure&clusters=a,b&apps=x'), /2 clusters only.*1 application only/)
   assert.equal(viewParams('view=application&clusters='), '')
+})
+
+test('saved views also keep the workload-kind filter, and the namespace sub-boxes / chain layout toggles', () => {
+  assert.equal(viewParams('view=application&kinds=Deployment'), 'kinds=Deployment')
+  assert.match(describeView('view=application&kinds=Deployment,Job'), /2 kinds only/)
+  assert.equal(viewParams('view=application&namespaces=1'), 'namespaces=1')
+  assert.match(describeView('view=application&namespaces=1'), /namespace sub-boxes/)
+  assert.equal(viewParams('view=application&chain=1'), 'chain=1')
+  assert.match(describeView('view=application&chain=1'), /chain layout/)
+  // Defaults for all three still drop out of the canonical form, same as every other option.
+  assert.equal(viewParams('view=application&kinds=&namespaces=0&chain=0'), '')
 })
 
 test('clusterLoad: percentages from what nodes report, nothing for what they do not', () => {

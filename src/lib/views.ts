@@ -2,8 +2,24 @@
 // compare equal ("view=application" is what no view option means) and describe a view in words.
 import type { SavedView } from './types'
 
-/** The options a saved view keeps, with the value that means "the default", which is left out of the URL. */
-const OPTIONS: Record<string, string> = { view: 'application', group: 'cluster', services: '0', links: '1', devices: '1', labels: '0', mesh: '0', clusters: '', apps: '' }
+/** The options a saved view keeps, with the value that means "the default", which is left out of the URL.
+ * `namespaces` and `chain` were view-affecting toggles before `kinds` existed but were missing here, so a
+ * saved view silently forgot whether either was on - fixed alongside adding `kinds`, since all three belong
+ * in the same list. */
+const OPTIONS: Record<string, string> = {
+  view: 'application',
+  group: 'cluster',
+  services: '0',
+  links: '1',
+  devices: '1',
+  labels: '0',
+  mesh: '0',
+  namespaces: '0',
+  chain: '0',
+  clusters: '',
+  apps: '',
+  kinds: '',
+}
 
 /** Canonical form of the view options in a URL: known options only, defaults dropped, sorted. */
 export function viewParams(input: URLSearchParams | string): string {
@@ -32,10 +48,13 @@ export function describeView(params: string): string {
     if (sp.get('devices') === '0') bits.push('no devices')
     if (sp.get('labels') === '1') bits.push('edge labels')
     if (sp.get('mesh') === '1') bits.push('service mesh')
+    if (sp.get('namespaces') === '1') bits.push('namespace sub-boxes')
+    if (sp.get('chain') === '1') bits.push('chain layout')
   }
   const n = (k: string) => (sp.get(k) ? sp.get(k)!.split(',').filter(Boolean).length : 0)
   if (n('clusters')) bits.push(`${n('clusters')} cluster${n('clusters') === 1 ? '' : 's'} only`)
   if (n('apps')) bits.push(`${n('apps')} application${n('apps') === 1 ? '' : 's'} only`)
+  if (n('kinds')) bits.push(`${n('kinds')} kind${n('kinds') === 1 ? '' : 's'} only`)
   return bits.join(', ')
 }
 
