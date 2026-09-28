@@ -6,6 +6,7 @@ import { PageSkeleton } from '@/components/ui/primitives'
 // Pages load on demand: the map, wizard and tables are big and most visits
 // touch only one or two of them.
 const AgentsPage = lazy(() => import('@/pages/AgentsPage'))
+const RegionalOperatorsPage = lazy(() => import('@/pages/RegionalOperatorsPage'))
 const ActivityPage = lazy(() => import('@/pages/ActivityPage'))
 const ApplicationsPage = lazy(() => import('@/pages/ApplicationsPage'))
 const ClustersPage = lazy(() => import('@/pages/ClustersPage'))
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="/sites" element={<SitesPage />} />
             <Route path="/discovery" element={<DiscoveryPage />} />
             <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/operators" element={<RegionalOperatorsPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/placement" element={<PlacementPage />} />
             <Route path="/workloads" element={<Navigate to="/services" replace />} />

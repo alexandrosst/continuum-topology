@@ -375,6 +375,47 @@ export function TagsInput({
   )
 }
 
+/**
+ * "Pick zero or more from a fixed, already-loaded list" - a scrollable list of checkboxes, each with an
+ * optional one-line hint underneath its label. Distinct from `TagsInput` (free text, no fixed universe)
+ * and `ComboField` (exactly one value): this is for a bounded set the caller already has in hand, e.g. a
+ * regional operator's source clusters, so nobody has to type an id correctly by hand. Whatever is checked
+ * client-side is a convenience only - the server re-validates it against its own current truth regardless.
+ */
+export function CheckboxList({
+  options,
+  value,
+  onChange,
+  emptyLabel = 'Nothing to pick from yet.',
+}: {
+  options: { value: string; label: string; hint?: string }[]
+  value: string[]
+  onChange: (value: string[]) => void
+  emptyLabel?: string
+}) {
+  const toggle = (v: string) => onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v])
+  if (options.length === 0) return <p className="text-xs text-nb-500">{emptyLabel}</p>
+  return (
+    <div className={clsx(control, 'h-auto max-h-48 space-y-0.5 overflow-y-auto p-1.5')}>
+      {options.map((o) => (
+        <label key={o.value} className="flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 text-sm hover:bg-nb-940">
+          <input
+            type="checkbox"
+            className="mt-0.5 size-4 shrink-0 accent-[var(--color-accent)]"
+            checked={value.includes(o.value)}
+            onChange={() => toggle(o.value)}
+            data-testid={`checkbox-${o.value}`}
+          />
+          <span className="min-w-0">
+            <span className="block text-nb-300">{o.label}</span>
+            {o.hint && <span className="block text-xs text-nb-500">{o.hint}</span>}
+          </span>
+        </label>
+      ))}
+    </div>
+  )
+}
+
 type LabelPair = { key: string; value: string }
 const labelsToRows = (l: Record<string, string>): LabelPair[] => Object.entries(l).map(([key, value]) => ({ key, value }))
 const rowsToLabels = (rows: LabelPair[]): Record<string, string> =>
