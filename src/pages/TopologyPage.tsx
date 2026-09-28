@@ -183,12 +183,19 @@ function Canvas() {
   // canvas keeps the position it has there (a manual drag, or a prior layout pass) instead of jumping back
   // to the graph's freshly computed one - which would otherwise happen on every poll, even one that changed
   // nothing about this node, because `graph` gets a new identity whenever any upstream data is refreshed.
+  // That old position only still means what it used to when the node is still positioned relative to the
+  // same parent (React Flow positions are parent-relative, or canvas-relative with no parent at all) -
+  // toggling namespace sub-boxes, for instance, re-parents every card in a cluster from the cluster box
+  // straight to a namespace box without changing the card's id, and its old, cluster-relative position
+  // would otherwise land it in the wrong spot (often overlapping another card) inside the new, smaller
+  // namespace box until something else - like leaving the page and coming back - forced a fresh layout.
   useEffect(() => {
     setNodes((prev) => {
       const prevById = new Map(prev.map((n) => [n.id, n]))
       return graph.nodes.map((n) => {
         const old = prevById.get(n.id)
-        return { ...n, position: old ? old.position : n.position, selected: n.id === selectedRfId }
+        const keepOldPosition = old && old.parentId === n.parentId
+        return { ...n, position: keepOldPosition ? old.position : n.position, selected: n.id === selectedRfId }
       })
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps

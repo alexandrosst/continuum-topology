@@ -359,17 +359,54 @@ const TARGET_LABEL: Record<string, string> = {
   view: 'View',
 }
 
+// Actions (unlike Events above) are kept forever, so - unlike the Events timeline - "All time" is the
+// default here: adding a date filter shouldn't itself change what a page nobody has touched shows.
+const ACTION_WINDOWS = [
+  { hours: 0, label: 'All time' },
+  { hours: 24, label: 'Last 24 hours' },
+  { hours: 24 * 7, label: 'Last 7 days' },
+  { hours: 24 * 30, label: 'Last 30 days' },
+  { hours: 24 * 90, label: 'Last 90 days' },
+]
+// 200 matches the page's own old, hardcoded cap, so leaving this control untouched reproduces the exact
+// prior default.
+const ACTION_PAGE_SIZES = [50, 100, 200, 500]
+
 function Actions() {
   const auditLog = useTopology((s) => s.auditLog)
-  const rows = useMemo(() => [...auditLog].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 200), [auditLog])
+  const [hours, setHours] = useState(0)
+  const [limit, setLimit] = useState(200)
+  const inWindow = useMemo(() => {
+    if (hours <= 0) return auditLog
+    const since = Date.now() - hours * 3600_000
+    return auditLog.filter((e) => new Date(e.at).getTime() >= since)
+  }, [auditLog, hours])
+  const rows = useMemo(() => [...inWindow].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit), [inWindow, limit])
   return (
     <section className="mt-8" aria-label="Actions taken in this workspace">
-      <h2 className="mb-1 text-sm font-medium text-nb-300">Actions</h2>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-medium text-nb-300">Actions</h2>
+        <div className="flex items-center gap-2">
+          <Select value={String(hours)} onChange={(e) => setHours(Number(e.target.value))} aria-label="Actions time window" className="h-8 w-32 text-xs" data-testid="audit-window">
+            {ACTION_WINDOWS.map((w) => (
+              <option key={w.hours} value={w.hours}>{w.label}</option>
+            ))}
+          </Select>
+          <Select value={String(limit)} onChange={(e) => setLimit(Number(e.target.value))} aria-label="Actions shown" className="h-8 w-24 text-xs" data-testid="audit-limit">
+            {ACTION_PAGE_SIZES.map((n) => (
+              <option key={n} value={n}>{`Show ${n}`}</option>
+            ))}
+          </Select>
+        </div>
+      </div>
       <p className="mb-3 text-xs text-nb-500">
         Edits, suggestion decisions and saved views - kept forever regardless of the history settings below, and synced across browsers along with the changes themselves.
+        {inWindow.length > rows.length && ` Showing the most recent ${rows.length} of ${inWindow.length}.`}
       </p>
       {rows.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-nb-850 px-4 py-6 text-sm text-nb-500">Nothing taken yet.</p>
+        <p className="rounded-xl border border-dashed border-nb-850 px-4 py-6 text-sm text-nb-500">
+          {auditLog.length === 0 ? 'Nothing taken yet.' : `Nothing in this window - try a wider one.`}
+        </p>
       ) : (
         <Table>
           <thead>
