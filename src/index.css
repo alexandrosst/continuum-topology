@@ -200,6 +200,12 @@ body {
    remounts (and replays) it on every transition, forward or back. */
 @keyframes wizard-step-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 .wizard-step-in { animation: wizard-step-in 0.18s ease-out; }
+/* The guided telemetry wizard's own back-navigation case (GuidedWizard.tsx): the step content slides in
+   from the opposite side of wizard-step-in above, so moving forward and backward through the steps each
+   read as motion in their own true direction instead of every step arriving from the same side regardless
+   of which way a person is actually going. */
+@keyframes wizard-step-in-back { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+.wizard-step-in-back { animation: wizard-step-in-back 0.18s ease-out; }
 
 /* A loading placeholder shimmers left to right instead of sitting as flat grey - the same "something is about to
    arrive" cue a spinner gives, without a spinner's rotation, and shaped like what it will become instead of a

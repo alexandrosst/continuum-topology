@@ -207,6 +207,22 @@ export default function GuidedWizard({
     setScopeStepNeeded(APP_SCOPED.some((k) => next[k]))
   }
 
+  // Which way the step content should slide in: forward (into the next step) or back (returning to a
+  // prior one). "Adjust state during render" (react.dev's own name for this exact pattern - comparing a
+  // prop/derived value to a snapshot of its own last-seen value, entirely within render, no effect) rather
+  // than a ref read during render: a ref's `current` isn't tracked by React's render purity model, so
+  // reading it while rendering can disagree with what actually got committed last (React may re-run a
+  // render without committing it) - a real, if subtle, correctness gap for something as fast-changing as a
+  // wizard step. Calling setState here, mid-render, is what react.dev specifically documents for this: React
+  // discards this render immediately and re-renders once more with the new state before painting anything,
+  // so it costs one extra render pass, never an extra paint.
+  const [renderedIndex, setRenderedIndex] = useState(currentIndex)
+  const [direction, setDirection] = useState<'forward' | 'back'>('forward')
+  if (currentIndex !== renderedIndex) {
+    setDirection(currentIndex >= renderedIndex ? 'forward' : 'back')
+    setRenderedIndex(currentIndex)
+  }
+
   return (
     <div className="space-y-4">
       <WizardSteps steps={stepKeys.map((k) => stepLabels[k])} currentIndex={currentIndex} testId={`${testIdPrefix}-guided-steps`} />
@@ -222,7 +238,7 @@ export default function GuidedWizard({
         </div>
       )}
 
-      <div key={step} className="wizard-step-in">
+      <div key={step} className={clsx('wizard-step-in', direction === 'back' && 'wizard-step-in-back')}>
         {step === 'layer' && (
           <div data-testid={`${testIdPrefix}-guided-step-layer`}>
             <p className="mb-2.5 text-xs text-nb-500">What kind of thing is this signal about?</p>
