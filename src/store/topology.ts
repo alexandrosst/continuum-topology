@@ -1,10 +1,9 @@
-import { useMemo } from 'react'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { applyEdit, applyEffective, confirmOverride, describeEdit, effective } from '@/lib/effective'
 import { normalize, pruneDependencies } from '@/lib/migrate'
 import { withObserved } from '@/lib/observed'
-import { atSnapshot, historicAgents } from '@/lib/history'
+import { atSnapshot, historicAgents, type HistoricAgent, type SnapshotTopology } from '@/lib/history'
 import { refuseEdit, useHistoryView, viewingThePast } from './history'
 import { useObserved } from './observed'
 import { seedTopology } from '@/lib/seed'
@@ -371,6 +370,53 @@ export const useRawTopology = create<RawState>()(
   ),
 )
 
+// Module-level (not per-component) last-call cache for the merge below. `useTopology()` is called fresh by
+// every PAGE, and each page is its own component instance with its own React state - a plain `useMemo`
+// inside the hook only skips recomputing while that ONE instance stays mounted, so navigating from one page
+// to another (unmounting one, mounting the next) always recomputed this full merge from scratch, even
+// though the underlying data hadn't changed at all since the previous page had just computed the identical
+// result a moment before. Keyed on exactly the values the computation reads (not `raw` itself - see the
+// comment inside computeEffective), so it's a real cache hit across a navigation as long as nothing in the
+// topology actually changed, shared across every consumer regardless of which component asks first.
+let lastKey: unknown[] | undefined
+let lastEff: RawState | undefined
+
+function computeEffective(
+  raw: RawState,
+  clusters: RawState['clusters'],
+  nodes: RawState['nodes'],
+  namespaces: RawState['namespaces'],
+  services: RawState['services'],
+  devices: RawState['devices'],
+  dependencies: RawState['dependencies'],
+  applications: RawState['applications'],
+  sites: RawState['sites'],
+  siteLinks: RawState['siteLinks'],
+  externalEndpoints: RawState['externalEndpoints'],
+  agents: RawState['agents'],
+  suggestions: RawState['suggestions'],
+  auditLog: RawState['auditLog'],
+  liveDeps: Dependency[],
+  liveExt: ExternalEndpoint[],
+  past: SnapshotTopology | null,
+  pastAgents: HistoricAgent[],
+): RawState {
+  const key = [clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents, suggestions, auditLog, liveDeps, liveExt, past, pastAgents]
+  if (lastKey && key.length === lastKey.length && key.every((v, i) => v === lastKey![i])) return lastEff!
+  const model = past ? { ...raw, ...atSnapshot(raw, past) } : raw
+  // Agents don't come back through atSnapshot: unlike the seven kinds it projects, a recorded agent
+  // is not already a complete Agent (see historicAgents), so it is merged onto the live list here
+  // instead. No recording that far back (pastAgents empty, whether or not a moment is even being
+  // viewed) means today's agents, unchanged - the honest answer when there is nothing to show instead.
+  if (past && pastAgents.length > 0) model.agents = historicAgents(pastAgents, raw.agents)
+  const e = { ...model, ...applyEffective(model) }
+  const seen = past ? { dependencies: past.dependencies, externalEndpoints: past.externalEndpoints } : { dependencies: liveDeps, externalEndpoints: liveExt }
+  const eff = { ...e, ...withObserved(e, seen) }
+  lastKey = key
+  lastEff = eff
+  return eff
+}
+
 /**
  * The store as the UI sees it: entity values are already merged with human
  * overrides and tombstoned records are left out. Pass a selector for a slice,
@@ -381,7 +427,7 @@ export function useTopology<T>(selector: (s: RawState) => T): T
 export function useTopology<T>(selector?: (s: RawState) => T) {
   const raw = useRawTopology()
   // Subscribed individually (rather than depending on `raw` itself, which is a new object identity on
-  // every store write) so the memo below only recomputes when a field it actually reads has changed -
+  // every store write) so the cache above only recomputes when a field it actually reads has changed -
   // not on every poll that reports back unchanged data. See lib/discovered.ts's mergeList/mergeDiscovered,
   // which is what makes these fields keep their old identity when nothing in them changed.
   const clusters = useRawTopology((s) => s.clusters)
@@ -401,21 +447,15 @@ export function useTopology<T>(selector?: (s: RawState) => T) {
   const liveExt = useObserved((s) => s.externalEndpoints)
   const past = useHistoryView((s) => s.snapshot)
   const pastAgents = useHistoryView((s) => s.agents)
-  const eff = useMemo<RawState>(() => {
-    const model = past ? { ...raw, ...atSnapshot(raw, past) } : raw
-    // Agents don't come back through atSnapshot: unlike the seven kinds it projects, a recorded agent
-    // is not already a complete Agent (see historicAgents), so it is merged onto the live list here
-    // instead. No recording that far back (pastAgents empty, whether or not a moment is even being
-    // viewed) means today's agents, unchanged - the honest answer when there is nothing to show instead.
-    if (past && pastAgents.length > 0) model.agents = historicAgents(pastAgents, raw.agents)
-    const e = { ...model, ...applyEffective(model) }
-    const seen = past ? { dependencies: past.dependencies, externalEndpoints: past.externalEndpoints } : { dependencies: liveDeps, externalEndpoints: liveExt }
-    return { ...e, ...withObserved(e, seen) }
-    // raw is read fresh above (always current for this render); it's deliberately left out of the
-    // deps below so unrelated store writes (e.g. a rename of an action, none exist here, or a future
-    // field) don't force a recompute - only the fields actually used do.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents, suggestions, auditLog, liveDeps, liveExt, past, pastAgents])
+  // raw is read fresh above (always current for this render) but deliberately left out of the cache key
+  // below, same reason the old useMemo's deps array left it out: an unrelated store write (e.g. a rename
+  // of an action, none exist here, or a future field) changes `raw`'s own identity without changing any of
+  // the fields actually read here, and shouldn't force a recompute on its own.
+  const eff = computeEffective(
+    raw,
+    clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents, suggestions, auditLog,
+    liveDeps, liveExt, past, pastAgents,
+  )
   return selector ? selector(eff) : eff
 }
 
