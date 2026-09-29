@@ -152,6 +152,16 @@ body {
    more expensive (layout, not just compositing) and reads as the box "breathing" rather than moving. */
 .react-flow__node:not(.dragging) { transition: transform 220ms ease-out; }
 
+/* "Pick from canvas" mode (TopologyPage's pickMode toggle, className="topology-pick-mode" on <ReactFlow>):
+   every entity dims and every edge fades, and whatever the pointer is over reads back at full strength - the
+   browser's own :hover does the highlighting, no per-node hover state needed in React. A quick, direct
+   hover-then-click path to a single entity's telemetry wizard, alongside (not replacing) box-select-then-
+   "Define scope" for picking several services at once. */
+.topology-pick-mode .react-flow__node { opacity: 0.32; filter: grayscale(0.7); transition: opacity 150ms ease-out, filter 150ms ease-out; }
+.topology-pick-mode .react-flow__node:hover { opacity: 1; filter: none; }
+.topology-pick-mode .react-flow__edge { opacity: 0.12; transition: opacity 150ms ease-out; }
+.topology-pick-mode .react-flow__pane { cursor: crosshair; }
+
 .react-flow__edge-text { fill: var(--color-nb-400); font-size: 10px; }
 .react-flow__edge-textbg { fill: var(--color-nb-910); }
 

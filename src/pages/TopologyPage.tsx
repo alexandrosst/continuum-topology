@@ -14,7 +14,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
-import { Antenna, Boxes, ChevronDown, Filter as FilterIcon, Package, Plug, Plus, Radio, Server, SlidersHorizontal } from 'lucide-react'
+import { Antenna, Boxes, ChevronDown, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, Server, SlidersHorizontal, Target } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -465,6 +465,42 @@ function Canvas() {
     return { kind: d.kind === 'machine' ? 'node' : d.kind, id: d.entityId }
   }
 
+  // "Pick from canvas": dims every entity and un-dims whatever's under the pointer (topology-pick-mode in
+  // index.css does the dimming, driven only by this boolean), so a single hover-then-click goes straight to
+  // that entity's telemetry wizard - a quicker, more direct alternative to box-selecting one or more service
+  // cards first and then using the floating "Define scope" action (ScopeFromSelection below), which stays
+  // for the multi-service case this can't cover (one click = one target).
+  const [pickMode, setPickMode] = useState(false)
+
+  // What clicking `n` while pickMode is on should do, or null if `n` isn't a valid scope target (a device,
+  // an external endpoint, a namespace sub-box, a cluster/service with no connected+approved agent yet).
+  // Resolved from the same Selection fromNode already computes, so this stays in sync with whatever a plain
+  // click would have selected, rather than re-deriving node kinds a second way.
+  const pickTarget = (n: TopoNode): { agentId: string; scope?: { name: string; namespaces: string[] } } | null => {
+    const sel = fromNode(n)
+    if (!sel) return null
+    if (sel.kind === 'service') {
+      const svc = services.find((s) => s.id === sel.id)
+      const agent = svc && agents.find((a) => a.clusterId === svc.clusterId && a.status === 'approved')
+      return svc && agent ? { agentId: agent.id, scope: { name: `${svc.name} (from topology)`, namespaces: [svc.namespace] } } : null
+    }
+    if (sel.kind === 'cluster') {
+      const agent = agents.find((a) => a.clusterId === sel.id && a.status === 'approved')
+      return agent ? { agentId: agent.id } : null
+    }
+    return null
+  }
+  // Escape backs out of pick mode without picking anything - same "give up on this" affordance as every
+  // other transient canvas mode (the toolbar popovers above, via their own effect).
+  useEffect(() => {
+    if (!pickMode) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPickMode(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pickMode])
+
   const editSelection = (s: NonNullable<Selection>) => {
     if (s.kind === 'cluster') setForm({ type: 'cluster', id: s.id })
     else if (s.kind === 'node') setForm({ type: 'node', id: s.id })
@@ -633,6 +669,28 @@ function Canvas() {
             </div>
           )}
 
+          {!isMap && (
+            <Button
+              onClick={() => setNodes(graph.nodes)}
+              title="Reset the canvas layout - snaps every entity back to its computed position. Your view options (filters, grouping, toggles) are untouched."
+              data-testid="reset-layout"
+            >
+              <RotateCcw size={15} /> <span className="hidden sm:inline">Reset layout</span>
+            </Button>
+          )}
+
+          {!isMap && (
+            <Button
+              variant={pickMode ? 'primary' : undefined}
+              onClick={() => setPickMode((v) => !v)}
+              aria-pressed={pickMode}
+              title={pickMode ? 'Cancel - click a service or cluster to scope it, or press Escape' : 'Pick a service or cluster on the canvas to configure its telemetry, without selecting it first'}
+              data-testid="pick-scope"
+            >
+              <Target size={15} /> <span className="hidden sm:inline">Pick from canvas</span>
+            </Button>
+          )}
+
           <div className="relative">
             <Button variant="primary" onClick={() => toggleMenu('add')} disabled={inPast} title={inPast ? 'Return to now to add or change things' : undefined}>
               <Plus size={16} /> Add <ChevronDown size={14} />
@@ -704,6 +762,7 @@ function Canvas() {
             <MapView selection={selection} onSelect={select} filter={filter} />
           ) : (
             <ReactFlow<TopoNode, Edge>
+              className={pickMode ? 'topology-pick-mode' : undefined}
               nodes={nodes}
               edges={edges}
               nodeTypes={nodeTypes}
@@ -718,6 +777,14 @@ function Canvas() {
                 const clusterId = badge?.getAttribute('data-local-telemetry-cluster')
                 const agentId = clusterId ? localOperatorByCluster.get(clusterId)?.agentId : undefined
                 if (agentId) { telemetry.start(agentId); return }
+                // Pick mode takes over the click entirely - one click picks (or, for an ineligible node,
+                // just cancels) rather than also falling through to a normal select.
+                if (pickMode) {
+                  setPickMode(false)
+                  const picked = pickTarget(n)
+                  if (picked) telemetry.start(picked.agentId, picked.scope)
+                  return
+                }
                 // A multi-select click (shift/ctrl/cmd, matching multiSelectionKeyCode below) has already
                 // been folded into React Flow's own selection at the library level by the time this fires,
                 // which onSelectionChange picks up into multiSelectedIds - leave it at that. Driving the
@@ -727,7 +794,7 @@ function Canvas() {
                 if (e.shiftKey || e.metaKey || e.ctrlKey) return
                 select(fromNode(n))
               }}
-              onPaneClick={() => select(null)}
+              onPaneClick={() => { if (pickMode) setPickMode(false); else select(null) }}
               onEdgeClick={(_, e) => { if (!e.data?.aggregated) select({ kind: 'dependency', id: e.id }) }}
               onEdgeMouseEnter={(e, edge) => { setHoverEdge(edge.id); setHoverPos({ cx: e.clientX, cy: e.clientY }) }}
               onEdgeMouseMove={(e) => setHoverPos({ cx: e.clientX, cy: e.clientY })}
