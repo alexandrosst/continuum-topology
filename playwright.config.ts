@@ -26,6 +26,14 @@ import { defineConfig, devices } from '@playwright/test'
  *
  * No backend is needed: every test here uses the "Load sample" flow (Settings page), which seeds the built-in
  * demo topology entirely into browser state - see the README's "frontend only... no server needed" dev note.
+ *
+ * `vite preview` is started with `--host 127.0.0.1` explicitly, matching `baseURL`/`webServer.url` above
+ * exactly, instead of relying on its default `localhost` host. On some CI runners Node resolves the bare
+ * hostname `localhost` to the IPv6 loopback (`::1`) rather than `127.0.0.1`, so the preview server ends up
+ * listening on an address Playwright's own health check never connects to - the server is actually up the
+ * whole time, but every check against `127.0.0.1` gets refused, and this file's `webServer.timeout` is what
+ * eventually reports it as "Timed out waiting ...ms from config.webServer." Binding both sides to the same
+ * literal IP removes the ambiguity outright rather than hoping the runner's resolver order cooperates.
  */
 export default defineConfig({
   testDir: './e2e',
@@ -51,7 +59,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: '(test -d dist && test -n "$(ls -A dist 2>/dev/null)") || npm run build && npm run preview -- --port 4173 --strictPort',
+    command: '(test -d dist && test -n "$(ls -A dist 2>/dev/null)") || npm run build && npm run preview -- --host 127.0.0.1 --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
     // Generous on purpose: the common CI path above only needs to start `vite preview`, which is fast, but
