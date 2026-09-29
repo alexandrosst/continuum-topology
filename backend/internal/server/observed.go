@@ -313,7 +313,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		// into one topology node. A Shared match (a CDN edge fronting many unrelated origins) never
 		// changes the id: two different sites sitting behind the same edge are not the same thing just
 		// because they share it, so each keeps its own per-(ip,port) identity as it does today.
-		match, matched, resolvedHost := netid.Match{}, false, ""
+		match, matched, resolvedHost, resolvedASN := netid.Match{}, false, "", ""
 		if addr, err := netip.ParseAddr(ip); err == nil {
 			match, matched = netid.Lookup(addr)
 			if !matched {
@@ -326,6 +326,25 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 				if host, ok := netid.ResolveCached(ip); ok {
 					resolvedHost = host
 					match, matched = netid.MatchHost(host)
+				}
+			}
+			if !matched {
+				// Neither a curated range nor a known reverse-DNS suffix: ask who originates this address
+				// on the public internet (IP-to-ASN, also cached/non-blocking, same eventually-consistent
+				// shape as the reverse-DNS fallback above) rather than leaving it a bare, unlabeled IP.
+				// This is the one tier that needs no per-provider maintenance - a provider we've never
+				// hand-curated still gets a real name. It can't tell us Shared vs not, so it always reports
+				// Shared: true - a safe default that keeps unrelated addresses as separate nodes rather
+				// than risking a wrong merge.
+				if org, asnLabel, ok := netid.ResolveASNCached(ip); ok {
+					resolvedASN = asnLabel
+					match = netid.Match{
+						Name:   org,
+						Kind:   "unknown",
+						Shared: true,
+						Detail: "Identified by IP-to-ASN lookup (" + asnLabel + "): this names the network operator, not a hand-curated or reverse-DNS-verified match, so the actual service behind it isn't confirmed.",
+					}
+					matched = true
 				}
 			}
 			if matched && !match.Shared {
@@ -359,6 +378,16 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 				e.Evidence = map[string]model.Evidence{"identity": {
 					Signal:     "reverse DNS resolved to " + resolvedHost + ", matching known provider: " + match.Name,
 					Confidence: "medium",
+					Detail:     match.Detail,
+				}}
+			case matched && resolvedASN != "":
+				// Neither a curated range nor a reverse-DNS suffix - an IP-to-ASN lookup named the network
+				// operator instead. The weakest of the three signals (it names who announces the address on
+				// the public internet, not necessarily who is actually running the service on it), so this
+				// gets low rather than medium/high confidence.
+				e.Evidence = map[string]model.Evidence{"identity": {
+					Signal:     "IP-to-ASN lookup identified the network operator (" + resolvedASN + "): " + match.Name,
+					Confidence: "low",
 					Detail:     match.Detail,
 				}}
 			case matched:

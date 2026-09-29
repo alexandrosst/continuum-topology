@@ -1,12 +1,16 @@
 package server
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
 	"continuum/internal/interpret"
+	"continuum/internal/netid"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -520,5 +524,58 @@ func TestExternalKnownRangeSetsIdentityAndAggregates(t *testing.T) {
 		if !ok || ev.Confidence != "high" || ev.Signal == "" {
 			t.Errorf("github evidence = %+v %v, want a high-confidence identity signal", ev, ok)
 		}
+	}
+}
+
+func TestExternalASNFallbackNamesAnAddressNoOtherTierCovers(t *testing.T) {
+	// Neither entries nor hostSuffixes cover this address (no PTR record at all here, same shape as this
+	// fix's original motivating case) - only the ASN tier can name it.
+	defer netid.SetLookupAddrForTest(func(ctx context.Context, ip string) ([]string, error) {
+		return nil, errors.New("no PTR record")
+	})()
+	defer netid.SetLookupTXTForTest(func(ctx context.Context, name string) ([]string, error) {
+		if strings.HasSuffix(name, ".origin.asn.cymru.com") {
+			return []string{"64512 | 203.0.113.0/24 | US | arin | 2010-01-01"}, nil
+		}
+		return []string{"64512 | US | arin | 2010-01-01 | EXAMPLE-NET-OPERATOR"}, nil
+	})()
+
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	c := cluster("c", "", nil, wk("app", "Deployment", "worker"))
+	worker := "app/Deployment/worker"
+	feed(&c, now, 60, flowOf(wep(worker), xep("203.0.113.55"), 443, 1))
+
+	// Neither ResolveCached nor ResolveASNCached blocks - both just kick off a background lookup on a cache
+	// miss - so poll observedTopology until the ASN answer has landed and been reflected, rather than
+	// asserting on a single call.
+	deadline := time.Now().Add(2 * time.Second)
+	var name, kind, signal, confidence string
+	for time.Now().Before(deadline) && name == "" {
+		_, exts := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+		for _, e := range exts {
+			if e.Host != "203.0.113.55" || e.Name == "" {
+				continue
+			}
+			name, kind = e.Name, e.Kind
+			if ev, ok := e.Evidence["identity"]; ok {
+				signal, confidence = ev.Signal, ev.Confidence
+			}
+		}
+		if name == "" {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	if name != "EXAMPLE-NET-OPERATOR" {
+		t.Fatalf("name = %q, want the ASN lookup's org name once it lands", name)
+	}
+	if kind != "unknown" {
+		t.Errorf("kind = %q, want unknown (an ASN lookup names the network operator, not a service kind)", kind)
+	}
+	if confidence != "low" {
+		t.Errorf("evidence confidence = %q, want low - the weakest of the three identity signals", confidence)
+	}
+	if !strings.Contains(signal, "AS64512") {
+		t.Errorf("evidence signal = %q, want it to cite the ASN (AS64512)", signal)
 	}
 }
