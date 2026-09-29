@@ -173,6 +173,13 @@ body {
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .fade-in { animation: fade-in 0.15s ease-out; }
 
+/* Each screen of the navigable guided telemetry wizard (GuidedWizard.tsx) eases in with a touch of lateral
+   motion when the person moves to it - a lighter cue than modal-pop, closer to menu-pop, since this swaps
+   content inside an already-open dialog rather than opening one. Keyed by the step's own name so React
+   remounts (and replays) it on every transition, forward or back. */
+@keyframes wizard-step-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
+.wizard-step-in { animation: wizard-step-in 0.18s ease-out; }
+
 /* A loading placeholder shimmers left to right instead of sitting as flat grey - the same "something is about to
    arrive" cue a spinner gives, without a spinner's rotation, and shaped like what it will become instead of a
    generic bar. See SkeletonBlock/TableSkeleton/SkeletonLines in primitives.tsx. */
