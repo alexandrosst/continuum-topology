@@ -71,7 +71,13 @@ func ResolveASNCached(ip string) (org string, asnLabel string, ok bool) {
 	if needsStart {
 		select {
 		case asnSem <- struct{}{}:
-			go resolveASN(ip)
+			// Captured here, not inside resolveASN - see resolve.go's identical comment on the same
+			// pattern: a goroutine must stay tied to the lookupTXT that was active when it was spawned, not
+			// whatever a later test has since swapped the package var to.
+			lookupTXTMu.Lock()
+			lookup := lookupTXT
+			lookupTXTMu.Unlock()
+			go resolveASN(ip, lookup)
 		default:
 			// Already at asnMaxInFlight: drop this attempt rather than queue it unboundedly - retried
 			// next time this IP shows up, same as ResolveCached's own default case.
@@ -109,15 +115,12 @@ func splitTXTFields(txt string) []string {
 	return fields
 }
 
-func resolveASN(ip string) {
+func resolveASN(ip string, lookup func(ctx context.Context, name string) ([]string, error)) {
 	defer func() { <-asnSem }()
 	org, asnLabel, ok := "", "", false
 	if rev, valid := reverseV4(ip); valid {
 		ctx, cancel := context.WithTimeout(context.Background(), asnResolveTimeout)
 		defer cancel()
-		lookupTXTMu.Lock()
-		lookup := lookupTXT
-		lookupTXTMu.Unlock()
 
 		// Stage 1: "<reversed-ip>.origin.asn.cymru.com" -> "<asn> | <bgp prefix> | <cc> | <registry> | <date>".
 		// A multi-homed prefix can list more than one ASN, comma-separated ("1234, 5678 | ..."); the first

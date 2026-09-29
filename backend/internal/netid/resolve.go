@@ -64,7 +64,18 @@ func ResolveCached(ip string) (host string, ok bool) {
 	if needsStart {
 		select {
 		case sem <- struct{}{}:
-			go resolve(ip)
+			// Captured here, not inside resolve: resolve runs in its own goroutine that this call doesn't
+			// wait for, and SetLookupAddrForTest can swap the package-level lookupAddr (and reset cache/
+			// inFlight) for a *later* test while this goroutine is still scheduled but hasn't run yet under
+			// heavy load. Reading the package var fresh inside resolve would let that stale goroutine fire
+			// a later test's stub instead of the one active when it was spawned, inflating that later
+			// test's call count - this is exactly what a real, intermittent CI failure under -race traced
+			// back to. Snapshotting the function reference at spawn time ties each goroutine permanently to
+			// whichever lookupAddr was current when ResolveCached decided to start it.
+			lookupAddrMu.Lock()
+			lookup := lookupAddr
+			lookupAddrMu.Unlock()
+			go resolve(ip, lookup)
 		default:
 			// Already at maxInFlight: drop this attempt rather than queue it unboundedly. It'll be retried
 			// next time this IP shows up, which - given the poll cadence - is soon.
@@ -76,13 +87,10 @@ func ResolveCached(ip string) (host string, ok bool) {
 	return e.host, hit && e.ok
 }
 
-func resolve(ip string) {
+func resolve(ip string, lookup func(ctx context.Context, ip string) ([]string, error)) {
 	defer func() { <-sem }()
 	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
 	defer cancel()
-	lookupAddrMu.Lock()
-	lookup := lookupAddr
-	lookupAddrMu.Unlock()
 	names, err := lookup(ctx, ip)
 	host, ok := "", false
 	if err == nil && len(names) > 0 && names[0] != "" {
