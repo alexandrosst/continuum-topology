@@ -106,6 +106,7 @@ func nodeFacts(n *corev1.Node, req corev1.ResourceList, podsObserved bool) *cont
 		CpuAllocatableMillis: n.Status.Allocatable.Cpu().MilliValue(), MemoryAllocatableBytes: n.Status.Allocatable.Memory().Value(),
 		Labels: n.Labels, Annotations: n.Annotations, PodCidrs: n.Spec.PodCIDRs,
 		CreatedAt: ts(n.CreationTimestamp), PodCapacity: int32(n.Status.Capacity.Pods().Value()),
+		EphemeralStorageCapacityBytes: n.Status.Capacity.StorageEphemeral().Value(), EphemeralStorageAllocatableBytes: n.Status.Allocatable.StorageEphemeral().Value(),
 	}
 	if podsObserved {
 		if q, ok := req[corev1.ResourceCPU]; ok {

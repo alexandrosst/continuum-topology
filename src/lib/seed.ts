@@ -185,8 +185,8 @@ export function seedTopology(): Model {
   const nodes: MachineNode[] = [
     n({ id: 'n-c1', name: 'eks-cp-1', clusterId: 'cl-cloud', role: 'control-plane', ip: '10.0.1.10', cpu: 4, memoryGb: 16, arch: 'amd64', instanceType: 'm6i.xlarge', zone: 'eu-central-1a' }),
     n({
-      id: 'n-c2', name: 'eks-worker-1', clusterId: 'cl-cloud', ip: '10.0.2.11', cpu: 16, memoryGb: 64, arch: 'amd64', instanceType: 'm6i.4xlarge', zone: 'eu-central-1a', runtime: 'containerd 1.7.13', kernel: '5.10.215',
-      allocatable: { cpu: 15.8, memoryGb: 61 }, requested: { cpu: 6.2, memoryGb: 22 }, podCount: 38, podCapacity: 234, createdAt: '2026-02-10T08:00:00.000Z',
+      id: 'n-c2', name: 'eks-worker-1', clusterId: 'cl-cloud', ip: '10.0.2.11', cpu: 16, memoryGb: 64, diskGb: 100, arch: 'amd64', instanceType: 'm6i.4xlarge', zone: 'eu-central-1a', runtime: 'containerd 1.7.13', kernel: '5.10.215',
+      allocatable: { cpu: 15.8, memoryGb: 61, diskGb: 92 }, requested: { cpu: 6.2, memoryGb: 22 }, podCount: 38, podCapacity: 234, createdAt: '2026-02-10T08:00:00.000Z',
     }),
     n({ id: 'n-c3', name: 'eks-worker-2', clusterId: 'cl-cloud', ip: '10.0.2.12', cpu: 16, memoryGb: 64, arch: 'amd64', instanceType: 'm6i.4xlarge', zone: 'eu-central-1b' }),
     n({
@@ -205,9 +205,9 @@ export function seedTopology(): Model {
     n({
       id: 'n-a2', source: 'discovered', lastSeen: SEEN, detectedAt: SEEN, agentId: 'ag-patras', revision: 42, key: 'machine-id:6c1f0a52d3e94b7d8a90b1c2e3f40516',
       evidence: { kind: { signal: 'device-tree model: NVIDIA Jetson Orin Nano', confidence: 'high' } },
-      name: 'patras-jetson-1', clusterId: 'cl-edge-a', kind: 'edge-device', ip: '172.16.1.11', os: 'JetPack 6', cpu: 6, memoryGb: 8, labels: { accelerator: 'jetson-orin' },
+      name: 'patras-jetson-1', clusterId: 'cl-edge-a', kind: 'edge-device', ip: '172.16.1.11', os: 'JetPack 6', cpu: 6, memoryGb: 8, diskGb: 64, labels: { accelerator: 'jetson-orin' },
       arch: 'arm64', hardwareModel: 'NVIDIA Jetson Orin Nano', kernel: '5.15.136-tegra', runtime: 'containerd 1.7.13', connectivity: 'ethernet',
-      accelerators: [{ vendor: 'NVIDIA', model: 'Orin (integrated GPU)', count: 1 }], allocatable: { cpu: 5.9, memoryGb: 7.2 }, requested: { cpu: 3.1, memoryGb: 4.4 }, podCount: 9, podCapacity: 110, createdAt: '2025-11-03T09:30:00.000Z',
+      accelerators: [{ vendor: 'NVIDIA', model: 'Orin (integrated GPU)', count: 1 }], allocatable: { cpu: 5.9, memoryGb: 7.2, diskGb: 51 }, requested: { cpu: 3.1, memoryGb: 4.4 }, podCount: 9, podCapacity: 110, createdAt: '2025-11-03T09:30:00.000Z',
     }),
 
     n({ id: 'n-b1', name: 'thess-gw-1', clusterId: 'cl-edge-b', role: 'control-plane', kind: 'edge-device', ip: '172.16.2.2', os: 'Debian 12', cpu: 4, memoryGb: 8, arch: 'amd64', connectivity: 'cellular' }),

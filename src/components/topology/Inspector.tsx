@@ -212,7 +212,7 @@ function NameEndpoint({ endpoint }: { endpoint: ExternalEndpoint }) {
   )
 }
 
-const res = (r?: Resources) => (r ? `${r.cpu} vCPU · ${r.memoryGb} GB` : undefined)
+const res = (r?: Resources) => (r ? `${r.cpu} vCPU · ${r.memoryGb} GB${r.diskGb !== undefined ? ` · ${formatMemory(r.diskGb)} disk` : ''}` : undefined)
 const list = (a?: string[]) => (a && a.length ? a.join(', ') : undefined)
 
 /** Kubernetes-style key=value pairs (a node selector, a device's labels) as individual chips instead of
@@ -549,7 +549,7 @@ export default function Inspector({
         </Section>
         <Section title="Capacity">
           <Row label="IP"><IpAddress ip={n.ip} inline /></Row>
-          <Row label="Capacity">{n.cpu} vCPU · {n.memoryGb} GB</Row>
+          <Row label="Capacity">{n.cpu} vCPU · {n.memoryGb} GB{n.diskGb !== undefined ? ` · ${formatMemory(n.diskGb)} disk` : ''}</Row>
           <Maybe label="Allocatable">{res(n.allocatable)}</Maybe>
           <Maybe label="Requested">{res(n.requested)}</Maybe>
           <Maybe label="Pods">

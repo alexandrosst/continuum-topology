@@ -37,8 +37,8 @@ func fixture() *fake.Clientset {
 				Annotations: map[string]string{"flannel.alpha.coreos.com/backend-type": "vxlan", "k3s.io/node-args": "[\"--token\",\"abc123\"]"}},
 			Spec: corev1.NodeSpec{ProviderID: "k3s://edge-1", PodCIDRs: []string{"10.42.0.0/24"}, Taints: []corev1.Taint{{Key: "dedicated", Value: "gpu", Effect: corev1.TaintEffectNoSchedule}}},
 			Status: corev1.NodeStatus{
-				Capacity:    corev1.ResourceList{"cpu": q("4"), "memory": q("8Gi"), "pods": q("110"), "nvidia.com/gpu": q("1"), "hugepages-2Mi": q("0")},
-				Allocatable: corev1.ResourceList{"cpu": q("3900m"), "memory": q("7Gi")},
+				Capacity:    corev1.ResourceList{"cpu": q("4"), "memory": q("8Gi"), "pods": q("110"), "nvidia.com/gpu": q("1"), "hugepages-2Mi": q("0"), "ephemeral-storage": q("32Gi")},
+				Allocatable: corev1.ResourceList{"cpu": q("3900m"), "memory": q("7Gi"), "ephemeral-storage": q("28Gi")},
 				Addresses:   []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.0.0.5"}, {Type: corev1.NodeHostName, Address: "edge-1"}},
 				NodeInfo:    corev1.NodeSystemInfo{Architecture: "arm64", OSImage: "Raspbian 12", KernelVersion: "6.6.31+rpt-rpi-2712", KubeletVersion: "v1.30.5+k3s1", MachineID: "m1"},
 				Conditions:  []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}, {Type: corev1.NodeDiskPressure, Status: corev1.ConditionTrue}, {Type: corev1.NodeMemoryPressure, Status: corev1.ConditionFalse}},
@@ -177,7 +177,10 @@ func TestSnapshotTier2(t *testing.T) {
 	if len(n.ProblemConditions) != 1 || n.ProblemConditions[0] != "DiskPressure" || n.Taints[0] != "dedicated=gpu:NoSchedule" {
 		t.Errorf("conditions/taints = %v %v", n.ProblemConditions, n.Taints)
 	}
-	if n.ExtendedResources["nvidia.com/gpu"] != 1 || len(n.ExtendedResources) != 1 {
+	if n.EphemeralStorageCapacityBytes != 32<<30 || n.EphemeralStorageAllocatableBytes != 28<<30 {
+		t.Errorf("ephemeral storage = %d / %d B, want 32Gi / 28Gi", n.EphemeralStorageCapacityBytes, n.EphemeralStorageAllocatableBytes)
+	}
+		if n.ExtendedResources["nvidia.com/gpu"] != 1 || len(n.ExtendedResources) != 1 {
 		t.Errorf("extended = %v", n.ExtendedResources)
 	}
 	if _, ok := n.Annotations["flannel.alpha.coreos.com/backend-type"]; !ok {

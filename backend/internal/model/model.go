@@ -80,6 +80,10 @@ type ServiceMesh struct {
 type Resources struct {
 	CPU      float64 `json:"cpu"`
 	MemoryGb float64 `json:"memoryGb"`
+	// DiskGb is root filesystem capacity ("ephemeral-storage" in Kubernetes' own Capacity/Allocatable) -
+	// what pod ephemeral storage, images and logs actually share, not any one physical disk (Node.Disks
+	// below has those, from the node probe). Unset (0) when the kubelet does not report it.
+	DiskGb float64 `json:"diskGb,omitempty"`
 }
 
 type Accelerator struct {
@@ -121,6 +125,10 @@ type Node struct {
 	OS             string            `json:"os"`
 	CPU            float64           `json:"cpu"`
 	MemoryGb       float64           `json:"memoryGb"`
+	// DiskGb mirrors Resources.DiskGb above: this node's own root filesystem capacity, not wrapped in a
+	// *Resources pointer since - like CPU/MemoryGb just above - it is always known once the node itself
+	// is (kubelet reports it as part of node Capacity, not a separate observation that can be absent).
+	DiskGb         float64           `json:"diskGb,omitempty"`
 	Status         string            `json:"status"`
 	Labels         map[string]string `json:"labels"`
 	Arch           string            `json:"arch,omitempty"`

@@ -100,12 +100,13 @@ func Interpret(in Input) model.Topology {
 			Provenance: prov(in.ClusterID+"/node/"+n.Key, st.Seq),
 			ID:         id, Name: n.Name, ClusterID: in.ClusterID, Role: nodeRole(n), Kind: k.kind,
 			OS: n.OsImage, CPU: float64(n.CpuCapacityMillis) / 1000, MemoryGb: round1(memGB(n.MemoryCapacityBytes)),
+			DiskGb: round1(memGB(n.EphemeralStorageCapacityBytes)),
 			Status: nodeStatus(n), Labels: n.Labels, Arch: n.Architecture, Kernel: n.KernelVersion,
 			Runtime: n.ContainerRuntime, KubeletVersion: n.KubeletVersion, ProviderID: n.ProviderId,
 			InstanceType:  firstNonEmpty(n.Labels["node.kubernetes.io/instance-type"], n.Labels["beta.kubernetes.io/instance-type"]),
 			Zone:          firstNonEmpty(n.Labels["topology.kubernetes.io/zone"], n.Labels["failure-domain.beta.kubernetes.io/zone"]),
 			HardwareModel: k.hardware, Taints: n.Taints, Conditions: n.ProblemConditions,
-			Allocatable: &model.Resources{CPU: float64(n.CpuAllocatableMillis) / 1000, MemoryGb: round1(memGB(n.MemoryAllocatableBytes))},
+			Allocatable: &model.Resources{CPU: float64(n.CpuAllocatableMillis) / 1000, MemoryGb: round1(memGB(n.MemoryAllocatableBytes)), DiskGb: round1(memGB(n.EphemeralStorageAllocatableBytes))},
 			CreatedAt:   rfc3339(n.CreatedAt), PodCapacity: n.PodCapacity, PodCount: n.PodCount,
 		}
 		if n.PodCount != nil { // pods were read, so the requested figures are real (possibly zero)

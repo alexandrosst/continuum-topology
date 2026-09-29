@@ -385,6 +385,29 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 	}
 }
 
+// TestInterpretPopulatesDiskCapacity covers the node's own root filesystem capacity/allocatable
+// ("ephemeral-storage" in Kubernetes' Capacity/Allocatable) - a plain pass-through the same way
+// CPU/MemoryGb are, distinct from the node probe's own per-physical-disk sizes above.
+func TestInterpretPopulatesDiskCapacity(t *testing.T) {
+	s := facts.New()
+	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-disk"}
+	s.Nodes["a"] = node("a", func(n *N) {
+		n.EphemeralStorageCapacityBytes = 32 << 30
+		n.EphemeralStorageAllocatableBytes = 28 << 30
+	})
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
+	if len(out.Nodes) != 1 {
+		t.Fatalf("nodes = %+v", out.Nodes)
+	}
+	n := out.Nodes[0]
+	if n.DiskGb != 32 {
+		t.Errorf("diskGb = %v, want 32", n.DiskGb)
+	}
+	if n.Allocatable == nil || n.Allocatable.DiskGb != 28 {
+		t.Errorf("allocatable diskGb = %+v, want 28", n.Allocatable)
+	}
+}
+
 // TestInterpretKeepsProbeFactsWhenKindFromProbeGivesUp covers kindFromProbe's own `default` fallthrough
 // (an ARM board with neither DMI nor a device-tree model, so it cannot decide vm vs bare-metal and
 // returns probed=false) - CPU model/threads/interfaces must still surface, since they are plain

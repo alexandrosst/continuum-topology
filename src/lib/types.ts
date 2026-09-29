@@ -296,6 +296,10 @@ export interface Disk {
 export interface Resources {
   cpu: number
   memoryGb: number
+  /** Root filesystem capacity ("ephemeral-storage" in Kubernetes' own Capacity/Allocatable) - what pod
+   *  ephemeral storage, images and logs actually share, not any one physical disk (MachineNode.disks below
+   *  has those, from the node probe). Unset when the kubelet does not report it. */
+  diskGb?: number
 }
 
 export interface MachineNode extends Provenance {
@@ -311,6 +315,8 @@ export interface MachineNode extends Provenance {
   os: string
   cpu: number // cores
   memoryGb: number
+  /** Mirrors Resources.diskGb above: this node's own root filesystem capacity. */
+  diskGb?: number
   status: Status
   labels: Record<string, string>
   /* discovered attributes (all optional) */

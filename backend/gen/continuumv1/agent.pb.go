@@ -1624,9 +1624,14 @@ type NodeFacts struct {
 	// What the optional node probe read from the machine itself. Absent when no probe runs on this node.
 	Probe *HostProbe `protobuf:"bytes,29,opt,name=probe,proto3" json:"probe,omitempty"`
 	// Addresses on the node that are reachable from outside the machine (the API's ExternalIP entries).
-	ExternalIps   []string `protobuf:"bytes,30,rep,name=external_ips,json=externalIps,proto3" json:"external_ips,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ExternalIps []string `protobuf:"bytes,30,rep,name=external_ips,json=externalIps,proto3" json:"external_ips,omitempty"`
+	// Root filesystem capacity Kubernetes reports for this node ("ephemeral-storage" in Capacity/
+	// Allocatable) - what pod ephemeral storage, images and logs actually share, not any one physical
+	// disk's raw size (HostProbe.disks below has those). 0 when the kubelet does not report it.
+	EphemeralStorageCapacityBytes    int64 `protobuf:"varint,31,opt,name=ephemeral_storage_capacity_bytes,json=ephemeralStorageCapacityBytes,proto3" json:"ephemeral_storage_capacity_bytes,omitempty"`
+	EphemeralStorageAllocatableBytes int64 `protobuf:"varint,32,opt,name=ephemeral_storage_allocatable_bytes,json=ephemeralStorageAllocatableBytes,proto3" json:"ephemeral_storage_allocatable_bytes,omitempty"`
+	unknownFields                    protoimpl.UnknownFields
+	sizeCache                        protoimpl.SizeCache
 }
 
 func (x *NodeFacts) Reset() {
@@ -1867,6 +1872,20 @@ func (x *NodeFacts) GetExternalIps() []string {
 		return x.ExternalIps
 	}
 	return nil
+}
+
+func (x *NodeFacts) GetEphemeralStorageCapacityBytes() int64 {
+	if x != nil {
+		return x.EphemeralStorageCapacityBytes
+	}
+	return 0
+}
+
+func (x *NodeFacts) GetEphemeralStorageAllocatableBytes() int64 {
+	if x != nil {
+		return x.EphemeralStorageAllocatableBytes
+	}
+	return 0
 }
 
 // Read-only observations of one machine, made by the node probe (a small DaemonSet the administrator
@@ -4685,7 +4704,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x06bypass\x18\x03 \x01(\bR\x06bypass\x12%\n" +
 	"\x0eexcluded_ports\x18\x04 \x03(\tR\rexcludedPorts\x12#\n" +
 	"\rcontrol_plane\x18\x05 \x01(\bR\fcontrolPlane\x12\x16\n" +
-	"\x06source\x18\x06 \x01(\tR\x06source\"\xc2\v\n" +
+	"\x06source\x18\x06 \x01(\tR\x06source\"\xda\f\n" +
 	"\tNodeFacts\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x10\n" +
@@ -4721,7 +4740,9 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\fpod_capacity\x18\x1b \x01(\x05R\vpodCapacity\x12 \n" +
 	"\tpod_count\x18\x1c \x01(\x05H\x00R\bpodCount\x88\x01\x01\x12-\n" +
 	"\x05probe\x18\x1d \x01(\v2\x17.continuum.v1.HostProbeR\x05probe\x12!\n" +
-	"\fexternal_ips\x18\x1e \x03(\tR\vexternalIps\x1a9\n" +
+	"\fexternal_ips\x18\x1e \x03(\tR\vexternalIps\x12G\n" +
+	" ephemeral_storage_capacity_bytes\x18\x1f \x01(\x03R\x1dephemeralStorageCapacityBytes\x12M\n" +
+	"#ephemeral_storage_allocatable_bytes\x18  \x01(\x03R ephemeralStorageAllocatableBytes\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +

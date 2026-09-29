@@ -278,6 +278,11 @@ message NodeFacts {
   HostProbe probe = 29;
   // Addresses on the node that are reachable from outside the machine (the API's ExternalIP entries).
   repeated string external_ips = 30;
+  // Root filesystem capacity Kubernetes reports for this node ("ephemeral-storage" in Capacity/
+  // Allocatable) - what pod ephemeral storage, images and logs actually share, not any one physical
+  // disk's raw size (HostProbe.disks below has those). 0 when the kubelet does not report it.
+  int64 ephemeral_storage_capacity_bytes = 31;
+  int64 ephemeral_storage_allocatable_bytes = 32;
 }
 
 // Read-only observations of one machine, made by the node probe (a small DaemonSet the administrator
