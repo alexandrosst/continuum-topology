@@ -1234,6 +1234,32 @@ test('chain layout: a dependency cycle is broken for ranking, but both direction
   assert.ok(g.edges.some((e) => e.id === 'dep-back'))
 })
 
+test('chain layout does not blow the call stack on a very long, strictly linear dependency chain', () => {
+  // layoutChain's feedback-arc DFS used to be a plain recursive function, one JS call-stack frame per node
+  // on the current path - fine for a wide, shallow graph, but a long straight chain (exactly what this
+  // layout exists to draw) puts every node on the SAME path, one frame deep per node. Empirically, that
+  // recursive shape overflowed Node's stack well under 6000 services (confirmed separately - it survived
+  // 4000, crashed by 6000), a size this tool could plausibly reach on a large deployment; the point of this
+  // test is that 6000 no longer throws at all; the exact stack limit is a V8 implementation detail, not
+  // something to assert on.
+  const N = 6000
+  const template = seed.services[0]
+  const services: Service[] = Array.from({ length: N }, (_, i) => ({ ...template, id: `chain-${i}`, name: `chain-${i}`, key: undefined }))
+  const dependencies: Dependency[] = Array.from({ length: N - 1 }, (_, i) => seenDep({ id: `chain-dep-${i}`, from: `chain-${i}`, to: `chain-${i + 1}` }))
+  const t = { ...seed, services, dependencies, devices: [] as Device[], externalEndpoints: [] as ExternalEndpoint[] }
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false, chain: true }
+
+  const graph = buildGraph(t, opts) // throws "Maximum call stack size exceeded" with the old recursive DFS
+
+  const xById = new Map(graph.nodes.filter((n) => n.id.startsWith('c:chain-')).map((n) => [n.id, n.position.x]))
+  assert.equal(xById.size, N, 'every service in the chain is drawn')
+  // A pure chain ranks strictly by depth, one column per service - if the DFS above silently mis-ranked
+  // anything (not just crashed), this is what would catch it.
+  for (let i = 0; i < N - 1; i++) {
+    assert.ok(xById.get(`c:chain-${i}`)! < xById.get(`c:chain-${i + 1}`)!, `chain-${i} should sit left of chain-${i + 1}`)
+  }
+})
+
 test('a service calling itself does not produce a degenerate zero-length edge, in either the grouped or the chain view', () => {
   const [a, b] = inCluster
   // A self-dependency (e.g. a sidecar proxy hairpin) has no distinct "other end" - OffsetEdge's anchor math

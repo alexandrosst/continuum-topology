@@ -745,19 +745,37 @@ function layoutChain(
 
   // DFS feedback-arc pass: an edge to a node still on the current path (GRAY) is a back-edge and is
   // dropped from the DAG used for ranking (it's still drawn - see the caller - just doesn't set anyone's rank).
+  //
+  // Written as an explicit stack rather than a recursive function: a plain recursive `visit` would put one
+  // JS call-stack frame per node on the *current* DFS path, so one long, mostly-linear dependency chain
+  // (plausible here - a chain layout is exactly for services that call each other in a long sequence) could
+  // run deep enough to blow the stack, crashing the whole page over a graph that isn't even unusually large,
+  // just unusually straight. Each frame below is a plain object on the heap instead, so depth is bounded
+  // only by memory, not the engine's call-stack limit - same traversal, same dag/color result either way.
   const WHITE = 0, GRAY = 1, BLACK = 2
   const color = new Map<string, number>(serviceIds.map((id) => [id, WHITE]))
   const dag: { from: string; to: string }[] = []
-  const visit = (id: string) => {
-    color.set(id, GRAY)
-    for (const e of byFrom.get(id) ?? []) {
+  for (const start of serviceIds) {
+    if (color.get(start) !== WHITE) continue
+    color.set(start, GRAY)
+    const stack: { id: string; edges: { from: string; to: string }[]; i: number }[] = [{ id: start, edges: byFrom.get(start) ?? [], i: 0 }]
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1]
+      if (frame.i >= frame.edges.length) {
+        color.set(frame.id, BLACK)
+        stack.pop()
+        continue
+      }
+      const e = frame.edges[frame.i]
+      frame.i++
       if (color.get(e.to) === GRAY) continue
       dag.push(e)
-      if (color.get(e.to) === WHITE) visit(e.to)
+      if (color.get(e.to) === WHITE) {
+        color.set(e.to, GRAY)
+        stack.push({ id: e.to, edges: byFrom.get(e.to) ?? [], i: 0 })
+      }
     }
-    color.set(id, BLACK)
   }
-  for (const id of serviceIds) if (color.get(id) === WHITE) visit(id)
   for (const e of dag) {
     adj.get(e.from)!.add(e.to)
     radj.get(e.to)!.add(e.from)

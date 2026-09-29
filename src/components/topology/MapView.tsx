@@ -120,6 +120,16 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
         .sort((a, b) => b.m.clusters.length + b.m.devices.length - (a.m.clusters.length + a.m.devices.length) || a.m.site.name.localeCompare(b.m.site.name)),
     [mapSites],
   )
+  // Recomputing this on every wheel tick's exact zoom float would rerun groupByProximity (O(n^2) over every
+  // placed site) dozens of times a second while someone is mid-scroll, even though the merge radius
+  // (radiusPx / k, see groupByProximity in geo.ts) only moves enough to plausibly re-merge or split a pair
+  // of close sites after a real, roughly 10% change in zoom - not after the tiny multiplicative step one
+  // wheel event applies. Bucketing view.k on a log scale (rounding k itself would under-quantize at high
+  // zoom and over-quantize at low zoom, since the radius shrinks with 1/k, not with k) keeps this memo
+  // stable through a fast zoom gesture. The grouping itself still runs against the render's own live
+  // `view.k`, not the rounded bucket - the bucket only gates *how often* this recomputes, never *what value*
+  // it computes with, so the merge radius is always exact whenever it does.
+  const zoomBucket = Math.round(Math.log(view.k) / Math.log(1.1))
   const dots = useMemo<Dot[]>(
     () =>
       groupByProximity(placed, view.k, MERGE_PX).map((g) => ({
@@ -128,7 +138,8 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
         y: g.reduce((a, i) => a + i.y, 0) / g.length,
         members: g.map((i) => i.m),
       })),
-    [placed, view.k],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- zoomBucket (not view.k) is the intended dep; see comment above
+    [placed, zoomBucket],
   )
   const dotOf = useMemo(() => {
     const m = new Map<string, Dot>()
