@@ -80,7 +80,7 @@ Discovery and advice only — nothing is deployed to clusters and nothing is eve
 - **Read with appropriate skepticism:** the placement engine's weights are a starting point, not a calibrated model — with little measured traffic, advice says so ("mostly guessed") rather than pretending otherwise. A past view (History) shows what agents discovered back then with today's names, sites and policy, since only discovery is recorded.
 
 ```bash
-cd backend && go vet ./... && go test -race ./...   # frontend: npm run test:unit && npm run test:ui && npm run lint
+cd backend && go vet ./... && go test -race ./...   # frontend: npm run test:unit && npm run test:ui && npm run test:e2e && npm run lint
 ```
 
 ## Data and attribution

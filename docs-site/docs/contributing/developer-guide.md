@@ -44,7 +44,9 @@ CONTINUUM_SERVER=host:8443 CONTINUUM_CA_PIN=<pin> CONTINUUM_TOKEN=<token> \
 cd backend && go vet ./... && go test -race ./...
 ```
 
-Neo4j-backed tests skip themselves unless `CONTINUUM_TEST_NEO4J` is set — you don't need a Neo4j instance running to get a meaningful pass. The frontend has two test suites: pure logic (`npm run test:unit`, plain `node:test`, no DOM) and rendered components (`npm run test:ui`, Vitest + React Testing Library + jsdom, in `tests-ui/`) - plus lint (`npm run lint`). All three run in CI on every push and pull request.
+Neo4j-backed tests skip themselves unless `CONTINUUM_TEST_NEO4J` is set — you don't need a Neo4j instance running to get a meaningful pass. The frontend has three test suites: pure logic (`npm run test:unit`, plain `node:test`, no DOM), rendered components (`npm run test:ui`, Vitest + React Testing Library + jsdom, in `tests-ui/`), and end-to-end (`npm run test:e2e`, Playwright against a real Chromium browser and the real production build, in `e2e/`) - plus lint (`npm run lint`). All four run in CI on every push and pull request.
+
+The e2e suite exists for one specific class of bug the other two structurally can't see: a real infinite render loop born from the interaction between our state and a UI library's own internals (React Flow's selection/store-sync effects, React's own render-loop guard). jsdom doesn't run React Flow's actual drag/selection/store behavior, so a unit or component test never exercises the code path where that kind of bug lives - only a real browser against the real, built app does. `npm run test:e2e` builds the app and runs Playwright against `vite preview` (`playwright.config.ts`'s `webServer`), so `npx playwright install chromium` is a one-time local prerequisite; CI installs it fresh on every run.
 
 ## Where things live
 

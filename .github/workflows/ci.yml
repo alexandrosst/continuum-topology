@@ -84,6 +84,12 @@ jobs:
       - name: Component tests
         run: npm run test:ui
 
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: npm run test:e2e
+
       - name: Vulnerability scan (npm audit)
         run: npm audit --audit-level=high
         # `high` (not the default `low`) so this blocks on what's worth blocking on; see deploy/README.md's
