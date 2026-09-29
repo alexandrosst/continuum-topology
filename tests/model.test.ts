@@ -1234,6 +1234,22 @@ test('chain layout: a dependency cycle is broken for ranking, but both direction
   assert.ok(g.edges.some((e) => e.id === 'dep-back'))
 })
 
+test('a service calling itself does not produce a degenerate zero-length edge, in either the grouped or the chain view', () => {
+  const [a, b] = inCluster
+  // A self-dependency (e.g. a sidecar proxy hairpin) has no distinct "other end" - OffsetEdge's anchor math
+  // would place both ends at the same point (the card's own center), rendering an invisible line that just
+  // clutters the edge list for no visible benefit. A real dependency to a different service is included
+  // alongside it so the fix is proven to drop only the self-loop, not dependencies in general.
+  const t = { ...seed, dependencies: [seenDep({ from: a.id, to: b.id }), seenDep({ id: 'dep-self', from: a.id, to: a.id })] }
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+  const grouped = buildGraph(t, opts)
+  assert.ok(!grouped.edges.some((e) => e.id === 'dep-self'), 'grouped view drops the self-loop')
+  assert.ok(grouped.edges.some((e) => e.id === 'dep-obs-1'), 'a real dependency is still drawn')
+  const chain = buildGraph(t, { ...opts, chain: true })
+  assert.ok(!chain.edges.some((e) => e.id === 'dep-self'), 'chain view drops the self-loop too')
+  assert.ok(chain.edges.some((e) => e.id === 'dep-obs-1'))
+})
+
 test('namespace sub-boxes nest cards under one box per namespace, only when asked for and only grouped by cluster', () => {
   const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
   const off = buildGraph(seed, opts)

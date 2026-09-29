@@ -136,6 +136,47 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
     return m
   }, [dots])
 
+  // Per-cluster indices, built once from `nodes`/`services` - clusterLoad() itself still does its own
+  // `.filter()`, but now over a per-cluster bucket instead of the FULL nodes/services arrays, every time it's
+  // called below (in `peakByDot` and in the hover card).
+  const nodesByCluster = useMemo(() => {
+    const m = new Map<string, typeof nodes>()
+    for (const n of nodes) {
+      const arr = m.get(n.clusterId)
+      if (arr) arr.push(n)
+      else m.set(n.clusterId, [n])
+    }
+    return m
+  }, [nodes])
+  const servicesByCluster = useMemo(() => {
+    const m = new Map<string, typeof services>()
+    for (const s of services) {
+      const arr = m.get(s.clusterId)
+      if (arr) arr.push(s)
+      else m.set(s.clusterId, [s])
+    }
+    return m
+  }, [services])
+
+  // The busiest cluster's load per dot, for the small "hot" badge - computed once here rather than inline
+  // inside the dots.map() JSX below. That used to call clusterLoad() (two array filters) for every cluster of
+  // every dot on every render - including the ones setHover/pan/zoom trigger on nearly every pointer-move,
+  // by far the most frequent thing that happens on this view.
+  const peakByDot = useMemo(() => {
+    const m = new Map<string, number | undefined>()
+    for (const d of dots) {
+      let peak: number | undefined
+      for (const site of d.members) {
+        for (const c of site.clusters) {
+          const p = peakLoad(clusterLoad(c, nodesByCluster.get(c.id) ?? [], servicesByCluster.get(c.id) ?? []))
+          if (p !== undefined) peak = peak === undefined ? p : Math.max(peak, p)
+        }
+      }
+      m.set(d.key, peak)
+    }
+    return m
+  }, [dots, nodesByCluster, servicesByCluster])
+
   // Countries that contain at least one site are tinted, so the map shows where you are present at a glance.
   const paths = useMemo(() => {
     if (!countries) return []
@@ -366,7 +407,7 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
             const items = d.members.reduce((a, m) => a + m.clusters.length, 0)
             const isSel = d === selectedDot
             const r = single ? 8 : 13
-            const peak = d.members.reduce<number | undefined>((m, x) => x.clusters.reduce((mm, c) => { const p = peakLoad(clusterLoad(c, nodes, services)); return p === undefined ? mm : Math.max(mm ?? 0, p) }, m), undefined)
+            const peak = peakByDot.get(d.key)
             return (
               <g
                 key={d.key}
@@ -473,7 +514,7 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
       )}
 
       {/* hover card */}
-      {hover && <HoverCard hover={hover} host={host} load={(c) => clusterLoad(c, nodes, services)} />}
+      {hover && <HoverCard hover={hover} host={host} load={(c) => clusterLoad(c, nodesByCluster.get(c.id) ?? [], servicesByCluster.get(c.id) ?? [])} />}
       {linkHover && !hover && <LinkCard hover={linkHover} host={host} names={siteName} />}
       {filterActive(filter) && (
         <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md bg-nb-925/90 px-2.5 py-1 text-[11px] text-accent" data-testid="map-filtered">

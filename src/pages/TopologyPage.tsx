@@ -314,8 +314,10 @@ function Canvas() {
     return () => clearTimeout(t)
   }, [shape, fitView])
 
-  // Edge highlighting for the current selection.
-  const edges = useMemo<TopoEdge[]>(() => {
+  // Edge styling for the current selection (color, width, dashing, opacity, and whether the label is shown
+  // for a reason other than hover - selection/showLabels). Deliberately NOT keyed on `hoverEdge`: see `edges`
+  // below for why.
+  const styledEdges = useMemo<TopoEdge[]>(() => {
     const focus =
       selection?.kind === 'service' || selection?.kind === 'device' || selection?.kind === 'external'
         ? selection.id
@@ -330,15 +332,17 @@ function Canvas() {
     return graph.edges.map((e) => {
       const hot = related(e)
       const dim = anyRelated && !hot
-      const showLabel = showLabels || hot || hoverEdge === e.id
+      const showLabel = showLabels || hot
       const q = e.data?.quality
       const band = q ? lossBand(q.lossPct) : 'ok'
       // A link that loses connection attempts is coloured by how badly; otherwise grey, or orange when it is the focus.
       const mv = e.data?.mesh
       const stroke = hot ? '#f68330' : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? '#f87171' : band === 'warn' ? '#fbbf24' : e.data?.crossGroup ? '#98a4ae' : '#6f7b85'
-      // Seen in traffic: solid, and thicker the busier it is. Only declared (or gone quiet): dotted and thin.
+      // Seen in traffic: solid, and a touch thicker the busier it is. Only declared (or gone quiet): dotted and
+      // thin. Kept close to the declared baseline (1.2) rather than scaling up hard - a busy link should read as
+      // "more traffic" without out-weighing the 2.4px used for the current selection/focus.
       const seen = !!e.data?.observed && !e.data?.stale
-      const width = hot ? 2.4 : e.data?.aggregated ? 2 : seen ? 1.4 + 2.2 * (e.data?.weight ?? 0.15) : 1.2
+      const width = hot ? 2.4 : e.data?.aggregated ? 2 : seen ? 1.2 + 1.0 * (e.data?.weight ?? 0.15) : 1.2
       return {
         ...e,
         label: showLabel ? e.label : undefined,
@@ -357,7 +361,22 @@ function Canvas() {
         markerEnd: e.markerEnd && typeof e.markerEnd === 'object' ? { ...e.markerEnd, color: stroke } : e.markerEnd,
       }
     })
-  }, [graph.edges, selection, groupBy, showLabels, hoverEdge])
+  }, [graph.edges, selection, groupBy, showLabels])
+
+  // The raw (un-hidden) label text for every edge, so the hover-only reveal below can put one back without
+  // needing to keep the whole graph.edges array around.
+  const rawLabelById = useMemo(() => new Map(graph.edges.map((e) => [e.id, e.label])), [graph.edges])
+
+  // Hovering only ever reveals ONE edge's label. Re-deriving the whole styled array (recomputing color/width/
+  // dash/opacity for every edge, and - critically - handing React Flow a brand new object for every edge) on
+  // every hover transition would force every OffsetEdge to re-render just because a mouse crossed the canvas
+  // (it calls useInternalNode twice per edge - the most common canvas interaction there is, made needlessly
+  // heavy). So this only ever swaps in a fresh object for the one edge whose shown-ness actually changed;
+  // every other edge keeps the exact same object reference it already had.
+  const edges = useMemo<TopoEdge[]>(() => {
+    if (!hoverEdge) return styledEdges
+    return styledEdges.map((e) => (e.id === hoverEdge && !e.label ? { ...e, label: rawLabelById.get(e.id) } : e))
+  }, [styledEdges, hoverEdge, rawLabelById])
 
   const select = useCallback((s: Selection) => setSelection(s), [])
 

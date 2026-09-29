@@ -289,6 +289,31 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   const serviceById = new Map(t.services.map((w) => [w.id, w]))
   const siteById = new Map(t.sites.map((s) => [s.id, s]))
 
+  // Per-cluster/per-node indices, built once (O(nodes+services)) instead of the per-group `.filter()` over
+  // the FULL nodes/services arrays this used to do below (O(groups * (nodes+services)) - noticeable once a
+  // deployment has more than a handful of clusters, since every group re-scans everyone else's nodes too).
+  const nodesByCluster = new Map<string, MachineNode[]>()
+  for (const n of t.nodes) {
+    const arr = nodesByCluster.get(n.clusterId)
+    if (arr) arr.push(n)
+    else nodesByCluster.set(n.clusterId, [n])
+  }
+  const servicesByCluster = new Map<string, Service[]>()
+  const servicesByNodeId = new Map<string, { id: string; name: string }[]>()
+  for (const s of t.services) {
+    const arr = servicesByCluster.get(s.clusterId)
+    if (arr) arr.push(s)
+    else servicesByCluster.set(s.clusterId, [s])
+    for (const nid of s.nodeIds) {
+      const chips = servicesByNodeId.get(nid)
+      const chip = { id: s.id, name: s.name }
+      if (chips) chips.push(chip)
+      else servicesByNodeId.set(nid, [chip])
+    }
+  }
+  const clusterCountByTier = new Map<Tier, number>()
+  for (const c of t.clusters) clusterCountByTier.set(c.tier, (clusterCountByTier.get(c.tier) ?? 0) + 1)
+
   /* 1. Build the items (cards) of the chosen plane, keyed by their group. */
   const groups = new Map<string, GroupAcc>()
   const ensureGroup = (c: Cluster) => {
@@ -361,9 +386,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     for (const n of sorted) {
       const c = clusterById.get(n.clusterId)
       if (!c) continue
-      const chips = o.servicesOnNodes
-        ? t.services.filter((w) => w.nodeIds.includes(n.id)).map((w) => ({ id: w.id, name: w.name }))
-        : undefined
+      const chips = o.servicesOnNodes ? (servicesByNodeId.get(n.id) ?? []) : undefined
       ensureGroup(c).items.push(machineItem(n, c, chips, o.groupBy === 'tier'))
     }
   }
@@ -429,7 +452,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       const gid = groupId(g.key)
       const cl = g.cluster
       const groupStatus = worstStatus(cl ? [cl.status, ...g.items.map((i) => i.data.status)] : g.items.map((i) => i.data.status))
-      const clustersInTier = t.clusters.filter((c) => c.tier === g.tier).length
+      const clustersInTier = clusterCountByTier.get(g.tier) ?? 0
       const ex = g.extra
       const units = g.items.reduce((s, i) => s + (i.data.units ?? 1), 0)
       const siteCount = new Set(g.items.map((i) => i.data.clusterName).filter(Boolean)).size
@@ -455,7 +478,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
           country: ex ? ex.country : cl ? siteById.get(cl.siteId ?? '')?.country : undefined,
           tier: g.tier,
           status: groupStatus,
-          load: cl ? clusterLoad(cl, t.nodes, t.services) : undefined,
+          load: cl ? clusterLoad(cl, nodesByCluster.get(cl.id) ?? [], servicesByCluster.get(cl.id) ?? []) : undefined,
           mesh: o.mesh && o.view === 'application' && cl?.mesh ? groupMesh(cl.mesh) : undefined,
           localTelemetry: cl && o.groupBy === 'cluster' ? o.localOperators?.get(cl.id) : undefined,
           stats:
@@ -530,6 +553,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   const edges: TopoEdge[] = []
   if (o.view === 'application') {
     for (const d of t.dependencies) {
+      if (d.from === d.to) continue // a service calling itself has no distinct "other end" to draw a line to
       const s = cardId(d.from)
       const tg = cardId(d.to)
       if (!abs.has(s) || !abs.has(tg)) continue // an end is not drawn (e.g. devices hidden)
@@ -841,6 +865,7 @@ function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edg
 
   const edges: TopoEdge[] = []
   for (const d of t.dependencies) {
+    if (d.from === d.to) continue // same as the grouped view: nothing distinct to draw a line to
     const s = cardId(d.from)
     const tg = cardId(d.to)
     if (!abs.has(s) || !abs.has(tg)) continue
