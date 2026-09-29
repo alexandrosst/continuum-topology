@@ -413,6 +413,30 @@ export const api = {
   state: (c: Conn) => call<Partial<ServerState>>(c, 'GET', '/api/v1/state').then(normalizeServerState),
   /** The effective model: declared and observed, with the state of every record and the provenance of every attribute. */
   model: (c: Conn) => call<EffectiveModel>(c, 'GET', '/api/v1/model'),
+  /**
+   * Like `model` above, but conditional: pass the ETag from a previous response and the server answers 304
+   * with no body when the model's content hasn't changed since (see twin.go's `Admin.model`, which was
+   * always built for exactly this - `state.generatedAt` changes on the clock every poll regardless of
+   * content, so a consumer that naively re-fetches on every tick, as effectiveModel.ts used to, was paying
+   * for the full ~70KB payload every 2-5s for as long as anything on screen needed it, never once hitting
+   * this cheap path). Returns `undefined` on a 304 - the caller keeps whatever model it already has -
+   * otherwise the fresh model and its new ETag to remember for next time.
+   */
+  modelIfChanged: async (c: Conn, etag: string | undefined): Promise<{ model: EffectiveModel; etag: string | null } | undefined> => {
+    let res: Response
+    try {
+      res = await fetch(`${c.url.replace(/\/$/, '')}${scoped(c, '/api/v1/model')}`, {
+        credentials: 'include',
+        headers: { 'X-Requested-With': 'continuum-ui', ...(etag ? { 'If-None-Match': etag } : {}) },
+      })
+    } catch {
+      throw new ApiError(0, `Cannot reach the server at ${c.url || 'this address'}. Check the address and that it is running.`)
+    }
+    if (res.status === 304) return undefined
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? `Request failed (${res.status})`, data as Record<string, unknown>)
+    return { model: data as EffectiveModel, etag: res.headers.get('ETag') }
+  },
   createToken: (c: Conn, name: string, tier: number) => call<CreatedToken>(c, 'POST', '/api/v1/tokens', { name, tier }),
   // `code` is the approval code the agent printed in its log (for an older agent without one: the start of the cluster fingerprint).
   approve: (c: Conn, id: string, code: string, tier: number) => call<void>(c, 'POST', `/api/v1/agents/${id}/approve`, { code, tier }),
