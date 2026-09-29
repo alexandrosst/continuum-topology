@@ -9,10 +9,20 @@ import { defineConfig, devices } from '@playwright/test'
  * crashes that neither the unit tests nor the component tests had any way to catch.
  *
  * Runs against the PRODUCTION build (`vite build` + `vite preview`), not the dev server: that's what a real
- * user actually hits, it's what originally crashed (the user's own report was the minified production error
- * text, not the verbose dev-mode one), and it's what CI already builds in the "Type-check + build" step.
- * `webServer.command` builds first on its own so `npm run test:e2e` is self-contained locally too, even if
- * `dist/` is stale or missing.
+ * user actually hits, and it's what originally crashed (the user's own report was the minified production
+ * error text, not the verbose dev-mode one).
+ *
+ * `webServer.command` only builds if `dist/` doesn't exist yet, then always runs `preview` against whatever
+ * is there - so `npm run test:e2e` stays self-contained standalone (a missing `dist/` gets built first), but
+ * in CI, which already built `dist/` from this exact checkout one step earlier ("Type-check + build"), it
+ * skips straight to `preview` instead of paying for a second full `tsc -b && vite build`. That redundant
+ * second build - landing right after the heavy `playwright install --with-deps chromium` step, on a shared,
+ * variable-speed CI runner - is what blew past this file's `webServer.timeout` and failed the job with
+ * "Timed out waiting ...ms from config.webServer" even though nothing was actually broken. There's no
+ * staleness risk from skipping it in CI: nothing changes `dist/` between that build step and this one within
+ * the same job run. A genuinely stale local `dist/` (edited source, forgot to rebuild) is still on the
+ * person to rebuild themselves - same as running the built app any other way - `npm run build` before
+ * `npm run test:e2e`, or just delete `dist/` and let this command rebuild it.
  *
  * No backend is needed: every test here uses the "Load sample" flow (Settings page), which seeds the built-in
  * demo topology entirely into browser state - see the README's "frontend only... no server needed" dev note.
@@ -41,9 +51,14 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run build && npm run preview -- --port 4173 --strictPort',
+    command: '(test -d dist && test -n "$(ls -A dist 2>/dev/null)") || npm run build && npm run preview -- --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    // Generous on purpose: the common CI path above only needs to start `vite preview`, which is fast, but
+    // the fallback (no `dist/` yet - a fresh local checkout, or CI's own build step is ever skipped/reordered)
+    // still has to run the full `tsc -b && vite build` first, and a shared CI runner's speed can vary. Costs
+    // nothing on the fast path; only matters, in either path, when something's actually slow enough to be
+    // worth knowing about on its own terms rather than via an arbitrary timeout.
+    timeout: 180_000,
   },
 })
