@@ -101,27 +101,28 @@ func TestResolveCachedDedupesConcurrentLookupsForTheSameIP(t *testing.T) {
 
 func TestMatchHostSuffixMatching(t *testing.T) {
 	cases := []struct {
-		host string
-		want string
-		ok   bool
+		host   string
+		want   string
+		ok     bool
+		shared bool // whether this match is expected to be a third-party CDN (Shared) or a single owner's own infra
 	}{
-		{"lax17s79-in-f14.1e100.net", "Google", true},
-		{"LAX17S79-IN-F14.1E100.NET.", "Google", true}, // case-insensitive, trailing dot trimmed
-		{"1e100.net", "Google", true},                  // the bare zone apex itself also matches
-		{"notreally1e100.net", "", false},               // must match on a label boundary, not a raw substring
-		{"ec2-1-2-3-4.compute-1.amazonaws.com", "AWS", true},
-		{"d111111abcdef8.cloudfront.net", "Amazon CloudFront", true},
-		{"raw-cdn-13.githubusercontent.com", "GitHub", true},
-		{"api.github.com", "", false}, // covered by Lookup's CIDR table instead, not this suffix table
-		{"example.com", "", false},
+		{"lax17s79-in-f14.1e100.net", "Google", true, false},          // Google's own infra: collapses to one node
+		{"LAX17S79-IN-F14.1E100.NET.", "Google", true, false},         // case-insensitive, trailing dot trimmed
+		{"1e100.net", "Google", true, false},                          // the bare zone apex itself also matches
+		{"notreally1e100.net", "", false, false},                      // must match on a label boundary, not a raw substring
+		{"ec2-1-2-3-4.compute-1.amazonaws.com", "AWS", true, true},    // a genuine third-party CDN: stays per-address
+		{"d111111abcdef8.cloudfront.net", "Amazon CloudFront", true, true},
+		{"raw-cdn-13.githubusercontent.com", "GitHub", true, true},
+		{"api.github.com", "", false, false}, // covered by Lookup's CIDR table instead, not this suffix table
+		{"example.com", "", false, false},
 	}
 	for _, c := range cases {
 		m, ok := MatchHost(c.host)
 		if ok != c.ok || (ok && m.Name != c.want) {
 			t.Errorf("MatchHost(%q) = %+v, %v; want Name=%q, ok=%v", c.host, m, ok, c.want, c.ok)
 		}
-		if ok && !m.Shared {
-			t.Errorf("MatchHost(%q) matched %q but Shared=false - every hostSuffixes entry must be Shared (see its own doc comment)", c.host, m.Name)
+		if ok && m.Shared != c.shared {
+			t.Errorf("MatchHost(%q) matched %q with Shared=%v, want %v - see hostSuffixes' own doc comment for why Google's own infra is the deliberate exception", c.host, m.Name, m.Shared, c.shared)
 		}
 	}
 }

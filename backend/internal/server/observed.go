@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"net/netip"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -335,7 +336,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 				id = "ext-" + interpret.Hash("obs-known", match.Name, fmt.Sprint(port))
 			}
 		}
-		if _, ok := exts[id]; !ok {
+		if e, ok := exts[id]; !ok {
 			kind := "unknown"
 			svc, isDatabase := wellKnownPort(port)
 			if isDatabase {
@@ -347,7 +348,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 			}
 			e := model.ExternalEndpoint{
 				Provenance: model.Provenance{OrgID: org, Source: "discovered", Key: "obs/" + ip, LastSeen: stamp, DetectedAt: stamp, AgentID: agentID},
-				ID:         id, Host: ip, Port: int(port), Kind: kind, Service: svc, Name: name,
+				ID:         id, Host: ip, Port: int(port), Kind: kind, Service: svc, Name: name, IPs: []string{ip},
 			}
 			switch {
 			case matched && resolvedHost != "":
@@ -369,6 +370,15 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 			case note != "":
 				e.Evidence = map[string]model.Evidence{"identity": {Signal: note, Confidence: "low"}}
 			}
+			exts[id] = e
+		} else if !slices.Contains(e.IPs, ip) {
+			// A later address collapsing into an id created by an earlier one (a non-Shared provider
+			// match, e.g. several of Google's or GitHub's own addresses) - record it too, so a viewer can
+			// still see every individual address that made up this node's traffic, sorted for a stable
+			// order across polls, rather than losing everything but whichever address happened to be
+			// seen first.
+			e.IPs = append(e.IPs, ip)
+			sort.Strings(e.IPs)
 			exts[id] = e
 		}
 		return id

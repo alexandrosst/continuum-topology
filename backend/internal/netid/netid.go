@@ -74,10 +74,14 @@ var googleDNS = Match{
 // search/CDN space, this is a small, stable, single-owner legacy block (the same shape as GitHub's and
 // GitLab's entries above), not an attempt to cover "Google" broadly - the package doc above explains why
 // that broader attempt is deliberately out of scope.
+//
+// Shared is deliberately left at its zero value (false), same as GitHub/GitLab above and unlike the
+// Google hostSuffixes entries below - see their own comment for why: this, too, is Google's own
+// infrastructure, not a third party's, so every address matching it collapses into the one "Google"
+// topology node the observed-traffic pipeline already builds for a non-Shared match.
 var googleInfra = Match{
 	Name:   "Google",
 	Kind:   "saas",
-	Shared: true,
 	Detail: "Matched by static range (216.239.32.0/19), not reverse DNS - this address has no PTR record. ARIN RDAP confirms the block is registered to Google.",
 }
 
@@ -132,18 +136,23 @@ var entries = []struct {
 // out of entries: their address ranges are enormous and change often, so hardcoding them would mean either
 // a large, constantly-stale dataset or a match so broad it stops meaning anything. A hostname suffix sidesteps
 // that problem entirely - it's the provider's own DNS namespace doing the identifying, not a guess at their
-// current address ranges - which is exactly what ResolveCached's reverse-DNS lookup is for. Every entry here
-// is Shared: true, for the same reason Cloudflare's entry above is: none of these zones front one single
-// logical destination. A resolved hostname matching one of these tells a viewer who operates the address
-// (worth a label, so a raw dotted-quad doesn't sit unexplained in the topology) without claiming that two
-// different addresses in the same zone are necessarily the same dependency - the same category Cloudflare
-// already occupies above, just discovered via DNS instead of a hand-copied range list.
+// current address ranges - which is exactly what ResolveCached's reverse-DNS lookup is for. Most entries here
+// are Shared: true, for the same reason Cloudflare's entry above is: a zone like cloudfront.net or
+// akamaiedge.net fronts many unrelated THIRD PARTIES' origins, so two different addresses in the same zone
+// are not "the same thing" just because they share it - each keeps its own topology node. The Google entries
+// below are the deliberate exception: 1e100.net/googleusercontent.com front many of Google's OWN products,
+// not other companies' unrelated sites, so - per a user request that Google's traffic not scatter across a
+// long tail of near-identical, barely-distinguishable nodes - they are Shared: false like GitHub/GitLab
+// above: every matching address collapses into one "Google" node per port. observed.go's external() still
+// records every individual address that collapsed into it (ExternalEndpoint.IPs), so nothing is actually
+// lost - a click on the merged node lists every address behind it in the inspector instead of scattering
+// them across the canvas.
 var hostSuffixes = []struct {
 	suffix string
 	match  Match
 }{
-	{"1e100.net", Match{Name: "Google", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to a Google front-end address. Google's edge serves many unrelated products from the same pool, so this isn't necessarily the same destination as another address also labeled Google."}},
-	{"googleusercontent.com", Match{Name: "Google", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to Google-hosted content infrastructure, shared across many unrelated Google products and customer projects."}},
+	{"1e100.net", Match{Name: "Google", Kind: "saas", Detail: "Resolved via reverse DNS to a Google front-end address."}},
+	{"googleusercontent.com", Match{Name: "Google", Kind: "saas", Detail: "Resolved via reverse DNS to Google-hosted content infrastructure."}},
 	{"amazonaws.com", Match{Name: "AWS", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to AWS-owned infrastructure, shared across millions of unrelated AWS customers - this labels who hosts the address, not which service or tenant."}},
 	{"cloudfront.net", Match{Name: "Amazon CloudFront", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to an Amazon CloudFront edge address, which fronts many unrelated origins."}},
 	{"akamaiedge.net", Match{Name: "Akamai", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to an Akamai edge address, which fronts many unrelated origins."}},

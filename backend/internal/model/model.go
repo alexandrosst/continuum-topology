@@ -329,6 +329,14 @@ type ExternalEndpoint struct {
 	// internal/netid) - never from anything sent in traffic. Empty means no match, same meaning as an
 	// empty Service: this is a filled-in-when-possible convenience, not a claim that nothing is there.
 	Name string `json:"name,omitempty"`
+	// IPs is every individual address observed that resolved to this same endpoint identity - just
+	// [Host] for the common case of one address, one endpoint, but more than one when several addresses
+	// collapsed into a single non-Shared provider match (see internal/netid's Match.Shared and
+	// observed.go's external()): several GitHub IPs, or several of Google's own edge addresses, are all
+	// "the same thing" and share one topology node, but nothing about which individual addresses actually
+	// made up that traffic is lost - it's here instead of scattered across separate nodes. Sorted for a
+	// stable order across polls.
+	IPs []string `json:"ips,omitempty"`
 }
 
 type DependencyStats struct {
