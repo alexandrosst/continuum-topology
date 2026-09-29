@@ -1,6 +1,7 @@
 import { Handle, useStore, type NodeProps } from '@xyflow/react'
 import clsx from 'clsx'
 import {
+  Antenna,
   ArrowUpRight,
   Box,
   Camera,
@@ -66,7 +67,16 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
   const far = useFar()
   const color = TIER_COLOR[data.tier]
   const peak = data.load ? peakLoad(data.load) : undefined
-  const tierLabel = data.extra === 'devices' ? 'Devices' : data.extra === 'external' ? 'External' : data.tier === 'far-edge' ? 'Far edge' : data.tier[0].toUpperCase() + data.tier.slice(1)
+  const tierLabel =
+    data.extra === 'devices'
+      ? 'Devices'
+      : data.extra === 'external'
+        ? 'External'
+        : data.extra === 'operators'
+          ? 'Regional operator'
+          : data.tier === 'far-edge'
+            ? 'Far edge'
+            : data.tier[0].toUpperCase() + data.tier.slice(1)
   return (
     <div
       className={clsx('h-full w-full rounded-2xl border transition-shadow', selected && 'shadow-[0_0_0_2px_var(--color-accent)]')}
@@ -81,6 +91,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
           <div className="flex items-center gap-2">
             <span className="size-2 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
             {data.distribution && <DistroIcon distribution={data.distribution} size={16} />}
+            {data.extra === 'operators' && <Antenna size={14} className="shrink-0 text-nb-500" />}
             <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')}>{data.title}</span>
             {far && peak !== undefined && peak >= 70 && (
               <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
@@ -102,12 +113,25 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
           )}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
-          <span
-            className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-            style={{ color, borderColor: `color-mix(in srgb, ${color} 35%, transparent)` }}
-          >
-            {tierLabel}
-          </span>
+          <div className="flex items-center gap-1">
+            {data.localTelemetry && (
+              <button
+                type="button"
+                data-testid="local-telemetry-badge"
+                data-local-telemetry-cluster={data.entityId}
+                title={`Local telemetry running: ${data.localTelemetry.layers.join(', ') || 'signals active'}. Click to configure.`}
+                className="grid size-5 shrink-0 place-items-center rounded-full bg-accent-soft text-accent transition-colors hover:bg-accent/20"
+              >
+                <Antenna size={11} />
+              </button>
+            )}
+            <span
+              className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+              style={{ color, borderColor: `color-mix(in srgb, ${color} 35%, transparent)` }}
+            >
+              {tierLabel}
+            </span>
+          </div>
           {!far && <span className="text-[11px] text-nb-500">{data.stats}</span>}
         </div>
       </div>

@@ -29,6 +29,8 @@ import { edgeTypes } from '@/components/topology/OffsetEdge'
 import { Button, EmptyState, MenuPanel, Select } from '@/components/ui/primitives'
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu from '@/components/topology/FilterMenu'
+import { api } from '@/lib/api'
+import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { applyFilter, encodeList, filterActive, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
 import { buildGraph, cardId, groupId, selectedServiceIds, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
@@ -36,7 +38,7 @@ import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
 import { usePlan } from '@/lib/placement/usePlacement'
 import { parseSel } from '@/lib/search'
-import { TIER_COLOR, TIERS, type GroupBy, type ViewKind } from '@/lib/types'
+import { TIER_COLOR, TIERS, type GroupBy, type RegionalOperator, type ViewKind } from '@/lib/types'
 import { useServer } from '@/store/server'
 import { useHistoryView } from '@/store/history'
 import { usePaths, useTopology } from '@/store/topology'
@@ -89,6 +91,24 @@ function Canvas() {
   // The canvas is where a cluster's placement is actually seen, so it's a fair place to also resolve
   // a missing one silently (see Layout.tsx's comment for why this no longer runs on every route).
   useAutoPlaceClusters()
+
+  // Regional operators aren't part of the central topology store (see RegionalOperatorsPage's own note) -
+  // a plain fetch-on-mount, same admin-gated pattern that page already uses, is all the canvas needs; no
+  // continuous polling, since a missed edit here just means "refresh to see a brand new operator's arrow".
+  const conn = useServer((s) => s.conn)
+  const isAdmin = useServer((s) => s.isAdmin)
+  const admin = isAdmin()
+  const [operators, setOperators] = useState<RegionalOperator[]>([])
+  useEffect(() => {
+    const c = conn()
+    if (!c || !admin) return
+    let cancelled = false
+    void api.listOperators(c).then(
+      (ops) => { if (!cancelled) setOperators(ops) },
+      () => { /* silently skipped - operator arrows are a bonus, not core to the canvas */ },
+    )
+    return () => { cancelled = true }
+  }, [conn, admin])
 
   const mode: Mode = sp.get('view') === 'infrastructure' ? 'infrastructure' : sp.get('view') === 'map' ? 'map' : 'application'
   const isMap = mode === 'map'
@@ -153,6 +173,26 @@ function Canvas() {
   const { clusters, nodes: machines, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents } = topology
   // Discovered records come from the server with the first refresh, after the workspace loads: a link to one waits for them.
   const observedReady = useServer((s) => s.status === 'disconnected' || s.state !== undefined)
+
+  // Local operators: cluster id → the summary the canvas badge needs (nodes.tsx's antenna badge on the
+  // cluster's own group box - see graph.ts's `localTelemetry`). A local operator is just an already-approved
+  // agent with telemetry signals turned on, so this is a view over `agents`, not a fetch of its own; mirrors
+  // RegionalOperatorsPage's own `localRows` derivation. Only the first approved agent per cluster counts -
+  // today's model is one discovery agent per cluster, so this never has to merge two operators' worth of
+  // signals into one badge.
+  const rawAgents = useServer((s) => s.state?.agents)
+  const localOperatorByCluster = useMemo(() => {
+    const layerOf = new Map(TELEMETRY_SIGNALS.map((sig) => [sig.id, sig.layer]))
+    const m = new Map<string, { layers: string[]; agentId: string }>()
+    for (const a of agents) {
+      if (a.status !== 'approved' || !a.clusterId || m.has(a.clusterId)) continue
+      const installed = extrasOf(rawAgents, a.id).diagnostics?.installedTelemetry ?? []
+      if (!installed.length) continue
+      const layers = [...new Set(installed.map((id) => layerOf.get(id)).filter((l): l is 'infrastructure' | 'application' => !!l))]
+      m.set(a.clusterId, { layers, agentId: a.id })
+    }
+    return m
+  }, [agents, rawAgents])
   useEffect(() => {
     if (!selParam || !observedReady) return
     const want = parseSel(selParam)
@@ -180,8 +220,12 @@ function Canvas() {
     [clusters, machines, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, filter],
   )
   const graph = useMemo(
-    () => buildGraph(shown, { view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, chain: showChain, paths, hints }),
-    [shown, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints],
+    () =>
+      buildGraph(
+        { ...shown, operators },
+        { view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, chain: showChain, paths, hints, localOperators: localOperatorByCluster },
+      ),
+    [shown, operators, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster],
   )
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
 
@@ -541,7 +585,16 @@ function Canvas() {
               edgeTypes={edgeTypes}
               onNodesChange={onNodesChange}
               onSelectionChange={({ nodes: sel }) => setMultiSelectedIds(sel.map((n) => n.id))}
-              onNodeClick={(_, n) => select(fromNode(n))}
+              onNodeClick={(e, n) => {
+                // The local-telemetry antenna badge (nodes.tsx) sits inside a cluster's group box, so a
+                // click on it also reaches this handler - check for it first and open that agent's
+                // telemetry wizard instead of the normal group-select behaviour.
+                const badge = (e.target as HTMLElement).closest?.('[data-local-telemetry-cluster]')
+                const clusterId = badge?.getAttribute('data-local-telemetry-cluster')
+                const agentId = clusterId ? localOperatorByCluster.get(clusterId)?.agentId : undefined
+                if (agentId) { telemetry.start(agentId); return }
+                select(fromNode(n))
+              }}
               onPaneClick={() => select(null)}
               onEdgeClick={(_, e) => { if (!e.data?.aggregated) select({ kind: 'dependency', id: e.id }) }}
               onEdgeMouseEnter={(_, e) => setHoverEdge(e.id)}

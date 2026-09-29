@@ -14,10 +14,10 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { buildGraph, cardId, pickSides, selectedServiceIds } from '../src/lib/graph'
+import { buildGraph, cardId, groupId, pickSides, selectedServiceIds } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
-import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type Service, type Suggestion } from '../src/lib/types'
+import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type RegionalOperator, type Service, type Suggestion } from '../src/lib/types'
 
 let failed = 0
 const test = (name: string, fn: () => void) => {
@@ -1253,6 +1253,41 @@ test('namespace sub-boxes nest cards under one box per namespace, only when aske
   // Grouped by tier, several clusters would share one box: namespace nesting is skipped rather than mixing them.
   const byTier = buildGraph(seed, { ...opts, groupBy: 'tier', namespaces: true })
   assert.ok(!byTier.nodes.some((n) => n.data.kind === 'namespace'))
+})
+
+test('regional operators: a group box + real arrows from each source cluster appear only when that cluster is on the canvas', () => {
+  const op: RegionalOperator = {
+    id: 'op-1',
+    orgId: DEFAULT_ORG,
+    name: 'Athens aggregator',
+    status: 'active',
+    sourceClusterIds: ['cl-edge-a', 'cl-edge-b'],
+    destination: { kind: 'external', endpoint: 'https://collector.example.com:4317' },
+    createdAt: SEEN,
+    createdBy: 'alex',
+  }
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+  const g = buildGraph({ ...seed, operators: [op] }, opts)
+  const opBox = g.nodes.find((n) => n.id === groupId('op:op-1'))
+  assert.ok(opBox, 'the operator gets its own group box')
+  assert.equal((opBox!.data as { extra?: string }).extra, 'operators')
+  const edgeToA = g.edges.find((e) => e.source === groupId('cl-edge-a') && e.target === groupId('op:op-1'))
+  const edgeToB = g.edges.find((e) => e.source === groupId('cl-edge-b') && e.target === groupId('op:op-1'))
+  assert.ok(edgeToA && edgeToB, 'a real arrow from each source cluster to the operator')
+  assert.ok(edgeToA!.markerEnd, 'unlike the aggregated dependency-count lines, this one keeps its arrowhead')
+
+  // Revoked operators, and ones whose only source clusters are not on the canvas, get no box at all.
+  const revoked = buildGraph({ ...seed, operators: [{ ...op, status: 'revoked' as const }] }, opts)
+  assert.ok(!revoked.nodes.some((n) => n.id === groupId('op:op-1')), 'a revoked operator draws nothing')
+  const orphan = buildGraph({ ...seed, operators: [{ ...op, sourceClusterIds: ['does-not-exist'] }] }, opts)
+  assert.ok(!orphan.nodes.some((n) => n.id === groupId('op:op-1')), 'no source cluster on the canvas means no box either')
+
+  // Grouped by tier, the arrow still lands - cl-edge-a and cl-edge-b share the far-edge tier box, so the
+  // two sources collapse into one arrow rather than drawing the same line onto the operator twice.
+  const byTier = buildGraph({ ...seed, operators: [op] }, { ...opts, groupBy: 'tier' as const })
+  const tierEdges = byTier.edges.filter((e) => e.target === groupId('op:op-1'))
+  assert.equal(tierEdges.length, 1, 'both sources are in the far-edge tier, so just one arrow from that box')
+  assert.equal(tierEdges[0].source, groupId('far-edge'))
 })
 
 test('mesh: anyMesh looks at live clusters only, and the saved-view URL keeps the option', () => {

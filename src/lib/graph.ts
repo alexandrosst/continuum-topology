@@ -38,7 +38,7 @@ export type GroupData = {
   entityId: string
   groupBy: GroupBy
   /** Set for groups that are not clusters or tiers. */
-  extra?: 'devices' | 'external'
+  extra?: 'devices' | 'external' | 'operators'
   title: string
   subtitle: string
   /** Distribution of the cluster, for its logo. */
@@ -53,6 +53,10 @@ export type GroupData = {
   load?: ClusterLoad
   /** Service mesh overlay: what mesh the cluster runs, e.g. "Istio 1.22 · sidecar · mTLS permissive". */
   mesh?: { label: string; tone: 'good' | 'warn' | 'bad'; title: string }
+  /** Set on a real cluster box (groupBy 'cluster' only) when one of its approved agents has at least one
+   *  telemetry signal actually running - a "local operator" is a property of that agent, not a separate
+   *  node on the canvas (see nodes.tsx's antenna badge). */
+  localTelemetry?: { layers: string[] }
 }
 
 export type CardData = {
@@ -145,6 +149,10 @@ export interface GraphOptions {
    * (see the `crossCluster` flag on Dependency), so a chain that also respected cluster boundaries would
    * fight the very ordering this is for. Each card still names its cluster in the subtitle. */
   chain?: boolean
+  /** Cluster id → its active local-operator summary (which layers are actually live, and which agent to
+   *  open when the badge is clicked). Computed by the caller from `agents`/`installedTelemetry`, not part
+   *  of the core Topology model - purely a canvas annotation, the same role `hints` plays for placement. */
+  localOperators?: Map<string, { layers: string[]; agentId: string }>
 }
 
 export const groupId = (key: string) => `g:${key}`
@@ -185,17 +193,19 @@ interface Item {
   namespace?: string
 }
 
-/** Rows 0-2 are the cluster tiers; devices sit below the far edge, external endpoints below that. */
+/** Rows 0-2 are the cluster tiers; devices sit below the far edge, external endpoints below that, regional
+ * operators below that again - the row order mirrors "how far this is from the workload itself". */
 const DEVICE_ROW = 3
 const EXTERNAL_ROW = 4
+const OPERATOR_ROW = 5
 
 interface GroupAcc {
   key: string
   row: number
   tier: Tier
   cluster?: Cluster
-  /** Device / external groups: what to show in the header. */
-  extra?: { kind: 'devices' | 'external'; entityId: string; title: string; subtitle: string; country?: string }
+  /** Device / external / operator groups: what to show in the header. */
+  extra?: { kind: 'devices' | 'external' | 'operators'; entityId: string; title: string; subtitle: string; country?: string }
   items: Item[]
 }
 
@@ -358,6 +368,31 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     }
   }
 
+  // Regional operators: a peer-group row, same mechanism as devices/external, but not gated to either
+  // view branch above - an operator aggregates telemetry at the cluster level, which means the same thing
+  // whether the canvas is currently showing services or nodes. An operator whose source clusters were all
+  // filtered out (or don't exist) gets no box: a box with no arrows into it would just be noise. The group
+  // has no items of its own (unlike devices/external) - the box itself *is* the operator.
+  const operatorSourceKeys = new Map<string, string[]>()
+  for (const op of (t.operators ?? []).filter((o2) => o2.status === 'active')) {
+    const sourceKeys = [...new Set(op.sourceClusterIds.map(groupKeyOfCluster).filter((k): k is string => !!k))]
+    if (!sourceKeys.length) continue
+    operatorSourceKeys.set(op.id, sourceKeys)
+    const key = `op:${op.id}`
+    groups.set(key, {
+      key,
+      row: OPERATOR_ROW,
+      tier: 'cloud',
+      extra: {
+        kind: 'operators',
+        entityId: op.id,
+        title: op.name,
+        subtitle: `${sourceKeys.length} source cluster${sourceKeys.length === 1 ? '' : 's'}`,
+      },
+      items: [],
+    })
+  }
+
   /* 2. Lay out: tiers are rows (cloud on top → far edge at the bottom), groups sit side by side. */
   const rows = new Map<number, GroupAcc[]>()
   ;[...groups.values()]
@@ -422,7 +457,15 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
           status: groupStatus,
           load: cl ? clusterLoad(cl, t.nodes, t.services) : undefined,
           mesh: o.mesh && o.view === 'application' && cl?.mesh ? groupMesh(cl.mesh) : undefined,
-          stats: ex?.kind === 'devices' ? `${units} devices` : ex ? `${g.items.length} endpoints` : `${g.items.length} ${o.view === 'application' ? 'services' : 'nodes'}`,
+          localTelemetry: cl && o.groupBy === 'cluster' ? o.localOperators?.get(cl.id) : undefined,
+          stats:
+            ex?.kind === 'devices'
+              ? `${units} devices`
+              : ex?.kind === 'operators'
+                ? 'Regional operator'
+                : ex
+                  ? `${g.items.length} endpoints`
+                  : `${g.items.length} ${o.view === 'application' ? 'services' : 'nodes'}`,
           empty: o.view === 'application' ? 'No services' : 'No nodes',
         },
       })
@@ -535,6 +578,26 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         aggregated: true,
         from: a,
         to: b,
+      }))
+    }
+  }
+
+  // Regional operators: a real arrow from each source cluster's group box to the operator's box - this is
+  // a declared relationship (RegionalOperator.sourceClusterIds), not one inferred from traffic, so unlike
+  // the dependency edges above it draws the same way in every view/groupBy combination.
+  for (const [opId, sourceKeys] of operatorSourceKeys) {
+    const opGid = groupId(`op:${opId}`)
+    if (!abs.has(opGid)) continue
+    for (const gk of sourceKeys) {
+      const gid = groupId(gk)
+      if (!abs.has(gid)) continue
+      edges.push(makeEdge(`op:${opId}:${gk}`, gid, opGid, abs, {
+        label: 'telemetry',
+        cross: true,
+        aggregated: false,
+        groupLevel: true,
+        from: gk,
+        to: `op:${opId}`,
       }))
     }
   }
@@ -942,7 +1005,25 @@ function makeEdge(
   source: string,
   target: string,
   abs: Map<string, Box>,
-  d: { label: string; mesh?: MeshVerdict; cross: boolean; aggregated: boolean; from: string; to: string; sources?: string[]; confidence?: string; observed?: boolean; stale?: boolean; weight?: number; quality?: PathQuality },
+  d: {
+    label: string
+    mesh?: MeshVerdict
+    cross: boolean
+    aggregated: boolean
+    /** True for any other group↔group edge that, unlike the aggregated dependency-count lines, still
+     *  wants a real arrowhead (e.g. a regional operator's source-cluster arrows) - controls only the
+     *  z-index (group↔group edges sit just above the group boxes, at 5), independently of `aggregated`,
+     *  which is what actually hides the marker below. */
+    groupLevel?: boolean
+    from: string
+    to: string
+    sources?: string[]
+    confidence?: string
+    observed?: boolean
+    stale?: boolean
+    weight?: number
+    quality?: PathQuality
+  },
 ): TopoEdge {
   const [ss, ts] = pickSides(abs.get(source)!, abs.get(target)!)
   return {
@@ -956,7 +1037,7 @@ function makeEdge(
     className: d.cross ? 'edge-animated' : undefined,
     // React Flow adds the higher of the two end nodes' z to this. Card↔card edges must land just below
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
-    zIndex: d.aggregated ? 5 : -1,
+    zIndex: d.aggregated || d.groupLevel ? 5 : -1,
     markerEnd: d.aggregated ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
     data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh },
   }

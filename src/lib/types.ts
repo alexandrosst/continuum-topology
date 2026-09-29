@@ -540,6 +540,10 @@ export interface Topology {
   sites: Site[]
   siteLinks: SiteLink[]
   externalEndpoints: ExternalEndpoint[]
+  /** Regional operators active in the org - only present when the caller has fetched them (an admin-only
+   *  view; see RegionalOperatorsPage / TopologyPage). Optional so every other Topology producer (seed data,
+   *  history snapshots, tests) is unaffected. */
+  operators?: RegionalOperator[]
 }
 
 /* ---------- control plane: how the graph was learned ---------- */
