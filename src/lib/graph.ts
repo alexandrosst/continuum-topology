@@ -1076,6 +1076,34 @@ export function resyncNodes(prev: TopoNode[], next: TopoNode[], highlighted: Rea
   })
 }
 
+/**
+ * Sync `.selected` on the CURRENT nodes to match `highlighted`, and nothing else - the lighter-weight
+ * counterpart to `resyncNodes` above, used on every selection change rather than only on a poll. Two things
+ * matter here, for the same underlying reason `resyncNodes` already avoids touching a node mid-drag:
+ *
+ * 1. A node React Flow is actively dragging is left completely untouched. React Flow tracks a drag gesture
+ *    through its own internal state; a `.selected` write from outside that gesture can fight it - and
+ *    because React Flow treats even a plain click as a (near-instant) drag-start/drag-stop pair, this isn't
+ *    only a concern for an intentional drag. Racing that internal state is what produced a real "Maximum
+ *    update depth exceeded" crash (React error #185): clicking between two nodes could catch one of them
+ *    mid-click's own transient drag.
+ * 2. When nothing actually needs to change, the SAME array (and, per node, the SAME object) is returned -
+ *    not a fresh one with identical contents. `.map()` alone always allocates a new array even when every
+ *    element in it is unchanged, and hoisting that from a caller's `setNodes` always triggers a fresh
+ *    render; a settled selection should produce zero re-renders, not one that merely looks like a no-op.
+ */
+export function syncSelected(nodes: TopoNode[], highlighted: ReadonlySet<string>): TopoNode[] {
+  let changed = false
+  const next = nodes.map((n) => {
+    if (n.dragging) return n
+    const want = highlighted.has(n.id)
+    if (n.selected === want) return n
+    changed = true
+    return { ...n, selected: want }
+  })
+  return changed ? next : nodes
+}
+
 function makeEdge(
   id: string,
   source: string,

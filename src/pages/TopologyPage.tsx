@@ -34,7 +34,7 @@ import FilterMenu from '@/components/topology/FilterMenu'
 import { api } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { applyFilter, encodeList, filterActive, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
-import { buildGraph, cardId, groupId, resyncNodes, selectedServiceIds, type TopoEdge, type TopoNode } from '@/lib/graph'
+import { buildGraph, cardId, groupId, resyncNodes, selectedServiceIds, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
@@ -303,8 +303,11 @@ function Canvas() {
     setNodes((prev) => resyncNodes(prev, graph.nodes, highlightedIds))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, setNodes])
+  // See syncSelected's own doc comment (graph.ts) for why this needs to both skip a node mid-drag and bail
+  // out to the exact same array when nothing changed - together, the fix for a real "Maximum update depth
+  // exceeded" crash (React error #185) that a click or drag between two nodes could trigger.
   useEffect(() => {
-    setNodes((ns) => ns.map((n) => (n.selected === highlightedIds.has(n.id) ? n : { ...n, selected: highlightedIds.has(n.id) })))
+    setNodes((ns) => syncSelected(ns, highlightedIds))
   }, [highlightedIds, setNodes])
 
   // Re-fit the viewport whenever the *shape* of the graph changes (not on every edit).

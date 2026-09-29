@@ -14,7 +14,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { buildGraph, cardId, groupId, pickSides, resyncNodes, selectedServiceIds } from '../src/lib/graph'
+import { buildGraph, cardId, groupId, pickSides, resyncNodes, selectedServiceIds, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type RegionalOperator, type Service, type Suggestion } from '../src/lib/types'
@@ -1348,6 +1348,38 @@ test('resyncNodes: a node mid-drag is left untouched, others keep position until
   assert.equal(multi.find((n) => n.id === 'c:svc-a')!.selected, true)
   assert.equal(multi.find((n) => n.id === 'c:svc-b')!.selected, false)
   assert.equal(multi.find((n) => n.id === 'c:svc-c')!.selected, true)
+})
+
+test('syncSelected: a node mid-drag is left untouched, and nothing is re-allocated when the selection already matches', () => {
+  const node = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, type: 'card', position: { x: 0, y: 0 }, parentId: 'g:cl-a', data: {}, ...overrides }) as unknown as ReturnType<typeof buildGraph>['nodes'][number]
+
+  // A node React Flow is actively dragging keeps its exact object, selected flag included - same reason
+  // resyncNodes does (graph.ts): a write from outside the gesture can fight React Flow's own drag tracking,
+  // which is what produced a real "Maximum update depth exceeded" crash (React error #185) when a click or
+  // drag caught a node mid-gesture.
+  const dragging = node('c:svc-a', { dragging: true, selected: false })
+  const other = node('c:svc-b', { selected: false })
+  const out = syncSelected([dragging, other], new Set(['c:svc-a', 'c:svc-b']))
+  assert.equal(out[0], dragging, 'the dragging node is returned completely unchanged, even though the wanted set includes it')
+  assert.equal(out[0].selected, false, 'its selected flag is not touched while dragging')
+  assert.equal(out[1].selected, true, 'a node that is not dragging is updated normally')
+
+  // When every node's .selected already matches what's wanted, the exact same array (and every element in
+  // it) comes back - not a fresh array with identical contents. This is the other half of the same fix:
+  // handing a caller's setNodes a "new" array on every no-op change is what turned the drag/select fight
+  // above into an unbounded loop instead of settling after one pass.
+  const settled = [node('c:svc-a', { selected: true }), node('c:svc-b', { selected: false })]
+  const noop = syncSelected(settled, new Set(['c:svc-a']))
+  assert.equal(noop, settled, 'nothing changed, so the identical array reference is returned')
+
+  // A real change still only re-allocates the node(s) that actually changed - c:svc-b here - not the whole
+  // array from scratch.
+  const partial = syncSelected(settled, new Set(['c:svc-a', 'c:svc-b']))
+  assert.notEqual(partial, settled, 'the array itself is new, since something in it changed')
+  assert.equal(partial[0], settled[0], 'a node whose selected flag was already correct keeps its own object')
+  assert.notEqual(partial[1], settled[1], 'the node that actually changed gets a fresh object')
+  assert.equal(partial[1].selected, true)
 })
 
 test('mesh: anyMesh looks at live clusters only, and the saved-view URL keeps the option', () => {
