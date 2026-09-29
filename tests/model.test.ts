@@ -1188,7 +1188,7 @@ test('edges to different destinations landing on the same side of a busy node fa
   assert.equal(toC.data!.targetOffset ?? 0, 0)
 })
 
-test('pickSides also works on two bare points (zero-size boxes) - OffsetEdge relies on this to re-derive a live direction while a node is dragged', () => {
+test('pickSides also works on two bare points (zero-size boxes) - used only to pick an initial sourceHandle/targetHandle id at build time; OffsetEdge computes its own live anchor points independently, see OffsetEdge.test.tsx', () => {
   assert.deepEqual(pickSides({ x: 0, y: 0, w: 0, h: 0 }, { x: 100, y: 0, w: 0, h: 0 }), ['right', 'left'])
   assert.deepEqual(pickSides({ x: 100, y: 0, w: 0, h: 0 }, { x: 0, y: 0, w: 0, h: 0 }), ['left', 'right'])
   assert.deepEqual(pickSides({ x: 0, y: 0, w: 0, h: 0 }, { x: 0, y: 100, w: 0, h: 0 }), ['bottom', 'top'])

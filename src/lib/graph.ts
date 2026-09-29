@@ -1081,8 +1081,15 @@ function makeEdge(
     id,
     source,
     target,
+    // sourceHandle/targetHandle still need to name a real handle declared on each node (AllHandles in
+    // nodes.tsx renders one per side) for React Flow's own bookkeeping, so pickSides' one-shot guess still
+    // picks one - but OffsetEdge (below) no longer trusts that guess's actual on-screen position: every
+    // edge now renders through it, and it recomputes a live anchor point from each node's current geometry
+    // every render, so a card dragged to a new relative position (including inside a chain layout) gets a
+    // freshly recalculated line instead of one still leaving from wherever pickSides guessed at build time.
     sourceHandle: `${ss}-s`,
     targetHandle: `${ts}-t`,
+    type: 'offset',
     label: d.label,
     animated: false,
     className: d.cross ? 'edge-animated' : undefined,
