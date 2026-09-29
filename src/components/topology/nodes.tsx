@@ -106,6 +106,16 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
                   {data.mesh.label}
                 </span>
               )}
+              {data.networking && (
+                <span
+                  className="flex shrink-0 items-center gap-0.5 rounded bg-nb-900 px-1.5 py-px text-[10.5px] text-nb-400"
+                  title={`Detected in this cluster: ${[data.networking.cni && `${data.networking.cni} (CNI)`, data.networking.ingress && `${data.networking.ingress} (ingress)`].filter(Boolean).join(' · ')}`}
+                  data-testid="networking-badge"
+                >
+                  <Router size={10} />
+                  {[data.networking.cni, data.networking.ingress].filter(Boolean).join(' · ')}
+                </span>
+              )}
             </div>
           )}
           {!far && data.load && (data.load.cpuPct !== undefined || data.load.memPct !== undefined || data.load.podPct !== undefined || data.load.ready < data.load.nodes || data.load.unready > 0) && (

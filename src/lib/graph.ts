@@ -58,6 +58,12 @@ export type GroupData = {
    *  telemetry signal actually running - a "local operator" is a property of that agent, not a separate
    *  node on the canvas (see nodes.tsx's antenna badge). */
   localTelemetry?: { layers: string[] }
+  /** CNI and ingress controller the agent detected running in the cluster (Cluster.cni/.ingress -
+   *  interpret.go's detectAddons), when either is known. Surfaced as a small badge on a real cluster box
+   *  (see nodes.tsx) instead of only the inspector's text row, so it's visible without a click - see this
+   *  session's own note on why a full separate networking view isn't warranted yet (no routing-rule data
+   *  behind it to actually draw), but the already-detected name is cheap to show here. */
+  networking?: { cni?: string; ingress?: string }
 }
 
 export type CardData = {
@@ -493,6 +499,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
           load: cl ? clusterLoad(cl, nodesByCluster.get(cl.id) ?? [], servicesByCluster.get(cl.id) ?? []) : undefined,
           mesh: o.mesh && o.view === 'application' && cl?.mesh ? groupMesh(cl.mesh) : undefined,
           localTelemetry: cl && o.groupBy === 'cluster' ? o.localOperators?.get(cl.id) : undefined,
+          networking: cl && o.groupBy === 'cluster' && (cl.cni || cl.ingress) ? { cni: cl.cni, ingress: cl.ingress } : undefined,
           stats:
             ex?.kind === 'devices'
               ? `${units} devices`
