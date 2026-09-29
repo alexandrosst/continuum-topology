@@ -23,6 +23,7 @@ import { ClusterForm, DeviceForm, NodeForm, ServiceForm } from '@/components/for
 import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
 import Inspector, { type Selection } from '@/components/topology/Inspector'
 import MapView from '@/components/topology/MapView'
+import EdgeHoverCard, { type EdgeHoverPos } from '@/components/topology/EdgeHoverCard'
 import ScopeFromSelection from '@/components/topology/ScopeFromSelection'
 import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
@@ -162,6 +163,13 @@ function Canvas() {
   const [openMenu, setOpenMenu] = useState<MenuKey | null>(null)
   const toggleMenu = (key: MenuKey) => setOpenMenu((cur) => (cur === key ? null : key))
   const [hoverEdge, setHoverEdge] = useState<string | null>(null)
+  // Cursor position for EdgeHoverCard (the throughput/latency popover a hovered edge shows - same anchoring
+  // pattern as MapView's own LinkCard). Kept separate from `hoverEdge` itself: the id alone is enough to
+  // drive the on-edge label reveal above, but the popover also needs to track the mouse to stay near it.
+  const [hoverPos, setHoverPos] = useState<EdgeHoverPos | null>(null)
+  // The canvas's own bounding box, for EdgeHoverCard to position itself against - set once the ReactFlow
+  // wrapper mounts, same ref-callback pattern MapView uses for its own hover cards' `host`.
+  const [host, setHost] = useState<HTMLElement | null>(null)
   // Escape closes whichever one of the toolbar's popovers is open.
   useEffect(() => {
     if (!openMenu) return
@@ -382,6 +390,17 @@ function Canvas() {
     return styledEdges.map((e) => (e.id === hoverEdge && !e.label ? { ...e, label: rawLabelById.get(e.id) } : e))
   }, [styledEdges, hoverEdge, rawLabelById])
 
+  // React-flow node id -> its own display title, for EdgeHoverCard: an edge's `source`/`target` ARE already
+  // that id (cardId/groupId - see makeEdge in graph.ts), whether it's a service/machine/device card or a
+  // cluster/tier/operator group box, so this one map names either end of any edge without needing to know
+  // which kind of thing it points at.
+  const nodeTitleById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const n of nodes) m.set(n.id, 'title' in n.data ? n.data.title : n.id)
+    return m
+  }, [nodes])
+  const hoveredEdge = hoverEdge ? edges.find((e) => e.id === hoverEdge) : undefined
+
   const select = useCallback((s: Selection) => setSelection(s), [])
 
   const fromNode = (n: TopoNode): Selection => {
@@ -580,7 +599,7 @@ function Canvas() {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <div className="relative min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1" ref={setHost}>
           {!empty && nothingMatches ? (
             <div className="grid h-full place-items-center p-8">
               <EmptyState
@@ -647,8 +666,9 @@ function Canvas() {
               }}
               onPaneClick={() => select(null)}
               onEdgeClick={(_, e) => { if (!e.data?.aggregated) select({ kind: 'dependency', id: e.id }) }}
-              onEdgeMouseEnter={(_, e) => setHoverEdge(e.id)}
-              onEdgeMouseLeave={() => setHoverEdge(null)}
+              onEdgeMouseEnter={(e, edge) => { setHoverEdge(edge.id); setHoverPos({ cx: e.clientX, cy: e.clientY }) }}
+              onEdgeMouseMove={(e) => setHoverPos({ cx: e.clientX, cy: e.clientY })}
+              onEdgeMouseLeave={() => { setHoverEdge(null); setHoverPos(null) }}
               nodesConnectable={false}
               multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
               minZoom={0.15}
@@ -719,6 +739,15 @@ function Canvas() {
                 </div>
               </Panel>
             </ReactFlow>
+          )}
+          {hoveredEdge && hoverPos && (
+            <EdgeHoverCard
+              edge={hoveredEdge}
+              pos={hoverPos}
+              host={host}
+              fromName={nodeTitleById.get(hoveredEdge.source) ?? hoveredEdge.source}
+              toName={nodeTitleById.get(hoveredEdge.target) ?? hoveredEdge.target}
+            />
           )}
         </div>
 

@@ -1250,6 +1250,35 @@ test('a service calling itself does not produce a degenerate zero-length edge, i
   assert.ok(chain.edges.some((e) => e.id === 'dep-obs-1'))
 })
 
+test('edge throughput/quality data reaches EdgeData - a single dependency keeps its own stats, an aggregated group link sums them', () => {
+  // w-gw (cl-cloud) -> w-kafka (cl-region): a real cross-cluster dependency, so it both draws as its own
+  // line in the application view AND rolls into the one aggregated group<->group line the infrastructure
+  // view draws when "Cross-cluster links" is on (o.links) - the same underlying Dependency.stats needs to
+  // reach EdgeData correctly on both paths, one passed straight through and one summed across a bundle.
+  const dep = seenDep({ id: 'dep-cross', from: 'w-gw', to: 'w-kafka' })
+  const t = { ...seed, dependencies: [dep] }
+
+  const app = buildGraph(t, { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+  const single = app.edges.find((e) => e.id === 'dep-cross')!
+  assert.equal(single.data?.stats?.bytesPerSec, 3500, 'the dependency\'s own stats ride straight through')
+  assert.equal(single.data?.via, 'ebpf')
+
+  const infra = buildGraph(t, { view: 'infrastructure', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+  const agg = infra.edges.find((e) => e.id === 'agg:cl-cloud|cl-region')!
+  assert.ok(agg, 'the two clusters get one bundled line')
+  assert.equal(agg.data?.aggregated, true)
+  assert.equal(agg.data?.stats?.bytesPerSec, 3500, 'a single bundled dependency sums to its own figure')
+  assert.equal(agg.data?.activeCount, 1, 'seen in traffic (sources includes observed, not stale)')
+
+  // A second, undeclared-throughput dependency between the same two clusters adds to the count but not the
+  // (unmeasured) total - conntrack-only traffic contributes 0 rather than silently understating as "measured".
+  const t2 = { ...seed, dependencies: [dep, seenDep({ id: 'dep-cross-2', from: 'w-orch', to: 'w-kafka', via: 'conntrack', stats: { connectionsPerMin: 4 } })] }
+  const infra2 = buildGraph(t2, { view: 'infrastructure', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+  const agg2 = infra2.edges.find((e) => e.id === 'agg:cl-cloud|cl-region')!
+  assert.equal(agg2.data?.activeCount, 2, 'both dependencies were seen in traffic')
+  assert.equal(agg2.data?.stats?.bytesPerSec, 3500, 'only the one with a measured bytesPerSec contributes to the total')
+})
+
 test('namespace sub-boxes nest cards under one box per namespace, only when asked for and only grouped by cluster', () => {
   const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
   const off = buildGraph(seed, opts)

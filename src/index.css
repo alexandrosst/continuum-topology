@@ -141,6 +141,17 @@ body {
   border-radius: 10px;
 }
 .react-flow__handle { opacity: 0; pointer-events: none; }
+
+/* A node eases to its new spot on a relayout (a filter or view-toggle change repacks the whole graph fresh -
+   see applyGraphUpdate in graph.ts) instead of snapping there, so the canvas reads as one thing rearranging
+   itself rather than a jump-cut to a different picture. Position is React Flow's own inline `transform`
+   (translate), never touched by pan/zoom (that is the separate .react-flow__viewport transform), so this only
+   ever fires on an actual node move. Excludes .dragging - the class React Flow itself adds to a node mid-drag -
+   so an active drag stays instant and never fights the transition timer. Width/height are deliberately left
+   alone: those are triggered by content reflow (a box gaining/losing a sibling), and animating them is both
+   more expensive (layout, not just compositing) and reads as the box "breathing" rather than moving. */
+.react-flow__node:not(.dragging) { transition: transform 220ms ease-out; }
+
 .react-flow__edge-text { fill: var(--color-nb-400); font-size: 10px; }
 .react-flow__edge-textbg { fill: var(--color-nb-910); }
 

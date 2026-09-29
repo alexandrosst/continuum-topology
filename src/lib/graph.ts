@@ -15,6 +15,7 @@ import {
   TIER_ORDER,
   type Cluster,
   type Dependency,
+  type DependencyStats,
   type Device,
   type DeviceKind,
   type ExternalEndpoint,
@@ -124,6 +125,17 @@ export type EdgeData = {
   sourceOffset?: number
   /** Pixels to shift this line's target end sideways (perpendicular to the caller->callee line). Independent from sourceOffset, so a line can fan out at a busy node while still landing cleanly at a quiet one. */
   targetOffset?: number
+  /** Rolling-window traffic numbers for the hover card (EdgeHoverCard) - the same Dependency.stats the
+   *  Inspector already shows once you click the line, surfaced a click earlier. Unset for a group<->group
+   *  telemetry edge (regional operators), which isn't a traffic measurement. */
+  stats?: DependencyStats
+  /** How traffic was observed - conntrack can't see bytes, so a conntrack-only edge's bytesPerSec (if any)
+   *  is not trustworthy the way an eBPF one is; the hover card applies the same "eBPF, or a real positive
+   *  number" gate the Inspector already uses for this exact reason. */
+  via?: 'ebpf' | 'conntrack'
+  /** Aggregated (group<->group) edges only: how many of the bundled dependencies were actually seen in
+   *  traffic, out of the total the label already counts - the hover card's "(N seen in traffic)" aside. */
+  activeCount?: number
 }
 export type TopoEdge = Edge<EdgeData>
 
@@ -576,11 +588,13 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         observed: isObserved(d),
         stale: d.stale,
         weight: weightOf(d),
+        stats: d.stats,
+        via: d.via,
       }))
     }
   } else if (o.links) {
     // Aggregate service dependencies into group ↔ group links.
-    const agg = new Map<string, { a: string; b: string; count: number }>()
+    const agg = new Map<string, { a: string; b: string; count: number; active: number; bytesPerSec: number }>()
     for (const d of t.dependencies) {
       const from = serviceById.get(d.from)
       const to = serviceById.get(d.to)
@@ -590,11 +604,13 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       if (!a || !b || a === b) continue
       const [k1, k2] = a < b ? [a, b] : [b, a]
       const key = `${k1}|${k2}`
-      const cur = agg.get(key) ?? { a: k1, b: k2, count: 0 }
+      const cur = agg.get(key) ?? { a: k1, b: k2, count: 0, active: 0, bytesPerSec: 0 }
       cur.count++
+      if (isObserved(d) && !d.stale) cur.active++
+      cur.bytesPerSec += d.stats?.bytesPerSec ?? 0
       agg.set(key, cur)
     }
-    for (const { a, b, count } of agg.values()) {
+    for (const { a, b, count, active, bytesPerSec } of agg.values()) {
       if (!abs.has(groupId(a)) || !abs.has(groupId(b))) continue
       edges.push(makeEdge(`agg:${a}|${b}`, groupId(a), groupId(b), abs, {
         label: `${count} ${count === 1 ? 'dependency' : 'dependencies'}`,
@@ -602,6 +618,10 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         aggregated: true,
         from: a,
         to: b,
+        activeCount: active,
+        // A bundled total, not a per-dependency measurement - see EdgeData.via's own comment for why a
+        // conntrack-only dependency's contribution here may understate the real total.
+        stats: bytesPerSec > 0 ? { bytesPerSec } : undefined,
       }))
     }
   }
@@ -1153,6 +1173,9 @@ function makeEdge(
     stale?: boolean
     weight?: number
     quality?: PathQuality
+    stats?: DependencyStats
+    via?: 'ebpf' | 'conntrack'
+    activeCount?: number
   },
 ): TopoEdge {
   const [ss, ts] = pickSides(abs.get(source)!, abs.get(target)!)
@@ -1176,7 +1199,7 @@ function makeEdge(
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,
     markerEnd: d.aggregated ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh },
+    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, activeCount: d.activeCount },
   }
 }
 
