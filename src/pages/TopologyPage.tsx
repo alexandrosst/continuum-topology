@@ -14,7 +14,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
-import { Boxes, ChevronDown, Filter as FilterIcon, Package, Plug, Plus, Radio, Server, SlidersHorizontal } from 'lucide-react'
+import { Antenna, Boxes, ChevronDown, Filter as FilterIcon, Package, Plug, Plus, Radio, Server, SlidersHorizontal } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -501,6 +501,10 @@ function Canvas() {
                 {changedOptions > 0 && <span className="rounded-full bg-accent-soft px-1.5 text-[11px] font-medium text-accent">{changedOptions}</span>}
               </Button>
               <MenuPanel open={openMenu === 'options'} onClose={() => setOpenMenu(null)} className="w-72 p-2" role="group" aria-label="View options">
+                {/* Two subsections, same "Show"/how-it's-arranged split as the rest of the page: what's
+                    drawn at all, then how it's laid out. Mirrors FilterMenu's own subsection labels (same
+                    classes) so the toolbar's two popovers read as one family instead of two different menus. */}
+                <div className="px-2 pb-1 pt-1 text-xs uppercase tracking-wide text-nb-500">Show</div>
                 {mode === 'application' && (
                   <Toggle
                     checked={showDevices}
@@ -533,6 +537,8 @@ function Canvas() {
                 )}
                 {mode === 'application' && !hasMesh && <p className="-mt-0.5 px-2 pb-1 pl-[46px] text-[11px] text-nb-500">No mesh found in your clusters</p>}
                 <Toggle checked={showLabels} onChange={(v) => setParam('labels', v ? '1' : null)} label="Edge labels" />
+
+                <div className="mt-1 border-t border-nb-850 px-2 pb-1 pt-2.5 text-xs uppercase tracking-wide text-nb-500">Layout</div>
                 {mode === 'application' && (
                   <Toggle
                     checked={showNamespaces}
@@ -542,6 +548,9 @@ function Canvas() {
                     title={showChain ? 'Not available in chain layout' : groupBy === 'cluster' ? 'Draw a box per namespace inside each cluster' : 'Only available grouped by cluster'}
                   />
                 )}
+                {mode === 'application' && !showChain && groupBy !== 'cluster' && (
+                  <p className="-mt-0.5 px-2 pb-1 pl-[46px] text-[11px] text-nb-500">Only available grouped by cluster</p>
+                )}
                 {mode === 'application' && (
                   <Toggle
                     checked={showChain}
@@ -550,7 +559,10 @@ function Canvas() {
                     title="Lay every service out left to right by who calls whom, across every cluster, instead of grouping them into boxes"
                   />
                 )}
-                <div className={clsx('mt-1 flex items-center justify-between gap-3 border-t border-nb-850 px-2 pb-1 pt-2.5 text-sm', showChain ? 'text-nb-600' : 'text-nb-400')}>
+                {mode === 'application' && showChain && (
+                  <p className="-mt-0.5 px-2 pb-1 pl-[46px] text-[11px] text-nb-500">Namespace sub-boxes and Group by aren&apos;t available while this is on</p>
+                )}
+                <div className={clsx('mt-1 flex items-center justify-between gap-3 px-2 py-1.5 text-sm', showChain ? 'text-nb-600' : 'text-nb-400')}>
                   Group by
                   <Select
                     className="h-8 w-32"
@@ -733,6 +745,29 @@ function Canvas() {
                       <span className="flex items-center gap-1.5" title="Declared or entered by a person, but no traffic seen">
                         <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.2" strokeDasharray="2 5" /></svg>
                         Not seen
+                      </span>
+                    </>
+                  )}
+                  {/* Both entries only appear once something on the canvas actually needs them explained -
+                      same "don't explain what isn't there" rule the mesh/traffic entries above already
+                      follow. Operator edges can appear in either mode (buildGraph draws them unconditionally
+                      once an operator box is on the canvas), so this checks the nodes directly rather than
+                      gating on `mode` the way the application-only entries above do. */}
+                  {graph.nodes.some((n) => n.data.kind === 'group' && n.data.extra === 'operators') && (
+                    <>
+                      <span className="h-3 w-px bg-nb-800" />
+                      <span className="flex items-center gap-1.5" title="A cluster feeding a regional operator - a declared relationship (its source clusters), not measured traffic">
+                        <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.6" strokeDasharray="1 4" /></svg>
+                        Telemetry
+                      </span>
+                    </>
+                  )}
+                  {localOperatorByCluster.size > 0 && (
+                    <>
+                      <span className="h-3 w-px bg-nb-800" />
+                      <span className="flex items-center gap-1.5" title="This badge on a cluster box means a local operator (an approved agent with telemetry signals on) is running there - click it to configure">
+                        <Antenna size={11} className="text-accent" />
+                        Local telemetry
                       </span>
                     </>
                   )}
