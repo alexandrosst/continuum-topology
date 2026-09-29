@@ -14,7 +14,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { buildGraph, cardId, groupId, pickSides, resyncNodes, selectedServiceIds, syncSelected } from '../src/lib/graph'
+import { applyGraphUpdate, buildGraph, cardId, groupId, pickSides, resyncNodes, selectedServiceIds, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type RegionalOperator, type Service, type Suggestion } from '../src/lib/types'
@@ -1380,6 +1380,36 @@ test('syncSelected: a node mid-drag is left untouched, and nothing is re-allocat
   assert.equal(partial[0], settled[0], 'a node whose selected flag was already correct keeps its own object')
   assert.notEqual(partial[1], settled[1], 'the node that actually changed gets a fresh object')
   assert.equal(partial[1].selected, true)
+})
+
+test('applyGraphUpdate: an explicit change (a filter, a view toggle) gets a clean fresh layout, not the stale poll-time merge', () => {
+  const node = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, type: 'card', position: { x: 0, y: 0 }, parentId: 'g:cl-a', data: {}, ...overrides }) as unknown as ReturnType<typeof buildGraph>['nodes'][number]
+
+  // Same cluster box, three cards. The person drags svc-a somewhere else, then applies a filter that
+  // removes svc-c: svc-a and svc-b both keep the SAME parent, so resyncNodes' own "parent changed" escape
+  // hatch never fires for them - exactly the case that used to leave a gap where svc-c used to sit until
+  // the person left the page and came back.
+  const prev = [node('c:svc-a', { position: { x: 500, y: 500 } }), node('c:svc-b', { position: { x: 5, y: 5 } }), node('c:svc-c', { position: { x: 50, y: 5 } })]
+  // buildGraph's own fresh repack for the filtered-down pair - deliberately different from prev's stale
+  // coordinates, the way a real repack would be once svc-c is no longer taking up space.
+  const freshlyPacked = [node('c:svc-a', { position: { x: 5, y: 5 } }), node('c:svc-b', { position: { x: 50, y: 5 } })]
+
+  // An ordinary poll (explicit: false) is unchanged from plain resyncNodes - the manual drag sticks.
+  const polled = applyGraphUpdate(prev, freshlyPacked, new Set(), false)
+  assert.deepEqual(polled.find((n) => n.id === 'c:svc-a')!.position, { x: 500, y: 500 }, 'a background poll still preserves the manual drag')
+
+  // An explicit change (the filter that produced this exact freshlyPacked output) takes buildGraph's fresh
+  // positions outright, for every survivor - not just the ones that are brand new.
+  const filtered = applyGraphUpdate(prev, freshlyPacked, new Set(), true)
+  assert.deepEqual(filtered.find((n) => n.id === 'c:svc-a')!.position, { x: 5, y: 5 }, 'an explicit filter change re-lays out even a node that already existed and kept its parent')
+  assert.deepEqual(filtered.find((n) => n.id === 'c:svc-b')!.position, { x: 50, y: 5 })
+  assert.equal(filtered.length, 2, 'the filtered-out card is gone, same as a plain merge would give')
+
+  // The highlighted set still applies on the explicit path, same as the merge path.
+  const withHighlight = applyGraphUpdate(prev, freshlyPacked, new Set(['c:svc-b']), true)
+  assert.equal(withHighlight.find((n) => n.id === 'c:svc-a')!.selected, false)
+  assert.equal(withHighlight.find((n) => n.id === 'c:svc-b')!.selected, true)
 })
 
 test('mesh: anyMesh looks at live clusters only, and the saved-view URL keeps the option', () => {

@@ -1104,6 +1104,32 @@ export function syncSelected(nodes: TopoNode[], highlighted: ReadonlySet<string>
   return changed ? next : nodes
 }
 
+/**
+ * Bring `graph.nodes` (buildGraph's latest output) onto the canvas the right way for WHY it changed.
+ *
+ * `resyncNodes`'s rule 2 above - keep a survivor's stale position as long as its parent hasn't changed -
+ * is exactly right for an ordinary background poll (this page polls every 2-5s): nothing the person did
+ * should visibly move just because the same data came back again. But it stops being right the moment the
+ * person changes what the canvas is even showing - a filter that hides or reveals cards, or any of the
+ * other view toggles (grouping, devices, the mesh overlay, chain layout) - because `packItems`/
+ * `layoutNamespaces` (above) repack a WHOLE group's items fresh every time its composition changes, and a
+ * filter is exactly that: it adds or removes siblings from a box whose OTHER members keep the SAME parent,
+ * so rule 3 (a changed parent forces a fresh position) never fires for them. Left on the stale rule-2 path,
+ * survivors sit at coordinates that made sense for the OLD sibling set - a gap where a filtered-out
+ * neighbor used to be, an overlap where a filtered-in one now lands - and the only way to see the clean,
+ * freshly-packed layout was to leave the page and come back, which starts over with no stale positions to
+ * preserve in the first place.
+ *
+ * `explicit` is that distinction, decided by the caller (TopologyPage: whether the URL's search params -
+ * which every filter and view toggle goes through - changed since the last render, as opposed to only the
+ * underlying topology data refreshing). When true, every node takes buildGraph's fresh position outright -
+ * the same clean result a remount already gave for free. When false, this is exactly `resyncNodes`.
+ */
+export function applyGraphUpdate(prev: TopoNode[], next: TopoNode[], highlighted: ReadonlySet<string>, explicit: boolean): TopoNode[] {
+  if (!explicit) return resyncNodes(prev, next, highlighted)
+  return next.map((n) => ({ ...n, selected: highlighted.has(n.id) }))
+}
+
 function makeEdge(
   id: string,
   source: string,

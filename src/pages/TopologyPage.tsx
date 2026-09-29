@@ -15,7 +15,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
 import { Boxes, ChevronDown, Filter as FilterIcon, Package, Plug, Plus, Radio, Server, SlidersHorizontal } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
@@ -34,7 +34,7 @@ import FilterMenu from '@/components/topology/FilterMenu'
 import { api } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { applyFilter, encodeList, filterActive, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
-import { buildGraph, cardId, groupId, resyncNodes, selectedServiceIds, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
+import { applyGraphUpdate, buildGraph, cardId, groupId, selectedServiceIds, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
@@ -285,22 +285,23 @@ function Canvas() {
     return services.filter((s) => entityIds.has(s.id))
   }, [highlightedIds, nodes, services])
 
-  // Re-sync when the model / plane changes (keeps selection highlight). A node that was already on the
-  // canvas keeps the position it has there (a manual drag, or a prior layout pass) instead of jumping back
-  // to the graph's freshly computed one - which would otherwise happen on every poll, even one that changed
-  // nothing about this node, because `graph` gets a new identity whenever any upstream data is refreshed.
-  // That old position only still means what it used to when the node is still positioned relative to the
-  // same parent (React Flow positions are parent-relative, or canvas-relative with no parent at all) -
-  // toggling namespace sub-boxes, for instance, re-parents every card in a cluster from the cluster box
-  // straight to a namespace box without changing the card's id, and its old, cluster-relative position
-  // would otherwise land it in the wrong spot (often overlapping another card) inside the new, smaller
-  // namespace box until something else - like leaving the page and coming back - forced a fresh layout.
-  // See `resyncNodes` (graph.ts) for why this merges instead of replacing outright - in short, a node
-  // React Flow is actively dragging must come back untouched, or a poll landing mid-gesture (this page
-  // polls every 2-5s) can desync React Flow's own drag tracking and leave the canvas unresponsive until a
-  // reload; every other node keeps its on-screen position across polls unless its parent actually changed.
+  // Re-sync when the model / plane changes (keeps selection highlight). On an ordinary background poll, a
+  // node that was already on the canvas keeps the position it has there (a manual drag, or a prior layout
+  // pass) instead of jumping back to the graph's freshly computed one, which would otherwise happen every
+  // 2-5s even for a poll that changed nothing about this node - see resyncNodes (graph.ts) for the full
+  // rule, including why a node React Flow is actively dragging is left completely untouched.
+  //
+  // An EXPLICIT interaction - a filter, or any other view toggle - gets a full fresh layout instead: see
+  // applyGraphUpdate's own doc comment (graph.ts) for why the poll-time merge above leaves stale, messy
+  // positions for a filter specifically (survivors keep the same parent, so the merge's own "parent changed"
+  // escape hatch never fires for them, even though buildGraph repacked the whole group around them).
+  // Every filter and view toggle on this page goes through the URL's search params, and a poll never
+  // touches them, so "did `sp` itself change since last render" is exactly that distinction.
+  const prevSpRef = useRef(sp)
   useEffect(() => {
-    setNodes((prev) => resyncNodes(prev, graph.nodes, highlightedIds))
+    const explicit = prevSpRef.current !== sp
+    prevSpRef.current = sp
+    setNodes((prev) => applyGraphUpdate(prev, graph.nodes, highlightedIds, explicit))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, setNodes])
   // See syncSelected's own doc comment (graph.ts) for why this needs to both skip a node mid-drag and bail

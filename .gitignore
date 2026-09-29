@@ -13,6 +13,14 @@ dist-ssr
 *.local
 .tmp-*.mjs
 
+# When a sandboxed session can't delete files, it renames what would have been removed (a rebuilt dist/,
+# a scratch tarball) out of the way instead of losing the work - see deploy/README.md's housekeeping note.
+# Left untracked, these sit in the project root right alongside src/ and get walked by Tailwind's automatic
+# content scanner (it otherwise respects .gitignore, so this is a real, measurable slowdown that gets worse
+# every time one more gets left behind, not just clutter) and by anything else that globs the repo root.
+dist_stale_*
+.claude-scratch/
+
 # docs-site/ is a standalone Docusaurus project (published to GitHub Pages by .github/workflows/docs.yml);
 # its own build output and cache are exactly as disposable as the main app's dist/ above.
 docs-site/build
