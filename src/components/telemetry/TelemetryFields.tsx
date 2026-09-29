@@ -4,7 +4,7 @@ import { ComboField, Field, InfoTip, Input, Select, TagsInput } from '@/componen
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
 import { applyIntentPreset, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, TELEMETRY_UNIVERSAL_PERMISSION } from '@/lib/consent'
 import { telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
-import GuidedScope from './GuidedScope'
+import GuidedWizard from './GuidedWizard'
 import ProcessorEditor from './ProcessorEditor'
 
 export type SignalId = 'resourceUsage' | 'energy' | 'kubernetesState' | 'nodeRuntime' | 'networkLatency' | 'applicationMetrics' | 'systemLogs' | 'kubernetesEvents' | 'applicationLogs' | 'traces' | 'accelerators'
@@ -228,7 +228,7 @@ export default function TelemetryFields({
         {(
           [
             ['All fields', 'Every signal on one screen, exactly as before.'],
-            ['Guided setup', 'Step through scope first, then which signals use it - useful once you have namespaces to scope to.'],
+            ['Guided setup', 'Step through layer, modality and which signals - one screen at a time, like the discovery wizard.'],
           ] as const
         ).map(([label, hint], i) => (
           <button
@@ -250,7 +250,7 @@ export default function TelemetryFields({
       </div>
 
       {guided ? (
-        <GuidedScope value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialDraft={initialScope} />
+        <GuidedWizard value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialScope={initialScope} />
       ) : (
       <>
       <div className="space-y-1.5">

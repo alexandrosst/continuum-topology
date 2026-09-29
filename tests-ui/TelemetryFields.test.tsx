@@ -137,6 +137,14 @@ describe('TelemetryFields facets and application scope overrides', () => {
 
 
 describe('TelemetryFields guided mode', () => {
+  /** Walks the navigable wizard from its landing step through to the kind step for a given layer/modality,
+   *  the path every guided test below needs before it can reach a signal checkbox or the scope step. */
+  async function gotoKind(user: ReturnType<typeof userEvent.setup>, layer: 'infrastructure' | 'application', modality: string) {
+    await user.click(screen.getByTestId('telemetry-mode-guided'))
+    await user.click(screen.getByTestId(`telemetry-guided-layer-${layer}`))
+    await user.click(screen.getByTestId(`telemetry-guided-modality-${modality}`))
+  }
+
   test('defaults to the flat grid, and switching modes does not lose what was already picked', async () => {
     const user = userEvent.setup()
     render(<Wrapper initial={{ ...emptyTelemetry, resourceUsage: true }} />)
@@ -147,23 +155,59 @@ describe('TelemetryFields guided mode', () => {
     await user.click(screen.getByTestId('telemetry-mode-guided'))
     expect(screen.getByTestId('telemetry-mode-guided')).toHaveAttribute('aria-checked', 'true')
     expect(screen.queryByTestId('telemetry-facet-scope')).not.toBeInTheDocument()
+    // Lands on the first step (Layer), not the signal itself - but walking to where resourceUsage lives
+    // (infrastructure / metrics) shows it's still checked, exactly as the flat grid left it.
+    expect(screen.getByTestId('telemetry-guided-steps')).toBeInTheDocument()
+    await user.click(screen.getByTestId('telemetry-guided-layer-infrastructure'))
+    await user.click(screen.getByTestId('telemetry-guided-modality-metrics'))
     expect(screen.getByTestId('telemetry-resourceUsage')).toBeChecked()
   })
 
-  test('the scope wizard only appears once an application-scoped signal is on', async () => {
+  test('the scope step only appears once an application-scoped signal is on, and Continue reaches it', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
-    await user.click(screen.getByTestId('telemetry-mode-guided'))
-    expect(screen.queryByTestId('telemetry-guided-add-scope')).not.toBeInTheDocument()
+    await gotoKind(user, 'application', 'metrics')
+    expect(screen.queryByTestId('telemetry-guided-step-scope')).not.toBeInTheDocument()
     await user.click(screen.getByTestId('telemetry-applicationMetrics'))
+    await user.click(screen.getByTestId('telemetry-guided-continue'))
+    expect(screen.getByTestId('telemetry-guided-step-scope')).toBeInTheDocument()
     expect(screen.getByTestId('telemetry-guided-add-scope')).toBeInTheDocument()
     expect(screen.getByTestId('telemetry-guided-attach-applicationMetrics')).toBeInTheDocument()
+  })
+
+  test('with nothing application-scoped, Continue skips straight to the review step', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper />)
+    await gotoKind(user, 'infrastructure', 'metrics')
+    await user.click(screen.getByTestId('telemetry-resourceUsage'))
+    await user.click(screen.getByTestId('telemetry-guided-continue'))
+    expect(screen.getByTestId('telemetry-guided-step-review')).toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-guided-review-list')).toHaveTextContent('Resource usage')
+  })
+
+  test('"Add another" loops back to the layer step so a second layer/modality can be added to the same draft', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper />)
+    await gotoKind(user, 'infrastructure', 'metrics')
+    await user.click(screen.getByTestId('telemetry-resourceUsage'))
+    await user.click(screen.getByTestId('telemetry-guided-add-another'))
+    expect(screen.getByTestId('telemetry-guided-step-layer')).toBeInTheDocument()
+    await user.click(screen.getByTestId('telemetry-guided-layer-application'))
+    await user.click(screen.getByTestId('telemetry-guided-modality-logs'))
+    await user.click(screen.getByTestId('telemetry-applicationLogs'))
+    // Both rounds accumulate into the same draft - neither turning off the other.
+    expect(screen.getByTestId('telemetry-applicationLogs')).toBeChecked()
+    await user.click(screen.getByTestId('telemetry-guided-add-another'))
+    await user.click(screen.getByTestId('telemetry-guided-layer-infrastructure'))
+    await user.click(screen.getByTestId('telemetry-guided-modality-metrics'))
+    expect(screen.getByTestId('telemetry-resourceUsage')).toBeChecked()
   })
 
   test('naming a scope and attaching a signal to it copies its namespaces into that signal\'s override', async () => {
     const user = userEvent.setup()
     render(<Wrapper initial={{ ...emptyTelemetry, applicationMetrics: true }} />)
-    await user.click(screen.getByTestId('telemetry-mode-guided'))
+    await gotoKind(user, 'application', 'metrics')
+    await user.click(screen.getByTestId('telemetry-guided-continue'))
     await user.click(screen.getByTestId('telemetry-guided-add-scope'))
     const nameInput = screen.getByPlaceholderText('Name this scope')
     await user.clear(nameInput)
@@ -181,9 +225,10 @@ describe('TelemetryFields guided mode', () => {
     expect(customNsInput.closest('div')).toHaveTextContent('shop')
   })
 
-  test('an initial scope (e.g. handed off from the topology canvas) starts the form in guided mode with a draft pre-filled from it', () => {
+  test('an initial scope (e.g. handed off from the topology canvas) starts the form in guided mode, straight on the scope step, with a draft pre-filled from it', () => {
     render(<Wrapper initial={{ ...emptyTelemetry, applicationMetrics: true }} initialScope={{ name: 'From topology', namespaces: ['payments', 'checkout'] }} />)
     expect(screen.getByTestId('telemetry-mode-guided')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByTestId('telemetry-guided-step-scope')).toBeInTheDocument()
     const nameInputs = screen.getAllByPlaceholderText('Name this scope') as HTMLInputElement[]
     const seeded = nameInputs.find((i) => i.value === 'From topology')
     expect(seeded).toBeTruthy()
@@ -195,7 +240,8 @@ describe('TelemetryFields guided mode', () => {
   test('two scopes that both include the same namespace warn, and merging keeps only one', async () => {
     const user = userEvent.setup()
     render(<Wrapper initial={{ ...emptyTelemetry, applicationMetrics: true, applicationLogs: true }} />)
-    await user.click(screen.getByTestId('telemetry-mode-guided'))
+    await gotoKind(user, 'application', 'metrics')
+    await user.click(screen.getByTestId('telemetry-guided-continue'))
     await user.click(screen.getByTestId('telemetry-guided-add-scope'))
     await user.click(screen.getByTestId('telemetry-guided-add-scope'))
 

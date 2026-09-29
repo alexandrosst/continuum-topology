@@ -79,6 +79,7 @@ export default function GuidedScope({
   onChange,
   testIdPrefix,
   initialDraft,
+  hideSignalPicker,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
@@ -88,6 +89,11 @@ export default function GuidedScope({
    * Deliberately only adds a draft, never auto-attaches it to a signal: attaching stays the person's own
    * explicit step, exactly as it already is for a hand-built draft. */
   initialDraft?: { name: string; namespaces: string[] }
+  /** True when the caller already has its own "which signals" step (the navigable guided wizard's own
+   *  Layer/Modality/Kind steps - see GuidedWizard.tsx) - skips this component's own "Step 1 · Pick signals"
+   *  fieldset and the energy/accelerator source pickers, which that caller renders itself, and leaves just
+   *  the scope drafting + attaching this component actually owns. */
+  hideSignalPicker?: boolean
 }) {
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
   const infra = TELEMETRY_SIGNALS.filter((s) => s.layer === 'infrastructure')
@@ -177,26 +183,28 @@ export default function GuidedScope({
 
   return (
     <div className="space-y-5">
-      <div className="space-y-2.5">
-        <p className="text-xs font-medium uppercase tracking-wide text-nb-500">Step 1 · Pick signals</p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <fieldset className="space-y-2.5">
-            <legend className="mb-0.5 text-xs font-medium uppercase tracking-wide text-nb-600">Infrastructure</legend>
-            {infra.map((s) => (
-              <SignalRow key={s.id} signal={s} checked={value[s.id as SignalId]} onChange={(v) => set(s.id as SignalId, v)} testIdPrefix={testIdPrefix} />
-            ))}
-          </fieldset>
-          <fieldset className="space-y-2.5">
-            <legend className="mb-0.5 text-xs font-medium uppercase tracking-wide text-nb-600">Application</legend>
-            {app.map((s) => (
-              <SignalRow key={s.id} signal={s} checked={value[s.id as SignalId]} onChange={(v) => set(s.id as SignalId, v)} testIdPrefix={testIdPrefix} />
-            ))}
-          </fieldset>
+      {!hideSignalPicker && (
+        <div className="space-y-2.5">
+          <p className="text-xs font-medium uppercase tracking-wide text-nb-500">Step 1 · Pick signals</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <fieldset className="space-y-2.5">
+              <legend className="mb-0.5 text-xs font-medium uppercase tracking-wide text-nb-600">Infrastructure</legend>
+              {infra.map((s) => (
+                <SignalRow key={s.id} signal={s} checked={value[s.id as SignalId]} onChange={(v) => set(s.id as SignalId, v)} testIdPrefix={testIdPrefix} />
+              ))}
+            </fieldset>
+            <fieldset className="space-y-2.5">
+              <legend className="mb-0.5 text-xs font-medium uppercase tracking-wide text-nb-600">Application</legend>
+              {app.map((s) => (
+                <SignalRow key={s.id} signal={s} checked={value[s.id as SignalId]} onChange={(v) => set(s.id as SignalId, v)} testIdPrefix={testIdPrefix} />
+              ))}
+            </fieldset>
+          </div>
         </div>
-      </div>
+      )}
 
-      {value.energy && <EnergyFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
-      {value.accelerators && <AcceleratorsFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
+      {!hideSignalPicker && value.energy && <EnergyFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
+      {!hideSignalPicker && value.accelerators && <AcceleratorsFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
 
       {needsScope && (
         <div className="space-y-2.5 border-t border-nb-850 pt-3">

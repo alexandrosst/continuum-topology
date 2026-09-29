@@ -1010,3 +1010,39 @@ export function ChipList({ items, max = 2 }: { items: string[]; max?: number }) 
     </span>
   )
 }
+
+/**
+ * A navigable step indicator: numbered circles joined by a line, done/current/upcoming styling - the same
+ * visual language as ConnectClusterWizard's own Stepper, generalized to a plain `currentIndex` a person can
+ * move through with their own Back/Next controls, instead of that one's server-driven async `phase`. Meant
+ * for any wizard that walks someone through a small number of named steps in order (see the guided
+ * telemetry wizard, GuidedWizard.tsx, for the first caller) - purely presentational, the caller owns the
+ * step state and which content renders for it.
+ */
+export function WizardSteps({ steps, currentIndex, testId = 'wizard-steps' }: { steps: string[]; currentIndex: number; testId?: string }) {
+  return (
+    <div className="mb-4 flex items-center" data-testid={testId}>
+      {steps.map((label, i) => {
+        const done = i < currentIndex
+        const current = i === currentIndex
+        return (
+          <div key={label} className={clsx('flex items-center', i < steps.length - 1 && 'flex-1')}>
+            <span className="relative flex size-5 shrink-0 items-center justify-center">
+              {current && <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent/40" />}
+              <span
+                className={clsx(
+                  'relative flex size-5 items-center justify-center rounded-full border text-[10px] font-medium',
+                  done ? 'border-ok/50 bg-ok/15 text-ok' : current ? 'border-accent bg-accent-soft text-accent' : 'border-nb-800 text-nb-600',
+                )}
+              >
+                {done ? <Check size={11} /> : i + 1}
+              </span>
+            </span>
+            <span className={clsx('ml-1.5 whitespace-nowrap text-[11px]', done ? 'text-nb-400' : current ? 'text-nb-200' : 'text-nb-600')}>{label}</span>
+            {i < steps.length - 1 && <span className={clsx('mx-2 h-px flex-1', done ? 'bg-ok/30' : 'bg-nb-850')} />}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
