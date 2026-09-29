@@ -110,7 +110,7 @@ const LOCAL_KEYS = ['applicationId', 'siteId'] as const
  * "new" data every time, even when nothing changed (dropping dragged canvas positions, clobbering an
  * in-progress what-if scenario, wiping decider results).
  */
-function deepEqual(a: unknown, b: unknown): boolean {
+export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
   if (Array.isArray(a) || Array.isArray(b)) {

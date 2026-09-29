@@ -125,6 +125,15 @@ interface ServerStore {
 
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong.')
 
+// Guards refresh() against the same problem workspace.ts's `saving`/`epoch` already solve there: nothing
+// stopped two refresh() calls from overlapping. useServerPolling's setInterval (Layout.tsx) fires
+// unconditionally every 2-5s regardless of whether the previous tick's fetch has actually returned, and
+// every fetch in this app has no timeout/AbortController - a stalled connection (a laptop sleep/wake, a
+// proxy silently dropping a long-lived keep-alive) leaves its promise pending forever, not rejected - so a
+// single stall used to leave every later tick piling another request on top, forever, for the rest of the
+// session: idle network waits, no CPU cost, no error, which is exactly what makes it easy to miss.
+let refreshing: Promise<void> | undefined
+
 export const useServer = create<ServerStore>((set, get) => {
   const wipeLocal = () => {
     useRawTopology.getState().clear()
@@ -565,34 +574,45 @@ export const useServer = create<ServerStore>((set, get) => {
       }
     },
 
-    refresh: async () => {
+    refresh: () => {
       const { status, user } = get()
       const c = get().conn()
-      if (status !== 'connected' || !c || !user) return
-      try {
-        const state = await api.state(c)
-        set({ state, error: undefined })
-        useObserved.getState().set(state.topology.dependencies, state.topology.externalEndpoints, state.topology.paths, state.tombstones)
-        const raw = useRawTopology.getState()
-        useRawTopology.setState(mergeDiscovered(raw, state))
-        void useWorkspace.getState().poll()
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 401) {
-          // The session ended (expired, revoked, or the account was disabled).
-          await leave(false)
-          useObserved.getState().clear()
-          useHistoryView.getState().live()
-          set({ status: 'signin', user: undefined, orgs: [], orgId: undefined, role: undefined, state: undefined, error: 'Your session ended. Sign in again.' })
-        } else if (e instanceof ApiError && e.status === 404) {
-          // The organisation is gone, or the person was removed from it: find out where they still belong.
-          void get().reloadOrgs()
-        } else if (e instanceof ApiError && e.status === 403) {
-          set({ error: e.message })
-        } else {
-          // A network hiccup keeps the connection; the next poll tries again.
-          set({ error: messageOf(e) })
+      if (status !== 'connected' || !c || !user) return Promise.resolve()
+      if (refreshing) return refreshing
+      refreshing = (async () => {
+        try {
+          const state = await api.state(c)
+          // The connection this response was for may no longer be the current one (an org switch, or a
+          // sign-out, while the request was in flight) - applying it now would clobber whatever that
+          // switch already loaded with stale data from the organisation it just left.
+          const now = get().conn()
+          if (!now || now.url !== c.url || now.org !== c.org) return
+          set({ state, error: undefined })
+          useObserved.getState().set(state.topology.dependencies, state.topology.externalEndpoints, state.topology.paths, state.tombstones)
+          const raw = useRawTopology.getState()
+          useRawTopology.setState(mergeDiscovered(raw, state))
+          void useWorkspace.getState().poll()
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 401) {
+            // The session ended (expired, revoked, or the account was disabled).
+            await leave(false)
+            useObserved.getState().clear()
+            useHistoryView.getState().live()
+            set({ status: 'signin', user: undefined, orgs: [], orgId: undefined, role: undefined, state: undefined, error: 'Your session ended. Sign in again.' })
+          } else if (e instanceof ApiError && e.status === 404) {
+            // The organisation is gone, or the person was removed from it: find out where they still belong.
+            void get().reloadOrgs()
+          } else if (e instanceof ApiError && e.status === 403) {
+            set({ error: e.message })
+          } else {
+            // A network hiccup keeps the connection; the next poll tries again.
+            set({ error: messageOf(e) })
+          }
         }
-      }
+      })().finally(() => {
+        refreshing = undefined
+      })
+      return refreshing
     },
   }
 })

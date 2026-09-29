@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { deepEqual } from '@/lib/discovered'
 import type { EffectiveModel } from '@/lib/provenance'
 import type { Dependency, ExternalEndpoint, Path, Tombstone } from '@/lib/types'
 
@@ -31,7 +32,22 @@ export const useObserved = create<ObservedStore>((set) => ({
   tombstones: [],
   model: undefined,
   skewMs: 0,
-  set: (dependencies, externalEndpoints, paths = [], tombstones = []) => set({ dependencies, externalEndpoints, paths, tombstones }),
+  // A plain `set({ dependencies, ... })` here handed every poll's freshly-parsed JSON arrays straight
+  // through, even when their content was byte-for-byte the same as last time - state.generatedAt (and
+  // therefore this call) changes on the server's clock every poll regardless of whether anything observed
+  // actually changed (see hub.go). That fresh identity fed straight into useTopology's `liveDeps`/`liveExt`
+  // and, through usePaths(), into TopologyPage's `graph` memo - forcing a full canvas re-layout on every
+  // single poll tick, the exact bug class fixed elsewhere for local operators (TopologyPage.tsx) and the
+  // effective model (effectiveModel.ts). deepEqual (see lib/discovered.ts's own doc comment on it) hands
+  // back the *same* array a poll that changed nothing about that particular field, so a memo keyed on it
+  // only sees a new identity when something in it actually did change.
+  set: (dependencies, externalEndpoints, paths = [], tombstones = []) =>
+    set((s) => ({
+      dependencies: deepEqual(dependencies, s.dependencies) ? s.dependencies : dependencies,
+      externalEndpoints: deepEqual(externalEndpoints, s.externalEndpoints) ? s.externalEndpoints : externalEndpoints,
+      paths: deepEqual(paths, s.paths) ? s.paths : paths,
+      tombstones: deepEqual(tombstones, s.tombstones) ? s.tombstones : tombstones,
+    })),
   setModel: (model) => set({ model }),
   setSkew: (skewMs) => set({ skewMs }),
   clear: () => set({ dependencies: [], externalEndpoints: [], paths: [], tombstones: [], model: undefined }),

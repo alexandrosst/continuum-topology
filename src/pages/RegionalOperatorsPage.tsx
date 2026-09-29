@@ -126,6 +126,7 @@ export default function RegionalOperatorsPage() {
   const canConsent = conn() != null && canEdit()
   const telemetry = useTelemetryFlow()
 
+  const [operatorsLoaded, setOperatorsLoaded] = useState(false)
   const load = useCallback(async () => {
     const c = conn()
     if (!c || !admin) return
@@ -134,6 +135,8 @@ export default function RegionalOperatorsPage() {
       setError('')
     } catch (e) {
       setError(problem(e, 'Could not load the regional operators.'))
+    } finally {
+      setOperatorsLoaded(true)
     }
   }, [conn, admin])
   useEffect(() => {
@@ -159,14 +162,23 @@ export default function RegionalOperatorsPage() {
   // Whichever category actually has something in it wins by default (regional if both do, or neither -
   // today's behaviour, unchanged for anyone who only ever used regional operators); the URL is the source
   // of truth once a person has picked one, so switching tabs is bookmarkable/shareable like AgentsPage's
-  // own List/Map toggle.
+  // own List/Map toggle. `operators` starts empty and only becomes accurate once `load()`'s fetch resolves,
+  // so deciding this live off `operators.length` on every render used to mean the page could open on Local
+  // (nothing regional yet, by construction) and then silently swap the whole screen to Regional the instant
+  // the fetch came back, for anyone who actually has both - a jarring flash of the wrong tab, not a real
+  // choice. Deciding it once, in a ref, the first time the fetch has actually settled (loading or not) means
+  // it can only ever change once, right when there is finally something to base it on, never again after.
+  // "Adjusting state when a prop changes" (React's own documented pattern for this, not an effect - an
+  // effect would need an extra commit-then-rerun round trip for something that only ever needs to happen
+  // once, right when `operatorsLoaded` itself flips, which this can just as well catch inline during render).
+  const [autoCategory, setAutoCategory] = useState<Category | null>(null)
+  const [autoCategoryLoadSeen, setAutoCategoryLoadSeen] = useState(false)
+  if (operatorsLoaded !== autoCategoryLoadSeen) {
+    setAutoCategoryLoadSeen(operatorsLoaded)
+    if (operatorsLoaded && autoCategory === null) setAutoCategory(localRows.length > 0 && operators.length === 0 ? 'local' : 'regional')
+  }
   const requestedCategory = sp.get('cat')
-  const category: Category =
-    requestedCategory === 'local' || requestedCategory === 'regional'
-      ? requestedCategory
-      : localRows.length > 0 && operators.length === 0
-        ? 'local'
-        : 'regional'
+  const category: Category = requestedCategory === 'local' || requestedCategory === 'regional' ? requestedCategory : (autoCategory ?? 'regional')
   const setCategory = (c: Category) => setSp((p) => { const n = new URLSearchParams(p); n.set('cat', c); return n }, { replace: true })
 
   const act = async (f: () => Promise<void>, fallback: string) => {

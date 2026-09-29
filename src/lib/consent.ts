@@ -324,11 +324,11 @@ export function seedTelemetryFromInstalled(installed: string[]): TelemetryInput 
  * mirroring `helmUpgradeCommand`'s tier-widening shape exactly. Command-generation only, like that one:
  * nothing here is ever pushed live (see the panel that uses this).
  */
-export function telemetryUpgradeCommand(install: InstallInfo | undefined, t: TelemetryInput): string {
+export function telemetryUpgradeCommand(install: InstallInfo | undefined, t: TelemetryInput, measurementsOn?: boolean): string {
   const ref = install?.chartRef || `./${install?.chartFile || 'continuum-agent.tgz'}`
   const version = install?.chartRef && !install.chartRef.endsWith('.tgz') && install.chartVersion ? ` --version ${install.chartVersion}` : ''
   const base = `helm upgrade continuum-agent ${ref}${version} --namespace continuum-system --reuse-values`
-  return withTelemetry(base, t)
+  return withTelemetry(base, t, measurementsOn)
 }
 
 /* ---------- what an administrator may ask ---------- */

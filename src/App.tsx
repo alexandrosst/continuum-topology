@@ -24,7 +24,23 @@ const ServicesPage = lazy(() => import('@/pages/ServicesPage'))
 
 export default function App() {
   return (
-    <BrowserRouter>
+    // React Router v7 wraps every navigation - a <Link>/<NavLink> click, useNavigate(), useSearchParams()'s
+    // setter, all of it - in React.startTransition() unless told not to (BrowserRouter's own `useTransitions`
+    // prop, default true - see node_modules/react-router/dist/.../chunk-HQO5H5CC.js's BrowserRouter). A
+    // transition is *low priority*: Layout's server poll (useServerPolling, every 2-5s) dispatches a
+    // normal-priority store update on the same page, and a normal-priority update interrupts and restarts
+    // an in-progress low-priority one. On a heavy page like Topology, if a render triggered by navigation
+    // doesn't finish inside one poll window, the next poll interrupts it before it commits - and if that
+    // keeps happening, the navigation never gets an uninterrupted pass to complete. Nothing throws (a
+    // starved transition isn't an error) and nothing here reads useTransition()'s `isPending` to show it's
+    // stuck, so this is silent: the URL updates (history changes synchronously, outside React) but the page
+    // never repaints to match - indistinguishable from "broken" until a reload clears it. useSearchParams()
+    // goes through the exact same navigate() path, so Topology's own filters are just as exposed. Turning
+    // transitions off makes every navigation a normal-priority update like everything else in the app - the
+    // trade-off (no automatic "keep old content visible while the next page suspends" smoothing) is one
+    // this app already doesn't rely on: nothing reads isPending, and the one shared <Suspense> below already
+    // has an explicit fallback skeleton for a lazy page's first load.
+    <BrowserRouter useTransitions={false}>
       <Suspense fallback={<PageSkeleton />}>
         <Routes>
           <Route element={<Layout />}>

@@ -270,7 +270,12 @@ export default function GuidedWizard({
           <div className="space-y-3" data-testid={`${testIdPrefix}-guided-step-scope`}>
             <GuidedScope value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialDraft={initialScope} />
             <div className="flex items-center gap-2 pt-1">
-              <BackLink onClick={() => setStep('kind')} testId={`${testIdPrefix}-guided-back`} />
+              {/* Kind only ever renders with both a layer and a modality picked (see its own gate below) -
+                  arriving here straight from `initialScope` (a scope handed off from outside, e.g. the
+                  topology canvas) skips both, so there is no Kind screen to go back to yet. Falling back to
+                  Layer instead of unconditionally targeting 'kind' avoids landing on a blank step with no
+                  controls at all - the dead end this used to be. */}
+              <BackLink onClick={() => setStep(layer && modality ? 'kind' : 'layer')} testId={`${testIdPrefix}-guided-back`} />
               <Button variant="primary" className="ml-auto" onClick={() => setStep('review')} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
             </div>
           </div>
@@ -306,7 +311,9 @@ export default function GuidedWizard({
               </>
             )}
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              <BackLink onClick={() => setStep(scopeStepNeeded ? 'scope' : 'kind')} testId={`${testIdPrefix}-guided-back`} />
+              {/* Same reasoning as Scope's own Back button above: 'kind' only ever has something to show
+                  once a layer and a modality are both picked. */}
+              <BackLink onClick={() => setStep(scopeStepNeeded ? 'scope' : layer && modality ? 'kind' : 'layer')} testId={`${testIdPrefix}-guided-back`} />
               <Button onClick={addAnother} data-testid={`${testIdPrefix}-guided-add-another`}><Plus size={13} /> Add another</Button>
             </div>
           </div>

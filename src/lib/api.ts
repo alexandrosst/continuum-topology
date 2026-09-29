@@ -314,6 +314,15 @@ export interface Conn {
 /** Routes that are about the person or the server, not about one organisation. */
 const GLOBAL = /^\/api\/v1\/(auth\/|server$|orgs$|invites\/(preview|accept)$|mail$)/
 
+// No request in this file had a timeout: a stalled connection (a laptop sleep/wake, a proxy silently
+// dropping a long-lived keep-alive) left its fetch() promise pending forever - never resolving, never
+// rejecting - rather than failing loudly. For a one-off call that surfaces as a spinner that never stops;
+// for the server store's 2-5s poll (server.ts's refresh()) it silently froze the whole app's picture of the
+// world at whatever it last saw, with nothing to show for it but idle network waits (no error, no CPU cost -
+// exactly what makes it easy to miss). 30s is generous enough for a slow link or a large payload (the
+// effective model response is tens of KB) while still eventually giving up rather than waiting forever.
+const REQUEST_TIMEOUT_MS = 30_000
+
 export function scoped(c: Conn, path: string): string {
   if (GLOBAL.test(path) || path.startsWith('/api/v1/orgs/')) return path
   if (!c.org) throw new ApiError(0, 'No organisation is selected.')
@@ -332,6 +341,7 @@ async function call<T>(c: Conn, method: string, path: string, body?: unknown, he
         ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
   } catch {
     throw new ApiError(0, `Cannot reach the server at ${c.url || 'this address'}. Check the address and that it is running.`)
@@ -428,6 +438,7 @@ export const api = {
       res = await fetch(`${c.url.replace(/\/$/, '')}${scoped(c, '/api/v1/model')}`, {
         credentials: 'include',
         headers: { 'X-Requested-With': 'continuum-ui', ...(etag ? { 'If-None-Match': etag } : {}) },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
     } catch {
       throw new ApiError(0, `Cannot reach the server at ${c.url || 'this address'}. Check the address and that it is running.`)

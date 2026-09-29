@@ -405,8 +405,13 @@ export function TelemetryPanel({
   // signal explicitly on every call, so a blank draft would silently turn off everything the operator
   // didn't happen to re-check the moment they ran the generated command for an unrelated change.
   const [draft, setDraft] = useState<TelemetryInput>(() => seedTelemetryFromInstalled(installed))
-  const command = useMemo(() => telemetryUpgradeCommand(install, draft), [install, draft])
   const measurementsOn = measurementsRunning(d)
+  // Without measurementsOn, withTelemetry's own telemetryProblems check (see its doc comment) can never see
+  // the one validation rule that depends on it - a network-latency signal with measurements off - so the
+  // generated command used to build as if that problem didn't exist, silently disagreeing with the
+  // role="alert" warning TelemetryFields (right above, given the same measurementsOn) already shows for
+  // exactly that case.
+  const command = useMemo(() => telemetryUpgradeCommand(install, draft, measurementsOn), [install, draft, measurementsOn])
 
   const form = (
     <>

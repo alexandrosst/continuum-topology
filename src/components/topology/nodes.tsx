@@ -120,6 +120,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
                 data-testid="local-telemetry-badge"
                 data-local-telemetry-cluster={data.entityId}
                 title={`Local telemetry running: ${data.localTelemetry.layers.join(', ') || 'signals active'}. Click to configure.`}
+                aria-label={`Local telemetry running: ${data.localTelemetry.layers.join(', ') || 'signals active'}. Click to configure.`}
                 className="grid size-5 shrink-0 place-items-center rounded-full bg-accent-soft text-accent transition-colors hover:bg-accent/20"
               >
                 <Antenna size={11} />
