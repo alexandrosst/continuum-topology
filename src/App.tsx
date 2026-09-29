@@ -2,25 +2,27 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from '@/components/Layout'
 import { PageSkeleton } from '@/components/ui/primitives'
+import { routeLoaders } from '@/lib/routeLoaders'
 
-// Pages load on demand: the map, wizard and tables are big and most visits
-// touch only one or two of them.
-const AgentsPage = lazy(() => import('@/pages/AgentsPage'))
-const RegionalOperatorsPage = lazy(() => import('@/pages/RegionalOperatorsPage'))
-const ActivityPage = lazy(() => import('@/pages/ActivityPage'))
-const ApplicationsPage = lazy(() => import('@/pages/ApplicationsPage'))
-const ClustersPage = lazy(() => import('@/pages/ClustersPage'))
-const DevicesPage = lazy(() => import('@/pages/DevicesPage'))
-const DiscoveryPage = lazy(() => import('@/pages/DiscoveryPage'))
-const HistoryPage = lazy(() => import('@/pages/HistoryPage'))
-const NamespacesPage = lazy(() => import('@/pages/NamespacesPage'))
-const NodesPage = lazy(() => import('@/pages/NodesPage'))
-const PlacementPage = lazy(() => import('@/pages/PlacementPage'))
-const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
-const SitesPage = lazy(() => import('@/pages/SitesPage'))
-const TopologyPage = lazy(() => import('@/pages/TopologyPage'))
-const TeamPage = lazy(() => import('@/pages/TeamPage'))
-const ServicesPage = lazy(() => import('@/pages/ServicesPage'))
+// Pages load on demand: the map, wizard and tables are big and most visits touch only one or two of them.
+// Built from routeLoaders (not `lazy(() => import(...))` inlined here) so Layout's nav can reuse the exact
+// same loader to prefetch a page's chunk on hover/focus - see routeLoaders.ts for why.
+const AgentsPage = lazy(routeLoaders['/agents'])
+const RegionalOperatorsPage = lazy(routeLoaders['/operators'])
+const ActivityPage = lazy(routeLoaders['/activity'])
+const ApplicationsPage = lazy(routeLoaders['/applications'])
+const ClustersPage = lazy(routeLoaders['/clusters'])
+const DevicesPage = lazy(routeLoaders['/devices'])
+const DiscoveryPage = lazy(routeLoaders['/discovery'])
+const HistoryPage = lazy(routeLoaders['/history'])
+const NamespacesPage = lazy(routeLoaders['/namespaces'])
+const NodesPage = lazy(routeLoaders['/nodes'])
+const PlacementPage = lazy(routeLoaders['/placement'])
+const SettingsPage = lazy(routeLoaders['/settings'])
+const SitesPage = lazy(routeLoaders['/sites'])
+const TopologyPage = lazy(routeLoaders['/topology'])
+const TeamPage = lazy(routeLoaders['/team'])
+const ServicesPage = lazy(routeLoaders['/services'])
 
 export default function App() {
   return (

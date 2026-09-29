@@ -11,6 +11,7 @@ import ErrorBoundary from '@/components/ErrorBoundary'
 import HistoryBanner from '@/components/HistoryBanner'
 import KeyboardShortcutsModal from '@/components/KeyboardShortcutsModal'
 import SampleBanner from '@/components/SampleBanner'
+import { prefetchRoute } from '@/lib/routeLoaders'
 import { resumeServer, useServer } from '@/store/server'
 import { useRawTopology } from '@/store/topology'
 
@@ -63,6 +64,8 @@ function NavItem({ to, label, icon: Icon, badge, slid }: NavEntry & { badge?: nu
     <NavLink
       to={to}
       data-nav-to={slid ? to : undefined}
+      onMouseEnter={() => prefetchRoute(to)}
+      onFocus={() => prefetchRoute(to)}
       className={({ isActive }) =>
         clsx(
           'group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
