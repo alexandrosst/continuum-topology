@@ -50,9 +50,9 @@ function PickCard({ label, hint, selected, onClick, testId }: { label: string; h
  * The navigable guided path into telemetry configuration: target is resolved before this ever mounts (see
  * TelemetryWizard.tsx's own `pick` phase, or a scope handed off from the topology canvas), so this only
  * ever walks layer -> modality -> kind -> scope (only when something picked needs one) -> review, one
- * screen at a time with Back/Next - unlike GuidedScope's older single continuously-scrolling form (still
- * used here for its scope-drafting step, via `hideSignalPicker`, rather than a second, driftable copy of
- * that logic). "Add another", offered once a kind has been picked, loops back to layer so a person can
+ * screen at a time with Back/Next - reusing GuidedScope for its scope-drafting step alone (its old
+ * standalone signal-picker path is gone; this is its only caller now) rather than a second, driftable copy
+ * of that logic. "Add another", offered once a kind has been picked, loops back to layer so a person can
  * build up e.g. infrastructure metrics + application logs + traces in one guided session, all accumulating
  * into the same TelemetryInput draft (every checkbox here writes straight into `value`, exactly like the
  * flat grid does - there is nothing to "commit", so leaving mid-flow never loses a change already made).
