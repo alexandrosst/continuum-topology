@@ -40,7 +40,12 @@ async function goToTopologyCanvas(page: Page) {
  *  actually matters for this bug class. */
 async function boxSelectDrag(page: Page) {
   const pane = page.locator('.react-flow__pane').first()
-  const box = await pane.boundingBox()
+  // Guarded, same as every locator action below that can legitimately find nothing right now (the view
+  // could be on Map, which has no .react-flow__pane at all) - an unguarded boundingBox() on a locator
+  // matching zero elements waits with no timeout of its own and would otherwise hang until the whole
+  // test's timeout kills it, which reads as a false "the page closed mid-sequence" failure rather than the
+  // harmless "nothing to select right now" it actually is.
+  const box = await pane.boundingBox({ timeout: 2000 }).catch(() => null)
   if (!box) return
   const start = { x: box.x + box.width * 0.15, y: box.y + box.height * 0.15 }
   const end = { x: box.x + box.width * 0.7, y: box.y + box.height * 0.7 }
@@ -58,7 +63,7 @@ async function boxSelectDrag(page: Page) {
  *  flag rather than only its transient click-driven version of it. */
 async function dragFirstNode(page: Page) {
   const node = page.locator('.react-flow__node').first()
-  const box = await node.boundingBox()
+  const box = await node.boundingBox({ timeout: 2000 }).catch(() => null) // see boxSelectDrag's own comment
   if (!box) return
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -82,7 +87,7 @@ async function shiftSelectChurn(page: Page) {
   const nodes = page.locator('.react-flow__node')
   const count = await nodes.count()
   const pane = page.locator('.react-flow__pane').first()
-  const paneBox = await pane.boundingBox()
+  const paneBox = await pane.boundingBox({ timeout: 2000 }).catch(() => null) // see boxSelectDrag's own comment
   if (count < 2 || !paneBox) return
   for (let round = 0; round < 6; round++) {
     for (let i = 0; i < Math.min(3, count); i++) {
@@ -112,6 +117,11 @@ async function viewToggleWhileClicking(page: Page) {
     await page.waitForTimeout(10)
   }
   await page.keyboard.press('Escape').catch(() => {})
+  // tabNames has 3 entries and this loop always runs 6 rounds, so it deterministically ends on 'Map' - leaving
+  // it there would make every subsequent call to shiftSelectChurn (the reps loop below interleaves the two)
+  // find zero React Flow nodes/pane and become a no-op, quietly losing most of this test's own repeat
+  // coverage. Switch back to Application before returning so each rep genuinely repeats the same interaction.
+  await page.getByRole('tab', { name: /^Application$/i }).first().click({ force: true, timeout: 800 }).catch(() => {})
 }
 
 test.describe('topology canvas', () => {
