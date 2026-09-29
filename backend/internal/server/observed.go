@@ -312,9 +312,21 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		// into one topology node. A Shared match (a CDN edge fronting many unrelated origins) never
 		// changes the id: two different sites sitting behind the same edge are not the same thing just
 		// because they share it, so each keeps its own per-(ip,port) identity as it does today.
-		match, matched := netid.Match{}, false
+		match, matched, resolvedHost := netid.Match{}, false, ""
 		if addr, err := netip.ParseAddr(ip); err == nil {
 			match, matched = netid.Lookup(addr)
+			if !matched {
+				// No static range covers this address (most of the internet doesn't, by design - see
+				// netid's own doc). Fall back to a cached reverse-DNS lookup: this never blocks the
+				// caller (a cache miss just starts a background resolution and returns not-yet-known),
+				// so a first sighting of a new IP shows up unlabeled and picks up its label on a later
+				// poll once the lookup lands - the same eventually-consistent pattern this app already
+				// uses everywhere else for poll-derived data.
+				if host, ok := netid.ResolveCached(ip); ok {
+					resolvedHost = host
+					match, matched = netid.MatchHost(host)
+				}
+			}
 			if matched && !match.Shared {
 				// Port stays part of the identity even for a known match: several IPs that are all
 				// "github.com" collapse into one node per port, so git-over-SSH (22) and the HTTPS API
@@ -338,6 +350,16 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 				ID:         id, Host: ip, Port: int(port), Kind: kind, Service: svc, Name: name,
 			}
 			switch {
+			case matched && resolvedHost != "":
+				// Reverse DNS, not a hand-curated range: still useful (a label beats a bare IP), but a
+				// resolver's answer is inherently a notch less certain than a range the provider
+				// themselves published, so this is marked medium rather than high confidence, and the
+				// resolved hostname is kept in Detail as the evidence for that judgment.
+				e.Evidence = map[string]model.Evidence{"identity": {
+					Signal:     "reverse DNS resolved to " + resolvedHost + ", matching known provider: " + match.Name,
+					Confidence: "medium",
+					Detail:     match.Detail,
+				}}
 			case matched:
 				ev := model.Evidence{Signal: "matched a known public range: " + match.Name, Confidence: "high"}
 				if match.Detail != "" {

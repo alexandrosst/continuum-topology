@@ -14,7 +14,10 @@
 // GitHub and GitLab already are here) follows the same shape as everything above.
 package netid
 
-import "net/netip"
+import (
+	"net/netip"
+	"strings"
+)
 
 // Match is a known public identity for an IP address.
 type Match struct {
@@ -101,6 +104,47 @@ var entries = []struct {
 	// fetched 2026-09-29).
 	{netip.MustParsePrefix("8.8.8.8/32"), googleDNS},
 	{netip.MustParsePrefix("8.8.4.4/32"), googleDNS},
+}
+
+// hostSuffixes is a second, separate small table - keyed by reverse-DNS hostname suffix instead of IP
+// prefix - for the major hyperscaler/CDN zones this package's own doc above explains are deliberately left
+// out of entries: their address ranges are enormous and change often, so hardcoding them would mean either
+// a large, constantly-stale dataset or a match so broad it stops meaning anything. A hostname suffix sidesteps
+// that problem entirely - it's the provider's own DNS namespace doing the identifying, not a guess at their
+// current address ranges - which is exactly what ResolveCached's reverse-DNS lookup is for. Every entry here
+// is Shared: true, for the same reason Cloudflare's entry above is: none of these zones front one single
+// logical destination. A resolved hostname matching one of these tells a viewer who operates the address
+// (worth a label, so a raw dotted-quad doesn't sit unexplained in the topology) without claiming that two
+// different addresses in the same zone are necessarily the same dependency - the same category Cloudflare
+// already occupies above, just discovered via DNS instead of a hand-copied range list.
+var hostSuffixes = []struct {
+	suffix string
+	match  Match
+}{
+	{"1e100.net", Match{Name: "Google", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to a Google front-end address. Google's edge serves many unrelated products from the same pool, so this isn't necessarily the same destination as another address also labeled Google."}},
+	{"googleusercontent.com", Match{Name: "Google", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to Google-hosted content infrastructure, shared across many unrelated Google products and customer projects."}},
+	{"amazonaws.com", Match{Name: "AWS", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to AWS-owned infrastructure, shared across millions of unrelated AWS customers - this labels who hosts the address, not which service or tenant."}},
+	{"cloudfront.net", Match{Name: "Amazon CloudFront", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to an Amazon CloudFront edge address, which fronts many unrelated origins."}},
+	{"akamaiedge.net", Match{Name: "Akamai", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to an Akamai edge address, which fronts many unrelated origins."}},
+	{"akamaitechnologies.com", Match{Name: "Akamai", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to Akamai-owned infrastructure, which fronts many unrelated origins."}},
+	{"fastly.net", Match{Name: "Fastly", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to a Fastly edge address, which fronts many unrelated origins."}},
+	{"azureedge.net", Match{Name: "Azure", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to an Azure CDN edge address, which fronts many unrelated origins."}},
+	{"cloudapp.azure.com", Match{Name: "Azure", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to Azure-owned infrastructure, shared across many unrelated Azure customers."}},
+	{"githubusercontent.com", Match{Name: "GitHub", Kind: "saas", Shared: true, Detail: "Resolved via reverse DNS to GitHub's content/asset delivery infrastructure, distinct from GitHub's own AS range matched above."}},
+}
+
+// MatchHost reports the known identity of a resolved reverse-DNS hostname by suffix, the DNS-based
+// counterpart to Lookup's IP-prefix table. False means no bundled suffix matches, not that the hostname is
+// unrecognized by the internet at large - see hostSuffixes' own comment for why this table is small and
+// Shared-only on purpose.
+func MatchHost(host string) (Match, bool) {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	for _, e := range hostSuffixes {
+		if host == e.suffix || strings.HasSuffix(host, "."+e.suffix) {
+			return e.match, true
+		}
+	}
+	return Match{}, false
 }
 
 // Lookup reports the known identity of ip, if any bundled range contains it - the longest matching

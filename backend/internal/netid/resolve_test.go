@@ -1,0 +1,127 @@
+package netid
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestResolveCachedReturnsAnswerOnceBackgroundLookupCompletes(t *testing.T) {
+	defer SetLookupAddrForTest(func(ctx context.Context, ip string) ([]string, error) {
+		return []string{"lax17s79-in-f14.1e100.net."}, nil
+	})()
+
+	host, ok := ResolveCached("192.178.194.101")
+	if ok {
+		t.Fatalf("first call before the background lookup can possibly finish should not have an answer yet, got %q", host)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if host, ok = ResolveCached("192.178.194.101"); ok {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !ok || host != "lax17s79-in-f14.1e100.net" {
+		t.Fatalf("ResolveCached = %q, %v, want the resolved (trailing-dot-trimmed) hostname once the background lookup lands", host, ok)
+	}
+}
+
+func TestResolveCachedNeverBlocksOnASlowLookup(t *testing.T) {
+	release := make(chan struct{})
+	defer SetLookupAddrForTest(func(ctx context.Context, ip string) ([]string, error) {
+		<-release // only unblocks when this test says so
+		return []string{"slow.example.com."}, nil
+	})()
+	defer close(release)
+
+	done := make(chan struct{})
+	go func() {
+		ResolveCached("203.0.113.9")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("ResolveCached blocked on a lookup that hadn't returned yet - it must return immediately on a cache miss")
+	}
+}
+
+func TestResolveCachedCachesAFailedLookupNegatively(t *testing.T) {
+	var calls int32
+	defer SetLookupAddrForTest(func(ctx context.Context, ip string) ([]string, error) {
+		atomic.AddInt32(&calls, 1)
+		return nil, errors.New("no PTR record")
+	})()
+
+	if _, ok := ResolveCached("198.51.100.7"); ok {
+		t.Fatal("a fresh miss must not report ok=true before the background lookup has even run")
+	}
+	// A negative result also reports ok=false, same as "not resolved yet" - so completion can't be detected
+	// by polling the return value here. The stub resolves instantly; give its goroutine a moment to run.
+	time.Sleep(100 * time.Millisecond)
+
+	for i := 0; i < 5; i++ {
+		if _, ok := ResolveCached("198.51.100.7"); ok {
+			t.Fatalf("call %d: a negatively-cached IP must keep reporting ok=false", i)
+		}
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("lookupAddr called %d times, want exactly 1 - a failed lookup should be cached, not retried on every call", got)
+	}
+}
+
+func TestResolveCachedDedupesConcurrentLookupsForTheSameIP(t *testing.T) {
+	var calls int32
+	defer SetLookupAddrForTest(func(ctx context.Context, ip string) ([]string, error) {
+		atomic.AddInt32(&calls, 1)
+		time.Sleep(30 * time.Millisecond)
+		return []string{"shared.example.com."}, nil
+	})()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ResolveCached("192.0.2.55")
+		}()
+	}
+	wg.Wait()
+	time.Sleep(100 * time.Millisecond)
+
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("lookupAddr called %d times for 20 concurrent callers of the same IP, want exactly 1 (deduped)", got)
+	}
+}
+
+func TestMatchHostSuffixMatching(t *testing.T) {
+	cases := []struct {
+		host string
+		want string
+		ok   bool
+	}{
+		{"lax17s79-in-f14.1e100.net", "Google", true},
+		{"LAX17S79-IN-F14.1E100.NET.", "Google", true}, // case-insensitive, trailing dot trimmed
+		{"1e100.net", "Google", true},                  // the bare zone apex itself also matches
+		{"notreally1e100.net", "", false},               // must match on a label boundary, not a raw substring
+		{"ec2-1-2-3-4.compute-1.amazonaws.com", "AWS", true},
+		{"d111111abcdef8.cloudfront.net", "Amazon CloudFront", true},
+		{"raw-cdn-13.githubusercontent.com", "GitHub", true},
+		{"api.github.com", "", false}, // covered by Lookup's CIDR table instead, not this suffix table
+		{"example.com", "", false},
+	}
+	for _, c := range cases {
+		m, ok := MatchHost(c.host)
+		if ok != c.ok || (ok && m.Name != c.want) {
+			t.Errorf("MatchHost(%q) = %+v, %v; want Name=%q, ok=%v", c.host, m, ok, c.want, c.ok)
+		}
+		if ok && !m.Shared {
+			t.Errorf("MatchHost(%q) matched %q but Shared=false - every hostSuffixes entry must be Shared (see its own doc comment)", c.host, m.Name)
+		}
+	}
+}
