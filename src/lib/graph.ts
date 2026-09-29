@@ -1000,6 +1000,39 @@ export function selectedServiceIds(nodes: TopoNode[], selectedIds: string[]): st
   return nodes.filter((n) => ids.has(n.id) && n.data.kind === 'service').map((n) => n.data.entityId)
 }
 
+/** Folds a freshly computed layout (`next`, e.g. from a poll refresh or a toggled view option) onto
+ * whatever React Flow currently has on screen (`prev`), instead of just returning `next` outright - this
+ * is what lets `TopologyPage.tsx`'s node-resync effect run on every poll without fighting a manual drag or
+ * resetting a node's position on every unrelated refresh. Three rules, in order of how much they cost to
+ * get wrong:
+ *  1. A node React Flow is actively mid-gesture with (its own `dragging` flag, set by `onNodesChange` for
+ *     as long as the pointer is down) is returned completely untouched - not just position-preserved. React
+ *     Flow's own drag tracking keys off the node *object* it started the gesture with; handing it a brand
+ *     new object for that same id mid-drag (even one with an identical x/y) can desync that internal
+ *     tracking, which is a very plausible way for a long drag - and this page polls every 2-5s - to leave
+ *     the canvas, or the whole page, unresponsive to clicks until a reload. Every other node still resyncs
+ *     normally; only the one actually being dragged is left alone until it's dropped.
+ *  2. Otherwise, a node's on-screen position is kept as-is (not overwritten by the newly computed layout)
+ *     as long as it still has the same parent - React Flow positions are parent-relative (or
+ *     canvas-relative with no parent), so a stale position only still means what it used to while the
+ *     parent hasn't changed. This is what lets a manual drag "stick" across the next poll instead of
+ *     snapping back to `buildGraph`'s computed position.
+ *  3. A changed parent (e.g. toggling namespace sub-boxes re-parents every card in a cluster from the
+ *     cluster box straight to a namespace box without changing the card's id) always takes the freshly
+ *     computed position - an old, differently-relative position would otherwise land the card in the wrong
+ *     spot, often overlapping another card, until something forced a fresh layout.
+ * `selectedRfId` just threads through the single-click Inspector highlight so callers don't need a second
+ * pass over the result to re-apply it. */
+export function resyncNodes(prev: TopoNode[], next: TopoNode[], selectedRfId: string | null): TopoNode[] {
+  const prevById = new Map(prev.map((n) => [n.id, n]))
+  return next.map((n) => {
+    const old = prevById.get(n.id)
+    if (old?.dragging) return old
+    const keepOldPosition = old && old.parentId === n.parentId
+    return { ...n, position: keepOldPosition ? old.position : n.position, selected: n.id === selectedRfId }
+  })
+}
+
 function makeEdge(
   id: string,
   source: string,

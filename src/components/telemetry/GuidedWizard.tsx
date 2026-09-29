@@ -80,10 +80,20 @@ export default function GuidedWizard({
   const needsScope = APP_SCOPED.some((k) => value[k])
   // If the only application-scoped signal gets unchecked while the scope step is showing, there is nothing
   // left to scope - derived at render time (not an effect) so it never needs a second render to catch up:
-  // the "Define scope" screen simply never has a moment where it shows with nothing left to attach.
+  // the "Define scope" screen simply never has a moment where it shows with nothing left to attach. (In
+  // practice GuidedScope offers no control that can toggle a signal while it's the one mounted, so this is
+  // a safety net rather than a path a person can actually trigger today.)
   const step: Step = rawStep === 'scope' && !needsScope ? 'review' : rawStep
 
-  const stepKeys: Step[] = needsScope ? ['layer', 'modality', 'kind', 'scope', 'review'] : ['layer', 'modality', 'kind', 'review']
+  // Whether the rail shows 4 steps or 5 is latched at each actual step transition (see finishKind below),
+  // not derived from `value` on every render like `needsScope` above: reading it live here would reflow
+  // the step rail under the user's cursor the instant they ticked an application-scoped checkbox on the
+  // Kind step, before they had asked to move on anywhere. Seeded from `needsScope` at mount so a value
+  // that already has scoped signals on (editing an existing install, or a scope handed off from outside)
+  // starts the rail showing the right step count from the first paint.
+  const [scopeStepNeeded, setScopeStepNeeded] = useState<boolean>(needsScope)
+
+  const stepKeys: Step[] = scopeStepNeeded ? ['layer', 'modality', 'kind', 'scope', 'review'] : ['layer', 'modality', 'kind', 'review']
   const stepLabels: Record<Step, string> = { layer: 'Layer', modality: 'Modality', kind: 'Kind', scope: 'Scope', review: 'Review' }
   const currentIndex = Math.max(0, stepKeys.indexOf(step))
 
@@ -105,7 +115,10 @@ export default function GuidedWizard({
     setModality(undefined)
     setStep('layer')
   }
-  const finishKind = () => setStep(needsScope ? 'scope' : 'review')
+  const finishKind = () => {
+    setScopeStepNeeded(needsScope)
+    setStep(needsScope ? 'scope' : 'review')
+  }
 
   return (
     <div className="space-y-4">
@@ -156,7 +169,7 @@ export default function GuidedWizard({
 
       {step === 'scope' && (
         <div className="space-y-3" data-testid={`${testIdPrefix}-guided-step-scope`}>
-          <GuidedScope value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialDraft={initialScope} hideSignalPicker />
+          <GuidedScope value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialDraft={initialScope} />
           <div className="flex items-center gap-2 pt-1">
             <Button onClick={() => setStep('kind')} data-testid={`${testIdPrefix}-guided-back`}>Back</Button>
             <Button variant="primary" className="ml-auto" onClick={() => setStep('review')} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
@@ -182,7 +195,7 @@ export default function GuidedWizard({
             </>
           )}
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <Button onClick={() => setStep(needsScope ? 'scope' : 'kind')} data-testid={`${testIdPrefix}-guided-back`}>Back</Button>
+            <Button onClick={() => setStep(scopeStepNeeded ? 'scope' : 'kind')} data-testid={`${testIdPrefix}-guided-back`}>Back</Button>
             <Button onClick={addAnother} data-testid={`${testIdPrefix}-guided-add-another`}>+ Add another layer/modality</Button>
           </div>
         </div>

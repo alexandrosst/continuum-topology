@@ -14,7 +14,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { buildGraph, cardId, groupId, pickSides, selectedServiceIds } from '../src/lib/graph'
+import { buildGraph, cardId, groupId, pickSides, resyncNodes, selectedServiceIds } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type RegionalOperator, type Service, type Suggestion } from '../src/lib/types'
@@ -1288,6 +1288,37 @@ test('regional operators: a group box + real arrows from each source cluster app
   const tierEdges = byTier.edges.filter((e) => e.target === groupId('op:op-1'))
   assert.equal(tierEdges.length, 1, 'both sources are in the far-edge tier, so just one arrow from that box')
   assert.equal(tierEdges[0].source, groupId('far-edge'))
+})
+
+test('resyncNodes: a node mid-drag is left untouched, others keep position until re-parented', () => {
+  const node = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, type: 'card', position: { x: 0, y: 0 }, parentId: 'g:cl-a', data: {}, ...overrides }) as unknown as ReturnType<typeof buildGraph>['nodes'][number]
+
+  // A node React Flow is actively dragging keeps its exact object (not just its position) - simulated here
+  // with a freshly-dragged position (10, 20) and a freshly computed one elsewhere (99, 99): if the guard
+  // were merging instead of skipping, the assertions below on identity and on the untouched position would
+  // both fail.
+  const dragging = node('c:svc-a', { position: { x: 10, y: 20 }, dragging: true })
+  const next = [node('c:svc-a', { position: { x: 99, y: 99 } })]
+  const out = resyncNodes([dragging], next, null)
+  assert.equal(out[0], dragging, 'the dragging node object itself is returned, not a copy')
+  assert.deepEqual(out[0].position, { x: 10, y: 20 }, 'its in-progress drag position is not overwritten')
+
+  // A node that isn't being dragged keeps its on-screen position across a poll as long as its parent is
+  // unchanged - this is what lets a completed manual drag "stick" instead of snapping back on the next poll.
+  const settled = node('c:svc-b', { position: { x: 5, y: 5 } })
+  const samePlaceholder = resyncNodes([settled], [node('c:svc-b', { position: { x: 50, y: 50 } })], null)
+  assert.deepEqual(samePlaceholder[0].position, { x: 5, y: 5 }, 'position sticks when the parent is unchanged')
+
+  // A changed parent (e.g. toggling namespace sub-boxes) always takes the freshly computed position - an
+  // old, differently-relative position would otherwise land the card in the wrong spot.
+  const reparented = resyncNodes([settled], [node('c:svc-b', { position: { x: 50, y: 50 }, parentId: 'g:ns-x' })], null)
+  assert.deepEqual(reparented[0].position, { x: 50, y: 50 }, 'a new parent always takes the fresh position')
+
+  // selectedRfId is applied to the result regardless of which branch a node took above.
+  const sel = resyncNodes([dragging, settled], [node('c:svc-a', { position: { x: 99, y: 99 } }), node('c:svc-b', { position: { x: 50, y: 50 } })], 'c:svc-b')
+  assert.equal(sel.find((n) => n.id === 'c:svc-b')!.selected, true)
+  assert.equal(sel.find((n) => n.id === 'c:svc-a')!.selected, undefined, 'the dragging node is returned as-is, selected flag included')
 })
 
 test('mesh: anyMesh looks at live clusters only, and the saved-view URL keeps the option', () => {

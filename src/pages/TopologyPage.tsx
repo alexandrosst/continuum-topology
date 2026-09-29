@@ -32,7 +32,7 @@ import FilterMenu from '@/components/topology/FilterMenu'
 import { api } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { applyFilter, encodeList, filterActive, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
-import { buildGraph, cardId, groupId, selectedServiceIds, type TopoEdge, type TopoNode } from '@/lib/graph'
+import { buildGraph, cardId, groupId, resyncNodes, selectedServiceIds, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
@@ -261,25 +261,12 @@ function Canvas() {
   // straight to a namespace box without changing the card's id, and its old, cluster-relative position
   // would otherwise land it in the wrong spot (often overlapping another card) inside the new, smaller
   // namespace box until something else - like leaving the page and coming back - forced a fresh layout.
+  // See `resyncNodes` (graph.ts) for why this merges instead of replacing outright - in short, a node
+  // React Flow is actively dragging must come back untouched, or a poll landing mid-gesture (this page
+  // polls every 2-5s) can desync React Flow's own drag tracking and leave the canvas unresponsive until a
+  // reload; every other node keeps its on-screen position across polls unless its parent actually changed.
   useEffect(() => {
-    setNodes((prev) => {
-      const prevById = new Map(prev.map((n) => [n.id, n]))
-      return graph.nodes.map((n) => {
-        const old = prevById.get(n.id)
-        // A poll landing mid-gesture must never touch the node React Flow is actively dragging right now
-        // (its own `dragging` flag, set by `onNodesChange` for as long as the pointer is down) - this
-        // effect's whole job is to fold in *upstream* changes (a refreshed poll, a toggled view option),
-        // and a node's own live drag is a much faster, purely-local interaction that already owns its
-        // position for the moment. Handing React Flow a brand new object for the node it is mid-gesture
-        // with, every few seconds, races whatever its own drag handling is doing with that same node -
-        // a very plausible way for a long trackpad drag (this page polls every 2-5s) to leave the canvas,
-        // or even clicks elsewhere on the page, not responding until a reload. Every other node still
-        // resyncs normally; only the one actively being dragged is left alone until it's dropped.
-        if (old?.dragging) return old
-        const keepOldPosition = old && old.parentId === n.parentId
-        return { ...n, position: keepOldPosition ? old.position : n.position, selected: n.id === selectedRfId }
-      })
-    })
+    setNodes((prev) => resyncNodes(prev, graph.nodes, selectedRfId))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, setNodes])
   useEffect(() => {

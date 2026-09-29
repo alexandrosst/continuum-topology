@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import { Button, Field, Input, TagsInput } from '@/components/ui/primitives'
-import { TELEMETRY_SIGNALS } from '@/lib/consent'
 import { emptyScopeOverride, scopeOverlap, type ScopeOverrideInput, type TelemetryInput } from '@/lib/install'
-import { AcceleratorsFields, EnergyFields, SignalRow, type SignalId } from './TelemetryFields'
 
 const APP_SCOPED_KINDS = ['applicationMetrics', 'applicationLogs', 'traces'] as const
 type AppScopedKind = (typeof APP_SCOPED_KINDS)[number]
@@ -66,20 +64,20 @@ function seedAttach(value: TelemetryInput, drafts: Draft[]): Record<AppScopedKin
 }
 
 /**
- * The guided entry path into telemetry configuration (see TelemetryFields.tsx, which renders this instead
- * of its own flat grid once "Guided setup" is picked): pick signals first, then - only once at least one
- * application-scoped signal is on - define one or more named scopes and attach each such signal to one.
- * A draft scope is pure in-memory wizard state, not a new persisted concept: attaching just copies its
- * {namespaces, exclude} into that signal's existing per-kind override field, exactly as if it had been
+ * The scope-drafting step of the navigable guided wizard (see GuidedWizard.tsx, the only caller): once at
+ * least one application-scoped signal is on, define one or more named scopes and attach each such signal
+ * to one. A draft scope is pure in-memory wizard state, not a new persisted concept: attaching just copies
+ * its {namespaces, exclude} into that signal's existing per-kind override field, exactly as if it had been
  * typed there directly (see ScopeOverrideInput in install.ts). Two signals attached to the same draft simply
  * end up with equal values; editing the draft afterward re-copies to every signal still attached to it.
+ * Signal selection itself (which of `value`'s kinds are even on) is entirely GuidedWizard's own Layer/
+ * Modality/Kind steps - this component only ever sees the result of that, never a picker of its own.
  */
 export default function GuidedScope({
   value,
   onChange,
   testIdPrefix,
   initialDraft,
-  hideSignalPicker,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
@@ -89,15 +87,8 @@ export default function GuidedScope({
    * Deliberately only adds a draft, never auto-attaches it to a signal: attaching stays the person's own
    * explicit step, exactly as it already is for a hand-built draft. */
   initialDraft?: { name: string; namespaces: string[] }
-  /** True when the caller already has its own "which signals" step (the navigable guided wizard's own
-   *  Layer/Modality/Kind steps - see GuidedWizard.tsx) - skips this component's own "Step 1 · Pick signals"
-   *  fieldset and the energy/accelerator source pickers, which that caller renders itself, and leaves just
-   *  the scope drafting + attaching this component actually owns. */
-  hideSignalPicker?: boolean
 }) {
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
-  const infra = TELEMETRY_SIGNALS.filter((s) => s.layer === 'infrastructure')
-  const app = TELEMETRY_SIGNALS.filter((s) => s.layer === 'application')
 
   const [drafts, setDrafts] = useState<Draft[]>(() => {
     const seeded = seedDrafts(value)
@@ -183,32 +174,9 @@ export default function GuidedScope({
 
   return (
     <div className="space-y-5">
-      {!hideSignalPicker && (
-        <div className="space-y-2.5">
-          <p className="text-xs font-medium uppercase tracking-wide text-nb-500">Step 1 · Pick signals</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <fieldset className="space-y-2.5">
-              <legend className="mb-0.5 text-xs font-medium uppercase tracking-wide text-nb-600">Infrastructure</legend>
-              {infra.map((s) => (
-                <SignalRow key={s.id} signal={s} checked={value[s.id as SignalId]} onChange={(v) => set(s.id as SignalId, v)} testIdPrefix={testIdPrefix} />
-              ))}
-            </fieldset>
-            <fieldset className="space-y-2.5">
-              <legend className="mb-0.5 text-xs font-medium uppercase tracking-wide text-nb-600">Application</legend>
-              {app.map((s) => (
-                <SignalRow key={s.id} signal={s} checked={value[s.id as SignalId]} onChange={(v) => set(s.id as SignalId, v)} testIdPrefix={testIdPrefix} />
-              ))}
-            </fieldset>
-          </div>
-        </div>
-      )}
-
-      {!hideSignalPicker && value.energy && <EnergyFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
-      {!hideSignalPicker && value.accelerators && <AcceleratorsFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
-
       {needsScope && (
         <div className="space-y-2.5 border-t border-nb-850 pt-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-nb-500">Step 2 · Define scope</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-nb-500">Define scope</p>
           <p className="text-xs text-nb-500">
             Give one or more namespace scopes a name, then attach each application-scoped signal below to one - or leave it on the install's own global scope.
           </p>
@@ -263,7 +231,7 @@ export default function GuidedScope({
             </Button>
           </div>
 
-          <p className="pt-1 text-xs font-medium uppercase tracking-wide text-nb-500">Step 3 · Attach</p>
+          <p className="pt-1 text-xs font-medium uppercase tracking-wide text-nb-500">Attach</p>
           <div className="space-y-3">
             {enabledKinds.map((kind) => {
               const choice = attach[kind] ?? 'global'

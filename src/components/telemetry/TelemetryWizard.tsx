@@ -73,7 +73,11 @@ export default function TelemetryWizard({
         showPicker ? (
           <Button onClick={onClose}>Cancel</Button>
         ) : (
-          <Button variant="primary" onClick={onClose} data-testid="telemetry-wizard-done">Done</Button>
+          // Secondary, not primary: this only closes the dialog - nothing here is "submitted" to a server,
+          // the actual output of this form is the generated helm command a person copies from TelemetryPanel
+          // below, so a bold "Done" button competing with the guided wizard's own "Continue" would overstate
+          // what clicking it actually does, and could read as the form's real call to action when it isn't.
+          <Button onClick={onClose} data-testid="telemetry-wizard-done">Done</Button>
         )
       }
     >
