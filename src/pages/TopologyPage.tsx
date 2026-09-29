@@ -338,9 +338,28 @@ function Canvas() {
   // See syncSelected's own doc comment (graph.ts) for why this needs to both skip a node mid-drag and bail
   // out to the exact same array when nothing changed - together, the fix for a real "Maximum update depth
   // exceeded" crash (React error #185) that a click or drag between two nodes could trigger.
+  //
+  // Keyed on `selectedRfId` alone, deliberately NOT on `multiSelectedIds` (or `highlightedIds` itself, which
+  // mixes both). `selectedRfId` is the single-click Inspector selection, which can change from OUTSIDE the
+  // canvas entirely (e.g. clicking a related entity inside the Inspector panel) - React Flow has no way to
+  // know about that on its own, so re-applying it here is genuinely necessary. `multiSelectedIds`, on the
+  // other hand, is populated FROM React Flow's own selection via onSelectionChange above: by the time a
+  // multi-select change reaches this component, React Flow's own nodes already carry the right `.selected`
+  // flags for it - that's the very state onSelectionChange just read. Re-running this effect (and therefore
+  // re-writing `.selected` on every node) merely because `multiSelectedIds` changed was writing that same
+  // information back a second time through a different effect - which React Flow then dutifully reports
+  // again via onSelectionChange, changing multiSelectedIds again, re-firing this effect again, forever. A
+  // live headless-browser repro caught this as a real, sustained content-level oscillation (not just a
+  // referential-identity one, which onSelectionChange's own fix above already closes) between a node just
+  // clicked, that plus a leftover multi-selected node, and nothing at all - under rapid view-toggling
+  // interleaved with clicks, and it kept looping on its own with no further input needed once started. Only
+  // `selectedRfId` actually needs an imposed write here; `highlightedIds` (read fresh from the closure
+  // below, not listed as a dependency) still correctly includes both pieces for that write itself - only the
+  // trigger is narrowed, closing the loop.
   useEffect(() => {
     setNodes((ns) => syncSelected(ns, highlightedIds))
-  }, [highlightedIds, setNodes])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRfId, setNodes])
 
   // Re-fit the viewport whenever the *shape* of the graph changes (not on every edit).
   const shape = useMemo(() => graph.nodes.map((n) => `${n.id}:${n.style?.width}x${n.style?.height}`).join('|'), [graph])
