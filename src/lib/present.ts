@@ -191,6 +191,14 @@ export function formatMemory(gb: number): string {
 }
 const trim = (n: number) => String(Math.round(n * 10) / 10)
 
+/** Share of an interface's own rated speed that outbound eBPF-measured traffic is currently using on it -
+ *  undefined whenever there is no rated speed to compare against, so "no data" is never shown as "0% used". */
+export function linkUtilizationPct(bytesPerSec: number, speedMbps: number): number | undefined {
+  if (!speedMbps || speedMbps <= 0) return undefined
+  const capacityBytesPerSec = (speedMbps * 1_000_000) / 8
+  return Math.round((bytesPerSec / capacityBytesPerSec) * 1000) / 10
+}
+
 /** 4 -> "4", 0.5 -> "0.5". */
 export const formatCpu = (cores: number): string => trim(cores)
 

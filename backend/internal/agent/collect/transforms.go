@@ -89,6 +89,11 @@ func stripPod(o any) (any, error) {
 	cs := make([]corev1.ContainerStatus, len(p.Status.ContainerStatuses))
 	for i, s := range p.Status.ContainerStatuses {
 		cs[i] = corev1.ContainerStatus{Name: s.Name, RestartCount: s.RestartCount, ImageID: s.ImageID, Ready: s.Ready}
+		// Only ever copy the one word "OOMKilled" out of LastTerminationState - never ExitCode, Message,
+		// or the started/finished timestamps, which say more than a workload's own restart/OOM counters need.
+		if t := s.LastTerminationState.Terminated; t != nil && t.Reason == "OOMKilled" {
+			cs[i].LastTerminationState = corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "OOMKilled"}}
+		}
 	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, UID: p.UID, OwnerReferences: p.OwnerReferences, Annotations: filterAnnotations(p.Annotations)},

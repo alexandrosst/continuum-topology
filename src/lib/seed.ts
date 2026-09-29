@@ -178,7 +178,7 @@ export function seedTopology(): Model {
       evidence: { distribution: { signal: 'server version v1.29.6+k3s1', confidence: 'high', detail: '+k3s suffix' } },
       overrides: { region: 'Thessaloniki lab' },
       name: 'edge-thessaloniki', tier: 'far-edge', distribution: 'k3s', version: 'v1.29.6+k3s1', provider: 'On-prem', region: 'Thessaloniki', status: 'degraded',
-      cni: 'flannel', ingress: 'traefik', podCidr: '10.42.0.0/16', serviceCidr: '10.43.0.0/16', storageClasses: ['local-path'], egressIp: '198.51.100.9', trustZone: 'restricted', dataResidency: 'EU',
+      cni: 'flannel', ingress: 'traefik', podCidr: '10.42.0.0/16', serviceCidr: '10.43.0.0/16', storageClasses: ['local-path'], egressIp: '198.51.100.9', trustZone: 'restricted', dataResidency: 'EU', pendingPodCount: 2,
     }),
   ]
 
@@ -201,7 +201,7 @@ export function seedTopology(): Model {
     }),
     n({ id: 'n-r3', name: 'ath-worker-2', clusterId: 'cl-region', kind: 'bare-metal', ip: '192.168.10.12', cpu: 16, memoryGb: 64, arch: 'amd64', hardwareModel: 'Dell PowerEdge R650' }),
 
-    n({ id: 'n-a1', name: 'patras-gw-1', clusterId: 'cl-edge-a', role: 'control-plane', kind: 'edge-device', ip: '172.16.1.2', os: 'Debian 12', cpu: 4, memoryGb: 8, arch: 'amd64', connectivity: 'cellular' }),
+    n({ id: 'n-a1', name: 'patras-gw-1', clusterId: 'cl-edge-a', role: 'control-plane', kind: 'edge-device', ip: '172.16.1.2', os: 'Debian 12', cpu: 4, memoryGb: 8, arch: 'amd64', connectivity: 'cellular', networkInterfaces: [{ name: 'eth0', kind: 'ethernet', speedMbps: 1000, mtu: 1500 }] }),
     n({
       id: 'n-a2', source: 'discovered', lastSeen: SEEN, detectedAt: SEEN, agentId: 'ag-patras', revision: 42, key: 'machine-id:6c1f0a52d3e94b7d8a90b1c2e3f40516',
       evidence: { kind: { signal: 'device-tree model: NVIDIA Jetson Orin Nano', confidence: 'high' } },
@@ -241,7 +241,7 @@ export function seedTopology(): Model {
     w({ id: 'w-sensor-a', applicationId: 'app-ingest', name: 'sensor-ingest', clusterId: 'cl-edge-a', namespace: 'iot', kind: 'DaemonSet', image: 'ghcr.io/acme/ingest:0.9', replicas: 2, readyReplicas: 2, nodeIds: ['n-a1', 'n-a2'], managedBy: 'helm' }),
     // edge B
     w({ id: 'w-mqtt-b', applicationId: 'app-ingest', name: 'mqtt-broker', clusterId: 'cl-edge-b', namespace: 'iot', image: 'eclipse-mosquitto:2', nodeIds: ['n-b1'], readyReplicas: 1, exposure: 'node-port', ports: [1883, 8883] }),
-    w({ id: 'w-sensor-b', applicationId: 'app-ingest', name: 'sensor-ingest', clusterId: 'cl-edge-b', namespace: 'iot', kind: 'DaemonSet', image: 'ghcr.io/acme/ingest:0.9', replicas: 2, readyReplicas: 1, restarts: 14, nodeIds: ['n-b1', 'n-b2'], status: 'degraded' }),
+    w({ id: 'w-sensor-b', applicationId: 'app-ingest', name: 'sensor-ingest', clusterId: 'cl-edge-b', namespace: 'iot', kind: 'DaemonSet', image: 'ghcr.io/acme/ingest:0.9', replicas: 2, readyReplicas: 1, restarts: 14, oomKills: 3, nodeIds: ['n-b1', 'n-b2'], status: 'degraded' }),
     w({ id: 'w-infer-b', applicationId: 'app-ml', name: 'inference-edge', clusterId: 'cl-edge-b', namespace: 'ml', image: 'ghcr.io/acme/infer-lite:1.2', nodeIds: ['n-b2'], status: 'degraded', readyReplicas: 0, restarts: 9, nodeSelector: { 'kubernetes.io/arch': 'arm64' } }),
   ]
 
@@ -280,7 +280,7 @@ export function seedTopology(): Model {
     d('d8', 'w-infer-b', 'w-registry', 'HTTP', 5000, ['declared'], 'medium'),
     d('d9', 'w-sensor-a', 'w-mqtt-a', 'MQTT', 1883, ['observed', 'declared'], 'high', { stats: { reqPerSec: 42, errorRate: 0.002, p95Ms: 8, windowSec: 300 } }),
     d('d10', 'w-infer-a', 'w-mqtt-a', 'MQTT', 1883, ['observed', 'declared']),
-    d('d11', 'w-mqtt-a', 'w-agg', 'MQTT', 8883, ['observed'], 'high', { stats: { bytesPerSec: 180000, errorRate: 0, p95Ms: 31, windowSec: 300 } }),
+    d('d11', 'w-mqtt-a', 'w-agg', 'MQTT', 8883, ['observed'], 'high', { via: 'ebpf', iface: 'eth0', stats: { bytesPerSec: 180000, errorRate: 0, p95Ms: 31, windowSec: 300 } }),
     // edge-thessaloniki's agent has no access to dependencies yet, so these are declared, not observed
     d('d12', 'w-sensor-b', 'w-mqtt-b', 'MQTT', 1883, ['declared'], 'medium'),
     d('d13', 'w-infer-b', 'w-mqtt-b', 'MQTT', 1883, ['declared'], 'medium'),

@@ -1228,9 +1228,13 @@ type ClusterFacts struct {
 	// distribution's well-known default the same way it does for pod_cidr. Computed on the agent, from
 	// Service objects that never themselves leave the cluster (see joinServices): only this one summary
 	// value is sent, never an individual ClusterIP.
-	ServiceCidr   string `protobuf:"bytes,9,opt,name=service_cidr,json=serviceCidr,proto3" json:"service_cidr,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ServiceCidr string `protobuf:"bytes,9,opt,name=service_cidr,json=serviceCidr,proto3" json:"service_cidr,omitempty"`
+	// Pods in Pending phase with no node assigned yet, across every namespace this agent can see (fewer than
+	// the whole cluster's in namespaced RBAC mode, same limitation service_cidr above already has). Absent
+	// means pods were never read (below tier 2), not that none are pending.
+	PendingPodCount *int32 `protobuf:"varint,10,opt,name=pending_pod_count,json=pendingPodCount,proto3,oneof" json:"pending_pod_count,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ClusterFacts) Reset() {
@@ -1324,6 +1328,13 @@ func (x *ClusterFacts) GetServiceCidr() string {
 		return x.ServiceCidr
 	}
 	return ""
+}
+
+func (x *ClusterFacts) GetPendingPodCount() int32 {
+	if x != nil && x.PendingPodCount != nil {
+		return *x.PendingPodCount
+	}
+	return 0
 }
 
 // Which namespaces the agent reports on. Out-of-scope namespaces are dropped in the agent, so nothing
@@ -2393,7 +2404,13 @@ type WorkloadFacts struct {
 	// never listed: they mean nothing outside the cluster and overlap between clusters.
 	Reachable []*Address `protobuf:"bytes,25,rep,name=reachable,proto3" json:"reachable,omitempty"`
 	// Set when the workload is in a mesh, or is the mesh itself.
-	Mesh          *WorkloadMesh `protobuf:"bytes,26,opt,name=mesh,proto3" json:"mesh,omitempty"`
+	Mesh *WorkloadMesh `protobuf:"bytes,26,opt,name=mesh,proto3" json:"mesh,omitempty"`
+	// Containers killed by the kernel OOM killer, summed across all of this workload's pods and containers
+	// (one container's last termination can only ever contribute once - a live OOMKilled state clears once
+	// the container is restarted, so this counts terminations seen, not a live gauge). A distinct, sharper
+	// signal than restarts above: a restart can be a crash, a deploy, or a liveness-probe failure, while this
+	// one specific reason means the container asked for more memory than its limit allowed.
+	OomKills      int32 `protobuf:"varint,27,opt,name=oom_kills,json=oomKills,proto3" json:"oom_kills,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2608,6 +2625,13 @@ func (x *WorkloadFacts) GetMesh() *WorkloadMesh {
 		return x.Mesh
 	}
 	return nil
+}
+
+func (x *WorkloadFacts) GetOomKills() int32 {
+	if x != nil {
+		return x.OomKills
+	}
+	return 0
 }
 
 type Address struct {
@@ -4667,7 +4691,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"chunkIndex\x12\x1f\n" +
 	"\vchunk_total\x18\f \x01(\rR\n" +
 	"chunkTotal\x12\x17\n" +
-	"\async_id\x18\r \x01(\tR\x06syncId\"\xe2\x02\n" +
+	"\async_id\x18\r \x01(\tR\x06syncId\"\xa9\x03\n" +
 	"\fClusterFacts\x12\x10\n" +
 	"\x03uid\x18\x01 \x01(\tR\x03uid\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x19\n" +
@@ -4678,7 +4702,10 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12.\n" +
 	"\x05scope\x18\a \x01(\v2\x18.continuum.v1.ScopeFactsR\x05scope\x12+\n" +
 	"\x04mesh\x18\b \x01(\v2\x17.continuum.v1.MeshFactsR\x04mesh\x12!\n" +
-	"\fservice_cidr\x18\t \x01(\tR\vserviceCidr\"\x89\x01\n" +
+	"\fservice_cidr\x18\t \x01(\tR\vserviceCidr\x12/\n" +
+	"\x11pending_pod_count\x18\n" +
+	" \x01(\x05H\x00R\x0fpendingPodCount\x88\x01\x01B\x14\n" +
+	"\x12_pending_pod_count\"\x89\x01\n" +
 	"\n" +
 	"ScopeFacts\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x12)\n" +
@@ -4805,7 +4832,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\">\n" +
 	"\x0eContainerImage\x12\x14\n" +
 	"\x05image\x18\x01 \x01(\tR\x05image\x12\x16\n" +
-	"\x06digest\x18\x02 \x01(\tR\x06digest\"\xb2\n" +
+	"\x06digest\x18\x02 \x01(\tR\x06digest\"\xcf\n" +
 	"\n" +
 	"\rWorkloadFacts\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x1c\n" +
@@ -4840,7 +4867,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"disruption\x18\x18 \x01(\v2\x18.continuum.v1.DisruptionR\n" +
 	"disruption\x123\n" +
 	"\treachable\x18\x19 \x03(\v2\x15.continuum.v1.AddressR\treachable\x12.\n" +
-	"\x04mesh\x18\x1a \x01(\v2\x1a.continuum.v1.WorkloadMeshR\x04mesh\x1a9\n" +
+	"\x04mesh\x18\x1a \x01(\v2\x1a.continuum.v1.WorkloadMeshR\x04mesh\x12\x1b\n" +
+	"\toom_kills\x18\x1b \x01(\x05R\boomKills\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
@@ -5212,6 +5240,7 @@ func file_continuum_v1_agent_proto_init() {
 		(*AgentMessage_Flows)(nil),
 		(*AgentMessage_Measurements)(nil),
 	}
+	file_continuum_v1_agent_proto_msgTypes[12].OneofWrappers = []any{}
 	file_continuum_v1_agent_proto_msgTypes[16].OneofWrappers = []any{}
 	file_continuum_v1_agent_proto_msgTypes[27].OneofWrappers = []any{
 		(*ServerMessage_Ack)(nil),

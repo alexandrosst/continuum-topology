@@ -196,6 +196,10 @@ message ClusterFacts {
   // Service objects that never themselves leave the cluster (see joinServices): only this one summary
   // value is sent, never an individual ClusterIP.
   string service_cidr = 9;
+  // Pods in Pending phase with no node assigned yet, across every namespace this agent can see (fewer than
+  // the whole cluster's in namespaced RBAC mode, same limitation service_cidr above already has). Absent
+  // means pods were never read (below tier 2), not that none are pending.
+  optional int32 pending_pod_count = 10;
 }
 
 // Which namespaces the agent reports on. Out-of-scope namespaces are dropped in the agent, so nothing
@@ -408,6 +412,12 @@ message WorkloadFacts {
   repeated Address reachable = 25;
   // Set when the workload is in a mesh, or is the mesh itself.
   WorkloadMesh mesh = 26;
+  // Containers killed by the kernel OOM killer, summed across all of this workload's pods and containers
+  // (one container's last termination can only ever contribute once - a live OOMKilled state clears once
+  // the container is restarted, so this counts terminations seen, not a live gauge). A distinct, sharper
+  // signal than restarts above: a restart can be a crash, a deploy, or a liveness-probe failure, while this
+  // one specific reason means the container asked for more memory than its limit allowed.
+  int32 oom_kills = 27;
 }
 
 message Address {

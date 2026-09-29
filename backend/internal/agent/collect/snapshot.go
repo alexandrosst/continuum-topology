@@ -84,6 +84,15 @@ func (c *Collector) Snapshot() *continuumv1.Sync {
 		if c.svcs != nil {
 			s.Cluster.ServiceCidr = detectServiceCIDR(c.svcs.List())
 		}
+		if observed {
+			var pending int32
+			for _, p := range pods {
+				if p.Status.Phase == corev1.PodPending && p.Spec.NodeName == "" {
+					pending++
+				}
+			}
+			s.Cluster.PendingPodCount = &pending
+		}
 	}
 	return s
 }
@@ -267,6 +276,9 @@ func (c *Collector) workloads(pods []*corev1.Pod) ([]*continuumv1.WorkloadFacts,
 			}
 			for i, cs := range p.Status.ContainerStatuses {
 				w.facts.Restarts += cs.RestartCount
+				if t := cs.LastTerminationState.Terminated; t != nil && t.Reason == "OOMKilled" {
+					w.facts.OomKills++
+				}
 				if i == 0 && len(w.facts.Images) > 0 && w.facts.Images[0].Digest == "" {
 					w.facts.Images[0].Digest = digestOf(cs.ImageID)
 				}

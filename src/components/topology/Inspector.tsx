@@ -13,7 +13,7 @@ import { completeness } from '@/lib/completeness'
 import { observation } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
 import { exitIps } from '@/lib/geo'
-import { ageLabel, autoscalerRange, disruptionLabel, formatMemory, GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipInCidr, podsLabel, podsPercent, volumeSize } from '@/lib/present'
+import { ageLabel, autoscalerRange, disruptionLabel, formatMemory, GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipInCidr, linkUtilizationPct, podsLabel, podsPercent, volumeSize } from '@/lib/present'
 import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { useHistoryView } from '@/store/history'
 import { useServer } from '@/store/server'
@@ -487,6 +487,13 @@ export default function Inspector({
           {ns.length === 0 && <p className="text-sm text-nb-500">{c.source === 'discovered' ? 'No node has been reported for this cluster (the agent may read below the Infrastructure access level).' : 'No nodes declared.'}</p>}
         </Section>
         <Section title={`Services (${ws.length})`}>
+          <Maybe label="Pending pods">
+            {c.pendingPodCount ? (
+              <span className="text-warn" title="Pods waiting to be scheduled onto a node right now, across every namespace this agent can see. Stuck if this doesn't drop - often insufficient capacity or a constraint (taint, affinity, resource request) nothing on offer can satisfy.">
+                {c.pendingPodCount}
+              </span>
+            ) : undefined}
+          </Maybe>
           {ws.map((w) => <LinkRow key={w.id} label={w.name} sub={w.namespace} onClick={() => onSelect({ kind: 'service', id: w.id })} />)}
           {ws.length === 0 && <p className="text-sm text-nb-500">{c.source === 'discovered' ? 'No service has been reported for this cluster (the agent may read below the Services access level).' : 'No services declared.'}</p>}
         </Section>
@@ -513,6 +520,16 @@ export default function Inspector({
     if (!n) return null
     const ws = services.filter((w) => w.nodeIds.includes(n.id))
     const attached = devices.filter((d) => d.gatewayNodeId === n.id)
+    // Link utilization per interface: outbound eBPF-measured traffic from workloads scheduled on this node,
+    // summed by the caller's own physical interface (Dependency.iface) and matched against that interface's
+    // rated speed. Conntrack-only edges have no bytes to trust (the same via==='ebpf' gate used everywhere
+    // else this data appears), and a dependency with no traffic since the stale window doesn't count either.
+    const ifaceBytesPerSec = new Map<string, number>()
+    for (const d of dependencies) {
+      if (d.via !== 'ebpf' || d.stale || !d.iface || d.stats?.bytesPerSec === undefined) continue
+      if (d.fromKind !== 'service' || !ws.some((w) => w.id === d.from)) continue
+      ifaceBytesPerSec.set(d.iface, (ifaceBytesPerSec.get(d.iface) ?? 0) + d.stats.bytesPerSec)
+    }
     title = n.name
     subtitle = (
       <span className="flex flex-wrap items-center gap-2">
@@ -567,7 +584,11 @@ export default function Inspector({
           <Maybe label="Uplink">{connLabel(n.connectivity)}</Maybe>
           <Chips
             label="Interfaces"
-            items={n.networkInterfaces?.map((i) => `${i.name} (${[i.kind, i.speedMbps ? `${i.speedMbps} Mbps` : undefined, i.mtu ? `MTU ${i.mtu}` : undefined].filter(Boolean).join(', ')})`)}
+            items={n.networkInterfaces?.map((i) => {
+              const bps = ifaceBytesPerSec.get(i.name)
+              const util = bps !== undefined && i.speedMbps ? linkUtilizationPct(bps, i.speedMbps) : undefined
+              return `${i.name} (${[i.kind, i.speedMbps ? `${i.speedMbps} Mbps` : undefined, i.mtu ? `MTU ${i.mtu}` : undefined, util !== undefined ? `${util}% used` : undefined].filter(Boolean).join(', ')})`
+            })}
           />
           {n.hasBattery && <Row label="Power">Has a battery: can run without mains power</Row>}
           <Chips label="Taints" items={n.taints} />
@@ -618,6 +639,13 @@ export default function Inspector({
         <Section title="Resources & scaling">
           <Row label="Replicas">{ready}</Row>
           <Maybe label="Restarts">{w.restarts ? String(w.restarts) : undefined}</Maybe>
+          <Maybe label="OOM kills">
+            {w.oomKills ? (
+              <span className="text-warn" title="Containers killed by the kernel because they asked for more memory than their limit allowed. Raise the memory limit, or find the leak.">
+                {w.oomKills}
+              </span>
+            ) : undefined}
+          </Maybe>
           <Maybe label="Requests">{rq}</Maybe>
           <Maybe label="Limits">{lim}</Maybe>
           {w.autoscaler && (

@@ -172,6 +172,7 @@ func Interpret(in Input) model.Topology {
 		cl.APIEndpoint = st.Cluster.ApiHost
 		cl.StorageClasses = st.Cluster.StorageClasses
 		cl.CreatedAt = rfc3339(st.Cluster.CreatedAt)
+		cl.PendingPodCount = st.Cluster.PendingPodCount
 	}
 	cl.Evidence = map[string]model.Evidence{"distribution": distEv, "provider": provEv, "tier": tierEv}
 	for _, n := range nodes {
@@ -251,7 +252,7 @@ func Interpret(in Input) model.Topology {
 			Kind: w.Kind, Replicas: w.Replicas, ReadyReplicas: w.ReadyReplicas, Status: serviceStatus(w),
 			Labels: orEmpty(w.Labels), Exposure: w.Exposure, Hosts: w.Hosts, Ports: w.Ports, ManagedBy: managedBy(w),
 			CPURequestM: w.CpuRequestMillis, MemRequestMi: w.MemoryRequestBytes >> 20, CPULimitM: w.CpuLimitMillis, MemLimitMi: w.MemoryLimitBytes >> 20,
-			NodeSelector: w.NodeSelector, Tolerations: w.Tolerations, Restarts: w.Restarts, ApplicationHint: appID,
+			NodeSelector: w.NodeSelector, Tolerations: w.Tolerations, Restarts: w.Restarts, OOMKills: w.OomKills, ApplicationHint: appID,
 			NodeIDs: []string{}, CreatedAt: rfc3339(w.CreatedAt),
 		}
 		for _, vc := range w.VolumeClaims {

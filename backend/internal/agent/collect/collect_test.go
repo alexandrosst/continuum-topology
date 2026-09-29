@@ -66,12 +66,18 @@ func fixture() *fake.Clientset {
 					{Name: "data", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "cart-data"}}},
 					{Name: "creds", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "hunter2-vol-secret"}}},
 				}},
-			Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Name: "cart", RestartCount: 3, ImageID: "ghcr.io/acme/cart@sha256:deadbeef"}}},
+			Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Name: "cart", RestartCount: 3, ImageID: "ghcr.io/acme/cart@sha256:deadbeef",
+				LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "OOMKilled"}}}}},
 		},
 		&corev1.Pod{ // finished pods hold no resources
 			ObjectMeta: metav1.ObjectMeta{Name: "job-1", Namespace: "shop"},
 			Spec:       corev1.PodSpec{NodeName: "edge-1", Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{"cpu": q("2")}}}}},
 			Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+		},
+		&corev1.Pod{ // waiting to be scheduled: no node assigned yet
+			ObjectMeta: metav1.ObjectMeta{Name: "cart-abc-2", Namespace: "shop"},
+			Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "cart"}}},
+			Status:     corev1.PodStatus{Phase: corev1.PodPending},
 		},
 		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "cart", Namespace: "shop"}, Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer, Selector: labels, Ports: []corev1.ServicePort{{Port: 80}}}},
 		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "headless-no-selector", Namespace: "shop"}, Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeNodePort}},
@@ -188,7 +194,7 @@ func TestSnapshotTier2(t *testing.T) {
 	}
 
 	w := s.Workloads[0]
-	if w.Key != "shop/Deployment/cart" || w.Replicas != 2 || w.ReadyReplicas != 1 || w.Restarts != 3 {
+	if w.Key != "shop/Deployment/cart" || w.Replicas != 2 || w.ReadyReplicas != 1 || w.Restarts != 3 || w.OomKills != 1 {
 		t.Errorf("workload = %v", w)
 	}
 	if w.Images[0].Image != "ghcr.io/acme/cart:1.4" || w.Images[0].Digest != "sha256:deadbeef" {
@@ -211,6 +217,9 @@ func TestSnapshotTier2(t *testing.T) {
 	}
 	if s.Cluster.ApiHost != "10.0.0.5:6443" {
 		t.Errorf("cluster = %v", s.Cluster)
+	}
+	if s.Cluster.PendingPodCount == nil || *s.Cluster.PendingPodCount != 1 {
+		t.Errorf("pending pod count = %v, want 1 (the two placed pods and the finished job must not count)", s.Cluster.PendingPodCount)
 	}
 
 	// pod count vs the kubelet's maximum, and age

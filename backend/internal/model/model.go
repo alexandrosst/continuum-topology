@@ -50,6 +50,10 @@ type Cluster struct {
 	CreatedAt      string            `json:"createdAt,omitempty"` // when the cluster was created (kube-system's creation time)
 	// Mesh is the service mesh found in the cluster, if any. What it says is what the mesh is configured to do.
 	Mesh *ClusterMesh `json:"mesh,omitempty"`
+	// PendingPodCount is how many pods across the cluster are waiting to be scheduled (Pending phase, no
+	// node assigned yet) - fewer than the whole cluster's when RBAC only scopes a few namespaces, same
+	// limitation ServiceCIDR above already has. Nil means pods were never read (below tier 2), not zero.
+	PendingPodCount *int32 `json:"pendingPodCount,omitempty"`
 }
 
 // ClusterMesh describes a service mesh from labels, annotations, container names and the mesh's policy objects.
@@ -208,6 +212,10 @@ type Service struct {
 	NodeSelector    map[string]string `json:"nodeSelector,omitempty"`
 	Tolerations     []string          `json:"tolerations,omitempty"`
 	Restarts        int32             `json:"restarts,omitempty"`
+	// OOMKills: containers of this workload's pods killed by the kernel OOM killer - a sharper signal than
+	// Restarts above (which a crash, a deploy or a failed liveness probe can also cause): this one specific
+	// reason means a container asked for more memory than its limit allowed.
+	OOMKills        int32             `json:"oomKills,omitempty"`
 	ApplicationHint string            `json:"applicationHint,omitempty"`
 	CreatedAt       string            `json:"createdAt,omitempty"`
 	Volumes         []Volume          `json:"volumes,omitempty"`

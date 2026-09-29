@@ -408,6 +408,30 @@ func TestInterpretPopulatesDiskCapacity(t *testing.T) {
 	}
 }
 
+func TestInterpretPopulatesPendingPodCount(t *testing.T) {
+	pending := int32(4)
+	s := facts.New()
+	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-pending", PendingPodCount: &pending}
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
+	if len(out.Clusters) != 1 {
+		t.Fatalf("clusters = %+v", out.Clusters)
+	}
+	c := out.Clusters[0]
+	if c.PendingPodCount == nil || *c.PendingPodCount != 4 {
+		t.Errorf("pendingPodCount = %v, want 4", c.PendingPodCount)
+	}
+}
+
+func TestInterpretLeavesPendingPodCountNilWhenNeverRead(t *testing.T) {
+	s := facts.New()
+	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-unread"}
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
+	c := out.Clusters[0]
+	if c.PendingPodCount != nil {
+		t.Errorf("pendingPodCount = %v, want nil (pods were never read, not zero pending)", *c.PendingPodCount)
+	}
+}
+
 // TestInterpretKeepsProbeFactsWhenKindFromProbeGivesUp covers kindFromProbe's own `default` fallthrough
 // (an ARM board with neither DMI nor a device-tree model, so it cannot decide vm vs bare-metal and
 // returns probed=false) - CPU model/threads/interfaces must still surface, since they are plain

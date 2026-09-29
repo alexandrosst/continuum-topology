@@ -233,6 +233,10 @@ export interface Cluster extends Provenance {
   dataResidency?: string
   /** The service mesh found in the cluster, read from its configuration (never from proxy telemetry). */
   mesh?: ClusterMesh
+  /** Pods waiting to be scheduled (Pending phase, no node assigned yet) across every namespace the agent
+   *  can see - fewer than the whole cluster's under namespaced RBAC, same limitation serviceCidr already
+   *  has. Undefined means pods were never read (below tier 2), not that none are pending. */
+  pendingPodCount?: number
 }
 
 export type MeshKind = 'istio' | 'linkerd' | 'consul' | 'kuma' | string
@@ -434,6 +438,10 @@ export interface Service extends Provenance {
   nodeSelector?: Record<string, string>
   tolerations?: string[]
   restarts?: number
+  /** Containers of this service's pods killed by the kernel OOM killer - a sharper signal than restarts
+   *  above (a crash, a deploy or a failed liveness probe can also cause a restart): this one specific
+   *  reason means a container asked for more memory than its limit allowed. */
+  oomKills?: number
   /** Application discovery grouped this service into. Applied automatically once a person has accepted that application. */
   applicationHint?: string
   mesh?: ServiceMesh
