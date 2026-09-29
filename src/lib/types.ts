@@ -198,6 +198,11 @@ export interface ExternalEndpoint extends Provenance {
   /** The application usually found on `port` (e.g. "PostgreSQL", "Kafka") - a guess from the port number
    * alone, same caveat as Dependency.service: a workload can run anything on any port. */
   service?: string
+  /** Every individual address observed that resolved to this same endpoint identity - just [host] for the
+   * common case of one address, one endpoint, but more than one when several addresses collapsed into a
+   * single node (several of Google's or GitHub's own edge addresses, for example, are "the same thing" and
+   * share one node on the canvas). Sorted for a stable order across polls. */
+  ips?: string[]
 }
 
 export interface Cluster extends Provenance {

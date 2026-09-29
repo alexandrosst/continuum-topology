@@ -817,6 +817,13 @@ export default function Inspector({
           {seenOnly && <Maybe label="Seen">{`${ago(e.lastSeen)} · found in traffic, not declared anywhere`}</Maybe>}
           <Why ev={e.evidence?.identity} />
           <Origin e={e} />
+          {(e.ips?.length ?? 0) > 1 && (
+            <Chips
+              label={`Addresses (${e.ips!.length})`}
+              items={e.ips}
+              title="Every individual address observed that resolved to this one entity - merged here since they're all the same provider's own infrastructure, not separate destinations."
+            />
+          )}
         </Section>
         <NameEndpoint key={e.id} endpoint={e} />
         <Section title={`Called by (${calledBy.length})`}>
