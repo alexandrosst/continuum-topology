@@ -22,7 +22,7 @@ import {
   Truck,
   type LucideIcon,
 } from 'lucide-react'
-import { memo } from 'react'
+import { memo, type ComponentProps, type ReactNode } from 'react'
 import { LoadRow, peakLoad } from '@/components/topology/Load'
 import { DistroIcon, Flag } from '@/components/ui/brand'
 import { SIDES, type CardNode, type GroupNode, type NamespaceNode } from '@/lib/graph'
@@ -61,6 +61,57 @@ const useFar = () => useStore((s) => s.transform[2] < FAR_ZOOM)
 
 const TONE = { good: 'bg-ok/10 text-ok', warn: 'bg-warn/10 text-warn', bad: 'bg-bad/10 text-bad' } as const
 const MESH_TONE = { in: 'bg-ok/10 text-ok', control: 'bg-violet-400/10 text-violet-300', out: 'bg-nb-900 text-nb-400' } as const
+// The shared "neutral gray, no particular status" tone - used by both the networking badge and a card's
+// service chips, which previously used two adjacent-but-different grays (bg-nb-900 vs bg-nb-940) that never
+// meant anything different from each other, just drifted independently.
+const NEUTRAL_TONE = 'bg-nb-900 text-nb-400'
+
+/** One shared shape for every small text pill on a node (a cluster's mesh state, its detected networking,
+ * a service's "not ready" or placement-hint chip, a service-count chip) - these had each grown their own
+ * near-identical rounded/padding/icon/truncate markup, with small unintentional drift between them (radius,
+ * padding, whether an icon was included, two different neutral grays) rather than genuine differences.
+ * `tone` takes the caller's own pre-existing background+text color classes (TONE/MESH_TONE/NEUTRAL_TONE
+ * above, or a literal pair) rather than one shared enum, since these badges span at least two genuinely
+ * different semantic axes (a cluster's mesh mTLS verdict vs. a service's mesh membership state) that
+ * shouldn't be forced into one vocabulary just because they're drawn the same way. `dense` is the one real,
+ * deliberate size difference this keeps: the cluster subtitle row (mesh/networking badges) is tighter on
+ * vertical space than a card's own dedicated chip row, so it keeps the thinner py-px padding that row
+ * already had - an intentional density difference for a genuinely tighter row, not a return of the
+ * inconsistency this is meant to remove.
+ *
+ * Deliberately NOT folded in here: the tier badge (rounded-full, a dynamic per-tier color, not one of the
+ * fixed tones above) and the local-telemetry control (a circular icon button). Both are a different kind of
+ * thing from an info tag - a status/category classifier and an interactive control - and forcing them into
+ * this shape would blur that distinction rather than fix it. The peak-load badge (far-zoom only) is also
+ * left alone: it's deliberately sized to match that zoom level's much larger title text, not this family's
+ * compact scale. */
+function Badge({
+  tone,
+  dense,
+  icon: Icon,
+  title,
+  className,
+  children,
+  ...rest
+}: {
+  tone: string
+  dense?: boolean
+  icon?: LucideIcon
+  title?: string
+  className?: string
+  children: ReactNode
+} & ComponentProps<'span'>) {
+  return (
+    <span
+      className={clsx('inline-flex shrink-0 items-center gap-1 truncate rounded px-1.5 text-[10.5px]', dense ? 'py-px' : 'py-0.5', tone, className)}
+      title={title}
+      {...rest}
+    >
+      {Icon && <Icon size={10} className="shrink-0" aria-hidden="true" />}
+      <span className="truncate">{children}</span>
+    </span>
+  )
+}
 
 /* ---------- Cluster / tier boundary ---------- */
 export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<GroupNode>) {
@@ -102,19 +153,20 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
               {data.country && <Flag code={data.country} className="!h-2.5 !w-[15px]" />}
               <span className="truncate" title={data.subtitle || undefined}>{data.subtitle || ' '}</span>
               {data.mesh && (
-                <span className={clsx('shrink-0 rounded px-1.5 py-px text-[10.5px]', TONE[data.mesh.tone])} title={data.mesh.title} data-testid="mesh-badge">
+                <Badge tone={TONE[data.mesh.tone]} dense title={data.mesh.title} data-testid="mesh-badge">
                   {data.mesh.label}
-                </span>
+                </Badge>
               )}
               {data.networking && (
-                <span
-                  className="flex shrink-0 items-center gap-0.5 rounded bg-nb-900 px-1.5 py-px text-[10.5px] text-nb-400"
+                <Badge
+                  tone={NEUTRAL_TONE}
+                  dense
+                  icon={Router}
                   title={`Detected in this cluster: ${[data.networking.cni && `${data.networking.cni} (CNI)`, data.networking.ingress && `${data.networking.ingress} (ingress)`].filter(Boolean).join(' · ')}`}
                   data-testid="networking-badge"
                 >
-                  <Router size={10} />
                   {[data.networking.cni, data.networking.ingress].filter(Boolean).join(' · ')}
-                </span>
+                </Badge>
               )}
             </div>
           )}
@@ -233,16 +285,15 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
       {!far && (data.hint || data.notReady || data.mesh) && (
         <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
           {data.mesh && (
-            <span className={clsx('inline-flex max-w-full items-center truncate rounded px-1.5 py-0.5', MESH_TONE[data.mesh.tone])} title={data.mesh.title} data-testid="mesh-chip">
-              <span className="truncate">{data.mesh.label}</span>
-            </span>
+            <Badge tone={MESH_TONE[data.mesh.tone]} title={data.mesh.title} data-testid="mesh-chip" className="max-w-full">
+              {data.mesh.label}
+            </Badge>
           )}
-          {data.notReady && <span className="rounded bg-warn/10 px-1.5 py-0.5 text-warn" title="Fewer replicas are ready than wanted">{data.notReady}</span>}
+          {data.notReady && <Badge tone="bg-warn/10 text-warn" title="Fewer replicas are ready than wanted">{data.notReady}</Badge>}
           {data.hint && (
-            <span className="inline-flex max-w-full items-center gap-1 truncate rounded bg-accent-soft px-1.5 py-0.5 text-accent" title={`The placement advice would move this to ${data.hint}. Open it for the evidence.`} data-testid="placement-hint">
-              <ArrowUpRight size={10} className="shrink-0" aria-hidden />
-              <span className="truncate">better in {data.hint}</span>
-            </span>
+            <Badge tone="bg-accent-soft text-accent" icon={ArrowUpRight} title={`The placement advice would move this to ${data.hint}. Open it for the evidence.`} data-testid="placement-hint" className="max-w-full">
+              better in {data.hint}
+            </Badge>
           )}
         </div>
       )}
@@ -251,14 +302,9 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
         <div className="flex flex-wrap gap-1.5 border-t border-nb-850 pt-2">
           {data.chips.length === 0 && <span className="text-[11px] text-nb-500">No services</span>}
           {data.chips.map((c) => (
-            <span
-              key={c.id}
-              className="inline-flex max-w-[48%] items-center gap-1 truncate rounded bg-nb-940 px-1.5 py-0.5 text-[10.5px] text-nb-400"
-              title={c.name}
-            >
-              <Box size={10} className="shrink-0" />
-              <span className="truncate">{c.name}</span>
-            </span>
+            <Badge key={c.id} tone={NEUTRAL_TONE} icon={Box} title={c.name} className="max-w-[48%]">
+              {c.name}
+            </Badge>
           ))}
         </div>
       )}
