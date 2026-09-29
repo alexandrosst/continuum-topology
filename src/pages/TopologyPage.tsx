@@ -181,6 +181,24 @@ function Canvas() {
   // today's model is one discovery agent per cluster, so this never has to merge two operators' worth of
   // signals into one badge.
   const rawAgents = useServer((s) => s.state?.agents)
+  // `rawAgents` is a fresh array on every poll - useServer.refresh() just replaces `state` wholesale
+  // (see server.ts), unlike useRawTopology's merge, nothing dedupes it when the response is unchanged. Using
+  // it as a useMemo dependency directly would give `graph` below a new `localOperators` identity every
+  // 2-5s forever, forcing a full canvas re-layout on every poll tick even when no agent's telemetry actually
+  // changed - exactly the "no continuous polling" the operators fetch above was meant to avoid, and by
+  // itself enough to make the canvas feel less and less responsive the longer this page stays open. This
+  // signature is the cheap part (strings only, same idea as `shape` further down), so it's fine to
+  // recompute every poll; the Map below only rebuilds - and only then hands `graph` a new reference - when
+  // the signature's value actually changes.
+  const localOperatorsSig = useMemo(() => {
+    const parts: string[] = []
+    for (const a of agents) {
+      if (a.status !== 'approved' || !a.clusterId) continue
+      const installed = extrasOf(rawAgents, a.id).diagnostics?.installedTelemetry ?? []
+      if (installed.length) parts.push(`${a.clusterId}:${a.id}:${[...installed].sort().join(',')}`)
+    }
+    return parts.sort().join('|')
+  }, [agents, rawAgents])
   const localOperatorByCluster = useMemo(() => {
     const layerOf = new Map(TELEMETRY_SIGNALS.map((sig) => [sig.id, sig.layer]))
     const m = new Map<string, { layers: string[]; agentId: string }>()
@@ -192,7 +210,9 @@ function Canvas() {
       m.set(a.clusterId, { layers, agentId: a.id })
     }
     return m
-  }, [agents, rawAgents])
+    // only localOperatorsSig should force a rebuild - see its own comment above
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localOperatorsSig])
   useEffect(() => {
     if (!selParam || !observedReady) return
     const want = parseSel(selParam)
