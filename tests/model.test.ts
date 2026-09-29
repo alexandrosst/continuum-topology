@@ -1467,6 +1467,25 @@ test('applyGraphUpdate: an explicit change (a filter, a view toggle) gets a clea
   assert.equal(withHighlight.find((n) => n.id === 'c:svc-b')!.selected, true)
 })
 
+test('applyGraphUpdate: an explicit change still leaves a node React Flow is actively dragging completely untouched', () => {
+  const node = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, type: 'card', position: { x: 0, y: 0 }, parentId: 'g:cl-a', data: {}, ...overrides }) as unknown as ReturnType<typeof buildGraph>['nodes'][number]
+
+  // svc-a is mid-drag (React Flow's own `dragging` flag) exactly when an explicit change (a filter, a view
+  // toggle) lands - the same race resyncNodes/syncSelected already guard against, but here on the explicit
+  // path specifically, which used to hand every survivor a brand new object unconditionally (see graph.ts's
+  // applyGraphUpdate doc comment - this is what could desync React Flow's own drag tracking and produce a
+  // real "Maximum update depth exceeded" crash, React error #185). It must come back as the exact same
+  // object, not buildGraph's freshly computed position, even though every other survivor does get relaid out.
+  const dragging = { ...node('c:svc-a', { position: { x: 500, y: 500 } }), dragging: true }
+  const prev = [dragging, node('c:svc-b', { position: { x: 5, y: 5 } })]
+  const freshlyPacked = [node('c:svc-a', { position: { x: 5, y: 5 } }), node('c:svc-b', { position: { x: 50, y: 5 } })]
+
+  const filtered = applyGraphUpdate(prev, freshlyPacked, new Set(), true)
+  assert.equal(filtered.find((n) => n.id === 'c:svc-a'), dragging, 'the dragging node comes back as the exact same object, position and all')
+  assert.deepEqual(filtered.find((n) => n.id === 'c:svc-b')!.position, { x: 50, y: 5 }, 'every other survivor still gets the fresh explicit layout')
+})
+
 test('mesh: anyMesh looks at live clusters only, and the saved-view URL keeps the option', () => {
   assert.equal(anyMesh(seed.clusters), false)
   assert.equal(anyMesh([withMesh(meshOf())]), true)

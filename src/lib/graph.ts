@@ -1161,11 +1161,22 @@ export function syncSelected(nodes: TopoNode[], highlighted: ReadonlySet<string>
  * `explicit` is that distinction, decided by the caller (TopologyPage: whether the URL's search params -
  * which every filter and view toggle goes through - changed since the last render, as opposed to only the
  * underlying topology data refreshing). When true, every node takes buildGraph's fresh position outright -
- * the same clean result a remount already gave for free. When false, this is exactly `resyncNodes`.
+ * the same clean result a remount already gave for free - EXCEPT rule 1 above still applies: a node React
+ * Flow is actively mid-gesture with is still returned completely untouched, explicit or not. Skipping that
+ * guard here would hand React Flow a brand new object for whatever id it's mid-drag with the moment an
+ * explicit change and a drag land in the same instant, which is exactly the "desync React Flow's own drag
+ * tracking" failure resyncNodes' rule 1 exists to prevent - see syncSelected's doc comment for what that
+ * failure mode actually looks like (a real "Maximum update depth exceeded" crash, React error #185). When
+ * false, this is exactly `resyncNodes`.
  */
 export function applyGraphUpdate(prev: TopoNode[], next: TopoNode[], highlighted: ReadonlySet<string>, explicit: boolean): TopoNode[] {
   if (!explicit) return resyncNodes(prev, next, highlighted)
-  return next.map((n) => ({ ...n, selected: highlighted.has(n.id) }))
+  const prevById = new Map(prev.map((n) => [n.id, n]))
+  return next.map((n) => {
+    const old = prevById.get(n.id)
+    if (old?.dragging) return old
+    return { ...n, selected: highlighted.has(n.id) }
+  })
 }
 
 function makeEdge(
