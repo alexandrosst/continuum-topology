@@ -269,6 +269,29 @@ function Canvas() {
   // highlight a moment after React Flow had just set it.
   const [multiSelectedIds, setMultiSelectedIds] = useState<string[]>([])
 
+  // React Flow's SelectionListener effect (inside <ReactFlow>) is keyed on this callback's own identity,
+  // not just on the selection actually changing - an inline arrow function passed straight in the JSX below
+  // gets a fresh identity every render, so it fires again after every single render regardless of whether
+  // anything was actually (re)selected. Combined with a plain `setMultiSelectedIds(sel.map(...))` - a new
+  // array even when the ids are identical to what's already there - that turns into a genuine unconditional
+  // render loop: render -> a "new" onSelectionChange -> React Flow calls it again -> setMultiSelectedIds
+  // with a fresh-but-equal array -> React (correctly) re-renders because the reference changed -> repeat,
+  // forever, with nothing in between ever actually settling. That is the real "Maximum update depth
+  // exceeded" (React error #185) reported on the topology page - not the dragging race fixed elsewhere in
+  // this file and in graph.ts, which only applies to filter/view-toggle timing, not this.
+  //
+  // Fixed the same way every other node/selection sync in this file already is (see syncSelected's and
+  // applyGraphUpdate's own doc comments in graph.ts): a stable callback identity via useCallback, and a
+  // bail-out to the exact same array reference when the ids didn't actually change, so setMultiSelectedIds
+  // is a true no-op - and therefore triggers zero re-renders - once the selection has settled.
+  const onSelectionChange = useCallback(({ nodes: sel }: { nodes: TopoNode[] }) => {
+    setMultiSelectedIds((prev) => {
+      const ids = sel.map((n) => n.id)
+      if (ids.length === prev.length && ids.every((id, i) => id === prev[i])) return prev
+      return ids
+    })
+  }, [])
+
   // React Flow id of the current single-click Inspector selection (if it is visible in this plane).
   const selectedRfId = useMemo(() => {
     if (!selection) return null
@@ -658,7 +681,7 @@ function Canvas() {
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
               onNodesChange={onNodesChange}
-              onSelectionChange={({ nodes: sel }) => setMultiSelectedIds(sel.map((n) => n.id))}
+              onSelectionChange={onSelectionChange}
               onNodeClick={(e, n) => {
                 // The local-telemetry antenna badge (nodes.tsx) sits inside a cluster's group box, so a
                 // click on it also reaches this handler - check for it first and open that agent's
@@ -686,8 +709,8 @@ function Canvas() {
               minZoom={0.15}
               maxZoom={1.75}
               fitView
-              fitViewOptions={{ padding: FIT_PADDING }}
-              proOptions={{ hideAttribution: true }}
+              fitViewOptions={FIT_VIEW_OPTIONS}
+              proOptions={PRO_OPTIONS}
               colorMode="dark"
             >
               <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="var(--color-nb-850)" />
@@ -813,6 +836,8 @@ function Canvas() {
 
 /** Leaves room under the graph for the legend. */
 const FIT_PADDING = { top: '4%', left: '4%', right: '4%', bottom: '72px' } as const
+const FIT_VIEW_OPTIONS = { padding: FIT_PADDING }
+const PRO_OPTIONS = { hideAttribution: true }
 
 export default function TopologyPage() {
   return (
