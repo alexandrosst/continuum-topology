@@ -1150,6 +1150,27 @@ export function syncSelected(nodes: TopoNode[], highlighted: ReadonlySet<string>
 }
 
 /**
+ * Sync a `pick-ineligible` class onto every node "Pick from canvas" mode (TopologyPage's pickMode) can't
+ * actually target - a device, a namespace sub-box, a cluster/service with no connected+approved agent -
+ * so index.css can keep it dimmed and show a not-allowed cursor even on hover, instead of un-dimming every
+ * node the same way and only discovering after a click that it led nowhere. `eligible` is null when
+ * pickMode itself is off, which clears the class from every node (same as `syncSelected`'s "nothing
+ * highlighted" case). Mirrors syncSelected exactly: skip a node mid-drag, and return the SAME array when
+ * nothing actually changed so a settled pick-mode toggle doesn't force an extra render.
+ */
+export function syncPickEligibility(nodes: TopoNode[], eligible: ReadonlySet<string> | null): TopoNode[] {
+  let changed = false
+  const next = nodes.map((n) => {
+    if (n.dragging) return n
+    const want = eligible !== null && !eligible.has(n.id) ? 'pick-ineligible' : undefined
+    if ((n.className ?? undefined) === want) return n
+    changed = true
+    return { ...n, className: want }
+  })
+  return changed ? next : nodes
+}
+
+/**
  * Bring `graph.nodes` (buildGraph's latest output) onto the canvas the right way for WHY it changed.
  *
  * `resyncNodes`'s rule 2 above - keep a survivor's stale position as long as its parent hasn't changed -

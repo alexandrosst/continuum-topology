@@ -35,7 +35,7 @@ import FilterMenu from '@/components/topology/FilterMenu'
 import { api } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { applyFilter, encodeList, filterActive, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
-import { applyGraphUpdate, buildGraph, cardId, groupId, selectedServiceIds, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
+import { applyGraphUpdate, buildGraph, cardId, groupId, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
@@ -476,20 +476,28 @@ function Canvas() {
   // an external endpoint, a namespace sub-box, a cluster/service with no connected+approved agent yet).
   // Resolved from the same Selection fromNode already computes, so this stays in sync with whatever a plain
   // click would have selected, rather than re-deriving node kinds a second way.
-  const pickTarget = (n: TopoNode): { agentId: string; scope?: { name: string; namespaces: string[] } } | null => {
-    const sel = fromNode(n)
-    if (!sel) return null
-    if (sel.kind === 'service') {
-      const svc = services.find((s) => s.id === sel.id)
-      const agent = svc && agents.find((a) => a.clusterId === svc.clusterId && a.status === 'approved')
-      return svc && agent ? { agentId: agent.id, scope: { name: `${svc.name} (from topology)`, namespaces: [svc.namespace] } } : null
-    }
-    if (sel.kind === 'cluster') {
-      const agent = agents.find((a) => a.clusterId === sel.id && a.status === 'approved')
-      return agent ? { agentId: agent.id } : null
-    }
-    return null
-  }
+  const pickTarget = useCallback(
+    (n: TopoNode): { agentId: string; scope?: { name: string; namespaces: string[] } } | null => {
+      const sel = fromNode(n)
+      if (!sel) return null
+      if (sel.kind === 'service') {
+        const svc = services.find((s) => s.id === sel.id)
+        const agent = svc && agents.find((a) => a.clusterId === svc.clusterId && a.status === 'approved')
+        return svc && agent ? { agentId: agent.id, scope: { name: `${svc.name} (from topology)`, namespaces: [svc.namespace] } } : null
+      }
+      if (sel.kind === 'cluster') {
+        const agent = agents.find((a) => a.clusterId === sel.id && a.status === 'approved')
+        return agent ? { agentId: agent.id } : null
+      }
+      return null
+    },
+    // fromNode is intentionally left out: it's a pure function of its argument alone (no closed-over
+    // component state), so its identity changing every render never changes what this returns for the same
+    // node - including it here would just make pickEligibleIds below recompute on every render for no
+    // reason, the exact thing wrapping this in useCallback is meant to avoid.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [services, agents],
+  )
   // Escape backs out of pick mode without picking anything - same "give up on this" affordance as every
   // other transient canvas mode (the toolbar popovers above, via their own effect).
   useEffect(() => {
@@ -500,6 +508,21 @@ function Canvas() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [pickMode])
+
+  // Which nodes pickMode could actually do something with, recomputed whenever pick mode turns on or the
+  // canvas' own nodes change under it - null while pick mode is off (syncPickEligibility below treats that
+  // as "nothing to mark"). Kept separate from pickTarget's own per-click call so hover feedback (index.css's
+  // pick-ineligible rule) can show BEFORE a click, not just explain a dead end after one.
+  const pickEligibleIds = useMemo(() => {
+    if (!pickMode) return null
+    const ids = new Set<string>()
+    for (const n of nodes) if (pickTarget(n)) ids.add(n.id)
+    return ids
+  }, [pickMode, nodes, pickTarget])
+
+  useEffect(() => {
+    setNodes((ns) => syncPickEligibility(ns, pickEligibleIds))
+  }, [pickEligibleIds, setNodes])
 
   const editSelection = (s: NonNullable<Selection>) => {
     if (s.kind === 'cluster') setForm({ type: 'cluster', id: s.id })
@@ -776,7 +799,11 @@ function Canvas() {
                 const badge = (e.target as HTMLElement).closest?.('[data-local-telemetry-cluster]')
                 const clusterId = badge?.getAttribute('data-local-telemetry-cluster')
                 const agentId = clusterId ? localOperatorByCluster.get(clusterId)?.agentId : undefined
-                if (agentId) { telemetry.start(agentId); return }
+                // Exit pick mode here too, even though this branch doesn't go through pickTarget - the
+                // badge is reachable while pick mode is on (it isn't excluded from the dim/hover CSS), and
+                // leaving pickMode true after it opens the telemetry wizard used to strand the canvas dimmed
+                // with no visible cause once the wizard closed.
+                if (agentId) { setPickMode(false); telemetry.start(agentId); return }
                 // Pick mode takes over the click entirely - one click picks (or, for an ineligible node,
                 // just cancels) rather than also falling through to a normal select.
                 if (pickMode) {
@@ -800,6 +827,7 @@ function Canvas() {
               onEdgeMouseMove={(e) => setHoverPos({ cx: e.clientX, cy: e.clientY })}
               onEdgeMouseLeave={() => { setHoverEdge(null); setHoverPos(null) }}
               nodesConnectable={false}
+              nodesDraggable={!pickMode}
               multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
               minZoom={0.15}
               maxZoom={1.75}
