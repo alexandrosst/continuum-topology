@@ -138,14 +138,16 @@ export default function GuidedWizard({
   initialScope?: { name: string; namespaces: string[] }
 }) {
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
-  // A scope handed off from outside (the topology canvas's "Define scope from selection") means a target
-  // and its signals are already implied - land straight on the scope step to attach it, rather than making
-  // the person re-walk layer/modality/kind for signals that were the whole reason this wizard opened guided.
-  const [rawStep, setStep] = useState<Step>(() => (initialScope ? 'scope' : 'layer'))
+  const needsScope = APP_SCOPED.some((k) => value[k])
+  // A scope handed off from outside (the topology canvas's "Define scope from selection") only means
+  // something to land on directly when there's already a signal on to attach it to - re-opening an agent
+  // that already has application-scoped telemetry configured, say. The common case is the opposite: a scope
+  // picked from a fresh, unconfigured selection, where nothing has been turned on yet and "attach a scope"
+  // has nothing to attach - that has to start at layer/modality/kind like any other fresh session, same as
+  // the render-time `step` override just below already assumes once something IS on the scope step.
+  const [rawStep, setStep] = useState<Step>(() => (initialScope && needsScope ? 'scope' : 'layer'))
   const [layer, setLayer] = useState<Layer | undefined>()
   const [modality, setModality] = useState<Modality | undefined>()
-
-  const needsScope = APP_SCOPED.some((k) => value[k])
   // If the only application-scoped signal gets unchecked while the scope step is showing, there is nothing
   // left to scope - derived at render time (not an effect) so it never needs a second render to catch up:
   // the "Define scope" screen simply never has a moment where it shows with nothing left to attach. This is

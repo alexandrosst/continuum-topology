@@ -3,7 +3,9 @@ import {
   BackgroundVariant,
   Controls,
   MiniMap,
+  NodeToolbar,
   Panel,
+  Position,
   ReactFlow,
   ReactFlowProvider,
   useNodesState,
@@ -251,18 +253,15 @@ function Canvas() {
 
   const [nodes, setNodes, onNodesChange] = useNodesState<TopoNode>(graph.nodes)
 
-  // Box-select (shift-drag) already works today at the React Flow level - kept entirely separate from
-  // `selection`/`selectedRfId` above (the single-click Inspector highlight), which actively overwrites a
-  // node's own `.selected` flag below to track only the last clicked one. Reusing that flag for multi-select
-  // would fight that overwrite the moment a plain click landed after a box-select; a dedicated id list, only
-  // ever written by `onSelectionChange`, doesn't.
+  // React Flow's own multi-select (shift/ctrl/cmd-click, or a box-drag - see multiSelectionKeyCode below)
+  // writes here via onSelectionChange, entirely separately from `selection` below (the single-click
+  // Inspector state) - the two are merged into one `highlightedIds` set just below instead of one
+  // overwriting the other, which is what used to make them "fight": a plain click used to reset every
+  // node's `.selected` flag down to just the last-clicked id, silently erasing a multi-selection's own
+  // highlight a moment after React Flow had just set it.
   const [multiSelectedIds, setMultiSelectedIds] = useState<string[]>([])
-  const selectedServices = useMemo(() => {
-    const entityIds = new Set(selectedServiceIds(nodes, multiSelectedIds))
-    return services.filter((s) => entityIds.has(s.id))
-  }, [multiSelectedIds, nodes, services])
 
-  // React Flow id of the current selection (if it is visible in this plane).
+  // React Flow id of the current single-click Inspector selection (if it is visible in this plane).
   const selectedRfId = useMemo(() => {
     if (!selection) return null
     if (selection.kind === 'cluster') return groupBy === 'cluster' ? groupId(selection.id) : null
@@ -270,6 +269,21 @@ function Canvas() {
     if (selection.kind === 'site') return groupId(`dev:${selection.id}`)
     return cardId(selection.id)
   }, [selection, groupBy])
+
+  // The full set of node ids that should currently show the accent halo and count toward a telemetry scope:
+  // the single-click Inspector selection and the multi-select set above, merged - so a scope built up across
+  // several clicks (or a single click, or a box-drag over a whole cluster) all read as one consistent,
+  // highlighted group instead of only the last-clicked item mattering.
+  const highlightedIds = useMemo(() => {
+    const s = new Set(multiSelectedIds)
+    if (selectedRfId) s.add(selectedRfId)
+    return s
+  }, [selectedRfId, multiSelectedIds])
+
+  const selectedServices = useMemo(() => {
+    const entityIds = new Set(selectedServiceIds(nodes, [...highlightedIds]))
+    return services.filter((s) => entityIds.has(s.id))
+  }, [highlightedIds, nodes, services])
 
   // Re-sync when the model / plane changes (keeps selection highlight). A node that was already on the
   // canvas keeps the position it has there (a manual drag, or a prior layout pass) instead of jumping back
@@ -286,12 +300,12 @@ function Canvas() {
   // polls every 2-5s) can desync React Flow's own drag tracking and leave the canvas unresponsive until a
   // reload; every other node keeps its on-screen position across polls unless its parent actually changed.
   useEffect(() => {
-    setNodes((prev) => resyncNodes(prev, graph.nodes, selectedRfId))
+    setNodes((prev) => resyncNodes(prev, graph.nodes, highlightedIds))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, setNodes])
   useEffect(() => {
-    setNodes((ns) => ns.map((n) => (n.selected === (n.id === selectedRfId) ? n : { ...n, selected: n.id === selectedRfId })))
-  }, [selectedRfId, setNodes])
+    setNodes((ns) => ns.map((n) => (n.selected === highlightedIds.has(n.id) ? n : { ...n, selected: highlightedIds.has(n.id) })))
+  }, [highlightedIds, setNodes])
 
   // Re-fit the viewport whenever the *shape* of the graph changes (not on every edit).
   const shape = useMemo(() => graph.nodes.map((n) => `${n.id}:${n.style?.width}x${n.style?.height}`).join('|'), [graph])
@@ -411,16 +425,6 @@ function Canvas() {
 
         <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
           <LiveStatus />
-          {!isMap && (
-            <ScopeFromSelection
-              selected={selectedServices}
-              clusters={clusters.filter((c) => !c.deletedAt)}
-              agents={agents}
-              open={openMenu === 'scope'}
-              onOpenChange={(o) => setOpenMenu(o ? 'scope' : null)}
-              onScope={telemetry.start}
-            />
-          )}
           <FilterMenu
             open={openMenu === 'filter'}
             onOpenChange={(o) => setOpenMenu(o ? 'filter' : null)}
@@ -609,6 +613,13 @@ function Canvas() {
                 const clusterId = badge?.getAttribute('data-local-telemetry-cluster')
                 const agentId = clusterId ? localOperatorByCluster.get(clusterId)?.agentId : undefined
                 if (agentId) { telemetry.start(agentId); return }
+                // A multi-select click (shift/ctrl/cmd, matching multiSelectionKeyCode below) has already
+                // been folded into React Flow's own selection at the library level by the time this fires,
+                // which onSelectionChange picks up into multiSelectedIds - leave it at that. Driving the
+                // single-click Inspector `selection` for it too would change selectedRfId and, through it,
+                // highlightedIds, but only ever to a single id - which would fight the very multi-selection
+                // this click just added to a moment later.
+                if (e.shiftKey || e.metaKey || e.ctrlKey) return
                 select(fromNode(n))
               }}
               onPaneClick={() => select(null)}
@@ -616,6 +627,7 @@ function Canvas() {
               onEdgeMouseEnter={(_, e) => setHoverEdge(e.id)}
               onEdgeMouseLeave={() => setHoverEdge(null)}
               nodesConnectable={false}
+              multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
               minZoom={0.15}
               maxZoom={1.75}
               fitView
@@ -626,6 +638,24 @@ function Canvas() {
               <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="var(--color-nb-850)" />
               <Controls showInteractive={false} />
               <MiniMap className="!hidden sm:!block" pannable zoomable nodeColor={miniColor} nodeStrokeWidth={0} maskColor="rgba(22,24,26,0.7)" />
+              {/* Follows the current selection instead of sitting in the fixed toolbar: the accent halo
+                  (nodes.tsx, driven by highlightedIds above) marks *what* is selected, this sits right next
+                  to it as the *action* for it - one click or box-drag, then the thing to do about it is right
+                  there, rather than a person having to look away to a toolbar button that may not even be
+                  visible depending on scroll/viewport. NodeToolbar accepts an array of node ids and centers
+                  itself over their combined bounding box, so this works the same for one clicked service, a
+                  shift/ctrl-click group, or a whole box-selected cluster. Hidden on the map plane, same as
+                  the toolbar button it replaces was. */}
+              <NodeToolbar nodeId={[...highlightedIds]} isVisible={!isMap && selectedServices.length > 0} position={Position.Top} offset={14}>
+                <ScopeFromSelection
+                  selected={selectedServices}
+                  clusters={clusters.filter((c) => !c.deletedAt)}
+                  agents={agents}
+                  open={openMenu === 'scope'}
+                  onOpenChange={(o) => setOpenMenu(o ? 'scope' : null)}
+                  onScope={telemetry.start}
+                />
+              </NodeToolbar>
               <Panel position="bottom-left" className="!mb-3 !ml-16 hidden sm:block">
                 <div className="flex items-center gap-4 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
                   {TIERS.map((t) => (

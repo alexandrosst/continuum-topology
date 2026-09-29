@@ -63,4 +63,15 @@ describe('TelemetryWizard', () => {
     // Being handed a scope starts the form in guided mode, which is where that scope actually shows up.
     expect(screen.getByTestId('telemetry-wizard-mode-guided')).toHaveAttribute('aria-checked', 'true')
   })
+
+  test('a scope handed off for a target with nothing configured yet starts the guided wizard at Layer, not Review', () => {
+    // Regression test: a fresh "Define scope from selection" hand-off used to seed the wizard straight onto
+    // the 'scope' step, which - with nothing turned on yet - immediately collapsed to 'review' (a dead end
+    // reading "nothing is turned on yet"), skipping layer/modality/kind entirely. See GuidedWizard.tsx's
+    // rawStep initializer.
+    topologyState = { agents: [ag()], clusters: [cl()] }
+    renderWizard({ agentId: 'a1', initialScope: { name: 'shop scope (from topology)', namespaces: ['shop'] } })
+    expect(screen.getByTestId('telemetry-wizard-guided-step-layer')).toBeInTheDocument()
+    expect(screen.queryByText(/nothing is turned on yet/i)).not.toBeInTheDocument()
+  })
 })

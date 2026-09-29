@@ -1195,15 +1195,22 @@ test('pickSides also works on two bare points (zero-size boxes) - OffsetEdge rel
   assert.deepEqual(pickSides({ x: 0, y: 100, w: 0, h: 0 }, { x: 0, y: 0, w: 0, h: 0 }), ['top', 'bottom'])
 })
 
-test('selectedServiceIds: resolves a canvas selection to service ids, dropping group/namespace boxes and anything not selected', () => {
+test('selectedServiceIds: resolves a canvas selection to service ids, expanding group/namespace boxes, dropping anything not selected', () => {
   const [a, b] = inCluster
   const t = { ...seed, dependencies: [seenDep({ from: a.id, to: b.id })] }
   const g = buildGraph(t, { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
   const clusterBoxId = g.nodes.find((n) => n.data.kind === 'group')!.id
-  const selection = [cardId(a.id), cardId(b.id), clusterBoxId, 'not-a-real-node-id']
-  assert.deepEqual(new Set(selectedServiceIds(g.nodes, selection)), new Set([a.id, b.id]), 'the two selected service cards, not the cluster box or the unknown id')
+  const clusterServiceIds = new Set(g.nodes.filter((n) => n.data.kind === 'service' && n.parentId === clusterBoxId).map((n) => n.data.entityId))
+
+  const cardsOnly = [cardId(a.id), cardId(b.id), 'not-a-real-node-id']
+  assert.deepEqual(new Set(selectedServiceIds(g.nodes, cardsOnly)), new Set([a.id, b.id]), 'the two selected service cards, not the unknown id')
   assert.deepEqual(selectedServiceIds(g.nodes, []), [], 'an empty selection resolves to nothing')
-  assert.deepEqual(selectedServiceIds(g.nodes, [clusterBoxId]), [], 'selecting only a group box resolves to no services')
+  // Selecting the cluster box itself (rather than each service inside it one at a time) resolves to every
+  // service nested under it - this is what lets a shift/ctrl-click or box-select on a whole cluster build a
+  // scope out of it directly, instead of only ever working service-by-service. Selecting a card that's
+  // already inside the selected box too changes nothing (a Set either way).
+  assert.deepEqual(new Set(selectedServiceIds(g.nodes, [clusterBoxId])), clusterServiceIds, 'selecting a group box resolves to every service nested under it')
+  assert.deepEqual(new Set(selectedServiceIds(g.nodes, [clusterBoxId, cardId(a.id)])), clusterServiceIds, 'a card already covered by a selected ancestor box adds nothing new')
 })
 
 test('chain layout: services rank strictly by dependency depth, across clusters, with no cluster/tier boxes', () => {
@@ -1300,25 +1307,31 @@ test('resyncNodes: a node mid-drag is left untouched, others keep position until
   // both fail.
   const dragging = node('c:svc-a', { position: { x: 10, y: 20 }, dragging: true })
   const next = [node('c:svc-a', { position: { x: 99, y: 99 } })]
-  const out = resyncNodes([dragging], next, null)
+  const out = resyncNodes([dragging], next, new Set())
   assert.equal(out[0], dragging, 'the dragging node object itself is returned, not a copy')
   assert.deepEqual(out[0].position, { x: 10, y: 20 }, 'its in-progress drag position is not overwritten')
 
   // A node that isn't being dragged keeps its on-screen position across a poll as long as its parent is
   // unchanged - this is what lets a completed manual drag "stick" instead of snapping back on the next poll.
   const settled = node('c:svc-b', { position: { x: 5, y: 5 } })
-  const samePlaceholder = resyncNodes([settled], [node('c:svc-b', { position: { x: 50, y: 50 } })], null)
+  const samePlaceholder = resyncNodes([settled], [node('c:svc-b', { position: { x: 50, y: 50 } })], new Set())
   assert.deepEqual(samePlaceholder[0].position, { x: 5, y: 5 }, 'position sticks when the parent is unchanged')
 
   // A changed parent (e.g. toggling namespace sub-boxes) always takes the freshly computed position - an
   // old, differently-relative position would otherwise land the card in the wrong spot.
-  const reparented = resyncNodes([settled], [node('c:svc-b', { position: { x: 50, y: 50 }, parentId: 'g:ns-x' })], null)
+  const reparented = resyncNodes([settled], [node('c:svc-b', { position: { x: 50, y: 50 }, parentId: 'g:ns-x' })], new Set())
   assert.deepEqual(reparented[0].position, { x: 50, y: 50 }, 'a new parent always takes the fresh position')
 
-  // selectedRfId is applied to the result regardless of which branch a node took above.
-  const sel = resyncNodes([dragging, settled], [node('c:svc-a', { position: { x: 99, y: 99 } }), node('c:svc-b', { position: { x: 50, y: 50 } })], 'c:svc-b')
+  // The highlighted set is applied to the result regardless of which branch a node took above, and covers
+  // more than one id at once - the multi-select case this now also has to serve, not just a single click.
+  const sel = resyncNodes([dragging, settled], [node('c:svc-a', { position: { x: 99, y: 99 } }), node('c:svc-b', { position: { x: 50, y: 50 } })], new Set(['c:svc-b']))
   assert.equal(sel.find((n) => n.id === 'c:svc-b')!.selected, true)
   assert.equal(sel.find((n) => n.id === 'c:svc-a')!.selected, undefined, 'the dragging node is returned as-is, selected flag included')
+
+  const multi = resyncNodes([], [node('c:svc-a', {}), node('c:svc-b', {}), node('c:svc-c', {})], new Set(['c:svc-a', 'c:svc-c']))
+  assert.equal(multi.find((n) => n.id === 'c:svc-a')!.selected, true)
+  assert.equal(multi.find((n) => n.id === 'c:svc-b')!.selected, false)
+  assert.equal(multi.find((n) => n.id === 'c:svc-c')!.selected, true)
 })
 
 test('mesh: anyMesh looks at live clusters only, and the saved-view URL keeps the option', () => {

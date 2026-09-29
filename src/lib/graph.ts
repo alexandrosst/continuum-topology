@@ -995,9 +995,24 @@ export function pickSides(a: Box, b: Box): [Side, Side] {
  * uses this to turn a raw selection into a telemetry scope draft, silently dropping anything selected that
  * isn't a service card: a cluster/tier box, a namespace sub-box, or a machine/device/external card. Order
  * follows `nodes`, not `selectedIds`, so a scope built from the same selection is stable across re-renders. */
+/** Resolves a canvas multi-selection (a mix of individually-clicked service cards and, now that box/click
+ * multi-select is easy to reach, whole cluster/tier/namespace boxes selected the same way) down to the flat
+ * list of service entity ids it implies - the shape ScopeFromSelection.tsx actually needs. Selecting a
+ * group or namespace box directly (rather than each service inside it one at a time) pulls in every service
+ * card nested under it, walking the parentId chain rather than requiring a direct parent match, since a
+ * service inside a namespace sub-box is two levels below its cluster's own group box. */
 export function selectedServiceIds(nodes: TopoNode[], selectedIds: string[]): string[] {
   const ids = new Set(selectedIds)
-  return nodes.filter((n) => ids.has(n.id) && n.data.kind === 'service').map((n) => n.data.entityId)
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const underSelectedAncestor = (n: TopoNode): boolean => {
+    let p = n.parentId
+    while (p) {
+      if (ids.has(p)) return true
+      p = byId.get(p)?.parentId
+    }
+    return false
+  }
+  return nodes.filter((n) => n.data.kind === 'service' && (ids.has(n.id) || underSelectedAncestor(n))).map((n) => n.data.entityId)
 }
 
 /** Folds a freshly computed layout (`next`, e.g. from a poll refresh or a toggled view option) onto
@@ -1021,15 +1036,18 @@ export function selectedServiceIds(nodes: TopoNode[], selectedIds: string[]): st
  *     cluster box straight to a namespace box without changing the card's id) always takes the freshly
  *     computed position - an old, differently-relative position would otherwise land the card in the wrong
  *     spot, often overlapping another card, until something forced a fresh layout.
- * `selectedRfId` just threads through the single-click Inspector highlight so callers don't need a second
- * pass over the result to re-apply it. */
-export function resyncNodes(prev: TopoNode[], next: TopoNode[], selectedRfId: string | null): TopoNode[] {
+ * `highlighted` just threads through the current highlight set (the single-click Inspector selection, plus
+ * whatever React Flow's own multi-select - shift/ctrl/cmd-click or a box-drag - currently holds) so callers
+ * don't need a second pass over the result to re-apply it; without this, a poll landing seconds after a
+ * multi-select would silently wipe every selected node's `.selected` flag back down to just the last
+ * single-click one, since a freshly computed `next` has `.selected` unset on everything. */
+export function resyncNodes(prev: TopoNode[], next: TopoNode[], highlighted: ReadonlySet<string>): TopoNode[] {
   const prevById = new Map(prev.map((n) => [n.id, n]))
   return next.map((n) => {
     const old = prevById.get(n.id)
     if (old?.dragging) return old
     const keepOldPosition = old && old.parentId === n.parentId
-    return { ...n, position: keepOldPosition ? old.position : n.position, selected: n.id === selectedRfId }
+    return { ...n, position: keepOldPosition ? old.position : n.position, selected: highlighted.has(n.id) }
   })
 }
 
