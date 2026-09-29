@@ -1,10 +1,13 @@
-import { Plus, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { Antenna, Globe2, Plus, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { CopyCommand } from '@/components/agents/AgentInsight'
 import { ConfirmModal } from '@/components/forms'
 import ProcessorEditor from '@/components/telemetry/ProcessorEditor'
-import { Button, CheckboxList, ComboField, EmptyState, ErrorBanner, Field, Input, Modal, PageHeader, Pill, Table, Td, Th } from '@/components/ui/primitives'
+import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
+import { Button, ChipList, CheckboxList, ComboField, EmptyState, ErrorBanner, Field, Input, Modal, PageHeader, Pill, Table, Td, Th } from '@/components/ui/primitives'
 import { api, ApiError, type CreatedOperator } from '@/lib/api'
+import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
 import { buildOperatorInstallCommand, operatorProcessorProblems } from '@/lib/operatorInstall'
 import type { ProcessorEntry } from '@/lib/processorCatalog'
@@ -18,6 +21,8 @@ const problem = (e: unknown, fallback: string) => (e instanceof ApiError ? e.mes
 function ErrorLine({ text }: { text: string }) {
   return text ? <ErrorBanner className="mb-4">{text}</ErrorBanner> : null
 }
+
+type Category = 'local' | 'regional'
 
 const emptyDestination: OperatorDestination = {
   kind: 'external',
@@ -78,13 +83,36 @@ function OperatorCreated({ created, extraProcessors, onClose }: { created: Creat
   )
 }
 
-/** Fleet management for regional operators: standalone aggregation points that receive OTLP from a set of
- *  approved agents' clusters and re-export it further up. Not folded into AgentsPage - an operator has no
- *  live connection, heartbeat, or approval flow the way an Agent does (see lib/types.ts's own doc comment
- *  on RegionalOperator), so a dedicated page keeps both models honest instead of a leaky shared branch. */
+/** One category tab, styled like AgentsPage's own List/Map toggle - same segmented-button convention. */
+function CategoryTab({ id, label, icon: Icon, active, onClick, testId }: { id: Category; label: string; icon: typeof Antenna; active: boolean; onClick: () => void; testId: string }) {
+  return (
+    <button
+      key={id}
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${active ? 'bg-nb-940 text-nb-300' : 'text-nb-400 hover:text-nb-300'}`}
+      data-testid={testId}
+    >
+      <Icon size={14} aria-hidden /> {label}
+    </button>
+  )
+}
+
+/** Fleet management for both tiers of operator: local (an already-approved agent's own OTel collectors,
+ *  turned on per-signal via telemetry intent - no separate record of its own, just a view over Agent
+ *  diagnostics) and regional (standalone aggregation points, a real backend entity - see RegionalOperator
+ *  in lib/types.ts). They share this one page as two categories rather than two nav entries, because a
+ *  person reasoning about "what's collecting telemetry in my fleet" wants both answered in one place; the
+ *  route/nav slot is unchanged (`/operators`, still one "Operators" entry). Local operators have no
+ *  approval flow or heartbeat of their own the way regional operators or discovery agents do - they're a
+ *  property of an agent that's already been through that flow elsewhere (Agents/Discovery pages). */
 export default function RegionalOperatorsPage() {
+  const [sp, setSp] = useSearchParams()
   const conn = useServer((s) => s.conn)
   const isAdmin = useServer((s) => s.isAdmin)
+  const canEdit = useServer((s) => s.canEdit)
+  const rawAgents = useServer((s) => s.state?.agents)
   const { agents, clusters } = useTopology()
   const [operators, setOperators] = useState<RegionalOperator[]>([])
   const [error, setError] = useState('')
@@ -95,6 +123,8 @@ export default function RegionalOperatorsPage() {
   const [revoking, setRevoking] = useState<RegionalOperator | null>(null)
   const [deleting, setDeleting] = useState<RegionalOperator | null>(null)
   const admin = isAdmin()
+  const canConsent = conn() != null && canEdit()
+  const telemetry = useTelemetryFlow()
 
   const load = useCallback(async () => {
     const c = conn()
@@ -109,6 +139,35 @@ export default function RegionalOperatorsPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Every currently-approved agent that has at least one telemetry signal actually running, per its own
+  // self-reported `installedTelemetry` (see consent.ts) - not a separate entity, a view over agents that
+  // already exist. Mirrors how AgentInsight.tsx's inline "Change telemetry" panel reads the same field.
+  const localRows = useMemo(
+    () =>
+      agents
+        .filter((a) => a.status === 'approved')
+        .map((a) => {
+          const extras = extrasOf(rawAgents, a.id)
+          const installed = extras.diagnostics?.installedTelemetry ?? []
+          return { agent: a, cluster: clusters.find((c) => c.id === a.clusterId), installed, reportedAt: extras.diagnostics?.reportedAt }
+        })
+        .filter((r) => r.installed.length > 0),
+    [agents, clusters, rawAgents],
+  )
+
+  // Whichever category actually has something in it wins by default (regional if both do, or neither -
+  // today's behaviour, unchanged for anyone who only ever used regional operators); the URL is the source
+  // of truth once a person has picked one, so switching tabs is bookmarkable/shareable like AgentsPage's
+  // own List/Map toggle.
+  const requestedCategory = sp.get('cat')
+  const category: Category =
+    requestedCategory === 'local' || requestedCategory === 'regional'
+      ? requestedCategory
+      : localRows.length > 0 && operators.length === 0
+        ? 'local'
+        : 'regional'
+  const setCategory = (c: Category) => setSp((p) => { const n = new URLSearchParams(p); n.set('cat', c); return n }, { replace: true })
 
   const act = async (f: () => Promise<void>, fallback: string) => {
     try {
@@ -158,49 +217,88 @@ export default function RegionalOperatorsPage() {
       if (c) await api.deleteOperator(c, op.id)
     }, 'Could not delete the operator.')
 
-  if (!admin) {
-    return (
-      <>
-        <PageHeader title="Regional operators" description="Standalone aggregation points that receive telemetry from a set of clusters and re-export it further up." />
-        <EmptyState title="Administrators only" description="Only organisation administrators can see and manage regional operators." />
-      </>
-    )
-  }
-
   return (
     <>
       <PageHeader
-        title="Regional operators"
-        description="Each aggregates telemetry already exported by a set of approved clusters and re-exports it to one destination - another observability backend, or (soon) another regional operator above it."
-        actions={<Button variant="primary" onClick={() => { setDraft(emptyDraft); setCreating(true) }} data-testid="operator-open"><Plus size={16} /> New operator</Button>}
+        title="Operators"
+        description={
+          category === 'local'
+            ? "Per-cluster OpenTelemetry collectors, driven by which signals each cluster's own agent has turned on."
+            : 'Each aggregates telemetry already exported by a set of approved clusters and re-exports it to one destination - another observability backend, or (soon) another regional operator above it.'
+        }
+        actions={
+          category === 'regional' && admin ? (
+            <Button variant="primary" onClick={() => { setDraft(emptyDraft); setCreating(true) }} data-testid="operator-open"><Plus size={16} /> New operator</Button>
+          ) : undefined
+        }
       />
-      <ErrorLine text={error} />
 
-      {operators.length === 0 ? (
-        <EmptyState title="No regional operators yet" description="Create one to aggregate telemetry from a set of clusters before it leaves your infrastructure." />
+      <div className="mb-4 flex w-fit overflow-hidden rounded-md border border-nb-850" role="tablist" aria-label="Operator category">
+        <CategoryTab id="local" label="Local" icon={Antenna} active={category === 'local'} onClick={() => setCategory('local')} testId="operators-local" />
+        <CategoryTab id="regional" label="Regional" icon={Globe2} active={category === 'regional'} onClick={() => setCategory('regional')} testId="operators-regional" />
+      </div>
+
+      {category === 'local' ? (
+        localRows.length === 0 ? (
+          <EmptyState
+            title="No local operators running yet"
+            description="A local operator is just an already-connected cluster's agent with at least one telemetry signal turned on. Configure one to see it here."
+            action={canConsent ? <Button variant="primary" onClick={() => telemetry.start()}><Antenna size={16} /> Configure telemetry</Button> : undefined}
+          />
+        ) : (
+          <Table data-testid="local-operators-table">
+            <thead>
+              <tr><Th>Cluster</Th><Th>Agent</Th><Th>Signals</Th><Th>Last reported</Th><Th /></tr>
+            </thead>
+            <tbody>
+              {localRows.map(({ agent, cluster, installed, reportedAt }) => (
+                <tr key={agent.id} className="group hover:bg-nb-930/60" data-testid={`local-operator-${agent.name}`}>
+                  <Td className="text-nb-300">{cluster?.name ?? agent.name}</Td>
+                  <Td className="text-nb-500">{agent.name}</Td>
+                  <Td><ChipList items={TELEMETRY_SIGNALS.filter((s) => installed.includes(s.id)).map((s) => s.label)} max={3} /></Td>
+                  <Td className="text-nb-500">{when(reportedAt)}</Td>
+                  <Td className="text-right">
+                    {canConsent && (
+                      <Button size="sm" onClick={() => telemetry.start(agent.id)}>Configure</Button>
+                    )}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )
+      ) : !admin ? (
+        <EmptyState title="Administrators only" description="Only organisation administrators can see and manage regional operators." />
       ) : (
-        <Table>
-          <thead>
-            <tr><Th>Name</Th><Th>Status</Th><Th>Sources</Th><Th>Destination</Th><Th>Created</Th><Th /></tr>
-          </thead>
-          <tbody>
-            {operators.map((op) => (
-              <tr key={op.id} className="group hover:bg-nb-930/60" data-testid={`operator-${op.name}`}>
-                <Td className="text-nb-300">{op.name}</Td>
-                <Td><Pill>{op.status === 'active' ? 'Active' : `Revoked${op.reason ? `: ${op.reason}` : ''}`}</Pill></Td>
-                <Td className="text-nb-500">{op.sourceClusterIds.length} cluster{op.sourceClusterIds.length === 1 ? '' : 's'}</Td>
-                <Td className="text-nb-500"><span className="font-mono text-xs">{op.destination.endpoint}</span></Td>
-                <Td className="text-nb-500">{when(op.createdAt)}</Td>
-                <Td className="text-right">
-                  {op.status === 'active' && (
-                    <Button size="sm" variant="danger" onClick={() => setRevoking(op)}>Revoke</Button>
-                  )}
-                  <Button size="sm" variant="danger" onClick={() => setDeleting(op)}><Trash2 size={13} /></Button>
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
+        <>
+          <ErrorLine text={error} />
+          {operators.length === 0 ? (
+            <EmptyState title="No regional operators yet" description="Create one to aggregate telemetry from a set of clusters before it leaves your infrastructure." />
+          ) : (
+          <Table>
+            <thead>
+              <tr><Th>Name</Th><Th>Status</Th><Th>Sources</Th><Th>Destination</Th><Th>Created</Th><Th /></tr>
+            </thead>
+            <tbody>
+              {operators.map((op) => (
+                <tr key={op.id} className="group hover:bg-nb-930/60" data-testid={`operator-${op.name}`}>
+                  <Td className="text-nb-300">{op.name}</Td>
+                  <Td><Pill>{op.status === 'active' ? 'Active' : `Revoked${op.reason ? `: ${op.reason}` : ''}`}</Pill></Td>
+                  <Td className="text-nb-500">{op.sourceClusterIds.length} cluster{op.sourceClusterIds.length === 1 ? '' : 's'}</Td>
+                  <Td className="text-nb-500"><span className="font-mono text-xs">{op.destination.endpoint}</span></Td>
+                  <Td className="text-nb-500">{when(op.createdAt)}</Td>
+                  <Td className="text-right">
+                    {op.status === 'active' && (
+                      <Button size="sm" variant="danger" onClick={() => setRevoking(op)}>Revoke</Button>
+                    )}
+                    <Button size="sm" variant="danger" onClick={() => setDeleting(op)}><Trash2 size={13} /></Button>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          )}
+        </>
       )}
 
       <Modal
@@ -300,6 +398,8 @@ export default function RegionalOperatorsPage() {
           onClose={() => setDeleting(null)}
         />
       )}
+
+      {telemetry.dialogs}
     </>
   )
 }
