@@ -406,6 +406,11 @@ function Canvas() {
       // "more traffic" without out-weighing the 2.4px used for the current selection/focus.
       const seen = !!e.data?.observed && !e.data?.stale
       const width = hot ? 2.4 : e.data?.aggregated ? 2 : seen ? 1.2 + 1.0 * (e.data?.weight ?? 0.15) : 1.2
+      // A seen edge with no `via` at all can't happen (isObserved only ever sets true alongside via), so
+      // this only ever fires for a real conntrack-only edge - one whose traffic numbers, if it shows any,
+      // are connection counts only (see EdgeData.via's own comment): a long, open dash reads as "mostly
+      // solid but not fully confirmed" without competing with the short, tight '2 5' used for "not seen".
+      const conntrackOnly = seen && e.data?.via === 'conntrack'
       return {
         ...e,
         label: showLabel ? e.label : undefined,
@@ -413,7 +418,7 @@ function Canvas() {
           stroke,
           strokeWidth: width,
           opacity: dim ? 0.15 : e.data?.stale ? 0.55 : 1,
-          strokeDasharray: !e.data?.aggregated && !seen ? '2 5' : undefined,
+          strokeDasharray: !e.data?.aggregated && !seen ? '2 5' : conntrackOnly ? '8 4' : undefined,
           // Busier links run their dashes faster (a quiet one takes 2.4 s for a period, the busiest 0.7 s).
           animationDuration: e.className === 'edge-animated' ? `${(2.4 - 1.7 * (e.data?.weight ?? 0)).toFixed(2)}s` : undefined,
         },
@@ -898,6 +903,12 @@ function Canvas() {
                         <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.2" strokeDasharray="2 5" /></svg>
                         Not seen
                       </span>
+                      {graph.edges.some((e) => e.data?.via === 'conntrack' && e.data?.observed && !e.data?.stale) && (
+                        <span className="flex items-center gap-1.5" title="Seen by conntrack only - no eBPF collector on that node, so there's no byte count or retransmit data behind it, connections only">
+                          <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.2" strokeDasharray="8 4" /></svg>
+                          Connections only
+                        </span>
+                      )}
                     </>
                   )}
                   {/* Both entries only appear once something on the canvas actually needs them explained -

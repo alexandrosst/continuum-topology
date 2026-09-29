@@ -90,6 +90,11 @@ export type CardData = {
   notReady?: string
   /** Service mesh overlay: how the mesh treats this service. `tone` picks the chip's colour. */
   mesh?: { label: string; tone: 'in' | 'control' | 'out'; title: string }
+  /** Machine cards only, node-probe-only facts worth a glance without opening the Inspector: whether the
+   *  machine can run without mains power, and the fastest physical uplink the probe saw (the max of
+   *  MachineNode.networkInterfaces' speedMbps, not any one interface in particular - which one is fastest
+   *  is a detail the Inspector's own per-interface list already covers). */
+  hardware?: { hasBattery?: boolean; nicMbps?: number }
 }
 
 export type GroupNode = Node<GroupData, 'boundary'>
@@ -139,6 +144,16 @@ export type EdgeData = {
    *  is not trustworthy the way an eBPF one is; the hover card applies the same "eBPF, or a real positive
    *  number" gate the Inspector already uses for this exact reason. */
   via?: 'ebpf' | 'conntrack'
+  /** The caller's physical network interface for this dependency's traffic (Dependency.iface) - eBPF only,
+   *  same as on Dependency itself. Surfaced on the hover card so it doesn't take a click to see. */
+  iface?: string
+  /** Cumulative TCP segments retransmitted over the edge's life (Dependency.retransmits) - eBPF only, 0 on
+   *  a conntrack-only edge means "not measured", not "no loss". The hover card pairs this with
+   *  `stats.retransmitsPerMin` the same way the Inspector already does. */
+  retransmits?: number
+  /** Latest smoothed TCP round-trip sample (Dependency.rttMs) - a gauge, not this edge's Network path
+   *  measurement (that's `quality.rttMs`, a different, cluster-to-cluster figure). */
+  rttMs?: number
   /** Aggregated (group<->group) edges only: how many of the bundled dependencies were actually seen in
    *  traffic, out of the total the label already counts - the hover card's "(N seen in traffic)" aside. */
   activeCount?: number
@@ -597,6 +612,9 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         weight: weightOf(d),
         stats: d.stats,
         via: d.via,
+        iface: d.iface,
+        retransmits: d.retransmits,
+        rttMs: d.rttMs,
       }))
     }
   } else if (o.links) {
@@ -1025,6 +1043,8 @@ function externalItem(e: ExternalEndpoint): Item {
 
 function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: string }[] | undefined, withCluster: boolean): Item {
   const chipRows = chips && chips.length ? Math.ceil(chips.length / 2) : 0
+  const nicMbps = n.networkInterfaces?.reduce((max, i) => (i.speedMbps !== undefined && i.speedMbps > max ? i.speedMbps : max), 0)
+  const hardware = n.hasBattery || nicMbps ? { hasBattery: n.hasBattery, nicMbps: nicMbps || undefined } : undefined
   return {
     id: cardId(n.id),
     w: MACHINE_CARD.w,
@@ -1041,6 +1061,7 @@ function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: stri
       machineKind: n.kind,
       control: n.role === 'control-plane',
       chips,
+      hardware,
     },
   }
 }
@@ -1232,6 +1253,9 @@ function makeEdge(
     quality?: PathQuality
     stats?: DependencyStats
     via?: 'ebpf' | 'conntrack'
+    iface?: string
+    retransmits?: number
+    rttMs?: number
     activeCount?: number
   },
 ): TopoEdge {
@@ -1262,7 +1286,7 @@ function makeEdge(
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,
     markerEnd: d.aggregated ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, activeCount: d.activeCount },
+    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, retransmits: d.retransmits, rttMs: d.rttMs, activeCount: d.activeCount },
   }
 }
 

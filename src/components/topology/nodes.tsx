@@ -3,7 +3,9 @@ import clsx from 'clsx'
 import {
   Antenna,
   ArrowUpRight,
+  BatteryCharging,
   Box,
+  Cable,
   Camera,
   Clock,
   Cog,
@@ -65,6 +67,13 @@ const MESH_TONE = { in: 'bg-ok/10 text-ok', control: 'bg-violet-400/10 text-viol
 // service chips, which previously used two adjacent-but-different grays (bg-nb-900 vs bg-nb-940) that never
 // meant anything different from each other, just drifted independently.
 const NEUTRAL_TONE = 'bg-nb-900 text-nb-400'
+
+/** "1000" reads worse on a small badge than "1 Gbps" - the Inspector's own full interface list (Inspector.tsx)
+ *  keeps raw Mbps since it has room to be exact about every interface; this is a single at-a-glance number
+ *  for the fastest one, so the friendlier unit wins here. */
+function nicSpeedLabel(mbps: number) {
+  return mbps >= 1000 ? `${Number((mbps / 1000).toFixed(1))} Gbps` : `${mbps} Mbps`
+}
 
 /** One shared shape for every small text pill on a node (a cluster's mesh state, its detected networking,
  * a service's "not ready" or placement-hint chip, a service-count chip) - these had each grown their own
@@ -282,7 +291,7 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
           {far && (data.hint || data.notReady) && <span className={clsx('size-2.5 rounded-sm', data.notReady ? 'bg-warn' : 'bg-accent')} title={data.notReady ?? `Better in ${data.hint}`} />}
         </div>
       </div>
-      {!far && (data.hint || data.notReady || data.mesh) && (
+      {!far && (data.hint || data.notReady || data.mesh || data.hardware) && (
         <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
           {data.mesh && (
             <Badge tone={MESH_TONE[data.mesh.tone]} title={data.mesh.title} data-testid="mesh-chip" className="max-w-full">
@@ -293,6 +302,16 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
           {data.hint && (
             <Badge tone="bg-accent-soft text-accent" icon={ArrowUpRight} title={`The placement advice would move this to ${data.hint}. Open it for the evidence.`} data-testid="placement-hint" className="max-w-full">
               better in {data.hint}
+            </Badge>
+          )}
+          {data.hardware?.hasBattery && (
+            <Badge tone={NEUTRAL_TONE} icon={BatteryCharging} title="Node probe: this machine can run without mains power (has a battery)" data-testid="battery-badge">
+              Battery
+            </Badge>
+          )}
+          {data.hardware?.nicMbps !== undefined && (
+            <Badge tone={NEUTRAL_TONE} icon={Cable} title={`Node probe: fastest physical network interface seen on this machine is ${nicSpeedLabel(data.hardware.nicMbps)}`} data-testid="nic-badge">
+              {nicSpeedLabel(data.hardware.nicMbps)}
             </Badge>
           )}
         </div>

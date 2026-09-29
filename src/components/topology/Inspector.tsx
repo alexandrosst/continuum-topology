@@ -1,6 +1,7 @@
 import { Pencil, X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { CheckLine } from '@/components/discovery/AgentParts'
 import EntityHistory from '@/components/EntityHistory'
 import { EvidenceSection, WeakValues } from '@/components/EvidenceSection'
 import MobilityPanel from '@/components/MobilityPanel'
@@ -17,7 +18,7 @@ import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { useHistoryView } from '@/store/history'
 import { useServer } from '@/store/server'
 import { useRawTopology, useTopology } from '@/store/topology'
-import { bytesPerSec, isObserved, trafficSummary } from '@/lib/observed'
+import { bytesPerSec, bytesTotal, isObserved, trafficSummary } from '@/lib/observed'
 import { lossBand, pathQuality, rttLabel } from '@/lib/metrics'
 import { usePaths } from '@/store/topology'
 import { connectionVerdict, meshName, MTLS_WORDS, proxyWords, VERDICT_COLOR } from '@/lib/mesh'
@@ -439,6 +440,23 @@ export default function Inspector({
               <span title={agent.scope.description}>{agent.scope.inScope} of {agent.scope.namespaces}</span>
             </Row>
           )}
+          {agent?.link && (
+            <Row label="Connection" wrap>
+              <span title="Everything this agent has sent since the server itself last started - not this connection's own lifetime, and not reset by a reconnect.">
+                {bytesTotal(agent.link.bytes)} sent
+                {agent.link.connectedSince && <> · connected {ago(agent.link.connectedSince)}</>}
+              </span>
+              <span className="ml-1 text-nb-500">
+                ({[
+                  agent.link.syncs ? `${agent.link.syncs.toLocaleString()} sync${agent.link.syncs === 1 ? '' : 's'}` : '',
+                  agent.link.flows ? `${agent.link.flows.toLocaleString()} flow batch${agent.link.flows === 1 ? '' : 'es'}` : '',
+                  agent.link.measurements ? `${agent.link.measurements.toLocaleString()} measurement${agent.link.measurements === 1 ? '' : 's'}` : '',
+                  agent.link.heartbeats ? `${agent.link.heartbeats.toLocaleString()} heartbeat${agent.link.heartbeats === 1 ? '' : 's'}` : '',
+                ].filter(Boolean).join(', ')})
+              </span>
+            </Row>
+          )}
+          {agent && <CheckLine agent={agent} />}
           <Origin e={c} />
           <WeakValues kind="cluster" rec={c} />
         </Section>

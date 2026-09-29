@@ -1,4 +1,4 @@
-import { qualityLabel } from '@/lib/metrics'
+import { qualityLabel, rttLabel } from '@/lib/metrics'
 import { bytesPerSec } from '@/lib/observed'
 import type { TopoEdge } from '@/lib/graph'
 
@@ -17,6 +17,10 @@ export type EdgeHoverPos = { cx: number; cy: number }
  * how many of those were seen in traffic, and their combined throughput. A telemetry edge to a regional
  * operator has neither `stats` nor `quality` set, so it falls through to just the two names and its label -
  * a graceful minimum rather than a special case.
+ *
+ * Round trip, retransmits and interface mirror the Inspector's own "Traffic" section exactly (same
+ * eBPF-only gate for retransmits, same rttMs source) - so a click is never needed just to see numbers a
+ * hover already had.
  */
 export default function EdgeHoverCard({
   edge,
@@ -40,6 +44,9 @@ export default function EdgeHoverCard({
   // can't see bytes - so, same gate the Inspector uses, only trust it when eBPF made it or it's a genuine
   // positive number.
   const showBps = s?.bytesPerSec !== undefined && (d?.via === 'ebpf' || s.bytesPerSec > 0)
+  // Retransmits are only ever a real measurement on an eBPF edge - same gate the Inspector uses (a
+  // conntrack-only edge's 0 there means "not measured", not "no loss").
+  const showRetransmits = d?.via === 'ebpf' && s?.retransmitsPerMin !== undefined
   const left = Math.min(pos.cx - box.left + 14, box.width - 236)
   const top = Math.max(8, pos.cy - box.top - 12)
   const label = typeof edge.label === 'string' ? edge.label : undefined
@@ -59,7 +66,7 @@ export default function EdgeHoverCard({
           ? d.activeCount ? ` · ${d.activeCount} seen in traffic` : undefined
           : label !== undefined && (d?.stale ? ' · quiet' : seen ? ' · seen in traffic' : ' · declared')}
       </div>
-      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.quality) && (
+      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showRetransmits || d?.iface || d?.quality) && (
         <dl className="mt-1.5 grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-0.5 text-nb-400">
           {showBps && (
             <>
@@ -83,6 +90,24 @@ export default function EdgeHoverCard({
             <>
               <dt>p95 latency</dt>
               <dd className="text-nb-200">{s.p95Ms} ms</dd>
+            </>
+          )}
+          {d?.rttMs !== undefined && (
+            <>
+              <dt title="Smoothed TCP round trip sampled from the kernel, not an active probe">TCP round trip</dt>
+              <dd className="text-nb-200">{rttLabel(d.rttMs)}</dd>
+            </>
+          )}
+          {showRetransmits && (
+            <>
+              <dt>Retransmits</dt>
+              <dd className="text-nb-200">{Math.round((s!.retransmitsPerMin ?? 0) * 10) / 10}/min</dd>
+            </>
+          )}
+          {d?.iface && (
+            <>
+              <dt>Interface</dt>
+              <dd className="text-nb-200">{d.iface}</dd>
             </>
           )}
           {d?.quality && (
