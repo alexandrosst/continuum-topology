@@ -5,7 +5,7 @@ import { ConfirmModal } from '@/components/forms'
 import InstallationSettings from '@/components/InstallationSettings'
 import MailSettings from '@/components/MailSettings'
 import ServerAddressSettings from '@/components/ServerAddressSettings'
-import { Button, PageHeader, PulseDot, SavedNote } from '@/components/ui/primitives'
+import { Button, PageHeader, PulseDot, SavedNote, StatTile } from '@/components/ui/primitives'
 import { atLeast } from '@/lib/api'
 import { declaredNote, rehydrate, toDeclared } from '@/lib/declared'
 import { useConn, useServer } from '@/store/server'
@@ -105,11 +105,8 @@ export default function SettingsPage() {
       <p className="mb-3 max-w-2xl text-sm text-nb-500">{onServer ? "Your topology is saved to the server and shared with everyone who signs in. Export it as JSON to keep a copy." : "Your topology is stored in this browser. Export it as JSON to back it up or share it."}</p>
 
       <div className="mb-6 grid grid-cols-3 gap-3 lg:grid-cols-7">
-        {[['Clusters', clusters.length], ['Nodes', nodes.length], ['Services', services.length], ['Devices', devices.length], ['Dependencies', dependencies.length], ['Applications', applications.length], ['Sites', sites.length]].map(([l, v]) => (
-          <div key={l} className="rounded-xl border border-nb-850 bg-nb-925 px-5 py-4">
-            <div className="text-2xl font-medium text-nb-300">{v}</div>
-            <div className="text-xs text-nb-500">{l}</div>
-          </div>
+        {([['Clusters', clusters.length], ['Nodes', nodes.length], ['Services', services.length], ['Devices', devices.length], ['Dependencies', dependencies.length], ['Applications', applications.length], ['Sites', sites.length]] as [string, number][]).map(([l, v]) => (
+          <StatTile key={l} label={l} value={String(v)} />
         ))}
       </div>
 

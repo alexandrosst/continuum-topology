@@ -368,6 +368,15 @@ function Canvas() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/*
+        Deliberately not PageHeader here, unlike every other page: PageHeader's spacious title + description
+        + simple action-button row is built for scrolling content, and its `mb-6` alone would eat a chunk of
+        the vertical space this page instead spends on the canvas filling the rest of the viewport. This
+        toolbar's own content - a view-mode tablist, several dropdown menus (filter/views/options/add), and
+        inline toggles - also doesn't fit PageHeader's title/description/actions shape to begin with. A
+        compact, dense single-row bar is the right tool for a canvas page; PageHeader stays for pages that
+        are actually a page of content.
+      */}
       {/* Toolbar */}
       <div className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-nb-850 bg-nb-920 px-4 py-2 sm:px-5">
         <h1 className="text-base font-medium text-nb-300">Topology</h1>

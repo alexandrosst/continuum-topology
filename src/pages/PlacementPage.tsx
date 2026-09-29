@@ -9,7 +9,7 @@ import PolicyPanel from '@/components/placement/PolicyPanel'
 import RecommendationCard from '@/components/placement/Recommendation'
 import { Card, pts } from '@/components/placement/shared'
 import WhatIf from '@/components/placement/WhatIf'
-import { EmptyState, PageHeader, useFlash } from '@/components/ui/primitives'
+import { EmptyState, PageHeader, StatTile, useFlash } from '@/components/ui/primitives'
 import { coverage, totals, whatIf } from '@/lib/placement/engine'
 import type { Move } from '@/lib/placement/types'
 import { usePlan } from '@/lib/placement/usePlacement'
@@ -112,9 +112,9 @@ export default function PlacementPage() {
                     {all && (
                       <Card title={`If you did all ${plan.recommendations.length} of these`} aside={<span className="text-xs text-nb-500">in the order shown</span>}>
                         <div className="flex flex-wrap gap-x-10 gap-y-3" data-testid="plan-summary">
-                          <Stat label="Network cost" value={`${pts(all.after.cost)}`} sub={`was ${pts(all.before.cost)}`} good={all.after.cost < all.before.cost} />
-                          <Stat label="Traffic between sites" value={`${bytes(all.after.crossSiteBps)}`} sub={`was ${bytes(all.before.crossSiteBps)}`} good={all.after.crossSiteBps < all.before.crossSiteBps} />
-                          <Stat label="One-off data copying" value={`${pts(plan.recommendations.reduce((n, r) => n + r.target.migrationCost, 0))}`} sub="points, already subtracted" />
+                          <StatTile bordered={false} label="Network cost" value={`${pts(all.after.cost)}`} sub={`was ${pts(all.before.cost)}`} tone={all.after.cost < all.before.cost ? 'ok' : undefined} />
+                          <StatTile bordered={false} label="Traffic between sites" value={`${bytes(all.after.crossSiteBps)}`} sub={`was ${bytes(all.before.crossSiteBps)}`} tone={all.after.crossSiteBps < all.before.crossSiteBps ? 'ok' : undefined} />
+                          <StatTile bordered={false} label="One-off data copying" value={`${pts(plan.recommendations.reduce((n, r) => n + r.target.migrationCost, 0))}`} sub="points, already subtracted" />
                         </div>
                         {all.warnings.length > 0 && (
                           <ul className="mt-3 space-y-1 rounded-lg border border-warn/20 bg-warn/5 px-3 py-2 text-xs text-warn/90">
@@ -165,16 +165,6 @@ export default function PlacementPage() {
 }
 
 const bytes = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB/s` : n >= 1e3 ? `${(n / 1e3).toFixed(0)} KB/s` : `${Math.round(n)} B/s`)
-
-function Stat({ label, value, sub, good }: { label: string; value: string; sub?: string; good?: boolean }) {
-  return (
-    <div>
-      <div className="text-xs text-nb-500">{label}</div>
-      <div className={clsx('text-2xl font-medium tabular-nums', good ? 'text-ok' : 'text-nb-300')}>{value}</div>
-      {sub && <div className="text-xs tabular-nums text-nb-500">{sub}</div>}
-    </div>
-  )
-}
 
 /** What the advice stands on, so an estimate is never mistaken for a measurement. */
 function Coverage({ cov }: { cov: ReturnType<typeof coverage> }) {

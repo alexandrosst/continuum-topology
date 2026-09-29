@@ -996,6 +996,46 @@ export function Meter({ value, unit, pct, title }: { value: string; unit?: strin
   )
 }
 
+/**
+ * A labeled figure tile: label above, a large tabular-nums value, an optional caption below - the one
+ * definition three pages (AgentsPage, PlacementPage, SettingsPage) each used to grow their own slightly
+ * different copy of, with incompatibly-named/polarized boolean props (`warn` vs `good`). `tone` replaces
+ * both: 'warn' reddens the value (and, while `bordered`, the tile's own border too), 'ok' greens it,
+ * unset stays neutral. `bordered` is off for a tile that already sits inside its own bordered container
+ * (e.g. PlacementPage's plan-summary Card) - everywhere else wants the tile to be its own standalone box.
+ * The value fades in on change (see useFlash) so a figure that updates on the page's own poll is seen to
+ * change rather than silently flipping underneath the viewer.
+ */
+export function StatTile({
+  label,
+  value,
+  sub,
+  tone,
+  bordered = true,
+  className,
+  'data-testid': testId,
+}: {
+  label: string
+  value: string
+  sub?: string
+  tone?: 'ok' | 'warn'
+  bordered?: boolean
+  className?: string
+  'data-testid'?: string
+}) {
+  const flash = useFlash(value)
+  return (
+    <div
+      className={clsx(bordered && 'h-full rounded-xl border bg-nb-925 px-5 py-4', bordered && (tone === 'warn' ? 'border-warn/30' : 'border-nb-850'), className)}
+      data-testid={testId}
+    >
+      <div className="text-xs text-nb-500">{label}</div>
+      <div className={clsx('mt-1 text-2xl font-medium tabular-nums', tone === 'warn' ? 'text-warn' : tone === 'ok' ? 'text-ok' : 'text-nb-300', flash && 'fade-in')}>{value}</div>
+      {sub && <div className="mt-0.5 text-xs tabular-nums text-nb-500">{sub}</div>}
+    </div>
+  )
+}
+
 /** A short list that never grows a row: the first few items, then "+N". */
 export function ChipList({ items, max = 2 }: { items: string[]; max?: number }) {
   if (items.length === 0) return <span className="text-nb-700">—</span>

@@ -10,7 +10,7 @@ import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
 import EntityHistory from '@/components/EntityHistory'
 import { ConfirmModal } from '@/components/forms'
 import { DistroIcon, Flag, WithIcon } from '@/components/ui/brand'
-import { Button, EmptyState, ErrorBanner, PageHeader, PulseDot, Table, Td, Th, TierBadge, useFlash } from '@/components/ui/primitives'
+import { Button, EmptyState, ErrorBanner, PageHeader, PulseDot, StatTile, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
 import { api, ApiError } from '@/lib/api'
 import { skewLabel, skewWarning } from '@/lib/clock'
 import { extrasOf, type AgentExtras } from '@/lib/consent'
@@ -168,10 +168,10 @@ export default function AgentsPage() {
       ) : (
         <>
           <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="agent-stats">
-            <Stat label="Connected" value={`${counts.ok ?? 0} of ${rows.filter((r) => r.a.status === 'approved' && r.h !== 'unknown').length}`} sub={(counts.late ?? 0) + (counts.offline ?? 0) > 0 ? `${(counts.late ?? 0) + (counts.offline ?? 0)} need a look` : (counts.ok ?? 0) === 0 ? 'no agent is reporting live' : 'all approved agents are up'} warn={(counts.late ?? 0) + (counts.offline ?? 0) > 0} />
-            <Stat label="Waiting for approval" value={String(counts.waiting ?? 0)} sub={counts.waiting ? 'review them above' : 'no request is waiting'} warn={!!counts.waiting} />
-            <Stat label="Received" value={connected ? bytesTotal(sent) : '—'} sub={connected ? 'since the server started' : 'needs a server'} />
-            <Stat label="Next certificate expiry" value={soonest === undefined ? '—' : soonest < 0 ? 'expired' : inWords(soonest)} sub={soonest === undefined ? 'no certificates yet' : 'agents renew on their own'} warn={soonest !== undefined && soonest < 0} />
+            <StatTile label="Connected" value={`${counts.ok ?? 0} of ${rows.filter((r) => r.a.status === 'approved' && r.h !== 'unknown').length}`} sub={(counts.late ?? 0) + (counts.offline ?? 0) > 0 ? `${(counts.late ?? 0) + (counts.offline ?? 0)} need a look` : (counts.ok ?? 0) === 0 ? 'no agent is reporting live' : 'all approved agents are up'} tone={(counts.late ?? 0) + (counts.offline ?? 0) > 0 ? 'warn' : undefined} />
+            <StatTile label="Waiting for approval" value={String(counts.waiting ?? 0)} sub={counts.waiting ? 'review them above' : 'no request is waiting'} tone={counts.waiting ? 'warn' : undefined} />
+            <StatTile label="Received" value={connected ? bytesTotal(sent) : '—'} sub={connected ? 'since the server started' : 'needs a server'} />
+            <StatTile label="Next certificate expiry" value={soonest === undefined ? '—' : soonest < 0 ? 'expired' : inWords(soonest)} sub={soonest === undefined ? 'no certificates yet' : 'agents renew on their own'} tone={soonest !== undefined && soonest < 0 ? 'warn' : undefined} />
           </div>
 
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -336,20 +336,6 @@ export default function AgentsPage() {
       )}
     </>
   )
-}
-
-function Stat({ label, value, sub, warn, to }: { label: string; value: string; sub: string; warn?: boolean; to?: string }) {
-  // These counts update on the same poll as the rest of the page; fading the new value in (like Meter does)
-  // makes a change visible instead of a number silently flipping underneath the viewer.
-  const flash = useFlash(value)
-  const body = (
-    <div className={clsx('h-full rounded-xl border bg-nb-925 px-5 py-4', warn ? 'border-warn/30' : 'border-nb-850')}>
-      <div className="text-xs text-nb-500">{label}</div>
-      <div className={clsx('mt-1 text-2xl font-medium tabular-nums', warn ? 'text-warn' : 'text-nb-300', flash && 'fade-in')}>{value}</div>
-      <div className="mt-0.5 text-xs text-nb-500">{sub}</div>
-    </div>
-  )
-  return to ? <Link to={to} className="block">{body}</Link> : body
 }
 
 /** Everything the server knows about one agent that does not fit in a row. */
