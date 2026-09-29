@@ -536,13 +536,8 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		}
 		ip := p.e.Key.Src.Ip
 		if cl, ok := clusterOfAddr(ip); ok && cl != p.c.id {
-			dup := false
-			for k := range outboundTo {
-				if k == cl+">"+to {
-					dup = true
-				}
-			}
-			if dup {
+			// outboundTo is already keyed exactly "cl>to" - a direct lookup, not a scan over every entry.
+			if outboundTo[cl+">"+to] {
 				continue
 			}
 			id := external(p.c.agentID, ip, 0, "address belongs to cluster "+byID[cl].name)
