@@ -35,6 +35,18 @@ func TestLookupGoogleDNS(t *testing.T) {
 	}
 }
 
+func TestLookupGoogleInfraBlock(t *testing.T) {
+	// Real addresses with no reverse-DNS PTR record at all (confirmed against Google's own authoritative
+	// nameserver) - the reason this block earns a static entry despite the package's general policy
+	// against hardcoding Google's IP space. See googleInfra's doc comment in netid.go.
+	for _, s := range []string{"216.239.34.178", "216.239.38.178", "216.239.32.10"} {
+		m, ok := Lookup(netip.MustParseAddr(s))
+		if !ok || m.Name != "Google" || !m.Shared || m.Detail == "" {
+			t.Fatalf("%s = %+v %v, want Google, Shared, with a non-empty Detail caveat", s, m, ok)
+		}
+	}
+}
+
 func TestLookupNoMatch(t *testing.T) {
 	// A well-known public address, deliberately not in this small, curated table (see the package doc for
 	// why broad cloud/CDN ranges like this one are left out on purpose).

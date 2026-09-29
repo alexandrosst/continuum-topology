@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,11 +19,13 @@ import (
 
 func testIndex() *collect.Index {
 	return &collect.Index{
-		Pods:      map[string]string{"10.42.0.5": "shop/Deployment/cart", "10.42.0.7": "shop/Deployment/db", "10.42.0.9": "kube-system/Deployment/coredns"},
-		Services:  map[string][]string{"10.43.0.20": {"shop/Deployment/cart"}, "10.43.0.21": {"shop/Deployment/db"}, "10.43.0.10": {"kube-system/Deployment/coredns"}},
-		Nodes:     map[string]string{"192.168.1.10": "n1"},
-		Opaque:    map[string]bool{"10.43.0.1": true},
-		NodePorts: map[int32][]string{30080: {"shop/Deployment/cart"}},
+		Pods:        map[string]string{"10.42.0.5": "shop/Deployment/cart", "10.42.0.7": "shop/Deployment/db", "10.42.0.9": "kube-system/Deployment/coredns"},
+		Services:    map[string][]string{"10.43.0.20": {"shop/Deployment/cart"}, "10.43.0.21": {"shop/Deployment/db"}, "10.43.0.10": {"kube-system/Deployment/coredns"}},
+		Nodes:       map[string]string{"192.168.1.10": "n1"},
+		Opaque:      map[string]bool{"10.43.0.1": true},
+		NodePorts:   map[int32][]string{30080: {"shop/Deployment/cart"}},
+		PodCIDRs:    []netip.Prefix{netip.MustParsePrefix("10.42.0.0/16")},
+		ServiceCIDR: netip.MustParsePrefix("10.43.0.0/16"),
 	}
 }
 
@@ -48,6 +51,9 @@ func TestResolveAttributesAndDrops(t *testing.T) {
 		{"pod calls a pod directly", raw(true, "10.42.0.5", "10.42.0.7", 5432), want{true, "shop/Deployment/cart", "shop/Deployment/db", W, W, ""}},
 		{"pod calls the internet", raw(true, "10.42.0.5", "93.184.216.34", 443), want{true, "shop/Deployment/cart", "93.184.216.34", W, E, ""}},
 		{"pod calls another cluster's address", raw(true, "10.42.0.5", "198.51.100.7", 80), want{true, "shop/Deployment/cart", "198.51.100.7", W, E, ""}},
+		{"a CNI gateway address inside the pod range is not a phantom external endpoint", raw(true, "10.42.0.5", "10.42.0.1", 80), want{ok: false}},
+		{"an unresolvable address inside the Service range is not a phantom external endpoint", raw(true, "10.42.0.5", "10.43.0.99", 80), want{ok: false}},
+		{"inbound from a CNI gateway address is not a phantom external endpoint", raw(false, "10.42.0.5", "10.42.0.2", 8080), want{ok: false}},
 		{"dns is noise", raw(true, "10.42.0.5", "10.43.0.10", 53), want{true, "shop/Deployment/cart", "kube-system/Deployment/coredns", W, W, "dns"}},
 		{"traffic touching kube-system is system noise", raw(true, "10.42.0.9", "10.43.0.21", 5432), want{true, "kube-system/Deployment/coredns", "shop/Deployment/db", W, W, "system"}},
 		{"a node port reaches the workload behind it", raw(true, "10.42.0.5", "192.168.1.10", 30080), want{true, "shop/Deployment/cart", "shop/Deployment/cart", W, W, ""}},

@@ -96,6 +96,23 @@ func workload(key string) *continuumv1.FlowEndpoint {
 	return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: key}
 }
 
+// inClusterRange reports whether addr falls inside this cluster's own pod or Service network ranges - a
+// CNI bridge/gateway address (a flannel gateway at the ".1" of a node's pod subnet, for example) or a pod/
+// Service that churned between index rebuilds, rather than a genuinely external endpoint. addr is assumed
+// already normalized (normalize has been called on it).
+func inClusterRange(ix *collect.Index, addr string) bool {
+	a, err := netip.ParseAddr(addr)
+	if err != nil {
+		return false
+	}
+	for _, p := range ix.PodCIDRs {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return ix.ServiceCIDR.IsValid() && ix.ServiceCIDR.Contains(a)
+}
+
 // Resolve turns one raw observation into a flow between workloads, or reports ok=false when it is not
 // application traffic: loopback, node-to-anything (image pulls, kubelet), traffic to the API server's
 // Service, or an address that cannot be placed.
@@ -145,6 +162,9 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 					return nil, false // a node service (kubelet, ssh), not an application
 				}
 				f.Dst = workload(keys[0])
+			} else if inClusterRange(ix, peer) {
+				return nil, false // this cluster's own CNI plumbing or a pod/Service that churned - not a
+				// real external endpoint, and not attributable to a specific workload either
 			} else {
 				f.Dst = &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: peer}
 			}
@@ -159,6 +179,10 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 		}
 		if _, ok := ix.Nodes[peer]; ok {
 			return nil, false // masqueraded traffic from a node of this cluster: counted on the caller's side
+		}
+		if inClusterRange(ix, peer) {
+			return nil, false // this cluster's own CNI plumbing or a pod/Service that churned - see the
+			// matching check in the raw.Client branch above
 		}
 		f.Src = &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: peer}
 		f.Dst = workload(dst)

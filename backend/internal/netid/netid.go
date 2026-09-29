@@ -64,6 +64,23 @@ var googleDNS = Match{
 	Kind: "saas",
 }
 
+// googleInfra is 216.239.32.0/19 specifically - ARIN RDAP-confirmed registered to Google Inc (Amphitheatre
+// Parkway, network-abuse@google.com; verified via https://rdap.arin.net/registry/ip/216.239.34.178,
+// checked 2026-09-29), home to Google's own published nameservers (ns1-ns4.google.com sit at the .32.10/
+// .34.10/.36.10/.38.10 addresses in this same block). Added because several addresses in this block
+// (e.g. 216.239.34.178, 216.239.38.178) have no reverse-DNS PTR record at all - confirmed by asking
+// Google's own authoritative nameserver directly, which returns NXDOMAIN - so hostSuffixes' reverse-DNS
+// path can never label them no matter how complete its suffix list is. Unlike Google's general compute/
+// search/CDN space, this is a small, stable, single-owner legacy block (the same shape as GitHub's and
+// GitLab's entries above), not an attempt to cover "Google" broadly - the package doc above explains why
+// that broader attempt is deliberately out of scope.
+var googleInfra = Match{
+	Name:   "Google",
+	Kind:   "saas",
+	Shared: true,
+	Detail: "Matched by static range (216.239.32.0/19), not reverse DNS - this address has no PTR record. ARIN RDAP confirms the block is registered to Google.",
+}
+
 // entries: hand-curated, not fetched. Bits() is used to break ties when ranges nest, so more specific
 // entries can be added later without reordering anything here.
 var entries = []struct {
@@ -104,6 +121,10 @@ var entries = []struct {
 	// fetched 2026-09-29).
 	{netip.MustParsePrefix("8.8.8.8/32"), googleDNS},
 	{netip.MustParsePrefix("8.8.4.4/32"), googleDNS},
+
+	// Google's own legacy infrastructure block - see googleInfra's doc comment above for why this one
+	// earns a static entry despite the package's general policy against hardcoding Google's IP space.
+	{netip.MustParsePrefix("216.239.32.0/19"), googleInfra},
 }
 
 // hostSuffixes is a second, separate small table - keyed by reverse-DNS hostname suffix instead of IP

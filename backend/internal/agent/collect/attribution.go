@@ -1,6 +1,7 @@
 package collect
 
 import (
+	"net/netip"
 	"sort"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -27,6 +28,15 @@ type Index struct {
 	// Hidden holds the addresses (pods and Service cluster IPs) of namespaces outside the agent's scope.
 	// Traffic to or from them is dropped, so it never appears as a mystery endpoint.
 	Hidden map[string]bool
+	// PodCIDRs is this cluster's own pod network ranges, published per node (Node.Spec.PodCIDRs). Used only
+	// to recognize a peer address as this cluster's own CNI plumbing - a bridge/gateway address (a flannel
+	// gateway at the ".1" of a node's pod subnet, for example) or a pod that churned between index rebuilds
+	// - instead of mislabeling clearly-internal infrastructure as an external endpoint.
+	PodCIDRs []netip.Prefix
+	// ServiceCIDR is this cluster's own Service network range, guessed the same way detectServiceCIDR does
+	// (smallest bounding prefix over live ClusterIPs) - same purpose as PodCIDRs above, for an unresolvable
+	// address that nonetheless falls inside the Service range.
+	ServiceCIDR netip.Prefix
 }
 
 // Index builds the current address index. It returns an empty index below access tier 2.
@@ -37,6 +47,11 @@ func (c *Collector) Index() *Index {
 			for _, a := range n.Status.Addresses {
 				if a.Type == corev1.NodeInternalIP || a.Type == corev1.NodeExternalIP {
 					ix.Nodes[a.Address] = n.Name
+				}
+			}
+			for _, pc := range n.Spec.PodCIDRs {
+				if p, err := netip.ParsePrefix(pc); err == nil {
+					ix.PodCIDRs = append(ix.PodCIDRs, p)
 				}
 			}
 		})
@@ -115,6 +130,11 @@ func (c *Collector) Index() *Index {
 		}
 	})
 	if c.svcs != nil {
+		if sc := detectServiceCIDR(c.svcs.List()); sc != "" {
+			if p, err := netip.ParsePrefix(sc); err == nil {
+				ix.ServiceCIDR = p
+			}
+		}
 		each(c.svcs.List(), func(s *corev1.Service) {
 			ips := append([]string{s.Spec.ClusterIP}, s.Spec.ClusterIPs...)
 			if !vis(s.Namespace) {
