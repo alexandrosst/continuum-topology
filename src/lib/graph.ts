@@ -1251,7 +1251,13 @@ function makeEdge(
     type: 'offset',
     label: d.label,
     animated: false,
-    className: d.cross ? 'edge-animated' : undefined,
+    // Animate a moving dash for genuinely live traffic (observed and not gone stale), not merely because
+    // an edge crosses a cluster boundary - d.cross drove this before, which meant a purely-declared
+    // cross-cluster dependency animated (implying live data flowing when there wasn't any) while a busy,
+    // actually-observed same-cluster edge sat still. Cross-cluster edges keep their own distinct visual cue
+    // (the grey crossGroup stroke color in TopologyPage's edge styling) - motion now means what the
+    // busyness-scaled animationDuration right next to this already assumed it meant: real traffic.
+    className: d.observed && !d.stale ? 'edge-animated' : undefined,
     // React Flow adds the higher of the two end nodes' z to this. Card↔card edges must land just below
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,

@@ -92,7 +92,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
             <span className="size-2 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
             {data.distribution && <DistroIcon distribution={data.distribution} size={16} />}
             {data.extra === 'operators' && <Antenna size={14} className="shrink-0 text-nb-500" />}
-            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')}>{data.title}</span>
+            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
             {far && peak !== undefined && peak >= 70 && (
               <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
             )}
@@ -100,7 +100,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
           {!far && (
             <div className="mt-0.5 flex items-center gap-1.5 truncate pl-4 text-xs text-nb-500">
               {data.country && <Flag code={data.country} className="!h-2.5 !w-[15px]" />}
-              <span className="truncate">{data.subtitle || ' '}</span>
+              <span className="truncate" title={data.subtitle || undefined}>{data.subtitle || ' '}</span>
               {data.mesh && (
                 <span className={clsx('shrink-0 rounded px-1.5 py-px text-[10.5px]', TONE[data.mesh.tone])} title={data.mesh.title} data-testid="mesh-badge">
                   {data.mesh.label}
@@ -137,8 +137,16 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
               </button>
             )}
             <span
+              // Background fill added per this round's visual review: every other badge in this header
+              // (mesh, networking, the status dot) reads as "a label" because it has a tinted fill behind
+              // it - this one was border-only, so at default zoom it nearly disappeared against the box's
+              // own faint tier-tinted background. Same color-mix approach as the border, just lower opacity.
               className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-              style={{ color, borderColor: `color-mix(in srgb, ${color} 35%, transparent)` }}
+              style={{
+                color,
+                borderColor: `color-mix(in srgb, ${color} 35%, transparent)`,
+                background: `color-mix(in srgb, ${color} 14%, transparent)`,
+              }}
             >
               {tierLabel}
             </span>
@@ -207,10 +215,14 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[21px]' : 'text-[13px]')}>{data.title}</span>
+            {/* title= added per this round's visual review: several common service/device names (e.g.
+                "inference-regional", "Temperature sensors") truncate at this card's fixed width, and there
+                was no way to see the full name short of opening the Inspector - a native tooltip on hover
+                costs nothing and needs no layout change. */}
+            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[21px]' : 'text-[13px]')} title={data.title}>{data.title}</span>
           </div>
-          {!far && <div className="truncate text-[11px] text-nb-500">{data.subtitle}</div>}
-          {!far && isMachine && <div className="truncate text-[11px] text-nb-500">{data.meta}</div>}
+          {!far && <div className="truncate text-[11px] text-nb-500" title={data.subtitle}>{data.subtitle}</div>}
+          {!far && isMachine && <div className="truncate text-[11px] text-nb-500" title={data.meta}>{data.meta}</div>}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <span className={clsx('rounded-full', far ? 'size-3' : 'size-2')} style={{ background: STATUS_COLOR[data.status] }} title={data.status} />

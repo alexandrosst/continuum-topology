@@ -930,7 +930,11 @@ export default function Inspector({
   }
 
   return (
-    <aside className="fixed inset-x-0 bottom-0 z-30 flex max-h-[65vh] flex-col overflow-y-auto rounded-t-xl border-t border-nb-850 bg-nb-920 shadow-2xl lg:static lg:max-h-none lg:w-80 lg:min-h-0 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
+    // modal-pop (index.css): the same fade/scale ease-in every other panel in this app already uses on
+    // open, rather than snapping into place - this component mounts fresh each time selection goes from
+    // null to something (the early return above), so this only ever plays on that actual open, not on
+    // every click to a *different* entity while already open (same DOM node, just new content then).
+    <aside className="modal-pop fixed inset-x-0 bottom-0 z-30 flex max-h-[65vh] flex-col overflow-y-auto rounded-t-xl border-t border-nb-850 bg-nb-920 shadow-2xl lg:static lg:max-h-none lg:w-80 lg:min-h-0 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
       <div className="flex items-start justify-between gap-3 px-5 py-4">
         <div className="min-w-0">
           <h2 className="truncate text-base font-medium text-nb-300">{title}</h2>

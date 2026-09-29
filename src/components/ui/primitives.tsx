@@ -763,6 +763,17 @@ export function MenuPanel({
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
+      {/* A small rotated-square "caret" pointing back at whichever button opened this - a plain sibling,
+          not a pseudo-element on the panel itself, specifically so it's never clipped by a caller's own
+          `overflow-hidden` (most of MenuPanel's callers pass one, to round/scroll their own content) and
+          never needs each caller to route width/overflow/padding through two different elements. Sits
+          right at the panel's top edge (same top-11 anchor, pulled up by half its own height) so the
+          panel's higher DOM order - and thus paint order, at the same z-index - covers its bottom half,
+          leaving only the upward-pointing triangle visible above the panel. Fixed 16px from the right edge:
+          every caller right-aligns its panel to its trigger button (`right-0` on this and the panel below,
+          both relative to that button's own `relative` wrapper), so this reads as "pointing at the button"
+          regardless of the button's or panel's width. */}
+      <div className="menu-pop absolute right-4 top-11 z-[41] size-2.5 -translate-y-1/2 rotate-45 border-l border-t border-nb-850 bg-nb-920" aria-hidden="true" />
       <div {...aria} className={clsx('menu-pop absolute right-0 top-11 z-[41] max-w-[calc(100vw-2rem)] rounded-lg border border-nb-850 bg-nb-920 shadow-xl', className)}>
         {children}
       </div>

@@ -694,7 +694,13 @@ function Canvas() {
 
           {!isMap && (
             <Button
-              onClick={() => setNodes(graph.nodes)}
+              onClick={() => {
+                setNodes(graph.nodes)
+                // The `shape` effect above only re-fits when node ids/sizes change, which a layout reset
+                // never does (same nodes, new positions) - without this, a reset whose new positions happen
+                // to land outside the current viewport looked like the button did nothing at all.
+                fitView({ padding: FIT_PADDING, duration: 200 })
+              }}
               title="Reset the canvas layout - snaps every entity back to its computed position. Your view options (filters, grouping, toggles) are untouched."
               data-testid="reset-layout"
             >

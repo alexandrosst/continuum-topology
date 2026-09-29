@@ -79,6 +79,10 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
   useLayoutEffect(() => {
     viewRef.current = view
   }, [view])
+  // Whether the initial auto-fit below has already run once for this mount - a ref, not state, since
+  // setting it must never itself trigger a render (see initialFit's own comment for why this only ever
+  // fires once per mount rather than on every `placed` recompute).
+  const initialFit = useRef(false)
   const [countries, setCountries] = useState<Countries | null>(null)
   const [detailed, setDetailed] = useState(false)
   const [connections, setConnections] = useState(true)
@@ -216,6 +220,28 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
     const k = Math.min(MAX_K, Math.max(1, v.k))
     setView({ k, x: clampPan(v.x, k, W), y: clampPan(v.y, k, H) })
   }, [])
+
+  // Open framing your actual sites, not the whole planet: a page with 2-3 dots on an otherwise-empty
+  // Mercator-ish projection (world view, k=1) reads as sparse rather than "here's your infrastructure at a
+  // glance." Runs once per mount, the first time `placed` has anything in it (initialFit guards against
+  // re-firing on every later poll, which would otherwise yank a person's own pan/zoom back to "fit all"
+  // under them - the same "never fight a manual view" principle the graph canvas already applies to
+  // dragged node positions). A single site (or a tight cluster of them) is capped at a moderate zoom rather
+  // than the theoretical max fit, so it reads as "here's the city/country" and not a jarring close-up. Goes
+  // through `apply` like every other view change, so the usual pan clamping still applies.
+  useEffect(() => {
+    if (initialFit.current || placed.length === 0) return
+    initialFit.current = true
+    const xs = placed.map((p) => p.x)
+    const ys = placed.map((p) => p.y)
+    const minX = Math.min(...xs), maxX = Math.max(...xs)
+    const minY = Math.min(...ys), maxY = Math.max(...ys)
+    const bw = maxX - minX || 1
+    const bh = maxY - minY || 1
+    const fit = Math.min(W / bw, H / bh) * 0.6 // 60% fill: comfortable padding around the outermost sites
+    const k = Math.min(8, Math.max(1, fit)) // capped well under MAX_K - this is a starting frame, not a drill-in
+    apply({ k, x: W / 2 - ((minX + maxX) / 2) * k, y: H / 2 - ((minY + maxY) / 2) * k })
+  }, [placed, apply])
 
   /** Zoom by `factor` keeping the point (px,py) of the box where it is. */
   const zoomAt = useCallback(
