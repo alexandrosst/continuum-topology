@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { intersection } from '@/components/topology/OffsetEdge'
+import { curvedPath, intersection } from '@/components/topology/OffsetEdge'
 
 // A pure-math test, no rendering needed - kept in tests-ui/ (not tests/) purely because that's where the
 // vitest config's include glob looks; nothing here touches the DOM.
@@ -53,5 +53,47 @@ describe('intersection (OffsetEdge\'s floating-edge anchor math)', () => {
       expect(p.y).toBeGreaterThanOrEqual(100 - 1e-6)
       expect(p.y).toBeLessThanOrEqual(200 + 1e-6)
     }
+  })
+})
+
+describe('curvedPath (OffsetEdge\'s gentle-bow path math)', () => {
+  test('starts and ends exactly at the given anchor points, whatever the bow', () => {
+    const { path } = curvedPath(0, 0, 300, 0, 0, 1)
+    expect(path.startsWith('M0,0 ')).toBe(true)
+    expect(path.endsWith(' 300,0')).toBe(true)
+  })
+
+  test('bows perpendicular to the line, toward the given normal, and away from the straight midpoint', () => {
+    const straightMidX = 150
+    const straightMidY = 0
+    const { path } = curvedPath(0, 0, 300, 0, 0, 1) // nx=0, ny=1: bow straight "down" in SVG's y-down space
+    const control = path.match(/Q([\d.-]+),([\d.-]+)/)
+    expect(control).not.toBeNull()
+    const [, cx, cy] = control!
+    expect(Number(cx)).toBeCloseTo(straightMidX, 5)
+    expect(Number(cy)).toBeGreaterThan(straightMidY) // pulled toward +y, not left sitting on the straight line
+  })
+
+  test('bow is proportional to length but capped, so a very long edge stays a subtle arc', () => {
+    const short = curvedPath(0, 0, 100, 0, 0, 1)
+    const long = curvedPath(0, 0, 100_000, 0, 0, 1)
+    const bowOf = (p: { path: string }) => {
+      const m = p.path.match(/Q[\d.-]+,([\d.-]+)/)
+      return Number(m![1])
+    }
+    expect(bowOf(short)).toBeCloseTo(100 * 0.12, 5) // under the cap: exactly proportional
+    expect(bowOf(long)).toBeCloseTo(36, 5) // over the cap: clamped, not thousands of pixels
+  })
+
+  test('label sits on the actual curve (quadratic midpoint), not the straight-line midpoint, for a bowed edge', () => {
+    const { labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 1)
+    expect(labelX).toBeCloseTo(150, 5) // symmetric case: still centered on x
+    expect(labelY).toBeGreaterThan(0) // but pulled off the straight line's y=0 toward the bow
+  })
+
+  test('a straight-through bow (zero normal) collapses back to the straight-line midpoint', () => {
+    const { labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 0)
+    expect(labelX).toBeCloseTo(150, 5)
+    expect(labelY).toBeCloseTo(0, 5)
   })
 })
