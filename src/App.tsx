@@ -1,8 +1,8 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from '@/components/Layout'
 import { PageSkeleton } from '@/components/ui/primitives'
-import { routeLoaders } from '@/lib/routeLoaders'
+import { prefetchAllRoutesWhenIdle, routeLoaders } from '@/lib/routeLoaders'
 
 // Pages load on demand: the map, wizard and tables are big and most visits touch only one or two of them.
 // Built from routeLoaders (not `lazy(() => import(...))` inlined here) so Layout's nav can reuse the exact
@@ -25,6 +25,15 @@ const TeamPage = lazy(routeLoaders['/team'])
 const ServicesPage = lazy(routeLoaders['/services'])
 
 export default function App() {
+  // Hover/focus prefetch (Layout's NavItem) covers most navigations, but not a click that lands before
+  // the hover head start resolves - a fast pointer, a keyboard-driven nav, or the session's very first
+  // click. Idle-time prefetch closes that gap once, after whatever the initial page itself needed to load
+  // has settled, without competing with it for bandwidth. See routeLoaders.ts for what this does and does
+  // not fetch.
+  useEffect(() => {
+    prefetchAllRoutesWhenIdle()
+  }, [])
+
   return (
     // React Router v7 wraps every navigation - a <Link>/<NavLink> click, useNavigate(), useSearchParams()'s
     // setter, all of it - in React.startTransition() unless told not to (BrowserRouter's own `useTransitions`

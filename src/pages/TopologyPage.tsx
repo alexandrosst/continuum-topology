@@ -364,7 +364,16 @@ function Canvas() {
   // Re-fit the viewport whenever the *shape* of the graph changes (not on every edit).
   const shape = useMemo(() => graph.nodes.map((n) => `${n.id}:${n.style?.width}x${n.style?.height}`).join('|'), [graph])
   useEffect(() => {
-    const t = setTimeout(() => fitView({ padding: FIT_PADDING, duration: 300 }), 60)
+    // Layout's ErrorBoundary remounts this whole page on every navigation (`key={pathname}` - see its own
+    // comment for why that's load-bearing for error recovery, not something to remove here), so this effect
+    // - and the animated pan/zoom below - reruns on every single visit to this tab, not just a cold one.
+    // Animating that settle is worth it the first time a session sees the canvas (there's no prior viewport
+    // to jump from), but repeating a 300ms pan on every revisit is exactly the kind of "not instant" tab
+    // switch this is meant to avoid. hasEverFit is module state, not component state, on purpose: it must
+    // survive this component's own remount, and only a full page reload should reset it.
+    const animate = !hasEverFit
+    hasEverFit = true
+    const t = setTimeout(() => fitView({ padding: FIT_PADDING, duration: animate ? 300 : 0 }), animate ? 60 : 0)
     return () => clearTimeout(t)
   }, [shape, fitView])
 
@@ -857,6 +866,8 @@ function Canvas() {
 const FIT_PADDING = { top: '4%', left: '4%', right: '4%', bottom: '72px' } as const
 const FIT_VIEW_OPTIONS = { padding: FIT_PADDING }
 const PRO_OPTIONS = { hideAttribution: true }
+// Whether the canvas has already animated its initial fitView once this session - see the effect above.
+let hasEverFit = false
 
 export default function TopologyPage() {
   return (

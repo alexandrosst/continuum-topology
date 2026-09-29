@@ -40,3 +40,24 @@ export const routeLoaders: Record<string, () => Promise<{ default: ComponentType
 export function prefetchRoute(to: string) {
   void routeLoaders[to]?.()
 }
+
+/** Starts fetching every route's own chunk, once the browser is idle after first load. This is safe to
+ *  add on top of the hover/focus prefetch above (import() caching means a later hover or click just
+ *  resolves the same settled promise this starts) and closes the gap hover/focus prefetch doesn't: a click
+ *  that lands before a hover's head start resolves - fast pointer movement, a keyboard/tab-driven
+ *  navigation, or the very first click of a session, none of which ever fire a hover/focus event first.
+ *  Deliberately still NOT eager for the multi-hundred-KB map-data chunks (`cities`/`countries-*`, see
+ *  MapView.tsx's own lazy `loadCoarse`/`loadFine`): those are a separate, further lazy import triggered
+ *  only once a map view actually renders, not part of any page's own chunk here, so looping over every
+ *  entry in routeLoaders never touches them - only each page's own, much smaller code chunk (a few KB to
+ *  ~120KB for the heaviest, Topology). */
+export function prefetchAllRoutesWhenIdle() {
+  const run = () => {
+    for (const to of Object.keys(routeLoaders)) prefetchRoute(to)
+  }
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(run, { timeout: 3000 })
+  } else {
+    setTimeout(run, 1000)
+  }
+}
