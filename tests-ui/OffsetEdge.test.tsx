@@ -1,5 +1,15 @@
 import { describe, expect, test } from 'vitest'
-import { clampTowardNormal, curvedPath, intersection, outwardNormal, pullBackEnds } from '@/components/topology/OffsetEdge'
+import {
+  clampTowardNormal,
+  curvedPath,
+  intersection,
+  outwardNormal,
+  OBSTACLE_MARGIN,
+  pickClearSide,
+  pullBackEnds,
+  sideIsClear,
+  sideMidpoint,
+} from '@/components/topology/OffsetEdge'
 
 // A pure-math test, no rendering needed - kept in tests-ui/ (not tests/) purely because that's where the
 // vitest config's include glob looks; nothing here touches the DOM.
@@ -225,5 +235,126 @@ describe('pullBackEnds (keeps only an arrowhead\'s own tip touching a box, per t
     expect(sy).toBe(50)
     expect(tx).toBe(50)
     expect(ty).toBe(50)
+  })
+})
+
+describe('curvedPath obstacle avoidance (task #382: keeps an arrowhead\'s curve from sweeping into an unrelated card)', () => {
+  const outUp = { x: 0, y: -1 }
+  const outDown = { x: 0, y: 1 }
+
+  test('with no obstacles in the way, the curve is identical to the no-obstacle-argument call', () => {
+    const withoutArg = curvedPath(0, 0, 300, 0, 0, 1, outUp, outUp)
+    const withEmpty = curvedPath(0, 0, 300, 0, 0, 1, outUp, outUp, [])
+    const farAway = curvedPath(0, 0, 300, 0, 0, 1, outUp, outUp, [{ x: 10_000, y: 10_000, w: 10, h: 10 }])
+    expect(withEmpty.path).toBe(withoutArg.path)
+    expect(farAway.path).toBe(withoutArg.path)
+  })
+
+  test('an obstacle squarely in the default curve\'s path pushes the bow wide enough to clear it', () => {
+    // A box sitting right on the straight-line midpoint between source and target, where the default
+    // (unescalated) bow would otherwise sweep through it.
+    const obstacle = { x: 130, y: -20, w: 40, h: 40 }
+    const { path } = curvedPath(0, 0, 300, 0, 0, 1, outUp, outDown, [obstacle])
+    const [, , , mx, my] = path.match(/C([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+)/)!.map(Number)
+    // The escalation search should have moved the bow's middle control point away from the obstacle's
+    // vertical span (y: -20 to 20) rather than leaving it at the tiny default bow (which sits inside it).
+    expect(Math.abs(my)).toBeGreaterThan(20)
+  })
+
+  test('an obstacle far off to the side never perturbs the curve at all', () => {
+    const clear = curvedPath(0, 0, 300, 0, 0, 1, outUp, outDown)
+    const withSideObstacle = curvedPath(0, 0, 300, 0, 0, 1, outUp, outDown, [{ x: 130, y: 5000, w: 40, h: 40 }])
+    expect(withSideObstacle.path).toBe(clear.path)
+  })
+
+  test('when every escalation candidate still collides, it settles on the one with the fewest hits rather than the raw default', () => {
+    // A obstacle wide enough to straddle the entire route corridor - no sideways bow can fully dodge it,
+    // matching the genuinely-unavoidable "obstacle wider than the route" case documented in OffsetEdge.
+    const wideObstacle = { x: -50, y: -15, w: 400, h: 30 }
+    const defaultBow = curvedPath(0, 0, 300, 0, 0, 1, outUp, outDown)
+    const withObstacle = curvedPath(0, 0, 300, 0, 0, 1, outUp, outDown, [wideObstacle])
+    // It's still a valid, well-formed curve anchored at the same two points - escalation degrades to
+    // "least bad" rather than throwing or leaving the path malformed.
+    expect(withObstacle.path.startsWith('M0,0 ')).toBe(true)
+    expect(withObstacle.path.endsWith(' 300,0')).toBe(true)
+    // And it actually tried something different from the plain default, even though it couldn't fully clear it.
+    expect(withObstacle.path).not.toBe(defaultBow.path)
+  })
+})
+
+describe('sideMidpoint (the touch point pickClearSide falls back to on each of a box\'s 4 sides)', () => {
+  const box = { x: 100, y: 100, w: 200, h: 80 } // spans x:100-300, y:100-180
+
+  test('returns the exact midpoint of each cardinal side', () => {
+    expect(sideMidpoint(box, 'top')).toEqual({ x: 200, y: 100 })
+    expect(sideMidpoint(box, 'bottom')).toEqual({ x: 200, y: 180 })
+    expect(sideMidpoint(box, 'left')).toEqual({ x: 100, y: 140 })
+    expect(sideMidpoint(box, 'right')).toEqual({ x: 300, y: 140 })
+  })
+})
+
+describe('sideIsClear (whether a box\'s approach corridor on one side is free of every obstacle)', () => {
+  const box = { x: 100, y: 100, w: 200, h: 80 } // spans x:100-300, y:100-180
+
+  test('a side with nothing nearby is clear', () => {
+    expect(sideIsClear(box, 'top', [], OBSTACLE_MARGIN)).toBe(true)
+    expect(sideIsClear(box, 'top', [{ x: 100, y: 5000, w: 200, h: 40 }], OBSTACLE_MARGIN)).toBe(true)
+  })
+
+  test('an obstacle sitting directly in the corridor above the box blocks the top side only', () => {
+    const obstacles = [{ x: 100, y: 100 - OBSTACLE_MARGIN / 2, w: 200, h: 40 }]
+    expect(sideIsClear(box, 'top', obstacles, OBSTACLE_MARGIN)).toBe(false)
+    expect(sideIsClear(box, 'bottom', obstacles, OBSTACLE_MARGIN)).toBe(true)
+    expect(sideIsClear(box, 'left', obstacles, OBSTACLE_MARGIN)).toBe(true)
+    expect(sideIsClear(box, 'right', obstacles, OBSTACLE_MARGIN)).toBe(true)
+  })
+
+  test('an obstacle just past the given depth does not block the side', () => {
+    const obstacles = [{ x: 100, y: 100 - OBSTACLE_MARGIN - 10, w: 200, h: 5 }]
+    expect(sideIsClear(box, 'top', obstacles, OBSTACLE_MARGIN)).toBe(true)
+  })
+})
+
+describe('pickClearSide (falls back to a different entry side when the natural one\'s corridor is blocked)', () => {
+  const box = { x: 100, y: 100, w: 200, h: 80 } // spans x:100-300, y:100-180
+  const naturalTop = { point: sideMidpoint(box, 'top'), normal: { x: 0, y: -1 } }
+
+  test('with no obstacles, returns the natural point/normal untouched', () => {
+    expect(pickClearSide(box, naturalTop, [])).toEqual(naturalTop)
+  })
+
+  test('with the natural side clear, still returns it untouched even when other obstacles exist elsewhere', () => {
+    const farObstacle = { x: 5000, y: 5000, w: 10, h: 10 }
+    expect(pickClearSide(box, naturalTop, [farObstacle])).toEqual(naturalTop)
+  })
+
+  test('when the natural (top) side is blocked, falls back to a perpendicular side (left or right) before the opposite one', () => {
+    const blockingTop = { x: 100, y: 100 - OBSTACLE_MARGIN / 2, w: 200, h: 40 }
+    const result = pickClearSide(box, naturalTop, [blockingTop])
+    expect(result).not.toEqual(naturalTop)
+    // Should land on left or right, not bottom (the opposite side is only tried after both perpendiculars).
+    const isLeft = result.point.x === box.x && result.normal.x === -1
+    const isRight = result.point.x === box.x + box.w && result.normal.x === 1
+    expect(isLeft || isRight).toBe(true)
+  })
+
+  test('when top, left, and right are all blocked, falls back to the opposite (bottom) side', () => {
+    const blockTop = { x: 100, y: 100 - OBSTACLE_MARGIN / 2, w: 200, h: 40 }
+    const blockLeft = { x: 100 - OBSTACLE_MARGIN / 2, y: 100, w: 40, h: 80 }
+    const blockRight = { x: 300 - 40 + OBSTACLE_MARGIN / 2, y: 100, w: 40, h: 80 }
+    const result = pickClearSide(box, naturalTop, [blockTop, blockLeft, blockRight])
+    expect(result.point).toEqual(sideMidpoint(box, 'bottom'))
+    expect(result.normal).toEqual({ x: 0, y: 1 })
+  })
+
+  test('when every side is blocked, falls back to the natural point rather than picking an obstructed one', () => {
+    const depth = OBSTACLE_MARGIN
+    const blockAll = [
+      { x: box.x, y: box.y - depth / 2, w: box.w, h: 20 },
+      { x: box.x, y: box.y + box.h + depth / 2 - 10, w: box.w, h: 20 },
+      { x: box.x - depth / 2, y: box.y, w: 20, h: box.h },
+      { x: box.x + box.w + depth / 2 - 10, y: box.y, w: 20, h: box.h },
+    ]
+    expect(pickClearSide(box, naturalTop, blockAll)).toEqual(naturalTop)
   })
 })

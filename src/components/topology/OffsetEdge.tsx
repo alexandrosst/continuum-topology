@@ -1,4 +1,4 @@
-import { BaseEdge, useInternalNode, useViewport, type EdgeProps } from '@xyflow/react'
+import { BaseEdge, useInternalNode, useStore, useViewport, type EdgeProps } from '@xyflow/react'
 import { createContext, useContext } from 'react'
 import type { TopoEdge } from '@/lib/graph'
 
@@ -91,6 +91,12 @@ export function clampTowardNormal(dir: { x: number; y: number }, toward: { x: nu
   return { x: toward.x * cosR - toward.y * sinR, y: toward.x * sinR + toward.y * cosR }
 }
 
+/** A box `curvedPath` should route its curve clear of - any OTHER card (not this edge's own source or
+ *  target) whose own boundary the bow might otherwise sweep through on the way between them. Passed in
+ *  by OffsetEdge, which is the one with a live view of every node on the canvas; curvedPath itself stays a
+ *  pure function of whatever obstacles it's handed, so it's still testable without rendering anything. */
+export type PathObstacle = { x: number; y: number; w: number; h: number }
+
 /** The cubic Bezier `C` path, and label position, for a gentle bow between two anchor points - the math half
  *  of OffsetEdge's own curve-building (see its doc comment for why a hand-built curve and not `getBezierPath`
  *  at all), pulled out so it's testable without rendering anything.
@@ -108,35 +114,97 @@ export function clampTowardNormal(dir: { x: number; y: number }, toward: { x: nu
  *  depends on (see its doc comment) - EXCEPT that tangent is then clamped so it never gets so close to
  *  tangential-to-the-target-box that the arrowhead marker's own fixed-width back corners would dip inside
  *  the box (see MAX_ARROWHEAD_APPROACH_ANGLE and clampTowardNormal below): a shallow enough approach angle
- *  left uncorrected would put part of the marker's shape past the boundary, not just its tip. */
-export function curvedPath(x1: number, y1: number, x2: number, y2: number, nx: number, ny: number, sourceNormal: { x: number; y: number }, targetNormal: { x: number; y: number }): { path: string; labelX: number; labelY: number } {
+ *  left uncorrected would put part of the marker's shape past the boundary, not just its tip.
+ *
+ *  That angle clamp only ever looks at the box the arrowhead is actually pointing at - it says nothing
+ *  about some OTHER, unrelated card the curve's own bow happens to sweep across on the way there (two
+ *  cards packed into the same row with an edge between them, or a distant cross-cluster edge whose natural
+ *  bow passes straight over whatever sits in the tier between source and target). `obstacles`, when given,
+ *  covers that: after building the curve at the normal bow, if any sampled point along it - not just the
+ *  tip - lands inside one of them, the bow is escalated (wider, then the mirrored side) until a candidate
+ *  clears everything, or the least-bad one if none fully does. This only ever changes the *shape* of the
+ *  bow, never the two anchor points themselves - `x1,y1`/`x2,y2` (and so the tip's own touch point) stay
+ *  exactly where the caller put them either way. */
+export function curvedPath(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  nx: number,
+  ny: number,
+  sourceNormal: { x: number; y: number },
+  targetNormal: { x: number; y: number },
+  obstacles: PathObstacle[] = [],
+): { path: string; labelX: number; labelY: number } {
   const segLen = Math.hypot(x2 - x1, y2 - y1) || 1
-  const bow = Math.min(segLen * 0.12, 36)
-  let mx = (x1 + x2) / 2 + nx * bow
-  let my = (y1 + y2) / 2 + ny * bow
-  // The target end's tangent (the direction from c2 to (x2,y2), i.e. the arrowhead's own approach
-  // direction) stays free to vary continuously with the bow above, EXCEPT it's never let get so close to
-  // tangential-to-the-target-box that the fixed-shape arrowhead marker would visibly dip inside the box -
-  // see MAX_ARROWHEAD_APPROACH_ANGLE's own doc comment for exactly where that line is and why. Reworking
-  // c2 to sit along the clamped direction (at the same distance from (x2,y2) it already had) changes the
-  // curve's shape approaching the target without moving the target anchor itself, so the tip - the one
-  // point that's meant to touch the box - stays exactly where intersection() put it.
-  const tdx = x2 - mx
-  const tdy = y2 - my
-  const tlen = Math.hypot(tdx, tdy) || 1
-  const naturalDir = { x: tdx / tlen, y: tdy / tlen }
-  const inward = { x: -targetNormal.x, y: -targetNormal.y }
-  const clamped = clampTowardNormal(naturalDir, inward, MAX_ARROWHEAD_APPROACH_ANGLE)
-  if (clamped !== naturalDir) {
-    mx = x2 - clamped.x * tlen
-    my = y2 - clamped.y * tlen
-  }
+  const baseBow = Math.min(segLen * 0.12, 36)
   // How far the curve travels straight out from the source before c2 starts pulling it toward the target -
   // proportional to length (a short edge shouldn't get a stub longer than the edge itself) but capped so a
   // long edge doesn't get an oddly long straight run before it starts curving.
   const exit = Math.min(segLen * 0.35, 40)
   const c1x = x1 + sourceNormal.x * exit
   const c1y = y1 + sourceNormal.y * exit
+
+  // Builds the curve's own end control point (c2) for one bow strength ("scale" multiplies baseBow, sign
+  // and all - negative bows the curve to the mirrored side), including the arrowhead-approach-angle clamp
+  // curvedPath always applied here (see the doc comment above) - so every candidate this tries is already a
+  // fully valid curve on its own, not just a raw, unclamped bow.
+  function build(scale: number): { mx: number; my: number } {
+    let mx = (x1 + x2) / 2 + nx * baseBow * scale
+    let my = (y1 + y2) / 2 + ny * baseBow * scale
+    const tdx = x2 - mx
+    const tdy = y2 - my
+    const tlen = Math.hypot(tdx, tdy) || 1
+    const naturalDir = { x: tdx / tlen, y: tdy / tlen }
+    const inward = { x: -targetNormal.x, y: -targetNormal.y }
+    const clamped = clampTowardNormal(naturalDir, inward, MAX_ARROWHEAD_APPROACH_ANGLE)
+    if (clamped !== naturalDir) {
+      mx = x2 - clamped.x * tlen
+      my = y2 - clamped.y * tlen
+    }
+    return { mx, my }
+  }
+
+  // How many of curvedPath's own sample points (excluding the two anchors, which are meant to sit exactly
+  // on the source/target boundary) fall inside any obstacle - 0 means this candidate's curve is clear.
+  // SAMPLES needs to be high enough that a narrow graze (the curve clipping a box's corner for only a short
+  // arc-length) can't slip through between two consecutive samples and get scored as a false 0 - 14 was
+  // fine for the roughly-diagonal sweeps this was first tuned against, but a curve that runs close to and
+  // nearly parallel with an obstacle edge for a while (seen after dragging cards into tight, non-default
+  // layouts) can dip in and out of the box within a much narrower t-window than 1/14 of the curve.
+  function hits(mx: number, my: number): number {
+    if (obstacles.length === 0) return 0
+    let n = 0
+    const SAMPLES = 40
+    for (let i = 1; i < SAMPLES; i++) {
+      const t = i / SAMPLES
+      const mt = 1 - t
+      const px = mt * mt * mt * x1 + 3 * mt * mt * t * c1x + 3 * mt * t * t * mx + t * t * t * x2
+      const py = mt * mt * mt * y1 + 3 * mt * mt * t * c1y + 3 * mt * t * t * my + t * t * t * y2
+      for (const b of obstacles) {
+        if (px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h) n++
+      }
+    }
+    return n
+  }
+
+  let { mx, my } = build(1)
+  if (obstacles.length > 0 && hits(mx, my) > 0) {
+    // Escalate the bow until something clears every obstacle: wider on the same side first (the least
+    // visually surprising change from the default), then the mirrored side. Picks whichever candidate has
+    // the fewest remaining hits (0 if anything manages it), preferring the smallest, same-side change on a
+    // tie so an edge that's already fine doesn't visibly jump around as its neighbors move.
+    let best = { mx, my, n: hits(mx, my) }
+    for (const scale of [1, -1, 1.8, -1.8, 2.6, -2.6, 3.4, -3.4, 4.2, -4.2]) {
+      const c = build(scale)
+      const n = hits(c.mx, c.my)
+      if (n < best.n) best = { mx: c.mx, my: c.my, n }
+      if (n === 0) break
+    }
+    mx = best.mx
+    my = best.my
+  }
+
   return {
     path: `M${x1},${y1} C${c1x},${c1y} ${mx},${my} ${x2},${y2}`,
     // Cubic Bezier at t=0.5: (P0 + 3*C1 + 3*C2 + P2) / 8 - the label sits along the actual curve, not the
@@ -223,6 +291,81 @@ export function pullBackEnds(sx: number, sy: number, tx: number, ty: number, gap
   }
 }
 
+/** How far past the straight-line span between an edge's two anchors to still consider a card a possible
+ *  obstacle for it - generous enough to cover the widest bow curvedPath's own escalation ever tries (see
+ *  its doc comment), and reused as pickClearSide's own "is this side's approach corridor clear" depth. */
+export const OBSTACLE_MARGIN = 160
+
+/** The 4 cardinal sides a box can be entered from, and the boundary point/outward-normal `intersection`/
+ *  `outwardNormal` would compute for each - used only as a fallback (see `pickClearSide` below) when the
+ *  side those two would naturally pick is one curvedPath's own bow escalation can't route around. */
+const CARDINAL_SIDES: { side: 'top' | 'bottom' | 'left' | 'right'; normal: { x: number; y: number } }[] = [
+  { side: 'top', normal: { x: 0, y: -1 } },
+  { side: 'bottom', normal: { x: 0, y: 1 } },
+  { side: 'left', normal: { x: -1, y: 0 } },
+  { side: 'right', normal: { x: 1, y: 0 } },
+]
+
+export function sideMidpoint(box: PathObstacle, side: 'top' | 'bottom' | 'left' | 'right'): { x: number; y: number } {
+  if (side === 'top') return { x: box.x + box.w / 2, y: box.y }
+  if (side === 'bottom') return { x: box.x + box.w / 2, y: box.y + box.h }
+  if (side === 'left') return { x: box.x, y: box.y + box.h / 2 }
+  return { x: box.x + box.w, y: box.y + box.h / 2 }
+}
+
+/** Whether the open corridor directly in front of `box`'s given `side` - the strip an arrowhead has to
+ *  approach through, since curvedPath's own angle clamp keeps it within ~38 degrees of straight-on (see
+ *  MAX_ARROWHEAD_APPROACH_ANGLE) - is free of every obstacle, out to `depth` px. */
+export function sideIsClear(box: PathObstacle, side: 'top' | 'bottom' | 'left' | 'right', obstacles: PathObstacle[], depth: number): boolean {
+  const rect =
+    side === 'top'
+      ? { x: box.x, y: box.y - depth, w: box.w, h: depth }
+      : side === 'bottom'
+        ? { x: box.x, y: box.y + box.h, w: box.w, h: depth }
+        : side === 'left'
+          ? { x: box.x - depth, y: box.y, w: depth, h: box.h }
+          : { x: box.x + box.w, y: box.y, w: depth, h: box.h }
+  return !obstacles.some((o) => o.x < rect.x + rect.w && o.x + o.w > rect.x && o.y < rect.y + rect.h && o.y + o.h > rect.y)
+}
+
+/** Where an edge should touch `box`, and the outward-facing normal there, given `natural` - the point/
+ *  normal `intersection()`/`outwardNormal()` already computed from the straight line to the other end's
+ *  center, which is what almost every edge should still use unchanged (it's what keeps the touch point
+ *  varying continuously around the box's perimeter rather than snapping to one of 4 spots, per
+ *  curvedPath/OffsetEdge's own design - see their doc comments).
+ *
+ *  The exception `obstacles` exists for: a box tucked directly behind another one, on the one side an edge
+ *  would naturally enter from - two device cards stacked with barely more gap between them than the
+ *  arrowhead's own approach cone needs, say. curvedPath's bow escalation (see its own doc comment) can
+ *  route the *middle* of a curve around a nearby obstacle, but not the last ~38-degree-wide stretch right
+ *  before the tip - that part is anchored to whichever single side the touch point sits on. When that
+ *  side's own approach corridor is blocked, no amount of bowing the middle of the curve fixes it, so this
+ *  instead falls back to entering from a different side entirely - only when the natural one is genuinely
+ *  obstructed, and preferring the two sides perpendicular to it (typically the ones with the most spare
+ *  room in a packed grid) before trying the opposite side. */
+export function pickClearSide(
+  box: PathObstacle,
+  natural: { point: { x: number; y: number }; normal: { x: number; y: number } },
+  obstacles: PathObstacle[],
+): { point: { x: number; y: number }; normal: { x: number; y: number } } {
+  if (obstacles.length === 0) return natural
+  const naturalSide = CARDINAL_SIDES.find((s) => s.normal.x === natural.normal.x && s.normal.y === natural.normal.y)?.side ?? 'top'
+  const depth = OBSTACLE_MARGIN
+  if (sideIsClear(box, naturalSide, obstacles, depth)) return natural
+  const perpendicular = naturalSide === 'top' || naturalSide === 'bottom' ? (['left', 'right'] as const) : (['top', 'bottom'] as const)
+  const opposite: 'top' | 'bottom' | 'left' | 'right' =
+    naturalSide === 'top' ? 'bottom' : naturalSide === 'bottom' ? 'top' : naturalSide === 'left' ? 'right' : 'left'
+  for (const side of [...perpendicular, opposite]) {
+    if (sideIsClear(box, side, obstacles, depth)) {
+      const normal = CARDINAL_SIDES.find((s) => s.side === side)!.normal
+      return { point: sideMidpoint(box, side), normal }
+    }
+  }
+  // Every side is obstructed - no fallback helps, so keep the natural one (curvedPath's own bow escalation
+  // still gets a chance at it, and picks whichever candidate collides least even then).
+  return natural
+}
+
 /**
  * A line like the default one, with its source end moved sideways by `data.sourceOffset` pixels and its
  * target end by `data.targetOffset`, independently. Equal values give the old parallel shift (two lines
@@ -256,11 +399,23 @@ export function pullBackEnds(sx: number, sy: number, tx: number, ty: number, gap
  * angle: there's no arrowhead there for a cardinal-ish angle to look wrong on, and "flows straight out of the
  * box" reads better than "points at wherever the target happens to be" when nothing is there to justify it.
  */
+/** How far past the straight-line span between an edge's two anchors to still consider a card a possible
+ *  obstacle for it - generous enough to cover the widest bow curvedPath's own escalation ever tries (see
+ *  its doc comment), so nothing that could plausibly end up under the curve gets missed, while still
+ *  skipping the large majority of an even moderately busy canvas that's nowhere near this one edge's route. */
 export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targetY, data, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, labelShowBg, markerEnd, style, interactionWidth }: EdgeProps<TopoEdge>) {
   const sourceNode = useInternalNode(source)
   const targetNode = useInternalNode(target)
   const sourceBox = boxOf(sourceNode)
   const targetBox = boxOf(targetNode)
+  // Every other card on the canvas, live - reused below both to pick a different entry side when the
+  // target's natural one is blocked (pickClearSide) and by curvedPath's own bow escalation (see
+  // PathObstacle's doc comment). Reads the whole node lookup reactively (not just this edge's own source/
+  // target, the way useInternalNode above does), so every edge re-renders on any node moving, not only its
+  // own two ends - a broader subscription than the rest of this component needs, but cheap at this app's
+  // scale (the actual per-render work below is a handful of point-in-rect checks), and it's what keeps a
+  // dragged card's already-avoiding edges from lagging a stale detour behind it.
+  const nodeLookup = useStore((s) => s.nodeLookup)
 
   let sx = sourceX
   let sy = sourceY
@@ -271,17 +426,36 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   // and get replaced with the real answer below the moment both boxes are.
   let sourceNormal = { x: 0, y: -1 }
   let targetNormal = { x: 0, y: -1 }
+  const obstacles: PathObstacle[] = []
   if (sourceBox && targetBox) {
+    // A generous box around both ends' own boxes, not just the eventual touch points - available before
+    // those are computed, and this component's one obstacle list ends up reused for both pickClearSide
+    // (which runs before the touch points are final) and curvedPath's escalation (which runs after).
+    const minX = Math.min(sourceBox.x, targetBox.x) - OBSTACLE_MARGIN
+    const maxX = Math.max(sourceBox.x + sourceBox.w, targetBox.x + targetBox.w) + OBSTACLE_MARGIN
+    const minY = Math.min(sourceBox.y, targetBox.y) - OBSTACLE_MARGIN
+    const maxY = Math.max(sourceBox.y + sourceBox.h, targetBox.y + targetBox.h) + OBSTACLE_MARGIN
+    for (const [nodeId, n] of nodeLookup) {
+      if (nodeId === source || nodeId === target || n.type !== 'card') continue
+      const w = n.measured.width
+      const h = n.measured.height
+      if (!w || !h) continue
+      const bx = n.internals.positionAbsolute.x
+      const by = n.internals.positionAbsolute.y
+      if (bx < maxX && bx + w > minX && by < maxY && by + h > minY) obstacles.push({ x: bx, y: by, w, h })
+    }
+
     const targetCenter = { x: targetBox.x + targetBox.w / 2, y: targetBox.y + targetBox.h / 2 }
     const sourceCenter = { x: sourceBox.x + sourceBox.w / 2, y: sourceBox.y + sourceBox.h / 2 }
     const from = intersection(sourceBox, targetCenter)
-    const to = intersection(targetBox, sourceCenter)
+    const naturalTo = intersection(targetBox, sourceCenter)
     sourceNormal = outwardNormal(sourceBox, from)
-    targetNormal = outwardNormal(targetBox, to)
+    const chosen = pickClearSide(targetBox, { point: naturalTo, normal: outwardNormal(targetBox, naturalTo) }, obstacles)
+    targetNormal = chosen.normal
     sx = from.x
     sy = from.y
-    tx = to.x
-    ty = to.y
+    tx = chosen.point.x
+    ty = chosen.point.y
   }
 
   // The bare line-end itself should never be the thing touching a box - per this round's UI/UX pass, the
@@ -313,8 +487,10 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   const y1 = sy + ny * sourceOff
   const x2 = tx + nx * targetOff
   const y2 = ty + ny * targetOff
+
   const edgeStyle = useContext(EdgeStyleContext)
-  const { path, labelX, labelY } = edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal)
+  const { path, labelX, labelY } =
+    edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
   return (
     <BaseEdge
       id={id}
