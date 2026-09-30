@@ -47,6 +47,28 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
   )
 }
 
+/** Icon-only sibling of CopyButton, for a dense row/table cell where a labeled button would be too heavy -
+ *  an identifier (a CIDR, an endpoint, an image digest) sitting right next to its own copy affordance rather
+ *  than needing a separate, wider control. Same copy-then-checkmark feedback, `stopPropagation`'d so it never
+ *  also triggers whatever the row itself does on click (selecting it, opening a detail view). */
+export function CopyIconButton({ text, title = 'Copy' }: { text: string; title?: string }) {
+  const [done, setDone] = useState(false)
+  return (
+    <button
+      type="button"
+      title={done ? 'Copied' : title}
+      onClick={async (e) => {
+        e.stopPropagation()
+        setDone(await copyText(text))
+        setTimeout(() => setDone(false), 1200)
+      }}
+      className="shrink-0 rounded p-0.5 text-nb-600 transition-colors hover:bg-nb-850 hover:text-nb-300"
+    >
+      {done ? <Check size={11} className="fade-in text-ok" /> : <Copy size={11} />}
+    </button>
+  )
+}
+
 /* ---------- Form controls ---------- */
 const control =
   'h-9 w-full rounded-md border border-nb-800 bg-nb-925 px-3 text-sm text-nb-300 placeholder:text-nb-500 ' +

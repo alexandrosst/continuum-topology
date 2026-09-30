@@ -206,8 +206,16 @@ const GAP_X = 72
 const GAP_Y = 44
 const GROUP_GAP_X = 64
 const ROW_GAP = 150
-const APP_CARD = { w: 244, h: 68 }
-const MACHINE_CARD = { w: 248, h: 84 }
+// Widened from 244/248 per the UI/UX pass: several common service/device names ("inference-regional",
+// "stream-aggregator", "Vibration sensor") were truncating hard even with visible slack around the card -
+// the icon, status dot, and optional meta/hint column on the right all eat into the title's real estate
+// before a single letter of a long name gets drawn. Sized (via a real measurement against the sample data,
+// not a guess) so a normal compound service name like "stream-aggregator" renders in full; a genuinely long
+// device name ("Temperature sensors" and beyond) can still truncate; there's no fixed width that fits every
+// arbitrary name, which is exactly why the native `title=` tooltip (added in an earlier pass) exists as the
+// fallback rather than chasing zero truncation by growing every card to accommodate the longest outlier.
+const APP_CARD = { w: 300, h: 68 }
+const MACHINE_CARD = { w: 288, h: 84 }
 const CHIP_ROW = 22
 // A namespace sub-box nests one level inside a cluster box: a little padding and a short header for its
 // name, then the same card grid a cluster box would use on its own.

@@ -1,5 +1,14 @@
 import { BaseEdge, useInternalNode, type EdgeProps } from '@xyflow/react'
+import { createContext, useContext } from 'react'
 import type { TopoEdge } from '@/lib/graph'
+
+/** Which path generator OffsetEdge draws with - 'curved' (the default hand-built bow, see curvedPath below)
+ *  or 'elbow' (the opt-in rounded-orthogonal style, see elbowPath below). Read via context rather than a
+ *  per-edge data field: it's a single canvas-wide view preference (the Options menu\'s "Edge style" control
+ *  in TopologyPage.tsx), not something that varies edge to edge, so there is no reason for every edge object
+ *  passing through graph.ts to carry its own copy. TopologyPage wraps its <ReactFlow> in this context\'s
+ *  Provider; OffsetEdge (rendered by React Flow for every edge, still within that same tree) reads it back. */
+export const EdgeStyleContext = createContext<'curved' | 'elbow'>('curved')
 
 /** A node's absolute (canvas-space, parent offsets already applied) bounding box, or null while React Flow
  *  hasn't measured it yet (the very first render or two after it mounts). */
@@ -45,6 +54,60 @@ export function curvedPath(x1: number, y1: number, x2: number, y2: number, nx: n
     // straight-line midpoint, so it doesn't appear to float off to one side of a strongly bowed edge.
     labelX: (x1 + 2 * mx + x2) / 4,
     labelY: (y1 + 2 * my + y2) / 4,
+  }
+}
+
+/** A polyline through `points`, with each interior corner rounded off by `radius` (clamped to at most half
+ *  of whichever adjoining segment is shorter, so a tight elbow never overshoots into an adjacent corner or
+ *  past the line's own endpoints). Built from straight `L` segments that stop `radius` short of each corner
+ *  and a `Q` quadratic through the corner itself - the standard "rounded polyline" construction, kept as its
+ *  own pure function (same reasoning as curvedPath below: testable without rendering anything, and reusable
+ *  for any n-point route, not just the 4-point one elbowPath happens to build). */
+export function roundedPolylinePath(points: { x: number; y: number }[], radius: number): string {
+  if (points.length < 2) return ''
+  let d = `M${points[0].x},${points[0].y}`
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i - 1]
+    const curr = points[i]
+    const next = points[i + 1]
+    const d1 = Math.hypot(curr.x - prev.x, curr.y - prev.y)
+    const d2 = Math.hypot(next.x - curr.x, next.y - curr.y)
+    const r = Math.min(radius, d1 / 2, d2 / 2)
+    const t1 = d1 ? r / d1 : 0
+    const t2 = d2 ? r / d2 : 0
+    const p1 = { x: curr.x + (prev.x - curr.x) * t1, y: curr.y + (prev.y - curr.y) * t1 }
+    const p2 = { x: curr.x + (next.x - curr.x) * t2, y: curr.y + (next.y - curr.y) * t2 }
+    d += ` L${p1.x},${p1.y} Q${curr.x},${curr.y} ${p2.x},${p2.y}`
+  }
+  const last = points[points.length - 1]
+  d += ` L${last.x},${last.y}`
+  return d
+}
+
+/** The "squared but soft" alternative to curvedPath, added per the UI/UX pass's arrow-style review: two
+ *  axis-aligned legs joined by a short rounded jog partway between the two anchors, the same two-bend shape
+ *  React Flow's own built-in `smoothstep` edge type draws - except computed from OffsetEdge's own
+ *  continuously-floating anchor points (see this file's top-level doc comment for why those exist) rather
+ *  than from a fixed cardinal `sourcePosition`/`targetPosition`. Whichever axis carries more of the distance
+ *  between the two points gets the two long legs (a mostly-vertical edge - the common case here, since
+ *  clusters stack in rows - gets a vertical-jog-vertical route; a mostly-horizontal one the mirror image),
+ *  matching the rule smoothstep itself uses to decide its own bend. This is deliberately an opt-in look
+ *  (the Options menu's "Edge style" control), not a replacement for curvedPath: a real orthogonal route
+ *  reintroduces a small set of fixed angles, and a graph as dense and cross-crossing as this app's can end up
+ *  busier, not cleaner, with hard elbows everywhere - it's a genuine style choice, not a strict upgrade. */
+export function elbowPath(x1: number, y1: number, x2: number, y2: number, radius = 14): { path: string; labelX: number; labelY: number } {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const points =
+    Math.abs(dy) >= Math.abs(dx)
+      ? [{ x: x1, y: y1 }, { x: x1, y: (y1 + y2) / 2 }, { x: x2, y: (y1 + y2) / 2 }, { x: x2, y: y2 }]
+      : [{ x: x1, y: y1 }, { x: (x1 + x2) / 2, y: y1 }, { x: (x1 + x2) / 2, y: y2 }, { x: x2, y: y2 }]
+  return {
+    path: roundedPolylinePath(points, radius),
+    // The midpoint of the route's own middle leg (the short jog between the two long legs) - the one part of
+    // the path that's never right on top of either box, unlike curvedPath's true midpoint label placement.
+    labelX: (points[1].x + points[2].x) / 2,
+    labelY: (points[1].y + points[2].y) / 2,
   }
 }
 
@@ -111,7 +174,8 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   const y1 = sy + ny * sourceOff
   const x2 = tx + nx * targetOff
   const y2 = ty + ny * targetOff
-  const { path, labelX, labelY } = curvedPath(x1, y1, x2, y2, nx, ny)
+  const edgeStyle = useContext(EdgeStyleContext)
+  const { path, labelX, labelY } = edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2) : curvedPath(x1, y1, x2, y2, nx, ny)
   return (
     <BaseEdge
       id={id}

@@ -28,7 +28,7 @@ import ScopeFromSelection from '@/components/topology/ScopeFromSelection'
 import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
 import { nodeTypes } from '@/components/topology/nodes'
-import { edgeTypes } from '@/components/topology/OffsetEdge'
+import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
 import { Button, EmptyState, MenuPanel, Select } from '@/components/ui/primitives'
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu from '@/components/topology/FilterMenu'
@@ -130,8 +130,12 @@ function Canvas() {
   // Chain lays every service out in one flat left-to-right order across every cluster, so it replaces the
   // cluster/tier boxes and namespace sub-boxes rather than combining with them.
   const showChain = sp.get('chain') === '1' && mode === 'application'
+  // The default 'curved' bow, or the opt-in rounded-orthogonal 'elbow' style (OffsetEdge.tsx) - a pure
+  // rendering preference for every edge on the canvas, not tied to any one of them, so it lives in the same
+  // URL-param "view option" family as the toggles above rather than on graph/edge data.
+  const edgeStyle: 'curved' | 'elbow' = sp.get('edges') === 'elbow' ? 'elbow' : 'curved'
   // How many options differ from the defaults, so a hidden option is never a mystery.
-  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain].filter(Boolean).length
+  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow'].filter(Boolean).length
   const setParam = (k: string, v: string | null) =>
     setSp((p) => {
       const n = new URLSearchParams(p)
@@ -739,6 +743,18 @@ function Canvas() {
                     <option value="tier">Tier</option>
                   </Select>
                 </div>
+                <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm text-nb-400">
+                  Edge style
+                  <Select
+                    className="h-8 w-32"
+                    value={edgeStyle}
+                    title="Curved: a gentle bow between boxes. Squared: rounded right-angle routing, closer to a classic flowchart connector."
+                    onChange={(e) => setParam('edges', e.target.value === 'elbow' ? 'elbow' : null)}
+                  >
+                    <option value="curved">Curved</option>
+                    <option value="elbow">Squared</option>
+                  </Select>
+                </div>
               </MenuPanel>
             </div>
           )}
@@ -841,6 +857,7 @@ function Canvas() {
           ) : isMap ? (
             <MapView selection={selection} onSelect={select} filter={filter} />
           ) : (
+            <EdgeStyleContext.Provider value={edgeStyle}>
             <ReactFlow<TopoNode, Edge>
               className={pickMode ? 'topology-pick-mode' : undefined}
               nodes={nodes}
@@ -923,8 +940,18 @@ function Canvas() {
                     </span>
                   ))}
                   <span className="h-3 w-px bg-nb-800" />
-                  <span className="flex items-center gap-1.5">
-                    <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.5" strokeDasharray="4 3" /></svg>
+                  <span
+                    className="flex items-center gap-1.5"
+                    title="A lighter line marks a dependency that crosses a cluster boundary - a separate, independent signal from the solid/dashed traffic styles below. A cross-cluster edge can be either, depending on whether traffic has actually been seen on it."
+                  >
+                    {/* Solid, not dashed: crossGroup-ness is a colour-only signal (a lighter grey stroke, see
+                        the edge style computation above) that combines independently with the seen/not-seen
+                        dash pattern on the right - a cross-cluster edge that's also seen in traffic renders
+                        solid, and one that isn't renders dotted, same as any other edge. A dashed swatch here
+                        used to imply cross-cluster edges are always dashed, which isn't true and duplicated
+                        what the "Not seen" swatch already means; the earlier version's colour (#8a96a0) is
+                        also now the exact shade the edges themselves use (#98a4ae), not just an approximation. */}
+                    <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#98a4ae" strokeWidth="1.5" /></svg>
                     Cross-{groupBy}
                   </span>
                   {mode === 'application' && showMesh && (
@@ -983,6 +1010,7 @@ function Canvas() {
                 </div>
               </Panel>
             </ReactFlow>
+            </EdgeStyleContext.Provider>
           )}
           {hoveredEdge && hoverPos && (
             <EdgeHoverCard

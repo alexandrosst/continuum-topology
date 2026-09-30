@@ -8,7 +8,7 @@ import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
 import ServiceAdvice from '@/components/placement/ServiceAdvice'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
-import { Button, CompletenessBadge, Input, IpAddress, ObservationChip, Pill, Select, SourceBadge, StatusDot, TierBadge } from '@/components/ui/primitives'
+import { Button, CompletenessBadge, CopyIconButton, Input, IpAddress, ObservationChip, Pill, Select, SourceBadge, StatusDot, TierBadge } from '@/components/ui/primitives'
 import { completeness } from '@/lib/completeness'
 import { observation } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
@@ -26,24 +26,31 @@ import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Ev
 
 export type Selection = { kind: 'cluster' | 'tier' | 'node' | 'service' | 'device' | 'site' | 'external' | 'dependency'; id: string } | null
 
-function Row({ label, children, wrap, badge }: { label: string; children: ReactNode; wrap?: boolean; badge?: ReactNode }) {
+function Row({ label, children, wrap, badge, copy }: { label: string; children: ReactNode; wrap?: boolean; badge?: ReactNode; copy?: string }) {
   // `wrap` values (prose - detection reasons, traffic summaries) break onto a second line. Everything else stays
   // one line but scrolls horizontally instead of just being cut off with an ellipsis: a long image reference or
   // pod CIDR is still there to read, not lost the moment it doesn't fit the sidebar's width.
   //
-  // `badge` (the "confirmed by hand" tag) is kept out of that scrolling region on purpose: stuffing it in as
-  // just another inline child of the same nowrap span left it with no guaranteed position of its own, so a
-  // value+badge combination that didn't quite fit could put the badge somewhere other than right after the
-  // value instead of just scrolling the value underneath it. Splitting them into two flex items - one that
-  // scrolls, one that never does - makes "stays on the same line, right after the value" true regardless of
-  // how long the value is.
+  // `badge` (the "confirmed by hand" tag) and `copy` (a small copy-to-clipboard icon, for values people actually
+  // paste elsewhere - a CIDR, an endpoint, a digest) are both kept out of that scrolling region on purpose:
+  // stuffing either in as just another inline child of the same nowrap span left it with no guaranteed position
+  // of its own, so a value+badge (or value+copy) combination that didn't quite fit could end up somewhere other
+  // than right after the value instead of just scrolling the value underneath it. Splitting them into two flex
+  // items - one that scrolls, one that never does - makes "stays on the same line, right after the value" true
+  // regardless of how long the value is.
+  const trailing = badge || copy ? (
+    <>
+      {badge}
+      {copy && <CopyIconButton text={copy} title={`Copy ${label.toLowerCase()}`} />}
+    </>
+  ) : null
   return (
     <div className="flex items-baseline justify-between gap-4 py-1.5 text-sm">
       <span className="shrink-0 text-nb-500">{label}</span>
-      {badge ? (
+      {trailing ? (
         <span className="inline-flex min-w-0 items-center justify-end gap-1.5 text-right text-nb-300">
           <span className="scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap">{children}</span>
-          {badge}
+          {trailing}
         </span>
       ) : (
         <span className={wrap ? 'min-w-0 break-words text-right text-nb-300' : 'scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap text-right text-nb-300'}>{children}</span>
@@ -53,9 +60,9 @@ function Row({ label, children, wrap, badge }: { label: string; children: ReactN
 }
 
 /** A row that only renders when there is something to show. */
-function Maybe({ label, children }: { label: string; children: ReactNode }) {
+function Maybe({ label, children, copy }: { label: string; children: ReactNode; copy?: string }) {
   if (children === undefined || children === null || children === false || children === '') return null
-  return <Row label={label}>{children}</Row>
+  return <Row label={label} copy={copy}>{children}</Row>
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -374,17 +381,17 @@ export default function Inspector({
           <Maybe label="Site">{siteName(c.siteId)}</Maybe>
           <Maybe label="Region label">{c.region}</Maybe>
           <Maybe label="CNI · Ingress">{[c.cni, c.ingress].filter(Boolean).join(' · ')}</Maybe>
-          <Maybe label="Pod CIDR"><span className="font-mono text-xs">{c.podCidr}</span></Maybe>
+          <Maybe label="Pod CIDR" copy={c.podCidr}><span className="font-mono text-xs">{c.podCidr}</span></Maybe>
           <Chips label="CIDR overlap" items={overlap.map((o) => o.name)} tone="warn" title="Overlapping pod CIDRs can break direct cross-cluster routing." />
-          <Maybe label="Service CIDR"><span className="font-mono text-xs">{c.serviceCidr}</span></Maybe>
+          <Maybe label="Service CIDR" copy={c.serviceCidr}><span className="font-mono text-xs">{c.serviceCidr}</span></Maybe>
           <Chips label="Storage" items={c.storageClasses} />
-          {c.apiEndpoint && <Row label="API endpoint"><IpAddress ip={c.apiEndpoint} inline /></Row>}
+          {c.apiEndpoint && <Row label="API endpoint" copy={c.apiEndpoint}><IpAddress ip={c.apiEndpoint} inline /></Row>}
           {c.apiEndpoint && ipInCidr(c.apiEndpoint, c.serviceCidr) && (
             <p className="-mt-1 text-xs text-nb-500">
               This is the cluster's own API service address (inside its Service CIDR) - it works for the agent and other in-cluster clients, but is not reachable from outside the cluster.
             </p>
           )}
-          {c.egressIp && <Row label="Exit IP"><IpAddress ip={c.egressIp} inline /></Row>}
+          {c.egressIp && <Row label="Exit IP" copy={c.egressIp}><IpAddress ip={c.egressIp} inline /></Row>}
           {agent?.connectingGeo && (
             <div className="mt-2 rounded-md border border-nb-850 bg-nb-930/40 px-2.5 py-2 text-xs">
               <div className="mb-1 text-nb-500">GeoIP says</div>
@@ -565,7 +572,7 @@ export default function Inspector({
           <Maybe label="Age">{n.createdAt ? `${ageLabel(n.createdAt)} (${new Date(n.createdAt).toLocaleDateString()})` : undefined}</Maybe>
         </Section>
         <Section title="Capacity">
-          <Row label="IP"><IpAddress ip={n.ip} inline /></Row>
+          <Row label="IP" copy={n.ip}><IpAddress ip={n.ip} inline /></Row>
           <Row label="Capacity">{n.cpu} vCPU · {n.memoryGb} GB{n.diskGb !== undefined ? ` · ${formatMemory(n.diskGb)} disk` : ''}</Row>
           <Maybe label="Allocatable">{res(n.allocatable)}</Maybe>
           <Maybe label="Requested">{res(n.requested)}</Maybe>
@@ -631,8 +638,8 @@ export default function Inspector({
           </Row>
           <Row label="Application">{appName(w.applicationId) ?? '—'}</Row>
           <Row label="Namespace">{w.namespace}</Row>
-          <Row label="Image"><span className="font-mono text-xs">{w.image || '—'}</span></Row>
-          <Maybe label="Digest"><span className="font-mono text-xs">{w.imageDigest?.slice(0, 19)}</span></Maybe>
+          <Row label="Image" copy={w.image || undefined}><span className="font-mono text-xs">{w.image || '—'}</span></Row>
+          <Maybe label="Digest" copy={w.imageDigest}><span className="font-mono text-xs">{w.imageDigest?.slice(0, 19)}</span></Maybe>
           <Maybe label="Managed by">{w.managedBy}</Maybe>
           <Maybe label="Age">{w.createdAt ? `${ageLabel(w.createdAt)} (${new Date(w.createdAt).toLocaleDateString()})` : undefined}</Maybe>
         </Section>
@@ -812,7 +819,7 @@ export default function Inspector({
         {s && (
           <Section title="Location">
             <Row label="Location"><Place site={s} /></Row>
-            <Row label="Coordinates"><span className="font-mono text-xs">{s.lat.toFixed(2)}, {s.lng.toFixed(2)}</span></Row>
+            <Row label="Coordinates" copy={`${s.lat}, ${s.lng}`}><span className="font-mono text-xs">{s.lat.toFixed(2)}, {s.lng.toFixed(2)}</span></Row>
             {exitIps(cs).length > 0 && (
               <Row label="Exit IP"><span className="flex flex-col gap-1">{exitIps(cs).map((ip) => <IpAddress key={ip} ip={ip} inline />)}</span></Row>
             )}
@@ -857,7 +864,7 @@ export default function Inspector({
     body = (
       <>
         <Section title="Identity">
-          {e.name && <Row label="Address"><span className="font-mono text-xs">{e.host}</span></Row>}
+          {e.name && <Row label="Address" copy={e.host}><span className="font-mono text-xs">{e.host}</span></Row>}
           <Maybe label="Port">{e.port ? String(e.port) : undefined}</Maybe>
           <Maybe label="Likely">{e.service ? `${e.service} (guessed from the port)` : undefined}</Maybe>
           {seenOnly && <Maybe label="Seen">{`${ago(e.lastSeen)} · found in traffic, not declared anywhere`}</Maybe>}
