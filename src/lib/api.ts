@@ -70,6 +70,10 @@ export interface CreatedOperator {
   token: string
   install: string
   secretCommand: string
+  /** The `kubectl create secret` for the operator's own receiver TLS certificate (server cert + this
+   *  org's CA), wherever the operator itself is installed. Absent if minting it failed - see
+   *  OperatorTLSBundle's own comment server-side; the receiver bearer token above still works either way. */
+  tlsSecretCommand?: string
   reminders: string[]
 }
 

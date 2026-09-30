@@ -130,6 +130,33 @@ describe('RegionalOperatorsPage', () => {
     expect(screen.getByText(/helm install op-1/)).toBeInTheDocument()
   })
 
+  test('when the server also minted a receiver TLS certificate, shows the extra secret command for it', async () => {
+    createOperator.mockImplementationOnce(async (_c: unknown, name: string, sourceClusterIds: string[], destination: { endpoint: string }) => ({
+      operator: {
+        id: 'op-2', orgId: 'o', name, status: 'active' as const, sourceClusterIds, destination,
+        createdAt: '2026-01-01T00:00:00Z', createdBy: 'me',
+      },
+      token: 'shown-once-secret',
+      install: 'helm install op-2 ./continuum-regional-operator-0.1.0.tgz \
+  --set receiver.tls.enabled=true',
+      secretCommand: 'kubectl create secret generic op-2-receiver-auth --namespace continuum-system --from-literal=token=shown-once-secret',
+      tlsSecretCommand: 'kubectl create secret generic op-2-receiver-tls --namespace continuum-system --from-literal=tls.crt="-----BEGIN CERTIFICATE-----..."',
+      reminders: [] as string[],
+    }))
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByTestId('operator-open'))
+    await user.type(screen.getByTestId('operator-name'), 'athens-regional')
+    await user.click(screen.getByTestId('checkbox-c1'))
+    await user.click(screen.getByText('otel-gateway.example.com:4317').closest('button')!)
+    await user.click(screen.getByRole('option', { name: 'Other…' }))
+    await user.type(screen.getByPlaceholderText('otel-gateway.example.com:4317'), 'backend.example.com:4317')
+    await user.click(screen.getByTestId('operator-create'))
+
+    await waitFor(() => expect(createOperator).toHaveBeenCalled())
+    expect(screen.getByText(/kubectl create secret generic op-2-receiver-tls/)).toBeInTheDocument()
+  })
+
   test('while listOperators is still in flight, shows a loading skeleton instead of the misleading "No regional operators yet" empty state (task #383)', async () => {
     // mockImplementation (not -Once): the test double's useServer mock hands back a fresh `conn` function
     // identity on every render (unlike the real Zustand store, whose selector is stable), so `load`'s own

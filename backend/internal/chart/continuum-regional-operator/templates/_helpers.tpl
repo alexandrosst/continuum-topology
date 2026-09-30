@@ -37,6 +37,9 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- if and .Values.receiver.auth.enabled (not .Values.receiver.auth.secretName) -}}
 {{- fail "receiver.auth.enabled requires receiver.auth.secretName" -}}
 {{- end -}}
+{{- if and .Values.receiver.tls.enabled (not .Values.receiver.tls.secretName) -}}
+{{- fail "receiver.tls.enabled requires receiver.tls.secretName (a Secret holding tls.crt, tls.key, and - if receiver.tls.mtls is also on - ca.crt)" -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "operator.memoryLimiterYAML" -}}

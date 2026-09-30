@@ -808,3 +808,61 @@ func TestTelemetryAcceleratorsApplyScopeNoopWithoutGlobalScope(t *testing.T) {
 		t.Error("transform/dcgm_pod should still render (pod-identity enrichment doesn't depend on scope being set)")
 	}
 }
+
+func TestTelemetryExporterMTLSWiresCertAndKey(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=collector.example:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true",
+		"--set", "telemetry.export.otlp.tls.mtls.enabled=true", "--set", "telemetry.export.otlp.tls.mtls.secretName=op-export-mtls")
+
+	for _, cm := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+		cfg := otelConfig(t, r.configmaps[cm].Data)
+		exporters, _ := cfg["exporters"].(map[string]any)
+		otlp, _ := exporters["otlp"].(map[string]any)
+		tls, _ := otlp["tls"].(map[string]any)
+		if tls["cert_file"] != "/export-mtls/tls.crt" || tls["key_file"] != "/export-mtls/tls.key" || tls["ca_file"] != "/export-mtls/ca.crt" {
+			t.Fatalf("%s exporter tls = %+v", cm, tls)
+		}
+	}
+
+	host := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec
+	cluster := r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec
+
+	foundHostMount, foundHostVol := false, false
+	for _, m := range host.Containers[0].VolumeMounts {
+		if m.Name == "export-mtls" && m.MountPath == "/export-mtls" && m.ReadOnly {
+			foundHostMount = true
+		}
+	}
+	for _, v := range host.Volumes {
+		if v.Name == "export-mtls" && v.Secret != nil && v.Secret.SecretName == "op-export-mtls" {
+			foundHostVol = true
+		}
+	}
+	if !foundHostMount || !foundHostVol {
+		t.Fatalf("host collector export-mtls volume/mount missing: mounts=%+v volumes=%+v", host.Containers[0].VolumeMounts, host.Volumes)
+	}
+
+	foundClusterMount, foundClusterVol := false, false
+	for _, m := range cluster.Containers[0].VolumeMounts {
+		if m.Name == "export-mtls" && m.MountPath == "/export-mtls" && m.ReadOnly {
+			foundClusterMount = true
+		}
+	}
+	for _, v := range cluster.Volumes {
+		if v.Name == "export-mtls" && v.Secret != nil && v.Secret.SecretName == "op-export-mtls" {
+			foundClusterVol = true
+		}
+	}
+	if !foundClusterMount || !foundClusterVol {
+		t.Fatalf("cluster collector export-mtls volume/mount missing: mounts=%+v volumes=%+v", cluster.Containers[0].VolumeMounts, cluster.Volumes)
+	}
+}
+
+func TestTelemetryExporterMTLSRequiresSecretName(t *testing.T) {
+	out, err := helmTemplate(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.export.otlp.tls.mtls.enabled=true")
+	if err == nil {
+		t.Fatalf("telemetry.export.otlp.tls.mtls.enabled without a secretName should fail, rendered instead:\n%s", out)
+	}
+	if !strings.Contains(out, "telemetry.export.otlp.tls.mtls.secretName") {
+		t.Errorf("wrong error for mtls with no secretName: %s", out)
+	}
+}

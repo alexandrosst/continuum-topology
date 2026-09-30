@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -38,9 +39,24 @@ func TestOperatorsHTTPCreateListGetRevokeDelete(t *testing.T) {
 	if install == "" {
 		t.Fatalf("no install command in create response: %v", created)
 	}
+	if !strings.Contains(install, "receiver.tls.enabled=true") {
+		t.Fatalf("install command does not wire up the receiver's mTLS certificate: %v", install)
+	}
+	tlsSecretCommand, _ := created["tlsSecretCommand"].(string)
+	if tlsSecretCommand == "" || !strings.Contains(tlsSecretCommand, "-----BEGIN CERTIFICATE-----") {
+		t.Fatalf("no receiver TLS secret command in create response: %v", created)
+	}
+	// Two lines per source cluster now: the client certificate Secret to create there first, then the
+	// helm upgrade that points its exporter at this operator with mTLS turned on.
 	reminders, _ := created["reminders"].([]any)
-	if len(reminders) != 1 {
-		t.Fatalf("expected one source-cluster reminder, got %v", reminders)
+	if len(reminders) != 2 {
+		t.Fatalf("expected two source-cluster reminder lines (client cert secret + helm upgrade), got %v", reminders)
+	}
+	if !strings.Contains(reminders[0].(string), "-----BEGIN CERTIFICATE-----") {
+		t.Fatalf("first reminder should be the client certificate secret command, got %v", reminders[0])
+	}
+	if !strings.Contains(reminders[1].(string), "telemetry.export.otlp.tls.mtls.enabled=true") {
+		t.Fatalf("second reminder should wire up mTLS on the exporter, got %v", reminders[1])
 	}
 
 	list := a.do("GET", "/api/v1/operators", nil, withCookie(cookie)).jsonArray(t)

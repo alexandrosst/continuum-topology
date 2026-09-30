@@ -67,6 +67,9 @@ spec:
             {{- end }}
           volumeMounts:
             - {name: config, mountPath: /conf, readOnly: true}
+            {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
+            - {name: export-mtls, mountPath: /export-mtls, readOnly: true}
+            {{- end }}
             {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
             - {name: host-fs, mountPath: /hostfs, readOnly: true}
             {{- end }}
@@ -80,6 +83,10 @@ spec:
       volumes:
         - name: config
           configMap: {name: {{ include "agent.telemetryName" . }}-host-config}
+        {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
+        - name: export-mtls
+          secret: {secretName: {{ .Values.telemetry.export.otlp.tls.mtls.secretName }}}
+        {{- end }}
         {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
         # Read-only, and only for the filesystem/network scrapers to see real host mounts and interfaces -
         # the same trade-off nodeProbe.hostSys documents above. A namespace enforcing the Pod Security
@@ -170,10 +177,17 @@ spec:
           {{- end }}
           volumeMounts:
             - {name: config, mountPath: /conf, readOnly: true}
+            {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
+            - {name: export-mtls, mountPath: /export-mtls, readOnly: true}
+            {{- end }}
           resources: {{- include "agent.telemetryClusterCollectorResources" . | nindent 12 }}
       volumes:
         - name: config
           configMap: {name: {{ include "agent.telemetryName" . }}-cluster-config}
+        {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
+        - name: export-mtls
+          secret: {secretName: {{ .Values.telemetry.export.otlp.tls.mtls.secretName }}}
+        {{- end }}
       {{- with .Values.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
       {{- end }}

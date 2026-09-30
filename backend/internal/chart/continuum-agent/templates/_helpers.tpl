@@ -147,6 +147,9 @@ IfNotPresent
 {{- if and .Values.telemetry.receiver.auth.enabled (not .Values.telemetry.receiver.auth.secretName) -}}
 {{- fail "telemetry.receiver.auth.enabled requires telemetry.receiver.auth.secretName" -}}
 {{- end -}}
+{{- if and .Values.telemetry.export.otlp.tls.mtls.enabled (not .Values.telemetry.export.otlp.tls.mtls.secretName) -}}
+{{- fail "telemetry.export.otlp.tls.mtls.enabled requires telemetry.export.otlp.tls.mtls.secretName (a Secret holding tls.crt, tls.key, and ca.crt)" -}}
+{{- end -}}
 {{- end -}}
 
 {{/* True when either half of telemetry.scope is set - gates whether the filter/scope_* processors and the
@@ -339,7 +342,14 @@ otlp:
   endpoint: {{ .Values.telemetry.export.otlp.endpoint | quote }}
   tls:
     insecure: {{ .Values.telemetry.export.otlp.tls.insecure }}
-    {{- if .Values.telemetry.export.otlp.tls.caFile }}
+    {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
+    {{/* mtls.secretName is mounted at /export-mtls (see telemetry.yaml) - its ca.crt takes priority over
+         a plain caFile below, since the same Secret already carries the one this destination actually
+         trusts (whatever minted the client certificate also minted the server certificate to verify). */}}
+    ca_file: /export-mtls/ca.crt
+    cert_file: /export-mtls/tls.crt
+    key_file: /export-mtls/tls.key
+    {{- else if .Values.telemetry.export.otlp.tls.caFile }}
     ca_file: {{ .Values.telemetry.export.otlp.tls.caFile | quote }}
     {{- end }}
   {{- if .Values.telemetry.export.otlp.auth.secretName }}

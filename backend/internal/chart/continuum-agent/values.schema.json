@@ -509,6 +509,18 @@
                     },
                     "caFile": {
                       "type": "string"
+                    },
+                    "mtls": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "secretName": {
+                          "type": "string"
+                        }
+                      }
                     }
                   }
                 },

@@ -313,6 +313,92 @@ func (ca *CA) IssueAgent(csr *x509.CertificateRequest, agentID, orgID string, tt
 	return leafDER, notAfter, err
 }
 
+// OperatorTLSTTL is how long a regional operator's receiver certificate, and the client certificate its
+// source clusters present to it, are valid. Long relative to AgentCertTTL because nothing on this path
+// renews itself automatically the way an online agent does: the receiver is an OTel Collector driven only
+// by Helm-mounted static files, with no process here to ask the server for a fresh one before it expires.
+// Revoke and recreate the operator to rotate it early.
+var OperatorTLSTTL = 365 * 24 * time.Hour
+
+// CertPEM returns this CA's own certificate, PEM-encoded. Unlike Pool (used to verify a presented
+// certificate in-process) or Pin (a fingerprint an agent checks against before it has any certificate of
+// its own), this hands over the actual certificate bytes to something that never talks to this server at
+// all - a regional operator's receiver (client_ca_file, to verify an exporting cluster's client
+// certificate) and that cluster's own exporter (ca_file, to verify the operator's server certificate)
+// both need a copy of this on disk, not just a hash to compare against.
+func (ca *CA) CertPEM() []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.DER})
+}
+
+// issueLeaf is IssueAgent's and NewServerCerts' shared shape, generalized to any subject/usage/hosts:
+// generate a fresh ECDSA P-256 key here (rather than receive a CSR) and sign a leaf certificate for it.
+// Used only where the caller cannot generate its own key and submit a CSR the way an agent does - a
+// Helm-templated OTel Collector has no process able to do that, so the server holds the private key
+// briefly and hands it over once, the same trade-off an operator's receiver bearer token already makes.
+func (ca *CA) issueLeaf(subject pkix.Name, ttl time.Duration, eku x509.ExtKeyUsage, hosts []string) (certPEM, keyPEM []byte, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	serial, err := newSerial()
+	if err != nil {
+		return nil, nil, err
+	}
+	now := time.Now()
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               subject,
+		NotBefore:             now.Add(-clockSkew),
+		NotAfter:              now.Add(ttl),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{eku},
+		BasicConstraintsValid: true,
+	}
+	for _, h := range hosts {
+		if ip := net.ParseIP(h); ip != nil {
+			tmpl.IPAddresses = append(tmpl.IPAddresses, ip)
+		} else {
+			tmpl.DNSNames = append(tmpl.DNSNames, h)
+		}
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.cert, &key.PublicKey, ca.key)
+	if err != nil {
+		return nil, nil, err
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, nil, err
+	}
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	return certPEM, keyPEM, nil
+}
+
+// IssueOperatorReceiverTLS mints a server certificate for a regional operator's own OTLP receiver, valid
+// for the given hosts (the Service DNS name(s) or address it will actually be reached at). See issueLeaf
+// for why the key is generated here rather than received as a CSR. Returned once, like the receiver's
+// bearer token - nothing here is stored server-side beyond what CreateOperator already keeps.
+func (ca *CA) IssueOperatorReceiverTLS(operatorID, orgID string, hosts []string) (certPEM, keyPEM []byte, err error) {
+	if operatorID == "" {
+		return nil, nil, errors.New("pki: operator id required")
+	}
+	subject := pkix.Name{CommonName: operatorID, Organization: []string{orgID}}
+	return ca.issueLeaf(subject, OperatorTLSTTL, x509.ExtKeyUsageServerAuth, hosts)
+}
+
+// IssueOperatorClientTLS mints the client certificate every one of an operator's source clusters
+// presents to that operator's receiver, so its mTLS check (when enabled) has something real, signed by
+// this same CA, to verify - not just a bearer token over a handshake nothing authenticated. One
+// certificate is shared by every source cluster of the operator, the same granularity its receiver
+// bearer token already uses.
+func (ca *CA) IssueOperatorClientTLS(operatorID, orgID string) (certPEM, keyPEM []byte, err error) {
+	if operatorID == "" {
+		return nil, nil, errors.New("pki: operator id required")
+	}
+	subject := pkix.Name{CommonName: operatorID + "-export", Organization: []string{orgID}}
+	return ca.issueLeaf(subject, OperatorTLSTTL, x509.ExtKeyUsageClientAuth, nil)
+}
+
 // VerifyExpiredAgent checks that der is an agent certificate signed by this CA, valid for client
 // authentication, and returns it. Expiry is deliberately ignored here (the caller enforces a
 // window): the certificate is only ever used as proof that this key was once issued to this agent.

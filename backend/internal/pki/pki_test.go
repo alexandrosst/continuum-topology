@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
@@ -143,5 +144,100 @@ func TestServerCertCoversHostsAndIsReused(t *testing.T) {
 	}
 	if _, err := leaf.Verify(x509.VerifyOptions{Roots: ca.Pool(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, DNSName: "continuum.example.com"}); err != nil {
 		t.Errorf("server cert does not verify: %v", err)
+	}
+}
+
+func TestIssueOperatorReceiverAndClientTLS(t *testing.T) {
+	ca, _ := LoadOrCreate(t.TempDir())
+
+	rCertPEM, rKeyPEM, err := ca.IssueOperatorReceiverTLS("op-1", "org-1", []string{"op-1.continuum-system.svc", "203.0.113.9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rCert := mustParsePEMCert(t, rCertPEM)
+	if rCert.Subject.CommonName != "op-1" || rCert.Subject.Organization[0] != "org-1" {
+		t.Fatalf("receiver identity = %v", rCert.Subject)
+	}
+	if len(rCert.ExtKeyUsage) != 1 || rCert.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth {
+		t.Fatalf("receiver cert usage = %v, want ServerAuth only", rCert.ExtKeyUsage)
+	}
+	if len(rCert.DNSNames) != 1 || rCert.DNSNames[0] != "op-1.continuum-system.svc" {
+		t.Fatalf("receiver DNS SANs = %v", rCert.DNSNames)
+	}
+	if len(rCert.IPAddresses) != 1 || rCert.IPAddresses[0].String() != "203.0.113.9" {
+		t.Fatalf("receiver IP SANs = %v", rCert.IPAddresses)
+	}
+	mustMatchKey(t, rCert, rKeyPEM)
+	if _, err := rCert.Verify(x509.VerifyOptions{Roots: ca.Pool(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, DNSName: "op-1.continuum-system.svc"}); err != nil {
+		t.Fatalf("receiver cert does not verify: %v", err)
+	}
+
+	cCertPEM, cKeyPEM, err := ca.IssueOperatorClientTLS("op-1", "org-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cCert := mustParsePEMCert(t, cCertPEM)
+	if cCert.Subject.CommonName != "op-1-export" {
+		t.Fatalf("client identity = %v", cCert.Subject)
+	}
+	if len(cCert.ExtKeyUsage) != 1 || cCert.ExtKeyUsage[0] != x509.ExtKeyUsageClientAuth {
+		t.Fatalf("client cert usage = %v, want ClientAuth only", cCert.ExtKeyUsage)
+	}
+	if len(cCert.DNSNames) != 0 || len(cCert.IPAddresses) != 0 {
+		t.Fatal("a client certificate needs no SANs")
+	}
+	mustMatchKey(t, cCert, cKeyPEM)
+	if _, err := cCert.Verify(x509.VerifyOptions{Roots: ca.Pool(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+		t.Fatalf("client cert does not verify: %v", err)
+	}
+
+	// The two identities are independent: an exporter's client certificate must not also pass as this
+	// operator's own receiver server certificate, or vice versa.
+	if _, err := cCert.Verify(x509.VerifyOptions{Roots: ca.Pool(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err == nil {
+		t.Fatal("client certificate must not verify as a server certificate")
+	}
+
+	if _, _, err := ca.IssueOperatorReceiverTLS("", "org-1", nil); err == nil {
+		t.Fatal("empty operator id must be rejected")
+	}
+	if _, _, err := ca.IssueOperatorClientTLS("", "org-1"); err == nil {
+		t.Fatal("empty operator id must be rejected")
+	}
+}
+
+func TestCertPEMMatchesTheLoadedCA(t *testing.T) {
+	ca, _ := LoadOrCreate(t.TempDir())
+	cert := mustParsePEMCert(t, ca.CertPEM())
+	if SPKIPin(cert.Raw) != ca.SPKIPin() {
+		t.Fatal("CertPEM does not round-trip to this CA's own certificate")
+	}
+}
+
+func mustParsePEMCert(t *testing.T, certPEM []byte) *x509.Certificate {
+	t.Helper()
+	block, _ := pem.Decode(certPEM)
+	if block == nil || block.Type != "CERTIFICATE" {
+		t.Fatalf("not a PEM certificate block: %q", certPEM)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("invalid certificate: %v", err)
+	}
+	return cert
+}
+
+func mustMatchKey(t *testing.T, cert *x509.Certificate, keyPEM []byte) {
+	t.Helper()
+	block, _ := pem.Decode(keyPEM)
+	if block == nil || block.Type != "EC PRIVATE KEY" {
+		t.Fatalf("not a PEM EC private key block: %q", keyPEM)
+	}
+	key, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		t.Fatalf("invalid private key: %v", err)
+	}
+	pub, ok := cert.PublicKey.(*ecdsa.PublicKey)
+	if !ok || !pub.Equal(&key.PublicKey) {
+		t.Fatal("private key does not match the certificate's public key")
 	}
 }

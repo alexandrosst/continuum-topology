@@ -58,10 +58,17 @@ spec:
             - {name: otlp-http, containerPort: 4318, protocol: TCP}
           volumeMounts:
             - {name: config, mountPath: /conf, readOnly: true}
+            {{- if .Values.receiver.tls.enabled }}
+            - {name: receiver-tls, mountPath: /receiver-tls, readOnly: true}
+            {{- end }}
           resources: {{- toYaml .Values.resources | nindent 12 }}
       volumes:
         - name: config
           configMap: {name: {{ include "operator.name" . }}-config}
+        {{- if .Values.receiver.tls.enabled }}
+        - name: receiver-tls
+          secret: {secretName: {{ .Values.receiver.tls.secretName }}}
+        {{- end }}
       {{- with .Values.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
       {{- end }}

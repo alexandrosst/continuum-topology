@@ -8,6 +8,18 @@ import (
 	"continuum/internal/store"
 )
 
+// OperatorTLSBundle is the mTLS material minted once, alongside the receiver bearer token, when a
+// regional operator is created: a server certificate for its own OTLP receiver, a client certificate
+// every one of its source clusters presents when exporting into it, and this organisation's CA
+// certificate both sides need to verify the other (client_ca_file on the receiver, ca_file on the
+// exporter). None of it is stored server-side beyond what the token already is not - see
+// pki.IssueOperatorReceiverTLS and pki.IssueOperatorClientTLS.
+type OperatorTLSBundle struct {
+	ReceiverCertPEM, ReceiverKeyPEM []byte
+	ClientCertPEM, ClientKeyPEM     []byte
+	CACertPEM                      []byte
+}
+
 // maxOperatorName mirrors the enrollment token's own label limit (see CreateTokenFor) - both name the
 // same kind of thing (a cluster, or here a fleet of them) for a person to recognise later.
 const maxOperatorName = 80
@@ -72,20 +84,20 @@ func (c *Core) validSourceClusters(ctx context.Context, ids []string) error {
 
 // CreateOperator registers a new regional operator and mints its receiver bearer token. The secret is
 // returned once and never stored - the same rule CreateToken follows for enrollment tokens.
-func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination) (store.Operator, string, error) {
+func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination) (store.Operator, string, OperatorTLSBundle, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxOperatorName {
-		return store.Operator{}, "", errf(KindInvalid, "name the regional operator (1-%d characters)", maxOperatorName)
+		return store.Operator{}, "", OperatorTLSBundle{}, errf(KindInvalid, "name the regional operator (1-%d characters)", maxOperatorName)
 	}
 	if err := validateDestination(dest); err != nil {
-		return store.Operator{}, "", err
+		return store.Operator{}, "", OperatorTLSBundle{}, err
 	}
 	if err := c.validSourceClusters(ctx, sourceClusterIDs); err != nil {
-		return store.Operator{}, "", err
+		return store.Operator{}, "", OperatorTLSBundle{}, err
 	}
 	secret, err := NewOperatorReceiverSecret()
 	if err != nil {
-		return store.Operator{}, "", err
+		return store.Operator{}, "", OperatorTLSBundle{}, err
 	}
 	op := store.Operator{
 		ID:               newOperatorID(),
@@ -97,13 +109,35 @@ func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClu
 		CreatedBy:        actor,
 		CreatedAt:        c.Now(),
 	}
+	// Minted alongside the bearer token, shown once the same way: the operator's own receiver server
+	// cert (valid for the Service DNS name it is reachable at once installed with this chart's own
+	// defaults - see operatorInstallCommand) and the client certificate every source cluster presents to
+	// it. A failure here does not roll back the operator/token already persisted above: the operator is
+	// still usable over its bearer token alone (mTLS is additive, see receiver.tls in the operator
+	// chart), and the admin can be told plainly that the TLS material needs minting again rather than
+	// silently losing the operator itself.
+	hosts := []string{op.ID + ".continuum-system", op.ID + ".continuum-system.svc", op.ID + ".continuum-system.svc.cluster.local"}
+	bundle := OperatorTLSBundle{CACertPEM: c.CA.CertPEM()}
+	var tlsErr error
+	bundle.ReceiverCertPEM, bundle.ReceiverKeyPEM, tlsErr = c.CA.IssueOperatorReceiverTLS(op.ID, c.OrgID, hosts)
+	if tlsErr == nil {
+		bundle.ClientCertPEM, bundle.ClientKeyPEM, tlsErr = c.CA.IssueOperatorClientTLS(op.ID, c.OrgID)
+	}
 	detail := name
 	if err := c.audited(ctx, actor, "operator-created", "operator", op.ID, detail, func() error {
 		return c.Store.CreateOperator(ctx, op, HashSecret(secret))
 	}); err != nil {
-		return store.Operator{}, "", err
+		return store.Operator{}, "", OperatorTLSBundle{}, err
 	}
-	return op, secret, nil
+	if tlsErr != nil {
+		// The operator and its bearer token are already persisted and audited above - failing the whole
+		// request now would report an operator that does not exist when it does. Surface this as a
+		// warning the caller can show instead: the receiver bearer token still works on its own (mTLS is
+		// additive, see receiver.tls in the operator chart), just without the extra certificate material.
+		c.audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, tlsErr.Error())
+		return op, secret, OperatorTLSBundle{}, nil
+	}
+	return op, secret, bundle, nil
 }
 
 func (c *Core) GetOperator(ctx context.Context, id string) (store.Operator, error) {

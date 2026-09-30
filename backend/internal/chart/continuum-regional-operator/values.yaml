@@ -50,6 +50,20 @@ receiver:
     secretName: ""   # a Secret in this release's namespace, created outside this chart, holding the shared
                       # bearer token minted for this operator
     secretKey: token
+  # TLS on the receiver itself - additive to receiver.auth above, not a replacement (defense in depth: one
+  # proves the connection is encrypted and who signed the cert, the other proves a bearer token). Off by
+  # default in this file, but the operator's own install command always sets this on with the certificate
+  # minted alongside the operator (see CreateOperator/IssueOperatorReceiverTLS) - this default only
+  # matters if you hand-edit these values or mint your own certificate some other way.
+  tls:
+    enabled: false
+    secretName: ""   # a Secret in this release's namespace, created outside this chart, holding tls.crt,
+                      # tls.key (this receiver's own server certificate) and ca.crt (the CA that signed
+                      # both this certificate and, if mtls is on, whatever client certificate is presented)
+    mtls: true        # when tls.enabled, also require and verify the exporting client's certificate
+                       # against ca.crt in the same Secret - off (tls.enabled with mtls: false) accepts any
+                       # client, encrypted but not authenticated by certificate, still checked by
+                       # receiver.auth's bearer token if that is also on
   networkPolicy:
     enabled: false
     # Raw NetworkPolicy ingress "from" peer entries (namespaceSelector / podSelector / ipBlock) - the same

@@ -68,6 +68,15 @@
             "secretKey": { "type": "string" }
           }
         },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "secretName": { "type": "string" },
+            "mtls": { "type": "boolean" }
+          }
+        },
         "networkPolicy": {
           "type": "object",
           "additionalProperties": false,

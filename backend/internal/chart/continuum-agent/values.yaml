@@ -292,6 +292,16 @@ telemetry:
       tls:
         insecure: false
         caFile: ""    # path to a CA bundle to mount and trust, if your endpoint's certificate isn't otherwise trusted
+        # Present a client certificate on top of (or instead of) caFile above - e.g. when your destination
+        # is a Continuum regional operator with receiver.tls.mtls on. Off by default in this file, but a
+        # regional operator's own "point this cluster at me" reminder always sets this on with the
+        # certificate it minted for exactly this purpose (see CreateOperator/IssueOperatorClientTLS) - this
+        # default only matters if you hand-edit these values or mint your own certificate some other way.
+        mtls:
+          enabled: false
+          secretName: ""   # a Secret in this release's namespace, created outside this chart, holding
+                            # tls.crt, tls.key (this cluster's client certificate) and ca.crt (to verify
+                            # the destination's own server certificate - takes priority over caFile above)
       # A single credential header, for backends that require one - never put its value directly in
       # values.yaml (it would render into a ConfigMap in plain text, and land in `helm get values`/git diff).
       # Instead point at a Secret you create yourself, in this release's namespace, holding just that value.

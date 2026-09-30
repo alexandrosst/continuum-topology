@@ -87,20 +87,24 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	op, secret, err := a.core(r).CreateOperator(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore())
+	op, secret, tlsBundle, err := a.core(r).CreateOperator(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore())
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
 	img := a.images(a.core(r))
-	install, secretCmd := a.operatorInstallCommand(img, secret, op)
-	writeJSON(w, 201, map[string]any{
+	install, secretCmd := a.operatorInstallCommand(img, secret, op, tlsBundle)
+	resp := map[string]any{
 		"operator":      toOperatorDoc(op),
 		"token":         secret,
 		"install":       install,
 		"secretCommand": secretCmd,
-		"reminders":     a.operatorSourceReminders(r, op),
-	})
+		"reminders":     a.operatorSourceReminders(r, op, tlsBundle),
+	}
+	if tlsCmd := operatorTLSSecretCommand(op, tlsBundle); tlsCmd != "" {
+		resp["tlsSecretCommand"] = tlsCmd
+	}
+	writeJSON(w, 201, resp)
 }
 
 func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
@@ -122,7 +126,16 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"operator": toOperatorDoc(op), "reminders": a.operatorSourceReminders(r, op)})
+	// A freshly minted client certificate, not the one from CreateOperator (never stored, see its own
+	// comment) - cheap to redo and needed so a newly added source cluster has something to install.
+	// Nothing about the previously issued one stops working: there is no per-certificate revocation
+	// here, only the operator-wide bearer token and (if the operator itself is later revoked) the CA
+	// relationship as a whole, so reissuing here does not disturb clusters already configured.
+	var tlsBundle OperatorTLSBundle
+	if clientCert, clientKey, tlsErr := a.core(r).CA.IssueOperatorClientTLS(op.ID, a.core(r).OrgID); tlsErr == nil {
+		tlsBundle = OperatorTLSBundle{ClientCertPEM: clientCert, ClientKeyPEM: clientKey, CACertPEM: a.core(r).CA.CertPEM()}
+	}
+	writeJSON(w, 200, map[string]any{"operator": toOperatorDoc(op), "reminders": a.operatorSourceReminders(r, op, tlsBundle)})
 }
 
 func (a *Admin) revokeOperator(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +157,41 @@ func (a *Admin) deleteOperator(w http.ResponseWriter, r *http.Request) {
 // server.address or enrollment.key here, only where the operator exports to and the receiver token it
 // checks incoming OTLP against. Returns the `helm install` command and a companion `kubectl create
 // secret` line for the receiver token, shown once - the same convention as an enrollment token.
-func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.Operator) (install, secretCmd string) {
+// operatorReceiverTLSSecretName and operatorClientTLSSecretName are the fixed Secret names the operator
+// chart's receiver.tls.secretName and the agent chart's telemetry.export.otlp.tls.mtls.secretName default
+// install commands point at - fixed per operator so the reminders below and this function agree without
+// threading a name through both.
+func operatorReceiverTLSSecretName(op store.Operator) string { return op.ID + "-receiver-tls" }
+func operatorClientTLSSecretName(op store.Operator) string   { return op.ID + "-export-mtls" }
+
+// operatorTLSSecretCommand is the `kubectl create secret` for the operator's own receiver certificate -
+// installed once, wherever the operator itself runs. Empty if CreateOperator could not mint the TLS
+// material (a rare failure it already tolerates - see its own comment); the receiver bearer token alone
+// still works in that case, this is additive.
+func operatorTLSSecretCommand(op store.Operator, b OperatorTLSBundle) string {
+	if len(b.ReceiverCertPEM) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"kubectl create secret generic %s --namespace continuum-system \\\n  --from-literal=tls.crt=\"%s\" \\\n  --from-literal=tls.key=\"%s\" \\\n  --from-literal=ca.crt=\"%s\"",
+		operatorReceiverTLSSecretName(op), b.ReceiverCertPEM, b.ReceiverKeyPEM, b.CACertPEM)
+}
+
+// operatorClientTLSSecretCommand is the `kubectl create secret` a source cluster runs, once, to install
+// the client certificate it presents to this operator - shown per source cluster in
+// operatorSourceReminders since that is the only place each source cluster's own namespace is known, but
+// the content is identical everywhere (one client identity per operator, not per cluster - see
+// pki.IssueOperatorClientTLS).
+func operatorClientTLSSecretCommand(op store.Operator, b OperatorTLSBundle, namespace string) string {
+	if len(b.ClientCertPEM) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"kubectl create secret generic %s --namespace %s \\\n  --from-literal=tls.crt=\"%s\" \\\n  --from-literal=tls.key=\"%s\" \\\n  --from-literal=ca.crt=\"%s\"",
+		operatorClientTLSSecretName(op), namespace, b.ClientCertPEM, b.ClientKeyPEM, b.CACertPEM)
+}
+
+func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle) (install, secretCmd string) {
 	ref, version := a.operatorChartRef(img), ""
 	if ref == "" {
 		ref = "./" + chart.RegionalOperator.Filename()
@@ -166,6 +213,11 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 			op.Destination.AuthHeaderName, op.Destination.AuthSecretName, op.Destination.AuthSecretKey)
 	}
 	fmt.Fprintf(&b, " \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=%s", secretName)
+	// mTLS on the receiver is additive to the bearer token above, not a replacement - see this chart's
+	// own receiver.tls comment. Only set up when CreateOperator actually minted the certificates.
+	if len(tlsBundle.ReceiverCertPEM) > 0 {
+		fmt.Fprintf(&b, " \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=%s \\\n  --set receiver.tls.mtls=true", operatorReceiverTLSSecretName(op))
+	}
 	if img.Configured() {
 		fmt.Fprintf(&b, " \\\n  --set image.repository=%s/continuum-regional-operator", img.Registry)
 		if img.Tag != "" {
@@ -184,7 +236,7 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 // telemetry.export.otlp.endpoint at this operator - there is no live reparenting in this release (see the
 // plan), so nothing here is executed on the caller's behalf. Uses the same release-name/namespace guess
 // upgradeCommand/teardownCommands already fall back to when an agent has never reported its own.
-func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator) []string {
+func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsBundle OperatorTLSBundle) []string {
 	hub := a.tn(r).Hub
 	img := a.images(a.core(r))
 	ref, version := a.chartRef(img), ""
@@ -212,7 +264,16 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator) []st
 			ns, name = hub.NamespaceOf(ag.ID), hub.ReleaseNameOf(ag.ID)
 		}
 		rns, rname, _ := releaseTarget(ns, name)
-		out = append(out, fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reuse-values --set telemetry.export.otlp.endpoint=%s  # cluster %s", rname, ref, version, rns, endpoint, cl))
+		upgrade := fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reuse-values --set telemetry.export.otlp.endpoint=%s", rname, ref, version, rns, endpoint)
+		// mTLS is additive: every source cluster of this operator presents the same shared client
+		// certificate (see pki.IssueOperatorClientTLS), verified against the CA bundle in the same
+		// Secret - only wired in here when CreateOperator actually minted it (see its own comment on
+		// why that mint can fail without failing operator creation itself).
+		if cmd := operatorClientTLSSecretCommand(op, tlsBundle, rns); cmd != "" {
+			out = append(out, fmt.Sprintf("%s  # cluster %s: create the client certificate Secret first", cmd, cl))
+			upgrade += fmt.Sprintf(" --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=%s", operatorClientTLSSecretName(op))
+		}
+		out = append(out, upgrade+fmt.Sprintf("  # cluster %s", cl))
 	}
 	return out
 }

@@ -69,10 +69,18 @@ function OperatorCreated({ created, extraProcessors, onClose }: { created: Creat
         <div className="mb-1 text-xs text-nb-500">Then install the operator</div>
         <CopyCommand text={install} />
       </div>
+      {created.tlsSecretCommand && (
+        <div className="mt-3">
+          <div className="mb-1 text-xs text-nb-500">
+            And create the receiver's TLS certificate Secret (mTLS, on top of the token above - the install command already turns it on)
+          </div>
+          <CopyCommand text={created.tlsSecretCommand} />
+        </div>
+      )}
       {created.reminders.length > 0 && (
         <div className="mt-3">
           <div className="mb-1 text-xs text-nb-500">
-            Informational only - nothing below runs on your behalf. Each source cluster's own agent needs its export endpoint pointed here separately:
+            Informational only - nothing below runs on your behalf. Each source cluster needs its own copy of the client certificate Secret, then its agent's export endpoint pointed here:
           </div>
           <div className="space-y-1.5">
             {created.reminders.map((r) => <CopyCommand key={r} text={r} />)}

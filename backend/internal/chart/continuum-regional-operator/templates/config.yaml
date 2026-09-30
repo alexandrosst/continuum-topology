@@ -31,12 +31,28 @@ data:
         protocols:
           grpc:
             endpoint: "0.0.0.0:4317"
+            {{- if .Values.receiver.tls.enabled }}
+            tls:
+              cert_file: /receiver-tls/tls.crt
+              key_file: /receiver-tls/tls.key
+              {{- if .Values.receiver.tls.mtls }}
+              client_ca_file: /receiver-tls/ca.crt
+              {{- end }}
+            {{- end }}
             {{- if .Values.receiver.auth.enabled }}
             auth:
               authenticator: bearertokenauth
             {{- end }}
           http:
             endpoint: "0.0.0.0:4318"
+            {{- if .Values.receiver.tls.enabled }}
+            tls:
+              cert_file: /receiver-tls/tls.crt
+              key_file: /receiver-tls/tls.key
+              {{- if .Values.receiver.tls.mtls }}
+              client_ca_file: /receiver-tls/ca.crt
+              {{- end }}
+            {{- end }}
             {{- if .Values.receiver.auth.enabled }}
             auth:
               authenticator: bearertokenauth

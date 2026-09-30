@@ -198,3 +198,60 @@ func TestRegionalOperatorRequiresExportEndpoint(t *testing.T) {
 		t.Fatal("expected helm template to fail with no export.otlp.endpoint")
 	}
 }
+
+func TestRegionalOperatorReceiverTLSWiresCertAndMTLS(t *testing.T) {
+	r := operatorRender(t, "--set", "receiver.tls.enabled=true", "--set", "receiver.tls.secretName=op-receiver-tls")
+	cfg := otelConfig(t, r.configmaps["continuum-regional-operator-config"].Data)
+	receivers, _ := cfg["receivers"].(map[string]any)
+	otlp, _ := receivers["otlp"].(map[string]any)
+	protocols, _ := otlp["protocols"].(map[string]any)
+	for _, proto := range []string{"grpc", "http"} {
+		p, _ := protocols[proto].(map[string]any)
+		tls, _ := p["tls"].(map[string]any)
+		if tls["cert_file"] != "/receiver-tls/tls.crt" || tls["key_file"] != "/receiver-tls/tls.key" {
+			t.Fatalf("%s tls = %+v", proto, tls)
+		}
+		// mtls defaults to true (see values.yaml), so client_ca_file should be set without an explicit --set.
+		if tls["client_ca_file"] != "/receiver-tls/ca.crt" {
+			t.Fatalf("%s tls.client_ca_file = %+v, want /receiver-tls/ca.crt (mtls defaults to true)", proto, tls)
+		}
+	}
+	dep := r.deployments["continuum-regional-operator"]
+	foundMount, foundVol := false, false
+	for _, m := range dep.Spec.Template.Spec.Containers[0].VolumeMounts {
+		if m.Name == "receiver-tls" && m.MountPath == "/receiver-tls" && m.ReadOnly {
+			foundMount = true
+		}
+	}
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		if v.Name == "receiver-tls" && v.Secret != nil && v.Secret.SecretName == "op-receiver-tls" {
+			foundVol = true
+		}
+	}
+	if !foundMount || !foundVol {
+		t.Fatalf("receiver-tls volume/mount missing: mounts=%+v volumes=%+v", dep.Spec.Template.Spec.Containers[0].VolumeMounts, dep.Spec.Template.Spec.Volumes)
+	}
+}
+
+func TestRegionalOperatorReceiverTLSWithoutMTLSOmitsClientCAFile(t *testing.T) {
+	r := operatorRender(t, "--set", "receiver.tls.enabled=true", "--set", "receiver.tls.secretName=op-receiver-tls", "--set", "receiver.tls.mtls=false")
+	cfg := otelConfig(t, r.configmaps["continuum-regional-operator-config"].Data)
+	receivers, _ := cfg["receivers"].(map[string]any)
+	otlp, _ := receivers["otlp"].(map[string]any)
+	protocols, _ := otlp["protocols"].(map[string]any)
+	grpc, _ := protocols["grpc"].(map[string]any)
+	tls, _ := grpc["tls"].(map[string]any)
+	if _, ok := tls["client_ca_file"]; ok {
+		t.Fatalf("client_ca_file should be absent when mtls is off: %+v", tls)
+	}
+	if tls["cert_file"] != "/receiver-tls/tls.crt" {
+		t.Fatalf("server cert should still be set: %+v", tls)
+	}
+}
+
+func TestRegionalOperatorReceiverTLSRequiresSecretName(t *testing.T) {
+	_, err := operatorHelmTemplate(t, "--set", "receiver.tls.enabled=true")
+	if err == nil {
+		t.Fatal("expected helm template to fail with receiver.tls.enabled and no secretName")
+	}
+}
