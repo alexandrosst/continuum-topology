@@ -416,7 +416,11 @@ func TestObservedTrafficReachesTopology(t *testing.T) {
 	if err := post(flowSecret, rep); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "observed dependencies", 10*time.Second, func() bool { return len(state().Topology.Dependencies) == 2 })
+	// 10s used to be enough, but this step also has to survive the flow report landing right as the
+	// agent's stream hits the server's per-connection rate limit (observed in CI as a "sending too
+	// fast" disconnect-and-retry) on top of the normal enroll/approve/reconnect churn already paid for
+	// above - a retry adds a full reconnect round trip, not just the 300ms flow window.
+	waitFor(t, "observed dependencies", 30*time.Second, func() bool { return len(state().Topology.Dependencies) == 2 })
 	d := state().Topology
 	var toDB, toWeb bool
 	for _, x := range d.Dependencies {
