@@ -25,6 +25,16 @@ const (
 	maxFlowEdges       = 20000
 	maxFlowsPerBatch   = 5000
 	defaultStaleWindow = 24 * time.Hour
+	// How long a newly-observed external address is withheld from the topology while its identity is
+	// still unknown, giving netid.ResolveCached/ResolveASNCached (both async, both kicked off as soon as
+	// this address is first seen) a chance to land before it's ever shown. Without this, a brand-new
+	// address appears as a bare, unlabeled node on one poll and then - once resolution catches up a few
+	// seconds later - vanishes and reappears grouped under its real name, which reads as a glitch rather
+	// than the eventually-consistent behavior it actually is. Comfortably longer than one resolution
+	// attempt (netid.resolveTimeout is 3s) plus one poll cycle (2-5s, see useServerPolling), so the common
+	// single-lookup case resolves before the grace period even elapses; an address that's still unmatched
+	// once it does elapse is shown anyway, still unlabeled, rather than staying invisible indefinitely.
+	unmatchedGrace = 12 * time.Second
 )
 
 type flowTable struct {
@@ -305,7 +315,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 	exts := map[string]model.ExternalEndpoint{}
 	stamp := now.UTC().Format(time.RFC3339)
 
-	external := func(agentID, ip string, port uint32, note string) string {
+	external := func(agentID, ip string, port uint32, note string, firstSeen time.Time) (string, bool) {
 		id := "ext-" + interpret.Hash("obs", ip, fmt.Sprint(port))
 		// A match against a single-owner range (Shared == false) is a stable identity: every address
 		// that resolves to it really is "the same thing" (every GitHub IP is github.com), so those
@@ -354,6 +364,13 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 				// different protocols worth of traffic.
 				id = "ext-" + interpret.Hash("obs-known", match.Name, fmt.Sprint(port))
 			}
+		}
+		if !matched && now.Sub(firstSeen) < unmatchedGrace {
+			// Still within the grace window and nothing identified it yet (see unmatchedGrace's own
+			// comment) - don't add it to the topology on this poll. The caller must skip creating a
+			// Dependency for it too, not just skip storing it here, or the dependency would point at an
+			// external endpoint id that was never added to exts.
+			return "", false
 		}
 		if e, ok := exts[id]; !ok {
 			kind := "unknown"
@@ -410,7 +427,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 			sort.Strings(e.IPs)
 			exts[id] = e
 		}
-		return id
+		return id, true
 	}
 	serviceOf := func(cluster, key string) (string, bool) {
 		c := byID[cluster]
@@ -552,16 +569,18 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 						continue
 					}
 				} else if note != "" {
-					id := external(c.agentID, ip, e.Key.Port, note)
-					add(from, "service", id, "external", e, false, note)
+					if id, ready := external(c.agentID, ip, e.Key.Port, note, e.FirstSeen.AsTime()); ready {
+						add(from, "service", id, "external", e, false, note)
+					}
 					continue
 				}
 				what := ""
 				if cl, ok := clusterOfAddr(ip); ok && cl != c.id {
 					what = "address belongs to cluster " + byID[cl].name
 				}
-				id := external(c.agentID, ip, e.Key.Port, what)
-				add(from, "service", id, "external", e, false, what)
+				if id, ready := external(c.agentID, ip, e.Key.Port, what, e.FirstSeen.AsTime()); ready {
+					add(from, "service", id, "external", e, false, what)
+				}
 			}
 		}
 	}
@@ -579,12 +598,14 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 			if outboundTo[cl+">"+to] {
 				continue
 			}
-			id := external(p.c.agentID, ip, 0, "address belongs to cluster "+byID[cl].name)
-			add(id, "external", to, "service", p.e, true, "caller identified only as a cluster, by its address")
+			if id, ready := external(p.c.agentID, ip, 0, "address belongs to cluster "+byID[cl].name, p.e.FirstSeen.AsTime()); ready {
+				add(id, "external", to, "service", p.e, true, "caller identified only as a cluster, by its address")
+			}
 			continue
 		}
-		id := external(p.c.agentID, ip, 0, "")
-		add(id, "external", to, "service", p.e, false, "")
+		if id, ready := external(p.c.agentID, ip, 0, "", p.e.FirstSeen.AsTime()); ready {
+			add(id, "external", to, "service", p.e, false, "")
+		}
 	}
 
 	var outDeps []model.Dependency

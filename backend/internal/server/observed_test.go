@@ -47,6 +47,11 @@ func feed(c *observedCluster, at time.Time, window int32, fs ...*continuumv1.Flo
 
 func TestObservedTopologyAcrossClusters(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	// Flows are fed as having first been seen a minute before observedTopology is asked to report on
+	// them, not at the same instant - past unmatchedGrace (12s), so an address this test expects to show
+	// up unmatched/unlabeled (192.168.0.5, the ambiguous one) actually does, instead of being withheld as
+	// still-too-new. See unmatchedGrace's own comment in observed.go for why that grace period exists.
+	seenAt := now.Add(-1 * time.Minute)
 	lb := &continuumv1.Address{Ip: "198.51.100.7", Port: 443, Kind: "load-balancer"}
 	np := &continuumv1.Address{Port: 30080, Kind: "node-port"}
 	edge := cluster("edge", "203.0.113.1", nil, wk("iot", "Deployment", "ingest"), wk("iot", "Deployment", "cache"))
@@ -59,7 +64,7 @@ func TestObservedTopologyAcrossClusters(t *testing.T) {
 	ingest, cache := "iot/Deployment/ingest", "iot/Deployment/cache"
 	gw, orch, db := "platform/Deployment/gateway", "platform/Deployment/orchestrator", "platform/Deployment/db"
 
-	feed(&edge, now, 60,
+	feed(&edge, seenAt, 60,
 		flowOf(wep(ingest), wep(cache), 6379, 10),           // inside a cluster
 		flowOf(wep(ingest), xep("198.51.100.7"), 443, 5),    // another cluster's load balancer
 		flowOf(wep(ingest), xep("198.51.100.20"), 30080, 2), // a node port on another cluster's node
@@ -69,7 +74,7 @@ func TestObservedTopologyAcrossClusters(t *testing.T) {
 		&continuumv1.Flow{Src: wep(ingest), Dst: wep(cache), Port: 53, Protocol: "tcp", Connections: 1, Method: "ebpf", Noise: "dns"}, // machinery
 	)
 	// The cloud side sees the same connection arrive; because the edge reported the outbound edge, no duplicate appears.
-	feed(&cloud, now, 60,
+	feed(&cloud, seenAt, 60,
 		flowOf(xep("203.0.113.1"), wep(gw), 443, 5),
 		flowOf(xep("203.0.113.77"), wep(db), 5432, 3), // an unknown caller from the internet
 		flowOf(xep("203.0.113.1"), wep(db), 5432, 6),  // the edge cluster, but its own agent reported nothing to db: kept, as a cluster-level caller
@@ -448,10 +453,14 @@ func TestWellKnownPort(t *testing.T) {
 
 func TestExternalKnownRangeSetsIdentityAndAggregates(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	// Same reasoning as TestObservedTopologyAcrossClusters: 93.184.216.34 below is deliberately outside
+	// every bundled range, and this test expects it to show up unmatched/unlabeled regardless - which
+	// only happens once it's past unmatchedGrace, so it's fed as a minute old rather than brand new.
+	seenAt := now.Add(-1 * time.Minute)
 	c := cluster("c", "", nil, wk("app", "Deployment", "worker"))
 	worker := "app/Deployment/worker"
 
-	feed(&c, now, 60,
+	feed(&c, seenAt, 60,
 		flowOf(wep(worker), xep("140.82.112.3"), 443, 3),  // GitHub - single-owner range
 		flowOf(wep(worker), xep("140.82.112.4"), 443, 2),  // a different GitHub IP, same port
 		flowOf(wep(worker), xep("140.82.112.3"), 22, 1),   // GitHub again, but a different port (git over SSH)
