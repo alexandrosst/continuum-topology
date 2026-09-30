@@ -14,7 +14,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { applyGraphUpdate, buildGraph, cardId, groupId, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
+import { applyGraphUpdate, buildGraph, cardId, groupId, HEADER, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type RegionalOperator, type Service, type Suggestion } from '../src/lib/types'
@@ -1388,6 +1388,37 @@ test('namespace sub-boxes nest cards under one box per namespace, only when aske
   // Grouped by tier, several clusters would share one box: namespace nesting is skipped rather than mixing them.
   const byTier = buildGraph(seed, { ...opts, groupBy: 'tier', namespaces: true })
   assert.ok(!byTier.nodes.some((n) => n.data.kind === 'namespace'))
+})
+
+test('a card\'s own drag extent keeps it inside its parent box\'s PAD/HEADER margins, not flush against the bare edges', () => {
+  // A plain React Flow extent:'parent' only keeps a card within its parent's full [0,w]x[0,h] rectangle -
+  // dragging it could still park it flush against the box's own left/right/bottom border, or up under the
+  // header text at the top. buildGraph gives every card its own [[left,top],[right,bottom]] extent instead,
+  // reusing the same PAD/HEADER margins the initial layout already placed it with.
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+
+  const g = buildGraph(seed, opts)
+  const cluster = g.nodes.find((n) => n.id === 'g:cl-cloud')!
+  const card = g.nodes.find((n) => n.id === 'c:w-gw')!
+  const w = Number(cluster.style?.width)
+  const h = Number(cluster.style?.height)
+  assert.deepEqual(card.extent, [[PAD, HEADER], [w - PAD, h - PAD]])
+  assert.notEqual(card.extent, 'parent')
+
+  const withNs = buildGraph(seed, { ...opts, namespaces: true })
+  const ns = withNs.nodes.find((n) => n.id === 'ns:cl-cloud:platform')!
+  const nsCard = withNs.nodes.find((n) => n.id === 'c:w-gw')!
+  const nw = Number(ns.style?.width)
+  const nh = Number(ns.style?.height)
+  assert.deepEqual(nsCard.extent, [[NS_PAD, NS_HEADER], [nw - NS_PAD, nh - NS_PAD]])
+
+  // Sanity: the extent's own bottom-right corner is still comfortably past its top-left, i.e. a real usable
+  // box, not an inverted or degenerate one - would only fail if a cluster/namespace box ever shrank so far
+  // that PAD/HEADER margins on opposite sides overlapped each other.
+  for (const [ext, node] of [[card.extent, cluster] as const, [nsCard.extent, ns] as const]) {
+    const [[left, top], [right, bottom]] = ext as [[number, number], [number, number]]
+    assert.ok(right > left && bottom > top, `${node.id}'s card extent is a real box, not inverted`)
+  }
 })
 
 test('regional operators: a group box + real arrows from each source cluster appear only when that cluster is on the canvas', () => {

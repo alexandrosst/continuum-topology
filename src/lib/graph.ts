@@ -197,11 +197,14 @@ export const groupId = (key: string) => `g:${key}`
 export const cardId = (id: string) => `c:${id}`
 
 /* ---------- layout constants ---------- */
-const PAD = 20
+// PAD/HEADER (and their NS_ twins below) are exported alongside the layout functions that use them:
+// they're also the exact margins a card's own drag `extent` reuses (see buildGraph's two card-push sites
+// below), so a test asserting on that extent needs the real constants, not a copy that could quietly drift.
+export const PAD = 20
 // The box header (title, subtitle/country/mesh line, and - when a cluster has load - a fourth load-meter row)
 // runs up to about 72px tall at normal zoom; HEADER is the y where the first row of children starts, so it needs
 // real breathing room past that, not just enough to avoid overlap.
-const HEADER = 96
+export const HEADER = 96
 const GAP_X = 72
 const GAP_Y = 44
 const GROUP_GAP_X = 64
@@ -219,8 +222,8 @@ const MACHINE_CARD = { w: 288, h: 84 }
 const CHIP_ROW = 22
 // A namespace sub-box nests one level inside a cluster box: a little padding and a short header for its
 // name, then the same card grid a cluster box would use on its own.
-const NS_PAD = 14
-const NS_HEADER = 32
+export const NS_PAD = 14
+export const NS_HEADER = 32
 const NS_GAP_Y = 22
 
 export interface Box {
@@ -567,7 +570,12 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
               id: c.item.id,
               type: 'card',
               parentId: nsId,
-              extent: 'parent',
+              // A plain 'parent' extent only keeps a card within the namespace box's full [0,w]x[0,h] -
+              // right up against its own edges and the "NN namespace" header text at (0,0). This instead
+              // reuses the exact margins packItems already laid the card out with in the first place (NS_PAD
+              // on the sides/bottom, NS_HEADER on top, reserved for the namespace box's own header row), so
+              // dragging a card can never put it somewhere the initial layout itself would never have.
+              extent: [[NS_PAD, NS_HEADER], [nb.w - NS_PAD, nb.h - NS_PAD]],
               position: { x: c.x, y: c.y },
               style: { width: c.item.w, height: c.h },
               zIndex: 10,
@@ -582,7 +590,11 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
             id: c.item.id,
             type: 'card',
             parentId: gid,
-            extent: 'parent',
+            // Same reasoning as the namespace case above: keep a dragged card within the same PAD/HEADER
+            // margin packItems already used to lay it out, not the group box's own bare edges - otherwise a
+            // drag can park a card flush against the box's left/right/bottom border, or up under the
+            // cluster's own header (title, subtitle, load meter).
+            extent: [[PAD, HEADER], [p.w - PAD, p.h - PAD]],
             position: { x: c.x, y: c.y },
             style: { width: c.item.w, height: c.h },
             zIndex: 10,
