@@ -135,7 +135,8 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		e.BytesOut = satAdd(e.BytesOut, f.BytesOut)
 		e.BytesIn = satAdd(e.BytesIn, f.BytesIn)
 		e.Retransmits = satAdd(e.Retransmits, f.Retransmits)
-		e.WindowSeconds, e.WindowConnections, e.WindowBytes, e.WindowRetransmits = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn), f.Retransmits
+		e.FailedAttempts = satAdd(e.FailedAttempts, f.FailedAttempts)
+		e.WindowSeconds, e.WindowConnections, e.WindowBytes, e.WindowRetransmits, e.WindowFailedAttempts = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn), f.Retransmits, f.FailedAttempts
 		if f.BytesKnown {
 			e.Key.BytesKnown = true
 		}
@@ -527,6 +528,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 			d.RttMs = float64(e.Key.RttUs) / 1000
 		}
 		d.Retransmits = satAdd(d.Retransmits, e.Retransmits)
+		d.FailedAttempts = satAdd(d.FailedAttempts, e.FailedAttempts)
 		if e.Key.Noise == "" {
 			d.Noise = ""
 		}
@@ -539,6 +541,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 			st.WindowSec = e.WindowSeconds
 			st.ConnectionsPerMin += float64(e.WindowConnections) * 60 / float64(e.WindowSeconds)
 			st.RetransmitsPerMin += float64(e.WindowRetransmits) * 60 / float64(e.WindowSeconds)
+			st.FailedAttemptsPerMin += float64(e.WindowFailedAttempts) * 60 / float64(e.WindowSeconds)
 			if e.Key.BytesKnown {
 				st.BytesPerSec += float64(e.WindowBytes) / float64(e.WindowSeconds)
 			}

@@ -51,6 +51,9 @@ export default function EdgeHoverCard({
   // Retransmits are only ever a real measurement on an eBPF edge - same gate the Inspector uses (a
   // conntrack-only edge's 0 there means "not measured", not "no loss").
   const showRetransmits = d?.via === 'ebpf' && s?.retransmitsPerMin !== undefined
+  // Same eBPF-only gate as retransmits; only worth a row at all when something has actually failed, since
+  // "0 failed attempts" on every quiet, perfectly healthy edge would just be noise in a card this small.
+  const showFailed = d?.via === 'ebpf' && !!d?.failedAttempts
   const left = Math.min(pos.cx - box.left + 14, box.width - 236)
   const top = Math.max(8, pos.cy - box.top - 12)
   const label = typeof edge.label === 'string' ? edge.label : undefined
@@ -70,7 +73,7 @@ export default function EdgeHoverCard({
           ? d.activeCount ? ` · ${d.activeCount} seen in traffic` : undefined
           : label !== undefined && (d?.stale ? ' · quiet' : seen ? ' · seen in traffic' : ' · declared')}
       </div>
-      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showRetransmits || d?.iface || d?.quality || d?.route) && (
+      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showRetransmits || showFailed || d?.iface || d?.quality || d?.route) && (
         <dl className="mt-1.5 grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-0.5 text-nb-400">
           {showBps && (
             <>
@@ -106,6 +109,12 @@ export default function EdgeHoverCard({
             <>
               <dt>Retransmits</dt>
               <dd className="text-nb-200">{Math.round((s!.retransmitsPerMin ?? 0) * 10) / 10}/min</dd>
+            </>
+          )}
+          {showFailed && (
+            <>
+              <dt title="Connection attempts that never reached ESTABLISHED">Failed attempts</dt>
+              <dd className="text-nb-200">{d!.failedAttempts} total</dd>
             </>
           )}
           {d?.iface && (

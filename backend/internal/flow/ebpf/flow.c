@@ -52,6 +52,10 @@ struct sock {
 	// The route the kernel already resolved for this socket - not the same thing as an explicit
 	// SO_BINDTODEVICE, which almost nothing sets. See put_iface.
 	struct dst_entry *sk_dst_cache;
+	// The errno left behind by a connection that never reached ESTABLISHED (ECONNREFUSED, ETIMEDOUT,
+	// ECONNRESET, EHOSTUNREACH/ENETUNREACH) - the kernel's own diagnosis, read only when the socket is
+	// about to close having never gotten there. See add_failed.
+	int sk_err;
 } __attribute__((preserve_access_index));
 
 struct socket {
@@ -115,15 +119,28 @@ struct flow_val {
 	// same latest-wins treatment as ifindex/ifname above. 0 means no sample yet, not "no delay".
 	__u32 retransmits;
 	__u32 rtt_us;
+	// A connection attempt on this same key that never reached ESTABLISHED (see add_failed) - counted
+	// here, on the same row as any successful connections to/from the same peer:port, because "5 fine,
+	// 2 refused" is one fact about one edge, not two. connections/bytes/retransmits/rtt_us above are never
+	// touched by a failed attempt, and these below are never touched by an established one.
+	__u64 failed_attempts;
+	__u64 failed_refused;     // ECONNREFUSED: nothing was listening, or it actively rejected the SYN
+	__u64 failed_timeout;     // ETIMEDOUT: no answer at all
+	__u64 failed_reset;       // ECONNRESET: torn down mid-handshake
+	__u64 failed_unreachable; // EHOSTUNREACH / ENETUNREACH: routing, not the peer, said no
 };
 
-// Remembered from ESTABLISHED until the socket closes.
+// Remembered from the first sign of a connection attempt (SYN_SENT/SYN_RECV) until the socket closes, so a
+// close that never passed through ESTABLISHED can still be attributed and counted as a failure.
 struct sock_info {
 	struct flow_key key;
 	// The kernel counters at the last time this socket was accounted, so only the growth is added next time.
 	__u64 last_out;
 	__u64 last_in;
 	__u32 last_retrans;
+	// 0 from the moment a connection attempt is first seen (SYN_SENT/SYN_RECV) until it reaches
+	// ESTABLISHED, which sets it to 1. A close while still 0 is add_failed's job, not add_flow's.
+	__u8 established;
 };
 
 struct {
@@ -211,9 +228,54 @@ static __always_inline void add_flow(const struct flow_key *key, struct sock *sk
 	put_iface(v, sk);
 }
 
+// A connection attempt that closed having never reached ESTABLISHED. reason is whatever sk->sk_err held
+// at that moment (0 if the read failed or the kernel left nothing there); anything not one of the four
+// named cases still counts toward failed_attempts, just not toward a specific one of them.
+static __always_inline void add_failed(const struct flow_key *key, int reason) {
+	struct flow_val zero = {};
+	struct flow_val *v = bpf_map_lookup_elem(&flows, key);
+	if (!v) {
+		bpf_map_update_elem(&flows, key, &zero, BPF_NOEXIST);
+		v = bpf_map_lookup_elem(&flows, key);
+	}
+	if (!v) {
+		count_lost();
+		return;
+	}
+	v->failed_attempts += 1;
+	switch (reason) {
+	case 111: v->failed_refused += 1; break;     // ECONNREFUSED
+	case 110: v->failed_timeout += 1; break;     // ETIMEDOUT
+	case 104: v->failed_reset += 1; break;       // ECONNRESET
+	case 113: case 101: v->failed_unreachable += 1; break; // EHOSTUNREACH, ENETUNREACH
+	default: break;
+	}
+}
+
 SEC("tp_btf/inet_sock_set_state")
 int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 	__u64 id = (__u64)sk;
+
+	if (newstate == TCP_SYN_SENT || newstate == TCP_SYN_RECV) {
+		// The first sign of a new connection attempt, well before ESTABLISHED. Recorded now so that if it
+		// never gets there, the close below still knows whose attempt it was and can count it as failed
+		// rather than silently dropping it.
+		unsigned short family = sk->__sk_common.skc_family;
+		if (family != AF_INET && family != AF_INET6)
+			return 0;
+
+		struct sock_info si;
+		__builtin_memset(&si, 0, sizeof(si));
+		si.key.role = newstate == TCP_SYN_SENT ? ROLE_CLIENT : ROLE_SERVER;
+		__be32 laddr = sk->__sk_common.skc_rcv_saddr;
+		__be32 daddr = sk->__sk_common.skc_daddr;
+		put_addr(si.key.local, laddr, &sk->__sk_common.skc_v6_rcv_saddr, family);
+		put_addr(si.key.peer, daddr, &sk->__sk_common.skc_v6_daddr, family);
+		si.key.port = si.key.role == ROLE_CLIENT ? __builtin_bswap16(sk->__sk_common.skc_dport) : sk->__sk_common.skc_num;
+		si.established = 0;
+		bpf_map_update_elem(&socks, &id, &si, BPF_ANY);
+		return 0;
+	}
 
 	if (newstate == TCP_ESTABLISHED) {
 		__u8 role = 0;
@@ -231,6 +293,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		struct sock_info si;
 		__builtin_memset(&si, 0, sizeof(si));
 		si.key.role = role;
+		si.established = 1;
 		__be32 laddr = sk->__sk_common.skc_rcv_saddr;
 		__be32 daddr = sk->__sk_common.skc_daddr;
 		put_addr(si.key.local, laddr, &sk->__sk_common.skc_v6_rcv_saddr, family);
@@ -259,10 +322,22 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 
 	struct sock_info *si = bpf_map_lookup_elem(&socks, &id);
 	if (!si) {
-		// A connection that was already up before we started, or a socket that never got established.
+		// A connection that was already up before we started, or one whose SYN_SENT/SYN_RECV transition
+		// we also missed - either way, nothing we can attribute.
 		if (oldstate == TCP_ESTABLISHED || oldstate == 4 /*FIN_WAIT1*/ || oldstate == 5 /*FIN_WAIT2*/ || oldstate == 8 /*CLOSE_WAIT*/ ||
 		    oldstate == 9 /*LAST_ACK*/ || oldstate == 11 /*CLOSING*/)
 			count_lost();
+		return 0;
+	}
+
+	if (!si->established) {
+		// Never got there: a failed connection attempt, not a closed one. sk_err is whatever errno the
+		// kernel left on the socket at the moment it gave up - read now, before bpf_map_delete_elem, since
+		// nothing after this point can still name which attempt it belonged to.
+		int err = 0;
+		bpf_probe_read_kernel(&err, sizeof(err), &sk->sk_err);
+		add_failed(&si->key, err);
+		bpf_map_delete_elem(&socks, &id);
 		return 0;
 	}
 

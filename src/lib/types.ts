@@ -495,6 +495,10 @@ export interface DependencyStats {
   /** 0 both when there is genuinely no loss and when nothing eBPF-observed has reported yet (conntrack
    * cannot see retransmits at all) - Dependency.via says which case it is. */
   retransmitsPerMin?: number
+  /** Same "0 means not measured" rule as retransmitsPerMin: only eBPF sees a connection attempt that
+   * never reached ESTABLISHED at all, so this is unset on a conntrack-only edge regardless of how many
+   * attempts actually failed. */
+  failedAttemptsPerMin?: number
   reqPerSec?: number
   errorRate?: number // 0..1
   p95Ms?: number
@@ -541,6 +545,12 @@ export interface Dependency {
    * conntrack-only edge (via !== 'ebpf'), which has no socket to read this from: there, 0 means "not
    * measured", not "no loss". */
   retransmits?: number
+  /** Cumulative connection attempts between these two ends that never reached ESTABLISHED - refused,
+   * timed out, reset mid-handshake, or unreachable - summed the same way retransmits is, with the same
+   * conntrack caveat (0 there means "not measured"). A dependency can have this set with connections
+   * entirely unset: that is the interesting case, something the application keeps trying to reach and
+   * never does. */
+  failedAttempts?: number
   /** The most recently sampled smoothed round-trip time, in milliseconds, from the kernel's own TCP RTT
    * estimator. A gauge (the latest sample), not an average over the edge's life. Unset means no sample
    * yet - most often too little exchanged to measure one, or a conntrack-only edge. */

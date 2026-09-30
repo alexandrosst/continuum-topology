@@ -958,6 +958,13 @@ export default function Inspector({
                 ) : undefined}
               </Maybe>
               <Maybe label="Retransmits">{d.via === 'ebpf' ? `${Math.round((s.retransmitsPerMin ?? 0) * 10) / 10} per minute${d.retransmits ? ` (${d.retransmits} total)` : ''}` : undefined}</Maybe>
+              <Maybe label="Failed attempts">
+                {d.via === 'ebpf' ? (
+                  <span title="Connection attempts to/from this dependency that never reached ESTABLISHED - refused, timed out, reset, or unreachable - from the kernel's own socket state, not inferred from timing.">
+                    {`${Math.round((s.failedAttemptsPerMin ?? 0) * 10) / 10} per minute${d.failedAttempts ? ` (${d.failedAttempts} total)` : ''}`}
+                  </span>
+                ) : undefined}
+              </Maybe>
               <Maybe label="Window">{s.windowSec ? `${Math.round(s.windowSec / 60) || '<1'} min` : undefined}</Maybe>
               {d.stale && <p className="mt-1 text-xs text-warn">No traffic since {ago(d.lastSeen)}.</p>}
             </>

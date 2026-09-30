@@ -387,6 +387,29 @@ func TestFlowTableCarriesIfaceRetransmitsAndRTT(t *testing.T) {
 	}
 }
 
+func TestFlowTableCarriesFailedAttempts(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	tbl := newFlowTable()
+	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
+	// A window with nothing but failures: connections stays 0, failed_attempts carries the whole story.
+	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", FailedAttempts: 2}
+	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	k := flowKey(f1)
+	e := tbl.edges[k]
+	if e == nil {
+		t.Fatal("edge not recorded")
+	}
+	if e.Connections != 0 || e.FailedAttempts != 2 || e.WindowFailedAttempts != 2 {
+		t.Errorf("connections=%d failedAttempts=%d/%d, want 0, 2/2", e.Connections, e.FailedAttempts, e.WindowFailedAttempts)
+	}
+	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", FailedAttempts: 3}
+	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	e = tbl.edges[k]
+	if e.FailedAttempts != 5 || e.WindowFailedAttempts != 3 || e.Connections != 1 {
+		t.Errorf("cumulative failedAttempts=%d window=%d connections=%d, want 5/3/1", e.FailedAttempts, e.WindowFailedAttempts, e.Connections)
+	}
+}
+
 // TestDependencyStatsIncludeRetransmitsAndRTT checks the fields surface all the way to model.Dependency,
 // not just onto the stored FlowEdge.
 func TestDependencyStatsIncludeRetransmitsAndRTT(t *testing.T) {
@@ -431,6 +454,39 @@ func TestDependencyStatsIncludeRetransmitsAndRTT(t *testing.T) {
 	}
 	if want := float64(4) * 60 / 60; d.perMin != want {
 		t.Errorf("retransmitsPerMin = %v, want %v", d.perMin, want)
+	}
+}
+
+// TestDependencyStatsIncludeFailedAttempts checks failed connection attempts surface all the way to
+// model.Dependency, the same way retransmits do (see TestDependencyStatsIncludeRetransmitsAndRTT).
+func TestDependencyStatsIncludeFailedAttempts(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	x, y := "a/Deployment/x", "a/Deployment/y"
+	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
+	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Method: "ebpf", FailedAttempts: 6}
+	feed(&c, now, 60, f)
+
+	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	var failedAttempts uint64
+	var perMin float64
+	var found bool
+	for _, dep := range deps {
+		if dep.Port == 5432 {
+			found = true
+			failedAttempts = dep.FailedAttempts
+			if dep.Stats != nil {
+				perMin = dep.Stats.FailedAttemptsPerMin
+			}
+		}
+	}
+	if !found {
+		t.Fatal("dependency not found")
+	}
+	if failedAttempts != 6 {
+		t.Errorf("failedAttempts = %d, want 6", failedAttempts)
+	}
+	if perMin != 6 {
+		t.Errorf("failedAttemptsPerMin = %v, want 6", perMin)
 	}
 }
 

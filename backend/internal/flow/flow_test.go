@@ -100,6 +100,25 @@ func TestResolveAttributesAndDrops(t *testing.T) {
 	}
 }
 
+// A connection attempt that never reached ESTABLISHED (0 connections, some failed_attempts) is
+// attributed exactly like a successful one - same src/dst/noise rules - with the failure count carried
+// onto the resolved Flow rather than dropped for having nothing else to say.
+func TestResolveCarriesFailedAttemptsThroughUnattributedOtherwise(t *testing.T) {
+	r := NewResolver(testIndex)
+	fr := &continuumv1.RawFlow{Client: true, LocalIp: "10.42.0.5", PeerIp: "93.184.216.34", Port: 443, Protocol: "tcp",
+		FailedAttempts: 4, FailedRefused: 1, FailedTimeout: 3}
+	f, ok := r.Resolve(fr, "ebpf", true)
+	if !ok {
+		t.Fatal("a pure-failure observation must still resolve")
+	}
+	if f.Connections != 0 || f.FailedAttempts != 4 {
+		t.Errorf("got connections=%d failedAttempts=%d, want 0 and 4", f.Connections, f.FailedAttempts)
+	}
+	if ref(f.Src) != "shop/Deployment/cart" || f.Dst.Kind != continuumv1.FlowEndpoint_EXTERNAL {
+		t.Errorf("attribution should be unaffected by this being a failure: %v -> %v", f.Src, f.Dst)
+	}
+}
+
 func TestResolveRemembersPodsThatAreGone(t *testing.T) {
 	ix := testIndex()
 	now := time.Now()
@@ -130,8 +149,12 @@ func TestAggregatorSumsAndBounds(t *testing.T) {
 	mk := func(src, dst string, conns uint64) *continuumv1.Flow {
 		return &continuumv1.Flow{Src: workload(src), Dst: workload(dst), Port: 80, Protocol: "tcp", Connections: conns, BytesOut: 10, BytesIn: 20, Method: "conntrack", BytesKnown: true}
 	}
-	a.Add(mk("a", "b", 2))
-	a.Add(mk("a", "b", 3))
+	withFailure := mk("a", "b", 2)
+	withFailure.FailedAttempts = 1
+	a.Add(withFailure)
+	second := mk("a", "b", 3)
+	second.FailedAttempts = 2
+	a.Add(second)
 	a.Add(mk("a", "c", 9))
 	a.AddLost(4)
 	t0 = t0.Add(60 * time.Second)
@@ -139,8 +162,8 @@ func TestAggregatorSumsAndBounds(t *testing.T) {
 	if b.WindowSeconds != 60 || b.Lost != 4 || len(b.Flows) != 2 || b.Seq != 1 {
 		t.Fatalf("batch = %v", b)
 	}
-	if b.Flows[0].Dst.Ref != "c" || b.Flows[1].Connections != 5 || b.Flows[1].BytesOut != 20 {
-		t.Fatalf("busiest first, sums added: %v", b.Flows)
+	if b.Flows[0].Dst.Ref != "c" || b.Flows[1].Connections != 5 || b.Flows[1].BytesOut != 20 || b.Flows[1].FailedAttempts != 3 {
+		t.Fatalf("busiest first, sums added (including failed attempts): %v", b.Flows)
 	}
 	if a.Flush() != nil {
 		t.Fatal("nothing seen, nothing to send")

@@ -368,7 +368,10 @@ type DependencyStats struct {
 	// RetransmitsPerMin is 0 both when there is genuinely no loss and when nothing eBPF-observed has
 	// reported yet (conntrack cannot see retransmits at all) - Dependency.Via says which case it is.
 	RetransmitsPerMin float64 `json:"retransmitsPerMin,omitempty"`
-	WindowSec         int32   `json:"windowSec,omitempty"`
+	// FailedAttemptsPerMin is the same "0 means not measured, not measured-as-zero" story as
+	// RetransmitsPerMin: only eBPF sees a connection attempt that never got established at all.
+	FailedAttemptsPerMin float64 `json:"failedAttemptsPerMin,omitempty"`
+	WindowSec            int32   `json:"windowSec,omitempty"`
 }
 
 // Dependency is a service-to-service edge that was seen on the wire.
@@ -409,6 +412,13 @@ type Dependency struct {
 	// conntrack-only edge (Via != "ebpf"), which has no socket to read this from, so a 0 there means
 	// "not measured", not "no loss".
 	Retransmits uint64 `json:"retransmits,omitempty"`
+	// FailedAttempts is the cumulative count of connection attempts between these two ends that never
+	// reached ESTABLISHED - refused, timed out, reset mid-handshake, or unreachable - summed the same way
+	// Retransmits is, and with the same conntrack caveat: always 0 on a conntrack-only edge, where it
+	// means "not measured", not "every attempt succeeded". A dependency that is all failed attempts and
+	// no successful Connections at all is exactly the case this exists to surface: something the
+	// application keeps trying and never reaching.
+	FailedAttempts uint64 `json:"failedAttempts,omitempty"`
 	// RttMs is the most recently sampled smoothed round-trip time in milliseconds, from the kernel's own
 	// TCP RTT estimator. A gauge (the latest sample), not an average over the edge's life. 0 means no
 	// sample yet, not "no delay" - most often because too little has been exchanged to measure one, or

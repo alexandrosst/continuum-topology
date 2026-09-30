@@ -554,6 +554,16 @@ message RawFlow {
   // estimator (struct tcp_sock.srtt_us). A gauge, not a sum: 0 means no sample yet (a connection that
   // exchanged too little to measure one, or a conntrack-derived report), not "no delay".
   uint32 rtt_us = 11;
+  // Connection attempts to/from this same local/peer/port that never reached ESTABLISHED - counted on
+  // this same row as any successful connections, since "mostly fine, a few refused" is one fact about
+  // one edge. Always 0 on a conntrack-derived report, which has no socket state machine to watch. See
+  // the broken-down reasons below; failed_attempts can exceed their sum when the kernel's reason did not
+  // match one of them.
+  uint64 failed_attempts = 12;
+  uint64 failed_refused = 13;     // ECONNREFUSED
+  uint64 failed_timeout = 14;     // ETIMEDOUT
+  uint64 failed_reset = 15;       // ECONNRESET
+  uint64 failed_unreachable = 16; // EHOSTUNREACH / ENETUNREACH
 }
 
 message FlowReport {
@@ -600,6 +610,11 @@ message Flow {
   // The most recently sampled smoothed RTT, in microseconds - see RawFlow.rtt_us. A gauge: the latest
   // sample, not a sum.
   uint32 rtt_us = 13;
+  // Failed connection attempts observed in this report - see RawFlow.failed_attempts. Broken-down
+  // reasons are not carried past RawFlow: by the time a raw observation becomes an attributed Flow, only
+  // the total matters for dependency health, and the reasons stay in the FlowReport/RawFlow for anyone
+  // who wants them at that layer.
+  uint64 failed_attempts = 14;
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
@@ -638,6 +653,10 @@ message FlowEdge {
   uint64 window_retransmits = 11;
   // The latest smoothed-RTT sample lives on key.rtt_us, not here - a gauge is descriptive, not part of
   // the edge's running totals, the same treatment key.iface already gets.
+  // Cumulative failed connection attempts over the life of this edge - see RawFlow.failed_attempts and
+  // Flow.failed_attempts for what counts as one.
+  uint64 failed_attempts = 12;
+  uint64 window_failed_attempts = 13;
 }
 
 message FlowTable {

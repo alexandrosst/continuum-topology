@@ -183,6 +183,11 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			sum.BytesOut += v.BytesOut
 			sum.BytesIn += v.BytesIn
 			sum.Retransmits += v.Retransmits
+			sum.FailedAttempts += v.FailedAttempts
+			sum.FailedRefused += v.FailedRefused
+			sum.FailedTimeout += v.FailedTimeout
+			sum.FailedReset += v.FailedReset
+			sum.FailedUnreachable += v.FailedUnreachable
 			// A gauge, not a sum: whichever CPU last sampled it wins, same as the interface below. A zero
 			// value on one CPU's slice must never overwrite a real sample from another CPU's, since 0 here
 			// means "no sample yet", not "no delay".
@@ -198,21 +203,26 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 				}
 			}
 		}
-		if sum.Connections == 0 && sum.BytesOut == 0 && sum.BytesIn == 0 {
+		if sum.Connections == 0 && sum.BytesOut == 0 && sum.BytesIn == 0 && sum.FailedAttempts == 0 {
 			continue
 		}
 		out = append(out, &continuumv1.RawFlow{
-			Client:      key.Role == 1,
-			LocalIp:     addr(key.Local),
-			PeerIp:      addr(key.Peer),
-			Port:        uint32(key.Port),
-			Protocol:    "tcp",
-			Connections: sum.Connections,
-			BytesOut:    sum.BytesOut,
-			BytesIn:     sum.BytesIn,
-			Iface:       iface,
-			Retransmits: sum.Retransmits,
-			RttUs:       sum.RttUs,
+			Client:            key.Role == 1,
+			LocalIp:           addr(key.Local),
+			PeerIp:            addr(key.Peer),
+			Port:              uint32(key.Port),
+			Protocol:          "tcp",
+			Connections:       sum.Connections,
+			BytesOut:          sum.BytesOut,
+			BytesIn:           sum.BytesIn,
+			Iface:             iface,
+			Retransmits:       sum.Retransmits,
+			RttUs:             sum.RttUs,
+			FailedAttempts:    sum.FailedAttempts,
+			FailedRefused:     sum.FailedRefused,
+			FailedTimeout:     sum.FailedTimeout,
+			FailedReset:       sum.FailedReset,
+			FailedUnreachable: sum.FailedUnreachable,
 		})
 	}
 
