@@ -186,7 +186,7 @@ func TestSnapshotTier2(t *testing.T) {
 	if n.EphemeralStorageCapacityBytes != 32<<30 || n.EphemeralStorageAllocatableBytes != 28<<30 {
 		t.Errorf("ephemeral storage = %d / %d B, want 32Gi / 28Gi", n.EphemeralStorageCapacityBytes, n.EphemeralStorageAllocatableBytes)
 	}
-		if n.ExtendedResources["nvidia.com/gpu"] != 1 || len(n.ExtendedResources) != 1 {
+	if n.ExtendedResources["nvidia.com/gpu"] != 1 || len(n.ExtendedResources) != 1 {
 		t.Errorf("extended = %v", n.ExtendedResources)
 	}
 	if _, ok := n.Annotations["flannel.alpha.coreos.com/backend-type"]; !ok {

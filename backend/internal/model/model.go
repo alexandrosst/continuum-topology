@@ -122,13 +122,13 @@ type Node struct {
 	Role      string `json:"role"` // control-plane | worker
 	// Aliases are the names this machine had before (a rename keeps the record); IdentityBasis is what its
 	// identity is made of: provider-id | system-uuid | machine-id | name.
-	Aliases        []string          `json:"aliases,omitempty"`
-	IdentityBasis  string            `json:"identityBasis,omitempty"`
-	Kind           string            `json:"kind"` // vm | bare-metal | edge-device
-	IP             string            `json:"ip"`
-	OS             string            `json:"os"`
-	CPU            float64           `json:"cpu"`
-	MemoryGb       float64           `json:"memoryGb"`
+	Aliases       []string `json:"aliases,omitempty"`
+	IdentityBasis string   `json:"identityBasis,omitempty"`
+	Kind          string   `json:"kind"` // vm | bare-metal | edge-device
+	IP            string   `json:"ip"`
+	OS            string   `json:"os"`
+	CPU           float64  `json:"cpu"`
+	MemoryGb      float64  `json:"memoryGb"`
 	// DiskGb mirrors Resources.DiskGb above: this node's own root filesystem capacity, not wrapped in a
 	// *Resources pointer since - like CPU/MemoryGb just above - it is always known once the node itself
 	// is (kubelet reports it as part of node Capacity, not a separate observation that can be absent).
@@ -189,39 +189,39 @@ type Namespace struct {
 
 type Service struct {
 	Provenance
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Namespace       string            `json:"namespace"`
-	ClusterID       string            `json:"clusterId"`
-	Kind            string            `json:"kind"`
-	Image           string            `json:"image"`
-	Replicas        int32             `json:"replicas"`
-	NodeIDs         []string          `json:"nodeIds"`
-	Status          string            `json:"status"`
-	Labels          map[string]string `json:"labels"`
-	ReadyReplicas   int32             `json:"readyReplicas"`
-	ImageDigest     string            `json:"imageDigest,omitempty"`
-	CPURequestM     int64             `json:"cpuRequestM,omitempty"`
-	MemRequestMi    int64             `json:"memRequestMi,omitempty"`
-	CPULimitM       int64             `json:"cpuLimitM,omitempty"`
-	MemLimitMi      int64             `json:"memLimitMi,omitempty"`
-	Ports           []int32           `json:"ports,omitempty"`
-	Exposure        string            `json:"exposure,omitempty"`
-	Hosts           []string          `json:"hosts,omitempty"`
-	ManagedBy       string            `json:"managedBy,omitempty"`
-	NodeSelector    map[string]string `json:"nodeSelector,omitempty"`
-	Tolerations     []string          `json:"tolerations,omitempty"`
-	Restarts        int32             `json:"restarts,omitempty"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Namespace     string            `json:"namespace"`
+	ClusterID     string            `json:"clusterId"`
+	Kind          string            `json:"kind"`
+	Image         string            `json:"image"`
+	Replicas      int32             `json:"replicas"`
+	NodeIDs       []string          `json:"nodeIds"`
+	Status        string            `json:"status"`
+	Labels        map[string]string `json:"labels"`
+	ReadyReplicas int32             `json:"readyReplicas"`
+	ImageDigest   string            `json:"imageDigest,omitempty"`
+	CPURequestM   int64             `json:"cpuRequestM,omitempty"`
+	MemRequestMi  int64             `json:"memRequestMi,omitempty"`
+	CPULimitM     int64             `json:"cpuLimitM,omitempty"`
+	MemLimitMi    int64             `json:"memLimitMi,omitempty"`
+	Ports         []int32           `json:"ports,omitempty"`
+	Exposure      string            `json:"exposure,omitempty"`
+	Hosts         []string          `json:"hosts,omitempty"`
+	ManagedBy     string            `json:"managedBy,omitempty"`
+	NodeSelector  map[string]string `json:"nodeSelector,omitempty"`
+	Tolerations   []string          `json:"tolerations,omitempty"`
+	Restarts      int32             `json:"restarts,omitempty"`
 	// OOMKills: containers of this workload's pods killed by the kernel OOM killer - a sharper signal than
 	// Restarts above (which a crash, a deploy or a failed liveness probe can also cause): this one specific
 	// reason means a container asked for more memory than its limit allowed.
-	OOMKills        int32             `json:"oomKills,omitempty"`
-	ApplicationHint string            `json:"applicationHint,omitempty"`
-	CreatedAt       string            `json:"createdAt,omitempty"`
-	Volumes         []Volume          `json:"volumes,omitempty"`
-	Autoscaler      *Autoscaler       `json:"autoscaler,omitempty"`
-	Disruption      *Disruption       `json:"disruption,omitempty"`
-	Mesh            *ServiceMesh      `json:"mesh,omitempty"`
+	OOMKills        int32        `json:"oomKills,omitempty"`
+	ApplicationHint string       `json:"applicationHint,omitempty"`
+	CreatedAt       string       `json:"createdAt,omitempty"`
+	Volumes         []Volume     `json:"volumes,omitempty"`
+	Autoscaler      *Autoscaler  `json:"autoscaler,omitempty"`
+	Disruption      *Disruption  `json:"disruption,omitempty"`
+	Mesh            *ServiceMesh `json:"mesh,omitempty"`
 }
 
 // Volume is a persistent volume claim used by a service.
