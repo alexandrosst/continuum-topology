@@ -1350,25 +1350,35 @@ test("infrastructure view: a machine card reserves height for its own hardware b
   assert.equal(Number(withNic.style?.height), MACHINE_CARD.h + 24, 'the hardware badge row adds its own reserved height, exactly like a service card\'s hint/notReady/mesh row already does')
 })
 
-test('infrastructure view: a single-node cluster\'s box is never narrower than its own header needs, so the header\'s CPU/Mem row wraps to two lines and overlaps the card below (task: node card missing top spacing)', () => {
-  // A cluster with exactly one node, reporting both CPU and memory load, is the exact case this was found
-  // on: PAD*2 + MACHINE_CARD.w = 328px, which is inside LoadRow's flex-wrap danger zone (confirmed by direct
-  // measurement: a box narrower than ~335px wraps CPU/Mem onto two lines, pushing the real header height to
-  // ~93px against HEADER's 96px reservation - only a few px of margin, which real font-metric variance
-  // across environments (this reproduced on macOS, not in a headless Linux Chromium check) can erase
-  // entirely). A single-service cluster in the application view never hits this: PAD*2 + APP_CARD.w = 340px
-  // already clears the same threshold, which is exactly why this only ever showed up in infrastructure view.
+test('infrastructure view: a single-node cluster\'s box is never narrower than its own header needs, so LoadRow\'s meters/warnings overlap the card below (task: node card missing top spacing)', () => {
+  // A cluster with exactly one node is the exact case this was found on: PAD*2 + MACHINE_CARD.w = 328px,
+  // which is inside LoadRow's flex-wrap danger zone. An earlier version of this fix only accounted for
+  // LoadRow showing CPU+Mem (2 items) and set the floor to 352px - which turned out to still be too narrow:
+  // reported live by a user after that fix had already shipped. LoadRow can carry up to FIVE items at once
+  // (CPU/Mem/Pods mini-bars, plus "N/M nodes ready" and "N services not fully up" warning text once a
+  // cluster is unhealthy), and a real single-node cluster reporting all five wrapped to three lines even at
+  // 352px, overflowing HEADER's 96px budget by over 10px. Direct measurement (forcing this exact worst-case
+  // content through a live, real-browser render and bisecting box width) found the two-line breakpoint at
+  // ~430px, so the floor now sits well past that. n-a2 (not n-a1) is used below because it's the node in
+  // the seed data that actually has allocatable/requested/podCount data - cl-edge-a's `load` is *computed*
+  // from real node metrics (see clusterLoad in metrics.ts), never read back off a `load` field placed
+  // directly on the seed Cluster object, so a test needs a node with real numbers to exercise this at all.
   const t = {
     ...seed,
-    clusters: seed.clusters.map((c) => (c.id === 'cl-edge-a' ? { ...c, load: { nodes: 1, ready: 1, unready: 0, cpuPct: 6, memPct: 11 } } : c)),
-    nodes: seed.nodes.filter((n) => n.clusterId !== 'cl-edge-a' || n.id === 'n-a1'),
+    nodes: seed.nodes
+      .filter((n) => n.clusterId !== 'cl-edge-a' || n.id === 'n-a2')
+      .map((n) => (n.id === 'n-a2' ? { ...n, status: 'degraded' as const } : n)),
+    services: seed.services.map((s) => (s.id === 'w-sensor-a' ? { ...s, readyReplicas: (s.readyReplicas ?? s.replicas ?? 1) - 1 } : s)),
   }
   const infra = buildGraph(t, { view: 'infrastructure', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
   const group = infra.nodes.find((n) => n.id === groupId('cl-edge-a'))!
   assert.equal(group.data.load?.nodes, 1, 'sanity: this is genuinely the single-node case')
+  assert.ok(group.data.load?.cpuPct !== undefined && group.data.load?.podPct !== undefined, 'sanity: real per-node metrics reached clusterLoad, so LoadRow actually renders all three mini-bars')
+  assert.ok((group.data.load?.ready ?? 1) < (group.data.load?.nodes ?? 0), 'sanity: the degraded node makes LoadRow also render the "nodes ready" warning text')
+  assert.ok((group.data.load?.unready ?? 0) > 0, 'sanity: the not-fully-up service makes LoadRow also render the "services not fully up" warning text')
   assert.ok(
     Number(group.style?.width) >= MIN_GROUP_HEADER_WIDTH,
-    `a single-node cluster's box (${group.style?.width}px) must be at least MIN_GROUP_HEADER_WIDTH (${MIN_GROUP_HEADER_WIDTH}px) - the width LoadRow needs to stay on one line`,
+    `a single-node cluster's box (${group.style?.width}px) must be at least MIN_GROUP_HEADER_WIDTH (${MIN_GROUP_HEADER_WIDTH}px) - the width LoadRow needs to stay within two wrapped lines even at its fullest`,
   )
 })
 

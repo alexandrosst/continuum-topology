@@ -205,17 +205,21 @@ export const PAD = 20
 // runs up to about 72px tall at normal zoom; HEADER is the y where the first row of children starts, so it needs
 // real breathing room past that, not just enough to avoid overlap.
 export const HEADER = 96
-// The header's own subtitle/load-meter row (LoadRow, Load.tsx) is a `flex flex-wrap` line: given enough
-// width it renders CPU/Mem/Pods side by side in the ~72px HEADER was measured against, but a box narrower
-// than roughly 335px forces it to wrap onto two lines, pushing the real header past 93px - just under
-// HEADER's 96px reserved, so any rendering-environment variance (a longer subtitle, a different font
-// stack) tips it over into the first card. A single-machine cluster box (PAD*2 + MACHINE_CARD.w = 328px)
-// falls squarely inside that danger zone, while a single-service one (PAD*2 + APP_CARD.w = 340px) happens
-// to clear it - which is exactly why this only ever showed up in the infrastructure view. Rather than
-// widen HEADER itself (which would waste space in the far more common multi-item case, where the row
-// packs on one line comfortably), the group's own width floor is raised past the wrap threshold instead,
-// with real margin so a slightly longer subtitle or a different OS's font metrics don't reopen the gap.
-export const MIN_GROUP_HEADER_WIDTH = 352
+// The header's own subtitle/load-meter row (LoadRow, Load.tsx) is a `flex flex-wrap` line, and it can carry
+// up to five items at once: CPU/Mem/Pods mini-bars plus, when a cluster is unhealthy, "N/M nodes ready" and
+// "N services not fully up" warning text. An earlier pass here only accounted for two items (CPU/Mem) and
+// set this floor to 352px - comfortably wide enough for that case, but a real cluster reporting all three
+// bars *and* both warning strings still wrapped to three lines at 352px, overflowing HEADER's 96px budget
+// by over 10px and landing back on top of the card below (confirmed by forcing that exact worst-case content
+// through a live, real-browser render and bisecting the width where it drops from three wrapped lines to
+// two: measured to need at least ~430px). Rather than chase every future combination of LoadRow content
+// with ever-finer width tuning, or widen HEADER itself (which would waste space in the far more common
+// case where everything fits on one line), the floor is set well past that measured two-line breakpoint -
+// with real margin, same reasoning as before, so a slightly longer subtitle or a different font stack
+// doesn't reopen the gap. This intentionally does not chase full single-line fitment for the five-item
+// worst case (that needs ~650px, wide enough to look absurd on a single-node box) - two wrapped lines fits
+// inside HEADER's budget with room to spare, which is enough.
+export const MIN_GROUP_HEADER_WIDTH = 460
 const GAP_X = 72
 const GAP_Y = 44
 const GROUP_GAP_X = 64
