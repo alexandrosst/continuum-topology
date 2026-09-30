@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { applyFilter, isFreshApplicationView, knownOnly, NO_APP, parseFilter, encodeList } from '../src/lib/filter'
+import { applyFilter, hopNeighborhood, isFreshApplicationView, knownOnly, NO_APP, parseFilter, encodeList } from '../src/lib/filter'
 import { clusterLoad, lossBand, pathQuality } from '../src/lib/metrics'
 import { siteConnections } from '../src/lib/geo'
 import { describeView, viewParams } from '../src/lib/views'
@@ -177,6 +177,35 @@ test('siteConnections: traffic per direction, measured round trip and loss beat 
   assert.equal(c.measured, true)
   assert.equal(c.lossPct, 2)
   assert.equal(siteConnections([site('s1'), site('s2')], [cl('c1', 's1'), cl('c2', 's2')], [], [], [], [{ a: 's1', b: 's2', rttMs: 80, source: 'declared' } as never])[0].measured, false)
+})
+
+
+test('hopNeighborhood: 0 hops keeps only the focused service, unknown focus is a no-op', () => {
+  assert.deepEqual(hopNeighborhood(seed, 'w-mqtt-a', 0).services.map((s) => s.id), ['w-mqtt-a'])
+  assert.equal(hopNeighborhood(seed, 'does-not-exist', 2), seed, 'a focus id the model does not know is a no-op, not an empty graph')
+})
+
+test('hopNeighborhood: walks the dependency graph in both directions (a caller matters as much as a callee)', () => {
+  // w-sensor-a and w-infer-a only reach w-mqtt-a through an edge that points AT it (d9/d10 are
+  // "... -> w-mqtt-a"), so this would silently drop them if the BFS only ever followed edges forward.
+  const one = hopNeighborhood(seed, 'w-mqtt-a', 1)
+  assert.deepEqual(one.services.map((s) => s.id).sort(), ['w-agg', 'w-infer-a', 'w-mqtt-a', 'w-sensor-a'])
+})
+
+test('hopNeighborhood: keeps walking transitively, and narrows every collection consistently (dependencies, nodes, clusters)', () => {
+  const two = hopNeighborhood(seed, 'w-mqtt-a', 2)
+  const kept = new Set(two.services.map((s) => s.id))
+  assert.deepEqual([...kept].sort(), ['w-agg', 'w-infer-a', 'w-kafka', 'w-mqtt-a', 'w-mqtt-b', 'w-orch', 'w-registry', 'w-sensor-a'])
+  // Every remaining dependency has both ends inside the kept set - never a line to something filtered away.
+  for (const d of two.dependencies) {
+    assert.ok(kept.has(d.from) || two.devices.some((x) => x.id === d.from) || two.externalEndpoints.some((x) => x.id === d.from))
+    assert.ok(kept.has(d.to) || two.devices.some((x) => x.id === d.to) || two.externalEndpoints.some((x) => x.id === d.to))
+  }
+  // A service dropped by the hop filter takes its own node and cluster (if nothing else keeps them) with it.
+  const keptClusterIds = new Set(two.services.map((s) => s.clusterId))
+  assert.ok(two.clusters.every((c) => keptClusterIds.has(c.id)))
+  const keptNodeIds = new Set(two.services.flatMap((s) => s.nodeIds))
+  assert.ok(two.nodes.every((n) => keptNodeIds.has(n.id)))
 })
 
 if (failed) {

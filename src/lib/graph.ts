@@ -651,6 +651,12 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         from: a,
         to: b,
         activeCount: active,
+        // Animate this bundle exactly when it actually contains real, live traffic (active > 0) - the same
+        // "motion means real traffic, not just cross-cluster" rule makeEdge's own doc applies to a single
+        // dependency edge. Without this, an aggregated edge never sets `observed` at all, so makeEdge's
+        // `d.observed && !d.stale` check silently never animates it even when every bundled dependency is
+        // actively observed.
+        observed: active > 0,
         // A bundled total, not a per-dependency measurement - see EdgeData.via's own comment for why a
         // conntrack-only dependency's contribution here may understate the real total.
         stats: bytesPerSec > 0 ? { bytesPerSec } : undefined,

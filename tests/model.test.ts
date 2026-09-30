@@ -4,7 +4,7 @@ import { completeness } from '../src/lib/completeness'
 import { mergeDiscovered, normalizeServerState, type ServerAgent, type ServerState } from '../src/lib/discovered'
 import { applyEdit, applyEffective, confirmOverride, effective } from '../src/lib/effective'
 import { normalize, upgrade } from '../src/lib/migrate'
-import { accelSummary, ageLabel, autoscalerRange, countryName, disruptionLabel, ipScope, podsLabel, podsPercent, distroKey, formatCpu, formatMemory, loadBand, placeLabel, providerKey, requestedPercent, shortVersion } from '../src/lib/present'
+import { accelSummary, ageLabel, autoscalerRange, countryName, disruptionLabel, ipScope, linkUtilizationPct, podsLabel, podsPercent, distroKey, formatCpu, formatMemory, loadBand, placeLabel, providerKey, requestedPercent, shortVersion } from '../src/lib/present'
 import { buildMapSites, clampPan, dominantTier, exitIps, groupByProximity, groupLabel, siteConnections, unplacedClusters, worstStatus } from '../src/lib/geo'
 import { buildIndex, countryAt, countryShapes, derivePlacementSuggestions, distanceKm, findCities, fold, nearestCity, parseCities, placementCandidates, siteFromCandidate, siteLocationIssue } from '../src/lib/places'
 import { EXONYMS } from '../src/data/exonyms'
@@ -14,7 +14,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { applyGraphUpdate, buildGraph, cardId, groupId, pickSides, resyncNodes, selectedServiceIds, syncSelected } from '../src/lib/graph'
+import { applyGraphUpdate, buildGraph, cardId, groupId, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type RegionalOperator, type Service, type Suggestion } from '../src/lib/types'
@@ -502,6 +502,24 @@ test('resources are written for people: units, TB, MB, and how much is already r
   assert.equal(shortVersion(undefined), '')
   assert.equal(accelSummary([{ vendor: 'NVIDIA', model: 'A100', count: 2 }]), '2× NVIDIA A100')
   assert.equal(accelSummary(undefined), '')
+})
+
+test('linkUtilizationPct: % of a rated link speed actually in use, undefined when there is nothing to compare against', () => {
+  // 1000 Mbps (decimal megabits, the real-world network-speed convention) -> 125,000,000 bytes/sec capacity.
+  assert.equal(linkUtilizationPct(62_500_000, 1000), 50, 'half of a 1 Gbps link')
+  assert.equal(linkUtilizationPct(125_000_000, 1000), 100, 'exactly saturated')
+  // Regression guard against a binary-prefix mixup (1000 * 1024 * 1024 / 8, a classic Mbps-vs-MiB slip):
+  // that would put 100% at ~131,072,000 B/s instead of the correct 125,000,000, silently shifting every
+  // reported percentage by about 4.9%.
+  assert.notEqual(linkUtilizationPct(131_072_000, 1000), 100)
+  assert.equal(linkUtilizationPct(1000, 0), undefined, 'no rated speed to compare against')
+  assert.equal(linkUtilizationPct(1000, -1), undefined, 'a negative rated speed is not a real one either')
+  // A bad upstream counter (a reset/delta gone negative, or NaN) must not render as a nonsensical
+  // percentage - "no data" beats a negative or NaN number on screen.
+  assert.equal(linkUtilizationPct(-5, 1000), undefined)
+  assert.equal(linkUtilizationPct(NaN, 1000), undefined)
+  // Deliberately uncapped above 100%: real oversubscription/measurement noise is worth showing as-is.
+  assert.equal(linkUtilizationPct(250_000_000, 1000), 200)
 })
 
 test('a site typed with a lowercase country code is normalized when loaded', () => {
@@ -1295,6 +1313,12 @@ test('edge throughput/quality data reaches EdgeData - a single dependency keeps 
   assert.equal(agg.data?.aggregated, true)
   assert.equal(agg.data?.stats?.bytesPerSec, 3500, 'a single bundled dependency sums to its own figure')
   assert.equal(agg.data?.activeCount, 1, 'seen in traffic (sources includes observed, not stale)')
+  // Regression guard: an aggregated group<->group edge used to animate purely because it crossed a cluster
+  // boundary (the old `d.cross`-driven trigger); makeEdge's animation now means "real, live traffic"
+  // (d.observed && !d.stale, see its own comment), so a bundle must set `observed` itself from its own
+  // active count or it would have silently stopped animating even while genuinely carrying live traffic.
+  assert.equal(agg.data?.observed, true, 'a bundle with at least one active dependency reports itself observed')
+  assert.equal(agg.className, 'edge-animated', 'so it keeps animating for real traffic, not just for crossing clusters')
 
   // A second, undeclared-throughput dependency between the same two clusters adds to the count but not the
   // (unmeasured) total - conntrack-only traffic contributes 0 rather than silently understating as "measured".
@@ -1303,6 +1327,39 @@ test('edge throughput/quality data reaches EdgeData - a single dependency keeps 
   const agg2 = infra2.edges.find((e) => e.id === 'agg:cl-cloud|cl-region')!
   assert.equal(agg2.data?.activeCount, 2, 'both dependencies were seen in traffic')
   assert.equal(agg2.data?.stats?.bytesPerSec, 3500, 'only the one with a measured bytesPerSec contributes to the total')
+
+  // A bundle with NO active dependency (declared only, never observed) must not animate at all - the fix
+  // above must not regress back to animating every cross-cluster bundle unconditionally.
+  const t3 = { ...seed, dependencies: [seenDep({ id: 'dep-cross-3', from: 'w-gw', to: 'w-kafka', sources: ['declared'], stats: undefined, via: undefined })] }
+  const infra3 = buildGraph(t3, { view: 'infrastructure', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+  const agg3 = infra3.edges.find((e) => e.id === 'agg:cl-cloud|cl-region')!
+  assert.equal(agg3.data?.activeCount, 0, 'nothing in the bundle was ever observed')
+  assert.equal(agg3.data?.observed, false)
+  assert.equal(agg3.className, undefined, 'a purely-declared bundle does not animate as if it were live traffic')
+})
+
+test("route: 'direct' vs 'gateway' on a cross-cluster dependency, undefined everywhere else", () => {
+  const withExposure = (exposure: Service['exposure']) => ({ ...seed, services: seed.services.map((sv) => (sv.id === 'w-kafka' ? { ...sv, exposure } : sv)) })
+
+  // No declared exposure at all: treated the same as 'internal' (consistent with how namespaces.ts already
+  // treats an unset exposure as "not exposed outside"), not as "unknown, so assume the worst".
+  const undeclared = buildGraph({ ...withExposure(undefined), dependencies: [seenDep({ id: 'd-route-1', from: 'w-gw', to: 'w-kafka', crossCluster: true })] },
+    { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+  assert.equal(undeclared.edges.find((e) => e.id === 'd-route-1')!.data?.route, 'direct')
+
+  const internal = buildGraph({ ...withExposure('internal'), dependencies: [seenDep({ id: 'd-route-2', from: 'w-gw', to: 'w-kafka', crossCluster: true })] },
+    { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+  assert.equal(internal.edges.find((e) => e.id === 'd-route-2')!.data?.route, 'direct')
+
+  const exposed = buildGraph({ ...withExposure('load-balancer'), dependencies: [seenDep({ id: 'd-route-3', from: 'w-gw', to: 'w-kafka', crossCluster: true })] },
+    { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+  assert.equal(exposed.edges.find((e) => e.id === 'd-route-3')!.data?.route, 'gateway')
+
+  // Same-cluster call: always its target's ClusterIP directly, regardless of `crossCluster` or exposure -
+  // `crossCluster` itself is what gates this, not merely the two services living in different clusters.
+  const notCross = buildGraph({ ...withExposure('load-balancer'), dependencies: [seenDep({ id: 'd-route-4', from: 'w-gw', to: 'w-kafka' })] },
+    { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+  assert.equal(notCross.edges.find((e) => e.id === 'd-route-4')!.data?.route, undefined)
 })
 
 test('namespace sub-boxes nest cards under one box per namespace, only when asked for and only grouped by cluster', () => {
@@ -1435,6 +1492,34 @@ test('syncSelected: a node mid-drag is left untouched, and nothing is re-allocat
   assert.equal(partial[0], settled[0], 'a node whose selected flag was already correct keeps its own object')
   assert.notEqual(partial[1], settled[1], 'the node that actually changed gets a fresh object')
   assert.equal(partial[1].selected, true)
+})
+
+test('syncPickEligibility: dims ineligible nodes, leaves eligible ones alone, is a no-op once settled', () => {
+  const node = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, type: 'card', position: { x: 0, y: 0 }, parentId: 'g:cl-a', data: {}, ...overrides }) as unknown as ReturnType<typeof buildGraph>['nodes'][number]
+
+  // null (pick mode off) clears the class from every node, same as syncSelected's "nothing highlighted" case.
+  const withStaleClass = [node('c:svc-a', { className: 'pick-ineligible' })]
+  assert.equal(syncPickEligibility(withStaleClass, null)[0].className, undefined)
+
+  const a = node('c:svc-a')
+  const b = node('c:svc-b')
+  const out = syncPickEligibility([a, b], new Set(['c:svc-a']))
+  assert.equal(out[0].className, undefined, 'eligible nodes are left alone')
+  assert.equal(out[1].className, 'pick-ineligible', 'everything outside the eligible set gets dimmed')
+
+  // A node mid-drag is left completely untouched, same reason syncSelected skips one - a write from outside
+  // React Flow's own drag tracking here would fight the gesture the same way it did for `selected`.
+  const dragging = node('c:svc-c', { dragging: true, className: undefined })
+  const out2 = syncPickEligibility([dragging], new Set([]))
+  assert.equal(out2[0], dragging, 'the dragging node is returned completely unchanged')
+  assert.equal(out2[0].className, undefined, 'its class is not touched while dragging, even though it would otherwise become ineligible')
+
+  // Once settled, calling this again with the same eligibility returns the exact same array - not a fresh
+  // one with identical contents - so a steady pick-mode toggle never forces an extra render.
+  const settled = syncPickEligibility([node('c:svc-a'), node('c:svc-b')], new Set(['c:svc-a']))
+  const noop = syncPickEligibility(settled, new Set(['c:svc-a']))
+  assert.equal(noop, settled, 'nothing changed, so the identical array reference is returned')
 })
 
 test('applyGraphUpdate: an explicit change (a filter, a view toggle) gets a clean fresh layout, not the stale poll-time merge', () => {

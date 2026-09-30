@@ -192,9 +192,14 @@ export function formatMemory(gb: number): string {
 const trim = (n: number) => String(Math.round(n * 10) / 10)
 
 /** Share of an interface's own rated speed that outbound eBPF-measured traffic is currently using on it -
- *  undefined whenever there is no rated speed to compare against, so "no data" is never shown as "0% used". */
+ *  undefined whenever there is no rated speed to compare against, so "no data" is never shown as "0% used".
+ *  Also undefined for a non-finite or negative `bytesPerSec` (a bad upstream counter reset/delta) rather
+ *  than rendering a nonsensical negative or NaN percentage - deliberately uncapped above 100%, though,
+ *  since genuine oversubscription/measurement noise above the interface's rated speed is worth surfacing
+ *  as-is rather than silently clamped away. */
 export function linkUtilizationPct(bytesPerSec: number, speedMbps: number): number | undefined {
   if (!speedMbps || speedMbps <= 0) return undefined
+  if (!Number.isFinite(bytesPerSec) || bytesPerSec < 0) return undefined
   const capacityBytesPerSec = (speedMbps * 1_000_000) / 8
   return Math.round((bytesPerSec / capacityBytesPerSec) * 1000) / 10
 }
