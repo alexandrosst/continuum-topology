@@ -297,6 +297,24 @@ export interface Disk {
   type?: 'hdd' | 'ssd' | 'nvme' | string
 }
 
+/** One overlay/tunnel network interface a node probe found up on the machine (WireGuard, VXLAN, Geneve,
+ * GRE, IPIP/SIT, route-based IPsec/VTI/XFRM) - identified generically from the kernel's own link kind,
+ * never guessed from an interface's name. See the backend's TunnelInterface proto doc for the full list
+ * of covered drivers and the two documented gaps (plain tun/tap, and policy-based IPsec with no dedicated
+ * link). */
+export interface TunnelInterface {
+  name: string
+  kind: string // wireguard | vxlan | geneve | gre | gretap | ip6gre | ip6gretap | ipip | sit | vti | vti6 | xfrm
+  addresses?: string[]
+  routes?: string[]
+  /** The other node this tunnel was matched to, set server-side only when one of `routes`' prefixes
+   *  contains an address another onboarded node is independently known by - the same "declared vs.
+   *  confirmed" distinction Dependency.sources already draws elsewhere. Empty means this tunnel's other
+   *  end is not visible anywhere else in the topology, not that it doesn't exist - most tunnels
+   *  legitimately lead somewhere outside any onboarded cluster. */
+  confirmed?: string
+}
+
 export interface Resources {
   cpu: number
   memoryGb: number
@@ -347,6 +365,9 @@ export interface MachineNode extends Provenance {
   networkInterfaces?: NetworkInterface[]
   /** Physical disks the probe saw, capacity and type only (never a serial/WWN). Node probe only. */
   disks?: Disk[]
+  /** Overlay/tunnel interfaces the probe found up (WireGuard, VXLAN, GRE, IPIP/SIT, route-based IPsec,
+   *  ...). Node probe only. See TunnelInterface's own comment for exactly what is, and is not, covered. */
+  tunnels?: TunnelInterface[]
   providerId?: string
   allocatable?: Resources
   requested?: Resources

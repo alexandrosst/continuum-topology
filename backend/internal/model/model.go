@@ -116,6 +116,26 @@ type Disk struct {
 	Type      string `json:"type,omitempty"` // hdd | ssd | nvme
 }
 
+// TunnelInterface is one overlay/tunnel network interface a node probe found up on the machine -
+// identified generically from the kernel's own link kind (see continuumv1.TunnelInterface's doc for the
+// full list of covered drivers and the documented gaps), never guessed from an interface's name. Confirmed
+// carries this node's own server-side correlation verdict for whether another onboarded node's address
+// falls inside one of Routes' prefixes - see Confirmed's own comment for what that does and does not
+// establish.
+type TunnelInterface struct {
+	Name      string   `json:"name"`
+	Kind      string   `json:"kind"` // wireguard | vxlan | geneve | gre | gretap | ip6gre | ip6gretap | ipip | sit | vti | vti6 | xfrm
+	Addresses []string `json:"addresses,omitempty"`
+	Routes    []string `json:"routes,omitempty"`
+	// Confirmed names the other node this tunnel was matched to, when one of Routes' prefixes contains an
+	// address another onboarded node (in this cluster or a different one) is independently known by -
+	// set server-side, never by the probe itself, the same "declared vs. confirmed" distinction
+	// Dependency.sources already draws elsewhere. Empty means this tunnel's other end is not visible
+	// anywhere else in the topology, not that it doesn't exist - most tunnels legitimately lead somewhere
+	// outside any onboarded cluster (a home gateway, a SaaS VPN concentrator).
+	Confirmed string `json:"confirmed,omitempty"`
+}
+
 type Node struct {
 	Provenance
 	ID        string `json:"id"`
@@ -163,16 +183,19 @@ type Node struct {
 	// Connectivity above is derived from these (the kinds present); this is the fuller, per-interface view.
 	NetworkInterfaces []NetworkInterface `json:"networkInterfaces,omitempty"`
 	// Disks are the physical block devices the probe saw, capacity and type only (never a serial/WWN).
-	Disks        []Disk        `json:"disks,omitempty"`
-	ProviderID   string        `json:"providerId,omitempty"`
-	Allocatable  *Resources    `json:"allocatable,omitempty"`
-	Requested    *Resources    `json:"requested,omitempty"`
-	Accelerators []Accelerator `json:"accelerators,omitempty"`
-	Taints       []string      `json:"taints,omitempty"`
-	Conditions   []string      `json:"conditions,omitempty"`
-	CreatedAt    string        `json:"createdAt,omitempty"`
-	PodCapacity  int32         `json:"podCapacity,omitempty"` // most pods the kubelet will run
-	PodCount     *int32        `json:"podCount,omitempty"`    // nil when pods are not read (unknown, not zero)
+	Disks []Disk `json:"disks,omitempty"`
+	// Tunnels are the overlay/tunnel interfaces the probe found up (WireGuard, VXLAN, GRE, IPIP/SIT,
+	// route-based IPsec, ...) - see TunnelInterface's own comment for exactly what is, and is not, covered.
+	Tunnels      []TunnelInterface `json:"tunnels,omitempty"`
+	ProviderID   string            `json:"providerId,omitempty"`
+	Allocatable  *Resources        `json:"allocatable,omitempty"`
+	Requested    *Resources        `json:"requested,omitempty"`
+	Accelerators []Accelerator     `json:"accelerators,omitempty"`
+	Taints       []string          `json:"taints,omitempty"`
+	Conditions   []string          `json:"conditions,omitempty"`
+	CreatedAt    string            `json:"createdAt,omitempty"`
+	PodCapacity  int32             `json:"podCapacity,omitempty"` // most pods the kubelet will run
+	PodCount     *int32            `json:"podCount,omitempty"`    // nil when pods are not read (unknown, not zero)
 }
 
 type Namespace struct {

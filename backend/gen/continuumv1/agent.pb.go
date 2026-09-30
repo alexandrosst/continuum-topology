@@ -174,7 +174,7 @@ func (x FlowEndpoint_Kind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FlowEndpoint_Kind.Descriptor instead.
 func (FlowEndpoint_Kind) EnumDescriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{36, 0}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{37, 0}
 }
 
 type Problem_Severity int32
@@ -223,7 +223,7 @@ func (x Problem_Severity) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Problem_Severity.Descriptor instead.
 func (Problem_Severity) EnumDescriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{45, 0}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{46, 0}
 }
 
 type RejoinRequest struct {
@@ -1948,7 +1948,10 @@ type HostProbe struct {
 	// them. uplinks is kept, unchanged, for what already reads it.
 	Interfaces []*NetworkInterface `protobuf:"bytes,16,rep,name=interfaces,proto3" json:"interfaces,omitempty"`
 	// Physical block devices (see the Disk message doc for exactly what is, and is not, read).
-	Disks         []*Disk `protobuf:"bytes,17,rep,name=disks,proto3" json:"disks,omitempty"`
+	Disks []*Disk `protobuf:"bytes,17,rep,name=disks,proto3" json:"disks,omitempty"`
+	// Overlay/tunnel interfaces the node has up (see the TunnelInterface message doc for exactly what is,
+	// and is not, read, and what privilege this needs - none beyond what the probe already has).
+	Tunnels       []*TunnelInterface `protobuf:"bytes,18,rep,name=tunnels,proto3" json:"tunnels,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2102,6 +2105,13 @@ func (x *HostProbe) GetDisks() []*Disk {
 	return nil
 }
 
+func (x *HostProbe) GetTunnels() []*TunnelInterface {
+	if x != nil {
+		return x.Tunnels
+	}
+	return nil
+}
+
 // One physical network interface the node probe found up (see HostProbe.interfaces). Everything here is
 // read from sysfs, world-readable, and describes the link itself - never an address (see the package doc:
 // MAC addresses are never read).
@@ -2248,6 +2258,100 @@ func (x *Disk) GetType() string {
 	return ""
 }
 
+// One overlay/tunnel network interface the node probe found up (see HostProbe.tunnels). Identified
+// generically from the kernel's own netlink IFLA_INFO_KIND for the link - the same field `ip -d link
+// show` reads to print "wireguard"/"vxlan"/"gre"/... after an interface's name - rather than guessed from
+// a name prefix, so a renamed interface of a recognized kind is still caught and an interface merely
+// *named* "wg0" that isn't really WireGuard is not. Covers every kernel tunnel driver that registers a
+// link kind this way: WireGuard, VXLAN, Geneve, GRE/GRETAP (v4 and v6), IPIP, SIT (6in4), and route-based
+// IPsec (VTI/VTI6, and XFRM interfaces). Reading link kinds, addresses and routes over netlink needs no
+// capability beyond what reading them over sysfs already needed (confirmed: an ordinary unprivileged
+// process can open an AF_NETLINK/NETLINK_ROUTE socket and dump links/addresses/routes - the same thing
+// the `ip` command does as a normal user).
+//
+// Deliberately not covered: plain tun/tap devices (the kernel does not register a link kind for them the
+// way it does for the drivers above, so they are indistinguishable from any other anonymous link without
+// guessing from the name - left out rather than guessed) and policy-based IPsec that attaches XFRM
+// policies directly to an ordinary interface instead of creating a dedicated VTI/XFRM link (invisible to
+// this method; only route-based IPsec, which is what creates a link, is seen). Both are documented gaps,
+// not silently-wrong positives.
+type TunnelInterface struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Kind  string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"` // wireguard | vxlan | geneve | gre | gretap | ip6gre | ip6gretap | ipip | sit | vti | vti6 | xfrm
+	// This interface's own address(es), each "ip/prefixlen" (e.g. "10.8.0.1/24") - from the same netlink
+	// address dump `ip address show dev <name>` reads. Never the other end's address: that is what Routes
+	// and Routes-based cross-node correlation, not this interface's own identity, are for.
+	Addresses []string `protobuf:"bytes,3,rep,name=addresses,proto3" json:"addresses,omitempty"`
+	// Destination prefixes the node's own routing table sends out through this interface (e.g.
+	// "10.8.0.0/24"), from the same netlink route dump `ip route show dev <name>` reads - a default route
+	// (0.0.0.0/0 or ::/0) is never included here, since it says nothing about what is specifically reachable
+	// through the tunnel. Capped at a small number, like Flow.dns_query_names. This is the one fact that
+	// makes cross-node correlation possible at all: whether another node's own known address falls inside
+	// one of these prefixes is what an honest confidence label (confirmed vs. one side only) is based on.
+	Routes        []string `protobuf:"bytes,4,rep,name=routes,proto3" json:"routes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TunnelInterface) Reset() {
+	*x = TunnelInterface{}
+	mi := &file_continuum_v1_agent_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TunnelInterface) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TunnelInterface) ProtoMessage() {}
+
+func (x *TunnelInterface) ProtoReflect() protoreflect.Message {
+	mi := &file_continuum_v1_agent_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TunnelInterface.ProtoReflect.Descriptor instead.
+func (*TunnelInterface) Descriptor() ([]byte, []int) {
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *TunnelInterface) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *TunnelInterface) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *TunnelInterface) GetAddresses() []string {
+	if x != nil {
+		return x.Addresses
+	}
+	return nil
+}
+
+func (x *TunnelInterface) GetRoutes() []string {
+	if x != nil {
+		return x.Routes
+	}
+	return nil
+}
+
 type NamespaceFacts struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
@@ -2260,7 +2364,7 @@ type NamespaceFacts struct {
 
 func (x *NamespaceFacts) Reset() {
 	*x = NamespaceFacts{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[20]
+	mi := &file_continuum_v1_agent_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2272,7 +2376,7 @@ func (x *NamespaceFacts) String() string {
 func (*NamespaceFacts) ProtoMessage() {}
 
 func (x *NamespaceFacts) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[20]
+	mi := &file_continuum_v1_agent_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2285,7 +2389,7 @@ func (x *NamespaceFacts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NamespaceFacts.ProtoReflect.Descriptor instead.
 func (*NamespaceFacts) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{20}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *NamespaceFacts) GetKey() string {
@@ -2326,7 +2430,7 @@ type ContainerImage struct {
 
 func (x *ContainerImage) Reset() {
 	*x = ContainerImage{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[21]
+	mi := &file_continuum_v1_agent_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2338,7 +2442,7 @@ func (x *ContainerImage) String() string {
 func (*ContainerImage) ProtoMessage() {}
 
 func (x *ContainerImage) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[21]
+	mi := &file_continuum_v1_agent_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2351,7 +2455,7 @@ func (x *ContainerImage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerImage.ProtoReflect.Descriptor instead.
 func (*ContainerImage) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{21}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ContainerImage) GetImage() string {
@@ -2424,7 +2528,7 @@ type WorkloadFacts struct {
 
 func (x *WorkloadFacts) Reset() {
 	*x = WorkloadFacts{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[22]
+	mi := &file_continuum_v1_agent_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2436,7 +2540,7 @@ func (x *WorkloadFacts) String() string {
 func (*WorkloadFacts) ProtoMessage() {}
 
 func (x *WorkloadFacts) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[22]
+	mi := &file_continuum_v1_agent_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2449,7 +2553,7 @@ func (x *WorkloadFacts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkloadFacts.ProtoReflect.Descriptor instead.
 func (*WorkloadFacts) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{22}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *WorkloadFacts) GetKey() string {
@@ -2654,7 +2758,7 @@ type Address struct {
 
 func (x *Address) Reset() {
 	*x = Address{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[23]
+	mi := &file_continuum_v1_agent_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2666,7 +2770,7 @@ func (x *Address) String() string {
 func (*Address) ProtoMessage() {}
 
 func (x *Address) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[23]
+	mi := &file_continuum_v1_agent_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2679,7 +2783,7 @@ func (x *Address) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Address.ProtoReflect.Descriptor instead.
 func (*Address) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{23}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Address) GetIp() string {
@@ -2720,7 +2824,7 @@ type VolumeClaim struct {
 
 func (x *VolumeClaim) Reset() {
 	*x = VolumeClaim{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[24]
+	mi := &file_continuum_v1_agent_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2732,7 +2836,7 @@ func (x *VolumeClaim) String() string {
 func (*VolumeClaim) ProtoMessage() {}
 
 func (x *VolumeClaim) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[24]
+	mi := &file_continuum_v1_agent_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2745,7 +2849,7 @@ func (x *VolumeClaim) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VolumeClaim.ProtoReflect.Descriptor instead.
 func (*VolumeClaim) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{24}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *VolumeClaim) GetName() string {
@@ -2803,7 +2907,7 @@ type Autoscaler struct {
 
 func (x *Autoscaler) Reset() {
 	*x = Autoscaler{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[25]
+	mi := &file_continuum_v1_agent_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2815,7 +2919,7 @@ func (x *Autoscaler) String() string {
 func (*Autoscaler) ProtoMessage() {}
 
 func (x *Autoscaler) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[25]
+	mi := &file_continuum_v1_agent_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2828,7 +2932,7 @@ func (x *Autoscaler) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Autoscaler.ProtoReflect.Descriptor instead.
 func (*Autoscaler) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{25}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *Autoscaler) GetMinReplicas() int32 {
@@ -2871,7 +2975,7 @@ type Disruption struct {
 
 func (x *Disruption) Reset() {
 	*x = Disruption{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[26]
+	mi := &file_continuum_v1_agent_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2883,7 +2987,7 @@ func (x *Disruption) String() string {
 func (*Disruption) ProtoMessage() {}
 
 func (x *Disruption) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[26]
+	mi := &file_continuum_v1_agent_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2896,7 +3000,7 @@ func (x *Disruption) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Disruption.ProtoReflect.Descriptor instead.
 func (*Disruption) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{26}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *Disruption) GetMinAvailable() string {
@@ -2934,7 +3038,7 @@ type ServerMessage struct {
 
 func (x *ServerMessage) Reset() {
 	*x = ServerMessage{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[27]
+	mi := &file_continuum_v1_agent_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2946,7 +3050,7 @@ func (x *ServerMessage) String() string {
 func (*ServerMessage) ProtoMessage() {}
 
 func (x *ServerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[27]
+	mi := &file_continuum_v1_agent_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2959,7 +3063,7 @@ func (x *ServerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerMessage.ProtoReflect.Descriptor instead.
 func (*ServerMessage) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{27}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ServerMessage) GetMsg() isServerMessage_Msg {
@@ -3027,7 +3131,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[28]
+	mi := &file_continuum_v1_agent_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3039,7 +3143,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[28]
+	mi := &file_continuum_v1_agent_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3052,7 +3156,7 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{28}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *Ack) GetSeq() uint64 {
@@ -3087,7 +3191,7 @@ type Config struct {
 
 func (x *Config) Reset() {
 	*x = Config{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[29]
+	mi := &file_continuum_v1_agent_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3099,7 +3203,7 @@ func (x *Config) String() string {
 func (*Config) ProtoMessage() {}
 
 func (x *Config) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[29]
+	mi := &file_continuum_v1_agent_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3112,7 +3216,7 @@ func (x *Config) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Config.ProtoReflect.Descriptor instead.
 func (*Config) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{29}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *Config) GetApprovedAccessTier() uint32 {
@@ -3184,7 +3288,7 @@ type ProbeTarget struct {
 
 func (x *ProbeTarget) Reset() {
 	*x = ProbeTarget{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[30]
+	mi := &file_continuum_v1_agent_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3196,7 +3300,7 @@ func (x *ProbeTarget) String() string {
 func (*ProbeTarget) ProtoMessage() {}
 
 func (x *ProbeTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[30]
+	mi := &file_continuum_v1_agent_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3209,7 +3313,7 @@ func (x *ProbeTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeTarget.ProtoReflect.Descriptor instead.
 func (*ProbeTarget) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{30}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ProbeTarget) GetId() string {
@@ -3248,7 +3352,7 @@ type PathResult struct {
 
 func (x *PathResult) Reset() {
 	*x = PathResult{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[31]
+	mi := &file_continuum_v1_agent_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3260,7 +3364,7 @@ func (x *PathResult) String() string {
 func (*PathResult) ProtoMessage() {}
 
 func (x *PathResult) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[31]
+	mi := &file_continuum_v1_agent_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3273,7 +3377,7 @@ func (x *PathResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PathResult.ProtoReflect.Descriptor instead.
 func (*PathResult) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{31}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *PathResult) GetTargetId() string {
@@ -3329,7 +3433,7 @@ type Measurements struct {
 
 func (x *Measurements) Reset() {
 	*x = Measurements{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[32]
+	mi := &file_continuum_v1_agent_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3341,7 +3445,7 @@ func (x *Measurements) String() string {
 func (*Measurements) ProtoMessage() {}
 
 func (x *Measurements) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[32]
+	mi := &file_continuum_v1_agent_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3354,7 +3458,7 @@ func (x *Measurements) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Measurements.ProtoReflect.Descriptor instead.
 func (*Measurements) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{32}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *Measurements) GetResults() []*PathResult {
@@ -3380,7 +3484,7 @@ type Revoked struct {
 
 func (x *Revoked) Reset() {
 	*x = Revoked{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[33]
+	mi := &file_continuum_v1_agent_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3392,7 +3496,7 @@ func (x *Revoked) String() string {
 func (*Revoked) ProtoMessage() {}
 
 func (x *Revoked) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[33]
+	mi := &file_continuum_v1_agent_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3405,7 +3509,7 @@ func (x *Revoked) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Revoked.ProtoReflect.Descriptor instead.
 func (*Revoked) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{33}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *Revoked) GetReason() string {
@@ -3470,7 +3574,7 @@ type RawFlow struct {
 
 func (x *RawFlow) Reset() {
 	*x = RawFlow{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[34]
+	mi := &file_continuum_v1_agent_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3482,7 +3586,7 @@ func (x *RawFlow) String() string {
 func (*RawFlow) ProtoMessage() {}
 
 func (x *RawFlow) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[34]
+	mi := &file_continuum_v1_agent_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3495,7 +3599,7 @@ func (x *RawFlow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RawFlow.ProtoReflect.Descriptor instead.
 func (*RawFlow) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{34}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *RawFlow) GetClient() bool {
@@ -3640,7 +3744,7 @@ type FlowReport struct {
 
 func (x *FlowReport) Reset() {
 	*x = FlowReport{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[35]
+	mi := &file_continuum_v1_agent_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3652,7 +3756,7 @@ func (x *FlowReport) String() string {
 func (*FlowReport) ProtoMessage() {}
 
 func (x *FlowReport) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[35]
+	mi := &file_continuum_v1_agent_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3665,7 +3769,7 @@ func (x *FlowReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowReport.ProtoReflect.Descriptor instead.
 func (*FlowReport) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{35}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *FlowReport) GetMethod() string {
@@ -3721,7 +3825,7 @@ type FlowEndpoint struct {
 
 func (x *FlowEndpoint) Reset() {
 	*x = FlowEndpoint{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[36]
+	mi := &file_continuum_v1_agent_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3733,7 +3837,7 @@ func (x *FlowEndpoint) String() string {
 func (*FlowEndpoint) ProtoMessage() {}
 
 func (x *FlowEndpoint) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[36]
+	mi := &file_continuum_v1_agent_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3746,7 +3850,7 @@ func (x *FlowEndpoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowEndpoint.ProtoReflect.Descriptor instead.
 func (*FlowEndpoint) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{36}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *FlowEndpoint) GetKind() FlowEndpoint_Kind {
@@ -3810,7 +3914,7 @@ type Flow struct {
 
 func (x *Flow) Reset() {
 	*x = Flow{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[37]
+	mi := &file_continuum_v1_agent_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3822,7 +3926,7 @@ func (x *Flow) String() string {
 func (*Flow) ProtoMessage() {}
 
 func (x *Flow) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[37]
+	mi := &file_continuum_v1_agent_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3835,7 +3939,7 @@ func (x *Flow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Flow.ProtoReflect.Descriptor instead.
 func (*Flow) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{37}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *Flow) GetSrc() *FlowEndpoint {
@@ -3963,7 +4067,7 @@ type CollectorInfo struct {
 
 func (x *CollectorInfo) Reset() {
 	*x = CollectorInfo{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[38]
+	mi := &file_continuum_v1_agent_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3975,7 +4079,7 @@ func (x *CollectorInfo) String() string {
 func (*CollectorInfo) ProtoMessage() {}
 
 func (x *CollectorInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[38]
+	mi := &file_continuum_v1_agent_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3988,7 +4092,7 @@ func (x *CollectorInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CollectorInfo.ProtoReflect.Descriptor instead.
 func (*CollectorInfo) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{38}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *CollectorInfo) GetNode() string {
@@ -4027,7 +4131,7 @@ type FlowBatch struct {
 
 func (x *FlowBatch) Reset() {
 	*x = FlowBatch{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[39]
+	mi := &file_continuum_v1_agent_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4039,7 +4143,7 @@ func (x *FlowBatch) String() string {
 func (*FlowBatch) ProtoMessage() {}
 
 func (x *FlowBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[39]
+	mi := &file_continuum_v1_agent_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4052,7 +4156,7 @@ func (x *FlowBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowBatch.ProtoReflect.Descriptor instead.
 func (*FlowBatch) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{39}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *FlowBatch) GetSeq() uint64 {
@@ -4127,7 +4231,7 @@ type FlowEdge struct {
 
 func (x *FlowEdge) Reset() {
 	*x = FlowEdge{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[40]
+	mi := &file_continuum_v1_agent_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4139,7 +4243,7 @@ func (x *FlowEdge) String() string {
 func (*FlowEdge) ProtoMessage() {}
 
 func (x *FlowEdge) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[40]
+	mi := &file_continuum_v1_agent_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4152,7 +4256,7 @@ func (x *FlowEdge) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowEdge.ProtoReflect.Descriptor instead.
 func (*FlowEdge) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{40}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *FlowEdge) GetKey() *Flow {
@@ -4262,7 +4366,7 @@ type FlowTable struct {
 
 func (x *FlowTable) Reset() {
 	*x = FlowTable{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[41]
+	mi := &file_continuum_v1_agent_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4274,7 +4378,7 @@ func (x *FlowTable) String() string {
 func (*FlowTable) ProtoMessage() {}
 
 func (x *FlowTable) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[41]
+	mi := &file_continuum_v1_agent_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4287,7 +4391,7 @@ func (x *FlowTable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowTable.ProtoReflect.Descriptor instead.
 func (*FlowTable) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{41}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *FlowTable) GetEdges() []*FlowEdge {
@@ -4335,7 +4439,7 @@ type Diagnostics struct {
 
 func (x *Diagnostics) Reset() {
 	*x = Diagnostics{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[42]
+	mi := &file_continuum_v1_agent_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4347,7 +4451,7 @@ func (x *Diagnostics) String() string {
 func (*Diagnostics) ProtoMessage() {}
 
 func (x *Diagnostics) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[42]
+	mi := &file_continuum_v1_agent_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4360,7 +4464,7 @@ func (x *Diagnostics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Diagnostics.ProtoReflect.Descriptor instead.
 func (*Diagnostics) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{42}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *Diagnostics) GetAgentVersion() string {
@@ -4505,7 +4609,7 @@ type CollectorDiag struct {
 
 func (x *CollectorDiag) Reset() {
 	*x = CollectorDiag{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[43]
+	mi := &file_continuum_v1_agent_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4517,7 +4621,7 @@ func (x *CollectorDiag) String() string {
 func (*CollectorDiag) ProtoMessage() {}
 
 func (x *CollectorDiag) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[43]
+	mi := &file_continuum_v1_agent_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4530,7 +4634,7 @@ func (x *CollectorDiag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CollectorDiag.ProtoReflect.Descriptor instead.
 func (*CollectorDiag) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{43}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *CollectorDiag) GetName() string {
@@ -4611,7 +4715,7 @@ type InformerDiag struct {
 
 func (x *InformerDiag) Reset() {
 	*x = InformerDiag{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[44]
+	mi := &file_continuum_v1_agent_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4623,7 +4727,7 @@ func (x *InformerDiag) String() string {
 func (*InformerDiag) ProtoMessage() {}
 
 func (x *InformerDiag) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[44]
+	mi := &file_continuum_v1_agent_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4636,7 +4740,7 @@ func (x *InformerDiag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InformerDiag.ProtoReflect.Descriptor instead.
 func (*InformerDiag) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{44}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *InformerDiag) GetName() string {
@@ -4689,7 +4793,7 @@ type Problem struct {
 
 func (x *Problem) Reset() {
 	*x = Problem{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[45]
+	mi := &file_continuum_v1_agent_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4701,7 +4805,7 @@ func (x *Problem) String() string {
 func (*Problem) ProtoMessage() {}
 
 func (x *Problem) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[45]
+	mi := &file_continuum_v1_agent_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4714,7 +4818,7 @@ func (x *Problem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Problem.ProtoReflect.Descriptor instead.
 func (*Problem) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{45}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *Problem) GetCode() string {
@@ -4924,7 +5028,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01B\f\n" +
 	"\n" +
-	"_pod_count\"\x89\x05\n" +
+	"_pod_count\"\xc2\x05\n" +
 	"\tHostProbe\x12#\n" +
 	"\rprobe_version\x18\x01 \x01(\tR\fprobeVersion\x12%\n" +
 	"\x0ehypervisor_bit\x18\x02 \x01(\bR\rhypervisorBit\x12'\n" +
@@ -4950,7 +5054,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"interfaces\x18\x10 \x03(\v2\x1e.continuum.v1.NetworkInterfaceR\n" +
 	"interfaces\x12(\n" +
-	"\x05disks\x18\x11 \x03(\v2\x12.continuum.v1.DiskR\x05disks\"k\n" +
+	"\x05disks\x18\x11 \x03(\v2\x12.continuum.v1.DiskR\x05disks\x127\n" +
+	"\atunnels\x18\x12 \x03(\v2\x1d.continuum.v1.TunnelInterfaceR\atunnels\"k\n" +
 	"\x10NetworkInterface\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1d\n" +
@@ -4962,7 +5067,12 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x1d\n" +
 	"\n" +
 	"size_bytes\x18\x03 \x01(\x03R\tsizeBytes\x12\x12\n" +
-	"\x04type\x18\x04 \x01(\tR\x04type\"\xc4\x02\n" +
+	"\x04type\x18\x04 \x01(\tR\x04type\"o\n" +
+	"\x0fTunnelInterface\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1c\n" +
+	"\taddresses\x18\x03 \x03(\tR\taddresses\x12\x16\n" +
+	"\x06routes\x18\x04 \x03(\tR\x06routes\"\xc4\x02\n" +
 	"\x0eNamespaceFacts\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12@\n" +
@@ -5241,7 +5351,7 @@ func file_continuum_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_continuum_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_continuum_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
+var file_continuum_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 56)
 var file_continuum_v1_agent_proto_goTypes = []any{
 	(PollResponse_State)(0),       // 0: continuum.v1.PollResponse.State
 	(ModuleStatus_State)(0),       // 1: continuum.v1.ModuleStatus.State
@@ -5267,122 +5377,124 @@ var file_continuum_v1_agent_proto_goTypes = []any{
 	(*HostProbe)(nil),             // 21: continuum.v1.HostProbe
 	(*NetworkInterface)(nil),      // 22: continuum.v1.NetworkInterface
 	(*Disk)(nil),                  // 23: continuum.v1.Disk
-	(*NamespaceFacts)(nil),        // 24: continuum.v1.NamespaceFacts
-	(*ContainerImage)(nil),        // 25: continuum.v1.ContainerImage
-	(*WorkloadFacts)(nil),         // 26: continuum.v1.WorkloadFacts
-	(*Address)(nil),               // 27: continuum.v1.Address
-	(*VolumeClaim)(nil),           // 28: continuum.v1.VolumeClaim
-	(*Autoscaler)(nil),            // 29: continuum.v1.Autoscaler
-	(*Disruption)(nil),            // 30: continuum.v1.Disruption
-	(*ServerMessage)(nil),         // 31: continuum.v1.ServerMessage
-	(*Ack)(nil),                   // 32: continuum.v1.Ack
-	(*Config)(nil),                // 33: continuum.v1.Config
-	(*ProbeTarget)(nil),           // 34: continuum.v1.ProbeTarget
-	(*PathResult)(nil),            // 35: continuum.v1.PathResult
-	(*Measurements)(nil),          // 36: continuum.v1.Measurements
-	(*Revoked)(nil),               // 37: continuum.v1.Revoked
-	(*RawFlow)(nil),               // 38: continuum.v1.RawFlow
-	(*FlowReport)(nil),            // 39: continuum.v1.FlowReport
-	(*FlowEndpoint)(nil),          // 40: continuum.v1.FlowEndpoint
-	(*Flow)(nil),                  // 41: continuum.v1.Flow
-	(*CollectorInfo)(nil),         // 42: continuum.v1.CollectorInfo
-	(*FlowBatch)(nil),             // 43: continuum.v1.FlowBatch
-	(*FlowEdge)(nil),              // 44: continuum.v1.FlowEdge
-	(*FlowTable)(nil),             // 45: continuum.v1.FlowTable
-	(*Diagnostics)(nil),           // 46: continuum.v1.Diagnostics
-	(*CollectorDiag)(nil),         // 47: continuum.v1.CollectorDiag
-	(*InformerDiag)(nil),          // 48: continuum.v1.InformerDiag
-	(*Problem)(nil),               // 49: continuum.v1.Problem
-	nil,                           // 50: continuum.v1.MeshFacts.NamespaceMtlsEntry
-	nil,                           // 51: continuum.v1.NodeFacts.LabelsEntry
-	nil,                           // 52: continuum.v1.NodeFacts.AnnotationsEntry
-	nil,                           // 53: continuum.v1.NodeFacts.ExtendedResourcesEntry
-	nil,                           // 54: continuum.v1.NamespaceFacts.LabelsEntry
-	nil,                           // 55: continuum.v1.NamespaceFacts.AnnotationsEntry
-	nil,                           // 56: continuum.v1.WorkloadFacts.LabelsEntry
-	nil,                           // 57: continuum.v1.WorkloadFacts.AnnotationsEntry
-	nil,                           // 58: continuum.v1.WorkloadFacts.NodeSelectorEntry
-	(*timestamppb.Timestamp)(nil), // 59: google.protobuf.Timestamp
+	(*TunnelInterface)(nil),       // 24: continuum.v1.TunnelInterface
+	(*NamespaceFacts)(nil),        // 25: continuum.v1.NamespaceFacts
+	(*ContainerImage)(nil),        // 26: continuum.v1.ContainerImage
+	(*WorkloadFacts)(nil),         // 27: continuum.v1.WorkloadFacts
+	(*Address)(nil),               // 28: continuum.v1.Address
+	(*VolumeClaim)(nil),           // 29: continuum.v1.VolumeClaim
+	(*Autoscaler)(nil),            // 30: continuum.v1.Autoscaler
+	(*Disruption)(nil),            // 31: continuum.v1.Disruption
+	(*ServerMessage)(nil),         // 32: continuum.v1.ServerMessage
+	(*Ack)(nil),                   // 33: continuum.v1.Ack
+	(*Config)(nil),                // 34: continuum.v1.Config
+	(*ProbeTarget)(nil),           // 35: continuum.v1.ProbeTarget
+	(*PathResult)(nil),            // 36: continuum.v1.PathResult
+	(*Measurements)(nil),          // 37: continuum.v1.Measurements
+	(*Revoked)(nil),               // 38: continuum.v1.Revoked
+	(*RawFlow)(nil),               // 39: continuum.v1.RawFlow
+	(*FlowReport)(nil),            // 40: continuum.v1.FlowReport
+	(*FlowEndpoint)(nil),          // 41: continuum.v1.FlowEndpoint
+	(*Flow)(nil),                  // 42: continuum.v1.Flow
+	(*CollectorInfo)(nil),         // 43: continuum.v1.CollectorInfo
+	(*FlowBatch)(nil),             // 44: continuum.v1.FlowBatch
+	(*FlowEdge)(nil),              // 45: continuum.v1.FlowEdge
+	(*FlowTable)(nil),             // 46: continuum.v1.FlowTable
+	(*Diagnostics)(nil),           // 47: continuum.v1.Diagnostics
+	(*CollectorDiag)(nil),         // 48: continuum.v1.CollectorDiag
+	(*InformerDiag)(nil),          // 49: continuum.v1.InformerDiag
+	(*Problem)(nil),               // 50: continuum.v1.Problem
+	nil,                           // 51: continuum.v1.MeshFacts.NamespaceMtlsEntry
+	nil,                           // 52: continuum.v1.NodeFacts.LabelsEntry
+	nil,                           // 53: continuum.v1.NodeFacts.AnnotationsEntry
+	nil,                           // 54: continuum.v1.NodeFacts.ExtendedResourcesEntry
+	nil,                           // 55: continuum.v1.NamespaceFacts.LabelsEntry
+	nil,                           // 56: continuum.v1.NamespaceFacts.AnnotationsEntry
+	nil,                           // 57: continuum.v1.WorkloadFacts.LabelsEntry
+	nil,                           // 58: continuum.v1.WorkloadFacts.AnnotationsEntry
+	nil,                           // 59: continuum.v1.WorkloadFacts.NodeSelectorEntry
+	(*timestamppb.Timestamp)(nil), // 60: google.protobuf.Timestamp
 }
 var file_continuum_v1_agent_proto_depIdxs = []int32{
 	0,  // 0: continuum.v1.PollResponse.state:type_name -> continuum.v1.PollResponse.State
-	59, // 1: continuum.v1.PollResponse.not_after:type_name -> google.protobuf.Timestamp
-	59, // 2: continuum.v1.RenewResponse.not_after:type_name -> google.protobuf.Timestamp
+	60, // 1: continuum.v1.PollResponse.not_after:type_name -> google.protobuf.Timestamp
+	60, // 2: continuum.v1.RenewResponse.not_after:type_name -> google.protobuf.Timestamp
 	12, // 3: continuum.v1.AgentMessage.hello:type_name -> continuum.v1.Hello
 	15, // 4: continuum.v1.AgentMessage.sync:type_name -> continuum.v1.Sync
 	13, // 5: continuum.v1.AgentMessage.heartbeat:type_name -> continuum.v1.Heartbeat
-	43, // 6: continuum.v1.AgentMessage.flows:type_name -> continuum.v1.FlowBatch
-	36, // 7: continuum.v1.AgentMessage.measurements:type_name -> continuum.v1.Measurements
-	46, // 8: continuum.v1.Hello.diagnostics:type_name -> continuum.v1.Diagnostics
+	44, // 6: continuum.v1.AgentMessage.flows:type_name -> continuum.v1.FlowBatch
+	37, // 7: continuum.v1.AgentMessage.measurements:type_name -> continuum.v1.Measurements
+	47, // 8: continuum.v1.Hello.diagnostics:type_name -> continuum.v1.Diagnostics
 	14, // 9: continuum.v1.Heartbeat.modules:type_name -> continuum.v1.ModuleStatus
-	46, // 10: continuum.v1.Heartbeat.diagnostics:type_name -> continuum.v1.Diagnostics
+	47, // 10: continuum.v1.Heartbeat.diagnostics:type_name -> continuum.v1.Diagnostics
 	1,  // 11: continuum.v1.ModuleStatus.state:type_name -> continuum.v1.ModuleStatus.State
 	16, // 12: continuum.v1.Sync.cluster:type_name -> continuum.v1.ClusterFacts
 	20, // 13: continuum.v1.Sync.nodes:type_name -> continuum.v1.NodeFacts
-	24, // 14: continuum.v1.Sync.namespaces:type_name -> continuum.v1.NamespaceFacts
-	26, // 15: continuum.v1.Sync.workloads:type_name -> continuum.v1.WorkloadFacts
+	25, // 14: continuum.v1.Sync.namespaces:type_name -> continuum.v1.NamespaceFacts
+	27, // 15: continuum.v1.Sync.workloads:type_name -> continuum.v1.WorkloadFacts
 	14, // 16: continuum.v1.Sync.modules:type_name -> continuum.v1.ModuleStatus
-	59, // 17: continuum.v1.ClusterFacts.created_at:type_name -> google.protobuf.Timestamp
+	60, // 17: continuum.v1.ClusterFacts.created_at:type_name -> google.protobuf.Timestamp
 	17, // 18: continuum.v1.ClusterFacts.scope:type_name -> continuum.v1.ScopeFacts
 	18, // 19: continuum.v1.ClusterFacts.mesh:type_name -> continuum.v1.MeshFacts
-	50, // 20: continuum.v1.MeshFacts.namespace_mtls:type_name -> continuum.v1.MeshFacts.NamespaceMtlsEntry
-	51, // 21: continuum.v1.NodeFacts.labels:type_name -> continuum.v1.NodeFacts.LabelsEntry
-	52, // 22: continuum.v1.NodeFacts.annotations:type_name -> continuum.v1.NodeFacts.AnnotationsEntry
-	53, // 23: continuum.v1.NodeFacts.extended_resources:type_name -> continuum.v1.NodeFacts.ExtendedResourcesEntry
-	59, // 24: continuum.v1.NodeFacts.created_at:type_name -> google.protobuf.Timestamp
+	51, // 20: continuum.v1.MeshFacts.namespace_mtls:type_name -> continuum.v1.MeshFacts.NamespaceMtlsEntry
+	52, // 21: continuum.v1.NodeFacts.labels:type_name -> continuum.v1.NodeFacts.LabelsEntry
+	53, // 22: continuum.v1.NodeFacts.annotations:type_name -> continuum.v1.NodeFacts.AnnotationsEntry
+	54, // 23: continuum.v1.NodeFacts.extended_resources:type_name -> continuum.v1.NodeFacts.ExtendedResourcesEntry
+	60, // 24: continuum.v1.NodeFacts.created_at:type_name -> google.protobuf.Timestamp
 	21, // 25: continuum.v1.NodeFacts.probe:type_name -> continuum.v1.HostProbe
 	22, // 26: continuum.v1.HostProbe.interfaces:type_name -> continuum.v1.NetworkInterface
 	23, // 27: continuum.v1.HostProbe.disks:type_name -> continuum.v1.Disk
-	54, // 28: continuum.v1.NamespaceFacts.labels:type_name -> continuum.v1.NamespaceFacts.LabelsEntry
-	55, // 29: continuum.v1.NamespaceFacts.annotations:type_name -> continuum.v1.NamespaceFacts.AnnotationsEntry
-	25, // 30: continuum.v1.WorkloadFacts.images:type_name -> continuum.v1.ContainerImage
-	56, // 31: continuum.v1.WorkloadFacts.labels:type_name -> continuum.v1.WorkloadFacts.LabelsEntry
-	57, // 32: continuum.v1.WorkloadFacts.annotations:type_name -> continuum.v1.WorkloadFacts.AnnotationsEntry
-	58, // 33: continuum.v1.WorkloadFacts.node_selector:type_name -> continuum.v1.WorkloadFacts.NodeSelectorEntry
-	59, // 34: continuum.v1.WorkloadFacts.created_at:type_name -> google.protobuf.Timestamp
-	28, // 35: continuum.v1.WorkloadFacts.volume_claims:type_name -> continuum.v1.VolumeClaim
-	29, // 36: continuum.v1.WorkloadFacts.autoscaler:type_name -> continuum.v1.Autoscaler
-	30, // 37: continuum.v1.WorkloadFacts.disruption:type_name -> continuum.v1.Disruption
-	27, // 38: continuum.v1.WorkloadFacts.reachable:type_name -> continuum.v1.Address
-	19, // 39: continuum.v1.WorkloadFacts.mesh:type_name -> continuum.v1.WorkloadMesh
-	32, // 40: continuum.v1.ServerMessage.ack:type_name -> continuum.v1.Ack
-	33, // 41: continuum.v1.ServerMessage.config:type_name -> continuum.v1.Config
-	37, // 42: continuum.v1.ServerMessage.revoked:type_name -> continuum.v1.Revoked
-	34, // 43: continuum.v1.Config.probe_targets:type_name -> continuum.v1.ProbeTarget
-	35, // 44: continuum.v1.Measurements.results:type_name -> continuum.v1.PathResult
-	38, // 45: continuum.v1.FlowReport.flows:type_name -> continuum.v1.RawFlow
-	2,  // 46: continuum.v1.FlowEndpoint.kind:type_name -> continuum.v1.FlowEndpoint.Kind
-	40, // 47: continuum.v1.Flow.src:type_name -> continuum.v1.FlowEndpoint
-	40, // 48: continuum.v1.Flow.dst:type_name -> continuum.v1.FlowEndpoint
-	41, // 49: continuum.v1.FlowBatch.flows:type_name -> continuum.v1.Flow
-	42, // 50: continuum.v1.FlowBatch.collectors:type_name -> continuum.v1.CollectorInfo
-	41, // 51: continuum.v1.FlowEdge.key:type_name -> continuum.v1.Flow
-	59, // 52: continuum.v1.FlowEdge.first_seen:type_name -> google.protobuf.Timestamp
-	59, // 53: continuum.v1.FlowEdge.last_seen:type_name -> google.protobuf.Timestamp
-	44, // 54: continuum.v1.FlowTable.edges:type_name -> continuum.v1.FlowEdge
-	17, // 55: continuum.v1.Diagnostics.scope:type_name -> continuum.v1.ScopeFacts
-	47, // 56: continuum.v1.Diagnostics.collectors:type_name -> continuum.v1.CollectorDiag
-	48, // 57: continuum.v1.Diagnostics.informers:type_name -> continuum.v1.InformerDiag
-	49, // 58: continuum.v1.Diagnostics.problems:type_name -> continuum.v1.Problem
-	59, // 59: continuum.v1.Diagnostics.generated_at:type_name -> google.protobuf.Timestamp
-	59, // 60: continuum.v1.CollectorDiag.last_data:type_name -> google.protobuf.Timestamp
-	3,  // 61: continuum.v1.Problem.severity:type_name -> continuum.v1.Problem.Severity
-	59, // 62: continuum.v1.Problem.since:type_name -> google.protobuf.Timestamp
-	5,  // 63: continuum.v1.Enrollment.Enroll:input_type -> continuum.v1.EnrollRequest
-	7,  // 64: continuum.v1.Enrollment.PollEnrollment:input_type -> continuum.v1.PollRequest
-	4,  // 65: continuum.v1.Enrollment.Rejoin:input_type -> continuum.v1.RejoinRequest
-	11, // 66: continuum.v1.AgentService.Connect:input_type -> continuum.v1.AgentMessage
-	9,  // 67: continuum.v1.AgentService.Renew:input_type -> continuum.v1.RenewRequest
-	6,  // 68: continuum.v1.Enrollment.Enroll:output_type -> continuum.v1.EnrollResponse
-	8,  // 69: continuum.v1.Enrollment.PollEnrollment:output_type -> continuum.v1.PollResponse
-	10, // 70: continuum.v1.Enrollment.Rejoin:output_type -> continuum.v1.RenewResponse
-	31, // 71: continuum.v1.AgentService.Connect:output_type -> continuum.v1.ServerMessage
-	10, // 72: continuum.v1.AgentService.Renew:output_type -> continuum.v1.RenewResponse
-	68, // [68:73] is the sub-list for method output_type
-	63, // [63:68] is the sub-list for method input_type
-	63, // [63:63] is the sub-list for extension type_name
-	63, // [63:63] is the sub-list for extension extendee
-	0,  // [0:63] is the sub-list for field type_name
+	24, // 28: continuum.v1.HostProbe.tunnels:type_name -> continuum.v1.TunnelInterface
+	55, // 29: continuum.v1.NamespaceFacts.labels:type_name -> continuum.v1.NamespaceFacts.LabelsEntry
+	56, // 30: continuum.v1.NamespaceFacts.annotations:type_name -> continuum.v1.NamespaceFacts.AnnotationsEntry
+	26, // 31: continuum.v1.WorkloadFacts.images:type_name -> continuum.v1.ContainerImage
+	57, // 32: continuum.v1.WorkloadFacts.labels:type_name -> continuum.v1.WorkloadFacts.LabelsEntry
+	58, // 33: continuum.v1.WorkloadFacts.annotations:type_name -> continuum.v1.WorkloadFacts.AnnotationsEntry
+	59, // 34: continuum.v1.WorkloadFacts.node_selector:type_name -> continuum.v1.WorkloadFacts.NodeSelectorEntry
+	60, // 35: continuum.v1.WorkloadFacts.created_at:type_name -> google.protobuf.Timestamp
+	29, // 36: continuum.v1.WorkloadFacts.volume_claims:type_name -> continuum.v1.VolumeClaim
+	30, // 37: continuum.v1.WorkloadFacts.autoscaler:type_name -> continuum.v1.Autoscaler
+	31, // 38: continuum.v1.WorkloadFacts.disruption:type_name -> continuum.v1.Disruption
+	28, // 39: continuum.v1.WorkloadFacts.reachable:type_name -> continuum.v1.Address
+	19, // 40: continuum.v1.WorkloadFacts.mesh:type_name -> continuum.v1.WorkloadMesh
+	33, // 41: continuum.v1.ServerMessage.ack:type_name -> continuum.v1.Ack
+	34, // 42: continuum.v1.ServerMessage.config:type_name -> continuum.v1.Config
+	38, // 43: continuum.v1.ServerMessage.revoked:type_name -> continuum.v1.Revoked
+	35, // 44: continuum.v1.Config.probe_targets:type_name -> continuum.v1.ProbeTarget
+	36, // 45: continuum.v1.Measurements.results:type_name -> continuum.v1.PathResult
+	39, // 46: continuum.v1.FlowReport.flows:type_name -> continuum.v1.RawFlow
+	2,  // 47: continuum.v1.FlowEndpoint.kind:type_name -> continuum.v1.FlowEndpoint.Kind
+	41, // 48: continuum.v1.Flow.src:type_name -> continuum.v1.FlowEndpoint
+	41, // 49: continuum.v1.Flow.dst:type_name -> continuum.v1.FlowEndpoint
+	42, // 50: continuum.v1.FlowBatch.flows:type_name -> continuum.v1.Flow
+	43, // 51: continuum.v1.FlowBatch.collectors:type_name -> continuum.v1.CollectorInfo
+	42, // 52: continuum.v1.FlowEdge.key:type_name -> continuum.v1.Flow
+	60, // 53: continuum.v1.FlowEdge.first_seen:type_name -> google.protobuf.Timestamp
+	60, // 54: continuum.v1.FlowEdge.last_seen:type_name -> google.protobuf.Timestamp
+	45, // 55: continuum.v1.FlowTable.edges:type_name -> continuum.v1.FlowEdge
+	17, // 56: continuum.v1.Diagnostics.scope:type_name -> continuum.v1.ScopeFacts
+	48, // 57: continuum.v1.Diagnostics.collectors:type_name -> continuum.v1.CollectorDiag
+	49, // 58: continuum.v1.Diagnostics.informers:type_name -> continuum.v1.InformerDiag
+	50, // 59: continuum.v1.Diagnostics.problems:type_name -> continuum.v1.Problem
+	60, // 60: continuum.v1.Diagnostics.generated_at:type_name -> google.protobuf.Timestamp
+	60, // 61: continuum.v1.CollectorDiag.last_data:type_name -> google.protobuf.Timestamp
+	3,  // 62: continuum.v1.Problem.severity:type_name -> continuum.v1.Problem.Severity
+	60, // 63: continuum.v1.Problem.since:type_name -> google.protobuf.Timestamp
+	5,  // 64: continuum.v1.Enrollment.Enroll:input_type -> continuum.v1.EnrollRequest
+	7,  // 65: continuum.v1.Enrollment.PollEnrollment:input_type -> continuum.v1.PollRequest
+	4,  // 66: continuum.v1.Enrollment.Rejoin:input_type -> continuum.v1.RejoinRequest
+	11, // 67: continuum.v1.AgentService.Connect:input_type -> continuum.v1.AgentMessage
+	9,  // 68: continuum.v1.AgentService.Renew:input_type -> continuum.v1.RenewRequest
+	6,  // 69: continuum.v1.Enrollment.Enroll:output_type -> continuum.v1.EnrollResponse
+	8,  // 70: continuum.v1.Enrollment.PollEnrollment:output_type -> continuum.v1.PollResponse
+	10, // 71: continuum.v1.Enrollment.Rejoin:output_type -> continuum.v1.RenewResponse
+	32, // 72: continuum.v1.AgentService.Connect:output_type -> continuum.v1.ServerMessage
+	10, // 73: continuum.v1.AgentService.Renew:output_type -> continuum.v1.RenewResponse
+	69, // [69:74] is the sub-list for method output_type
+	64, // [64:69] is the sub-list for method input_type
+	64, // [64:64] is the sub-list for extension type_name
+	64, // [64:64] is the sub-list for extension extendee
+	0,  // [0:64] is the sub-list for field type_name
 }
 
 func init() { file_continuum_v1_agent_proto_init() }
@@ -5399,7 +5511,7 @@ func file_continuum_v1_agent_proto_init() {
 	}
 	file_continuum_v1_agent_proto_msgTypes[12].OneofWrappers = []any{}
 	file_continuum_v1_agent_proto_msgTypes[16].OneofWrappers = []any{}
-	file_continuum_v1_agent_proto_msgTypes[27].OneofWrappers = []any{
+	file_continuum_v1_agent_proto_msgTypes[28].OneofWrappers = []any{
 		(*ServerMessage_Ack)(nil),
 		(*ServerMessage_Config)(nil),
 		(*ServerMessage_Revoked)(nil),
@@ -5410,7 +5522,7 @@ func file_continuum_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_continuum_v1_agent_proto_rawDesc), len(file_continuum_v1_agent_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   55,
+			NumMessages:   56,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

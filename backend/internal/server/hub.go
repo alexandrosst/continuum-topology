@@ -1065,6 +1065,9 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 		doc.Topology.Dependencies, doc.Topology.ExternalEndpoints = observedTopology(h.C.OrgID, observed, now, h.StaleFlows())
 		doc.Topology.Suggestions = append(doc.Topology.Suggestions, suspicions(h.C.OrgID, observed, located, now)...)
 	}
+	// Needs every cluster's nodes in one list (a tunnel's other end is often in a different cluster, or
+	// this very same one), so this runs once here rather than per cluster inside the loop above.
+	correlateTunnels(doc.Topology.Nodes)
 	names := map[string]string{}
 	for _, c := range doc.Topology.Clusters {
 		names[c.ID] = c.Name

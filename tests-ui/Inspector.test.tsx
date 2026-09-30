@@ -127,6 +127,23 @@ describe('Inspector · node network interfaces', () => {
   })
 })
 
+describe('Inspector · node tunnels', () => {
+  test('an unconfirmed tunnel shows just its kind, no fabricated peer', () => {
+    renderNodeInspector(node({ tunnels: [{ name: 'wg0', kind: 'wireguard', addresses: ['10.8.0.1/24'], routes: ['10.8.0.0/24'] }] }))
+    expect(screen.getByText('wg0 (wireguard)')).toBeInTheDocument()
+  })
+
+  test('a server-confirmed tunnel names the other end it was matched to', () => {
+    renderNodeInspector(node({ tunnels: [{ name: 'wg0', kind: 'wireguard', confirmed: 'edge-2' }] }))
+    expect(screen.getByText('wg0 (wireguard, confirmed ↔ edge-2)')).toBeInTheDocument()
+  })
+
+  test('a node with no tunnels shows no Tunnels row at all', () => {
+    renderNodeInspector(node({}))
+    expect(screen.queryByText('Tunnels')).not.toBeInTheDocument()
+  })
+})
+
 describe('Inspector · external endpoint', () => {
   test('a single-address endpoint shows no address list', () => {
     renderInspector(ext({ name: 'Google', ips: ['216.239.34.178'] }))

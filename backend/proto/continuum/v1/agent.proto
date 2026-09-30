@@ -338,6 +338,9 @@ message HostProbe {
   repeated NetworkInterface interfaces = 16;
   // Physical block devices (see the Disk message doc for exactly what is, and is not, read).
   repeated Disk disks = 17;
+  // Overlay/tunnel interfaces the node has up (see the TunnelInterface message doc for exactly what is,
+  // and is not, read, and what privilege this needs - none beyond what the probe already has).
+  repeated TunnelInterface tunnels = 18;
 }
 
 // One physical network interface the node probe found up (see HostProbe.interfaces). Everything here is
@@ -362,6 +365,39 @@ message Disk {
   string model = 2;       // from /sys/block/<name>/device/model, e.g. "Samsung SSD 970 EVO"; empty when unreported
   int64 size_bytes = 3;
   string type = 4;        // hdd | ssd | nvme | "" when not determinable
+}
+
+// One overlay/tunnel network interface the node probe found up (see HostProbe.tunnels). Identified
+// generically from the kernel's own netlink IFLA_INFO_KIND for the link - the same field `ip -d link
+// show` reads to print "wireguard"/"vxlan"/"gre"/... after an interface's name - rather than guessed from
+// a name prefix, so a renamed interface of a recognized kind is still caught and an interface merely
+// *named* "wg0" that isn't really WireGuard is not. Covers every kernel tunnel driver that registers a
+// link kind this way: WireGuard, VXLAN, Geneve, GRE/GRETAP (v4 and v6), IPIP, SIT (6in4), and route-based
+// IPsec (VTI/VTI6, and XFRM interfaces). Reading link kinds, addresses and routes over netlink needs no
+// capability beyond what reading them over sysfs already needed (confirmed: an ordinary unprivileged
+// process can open an AF_NETLINK/NETLINK_ROUTE socket and dump links/addresses/routes - the same thing
+// the `ip` command does as a normal user).
+//
+// Deliberately not covered: plain tun/tap devices (the kernel does not register a link kind for them the
+// way it does for the drivers above, so they are indistinguishable from any other anonymous link without
+// guessing from the name - left out rather than guessed) and policy-based IPsec that attaches XFRM
+// policies directly to an ordinary interface instead of creating a dedicated VTI/XFRM link (invisible to
+// this method; only route-based IPsec, which is what creates a link, is seen). Both are documented gaps,
+// not silently-wrong positives.
+message TunnelInterface {
+  string name = 1;
+  string kind = 2; // wireguard | vxlan | geneve | gre | gretap | ip6gre | ip6gretap | ipip | sit | vti | vti6 | xfrm
+  // This interface's own address(es), each "ip/prefixlen" (e.g. "10.8.0.1/24") - from the same netlink
+  // address dump `ip address show dev <name>` reads. Never the other end's address: that is what Routes
+  // and Routes-based cross-node correlation, not this interface's own identity, are for.
+  repeated string addresses = 3;
+  // Destination prefixes the node's own routing table sends out through this interface (e.g.
+  // "10.8.0.0/24"), from the same netlink route dump `ip route show dev <name>` reads - a default route
+  // (0.0.0.0/0 or ::/0) is never included here, since it says nothing about what is specifically reachable
+  // through the tunnel. Capped at a small number, like Flow.dns_query_names. This is the one fact that
+  // makes cross-node correlation possible at all: whether another node's own known address falls inside
+  // one of these prefixes is what an honest confidence label (confirmed vs. one side only) is based on.
+  repeated string routes = 4;
 }
 
 message NamespaceFacts {

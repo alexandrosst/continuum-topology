@@ -4,7 +4,8 @@
 //
 // The probe only reads. It never reads serial numbers, MAC addresses, UUIDs or processes, and never a
 // disk's own identity (serial, WWN) - only its capacity and type (see Disk). It needs no capabilities:
-// sysfs and /proc/cpuinfo are world-readable.
+// sysfs and /proc/cpuinfo are world-readable, and so - confirmed, not just documented - is the netlink
+// link/address/route dump tunnels() reads to find overlay/tunnel interfaces (see TunnelInterface).
 package probe
 
 import (
@@ -91,6 +92,7 @@ func Read(p Paths) *continuumv1.HostProbe {
 	hyp := cpuHypervisorBit(filepath.Join(p.Proc, "cpuinfo"))
 	cpuinfo := filepath.Join(p.Proc, "cpuinfo")
 	ifaces := interfaces(filepath.Join(p.Sys, "class", "net"))
+	tuns := tunnels()
 	h := &continuumv1.HostProbe{
 		ProbeVersion:       Version,
 		HypervisorBit:      hyp,
@@ -108,6 +110,7 @@ func Read(p Paths) *continuumv1.HostProbe {
 		CpuModel:           cpuModel(cpuinfo),
 		CpuThreads:         cpuThreads(cpuinfo),
 		Disks:              disks(filepath.Join(p.Sys, "block")),
+		Tunnels:            tuns,
 	}
 	if n, err := strconv.Atoi(strings.TrimSpace(readText(filepath.Join(dmi, "chassis_type")))); err == nil && n > 0 && n < 64 {
 		h.ChassisType = int32(n)

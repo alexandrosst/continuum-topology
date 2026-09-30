@@ -608,6 +608,10 @@ export default function Inspector({
               return `${i.name} (${[i.kind, i.speedMbps ? `${i.speedMbps} Mbps` : undefined, i.mtu ? `MTU ${i.mtu}` : undefined, util !== undefined ? `${util}% used` : undefined].filter(Boolean).join(', ')})`
             })}
           />
+          <Chips
+            label="Tunnels"
+            items={n.tunnels?.map((t) => `${t.name} (${t.kind}${t.confirmed ? `, confirmed ↔ ${t.confirmed}` : ''})`)}
+          />
           {n.hasBattery && <Row label="Power">Has a battery: can run without mains power</Row>}
           <Chips label="Taints" items={n.taints} />
           <Chips label="Conditions" items={n.conditions} tone="warn" />
