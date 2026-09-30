@@ -216,22 +216,22 @@ export const useServer = create<ServerStore>((set, get) => {
     connect: async (url) => {
       const c = { url: url.trim() }
       set({ status: 'connecting', error: undefined, pendingLogin: undefined })
+      // probe() and serverInfo() are independent - probe learns whether anyone is signed in, serverInfo is
+      // public data the sign-in/sign-up screens need regardless - so both requests go out together instead
+      // of one after the other. serverInfo can fail without probe having to (an older server that predates
+      // this endpoint is still a server worth connecting to), so it gets its own catch here rather than
+      // rejecting the Promise.all this would otherwise need to be.
+      const infoPromise = api.serverInfo(c).catch(() => undefined)
       const found = await probe(c)
-      if (found === 'none') {
+      if (found.status === 'none') {
         set({ status: 'error', error: `No Continuum server answered at ${c.url || 'this address'}. Check the address and that it is running.`, checked: true })
         return false
       }
       write(URL_KEY, c.url)
       set({ url: c.url, checked: true })
-      let sso = false
-      try {
-        const info = await api.serverInfo(c)
-        set({ registration: info.registration })
-        sso = info.sso ?? false
-      } catch {
-        /* an older server: assume sign-up is not offered */
-        set({ registration: 'closed' })
-      }
+      const info = await infoPromise
+      set({ registration: info?.registration ?? 'closed' }) // no info at all (an older server): assume sign-up is not offered
+      const sso = info?.sso ?? false
       const inv = get().invite
       if (inv && !inv.preview) {
         try {
@@ -240,7 +240,7 @@ export const useServer = create<ServerStore>((set, get) => {
           set({ invite: undefined, error: messageOf(e) })
         }
       }
-      if (found === 'signin') {
+      if (found.status === 'signin') {
         // The server's reverse proxy may have already verified who this is; try that silently before
         // falling back to the password form. A 401 here (no identity asserted, or it matches no account)
         // is the ordinary case for anyone the proxy hasn't authenticated, not an error worth surfacing.
@@ -256,7 +256,11 @@ export const useServer = create<ServerStore>((set, get) => {
         return true
       }
       try {
-        await enter(await api.me(c))
+        // found.status is 'session' here: probe() already fetched this exact session from this exact
+        // endpoint (GET /api/v1/auth/me) - reuse it rather than firing api.me() for a second, redundant
+        // request-and-DB-round-trip for data already in hand. This is the common path on every page load
+        // for anyone already signed in, so the saved round trip is one that happens on every visit.
+        await enter(found.session)
         return true
       } catch (e) {
         set({ status: 'error', error: messageOf(e) })
@@ -637,7 +641,7 @@ export async function resumeServer() {
   const { url, connect } = useServer.getState()
   if (url) {
     await connect(url)
-  } else if ((await probe({ url: '' })) !== 'none') {
+  } else if ((await probe({ url: '' })).status !== 'none') {
     await connect('')
   }
   useServer.setState({ checked: true })

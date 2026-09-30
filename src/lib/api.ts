@@ -528,19 +528,34 @@ export const api = {
   decide: (c: Conn, input: unknown) => call<{ decider: string; result: unknown }>(c, 'POST', '/api/v1/decide', input),
 }
 
+/** What probe() above learns from its one request: whether a Continuum server is even there, and - when
+ *  someone is already signed in - the session it would otherwise take a second /api/v1/auth/me round trip
+ *  to fetch. See probe()'s own doc comment for why that body is worth carrying along instead of discarding
+ *  it. */
+export type ProbeResult = { status: 'session'; session: Session } | { status: 'signin' } | { status: 'none' }
+
 /**
- * Is there a Continuum server at this address? True when the answer is JSON with a session
- * (200) or a "sign in" (401). Anything else, such as a static host returning the app's HTML,
- * means no.
+ * Is there a Continuum server at this address? The answer is 'session' when the answer is JSON with a
+ * signed-in session (200), 'signin' for a JSON "not signed in" (401), and 'none' for anything else, such as
+ * a static host returning the app's HTML.
+ *
+ * Carries the parsed session body along on a 'session' result rather than just a status flag: this hits the
+ * exact same endpoint (`GET /api/v1/auth/me`) that `api.me()` calls, so a caller that already has this
+ * result (server.ts's connect(), the common path on every reload once someone is signed in) can use it
+ * directly instead of firing a second, wasted request-and-DB-round-trip for data this call already has in
+ * hand.
  */
-export async function probe(c: Conn): Promise<'session' | 'signin' | 'none'> {
+export async function probe(c: Conn): Promise<ProbeResult> {
   try {
     const res = await fetch(`${c.url.replace(/\/$/, '')}/api/v1/auth/me`, { credentials: 'include', headers: { 'X-Requested-With': 'continuum-ui' } })
-    if (!(res.headers.get('content-type') ?? '').includes('application/json')) return 'none'
-    if (res.status === 200) return 'session'
-    if (res.status === 401) return 'signin'
+    if (!(res.headers.get('content-type') ?? '').includes('application/json')) return { status: 'none' }
+    if (res.status === 200) {
+      const session = (await res.json().catch(() => undefined)) as Session | undefined
+      return session ? { status: 'session', session } : { status: 'none' }
+    }
+    if (res.status === 401) return { status: 'signin' }
   } catch {
     /* unreachable */
   }
-  return 'none'
+  return { status: 'none' }
 }

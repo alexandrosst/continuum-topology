@@ -15,21 +15,29 @@ import {
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
 import { Antenna, Boxes, ChevronDown, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, Server, SlidersHorizontal, Target, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
 import { ClusterForm, DeviceForm, NodeForm, ServiceForm } from '@/components/forms'
 import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
 import Inspector, { type Selection } from '@/components/topology/Inspector'
-import MapView from '@/components/topology/MapView'
+// Lazily loaded, not a plain top-level import: MapView pulls in d3-geo, topojson-client and the
+// placement-suggestion engine (usePlacementSuggestions) at its own module top level - real weight
+// (~45KB gzipped) that a static import would put on every single visit to this page, Topology being
+// the app's default landing route, even though most sessions render the Application or Infrastructure
+// view and never open the Map tab at all. The raw map DATA (cities/countries topojson) was already its
+// own further-lazy import inside MapView itself (see MapView.tsx's own loadCoarse/loadFine) - this just
+// extends the same reasoning to MapView's own code, the one part of that story the module boundary
+// here didn't previously cover.
+const MapView = lazy(() => import('@/components/topology/MapView'))
 import EdgeHoverCard, { type EdgeHoverPos } from '@/components/topology/EdgeHoverCard'
 import ScopeFromSelection from '@/components/topology/ScopeFromSelection'
 import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
 import { nodeTypes } from '@/components/topology/nodes'
 import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
-import { Button, EmptyState, MenuPanel, Select } from '@/components/ui/primitives'
+import { Button, EmptyState, MenuPanel, Select, SkeletonBlock } from '@/components/ui/primitives'
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu from '@/components/topology/FilterMenu'
 import { api } from '@/lib/api'
@@ -855,7 +863,9 @@ function Canvas() {
               )}
             </div>
           ) : isMap ? (
-            <MapView selection={selection} onSelect={select} filter={filter} />
+            <Suspense fallback={<div className="h-full w-full p-4"><SkeletonBlock className="h-full w-full" /></div>}>
+              <MapView selection={selection} onSelect={select} filter={filter} />
+            </Suspense>
           ) : (
             <EdgeStyleContext.Provider value={edgeStyle}>
             <ReactFlow<TopoNode, Edge>

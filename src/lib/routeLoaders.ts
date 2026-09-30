@@ -50,8 +50,18 @@ export function prefetchRoute(to: string) {
  *  MapView.tsx's own lazy `loadCoarse`/`loadFine`): those are a separate, further lazy import triggered
  *  only once a map view actually renders, not part of any page's own chunk here, so looping over every
  *  entry in routeLoaders never touches them - only each page's own, much smaller code chunk (a few KB to
- *  ~120KB for the heaviest, Topology). */
+ *  ~120KB for the heaviest, Topology) - in a production build.
+ *
+ *  Skipped entirely in dev (`import.meta.env.DEV`): the "a few KB to ~120KB" cost above only holds for a
+ *  built, minified, per-route chunk. Vite's dev server serves each module of a route's own dependency graph
+ *  unbundled and unminified - Placement's own transitive deps alone (d3-geo, topojson-client, its
+ *  world-map data) run to several hundred KB of extra requests that would otherwise fire right after the
+ *  very first paint of an unrelated page like Topology, in dev mode's own most bandwidth- and
+ *  main-thread-constrained moment. Dev mode doesn't need this mechanism anyway: Vite's own module graph
+ *  already keeps every previously-visited route's modules cached for instant reload, and a hard navigation
+ *  during active development is rare enough that hover/focus prefetch alone is plenty. */
 export function prefetchAllRoutesWhenIdle() {
+  if (import.meta.env.DEV) return
   const run = () => {
     for (const to of Object.keys(routeLoaders)) prefetchRoute(to)
   }
