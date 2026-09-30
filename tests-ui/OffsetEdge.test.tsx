@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { curvedPath, intersection } from '@/components/topology/OffsetEdge'
+import { curvedPath, intersection, pullBackEnds } from '@/components/topology/OffsetEdge'
 
 // A pure-math test, no rendering needed - kept in tests-ui/ (not tests/) purely because that's where the
 // vitest config's include glob looks; nothing here touches the DOM.
@@ -95,5 +95,37 @@ describe('curvedPath (OffsetEdge\'s gentle-bow path math)', () => {
     const { labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 0)
     expect(labelX).toBeCloseTo(150, 5)
     expect(labelY).toBeCloseTo(0, 5)
+  })
+})
+
+
+describe('pullBackEnds (keeps only an arrowhead\'s own tip touching a box, per the UI/UX pass)', () => {
+  test('pulls the source end back toward the target, and leaves the target end untouched when it has a marker', () => {
+    const { sx, sy, tx, ty } = pullBackEnds(0, 0, 300, 0, 5, true)
+    expect(sx).toBeCloseTo(5, 5) // moved 5px toward the target
+    expect(sy).toBeCloseTo(0, 5)
+    expect(tx).toBe(300) // untouched: a real markerEnd's own tip belongs exactly here
+    expect(ty).toBe(0)
+  })
+
+  test('pulls the target end back too when it has no marker (an aggregated edge, with nothing pointed to place there)', () => {
+    const { tx, ty } = pullBackEnds(0, 0, 300, 0, 5, false)
+    expect(tx).toBeCloseTo(295, 5) // moved 5px back toward the source
+    expect(ty).toBeCloseTo(0, 5)
+  })
+
+  test('pulls back along whatever direction the segment actually runs, not just axis-aligned', () => {
+    // A 3-4-5 triangle: length 10, so a gap of 2 is exactly 20% of the way along each axis.
+    const { sx, sy } = pullBackEnds(0, 0, 6, 8, 2, true)
+    expect(sx).toBeCloseTo(1.2, 5)
+    expect(sy).toBeCloseTo(1.6, 5)
+  })
+
+  test('never produces a degenerate (zero-length) segment: source and target still land on the same point for a zero-length input', () => {
+    const { sx, sy, tx, ty } = pullBackEnds(50, 50, 50, 50, 5, false)
+    expect(sx).toBe(50)
+    expect(sy).toBe(50)
+    expect(tx).toBe(50)
+    expect(ty).toBe(50)
   })
 })

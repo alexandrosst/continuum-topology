@@ -1,4 +1,4 @@
-import { BaseEdge, useInternalNode, type EdgeProps } from '@xyflow/react'
+import { BaseEdge, useInternalNode, useViewport, type EdgeProps } from '@xyflow/react'
 import { createContext, useContext } from 'react'
 import type { TopoEdge } from '@/lib/graph'
 
@@ -111,6 +111,29 @@ export function elbowPath(x1: number, y1: number, x2: number, y2: number, radius
   }
 }
 
+/** Shrinks the segment from (sx,sy) to (tx,ty) by `gap` px at the source end, and at the target end too
+ *  unless `hasTargetMarker` is set. The source end never has an arrowhead in this app - dependencies only
+ *  point one way - so its plain line-end always gets pulled back off whatever box it would otherwise run
+ *  flush into. The target end only needs the same treatment when it has nothing pointed to place there
+ *  instead (an aggregated edge, with no markerEnd - see graph.ts's buildGraph): a real arrowhead's own tip is
+ *  already exactly on (tx,ty) by construction (its SVG marker's refX=0 puts the tip at the path's own
+ *  endpoint), so pulling the line back there too would just open a visible gap between the tip and the
+ *  boundary it's meant to touch. Kept as its own pure function for the same reason as intersection/curvedPath
+ *  above: testable in isolation, without rendering anything. */
+export function pullBackEnds(sx: number, sy: number, tx: number, ty: number, gap: number, hasTargetMarker: boolean): { sx: number; sy: number; tx: number; ty: number } {
+  const dx = tx - sx
+  const dy = ty - sy
+  const len = Math.hypot(dx, dy) || 1
+  const ux = dx / len
+  const uy = dy / len
+  return {
+    sx: sx + ux * gap,
+    sy: sy + uy * gap,
+    tx: hasTargetMarker ? tx : tx - ux * gap,
+    ty: hasTargetMarker ? ty : ty - uy * gap,
+  }
+}
+
 /**
  * A line like the default one, with its source end moved sideways by `data.sourceOffset` pixels and its
  * target end by `data.targetOffset`, independently. Equal values give the old parallel shift (two lines
@@ -162,6 +185,24 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
     tx = to.x
     ty = to.y
   }
+
+  // The bare line-end itself should never be the thing touching a box - per this round's UI/UX pass, the
+  // only contact anywhere on an edge is meant to be an arrowhead's own tip. `intersection()` above already
+  // placed sx/sy and tx/ty exactly ON each box's boundary; pullBackEnds shrinks that back off, by GAP, at
+  // whichever end(s) have no arrowhead tip of their own to place there instead (see its own doc comment).
+  //
+  // GAP is expressed as a target *screen* size (a gap that reads the same whether the canvas is zoomed in or
+  // fit-to-view zoomed way out over a big multi-cluster graph) and converted to flow-space by dividing by the
+  // current zoom - a flat flow-space constant would shrink to sub-pixel, invisible nothing at the ~0.5-0.6x
+  // zoom this app's own overview layouts commonly fit to, which is exactly the zoom level this was first
+  // reported unnoticeable at.
+  const { zoom } = useViewport()
+  const GAP = 5 / zoom
+  const pulled = pullBackEnds(sx, sy, tx, ty, GAP, !!markerEnd)
+  sx = pulled.sx
+  sy = pulled.sy
+  tx = pulled.tx
+  ty = pulled.ty
 
   const sourceOff = data?.sourceOffset ?? 0
   const targetOff = data?.targetOffset ?? 0
