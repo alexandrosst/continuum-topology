@@ -38,22 +38,56 @@ export function intersection(box: { x: number; y: number; w: number; h: number }
   return { x: cx + halfW * (nx + ny), y: cy + halfH * (-nx + ny) }
 }
 
-/** The quadratic Bezier `Q` path, and label position, for a gentle bow between two anchor points - the
- *  math half of OffsetEdge's own curve-building (see its doc comment for why a hand-built quadratic and
- *  not `getBezierPath`), pulled out so it's testable without rendering anything. `nx`/`ny` is the already-
- *  computed unit normal of the source-to-target line (the same one `sourceOffset`/`targetOffset` fan
- *  along), so a curved edge bows toward the same side its parallel siblings fan toward. */
-export function curvedPath(x1: number, y1: number, x2: number, y2: number, nx: number, ny: number): { path: string; labelX: number; labelY: number } {
+/** Which side of `box` the boundary point `p` sits on, as `box`'s own outward-facing unit normal there:
+ *  (0,-1) top, (0,1) bottom, (-1,0) left, (1,0) right. `p` is assumed to already be a point on `box`'s own
+ *  perimeter - `intersection()`'s own return value, in practice - so this just asks which of the 4 edges
+ *  it's closest to rather than re-deriving anything. Used to give curvedPath's tangent at the source end a
+ *  "flows straight out of the box" direction instead of pointing wherever the target happens to be - see
+ *  curvedPath's own doc comment for the problem that solves. */
+export function outwardNormal(box: { x: number; y: number; w: number; h: number }, p: { x: number; y: number }): { x: number; y: number } {
+  const distLeft = Math.abs(p.x - box.x)
+  const distRight = Math.abs(p.x - (box.x + box.w))
+  const distTop = Math.abs(p.y - box.y)
+  const distBottom = Math.abs(p.y - (box.y + box.h))
+  const min = Math.min(distLeft, distRight, distTop, distBottom)
+  if (min === distLeft) return { x: -1, y: 0 }
+  if (min === distRight) return { x: 1, y: 0 }
+  if (min === distTop) return { x: 0, y: -1 }
+  return { x: 0, y: 1 }
+}
+
+/** The cubic Bezier `C` path, and label position, for a gentle bow between two anchor points - the math half
+ *  of OffsetEdge's own curve-building (see its doc comment for why a hand-built curve and not `getBezierPath`
+ *  at all), pulled out so it's testable without rendering anything.
+ *
+ *  Cubic rather than the single-control-point quadratic this used to be: a shared control point gives BOTH
+ *  ends a tangent pointing roughly toward each other (nudged sideways by the bow), which looks fine at the
+ *  target end but reads badly at the source - an edge leaving a wide box near one corner would leave at a
+ *  shallow angle, grazing along the box's own edge for a stretch before actually separating from it, rather
+ *  than looking like it flows straight out. The two control points here split that: `c1`, near the source,
+ *  is offset from (x1,y1) along `sourceNormal` (the box's own outward-facing direction at that exact exit
+ *  point, from `outwardNormal` above) - so the curve always leaves perpendicular-ish to the box it came from,
+ *  however off-center that exit point is. `c2`, near the target, is built exactly the way the old shared
+ *  control point was (the straight-line midpoint nudged by `nx`/`ny`*bow), which keeps the target end's own
+ *  tangent identical to before - still the continuous, not-snapped-to-4-angles direction OffsetEdge's own
+ *  arrowhead design depends on (see its doc comment) - since only the source side had a problem to fix. */
+export function curvedPath(x1: number, y1: number, x2: number, y2: number, nx: number, ny: number, sourceNormal: { x: number; y: number }): { path: string; labelX: number; labelY: number } {
   const segLen = Math.hypot(x2 - x1, y2 - y1) || 1
   const bow = Math.min(segLen * 0.12, 36)
   const mx = (x1 + x2) / 2 + nx * bow
   const my = (y1 + y2) / 2 + ny * bow
+  // How far the curve travels straight out from the source before c2 starts pulling it toward the target -
+  // proportional to length (a short edge shouldn't get a stub longer than the edge itself) but capped so a
+  // long edge doesn't get an oddly long straight run before it starts curving.
+  const exit = Math.min(segLen * 0.35, 40)
+  const c1x = x1 + sourceNormal.x * exit
+  const c1y = y1 + sourceNormal.y * exit
   return {
-    path: `M${x1},${y1} Q${mx},${my} ${x2},${y2}`,
-    // Quadratic Bezier at t=0.5: (P0 + 2*C + P2) / 4 - the label sits along the actual curve, not the
+    path: `M${x1},${y1} C${c1x},${c1y} ${mx},${my} ${x2},${y2}`,
+    // Cubic Bezier at t=0.5: (P0 + 3*C1 + 3*C2 + P2) / 8 - the label sits along the actual curve, not the
     // straight-line midpoint, so it doesn't appear to float off to one side of a strongly bowed edge.
-    labelX: (x1 + 2 * mx + x2) / 4,
-    labelY: (y1 + 2 * my + y2) / 4,
+    labelX: (x1 + 3 * c1x + 3 * mx + x2) / 8,
+    labelY: (y1 + 3 * c1y + 3 * my + y2) / 8,
   }
 }
 
@@ -153,17 +187,19 @@ export function pullBackEnds(sx: number, sy: number, tx: number, ty: number, gap
  * `sourceX/Y`/`targetX/Y` on the rare render where a node hasn't been measured yet (mount, or a brand new
  * node this exact frame) - a plausible instant, not-yet-perfect placement beats no edge at all.
  *
- * Builds its own quadratic-curve path rather than calling React Flow's `getStraightPath` or
- * `getBezierPath`, for the reason the original version of this component already established for the
- * straight-line predecessor of this one: `getBezierPath` needs a `sourcePosition`/`targetPosition` (one of
- * 4 cardinal values) to place its control points, and an SVG marker's `orient="auto"` arrowhead rotation
- * derives from the path's own local tangent - so a `getBezierPath` curve's arrowhead can only ever snap to
- * one of 4 fixed angles, never the real, continuous direction between two live points. Hand-building a `Q`
- * (quadratic Bezier) path from the same continuously-computed anchor points sidesteps that limitation
- * entirely: `orient="auto"` follows whatever tangent the path actually has at its end, cardinal or not, so
- * a gentle, deliberate bow (bowed away from the straight line by a small, length-proportional amount, capped
- * so it never looks exaggerated on a long edge) is free - it costs nothing in arrowhead precision, since the
- * tip still lands exactly on `intersection()`'s boundary point either way, only the approach angle curves.
+ * Builds its own cubic-curve path rather than calling React Flow's `getStraightPath` or `getBezierPath`,
+ * for the reason the original version of this component already established for the straight-line
+ * predecessor of this one: `getBezierPath` needs a `sourcePosition`/`targetPosition` (one of 4 cardinal
+ * values) to place its control points, and an SVG marker's `orient="auto"` arrowhead rotation derives from
+ * the path's own local tangent - so a `getBezierPath` curve's arrowhead can only ever snap to one of 4 fixed
+ * angles, never the real, continuous direction between two live points. Hand-building a `C` (cubic Bezier)
+ * path from the same continuously-computed anchor points sidesteps that limitation entirely at the target
+ * end: `orient="auto"` follows whatever tangent the path actually has there, cardinal or not, so the tip
+ * still lands exactly on `intersection()`'s boundary point with the approach angle free to curve. The source
+ * end deliberately does the opposite - see curvedPath's own doc comment for why it leaves along the box's
+ * own outward normal (one of only 4 directions, since a rectangle only has 4 sides) instead of a continuous
+ * angle: there's no arrowhead there for a cardinal-ish angle to look wrong on, and "flows straight out of the
+ * box" reads better than "points at wherever the target happens to be" when nothing is there to justify it.
  */
 export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targetY, data, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, labelShowBg, markerEnd, style, interactionWidth }: EdgeProps<TopoEdge>) {
   const sourceNode = useInternalNode(source)
@@ -175,11 +211,16 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   let sy = sourceY
   let tx = targetX
   let ty = targetY
+  // The direction curvedPath's cubic leaves the source in - defaults to "up" (a reasonable guess for the
+  // very first render or two before a node is measured) and gets replaced with the real answer below the
+  // moment both boxes are.
+  let sourceNormal = { x: 0, y: -1 }
   if (sourceBox && targetBox) {
     const targetCenter = { x: targetBox.x + targetBox.w / 2, y: targetBox.y + targetBox.h / 2 }
     const sourceCenter = { x: sourceBox.x + sourceBox.w / 2, y: sourceBox.y + sourceBox.h / 2 }
     const from = intersection(sourceBox, targetCenter)
     const to = intersection(targetBox, sourceCenter)
+    sourceNormal = outwardNormal(sourceBox, from)
     sx = from.x
     sy = from.y
     tx = to.x
@@ -216,7 +257,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   const x2 = tx + nx * targetOff
   const y2 = ty + ny * targetOff
   const edgeStyle = useContext(EdgeStyleContext)
-  const { path, labelX, labelY } = edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2) : curvedPath(x1, y1, x2, y2, nx, ny)
+  const { path, labelX, labelY } = edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal)
   return (
     <BaseEdge
       id={id}

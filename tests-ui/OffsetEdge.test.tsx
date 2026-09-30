@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { curvedPath, intersection, pullBackEnds } from '@/components/topology/OffsetEdge'
+import { curvedPath, intersection, outwardNormal, pullBackEnds } from '@/components/topology/OffsetEdge'
 
 // A pure-math test, no rendering needed - kept in tests-ui/ (not tests/) purely because that's where the
 // vitest config's include glob looks; nothing here touches the DOM.
@@ -56,45 +56,79 @@ describe('intersection (OffsetEdge\'s floating-edge anchor math)', () => {
   })
 })
 
-describe('curvedPath (OffsetEdge\'s gentle-bow path math)', () => {
-  test('starts and ends exactly at the given anchor points, whatever the bow', () => {
-    const { path } = curvedPath(0, 0, 300, 0, 0, 1)
+describe('outwardNormal (which side of a box a boundary point sits on, as a unit normal)', () => {
+  const box = { x: 100, y: 100, w: 200, h: 100 } // spans x:100-300, y:100-200
+
+  test('points left/right for a point on the box\'s own left/right edge', () => {
+    expect(outwardNormal(box, { x: 100, y: 150 })).toEqual({ x: -1, y: 0 })
+    expect(outwardNormal(box, { x: 300, y: 150 })).toEqual({ x: 1, y: 0 })
+  })
+
+  test('points up/down for a point on the box\'s own top/bottom edge', () => {
+    expect(outwardNormal(box, { x: 200, y: 100 })).toEqual({ x: 0, y: -1 })
+    expect(outwardNormal(box, { x: 200, y: 200 })).toEqual({ x: 0, y: 1 })
+  })
+})
+
+describe('curvedPath (OffsetEdge\'s asymmetric cubic-bow path math)', () => {
+  const outUp = { x: 0, y: -1 }
+  const outRight = { x: 1, y: 0 }
+
+  test('starts and ends exactly at the given anchor points, and is a genuine cubic (two control points)', () => {
+    const { path } = curvedPath(0, 0, 300, 0, 0, 1, outUp)
     expect(path.startsWith('M0,0 ')).toBe(true)
     expect(path.endsWith(' 300,0')).toBe(true)
+    expect(path).toMatch(/^M[\d.,-]+ C[\d.,-]+ [\d.,-]+ [\d.,-]+$/)
   })
 
-  test('bows perpendicular to the line, toward the given normal, and away from the straight midpoint', () => {
-    const straightMidX = 150
-    const straightMidY = 0
-    const { path } = curvedPath(0, 0, 300, 0, 0, 1) // nx=0, ny=1: bow straight "down" in SVG's y-down space
-    const control = path.match(/Q([\d.-]+),([\d.-]+)/)
-    expect(control).not.toBeNull()
-    const [, cx, cy] = control!
-    expect(Number(cx)).toBeCloseTo(straightMidX, 5)
-    expect(Number(cy)).toBeGreaterThan(straightMidY) // pulled toward +y, not left sitting on the straight line
+  test('the initial tangent leaves straight out along sourceNormal, not toward the target', () => {
+    // sourceNormal points straight "up" - away from the target, which is off to the right - so the
+    // near-source control point should sit directly above the source anchor, not pulled sideways at all.
+    const { path } = curvedPath(0, 0, 300, 0, 0, 1, outUp)
+    const [, c1x, c1y] = path.match(/C([\d.-]+),([\d.-]+)/)!
+    expect(Number(c1x)).toBeCloseTo(0, 5) // no sideways pull toward the target
+    expect(Number(c1y)).toBeLessThan(0) // straight up, per outUp
   })
 
-  test('bow is proportional to length but capped, so a very long edge stays a subtle arc', () => {
-    const short = curvedPath(0, 0, 100, 0, 0, 1)
-    const long = curvedPath(0, 0, 100_000, 0, 0, 1)
-    const bowOf = (p: { path: string }) => {
-      const m = p.path.match(/Q[\d.-]+,([\d.-]+)/)
-      return Number(m![1])
-    }
+  test('the target-end control point is unaffected by sourceNormal - still the old gentle bow toward nx/ny', () => {
+    const up = curvedPath(0, 0, 300, 0, 0, 1, outUp)
+    const right = curvedPath(0, 0, 300, 0, 0, 1, outRight)
+    const secondControl = (p: { path: string }) => p.path.match(/C[\d.-]+,[\d.-]+ ([\d.-]+),([\d.-]+)/)!.slice(1).map(Number)
+    expect(secondControl(up)).toEqual(secondControl(right)) // same regardless of the source's own exit direction
+  })
+
+  test('bow (the target-side control offset) is proportional to length but capped, so a very long edge stays a subtle arc', () => {
+    const short = curvedPath(0, 0, 100, 0, 0, 1, outUp)
+    const long = curvedPath(0, 0, 100_000, 0, 0, 1, outUp)
+    const bowOf = (p: { path: string }) => Number(p.path.match(/C[\d.-]+,[\d.-]+ [\d.-]+,([\d.-]+)/)![1])
     expect(bowOf(short)).toBeCloseTo(100 * 0.12, 5) // under the cap: exactly proportional
     expect(bowOf(long)).toBeCloseTo(36, 5) // over the cap: clamped, not thousands of pixels
   })
 
-  test('label sits on the actual curve (quadratic midpoint), not the straight-line midpoint, for a bowed edge', () => {
-    const { labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 1)
-    expect(labelX).toBeCloseTo(150, 5) // symmetric case: still centered on x
-    expect(labelY).toBeGreaterThan(0) // but pulled off the straight line's y=0 toward the bow
+  test('the source-side exit stub is proportional to length but capped, independent of the bow', () => {
+    const short = curvedPath(0, 0, 100, 0, 0, 1, outUp)
+    const long = curvedPath(0, 0, 100_000, 0, 0, 1, outUp)
+    const exitOf = (p: { path: string }) => -Number(p.path.match(/C([\d.-]+),([\d.-]+)/)![2]) // outUp: c1y = y1 - exit
+    expect(exitOf(short)).toBeCloseTo(100 * 0.35, 5) // under the cap: exactly proportional
+    expect(exitOf(long)).toBeCloseTo(40, 5) // over the cap: clamped
   })
 
-  test('a straight-through bow (zero normal) collapses back to the straight-line midpoint', () => {
-    const { labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 0)
-    expect(labelX).toBeCloseTo(150, 5)
+  test('label sits on the actual cubic curve at t=0.5, not the straight-line midpoint', () => {
+    const { path, labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 1, outRight)
+    const [, c1x, c1y, mx, my] = path.match(/C([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+)/)!.map(Number)
+    // Cubic Bezier at t=0.5: (P0 + 3*C1 + 3*C2 + P2) / 8
+    expect(labelX).toBeCloseTo((0 + 3 * c1x + 3 * mx + 300) / 8, 5)
+    expect(labelY).toBeCloseTo((0 + 3 * c1y + 3 * my + 0) / 8, 5)
+    expect(labelY).toBeGreaterThan(0) // pulled toward the bow (+y), not sitting on the straight line's y=0
+  })
+
+  test('when both the bow and the source\'s own exit direction lie exactly along the line, the whole curve sits on that line', () => {
+    // outRight is parallel to the source->target direction itself here, and nx=ny=0 means no perpendicular
+    // bow either - so every point of the cubic, including the label, has y=0, even though (being an
+    // asymmetric cubic, not a symmetric one) the label isn't exactly at the line's geometric midpoint.
+    const { labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 0, outRight)
     expect(labelY).toBeCloseTo(0, 5)
+    expect(labelX).toBeCloseTo(108.75, 5)
   })
 })
 
