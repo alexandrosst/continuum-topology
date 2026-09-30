@@ -971,6 +971,20 @@ export default function Inspector({
           ) : (
             <p className="text-sm text-nb-500">{seen ? 'Seen, but no rates were reported.' : 'No traffic has been seen for this; it comes from what was declared. Turn on the traffic observer in Discovery to check it.'}</p>
           )}
+          <Maybe label="TLS server name">
+            {d.sniHost ? (
+              <span title="The hostname this dependency's TLS ClientHello named (SNI), read before the handshake encrypts anything - only eBPF sees this.">{d.sniHost}</span>
+            ) : undefined}
+          </Maybe>
+          <Maybe label="DNS queries">
+            {d.dnsQueryNames && d.dnsQueryNames.length > 0 ? (
+              <span className="flex flex-wrap justify-end gap-1" title="Distinct domain names resolved toward this dependency's destination - only eBPF sees this.">
+                {d.dnsQueryNames.map((n) => (
+                  <Pill key={n}>{n}</Pill>
+                ))}
+              </span>
+            ) : undefined}
+          </Maybe>
         </Section>
         {verdict && (
           <Section title="Service mesh">

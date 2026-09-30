@@ -178,6 +178,55 @@ func TestAggregatorSumsAndBounds(t *testing.T) {
 	}
 }
 
+func TestAggregatorCarriesSniHostAndDnsQueryNames(t *testing.T) {
+	a := NewAggregator()
+	base := func() *continuumv1.Flow {
+		return &continuumv1.Flow{Src: workload("app"), Dst: workload("coredns"), Port: 53, Protocol: "udp", Connections: 1, Method: "ebpf"}
+	}
+	f1 := base()
+	f1.DnsQueryNames = []string{"first.example.com"}
+	a.Add(f1)
+	f2 := base()
+	f2.DnsQueryNames = []string{"second.example.com"}
+	a.Add(f2)
+	// The same name again must not duplicate the list.
+	f3 := base()
+	f3.DnsQueryNames = []string{"first.example.com"}
+	a.Add(f3)
+	b := a.Flush()
+	if len(b.Flows) != 1 {
+		t.Fatalf("all three should merge into one held edge: %d", len(b.Flows))
+	}
+	// mergeDNSNames prepends each newly-seen distinct name, so the most recently first-seen name (here,
+	// "second.example.com", added after "first.example.com" and never repeated) ends up in front; the
+	// repeat of "first.example.com" in f3 must not have moved it or duplicated it.
+	got := b.Flows[0].DnsQueryNames
+	if len(got) != 2 || got[0] != "second.example.com" || got[1] != "first.example.com" {
+		t.Errorf("dns query names = %v, want [second.example.com first.example.com] (newest-distinct first, no duplicate)", got)
+	}
+
+	sni := a2(t)
+	tf1 := &continuumv1.Flow{Src: workload("app"), Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", SniHost: "example.com"}
+	sni.Add(tf1)
+	tf2 := &continuumv1.Flow{Src: workload("app"), Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"} // no SNI on this report
+	sni.Add(tf2)
+	sb := sni.Flush()
+	if len(sb.Flows) != 1 || sb.Flows[0].SniHost != "example.com" || sb.Flows[0].Connections != 2 {
+		t.Errorf("sniHost=%q connections=%d, want example.com/2 (a report with none must not blank a known one)", sb.Flows[0].SniHost, sb.Flows[0].Connections)
+	}
+}
+
+// a2 is a second, freshly time-controlled Aggregator for the SNI half of the test above, which needs its
+// own window rather than sharing the first Aggregator's already-flushed one.
+func a2(t *testing.T) *Aggregator {
+	t.Helper()
+	a := NewAggregator()
+	now := time.Now()
+	a.now = func() time.Time { return now }
+	a.since = now
+	return a
+}
+
 func TestReceiverVerifiesAndAttributes(t *testing.T) {
 	secret := []byte("flow-secret-0123456789abcdef0123")
 	p := NewPipeline(secret, testIndex, nil)

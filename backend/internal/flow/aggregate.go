@@ -82,6 +82,10 @@ func (a *Aggregator) Add(f *continuumv1.Flow) {
 		if f.RttUs != 0 {
 			cur.RttUs = f.RttUs // a gauge, not a sum: the latest sample replaces the last, same as Iface
 		}
+		if f.SniHost != "" {
+			cur.SniHost = f.SniHost // also a gauge: one peer essentially always carries one hostname
+		}
+		cur.DnsQueryNames = mergeDNSNames(cur.DnsQueryNames, f.DnsQueryNames)
 		cur.BytesKnown = cur.BytesKnown || f.BytesKnown
 		if f.Method == "ebpf" {
 			cur.Method = "ebpf"
@@ -92,6 +96,36 @@ func (a *Aggregator) Add(f *continuumv1.Flow) {
 	if len(a.flows) > a.max {
 		a.evict()
 	}
+}
+
+// maxHeldDNSNames bounds how many distinct domain names one held (and, later, one stored) dns-noise
+// edge remembers - a resolver edge can legitimately field many different lookups, but "recently asked
+// about" is the point, not a full log.
+const maxHeldDNSNames = 8
+
+// mergeDNSNames folds add's distinct, non-empty names into cur, newest first, capped at
+// maxHeldDNSNames - used both here (within one window) and by the server's own FlowEdge accumulation
+// (across many windows), since the list-vs-gauge reasoning is identical either way.
+func mergeDNSNames(cur, add []string) []string {
+	for _, n := range add {
+		if n == "" {
+			continue
+		}
+		found := false
+		for _, c := range cur {
+			if c == n {
+				found = true
+				break
+			}
+		}
+		if !found {
+			cur = append([]string{n}, cur...)
+		}
+	}
+	if len(cur) > maxHeldDNSNames {
+		cur = cur[:maxHeldDNSNames]
+	}
+	return cur
 }
 
 // evict drops the tenth of the held edges that were touched longest ago. It runs once per max/10 additions past the

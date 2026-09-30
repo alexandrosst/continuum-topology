@@ -18,8 +18,8 @@ export type EdgeHoverPos = { cx: number; cy: number }
  * operator has neither `stats` nor `quality` set, so it falls through to just the two names and its label -
  * a graceful minimum rather than a special case.
  *
- * Round trip, retransmits and interface mirror the Inspector's own "Traffic" section exactly (same
- * eBPF-only gate for retransmits, same rttMs source) - so a click is never needed just to see numbers a
+ * Round trip, retransmits, TLS server name, DNS queries and interface mirror the Inspector's own
+ * "Traffic" section exactly (same eBPF-only gates) - so a click is never needed just to see numbers a
  * hover already had.
  *
  * Route only ever appears on a cross-cluster dependency: whether it lands on a flat/mesh-federated network
@@ -54,6 +54,8 @@ export default function EdgeHoverCard({
   // Same eBPF-only gate as retransmits; only worth a row at all when something has actually failed, since
   // "0 failed attempts" on every quiet, perfectly healthy edge would just be noise in a card this small.
   const showFailed = d?.via === 'ebpf' && !!d?.failedAttempts
+  const showSni = d?.via === 'ebpf' && !!d?.sniHost
+  const showDns = d?.via === 'ebpf' && !!d?.dnsQueryNames?.length
   const left = Math.min(pos.cx - box.left + 14, box.width - 236)
   const top = Math.max(8, pos.cy - box.top - 12)
   const label = typeof edge.label === 'string' ? edge.label : undefined
@@ -73,7 +75,7 @@ export default function EdgeHoverCard({
           ? d.activeCount ? ` · ${d.activeCount} seen in traffic` : undefined
           : label !== undefined && (d?.stale ? ' · quiet' : seen ? ' · seen in traffic' : ' · declared')}
       </div>
-      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showRetransmits || showFailed || d?.iface || d?.quality || d?.route) && (
+      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showRetransmits || showFailed || showSni || showDns || d?.iface || d?.quality || d?.route) && (
         <dl className="mt-1.5 grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-0.5 text-nb-400">
           {showBps && (
             <>
@@ -115,6 +117,21 @@ export default function EdgeHoverCard({
             <>
               <dt title="Connection attempts that never reached ESTABLISHED">Failed attempts</dt>
               <dd className="text-nb-200">{d!.failedAttempts} total</dd>
+            </>
+          )}
+          {showSni && (
+            <>
+              <dt title="Hostname seen in this edge's TLS ClientHello (SNI), before the handshake encrypts anything">TLS server name</dt>
+              <dd className="truncate text-nb-200">{d!.sniHost}</dd>
+            </>
+          )}
+          {showDns && (
+            <>
+              <dt title="Distinct domain names resolved toward this edge's destination">DNS queries</dt>
+              <dd className="truncate text-nb-200">
+                {d!.dnsQueryNames!.slice(0, 2).join(', ')}
+                {d!.dnsQueryNames!.length > 2 ? ` +${d!.dnsQueryNames!.length - 2} more` : ''}
+              </dd>
             </>
           )}
           {d?.iface && (

@@ -213,7 +213,9 @@ measurements:
   enabled: false
 
 # Optional traffic observer: counts which workloads talk to which, and how much, on every node.
-# It counts TCP connections and bytes per pair of addresses. It never reads packets or payloads.
+# It counts TCP connections and bytes per pair of addresses. By default it never reads packets or
+# payloads; flowObserver.names.enabled below is a separate, off-by-default opt-in that additionally
+# captures the one hostname a DNS query or a TLS ClientHello carries in the clear - see its own comment.
 # Method: eBPF where the kernel supports it (5.10+ with BTF), the kernel's connection-tracking table
 # otherwise (bytes only if net.netfilter.nf_conntrack_acct=1). The dashboard shows which one each
 # edge came from.
@@ -228,6 +230,14 @@ flowObserver:
   # host's PID namespace (hostPID), which the kernel needs in order to walk other pods' sockets. Set false
   # to keep the pod out of the host's PID namespace; bytes then arrive when connections close.
   liveBytes: true
+  # Off by default. When enabled, the collector also reads just enough of a DNS query or a TLS
+  # ClientHello to pull out the one hostname each carries in the clear before anything is encrypted -
+  # the domain name being resolved, or the server name (SNI) being connected to - and discards the rest
+  # of the packet immediately; it never inspects any other part of the traffic's content. This needs
+  # CAP_NET_ADMIN in addition to BPF/PERFMON/SYS_RESOURCE, to attach the cgroup/skb program that reads
+  # them (added to the pod's capabilities automatically when this is on - nothing to set separately).
+  names:
+    enabled: false
   # Leave empty to generate one on first install and keep it across upgrades. Separate from the probe's.
   secret: ""
   # Runs the same image as the agent, with the argument `flow` (see `image` above). It is the one part of Continuum that runs

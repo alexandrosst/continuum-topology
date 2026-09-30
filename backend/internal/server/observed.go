@@ -113,6 +113,35 @@ func validateFlowKey(f *continuumv1.Flow) error {
 	return validateFlowEndpoints(f)
 }
 
+// maxStoredDNSNames mirrors aggregate.go's own maxHeldDNSNames - a resolver edge can legitimately field
+// many different lookups over its life, but "recently asked about" is the point, not a full log.
+const maxStoredDNSNames = 8
+
+// mergeDNSNames folds add's distinct, non-empty names into cur, newest first, capped - the server-side
+// twin of aggregate.go's function of the same name and shape (a different package, and a different
+// struct's field, but the exact same list-vs-gauge reasoning: see model.Dependency.DnsQueryNames).
+func mergeDNSNames(cur, add []string) []string {
+	for _, n := range add {
+		if n == "" {
+			continue
+		}
+		found := false
+		for _, c := range cur {
+			if c == n {
+				found = true
+				break
+			}
+		}
+		if !found {
+			cur = append([]string{n}, cur...)
+		}
+	}
+	if len(cur) > maxStoredDNSNames {
+		cur = cur[:maxStoredDNSNames]
+	}
+	return cur
+}
+
 // satAdd adds without wrapping: a counter fed by a compromised agent sticks at the maximum instead of
 // rolling over to a small number that would hide the traffic (or, added to, make it look like none).
 func satAdd(a, b uint64) uint64 {
@@ -153,6 +182,10 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		if f.RttUs != 0 {
 			e.Key.RttUs = f.RttUs
 		}
+		if f.SniHost != "" {
+			e.Key.SniHost = f.SniHost // a gauge too, for the same reason as Iface/RttUs above
+		}
+		e.DnsQueryNames = mergeDNSNames(e.DnsQueryNames, f.DnsQueryNames)
 	}
 	if len(t.edges) > maxFlowEdges { // forget the edges unseen for longest
 		type kv struct {
@@ -529,6 +562,10 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		}
 		d.Retransmits = satAdd(d.Retransmits, e.Retransmits)
 		d.FailedAttempts = satAdd(d.FailedAttempts, e.FailedAttempts)
+		if e.Key.SniHost != "" {
+			d.SniHost = e.Key.SniHost
+		}
+		d.DnsQueryNames = mergeDNSNames(d.DnsQueryNames, e.DnsQueryNames)
 		if e.Key.Noise == "" {
 			d.Noise = ""
 		}

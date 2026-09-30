@@ -551,6 +551,17 @@ export interface Dependency {
    * entirely unset: that is the interesting case, something the application keeps trying to reach and
    * never does. */
   failedAttempts?: number
+  /** The hostname a TLS ClientHello's SNI extension named for this edge's destination, read before the
+   * handshake ever encrypts anything - only ever set by eBPF, and only once a ClientHello has actually
+   * been seen (most non-TLS edges, and any conntrack-only edge, simply never have this). A gauge, like
+   * iface: one peer address essentially always carries one hostname, so a later report overwrites this
+   * rather than accumulating. */
+  sniHost?: string
+  /** Distinct domain names this edge's destination has been asked to resolve, newest-first, capped at a
+   * small number - only ever set by eBPF, from DNS queries sent to this peer. Unlike sniHost, one
+   * resolver edge legitimately carries many different domains over its life, so this accumulates instead
+   * of being overwritten. */
+  dnsQueryNames?: string[]
   /** The most recently sampled smoothed round-trip time, in milliseconds, from the kernel's own TCP RTT
    * estimator. A gauge (the latest sample), not an average over the edge's life. Unset means no sample
    * yet - most often too little exchanged to measure one, or a conntrack-only edge. */

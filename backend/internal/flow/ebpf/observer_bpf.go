@@ -3,16 +3,22 @@
 package ebpf
 
 import (
+	"bufio"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net/netip"
+	"os"
+	"strings"
+	"sync"
 
 	continuumv1 "continuum/gen/continuumv1"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
+	"github.com/cilium/ebpf/ringbuf"
 )
 
 // Options tunes what Open loads.
@@ -21,6 +27,13 @@ type Options struct {
 	// counted in every window instead of when they close. It needs the collector to see every process
 	// (hostPID), or it only sees its own.
 	Live bool
+	// Names also loads and attaches the cgroup_skb egress program that captures DNS query names and TLS
+	// SNI hostnames (see flow.c's observe_egress and names.go's parsers). It needs CAP_NET_ADMIN on top
+	// of Open's own BPF/PERFMON/SYS_RESOURCE, which is why it is its own opt-in rather than always-on:
+	// unlike everything else this package counts, it is the one thing here that looks at packet payloads
+	// at all, even though it is bounded to exactly two hostnames and nothing else. See Observer.NamesErr
+	// for why it is not running when this was asked for and failed.
+	Names bool
 }
 
 // Observer holds the loaded programs. It is cheap: three maps, one tracepoint and, optionally, one iterator.
@@ -37,7 +50,35 @@ type Observer struct {
 
 	// LiveErr says why live counting was asked for and is not running; nil when it is running or was not asked for.
 	LiveErr error
+	// NamesErr says why Options.Names was asked for and is not running; nil when it is running or was not asked for.
+	NamesErr error
+
+	namesProg *ebpf.Program
+	namesMap  *ebpf.Map
+	namesLnk  link.Link
+	namesRd   *ringbuf.Reader
+
+	namesMu      sync.Mutex
+	pendingNames []observedName
 }
+
+// observedName is one decoded, already-parsed ring buffer record, waiting for the next Collect().
+type observedName struct {
+	kind        uint8
+	local, peer string
+	port        uint16
+	name        string
+}
+
+// maxPendingNames bounds how many decoded names wait between two Collect() calls, the same "bounded, and
+// anything past the bound is counted lost rather than grown without limit" treatment count_lost's own
+// map gives every other counter here.
+const maxPendingNames = 2000
+
+const (
+	nameKindDNSQuery       = 1
+	nameKindTLSClientHello = 2
+)
 
 // Live reports whether open connections are counted while they are open.
 func (o *Observer) Live() bool { return o.iter != nil }
@@ -58,6 +99,7 @@ func Open(opts ...Options) (*Observer, error) {
 		return nil, fmt.Errorf("cannot read the embedded program: %w", err)
 	}
 	delete(spec.Programs, "snapshot")
+	delete(spec.Programs, "observe_egress")
 	var o Observer
 	if err := spec.LoadAndAssign(&o.objs, nil); err != nil {
 		var ve *ebpf.VerifierError
@@ -75,6 +117,9 @@ func Open(opts ...Options) (*Observer, error) {
 	if opt.Live {
 		o.LiveErr = o.openSnapshot()
 	}
+	if opt.Names {
+		o.NamesErr = o.openNames()
+	}
 	return &o, nil
 }
 
@@ -84,6 +129,7 @@ func (o *Observer) openSnapshot() error {
 		return err
 	}
 	delete(spec.Programs, "on_state")
+	delete(spec.Programs, "observe_egress")
 	var p struct {
 		Snapshot *ebpf.Program `ebpf:"snapshot"`
 	}
@@ -98,6 +144,129 @@ func (o *Observer) openSnapshot() error {
 	}
 	o.snap, o.iter = p.Snapshot, it
 	return nil
+}
+
+// cgroupV2Root finds the cgroup2 unified hierarchy's mount point by reading /proc/mounts, rather than
+// assuming the conventional /sys/fs/cgroup - a chart can mount the host's cgroup filesystem at whatever
+// path it likes, and a hybrid v1+v2 host can have cgroup2 mounted somewhere other than the usual default.
+func cgroupV2Root() (string, error) {
+	f, err := os.Open("/proc/mounts")
+	if err != nil {
+		return "", fmt.Errorf("cannot read /proc/mounts to find the cgroup2 filesystem: %w", err)
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) >= 3 && fields[2] == "cgroup2" {
+			return fields[1], nil
+		}
+	}
+	return "", errors.New("no cgroup2 filesystem is mounted - the node-capture program needs the unified cgroup hierarchy")
+}
+
+// openNames loads and attaches the cgroup_skb egress program (see flow.c's observe_egress), and starts
+// the background reader that decodes what it captures. Sharing this Observer's own "lost" map (the way
+// openSnapshot already shares flows/socks/lost) means a full ring buffer counts toward the same lost
+// total Collect() already reports, rather than a second, separate figure nothing reads.
+func (o *Observer) openNames() error {
+	cg, err := cgroupV2Root()
+	if err != nil {
+		return err
+	}
+	spec, err := loadFlow()
+	if err != nil {
+		return err
+	}
+	delete(spec.Programs, "on_state")
+	delete(spec.Programs, "snapshot")
+	delete(spec.Maps, "flows")
+	delete(spec.Maps, "socks")
+	var p struct {
+		ObserveEgress *ebpf.Program `ebpf:"observe_egress"`
+		Names         *ebpf.Map     `ebpf:"names"`
+	}
+	if err := spec.LoadAndAssign(&p, &ebpf.CollectionOptions{MapReplacements: map[string]*ebpf.Map{"lost": o.objs.Lost}}); err != nil {
+		var ve *ebpf.VerifierError
+		if errors.As(err, &ve) {
+			return fmt.Errorf("the kernel's verifier rejected the name-capture program: %w", err)
+		}
+		return fmt.Errorf("the name-capture program could not be loaded: %w", err)
+	}
+	l, err := link.AttachCgroup(link.CgroupOptions{Path: cg, Attach: ebpf.AttachCGroupInetEgress, Program: p.ObserveEgress})
+	if err != nil {
+		p.ObserveEgress.Close()
+		p.Names.Close()
+		return fmt.Errorf("the name-capture program could not be attached to the root cgroup (%s): %w", cg, err)
+	}
+	rd, err := ringbuf.NewReader(p.Names)
+	if err != nil {
+		l.Close()
+		p.ObserveEgress.Close()
+		p.Names.Close()
+		return fmt.Errorf("the name-capture ring buffer could not be opened: %w", err)
+	}
+	o.namesProg, o.namesMap, o.namesLnk, o.namesRd = p.ObserveEgress, p.Names, l, rd
+	go o.drainNames()
+	return nil
+}
+
+// drainNames blocks on the ring buffer for as long as it is open, decoding each record (flow.c's raw
+// bytes, parsed by names.go) into the small pending list Collect() drains. It returns, quietly, once the
+// reader is closed (Close() does that) - ringbuf.Reader.Read's documented way of saying "stop".
+func (o *Observer) drainNames() {
+	const eventLen = 16 + 16 + 2 + 2 + 1 + 3 + 4 // saddr, daddr, sport, dport, kind, pad, len - the header
+	// before flow.c's fixed-size data[NAME_CAP] array; see flowNameEvent's generated layout.
+	for {
+		rec, err := o.namesRd.Read()
+		if err != nil {
+			return
+		}
+		raw := rec.RawSample
+		if len(raw) < eventLen {
+			continue
+		}
+		var saddr, daddr [16]byte
+		copy(saddr[:], raw[0:16])
+		copy(daddr[:], raw[16:32])
+		dport := binary.LittleEndian.Uint16(raw[34:36])
+		kind := raw[36]
+		length := binary.LittleEndian.Uint32(raw[40:44])
+		data := raw[eventLen:]
+		if int(length) > len(data) {
+			length = uint32(len(data))
+		}
+		payload := data[:length]
+
+		var name string
+		var ok bool
+		switch kind {
+		case nameKindDNSQuery:
+			name, ok = ParseDNSQueryName(payload)
+		case nameKindTLSClientHello:
+			name, ok = ParseTLSClientHelloSNI(payload)
+		}
+		if !ok {
+			continue
+		}
+		o.namesMu.Lock()
+		if len(o.pendingNames) < maxPendingNames {
+			o.pendingNames = append(o.pendingNames, observedName{kind: kind, local: addr(saddr), peer: addr(daddr), port: dport, name: name})
+		}
+		o.namesMu.Unlock()
+	}
+}
+
+// takeNames returns and clears everything decoded since the last call.
+func (o *Observer) takeNames() []observedName {
+	o.namesMu.Lock()
+	defer o.namesMu.Unlock()
+	if len(o.pendingNames) == 0 {
+		return nil
+	}
+	names := o.pendingNames
+	o.pendingNames = nil
+	return names
 }
 
 func (o *Observer) Method() string   { return "ebpf" }
@@ -117,6 +286,12 @@ func (o *Observer) Close() error {
 	}
 	if o.lnk != nil {
 		o.lnk.Close()
+	}
+	if o.namesRd != nil {
+		o.namesRd.Close() // unblocks drainNames' Read() loop
+		o.namesLnk.Close()
+		o.namesProg.Close()
+		o.namesMap.Close()
 	}
 	o.closeMaps()
 	return nil
@@ -224,6 +399,25 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			FailedReset:       sum.FailedReset,
 			FailedUnreachable: sum.FailedUnreachable,
 		})
+	}
+
+	// DNS query names and TLS SNI hostnames arrive on a wholly separate path (a ring buffer, not the
+	// flows map) and were never TCP-state-tracked in the first place for DNS - each becomes its own
+	// RawFlow row, with no counts of its own, purely so the same attribution and merge-by-attributed-key
+	// logic already applied to every other row (see resolve.go, aggregate.go) applies to these too.
+	for _, n := range o.takeNames() {
+		rf := &continuumv1.RawFlow{Client: true, LocalIp: n.local, PeerIp: n.peer, Port: uint32(n.port)}
+		switch n.kind {
+		case nameKindDNSQuery:
+			rf.Protocol = "udp"
+			rf.DnsQueryName = n.name
+		case nameKindTLSClientHello:
+			rf.Protocol = "tcp"
+			rf.SniHost = n.name
+		default:
+			continue
+		}
+		out = append(out, rf)
 	}
 
 	var lost uint64

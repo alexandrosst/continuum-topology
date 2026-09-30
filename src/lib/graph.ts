@@ -164,6 +164,11 @@ export type EdgeData = {
    *  be non-zero even when connections/bytesPerSec are entirely absent, which is exactly the "this
    *  dependency is never actually reachable" case worth surfacing. */
   failedAttempts?: number
+  /** The SNI hostname seen in this edge's TLS traffic (Dependency.sniHost) - eBPF only, a gauge. */
+  sniHost?: string
+  /** Distinct domain names seen resolved toward this edge's destination (Dependency.dnsQueryNames) -
+   *  eBPF only, newest-first, accumulates rather than being overwritten. */
+  dnsQueryNames?: string[]
   /** Aggregated (group<->group) edges only: how many of the bundled dependencies were actually seen in
    *  traffic, out of the total the label already counts - the hover card's "(N seen in traffic)" aside. */
   activeCount?: number
@@ -663,6 +668,8 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         retransmits: d.retransmits,
         rttMs: d.rttMs,
         failedAttempts: d.failedAttempts,
+        sniHost: d.sniHost,
+        dnsQueryNames: d.dnsQueryNames,
         route,
       }))
     }
@@ -1319,6 +1326,8 @@ function makeEdge(
     retransmits?: number
     rttMs?: number
     failedAttempts?: number
+    sniHost?: string
+    dnsQueryNames?: string[]
     activeCount?: number
     /** Only set on a cross-cluster dependency: whether the target is reached over a flat/mesh-federated
      *  network route, or has to go out through its own external exposure (ingress, node port or load
@@ -1355,7 +1364,7 @@ function makeEdge(
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,
     markerEnd: d.aggregated ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, retransmits: d.retransmits, rttMs: d.rttMs, failedAttempts: d.failedAttempts, activeCount: d.activeCount, route: d.route },
+    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, retransmits: d.retransmits, rttMs: d.rttMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, activeCount: d.activeCount, route: d.route },
   }
 }
 

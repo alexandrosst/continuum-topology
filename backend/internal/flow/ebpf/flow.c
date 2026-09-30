@@ -399,3 +399,187 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 	}
 	return 0;
 }
+
+// ---------------------------------------------------------------------------
+// Optional: the two hostnames a connection still carries in the clear before anything is encrypted - the
+// domain name in a DNS query, and the server name (SNI) in a TLS ClientHello. Nothing else about the
+// packet is read: no DNS answers, no TLS certificate, no application data, ever, and this whole program
+// only runs when flowObserver.names.enabled turns it on (see the chart) - it needs CAP_NET_ADMIN on top of
+// the counting-only program above's BPF/PERFMON/SYS_RESOURCE, which is why it is its own opt-in, not part
+// of on_state.
+//
+// Attached to the egress side of the root cgroup, so every outgoing packet from every pod on the node
+// passes through once: cheap to reject the overwhelming majority (wrong protocol, wrong port, not a
+// ClientHello) with a couple of header-field reads, and only the rare match pays for a copy. All the
+// actual parsing - DNS name decompression, walking TLS extensions - happens in Go from the raw bytes this
+// hands over; nothing here does anything more than "is this worth a look", because backward jumps and
+// data-dependent loops are exactly what the verifier cannot prove safe without a live kernel to iterate
+// against, and this cannot be tested against one before it ships.
+
+// bpf_helper_defs.h only forward-declares this (it needs a pointer type for its helper signatures); this
+// completes it with just the one field this program reads. Unlike every other struct in this file,
+// field access on the cgroup_skb/tc context type is not CO-RE-relocated by name - the compiler emits a
+// load at this struct's own computed offset, and the verifier accepts it by matching that offset against
+// the kernel's fixed __sk_buff layout, so len must stay the very first field, matching upstream.
+struct __sk_buff {
+	__u32 len;
+};
+
+#define AF_INET_PROTO_TCP 6
+#define AF_INET_PROTO_UDP 17
+
+#define NAME_KIND_DNS_QUERY 1
+#define NAME_KIND_TLS_CLIENT_HELLO 2
+
+// Large enough for the overwhelming majority of real DNS queries and TLS ClientHellos (which typically
+// carry their SNI within the first few hundred bytes of the first flight) without ever approaching a
+// single packet's usual MTU-bound size.
+#define NAME_CAP 1500
+
+struct name_event {
+	__u8 saddr[16];
+	__u8 daddr[16];
+	__u16 sport;
+	__u16 dport;
+	__u8 kind;
+	__u8 pad[3];
+	__u32 len; // how many bytes of data are actually valid; the rest of the fixed-size array is not
+	__u8 data[NAME_CAP];
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, 1 << 20); // 1 MiB, shared by both kinds of event; a full ring drops the event
+	                              // and counts it lost rather than blocking the packet it came from.
+} names SEC(".maps");
+
+// A ring buffer has no per-record __type(value, ...) the way a hash map does, so nothing else in this
+// file gives the Go generator a reason to keep struct name_event's BTF around; this unused global is that
+// reason (bpf2go's own documented trick for exactly this case).
+struct name_event *unused_name_event __attribute__((unused));
+
+// put_addr4/6 mirror put_addr above but take a raw big-endian 32-bit address (as read straight off the
+// wire) instead of the kernel's own struct in6_addr, since this program never touches struct sock at all.
+static __always_inline void put_addr4(__u8 dst[16], __be32 v4) {
+	__builtin_memset(dst, 0, 10);
+	dst[10] = 0xff;
+	dst[11] = 0xff;
+	__builtin_memcpy(dst + 12, &v4, 4);
+}
+
+// reserve+fill+submit one event, or count it lost (ring full, or the copy itself failed - a packet that
+// raced us into being shorter than the length we computed for it a few instructions earlier, say).
+static __always_inline void submit_name(struct __sk_buff *skb, __u8 kind, const __u8 saddr[16], const __u8 daddr[16], __u16 sport, __u16 dport, __u32 offset, __u32 avail) {
+	__u32 want = avail < NAME_CAP ? avail : NAME_CAP;
+	if (want > NAME_CAP) // redundant with the line above, but the verifier gets this one for free
+		want = NAME_CAP;
+	struct name_event *ev = bpf_ringbuf_reserve(&names, sizeof(*ev), 0);
+	if (!ev) {
+		count_lost();
+		return;
+	}
+	__builtin_memcpy(ev->saddr, saddr, 16);
+	__builtin_memcpy(ev->daddr, daddr, 16);
+	ev->sport = sport;
+	ev->dport = dport;
+	ev->kind = kind;
+	ev->len = 0;
+	if (want > 0 && bpf_skb_load_bytes(skb, offset, ev->data, want) == 0)
+		ev->len = want;
+	if (ev->len == 0) {
+		// Nothing usable was actually read - don't hand Go an empty buffer to parse for no reason.
+		bpf_ringbuf_discard(ev, 0);
+		count_lost();
+		return;
+	}
+	bpf_ringbuf_submit(ev, 0);
+}
+
+SEC("cgroup_skb/egress")
+int observe_egress(struct __sk_buff *skb) {
+	__u8 v;
+	if (bpf_skb_load_bytes(skb, 0, &v, 1) != 0)
+		return 1;
+	__u8 version = v >> 4;
+
+	__u8 proto;
+	__u32 l4_off;
+	__u8 saddr[16], daddr[16];
+
+	if (version == 4) {
+		__u8 ihl_byte = v & 0x0f;
+		__u32 ihl = ihl_byte * 4;
+		if (ihl < 20) // a malformed header, not a real IPv4 packet
+			return 1;
+		if (bpf_skb_load_bytes(skb, 9, &proto, 1) != 0)
+			return 1;
+		__be32 s4, d4;
+		if (bpf_skb_load_bytes(skb, 12, &s4, 4) != 0 || bpf_skb_load_bytes(skb, 16, &d4, 4) != 0)
+			return 1;
+		put_addr4(saddr, s4);
+		put_addr4(daddr, d4);
+		l4_off = ihl;
+	} else if (version == 6) {
+		if (bpf_skb_load_bytes(skb, 6, &proto, 1) != 0)
+			return 1;
+		// Extension headers are skipped, not walked: the overwhelming majority of real traffic has none,
+		// and a chain of them is a reason to miss this one packet's name, not a reason to risk a
+		// data-dependent loop the verifier cannot be shown is bounded without a kernel to check it against.
+		if (bpf_skb_load_bytes(skb, 8, saddr, 16) != 0 || bpf_skb_load_bytes(skb, 24, daddr, 16) != 0)
+			return 1;
+		l4_off = 40;
+	} else {
+		return 1; // not IP at all (already encapsulated, ARP, ...)
+	}
+
+	__u32 total = skb->len;
+	if (l4_off >= total)
+		return 1;
+
+	if (proto == AF_INET_PROTO_UDP) {
+		if (total - l4_off < 8) // shorter than a UDP header: not a real UDP packet
+			return 1;
+		__u16 sport_be, dport_be;
+		if (bpf_skb_load_bytes(skb, l4_off, &sport_be, 2) != 0 || bpf_skb_load_bytes(skb, l4_off + 2, &dport_be, 2) != 0)
+			return 1;
+		__u16 dport = __builtin_bswap16(dport_be);
+		if (dport != 53)
+			return 1;
+		__u32 payload_off = l4_off + 8;
+		if (payload_off >= total)
+			return 1;
+		submit_name(skb, NAME_KIND_DNS_QUERY, saddr, daddr, __builtin_bswap16(sport_be), dport, payload_off, total - payload_off);
+		return 1;
+	}
+
+	if (proto == AF_INET_PROTO_TCP) {
+		if (total - l4_off < 20) // shorter than a minimal TCP header: not a real TCP packet
+			return 1;
+		__u8 doff_byte;
+		if (bpf_skb_load_bytes(skb, l4_off + 12, &doff_byte, 1) != 0)
+			return 1;
+		__u32 tcp_hdr_len = (doff_byte >> 4) * 4;
+		if (tcp_hdr_len < 20)
+			return 1;
+		__u32 payload_off = l4_off + tcp_hdr_len;
+		if (payload_off >= total || total - payload_off < 6)
+			return 1; // not enough of a first segment here to be a ClientHello's fixed header
+		// TLS record: type=handshake(0x16), version major=3 (any TLS 1.x minor); handshake: type=ClientHello(0x01).
+		// Checked as individual byte reads, not a single 6-byte struct, so a false-positive match on some
+		// other protocol that merely starts with 0x16 0x03 costs one extra read, not a wrong parse - Go's
+		// own parser re-validates the whole record/handshake shape before trusting anything in it anyway.
+		__u8 b0, b1, b5;
+		if (bpf_skb_load_bytes(skb, payload_off, &b0, 1) != 0 || bpf_skb_load_bytes(skb, payload_off + 1, &b1, 1) != 0 ||
+		    bpf_skb_load_bytes(skb, payload_off + 5, &b5, 1) != 0)
+			return 1;
+		if (b0 != 0x16 || b1 != 0x03 || b5 != 0x01)
+			return 1;
+		__u16 sport_be, dport_be;
+		if (bpf_skb_load_bytes(skb, l4_off, &sport_be, 2) != 0 || bpf_skb_load_bytes(skb, l4_off + 2, &dport_be, 2) != 0)
+			return 1;
+		submit_name(skb, NAME_KIND_TLS_CLIENT_HELLO, saddr, daddr, __builtin_bswap16(sport_be), __builtin_bswap16(dport_be), payload_off, total - payload_off);
+		return 1;
+	}
+
+	return 1;
+}

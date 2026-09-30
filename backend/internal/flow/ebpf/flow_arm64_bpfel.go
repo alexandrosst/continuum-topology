@@ -39,6 +39,18 @@ type flowFlowVal struct {
 	FailedUnreachable uint64
 }
 
+type flowNameEvent struct {
+	_     structs.HostLayout
+	Saddr [16]uint8
+	Daddr [16]uint8
+	Sport uint16
+	Dport uint16
+	Kind  uint8
+	Pad   [3]uint8
+	Len   uint32
+	Data  [1500]uint8
+}
+
 type flowSockInfo struct {
 	_           structs.HostLayout
 	Key         flowFlowKey
@@ -54,11 +66,14 @@ type flowSockInfo struct {
 //
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
-	flowMapFlows     = "flows"
-	flowMapLost      = "lost"
-	flowMapSocks     = "socks"
-	flowProgOnState  = "on_state"
-	flowProgSnapshot = "snapshot"
+	flowMapFlows           = "flows"
+	flowMapLost            = "lost"
+	flowMapNames           = "names"
+	flowMapSocks           = "socks"
+	flowProgObserveEgress  = "observe_egress"
+	flowProgOnState        = "on_state"
+	flowProgSnapshot       = "snapshot"
+	flowVarUnusedNameEvent = "unused_name_event"
 )
 
 // loadFlow returns the embedded CollectionSpec for flow.
@@ -103,8 +118,9 @@ type flowSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type flowProgramSpecs struct {
-	OnState  *ebpf.ProgramSpec `ebpf:"on_state"`
-	Snapshot *ebpf.ProgramSpec `ebpf:"snapshot"`
+	ObserveEgress *ebpf.ProgramSpec `ebpf:"observe_egress"`
+	OnState       *ebpf.ProgramSpec `ebpf:"on_state"`
+	Snapshot      *ebpf.ProgramSpec `ebpf:"snapshot"`
 }
 
 // flowMapSpecs contains maps before they are loaded into the kernel.
@@ -113,6 +129,7 @@ type flowProgramSpecs struct {
 type flowMapSpecs struct {
 	Flows *ebpf.MapSpec `ebpf:"flows"`
 	Lost  *ebpf.MapSpec `ebpf:"lost"`
+	Names *ebpf.MapSpec `ebpf:"names"`
 	Socks *ebpf.MapSpec `ebpf:"socks"`
 }
 
@@ -120,6 +137,7 @@ type flowMapSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type flowVariableSpecs struct {
+	UnusedNameEvent *ebpf.VariableSpec `ebpf:"unused_name_event"`
 }
 
 // flowObjects contains all objects after they have been loaded into the kernel.
@@ -144,6 +162,7 @@ func (o *flowObjects) Close() error {
 type flowMaps struct {
 	Flows *ebpf.Map `ebpf:"flows"`
 	Lost  *ebpf.Map `ebpf:"lost"`
+	Names *ebpf.Map `ebpf:"names"`
 	Socks *ebpf.Map `ebpf:"socks"`
 }
 
@@ -151,6 +170,7 @@ func (m *flowMaps) Close() error {
 	return _FlowClose(
 		m.Flows,
 		m.Lost,
+		m.Names,
 		m.Socks,
 	)
 }
@@ -159,18 +179,21 @@ func (m *flowMaps) Close() error {
 //
 // It can be passed to loadFlowObjects or ebpf.CollectionSpec.LoadAndAssign.
 type flowVariables struct {
+	UnusedNameEvent *ebpf.Variable `ebpf:"unused_name_event"`
 }
 
 // flowPrograms contains all programs after they have been loaded into the kernel.
 //
 // It can be passed to loadFlowObjects or ebpf.CollectionSpec.LoadAndAssign.
 type flowPrograms struct {
-	OnState  *ebpf.Program `ebpf:"on_state"`
-	Snapshot *ebpf.Program `ebpf:"snapshot"`
+	ObserveEgress *ebpf.Program `ebpf:"observe_egress"`
+	OnState       *ebpf.Program `ebpf:"on_state"`
+	Snapshot      *ebpf.Program `ebpf:"snapshot"`
 }
 
 func (p *flowPrograms) Close() error {
 	return _FlowClose(
+		p.ObserveEgress,
 		p.OnState,
 		p.Snapshot,
 	)

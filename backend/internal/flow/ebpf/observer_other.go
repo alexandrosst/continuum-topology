@@ -8,9 +8,9 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 )
 
-type Options struct{ Live bool }
+type Options struct{ Live, Names bool }
 
-type Observer struct{ LiveErr error }
+type Observer struct{ LiveErr, NamesErr error }
 
 func (o *Observer) Live() bool { return false }
 

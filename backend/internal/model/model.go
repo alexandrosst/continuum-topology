@@ -419,6 +419,16 @@ type Dependency struct {
 	// no successful Connections at all is exactly the case this exists to surface: something the
 	// application keeps trying and never reaching.
 	FailedAttempts uint64 `json:"failedAttempts,omitempty"`
+	// SniHost is the server name a TLS ClientHello asked for on this exact edge (the SNI extension),
+	// read once from the clear-text handshake before anything is encrypted - never a certificate, never
+	// application data. Unset unless the node collector's optional name-capture is turned on (off by
+	// default) and this edge's traffic is actually TLS. A gauge: the latest hostname seen, not a history.
+	SniHost string `json:"sniHost,omitempty"`
+	// DnsQueryNames is the distinct domain names this edge's traffic has asked its resolver to look up,
+	// newest first, capped - only ever populated on the pod<->resolver edge itself (Noise == "dns"), and
+	// only when the same optional name-capture is on. Unlike SniHost, this only ever grows by addition:
+	// a resolver edge legitimately fields many different lookups, and which ones is the point.
+	DnsQueryNames []string `json:"dnsQueryNames,omitempty"`
 	// RttMs is the most recently sampled smoothed round-trip time in milliseconds, from the kernel's own
 	// TCP RTT estimator. A gauge (the latest sample), not an average over the edge's life. 0 means no
 	// sample yet, not "no delay" - most often because too little has been exchanged to measure one, or

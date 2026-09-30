@@ -20,12 +20,15 @@ import (
 )
 
 // Main is the optional node flow collector. It counts TCP connections and, where the kernel allows, the bytes they
-// carried, and reports the counts to the Continuum agent, which turns addresses into workloads. It never reads packets or
-// payloads and keeps nothing but counters.
+// carried, and reports the counts to the Continuum agent, which turns addresses into workloads. By default it never reads
+// packets or payloads and keeps nothing but counters; --names is a separate, off-by-default opt-in that additionally reads
+// just enough of a DNS query or a TLS ClientHello to pull out the one hostname each carries in the clear (see names.go),
+// discarding the rest of the packet immediately - nothing else about the traffic's content is ever inspected either way.
 //
 // Method: eBPF where the kernel supports it, the kernel's connection-tracking table otherwise. Run it with --print 30s to
 // see exactly what a window contains; that sends nothing. Loading the eBPF program needs root with CAP_BPF and CAP_PERFMON;
-// nothing at startup of the other roles touches the kernel, so importing this here costs `agent` and `probe` no privileges.
+// --names needs CAP_NET_ADMIN in addition, to attach the cgroup/skb program that reads the hostnames. Nothing at startup of
+// the other roles touches the kernel, so importing this here costs `agent` and `probe` no privileges.
 func Main(args []string) int {
 	fs := cli.NewFlagSet("continuum flow", os.Stderr)
 	agentURL := fs.String("agent", cli.Env("CONTINUUM_FLOW_URL", ""), "URL of the agent's flow receiver, e.g. http://continuum-agent-probe.continuum-system.svc:8081")
@@ -35,6 +38,7 @@ func Main(args []string) int {
 	udp := fs.String("udp", cli.Env("CONTINUUM_FLOW_UDP", "auto"), "also observe UDP through the connection-tracking table: auto (when the eBPF method is in use and the table is readable) | on | off")
 	table := fs.String("conntrack-table", cli.Env("CONTINUUM_FLOW_CONNTRACK", conntrack.DefaultTable), "the connection-tracking table")
 	live := fs.Bool("live", cli.Env("CONTINUUM_FLOW_LIVE", "") == "true", "count the bytes of connections that are still open (eBPF only; needs the host's process namespace, or it sees only its own)")
+	names := fs.Bool("names", cli.Env("CONTINUUM_FLOW_NAMES", "") == "true", "capture the DNS query name and TLS SNI hostname each connection carries in the clear (eBPF only; needs CAP_NET_ADMIN; off by default)")
 	every := fs.Duration("interval", 30*time.Second, "how often to report")
 	print := fs.Duration("print", 0, "observe for this long, print the report and exit; sends nothing")
 	if code, done := cli.Parse(fs, args); done {
@@ -44,12 +48,15 @@ func Main(args []string) int {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	src, why, err := collector.Choose(*method,
 		func() (collector.Source, error) {
-			o, err := ebpf.Open(ebpf.Options{Live: *live})
+			o, err := ebpf.Open(ebpf.Options{Live: *live, Names: *names})
 			if err != nil {
 				return nil, err
 			}
 			if o.LiveErr != nil {
 				log.Warn("open connections will be counted when they close, not while open", "reason", o.LiveErr)
+			}
+			if *names && o.NamesErr != nil {
+				log.Warn("DNS/SNI hostnames will not be captured", "reason", o.NamesErr)
 			}
 			return o, nil
 		},
@@ -106,7 +113,7 @@ func Main(args []string) int {
 	for _, s := range sources {
 		methods = append(methods, s.Method())
 	}
-	log.Info("continuum flow collector starting", "version", cli.Version, "node", *node, "methods", methods, "live", *live, "agent", *agentURL)
+	log.Info("continuum flow collector starting", "version", cli.Version, "node", *node, "methods", methods, "live", *live, "names", *names, "agent", *agentURL)
 	var wg sync.WaitGroup
 	for _, s := range sources {
 		wg.Add(1)

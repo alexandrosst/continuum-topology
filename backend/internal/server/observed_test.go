@@ -490,6 +490,73 @@ func TestDependencyStatsIncludeFailedAttempts(t *testing.T) {
 	}
 }
 
+func TestFlowTableCarriesSniHostAndDnsQueryNames(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	tbl := newFlowTable()
+	src, dst := wep("a/Deployment/x"), &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}
+	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", SniHost: "example.com"}
+	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	k := flowKey(f1)
+	e := tbl.edges[k]
+	if e == nil || e.Key.SniHost != "example.com" {
+		t.Fatalf("sniHost = %q, want example.com", e.GetKey().GetSniHost())
+	}
+	// A later report on the same edge with no SNI (a conntrack report, or simply a window the eBPF
+	// collector never saw a fresh ClientHello in) must not blank out the hostname already known.
+	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"}
+	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	e = tbl.edges[k]
+	if e.Key.SniHost != "example.com" {
+		t.Errorf("a report with no SNI must not blank a previously known one, got %q", e.Key.SniHost)
+	}
+
+	dnsSrc, resolver := wep("a/Deployment/x"), wep("kube-system/Deployment/coredns")
+	g1 := &continuumv1.Flow{Src: dnsSrc, Dst: resolver, Port: 53, Protocol: "udp", Connections: 1, Method: "ebpf", Noise: "dns", DnsQueryNames: []string{"api.example.com"}}
+	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{g1}}, now)
+	g2 := &continuumv1.Flow{Src: dnsSrc, Dst: resolver, Port: 53, Protocol: "udp", Connections: 1, Method: "ebpf", Noise: "dns", DnsQueryNames: []string{"cdn.example.com"}}
+	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{g2}}, now.Add(time.Minute))
+	dk := flowKey(g1)
+	de := tbl.edges[dk]
+	if de == nil || len(de.DnsQueryNames) != 2 || de.DnsQueryNames[0] != "cdn.example.com" || de.DnsQueryNames[1] != "api.example.com" {
+		t.Errorf("dnsQueryNames = %v, want [cdn.example.com api.example.com] accumulated across both reports", de.GetDnsQueryNames())
+	}
+}
+
+// TestDependencyIncludesSniHostAndDnsQueryNames checks both fields surface all the way to
+// model.Dependency, the same way retransmits and failedAttempts already do.
+func TestDependencyIncludesSniHostAndDnsQueryNames(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	// Fed as first seen a minute ago, not at the same instant as the observedTopology call - past
+	// unmatchedGrace (12s), so this unmatched-provider external IP is actually added to the topology
+	// instead of withheld as still-too-new. See unmatchedGrace's own comment in observed.go.
+	seenAt := now.Add(-1 * time.Minute)
+	x := "a/Deployment/x"
+	c := cluster("a", "", nil, wk("a", "Deployment", "x"))
+	f := &continuumv1.Flow{Src: wep(x), Dst: xep("93.184.216.34"), Port: 443, Protocol: "tcp", Method: "ebpf", SniHost: "example.com", DnsQueryNames: []string{"example.com"}}
+	feed(&c, seenAt, 60, f)
+
+	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	var sniHost string
+	var names []string
+	var found bool
+	for _, dep := range deps {
+		if dep.Port == 443 {
+			found = true
+			sniHost = dep.SniHost
+			names = dep.DnsQueryNames
+		}
+	}
+	if !found {
+		t.Fatal("dependency not found")
+	}
+	if sniHost != "example.com" {
+		t.Errorf("sniHost = %q, want example.com", sniHost)
+	}
+	if len(names) != 1 || names[0] != "example.com" {
+		t.Errorf("dnsQueryNames = %v, want [example.com]", names)
+	}
+}
+
 func TestWellKnownPort(t *testing.T) {
 	if name, isDB := wellKnownPort(5432); name != "PostgreSQL" || !isDB {
 		t.Errorf("postgres = %q %v", name, isDB)

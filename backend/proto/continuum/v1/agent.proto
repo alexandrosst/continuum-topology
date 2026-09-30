@@ -564,6 +564,16 @@ message RawFlow {
   uint64 failed_timeout = 14;     // ETIMEDOUT
   uint64 failed_reset = 15;       // ECONNRESET
   uint64 failed_unreachable = 16; // EHOSTUNREACH / ENETUNREACH
+  // The server name from a TLS ClientHello observed on this exact connection (the SNI extension) - read
+  // once, from the clear-text handshake, before anything is encrypted. Never a certificate, never
+  // application data: this is the one hostname the client itself puts in plain text up front. Empty
+  // unless the node collector's optional name-capture is turned on (off by default); one row can set
+  // this or dns_query_name, never both, since a row is either a TCP row or a UDP one.
+  string sni_host = 17;
+  // The question name from a DNS query observed on this exact connection - the domain a workload asked
+  // its resolver about, nothing about the answer (this program never reads one). Empty unless the same
+  // optional name-capture is on.
+  string dns_query_name = 18;
 }
 
 message FlowReport {
@@ -615,6 +625,13 @@ message Flow {
   // the total matters for dependency health, and the reasons stay in the FlowReport/RawFlow for anyone
   // who wants them at that layer.
   uint64 failed_attempts = 14;
+  // See RawFlow.sni_host - carried through attribution unchanged.
+  string sni_host = 15;
+  // A raw observation is one captured query, so this is always empty or one element as it arrives from
+  // RawFlow.dns_query_name; it is plural here because the Aggregator (see aggregate.go) merges several
+  // of these, from several different reports in the same window, into one held Flow before it is ever
+  // sent - and a single-valued field would force it to silently keep only the last and discard the rest.
+  repeated string dns_query_names = 16;
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
@@ -657,6 +674,14 @@ message FlowEdge {
   // Flow.failed_attempts for what counts as one.
   uint64 failed_attempts = 12;
   uint64 window_failed_attempts = 13;
+  // Distinct domain names this edge's traffic has asked its resolver to look up, newest first, capped
+  // (see the server's own bound) - only ever set on the pod<->resolver edge itself (Key.Noise == "dns"),
+  // accumulated across reports rather than replaced by each one, unlike every gauge field above: a
+  // resolver edge legitimately fields many different domains over its life, and which ones is the whole
+  // point of keeping this at all. The latest SNI hostname, by contrast, lives on Key.sni_host: one TCP
+  // edge to one peer essentially always carries one hostname, so a gauge (latest sample) already fits it
+  // the same way Key.iface and Key.rtt_us fit theirs.
+  repeated string dns_query_names = 14;
 }
 
 message FlowTable {

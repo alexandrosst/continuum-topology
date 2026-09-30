@@ -181,6 +181,36 @@ func TestOneImageThreeRoles(t *testing.T) {
 	}
 }
 
+// TestFlowNamesCapabilityIsOptIn checks flowObserver.names.enabled adds CAP_NET_ADMIN and turns on
+// CONTINUUM_FLOW_NAMES only when asked for, mirroring the existing liveBytes/hostPID conditional.
+func TestFlowNamesCapabilityIsOptIn(t *testing.T) {
+	on := render(t, "--set", "flowObserver.enabled=true", "--set", "flowObserver.names.enabled=true")
+	c := on.daemonsets["continuum-flow-collector"].Spec.Template.Spec.Containers[0]
+	hasNetAdmin := false
+	for _, cap := range c.SecurityContext.Capabilities.Add {
+		if string(cap) == "NET_ADMIN" {
+			hasNetAdmin = true
+		}
+	}
+	if !hasNetAdmin {
+		t.Errorf("capabilities.add = %v, want NET_ADMIN when flowObserver.names.enabled", c.SecurityContext.Capabilities.Add)
+	}
+	if v, ok := env(c, "CONTINUUM_FLOW_NAMES"); !ok || v != "true" {
+		t.Errorf("CONTINUUM_FLOW_NAMES = %q, ok=%v, want true", v, ok)
+	}
+
+	off := render(t, "--set", "flowObserver.enabled=true")
+	c2 := off.daemonsets["continuum-flow-collector"].Spec.Template.Spec.Containers[0]
+	for _, cap := range c2.SecurityContext.Capabilities.Add {
+		if string(cap) == "NET_ADMIN" {
+			t.Error("NET_ADMIN granted by default; flowObserver.names must be opt-in")
+		}
+	}
+	if v, ok := env(c2, "CONTINUUM_FLOW_NAMES"); !ok || v != "false" {
+		t.Errorf("CONTINUUM_FLOW_NAMES default = %q, ok=%v, want false", v, ok)
+	}
+}
+
 func TestImageDigestWinsOverTag(t *testing.T) {
 	d := "sha256:" + strings.Repeat("ab", 32)
 	r := render(t, "--set", "image.repository=reg.example.com:8443/team/continuum", "--set", "image.tag=1.2.3", "--set", "image.digest="+d, "--set", "nodeProbe.enabled=true", "--set", "flowObserver.enabled=true")

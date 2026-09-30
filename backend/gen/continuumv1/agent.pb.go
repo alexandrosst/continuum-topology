@@ -3454,8 +3454,18 @@ type RawFlow struct {
 	FailedTimeout     uint64 `protobuf:"varint,14,opt,name=failed_timeout,json=failedTimeout,proto3" json:"failed_timeout,omitempty"`             // ETIMEDOUT
 	FailedReset       uint64 `protobuf:"varint,15,opt,name=failed_reset,json=failedReset,proto3" json:"failed_reset,omitempty"`                   // ECONNRESET
 	FailedUnreachable uint64 `protobuf:"varint,16,opt,name=failed_unreachable,json=failedUnreachable,proto3" json:"failed_unreachable,omitempty"` // EHOSTUNREACH / ENETUNREACH
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The server name from a TLS ClientHello observed on this exact connection (the SNI extension) - read
+	// once, from the clear-text handshake, before anything is encrypted. Never a certificate, never
+	// application data: this is the one hostname the client itself puts in plain text up front. Empty
+	// unless the node collector's optional name-capture is turned on (off by default); one row can set
+	// this or dns_query_name, never both, since a row is either a TCP row or a UDP one.
+	SniHost string `protobuf:"bytes,17,opt,name=sni_host,json=sniHost,proto3" json:"sni_host,omitempty"`
+	// The question name from a DNS query observed on this exact connection - the domain a workload asked
+	// its resolver about, nothing about the answer (this program never reads one). Empty unless the same
+	// optional name-capture is on.
+	DnsQueryName  string `protobuf:"bytes,18,opt,name=dns_query_name,json=dnsQueryName,proto3" json:"dns_query_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RawFlow) Reset() {
@@ -3598,6 +3608,20 @@ func (x *RawFlow) GetFailedUnreachable() uint64 {
 		return x.FailedUnreachable
 	}
 	return 0
+}
+
+func (x *RawFlow) GetSniHost() string {
+	if x != nil {
+		return x.SniHost
+	}
+	return ""
+}
+
+func (x *RawFlow) GetDnsQueryName() string {
+	if x != nil {
+		return x.DnsQueryName
+	}
+	return ""
 }
 
 type FlowReport struct {
@@ -3773,8 +3797,15 @@ type Flow struct {
 	// the total matters for dependency health, and the reasons stay in the FlowReport/RawFlow for anyone
 	// who wants them at that layer.
 	FailedAttempts uint64 `protobuf:"varint,14,opt,name=failed_attempts,json=failedAttempts,proto3" json:"failed_attempts,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// See RawFlow.sni_host - carried through attribution unchanged.
+	SniHost string `protobuf:"bytes,15,opt,name=sni_host,json=sniHost,proto3" json:"sni_host,omitempty"`
+	// A raw observation is one captured query, so this is always empty or one element as it arrives from
+	// RawFlow.dns_query_name; it is plural here because the Aggregator (see aggregate.go) merges several
+	// of these, from several different reports in the same window, into one held Flow before it is ever
+	// sent - and a single-valued field would force it to silently keep only the last and discard the rest.
+	DnsQueryNames []string `protobuf:"bytes,16,rep,name=dns_query_names,json=dnsQueryNames,proto3" json:"dns_query_names,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Flow) Reset() {
@@ -3903,6 +3934,20 @@ func (x *Flow) GetFailedAttempts() uint64 {
 		return x.FailedAttempts
 	}
 	return 0
+}
+
+func (x *Flow) GetSniHost() string {
+	if x != nil {
+		return x.SniHost
+	}
+	return ""
+}
+
+func (x *Flow) GetDnsQueryNames() []string {
+	if x != nil {
+		return x.DnsQueryNames
+	}
+	return nil
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
@@ -4068,8 +4113,16 @@ type FlowEdge struct {
 	// Flow.failed_attempts for what counts as one.
 	FailedAttempts       uint64 `protobuf:"varint,12,opt,name=failed_attempts,json=failedAttempts,proto3" json:"failed_attempts,omitempty"`
 	WindowFailedAttempts uint64 `protobuf:"varint,13,opt,name=window_failed_attempts,json=windowFailedAttempts,proto3" json:"window_failed_attempts,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Distinct domain names this edge's traffic has asked its resolver to look up, newest first, capped
+	// (see the server's own bound) - only ever set on the pod<->resolver edge itself (Key.Noise == "dns"),
+	// accumulated across reports rather than replaced by each one, unlike every gauge field above: a
+	// resolver edge legitimately fields many different domains over its life, and which ones is the whole
+	// point of keeping this at all. The latest SNI hostname, by contrast, lives on Key.sni_host: one TCP
+	// edge to one peer essentially always carries one hostname, so a gauge (latest sample) already fits it
+	// the same way Key.iface and Key.rtt_us fit theirs.
+	DnsQueryNames []string `protobuf:"bytes,14,rep,name=dns_query_names,json=dnsQueryNames,proto3" json:"dns_query_names,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FlowEdge) Reset() {
@@ -4191,6 +4244,13 @@ func (x *FlowEdge) GetWindowFailedAttempts() uint64 {
 		return x.WindowFailedAttempts
 	}
 	return 0
+}
+
+func (x *FlowEdge) GetDnsQueryNames() []string {
+	if x != nil {
+		return x.DnsQueryNames
+	}
+	return nil
 }
 
 type FlowTable struct {
@@ -5019,7 +5079,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2\x18.continuum.v1.PathResultR\aresults\x12\x18\n" +
 	"\arefused\x18\x02 \x01(\rR\arefused\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xf7\x03\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xb8\x04\n" +
 	"\aRawFlow\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\bR\x06client\x12\x19\n" +
 	"\blocal_ip\x18\x02 \x01(\tR\alocalIp\x12\x17\n" +
@@ -5037,7 +5097,9 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x0efailed_refused\x18\r \x01(\x04R\rfailedRefused\x12%\n" +
 	"\x0efailed_timeout\x18\x0e \x01(\x04R\rfailedTimeout\x12!\n" +
 	"\ffailed_reset\x18\x0f \x01(\x04R\vfailedReset\x12-\n" +
-	"\x12failed_unreachable\x18\x10 \x01(\x04R\x11failedUnreachable\"\xc1\x01\n" +
+	"\x12failed_unreachable\x18\x10 \x01(\x04R\x11failedUnreachable\x12\x19\n" +
+	"\bsni_host\x18\x11 \x01(\tR\asniHost\x12$\n" +
+	"\x0edns_query_name\x18\x12 \x01(\tR\fdnsQueryName\"\xc1\x01\n" +
 	"\n" +
 	"FlowReport\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
@@ -5056,7 +5118,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"UNRESOLVED\x10\x00\x12\f\n" +
 	"\bWORKLOAD\x10\x01\x12\b\n" +
 	"\x04NODE\x10\x02\x12\f\n" +
-	"\bEXTERNAL\x10\x03\"\xb3\x03\n" +
+	"\bEXTERNAL\x10\x03\"\xf6\x03\n" +
 	"\x04Flow\x12,\n" +
 	"\x03src\x18\x01 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03src\x12,\n" +
 	"\x03dst\x18\x02 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03dst\x12\x12\n" +
@@ -5073,7 +5135,9 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x05iface\x18\v \x01(\tR\x05iface\x12 \n" +
 	"\vretransmits\x18\f \x01(\x04R\vretransmits\x12\x15\n" +
 	"\x06rtt_us\x18\r \x01(\rR\x05rttUs\x12'\n" +
-	"\x0ffailed_attempts\x18\x0e \x01(\x04R\x0efailedAttempts\"\\\n" +
+	"\x0ffailed_attempts\x18\x0e \x01(\x04R\x0efailedAttempts\x12\x19\n" +
+	"\bsni_host\x18\x0f \x01(\tR\asniHost\x12&\n" +
+	"\x0fdns_query_names\x18\x10 \x03(\tR\rdnsQueryNames\"\\\n" +
 	"\rCollectorInfo\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12\x1f\n" +
@@ -5086,7 +5150,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x05flows\x18\x04 \x03(\v2\x12.continuum.v1.FlowR\x05flows\x12;\n" +
 	"\n" +
 	"collectors\x18\x05 \x03(\v2\x1b.continuum.v1.CollectorInfoR\n" +
-	"collectors\"\xa7\x04\n" +
+	"collectors\"\xcf\x04\n" +
 	"\bFlowEdge\x12$\n" +
 	"\x03key\x18\x01 \x01(\v2\x12.continuum.v1.FlowR\x03key\x129\n" +
 	"\n" +
@@ -5102,7 +5166,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	" \x01(\x04R\vretransmits\x12-\n" +
 	"\x12window_retransmits\x18\v \x01(\x04R\x11windowRetransmits\x12'\n" +
 	"\x0ffailed_attempts\x18\f \x01(\x04R\x0efailedAttempts\x124\n" +
-	"\x16window_failed_attempts\x18\r \x01(\x04R\x14windowFailedAttempts\"9\n" +
+	"\x16window_failed_attempts\x18\r \x01(\x04R\x14windowFailedAttempts\x12&\n" +
+	"\x0fdns_query_names\x18\x0e \x03(\tR\rdnsQueryNames\"9\n" +
 	"\tFlowTable\x12,\n" +
 	"\x05edges\x18\x01 \x03(\v2\x16.continuum.v1.FlowEdgeR\x05edges\"\x82\x06\n" +
 	"\vDiagnostics\x12#\n" +
