@@ -203,4 +203,42 @@ test.describe('topology canvas', () => {
 
     expect(errors, `expected zero console errors/uncaught exceptions, got ${errors.length}:\n${errors.join('\n---\n')}`).toEqual([])
   })
+
+  test('clicking empty canvas clears a multi-selection, not just the single-click Inspector', async ({ page }) => {
+    // A real, reported gap: `onPaneClick` used to only close the Inspector (the single-click `selection`
+    // state) via `select(null)`. A shift/ctrl-click or box-drag multi-selection lives in a separate piece
+    // of state (`multiSelectedIds`, mirrored from React Flow's own selection) that `select(null)` never
+    // touched, so clicking empty canvas after multi-selecting a few cards left them all still highlighted
+    // and the floating scope toolbar (NodeToolbar/ScopeFromSelection) still open.
+    await loadSampleTopology(page)
+    await goToTopologyCanvas(page)
+
+    // Two services on the same cluster (cl-edge-a), which - unlike the cloud cluster - has an
+    // *approved* agent in the sample data. ScopeFromSelection only renders real toolbar content
+    // once every selected service's cluster has an approved agent (see its own `targets` gate);
+    // picking two arbitrary nodes can land on a cluster with no agent at all and leave the
+    // toolbar an empty, zero-size element that toBeVisible() correctly reports as not visible.
+    // That's a property of ScopeFromSelection's own business logic, not of the pane-click fix
+    // this test guards, so the nodes are chosen deliberately rather than by DOM order.
+    const nodeA = page.locator('.react-flow__node[data-id="c:w-mqtt-a"]')
+    const nodeB = page.locator('.react-flow__node[data-id="c:w-infer-a"]')
+    await expect(nodeA).toBeVisible()
+    await expect(nodeB).toBeVisible()
+    await nodeA.click({ force: true })
+    await page.waitForTimeout(100)
+    await nodeB.click({ modifiers: ['Shift'], force: true })
+    await page.waitForTimeout(1000)
+
+    const toolbar = page.locator('.react-flow__node-toolbar')
+    await expect(toolbar).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(2)
+
+    const pane = page.locator('.react-flow__pane').first()
+    const box = await pane.boundingBox()
+    await page.mouse.click(box!.x + box!.width - 40, box!.y + 40)
+
+    await expect(toolbar).toBeHidden()
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(0)
+    await expect(page.locator('aside.modal-pop')).toBeHidden()
+  })
 })

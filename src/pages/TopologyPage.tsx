@@ -905,7 +905,24 @@ function Canvas() {
                 if (e.shiftKey || e.metaKey || e.ctrlKey) return
                 select(fromNode(n))
               }}
-              onPaneClick={() => { if (pickMode) setPickMode(false); else select(null) }}
+              onPaneClick={() => {
+                if (pickMode) { setPickMode(false); return }
+                // Closes the Inspector (the single-click `selection`) - but a prior shift/ctrl-click or
+                // box-drag multi-selection is tracked entirely separately (`multiSelectedIds`, populated
+                // from React Flow's own selection via onSelectionChange - see its doc comment) and
+                // `select(null)` alone never touched it, so clicking empty canvas after multi-selecting a
+                // few cards left them all still highlighted, the floating scope toolbar still open, and
+                // React Flow's own `.selected` flags still set - a real, reproducible gap (confirmed via a
+                // live-browser check, not just reasoning about the code), not just a hypothetical one.
+                // Cleared directly here, on the node array itself, rather than only through
+                // setMultiSelectedIds: the effect that would otherwise re-sync `.selected` from
+                // highlightedIds is deliberately keyed on `selectedRfId` alone (see its own doc comment, on
+                // why watching multiSelectedIds too would loop), so a multi-select-only clear (no Inspector
+                // selection open at all) would never reach it.
+                select(null)
+                setMultiSelectedIds((prev) => (prev.length === 0 ? prev : []))
+                setNodes((ns) => syncSelected(ns, new Set()))
+              }}
               onEdgeClick={(_, e) => { if (!e.data?.aggregated) select({ kind: 'dependency', id: e.id }) }}
               onEdgeMouseEnter={(e, edge) => { setHoverEdge(edge.id); setHoverPos({ cx: e.clientX, cy: e.clientY }) }}
               onEdgeMouseMove={(e) => setHoverPos({ cx: e.clientX, cy: e.clientY })}
