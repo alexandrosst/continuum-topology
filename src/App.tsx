@@ -1,7 +1,6 @@
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from '@/components/Layout'
-import { PageSkeleton } from '@/components/ui/primitives'
 import { prefetchAllRoutesWhenIdle, routeLoaders } from '@/lib/routeLoaders'
 
 // Pages load on demand: the map, wizard and tables are big and most visits touch only one or two of them.
@@ -49,35 +48,37 @@ export default function App() {
     // goes through the exact same navigate() path, so Topology's own filters are just as exposed. Turning
     // transitions off makes every navigation a normal-priority update like everything else in the app - the
     // trade-off (no automatic "keep old content visible while the next page suspends" smoothing) is one
-    // this app already doesn't rely on: nothing reads isPending, and the one shared <Suspense> below already
-    // has an explicit fallback skeleton for a lazy page's first load.
+    // this app already doesn't rely on: nothing reads isPending, and Layout's own <Suspense> (wrapping only
+    // its content pane's <Outlet/>, not the whole page - see Layout.tsx) already has an explicit fallback
+    // skeleton for a lazy page's first load. That Suspense boundary deliberately sits inside Layout, not
+    // here: a boundary here would catch a suspending lazy page and unmount everything above it too,
+    // including Layout's own sidebar - the exact "the whole page goes blank, sidebar included" flash this
+    // was written to stop happening.
     <BrowserRouter useTransitions={false}>
-      <Suspense fallback={<PageSkeleton />}>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route index element={<Navigate to="/topology" replace />} />
-            <Route path="/topology" element={<TopologyPage />} />
-            <Route path="/clusters" element={<ClustersPage />} />
-            <Route path="/nodes" element={<NodesPage />} />
-            <Route path="/namespaces" element={<NamespacesPage />} />
-            <Route path="/services" element={<ServicesPage />} />
-            <Route path="/devices" element={<DevicesPage />} />
-            <Route path="/applications" element={<ApplicationsPage />} />
-            <Route path="/sites" element={<SitesPage />} />
-            <Route path="/discovery" element={<DiscoveryPage />} />
-            <Route path="/agents" element={<AgentsPage />} />
-            <Route path="/operators" element={<RegionalOperatorsPage />} />
-            <Route path="/history" element={<HistoryPage />} />
-            <Route path="/placement" element={<PlacementPage />} />
-            <Route path="/workloads" element={<Navigate to="/services" replace />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/activity" element={<ActivityPage />} />
-            <Route path="/team" element={<TeamPage />} />
-            <Route path="/users" element={<Navigate to="/team" replace />} />
-            <Route path="*" element={<Navigate to="/topology" replace />} />
-          </Route>
-        </Routes>
-      </Suspense>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<Navigate to="/topology" replace />} />
+          <Route path="/topology" element={<TopologyPage />} />
+          <Route path="/clusters" element={<ClustersPage />} />
+          <Route path="/nodes" element={<NodesPage />} />
+          <Route path="/namespaces" element={<NamespacesPage />} />
+          <Route path="/services" element={<ServicesPage />} />
+          <Route path="/devices" element={<DevicesPage />} />
+          <Route path="/applications" element={<ApplicationsPage />} />
+          <Route path="/sites" element={<SitesPage />} />
+          <Route path="/discovery" element={<DiscoveryPage />} />
+          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/operators" element={<RegionalOperatorsPage />} />
+          <Route path="/history" element={<HistoryPage />} />
+          <Route path="/placement" element={<PlacementPage />} />
+          <Route path="/workloads" element={<Navigate to="/services" replace />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/activity" element={<ActivityPage />} />
+          <Route path="/team" element={<TeamPage />} />
+          <Route path="/users" element={<Navigate to="/team" replace />} />
+          <Route path="*" element={<Navigate to="/topology" replace />} />
+        </Route>
+      </Routes>
     </BrowserRouter>
   )
 }
