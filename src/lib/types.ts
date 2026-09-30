@@ -438,9 +438,13 @@ export interface Service extends Provenance {
   nodeSelector?: Record<string, string>
   tolerations?: string[]
   restarts?: number
-  /** Containers of this service's pods killed by the kernel OOM killer - a sharper signal than restarts
-   *  above (a crash, a deploy or a failed liveness probe can also cause a restart): this one specific
-   *  reason means a container asked for more memory than its limit allowed. */
+  /** Containers, across this service's pods, whose most recently known termination reason is OOMKilled -
+   *  a live snapshot of Kubernetes' own per-container LastTerminationState (which holds only the ONE most
+   *  recent termination reason per container), not a cumulative historical tally: a container OOM-killed
+   *  repeatedly while staying on the same pod still contributes at most 1, and that 1 reverts to 0 the
+   *  moment it next fails for any other reason. Still a sharper signal than restarts above for the common
+   *  case: a restart can be a crash, a deploy or a failed liveness probe, while a nonzero value here means
+   *  the pod's last restart specifically was an OOM kill. */
   oomKills?: number
   /** Application discovery grouped this service into. Applied automatically once a person has accepted that application. */
   applicationHint?: string

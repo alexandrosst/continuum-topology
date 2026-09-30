@@ -276,6 +276,10 @@ func (c *Collector) workloads(pods []*corev1.Pod) ([]*continuumv1.WorkloadFacts,
 			}
 			for i, cs := range p.Status.ContainerStatuses {
 				w.facts.Restarts += cs.RestartCount
+				// LastTerminationState holds only the ONE most recent termination per container, so this is a
+				// live read of "is this container's last known failure an OOM kill", not an accumulating count -
+				// see WorkloadFacts.oom_kills' own doc comment for why a repeatedly-OOM-killed container still
+				// only ever contributes at most 1 here.
 				if t := cs.LastTerminationState.Terminated; t != nil && t.Reason == "OOMKilled" {
 					w.facts.OomKills++
 				}

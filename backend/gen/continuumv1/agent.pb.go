@@ -1638,7 +1638,10 @@ type NodeFacts struct {
 	ExternalIps []string `protobuf:"bytes,30,rep,name=external_ips,json=externalIps,proto3" json:"external_ips,omitempty"`
 	// Root filesystem capacity Kubernetes reports for this node ("ephemeral-storage" in Capacity/
 	// Allocatable) - what pod ephemeral storage, images and logs actually share, not any one physical
-	// disk's raw size (HostProbe.disks below has those). 0 when the kubelet does not report it.
+	// disk's raw size (HostProbe.disks below has those). Not `optional`: every real kubelet reports this as
+	// part of Capacity/Allocatable once the node exists, so unlike pod_count/pending_pod_count above there is
+	// no "never collected" case worth a pointer for - a bare 0 here would mean the node object itself is
+	// missing this key entirely, which does not happen for a real, running node.
 	EphemeralStorageCapacityBytes    int64 `protobuf:"varint,31,opt,name=ephemeral_storage_capacity_bytes,json=ephemeralStorageCapacityBytes,proto3" json:"ephemeral_storage_capacity_bytes,omitempty"`
 	EphemeralStorageAllocatableBytes int64 `protobuf:"varint,32,opt,name=ephemeral_storage_allocatable_bytes,json=ephemeralStorageAllocatableBytes,proto3" json:"ephemeral_storage_allocatable_bytes,omitempty"`
 	unknownFields                    protoimpl.UnknownFields
@@ -2405,11 +2408,15 @@ type WorkloadFacts struct {
 	Reachable []*Address `protobuf:"bytes,25,rep,name=reachable,proto3" json:"reachable,omitempty"`
 	// Set when the workload is in a mesh, or is the mesh itself.
 	Mesh *WorkloadMesh `protobuf:"bytes,26,opt,name=mesh,proto3" json:"mesh,omitempty"`
-	// Containers killed by the kernel OOM killer, summed across all of this workload's pods and containers
-	// (one container's last termination can only ever contribute once - a live OOMKilled state clears once
-	// the container is restarted, so this counts terminations seen, not a live gauge). A distinct, sharper
-	// signal than restarts above: a restart can be a crash, a deploy, or a liveness-probe failure, while this
-	// one specific reason means the container asked for more memory than its limit allowed.
+	// Containers, across all of this workload's pods, whose most recently known termination reason is
+	// OOMKilled - Kubernetes only ever keeps ONE termination reason per container (its LastTerminationState),
+	// so this is a live snapshot of "is the container's last known failure an OOM kill", not a cumulative
+	// historical tally: a container OOM-killed five times in a row while staying on the same pod still
+	// contributes at most 1 here (never 5), and that 1 reverts to 0 the moment the container fails again for
+	// any other reason, silently losing the OOM history. Still a distinct, sharper signal than restarts
+	// above for the common case: a restart can be a crash, a deploy, or a liveness-probe failure, while a
+	// nonzero value here means the container's last restart specifically was because it asked for more
+	// memory than its limit allowed.
 	OomKills      int32 `protobuf:"varint,27,opt,name=oom_kills,json=oomKills,proto3" json:"oom_kills,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

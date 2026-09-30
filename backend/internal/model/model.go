@@ -86,7 +86,9 @@ type Resources struct {
 	MemoryGb float64 `json:"memoryGb"`
 	// DiskGb is root filesystem capacity ("ephemeral-storage" in Kubernetes' own Capacity/Allocatable) -
 	// what pod ephemeral storage, images and logs actually share, not any one physical disk (Node.Disks
-	// below has those, from the node probe). Unset (0) when the kubelet does not report it.
+	// below has those, from the node probe). Always populated once the node itself is known (every real
+	// kubelet reports this) - not a pointer, unlike Cluster.PendingPodCount above, because there is no real
+	// "never collected" case here to distinguish from a genuine zero.
 	DiskGb float64 `json:"diskGb,omitempty"`
 }
 
@@ -132,6 +134,7 @@ type Node struct {
 	// DiskGb mirrors Resources.DiskGb above: this node's own root filesystem capacity, not wrapped in a
 	// *Resources pointer since - like CPU/MemoryGb just above - it is always known once the node itself
 	// is (kubelet reports it as part of node Capacity, not a separate observation that can be absent).
+	// See Resources.DiskGb's own comment for why this is a plain float64, not a pointer like PendingPodCount.
 	DiskGb         float64           `json:"diskGb,omitempty"`
 	Status         string            `json:"status"`
 	Labels         map[string]string `json:"labels"`
@@ -212,9 +215,13 @@ type Service struct {
 	NodeSelector  map[string]string `json:"nodeSelector,omitempty"`
 	Tolerations   []string          `json:"tolerations,omitempty"`
 	Restarts      int32             `json:"restarts,omitempty"`
-	// OOMKills: containers of this workload's pods killed by the kernel OOM killer - a sharper signal than
-	// Restarts above (which a crash, a deploy or a failed liveness probe can also cause): this one specific
-	// reason means a container asked for more memory than its limit allowed.
+	// OOMKills: containers, across this workload's pods, whose most recently known termination reason is
+	// OOMKilled. This is a live snapshot of Kubernetes' own per-container LastTerminationState (which holds
+	// only the ONE most recent termination reason), not a cumulative historical tally - a container OOM-
+	// killed repeatedly while staying on the same pod still contributes at most 1, and that 1 reverts to 0
+	// the moment it next fails for any other reason. Still a sharper signal than Restarts above for the
+	// common case: a restart can be a crash, a deploy, or a liveness-probe failure, while a nonzero value
+	// here means the container's last restart specifically was an OOM kill.
 	OOMKills        int32        `json:"oomKills,omitempty"`
 	ApplicationHint string       `json:"applicationHint,omitempty"`
 	CreatedAt       string       `json:"createdAt,omitempty"`
