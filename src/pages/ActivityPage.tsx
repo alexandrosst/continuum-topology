@@ -1,7 +1,8 @@
-import { ScrollText } from 'lucide-react'
+import { Download, ScrollText } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button, EmptyState, ErrorBanner, Input, PageHeader, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast, type AuditRow, type WorkspaceRevision } from '@/lib/api'
+import { downloadCsv, toCsv } from '@/lib/csv'
 import { useConn, useServer } from '@/store/server'
 
 const WINDOWS = [
@@ -48,6 +49,14 @@ export default function ActivityPage() {
       setError(e instanceof Error ? e.message : 'The activity could not be read.')
     }
   }, [conn, actor, action, hours])
+  const downloadAudit = useCallback(() => {
+    if (!rows || rows.length === 0) return
+    const csv = toCsv(
+      ['When', 'Who', 'Did what', 'Target kind', 'Target', 'Detail'],
+      rows.map((r) => [r.at, r.actor, words(r.action), r.targetKind || '', r.targetId || '', r.detail || '']),
+    )
+    downloadCsv(`activity-${new Date().toISOString().slice(0, 10)}.csv`, csv)
+  }, [rows])
   useEffect(() => {
     if (!allowed) return
     const t = setTimeout(() => void load(), 250) // typing in the filters should not fire a request per key
@@ -75,6 +84,9 @@ export default function ActivityPage() {
           </Select>
         </div>
         <Button onClick={() => void load()}>Refresh</Button>
+        <Button onClick={downloadAudit} disabled={!rows || rows.length === 0} title="Save the rows currently shown as a CSV file" data-testid="audit-download-csv">
+          <Download size={15} /> <span className="hidden sm:inline">Download CSV</span>
+        </Button>
         <span className="ml-auto text-xs text-nb-500">{source === 'graph' ? 'Searchable, kept in Neo4j' : 'Latest 500, kept on this server'}</span>
       </div>
       {rows === null ? (
