@@ -14,7 +14,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { applyGraphUpdate, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
+import { applyGraphUpdate, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type RegionalOperator, type Service, type Suggestion } from '../src/lib/types'
@@ -1348,6 +1348,28 @@ test("infrastructure view: a machine card reserves height for its own hardware b
   const withoutHardware = infra.nodes.find((n) => n.id === cardId('n-c3'))!
   assert.equal(Number(withoutHardware.style?.height), MACHINE_CARD.h, 'no hardware badge, no chips: just the base card height')
   assert.equal(Number(withNic.style?.height), MACHINE_CARD.h + 24, 'the hardware badge row adds its own reserved height, exactly like a service card\'s hint/notReady/mesh row already does')
+})
+
+test('infrastructure view: a single-node cluster\'s box is never narrower than its own header needs, so the header\'s CPU/Mem row wraps to two lines and overlaps the card below (task: node card missing top spacing)', () => {
+  // A cluster with exactly one node, reporting both CPU and memory load, is the exact case this was found
+  // on: PAD*2 + MACHINE_CARD.w = 328px, which is inside LoadRow's flex-wrap danger zone (confirmed by direct
+  // measurement: a box narrower than ~335px wraps CPU/Mem onto two lines, pushing the real header height to
+  // ~93px against HEADER's 96px reservation - only a few px of margin, which real font-metric variance
+  // across environments (this reproduced on macOS, not in a headless Linux Chromium check) can erase
+  // entirely). A single-service cluster in the application view never hits this: PAD*2 + APP_CARD.w = 340px
+  // already clears the same threshold, which is exactly why this only ever showed up in infrastructure view.
+  const t = {
+    ...seed,
+    clusters: seed.clusters.map((c) => (c.id === 'cl-edge-a' ? { ...c, load: { nodes: 1, ready: 1, unready: 0, cpuPct: 6, memPct: 11 } } : c)),
+    nodes: seed.nodes.filter((n) => n.clusterId !== 'cl-edge-a' || n.id === 'n-a1'),
+  }
+  const infra = buildGraph(t, { view: 'infrastructure', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+  const group = infra.nodes.find((n) => n.id === groupId('cl-edge-a'))!
+  assert.equal(group.data.load?.nodes, 1, 'sanity: this is genuinely the single-node case')
+  assert.ok(
+    Number(group.style?.width) >= MIN_GROUP_HEADER_WIDTH,
+    `a single-node cluster's box (${group.style?.width}px) must be at least MIN_GROUP_HEADER_WIDTH (${MIN_GROUP_HEADER_WIDTH}px) - the width LoadRow needs to stay on one line`,
+  )
 })
 
 test("route: 'direct' vs 'gateway' on a cross-cluster dependency, undefined everywhere else", () => {

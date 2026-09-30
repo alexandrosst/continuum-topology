@@ -205,6 +205,17 @@ export const PAD = 20
 // runs up to about 72px tall at normal zoom; HEADER is the y where the first row of children starts, so it needs
 // real breathing room past that, not just enough to avoid overlap.
 export const HEADER = 96
+// The header's own subtitle/load-meter row (LoadRow, Load.tsx) is a `flex flex-wrap` line: given enough
+// width it renders CPU/Mem/Pods side by side in the ~72px HEADER was measured against, but a box narrower
+// than roughly 335px forces it to wrap onto two lines, pushing the real header past 93px - just under
+// HEADER's 96px reserved, so any rendering-environment variance (a longer subtitle, a different font
+// stack) tips it over into the first card. A single-machine cluster box (PAD*2 + MACHINE_CARD.w = 328px)
+// falls squarely inside that danger zone, while a single-service one (PAD*2 + APP_CARD.w = 340px) happens
+// to clear it - which is exactly why this only ever showed up in the infrastructure view. Rather than
+// widen HEADER itself (which would waste space in the far more common multi-item case, where the row
+// packs on one line comfortably), the group's own width floor is raised past the wrap threshold instead,
+// with real margin so a slightly longer subtitle or a different OS's font metrics don't reopen the gap.
+export const MIN_GROUP_HEADER_WIDTH = 352
 const GAP_X = 72
 const GAP_Y = 44
 const GROUP_GAP_X = 64
@@ -482,10 +493,10 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     const n = g.items.length
     if (nsEnabled && g.cluster && n > 0) {
       const { w: nsW, h: nsH, boxes } = layoutNamespaces(g.items)
-      return { g, w: Math.max(PAD * 2 + nsW, 248), h: HEADER + nsH + PAD, children: [], nsBoxes: boxes }
+      return { g, w: Math.max(PAD * 2 + nsW, 248, MIN_GROUP_HEADER_WIDTH), h: HEADER + nsH + PAD, children: [], nsBoxes: boxes }
     }
     const { w, h, children } = packItems(g.items, HEADER)
-    return { g, w: Math.max(w || 248, 248), h: n === 0 ? HEADER + 52 : h, children }
+    return { g, w: Math.max(w || 248, 248, MIN_GROUP_HEADER_WIDTH), h: n === 0 ? HEADER + 52 : h, children }
   }
 
   const placedRows = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, gs]) => gs.map(layoutGroup))
