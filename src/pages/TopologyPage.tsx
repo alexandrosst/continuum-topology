@@ -2,6 +2,8 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  getNodesBounds,
+  getViewportForBounds,
   MiniMap,
   NodeToolbar,
   Panel,
@@ -14,7 +16,8 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
-import { Antenna, Boxes, ChevronDown, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, Server, SlidersHorizontal, Target, X } from 'lucide-react'
+import { toPng } from 'html-to-image'
+import { Antenna, Boxes, ChevronDown, Download, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, Server, SlidersHorizontal, Target, X } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -94,7 +97,7 @@ type MenuKey = 'filter' | 'views' | 'options' | 'add' | 'scope'
 
 function Canvas() {
   const topology = useTopology()
-  const { fitView } = useReactFlow()
+  const { fitView, getNodes } = useReactFlow()
   const [sp, setSp] = useSearchParams()
   const connect = useConnectFlow()
   const telemetry = useTelemetryFlow()
@@ -182,6 +185,54 @@ function Canvas() {
   // The canvas's own bounding box, for EdgeHoverCard to position itself against - set once the ReactFlow
   // wrapper mounts, same ref-callback pattern MapView uses for its own hover cards' `host`.
   const [host, setHost] = useState<HTMLElement | null>(null)
+  const [exportingPng, setExportingPng] = useState(false)
+  // Renders the graph's own `.react-flow__viewport` element (the panned/zoomed layer that actually holds
+  // every card and edge - Controls/MiniMap/Background are separate siblings under `host`, not part of it,
+  // so capturing this one element already excludes them without a filter) into a detached, full-bounds PNG:
+  // a fixed width/height and an explicit transform temporarily replace whatever pan/zoom is on screen,
+  // rather than asking someone to zoom-to-fit and hope nothing is cropped first. html-to-image is the same
+  // library React Flow's own "Download Image" example uses for exactly this - canvas-based alternatives
+  // (html2canvas and similar) don't handle this library's own CSS custom properties and transforms as
+  // reliably.
+  const exportPng = useCallback(async () => {
+    const viewportEl = host?.querySelector<HTMLElement>('.react-flow__viewport')
+    if (!viewportEl) return
+    setExportingPng(true)
+    try {
+      const bounds = getNodesBounds(getNodes())
+      if (bounds.width <= 0 || bounds.height <= 0) return
+      const maxDim = 1600
+      const aspect = bounds.width / bounds.height
+      const imageWidth = aspect >= 1 ? maxDim : Math.round(maxDim * aspect)
+      const imageHeight = aspect >= 1 ? Math.round(maxDim / aspect) : maxDim
+      const viewport = getViewportForBounds(bounds, imageWidth, imageHeight, 0.1, 4, 0.06)
+      // The canvas's own dark/light background token (index.css's --color-nb-910, what .react-flow itself
+      // paints behind everything) - read live rather than hardcoded so the export matches whichever theme
+      // is actually on screen. The literal fallback is that same token's default (dark) value, for the
+      // vanishingly unlikely case the variable isn't resolvable at all.
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--color-nb-910').trim() || '#16181a'
+      const dataUrl = await toPng(viewportEl, {
+        backgroundColor: bg,
+        width: imageWidth,
+        height: imageHeight,
+        pixelRatio: 2,
+        style: {
+          width: `${imageWidth}px`,
+          height: `${imageHeight}px`,
+          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+        },
+      })
+      const a = document.createElement('a')
+      a.download = `topology-${mode}-${new Date().toISOString().slice(0, 10)}.png`
+      a.href = dataUrl
+      a.click()
+    } catch {
+      // Best-effort: a failed export just means no download happened, nothing else on the canvas is
+      // affected (the real DOM/viewport were never touched - only a detached clone toPng renders from).
+    } finally {
+      setExportingPng(false)
+    }
+  }, [host, getNodes, mode])
   // Escape closes whichever one of the toolbar's popovers is open.
   useEffect(() => {
     if (!openMenu) return
@@ -780,6 +831,17 @@ function Canvas() {
               data-testid="reset-layout"
             >
               <RotateCcw size={15} /> <span className="hidden sm:inline">Reset layout</span>
+            </Button>
+          )}
+
+          {!isMap && (
+            <Button
+              onClick={exportPng}
+              disabled={exportingPng}
+              title="Save the current canvas as a PNG image, at its full extent (not just what's on screen)"
+              data-testid="export-png"
+            >
+              <Download size={15} /> <span className="hidden sm:inline">{exportingPng ? 'Exporting…' : 'Export PNG'}</span>
             </Button>
           )}
 

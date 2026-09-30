@@ -242,3 +242,22 @@ test.describe('topology canvas', () => {
     await expect(page.locator('aside.modal-pop')).toBeHidden()
   })
 })
+
+/**
+ * The "Export PNG" button (TopologyPage.tsx's exportPng) renders the graph's full extent via
+ * html-to-image, not just whatever is currently on screen - the same reason this lives in e2e rather than
+ * a jsdom component test: html-to-image reads real computed styles and serializes a real DOM subtree,
+ * neither of which jsdom does faithfully enough to trust a unit-level assertion here.
+ */
+test('Export PNG downloads a PNG file from the graph canvas', async ({ page }) => {
+  await loadSampleTopology(page)
+  await goToTopologyCanvas(page)
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 15_000 }),
+    page.getByTestId('export-png').click(),
+  ])
+  expect(download.suggestedFilename()).toMatch(/^topology-.*\.png$/)
+  const path = await download.path()
+  expect(path).toBeTruthy()
+})
