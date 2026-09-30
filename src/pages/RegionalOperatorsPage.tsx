@@ -5,7 +5,7 @@ import { CopyCommand } from '@/components/agents/AgentInsight'
 import { ConfirmModal } from '@/components/forms'
 import ProcessorEditor from '@/components/telemetry/ProcessorEditor'
 import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
-import { Button, ChipList, CheckboxList, ComboField, EmptyState, ErrorBanner, Field, Input, Modal, PageHeader, Pill, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, ChipList, CheckboxList, ComboField, EmptyState, ErrorBanner, Field, Input, Modal, PageHeader, Pill, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, ApiError, type CreatedOperator } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
@@ -284,7 +284,15 @@ export default function RegionalOperatorsPage() {
       ) : (
         <>
           <ErrorLine text={error} />
-          {operators.length === 0 ? (
+          {!operatorsLoaded ? (
+            // Without this, the fetch that op.listOperators fires on every mount (task #383: this data is
+            // live and org-scoped, so unlike every other tab here it can't just read the already-synced
+            // global store) left a brief but real window where `operators` was still its initial `[]` -
+            // reading, wrongly, as "you have none" rather than "still loading" for anyone who actually has
+            // some. A skeleton says the honest thing for however long that round trip takes, same as
+            // ActivityPage/HistoryPage's own fetches already do.
+            <TableSkeleton cols={['', '', '', '', '', '']} />
+          ) : operators.length === 0 ? (
             <EmptyState title="No regional operators yet" description="Create one to aggregate telemetry from a set of clusters before it leaves your infrastructure." />
           ) : (
           <Table>

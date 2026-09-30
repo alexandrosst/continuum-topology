@@ -130,6 +130,31 @@ describe('RegionalOperatorsPage', () => {
     expect(screen.getByText(/helm install op-1/)).toBeInTheDocument()
   })
 
+  test('while listOperators is still in flight, shows a loading skeleton instead of the misleading "No regional operators yet" empty state (task #383)', async () => {
+    // mockImplementation (not -Once): the test double's useServer mock hands back a fresh `conn` function
+    // identity on every render (unlike the real Zustand store, whose selector is stable), so `load`'s own
+    // useCallback re-fires more than once here - every call needs to hit the same pending promise, or a
+    // later call's default resolution would silently overwrite the one this test is asserting on.
+    let resolve!: (ops: RegionalOperator[]) => void
+    const pending = new Promise<RegionalOperator[]>((r) => { resolve = r })
+    listOperators.mockImplementation(() => pending)
+    renderPage()
+
+    // The fetch hasn't settled yet: the real table (and its wrong-until-loaded "empty" reading) must not
+    // render, and neither should a flash of "no operators" - only an honest loading placeholder.
+    expect(screen.queryByText('No regional operators yet')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('status', { name: 'Loading' }).length).toBeGreaterThan(0)
+
+    resolve([{
+      id: 'op-1', orgId: 'o', name: 'athens-regional', status: 'active', sourceClusterIds: ['c1'],
+      destination: { kind: 'external', endpoint: 'backend.example.com:4317' }, createdAt: '2026-01-01T00:00:00Z', createdBy: 'me',
+    } as RegionalOperator])
+
+    await waitFor(() => expect(screen.getByText('athens-regional')).toBeInTheDocument())
+    expect(screen.queryByText('No regional operators yet')).not.toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument()
+  })
+
   test('the extra-processor editor embeds with no extra processors by default', async () => {
     const user = userEvent.setup()
     renderPage()
