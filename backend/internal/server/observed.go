@@ -22,9 +22,13 @@ import (
 // ---- what the server keeps: totals per distinct edge, per agent ----
 
 const (
-	maxFlowEdges       = 20000
-	maxFlowsPerBatch   = 5000
-	defaultStaleWindow = 24 * time.Hour
+	maxFlowEdges     = 20000
+	maxFlowsPerBatch = 5000
+	// defaultStaleWindow only applies before any settings have ever been saved for an org (Core.Settings
+	// falls back to DefaultSettings, whose FlowStaleSeconds already matches this); kept as a named
+	// constant so this file's own tests can exercise observedTopology's staleness math without pulling
+	// in the settings package.
+	defaultStaleWindow = 5 * time.Minute
 	// How long a newly-observed external address is withheld from the topology while its identity is
 	// still unknown, giving netid.ResolveCached/ResolveASNCached (both async, both kicked off as soon as
 	// this address is first seen) a chance to land before it's ever shown. Without this, a brand-new

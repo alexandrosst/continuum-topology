@@ -501,37 +501,71 @@ function Traffic({ conn }: { conn: Conn }) {
 
 /* ---------- what is recorded and how often (administrators) ---------- */
 
-const FIELDS: { key: keyof Pick<AppSettings, 'snapshotMinutes' | 'retentionDays' | 'maxHistoryMb' | 'tombstoneRetentionDays' | 'consistencyMinutes' | 'staleAfterBeats' | 'flowStaleHours'>; label: string; unit: string; min: number; max: number; hint: string }[] = [
+const FIELDS: { key: keyof Pick<AppSettings, 'snapshotMinutes' | 'retentionDays' | 'maxHistoryMb' | 'tombstoneRetentionDays' | 'consistencyMinutes' | 'staleAfterBeats'>; label: string; unit: string; min: number; max: number; hint: string }[] = [
   { key: 'snapshotMinutes', label: 'Recording interval', unit: 'minutes', min: 1, max: 1440, hint: 'How often the estate is recorded. It is also recorded right after a change, and only when something differs (or once an hour).' },
   { key: 'retentionDays', label: 'Keep history for', unit: 'days', min: 1, max: 365, hint: 'Every recording is kept for a day, then one per hour for a week, then one per day.' },
   { key: 'maxHistoryMb', label: 'History size limit', unit: 'MB', min: 16, max: 8192, hint: 'When the recordings grow past this, the oldest go first. The newest is always kept.' },
   { key: 'tombstoneRetentionDays', label: 'Keep removed records visible for', unit: 'days', min: 1, max: 90, hint: "Records that disappear from an agent's report are still shown as gone for this long, then removed." },
   { key: 'consistencyMinutes', label: 'Consistency check every', unit: 'minutes', min: 1, max: 240, hint: 'How often each agent re-sends its whole picture to be compared with the server’s.' },
   { key: 'staleAfterBeats', label: 'Mark stale after', unit: 'missed heartbeats', min: 2, max: 20, hint: 'An agent beats every 30 s. Its records are shown as stale once this many are missed.' },
-  { key: 'flowStaleHours', label: 'Link is quiet after', unit: 'hours', min: 1, max: 720, hint: 'How long an observed link may go unseen before it is shown as quiet.' },
 ]
+
+// flowStaleSeconds is the one recording setting whose natural unit varies by how aggressively an
+// administrator wants quiet links to be flagged - anywhere from a few seconds (near-instant feedback
+// after a deliberate change, at the cost of flapping on any dependency with natural gaps between
+// requests) to days (very tolerant of bursty/low-frequency traffic). The backend always stores and
+// validates it in seconds (backend/internal/server/settings.go), so the picker below just changes what
+// unit a typed number is multiplied by before it's sent, not the underlying representation.
+const FLOW_STALE_UNITS: { label: string; seconds: number }[] = [
+  { label: 'seconds', seconds: 1 },
+  { label: 'minutes', seconds: 60 },
+  { label: 'hours', seconds: 3600 },
+  { label: 'days', seconds: 86400 },
+]
+const FLOW_STALE_MIN_SECONDS = 1
+const FLOW_STALE_MAX_SECONDS = 30 * 86400
+
+/** The largest unit that divides the stored seconds evenly, so the field starts out showing a whole
+ * number (e.g. 300s shows as "5 minutes", not "300 seconds" or "0.08 hours"). Falls back to seconds,
+ * which always divides evenly. */
+function bestFlowStaleUnit(seconds: number): number {
+  for (const u of [...FLOW_STALE_UNITS].reverse()) {
+    if (u.seconds <= seconds && seconds % u.seconds === 0) return u.seconds
+  }
+  return 1
+}
 // The handful of these that most people ever have a reason to touch (how much history to keep, and
 // roughly how much room it can take up); the rest are operational tuning for edge cases, not a policy
 // decision, so they sit behind "Advanced" instead of competing for attention with the two that matter.
 const PRIMARY_KEYS = new Set<(typeof FIELDS)[number]['key']>(['snapshotMinutes', 'retentionDays', 'maxHistoryMb'])
 
-function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn }) {
+export function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn }) {
   const { settings, save, error, loaded } = useSettings()
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [eventOn, setEventOn] = useState(false)
   const [eventDraft, setEventDraft] = useState('')
+  const [flowStaleUnit, setFlowStaleUnit] = useState(60)
+  const [flowStaleDraft, setFlowStaleDraft] = useState('')
   const [saved, setSaved] = useState(false)
   useEffect(() => {
     setDraft(Object.fromEntries(FIELDS.map((f) => [f.key, String(settings[f.key])])))
     setEventOn(settings.eventRetentionDays > 0)
     setEventDraft(settings.eventRetentionDays > 0 ? String(settings.eventRetentionDays) : '')
+    const u = bestFlowStaleUnit(settings.flowStaleSeconds)
+    setFlowStaleUnit(u)
+    setFlowStaleDraft(String(settings.flowStaleSeconds / u))
   }, [settings])
   const bad = FIELDS.filter((f) => {
     const n = Number(draft[f.key])
     return !Number.isInteger(n) || n < f.min || n > f.max
   })
   const eventParsed = parseEventRetention(eventOn, eventDraft)
-  const dirty = FIELDS.some((f) => String(settings[f.key]) !== draft[f.key]) || settings.eventRetentionDays !== eventParsed.days
+  // The unit picker lets someone type "5" and mean 5 minutes or 5 seconds depending on the selected
+  // unit; what's actually validated and saved is always the product, in seconds.
+  const flowStaleNum = Number(flowStaleDraft)
+  const flowStaleSeconds = Math.round(flowStaleNum * flowStaleUnit)
+  const flowStaleValid = Number.isFinite(flowStaleNum) && flowStaleNum > 0 && flowStaleSeconds >= FLOW_STALE_MIN_SECONDS && flowStaleSeconds <= FLOW_STALE_MAX_SECONDS
+  const dirty = FIELDS.some((f) => String(settings[f.key]) !== draft[f.key]) || settings.eventRetentionDays !== eventParsed.days || settings.flowStaleSeconds !== flowStaleSeconds
   const renderField = (f: (typeof FIELDS)[number]) => {
     const invalid = bad.includes(f)
     return (
@@ -554,6 +588,45 @@ function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn }) {
       </Field>
     )
   }
+  const flowStaleField = (
+    <Field
+      key="flowStaleSeconds"
+      label="Link is quiet after"
+      hint={!flowStaleValid ? `Between ${FLOW_STALE_MIN_SECONDS} second${FLOW_STALE_MIN_SECONDS === 1 ? '' : 's'} and 30 days.` : 'How long an observed link may go unseen before it is shown as quiet. Pick a smaller unit for near-instant feedback after a deliberate change (a migration, a decommission); a larger one tolerates bursty or low-frequency traffic without flickering.'}
+    >
+      <div className="flex items-center gap-2">
+        <Input
+          type="number"
+          inputMode="decimal"
+          min={FLOW_STALE_MIN_SECONDS / flowStaleUnit}
+          max={FLOW_STALE_MAX_SECONDS / flowStaleUnit}
+          value={flowStaleDraft}
+          disabled={!admin}
+          aria-invalid={!flowStaleValid}
+          onChange={(e) => { setSaved(false); setFlowStaleDraft(e.target.value) }}
+          className={clsx('w-24', !flowStaleValid && 'border-bad/60')}
+          data-testid="setting-flowStaleSeconds"
+        />
+        <select
+          className="h-9 rounded-md border border-nb-800 bg-nb-925 px-2 text-sm text-nb-300 disabled:cursor-not-allowed disabled:opacity-50"
+          value={flowStaleUnit}
+          disabled={!admin}
+          onChange={(e) => {
+            setSaved(false)
+            const nextUnit = Number(e.target.value)
+            const curSeconds = Number.isFinite(flowStaleNum) ? flowStaleNum * flowStaleUnit : settings.flowStaleSeconds
+            setFlowStaleUnit(nextUnit)
+            setFlowStaleDraft(String(Math.round(curSeconds / nextUnit)))
+          }}
+          data-testid="setting-flowStaleUnit"
+        >
+          {FLOW_STALE_UNITS.map((u) => (
+            <option key={u.label} value={u.seconds}>{u.label}</option>
+          ))}
+        </select>
+      </div>
+    </Field>
+  )
   const deleteOldEventsField = (
     <Field
       label="Delete old events"
@@ -606,6 +679,7 @@ function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn }) {
           </summary>
           <div className="mt-3 grid gap-4 sm:grid-cols-2">
             {FIELDS.filter((f) => !PRIMARY_KEYS.has(f.key)).map(renderField)}
+            {flowStaleField}
             {deleteOldEventsField}
           </div>
         </details>
@@ -615,8 +689,8 @@ function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn }) {
             <>
               <Button
                 variant="primary"
-                disabled={!dirty || bad.length > 0 || (eventOn && !eventParsed.ok) || !loaded}
-                onClick={async () => setSaved(await save(conn, { ...settings, ...Object.fromEntries(FIELDS.map((f) => [f.key, Number(draft[f.key])])), eventRetentionDays: eventParsed.days }))}
+                disabled={!dirty || bad.length > 0 || !flowStaleValid || (eventOn && !eventParsed.ok) || !loaded}
+                onClick={async () => setSaved(await save(conn, { ...settings, ...Object.fromEntries(FIELDS.map((f) => [f.key, Number(draft[f.key])])), flowStaleSeconds, eventRetentionDays: eventParsed.days }))}
                 data-testid="save-settings"
               >
                 <Save size={15} /> Save

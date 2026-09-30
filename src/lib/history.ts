@@ -14,7 +14,10 @@ export interface AppSettings {
   eventRetentionDays: number
   consistencyMinutes: number
   staleAfterBeats: number
-  flowStaleHours: number
+  /** How long an observed link may go unseen before it is shown as quiet, in seconds (not hours) - a
+   * deliberate change (a migration, decommissioning a service) can be reflected quickly instead of waiting
+   * out a coarse unit. The Settings UI offers a seconds/minutes/hours/days picker over this same value. */
+  flowStaleSeconds: number
   measureSeconds: number
   probeTargets: ProbeTarget[]
   /** Only administrators receive the address; everyone else learns that one is configured. */
@@ -51,7 +54,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   eventRetentionDays: 0,
   consistencyMinutes: 15,
   staleAfterBeats: 4,
-  flowStaleHours: 24,
+  flowStaleSeconds: 300,
   measureSeconds: 120,
   probeTargets: [],
   deciderUrl: '',

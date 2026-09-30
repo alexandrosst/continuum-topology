@@ -30,8 +30,11 @@ type Settings struct {
 	ConsistencyMinutes int `json:"consistencyMinutes"`
 	// StaleAfterBeats is how many missed heartbeats make an agent's records stale.
 	StaleAfterBeats int `json:"staleAfterBeats"`
-	// FlowStaleHours is how long an observed link may go unseen before it is shown as quiet.
-	FlowStaleHours int `json:"flowStaleHours"`
+	// FlowStaleSeconds is how long an observed link may go unseen before it is shown as quiet. Stored in
+	// seconds (not hours) so an administrator who wants near-real-time feedback after a deliberate change
+	// (a migration, a decommission) can set it in seconds or minutes instead of waiting out a coarser unit;
+	// the UI offers a unit picker over this same underlying value.
+	FlowStaleSeconds int `json:"flowStaleSeconds"`
 	// MeasureSeconds is how often agents that allow it time the path to the addresses they talk to.
 	MeasureSeconds int `json:"measureSeconds"`
 	// ProbeTargets are addresses an administrator asked a cluster to measure, in addition to the ones its traffic shows.
@@ -66,8 +69,7 @@ type ProbeTarget struct {
 }
 
 func DefaultSettings() Settings {
-	return Settings{SnapshotMinutes: 5, RetentionDays: 30, MaxHistoryMB: 512, ConsistencyMinutes: 15, StaleAfterBeats: 4, FlowStaleHours: 24,
-		MeasureSeconds: 120, ProbeTargets: []ProbeTarget{}, DeciderTimeoutSec: 10, TombstoneRetentionDays: 7, EventRetentionDays: 0}
+	return Settings{SnapshotMinutes: 5, RetentionDays: 30, MaxHistoryMB: 512, ConsistencyMinutes: 15, StaleAfterBeats: 4, MeasureSeconds: 120, ProbeTargets: []ProbeTarget{}, DeciderTimeoutSec: 10, TombstoneRetentionDays: 7, EventRetentionDays: 0, FlowStaleSeconds: 300}
 }
 
 func inRange(name string, v *int, lo, hi int) error {
@@ -94,7 +96,7 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 	pick(&s.MaxHistoryMB, d.MaxHistoryMB)
 	pick(&s.ConsistencyMinutes, d.ConsistencyMinutes)
 	pick(&s.StaleAfterBeats, d.StaleAfterBeats)
-	pick(&s.FlowStaleHours, d.FlowStaleHours)
+	pick(&s.FlowStaleSeconds, d.FlowStaleSeconds)
 	pick(&s.MeasureSeconds, d.MeasureSeconds)
 	pick(&s.DeciderTimeoutSec, d.DeciderTimeoutSec)
 	pick(&s.TombstoneRetentionDays, d.TombstoneRetentionDays)
@@ -109,7 +111,7 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 		{"the history size limit (MB)", &s.MaxHistoryMB, 16, 8192},
 		{"the consistency check interval (minutes)", &s.ConsistencyMinutes, 1, 240},
 		{"the number of missed heartbeats", &s.StaleAfterBeats, 2, 20},
-		{"the quiet-link time (hours)", &s.FlowStaleHours, 1, 720},
+		{"the quiet-link time (seconds)", &s.FlowStaleSeconds, 1, 30 * 24 * 3600},
 		{"the measurement interval (seconds)", &s.MeasureSeconds, int(measure.MinInterval / time.Second), 3600},
 		{"the decider timeout (seconds)", &s.DeciderTimeoutSec, 1, 25},
 		{"tombstone retention (days)", &s.TombstoneRetentionDays, 1, 90},
@@ -265,7 +267,7 @@ func settingsDiff(a, b Settings) string {
 	add("event retention (days)", a.EventRetentionDays, b.EventRetentionDays)
 	add("consistency check (min)", a.ConsistencyMinutes, b.ConsistencyMinutes)
 	add("stale after (beats)", a.StaleAfterBeats, b.StaleAfterBeats)
-	add("quiet link (h)", a.FlowStaleHours, b.FlowStaleHours)
+	add("quiet link (s)", a.FlowStaleSeconds, b.FlowStaleSeconds)
 	add("measure every (s)", a.MeasureSeconds, b.MeasureSeconds)
 	add("measurement targets", len(a.ProbeTargets), len(b.ProbeTargets))
 	if a.DeciderURL != b.DeciderURL {

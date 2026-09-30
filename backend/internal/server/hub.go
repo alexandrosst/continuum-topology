@@ -1091,8 +1091,8 @@ func (h *Hub) StaleFlows() time.Duration {
 	if h.FlowStaleAfter > 0 {
 		return h.FlowStaleAfter
 	}
-	if s := h.C.Settings(); s.FlowStaleHours > 0 {
-		return time.Duration(s.FlowStaleHours) * time.Hour
+	if s := h.C.Settings(); s.FlowStaleSeconds > 0 {
+		return time.Duration(s.FlowStaleSeconds) * time.Second
 	}
 	return defaultStaleWindow
 }

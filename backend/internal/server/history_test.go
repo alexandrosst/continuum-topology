@@ -24,8 +24,11 @@ func TestSettingsDefaultsAndBounds(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := DefaultSettings()
-	if n.SnapshotMinutes != d.SnapshotMinutes || n.ConsistencyMinutes != d.ConsistencyMinutes || n.RetentionDays != d.RetentionDays || n.DeciderTimeoutSec != d.DeciderTimeoutSec {
+	if n.SnapshotMinutes != d.SnapshotMinutes || n.ConsistencyMinutes != d.ConsistencyMinutes || n.RetentionDays != d.RetentionDays || n.DeciderTimeoutSec != d.DeciderTimeoutSec || n.FlowStaleSeconds != d.FlowStaleSeconds {
 		t.Fatalf("zero settings did not fall back to defaults: %+v", n)
+	}
+	if d.FlowStaleSeconds != 300 {
+		t.Fatalf("the quiet-link default changed without updating this test: %d", d.FlowStaleSeconds)
 	}
 	for name, s := range map[string]Settings{
 		"snapshot too long":     {SnapshotMinutes: 100000},
@@ -35,6 +38,8 @@ func TestSettingsDefaultsAndBounds(t *testing.T) {
 		"consistency too long":  {ConsistencyMinutes: 1000},
 		"one missed beat":       {StaleAfterBeats: 1},
 		"measure too often":     {MeasureSeconds: 1},
+		"flow stale negative":   {FlowStaleSeconds: -1},
+		"flow stale too long":   {FlowStaleSeconds: 30*24*3600 + 1},
 		"decider timeout":       {DeciderTimeoutSec: 26},
 		"decider secret short":  {DeciderSecret: "too-short"},
 		"decider secret long":   {DeciderSecret: strings.Repeat("x", 201)},
