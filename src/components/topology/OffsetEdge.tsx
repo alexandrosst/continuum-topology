@@ -242,30 +242,79 @@ export function roundedPolylinePath(points: { x: number; y: number }[], radius: 
 }
 
 /** The "squared but soft" alternative to curvedPath, added per the UI/UX pass's arrow-style review: two
- *  axis-aligned legs joined by a short rounded jog partway between the two anchors, the same two-bend shape
+ *  or three axis-aligned legs joined by short rounded jogs between the two anchors, the same general shape
  *  React Flow's own built-in `smoothstep` edge type draws - except computed from OffsetEdge's own
- *  continuously-floating anchor points (see this file's top-level doc comment for why those exist) rather
- *  than from a fixed cardinal `sourcePosition`/`targetPosition`. Whichever axis carries more of the distance
- *  between the two points gets the two long legs (a mostly-vertical edge - the common case here, since
- *  clusters stack in rows - gets a vertical-jog-vertical route; a mostly-horizontal one the mirror image),
- *  matching the rule smoothstep itself uses to decide its own bend. This is deliberately an opt-in look
- *  (the Options menu's "Edge style" control), not a replacement for curvedPath: a real orthogonal route
- *  reintroduces a small set of fixed angles, and a graph as dense and cross-crossing as this app's can end up
- *  busier, not cleaner, with hard elbows everywhere - it's a genuine style choice, not a strict upgrade. */
-export function elbowPath(x1: number, y1: number, x2: number, y2: number, radius = 14): { path: string; labelX: number; labelY: number } {
-  const dx = x2 - x1
-  const dy = y2 - y1
+ *  continuously-floating anchor points AND their actual box-relative exit/entry sides (`sourceNormal`,
+ *  `targetNormal` - the same two curvedPath itself takes, from `outwardNormal`/`pickClearSide`) rather than
+ *  from a fixed cardinal `sourcePosition`/`targetPosition` or a naive dx-vs-dy guess.
+ *
+ *  An earlier version of this picked its route shape purely from whichever axis carried more of the raw
+ *  distance between the two anchor points, ignoring which side of each box they actually sat on. That reads
+ *  fine when the dominant axis happens to agree with both normals (the common case - two boxes stacked in
+ *  different rows, both normals vertical), but breaks visibly the moment it doesn't: an anchor correctly
+ *  placed on a box's TOP edge (because that's the clear, unobstructed side - see pickClearSide) could still
+ *  end up approached HORIZONTALLY if the two anchors happened to be more spread out sideways than vertically
+ *  - the route runs the last leg sideways into a point that's meant to be entered from above, so it skims
+ *  along just outside the box's own edge for a stretch rather than visibly plunging into it. Building the
+ *  route from the normals themselves instead - matching curvedPath's own approach, just with hard corners
+ *  instead of a bow - fixes that: the leg touching each anchor always runs along that anchor's own normal
+ *  axis, so the line always looks like it leaves/arrives perpendicular to the box it touches, exactly like
+ *  the curved style already does.
+ *
+ *  Both normals on the same axis (both vertical, or both horizontal - two boxes in different rows/columns,
+ *  the common case) still gets the original two-bend "jog" shape, just keyed off the normals' axis instead
+ *  of dx-vs-dy. Normals on different axes (a corner-ish relationship - leaving a box's side but entering
+ *  another's top, say) gets a single-bend "L" instead: there's no room for a jog when one end's own leg
+ *  already has to run along the other axis, so a two-bend shape there would only add a redundant corner
+ *  without changing which side either end is entered from.
+ *
+ *  Still deliberately an opt-in look (the Options menu's "Edge style" control), not a replacement for
+ *  curvedPath: a real orthogonal route reintroduces a small set of fixed angles, and a graph as dense and
+ *  cross-crossing as this app's can end up busier, not cleaner, with hard elbows everywhere - it's a genuine
+ *  style choice, not a strict upgrade. */
+export function elbowPath(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  sourceNormal: { x: number; y: number },
+  targetNormal: { x: number; y: number },
+  radius = 14,
+): { path: string; labelX: number; labelY: number } {
+  const sourceVertical = sourceNormal.x === 0
+  const targetVertical = targetNormal.x === 0
   const points =
-    Math.abs(dy) >= Math.abs(dx)
+    sourceVertical && targetVertical
       ? [{ x: x1, y: y1 }, { x: x1, y: (y1 + y2) / 2 }, { x: x2, y: (y1 + y2) / 2 }, { x: x2, y: y2 }]
-      : [{ x: x1, y: y1 }, { x: (x1 + x2) / 2, y: y1 }, { x: (x1 + x2) / 2, y: y2 }, { x: x2, y: y2 }]
-  return {
-    path: roundedPolylinePath(points, radius),
-    // The midpoint of the route's own middle leg (the short jog between the two long legs) - the one part of
-    // the path that's never right on top of either box, unlike curvedPath's true midpoint label placement.
-    labelX: (points[1].x + points[2].x) / 2,
-    labelY: (points[1].y + points[2].y) / 2,
+      : !sourceVertical && !targetVertical
+        ? [{ x: x1, y: y1 }, { x: (x1 + x2) / 2, y: y1 }, { x: (x1 + x2) / 2, y: y2 }, { x: x2, y: y2 }]
+        : sourceVertical
+          ? // Leaves vertically (along sourceNormal), arrives horizontally (along targetNormal): a single
+            // bend at the point directly below/above the source and level with the target.
+            [{ x: x1, y: y1 }, { x: x1, y: y2 }, { x: x2, y: y2 }]
+          : // The mirror: leaves horizontally, arrives vertically - single bend level with the source and
+            // directly above/below the target.
+            [{ x: x1, y: y1 }, { x: x2, y: y1 }, { x: x2, y: y2 }]
+  const mid = points.length === 4 ? points[1] : undefined
+  const mid2 = points.length === 4 ? points[2] : undefined
+  // For the 4-point jog shape, the label sits on the short middle leg - the one part of the path that's
+  // never right on top of either box, unlike curvedPath's true midpoint label placement. The 3-point single-
+  // bend shape has no such middle leg (the two legs meet directly at the bend), so the label instead goes on
+  // the midpoint of whichever of the two legs is longer - the one more likely to actually clear both boxes.
+  let labelX: number
+  let labelY: number
+  if (mid && mid2) {
+    labelX = (mid.x + mid2.x) / 2
+    labelY = (mid.y + mid2.y) / 2
+  } else {
+    const [p0, p1, p2] = points
+    const leg1 = Math.hypot(p1.x - p0.x, p1.y - p0.y)
+    const leg2 = Math.hypot(p2.x - p1.x, p2.y - p1.y)
+    const [a, b] = leg1 >= leg2 ? [p0, p1] : [p1, p2]
+    labelX = (a.x + b.x) / 2
+    labelY = (a.y + b.y) / 2
   }
+  return { path: roundedPolylinePath(points, radius), labelX, labelY }
 }
 
 /** Shrinks the segment from (sx,sy) to (tx,ty) by `gap` px at the source end, and at the target end too
@@ -490,7 +539,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
 
   const edgeStyle = useContext(EdgeStyleContext)
   const { path, labelX, labelY } =
-    edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
+    edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
   return (
     <BaseEdge
       id={id}

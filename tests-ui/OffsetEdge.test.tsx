@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import {
   clampTowardNormal,
   curvedPath,
+  elbowPath,
   intersection,
   outwardNormal,
   OBSTACLE_MARGIN,
@@ -203,6 +204,89 @@ describe('curvedPath (OffsetEdge\'s asymmetric cubic-bow path math)', () => {
     const MAX_ARROWHEAD_APPROACH_ANGLE = (38 * Math.PI) / 180
     expect(angle).toBeLessThanOrEqual(MAX_ARROWHEAD_APPROACH_ANGLE + 1e-9) // clamped, not left grazing
     expect(angle).toBeCloseTo(MAX_ARROWHEAD_APPROACH_ANGLE, 5) // and clamped exactly to the limit, not overcorrected
+  })
+})
+
+
+describe('elbowPath (the opt-in squared-but-soft alternative to curvedPath)', () => {
+  const outUp = { x: 0, y: -1 }
+  const outDown = { x: 0, y: 1 }
+  const outLeft = { x: -1, y: 0 }
+  const outRight = { x: 1, y: 0 }
+
+  test('starts and ends exactly at the given anchor points', () => {
+    const { path } = elbowPath(0, 0, 300, 200, outDown, outUp)
+    expect(path.startsWith('M0,0 ')).toBe(true)
+    expect(path.endsWith('L300,200')).toBe(true) // the final point is never touched by corner-rounding
+  })
+
+  test('both normals vertical: routes with a vertical-jog-vertical shape regardless of which axis the raw distance favors', () => {
+    // dx (300) far exceeds dy (20) here - the old dx-vs-dy heuristic would have picked a horizontal-jog
+    // route and approached the target sideways, even though targetNormal (top) means it should be entered
+    // from directly above. This is the exact shape of the reported bug: an edge to a target sitting in
+    // roughly the same row, but whose own natural entry side is still its top edge.
+    const { path } = elbowPath(0, 0, 300, 20, outDown, outUp)
+    const nums = path.match(/-?[\d.]+/g)!.map(Number)
+    const pts: [number, number][] = []
+    for (let i = 0; i < nums.length; i += 2) pts.push([nums[i], nums[i + 1]])
+    // The very first and very last points of the path are still the true anchors.
+    expect(pts[0]).toEqual([0, 0])
+    expect(pts.at(-1)).toEqual([300, 20])
+    // The final approach into the target is vertical (same x as the target for the point just before it),
+    // not horizontal - i.e. it arrives from above, matching outUp, rather than skimming in from the side.
+    const penultimate = pts.at(-2)!
+    expect(penultimate[0]).toBeCloseTo(300, 5)
+  })
+
+  test('both normals horizontal: routes with a horizontal-jog-horizontal shape regardless of which axis the raw distance favors', () => {
+    // Mirror of the above: dy (300) far exceeds dx (20), but both normals are horizontal, so the route
+    // must still approach the target sideways (same y as the target just before the end), not from above.
+    const { path } = elbowPath(0, 0, 20, 300, outRight, outLeft)
+    const nums = path.match(/-?[\d.]+/g)!.map(Number)
+    const pts: [number, number][] = []
+    for (let i = 0; i < nums.length; i += 2) pts.push([nums[i], nums[i + 1]])
+    expect(pts[0]).toEqual([0, 0])
+    expect(pts.at(-1)).toEqual([20, 300])
+    const penultimate = pts.at(-2)!
+    expect(penultimate[1]).toBeCloseTo(300, 5)
+  })
+
+  test('mixed normals (vertical source, horizontal target): a single-bend L route, no redundant jog', () => {
+    const { path } = elbowPath(0, 0, 300, 200, outDown, outLeft)
+    // Exactly one interior corner (one Q command), not the two a jog route would have - a single bend is
+    // all a mixed-axis route needs, since each leg already runs along a different anchor's own normal.
+    expect((path.match(/Q/g) ?? []).length).toBe(1)
+    // The corner sits directly below the source (same x) and level with the target (same y): the first
+    // leg is vertical (per sourceNormal=down), the last leg horizontal (per targetNormal=left). A Q
+    // command's own first coordinate pair is the exact, un-rounded corner point.
+    const [, cx, cy] = path.match(/Q(-?[\d.]+),(-?[\d.]+)/)!
+    expect(Number(cx)).toBeCloseTo(0, 5)
+    expect(Number(cy)).toBeCloseTo(200, 5)
+    expect(path.endsWith('L300,200')).toBe(true)
+  })
+
+  test('mixed normals (horizontal source, vertical target): the mirrored single-bend L route', () => {
+    const { path } = elbowPath(0, 0, 300, 200, outRight, outUp)
+    expect((path.match(/Q/g) ?? []).length).toBe(1)
+    const [, cx, cy] = path.match(/Q(-?[\d.]+),(-?[\d.]+)/)!
+    expect(Number(cx)).toBeCloseTo(300, 5)
+    expect(Number(cy)).toBeCloseTo(0, 5)
+    expect(path.endsWith('L300,200')).toBe(true)
+  })
+
+  test('label sits on the middle leg for a 4-point jog route, clear of either anchor', () => {
+    const { labelX, labelY } = elbowPath(0, 0, 300, 200, outDown, outUp)
+    expect(labelY).toBeCloseTo(100, 5) // the jog's own y, between 0 and 200
+    expect(labelX).toBeGreaterThan(0)
+    expect(labelX).toBeLessThan(300)
+  })
+
+  test('label sits on the longer leg for a 3-point single-bend route', () => {
+    // Source-to-corner leg (0,0)->(0,200): length 200. Corner-to-target leg (0,200)->(300,200): length 300.
+    // The longer one wins, so the label should be the midpoint of the second leg, not the first.
+    const { labelX, labelY } = elbowPath(0, 0, 300, 200, outDown, outLeft)
+    expect(labelX).toBeCloseTo(150, 5)
+    expect(labelY).toBeCloseTo(200, 5)
   })
 })
 
