@@ -247,7 +247,17 @@ function KeyValueChips({ label, pairs }: { label: string; pairs?: Record<string,
 /** A handful of short items (accelerators, disks, network interfaces, taints, conditions) as individually
  *  wrapping chips instead of one long comma-joined line that only ever scrolled sideways - the same fix as
  *  KeyValueChips, for plain values instead of key=value pairs. Renders nothing when there is nothing to show,
- *  the same as Maybe. */
+ *  the same as Maybe.
+ *
+ *  Each chip still truncates on its own (`max-w-full truncate`) when a single item is wider than the sidebar
+ *  itself - a verbose one like an interface's "name (kind, speed, MTU, utilization)" summary routinely is,
+ *  even sitting alone on its own wrapped line with nothing competing for width. Unlike Row's long single
+ *  values, there's no good way to make one chip among several horizontally scroll on its own without either
+ *  scrolling the whole wrapped group (breaking the ones that already fit) or growing it past the chip shape
+ *  entirely - so instead every chip gets its own `title`, the same hover-for-the-full-value pattern already
+ *  used throughout this sidebar wherever something can't just be made to fit (geo reasons, evidence detail,
+ *  mesh state, and more). `title` on the outer group (below) is separate and unrelated: a general explanation
+ *  of the whole field (see the "CIDR overlap" call site), not a stand-in for any one chip's own full text. */
 function Chips({ label, items, tone, title }: { label: string; items?: string[]; tone?: 'warn'; title?: string }) {
   if (!items || items.length === 0) return null
   return (
@@ -257,6 +267,7 @@ function Chips({ label, items, tone, title }: { label: string; items?: string[];
         {items.map((it, i) => (
           <span
             key={i}
+            title={it}
             className={
               'max-w-full truncate rounded-md border border-nb-800 bg-nb-930 px-1.5 py-0.5 text-[11px] leading-none ' +
               (tone === 'warn' ? 'text-warn' : 'text-nb-300')
