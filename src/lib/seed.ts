@@ -227,7 +227,7 @@ export function seedTopology(): Model {
     w({ id: 'w-registry', applicationId: 'app-ml', name: 'model-registry', clusterId: 'cl-cloud', namespace: 'ml', kind: 'StatefulSet', image: 'mlflow:2.14', nodeIds: ['n-c3'], volumes: [{ name: 'artifacts', storageClass: 'gp3', sizeGb: 200, accessModes: ['ReadWriteOnce'], phase: 'Bound' }], ports: [5000], managedBy: 'helm', sensitivity: 'confidential' }),
     // regional
     w({ id: 'w-kafka', applicationId: 'app-ingest', name: 'kafka', clusterId: 'cl-region', namespace: 'streaming', kind: 'StatefulSet', image: 'bitnami/kafka:3.7', replicas: 3, readyReplicas: 3, nodeIds: ['n-r2', 'n-r3'], volumes: [{ name: 'data-kafka-0', storageClass: 'local-nvme', sizeGb: 500, accessModes: ['ReadWriteOnce'], phase: 'Bound', pinnedNodeIds: ['n-r2'] }, { name: 'data-kafka-1', storageClass: 'local-nvme', sizeGb: 500, accessModes: ['ReadWriteOnce'], phase: 'Bound', pinnedNodeIds: ['n-r3'] }], disruption: { maxUnavailable: '1', allowed: 1 }, ports: [9092], managedBy: 'helm' }),
-    w({ id: 'w-agg', applicationId: 'app-ingest', name: 'stream-aggregator', clusterId: 'cl-region', namespace: 'streaming', image: 'ghcr.io/acme/aggregator:2.0', replicas: 2, readyReplicas: 2, nodeIds: ['n-r2', 'n-r3'], ports: [8883] }),
+    w({ id: 'w-agg', applicationId: 'app-ingest', name: 'stream-aggregator', clusterId: 'cl-region', namespace: 'streaming', image: 'ghcr.io/acme/aggregator:2.0', replicas: 2, readyReplicas: 2, nodeIds: ['n-r2', 'n-r3'], ports: [8883], exposure: 'load-balancer' }),
     w({ id: 'w-infer-r', applicationId: 'app-ml', name: 'inference-regional', clusterId: 'cl-region', namespace: 'ml', image: 'ghcr.io/acme/infer:1.2', nodeIds: ['n-r3'] }),
     // edge A
     w({
@@ -276,15 +276,15 @@ export function seedTopology(): Model {
     d('d4', 'w-agg', 'w-kafka', 'Kafka', 9092),
     d('d5', 'w-train', 'w-kafka', 'Kafka', 9092),
     d('d6', 'w-infer-r', 'w-registry', 'HTTP', 5000),
-    d('d7', 'w-infer-a', 'w-registry', 'HTTP', 5000, ['declared'], 'medium'),
+    d('d7', 'w-infer-a', 'w-registry', 'HTTP', 5000, ['declared'], 'medium', { crossCluster: true }),
     d('d8', 'w-infer-b', 'w-registry', 'HTTP', 5000, ['declared'], 'medium'),
     d('d9', 'w-sensor-a', 'w-mqtt-a', 'MQTT', 1883, ['observed', 'declared'], 'high', { stats: { reqPerSec: 42, errorRate: 0.002, p95Ms: 8, windowSec: 300 } }),
     d('d10', 'w-infer-a', 'w-mqtt-a', 'MQTT', 1883, ['observed', 'declared']),
-    d('d11', 'w-mqtt-a', 'w-agg', 'MQTT', 8883, ['observed'], 'high', { via: 'ebpf', iface: 'eth0', stats: { bytesPerSec: 180000, errorRate: 0, p95Ms: 31, windowSec: 300 } }),
+    d('d11', 'w-mqtt-a', 'w-agg', 'MQTT', 8883, ['observed'], 'high', { crossCluster: true, via: 'ebpf', iface: 'eth0', stats: { bytesPerSec: 180000, errorRate: 0, p95Ms: 31, windowSec: 300 } }),
     // edge-thessaloniki's agent has no access to dependencies yet, so these are declared, not observed
     d('d12', 'w-sensor-b', 'w-mqtt-b', 'MQTT', 1883, ['declared'], 'medium'),
     d('d13', 'w-infer-b', 'w-mqtt-b', 'MQTT', 1883, ['declared'], 'medium'),
-    d('d14', 'w-mqtt-b', 'w-agg', 'MQTT', 8883),
+    d('d14', 'w-mqtt-b', 'w-agg', 'MQTT', 8883, ['manual'], 'high', { crossCluster: true }),
     d('d15', 'w-orch', 'w-infer-a', 'gRPC', 9001),
     d('d16', 'w-orch', 'w-infer-b', 'gRPC', 9001),
     d('d17', 'w-orch', 'w-infer-r', 'gRPC', 9001),

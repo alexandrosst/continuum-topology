@@ -21,6 +21,10 @@ export type EdgeHoverPos = { cx: number; cy: number }
  * Round trip, retransmits and interface mirror the Inspector's own "Traffic" section exactly (same
  * eBPF-only gate for retransmits, same rttMs source) - so a click is never needed just to see numbers a
  * hover already had.
+ *
+ * Route only ever appears on a cross-cluster dependency: whether it lands on a flat/mesh-federated network
+ * route, or has to go out through the target's own external exposure (ingress, node port or load balancer)
+ * to be reached at all - the only two ways a call from outside the target's own cluster can land on it.
  */
 export default function EdgeHoverCard({
   edge,
@@ -66,7 +70,7 @@ export default function EdgeHoverCard({
           ? d.activeCount ? ` · ${d.activeCount} seen in traffic` : undefined
           : label !== undefined && (d?.stale ? ' · quiet' : seen ? ' · seen in traffic' : ' · declared')}
       </div>
-      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showRetransmits || d?.iface || d?.quality) && (
+      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showRetransmits || d?.iface || d?.quality || d?.route) && (
         <dl className="mt-1.5 grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-0.5 text-nb-400">
           {showBps && (
             <>
@@ -114,6 +118,12 @@ export default function EdgeHoverCard({
             <>
               <dt>Network path</dt>
               <dd className="text-nb-200">{qualityLabel(d.quality)}</dd>
+            </>
+          )}
+          {d?.route && (
+            <>
+              <dt title="How this cross-cluster call actually reaches its target: a flat network route, or out through the target's own external exposure (ingress, node port or load balancer)">Route</dt>
+              <dd className="text-nb-200">{d.route === 'gateway' ? 'via gateway' : 'direct (peer network)'}</dd>
             </>
           )}
         </dl>

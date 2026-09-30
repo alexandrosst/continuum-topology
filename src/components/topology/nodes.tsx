@@ -234,6 +234,10 @@ export const NamespaceBox = memo(function NamespaceBox({ data }: NodeProps<Names
 })
 
 /* ---------- Service / machine card ---------- */
+// A card's own footprint stays legible how ever many services a busy node/namespace box has - past this
+// many chips, the rest collapse into one "+N more" chip (its title lists every one of them) instead of the
+// card growing to fit an unbounded list, mirroring how a crowded Grafana panel legend collapses long series.
+const CHIP_LIMIT = 6
 const MACHINE_ICON = { vm: Server, 'bare-metal': HardDrive, 'edge-device': Cpu } as const
 // A bare Service with no controller behind it (or one whose kind isn't one of these four) keeps the
 // generic Box - same as before this map existed.
@@ -320,11 +324,20 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
       {!far && data.chips && (
         <div className="flex flex-wrap gap-1.5 border-t border-nb-850 pt-2">
           {data.chips.length === 0 && <span className="text-[11px] text-nb-500">No services</span>}
-          {data.chips.map((c) => (
+          {data.chips.slice(0, CHIP_LIMIT).map((c) => (
             <Badge key={c.id} tone={NEUTRAL_TONE} icon={Box} title={c.name} className="max-w-[48%]">
               {c.name}
             </Badge>
           ))}
+          {data.chips.length > CHIP_LIMIT && (
+            <Badge
+              tone={NEUTRAL_TONE}
+              title={data.chips.slice(CHIP_LIMIT).map((c) => c.name).join(', ')}
+              data-testid="chip-overflow"
+            >
+              +{data.chips.length - CHIP_LIMIT} more
+            </Badge>
+          )}
         </div>
       )}
     </div>

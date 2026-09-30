@@ -118,3 +118,61 @@ export function applyFilter<M extends FilterModel>(m: M, f: Filter): M {
 
   return { ...m, clusters, nodes, namespaces, services, devices, dependencies, externalEndpoints, sites, siteLinks }
 }
+
+/**
+ * Backstage-style "max depth": keep only entities within `hops` steps of `focus` in the dependency graph,
+ * walked in both directions (what it calls, and what calls it) so the neighborhood is symmetric - a focused
+ * service's callers matter exactly as much as what it calls. Independent of Filter/applyFilter above (this
+ * is about distance from one entity, not a persisted attribute selection), so a caller runs it as a second,
+ * optional pass over whatever applyFilter already kept. `focus` not existing in the model is a no-op (the
+ * selection it was reading from may have just been cleared or filtered away) rather than an empty graph.
+ */
+export function hopNeighborhood<M extends FilterModel>(m: M, focus: string, hops: number): M {
+  const known = new Set([...m.services.map((s) => s.id), ...m.devices.map((d) => d.id), ...m.externalEndpoints.map((e) => e.id)])
+  if (!known.has(focus)) return m
+  const adj = new Map<string, Set<string>>()
+  const link = (a: string, b: string) => {
+    let set = adj.get(a)
+    if (!set) {
+      set = new Set()
+      adj.set(a, set)
+    }
+    set.add(b)
+  }
+  for (const d of m.dependencies) {
+    link(d.from, d.to)
+    link(d.to, d.from)
+  }
+  const reached = new Set([focus])
+  let frontier = [focus]
+  for (let i = 0; i < hops && frontier.length > 0; i++) {
+    const next: string[] = []
+    for (const id of frontier) {
+      for (const nb of adj.get(id) ?? []) {
+        if (!reached.has(nb)) {
+          reached.add(nb)
+          next.push(nb)
+        }
+      }
+    }
+    frontier = next
+  }
+
+  const services = m.services.filter((s) => reached.has(s.id))
+  const svc = new Set(services.map((s) => s.id))
+  const devices = m.devices.filter((d) => reached.has(d.id))
+  const externalEndpoints = m.externalEndpoints.filter((e) => reached.has(e.id))
+  const kept = new Set([...svc, ...devices.map((d) => d.id), ...externalEndpoints.map((e) => e.id)])
+  const dependencies = m.dependencies.filter((d) => kept.has(d.from) && kept.has(d.to))
+
+  const nodeIds = new Set(services.flatMap((s) => s.nodeIds))
+  const nodes = m.nodes.filter((n) => nodeIds.has(n.id))
+  const cIds = new Set(services.map((s) => s.clusterId))
+  const clusters = m.clusters.filter((c) => cIds.has(c.id))
+  const namespaces = m.namespaces.filter((n) => cIds.has(n.clusterId) && services.some((s) => s.clusterId === n.clusterId && s.namespace === n.name))
+  const siteIds = new Set([...clusters.map((c) => c.siteId), ...devices.map((d) => d.siteId)].filter((x): x is string => !!x))
+  const sites = m.sites.filter((s) => siteIds.has(s.id))
+  const siteLinks = m.siteLinks.filter((l) => siteIds.has(l.a) && siteIds.has(l.b))
+
+  return { ...m, clusters, nodes, namespaces, services, devices, dependencies, externalEndpoints, sites, siteLinks }
+}

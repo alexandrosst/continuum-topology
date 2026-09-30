@@ -14,7 +14,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
-import { Antenna, Boxes, ChevronDown, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, Server, SlidersHorizontal, Target } from 'lucide-react'
+import { Antenna, Boxes, ChevronDown, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, Server, SlidersHorizontal, Target, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -34,7 +34,7 @@ import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu from '@/components/topology/FilterMenu'
 import { api } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
-import { applyFilter, encodeList, filterActive, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
+import { applyFilter, encodeList, filterActive, hopNeighborhood, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
 import { applyGraphUpdate, buildGraph, cardId, groupId, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
@@ -245,9 +245,19 @@ function Canvas() {
   const rawFilter = useMemo(() => parseFilter(sp), [sp])
   const filter = useMemo(() => knownOnly(rawFilter, { clusters, applications }), [rawFilter, clusters, applications])
   const filtering = filterActive(filter)
-  const shown = useMemo(
+  const filteredByAttrs = useMemo(
     () => applyFilter({ clusters, nodes: machines, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints }, filter),
     [clusters, machines, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, filter],
+  )
+  // Backstage-style "max depth": while a service is selected, ?hops=N further narrows the canvas to just
+  // its neighborhood (what it calls and what calls it, N steps out) - independent of the cluster/app/kind
+  // filter above, and only in effect while that service is actually the current selection.
+  const hopsParam = sp.get('hops')
+  const hops = hopsParam !== null && /^\d+$/.test(hopsParam) ? Number(hopsParam) : undefined
+  const focusId = selection?.kind === 'service' ? selection.id : undefined
+  const shown = useMemo(
+    () => (hops !== undefined && focusId ? hopNeighborhood(filteredByAttrs, focusId, hops) : filteredByAttrs),
+    [filteredByAttrs, hops, focusId],
   )
   const graph = useMemo(
     () =>
@@ -582,6 +592,42 @@ function Canvas() {
 
         <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
           <LiveStatus />
+          {mode === 'application' && selection?.kind === 'service' && (
+            <div
+              className="flex items-center gap-1 rounded-md border border-nb-800 bg-nb-925 px-1.5 py-1"
+              title="Show only this service's neighborhood: what it calls and what calls it, this many steps out"
+              data-testid="hops-control"
+            >
+              <Target size={13} className="ml-0.5 shrink-0 text-nb-500" aria-hidden />
+              {[1, 2, 3].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setParam('hops', hops === n ? null : String(n))}
+                  className={clsx(
+                    'rounded px-2 py-0.5 text-xs',
+                    PRESS_CLASS,
+                    hops === n ? 'bg-accent-soft text-accent' : 'text-nb-400 hover:text-nb-300',
+                  )}
+                  aria-pressed={hops === n}
+                  data-testid={`hops-${n}`}
+                >
+                  {n}
+                </button>
+              ))}
+              {hops !== undefined && (
+                <button
+                  type="button"
+                  onClick={() => setParam('hops', null)}
+                  className="rounded px-1 py-0.5 text-nb-500 hover:bg-nb-850 hover:text-nb-300"
+                  aria-label="Clear neighborhood filter"
+                  data-testid="hops-clear"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          )}
           <FilterMenu
             open={openMenu === 'filter'}
             onOpenChange={(o) => setOpenMenu(o ? 'filter' : null)}

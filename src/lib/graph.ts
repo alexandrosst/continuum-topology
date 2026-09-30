@@ -132,6 +132,11 @@ export type EdgeData = {
   quality?: PathQuality
   /** Service mesh overlay: what the mesh does to this connection, inferred from configuration. */
   mesh?: MeshVerdict
+  /** Only set on a cross-cluster dependency: 'direct' when the target is reached over a flat/mesh-federated
+   *  network route, 'gateway' when the call has to go out through the target's own external exposure
+   *  (ingress, node port or load balancer) to reach it at all. See makeEdge's own doc for why this is
+   *  meaningless for a same-cluster call. */
+  route?: 'direct' | 'gateway'
   /** Pixels to shift this line's source end sideways (perpendicular to the caller->callee line). */
   sourceOffset?: number
   /** Pixels to shift this line's target end sideways (perpendicular to the caller->callee line). Independent from sourceOffset, so a line can fan out at a busy node while still landing cleanly at a quiet one. */
@@ -596,6 +601,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       const tc = serviceById.get(d.to)?.clusterId
       const quality = o.paths && fc && tc && fc !== tc ? pathQuality(o.paths, fc, tc) : undefined
       const verdict = o.mesh ? connectionVerdict(d, serviceById.get(d.from), serviceById.get(d.to), fc ? clusterById.get(fc) : undefined, t.namespaces) : undefined
+      const route = crossClusterRoute(d, serviceById.get(d.to))
       edges.push(makeEdge(d.id, s, tg, abs, {
         // The line says what it is; what the mesh does to it is the colour (see the legend) and the inspector's words.
         label: edgeLabel(d),
@@ -615,6 +621,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         iface: d.iface,
         retransmits: d.retransmits,
         rttMs: d.rttMs,
+        route,
       }))
     }
   } else if (o.links) {
@@ -936,6 +943,7 @@ function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edg
     const tc = serviceById.get(d.to)?.clusterId
     const quality = o.paths && fc && tc && fc !== tc ? pathQuality(o.paths, fc, tc) : undefined
     const verdict = o.mesh ? connectionVerdict(d, serviceById.get(d.from), serviceById.get(d.to), fc ? clusterById.get(fc) : undefined, t.namespaces) : undefined
+    const route = crossClusterRoute(d, serviceById.get(d.to))
     edges.push(makeEdge(d.id, s, tg, abs, {
       label: edgeLabel(d),
       mesh: verdict,
@@ -950,6 +958,7 @@ function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edg
       observed: isObserved(d),
       stale: d.stale,
       weight: weightOf(d),
+      route,
     }))
   }
 
@@ -1257,6 +1266,12 @@ function makeEdge(
     retransmits?: number
     rttMs?: number
     activeCount?: number
+    /** Only set on a cross-cluster dependency: whether the target is reached over a flat/mesh-federated
+     *  network route, or has to go out through its own external exposure (ingress, node port or load
+     *  balancer) to be reached at all - the only two ways a call from outside the target's own cluster can
+     *  land on it. Meaningless for a same-cluster call, which always reaches its target's ClusterIP
+     *  directly regardless of whatever else that target happens to be exposed as. */
+    route?: 'direct' | 'gateway'
   },
 ): TopoEdge {
   const [ss, ts] = pickSides(abs.get(source)!, abs.get(target)!)
@@ -1286,7 +1301,7 @@ function makeEdge(
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,
     markerEnd: d.aggregated ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, retransmits: d.retransmits, rttMs: d.rttMs, activeCount: d.activeCount },
+    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, retransmits: d.retransmits, rttMs: d.rttMs, activeCount: d.activeCount, route: d.route },
   }
 }
 
@@ -1296,6 +1311,18 @@ function makeEdge(
  */
 function edgeLabel(d: Dependency): string {
   return d.label ?? (d.port ? `${d.protocol}:${d.port}` : d.protocol)
+}
+
+/**
+ * How a cross-cluster call actually reaches its target: 'direct' over a flat/mesh-federated network route,
+ * or 'gateway' when the target's own external exposure (ingress, node port or load balancer) is the only
+ * way in from outside its cluster. Undefined for a same-cluster call (always its target's ClusterIP,
+ * regardless of whatever else that target happens to be exposed as) or when the target isn't a known
+ * service (a device or external endpoint has no comparable exposure concept).
+ */
+function crossClusterRoute(d: Dependency, to: Service | undefined): 'direct' | 'gateway' | undefined {
+  if (!d.crossCluster || d.toKind !== 'service' || !to) return undefined
+  return to.exposure && to.exposure !== 'internal' ? 'gateway' : 'direct'
 }
 
 /** How busy an edge is on a log scale, 0..1, so a chatty database link does not flatten everything else. */
