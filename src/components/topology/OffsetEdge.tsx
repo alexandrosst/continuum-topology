@@ -56,6 +56,41 @@ export function outwardNormal(box: { x: number; y: number; w: number; h: number 
   return { x: 0, y: 1 }
 }
 
+/** The steepest an arrowhead's own two back corners can be off the tip's straight-in direction before one
+ *  of them ends up on the wrong side of the target box's boundary - i.e. before the marker would visibly
+ *  poke into the box it's pointing at, rather than just touching it with its tip. React Flow's built-in
+ *  `ArrowClosed` marker is a fixed triangle (see its own `points`, "-5,-4 0,0 -5,4 -5,-4", in
+ *  @xyflow/react's MarkerSymbols) with a back half-width of 4 and a back length of 5 in its own local
+ *  (rotation-relative) space; at approach angle theta off dead-on, the corner on the box's own inward side
+ *  sits `5*cos(theta) - 4*sin(theta)` past the tip along the box's own outward normal, which crosses zero -
+ *  the corner crosses the boundary - at theta = atan(4/5) ~= 38.66 deg off dead-on, i.e. at
+ *  90 - atan(4/5) ~= 51.34 deg off the box's own edge (a near-tangential, grazing approach). Kept with a
+ *  margin below that hard limit rather than exactly at it, both so floating-point/zoom rounding near the
+ *  boundary can't tip a corner over anyway, and because a somewhat steeper minimum just reads better - an
+ *  arrowhead arriving nearly edge-on never looks like it's "pointing at" the box it grazes past.
+ */
+const MAX_ARROWHEAD_APPROACH_ANGLE = (38 * Math.PI) / 180
+
+/** Rotates unit vector `dir` no more than `maxAngle` (radians) away from unit vector `toward`: returns
+ *  `dir` unchanged when it's already within that cone, otherwise the closest vector on the cone's edge -
+ *  `toward` itself rotated by exactly `maxAngle`, on whichever side `dir` was on. Used to keep
+ *  curvedPath's target-end tangent from ever approaching so close to tangential-to-the-box (see
+ *  MAX_ARROWHEAD_APPROACH_ANGLE's own doc comment) that the arrowhead's own back corners would dip inside
+ *  the box's boundary, while still letting it vary continuously - not snap to one of 4 cardinal angles -
+ *  everywhere short of that limit, which is the whole reason curvedPath treats the target end differently
+ *  from the source end in the first place (see curvedPath's own doc comment). */
+export function clampTowardNormal(dir: { x: number; y: number }, toward: { x: number; y: number }, maxAngle: number): { x: number; y: number } {
+  const cos = Math.min(1, Math.max(-1, dir.x * toward.x + dir.y * toward.y))
+  const angle = Math.acos(cos)
+  if (angle <= maxAngle) return dir
+  const cross = toward.x * dir.y - toward.y * dir.x // >0: dir is counter-clockwise from toward
+  const sign = cross >= 0 ? 1 : -1
+  const rot = sign * maxAngle
+  const cosR = Math.cos(rot)
+  const sinR = Math.sin(rot)
+  return { x: toward.x * cosR - toward.y * sinR, y: toward.x * sinR + toward.y * cosR }
+}
+
 /** The cubic Bezier `C` path, and label position, for a gentle bow between two anchor points - the math half
  *  of OffsetEdge's own curve-building (see its doc comment for why a hand-built curve and not `getBezierPath`
  *  at all), pulled out so it's testable without rendering anything.
@@ -67,15 +102,35 @@ export function outwardNormal(box: { x: number; y: number; w: number; h: number 
  *  than looking like it flows straight out. The two control points here split that: `c1`, near the source,
  *  is offset from (x1,y1) along `sourceNormal` (the box's own outward-facing direction at that exact exit
  *  point, from `outwardNormal` above) - so the curve always leaves perpendicular-ish to the box it came from,
- *  however off-center that exit point is. `c2`, near the target, is built exactly the way the old shared
- *  control point was (the straight-line midpoint nudged by `nx`/`ny`*bow), which keeps the target end's own
- *  tangent identical to before - still the continuous, not-snapped-to-4-angles direction OffsetEdge's own
- *  arrowhead design depends on (see its doc comment) - since only the source side had a problem to fix. */
-export function curvedPath(x1: number, y1: number, x2: number, y2: number, nx: number, ny: number, sourceNormal: { x: number; y: number }): { path: string; labelX: number; labelY: number } {
+ *  however off-center that exit point is. `c2`, near the target, is built the way the old shared control
+ *  point was (the straight-line midpoint nudged by `nx`/`ny`*bow) - keeping the target end's own tangent
+ *  continuous, not snapped to one of 4 cardinal angles, which is what OffsetEdge's own arrowhead design
+ *  depends on (see its doc comment) - EXCEPT that tangent is then clamped so it never gets so close to
+ *  tangential-to-the-target-box that the arrowhead marker's own fixed-width back corners would dip inside
+ *  the box (see MAX_ARROWHEAD_APPROACH_ANGLE and clampTowardNormal below): a shallow enough approach angle
+ *  left uncorrected would put part of the marker's shape past the boundary, not just its tip. */
+export function curvedPath(x1: number, y1: number, x2: number, y2: number, nx: number, ny: number, sourceNormal: { x: number; y: number }, targetNormal: { x: number; y: number }): { path: string; labelX: number; labelY: number } {
   const segLen = Math.hypot(x2 - x1, y2 - y1) || 1
   const bow = Math.min(segLen * 0.12, 36)
-  const mx = (x1 + x2) / 2 + nx * bow
-  const my = (y1 + y2) / 2 + ny * bow
+  let mx = (x1 + x2) / 2 + nx * bow
+  let my = (y1 + y2) / 2 + ny * bow
+  // The target end's tangent (the direction from c2 to (x2,y2), i.e. the arrowhead's own approach
+  // direction) stays free to vary continuously with the bow above, EXCEPT it's never let get so close to
+  // tangential-to-the-target-box that the fixed-shape arrowhead marker would visibly dip inside the box -
+  // see MAX_ARROWHEAD_APPROACH_ANGLE's own doc comment for exactly where that line is and why. Reworking
+  // c2 to sit along the clamped direction (at the same distance from (x2,y2) it already had) changes the
+  // curve's shape approaching the target without moving the target anchor itself, so the tip - the one
+  // point that's meant to touch the box - stays exactly where intersection() put it.
+  const tdx = x2 - mx
+  const tdy = y2 - my
+  const tlen = Math.hypot(tdx, tdy) || 1
+  const naturalDir = { x: tdx / tlen, y: tdy / tlen }
+  const inward = { x: -targetNormal.x, y: -targetNormal.y }
+  const clamped = clampTowardNormal(naturalDir, inward, MAX_ARROWHEAD_APPROACH_ANGLE)
+  if (clamped !== naturalDir) {
+    mx = x2 - clamped.x * tlen
+    my = y2 - clamped.y * tlen
+  }
   // How far the curve travels straight out from the source before c2 starts pulling it toward the target -
   // proportional to length (a short edge shouldn't get a stub longer than the edge itself) but capped so a
   // long edge doesn't get an oddly long straight run before it starts curving.
@@ -211,16 +266,18 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   let sy = sourceY
   let tx = targetX
   let ty = targetY
-  // The direction curvedPath's cubic leaves the source in - defaults to "up" (a reasonable guess for the
-  // very first render or two before a node is measured) and gets replaced with the real answer below the
-  // moment both boxes are.
+  // The direction curvedPath's cubic leaves the source in, and the box side the target's own tip sits on -
+  // both default to "up" (a reasonable guess for the very first render or two before a node is measured)
+  // and get replaced with the real answer below the moment both boxes are.
   let sourceNormal = { x: 0, y: -1 }
+  let targetNormal = { x: 0, y: -1 }
   if (sourceBox && targetBox) {
     const targetCenter = { x: targetBox.x + targetBox.w / 2, y: targetBox.y + targetBox.h / 2 }
     const sourceCenter = { x: sourceBox.x + sourceBox.w / 2, y: sourceBox.y + sourceBox.h / 2 }
     const from = intersection(sourceBox, targetCenter)
     const to = intersection(targetBox, sourceCenter)
     sourceNormal = outwardNormal(sourceBox, from)
+    targetNormal = outwardNormal(targetBox, to)
     sx = from.x
     sy = from.y
     tx = to.x
@@ -257,7 +314,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   const x2 = tx + nx * targetOff
   const y2 = ty + ny * targetOff
   const edgeStyle = useContext(EdgeStyleContext)
-  const { path, labelX, labelY } = edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal)
+  const { path, labelX, labelY } = edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal)
   return (
     <BaseEdge
       id={id}

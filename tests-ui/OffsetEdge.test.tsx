@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { curvedPath, intersection, outwardNormal, pullBackEnds } from '@/components/topology/OffsetEdge'
+import { clampTowardNormal, curvedPath, intersection, outwardNormal, pullBackEnds } from '@/components/topology/OffsetEdge'
 
 // A pure-math test, no rendering needed - kept in tests-ui/ (not tests/) purely because that's where the
 // vitest config's include glob looks; nothing here touches the DOM.
@@ -70,12 +70,55 @@ describe('outwardNormal (which side of a box a boundary point sits on, as a unit
   })
 })
 
+describe('clampTowardNormal (keeps a direction within a cone of another, per the UI/UX pass)', () => {
+  const maxAngle = (30 * Math.PI) / 180
+
+  test('a direction already inside the cone is returned unchanged', () => {
+    // 10 degrees off (1,0) - well inside a 30 degree cone.
+    const dir = { x: Math.cos((10 * Math.PI) / 180), y: Math.sin((10 * Math.PI) / 180) }
+    expect(clampTowardNormal(dir, { x: 1, y: 0 }, maxAngle)).toEqual(dir)
+  })
+
+  test('exactly at the cone\'s own edge is left unchanged too (the check is inclusive)', () => {
+    const dir = { x: Math.cos(maxAngle), y: Math.sin(maxAngle) }
+    expect(clampTowardNormal(dir, { x: 1, y: 0 }, maxAngle)).toEqual(dir)
+  })
+
+  test('a direction outside the cone is rotated back to exactly the cone\'s edge, on the same side it was on', () => {
+    // 80 degrees off (1,0), on the +y side - clamped to exactly 30 degrees off (1,0), same (+y) side.
+    const dir = { x: Math.cos((80 * Math.PI) / 180), y: Math.sin((80 * Math.PI) / 180) }
+    const result = clampTowardNormal(dir, { x: 1, y: 0 }, maxAngle)
+    expect(result.x).toBeCloseTo(Math.cos(maxAngle), 5)
+    expect(result.y).toBeCloseTo(Math.sin(maxAngle), 5) // positive: stayed on dir's own side, not flipped
+  })
+
+  test('clamps toward the other side too, symmetrically', () => {
+    const dir = { x: Math.cos((-80 * Math.PI) / 180), y: Math.sin((-80 * Math.PI) / 180) }
+    const result = clampTowardNormal(dir, { x: 1, y: 0 }, maxAngle)
+    expect(result.x).toBeCloseTo(Math.cos(maxAngle), 5)
+    expect(result.y).toBeCloseTo(-Math.sin(maxAngle), 5)
+  })
+
+  test('a direction pointing the opposite way (180 degrees off) still lands exactly on the cone, not somewhere undefined', () => {
+    const result = clampTowardNormal({ x: -1, y: 0 }, { x: 1, y: 0 }, maxAngle)
+    expect(Math.hypot(result.x, result.y)).toBeCloseTo(1, 5) // still a unit vector
+    const angle = Math.acos(result.x * 1 + result.y * 0)
+    expect(angle).toBeCloseTo(maxAngle, 5)
+  })
+})
+
 describe('curvedPath (OffsetEdge\'s asymmetric cubic-bow path math)', () => {
   const outUp = { x: 0, y: -1 }
   const outRight = { x: 1, y: 0 }
+  // The target box's own outward normal for every test below except the shallow-angle ones: these all run
+  // a line from (0,0) to (300,0), i.e. a target approached head-on from the left, so the box's outward
+  // normal at that entry point faces left - comfortably far from every natural tangent these tests exercise,
+  // so passing it never triggers the MAX_ARROWHEAD_APPROACH_ANGLE clamp and these keep testing exactly the
+  // un-clamped math they did before curvedPath grew a target-angle clamp at all.
+  const outLeft = { x: -1, y: 0 }
 
   test('starts and ends exactly at the given anchor points, and is a genuine cubic (two control points)', () => {
-    const { path } = curvedPath(0, 0, 300, 0, 0, 1, outUp)
+    const { path } = curvedPath(0, 0, 300, 0, 0, 1, outUp, outLeft)
     expect(path.startsWith('M0,0 ')).toBe(true)
     expect(path.endsWith(' 300,0')).toBe(true)
     expect(path).toMatch(/^M[\d.,-]+ C[\d.,-]+ [\d.,-]+ [\d.,-]+$/)
@@ -84,37 +127,37 @@ describe('curvedPath (OffsetEdge\'s asymmetric cubic-bow path math)', () => {
   test('the initial tangent leaves straight out along sourceNormal, not toward the target', () => {
     // sourceNormal points straight "up" - away from the target, which is off to the right - so the
     // near-source control point should sit directly above the source anchor, not pulled sideways at all.
-    const { path } = curvedPath(0, 0, 300, 0, 0, 1, outUp)
+    const { path } = curvedPath(0, 0, 300, 0, 0, 1, outUp, outLeft)
     const [, c1x, c1y] = path.match(/C([\d.-]+),([\d.-]+)/)!
     expect(Number(c1x)).toBeCloseTo(0, 5) // no sideways pull toward the target
     expect(Number(c1y)).toBeLessThan(0) // straight up, per outUp
   })
 
   test('the target-end control point is unaffected by sourceNormal - still the old gentle bow toward nx/ny', () => {
-    const up = curvedPath(0, 0, 300, 0, 0, 1, outUp)
-    const right = curvedPath(0, 0, 300, 0, 0, 1, outRight)
+    const up = curvedPath(0, 0, 300, 0, 0, 1, outUp, outLeft)
+    const right = curvedPath(0, 0, 300, 0, 0, 1, outRight, outLeft)
     const secondControl = (p: { path: string }) => p.path.match(/C[\d.-]+,[\d.-]+ ([\d.-]+),([\d.-]+)/)!.slice(1).map(Number)
     expect(secondControl(up)).toEqual(secondControl(right)) // same regardless of the source's own exit direction
   })
 
   test('bow (the target-side control offset) is proportional to length but capped, so a very long edge stays a subtle arc', () => {
-    const short = curvedPath(0, 0, 100, 0, 0, 1, outUp)
-    const long = curvedPath(0, 0, 100_000, 0, 0, 1, outUp)
+    const short = curvedPath(0, 0, 100, 0, 0, 1, outUp, outLeft)
+    const long = curvedPath(0, 0, 100_000, 0, 0, 1, outUp, outLeft)
     const bowOf = (p: { path: string }) => Number(p.path.match(/C[\d.-]+,[\d.-]+ [\d.-]+,([\d.-]+)/)![1])
     expect(bowOf(short)).toBeCloseTo(100 * 0.12, 5) // under the cap: exactly proportional
     expect(bowOf(long)).toBeCloseTo(36, 5) // over the cap: clamped, not thousands of pixels
   })
 
   test('the source-side exit stub is proportional to length but capped, independent of the bow', () => {
-    const short = curvedPath(0, 0, 100, 0, 0, 1, outUp)
-    const long = curvedPath(0, 0, 100_000, 0, 0, 1, outUp)
+    const short = curvedPath(0, 0, 100, 0, 0, 1, outUp, outLeft)
+    const long = curvedPath(0, 0, 100_000, 0, 0, 1, outUp, outLeft)
     const exitOf = (p: { path: string }) => -Number(p.path.match(/C([\d.-]+),([\d.-]+)/)![2]) // outUp: c1y = y1 - exit
     expect(exitOf(short)).toBeCloseTo(100 * 0.35, 5) // under the cap: exactly proportional
     expect(exitOf(long)).toBeCloseTo(40, 5) // over the cap: clamped
   })
 
   test('label sits on the actual cubic curve at t=0.5, not the straight-line midpoint', () => {
-    const { path, labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 1, outRight)
+    const { path, labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 1, outRight, outLeft)
     const [, c1x, c1y, mx, my] = path.match(/C([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+)/)!.map(Number)
     // Cubic Bezier at t=0.5: (P0 + 3*C1 + 3*C2 + P2) / 8
     expect(labelX).toBeCloseTo((0 + 3 * c1x + 3 * mx + 300) / 8, 5)
@@ -126,9 +169,30 @@ describe('curvedPath (OffsetEdge\'s asymmetric cubic-bow path math)', () => {
     // outRight is parallel to the source->target direction itself here, and nx=ny=0 means no perpendicular
     // bow either - so every point of the cubic, including the label, has y=0, even though (being an
     // asymmetric cubic, not a symmetric one) the label isn't exactly at the line's geometric midpoint.
-    const { labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 0, outRight)
+    const { labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 0, outRight, outLeft)
     expect(labelY).toBeCloseTo(0, 5)
     expect(labelX).toBeCloseTo(108.75, 5)
+  })
+
+  test('a target-end tangent that would otherwise graze near-tangential to the target box is clamped, so the arrowhead can\'t dip inside it', () => {
+    // The target box's outward normal points straight up here (approached from underneath), but nx/ny bows
+    // the curve hard off to the side (perpendicular to the source->target line, which itself runs straight
+    // right) - so the *natural*, unclamped tangent would arrive almost sideways-on to the box, well past
+    // MAX_ARROWHEAD_APPROACH_ANGLE off the box's own inward direction (straight down).
+    const targetNormal = { x: 0, y: 1 } // box's own outward normal: straight down in SVG's y-down space
+    const inward = { x: 0, y: -1 }
+    const { path } = curvedPath(0, 0, 300, 0, 0, 1, outUp, targetNormal)
+    const [x2, y2] = [300, 0]
+    const [, , , mx, my] = path.match(/C([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+)/)!.map(Number)
+    // The tip itself never moves - only the curve's approach to it does.
+    expect(path.endsWith(` ${x2},${y2}`)).toBe(true)
+    const tdx = x2 - mx
+    const tdy = y2 - my
+    const tlen = Math.hypot(tdx, tdy)
+    const angle = Math.acos((tdx / tlen) * inward.x + (tdy / tlen) * inward.y)
+    const MAX_ARROWHEAD_APPROACH_ANGLE = (38 * Math.PI) / 180
+    expect(angle).toBeLessThanOrEqual(MAX_ARROWHEAD_APPROACH_ANGLE + 1e-9) // clamped, not left grazing
+    expect(angle).toBeCloseTo(MAX_ARROWHEAD_APPROACH_ANGLE, 5) // and clamped exactly to the limit, not overcorrected
   })
 })
 
