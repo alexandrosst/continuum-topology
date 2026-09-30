@@ -14,7 +14,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { applyGraphUpdate, buildGraph, cardId, groupId, HEADER, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
+import { applyGraphUpdate, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type RegionalOperator, type Service, type Suggestion } from '../src/lib/types'
@@ -1336,6 +1336,18 @@ test('edge throughput/quality data reaches EdgeData - a single dependency keeps 
   assert.equal(agg3.data?.activeCount, 0, 'nothing in the bundle was ever observed')
   assert.equal(agg3.data?.observed, false)
   assert.equal(agg3.className, undefined, 'a purely-declared bundle does not animate as if it were live traffic')
+})
+
+test("infrastructure view: a machine card reserves height for its own hardware badge row (Battery/NIC speed), so the badge doesn't sit flush against the card's bottom border", () => {
+  const infra = buildGraph(seed, { view: 'infrastructure', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+
+  // n-a1 (patras-gw-1) declares a 1000Mbps NIC in the seed data, so its card renders the extra hint/notReady/
+  // mesh/hardware badge row (see Card in nodes.tsx) that n-c3 (eks-worker-2, no networkInterfaces/hasBattery
+  // in the seed) never renders.
+  const withNic = infra.nodes.find((n) => n.id === cardId('n-a1'))!
+  const withoutHardware = infra.nodes.find((n) => n.id === cardId('n-c3'))!
+  assert.equal(Number(withoutHardware.style?.height), MACHINE_CARD.h, 'no hardware badge, no chips: just the base card height')
+  assert.equal(Number(withNic.style?.height), MACHINE_CARD.h + 24, 'the hardware badge row adds its own reserved height, exactly like a service card\'s hint/notReady/mesh row already does')
 })
 
 test("route: 'direct' vs 'gateway' on a cross-cluster dependency, undefined everywhere else", () => {

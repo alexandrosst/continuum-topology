@@ -218,7 +218,8 @@ const ROW_GAP = 150
 // arbitrary name, which is exactly why the native `title=` tooltip (added in an earlier pass) exists as the
 // fallback rather than chasing zero truncation by growing every card to accommodate the longest outlier.
 const APP_CARD = { w: 300, h: 68 }
-const MACHINE_CARD = { w: 288, h: 84 }
+// Exported so a test can assert a card's own height reserves room for whichever extra badge row(s) its data ends up rendering.
+export const MACHINE_CARD = { w: 288, h: 84 }
 const CHIP_ROW = 22
 // A namespace sub-box nests one level inside a cluster box: a little padding and a short header for its
 // name, then the same card grid a cluster box would use on its own.
@@ -1083,7 +1084,12 @@ function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: stri
   return {
     id: cardId(n.id),
     w: MACHINE_CARD.w,
-    h: MACHINE_CARD.h + (chips ? (chipRows ? chipRows * CHIP_ROW + 14 : 26) : 0),
+    // Card's own badge row (Card, in nodes.tsx) renders whenever `hardware` is set - a Battery and/or NIC
+    // speed pill - the same extra row serviceItem() below already reserves height for via its own hint/
+    // notReady/mesh badges. This was missing here, so a machine with a fast-NIC or battery badge got no
+    // headroom for it at all and the pill sat flush against (visually indistinguishable from spilling past)
+    // the card's own bottom border.
+    h: MACHINE_CARD.h + (hardware ? 24 : 0) + (chips ? (chipRows ? chipRows * CHIP_ROW + 14 : 26) : 0),
     data: {
       kind: 'machine',
       entityId: n.id,
