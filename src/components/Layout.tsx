@@ -368,12 +368,19 @@ function Shell() {
           <ErrorBoundary key={pathname}>
             {/* Scoped to just this content pane, not the whole page (see App.tsx's own comment on why it
              * moved here): a lazy page chunk that hasn't loaded yet suspends only this <Outlet/>, so the
-             * sidebar above stays mounted and interactive instead of vanishing along with it. */}
+             * sidebar above stays mounted and interactive instead of vanishing along with it.
+             *
+             * The non-full-bleed wrapper below also carries `fade-in` (the same 0.15s fade already used
+             * app-wide for small content swaps, see index.css) - keyed on pathname via the ErrorBoundary
+             * above, so it replays on every navigation, not just the very first paint. Left off the `full`
+             * (topology canvas) branch deliberately: that content is an interactive canvas, not something
+             * read top-to-bottom, and a fresh wrapper div there risks fighting the canvas's own h-full
+             * sizing for no real benefit. */}
             <Suspense fallback={<PageSkeleton />}>
               {full ? (
                 <Outlet />
               ) : (
-                <div className="mx-auto max-w-[1680px] px-4 py-6 sm:px-8 sm:py-8">
+                <div className="fade-in mx-auto max-w-[1680px] px-4 py-6 sm:px-8 sm:py-8">
                   <Outlet />
                 </div>
               )}
