@@ -187,8 +187,10 @@ export type EdgeData = {
   /** Set only on a cluster<->cluster ClusterLink edge (never alongside a dependency's own fields above) -
    *  a confirmed network-level relationship, independent of any traffic or declared dependency between the
    *  two clusters. `via` names the specific evidence (a tunnel's name/kind, or the shared subnet prefix) -
-   *  see ClusterLink's own doc for exactly what this is, and is not, built from. */
-  clusterLink?: { kind: ClusterLink['kind']; via: string }
+   *  see ClusterLink's own doc for exactly what this is, and is not, built from. `redundancy` is how many
+   *  independently corroborating node pairs back it (more than 1 means more than one path, not a single
+   *  point of failure). */
+  clusterLink?: { kind: ClusterLink['kind']; via: string; redundancy: number; fromNode?: string; toNode?: string; fromAddress?: string; toAddress?: string }
 }
 export type TopoEdge = Edge<EdgeData>
 
@@ -774,7 +776,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       groupLevel: true,
       from: a,
       to: b,
-      clusterLink: { kind: cl.kind, via: cl.via },
+      clusterLink: { kind: cl.kind, via: cl.via, redundancy: cl.redundancy, fromNode: cl.fromNode, toNode: cl.toNode, fromAddress: cl.fromAddress, toAddress: cl.toAddress },
     }))
   }
 
@@ -1411,7 +1413,7 @@ function makeEdge(
     /** Set only for a ClusterLink edge - see EdgeData.clusterLink's own doc. Undirected in reality (two
      *  clusters either are, or are not, joined this way), so this suppresses the arrowhead the same way
      *  `aggregated` does, independently of `groupLevel`, which still wants its own real arrowhead. */
-    clusterLink?: { kind: ClusterLink['kind']; via: string }
+    clusterLink?: { kind: ClusterLink['kind']; via: string; redundancy: number; fromNode?: string; toNode?: string; fromAddress?: string; toAddress?: string }
   },
 ): TopoEdge {
   const [ss, ts] = pickSides(abs.get(source)!, abs.get(target)!)

@@ -225,6 +225,19 @@ export interface ClusterLink {
    *  shared subnet prefix ("10.0.5.0/24") for a subnet link - never just "connected" with nothing to
    *  point at. */
   via: string
+  /** How many independently corroborating node pairs back this link - always at least 1. More than 1
+   *  means there is more than one path between these two clusters for this kind (e.g. a second WireGuard
+   *  peering kept for failover): losing one does not necessarily cut the clusters off from each other. */
+  redundancy: number
+  /** The specific node on each side whose tunnel (or shared subnet) first corroborated this link - named
+   *  so the evidence points at an actual machine, not only a cluster pair and a driver name. When
+   *  redundancy is more than 1, these name only the first matching pair found. */
+  fromNode?: string
+  toNode?: string
+  /** The two tunnel interfaces' own addresses that confirmed an "overlay" link (e.g. "10.8.0.1/24" and
+   *  "10.8.0.2/24"). Empty for a "subnet" link, where `via` already is the complete evidence. */
+  fromAddress?: string
+  toAddress?: string
 }
 
 export interface Cluster extends Provenance {
@@ -329,6 +342,16 @@ export interface TunnelInterface {
   kind: string // wireguard | vxlan | geneve | gre | gretap | ip6gre | ip6gretap | ipip | sit | vti | vti6 | xfrm
   addresses?: string[]
   routes?: string[]
+  /** This tunnel's own MTU, from the same netlink link dump `kind` is read from - undefined when
+   *  unreported. A tunnel with a lower MTU than the physical path underneath it is a classic overlay
+   *  gotcha (larger packets silently fragment, or get dropped outright where a middlebox blocks
+   *  fragmentation). */
+  mtu?: number
+  /** Administrative up/down state (netlink IFF_UP) - not a guarantee the tunnel is currently passing
+   *  traffic, only that it has not been disabled. Deliberately not the kernel's operational-state field:
+   *  several common tunnel drivers (WireGuard among them) never report anything but "unknown" there even
+   *  while fully up and carrying traffic. Always present (unlike mtu, which can genuinely be unreported). */
+  up: boolean
   /** The other node this tunnel was matched to, set server-side only when one of `routes`' prefixes
    *  contains an address another onboarded node is independently known by - the same "declared vs.
    *  confirmed" distinction Dependency.sources already draws elsewhere. Empty means this tunnel's other

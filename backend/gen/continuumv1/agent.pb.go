@@ -2305,7 +2305,17 @@ type TunnelInterface struct {
 	// through the tunnel. Capped at a small number, like Flow.dns_query_names. This is the one fact that
 	// makes cross-node correlation possible at all: whether another node's own known address falls inside
 	// one of these prefixes is what an honest confidence label (confirmed vs. one side only) is based on.
-	Routes        []string `protobuf:"bytes,4,rep,name=routes,proto3" json:"routes,omitempty"`
+	Routes []string `protobuf:"bytes,4,rep,name=routes,proto3" json:"routes,omitempty"`
+	// This tunnel interface's own MTU, from the same netlink link dump Kind is read from - 0 when
+	// unreported. A tunnel with a lower MTU than the physical path underneath it is a classic overlay
+	// gotcha (larger packets silently fragment, or get dropped outright where a middlebox blocks
+	// fragmentation), and this is the one place that fact is visible without logging into the machine.
+	Mtu int32 `protobuf:"varint,5,opt,name=mtu,proto3" json:"mtu,omitempty"`
+	// Administrative up/down state (netlink IFF_UP, the same flag `ip link set up/down` toggles) - not a
+	// guarantee the tunnel is currently passing traffic, only that it has not been disabled. Deliberately
+	// not the kernel's operational-state field: several common tunnel drivers (WireGuard among them) never
+	// report anything but "unknown" there even while fully up and carrying traffic.
+	Up            bool `protobuf:"varint,6,opt,name=up,proto3" json:"up,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2366,6 +2376,20 @@ func (x *TunnelInterface) GetRoutes() []string {
 		return x.Routes
 	}
 	return nil
+}
+
+func (x *TunnelInterface) GetMtu() int32 {
+	if x != nil {
+		return x.Mtu
+	}
+	return 0
+}
+
+func (x *TunnelInterface) GetUp() bool {
+	if x != nil {
+		return x.Up
+	}
+	return false
 }
 
 type NamespaceFacts struct {
@@ -5194,12 +5218,14 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x1d\n" +
 	"\n" +
 	"size_bytes\x18\x03 \x01(\x03R\tsizeBytes\x12\x12\n" +
-	"\x04type\x18\x04 \x01(\tR\x04type\"o\n" +
+	"\x04type\x18\x04 \x01(\tR\x04type\"\x91\x01\n" +
 	"\x0fTunnelInterface\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1c\n" +
 	"\taddresses\x18\x03 \x03(\tR\taddresses\x12\x16\n" +
-	"\x06routes\x18\x04 \x03(\tR\x06routes\"\xc4\x02\n" +
+	"\x06routes\x18\x04 \x03(\tR\x06routes\x12\x10\n" +
+	"\x03mtu\x18\x05 \x01(\x05R\x03mtu\x12\x0e\n" +
+	"\x02up\x18\x06 \x01(\bR\x02up\"\xc4\x02\n" +
 	"\x0eNamespaceFacts\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12@\n" +

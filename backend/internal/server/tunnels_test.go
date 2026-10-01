@@ -137,6 +137,36 @@ func TestCorrelateClusterLinksConfirmsAnOverlayLinkAcrossClusters(t *testing.T) 
 	if l.Kind != "overlay" || l.FromCluster != "cluster-a" || l.ToCluster != "cluster-b" || l.FromName != "Cluster A" || l.ToName != "Cluster B" || l.Via != "wg0 (wireguard)" {
 		t.Errorf("got %+v, want an overlay link cluster-a -> cluster-b via wg0 (wireguard)", l)
 	}
+	if l.Redundancy != 1 || l.FromNode != "node-a" || l.ToNode != "node-b" || l.FromAddress != "10.8.0.1/24" || l.ToAddress != "10.8.0.2/24" {
+		t.Errorf("got %+v, want Redundancy=1 and the two corroborating nodes/addresses named", l)
+	}
+}
+
+// TestCorrelateClusterLinksCountsRedundancyInsteadOfDroppingExtraCorroboration pins a real fix: a second,
+// independent WireGuard peering between the same two clusters used to be matched, found, and then
+// silently dropped on the floor by the old {from,to,kind} dedup - discarding exactly the "is there more
+// than one path between these clusters" fact that matters for judging whether this is a single point of
+// failure. It must now show up as the same one ClusterLink with Redundancy=2, not vanish and not double
+// the slice.
+func TestCorrelateClusterLinksCountsRedundancyInsteadOfDroppingExtraCorroboration(t *testing.T) {
+	a := nodeForClusterLink("cluster-a", "a", "node-a")
+	a.Tunnels = []model.TunnelInterface{
+		{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}},
+		{Name: "wg1", Kind: "wireguard", Addresses: []string{"10.9.0.1/24"}, Routes: []string{"10.9.0.0/24"}},
+	}
+	b := nodeForClusterLink("cluster-b", "b", "node-b")
+	b.Tunnels = []model.TunnelInterface{
+		{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"}},
+		{Name: "wg1", Kind: "wireguard", Addresses: []string{"10.9.0.2/24"}, Routes: []string{"10.9.0.0/24"}},
+	}
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
+	got := correlateClusterLinks([]model.Node{a, b}, names)
+	if len(got) != 1 {
+		t.Fatalf("got %d links, want exactly 1 (same pair, same kind - two paths, not two links): %+v", len(got), got)
+	}
+	if got[0].Redundancy != 2 {
+		t.Errorf("got Redundancy=%d, want 2 (two independently corroborating tunnel pairs)", got[0].Redundancy)
+	}
 }
 
 func TestCorrelateClusterLinksIgnoresATunnelMatchWithinOneCluster(t *testing.T) {

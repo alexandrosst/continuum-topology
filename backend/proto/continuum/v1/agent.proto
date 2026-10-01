@@ -407,6 +407,16 @@ message TunnelInterface {
   // makes cross-node correlation possible at all: whether another node's own known address falls inside
   // one of these prefixes is what an honest confidence label (confirmed vs. one side only) is based on.
   repeated string routes = 4;
+  // This tunnel interface's own MTU, from the same netlink link dump Kind is read from - 0 when
+  // unreported. A tunnel with a lower MTU than the physical path underneath it is a classic overlay
+  // gotcha (larger packets silently fragment, or get dropped outright where a middlebox blocks
+  // fragmentation), and this is the one place that fact is visible without logging into the machine.
+  int32 mtu = 5;
+  // Administrative up/down state (netlink IFF_UP, the same flag `ip link set up/down` toggles) - not a
+  // guarantee the tunnel is currently passing traffic, only that it has not been disabled. Deliberately
+  // not the kernel's operational-state field: several common tunnel drivers (WireGuard among them) never
+  // report anything but "unknown" there even while fully up and carrying traffic.
+  bool up = 6;
 }
 
 message NamespaceFacts {

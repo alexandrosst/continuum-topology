@@ -160,7 +160,7 @@ func Interpret(in Input) model.Topology {
 				// Confirmed is deliberately left unset here: it is a cross-node correlation verdict, not
 				// something the probe (which only ever saw its own machine) can know. observed.go fills
 				// it in server-side, the same division of labor as everything else this pass never touches.
-				mn.Tunnels = append(mn.Tunnels, model.TunnelInterface{Name: tu.Name, Kind: tu.Kind, Addresses: tu.Addresses, Routes: tu.Routes})
+				mn.Tunnels = append(mn.Tunnels, model.TunnelInterface{Name: tu.Name, Kind: tu.Kind, Addresses: tu.Addresses, Routes: tu.Routes, Mtu: tu.Mtu, Up: tu.Up})
 			}
 		}
 		mn.Accelerators = accelerators(n)

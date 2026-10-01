@@ -161,23 +161,39 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string) []model.
 		return false
 	}
 
+	// add records one piece of corroborating evidence for a cluster pair+kind. The first time a given
+	// (from, to, kind) is seen, it becomes a new ClusterLink (with the node names/addresses that
+	// corroborated it, so the evidence points at real machines, not just a cluster pair and a driver
+	// name); every later corroborating pair for the exact same (from, to, kind) no longer creates a
+	// second, duplicate entry - the old behavior - but also no longer vanishes without a trace: it bumps
+	// that entry's Redundancy instead, which is itself a fact worth keeping (one path between two
+	// clusters vs. several is the difference between a single point of failure and not).
 	type linkKey struct{ from, to, kind string }
-	seen := map[linkKey]bool{}
+	seen := map[linkKey]int{} // value is the index into out
 	var out []model.ClusterLink
-	add := func(clusterA, clusterB, kind, via string) {
+	add := func(clusterA, clusterB, kind, via, nodeA, nodeB, addrA, addrB string) {
 		if clusterA == "" || clusterB == "" || clusterA == clusterB {
 			return
 		}
 		from, to := clusterA, clusterB
+		fromNode, toNode := nodeA, nodeB
+		fromAddr, toAddr := addrA, addrB
 		if from > to {
 			from, to = to, from
+			fromNode, toNode = toNode, fromNode
+			fromAddr, toAddr = toAddr, fromAddr
 		}
 		k := linkKey{from, to, kind}
-		if seen[k] {
+		if idx, ok := seen[k]; ok {
+			out[idx].Redundancy++
 			return
 		}
-		seen[k] = true
-		out = append(out, model.ClusterLink{FromCluster: from, FromName: names[from], ToCluster: to, ToName: names[to], Kind: kind, Via: via})
+		seen[k] = len(out)
+		out = append(out, model.ClusterLink{
+			FromCluster: from, FromName: names[from], ToCluster: to, ToName: names[to],
+			Kind: kind, Via: via, Redundancy: 1,
+			FromNode: fromNode, ToNode: toNode, FromAddress: fromAddr, ToAddress: toAddr,
+		})
 	}
 
 	for i := range tunRefs {
@@ -191,8 +207,16 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string) []model.
 				continue // corroborating tunnels both inside one cluster say nothing about a cluster pair
 			}
 			if reaches(a.addrs, b.routes) && reaches(b.addrs, a.routes) {
-				t := nodes[a.nodeIdx].Tunnels[a.tunIdx]
-				add(ca, cb, "overlay", t.Name+" ("+t.Kind+")")
+				ta := nodes[a.nodeIdx].Tunnels[a.tunIdx]
+				tb := nodes[b.nodeIdx].Tunnels[b.tunIdx]
+				addrA, addrB := "", ""
+				if len(ta.Addresses) > 0 {
+					addrA = ta.Addresses[0]
+				}
+				if len(tb.Addresses) > 0 {
+					addrB = tb.Addresses[0]
+				}
+				add(ca, cb, "overlay", ta.Name+" ("+ta.Kind+")", nodes[a.nodeIdx].Name, nodes[b.nodeIdx].Name, addrA, addrB)
 			}
 		}
 	}
@@ -223,7 +247,7 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string) []model.
 				continue // every node in a cluster typically shares its site's subnet - not a cross-cluster fact
 			}
 			if sameNetwork(a.network, b.network) {
-				add(ca, cb, "subnet", a.network.String())
+				add(ca, cb, "subnet", a.network.String(), nodes[a.nodeIdx].Name, nodes[b.nodeIdx].Name, "", "")
 			}
 		}
 	}

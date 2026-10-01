@@ -160,6 +160,12 @@ export default function EdgeHoverCard({
               <dd className="truncate text-nb-200" title={d.clusterLink.via}>{d.clusterLink.via}</dd>
             </>
           )}
+          {d?.clusterLink && d.clusterLink.redundancy > 1 && (
+            <>
+              <dt title="How many independently corroborating node pairs back this link - more than one means more than one path between these clusters, not a single point of failure">Redundancy</dt>
+              <dd className="text-nb-200">{d.clusterLink.redundancy} independent paths</dd>
+            </>
+          )}
         </dl>
       )}
     </div>

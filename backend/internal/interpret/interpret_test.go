@@ -384,6 +384,7 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 			Interfaces:  []*continuumv1.NetworkInterface{{Name: "eno1", Kind: "ethernet", SpeedMbps: 10000, Mtu: 9000}},
 			Disks:       []*continuumv1.Disk{{Name: "nvme0n1", Model: "Samsung SSD 970 EVO", SizeBytes: 1 << 40, Type: "nvme"}},
 			HostSubnets: []string{"10.0.5.0/24"},
+			Tunnels:     []*continuumv1.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}, Mtu: 1420, Up: true}},
 		}
 	})
 	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
@@ -405,6 +406,11 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 	// was always empty no matter what the probe actually reported, since nothing ever copied it across.
 	if len(n.HostSubnets) != 1 || n.HostSubnets[0] != "10.0.5.0/24" {
 		t.Errorf("host subnets = %+v, want [10.0.5.0/24]", n.HostSubnets)
+	}
+	// Regression guard: Mtu/Up must survive this copy (Confirmed is deliberately left unset here - see
+	// the comment right above this append in interpret.go - it's a server-side correlation verdict).
+	if len(n.Tunnels) != 1 || n.Tunnels[0].Mtu != 1420 || !n.Tunnels[0].Up {
+		t.Errorf("tunnels = %+v, want one tunnel with Mtu=1420 Up=true", n.Tunnels)
 	}
 }
 

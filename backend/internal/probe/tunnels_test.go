@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"github.com/jsimonetti/rtnetlink/v2"
+	"golang.org/x/sys/unix"
+
+	continuumv1 "continuum/gen/continuumv1"
 )
 
 func link(index uint32, name, kind string) rtnetlink.LinkMessage {
@@ -14,6 +17,17 @@ func link(index uint32, name, kind string) rtnetlink.LinkMessage {
 		info = &rtnetlink.LinkInfo{Kind: kind}
 	}
 	return rtnetlink.LinkMessage{Index: index, Attributes: &rtnetlink.LinkAttributes{Name: name, Info: info}}
+}
+
+// linkUpWithMtu is like link, but also sets the administrative IFF_UP flag and an MTU - for the tests
+// below that exercise buildTunnels' new Mtu/Up extraction specifically.
+func linkUpWithMtu(index uint32, name, kind string, mtu uint32, up bool) rtnetlink.LinkMessage {
+	l := link(index, name, kind)
+	l.Attributes.MTU = mtu
+	if up {
+		l.Flags |= unix.IFF_UP
+	}
+	return l
 }
 
 func addr(index uint32, ip string, prefix uint8) rtnetlink.AddressMessage {
@@ -103,6 +117,30 @@ func TestBuildTunnelsDropsTheDefaultRouteAndCapsRouteCount(t *testing.T) {
 func TestBuildTunnelsReturnsNothingWhenNoLinkMatches(t *testing.T) {
 	if got := buildTunnels(nil, nil, nil); got != nil {
 		t.Errorf("got %+v, want nil", got)
+	}
+}
+
+// TestBuildTunnelsReadsMtuAndUpFromTheSameLinkDump pins the new fields: both come off the exact same
+// link dump Name/Kind already do, with Up reflecting the administrative IFF_UP flag specifically (not
+// any operational-state attribute - see Up's own doc for why).
+func TestBuildTunnelsReadsMtuAndUpFromTheSameLinkDump(t *testing.T) {
+	links := []rtnetlink.LinkMessage{
+		linkUpWithMtu(1, "wg0", "wireguard", 1420, true),
+		linkUpWithMtu(2, "gre1", "gre", 1476, false),
+	}
+	got := buildTunnels(links, nil, nil)
+	if len(got) != 2 {
+		t.Fatalf("got %d tunnels, want 2", len(got))
+	}
+	byName := map[string]*continuumv1.TunnelInterface{}
+	for _, tu := range got {
+		byName[tu.Name] = tu
+	}
+	if wg := byName["wg0"]; wg == nil || wg.Mtu != 1420 || !wg.Up {
+		t.Errorf("wg0 = %+v, want Mtu=1420 Up=true", wg)
+	}
+	if gre := byName["gre1"]; gre == nil || gre.Mtu != 1476 || gre.Up {
+		t.Errorf("gre1 = %+v, want Mtu=1476 Up=false", gre)
 	}
 }
 func TestBuildHostSubnetsUsesOnlyTheDefaultRouteInterface(t *testing.T) {

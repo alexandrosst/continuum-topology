@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/jsimonetti/rtnetlink/v2"
+	"golang.org/x/sys/unix"
 
 	continuumv1 "continuum/gen/continuumv1"
 )
@@ -87,7 +88,17 @@ func buildTunnels(links []rtnetlink.LinkMessage, addrs []rtnetlink.AddressMessag
 		if l.Attributes == nil || l.Attributes.Info == nil || !overlayKinds[l.Attributes.Info.Kind] {
 			continue
 		}
-		byIndex[l.Index] = &continuumv1.TunnelInterface{Name: Clean(l.Attributes.Name), Kind: l.Attributes.Info.Kind}
+		// Mtu and Up are read off the exact same link dump Name/Kind already come from - no extra
+		// syscall. Up is deliberately the administrative flag (IFF_UP, bit 0 of Flags - the same thing
+		// `ip link set up/down` toggles), not the kernel's operational-state attribute: several common
+		// tunnel drivers (WireGuard among them) never report anything but "unknown" operationally even
+		// while fully up and passing traffic, which would make that signal actively misleading here.
+		byIndex[l.Index] = &continuumv1.TunnelInterface{
+			Name: Clean(l.Attributes.Name),
+			Kind: l.Attributes.Info.Kind,
+			Mtu:  int32(l.Attributes.MTU),
+			Up:   l.Flags&unix.IFF_UP != 0,
+		}
 	}
 	if len(byIndex) == 0 {
 		return nil

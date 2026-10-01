@@ -453,11 +453,19 @@ export default function Inspector({
               {links.map((l) => {
                 const otherId = l.fromCluster === c.id ? l.toCluster : l.fromCluster
                 const otherName = l.fromCluster === c.id ? l.toName : l.fromName
+                const thisNode = l.fromCluster === c.id ? l.fromNode : l.toNode
+                const otherNode = l.fromCluster === c.id ? l.toNode : l.fromNode
+                const sub = [
+                  l.kind === 'overlay' ? 'overlay' : 'same subnet',
+                  l.via,
+                  thisNode && otherNode ? `${thisNode} ↔ ${otherNode}` : undefined,
+                  l.redundancy > 1 ? `${l.redundancy} independent paths` : undefined,
+                ].filter(Boolean).join(' · ')
                 return (
                   <LinkRow
                     key={`${l.fromCluster}:${l.toCluster}:${l.kind}`}
                     label={otherName}
-                    sub={`${l.kind === 'overlay' ? 'overlay' : 'same subnet'} · ${l.via}`}
+                    sub={sub}
                     onClick={() => onSelect({ kind: 'cluster', id: otherId })}
                   />
                 )
@@ -633,7 +641,7 @@ export default function Inspector({
           />
           <Chips
             label="Tunnels"
-            items={n.tunnels?.map((t) => `${t.name} (${t.kind}${t.confirmed ? `, confirmed ↔ ${t.confirmed}` : ''})`)}
+            items={n.tunnels?.map((t) => `${t.name} (${[t.kind, t.up === undefined ? undefined : (t.up ? 'up' : 'down'), t.mtu ? `MTU ${t.mtu}` : undefined].filter(Boolean).join(', ')}${t.confirmed ? `, confirmed ↔ ${t.confirmed}` : ''})`)}
           />
           {n.hasBattery && <Row label="Power">Has a battery: can run without mains power</Row>}
           <Chips label="Taints" items={n.taints} />

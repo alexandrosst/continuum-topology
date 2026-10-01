@@ -143,6 +143,16 @@ describe('Inspector · node tunnels', () => {
     renderNodeInspector(node({}))
     expect(screen.queryByText('Tunnels')).not.toBeInTheDocument()
   })
+
+  test('mtu and administrative up/down state show up alongside kind when reported', () => {
+    renderNodeInspector(node({ tunnels: [{ name: 'wg0', kind: 'wireguard', mtu: 1420, up: true }] }))
+    expect(screen.getByText('wg0 (wireguard, up, MTU 1420)')).toBeInTheDocument()
+  })
+
+  test('an administratively-down tunnel says so rather than staying silent', () => {
+    renderNodeInspector(node({ tunnels: [{ name: 'gre1', kind: 'gre', up: false }] }))
+    expect(screen.getByText('gre1 (gre, down)')).toBeInTheDocument()
+  })
 })
 
 describe('Inspector · external endpoint', () => {

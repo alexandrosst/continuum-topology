@@ -127,6 +127,18 @@ type TunnelInterface struct {
 	Kind      string   `json:"kind"` // wireguard | vxlan | geneve | gre | gretap | ip6gre | ip6gretap | ipip | sit | vti | vti6 | xfrm
 	Addresses []string `json:"addresses,omitempty"`
 	Routes    []string `json:"routes,omitempty"`
+	// Mtu is this tunnel interface's own MTU, read from the same netlink link dump as Kind - 0 when
+	// unreported. Worth surfacing on its own: a tunnel with a lower MTU than the physical path underneath
+	// it is a classic, easy-to-miss overlay gotcha (packets above it silently fragment, or get dropped
+	// outright when a middlebox blocks fragmentation), and this is the one place that fact is visible at
+	// all without logging into the machine.
+	Mtu int32 `json:"mtu,omitempty"`
+	// Up is this tunnel's administrative state (netlink IFF_UP, the same flag `ip link set up/down`
+	// toggles) - not a guarantee the tunnel is currently passing traffic, only that it has not been
+	// disabled. Deliberately not based on the kernel's operational-state field: several common tunnel
+	// drivers (WireGuard among them) never report anything but "unknown" there even while fully up and
+	// carrying traffic, which would make that signal actively misleading rather than merely unavailable.
+	Up bool `json:"up"`
 	// Confirmed names the other node this tunnel was matched to, when one of Routes' prefixes contains an
 	// address another onboarded node (in this cluster or a different one) is independently known by -
 	// set server-side, never by the probe itself, the same "declared vs. confirmed" distinction
@@ -422,6 +434,25 @@ type ClusterLink struct {
 	// overlay link (e.g. "wg0 (wireguard)"), or the shared subnet prefix for a subnet link (e.g.
 	// "10.0.5.0/24") - so the UI never has to say just "connected" with nothing to point at.
 	Via string `json:"via"`
+	// Redundancy is how many independently corroborating node pairs back this link - always at least 1
+	// for anything reported here. More than 1 is itself a fact worth seeing: it means there is more than
+	// one path between these two clusters for this Kind (e.g. a second WireGuard peering kept for
+	// failover), so losing one does not necessarily cut the clusters off from each other. Previously this
+	// was silently discarded - every corroborating pair past the first was matched, found, and dropped
+	// without a trace, which erased exactly the "is this a single point of failure" fact this field now
+	// keeps.
+	Redundancy int `json:"redundancy"`
+	// FromNode/ToNode name the specific node on each side whose tunnel (or shared subnet) first
+	// corroborated this link, so the evidence points at an actual machine rather than only a cluster pair
+	// and a driver name. When Redundancy is more than 1, these two name only the first matching pair found
+	// - not an exhaustive list of every corroborating node.
+	FromNode string `json:"fromNode,omitempty"`
+	ToNode   string `json:"toNode,omitempty"`
+	// FromAddress/ToAddress are the two tunnel interfaces' own addresses that confirmed an "overlay" link
+	// (e.g. "10.8.0.1/24" and "10.8.0.2/24") - empty for a "subnet" link, where Via (the shared network)
+	// already is the complete evidence.
+	FromAddress string `json:"fromAddress,omitempty"`
+	ToAddress   string `json:"toAddress,omitempty"`
 }
 
 // ExternalEndpoint is something outside every onboarded cluster that traffic was seen going to or
