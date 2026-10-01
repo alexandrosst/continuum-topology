@@ -71,6 +71,42 @@ func TestCorrelateTunnelsNeverMatchesTwoTunnelsOnTheSameNode(t *testing.T) {
 	}
 }
 
+// TestCorrelateTunnelsRejectsCoincidentalOverlapOnABroadSharedSupernet pins a real fix: two unrelated
+// tunnels that have never exchanged a packet, each independently routing the whole 10.0.0.0/8 (an
+// entirely ordinary "route everything on this VPN" tunnel config, and a very commonly reused private
+// range), used to confirm each other purely because their own /32-ish addresses happened to both fall
+// inside that shared broad supernet - a false positive that directly contradicted this function's own
+// "never fabricated" promise. A real point-to-point tunnel routes something specific; /8 is not that.
+func TestCorrelateTunnelsRejectsCoincidentalOverlapOnABroadSharedSupernet(t *testing.T) {
+	a := nodeWithTunnel("a", "customer-A-gateway", model.TunnelInterface{
+		Name: "wg0", Kind: "wireguard", Addresses: []string{"10.1.2.3/32"}, Routes: []string{"10.0.0.0/8"},
+	})
+	b := nodeWithTunnel("b", "customer-B-gateway", model.TunnelInterface{
+		Name: "wg0", Kind: "wireguard", Addresses: []string{"10.9.8.7/32"}, Routes: []string{"10.0.0.0/8"},
+	})
+	nodes := []model.Node{a, b}
+	correlateTunnels(nodes)
+	if nodes[0].Tunnels[0].Confirmed != "" || nodes[1].Tunnels[0].Confirmed != "" {
+		t.Errorf("got %q / %q, want both empty - a shared /8 is not specific evidence of a real link", nodes[0].Tunnels[0].Confirmed, nodes[1].Tunnels[0].Confirmed)
+	}
+}
+
+// TestCorrelateTunnelsStillConfirmsASpecificEnoughRoute makes sure the new specificity floor doesn't
+// overcorrect: a realistic tunnel subnet (/24, well above the /16 floor) must still confirm normally.
+func TestCorrelateTunnelsStillConfirmsASpecificEnoughRoute(t *testing.T) {
+	a := nodeWithTunnel("a", "node-a", model.TunnelInterface{
+		Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"},
+	})
+	b := nodeWithTunnel("b", "node-b", model.TunnelInterface{
+		Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"},
+	})
+	nodes := []model.Node{a, b}
+	correlateTunnels(nodes)
+	if nodes[0].Tunnels[0].Confirmed != "node-b" || nodes[1].Tunnels[0].Confirmed != "node-a" {
+		t.Errorf("a /24 route should still confirm normally: got %q / %q", nodes[0].Tunnels[0].Confirmed, nodes[1].Tunnels[0].Confirmed)
+	}
+}
+
 func TestCorrelateTunnelsFindsAMatchAcrossManyNodes(t *testing.T) {
 	nodes := []model.Node{
 		nodeWithTunnel("x", "noise-1", model.TunnelInterface{Name: "gre0", Kind: "gre", Addresses: []string{"192.0.2.1/30"}, Routes: []string{"198.51.100.0/24"}}),
