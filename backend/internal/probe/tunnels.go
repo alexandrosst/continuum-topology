@@ -39,28 +39,31 @@ var overlayKinds = map[string]bool{
 // same reasoning (a bounded, deduplicated set beats an ever-growing one), as Flow.dns_query_names.
 const maxTunnelRoutes = 8
 
-// tunnels lists the overlay/tunnel interfaces the node has up, with their own addresses and the
-// destination prefixes routed through them - see the TunnelInterface proto message doc for exactly what
-// this is for and the two kinds of tunnel it cannot see. Reading link/address/route information over
-// netlink needs no privilege beyond what this probe already has: an ordinary unprivileged process can
-// open an AF_NETLINK/NETLINK_ROUTE socket and dump this information, the same as the `ip` command does as
-// a normal user (confirmed empirically, not just by documentation, while building this).
+// networkEvidence reads one netlink link/address/route dump and shapes it into both of this probe's
+// network-topology facts: the overlay/tunnel interfaces the node has up (see the TunnelInterface proto
+// message doc for exactly what this is for and the two kinds of tunnel it cannot see) and this node's
+// own routable subnet prefix(es) (see HostProbe.host_subnets' own doc). Both are derived from the same
+// three dumps, so they are gathered together in one netlink session rather than two. Reading link/
+// address/route information over netlink needs no privilege beyond what this probe already has: an
+// ordinary unprivileged process can open an AF_NETLINK/NETLINK_ROUTE socket and dump this information,
+// the same as the `ip` command does as a normal user (confirmed empirically, not just by documentation,
+// while building this).
 //
 // A netlink dial or dump failure (a kernel built without CONFIG_NET, a deeply sandboxed environment with
 // no network namespace at all) is treated as "nothing to report", the same as this package's sysfs
 // readers already treat a missing file - never a fatal error for the rest of the probe. The three dumps
-// (links, addresses, routes) are kept as thin, untestable I/O here; buildTunnels below, which does the
-// actual matching and shaping, takes plain data and is what tunnels_test.go exercises.
-func tunnels() []*continuumv1.TunnelInterface {
+// (links, addresses, routes) are kept as thin, untestable I/O here; buildTunnels and buildHostSubnets
+// below, which do the actual matching and shaping, take plain data and are what tunnels_test.go exercises.
+func networkEvidence() ([]*continuumv1.TunnelInterface, []string) {
 	conn, err := rtnetlink.Dial(nil)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	defer conn.Close()
 
 	links, err := conn.Link.List()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	var addrs []rtnetlink.AddressMessage
 	if a, err := conn.Address.List(); err == nil {
@@ -70,7 +73,7 @@ func tunnels() []*continuumv1.TunnelInterface {
 	if r, err := conn.Route.List(); err == nil {
 		routes = r
 	}
-	return buildTunnels(links, addrs, routes)
+	return buildTunnels(links, addrs, routes), buildHostSubnets(addrs, routes)
 }
 
 // buildTunnels matches a netlink link/address/route dump into one TunnelInterface per link whose kind is
@@ -123,5 +126,49 @@ func buildTunnels(links []rtnetlink.LinkMessage, addrs []rtnetlink.AddressMessag
 		out = append(out, t)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// buildHostSubnets returns this node's own routable network prefix(es): the address(es) configured on
+// whichever interface currently owns the machine's default route (DstLength == 0, checked for IPv4 and
+// IPv6 alike) - the same kernel-chosen "real uplink" `ip route get 8.8.8.8` would show, never guessed by
+// interface name or by scanning every address on the box regardless of whether it is actually reachable
+// from outside. Loopback and link-local addresses are never included: a default route never legitimately
+// points at either, so seeing one here would mean something is already wrong, not a subnet worth
+// reporting. Pure data shaping like buildTunnels above, with no netlink I/O of its own, so it is directly
+// testable with hand-built messages (see tunnels_test.go).
+func buildHostSubnets(addrs []rtnetlink.AddressMessage, routes []rtnetlink.RouteMessage) []string {
+	defaultRouteIfaces := map[uint32]bool{}
+	for _, r := range routes {
+		if r.DstLength != 0 {
+			continue // has a destination prefix - not the default route
+		}
+		defaultRouteIfaces[r.Attributes.OutIface] = true
+	}
+	if len(defaultRouteIfaces) == 0 {
+		return nil
+	}
+
+	seen := map[string]bool{}
+	var out []string
+	for _, a := range addrs {
+		if a.Attributes == nil || !defaultRouteIfaces[a.Index] {
+			continue
+		}
+		ip := a.Attributes.Address
+		if ip == nil {
+			ip = a.Attributes.Local
+		}
+		if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			continue
+		}
+		prefix := ip.String() + "/" + strconv.Itoa(int(a.PrefixLength))
+		if seen[prefix] {
+			continue
+		}
+		seen[prefix] = true
+		out = append(out, prefix)
+	}
+	sort.Strings(out)
 	return out
 }

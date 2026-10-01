@@ -105,3 +105,70 @@ func TestBuildTunnelsReturnsNothingWhenNoLinkMatches(t *testing.T) {
 		t.Errorf("got %+v, want nil", got)
 	}
 }
+func TestBuildHostSubnetsUsesOnlyTheDefaultRouteInterface(t *testing.T) {
+	addrs := []rtnetlink.AddressMessage{
+		addr(1, "10.0.5.12", 24), // on the default-route interface
+		addr(2, "192.0.2.9", 24), // a second interface with no default route - must not leak in
+	}
+	routes := []rtnetlink.RouteMessage{
+		route(1, "0.0.0.0", 0),    // the default route, via interface 1
+		route(2, "192.0.2.0", 24), // interface 2's own subnet route - not a default route
+	}
+	got := buildHostSubnets(addrs, routes)
+	want := []string{"10.0.5.12/24"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestBuildHostSubnetsExcludesLoopbackAndLinkLocal(t *testing.T) {
+	addrs := []rtnetlink.AddressMessage{
+		addr(1, "127.0.0.1", 8),
+		addr(1, "169.254.1.1", 16),
+		addr(1, "fe80::1", 64),
+		addr(1, "10.0.5.12", 24),
+	}
+	routes := []rtnetlink.RouteMessage{route(1, "0.0.0.0", 0)}
+	got := buildHostSubnets(addrs, routes)
+	want := []string{"10.0.5.12/24"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want only the real address, no loopback/link-local: %v", got, want)
+	}
+}
+
+func TestBuildHostSubnetsCoversBothIPv4AndIPv6DefaultRoutes(t *testing.T) {
+	addrs := []rtnetlink.AddressMessage{
+		addr(1, "10.0.5.12", 24),
+		addr(2, "2001:db8::5", 64),
+	}
+	routes := []rtnetlink.RouteMessage{
+		route(1, "0.0.0.0", 0), // IPv4 default route, via interface 1
+		route(2, "::", 0),      // IPv6 default route, via interface 2
+	}
+	got := buildHostSubnets(addrs, routes)
+	want := []string{"10.0.5.12/24", "2001:db8::5/64"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want both uplinks' subnets: %v", got, want)
+	}
+}
+
+func TestBuildHostSubnetsReturnsNothingWithoutADefaultRoute(t *testing.T) {
+	addrs := []rtnetlink.AddressMessage{addr(1, "10.0.5.12", 24)}
+	routes := []rtnetlink.RouteMessage{route(1, "192.168.0.0", 16)} // a route, but never the default one
+	if got := buildHostSubnets(addrs, routes); got != nil {
+		t.Errorf("got %v, want nil - no default route means no reliable uplink to report", got)
+	}
+}
+
+func TestBuildHostSubnetsDedupsRepeatedAddresses(t *testing.T) {
+	addrs := []rtnetlink.AddressMessage{
+		addr(1, "10.0.5.12", 24),
+		addr(1, "10.0.5.12", 24), // the kernel occasionally reports the same address twice; never doubled here
+	}
+	routes := []rtnetlink.RouteMessage{route(1, "0.0.0.0", 0)}
+	got := buildHostSubnets(addrs, routes)
+	want := []string{"10.0.5.12/24"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want deduped to %v", got, want)
+	}
+}
