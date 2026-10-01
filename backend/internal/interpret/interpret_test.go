@@ -381,8 +381,9 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 		n.Probe = &P{
 			SysVendor: "Dell Inc.", ProductName: "PowerEdge R640",
 			CpuModel: "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz", CpuThreads: 32,
-			Interfaces: []*continuumv1.NetworkInterface{{Name: "eno1", Kind: "ethernet", SpeedMbps: 10000, Mtu: 9000}},
-			Disks:      []*continuumv1.Disk{{Name: "nvme0n1", Model: "Samsung SSD 970 EVO", SizeBytes: 1 << 40, Type: "nvme"}},
+			Interfaces:  []*continuumv1.NetworkInterface{{Name: "eno1", Kind: "ethernet", SpeedMbps: 10000, Mtu: 9000}},
+			Disks:       []*continuumv1.Disk{{Name: "nvme0n1", Model: "Samsung SSD 970 EVO", SizeBytes: 1 << 40, Type: "nvme"}},
+			HostSubnets: []string{"10.0.5.0/24"},
 		}
 	})
 	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
@@ -398,6 +399,12 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 	}
 	if len(n.Disks) != 1 || n.Disks[0] != (model.Disk{Name: "nvme0n1", Model: "Samsung SSD 970 EVO", SizeBytes: 1 << 40, Type: "nvme"}) {
 		t.Errorf("disks = %+v", n.Disks)
+	}
+	// Regression guard: this copy was previously missing entirely, which made the server's same-subnet
+	// cluster-link detection (correlateClusterLinks) permanently dead in production - model.Node.HostSubnets
+	// was always empty no matter what the probe actually reported, since nothing ever copied it across.
+	if len(n.HostSubnets) != 1 || n.HostSubnets[0] != "10.0.5.0/24" {
+		t.Errorf("host subnets = %+v, want [10.0.5.0/24]", n.HostSubnets)
 	}
 }
 

@@ -138,6 +138,7 @@ func Interpret(in Input) model.Topology {
 		if n.Probe != nil {
 			mn.CPUModel = n.Probe.CpuModel
 			mn.CPUThreads = n.Probe.CpuThreads
+			mn.HostSubnets = n.Probe.HostSubnets
 			for _, iface := range n.Probe.Interfaces {
 				if iface == nil {
 					continue
@@ -291,6 +292,9 @@ func Interpret(in Input) model.Topology {
 			}
 		}
 		for _, p := range w.Pods {
+			if p == nil {
+				continue
+			}
 			s.Pods = append(s.Pods, model.Pod{Name: p.Name, NodeID: nodeIDs[p.NodeName], Phase: p.Phase, Ready: p.Ready, Restarts: p.Restarts, CreatedAt: rfc3339(p.CreatedAt)})
 		}
 		s.Evidence = map[string]model.Evidence{"application": ev(ref.signal, ref.confidence, "grouped as "+ref.origin)}
