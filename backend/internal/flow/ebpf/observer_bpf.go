@@ -17,8 +17,8 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
-	"github.com/cilium/ebpf/rlimit"
 	"github.com/cilium/ebpf/ringbuf"
+	"github.com/cilium/ebpf/rlimit"
 )
 
 // Options tunes what Open loads.
@@ -215,46 +215,63 @@ func (o *Observer) openNames() error {
 // bytes, parsed by names.go) into the small pending list Collect() drains. It returns, quietly, once the
 // reader is closed (Close() does that) - ringbuf.Reader.Read's documented way of saying "stop".
 func (o *Observer) drainNames() {
-	const eventLen = 16 + 16 + 2 + 2 + 1 + 3 + 4 // saddr, daddr, sport, dport, kind, pad, len - the header
-	// before flow.c's fixed-size data[NAME_CAP] array; see flowNameEvent's generated layout.
 	for {
 		rec, err := o.namesRd.Read()
 		if err != nil {
 			return
 		}
-		raw := rec.RawSample
-		if len(raw) < eventLen {
-			continue
-		}
-		var saddr, daddr [16]byte
-		copy(saddr[:], raw[0:16])
-		copy(daddr[:], raw[16:32])
-		dport := binary.LittleEndian.Uint16(raw[34:36])
-		kind := raw[36]
-		length := binary.LittleEndian.Uint32(raw[40:44])
-		data := raw[eventLen:]
-		if int(length) > len(data) {
-			length = uint32(len(data))
-		}
-		payload := data[:length]
-
-		var name string
-		var ok bool
-		switch kind {
-		case nameKindDNSQuery:
-			name, ok = ParseDNSQueryName(payload)
-		case nameKindTLSClientHello:
-			name, ok = ParseTLSClientHelloSNI(payload)
-		}
-		if !ok {
-			continue
-		}
-		o.namesMu.Lock()
-		if len(o.pendingNames) < maxPendingNames {
-			o.pendingNames = append(o.pendingNames, observedName{kind: kind, local: addr(saddr), peer: addr(daddr), port: dport, name: name})
-		}
-		o.namesMu.Unlock()
+		o.handleNameRecord(rec.RawSample)
 	}
+}
+
+// handleNameRecord parses and stores one ring-buffer record. Every packet captured on this node's egress
+// that merely looks like a DNS query or a TLS ClientHello reaches the two parsers below - untrusted input
+// from any workload on the node, not just well-formed traffic - so a parser bug here must cost this one
+// record, never the whole collector process (which would also take conntrack-based observation down with
+// it on this node). Both parsers are already defensively written and unit-tested (see names_test.go), but
+// the recover() is deliberate, cheap insurance against the next bug, not a substitute for fixing one.
+func (o *Observer) handleNameRecord(raw []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Nothing to log to here without a logger reference; dropping the record silently is exactly
+			// as safe as the many other malformed-input cases both parsers already reject with ok=false -
+			// this only differs in how the rejection was discovered.
+			_ = r
+		}
+	}()
+	const eventLen = 16 + 16 + 2 + 2 + 1 + 3 + 4 // saddr, daddr, sport, dport, kind, pad, len - the header
+	// before flow.c's fixed-size data[NAME_CAP] array; see flowNameEvent's generated layout.
+	if len(raw) < eventLen {
+		return
+	}
+	var saddr, daddr [16]byte
+	copy(saddr[:], raw[0:16])
+	copy(daddr[:], raw[16:32])
+	dport := binary.LittleEndian.Uint16(raw[34:36])
+	kind := raw[36]
+	length := binary.LittleEndian.Uint32(raw[40:44])
+	data := raw[eventLen:]
+	if int(length) > len(data) {
+		length = uint32(len(data))
+	}
+	payload := data[:length]
+
+	var name string
+	var ok bool
+	switch kind {
+	case nameKindDNSQuery:
+		name, ok = ParseDNSQueryName(payload)
+	case nameKindTLSClientHello:
+		name, ok = ParseTLSClientHelloSNI(payload)
+	}
+	if !ok {
+		return
+	}
+	o.namesMu.Lock()
+	if len(o.pendingNames) < maxPendingNames {
+		o.pendingNames = append(o.pendingNames, observedName{kind: kind, local: addr(saddr), peer: addr(daddr), port: dport, name: name})
+	}
+	o.namesMu.Unlock()
 }
 
 // takeNames returns and clears everything decoded since the last call.

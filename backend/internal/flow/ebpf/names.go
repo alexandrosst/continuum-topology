@@ -121,7 +121,9 @@ func ParseTLSClientHelloSNI(payload []byte) (string, bool) {
 	}
 	// ClientHello: client_version(2) random(32) session_id_len(1) session_id(var) cipher_suites_len(2)
 	// cipher_suites(var) compression_methods_len(1) compression_methods(var) [extensions_len(2) extensions(var)].
-	if len(body) < 34 {
+	// 35, not 34: body[34] (the session_id_len byte itself) must actually be present before it is read -
+	// a packet truncated to exactly 34 bytes passed this guard before and read one byte past the end.
+	if len(body) < 35 {
 		return "", false
 	}
 	off := 2 + 32

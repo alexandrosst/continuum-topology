@@ -175,10 +175,10 @@ func TestParseTLSClientHelloSNIRejectsNonClientHello(t *testing.T) {
 func buildMinimalClientHello(extensions []byte) []byte {
 	body := []byte{0x03, 0x03} // client_version: TLS 1.2 wire version (extensions carry the real one)
 	body = append(body, make([]byte, 32)...)
-	body = append(body, 0x00)             // session_id_len = 0
-	body = append(body, 0x00, 0x02)       // cipher_suites_len = 2
-	body = append(body, 0x13, 0x01)       // TLS_AES_128_GCM_SHA256, any real value will do
-	body = append(body, 0x00)             // compression_methods_len = 0
+	body = append(body, 0x00)       // session_id_len = 0
+	body = append(body, 0x00, 0x02) // cipher_suites_len = 2
+	body = append(body, 0x13, 0x01) // TLS_AES_128_GCM_SHA256, any real value will do
+	body = append(body, 0x00)       // compression_methods_len = 0
 	if extensions != nil {
 		extLen := len(extensions)
 		body = append(body, byte(extLen>>8), byte(extLen))
@@ -187,6 +187,20 @@ func buildMinimalClientHello(extensions []byte) []byte {
 	hs := append([]byte{0x01, byte(len(body) >> 16), byte(len(body) >> 8), byte(len(body))}, body...)
 	rec := append([]byte{0x16, 0x03, 0x01, byte(len(hs) >> 8), byte(len(hs))}, hs...)
 	return rec
+}
+
+// TestParseTLSClientHelloSNIBodyExactly34BytesDoesNotPanic pins a real regression: a ClientHello body of
+// exactly client_version(2)+random(32) = 34 bytes, with nothing after it, used to pass the old "len(body)
+// < 34" guard and then read body[34] (the session_id_len byte) one past the end - a panic, not a clean
+// "", false, and one reachable by anyone who can get a single truncated-looking packet to this parser (it
+// runs on every captured ClientHello-shaped packet, so this was a remote, unauthenticated crash).
+func TestParseTLSClientHelloSNIBodyExactly34BytesDoesNotPanic(t *testing.T) {
+	body := make([]byte, 34) // client_version(2) + random(32), and NOT ONE BYTE MORE
+	hs := append([]byte{0x01, 0, 0, byte(len(body))}, body...)
+	rec := append([]byte{0x16, 0x03, 0x01, byte(len(hs) >> 8), byte(len(hs))}, hs...)
+	if _, ok := ParseTLSClientHelloSNI(rec); ok {
+		t.Error("a body with no session_id_len byte at all has no SNI to find")
+	}
 }
 
 func TestParseTLSClientHelloSNIWithNoExtensionsBlockAtAll(t *testing.T) {
