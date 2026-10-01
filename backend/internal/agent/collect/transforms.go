@@ -95,11 +95,24 @@ func stripPod(o any) (any, error) {
 			cs[i].LastTerminationState = corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "OOMKilled"}}
 		}
 	}
+	// Only the one PodReady condition is kept, and only its Status - never LastTransitionTime, Reason or
+	// Message, the same "one allow-listed word, nothing else" discipline LastTerminationState just above
+	// already applies to a container's own termination reason. This is what WorkloadFacts.pods' Ready
+	// field (set in snapshot.go's podReady) is read from; every other condition type is dropped.
+	var conditions []corev1.PodCondition
+	for _, c := range p.Status.Conditions {
+		if c.Type == corev1.PodReady {
+			conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: c.Status}}
+			break
+		}
+	}
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, UID: p.UID, OwnerReferences: p.OwnerReferences, Annotations: filterAnnotations(p.Annotations)},
+		// CreationTimestamp is kept so WorkloadFacts.pods can show a pod's own age - the one fact that can
+		// actually surface a recent scaling event, unlike the workload object's own (unrelated) age.
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, UID: p.UID, OwnerReferences: p.OwnerReferences, Annotations: filterAnnotations(p.Annotations), CreationTimestamp: p.CreationTimestamp},
 		Spec:       corev1.PodSpec{NodeName: p.Spec.NodeName, HostNetwork: p.Spec.HostNetwork, Containers: slimContainers(p.Spec.Containers), Volumes: claimVolumes(p.Spec.Volumes)},
 		// The pod's addresses are kept so observed traffic can be attributed to workloads; they never leave the agent.
-		Status: corev1.PodStatus{Phase: p.Status.Phase, ContainerStatuses: cs, PodIP: p.Status.PodIP, PodIPs: p.Status.PodIPs},
+		Status: corev1.PodStatus{Phase: p.Status.Phase, Conditions: conditions, ContainerStatuses: cs, PodIP: p.Status.PodIP, PodIPs: p.Status.PodIPs},
 	}, nil
 }
 

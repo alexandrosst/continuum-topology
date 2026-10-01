@@ -160,6 +160,18 @@ func nodeFacts(n *corev1.Node, req corev1.ResourceList, podsObserved bool) *cont
 	return f
 }
 
+// podReady reports whether the pod's own PodReady condition is true - the same condition `kubectl get
+// pods`'s READY column is built from, read the same direct way nodeFacts reads NodeReady just above,
+// never re-derived from container statuses on its own.
+func podReady(p *corev1.Pod) bool {
+	for _, cnd := range p.Status.Conditions {
+		if cnd.Type == corev1.PodReady {
+			return cnd.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
 func taintString(t corev1.Taint) string {
 	if t.Value != "" {
 		return t.Key + "=" + t.Value + ":" + string(t.Effect)
@@ -274,8 +286,10 @@ func (c *Collector) workloads(pods []*corev1.Pod) ([]*continuumv1.WorkloadFacts,
 			if p.Spec.NodeName != "" {
 				nodes[p.Spec.NodeName] = true
 			}
+			var podRestarts int32
 			for i, cs := range p.Status.ContainerStatuses {
 				w.facts.Restarts += cs.RestartCount
+				podRestarts += cs.RestartCount
 				// LastTerminationState holds only the ONE most recent termination per container, so this is a
 				// live read of "is this container's last known failure an OOM kill", not an accumulating count -
 				// see WorkloadFacts.oom_kills' own doc comment for why a repeatedly-OOM-killed container still
@@ -287,11 +301,15 @@ func (c *Collector) workloads(pods []*corev1.Pod) ([]*continuumv1.WorkloadFacts,
 					w.facts.Images[0].Digest = digestOf(cs.ImageID)
 				}
 			}
+			w.facts.Pods = append(w.facts.Pods, &continuumv1.PodFacts{
+				Name: p.Name, NodeName: p.Spec.NodeName, Phase: string(p.Status.Phase), Ready: podReady(p), Restarts: podRestarts, CreatedAt: ts(p.CreationTimestamp),
+			})
 		}
 		for n := range nodes {
 			w.facts.NodeNames = append(w.facts.NodeNames, n)
 		}
 		sort.Strings(w.facts.NodeNames)
+		sort.Slice(w.facts.Pods, func(i, j int) bool { return w.facts.Pods[i].Name < w.facts.Pods[j].Name })
 	}
 	c.joinServices(all)
 	c.joinStorage(all)

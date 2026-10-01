@@ -197,6 +197,14 @@ func TestSnapshotTier2(t *testing.T) {
 	if w.Key != "shop/Deployment/cart" || w.Replicas != 2 || w.ReadyReplicas != 1 || w.Restarts != 3 || w.OomKills != 1 {
 		t.Errorf("workload = %v", w)
 	}
+	// Exactly the one real, owned pod (cart-abc-1) - job-1 belongs to no workload at all and cart-abc-2 has
+	// no owner reference despite its name, so neither leaks in here even though both exist in the fixture.
+	if len(w.Pods) != 1 {
+		t.Fatalf("pods = %d, want 1", len(w.Pods))
+	}
+	if p := w.Pods[0]; p.Name != "cart-abc-1" || p.NodeName != "edge-1" || p.Phase != "Running" || p.Ready || p.Restarts != 3 {
+		t.Errorf("pod = %v (no PodReady condition is set in the fixture, so Ready must be false, not guessed true)", p)
+	}
 	if w.Images[0].Image != "ghcr.io/acme/cart:1.4" || w.Images[0].Digest != "sha256:deadbeef" {
 		t.Errorf("images = %v", w.Images)
 	}
@@ -243,6 +251,60 @@ func TestSnapshotTier2(t *testing.T) {
 		if (m.Name == ModStorage || m.Name == ModScaling) && m.State.String() != "OK" {
 			t.Errorf("module %s = %v", m.Name, m)
 		}
+	}
+}
+
+// Several pods on one workload, mixed ready/not-ready and with a readable PodReady condition this time
+// (TestSnapshotTier2's single pod has none set at all, so it only ever pins the Ready=false path) - also
+// pins the pod list's sort order (by name, independent of scan order) and that each pod's own restart
+// count is its own containers' sum, not the workload-wide total.
+func TestSnapshotPodsCoverMultipleReplicasSortedByName(t *testing.T) {
+	q := func(s string) resource.Quantity { return resource.MustParse(s) }
+	cs := fake.NewSimpleClientset(
+		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "edge-1"}, Status: corev1.NodeStatus{Capacity: corev1.ResourceList{"cpu": q("4"), "memory": q("8Gi")}}},
+		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "collector", Namespace: "obs"},
+			Spec: appsv1.DaemonSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "collector"}}}}}},
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "collector-z", Namespace: "obs", OwnerReferences: []metav1.OwnerReference{{Kind: "DaemonSet", Name: "collector"}}},
+			Spec:       corev1.PodSpec{NodeName: "edge-1", Containers: []corev1.Container{{Name: "collector"}}},
+			Status: corev1.PodStatus{Phase: corev1.PodRunning, Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+				ContainerStatuses: []corev1.ContainerStatus{{Name: "collector", RestartCount: 1}}},
+		},
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "collector-a", Namespace: "obs", OwnerReferences: []metav1.OwnerReference{{Kind: "DaemonSet", Name: "collector"}}},
+			Spec:       corev1.PodSpec{NodeName: "edge-1", Containers: []corev1.Container{{Name: "collector"}}},
+			Status: corev1.PodStatus{Phase: corev1.PodRunning, Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}},
+				ContainerStatuses: []corev1.ContainerStatus{{Name: "collector", RestartCount: 4}}},
+		},
+	)
+	c := New(cs, 2, "10.0.0.5:6443")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := c.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	s := c.Snapshot()
+	if len(s.Workloads) != 1 {
+		t.Fatalf("workloads = %d, want 1", len(s.Workloads))
+	}
+	w := s.Workloads[0]
+	if len(w.Pods) != 2 {
+		t.Fatalf("pods = %d, want 2", len(w.Pods))
+	}
+	// Sorted by name, not by whatever order the fake clientset happened to list them in (collector-z was
+	// created before collector-a above).
+	if w.Pods[0].Name != "collector-a" || w.Pods[1].Name != "collector-z" {
+		t.Errorf("pod order = %s, %s - want collector-a before collector-z", w.Pods[0].Name, w.Pods[1].Name)
+	}
+	if w.Pods[0].Ready || w.Pods[0].Restarts != 4 {
+		t.Errorf("collector-a = ready %v restarts %d, want not-ready, 4 restarts", w.Pods[0].Ready, w.Pods[0].Restarts)
+	}
+	if !w.Pods[1].Ready || w.Pods[1].Restarts != 1 {
+		t.Errorf("collector-z = ready %v restarts %d, want ready, 1 restart", w.Pods[1].Ready, w.Pods[1].Restarts)
+	}
+	// The workload-wide total is still the sum across both pods, same as before this field existed.
+	if w.Restarts != 5 {
+		t.Errorf("workload restarts = %d, want 5 (1 + 4)", w.Restarts)
 	}
 }
 
@@ -363,6 +425,25 @@ func TestStripDropsCredentialCarryingFields(t *testing.T) {
 	if len(ct.Containers[0].Env) != 0 || len(ct.Containers[0].EnvFrom) != 0 || len(ct.Containers[0].Command) != 0 || len(ct.Containers[0].Args) != 0 ||
 		len(ct.Containers[0].VolumeMounts) != 0 || len(ct.Volumes) != 0 || ct.ServiceAccountName != "" {
 		t.Errorf("stripped deployment still carries %+v", ct)
+	}
+}
+
+// stripPod keeps only the one PodReady condition's Status, same discipline as the OOMKilled-only
+// LastTerminationState copy right next to it - never LastTransitionTime, Reason, Message, or any other
+// condition type (PodScheduled, ContainersReady, ...), which say far more about a pod's own history than
+// a single ready/not-ready bit needs.
+func TestStripPodKeepsOnlyPodReadyCondition(t *testing.T) {
+	p := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns"},
+		Status: corev1.PodStatus{Conditions: []corev1.PodCondition{
+			{Type: corev1.PodScheduled, Status: corev1.ConditionTrue},
+			{Type: corev1.PodReady, Status: corev1.ConditionTrue, Reason: "secret-reason", Message: "secret message with detail", LastTransitionTime: metav1.Now()},
+		}},
+	}
+	out, _ := stripPod(p)
+	cs := out.(*corev1.Pod).Status.Conditions
+	if len(cs) != 1 || cs[0].Type != corev1.PodReady || cs[0].Status != corev1.ConditionTrue || cs[0].Reason != "" || cs[0].Message != "" || !cs[0].LastTransitionTime.IsZero() {
+		t.Errorf("stripped conditions = %+v, want only a bare PodReady/True, nothing else carried", cs)
 	}
 }
 
