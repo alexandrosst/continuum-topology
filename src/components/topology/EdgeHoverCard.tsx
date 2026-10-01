@@ -67,15 +67,17 @@ export default function EdgeHoverCard({
       data-testid="edge-hover-card"
     >
       <div className="truncate text-sm font-medium text-nb-300">
-        {fromName} {d?.aggregated ? '↔' : '→'} {toName}
+        {fromName} {d?.aggregated || d?.clusterLink ? '↔' : '→'} {toName}
       </div>
       <div className="mt-0.5 text-nb-500">
         {label}
-        {d?.aggregated
-          ? d.activeCount ? ` · ${d.activeCount} seen in traffic` : undefined
-          : label !== undefined && (d?.stale ? ' · quiet' : seen ? ' · seen in traffic' : ' · declared')}
+        {d?.clusterLink
+          ? ' · confirmed'
+          : d?.aggregated
+            ? d.activeCount ? ` · ${d.activeCount} seen in traffic` : undefined
+            : label !== undefined && (d?.stale ? ' · quiet' : seen ? ' · seen in traffic' : ' · declared')}
       </div>
-      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showRetransmits || showFailed || showSni || showDns || d?.iface || d?.quality || d?.route) && (
+      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showRetransmits || showFailed || showSni || showDns || d?.iface || d?.quality || d?.route || d?.clusterLink) && (
         <dl className="mt-1.5 grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-0.5 text-nb-400">
           {showBps && (
             <>
@@ -150,6 +152,12 @@ export default function EdgeHoverCard({
             <>
               <dt title="How this cross-cluster call actually reaches its target: a flat network route, or out through the target's own external exposure (ingress, node port or load balancer)">Route</dt>
               <dd className="text-nb-200">{d.route === 'gateway' ? 'via gateway' : 'direct (peer network)'}</dd>
+            </>
+          )}
+          {d?.clusterLink && (
+            <>
+              <dt title="The specific evidence behind this link - a tunnel interface's name and kind, or the shared subnet prefix - confirmed from both clusters' own routing/address data, never a guess">Via</dt>
+              <dd className="truncate text-nb-200" title={d.clusterLink.via}>{d.clusterLink.via}</dd>
             </>
           )}
         </dl>

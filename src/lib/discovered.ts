@@ -1,6 +1,6 @@
 import { ipScope } from './present'
 import { applyRef } from './declared'
-import type { AccessTier, Agent, AgentLink, AgentScope, AuditEvent, ConsistencyStatus, DeclaredRef, ObserverStatus, Path, Cluster, Dependency, ExternalEndpoint, GeoHint, GeoUnlocatableReason, MachineNode, Model, Namespace, Service, Suggestion, Tombstone } from './types'
+import type { AccessTier, Agent, AgentLink, AgentScope, AuditEvent, ClusterLink, ConsistencyStatus, DeclaredRef, ObserverStatus, Path, Cluster, Dependency, ExternalEndpoint, GeoHint, GeoUnlocatableReason, MachineNode, Model, Namespace, Service, Suggestion, Tombstone } from './types'
 
 /** What the Continuum server returns from GET /api/v1/state. */
 export interface ServerAgent {
@@ -58,6 +58,9 @@ export interface ServerState {
     externalEndpoints: ExternalEndpoint[]
     /** Measured network paths between clusters and the addresses they talk to. */
     paths: Path[]
+    /** Confirmed overlay/subnet network relationships between cluster pairs - derived fresh, like
+     *  dependencies/externalEndpoints/paths above, never part of the stored workspace. */
+    clusterLinks: ClusterLink[]
   }
   auditLog: AuditEvent[]
   /** Records that disappeared from what their agents report, kept for a retention window (see Tombstone). */
@@ -87,6 +90,7 @@ export function normalizeServerState(s: Partial<ServerState> | null | undefined)
       dependencies: t.dependencies ?? [],
       externalEndpoints: t.externalEndpoints ?? [],
       paths: t.paths ?? [],
+      clusterLinks: t.clusterLinks ?? [],
     },
   }
 }

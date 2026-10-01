@@ -14,6 +14,7 @@ import {
   DEVICE_KINDS,
   TIER_ORDER,
   type Cluster,
+  type ClusterLink,
   type Dependency,
   type DependencyStats,
   type Device,
@@ -172,6 +173,11 @@ export type EdgeData = {
   /** Aggregated (group<->group) edges only: how many of the bundled dependencies were actually seen in
    *  traffic, out of the total the label already counts - the hover card's "(N seen in traffic)" aside. */
   activeCount?: number
+  /** Set only on a cluster<->cluster ClusterLink edge (never alongside a dependency's own fields above) -
+   *  a confirmed network-level relationship, independent of any traffic or declared dependency between the
+   *  two clusters. `via` names the specific evidence (a tunnel's name/kind, or the shared subnet prefix) -
+   *  see ClusterLink's own doc for exactly what this is, and is not, built from. */
+  clusterLink?: { kind: ClusterLink['kind']; via: string }
 }
 export type TopoEdge = Edge<EdgeData>
 
@@ -201,6 +207,10 @@ export interface GraphOptions {
    *  open when the badge is clicked). Computed by the caller from `agents`/`installedTelemetry`, not part
    *  of the core Topology model - purely a canvas annotation, the same role `hints` plays for placement. */
   localOperators?: Map<string, { layers: string[]; agentId: string }>
+  /** Confirmed overlay/subnet relationships between cluster pairs - derived server-side fresh on every
+   *  poll (see ClusterLink's own doc), passed in the same way `paths` is rather than living on Topology
+   *  itself, since neither is ever part of the stored workspace. */
+  clusterLinks?: ClusterLink[]
 }
 
 export const groupId = (key: string) => `g:${key}`
@@ -731,6 +741,30 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         to: `op:${opId}`,
       }))
     }
+  }
+
+  // Cluster links: a confirmed overlay/subnet relationship, drawn directly between the two clusters' own
+  // group boxes (never a third box, unlike regional operators above - the relationship IS the two
+  // clusters themselves). Like the operator edges above, this draws the same way in every view/groupBy
+  // combination, independent of whether anything actually calls between the two clusters - it is a
+  // network-level fact, not a traffic one. Two clusters that collapsed into the very same group (both in
+  // the same tier, when groupBy is 'tier') have no distinct "other end" to draw a line to.
+  for (const cl of o.clusterLinks ?? []) {
+    const a = groupKeyOfCluster(cl.fromCluster)
+    const b = groupKeyOfCluster(cl.toCluster)
+    if (!a || !b || a === b) continue
+    const ga = groupId(a)
+    const gb = groupId(b)
+    if (!abs.has(ga) || !abs.has(gb)) continue
+    edges.push(makeEdge(`cl:${cl.fromCluster}:${cl.toCluster}:${cl.kind}`, ga, gb, abs, {
+      label: cl.kind === 'overlay' ? 'overlay' : 'same subnet',
+      cross: true,
+      aggregated: false,
+      groupLevel: true,
+      from: a,
+      to: b,
+      clusterLink: { kind: cl.kind, via: cl.via },
+    }))
   }
 
   spreadFanned(edges, abs)
@@ -1335,6 +1369,10 @@ function makeEdge(
      *  land on it. Meaningless for a same-cluster call, which always reaches its target's ClusterIP
      *  directly regardless of whatever else that target happens to be exposed as. */
     route?: 'direct' | 'gateway'
+    /** Set only for a ClusterLink edge - see EdgeData.clusterLink's own doc. Undirected in reality (two
+     *  clusters either are, or are not, joined this way), so this suppresses the arrowhead the same way
+     *  `aggregated` does, independently of `groupLevel`, which still wants its own real arrowhead. */
+    clusterLink?: { kind: ClusterLink['kind']; via: string }
   },
 ): TopoEdge {
   const [ss, ts] = pickSides(abs.get(source)!, abs.get(target)!)
@@ -1363,8 +1401,8 @@ function makeEdge(
     // React Flow adds the higher of the two end nodes' z to this. Card↔card edges must land just below
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,
-    markerEnd: d.aggregated ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, retransmits: d.retransmits, rttMs: d.rttMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, activeCount: d.activeCount, route: d.route },
+    markerEnd: d.aggregated || d.clusterLink ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
+    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, retransmits: d.retransmits, rttMs: d.rttMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink },
   }
 }
 

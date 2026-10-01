@@ -17,7 +17,7 @@ import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved 
 import { applyGraphUpdate, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
-import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type RegionalOperator, type Service, type Suggestion } from '../src/lib/types'
+import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterLink, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type RegionalOperator, type Service, type Suggestion } from '../src/lib/types'
 
 let failed = 0
 const test = (name: string, fn: () => void) => {
@@ -1498,6 +1498,34 @@ test('regional operators: a group box + real arrows from each source cluster app
   const tierEdges = byTier.edges.filter((e) => e.target === groupId('op:op-1'))
   assert.equal(tierEdges.length, 1, 'both sources are in the far-edge tier, so just one arrow from that box')
   assert.equal(tierEdges[0].source, groupId('far-edge'))
+})
+
+test('cluster links: a confirmed overlay/subnet edge is drawn directly between the two clusters, with no arrowhead', () => {
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+  const overlay: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'overlay', via: 'wg0 (wireguard)' }
+  const g = buildGraph(seed, { ...opts, clusterLinks: [overlay] })
+  const edge = g.edges.find((e) => e.source === groupId('cl-edge-a') && e.target === groupId('cl-cloud'))
+  assert.ok(edge, 'a real edge is drawn straight between the two cluster boxes - no third box involved')
+  assert.equal(edge!.data?.clusterLink?.kind, 'overlay')
+  assert.equal(edge!.data?.clusterLink?.via, 'wg0 (wireguard)')
+  assert.ok(!edge!.markerEnd, 'undirected in reality (two clusters either are or are not joined this way), so no arrowhead')
+
+  const subnet: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'subnet', via: '10.20.30.0/24' }
+  const g2 = buildGraph(seed, { ...opts, clusterLinks: [subnet] })
+  const edge2 = g2.edges.find((e) => e.source === groupId('cl-edge-a') && e.target === groupId('cl-cloud'))
+  assert.equal(edge2?.data?.clusterLink?.kind, 'subnet')
+  assert.equal(edge2?.data?.clusterLink?.via, '10.20.30.0/24')
+
+  // Grouped by tier, cl-edge-a and cl-edge-b collapse into the one far-edge box - no distinct "other end"
+  // to draw a line to, so the link is simply not drawn rather than becoming a nonsensical self-loop.
+  const sameTier: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-edge-b', toName: 'Edge B', kind: 'subnet', via: '10.20.30.0/24' }
+  const byTier = buildGraph(seed, { ...opts, groupBy: 'tier' as const, clusterLinks: [sameTier] })
+  assert.ok(!byTier.edges.some((e) => e.data?.clusterLink), 'same-tier ends collapse to one box; no self-loop is drawn')
+
+  // A cluster that doesn't exist (or was filtered off the canvas) draws nothing either.
+  const orphan: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'does-not-exist', toName: 'Ghost', kind: 'overlay', via: 'wg0 (wireguard)' }
+  const g3 = buildGraph(seed, { ...opts, clusterLinks: [orphan] })
+  assert.ok(!g3.edges.some((e) => e.data?.clusterLink), 'an end not on the canvas draws nothing')
 })
 
 test('resyncNodes: a node mid-drag is left untouched, others keep position until re-parented', () => {

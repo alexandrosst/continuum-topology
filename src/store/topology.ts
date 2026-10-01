@@ -470,3 +470,16 @@ export function usePaths() {
   const past = useHistoryView((s) => s.snapshot)
   return past ? past.paths : live
 }
+
+/**
+ * Confirmed overlay/subnet cluster-pair links. Unlike usePaths above, there is no recorded form to fall
+ * back on while viewing a past moment: like TunnelInterface.confirmed (which the "overlay" half of this
+ * draws on), it is a live correlation across the *current* topology, never written into a snapshot - so
+ * a past view honestly shows none, rather than a correlation recomputed against today's other clusters
+ * and presented as if it were true back then.
+ */
+export function useClusterLinks() {
+  const live = useObserved((s) => s.clusterLinks)
+  const past = useHistoryView((s) => s.snapshot)
+  return past ? [] : live
+}

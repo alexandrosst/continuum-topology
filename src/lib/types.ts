@@ -205,6 +205,28 @@ export interface ExternalEndpoint extends Provenance {
   ips?: string[]
 }
 
+/**
+ * A server-confirmed network-level relationship between two onboarded clusters: either joined through an
+ * overlay/tunnel, or sitting on the very same flat subnet with no tunnel at all. See the backend's
+ * ClusterLink doc for exactly what evidence this is (and is not) built from - real, kernel-reported
+ * routing/address data from both sides, never a guess from naming or a declared external-exposure flag
+ * the way Dependency.route is. Derived fresh on every poll, like Path and Dependency above it; never part
+ * of the stored workspace, and (like TunnelInterface.confirmed, which this draws on) not available for a
+ * past/historic view - it is a live correlation across the current topology, not a recorded fact.
+ */
+export interface ClusterLink {
+  fromCluster: string
+  fromName: string
+  toCluster: string
+  toName: string
+  /** overlay: joined through a tunnel/overlay interface. subnet: same flat network segment, no tunnel. */
+  kind: 'overlay' | 'subnet'
+  /** The specific evidence: a tunnel's name and kind ("wg0 (wireguard)") for an overlay link, or the
+   *  shared subnet prefix ("10.0.5.0/24") for a subnet link - never just "connected" with nothing to
+   *  point at. */
+  via: string
+}
+
 export interface Cluster extends Provenance {
   id: string
   siteId?: string
@@ -368,6 +390,11 @@ export interface MachineNode extends Provenance {
   /** Overlay/tunnel interfaces the probe found up (WireGuard, VXLAN, GRE, IPIP/SIT, route-based IPsec,
    *  ...). Node probe only. See TunnelInterface's own comment for exactly what is, and is not, covered. */
   tunnels?: TunnelInterface[]
+  /** This node's own routable network prefix(es) (e.g. "10.0.5.12/24"), taken only from whichever
+   *  interface owns the machine's default route. Node probe only; used server-side, alongside `tunnels`,
+   *  to find clusters joined at the network level (see ClusterLink) - never shown as a claim on its own
+   *  that two addresses are related. */
+  hostSubnets?: string[]
   providerId?: string
   allocatable?: Resources
   requested?: Resources

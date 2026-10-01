@@ -20,7 +20,7 @@ import { useServer } from '@/store/server'
 import { useRawTopology, useTopology } from '@/store/topology'
 import { bytesPerSec, bytesTotal, isObserved, trafficSummary } from '@/lib/observed'
 import { lossBand, pathQuality, rttLabel } from '@/lib/metrics'
-import { usePaths } from '@/store/topology'
+import { useClusterLinks, usePaths } from '@/store/topology'
 import { connectionVerdict, meshName, MTLS_WORDS, proxyWords, VERDICT_COLOR } from '@/lib/mesh'
 import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Evidence, type ExternalEndpoint, type ExternalKind, type OverrideMeta, type Provenance, type Resources, type Tier } from '@/lib/types'
 
@@ -298,6 +298,7 @@ export default function Inspector({
   const placement = usePlacementSuggestions().byCluster
   const inPast = useHistoryView((s) => s.at !== null)
   const measured = usePaths()
+  const clusterLinks = useClusterLinks()
   const publicIpFallbackOn = useServer((s) => s.info?.geoip?.publicIpFallback)
   if (!selection) return null
 
@@ -445,6 +446,28 @@ export default function Inspector({
             </div>
           )}
         </Section>
+        {(() => {
+          const links = clusterLinks.filter((l) => l.fromCluster === c.id || l.toCluster === c.id)
+          return links.length > 0 && (
+            <Section title={`Cluster links (${links.length})`}>
+              {links.map((l) => {
+                const otherId = l.fromCluster === c.id ? l.toCluster : l.fromCluster
+                const otherName = l.fromCluster === c.id ? l.toName : l.fromName
+                return (
+                  <LinkRow
+                    key={`${l.fromCluster}:${l.toCluster}:${l.kind}`}
+                    label={otherName}
+                    sub={`${l.kind === 'overlay' ? 'overlay' : 'same subnet'} · ${l.via}`}
+                    onClick={() => onSelect({ kind: 'cluster', id: otherId })}
+                  />
+                )
+              })}
+              <p className="mt-1.5 text-xs text-nb-500">
+                Confirmed from each side's own routing/address data - never a guess from naming or a declared exposure setting. Absence here means nothing was corroborated from both sides, not that these clusters are definitely unconnected.
+              </p>
+            </Section>
+          )
+        })()}
         <Section title="Access & discovery">
           <Row label="Discovered"><CompletenessBadge c={completeness(c, nodes, services, dependencies)} /></Row>
           {agent && (

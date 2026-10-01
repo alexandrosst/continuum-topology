@@ -52,10 +52,17 @@ import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
 import { usePlan } from '@/lib/placement/usePlacement'
 import { parseSel } from '@/lib/search'
-import { TIER_COLOR, TIERS, type GroupBy, type RegionalOperator, type ViewKind } from '@/lib/types'
+import { TIER_COLOR, TIERS, type ClusterLink, type GroupBy, type RegionalOperator, type ViewKind } from '@/lib/types'
 import { useServer } from '@/store/server'
 import { useHistoryView } from '@/store/history'
-import { usePaths, useTopology } from '@/store/topology'
+import { useClusterLinks, usePaths, useTopology } from '@/store/topology'
+
+/** Overlay (joined through a tunnel) vs. subnet (same flat network, no tunnel) - a cluster link's own
+ *  two-colour palette, independent of the mesh/loss colours above it in precedence (see styledEdges). */
+const CLUSTER_LINK_COLOR: Record<ClusterLink['kind'], string> = {
+  overlay: '#a78bfa',
+  subnet: '#38bdf8',
+}
 
 type Mode = ViewKind | 'map'
 const VIEWS: { value: Mode; label: string; hint: string }[] = [
@@ -300,6 +307,7 @@ function Canvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selParam, observedReady])
   const paths = usePaths()
+  const clusterLinks = useClusterLinks()
   // Placement advice, shown as a small marker on the services it would move.
   const { plan, world } = usePlan()
   const hints = useMemo(() => new Map(plan.recommendations.map((r) => [r.serviceId, world.byCluster.get(r.to)?.name ?? r.to])), [plan, world])
@@ -326,9 +334,9 @@ function Canvas() {
     () =>
       buildGraph(
         { ...shown, operators },
-        { view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, chain: showChain, paths, hints, localOperators: localOperatorByCluster },
+        { view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, chain: showChain, paths, hints, localOperators: localOperatorByCluster, clusterLinks },
       ),
-    [shown, operators, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster],
+    [shown, operators, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks],
   )
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
 
@@ -473,12 +481,17 @@ function Canvas() {
       const band = q ? lossBand(q.lossPct) : 'ok'
       // A link that loses connection attempts is coloured by how badly; otherwise grey, or orange when it is the focus.
       const mv = e.data?.mesh
-      const stroke = hot ? '#f68330' : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? '#f87171' : band === 'warn' ? '#fbbf24' : e.data?.crossGroup ? '#98a4ae' : '#6f7b85'
+      const cl = e.data?.clusterLink
+      // Cluster links get their own two colours, independent of the loss/mesh/crossGroup palette above -
+      // they are never a dependency (no quality/mesh verdict can coexist with them), so there's no
+      // precedence to resolve, only `hot` (selection focus) still wins. Overlay (purple) vs. subnet (cyan)
+      // mirrors the legend below.
+      const stroke = hot ? '#f68330' : cl ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? '#f87171' : band === 'warn' ? '#fbbf24' : e.data?.crossGroup ? '#98a4ae' : '#6f7b85'
       // Seen in traffic: solid, and a touch thicker the busier it is. Only declared (or gone quiet): dotted and
       // thin. Kept close to the declared baseline (1.2) rather than scaling up hard - a busy link should read as
       // "more traffic" without out-weighing the 2.4px used for the current selection/focus.
       const seen = !!e.data?.observed && !e.data?.stale
-      const width = hot ? 2.4 : e.data?.aggregated ? 2 : seen ? 1.2 + 1.0 * (e.data?.weight ?? 0.15) : 1.2
+      const width = hot ? 2.4 : cl ? 1.8 : e.data?.aggregated ? 2 : seen ? 1.2 + 1.0 * (e.data?.weight ?? 0.15) : 1.2
       // A seen edge with no `via` at all can't happen (isObserved only ever sets true alongside via), so
       // this only ever fires for a real conntrack-only edge - one whose traffic numbers, if it shows any,
       // are connection counts only (see EdgeData.via's own comment): a long, open dash reads as "mostly
@@ -491,7 +504,11 @@ function Canvas() {
           stroke,
           strokeWidth: width,
           opacity: dim ? 0.15 : e.data?.stale ? 0.55 : 1,
-          strokeDasharray: !e.data?.aggregated && !seen ? '2 5' : conntrackOnly ? '8 4' : undefined,
+          // A cluster link is solid for "subnet" (a direct, physical network fact - no tunnel in the way)
+          // and dashed for "overlay" (traffic actually travels through a tunnel interface to get there) -
+          // a deliberate, different dash from the traffic seen/not-seen convention below, since this was
+          // never a question of whether anything was observed.
+          strokeDasharray: cl ? (cl.kind === 'overlay' ? '6 4' : undefined) : !e.data?.aggregated && !seen ? '2 5' : conntrackOnly ? '8 4' : undefined,
           // Busier links run their dashes faster (a quiet one takes 2.4 s for a period, the busiest 0.7 s).
           animationDuration: e.className === 'edge-animated' ? `${(2.4 - 1.7 * (e.data?.weight ?? 0)).toFixed(2)}s` : undefined,
         },
@@ -1104,6 +1121,24 @@ function Canvas() {
                       <span className="flex items-center gap-1.5" title="A cluster feeding a regional operator - a declared relationship (its source clusters), not measured traffic">
                         <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.6" strokeDasharray="1 4" /></svg>
                         Telemetry
+                      </span>
+                    </>
+                  )}
+                  {/* Same "only explain what's actually on the canvas" rule as the operator entry just above.
+                      Both swatches are confirmed from real kernel-reported routing/address data on both
+                      sides (see ClusterLink's own doc) - never a guess from naming or a declared exposure
+                      flag, which is worth saying here since every other colour on this canvas means either
+                      "seen in traffic" or "inferred from configuration". */}
+                  {graph.edges.some((e) => e.data?.clusterLink) && (
+                    <>
+                      <span className="h-3 w-px bg-nb-800" />
+                      <span className="flex items-center gap-1.5" title="Clusters joined through an overlay/tunnel interface - confirmed from each side's own routing data, not a guess">
+                        <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={CLUSTER_LINK_COLOR.overlay} strokeWidth="1.8" strokeDasharray="6 4" /></svg>
+                        Overlay link
+                      </span>
+                      <span className="flex items-center gap-1.5" title="Clusters whose nodes sit on the very same flat network segment, with no tunnel at all - confirmed from each side's own address data, not a guess">
+                        <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={CLUSTER_LINK_COLOR.subnet} strokeWidth="1.8" /></svg>
+                        Same subnet
                       </span>
                     </>
                   )}

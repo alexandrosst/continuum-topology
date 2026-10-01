@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { deepEqual } from '@/lib/discovered'
 import type { EffectiveModel } from '@/lib/provenance'
-import type { Dependency, ExternalEndpoint, Path, Tombstone } from '@/lib/types'
+import type { ClusterLink, Dependency, ExternalEndpoint, Path, Tombstone } from '@/lib/types'
 
 /**
  * What agents saw on the wire and measured, as the server last reported it. It is derived data that changes
@@ -15,11 +15,15 @@ interface ObservedStore {
   dependencies: Dependency[]
   externalEndpoints: ExternalEndpoint[]
   paths: Path[]
+  /** Confirmed overlay/subnet relationships between cluster pairs - same "derived every window, never
+   *  stored in the workspace" story as the three above, and also not available for a past/historic view
+   *  (see ClusterLink's own doc for why: it is a live correlation, not a recorded fact). */
+  clusterLinks: ClusterLink[]
   tombstones: Tombstone[]
   model?: EffectiveModel
   /** Server clock minus this browser's clock, in ms, from the last state poll: facts are aged on the server's time, not this machine's. */
   skewMs: number
-  set: (d: Dependency[], e: ExternalEndpoint[], paths?: Path[], tombstones?: Tombstone[]) => void
+  set: (d: Dependency[], e: ExternalEndpoint[], paths?: Path[], tombstones?: Tombstone[], clusterLinks?: ClusterLink[]) => void
   setModel: (m: EffectiveModel | undefined) => void
   setSkew: (ms: number) => void
   clear: () => void
@@ -29,6 +33,7 @@ export const useObserved = create<ObservedStore>((set) => ({
   dependencies: [],
   externalEndpoints: [],
   paths: [],
+  clusterLinks: [],
   tombstones: [],
   model: undefined,
   skewMs: 0,
@@ -41,14 +46,15 @@ export const useObserved = create<ObservedStore>((set) => ({
   // effective model (effectiveModel.ts). deepEqual (see lib/discovered.ts's own doc comment on it) hands
   // back the *same* array a poll that changed nothing about that particular field, so a memo keyed on it
   // only sees a new identity when something in it actually did change.
-  set: (dependencies, externalEndpoints, paths = [], tombstones = []) =>
+  set: (dependencies, externalEndpoints, paths = [], tombstones = [], clusterLinks = []) =>
     set((s) => ({
       dependencies: deepEqual(dependencies, s.dependencies) ? s.dependencies : dependencies,
       externalEndpoints: deepEqual(externalEndpoints, s.externalEndpoints) ? s.externalEndpoints : externalEndpoints,
       paths: deepEqual(paths, s.paths) ? s.paths : paths,
       tombstones: deepEqual(tombstones, s.tombstones) ? s.tombstones : tombstones,
+      clusterLinks: deepEqual(clusterLinks, s.clusterLinks) ? s.clusterLinks : clusterLinks,
     })),
   setModel: (model) => set({ model }),
   setSkew: (skewMs) => set({ skewMs }),
-  clear: () => set({ dependencies: [], externalEndpoints: [], paths: [], tombstones: [], model: undefined }),
+  clear: () => set({ dependencies: [], externalEndpoints: [], paths: [], clusterLinks: [], tombstones: [], model: undefined }),
 }))
