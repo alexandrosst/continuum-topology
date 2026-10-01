@@ -122,13 +122,13 @@ export default function EdgeHoverCard({
           {showSni && (
             <>
               <dt title="Hostname seen in this edge's TLS ClientHello (SNI), before the handshake encrypts anything">TLS server name</dt>
-              <dd className="truncate text-nb-200">{d!.sniHost}</dd>
+              <dd className="truncate text-nb-200" title={d!.sniHost}>{d!.sniHost}</dd>
             </>
           )}
           {showDns && (
             <>
               <dt title="Distinct domain names resolved toward this edge's destination">DNS queries</dt>
-              <dd className="truncate text-nb-200">
+              <dd className="truncate text-nb-200" title={d!.dnsQueryNames!.join(', ')}>
                 {d!.dnsQueryNames!.slice(0, 2).join(', ')}
                 {d!.dnsQueryNames!.length > 2 ? ` +${d!.dnsQueryNames!.length - 2} more` : ''}
               </dd>

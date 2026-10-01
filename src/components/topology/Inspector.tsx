@@ -980,15 +980,11 @@ export default function Inspector({
               <span title="The hostname this dependency's TLS ClientHello named (SNI), read before the handshake encrypts anything - only eBPF sees this.">{d.sniHost}</span>
             ) : undefined}
           </Maybe>
-          <Maybe label="DNS queries">
-            {d.dnsQueryNames && d.dnsQueryNames.length > 0 ? (
-              <span className="flex flex-wrap justify-end gap-1" title="Distinct domain names resolved toward this dependency's destination - only eBPF sees this.">
-                {d.dnsQueryNames.map((n) => (
-                  <Pill key={n}>{n}</Pill>
-                ))}
-              </span>
-            ) : undefined}
-          </Maybe>
+          <Chips
+            label="DNS queries"
+            items={d.dnsQueryNames}
+            title="Distinct domain names resolved toward this dependency's destination - only eBPF sees this."
+          />
         </Section>
         {verdict && (
           <Section title="Service mesh">
