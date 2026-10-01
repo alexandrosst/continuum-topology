@@ -949,7 +949,7 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 	eb := newEffectiveBuild(window)
 	doc := StateDoc{GeneratedAt: rfc(now), Agents: []AgentDoc{}, AuditLog: []AuditDoc{}, Tombstones: []TombstoneDoc{}}
 	doc.Topology = model.Topology{Clusters: []model.Cluster{}, Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Services: []model.Service{}, Suggestions: []model.Suggestion{},
-		Dependencies: []model.Dependency{}, ExternalEndpoints: []model.ExternalEndpoint{}, Paths: []model.Path{}}
+		Dependencies: []model.Dependency{}, ExternalEndpoints: []model.ExternalEndpoint{}, Paths: []model.Path{}, ClusterLinks: []model.ClusterLink{}}
 	var observed, located []observedCluster
 	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
@@ -1081,6 +1081,9 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 	for _, c := range doc.Topology.Clusters {
 		names[c.ID] = c.Name
 	}
+	// Same reasoning as correlateTunnels just above: a cluster-pair relationship can only be seen once
+	// every cluster's nodes are in one list, so this also runs once here, after names is built.
+	doc.Topology.ClusterLinks = correlateClusterLinks(doc.Topology.Nodes, names)
 	doc.Topology.Paths = h.pathDocs(agents, located, names, now)
 	sort.Slice(doc.Agents, func(i, j int) bool { return doc.Agents[i].RequestedAt < doc.Agents[j].RequestedAt })
 	for i := len(auditEvents) - 1; i >= 0; i-- {

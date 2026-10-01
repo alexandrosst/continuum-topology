@@ -186,16 +186,21 @@ type Node struct {
 	Disks []Disk `json:"disks,omitempty"`
 	// Tunnels are the overlay/tunnel interfaces the probe found up (WireGuard, VXLAN, GRE, IPIP/SIT,
 	// route-based IPsec, ...) - see TunnelInterface's own comment for exactly what is, and is not, covered.
-	Tunnels      []TunnelInterface `json:"tunnels,omitempty"`
-	ProviderID   string            `json:"providerId,omitempty"`
-	Allocatable  *Resources        `json:"allocatable,omitempty"`
-	Requested    *Resources        `json:"requested,omitempty"`
-	Accelerators []Accelerator     `json:"accelerators,omitempty"`
-	Taints       []string          `json:"taints,omitempty"`
-	Conditions   []string          `json:"conditions,omitempty"`
-	CreatedAt    string            `json:"createdAt,omitempty"`
-	PodCapacity  int32             `json:"podCapacity,omitempty"` // most pods the kubelet will run
-	PodCount     *int32            `json:"podCount,omitempty"`    // nil when pods are not read (unknown, not zero)
+	Tunnels []TunnelInterface `json:"tunnels,omitempty"`
+	// HostSubnets are this node's own routable network prefix(es) (e.g. "10.0.5.12/24"), taken only from
+	// whichever interface owns the machine's default route - see continuumv1.HostProbe.host_subnets' own
+	// doc. Used server-side, alongside Tunnels, to look for two onboarded clusters joined at the network
+	// level (see ClusterLink); never shown as a claim on its own that two addresses are related.
+	HostSubnets  []string      `json:"hostSubnets,omitempty"`
+	ProviderID   string        `json:"providerId,omitempty"`
+	Allocatable  *Resources    `json:"allocatable,omitempty"`
+	Requested    *Resources    `json:"requested,omitempty"`
+	Accelerators []Accelerator `json:"accelerators,omitempty"`
+	Taints       []string      `json:"taints,omitempty"`
+	Conditions   []string      `json:"conditions,omitempty"`
+	CreatedAt    string        `json:"createdAt,omitempty"`
+	PodCapacity  int32         `json:"podCapacity,omitempty"` // most pods the kubelet will run
+	PodCount     *int32        `json:"podCount,omitempty"`    // nil when pods are not read (unknown, not zero)
 }
 
 type Namespace struct {
@@ -333,6 +338,10 @@ type Topology struct {
 	// Paths are network paths an agent measured from its cluster (connect time to an address that
 	// the cluster talks to, or that an administrator asked to be measured).
 	Paths []Path `json:"paths"`
+	// ClusterLinks are server-confirmed network-level relationships between two onboarded clusters
+	// (overlay/tunnel, or same flat subnet) - see ClusterLink's own doc. Derived fresh with Dependencies
+	// and ExternalEndpoints above, not stored in the workspace.
+	ClusterLinks []ClusterLink `json:"clusterLinks"`
 }
 
 // Path is the measured quality of the network path from one cluster to an address.
@@ -356,6 +365,30 @@ type Path struct {
 	Samples int     `json:"samples"`
 	At      string  `json:"at"`
 	Stale   bool    `json:"stale,omitempty"`
+}
+
+// ClusterLink is a server-confirmed fact that two onboarded clusters' networks are directly joined -
+// either through an overlay/tunnel (one cluster's TunnelInterface routes are independently confirmed to
+// reach a node address the other cluster reports, the same two-way match TunnelInterface.Confirmed
+// already does for a single node) or because nodes in each cluster simply sit on the same flat subnet
+// with no tunnel at all (their HostSubnets prefixes overlap, past the same specificity floor used
+// elsewhere to reject a coincidental match on a broad shared private supernet). Never guessed from
+// naming, labels or an administrator's say-so - always derived from what two independent nodes already,
+// separately reported about their own addresses and routes. Absence of a ClusterLink between two
+// clusters means no such relationship was corroborated from both sides, not that the clusters are
+// definitely unconnected - the same "absence is not disproof" framing TunnelInterface.Confirmed draws.
+type ClusterLink struct {
+	FromCluster string `json:"fromCluster"`
+	FromName    string `json:"fromName"`
+	ToCluster   string `json:"toCluster"`
+	ToName      string `json:"toName"`
+	// Kind: "overlay" (joined through a tunnel/overlay interface) | "subnet" (same flat network segment,
+	// no tunnel involved).
+	Kind string `json:"kind"`
+	// Via names the specific evidence behind this link: the tunnel interface's name and kind for an
+	// overlay link (e.g. "wg0 (wireguard)"), or the shared subnet prefix for a subnet link (e.g.
+	// "10.0.5.0/24") - so the UI never has to say just "connected" with nothing to point at.
+	Via string `json:"via"`
 }
 
 // ExternalEndpoint is something outside every onboarded cluster that traffic was seen going to or

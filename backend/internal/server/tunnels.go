@@ -95,3 +95,137 @@ func correlateTunnels(nodes []model.Node) {
 		}
 	}
 }
+
+// correlateClusterLinks looks across every node in the topology for two kinds of confirmed, cluster-pair
+// network relationship - distinct from, and a coarser-grained sibling of, correlateTunnels above:
+//
+//   - "overlay": the exact same two-way, specificity-floored tunnel-reaches-address match
+//     correlateTunnels performs (an address one tunnel owns falls inside a sufficiently specific prefix
+//     the OTHER tunnel routes traffic through, and vice versa), kept here only when the two ends belong
+//     to different clusters. The matching is deliberately recomputed independently rather than reusing
+//     correlateTunnels' side effect on TunnelInterface.Confirmed (which records node names, not cluster
+//     IDs, and is a separate, per-node-pair fact) - this keeps correlateClusterLinks pure and testable on
+//     its own, the same way correlateTunnels is.
+//   - "subnet": two nodes in different clusters report a HostSubnets prefix that is, exactly, the same
+//     network (equal network address and mask) at or above the same specificity floor tunnel routes are
+//     held to. Because a node's own reported subnet always contains the node's own address by
+//     construction, "the same network" is the honest way to say this, not a dressed-up reciprocal
+//     check: it is real, kernel-reported evidence that each side's own default-route uplink places it on
+//     the identical network block, with no tunnel involved in reaching it at all. Being honest about its
+//     one real limitation matters as much as the check itself: a specific-enough shared network identity
+//     is still, in principle, something two genuinely separate private networks could be assigned by
+//     coincidence (two independent sites both handed 10.20.30.0/24 by their own infrastructure, with no
+//     route between them) - nothing a passive probe reads can fully rule that out without actively
+//     probing across clusters, which this package deliberately never does. The specificity floor keeps
+//     this to the same low-coincidence bar as a tunnel route, not a guarantee beyond it.
+//
+// Pure data matching over already-built model.Node values, with no I/O of its own (see tunnels_test.go
+// for the matching style this follows). names maps a cluster ID to its display name. Returns one
+// ClusterLink per distinct (cluster pair, kind) - a pair corroborated by several node pairs, or by both a
+// tunnel and a shared subnet, is never duplicated, and from/to are ordered by cluster ID so the same pair
+// is never recorded twice under swapped ends depending on scan order.
+func correlateClusterLinks(nodes []model.Node, names map[string]string) []model.ClusterLink {
+	type tunRef struct {
+		nodeIdx, tunIdx int
+		addrs           []net.IP
+		routes          []*net.IPNet
+	}
+	var tunRefs []tunRef
+	for ni := range nodes {
+		for ti := range nodes[ni].Tunnels {
+			t := nodes[ni].Tunnels[ti]
+			r := tunRef{nodeIdx: ni, tunIdx: ti}
+			for _, a := range t.Addresses {
+				if ip, _, err := net.ParseCIDR(a); err == nil {
+					r.addrs = append(r.addrs, ip)
+				}
+			}
+			for _, cidr := range t.Routes {
+				if _, n, err := net.ParseCIDR(cidr); err == nil && specificEnough(n) {
+					r.routes = append(r.routes, n)
+				}
+			}
+			if len(r.addrs) > 0 && len(r.routes) > 0 {
+				tunRefs = append(tunRefs, r)
+			}
+		}
+	}
+	reaches := func(addrs []net.IP, routes []*net.IPNet) bool {
+		for _, a := range addrs {
+			for _, rt := range routes {
+				if rt.Contains(a) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	type linkKey struct{ from, to, kind string }
+	seen := map[linkKey]bool{}
+	var out []model.ClusterLink
+	add := func(clusterA, clusterB, kind, via string) {
+		if clusterA == "" || clusterB == "" || clusterA == clusterB {
+			return
+		}
+		from, to := clusterA, clusterB
+		if from > to {
+			from, to = to, from
+		}
+		k := linkKey{from, to, kind}
+		if seen[k] {
+			return
+		}
+		seen[k] = true
+		out = append(out, model.ClusterLink{FromCluster: from, FromName: names[from], ToCluster: to, ToName: names[to], Kind: kind, Via: via})
+	}
+
+	for i := range tunRefs {
+		for j := i + 1; j < len(tunRefs); j++ {
+			a, b := tunRefs[i], tunRefs[j]
+			if a.nodeIdx == b.nodeIdx {
+				continue // the two ends of a link are never the same machine
+			}
+			ca, cb := nodes[a.nodeIdx].ClusterID, nodes[b.nodeIdx].ClusterID
+			if ca == cb {
+				continue // corroborating tunnels both inside one cluster say nothing about a cluster pair
+			}
+			if reaches(a.addrs, b.routes) && reaches(b.addrs, a.routes) {
+				t := nodes[a.nodeIdx].Tunnels[a.tunIdx]
+				add(ca, cb, "overlay", t.Name+" ("+t.Kind+")")
+			}
+		}
+	}
+
+	type subnetRef struct {
+		nodeIdx int
+		network *net.IPNet
+	}
+	var subnetRefs []subnetRef
+	for ni := range nodes {
+		for _, s := range nodes[ni].HostSubnets {
+			if _, n, err := net.ParseCIDR(s); err == nil && specificEnough(n) {
+				subnetRefs = append(subnetRefs, subnetRef{nodeIdx: ni, network: n})
+			}
+		}
+	}
+	sameNetwork := func(a, b *net.IPNet) bool {
+		return a.IP.Equal(b.IP) && a.Mask.String() == b.Mask.String()
+	}
+	for i := range subnetRefs {
+		for j := i + 1; j < len(subnetRefs); j++ {
+			a, b := subnetRefs[i], subnetRefs[j]
+			if a.nodeIdx == b.nodeIdx {
+				continue
+			}
+			ca, cb := nodes[a.nodeIdx].ClusterID, nodes[b.nodeIdx].ClusterID
+			if ca == cb {
+				continue // every node in a cluster typically shares its site's subnet - not a cross-cluster fact
+			}
+			if sameNetwork(a.network, b.network) {
+				add(ca, cb, "subnet", a.network.String())
+			}
+		}
+	}
+	return out
+}
