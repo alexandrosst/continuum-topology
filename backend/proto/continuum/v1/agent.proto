@@ -341,6 +341,15 @@ message HostProbe {
   // Overlay/tunnel interfaces the node has up (see the TunnelInterface message doc for exactly what is,
   // and is not, read, and what privilege this needs - none beyond what the probe already has).
   repeated TunnelInterface tunnels = 18;
+  // This node's own routable network prefix(es) (e.g. "10.0.5.12/24") - taken only from whichever
+  // interface currently owns the machine's default route (0.0.0.0/0 or ::/0), the same kernel-chosen
+  // "real uplink" selection `ip route get 8.8.8.8` would show, never guessed by interface name. Loopback
+  // and link-local addresses are never included - a default route never legitimately points at either.
+  // Used server-side only to look for two onboarded clusters whose nodes sit on the very same flat
+  // network segment with no tunnel involved at all - see model.ClusterLink's own doc for what that does
+  // and does not establish, and why this needs the same two-way, specificity-floored corroboration
+  // tunnels already get rather than being trusted from one side alone.
+  repeated string host_subnets = 19;
 }
 
 // One physical network interface the node probe found up (see HostProbe.interfaces). Everything here is

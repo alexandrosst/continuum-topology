@@ -1951,7 +1951,16 @@ type HostProbe struct {
 	Disks []*Disk `protobuf:"bytes,17,rep,name=disks,proto3" json:"disks,omitempty"`
 	// Overlay/tunnel interfaces the node has up (see the TunnelInterface message doc for exactly what is,
 	// and is not, read, and what privilege this needs - none beyond what the probe already has).
-	Tunnels       []*TunnelInterface `protobuf:"bytes,18,rep,name=tunnels,proto3" json:"tunnels,omitempty"`
+	Tunnels []*TunnelInterface `protobuf:"bytes,18,rep,name=tunnels,proto3" json:"tunnels,omitempty"`
+	// This node's own routable network prefix(es) (e.g. "10.0.5.12/24") - taken only from whichever
+	// interface currently owns the machine's default route (0.0.0.0/0 or ::/0), the same kernel-chosen
+	// "real uplink" selection `ip route get 8.8.8.8` would show, never guessed by interface name. Loopback
+	// and link-local addresses are never included - a default route never legitimately points at either.
+	// Used server-side only to look for two onboarded clusters whose nodes sit on the very same flat
+	// network segment with no tunnel involved at all - see model.ClusterLink's own doc for what that does
+	// and does not establish, and why this needs the same two-way, specificity-floored corroboration
+	// tunnels already get rather than being trusted from one side alone.
+	HostSubnets   []string `protobuf:"bytes,19,rep,name=host_subnets,json=hostSubnets,proto3" json:"host_subnets,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2108,6 +2117,13 @@ func (x *HostProbe) GetDisks() []*Disk {
 func (x *HostProbe) GetTunnels() []*TunnelInterface {
 	if x != nil {
 		return x.Tunnels
+	}
+	return nil
+}
+
+func (x *HostProbe) GetHostSubnets() []string {
+	if x != nil {
+		return x.HostSubnets
 	}
 	return nil
 }
@@ -5028,7 +5044,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01B\f\n" +
 	"\n" +
-	"_pod_count\"\xc2\x05\n" +
+	"_pod_count\"\xe5\x05\n" +
 	"\tHostProbe\x12#\n" +
 	"\rprobe_version\x18\x01 \x01(\tR\fprobeVersion\x12%\n" +
 	"\x0ehypervisor_bit\x18\x02 \x01(\bR\rhypervisorBit\x12'\n" +
@@ -5055,7 +5071,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"interfaces\x18\x10 \x03(\v2\x1e.continuum.v1.NetworkInterfaceR\n" +
 	"interfaces\x12(\n" +
 	"\x05disks\x18\x11 \x03(\v2\x12.continuum.v1.DiskR\x05disks\x127\n" +
-	"\atunnels\x18\x12 \x03(\v2\x1d.continuum.v1.TunnelInterfaceR\atunnels\"k\n" +
+	"\atunnels\x18\x12 \x03(\v2\x1d.continuum.v1.TunnelInterfaceR\atunnels\x12!\n" +
+	"\fhost_subnets\x18\x13 \x03(\tR\vhostSubnets\"k\n" +
 	"\x10NetworkInterface\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1d\n" +
