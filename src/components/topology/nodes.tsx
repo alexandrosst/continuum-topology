@@ -327,13 +327,26 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
             <span
               key={p.id}
               className={clsx(
+                // Ready uses the same green as the card's own status dot above it (STATUS_COLOR.healthy) -
+                // not a plain neutral gray - so "these replicas are fine" reads as the same colour language
+                // in both places. The ring is `info` (not `accent`, already overloaded for selection and
+                // placement hints elsewhere on this card) so a selected card with a freshly-scaled pod
+                // doesn't show one colour meaning two unrelated things at once.
                 'size-2 rounded-full',
-                p.ready ? 'bg-nb-600' : 'bg-warn',
-                p.recent && 'ring-2 ring-accent/60 ring-offset-1 ring-offset-nb-925',
+                p.ready ? 'bg-ok' : 'bg-warn',
+                p.recent && 'ring-2 ring-info/70 ring-offset-1 ring-offset-nb-925',
               )}
               title={`${p.id}${p.ready ? '' : ' · not ready'}${p.recent ? ' · recently added (scaling)' : ''}`}
             />
           ))}
+          {!!data.podsOverflow && (
+            <span
+              className="rounded-full bg-nb-900 px-1 text-[9px] leading-[14px] text-nb-400"
+              title={`${data.podsOverflow} more pod${data.podsOverflow === 1 ? '' : 's'} not shown`}
+            >
+              +{data.podsOverflow}
+            </span>
+          )}
         </div>
       )}
 

@@ -1587,6 +1587,49 @@ test("service card: per-pod dots surface ready state and a recent-scaling-event 
   assert.ok(freshPods.every((p) => !p.recent), 'everything came up together - no older sibling means no scaling event to flag')
 })
 
+test('service card: the per-pod dot strip caps at a fixed size so it can never outgrow the one row the card reserves for it, keeping not-ready/recent pods visible over plain healthy ones', () => {
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+  const now = Date.now()
+  const old = new Date(now - 20 * 60 * 1000).toISOString()
+  const brandNew = new Date(now - 60 * 1000).toISOString()
+
+  // Way over the cap, all healthy and all the same age: the strip still caps, and reports how many were
+  // folded into the overflow count rather than silently dropping them with no trace.
+  const manyHealthy = {
+    ...seed,
+    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: Array.from({ length: 40 }, (_, i) => (
+      { name: `gw-${i}`, nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old }
+    )) } : s)),
+  }
+  const g = buildGraph(manyHealthy, opts)
+  const card = g.nodes.find((n) => n.id === cardId('w-gw'))!
+  const data = card.data as { pods?: { id: string; ready: boolean; recent: boolean }[]; podsOverflow?: number }
+  assert.ok(data.pods!.length < 40, 'the strip does not just render all 40 dots unbounded')
+  assert.equal(data.pods!.length + (data.podsOverflow ?? 0), 40, 'every pod is accounted for: either shown or counted in the overflow')
+  assert.ok((data.podsOverflow ?? 0) > 0, 'over the cap, the overflow count is actually set')
+  // The card's own reserved height is unaffected by replica count - this is exactly what keeps the strip
+  // from wrapping past the one row serviceItem() reserves for it, at any pod count.
+  assert.equal(Number(card.style?.height), APP_CARD.h + 24)
+
+  // Over the cap AND a handful of not-ready/recent pods mixed in with many healthy ones: the notable ones
+  // must survive the cap, even though that means some plain-healthy ones get folded into the overflow
+  // count instead - otherwise the one thing this feature exists to surface could be the first casualty of
+  // its own display limit.
+  const mixed = {
+    ...seed,
+    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: [
+      ...Array.from({ length: 30 }, (_, i) => ({ name: `gw-healthy-${i}`, nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old })),
+      { name: 'gw-notready', nodeId: 'n-c2', phase: 'Pending', ready: false, createdAt: old },
+      { name: 'gw-scaled', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: brandNew },
+    ] } : s)),
+  }
+  const g2 = buildGraph(mixed, opts)
+  const data2 = (g2.nodes.find((n) => n.id === cardId('w-gw'))!.data as { pods?: { id: string; ready: boolean; recent: boolean }[] })
+  const ids2 = new Set(data2.pods!.map((p) => p.id))
+  assert.ok(ids2.has('gw-notready'), 'a not-ready pod survives the cap even when it would otherwise be crowded out')
+  assert.ok(ids2.has('gw-scaled'), 'the scaling-event pod survives the cap even when it would otherwise be crowded out')
+})
+
 test('resyncNodes: a node mid-drag is left untouched, others keep position until re-parented', () => {
   const node = (id: string, overrides: Record<string, unknown> = {}) =>
     ({ id, type: 'card', position: { x: 0, y: 0 }, parentId: 'g:cl-a', data: {}, ...overrides }) as unknown as ReturnType<typeof buildGraph>['nodes'][number]

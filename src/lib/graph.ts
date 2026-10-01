@@ -5,7 +5,7 @@
  * "view" turns entities into boxes and edges, so adding a new plane (network,
  * data-flow, cost…) means adding a branch here + optionally a node component.
  */
-import { placeLabel } from './present'
+import { placeLabel, recentlyScaledPods } from './present'
 import { MarkerType, Position, type Edge, type Node } from '@xyflow/react'
 import { isObserved } from './observed'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
@@ -102,6 +102,11 @@ export type CardData = {
    *  count. Absent/empty means no per-pod facts were collected for this service (older agent tier, or no
    *  pods up) - the card then falls back to just the replica count, same as before this existed. */
   pods?: { id: string; ready: boolean; recent: boolean }[]
+  /** How many more live replicas exist beyond the ones in `pods` above - the dot strip caps at
+   *  POD_DOT_LIMIT (a not-ready or just-scaled pod is never the one dropped) so it can never wrap past
+   *  the one row the card reserves height for, the same reasoning CHIP_LIMIT already follows for the
+   *  machine card's hosted-service chips. */
+  podsOverflow?: number
 }
 
 export type GroupNode = Node<GroupData, 'boundary'>
@@ -1069,11 +1074,13 @@ function tierLabel(t: Tier) {
 
 function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint?: string, mesh?: boolean): Item {
   const notReady = w.readyReplicas !== undefined && w.readyReplicas < w.replicas
-  const pods = podDots(w.pods)
+  const podInfo = podDots(w.pods)
   // One row of small chips under the name; a second for the per-pod dot strip, whichever combination of
-  // the two is actually present (mirrors the machine card's own hint/notReady/mesh/hardware row).
+  // the two is actually present (mirrors the machine card's own hint/notReady/mesh/hardware row). The dot
+  // strip is capped at POD_DOT_LIMIT (see podDots), so - unlike a plain `×N` count - it always fits this
+  // one reserved row no matter how many replicas a service actually has.
   const badgeRow = !!(hint || notReady || (mesh && w.mesh))
-  const podsRow = !!pods
+  const podsRow = !!podInfo
   const extraRows = (badgeRow ? 1 : 0) + (podsRow ? 1 : 0)
   return {
     id: cardId(w.id),
@@ -1093,28 +1100,29 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint?: string
       hint,
       notReady: notReady ? `${w.readyReplicas}/${w.replicas} ready` : undefined,
       mesh: mesh && w.mesh ? meshChip(w) : undefined,
-      pods,
+      pods: podInfo?.dots,
+      podsOverflow: podInfo && podInfo.overflow > 0 ? podInfo.overflow : undefined,
     },
   }
 }
 
-// A pod only reads as a scaling event when it's meaningfully younger than its own siblings - a fleet that
-// all came up together (a fresh rollout, or just no timestamps at all) isn't one. Both thresholds are the
-// same 5-minute window: siblings must *span* at least that long for there to be an "older" group at all,
-// and a pod counts as part of the new batch only if it's within that same window of the newest one.
-const SCALING_EVENT_WINDOW_MS = 5 * 60 * 1000
+// Past this many replicas, the dot strip stops growing and folds the rest into a "+N" badge (see
+// CardData.podsOverflow) - mirrors CHIP_LIMIT's role for the machine card's hosted-service chips, and
+// keeps the strip within the one row serviceItem() above reserves height for regardless of replica count.
+const POD_DOT_LIMIT = 16
 
-function podDots(pods: Pod[] | undefined): NonNullable<CardData['pods']> | undefined {
+function podDots(pods: Pod[] | undefined): { dots: NonNullable<CardData['pods']>; overflow: number } | undefined {
   if (!pods || pods.length === 0) return undefined
-  const times = pods.map((p) => (p.createdAt ? Date.parse(p.createdAt) : NaN)).filter((t) => Number.isFinite(t))
-  const newest = times.length > 0 ? Math.max(...times) : undefined
-  const oldest = times.length > 0 ? Math.min(...times) : undefined
-  const spread = newest !== undefined && oldest !== undefined ? newest - oldest : 0
-  return pods.map((p, i) => {
-    const t = p.createdAt ? Date.parse(p.createdAt) : undefined
-    const recent = !!(t !== undefined && newest !== undefined && spread > SCALING_EVENT_WINDOW_MS && newest - t < SCALING_EVENT_WINDOW_MS)
-    return { id: p.name || `${i}`, ready: !!p.ready, recent }
-  })
+  const recent = recentlyScaledPods(pods)
+  const dots = pods.map((p, i) => ({ id: p.name || `${i}`, ready: !!p.ready, recent: recent.has(p.name) }))
+  if (dots.length <= POD_DOT_LIMIT) return { dots, overflow: 0 }
+  // Over the cap: a not-ready or just-scaled replica - exactly what this feature exists to surface - is
+  // never the one that gets folded into the overflow count, even if that means an unremarkable healthy
+  // replica is.
+  const notable = dots.filter((d) => !d.ready || d.recent)
+  const rest = dots.filter((d) => d.ready && !d.recent)
+  const shown = notable.length >= POD_DOT_LIMIT ? notable.slice(0, POD_DOT_LIMIT) : notable.concat(rest.slice(0, POD_DOT_LIMIT - notable.length))
+  return { dots: shown, overflow: dots.length - shown.length }
 }
 
 function groupMesh(m: NonNullable<Cluster['mesh']>): NonNullable<GroupData['mesh']> {

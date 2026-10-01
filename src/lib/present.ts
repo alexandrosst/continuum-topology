@@ -1,5 +1,5 @@
 // Pure helpers that decide how model values are shown. Kept out of the components so they can be tested.
-import type { GeoUnlocatableReason, Resources, ServiceVolume, Site } from './types'
+import type { GeoUnlocatableReason, Pod, Resources, ServiceVolume, Site } from './types'
 
 /* ---------- places ---------- */
 
@@ -248,6 +248,30 @@ export function podsLabel(count?: number, capacity?: number): string {
 /** 0..100 of the kubelet's pod limit already used, or undefined when unknown. */
 export const podsPercent = (count?: number, capacity?: number): number | undefined =>
   count === undefined || !capacity ? undefined : Math.min(100, Math.round((count / capacity) * 100))
+
+// A pod only reads as a scaling event when it's meaningfully younger than its own siblings - a fleet that
+// all came up together (a fresh rollout, or just no timestamps at all) isn't one. Both thresholds are the
+// same 5-minute window: siblings must *span* at least that long for there to be an "older" group at all,
+// and a pod counts as part of the new batch only if it's within that same window of the newest one. Shared
+// by the canvas (graph.ts's per-pod dots) and the Inspector's Pods list, so the two always agree on which
+// pod, if any, is "the" scaling event for a given service.
+const SCALING_EVENT_WINDOW_MS = 5 * 60 * 1000
+
+/** Names of the pods in `pods` that count as a recent scaling event - see SCALING_EVENT_WINDOW_MS above. */
+export function recentlyScaledPods(pods: Pod[] | undefined): Set<string> {
+  const out = new Set<string>()
+  if (!pods || pods.length === 0) return out
+  const times = pods.map((p) => (p.createdAt ? Date.parse(p.createdAt) : NaN)).filter((t) => Number.isFinite(t))
+  if (times.length === 0) return out
+  const newest = Math.max(...times)
+  const oldest = Math.min(...times)
+  if (newest - oldest <= SCALING_EVENT_WINDOW_MS) return out
+  for (const p of pods) {
+    const t = p.createdAt ? Date.parse(p.createdAt) : undefined
+    if (t !== undefined && Number.isFinite(t) && newest - t < SCALING_EVENT_WINDOW_MS) out.add(p.name)
+  }
+  return out
+}
 
 /* ---------- storage and scaling ---------- */
 
