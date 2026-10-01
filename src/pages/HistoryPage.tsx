@@ -176,7 +176,9 @@ function Timeline({ hours, setHours, index, events }: { hours: number; setHours:
         </div>
       </div>
       {points.length === 0 ? (
-        <p className="py-6 text-sm text-nb-500">Nothing has been recorded yet. The first recording is made as soon as a cluster is connected and reporting.</p>
+        <p className="rounded-xl border border-dashed border-nb-850 px-4 py-6 text-sm text-nb-500">
+          Nothing has been recorded yet. The first recording is made as soon as a cluster is connected and reporting.
+        </p>
       ) : (
         <>
           <div className="relative h-14" data-testid="timeline">
