@@ -241,6 +241,51 @@ test.describe('topology canvas', () => {
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(0)
     await expect(page.locator('aside.modal-pop')).toBeHidden()
   })
+
+  test('plain-clicking one node after a multi-selection replaces it, rather than adding to it', async ({ page }) => {
+    // A real, reported gap: a shift/ctrl-click or box-drag multi-selection populates `multiSelectedIds`
+    // (mirrored from React Flow's own selection via onSelectionChange), but a later *plain* click only ever
+    // drove the single-click Inspector `selection` - nothing cleared the leftover multiSelectedIds, so the
+    // effect that paints `.selected` onto the canvas (which unions both pieces of state) kept re-asserting
+    // the stale multi-selection alongside whatever was just plain-clicked. Two services stayed highlighted
+    // when only one should have been.
+    await loadSampleTopology(page)
+    await goToTopologyCanvas(page)
+
+    const nodeA = page.locator('.react-flow__node[data-id="c:w-mqtt-a"]')
+    const nodeB = page.locator('.react-flow__node[data-id="c:w-infer-a"]')
+    const nodeC = page.locator('.react-flow__node[data-id="c:w-gw"]')
+    await expect(nodeA).toBeVisible()
+    await expect(nodeB).toBeVisible()
+    await expect(nodeC).toBeVisible()
+
+    // Build a two-node multi-selection, same gesture as the pane-click test above.
+    await nodeA.click({ force: true })
+    await page.waitForTimeout(100)
+    await nodeB.click({ modifiers: ['Shift'], force: true })
+    await page.waitForTimeout(500)
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(2)
+
+    // A single plain click on a THIRD, not-yet-selected node - no modifier at all - should leave exactly
+    // that one selected, not it plus the leftover multi-selection.
+    await nodeC.click({ force: true })
+    await page.waitForTimeout(500)
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(1)
+    await expect(nodeC).toHaveClass(/selected/)
+
+    // The narrower variant of the same bug: re-clicking A, which was ALSO the single-click selection
+    // before the shift-click ever happened - a case where selectedRfId's own VALUE never actually
+    // changes, so the usual "selectedRfId changed" trigger for repainting .selected doesn't fire either.
+    await nodeA.click({ force: true })
+    await page.waitForTimeout(100)
+    await nodeB.click({ modifiers: ['Shift'], force: true })
+    await page.waitForTimeout(500)
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(2)
+    await nodeA.click({ force: true })
+    await page.waitForTimeout(500)
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(1)
+    await expect(nodeA).toHaveClass(/selected/)
+  })
 })
 
 /**

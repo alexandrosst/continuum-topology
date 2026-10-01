@@ -965,7 +965,27 @@ function Canvas() {
                 // highlightedIds, but only ever to a single id - which would fight the very multi-selection
                 // this click just added to a moment later.
                 if (e.shiftKey || e.metaKey || e.ctrlKey) return
+                // A plain click replaces whatever was selected with just this one node - that's the whole
+                // point of a plain click vs. a shift/ctrl one. But a *prior* shift/ctrl-click or box-drag
+                // leaves multiSelectedIds populated, and nothing about changing selectedRfId below clears
+                // it on its own: the effect that paints `.selected` onto the canvas is keyed on
+                // selectedRfId alone (see its own doc comment for why), so a plain re-click of a node that
+                // was ALREADY the single-click selection before the multi-select even started changes
+                // nothing about selectedRfId's own VALUE - same string, so React correctly skips that
+                // effect - and React Flow's own native click handling also does nothing in exactly this
+                // case (it only adds-or-removes a node from the selection; a node that's already selected
+                // with no multi-select key held gets neither). Nothing was left to paint `.selected`
+                // correctly, a real, reproducible bug (a plain click on one card, then another - or even
+                // the same one again - left every previously multi-selected card still highlighted).
+                // Fixed directly here instead of widening the effect's own dependency array (which is
+                // deliberately narrow - see its comment on the render loop that made it that way): clear
+                // the stale multi-selection and paint exactly this one node's `.selected` eagerly, right in
+                // the click handler itself, so the result never depends on whether some other effect
+                // happens to re-run afterward. syncSelected itself still no-ops (same array back) when the
+                // canvas already matches, so this costs nothing on the common case where nothing was stale.
+                setMultiSelectedIds((prev) => (prev.length === 0 ? prev : []))
                 select(fromNode(n))
+                setNodes((ns) => syncSelected(ns, new Set([n.id])))
               }}
               onPaneClick={() => {
                 if (pickMode) { setPickMode(false); return }
