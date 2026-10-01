@@ -470,6 +470,34 @@ message WorkloadFacts {
   // nonzero value here means the container's last restart specifically was because it asked for more
   // memory than its limit allowed.
   int32 oom_kills = 27;
+  // One entry per pod backing this workload right now - the same minimal, privacy-conscious style as
+  // Disk/TunnelInterface elsewhere in this file: no pod IP is ever included here (see Address's own
+  // comment just below - a pod IP means nothing outside this cluster and is never sent to the server at
+  // all), only facts that are already visible to anyone who can list pods in the namespace. Lets the
+  // server show a workload's actual replica distribution and recent scaling (a freshly-created pod next
+  // to others that have run for days) instead of only the aggregate replicas/ready_replicas/restarts
+  // counters above, which flatten exactly that into a single number.
+  repeated PodFacts pods = 28;
+}
+
+// One pod backing a WorkloadFacts right now. See WorkloadFacts.pods' own comment for what this is for
+// and why it deliberately carries no address.
+message PodFacts {
+  string name = 1;
+  // Which node this pod is scheduled on - WorkloadFacts.node_names already has the set of nodes a
+  // workload's pods touch; this is the one pod -> one node fact itself; empty if not yet scheduled.
+  string node_name = 2;
+  // Pending | Running | Succeeded | Failed | Unknown - exactly as Kubernetes reports it, never re-derived.
+  string phase = 3;
+  bool ready = 4;
+  // This pod's own restart count (every container's RestartCount, summed) - WorkloadFacts.restarts above
+  // is already this same number summed again across every pod, which is exactly what flattens one
+  // unusually-crashy replica among otherwise-healthy ones into an unremarkable average.
+  int32 restarts = 5;
+  // When the pod was created - WorkloadFacts.created_at is the *workload's* own age (when the Deployment/
+  // StatefulSet/DaemonSet object itself was created), which never changes on a routine scale-up and so
+  // cannot show one. This is the one fact that actually can: a pod noticeably younger than its siblings.
+  google.protobuf.Timestamp created_at = 6;
 }
 
 message Address {
