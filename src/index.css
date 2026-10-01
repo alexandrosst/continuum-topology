@@ -178,8 +178,15 @@ body {
 @keyframes map-dash { to { stroke-dashoffset: -8; } }
 .map-link { stroke-dasharray: 4 4; animation: map-dash var(--flow, 2.4s) linear infinite; }
 .map-link[data-reverse='1'] { animation-direction: reverse; }
+
+/* The wide, faint "casing" OffsetEdge draws behind an overlay (tunnel-joined) cluster link - see its own
+   comment there. A slower, larger-period dash than .edge-animated's: this is a background ambient cue
+   ("traffic generally flows through a tunnel here"), not a per-connection busyness signal, so it never
+   needs to speed up or slow down the way a dependency edge's dash does. */
+@keyframes pipe-dash { to { stroke-dashoffset: -48; } }
+.cluster-link-pipe { stroke-width: 7px; stroke-dasharray: 14 10; animation: pipe-dash 2.6s linear infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .edge-animated path.react-flow__edge-path, .map-link { animation: none; }
+  .edge-animated path.react-flow__edge-path, .map-link, .cluster-link-pipe { animation: none; }
 }
 
 /* A popover (filter, saved views, options, add) eases in briefly on open instead of just appearing - the same light

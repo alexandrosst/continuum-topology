@@ -540,22 +540,43 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   const edgeStyle = useContext(EdgeStyleContext)
   const { path, labelX, labelY } =
     edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
+  // An "overlay" cluster link (joined through a tunnel, not a flat shared subnet) gets a second, wider,
+  // low-opacity path drawn behind the real one - a "pipe" the already-dashed line now visibly runs
+  // through, rather than just another plain line. Non-interactive (pointerEvents: 'none') so hovering or
+  // selecting still binds only to the real path underneath; same hue as the edge's own current stroke, so
+  // it tracks selection/focus recoloring (e.g. turning orange when this link is the thing selected)
+  // instead of needing its own color logic duplicated from TopologyPage's CLUSTER_LINK_COLOR. "Subnet"
+  // links (no tunnel involved) deliberately keep today's plain solid line - a flat shared network segment
+  // isn't a tunnel, so a pipe around it would claim evidence that was never actually found.
+  const isOverlayLink = data?.clusterLink?.kind === 'overlay'
+  const baseOpacity = typeof style?.opacity === 'number' ? style.opacity : 1
   return (
-    <BaseEdge
-      id={id}
-      path={path}
-      labelX={labelX}
-      labelY={labelY}
-      label={label}
-      labelStyle={labelStyle}
-      labelShowBg={labelShowBg}
-      labelBgStyle={labelBgStyle}
-      labelBgPadding={labelBgPadding}
-      labelBgBorderRadius={labelBgBorderRadius}
-      markerEnd={markerEnd}
-      style={style}
-      interactionWidth={interactionWidth}
-    />
+    <>
+      {isOverlayLink && (
+        <path
+          d={path}
+          className="cluster-link-pipe"
+          style={{ stroke: style?.stroke, opacity: baseOpacity * 0.35 }}
+          fill="none"
+          pointerEvents="none"
+        />
+      )}
+      <BaseEdge
+        id={id}
+        path={path}
+        labelX={labelX}
+        labelY={labelY}
+        label={label}
+        labelStyle={labelStyle}
+        labelShowBg={labelShowBg}
+        labelBgStyle={labelBgStyle}
+        labelBgPadding={labelBgPadding}
+        labelBgBorderRadius={labelBgBorderRadius}
+        markerEnd={markerEnd}
+        style={style}
+        interactionWidth={interactionWidth}
+      />
+    </>
   )
 }
 
