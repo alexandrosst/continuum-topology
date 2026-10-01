@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import ColumnPicker from '@/components/ColumnPicker'
 import { GoneRecords } from '@/components/Observations'
-import { Button, EmptyState, ObservationChip, PageHeader, Select, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, DeclaredMark, EmptyState, ObservationChip, PageHeader, Select, Table, Td, Th } from '@/components/ui/primitives'
 import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { buildNamespaceRows, excludedWords, rowMatches, scopeLabel, type NamespaceRow } from '@/lib/namespaces'
 import { TONE_CLASS } from '@/lib/provenance'
@@ -123,7 +123,7 @@ export default function NamespacesPage() {
                     )}
                     {isVisible('state') && (
                       <Td>
-                        {r.observation ? <ObservationChip info={r.observation} /> : <span className="text-xs text-nb-500" title="Typed by a person; no agent observes it, so it has nothing to be stale about.">declared</span>}
+                        {r.observation ? <ObservationChip info={r.observation} /> : <DeclaredMark />}
                       </Td>
                     )}
                   </tr>
