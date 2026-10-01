@@ -711,3 +711,40 @@ func TestExternalASNFallbackNamesAnAddressNoOtherTierCovers(t *testing.T) {
 		t.Errorf("evidence signal = %q, want it to cite the ASN (AS64512)", signal)
 	}
 }
+
+// Pins oldestEdges directly, independent of flowTable/apply plumbing: given a handful of ages, it must
+// return exactly the n least-recently-seen keys - not merely the right count, which is all the older
+// sort.Slice-based version's own test (TestFlowBatchValidationAndTable's cap check, above) ever verified.
+func TestOldestEdgesPicksTheLeastRecentlySeenKeys(t *testing.T) {
+	base := time.Now()
+	edges := map[string]*continuumv1.FlowEdge{
+		"newest":  {LastSeen: timestamppb.New(base.Add(5 * time.Minute))},
+		"oldest":  {LastSeen: timestamppb.New(base)},
+		"middle1": {LastSeen: timestamppb.New(base.Add(1 * time.Minute))},
+		"middle2": {LastSeen: timestamppb.New(base.Add(2 * time.Minute))},
+		"middle3": {LastSeen: timestamppb.New(base.Add(3 * time.Minute))},
+	}
+
+	got := oldestEdges(edges, 2)
+	want := map[string]bool{"oldest": true, "middle1": true}
+	if len(got) != 2 || !want[got[0]] || !want[got[1]] || got[0] == got[1] {
+		t.Fatalf("oldestEdges(edges, 2) = %v, want exactly {oldest, middle1} in either order", got)
+	}
+
+	// n covering the whole map: every key comes back, nothing is left out or duplicated.
+	all := oldestEdges(edges, len(edges))
+	if len(all) != len(edges) {
+		t.Fatalf("oldestEdges(edges, len(edges)) returned %d keys, want %d", len(all), len(edges))
+	}
+	seen := map[string]bool{}
+	for _, k := range all {
+		if seen[k] {
+			t.Fatalf("oldestEdges returned %q twice: %v", k, all)
+		}
+		seen[k] = true
+	}
+
+	if got := oldestEdges(edges, 0); len(got) != 0 {
+		t.Fatalf("oldestEdges(edges, 0) = %v, want none", got)
+	}
+}

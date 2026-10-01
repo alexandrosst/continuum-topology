@@ -1,6 +1,7 @@
 package server
 
 import (
+	"container/heap"
 	"fmt"
 	"math"
 	"net/netip"
@@ -187,20 +188,74 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		}
 		e.DnsQueryNames = mergeDNSNames(e.DnsQueryNames, f.DnsQueryNames)
 	}
-	if len(t.edges) > maxFlowEdges { // forget the edges unseen for longest
-		type kv struct {
-			k string
-			t time.Time
-		}
-		all := make([]kv, 0, len(t.edges))
-		for k, e := range t.edges {
-			all = append(all, kv{k, e.LastSeen.AsTime()})
-		}
-		sort.Slice(all, func(i, j int) bool { return all[i].t.Before(all[j].t) })
-		for _, x := range all[:len(all)-maxFlowEdges] {
-			delete(t.edges, x.k)
+	if over := len(t.edges) - maxFlowEdges; over > 0 { // forget the `over` edges unseen for longest
+		// Finds the `over` oldest entries in one O(n log over) pass instead of sort.Slice-ing the entire
+		// table in O(n log n): over is normally just however many edges this one batch pushed past the
+		// cap (often a handful), while n is the whole table, up to maxFlowEdges itself - at the cap, that
+		// was a full 20000-entry sort on every single apply() call for the sake of evicting a few. See
+		// oldestEdges' own doc for how the bounded heap gets there.
+		for _, k := range oldestEdges(t.edges, over) {
+			delete(t.edges, k)
 		}
 	}
+}
+
+// edgeAge is one edge's cache key paired with when it was last seen - the only two fields oldestEdges
+// needs to pick evictions, so apply() never has to copy a whole *continuumv1.FlowEdge just to sort by one
+// of its fields.
+type edgeAge struct {
+	key string
+	at  time.Time
+}
+
+// ageHeap is a bounded max-heap of the oldest-looking edgeAges seen so far during a single linear scan: its
+// root (index 0) is always the entry with the LATEST `at` among those currently held. That sounds backwards
+// for a heap of "oldest" entries, but it's exactly what oldestEdges needs: once the heap holds `n` entries,
+// the single edge most likely to NOT belong in the final "n oldest" answer is whichever one is currently
+// the newest of the bunch, i.e. the root - so a new, genuinely older candidate only ever needs to evict that
+// one entry, never re-examine the rest.
+type ageHeap []edgeAge
+
+func (h ageHeap) Len() int           { return len(h) }
+func (h ageHeap) Less(i, j int) bool { return h[i].at.After(h[j].at) }
+func (h ageHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *ageHeap) Push(x any)        { *h = append(*h, x.(edgeAge)) }
+func (h *ageHeap) Pop() any {
+	old := *h
+	last := len(old) - 1
+	x := old[last]
+	*h = old[:last]
+	return x
+}
+
+// oldestEdges returns the keys of the n least-recently-seen edges in edges, without ever sorting the whole
+// map: it scans every entry exactly once, keeping only a bounded max-heap of size n (the n oldest seen so
+// far). Once that heap is full, each further candidate either stays out immediately (it's newer than
+// everything already kept - a single comparison against the heap's root) or swaps in for the current
+// newest kept entry. Both cases cost O(log n), so the whole scan is O(len(edges) * log n) - the same
+// eviction result sort.Slice would give, for less work whenever n (how many are actually being evicted)
+// is smaller than the table itself, which is the normal case here: n is usually just one batch's overflow,
+// not the whole multi-thousand-edge table.
+func oldestEdges(edges map[string]*continuumv1.FlowEdge, n int) []string {
+	if n <= 0 {
+		return nil
+	}
+	h := make(ageHeap, 0, n)
+	for k, e := range edges {
+		age := edgeAge{k, e.LastSeen.AsTime()}
+		switch {
+		case len(h) < n:
+			heap.Push(&h, age)
+		case age.at.Before(h[0].at):
+			heap.Pop(&h)
+			heap.Push(&h, age)
+		}
+	}
+	out := make([]string, len(h))
+	for i, a := range h {
+		out[i] = a.key
+	}
+	return out
 }
 
 func (t *flowTable) marshal() ([]byte, error) {
