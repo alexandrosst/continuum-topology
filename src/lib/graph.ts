@@ -171,6 +171,11 @@ export type EdgeData = {
   /** Latest smoothed TCP round-trip sample (Dependency.rttMs) - a gauge, not this edge's Network path
    *  measurement (that's `quality.rttMs`, a different, cluster-to-cluster figure). */
   rttMs?: number
+  /** Latest TCP RTT mean-deviation sample (Dependency.jitterMs) - a gauge, sampled alongside rttMs. */
+  jitterMs?: number
+  /** Most recent SYN->ESTABLISHED handshake time (Dependency.handshakeMs) - a gauge, a per-connection
+   *  fact rather than a per-byte one, so shown once per dependency rather than as a rate. */
+  handshakeMs?: number
   /** Cumulative connection attempts that never reached ESTABLISHED (Dependency.failedAttempts) - eBPF
    *  only, same "0 means not measured" rule as retransmits. Pairs with `stats.failedAttemptsPerMin`; can
    *  be non-zero even when connections/bytesPerSec are entirely absent, which is exactly the "this
@@ -690,6 +695,8 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         iface: d.iface,
         retransmits: d.retransmits,
         rttMs: d.rttMs,
+        jitterMs: d.jitterMs,
+        handshakeMs: d.handshakeMs,
         failedAttempts: d.failedAttempts,
         sniHost: d.sniHost,
         dnsQueryNames: d.dnsQueryNames,
@@ -1400,6 +1407,8 @@ function makeEdge(
     iface?: string
     retransmits?: number
     rttMs?: number
+    jitterMs?: number
+    handshakeMs?: number
     failedAttempts?: number
     sniHost?: string
     dnsQueryNames?: string[]
@@ -1443,7 +1452,7 @@ function makeEdge(
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,
     markerEnd: d.aggregated || d.clusterLink ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, retransmits: d.retransmits, rttMs: d.rttMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink },
+    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink },
   }
 }
 

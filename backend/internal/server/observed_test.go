@@ -10,6 +10,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
 	"continuum/internal/interpret"
+	"continuum/internal/model"
 	"continuum/internal/netid"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -454,6 +455,58 @@ func TestDependencyStatsIncludeRetransmitsAndRTT(t *testing.T) {
 	}
 	if want := float64(4) * 60 / 60; d.perMin != want {
 		t.Errorf("retransmitsPerMin = %v, want %v", d.perMin, want)
+	}
+}
+
+// TestDependencyStatsIncludeJitterHandshakeAndLossPct is Part R's own version of
+// TestDependencyStatsIncludeRetransmitsAndRTT above: JitterMs/HandshakeMs are gauges carried through the
+// exact same Key.jitter_us/Key.handshake_us path RttMs already uses, and LossPct is computed here (not
+// carried on the wire) from window_retransmits/window_segs_out - this test is also what pins that it must
+// stay unset, not a fabricated 0%, when nothing has reported a segs_out yet (see the second dependency fed
+// below with retransmits but no segs_out).
+func TestDependencyStatsIncludeJitterHandshakeAndLossPct(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	x, y := "a/Deployment/x", "a/Deployment/y"
+	z := "a/Deployment/z"
+	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"), wk("a", "Deployment", "z"))
+	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 2, BytesOut: 1000, BytesIn: 2000,
+		Method: "ebpf", BytesKnown: true, RttUs: 8000, JitterUs: 1500, HandshakeUs: 12000, Retransmits: 2, SegsOut: 100}
+	// A second dependency with retransmits but no segs_out at all (a conntrack-only report, say) - LossPct
+	// must stay nil for this one, not divide by zero into a fabricated 0%.
+	fNoSegs := &continuumv1.Flow{Src: wep(x), Dst: wep(z), Port: 5432, Protocol: "tcp", Connections: 1, Retransmits: 1}
+	feed(&c, now, 60, f, fNoSegs)
+
+	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
+	var withSegs, withoutSegs *model.Dependency
+	for i := range deps {
+		dep := &deps[i]
+		if dep.Port != 5432 {
+			continue
+		}
+		if dep.To == sv("a", y) {
+			withSegs = dep
+		} else if dep.To == sv("a", z) {
+			withoutSegs = dep
+		}
+	}
+	if withSegs == nil || withoutSegs == nil {
+		t.Fatalf("expected both dependencies, got withSegs=%v withoutSegs=%v", withSegs, withoutSegs)
+	}
+	if withSegs.JitterMs != 1.5 {
+		t.Errorf("jitterMs = %v, want 1.5 (1500us)", withSegs.JitterMs)
+	}
+	if withSegs.HandshakeMs != 12 {
+		t.Errorf("handshakeMs = %v, want 12 (12000us)", withSegs.HandshakeMs)
+	}
+	if withSegs.Stats == nil || withSegs.Stats.LossPct == nil {
+		t.Fatal("lossPct should be set when segs_out was reported")
+	}
+	if want := float64(2) / float64(100) * 100; *withSegs.Stats.LossPct != want {
+		t.Errorf("lossPct = %v, want %v (2 retransmits / 100 segs_out)", *withSegs.Stats.LossPct, want)
+	}
+	if withoutSegs.Stats != nil && withoutSegs.Stats.LossPct != nil {
+		t.Errorf("lossPct = %v, want unset (nil) - no segs_out was ever reported for this edge", *withoutSegs.Stats.LossPct)
 	}
 }
 

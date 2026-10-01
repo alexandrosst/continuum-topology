@@ -375,6 +375,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			sum.BytesOut += v.BytesOut
 			sum.BytesIn += v.BytesIn
 			sum.Retransmits += v.Retransmits
+			sum.SegsOut += v.SegsOut
 			sum.FailedAttempts += v.FailedAttempts
 			sum.FailedRefused += v.FailedRefused
 			sum.FailedTimeout += v.FailedTimeout
@@ -385,6 +386,15 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			// means "no sample yet", not "no delay".
 			if v.RttUs != 0 {
 				sum.RttUs = v.RttUs
+			}
+			if v.JitterUs != 0 {
+				sum.JitterUs = v.JitterUs
+			}
+			// handshake_us is set exactly once, by whichever CPU happened to handle this socket's
+			// ESTABLISHED transition - the same single-writer gauge treatment as RttUs above, just set
+			// only the one time rather than resampled throughout the connection's life.
+			if v.HandshakeUs != 0 {
+				sum.HandshakeUs = v.HandshakeUs
 			}
 			// Every CPU that ever handled this socket's traffic put_iface'd the same route, so any
 			// non-empty reading is as good as another; take the first rather than requiring them to agree,
@@ -410,6 +420,9 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			Iface:             iface,
 			Retransmits:       sum.Retransmits,
 			RttUs:             sum.RttUs,
+			JitterUs:          sum.JitterUs,
+			SegsOut:           sum.SegsOut,
+			HandshakeUs:       sum.HandshakeUs,
 			FailedAttempts:    sum.FailedAttempts,
 			FailedRefused:     sum.FailedRefused,
 			FailedTimeout:     sum.FailedTimeout,

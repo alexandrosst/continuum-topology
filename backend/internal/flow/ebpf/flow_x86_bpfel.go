@@ -31,7 +31,9 @@ type flowFlowVal struct {
 	Ifname            [16]int8
 	Retransmits       uint32
 	RttUs             uint32
-	_                 [4]byte
+	JitterUs          uint32
+	SegsOut           uint32
+	HandshakeUs       uint32
 	FailedAttempts    uint64
 	FailedRefused     uint64
 	FailedTimeout     uint64
@@ -58,8 +60,10 @@ type flowSockInfo struct {
 	LastOut     uint64
 	LastIn      uint64
 	LastRetrans uint32
+	LastSegsOut uint32
+	SynNs       uint64
 	Established uint8
-	_           [3]byte
+	_           [7]byte
 }
 
 // Names of all BPF objects in the ELF.

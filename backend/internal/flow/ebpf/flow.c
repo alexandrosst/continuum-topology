@@ -94,6 +94,17 @@ struct tcp_sock {
 	// packets or timing of its own.
 	__u32 total_retrans;
 	__u32 srtt_us;
+	// Smoothed mean deviation of the RTT samples that fed srtt_us above - the same Jacobson/Karels
+	// estimator's other half, kept by the kernel as a 4x fixed-point average (>>2 recovers microseconds,
+	// the same "read side shift" convention as srtt_us's >>3). This is what this file reports as jitter:
+	// not a new measurement of its own, just the variance the kernel's own RTT estimator was already
+	// computing and discarding.
+	__u32 mdev_us;
+	// Cumulative count of segments sent for the life of the socket (ordinary TCP accounting, the same
+	// thing tcp_info's tcpi_segs_out reports) - paired with total_retrans above to compute a real loss
+	// percentage downstream (retransmits / segs_out) instead of only ever showing a raw retransmit count
+	// with nothing to divide it by.
+	__u32 segs_out;
 } __attribute__((preserve_access_index));
 
 // One direction of one relationship. Addresses are 16 bytes; IPv4 is stored as ::ffff:a.b.c.d.
@@ -119,6 +130,20 @@ struct flow_val {
 	// same latest-wins treatment as ifindex/ifname above. 0 means no sample yet, not "no delay".
 	__u32 retransmits;
 	__u32 rtt_us;
+	// jitter_us: the RTT estimator's own mean-deviation sample (tcp_sock.mdev_us >> 2) - a gauge, same
+	// latest-wins/0-means-no-sample treatment as rtt_us right above it, read at exactly the same moments.
+	__u32 jitter_us;
+	// segs_out: summed like the byte counters (each socket's growth in segments sent since it was last
+	// accounted) - the denominator for a real loss percentage computed downstream from retransmits above;
+	// never divided here, since 0 segs_out must stay "no data to compute a percentage from", not a
+	// fabricated 0%.
+	__u32 segs_out;
+	// handshake_us: how long this one connection took to go from its first SYN to ESTABLISHED - a gauge
+	// set exactly once, at the moment a socket reaches ESTABLISHED (see on_state), never touched again by
+	// this same socket's later traffic. Distinct from rtt_us, which is the ongoing steady-state round
+	// trip: a connection can have a slow handshake (a far-away or congested path at setup time) and then
+	// a perfectly normal steady-state RTT, or vice versa. 0 means no sample, not "instant".
+	__u32 handshake_us;
 	// A connection attempt on this same key that never reached ESTABLISHED (see add_failed) - counted
 	// here, on the same row as any successful connections to/from the same peer:port, because "5 fine,
 	// 2 refused" is one fact about one edge, not two. connections/bytes/retransmits/rtt_us above are never
@@ -138,6 +163,11 @@ struct sock_info {
 	__u64 last_out;
 	__u64 last_in;
 	__u32 last_retrans;
+	__u32 last_segs_out;
+	// bpf_ktime_get_ns() at the moment this connection attempt was first seen (SYN_SENT/SYN_RECV) - the
+	// clock handshake_us is measured from. Set once, there, and read back (before this entry is
+	// overwritten) the moment the same socket reaches ESTABLISHED; never touched afterwards.
+	__u64 syn_ns;
 	// 0 from the moment a connection attempt is first seen (SYN_SENT/SYN_RECV) until it reaches
 	// ESTABLISHED, which sets it to 1. A close while still 0 is add_failed's job, not add_flow's.
 	__u8 established;
@@ -202,7 +232,7 @@ static __always_inline void put_iface(struct flow_val *v, struct sock *sk) {
 	bpf_probe_read_kernel_str(v->ifname, sizeof(v->ifname), dev->name);
 }
 
-static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rtt_us) {
+static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us) {
 	struct flow_val zero = {};
 	struct flow_val *v = bpf_map_lookup_elem(&flows, key);
 	if (!v) {
@@ -225,6 +255,11 @@ static __always_inline void add_flow(const struct flow_key *key, struct sock *sk
 	v->retransmits += retrans;
 	if (rtt_us)
 		v->rtt_us = rtt_us;
+	if (jitter_us)
+		v->jitter_us = jitter_us;
+	v->segs_out += segs_out;
+	if (handshake_us)
+		v->handshake_us = handshake_us;
 	put_iface(v, sk);
 }
 
@@ -273,6 +308,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		put_addr(si.key.peer, daddr, &sk->__sk_common.skc_v6_daddr, family);
 		si.key.port = si.key.role == ROLE_CLIENT ? __builtin_bswap16(sk->__sk_common.skc_dport) : sk->__sk_common.skc_num;
 		si.established = 0;
+		si.syn_ns = bpf_ktime_get_ns();
 		bpf_map_update_elem(&socks, &id, &si, BPF_ANY);
 		return 0;
 	}
@@ -290,6 +326,18 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		if (family != AF_INET && family != AF_INET6)
 			return 0;
 
+		// Read back the SYN_SENT/SYN_RECV entry recorded for this same socket (if any) before it's
+		// overwritten below, purely to recover the clock handshake_us is measured from - this is the one
+		// piece of that earlier entry worth carrying forward; everything else about it (its role, key)
+		// is about to be rebuilt fresh from the socket's current state anyway.
+		__u32 handshake_us = 0;
+		struct sock_info *prior = bpf_map_lookup_elem(&socks, &id);
+		if (prior && prior->syn_ns) {
+			__u64 now = bpf_ktime_get_ns();
+			if (now > prior->syn_ns)
+				handshake_us = (__u32)((now - prior->syn_ns) / 1000);
+		}
+
 		struct sock_info si;
 		__builtin_memset(&si, 0, sizeof(si));
 		si.key.role = role;
@@ -306,14 +354,16 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 			si.last_out = tp->bytes_acked;
 			si.last_in = tp->bytes_received;
 			si.last_retrans = tp->total_retrans;
+			si.last_segs_out = tp->segs_out;
 		}
 		if (bpf_map_update_elem(&socks, &id, &si, BPF_ANY) != 0) {
 			count_lost();
 			return 0;
 		}
-		// Counted now, so a connection that lives for days is a dependency from its first second. No RTT
-		// sample exists yet this early, so 0 (unknown) rather than a guess.
-		add_flow(&si.key, sk, 1, 0, 0, 0, 0);
+		// Counted now, so a connection that lives for days is a dependency from its first second. No RTT/
+		// jitter sample exists yet this early (0, unknown, rather than a guess); handshake_us, by contrast,
+		// is known exactly right now - this is the only moment it ever will be.
+		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, handshake_us);
 		return 0;
 	}
 
@@ -348,9 +398,12 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		__u64 out = tp->bytes_acked, in = tp->bytes_received;
 		__u32 retrans = tp->total_retrans;
 		__u32 dretrans = retrans > si->last_retrans ? retrans - si->last_retrans : 0;
-		// srtt_us is kept as an 8x fixed-point average (see struct tcp_sock's comment); >>3 recovers
-		// microseconds. A connection that never left slow start can close with no sample at all (0).
-		add_flow(&si->key, sk, 0, out - si->last_out, in - si->last_in, dretrans, tp->srtt_us >> 3);
+		__u32 segs_out = tp->segs_out;
+		__u32 dsegs = segs_out > si->last_segs_out ? segs_out - si->last_segs_out : 0;
+		// srtt_us/mdev_us are kept as 8x/4x fixed-point averages respectively (see struct tcp_sock's
+		// comment); >>3 and >>2 recover microseconds. A connection that never left slow start can close
+		// with no sample of either at all (0).
+		add_flow(&si->key, sk, 0, out - si->last_out, in - si->last_in, dretrans, tp->srtt_us >> 3, tp->mdev_us >> 2, dsegs, 0);
 	}
 	bpf_map_delete_elem(&socks, &id);
 	return 0;
@@ -383,19 +436,24 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 	__u64 out = 0, in = 0;
 	if (bpf_probe_read_kernel(&out, sizeof(out), &tp->bytes_acked) != 0 || bpf_probe_read_kernel(&in, sizeof(in), &tp->bytes_received) != 0)
 		return 0;
-	__u32 retrans = 0, srtt_raw = 0;
-	// Best-effort: a socket this old is already tracked by role/key regardless of whether these two reads
-	// succeed, so a failure here just means no retransmit/RTT update this round, not a dropped flow.
+	__u32 retrans = 0, srtt_raw = 0, mdev_raw = 0, segs_out = 0;
+	// Best-effort: a socket this old is already tracked by role/key regardless of whether these reads
+	// succeed, so a failure here just means no retransmit/RTT/jitter/loss update this round, not a
+	// dropped flow.
 	bpf_probe_read_kernel(&retrans, sizeof(retrans), &tp->total_retrans);
 	bpf_probe_read_kernel(&srtt_raw, sizeof(srtt_raw), &tp->srtt_us);
-	if (out > si->last_out || in > si->last_in || retrans > si->last_retrans) {
+	bpf_probe_read_kernel(&mdev_raw, sizeof(mdev_raw), &tp->mdev_us);
+	bpf_probe_read_kernel(&segs_out, sizeof(segs_out), &tp->segs_out);
+	if (out > si->last_out || in > si->last_in || retrans > si->last_retrans || segs_out > si->last_segs_out) {
 		__u64 dout = out > si->last_out ? out - si->last_out : 0;
 		__u64 din = in > si->last_in ? in - si->last_in : 0;
 		__u32 dretrans = retrans > si->last_retrans ? retrans - si->last_retrans : 0;
+		__u32 dsegs = segs_out > si->last_segs_out ? segs_out - si->last_segs_out : 0;
 		si->last_out = out > si->last_out ? out : si->last_out;
 		si->last_in = in > si->last_in ? in : si->last_in;
 		si->last_retrans = retrans > si->last_retrans ? retrans : si->last_retrans;
-		add_flow(&si->key, sk, 0, dout, din, dretrans, srtt_raw >> 3);
+		si->last_segs_out = segs_out > si->last_segs_out ? segs_out : si->last_segs_out;
+		add_flow(&si->key, sk, 0, dout, din, dretrans, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0);
 	}
 	return 0;
 }

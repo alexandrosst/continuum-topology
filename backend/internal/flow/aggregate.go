@@ -78,9 +78,16 @@ func (a *Aggregator) Add(f *continuumv1.Flow) {
 		cur.BytesOut += f.BytesOut
 		cur.BytesIn += f.BytesIn
 		cur.Retransmits += f.Retransmits
+		cur.SegsOut += f.SegsOut
 		cur.FailedAttempts += f.FailedAttempts
 		if f.RttUs != 0 {
 			cur.RttUs = f.RttUs // a gauge, not a sum: the latest sample replaces the last, same as Iface
+		}
+		if f.JitterUs != 0 {
+			cur.JitterUs = f.JitterUs // a gauge, same treatment as RttUs right above it
+		}
+		if f.HandshakeUs != 0 {
+			cur.HandshakeUs = f.HandshakeUs // set once per connection; held the same way as RttUs/JitterUs
 		}
 		if f.SniHost != "" {
 			cur.SniHost = f.SniHost // also a gauge: one peer essentially always carries one hostname

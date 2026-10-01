@@ -56,6 +56,14 @@ export default function EdgeHoverCard({
   const showFailed = d?.via === 'ebpf' && !!d?.failedAttempts
   const showSni = d?.via === 'ebpf' && !!d?.sniHost
   const showDns = d?.via === 'ebpf' && !!d?.dnsQueryNames?.length
+  // Jitter and handshake latency are both eBPF-only gauges, same as rttMs itself (no conntrack
+  // equivalent exists for either).
+  const showJitter = d?.via === 'ebpf' && d?.jitterMs !== undefined
+  const showHandshake = d?.via === 'ebpf' && d?.handshakeMs !== undefined
+  // Real loss % (retransmits / segs_out) is strictly better than the raw retransmits/min rate once a
+  // segs_out denominator exists - but that denominator can be missing even on an eBPF edge (too young to
+  // have sent a full segment yet), so this falls back to the /min rate rather than hiding the row.
+  const showLossPct = showRetransmits && s?.lossPct !== undefined
   const left = Math.min(pos.cx - box.left + 14, box.width - 236)
   const top = Math.max(8, pos.cy - box.top - 12)
   const label = typeof edge.label === 'string' ? edge.label : undefined
@@ -77,7 +85,7 @@ export default function EdgeHoverCard({
             ? d.activeCount ? ` · ${d.activeCount} seen in traffic` : undefined
             : label !== undefined && (d?.stale ? ' · quiet' : seen ? ' · seen in traffic' : ' · declared')}
       </div>
-      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showRetransmits || showFailed || showSni || showDns || d?.iface || d?.quality || d?.route || d?.clusterLink) && (
+      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showJitter || showHandshake || showRetransmits || showFailed || showSni || showDns || d?.iface || d?.quality || d?.route || d?.clusterLink) && (
         <dl className="mt-1.5 grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-0.5 text-nb-400">
           {showBps && (
             <>
@@ -109,10 +117,26 @@ export default function EdgeHoverCard({
               <dd className="text-nb-200">{rttLabel(d.rttMs)}</dd>
             </>
           )}
+          {showJitter && (
+            <>
+              <dt title="Kernel's own RTT mean-deviation, sampled alongside the round trip above">Jitter</dt>
+              <dd className="text-nb-200">{rttLabel(d!.jitterMs!)}</dd>
+            </>
+          )}
+          {showHandshake && (
+            <>
+              <dt title="Time from SYN to ESTABLISHED on this edge's most recent handshake - most telling on a cross-cluster/WAN edge">Connection setup</dt>
+              <dd className="text-nb-200">{rttLabel(d!.handshakeMs!)}</dd>
+            </>
+          )}
           {showRetransmits && (
             <>
-              <dt>Retransmits</dt>
-              <dd className="text-nb-200">{Math.round((s!.retransmitsPerMin ?? 0) * 10) / 10}/min</dd>
+              <dt title={`${Math.round((s!.retransmitsPerMin ?? 0) * 10) / 10} retransmits/min`}>{showLossPct ? 'Loss' : 'Retransmits'}</dt>
+              <dd className="text-nb-200">
+                {showLossPct
+                  ? `${s!.lossPct! < 10 ? s!.lossPct!.toFixed(1) : Math.round(s!.lossPct!)}%`
+                  : `${Math.round((s!.retransmitsPerMin ?? 0) * 10) / 10}/min`}
+              </dd>
             </>
           )}
           {showFailed && (

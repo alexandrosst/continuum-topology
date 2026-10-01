@@ -157,7 +157,7 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		k := flowKey(f)
 		e := t.edges[k]
 		if e == nil {
-			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs}, FirstSeen: timestamppb.New(now)}
+			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs}, FirstSeen: timestamppb.New(now)}
 			t.edges[k] = e
 		}
 		e.LastSeen = timestamppb.New(now)
@@ -165,8 +165,9 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		e.BytesOut = satAdd(e.BytesOut, f.BytesOut)
 		e.BytesIn = satAdd(e.BytesIn, f.BytesIn)
 		e.Retransmits = satAdd(e.Retransmits, f.Retransmits)
+		e.SegsOut = satAdd(e.SegsOut, uint64(f.SegsOut))
 		e.FailedAttempts = satAdd(e.FailedAttempts, f.FailedAttempts)
-		e.WindowSeconds, e.WindowConnections, e.WindowBytes, e.WindowRetransmits, e.WindowFailedAttempts = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn), f.Retransmits, f.FailedAttempts
+		e.WindowSeconds, e.WindowConnections, e.WindowBytes, e.WindowRetransmits, e.WindowSegsOut, e.WindowFailedAttempts = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn), f.Retransmits, uint64(f.SegsOut), f.FailedAttempts
 		if f.BytesKnown {
 			e.Key.BytesKnown = true
 		}
@@ -182,6 +183,12 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		}
 		if f.RttUs != 0 {
 			e.Key.RttUs = f.RttUs
+		}
+		if f.JitterUs != 0 {
+			e.Key.JitterUs = f.JitterUs
+		}
+		if f.HandshakeUs != 0 {
+			e.Key.HandshakeUs = f.HandshakeUs
 		}
 		if f.SniHost != "" {
 			e.Key.SniHost = f.SniHost // a gauge too, for the same reason as Iface/RttUs above
@@ -615,6 +622,12 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		if e.Key.RttUs != 0 {
 			d.RttMs = float64(e.Key.RttUs) / 1000
 		}
+		if e.Key.JitterUs != 0 {
+			d.JitterMs = float64(e.Key.JitterUs) / 1000
+		}
+		if e.Key.HandshakeUs != 0 {
+			d.HandshakeMs = float64(e.Key.HandshakeUs) / 1000
+		}
 		d.Retransmits = satAdd(d.Retransmits, e.Retransmits)
 		d.FailedAttempts = satAdd(d.FailedAttempts, e.FailedAttempts)
 		if e.Key.SniHost != "" {
@@ -636,6 +649,16 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 			st.FailedAttemptsPerMin += float64(e.WindowFailedAttempts) * 60 / float64(e.WindowSeconds)
 			if e.Key.BytesKnown {
 				st.BytesPerSec += float64(e.WindowBytes) / float64(e.WindowSeconds)
+			}
+			// A real loss percentage, not just a raw retransmit count: only ever computed when there is a
+			// genuine denominator to divide by (an edge with several dependencies summed into it can have
+			// window_segs_out from one and not another - each contributes retransmits/segs_out from its
+			// own window, summed before dividing, same as every other *PerMin stat above).
+			if e.WindowSegsOut > 0 {
+				if st.LossPct == nil {
+					st.LossPct = new(float64)
+				}
+				*st.LossPct += float64(e.WindowRetransmits) / float64(e.WindowSegsOut) * 100
 			}
 		}
 	}

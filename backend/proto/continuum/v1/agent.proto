@@ -657,6 +657,21 @@ message RawFlow {
   // its resolver about, nothing about the answer (this program never reads one). Empty unless the same
   // optional name-capture is on.
   string dns_query_name = 18;
+  // The RTT estimator's own mean-deviation sample, in microseconds (struct tcp_sock.mdev_us) - the
+  // variance behind rtt_us above, reported as "jitter" since that's what mean deviation of RTT actually
+  // is. A gauge, same 0-means-no-sample convention as rtt_us, read at the exact same moments.
+  uint32 jitter_us = 19;
+  // TCP segments sent since the previous report (struct tcp_sock.segs_out) - the denominator for a real
+  // loss percentage, computed downstream from retransmits above (retransmits / segs_out); never computed
+  // here, since dividing by a possibly-zero counter belongs next to where the zero case is handled, not
+  // baked into the wire value. Always 0 on a conntrack-derived report, like retransmits/rtt_us.
+  uint32 segs_out = 20;
+  // How long this one connection took to go from its first SYN to ESTABLISHED, in microseconds - a gauge
+  // set exactly once, the moment the socket reached ESTABLISHED; distinct from rtt_us, which is the
+  // ongoing steady-state round trip sampled throughout the connection's life. 0 means no sample (the
+  // connection was already established when this collector started watching, or this is a
+  // conntrack-derived report), not "instant".
+  uint32 handshake_us = 21;
 }
 
 message FlowReport {
@@ -715,6 +730,16 @@ message Flow {
   // of these, from several different reports in the same window, into one held Flow before it is ever
   // sent - and a single-valued field would force it to silently keep only the last and discard the rest.
   repeated string dns_query_names = 16;
+  // The RTT estimator's mean-deviation sample, in microseconds - see RawFlow.jitter_us. A gauge, same
+  // treatment as rtt_us right above it.
+  uint32 jitter_us = 17;
+  // Segments sent observed in this report - see RawFlow.segs_out. Carried through unchanged so a real
+  // loss percentage (retransmits / segs_out) can be computed downstream, next to wherever the zero-segs
+  // case is already handled, rather than baked into this wire value.
+  uint32 segs_out = 18;
+  // How long this connection took to go from its first SYN to ESTABLISHED - see RawFlow.handshake_us. A
+  // gauge set once per connection; carried through attribution unchanged.
+  uint32 handshake_us = 19;
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
@@ -765,6 +790,13 @@ message FlowEdge {
   // edge to one peer essentially always carries one hostname, so a gauge (latest sample) already fits it
   // the same way Key.iface and Key.rtt_us fit theirs.
   repeated string dns_query_names = 14;
+  // Cumulative segments sent over the life of this edge, and in the most recent window - the denominator
+  // for a real loss percentage (retransmits / segs_out), summed exactly the way retransmits/
+  // window_retransmits are; 0 on an edge with no eBPF-observed report yet. jitter_us and handshake_us, by
+  // contrast, live on key.jitter_us/key.handshake_us, not here - gauges, the same treatment key.rtt_us
+  // already gets, not running totals.
+  uint64 segs_out = 15;
+  uint64 window_segs_out = 16;
 }
 
 message FlowTable {

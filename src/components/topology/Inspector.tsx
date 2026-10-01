@@ -1029,7 +1029,27 @@ export default function Inspector({
                   </span>
                 ) : undefined}
               </Maybe>
-              <Maybe label="Retransmits">{d.via === 'ebpf' ? `${Math.round((s.retransmitsPerMin ?? 0) * 10) / 10} per minute${d.retransmits ? ` (${d.retransmits} total)` : ''}` : undefined}</Maybe>
+              <Maybe label="Jitter">
+                {d.via === 'ebpf' && d.jitterMs !== undefined ? (
+                  <span title="The kernel's own RTT mean-deviation, sampled alongside the round trip above.">{rttLabel(d.jitterMs)}</span>
+                ) : undefined}
+              </Maybe>
+              <Maybe label="Connection setup">
+                {d.via === 'ebpf' && d.handshakeMs !== undefined ? (
+                  <span title="Time from SYN to ESTABLISHED on this dependency's most recent handshake - a per-connection fact, most telling on a cross-cluster/WAN edge.">{rttLabel(d.handshakeMs)}</span>
+                ) : undefined}
+              </Maybe>
+              <Maybe label={s.lossPct !== undefined ? 'Loss' : 'Retransmits'}>
+                {d.via === 'ebpf' ? (
+                  s.lossPct !== undefined ? (
+                    <span title={`${d.retransmits ?? 0} retransmitted of the segments sent so far; ${Math.round((s.retransmitsPerMin ?? 0) * 10) / 10} per minute`}>
+                      {`${s.lossPct < 10 ? s.lossPct.toFixed(1) : Math.round(s.lossPct)}%`}
+                    </span>
+                  ) : (
+                    `${Math.round((s.retransmitsPerMin ?? 0) * 10) / 10} per minute${d.retransmits ? ` (${d.retransmits} total)` : ''}`
+                  )
+                ) : undefined}
+              </Maybe>
               <Maybe label="Failed attempts">
                 {d.via === 'ebpf' ? (
                   <span title="Connection attempts to/from this dependency that never reached ESTABLISHED - refused, timed out, reset, or unreachable - from the kernel's own socket state, not inferred from timing.">

@@ -216,6 +216,32 @@ func TestAggregatorCarriesSniHostAndDnsQueryNames(t *testing.T) {
 	}
 }
 
+// TestAggregatorCarriesJitterSegsOutAndHandshake pins the three Part R gauge/sum fields through Add: SegsOut
+// sums like Retransmits/bytes (the denominator for a loss percentage computed downstream, never here);
+// JitterUs and HandshakeUs are gauges like RttUs - the latest non-zero sample wins, and a later report with
+// no sample (0) must never blank out an already-known one.
+func TestAggregatorCarriesJitterSegsOutAndHandshake(t *testing.T) {
+	a := a2(t)
+	f1 := &continuumv1.Flow{Src: workload("app"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", JitterUs: 500, SegsOut: 10, HandshakeUs: 2000}
+	a.Add(f1)
+	f2 := &continuumv1.Flow{Src: workload("app"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", SegsOut: 15} // no jitter/handshake sample this time
+	a.Add(f2)
+	b := a.Flush()
+	if len(b.Flows) != 1 {
+		t.Fatalf("both should merge into one held edge: %d", len(b.Flows))
+	}
+	got := b.Flows[0]
+	if got.SegsOut != 25 {
+		t.Errorf("segsOut = %d, want 25 (summed like retransmits)", got.SegsOut)
+	}
+	if got.JitterUs != 500 {
+		t.Errorf("jitterUs = %d, want 500 (a later report with no sample must not blank a known gauge)", got.JitterUs)
+	}
+	if got.HandshakeUs != 2000 {
+		t.Errorf("handshakeUs = %d, want 2000 (same gauge treatment)", got.HandshakeUs)
+	}
+}
+
 // a2 is a second, freshly time-controlled Aggregator for the SNI half of the test above, which needs its
 // own window rather than sharing the first Aggregator's already-flushed one.
 func a2(t *testing.T) *Aggregator {

@@ -491,7 +491,13 @@ type DependencyStats struct {
 	// FailedAttemptsPerMin is the same "0 means not measured, not measured-as-zero" story as
 	// RetransmitsPerMin: only eBPF sees a connection attempt that never got established at all.
 	FailedAttemptsPerMin float64 `json:"failedAttemptsPerMin,omitempty"`
-	WindowSec            int32   `json:"windowSec,omitempty"`
+	// LossPct is a real loss percentage for the most recent window - retransmitted segments divided by
+	// segments sent, computed here rather than carried on the wire, so the zero-denominator case (no
+	// segs_out observed yet - conntrack, or an eBPF report too early to have sent anything) stays an
+	// explicit "undefined" (this field simply absent) rather than a fabricated 0%. RetransmitsPerMin above
+	// still carries the raw rate for anyone who wants it without a percentage attached.
+	LossPct   *float64 `json:"lossPct,omitempty"`
+	WindowSec int32    `json:"windowSec,omitempty"`
 }
 
 // Dependency is a service-to-service edge that was seen on the wire.
@@ -553,7 +559,15 @@ type Dependency struct {
 	// TCP RTT estimator. A gauge (the latest sample), not an average over the edge's life. 0 means no
 	// sample yet, not "no delay" - most often because too little has been exchanged to measure one, or
 	// because this edge is conntrack-only.
-	RttMs       float64          `json:"rttMs,omitempty"`
+	RttMs float64 `json:"rttMs,omitempty"`
+	// JitterMs is the RTT estimator's own mean-deviation sample in milliseconds - the variance behind
+	// RttMs, read at the exact same moments. Same gauge/0-means-no-sample treatment as RttMs.
+	JitterMs float64 `json:"jitterMs,omitempty"`
+	// HandshakeMs is how long the most recently-established connection on this edge took to go from its
+	// first SYN to ESTABLISHED, in milliseconds - a gauge set once per connection (the latest one to
+	// establish wins, the same "latest sample replaces the last" treatment as every other gauge here),
+	// distinct from RttMs, which is the ongoing steady-state round trip. 0 means no sample.
+	HandshakeMs float64          `json:"handshakeMs,omitempty"`
 	Note        string           `json:"note,omitempty"`
 	Connections uint64           `json:"connections,omitempty"`
 	Bytes       uint64           `json:"bytes,omitempty"`

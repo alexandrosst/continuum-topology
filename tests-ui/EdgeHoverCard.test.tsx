@@ -65,3 +65,64 @@ describe('EdgeHoverCard · SNI and DNS titles', () => {
     expect(screen.queryByText(/nope\.example\.com/)).toBeNull()
   })
 })
+
+describe('EdgeHoverCard · jitter, handshake and loss %', () => {
+  test('jitter and connection setup rows render their own ms values, distinct from round trip', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ via: 'ebpf', rttMs: 8, jitterMs: 1.5, handshakeMs: 12 })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="web"
+        toName="checkout"
+      />,
+    )
+    expect(screen.getByText('Jitter')).toBeTruthy()
+    expect(screen.getByText('1.5 ms')).toBeTruthy()
+    expect(screen.getByText('Connection setup')).toBeTruthy()
+    expect(screen.getByText('12 ms')).toBeTruthy()
+  })
+
+  test('the retransmits row shows a loss % once stats.lossPct is available, instead of the raw rate', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ via: 'ebpf', retransmits: 2, stats: { retransmitsPerMin: 0.5, lossPct: 2 } })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="web"
+        toName="checkout"
+      />,
+    )
+    expect(screen.getByText('Loss')).toBeTruthy()
+    expect(screen.getByText('2.0%')).toBeTruthy()
+    expect(screen.queryByText('0.5/min')).toBeNull()
+  })
+
+  test('falls back to the raw retransmits/min rate when lossPct is undefined (no segs_out reported yet)', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ via: 'ebpf', retransmits: 4, stats: { retransmitsPerMin: 2 } })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="web"
+        toName="checkout"
+      />,
+    )
+    expect(screen.getByText('Retransmits')).toBeTruthy()
+    expect(screen.getByText('2/min')).toBeTruthy()
+  })
+
+  test('neither jitter nor connection setup rows render on a conntrack-only edge', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ via: 'conntrack', jitterMs: 3, handshakeMs: 20 })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="web"
+        toName="checkout"
+      />,
+    )
+    expect(screen.queryByText('Jitter')).toBeNull()
+    expect(screen.queryByText('Connection setup')).toBeNull()
+  })
+})

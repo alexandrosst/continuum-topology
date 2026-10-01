@@ -590,6 +590,11 @@ export interface DependencyStats {
   /** 0 both when there is genuinely no loss and when nothing eBPF-observed has reported yet (conntrack
    * cannot see retransmits at all) - Dependency.via says which case it is. */
   retransmitsPerMin?: number
+  /** Retransmitted segments as a percentage of segments sent in this window - a real loss rate, not just
+   * a raw retransmit count. Undefined (never 0) whenever no segs_out has been reported for this edge yet
+   * (a conntrack-only edge, or an eBPF edge too young to have sent a full segment): there is deliberately
+   * no fabricated 0% in that case, since "no denominator" and "measured zero loss" are different facts. */
+  lossPct?: number
   /** Same "0 means not measured" rule as retransmitsPerMin: only eBPF sees a connection attempt that
    * never reached ESTABLISHED at all, so this is unset on a conntrack-only edge regardless of how many
    * attempts actually failed. */
@@ -661,6 +666,15 @@ export interface Dependency {
    * estimator. A gauge (the latest sample), not an average over the edge's life. Unset means no sample
    * yet - most often too little exchanged to measure one, or a conntrack-only edge. */
   rttMs?: number
+  /** The kernel's own RTT mean-deviation (tcp_sock.mdev_us), in milliseconds - the companion jitter figure
+   * to rttMs, sampled from the same place. Same gauge semantics as rttMs: the latest sample, unset means
+   * no sample yet. */
+  jitterMs?: number
+  /** Time from SYN to ESTABLISHED for this edge's most recent TCP handshake, in milliseconds - a
+   * per-connection fact (not per-byte), so most meaningful on a cross-cluster/WAN edge where handshake
+   * cost is a real, visible part of the first request's latency. A gauge like rttMs/jitterMs; unset means
+   * no handshake has completed since the collector started watching this edge (or it's UDP). */
+  handshakeMs?: number
   /** How the far end was identified, when it was not certain. */
   note?: string
   connections?: number

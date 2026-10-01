@@ -140,7 +140,7 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 		return "", false
 	}
 	f := &continuumv1.Flow{Port: raw.Port, Protocol: raw.Protocol, Connections: raw.Connections, BytesOut: raw.BytesOut, BytesIn: raw.BytesIn, Method: method, BytesKnown: bytesKnown, Iface: raw.Iface,
-		Retransmits: uint64(raw.Retransmits), RttUs: raw.RttUs, FailedAttempts: raw.FailedAttempts, SniHost: raw.SniHost}
+		Retransmits: uint64(raw.Retransmits), RttUs: raw.RttUs, JitterUs: raw.JitterUs, SegsOut: raw.SegsOut, HandshakeUs: raw.HandshakeUs, FailedAttempts: raw.FailedAttempts, SniHost: raw.SniHost}
 	if raw.DnsQueryName != "" {
 		f.DnsQueryNames = []string{raw.DnsQueryName}
 	}

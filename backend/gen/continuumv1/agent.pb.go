@@ -3717,7 +3717,22 @@ type RawFlow struct {
 	// The question name from a DNS query observed on this exact connection - the domain a workload asked
 	// its resolver about, nothing about the answer (this program never reads one). Empty unless the same
 	// optional name-capture is on.
-	DnsQueryName  string `protobuf:"bytes,18,opt,name=dns_query_name,json=dnsQueryName,proto3" json:"dns_query_name,omitempty"`
+	DnsQueryName string `protobuf:"bytes,18,opt,name=dns_query_name,json=dnsQueryName,proto3" json:"dns_query_name,omitempty"`
+	// The RTT estimator's own mean-deviation sample, in microseconds (struct tcp_sock.mdev_us) - the
+	// variance behind rtt_us above, reported as "jitter" since that's what mean deviation of RTT actually
+	// is. A gauge, same 0-means-no-sample convention as rtt_us, read at the exact same moments.
+	JitterUs uint32 `protobuf:"varint,19,opt,name=jitter_us,json=jitterUs,proto3" json:"jitter_us,omitempty"`
+	// TCP segments sent since the previous report (struct tcp_sock.segs_out) - the denominator for a real
+	// loss percentage, computed downstream from retransmits above (retransmits / segs_out); never computed
+	// here, since dividing by a possibly-zero counter belongs next to where the zero case is handled, not
+	// baked into the wire value. Always 0 on a conntrack-derived report, like retransmits/rtt_us.
+	SegsOut uint32 `protobuf:"varint,20,opt,name=segs_out,json=segsOut,proto3" json:"segs_out,omitempty"`
+	// How long this one connection took to go from its first SYN to ESTABLISHED, in microseconds - a gauge
+	// set exactly once, the moment the socket reached ESTABLISHED; distinct from rtt_us, which is the
+	// ongoing steady-state round trip sampled throughout the connection's life. 0 means no sample (the
+	// connection was already established when this collector started watching, or this is a
+	// conntrack-derived report), not "instant".
+	HandshakeUs   uint32 `protobuf:"varint,21,opt,name=handshake_us,json=handshakeUs,proto3" json:"handshake_us,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3876,6 +3891,27 @@ func (x *RawFlow) GetDnsQueryName() string {
 		return x.DnsQueryName
 	}
 	return ""
+}
+
+func (x *RawFlow) GetJitterUs() uint32 {
+	if x != nil {
+		return x.JitterUs
+	}
+	return 0
+}
+
+func (x *RawFlow) GetSegsOut() uint32 {
+	if x != nil {
+		return x.SegsOut
+	}
+	return 0
+}
+
+func (x *RawFlow) GetHandshakeUs() uint32 {
+	if x != nil {
+		return x.HandshakeUs
+	}
+	return 0
 }
 
 type FlowReport struct {
@@ -4058,6 +4094,16 @@ type Flow struct {
 	// of these, from several different reports in the same window, into one held Flow before it is ever
 	// sent - and a single-valued field would force it to silently keep only the last and discard the rest.
 	DnsQueryNames []string `protobuf:"bytes,16,rep,name=dns_query_names,json=dnsQueryNames,proto3" json:"dns_query_names,omitempty"`
+	// The RTT estimator's mean-deviation sample, in microseconds - see RawFlow.jitter_us. A gauge, same
+	// treatment as rtt_us right above it.
+	JitterUs uint32 `protobuf:"varint,17,opt,name=jitter_us,json=jitterUs,proto3" json:"jitter_us,omitempty"`
+	// Segments sent observed in this report - see RawFlow.segs_out. Carried through unchanged so a real
+	// loss percentage (retransmits / segs_out) can be computed downstream, next to wherever the zero-segs
+	// case is already handled, rather than baked into this wire value.
+	SegsOut uint32 `protobuf:"varint,18,opt,name=segs_out,json=segsOut,proto3" json:"segs_out,omitempty"`
+	// How long this connection took to go from its first SYN to ESTABLISHED - see RawFlow.handshake_us. A
+	// gauge set once per connection; carried through attribution unchanged.
+	HandshakeUs   uint32 `protobuf:"varint,19,opt,name=handshake_us,json=handshakeUs,proto3" json:"handshake_us,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4202,6 +4248,27 @@ func (x *Flow) GetDnsQueryNames() []string {
 		return x.DnsQueryNames
 	}
 	return nil
+}
+
+func (x *Flow) GetJitterUs() uint32 {
+	if x != nil {
+		return x.JitterUs
+	}
+	return 0
+}
+
+func (x *Flow) GetSegsOut() uint32 {
+	if x != nil {
+		return x.SegsOut
+	}
+	return 0
+}
+
+func (x *Flow) GetHandshakeUs() uint32 {
+	if x != nil {
+		return x.HandshakeUs
+	}
+	return 0
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
@@ -4375,6 +4442,13 @@ type FlowEdge struct {
 	// edge to one peer essentially always carries one hostname, so a gauge (latest sample) already fits it
 	// the same way Key.iface and Key.rtt_us fit theirs.
 	DnsQueryNames []string `protobuf:"bytes,14,rep,name=dns_query_names,json=dnsQueryNames,proto3" json:"dns_query_names,omitempty"`
+	// Cumulative segments sent over the life of this edge, and in the most recent window - the denominator
+	// for a real loss percentage (retransmits / segs_out), summed exactly the way retransmits/
+	// window_retransmits are; 0 on an edge with no eBPF-observed report yet. jitter_us and handshake_us, by
+	// contrast, live on key.jitter_us/key.handshake_us, not here - gauges, the same treatment key.rtt_us
+	// already gets, not running totals.
+	SegsOut       uint64 `protobuf:"varint,15,opt,name=segs_out,json=segsOut,proto3" json:"segs_out,omitempty"`
+	WindowSegsOut uint64 `protobuf:"varint,16,opt,name=window_segs_out,json=windowSegsOut,proto3" json:"window_segs_out,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4505,6 +4579,20 @@ func (x *FlowEdge) GetDnsQueryNames() []string {
 		return x.DnsQueryNames
 	}
 	return nil
+}
+
+func (x *FlowEdge) GetSegsOut() uint64 {
+	if x != nil {
+		return x.SegsOut
+	}
+	return 0
+}
+
+func (x *FlowEdge) GetWindowSegsOut() uint64 {
+	if x != nil {
+		return x.WindowSegsOut
+	}
+	return 0
 }
 
 type FlowTable struct {
@@ -5351,7 +5439,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2\x18.continuum.v1.PathResultR\aresults\x12\x18\n" +
 	"\arefused\x18\x02 \x01(\rR\arefused\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xb8\x04\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x93\x05\n" +
 	"\aRawFlow\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\bR\x06client\x12\x19\n" +
 	"\blocal_ip\x18\x02 \x01(\tR\alocalIp\x12\x17\n" +
@@ -5371,7 +5459,10 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\ffailed_reset\x18\x0f \x01(\x04R\vfailedReset\x12-\n" +
 	"\x12failed_unreachable\x18\x10 \x01(\x04R\x11failedUnreachable\x12\x19\n" +
 	"\bsni_host\x18\x11 \x01(\tR\asniHost\x12$\n" +
-	"\x0edns_query_name\x18\x12 \x01(\tR\fdnsQueryName\"\xc1\x01\n" +
+	"\x0edns_query_name\x18\x12 \x01(\tR\fdnsQueryName\x12\x1b\n" +
+	"\tjitter_us\x18\x13 \x01(\rR\bjitterUs\x12\x19\n" +
+	"\bsegs_out\x18\x14 \x01(\rR\asegsOut\x12!\n" +
+	"\fhandshake_us\x18\x15 \x01(\rR\vhandshakeUs\"\xc1\x01\n" +
 	"\n" +
 	"FlowReport\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
@@ -5390,7 +5481,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"UNRESOLVED\x10\x00\x12\f\n" +
 	"\bWORKLOAD\x10\x01\x12\b\n" +
 	"\x04NODE\x10\x02\x12\f\n" +
-	"\bEXTERNAL\x10\x03\"\xf6\x03\n" +
+	"\bEXTERNAL\x10\x03\"\xd1\x04\n" +
 	"\x04Flow\x12,\n" +
 	"\x03src\x18\x01 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03src\x12,\n" +
 	"\x03dst\x18\x02 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03dst\x12\x12\n" +
@@ -5409,7 +5500,10 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x06rtt_us\x18\r \x01(\rR\x05rttUs\x12'\n" +
 	"\x0ffailed_attempts\x18\x0e \x01(\x04R\x0efailedAttempts\x12\x19\n" +
 	"\bsni_host\x18\x0f \x01(\tR\asniHost\x12&\n" +
-	"\x0fdns_query_names\x18\x10 \x03(\tR\rdnsQueryNames\"\\\n" +
+	"\x0fdns_query_names\x18\x10 \x03(\tR\rdnsQueryNames\x12\x1b\n" +
+	"\tjitter_us\x18\x11 \x01(\rR\bjitterUs\x12\x19\n" +
+	"\bsegs_out\x18\x12 \x01(\rR\asegsOut\x12!\n" +
+	"\fhandshake_us\x18\x13 \x01(\rR\vhandshakeUs\"\\\n" +
 	"\rCollectorInfo\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12\x1f\n" +
@@ -5422,7 +5516,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x05flows\x18\x04 \x03(\v2\x12.continuum.v1.FlowR\x05flows\x12;\n" +
 	"\n" +
 	"collectors\x18\x05 \x03(\v2\x1b.continuum.v1.CollectorInfoR\n" +
-	"collectors\"\xcf\x04\n" +
+	"collectors\"\x92\x05\n" +
 	"\bFlowEdge\x12$\n" +
 	"\x03key\x18\x01 \x01(\v2\x12.continuum.v1.FlowR\x03key\x129\n" +
 	"\n" +
@@ -5439,7 +5533,9 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x12window_retransmits\x18\v \x01(\x04R\x11windowRetransmits\x12'\n" +
 	"\x0ffailed_attempts\x18\f \x01(\x04R\x0efailedAttempts\x124\n" +
 	"\x16window_failed_attempts\x18\r \x01(\x04R\x14windowFailedAttempts\x12&\n" +
-	"\x0fdns_query_names\x18\x0e \x03(\tR\rdnsQueryNames\"9\n" +
+	"\x0fdns_query_names\x18\x0e \x03(\tR\rdnsQueryNames\x12\x19\n" +
+	"\bsegs_out\x18\x0f \x01(\x04R\asegsOut\x12&\n" +
+	"\x0fwindow_segs_out\x18\x10 \x01(\x04R\rwindowSegsOut\"9\n" +
 	"\tFlowTable\x12,\n" +
 	"\x05edges\x18\x01 \x03(\v2\x16.continuum.v1.FlowEdgeR\x05edges\"\x82\x06\n" +
 	"\vDiagnostics\x12#\n" +
