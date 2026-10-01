@@ -3,6 +3,7 @@ package collect
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -305,6 +306,44 @@ func TestSnapshotPodsCoverMultipleReplicasSortedByName(t *testing.T) {
 	// The workload-wide total is still the sum across both pods, same as before this field existed.
 	if w.Restarts != 5 {
 		t.Errorf("workload restarts = %d, want 5 (1 + 4)", w.Restarts)
+	}
+}
+
+// A workload with an unrealistic number of replicas (a runaway ReplicaSet, or a DaemonSet on a very large
+// cluster) must not make WorkloadFacts.Pods grow without bound - see maxPodsPerWorkload in snapshot.go.
+func TestSnapshotPodsAreCappedPerWorkload(t *testing.T) {
+	const total = maxPodsPerWorkload + 10
+	objs := []runtime.Object{
+		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n"}, Status: corev1.NodeStatus{Capacity: corev1.ResourceList{"cpu": resource.MustParse("4"), "memory": resource.MustParse("8Gi")}}},
+		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "big", Namespace: "obs"},
+			Spec: appsv1.DaemonSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "c"}}}}}},
+	}
+	for i := 0; i < total; i++ {
+		objs = append(objs, &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("big-%04d", i), Namespace: "obs", OwnerReferences: []metav1.OwnerReference{{Kind: "DaemonSet", Name: "big"}}},
+			Spec:       corev1.PodSpec{NodeName: "n", Containers: []corev1.Container{{Name: "c"}}},
+			Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		})
+	}
+	cs := fake.NewSimpleClientset(objs...)
+	c := New(cs, 2, "x")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := c.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	s := c.Snapshot()
+	if len(s.Workloads) != 1 {
+		t.Fatalf("workloads = %d, want 1", len(s.Workloads))
+	}
+	w := s.Workloads[0]
+	if len(w.Pods) != maxPodsPerWorkload {
+		t.Fatalf("pods = %d, want capped at %d (of %d actually created)", len(w.Pods), maxPodsPerWorkload, total)
+	}
+	// The cap keeps the lexicographically-first maxPodsPerWorkload names (post-sort truncation), not an
+	// arbitrary or lister-order-dependent subset - deterministic across polls.
+	if w.Pods[0].Name != "big-0000" || w.Pods[len(w.Pods)-1].Name != fmt.Sprintf("big-%04d", maxPodsPerWorkload-1) {
+		t.Errorf("pod window = %s..%s, want big-0000..big-%04d", w.Pods[0].Name, w.Pods[len(w.Pods)-1].Name, maxPodsPerWorkload-1)
 	}
 }
 

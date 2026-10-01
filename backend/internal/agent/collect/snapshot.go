@@ -23,6 +23,13 @@ var standardResources = map[corev1.ResourceName]bool{
 	corev1.ResourceCPU: true, corev1.ResourceMemory: true, corev1.ResourcePods: true, corev1.ResourceEphemeralStorage: true,
 }
 
+// maxPodsPerWorkload bounds how many of a single workload's own pods are reported - the same reasoning
+// (a bounded set beats an ever-growing one) as probe's maxTunnelRoutes. A DaemonSet on a very large
+// cluster, or a runaway ReplicaSet, could otherwise make one workload's facts grow without bound; this
+// still comfortably covers every realistic replica count this feature actually needs to show scaling
+// events for, and the sort-by-name below keeps which pods survive the cap deterministic.
+const maxPodsPerWorkload = 500
+
 func each[T any](items []any, fn func(T)) {
 	for _, it := range items {
 		if v, ok := it.(T); ok {
@@ -310,6 +317,9 @@ func (c *Collector) workloads(pods []*corev1.Pod) ([]*continuumv1.WorkloadFacts,
 		}
 		sort.Strings(w.facts.NodeNames)
 		sort.Slice(w.facts.Pods, func(i, j int) bool { return w.facts.Pods[i].Name < w.facts.Pods[j].Name })
+		if len(w.facts.Pods) > maxPodsPerWorkload {
+			w.facts.Pods = w.facts.Pods[:maxPodsPerWorkload]
+		}
 	}
 	c.joinServices(all)
 	c.joinStorage(all)
