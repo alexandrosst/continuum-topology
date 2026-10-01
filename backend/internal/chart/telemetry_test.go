@@ -818,7 +818,11 @@ func TestTelemetryAcceleratorsApplyScopeNoopWithoutGlobalScope(t *testing.T) {
 }
 
 func TestTelemetryExporterMTLSWiresCertAndKey(t *testing.T) {
+	// resourceUsage alone only brings up the host DaemonSet collector (agent.telemetryHostEnabled) - this test
+	// checks mTLS wiring on both collectors below, so kubernetesState (a cluster-scoped signal) is also on,
+	// to bring up the cluster Deployment collector too (agent.telemetryClusterEnabled).
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=collector.example:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true",
+		"--set", "telemetry.kubernetesState.metrics.enabled=true",
 		"--set", "telemetry.export.otlp.tls.mtls.enabled=true", "--set", "telemetry.export.otlp.tls.mtls.secretName=op-export-mtls")
 
 	for _, cm := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
