@@ -3,6 +3,7 @@ package netid
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -106,11 +107,11 @@ func TestMatchHostSuffixMatching(t *testing.T) {
 		ok     bool
 		shared bool // whether this match is expected to be a third-party CDN (Shared) or a single owner's own infra
 	}{
-		{"lax17s79-in-f14.1e100.net", "Google", true, false},          // Google's own infra: collapses to one node
-		{"LAX17S79-IN-F14.1E100.NET.", "Google", true, false},         // case-insensitive, trailing dot trimmed
-		{"1e100.net", "Google", true, false},                          // the bare zone apex itself also matches
-		{"notreally1e100.net", "", false, false},                      // must match on a label boundary, not a raw substring
-		{"ec2-1-2-3-4.compute-1.amazonaws.com", "AWS", true, true},    // a genuine third-party CDN: stays per-address
+		{"lax17s79-in-f14.1e100.net", "Google", true, false},       // Google's own infra: collapses to one node
+		{"LAX17S79-IN-F14.1E100.NET.", "Google", true, false},      // case-insensitive, trailing dot trimmed
+		{"1e100.net", "Google", true, false},                       // the bare zone apex itself also matches
+		{"notreally1e100.net", "", false, false},                   // must match on a label boundary, not a raw substring
+		{"ec2-1-2-3-4.compute-1.amazonaws.com", "AWS", true, true}, // a genuine third-party CDN: stays per-address
 		{"d111111abcdef8.cloudfront.net", "Amazon CloudFront", true, true},
 		{"raw-cdn-13.githubusercontent.com", "GitHub", true, true},
 		{"api.github.com", "", false, false}, // covered by Lookup's CIDR table instead, not this suffix table
@@ -124,5 +125,42 @@ func TestMatchHostSuffixMatching(t *testing.T) {
 		if ok && m.Shared != c.shared {
 			t.Errorf("MatchHost(%q) matched %q with Shared=%v, want %v - see hostSuffixes' own doc comment for why Google's own infra is the deliberate exception", c.host, m.Name, m.Shared, c.shared)
 		}
+	}
+}
+
+// Pins the fix for the cache's unbounded growth: nothing ever removed an entry just because the IP it
+// belonged to stopped appearing in any topology, so a long-running server resolving a long tail of distinct
+// external addresses would grow this map forever. Primes the cache directly past maxCacheEntries (real DNS
+// lookups to get there would make this test absurdly slow) so the very next resolve has real eviction work
+// to do, then asserts that work actually happens.
+func TestResolveCachedBoundsCacheSizeUnderSustainedNewAddresses(t *testing.T) {
+	defer SetLookupAddrForTest(func(ctx context.Context, ip string) ([]string, error) {
+		return []string{"host.example.com."}, nil
+	})()
+
+	cacheMu.Lock()
+	now := time.Now()
+	for i := 0; i < maxCacheEntries+50; i++ {
+		ip := fmt.Sprintf("10.0.%d.%d", i/256, i%256)
+		cache[ip] = cacheEntry{host: "old", ok: true, expires: now.Add(time.Duration(i) * time.Millisecond)}
+	}
+	cacheMu.Unlock()
+
+	// One more resolution should trigger evictLocked and bring the cache back under the cap.
+	_, _ = ResolveCached("192.0.2.1")
+
+	deadline := time.Now().Add(2 * time.Second)
+	var n int
+	for time.Now().Before(deadline) {
+		cacheMu.Lock()
+		n = len(cache)
+		cacheMu.Unlock()
+		if n <= maxCacheEntries {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if n > maxCacheEntries {
+		t.Fatalf("cache has %d entries after a resolve pushed it over the cap, want <= %d", n, maxCacheEntries)
 	}
 }

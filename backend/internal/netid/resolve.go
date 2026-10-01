@@ -3,6 +3,7 @@ package netid
 import (
 	"context"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,10 +22,20 @@ var (
 )
 
 const (
-	resolveTimeout = 3 * time.Second      // bounds one query; a hung/slow resolver can't leak a goroutine forever
-	positiveTTL    = 24 * time.Hour       // a PTR record rarely changes; no need to re-ask often
-	negativeTTL    = 10 * time.Minute     // a failed/empty lookup is retried sooner, in case it was transient
-	maxInFlight    = 8                    // caps concurrent outbound DNS queries across all orgs sharing this process
+	resolveTimeout = 3 * time.Second  // bounds one query; a hung/slow resolver can't leak a goroutine forever
+	positiveTTL    = 24 * time.Hour   // a PTR record rarely changes; no need to re-ask often
+	negativeTTL    = 10 * time.Minute // a failed/empty lookup is retried sooner, in case it was transient
+	maxInFlight    = 8                // caps concurrent outbound DNS queries across all orgs sharing this process
+
+	// maxCacheEntries bounds the cache's total memory. Nothing else shrinks it: an entry is kept forever
+	// once resolved, even long after the IP that earned it stops appearing in any topology, because
+	// ResolveCached has no signal for "nobody asks about this address anymore" - only resolve() ever
+	// touches an entry again, and only if the same IP comes back. A server that runs for weeks and sees a
+	// long tail of distinct external addresses would otherwise grow this map without limit. evictLocked
+	// enforces the cap instead; evictTargetFrac is how far under the cap it brings things back down to, so
+	// a server sitting right at the cap doesn't re-scan the whole map on every single resolve().
+	maxCacheEntries = 10000
+	evictTargetFrac = 0.9
 )
 
 type cacheEntry struct {
@@ -103,7 +114,42 @@ func resolve(ip string, lookup func(ctx context.Context, ip string) ([]string, e
 	cacheMu.Lock()
 	cache[ip] = cacheEntry{host: host, ok: ok, expires: time.Now().Add(ttl)}
 	delete(inFlight, ip)
+	evictLocked()
 	cacheMu.Unlock()
+}
+
+// evictLocked keeps the cache under maxCacheEntries. Called with cacheMu already held, and cheap to call on
+// every resolve() since it does nothing at all until the cache actually reaches the cap - this is a rare
+// cold path, not a per-request cost: a DNS lookup just completed a few lines above, so one occasional O(n
+// log n) sort afterward is immaterial next to it.
+//
+// Already-expired entries are removed first: they're the cheapest, least controversial win, since a stale
+// entry past its TTL is going to be re-resolved from scratch next time it's asked for anyway. If that alone
+// isn't enough, the remaining entries are sorted oldest-expiring-first and trimmed down to evictTargetFrac
+// of the cap - "oldest expiry" is a reasonable proxy for "resolved longest ago and least likely to still be
+// relevant", since nothing here tracks true last-access time.
+func evictLocked() {
+	if len(cache) <= maxCacheEntries {
+		return
+	}
+	now := time.Now()
+	for ip, e := range cache {
+		if now.After(e.expires) {
+			delete(cache, ip)
+		}
+	}
+	target := int(float64(maxCacheEntries) * evictTargetFrac)
+	if len(cache) <= target {
+		return
+	}
+	ips := make([]string, 0, len(cache))
+	for ip := range cache {
+		ips = append(ips, ip)
+	}
+	sort.Slice(ips, func(i, j int) bool { return cache[ips[i]].expires.Before(cache[ips[j]].expires) })
+	for _, ip := range ips[:len(ips)-target] {
+		delete(cache, ip)
+	}
 }
 
 // SetLookupAddrForTest swaps the function ResolveCached uses to perform a reverse-DNS query, so tests (in
