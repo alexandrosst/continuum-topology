@@ -157,7 +157,7 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		k := flowKey(f)
 		e := t.edges[k]
 		if e == nil {
-			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs}, FirstSeen: timestamppb.New(now)}
+			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs, Cwnd: f.Cwnd, PacingBps: f.PacingBps}, FirstSeen: timestamppb.New(now)}
 			t.edges[k] = e
 		}
 		e.LastSeen = timestamppb.New(now)
@@ -166,8 +166,9 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		e.BytesIn = satAdd(e.BytesIn, f.BytesIn)
 		e.Retransmits = satAdd(e.Retransmits, f.Retransmits)
 		e.SegsOut = satAdd(e.SegsOut, uint64(f.SegsOut))
+		e.BufferDrops = satAdd(e.BufferDrops, uint64(f.BufferDrops))
 		e.FailedAttempts = satAdd(e.FailedAttempts, f.FailedAttempts)
-		e.WindowSeconds, e.WindowConnections, e.WindowBytes, e.WindowRetransmits, e.WindowSegsOut, e.WindowFailedAttempts = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn), f.Retransmits, uint64(f.SegsOut), f.FailedAttempts
+		e.WindowSeconds, e.WindowConnections, e.WindowBytes, e.WindowRetransmits, e.WindowSegsOut, e.WindowBufferDrops, e.WindowFailedAttempts = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn), f.Retransmits, uint64(f.SegsOut), uint64(f.BufferDrops), f.FailedAttempts
 		if f.BytesKnown {
 			e.Key.BytesKnown = true
 		}
@@ -189,6 +190,12 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		}
 		if f.HandshakeUs != 0 {
 			e.Key.HandshakeUs = f.HandshakeUs
+		}
+		if f.Cwnd != 0 {
+			e.Key.Cwnd = f.Cwnd
+		}
+		if f.PacingBps != 0 {
+			e.Key.PacingBps = f.PacingBps
 		}
 		if f.SniHost != "" {
 			e.Key.SniHost = f.SniHost // a gauge too, for the same reason as Iface/RttUs above
@@ -628,7 +635,14 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		if e.Key.HandshakeUs != 0 {
 			d.HandshakeMs = float64(e.Key.HandshakeUs) / 1000
 		}
+		if e.Key.Cwnd != 0 {
+			d.CwndSegments = e.Key.Cwnd
+		}
+		if e.Key.PacingBps != 0 {
+			d.PacingBps = e.Key.PacingBps
+		}
 		d.Retransmits = satAdd(d.Retransmits, e.Retransmits)
+		d.BufferDrops = satAdd(d.BufferDrops, e.BufferDrops)
 		d.FailedAttempts = satAdd(d.FailedAttempts, e.FailedAttempts)
 		if e.Key.SniHost != "" {
 			d.SniHost = e.Key.SniHost

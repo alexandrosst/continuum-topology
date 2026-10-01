@@ -510,6 +510,39 @@ func TestDependencyStatsIncludeJitterHandshakeAndLossPct(t *testing.T) {
 	}
 }
 
+// TestDependencyStatsIncludeCwndPacingAndBufferDrops is Part R's remaining three fields:
+// CwndSegments/PacingBps are gauges carried through Key.cwnd/Key.pacing_bps the same way RttMs/JitterMs
+// already are, and BufferDrops is summed across every FlowEdge folded into the dependency, the same way
+// Retransmits/FailedAttempts already are.
+func TestDependencyStatsIncludeCwndPacingAndBufferDrops(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	x, y := "a/Deployment/x", "a/Deployment/y"
+	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
+	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf",
+		Cwnd: 10, PacingBps: 125000, BufferDrops: 3}
+	feed(&c, now, 60, f)
+
+	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	var d *model.Dependency
+	for i := range deps {
+		if deps[i].Port == 5432 {
+			d = &deps[i]
+		}
+	}
+	if d == nil {
+		t.Fatal("dependency not found")
+	}
+	if d.CwndSegments != 10 {
+		t.Errorf("cwndSegments = %d, want 10", d.CwndSegments)
+	}
+	if d.PacingBps != 125000 {
+		t.Errorf("pacingBps = %d, want 125000", d.PacingBps)
+	}
+	if d.BufferDrops != 3 {
+		t.Errorf("bufferDrops = %d, want 3", d.BufferDrops)
+	}
+}
+
 // TestDependencyStatsIncludeFailedAttempts checks failed connection attempts surface all the way to
 // model.Dependency, the same way retransmits do (see TestDependencyStatsIncludeRetransmitsAndRTT).
 func TestDependencyStatsIncludeFailedAttempts(t *testing.T) {

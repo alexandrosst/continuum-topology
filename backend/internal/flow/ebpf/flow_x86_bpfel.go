@@ -33,6 +33,9 @@ type flowFlowVal struct {
 	RttUs             uint32
 	JitterUs          uint32
 	SegsOut           uint32
+	Cwnd              uint32
+	PacingBps         uint64
+	BufferDrops       uint32
 	HandshakeUs       uint32
 	FailedAttempts    uint64
 	FailedRefused     uint64
@@ -61,6 +64,8 @@ type flowSockInfo struct {
 	LastIn      uint64
 	LastRetrans uint32
 	LastSegsOut uint32
+	LastDrops   uint32
+	_           [4]byte
 	SynNs       uint64
 	Established uint8
 	_           [7]byte

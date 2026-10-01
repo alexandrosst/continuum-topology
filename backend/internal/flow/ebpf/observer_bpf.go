@@ -376,6 +376,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			sum.BytesIn += v.BytesIn
 			sum.Retransmits += v.Retransmits
 			sum.SegsOut += v.SegsOut
+			sum.BufferDrops += v.BufferDrops
 			sum.FailedAttempts += v.FailedAttempts
 			sum.FailedRefused += v.FailedRefused
 			sum.FailedTimeout += v.FailedTimeout
@@ -395,6 +396,14 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			// only the one time rather than resampled throughout the connection's life.
 			if v.HandshakeUs != 0 {
 				sum.HandshakeUs = v.HandshakeUs
+			}
+			// cwnd/pacing_bps are gauges too, sampled at the exact same moments as RttUs/JitterUs - same
+			// "0 means no sample" single-writer treatment.
+			if v.Cwnd != 0 {
+				sum.Cwnd = v.Cwnd
+			}
+			if v.PacingBps != 0 {
+				sum.PacingBps = v.PacingBps
 			}
 			// Every CPU that ever handled this socket's traffic put_iface'd the same route, so any
 			// non-empty reading is as good as another; take the first rather than requiring them to agree,
@@ -423,6 +432,9 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			JitterUs:          sum.JitterUs,
 			SegsOut:           sum.SegsOut,
 			HandshakeUs:       sum.HandshakeUs,
+			Cwnd:              sum.Cwnd,
+			PacingBps:         sum.PacingBps,
+			BufferDrops:       sum.BufferDrops,
 			FailedAttempts:    sum.FailedAttempts,
 			FailedRefused:     sum.FailedRefused,
 			FailedTimeout:     sum.FailedTimeout,

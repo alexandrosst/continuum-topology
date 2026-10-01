@@ -675,6 +675,19 @@ export interface Dependency {
    * cost is a real, visible part of the first request's latency. A gauge like rttMs/jitterMs; unset means
    * no handshake has completed since the collector started watching this edge (or it's UDP). */
   handshakeMs?: number
+  /** The kernel's own current congestion window, in segments (tcp_sock.snd_cwnd) - a gauge, read
+   * alongside pacingBps to say what the kernel itself currently believes this connection's send rate is
+   * bounded by. Unset means no sample yet. */
+  cwndSegments?: number
+  /** The pacing rate TCP's own congestion control last set, bytes/sec (sock.sk_pacing_rate) - a gauge,
+   * same treatment as cwndSegments. Unset means no pacer is active yet (a very young connection), not
+   * "idle". */
+  pacingBps?: number
+  /** Cumulative receive-side buffer drops for this dependency, from the kernel's own per-socket counter
+   * - summed the same way retransmits/failedAttempts are. A different failure mode from retransmits: the
+   * receiving application not draining its socket fast enough, not the network losing a packet in
+   * transit. Always 0 on a conntrack-only edge, where it means "not measured". */
+  bufferDrops?: number
   /** How the far end was identified, when it was not certain. */
   note?: string
   connections?: number

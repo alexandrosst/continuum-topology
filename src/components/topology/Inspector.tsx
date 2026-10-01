@@ -1058,6 +1058,23 @@ export default function Inspector({
                 ) : undefined}
               </Maybe>
               <Maybe label="Window">{s.windowSec ? `${Math.round(s.windowSec / 60) || '<1'} min` : undefined}</Maybe>
+              <Maybe label="Buffer drops">
+                {d.via === 'ebpf' && d.bufferDrops ? (
+                  <span title="Receive-side buffer drops, from the kernel's own per-socket counter - the receiving application not draining its socket fast enough, not the network losing a packet in transit.">
+                    {d.bufferDrops} total
+                  </span>
+                ) : undefined}
+              </Maybe>
+              <Maybe label="Congestion window">
+                {d.via === 'ebpf' && d.cwndSegments !== undefined ? (
+                  <span title="The kernel's own current congestion window, in segments - read alongside the pacing rate below to say what's currently bounding this connection's send rate.">
+                    {d.cwndSegments} segments
+                  </span>
+                ) : undefined}
+              </Maybe>
+              <Maybe label="Pacing rate">
+                {d.via === 'ebpf' && d.pacingBps !== undefined ? <span>{bytesPerSec(d.pacingBps)}</span> : undefined}
+              </Maybe>
               {d.stale && <p className="mt-1 text-xs text-warn">No traffic since {ago(d.lastSeen)}.</p>}
             </>
           ) : (

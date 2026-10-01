@@ -3732,7 +3732,20 @@ type RawFlow struct {
 	// ongoing steady-state round trip sampled throughout the connection's life. 0 means no sample (the
 	// connection was already established when this collector started watching, or this is a
 	// conntrack-derived report), not "instant".
-	HandshakeUs   uint32 `protobuf:"varint,21,opt,name=handshake_us,json=handshakeUs,proto3" json:"handshake_us,omitempty"`
+	HandshakeUs uint32 `protobuf:"varint,21,opt,name=handshake_us,json=handshakeUs,proto3" json:"handshake_us,omitempty"`
+	// The kernel's own congestion window right now, in segments (struct tcp_sock.snd_cwnd) - a gauge, same
+	// 0-means-no-sample convention as rtt_us/jitter_us, read at the same moments. Always 0 on a
+	// conntrack-derived report, which has no socket to read this from.
+	Cwnd uint32 `protobuf:"varint,22,opt,name=cwnd,proto3" json:"cwnd,omitempty"`
+	// The pacing rate TCP's own congestion control last set for this socket, bytes/sec (struct
+	// sock.sk_pacing_rate) - a gauge, same treatment as cwnd right above; 0 while no pacer is active yet
+	// (e.g. a very young connection), not "idle".
+	PacingBps uint64 `protobuf:"varint,23,opt,name=pacing_bps,json=pacingBps,proto3" json:"pacing_bps,omitempty"`
+	// Growth in this socket's own receive-side drops since the previous report (struct sock.sk_drops) -
+	// summed like retransmits/segs_out, not a gauge. A different failure mode from retransmits: the local
+	// application not draining its socket fast enough, not the network dropping a packet in transit.
+	// Always 0 on a conntrack-derived report.
+	BufferDrops   uint32 `protobuf:"varint,24,opt,name=buffer_drops,json=bufferDrops,proto3" json:"buffer_drops,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3910,6 +3923,27 @@ func (x *RawFlow) GetSegsOut() uint32 {
 func (x *RawFlow) GetHandshakeUs() uint32 {
 	if x != nil {
 		return x.HandshakeUs
+	}
+	return 0
+}
+
+func (x *RawFlow) GetCwnd() uint32 {
+	if x != nil {
+		return x.Cwnd
+	}
+	return 0
+}
+
+func (x *RawFlow) GetPacingBps() uint64 {
+	if x != nil {
+		return x.PacingBps
+	}
+	return 0
+}
+
+func (x *RawFlow) GetBufferDrops() uint32 {
+	if x != nil {
+		return x.BufferDrops
 	}
 	return 0
 }
@@ -4103,7 +4137,14 @@ type Flow struct {
 	SegsOut uint32 `protobuf:"varint,18,opt,name=segs_out,json=segsOut,proto3" json:"segs_out,omitempty"`
 	// How long this connection took to go from its first SYN to ESTABLISHED - see RawFlow.handshake_us. A
 	// gauge set once per connection; carried through attribution unchanged.
-	HandshakeUs   uint32 `protobuf:"varint,19,opt,name=handshake_us,json=handshakeUs,proto3" json:"handshake_us,omitempty"`
+	HandshakeUs uint32 `protobuf:"varint,19,opt,name=handshake_us,json=handshakeUs,proto3" json:"handshake_us,omitempty"`
+	// The congestion window observed in this report - see RawFlow.cwnd. A gauge, same treatment as rtt_us.
+	Cwnd uint32 `protobuf:"varint,20,opt,name=cwnd,proto3" json:"cwnd,omitempty"`
+	// The pacing rate observed in this report - see RawFlow.pacing_bps. A gauge, same treatment as rtt_us.
+	PacingBps uint64 `protobuf:"varint,21,opt,name=pacing_bps,json=pacingBps,proto3" json:"pacing_bps,omitempty"`
+	// Receive-side buffer drops observed in this report - see RawFlow.buffer_drops. Carried through
+	// unchanged so the Aggregator can sum it the same way segs_out is summed, not a gauge.
+	BufferDrops   uint32 `protobuf:"varint,22,opt,name=buffer_drops,json=bufferDrops,proto3" json:"buffer_drops,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4267,6 +4308,27 @@ func (x *Flow) GetSegsOut() uint32 {
 func (x *Flow) GetHandshakeUs() uint32 {
 	if x != nil {
 		return x.HandshakeUs
+	}
+	return 0
+}
+
+func (x *Flow) GetCwnd() uint32 {
+	if x != nil {
+		return x.Cwnd
+	}
+	return 0
+}
+
+func (x *Flow) GetPacingBps() uint64 {
+	if x != nil {
+		return x.PacingBps
+	}
+	return 0
+}
+
+func (x *Flow) GetBufferDrops() uint32 {
+	if x != nil {
+		return x.BufferDrops
 	}
 	return 0
 }
@@ -4449,8 +4511,13 @@ type FlowEdge struct {
 	// already gets, not running totals.
 	SegsOut       uint64 `protobuf:"varint,15,opt,name=segs_out,json=segsOut,proto3" json:"segs_out,omitempty"`
 	WindowSegsOut uint64 `protobuf:"varint,16,opt,name=window_segs_out,json=windowSegsOut,proto3" json:"window_segs_out,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Cumulative receive-side buffer drops over the life of this edge, and in the most recent window - see
+	// RawFlow.buffer_drops; summed the same way retransmits/segs_out are. cwnd and pacing_bps, by contrast,
+	// live on key.cwnd/key.pacing_bps, not here - gauges, the same treatment key.rtt_us already gets.
+	BufferDrops       uint64 `protobuf:"varint,17,opt,name=buffer_drops,json=bufferDrops,proto3" json:"buffer_drops,omitempty"`
+	WindowBufferDrops uint64 `protobuf:"varint,18,opt,name=window_buffer_drops,json=windowBufferDrops,proto3" json:"window_buffer_drops,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *FlowEdge) Reset() {
@@ -4591,6 +4658,20 @@ func (x *FlowEdge) GetSegsOut() uint64 {
 func (x *FlowEdge) GetWindowSegsOut() uint64 {
 	if x != nil {
 		return x.WindowSegsOut
+	}
+	return 0
+}
+
+func (x *FlowEdge) GetBufferDrops() uint64 {
+	if x != nil {
+		return x.BufferDrops
+	}
+	return 0
+}
+
+func (x *FlowEdge) GetWindowBufferDrops() uint64 {
+	if x != nil {
+		return x.WindowBufferDrops
 	}
 	return 0
 }
@@ -5439,7 +5520,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2\x18.continuum.v1.PathResultR\aresults\x12\x18\n" +
 	"\arefused\x18\x02 \x01(\rR\arefused\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x93\x05\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xe9\x05\n" +
 	"\aRawFlow\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\bR\x06client\x12\x19\n" +
 	"\blocal_ip\x18\x02 \x01(\tR\alocalIp\x12\x17\n" +
@@ -5462,7 +5543,11 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x0edns_query_name\x18\x12 \x01(\tR\fdnsQueryName\x12\x1b\n" +
 	"\tjitter_us\x18\x13 \x01(\rR\bjitterUs\x12\x19\n" +
 	"\bsegs_out\x18\x14 \x01(\rR\asegsOut\x12!\n" +
-	"\fhandshake_us\x18\x15 \x01(\rR\vhandshakeUs\"\xc1\x01\n" +
+	"\fhandshake_us\x18\x15 \x01(\rR\vhandshakeUs\x12\x12\n" +
+	"\x04cwnd\x18\x16 \x01(\rR\x04cwnd\x12\x1d\n" +
+	"\n" +
+	"pacing_bps\x18\x17 \x01(\x04R\tpacingBps\x12!\n" +
+	"\fbuffer_drops\x18\x18 \x01(\rR\vbufferDrops\"\xc1\x01\n" +
 	"\n" +
 	"FlowReport\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
@@ -5481,7 +5566,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"UNRESOLVED\x10\x00\x12\f\n" +
 	"\bWORKLOAD\x10\x01\x12\b\n" +
 	"\x04NODE\x10\x02\x12\f\n" +
-	"\bEXTERNAL\x10\x03\"\xd1\x04\n" +
+	"\bEXTERNAL\x10\x03\"\xa7\x05\n" +
 	"\x04Flow\x12,\n" +
 	"\x03src\x18\x01 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03src\x12,\n" +
 	"\x03dst\x18\x02 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03dst\x12\x12\n" +
@@ -5503,7 +5588,11 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x0fdns_query_names\x18\x10 \x03(\tR\rdnsQueryNames\x12\x1b\n" +
 	"\tjitter_us\x18\x11 \x01(\rR\bjitterUs\x12\x19\n" +
 	"\bsegs_out\x18\x12 \x01(\rR\asegsOut\x12!\n" +
-	"\fhandshake_us\x18\x13 \x01(\rR\vhandshakeUs\"\\\n" +
+	"\fhandshake_us\x18\x13 \x01(\rR\vhandshakeUs\x12\x12\n" +
+	"\x04cwnd\x18\x14 \x01(\rR\x04cwnd\x12\x1d\n" +
+	"\n" +
+	"pacing_bps\x18\x15 \x01(\x04R\tpacingBps\x12!\n" +
+	"\fbuffer_drops\x18\x16 \x01(\rR\vbufferDrops\"\\\n" +
 	"\rCollectorInfo\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12\x1f\n" +
@@ -5516,7 +5605,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x05flows\x18\x04 \x03(\v2\x12.continuum.v1.FlowR\x05flows\x12;\n" +
 	"\n" +
 	"collectors\x18\x05 \x03(\v2\x1b.continuum.v1.CollectorInfoR\n" +
-	"collectors\"\x92\x05\n" +
+	"collectors\"\xe5\x05\n" +
 	"\bFlowEdge\x12$\n" +
 	"\x03key\x18\x01 \x01(\v2\x12.continuum.v1.FlowR\x03key\x129\n" +
 	"\n" +
@@ -5535,7 +5624,9 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x16window_failed_attempts\x18\r \x01(\x04R\x14windowFailedAttempts\x12&\n" +
 	"\x0fdns_query_names\x18\x0e \x03(\tR\rdnsQueryNames\x12\x19\n" +
 	"\bsegs_out\x18\x0f \x01(\x04R\asegsOut\x12&\n" +
-	"\x0fwindow_segs_out\x18\x10 \x01(\x04R\rwindowSegsOut\"9\n" +
+	"\x0fwindow_segs_out\x18\x10 \x01(\x04R\rwindowSegsOut\x12!\n" +
+	"\fbuffer_drops\x18\x11 \x01(\x04R\vbufferDrops\x12.\n" +
+	"\x13window_buffer_drops\x18\x12 \x01(\x04R\x11windowBufferDrops\"9\n" +
 	"\tFlowTable\x12,\n" +
 	"\x05edges\x18\x01 \x03(\v2\x16.continuum.v1.FlowEdgeR\x05edges\"\x82\x06\n" +
 	"\vDiagnostics\x12#\n" +

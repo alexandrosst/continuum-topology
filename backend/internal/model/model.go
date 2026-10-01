@@ -567,7 +567,21 @@ type Dependency struct {
 	// first SYN to ESTABLISHED, in milliseconds - a gauge set once per connection (the latest one to
 	// establish wins, the same "latest sample replaces the last" treatment as every other gauge here),
 	// distinct from RttMs, which is the ongoing steady-state round trip. 0 means no sample.
-	HandshakeMs float64          `json:"handshakeMs,omitempty"`
+	HandshakeMs float64 `json:"handshakeMs,omitempty"`
+	// CwndSegments is the kernel's own current congestion window, in segments, from the same
+	// congestion-control bookkeeping RttMs already reads - a gauge, same "0 means no sample" treatment.
+	// Read alongside PacingBps: together they say what the kernel itself currently believes this
+	// connection's send rate is bounded by.
+	CwndSegments uint32 `json:"cwndSegments,omitempty"`
+	// PacingBps is the pacing rate TCP's own congestion control last set for this edge, bytes/sec - a
+	// gauge, same treatment as CwndSegments right above. 0 means no pacer is active yet (e.g. a very
+	// young connection), not "idle".
+	PacingBps uint64 `json:"pacingBps,omitempty"`
+	// BufferDrops is the cumulative count of this edge's receive-side buffer drops, from the kernel's own
+	// per-socket counter - summed the same way Retransmits/FailedAttempts are. A different failure mode
+	// from Retransmits: the receiving application not draining its socket fast enough, not the network
+	// losing a packet in transit. Always 0 on a conntrack-only edge, where it means "not measured".
+	BufferDrops uint64           `json:"bufferDrops,omitempty"`
 	Note        string           `json:"note,omitempty"`
 	Connections uint64           `json:"connections,omitempty"`
 	Bytes       uint64           `json:"bytes,omitempty"`

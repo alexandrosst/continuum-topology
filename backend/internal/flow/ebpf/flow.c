@@ -56,6 +56,16 @@ struct sock {
 	// ECONNRESET, EHOSTUNREACH/ENETUNREACH) - the kernel's own diagnosis, read only when the socket is
 	// about to close having never gotten there. See add_failed.
 	int sk_err;
+	// Cumulative receive-side drops (the real kernel type is atomic_t, a struct wrapping one int - binary
+	// compatible with a plain int for a read-only counter sample). Incremented when this socket's own
+	// receive buffer was full and a packet had to be dropped - for both TCP and UDP. A different failure
+	// mode from retransmits (the sender's view of loss on the wire): this is the local application not
+	// draining its socket fast enough, not the network losing anything in transit.
+	int sk_drops;
+	// The pacing rate TCP's own congestion control last set for this socket, bytes/sec (0 = no pacer
+	// active yet, e.g. a very young connection). Read alongside tcp_sock.snd_cwnd below to say whether a
+	// connection is currently window-limited or pacing-limited.
+	unsigned long sk_pacing_rate;
 } __attribute__((preserve_access_index));
 
 struct socket {
@@ -105,6 +115,11 @@ struct tcp_sock {
 	// percentage downstream (retransmits / segs_out) instead of only ever showing a raw retransmit count
 	// with nothing to divide it by.
 	__u32 segs_out;
+	// Current congestion window, in segments. Kernel 5.18 moved in-tree C code that touches this onto
+	// tcp_snd_cwnd()/tcp_snd_cwnd_set() accessor functions instead of the bare field, but CO-RE here
+	// relocates by the field's own BTF name, not by which C helper wraps it in kernel source - the field
+	// itself is unchanged by that patch, so this read is unaffected by kernel version either side of it.
+	__u32 snd_cwnd;
 } __attribute__((preserve_access_index));
 
 // One direction of one relationship. Addresses are 16 bytes; IPv4 is stored as ::ffff:a.b.c.d.
@@ -138,6 +153,16 @@ struct flow_val {
 	// never divided here, since 0 segs_out must stay "no data to compute a percentage from", not a
 	// fabricated 0%.
 	__u32 segs_out;
+	// cwnd/pacing_bps: the kernel's own view of what is currently limiting this connection's send rate -
+	// gauges, same latest-wins/0-means-no-sample treatment as rtt_us/jitter_us, sampled at the same
+	// moments. cwnd is tcp_sock.snd_cwnd in segments; pacing_bps is sock.sk_pacing_rate, the pacer's
+	// target rate in bytes/sec (0 while no pacer is active yet).
+	__u32 cwnd;
+	__u64 pacing_bps;
+	// buffer_drops: sock.sk_drops' growth since this socket was last accounted - summed like retransmits,
+	// not a gauge. A different failure mode from retransmits: this socket's own receive buffer overflowed
+	// because nothing drained it fast enough, not the network dropping a packet in transit.
+	__u32 buffer_drops;
 	// handshake_us: how long this one connection took to go from its first SYN to ESTABLISHED - a gauge
 	// set exactly once, at the moment a socket reaches ESTABLISHED (see on_state), never touched again by
 	// this same socket's later traffic. Distinct from rtt_us, which is the ongoing steady-state round
@@ -164,6 +189,8 @@ struct sock_info {
 	__u64 last_in;
 	__u32 last_retrans;
 	__u32 last_segs_out;
+	// sock.sk_drops at the last time this socket was accounted - diffed the same way last_retrans is.
+	__u32 last_drops;
 	// bpf_ktime_get_ns() at the moment this connection attempt was first seen (SYN_SENT/SYN_RECV) - the
 	// clock handshake_us is measured from. Set once, there, and read back (before this entry is
 	// overwritten) the moment the same socket reaches ESTABLISHED; never touched afterwards.
@@ -232,7 +259,7 @@ static __always_inline void put_iface(struct flow_val *v, struct sock *sk) {
 	bpf_probe_read_kernel_str(v->ifname, sizeof(v->ifname), dev->name);
 }
 
-static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us) {
+static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us, __u32 cwnd, __u64 pacing_bps, __u32 buffer_drops) {
 	struct flow_val zero = {};
 	struct flow_val *v = bpf_map_lookup_elem(&flows, key);
 	if (!v) {
@@ -260,6 +287,11 @@ static __always_inline void add_flow(const struct flow_key *key, struct sock *sk
 	v->segs_out += segs_out;
 	if (handshake_us)
 		v->handshake_us = handshake_us;
+	if (cwnd)
+		v->cwnd = cwnd;
+	if (pacing_bps)
+		v->pacing_bps = pacing_bps;
+	v->buffer_drops += buffer_drops;
 	put_iface(v, sk);
 }
 
@@ -356,6 +388,10 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 			si.last_retrans = tp->total_retrans;
 			si.last_segs_out = tp->segs_out;
 		}
+		// sk_drops lives on sock, not tcp_sock - read via the original sk pointer with bpf_probe_read_kernel,
+		// the same defensive treatment this file already gives sk's own scalar fields outside __sk_common
+		// (see sk_err's read in the TCP_CLOSE branch below).
+		bpf_probe_read_kernel(&si.last_drops, sizeof(si.last_drops), &sk->sk_drops);
 		if (bpf_map_update_elem(&socks, &id, &si, BPF_ANY) != 0) {
 			count_lost();
 			return 0;
@@ -363,7 +399,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// Counted now, so a connection that lives for days is a dependency from its first second. No RTT/
 		// jitter sample exists yet this early (0, unknown, rather than a guess); handshake_us, by contrast,
 		// is known exactly right now - this is the only moment it ever will be.
-		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, handshake_us);
+		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, handshake_us, 0, 0, 0);
 		return 0;
 	}
 
@@ -400,10 +436,19 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		__u32 dretrans = retrans > si->last_retrans ? retrans - si->last_retrans : 0;
 		__u32 segs_out = tp->segs_out;
 		__u32 dsegs = segs_out > si->last_segs_out ? segs_out - si->last_segs_out : 0;
+		// sk_drops/sk_pacing_rate live on sock, not tcp_sock - read via the original sk pointer with
+		// bpf_probe_read_kernel, the same defensive treatment this file already gives sk's own scalar
+		// fields outside __sk_common (see sk_err just above).
+		int drops = 0;
+		unsigned long pacing_rate = 0;
+		bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops);
+		bpf_probe_read_kernel(&pacing_rate, sizeof(pacing_rate), &sk->sk_pacing_rate);
+		__u32 ddrops = (__u32)drops > si->last_drops ? (__u32)drops - si->last_drops : 0;
 		// srtt_us/mdev_us are kept as 8x/4x fixed-point averages respectively (see struct tcp_sock's
 		// comment); >>3 and >>2 recover microseconds. A connection that never left slow start can close
 		// with no sample of either at all (0).
-		add_flow(&si->key, sk, 0, out - si->last_out, in - si->last_in, dretrans, tp->srtt_us >> 3, tp->mdev_us >> 2, dsegs, 0);
+		add_flow(&si->key, sk, 0, out - si->last_out, in - si->last_in, dretrans, tp->srtt_us >> 3, tp->mdev_us >> 2, dsegs, 0,
+		         tp->snd_cwnd, (__u64)pacing_rate, ddrops);
 	}
 	bpf_map_delete_elem(&socks, &id);
 	return 0;
@@ -436,15 +481,21 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 	__u64 out = 0, in = 0;
 	if (bpf_probe_read_kernel(&out, sizeof(out), &tp->bytes_acked) != 0 || bpf_probe_read_kernel(&in, sizeof(in), &tp->bytes_received) != 0)
 		return 0;
-	__u32 retrans = 0, srtt_raw = 0, mdev_raw = 0, segs_out = 0;
+	__u32 retrans = 0, srtt_raw = 0, mdev_raw = 0, segs_out = 0, cwnd = 0;
+	int drops = 0;
+	unsigned long pacing_rate = 0;
 	// Best-effort: a socket this old is already tracked by role/key regardless of whether these reads
-	// succeed, so a failure here just means no retransmit/RTT/jitter/loss update this round, not a
-	// dropped flow.
+	// succeed, so a failure here just means no retransmit/RTT/jitter/loss/cwnd/pacing/drops update this
+	// round, not a dropped flow.
 	bpf_probe_read_kernel(&retrans, sizeof(retrans), &tp->total_retrans);
 	bpf_probe_read_kernel(&srtt_raw, sizeof(srtt_raw), &tp->srtt_us);
 	bpf_probe_read_kernel(&mdev_raw, sizeof(mdev_raw), &tp->mdev_us);
 	bpf_probe_read_kernel(&segs_out, sizeof(segs_out), &tp->segs_out);
-	if (out > si->last_out || in > si->last_in || retrans > si->last_retrans || segs_out > si->last_segs_out) {
+	bpf_probe_read_kernel(&cwnd, sizeof(cwnd), &tp->snd_cwnd);
+	bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops);
+	bpf_probe_read_kernel(&pacing_rate, sizeof(pacing_rate), &sk->sk_pacing_rate);
+	__u32 ddrops = (__u32)drops > si->last_drops ? (__u32)drops - si->last_drops : 0;
+	if (out > si->last_out || in > si->last_in || retrans > si->last_retrans || segs_out > si->last_segs_out || ddrops) {
 		__u64 dout = out > si->last_out ? out - si->last_out : 0;
 		__u64 din = in > si->last_in ? in - si->last_in : 0;
 		__u32 dretrans = retrans > si->last_retrans ? retrans - si->last_retrans : 0;
@@ -453,7 +504,8 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 		si->last_in = in > si->last_in ? in : si->last_in;
 		si->last_retrans = retrans > si->last_retrans ? retrans : si->last_retrans;
 		si->last_segs_out = segs_out > si->last_segs_out ? segs_out : si->last_segs_out;
-		add_flow(&si->key, sk, 0, dout, din, dretrans, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0);
+		si->last_drops = (__u32)drops > si->last_drops ? (__u32)drops : si->last_drops;
+		add_flow(&si->key, sk, 0, dout, din, dretrans, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0, cwnd, (__u64)pacing_rate, ddrops);
 	}
 	return 0;
 }

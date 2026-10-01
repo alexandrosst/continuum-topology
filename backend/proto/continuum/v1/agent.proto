@@ -672,6 +672,19 @@ message RawFlow {
   // connection was already established when this collector started watching, or this is a
   // conntrack-derived report), not "instant".
   uint32 handshake_us = 21;
+  // The kernel's own congestion window right now, in segments (struct tcp_sock.snd_cwnd) - a gauge, same
+  // 0-means-no-sample convention as rtt_us/jitter_us, read at the same moments. Always 0 on a
+  // conntrack-derived report, which has no socket to read this from.
+  uint32 cwnd = 22;
+  // The pacing rate TCP's own congestion control last set for this socket, bytes/sec (struct
+  // sock.sk_pacing_rate) - a gauge, same treatment as cwnd right above; 0 while no pacer is active yet
+  // (e.g. a very young connection), not "idle".
+  uint64 pacing_bps = 23;
+  // Growth in this socket's own receive-side drops since the previous report (struct sock.sk_drops) -
+  // summed like retransmits/segs_out, not a gauge. A different failure mode from retransmits: the local
+  // application not draining its socket fast enough, not the network dropping a packet in transit.
+  // Always 0 on a conntrack-derived report.
+  uint32 buffer_drops = 24;
 }
 
 message FlowReport {
@@ -740,6 +753,13 @@ message Flow {
   // How long this connection took to go from its first SYN to ESTABLISHED - see RawFlow.handshake_us. A
   // gauge set once per connection; carried through attribution unchanged.
   uint32 handshake_us = 19;
+  // The congestion window observed in this report - see RawFlow.cwnd. A gauge, same treatment as rtt_us.
+  uint32 cwnd = 20;
+  // The pacing rate observed in this report - see RawFlow.pacing_bps. A gauge, same treatment as rtt_us.
+  uint64 pacing_bps = 21;
+  // Receive-side buffer drops observed in this report - see RawFlow.buffer_drops. Carried through
+  // unchanged so the Aggregator can sum it the same way segs_out is summed, not a gauge.
+  uint32 buffer_drops = 22;
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
@@ -797,6 +817,11 @@ message FlowEdge {
   // already gets, not running totals.
   uint64 segs_out = 15;
   uint64 window_segs_out = 16;
+  // Cumulative receive-side buffer drops over the life of this edge, and in the most recent window - see
+  // RawFlow.buffer_drops; summed the same way retransmits/segs_out are. cwnd and pacing_bps, by contrast,
+  // live on key.cwnd/key.pacing_bps, not here - gauges, the same treatment key.rtt_us already gets.
+  uint64 buffer_drops = 17;
+  uint64 window_buffer_drops = 18;
 }
 
 message FlowTable {
