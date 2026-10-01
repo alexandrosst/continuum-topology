@@ -469,6 +469,14 @@ func TestTelemetryAcceleratorsBundleDcgmRendersDaemonSetWithNarrowSecurityContex
 	if !foundSysAdmin {
 		t.Errorf("dcgm-exporter should add SYS_ADMIN, got %+v", c.SecurityContext.Capabilities)
 	}
+	// Everything but SYS_ADMIN itself should be as narrow as every other container in this chart:
+	// nothing extra in the capability bounding set, and no privilege-escalation path.
+	if c.SecurityContext.Capabilities == nil || len(c.SecurityContext.Capabilities.Drop) != 1 || c.SecurityContext.Capabilities.Drop[0] != "ALL" {
+		t.Errorf("dcgm-exporter should drop ALL before adding SYS_ADMIN back, got %+v", c.SecurityContext.Capabilities)
+	}
+	if c.SecurityContext.AllowPrivilegeEscalation == nil || *c.SecurityContext.AllowPrivilegeEscalation {
+		t.Errorf("dcgm-exporter should set allowPrivilegeEscalation: false, got %+v", c.SecurityContext.AllowPrivilegeEscalation)
+	}
 	if len(c.Ports) != 1 || c.Ports[0].ContainerPort != 9400 {
 		t.Errorf("dcgm-exporter should expose port 9400, got %+v", c.Ports)
 	}

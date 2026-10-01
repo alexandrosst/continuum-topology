@@ -322,10 +322,20 @@ spec:
           # unless bundle-dcgm is actually selected; needs the NVIDIA driver and NVIDIA Container Toolkit
           # already installed on the node, which this chart cannot install for you - see
           # https://github.com/NVIDIA/dcgm-exporter.
+          # allowPrivilegeEscalation: false and capabilities.drop: ["ALL"] match every other container in
+          # this chart (see flow.yaml, probe.yaml) - dropping everything but the one capability actually
+          # needed costs nothing here regardless of what SYS_ADMIN itself is used for.
+          # readOnlyRootFilesystem is deliberately NOT set here, unlike those other containers: there is
+          # no GPU hardware in this project's own test/dev environment to confirm dcgm-exporter never
+          # writes anywhere on its own root filesystem, and guessing wrong would silently crash-loop every
+          # DaemonSet pod for anyone who actually enables this. Narrow it once that is verified against a
+          # real GPU node.
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
+            allowPrivilegeEscalation: false
             capabilities:
+              drop: ["ALL"]
               add: ["SYS_ADMIN"]
           ports:
             - {name: metrics, containerPort: 9400, protocol: TCP}
