@@ -1,6 +1,6 @@
 import { ChevronRight, Copy, Link2, Trash2, UserPlus } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { Button, ErrorBanner, Field, Input, Modal, PageHeader, Pill, Select, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, ErrorBanner, Field, Input, Modal, PageHeader, Pill, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, ApiError, grantable, ROLE_HELP, ROLE_LABEL, type Invite, type Member, type Role } from '@/lib/api'
 import { useServer } from '@/store/server'
 
@@ -123,6 +123,11 @@ export default function TeamPage() {
   const reloadOrgs = useServer((s) => s.reloadOrgs)
   const [members, setMembers] = useState<Member[]>([])
   const [invites, setInvites] = useState<Invite[]>([])
+  // Without this, the member/invite fetch this page fires on every mount left a brief but real window
+  // where `members` was still its initial `[]` - reading, wrongly, as "this org has no one in it" rather
+  // than "still loading", exactly the scenario RegionalOperatorsPage's own operatorsLoaded flag exists to
+  // avoid for the identical kind of org-scoped fetch.
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
   const [inviting, setInviting] = useState(false)
   const [invRole, setInvRole] = useState<Role>('viewer')
@@ -140,6 +145,8 @@ export default function TeamPage() {
       setError('')
     } catch (e) {
       setError(problem(e, 'Could not load the members.'))
+    } finally {
+      setLoaded(true)
     }
   }, [conn, canInvite])
   useEffect(() => {
@@ -179,6 +186,9 @@ export default function TeamPage() {
       />
       <ErrorLine text={error} />
 
+      {!loaded ? (
+        <TableSkeleton cols={['', '', '', '', '']} />
+      ) : (
       <Table>
         <thead>
           <tr><Th>Person</Th><Th>Role</Th><Th>Joined</Th><Th>Last sign-in</Th><Th /></tr>
@@ -215,11 +225,14 @@ export default function TeamPage() {
           })}
         </tbody>
       </Table>
+      )}
 
       {canInvite && (
         <section className="mt-10" aria-labelledby="inv-h">
           <h2 id="inv-h" className="mb-3 text-sm font-medium text-nb-300">Invitations</h2>
-          {invites.length === 0 ? (
+          {!loaded ? (
+            <TableSkeleton cols={['', '', '', '', '']} />
+          ) : invites.length === 0 ? (
             <p className="text-sm text-nb-500">None yet. An invitation is one link that lets one person join with the role you choose. It works once and expires after seven days.</p>
           ) : (
             <Table>
@@ -232,7 +245,7 @@ export default function TeamPage() {
                     <Td className="text-nb-300">{i.label || <span className="text-nb-500">anyone with the link</span>}</Td>
                     <Td><Pill>{ROLE_LABEL[i.role]}</Pill></Td>
                     <Td className="text-nb-500">{i.createdBy}</Td>
-                    <Td className="text-nb-500">{i.used ? `used by ${i.usedBy || 'someone'}` : i.expired ? 'expired' : `open until ${when(i.expiresAt)}`}</Td>
+                    <Td><Pill>{i.used ? `used by ${i.usedBy || 'someone'}` : i.expired ? 'expired' : `open until ${when(i.expiresAt)}`}</Pill></Td>
                     <Td className="text-right">
                       {!i.used && !i.expired && mine.includes(i.role) && (
                         <Button size="sm" variant="danger" onClick={() => void act(async () => { const c = conn(); if (c) await api.revokeInvite(c, i.id) }, 'Could not withdraw the invite.')}>Withdraw</Button>
