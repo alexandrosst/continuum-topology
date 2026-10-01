@@ -8,6 +8,7 @@ import { refuseEdit, useHistoryView, viewingThePast } from './history'
 import { useObserved } from './observed'
 import { seedTopology } from '@/lib/seed'
 import { applySuggestion } from '@/lib/suggestions'
+import type { ClusterLink } from '@/lib/types'
 import {
   DEFAULT_ORG,
   SCHEMA_VERSION,
@@ -478,8 +479,13 @@ export function usePaths() {
  * a past view honestly shows none, rather than a correlation recomputed against today's other clusters
  * and presented as if it were true back then.
  */
+// A stable reference for the "viewing history" case below, so a component memoizing on this return value
+// (TopologyPage's own `graph` useMemo, in particular - it rebuilds the whole canvas on a changed input)
+// doesn't see a "new" value, and recompute for no reason, on every render while browsing a past snapshot.
+const NO_CLUSTER_LINKS: ClusterLink[] = []
+
 export function useClusterLinks() {
   const live = useObserved((s) => s.clusterLinks)
   const past = useHistoryView((s) => s.snapshot)
-  return past ? [] : live
+  return past ? NO_CLUSTER_LINKS : live
 }
