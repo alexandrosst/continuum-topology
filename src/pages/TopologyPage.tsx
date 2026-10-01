@@ -58,10 +58,14 @@ import { useHistoryView } from '@/store/history'
 import { useClusterLinks, usePaths, useTopology } from '@/store/topology'
 
 /** Overlay (joined through a tunnel) vs. subnet (same flat network, no tunnel) - a cluster link's own
- *  two-colour palette, independent of the mesh/loss colours above it in precedence (see styledEdges). */
+ *  two-colour palette, independent of the mesh/loss colours above it in precedence (see styledEdges).
+ *  Deliberately NOT green/amber/red (those mean healthy/degraded/down elsewhere on this canvas - a
+ *  cluster link is a category, not a health signal) and deliberately not the same hex as any TIER_COLOR,
+ *  MESH_TONE.control (violet-400, mesh's own control-plane chip) or --color-info (the "detected" badge) -
+ *  this exact pair collided with both of those before, and got picked to still have nothing else reuse. */
 const CLUSTER_LINK_COLOR: Record<ClusterLink['kind'], string> = {
-  overlay: '#a78bfa',
-  subnet: '#38bdf8',
+  overlay: '#e879f9',
+  subnet: '#a3e635',
 }
 
 type Mode = ViewKind | 'map'
@@ -152,8 +156,11 @@ function Canvas() {
   // rendering preference for every edge on the canvas, not tied to any one of them, so it lives in the same
   // URL-param "view option" family as the toggles above rather than on graph/edge data.
   const edgeStyle: 'curved' | 'elbow' = sp.get('edges') === 'elbow' ? 'elbow' : 'curved'
+  // Confirmed overlay/same-subnet facts, drawn in every view/groupBy combination (see graph.ts) - on by
+  // default, same as every other "Show" toggle in this menu.
+  const showClusterLinks = sp.get('clusterLinks') !== '0'
   // How many options differ from the defaults, so a hidden option is never a mystery.
-  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow'].filter(Boolean).length
+  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow', !showClusterLinks].filter(Boolean).length
   const setParam = (k: string, v: string | null) =>
     setSp((p) => {
       const n = new URLSearchParams(p)
@@ -334,9 +341,12 @@ function Canvas() {
     () =>
       buildGraph(
         { ...shown, operators },
-        { view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, chain: showChain, paths, hints, localOperators: localOperatorByCluster, clusterLinks },
+        {
+          view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, chain: showChain, paths, hints, localOperators: localOperatorByCluster,
+          clusterLinks: showClusterLinks ? clusterLinks : [],
+        },
       ),
-    [shown, operators, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks],
+    [shown, operators, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks, showClusterLinks],
   )
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
 
@@ -778,6 +788,12 @@ function Canvas() {
                 )}
                 {mode === 'application' && !hasMesh && <p className="-mt-0.5 px-2 pb-1 pl-[46px] text-[11px] text-nb-500">No mesh found in your clusters</p>}
                 <Toggle checked={showLabels} onChange={(v) => setParam('labels', v ? '1' : null)} label="Edge labels" />
+                <Toggle
+                  checked={showClusterLinks}
+                  onChange={(v) => setParam('clusterLinks', v ? null : '0')}
+                  label="Cluster links"
+                  title="Clusters confirmed joined by an overlay/tunnel, or sitting on the same flat subnet"
+                />
 
                 <div className="mt-1 border-t border-nb-850 px-2 pb-1 pt-2.5 text-xs uppercase tracking-wide text-nb-500">Layout</div>
                 {mode === 'application' && (
@@ -1058,7 +1074,12 @@ function Canvas() {
                 />
               </NodeToolbar>
               <Panel position="bottom-left" className="!mb-3 !ml-16 hidden sm:block">
-                <div className="flex items-center gap-4 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
+                {/* flex-wrap (plus the max-w below) lets a long legend - everything explained can be on at
+                    once: tiers, cross-group, mesh, traffic, telemetry, cluster links - wrap onto a second
+                    line on a narrower viewport or with the Inspector open, rather than running off the
+                    right edge of the canvas with no way to see the rest of it. whitespace-nowrap is kept on
+                    the row so wrapping only ever happens between entries, never mid-label. */}
+                <div className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
                   {TIERS.map((t) => (
                     <span key={t.value} className="flex items-center gap-1.5">
                       <span className="size-2 rounded-full" style={{ background: TIER_COLOR[t.value] }} />
