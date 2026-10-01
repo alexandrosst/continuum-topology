@@ -330,6 +330,7 @@ export default function AgentsPage() {
         <ConfirmModal
           title={`Revoke ${revoking.name}?`}
           message="The agent is disconnected at once and cannot come back with its current identity. Records it discovered stay in your topology. To reconnect the cluster you enroll it again with a new token."
+          confirmLabel="Revoke"
           onConfirm={() => revoke(revoking)}
           onClose={() => setRevoking(null)}
         />

@@ -153,6 +153,7 @@ export default function SettingsPage() {
         <ConfirmModal
           title={confirm === 'clear' ? 'Clear the whole topology?' : 'Replace with the sample topology?'}
           message={onServer ? "This replaces the shared workspace on the server for everyone. Export first if you want a backup." : "This replaces what is currently stored in this browser. Export first if you want a backup."}
+          confirmLabel={confirm === 'clear' ? 'Clear' : 'Replace'}
           onConfirm={confirm === 'clear' ? clear : reset}
           onClose={() => setConfirm(null)}
         />

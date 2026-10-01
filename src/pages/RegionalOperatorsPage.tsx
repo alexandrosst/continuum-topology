@@ -319,7 +319,7 @@ export default function RegionalOperatorsPage() {
                     {op.status === 'active' && (
                       <Button size="sm" variant="danger" onClick={() => setRevoking(op)}>Revoke</Button>
                     )}
-                    <Button size="sm" variant="danger" onClick={() => setDeleting(op)}><Trash2 size={13} /></Button>
+                    <Button size="sm" variant="danger" aria-label={`Delete ${op.name}`} onClick={() => setDeleting(op)}><Trash2 size={13} /></Button>
                   </Td>
                 </tr>
               ))}
@@ -414,6 +414,7 @@ export default function RegionalOperatorsPage() {
         <ConfirmModal
           title={`Revoke ${revoking.name}?`}
           message="Its receiver token stops accepting telemetry at once. The record stays for the audit trail; delete it separately if you want it gone entirely."
+          confirmLabel="Revoke"
           onConfirm={() => void revoke(revoking)}
           onClose={() => setRevoking(null)}
         />
