@@ -56,6 +56,10 @@ export default function EdgeHoverCard({
   const showFailed = d?.via === 'ebpf' && !!d?.failedAttempts
   const showSni = d?.via === 'ebpf' && !!d?.sniHost
   const showDns = d?.via === 'ebpf' && !!d?.dnsQueryNames?.length
+  // DNS response latency is a gauge, same convention as rttMs/jitterMs - UDP-only, and only ever set
+  // when the same opt-in that surfaces dnsQueryNames above is on (it's read off the correlated query/
+  // response pair, same privacy posture as the query name itself).
+  const showDnsRtt = d?.via === 'ebpf' && d?.dnsRttMs !== undefined
   // Jitter and handshake latency are both eBPF-only gauges, same as rttMs itself (no conntrack
   // equivalent exists for either).
   const showJitter = d?.via === 'ebpf' && d?.jitterMs !== undefined
@@ -85,7 +89,7 @@ export default function EdgeHoverCard({
             ? d.activeCount ? ` · ${d.activeCount} seen in traffic` : undefined
             : label !== undefined && (d?.stale ? ' · quiet' : seen ? ' · seen in traffic' : ' · declared')}
       </div>
-      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showJitter || showHandshake || showRetransmits || showFailed || showSni || showDns || d?.iface || d?.quality || d?.route || d?.clusterLink) && (
+      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showJitter || showHandshake || showRetransmits || showFailed || showSni || showDns || showDnsRtt || d?.iface || d?.quality || d?.route || d?.clusterLink) && (
         <dl className="mt-1.5 grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-0.5 text-nb-400">
           {showBps && (
             <>
@@ -158,6 +162,12 @@ export default function EdgeHoverCard({
                 {d!.dnsQueryNames!.slice(0, 2).join(', ')}
                 {d!.dnsQueryNames!.length > 2 ? ` +${d!.dnsQueryNames!.length - 2} more` : ''}
               </dd>
+            </>
+          )}
+          {showDnsRtt && (
+            <>
+              <dt title="Time from query to matching response, correlated by transaction ID - UDP only">DNS response</dt>
+              <dd className="text-nb-200">{rttLabel(d!.dnsRttMs!)}</dd>
             </>
           )}
           {d?.iface && (

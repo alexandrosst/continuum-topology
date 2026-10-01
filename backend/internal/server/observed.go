@@ -157,7 +157,7 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		k := flowKey(f)
 		e := t.edges[k]
 		if e == nil {
-			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs, Cwnd: f.Cwnd, PacingBps: f.PacingBps}, FirstSeen: timestamppb.New(now)}
+			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs, Cwnd: f.Cwnd, PacingBps: f.PacingBps, DnsRttUs: f.DnsRttUs}, FirstSeen: timestamppb.New(now)}
 			t.edges[k] = e
 		}
 		e.LastSeen = timestamppb.New(now)
@@ -196,6 +196,9 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		}
 		if f.PacingBps != 0 {
 			e.Key.PacingBps = f.PacingBps
+		}
+		if f.DnsRttUs != 0 {
+			e.Key.DnsRttUs = f.DnsRttUs
 		}
 		if f.SniHost != "" {
 			e.Key.SniHost = f.SniHost // a gauge too, for the same reason as Iface/RttUs above
@@ -640,6 +643,9 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		}
 		if e.Key.PacingBps != 0 {
 			d.PacingBps = e.Key.PacingBps
+		}
+		if e.Key.DnsRttUs != 0 {
+			d.DnsRttMs = float64(e.Key.DnsRttUs) / 1000
 		}
 		d.Retransmits = satAdd(d.Retransmits, e.Retransmits)
 		d.BufferDrops = satAdd(d.BufferDrops, e.BufferDrops)

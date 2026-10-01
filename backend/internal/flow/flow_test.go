@@ -267,6 +267,26 @@ func TestAggregatorCarriesCwndPacingAndBufferDrops(t *testing.T) {
 	}
 }
 
+// TestAggregatorCarriesDnsRttUs pins the last Part R field: DnsRttUs is a gauge, same latest-non-zero-
+// wins treatment as Cwnd/PacingBps above, carried through from the synthetic zero-count row
+// observer_bpf.go emits for a DNS-latency sample (see its own Collect() doc comment on why that row has
+// no counts of its own) the same way a DnsQueryNames row already merges into the same held edge.
+func TestAggregatorCarriesDnsRttUs(t *testing.T) {
+	a := a2(t)
+	f1 := &continuumv1.Flow{Src: workload("app"), Dst: workload("resolver"), Port: 53, Protocol: "udp", Method: "ebpf", DnsRttUs: 4200}
+	a.Add(f1)
+	f2 := &continuumv1.Flow{Src: workload("app"), Dst: workload("resolver"), Port: 53, Protocol: "udp", Method: "ebpf", Connections: 1} // no latency sample this time
+	a.Add(f2)
+	b := a.Flush()
+	if len(b.Flows) != 1 {
+		t.Fatalf("both should merge into one held edge: %d", len(b.Flows))
+	}
+	got := b.Flows[0]
+	if got.DnsRttUs != 4200 {
+		t.Errorf("dnsRttUs = %d, want 4200 (a later report with no sample must not blank a known gauge)", got.DnsRttUs)
+	}
+}
+
 // a2 is a second, freshly time-controlled Aggregator for the SNI half of the test above, which needs its
 // own window rather than sharing the first Aggregator's already-flushed one.
 func a2(t *testing.T) *Aggregator {

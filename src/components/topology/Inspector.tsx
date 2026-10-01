@@ -1090,6 +1090,11 @@ export default function Inspector({
             items={d.dnsQueryNames}
             title="Distinct domain names resolved toward this dependency's destination - only eBPF sees this."
           />
+          <Maybe label="DNS response">
+            {d.via === 'ebpf' && d.dnsRttMs !== undefined ? (
+              <span title="Time from query to matching response, correlated by transaction ID - UDP only, only eBPF sees this.">{rttLabel(d.dnsRttMs)}</span>
+            ) : undefined}
+          </Maybe>
         </Section>
         {verdict && (
           <Section title="Service mesh">

@@ -688,6 +688,12 @@ export interface Dependency {
    * receiving application not draining its socket fast enough, not the network losing a packet in
    * transit. Always 0 on a conntrack-only edge, where it means "not measured". */
   bufferDrops?: number
+  /** How long a DNS response took to arrive after its matching query, in milliseconds - a gauge, only
+   * ever set on the pod<->resolver edge itself (noise === 'dns'), matched by transaction id rather than
+   * read from a socket (DNS is UDP, so there's no socket state machine the way rttMs has). Requires the
+   * same optional name-capture opt-in as dnsQueryNames/sniHost. Unset means no sample yet - most often
+   * because the response hasn't arrived, was lost, or this edge is conntrack-only. */
+  dnsRttMs?: number
   /** How the far end was identified, when it was not certain. */
   note?: string
   connections?: number

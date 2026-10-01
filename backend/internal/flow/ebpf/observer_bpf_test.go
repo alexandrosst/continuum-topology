@@ -1,6 +1,9 @@
 package ebpf
 
-import "testing"
+import (
+	"encoding/binary"
+	"testing"
+)
 
 // TestHandleNameRecordNeverPanicsOnGarbage is the defense-in-depth complement to
 // TestParseTLSClientHelloSNIBodyExactly34BytesDoesNotPanic in names_test.go: handleNameRecord runs on
@@ -34,5 +37,39 @@ func TestHandleNameRecordNeverPanicsOnGarbage(t *testing.T) {
 			}()
 			o.handleNameRecord(raw)
 		}()
+	}
+}
+
+// TestHandleNameRecordDecodesDnsLatencyPastNameCap pins a real bug caught before this shipped:
+// NAME_KIND_DNS_LATENCY repurposes name_event's `len` field as microseconds, not a byte count, but the
+// original code read `length` only after it had already been clamped to NAME_CAP (1500) for the
+// byte-count cases - a DNS lookup taking longer than 1.5ms (the overwhelming majority of real ones) would
+// have been silently truncated down to 1500us. This builds a raw record by hand, past that boundary, and
+// checks the decoded observedName carries the real, unclamped value.
+func TestHandleNameRecordDecodesDnsLatencyPastNameCap(t *testing.T) {
+	const eventLen = 16 + 16 + 2 + 2 + 1 + 3 + 4
+	raw := make([]byte, eventLen)                                                    // no data[] payload at all for this kind - just the fixed header
+	copy(raw[0:16], []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 0, 1})   // saddr = ::ffff:10.0.0.1
+	copy(raw[16:32], []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 0, 53}) // daddr = ::ffff:10.0.0.53
+	binary.LittleEndian.PutUint16(raw[34:36], 53)                                    // dport, matching the query event's own dport=53 convention
+	raw[36] = nameKindDNSLatency
+	const wantUs = 47_500 // well past NAME_CAP=1500, representative of a perfectly ordinary real lookup
+	binary.LittleEndian.PutUint32(raw[40:44], wantUs)
+
+	o := &Observer{}
+	o.handleNameRecord(raw)
+	names := o.takeNames()
+	if len(names) != 1 {
+		t.Fatalf("got %d decoded names, want 1", len(names))
+	}
+	got := names[0]
+	if got.kind != nameKindDNSLatency {
+		t.Errorf("kind = %d, want nameKindDNSLatency", got.kind)
+	}
+	if got.dnsRttUs != wantUs {
+		t.Errorf("dnsRttUs = %d, want %d (must not be clamped to NAME_CAP)", got.dnsRttUs, wantUs)
+	}
+	if got.name != "" {
+		t.Errorf("name = %q, want empty - this kind carries no payload", got.name)
 	}
 }

@@ -58,6 +58,9 @@ func Main(args []string) int {
 			if *names && o.NamesErr != nil {
 				log.Warn("DNS/SNI hostnames will not be captured", "reason", o.NamesErr)
 			}
+			if *names && o.DNSLatencyErr != nil {
+				log.Warn("DNS response latency will not be measured", "reason", o.DNSLatencyErr)
+			}
 			return o, nil
 		},
 		func() (collector.Source, error) { return conntrack.Open(*table) })

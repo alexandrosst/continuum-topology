@@ -543,6 +543,30 @@ func TestDependencyStatsIncludeCwndPacingAndBufferDrops(t *testing.T) {
 	}
 }
 
+// TestDependencyStatsIncludeDnsRttMs pins the last Part R field: DnsRttMs is a gauge carried through
+// Key.dns_rtt_us the same way RttMs/JitterMs/HandshakeMs/CwndSegments/PacingBps already are.
+func TestDependencyStatsIncludeDnsRttMs(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	x, y := "a/Deployment/x", "a/Deployment/y"
+	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
+	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 53, Protocol: "udp", Method: "ebpf", Noise: "dns", DnsRttUs: 4200}
+	feed(&c, now, 60, f)
+
+	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	var d *model.Dependency
+	for i := range deps {
+		if deps[i].Port == 53 {
+			d = &deps[i]
+		}
+	}
+	if d == nil {
+		t.Fatal("dependency not found")
+	}
+	if d.DnsRttMs != 4.2 {
+		t.Errorf("dnsRttMs = %v, want 4.2 (4200us)", d.DnsRttMs)
+	}
+}
+
 // TestDependencyStatsIncludeFailedAttempts checks failed connection attempts surface all the way to
 // model.Dependency, the same way retransmits do (see TestDependencyStatsIncludeRetransmitsAndRTT).
 func TestDependencyStatsIncludeFailedAttempts(t *testing.T) {

@@ -126,3 +126,46 @@ describe('EdgeHoverCard · jitter, handshake and loss %', () => {
     expect(screen.queryByText('Connection setup')).toBeNull()
   })
 })
+
+describe('EdgeHoverCard · DNS response latency', () => {
+  test('DNS response row renders its own ms value, distinct from DNS queries', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ via: 'ebpf', dnsQueryNames: ['a.example.com'], dnsRttMs: 47.5 })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="web"
+        toName="checkout"
+      />,
+    )
+    expect(screen.getByText('DNS response')).toBeTruthy()
+    expect(screen.getByText('48 ms')).toBeTruthy()
+  })
+
+  test('DNS response row does not require dnsQueryNames to be present', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ via: 'ebpf', dnsRttMs: 8 })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="web"
+        toName="checkout"
+      />,
+    )
+    expect(screen.getByText('DNS response')).toBeTruthy()
+    expect(screen.getByText('8.0 ms')).toBeTruthy()
+  })
+
+  test('DNS response row does not render on a conntrack-only edge, even with the field present', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ via: 'conntrack', dnsRttMs: 10 })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="web"
+        toName="checkout"
+      />,
+    )
+    expect(screen.queryByText('DNS response')).toBeNull()
+  })
+})

@@ -3745,7 +3745,15 @@ type RawFlow struct {
 	// summed like retransmits/segs_out, not a gauge. A different failure mode from retransmits: the local
 	// application not draining its socket fast enough, not the network dropping a packet in transit.
 	// Always 0 on a conntrack-derived report.
-	BufferDrops   uint32 `protobuf:"varint,24,opt,name=buffer_drops,json=bufferDrops,proto3" json:"buffer_drops,omitempty"`
+	BufferDrops uint32 `protobuf:"varint,24,opt,name=buffer_drops,json=bufferDrops,proto3" json:"buffer_drops,omitempty"`
+	// How long a DNS response took to arrive after its matching query, in microseconds - a gauge, matched
+	// by transaction id + 5-tuple between a query seen on egress and its answer seen on ingress (see
+	// flow.c's observe_egress/observe_ingress). Only ever set on the same synthetic, zero-count row
+	// dns_query_name rides on (this program never tracks TCP-style per-socket state for DNS, which is
+	// UDP), and only when the same optional name-capture opt-in is on. 0 means no sample, not "instant" -
+	// most often because the response hasn't arrived yet, was lost, or arrived after this report's window
+	// already closed.
+	DnsRttUs      uint32 `protobuf:"varint,25,opt,name=dns_rtt_us,json=dnsRttUs,proto3" json:"dns_rtt_us,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3948,6 +3956,13 @@ func (x *RawFlow) GetBufferDrops() uint32 {
 	return 0
 }
 
+func (x *RawFlow) GetDnsRttUs() uint32 {
+	if x != nil {
+		return x.DnsRttUs
+	}
+	return 0
+}
+
 type FlowReport struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// ebpf | conntrack: how these numbers were obtained, which decides how much to trust them.
@@ -4144,7 +4159,10 @@ type Flow struct {
 	PacingBps uint64 `protobuf:"varint,21,opt,name=pacing_bps,json=pacingBps,proto3" json:"pacing_bps,omitempty"`
 	// Receive-side buffer drops observed in this report - see RawFlow.buffer_drops. Carried through
 	// unchanged so the Aggregator can sum it the same way segs_out is summed, not a gauge.
-	BufferDrops   uint32 `protobuf:"varint,22,opt,name=buffer_drops,json=bufferDrops,proto3" json:"buffer_drops,omitempty"`
+	BufferDrops uint32 `protobuf:"varint,22,opt,name=buffer_drops,json=bufferDrops,proto3" json:"buffer_drops,omitempty"`
+	// DNS response latency observed in this report - see RawFlow.dns_rtt_us. A gauge, same treatment as
+	// rtt_us/jitter_us: the latest sample, carried through attribution unchanged.
+	DnsRttUs      uint32 `protobuf:"varint,23,opt,name=dns_rtt_us,json=dnsRttUs,proto3" json:"dns_rtt_us,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4329,6 +4347,13 @@ func (x *Flow) GetPacingBps() uint64 {
 func (x *Flow) GetBufferDrops() uint32 {
 	if x != nil {
 		return x.BufferDrops
+	}
+	return 0
+}
+
+func (x *Flow) GetDnsRttUs() uint32 {
+	if x != nil {
+		return x.DnsRttUs
 	}
 	return 0
 }
@@ -5520,7 +5545,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2\x18.continuum.v1.PathResultR\aresults\x12\x18\n" +
 	"\arefused\x18\x02 \x01(\rR\arefused\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xe9\x05\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x87\x06\n" +
 	"\aRawFlow\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\bR\x06client\x12\x19\n" +
 	"\blocal_ip\x18\x02 \x01(\tR\alocalIp\x12\x17\n" +
@@ -5547,7 +5572,9 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x04cwnd\x18\x16 \x01(\rR\x04cwnd\x12\x1d\n" +
 	"\n" +
 	"pacing_bps\x18\x17 \x01(\x04R\tpacingBps\x12!\n" +
-	"\fbuffer_drops\x18\x18 \x01(\rR\vbufferDrops\"\xc1\x01\n" +
+	"\fbuffer_drops\x18\x18 \x01(\rR\vbufferDrops\x12\x1c\n" +
+	"\n" +
+	"dns_rtt_us\x18\x19 \x01(\rR\bdnsRttUs\"\xc1\x01\n" +
 	"\n" +
 	"FlowReport\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
@@ -5566,7 +5593,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"UNRESOLVED\x10\x00\x12\f\n" +
 	"\bWORKLOAD\x10\x01\x12\b\n" +
 	"\x04NODE\x10\x02\x12\f\n" +
-	"\bEXTERNAL\x10\x03\"\xa7\x05\n" +
+	"\bEXTERNAL\x10\x03\"\xc5\x05\n" +
 	"\x04Flow\x12,\n" +
 	"\x03src\x18\x01 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03src\x12,\n" +
 	"\x03dst\x18\x02 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03dst\x12\x12\n" +
@@ -5592,7 +5619,9 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x04cwnd\x18\x14 \x01(\rR\x04cwnd\x12\x1d\n" +
 	"\n" +
 	"pacing_bps\x18\x15 \x01(\x04R\tpacingBps\x12!\n" +
-	"\fbuffer_drops\x18\x16 \x01(\rR\vbufferDrops\"\\\n" +
+	"\fbuffer_drops\x18\x16 \x01(\rR\vbufferDrops\x12\x1c\n" +
+	"\n" +
+	"dns_rtt_us\x18\x17 \x01(\rR\bdnsRttUs\"\\\n" +
 	"\rCollectorInfo\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12\x1f\n" +

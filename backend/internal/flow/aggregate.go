@@ -96,6 +96,9 @@ func (a *Aggregator) Add(f *continuumv1.Flow) {
 		if f.PacingBps != 0 {
 			cur.PacingBps = f.PacingBps // a gauge, same treatment as Cwnd right above
 		}
+		if f.DnsRttUs != 0 {
+			cur.DnsRttUs = f.DnsRttUs // a gauge, same treatment as the other sampled figures above
+		}
 		if f.SniHost != "" {
 			cur.SniHost = f.SniHost // also a gauge: one peer essentially always carries one hostname
 		}

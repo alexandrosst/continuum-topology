@@ -685,6 +685,14 @@ message RawFlow {
   // application not draining its socket fast enough, not the network dropping a packet in transit.
   // Always 0 on a conntrack-derived report.
   uint32 buffer_drops = 24;
+  // How long a DNS response took to arrive after its matching query, in microseconds - a gauge, matched
+  // by transaction id + 5-tuple between a query seen on egress and its answer seen on ingress (see
+  // flow.c's observe_egress/observe_ingress). Only ever set on the same synthetic, zero-count row
+  // dns_query_name rides on (this program never tracks TCP-style per-socket state for DNS, which is
+  // UDP), and only when the same optional name-capture opt-in is on. 0 means no sample, not "instant" -
+  // most often because the response hasn't arrived yet, was lost, or arrived after this report's window
+  // already closed.
+  uint32 dns_rtt_us = 25;
 }
 
 message FlowReport {
@@ -760,6 +768,9 @@ message Flow {
   // Receive-side buffer drops observed in this report - see RawFlow.buffer_drops. Carried through
   // unchanged so the Aggregator can sum it the same way segs_out is summed, not a gauge.
   uint32 buffer_drops = 22;
+  // DNS response latency observed in this report - see RawFlow.dns_rtt_us. A gauge, same treatment as
+  // rtt_us/jitter_us: the latest sample, carried through attribution unchanged.
+  uint32 dns_rtt_us = 23;
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
@@ -822,6 +833,8 @@ message FlowEdge {
   // live on key.cwnd/key.pacing_bps, not here - gauges, the same treatment key.rtt_us already gets.
   uint64 buffer_drops = 17;
   uint64 window_buffer_drops = 18;
+  // dns_rtt_us, like jitter_us/handshake_us/cwnd/pacing_bps, lives on key.dns_rtt_us, not here - a
+  // gauge, not a running total, the same treatment every other per-sample figure on this edge gets.
 }
 
 message FlowTable {

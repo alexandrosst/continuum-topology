@@ -540,6 +540,17 @@ struct __sk_buff {
 
 #define NAME_KIND_DNS_QUERY 1
 #define NAME_KIND_TLS_CLIENT_HELLO 2
+#define NAME_KIND_DNS_LATENCY 3
+// A DNS response latency sample, matched against a pending query recorded by observe_egress below and
+// computed by observe_ingress further down. Unlike the two kinds above, this one carries no payload at
+// all - data/len exist only because this event reuses struct name_event's layout for the plumbing
+// (ring buffer, decode loop, pendingNames list) already built for the other two kinds; `len` is
+// repurposed to carry the computed round-trip in microseconds instead of a byte count, and `data` is
+// never written or read for this kind. Computing it still needs the response's own 2-byte transaction ID
+// (the first bytes of the DNS message, right after the UDP header - never an answer record or resolved
+// address), which is why this rides along under the same Options.Names opt-in as the query-name capture
+// rather than being counted on by default: it is a second, independent attach point (cgroup_skb/ingress,
+// not egress) reading a little of a packet's content, the same category of thing Names already covers.
 
 // Large enough for the overwhelming majority of real DNS queries and TLS ClientHellos (which typically
 // carry their SNI within the first few hundred bytes of the first flight) without ever approaching a
@@ -562,6 +573,23 @@ struct {
 	__uint(max_entries, 1 << 20); // 1 MiB, shared by both kinds of event; a full ring drops the event
 	                              // and counts it lost rather than blocking the packet it came from.
 } names SEC(".maps");
+
+// A query recorded here by observe_egress, matched and removed by observe_ingress (see both below) -
+// bounded by LRU the same way socks is, so a query whose response never arrives (lost, or the resolver
+// never answers) just ages out instead of growing this map forever.
+struct dns_pending_key {
+	__u8 client[16];
+	__u8 server[16];
+	__u16 client_port;
+	__u16 txid;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__type(key, struct dns_pending_key);
+	__type(value, __u64); // bpf_ktime_get_ns() when the query went out
+	__uint(max_entries, 4096); // DNS query volume is a small fraction of socks' own connection volume
+} dns_pending SEC(".maps");
 
 // A ring buffer has no per-record __type(value, ...) the way a hash map does, so nothing else in this
 // file gives the Go generator a reason to keep struct name_event's BTF around; this unused global is that
@@ -658,6 +686,24 @@ int observe_egress(struct __sk_buff *skb) {
 		__u32 payload_off = l4_off + 8;
 		if (payload_off >= total)
 			return 1;
+		// The DNS message's own transaction id is its first 2 bytes, right after the UDP header -
+		// recorded here (keyed by this query's own client/server/port/txid) so observe_ingress below can
+		// find it again when the response arrives and compute how long it took. Best-effort: if this
+		// read or the map write fails, the query capture above still succeeds either way - only the
+		// latency sample is lost, not the hostname.
+		if (total - payload_off >= 2) {
+			__u16 txid;
+			if (bpf_skb_load_bytes(skb, payload_off, &txid, 2) == 0) {
+				struct dns_pending_key pk;
+				__builtin_memset(&pk, 0, sizeof(pk));
+				__builtin_memcpy(pk.client, saddr, 16);
+				__builtin_memcpy(pk.server, daddr, 16);
+				pk.client_port = __builtin_bswap16(sport_be);
+				pk.txid = txid;
+				__u64 sent_ns = bpf_ktime_get_ns();
+				bpf_map_update_elem(&dns_pending, &pk, &sent_ns, BPF_ANY);
+			}
+		}
 		submit_name(skb, NAME_KIND_DNS_QUERY, saddr, daddr, __builtin_bswap16(sport_be), dport, payload_off, total - payload_off);
 		return 1;
 	}
@@ -691,5 +737,104 @@ int observe_egress(struct __sk_buff *skb) {
 		return 1;
 	}
 
+	return 1;
+}
+
+
+// ---------------------------------------------------------------------------
+// Optional, under the same Options.Names opt-in as observe_egress above: DNS response latency. A query's
+// name is only ever visible on egress (observe_egress's own DNS branch, above); the answer always
+// arrives on ingress, so measuring how long it took needs this second, independent attach point -
+// cgroup_skb/ingress, not egress - matching each response's transaction id and sender against the
+// pending map observe_egress just wrote into. Counting-only in the sense that matters for privacy: this
+// reads the response's own 2-byte transaction id (right after its UDP header) and nothing else, never an
+// answer record or resolved address.
+SEC("cgroup_skb/ingress")
+int observe_ingress(struct __sk_buff *skb) {
+	__u8 v;
+	if (bpf_skb_load_bytes(skb, 0, &v, 1) != 0)
+		return 1;
+	__u8 version = v >> 4;
+
+	__u8 proto;
+	__u32 l4_off;
+	__u8 saddr[16], daddr[16];
+
+	if (version == 4) {
+		__u8 ihl_byte = v & 0x0f;
+		__u32 ihl = ihl_byte * 4;
+		if (ihl < 20)
+			return 1;
+		if (bpf_skb_load_bytes(skb, 9, &proto, 1) != 0)
+			return 1;
+		__be32 s4, d4;
+		if (bpf_skb_load_bytes(skb, 12, &s4, 4) != 0 || bpf_skb_load_bytes(skb, 16, &d4, 4) != 0)
+			return 1;
+		put_addr4(saddr, s4);
+		put_addr4(daddr, d4);
+		l4_off = ihl;
+	} else if (version == 6) {
+		if (bpf_skb_load_bytes(skb, 6, &proto, 1) != 0)
+			return 1;
+		if (bpf_skb_load_bytes(skb, 8, saddr, 16) != 0 || bpf_skb_load_bytes(skb, 24, daddr, 16) != 0)
+			return 1;
+		l4_off = 40;
+	} else {
+		return 1; // not IP at all
+	}
+
+	if (proto != AF_INET_PROTO_UDP)
+		return 1;
+
+	__u32 total = skb->len;
+	if (l4_off >= total || total - l4_off < 8) // shorter than a UDP header: not a real UDP packet
+		return 1;
+	__u16 sport_be, dport_be;
+	if (bpf_skb_load_bytes(skb, l4_off, &sport_be, 2) != 0 || bpf_skb_load_bytes(skb, l4_off + 2, &dport_be, 2) != 0)
+		return 1;
+	__u16 sport = __builtin_bswap16(sport_be); // the sender's port - 53 for a real DNS response
+	if (sport != 53)
+		return 1;
+	__u32 payload_off = l4_off + 8;
+	if (total - payload_off < 2)
+		return 1;
+	__u16 txid;
+	if (bpf_skb_load_bytes(skb, payload_off, &txid, 2) != 0)
+		return 1;
+
+	// This packet arrives FROM the resolver (saddr) TO the client (daddr) - the mirror image of the
+	// query observe_egress recorded, which keyed on the client's own saddr/daddr/sport. Swapping here
+	// reconstructs that same key from the reply's point of view.
+	struct dns_pending_key pk;
+	__builtin_memset(&pk, 0, sizeof(pk));
+	__builtin_memcpy(pk.client, daddr, 16);
+	__builtin_memcpy(pk.server, saddr, 16);
+	pk.client_port = __builtin_bswap16(dport_be);
+	pk.txid = txid;
+
+	__u64 *sent_ns = bpf_map_lookup_elem(&dns_pending, &pk);
+	if (!sent_ns)
+		return 1; // no matching query seen (missed the egress hook, or this is a retransmitted/duplicate answer)
+	__u64 now = bpf_ktime_get_ns();
+	__u64 sent = *sent_ns;
+	bpf_map_delete_elem(&dns_pending, &pk);
+	if (now <= sent)
+		return 1; // clock oddity; never report a negative or zero latency
+
+	struct name_event *ev = bpf_ringbuf_reserve(&names, sizeof(*ev), 0);
+	if (!ev) {
+		count_lost();
+		return 1;
+	}
+	__builtin_memcpy(ev->saddr, daddr, 16); // local/client, matching the query event's own saddr=client convention
+	__builtin_memcpy(ev->daddr, saddr, 16); // peer/resolver
+	// name_event's sport/dport are stored in host byte order (see submit_name's own callers, which always
+	// bswap16 before passing them in) - bswap here too, rather than storing the raw network-order bytes
+	// just read off the wire.
+	ev->sport = __builtin_bswap16(dport_be);
+	ev->dport = __builtin_bswap16(sport_be); // 53, matching the query event's own dport=53 convention
+	ev->kind = NAME_KIND_DNS_LATENCY;
+	ev->len = (__u32)((now - sent) / 1000); // repurposed: microseconds, not a byte count - see the kind's own comment
+	bpf_ringbuf_submit(ev, 0);
 	return 1;
 }

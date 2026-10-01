@@ -13,6 +13,14 @@ import (
 	"github.com/cilium/ebpf"
 )
 
+type flowDnsPendingKey struct {
+	_          structs.HostLayout
+	Client     [16]uint8
+	Server     [16]uint8
+	ClientPort uint16
+	Txid       uint16
+}
+
 type flowFlowKey struct {
 	_     structs.HostLayout
 	Local [16]uint8
@@ -75,11 +83,13 @@ type flowSockInfo struct {
 //
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
+	flowMapDnsPending      = "dns_pending"
 	flowMapFlows           = "flows"
 	flowMapLost            = "lost"
 	flowMapNames           = "names"
 	flowMapSocks           = "socks"
 	flowProgObserveEgress  = "observe_egress"
+	flowProgObserveIngress = "observe_ingress"
 	flowProgOnState        = "on_state"
 	flowProgSnapshot       = "snapshot"
 	flowVarUnusedNameEvent = "unused_name_event"
@@ -127,19 +137,21 @@ type flowSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type flowProgramSpecs struct {
-	ObserveEgress *ebpf.ProgramSpec `ebpf:"observe_egress"`
-	OnState       *ebpf.ProgramSpec `ebpf:"on_state"`
-	Snapshot      *ebpf.ProgramSpec `ebpf:"snapshot"`
+	ObserveEgress  *ebpf.ProgramSpec `ebpf:"observe_egress"`
+	ObserveIngress *ebpf.ProgramSpec `ebpf:"observe_ingress"`
+	OnState        *ebpf.ProgramSpec `ebpf:"on_state"`
+	Snapshot       *ebpf.ProgramSpec `ebpf:"snapshot"`
 }
 
 // flowMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type flowMapSpecs struct {
-	Flows *ebpf.MapSpec `ebpf:"flows"`
-	Lost  *ebpf.MapSpec `ebpf:"lost"`
-	Names *ebpf.MapSpec `ebpf:"names"`
-	Socks *ebpf.MapSpec `ebpf:"socks"`
+	DnsPending *ebpf.MapSpec `ebpf:"dns_pending"`
+	Flows      *ebpf.MapSpec `ebpf:"flows"`
+	Lost       *ebpf.MapSpec `ebpf:"lost"`
+	Names      *ebpf.MapSpec `ebpf:"names"`
+	Socks      *ebpf.MapSpec `ebpf:"socks"`
 }
 
 // flowVariableSpecs contains global variables before they are loaded into the kernel.
@@ -169,14 +181,16 @@ func (o *flowObjects) Close() error {
 //
 // It can be passed to loadFlowObjects or ebpf.CollectionSpec.LoadAndAssign.
 type flowMaps struct {
-	Flows *ebpf.Map `ebpf:"flows"`
-	Lost  *ebpf.Map `ebpf:"lost"`
-	Names *ebpf.Map `ebpf:"names"`
-	Socks *ebpf.Map `ebpf:"socks"`
+	DnsPending *ebpf.Map `ebpf:"dns_pending"`
+	Flows      *ebpf.Map `ebpf:"flows"`
+	Lost       *ebpf.Map `ebpf:"lost"`
+	Names      *ebpf.Map `ebpf:"names"`
+	Socks      *ebpf.Map `ebpf:"socks"`
 }
 
 func (m *flowMaps) Close() error {
 	return _FlowClose(
+		m.DnsPending,
 		m.Flows,
 		m.Lost,
 		m.Names,
@@ -195,14 +209,16 @@ type flowVariables struct {
 //
 // It can be passed to loadFlowObjects or ebpf.CollectionSpec.LoadAndAssign.
 type flowPrograms struct {
-	ObserveEgress *ebpf.Program `ebpf:"observe_egress"`
-	OnState       *ebpf.Program `ebpf:"on_state"`
-	Snapshot      *ebpf.Program `ebpf:"snapshot"`
+	ObserveEgress  *ebpf.Program `ebpf:"observe_egress"`
+	ObserveIngress *ebpf.Program `ebpf:"observe_ingress"`
+	OnState        *ebpf.Program `ebpf:"on_state"`
+	Snapshot       *ebpf.Program `ebpf:"snapshot"`
 }
 
 func (p *flowPrograms) Close() error {
 	return _FlowClose(
 		p.ObserveEgress,
+		p.ObserveIngress,
 		p.OnState,
 		p.Snapshot,
 	)

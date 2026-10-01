@@ -52,11 +52,23 @@ type Observer struct {
 	LiveErr error
 	// NamesErr says why Options.Names was asked for and is not running; nil when it is running or was not asked for.
 	NamesErr error
+	// DNSLatencyErr says why the DNS-response-latency half of Options.Names specifically is not running
+	// (observe_ingress could not attach), independently of NamesErr: the query/SNI-capture half this
+	// shares Options.Names with can be running perfectly well (NamesErr == nil) while this is set, since
+	// ingress and egress are two separate attach points that can fail independently. nil when it is
+	// running or Options.Names was not asked for at all.
+	DNSLatencyErr error
 
 	namesProg *ebpf.Program
 	namesMap  *ebpf.Map
 	namesLnk  link.Link
 	namesRd   *ringbuf.Reader
+	// ingressProg/ingressLnk are observe_ingress's own program/link (see openNames) - the DNS-latency
+	// half of the Names opt-in, a separate attach type (ingress, not egress) from namesProg/namesLnk
+	// above but sharing the same ring buffer (namesMap) and torn down alongside it in Close.
+	ingressProg   *ebpf.Program
+	ingressLnk    link.Link
+	dnsPendingMap *ebpf.Map
 
 	namesMu      sync.Mutex
 	pendingNames []observedName
@@ -68,6 +80,10 @@ type observedName struct {
 	local, peer string
 	port        uint16
 	name        string
+	// dnsRttUs is set only for kind == nameKindDNSLatency, in which case name is always empty and this
+	// carries the computed round-trip in microseconds instead - flow.c's name_event repurposes its own
+	// len field for this one kind (see its doc comment), so nothing here comes from parsing payload.
+	dnsRttUs uint32
 }
 
 // maxPendingNames bounds how many decoded names wait between two Collect() calls, the same "bounded, and
@@ -78,6 +94,7 @@ const maxPendingNames = 2000
 const (
 	nameKindDNSQuery       = 1
 	nameKindTLSClientHello = 2
+	nameKindDNSLatency     = 3
 )
 
 // Live reports whether open connections are counted while they are open.
@@ -169,6 +186,14 @@ func cgroupV2Root() (string, error) {
 // the background reader that decodes what it captures. Sharing this Observer's own "lost" map (the way
 // openSnapshot already shares flows/socks/lost) means a full ring buffer counts toward the same lost
 // total Collect() already reports, rather than a second, separate figure nothing reads.
+//
+// Also loads and attaches observe_ingress (see flow.c) - a second, independent attach, on the ingress
+// side of the same root cgroup, that matches DNS responses against the pending queries observe_egress
+// records and reports a latency sample through this same ring buffer. It shares "dns_pending" and "lost"
+// with the main on_state programs the way openSnapshot shares flows/socks/lost, but is otherwise
+// entirely optional: if it fails to attach, Names still runs (query/SNI capture keeps working) with only
+// the latency half missing - callers are told this through the returned error wrapping, not a silent
+// partial success, but nothing here is fatal to the rest of Open().
 func (o *Observer) openNames() error {
 	cg, err := cgroupV2Root()
 	if err != nil {
@@ -183,8 +208,10 @@ func (o *Observer) openNames() error {
 	delete(spec.Maps, "flows")
 	delete(spec.Maps, "socks")
 	var p struct {
-		ObserveEgress *ebpf.Program `ebpf:"observe_egress"`
-		Names         *ebpf.Map     `ebpf:"names"`
+		ObserveEgress  *ebpf.Program `ebpf:"observe_egress"`
+		ObserveIngress *ebpf.Program `ebpf:"observe_ingress"`
+		Names          *ebpf.Map     `ebpf:"names"`
+		DnsPending     *ebpf.Map     `ebpf:"dns_pending"`
 	}
 	if err := spec.LoadAndAssign(&p, &ebpf.CollectionOptions{MapReplacements: map[string]*ebpf.Map{"lost": o.objs.Lost}}); err != nil {
 		var ve *ebpf.VerifierError
@@ -196,18 +223,37 @@ func (o *Observer) openNames() error {
 	l, err := link.AttachCgroup(link.CgroupOptions{Path: cg, Attach: ebpf.AttachCGroupInetEgress, Program: p.ObserveEgress})
 	if err != nil {
 		p.ObserveEgress.Close()
+		p.ObserveIngress.Close()
 		p.Names.Close()
+		p.DnsPending.Close()
 		return fmt.Errorf("the name-capture program could not be attached to the root cgroup (%s): %w", cg, err)
 	}
 	rd, err := ringbuf.NewReader(p.Names)
 	if err != nil {
 		l.Close()
 		p.ObserveEgress.Close()
+		p.ObserveIngress.Close()
 		p.Names.Close()
+		p.DnsPending.Close()
 		return fmt.Errorf("the name-capture ring buffer could not be opened: %w", err)
 	}
 	o.namesProg, o.namesMap, o.namesLnk, o.namesRd = p.ObserveEgress, p.Names, l, rd
 	go o.drainNames()
+	// The DNS-latency half: attached separately (ingress is a different attach type from egress), and
+	// deliberately not fatal to the egress half above if it fails - query/SNI capture is the more
+	// established, more load-bearing half of Names, and should keep working even if this one can't
+	// attach for some reason on a given kernel.
+	il, err := link.AttachCgroup(link.CgroupOptions{Path: cg, Attach: ebpf.AttachCGroupInetIngress, Program: p.ObserveIngress})
+	if err != nil {
+		p.ObserveIngress.Close()
+		p.DnsPending.Close()
+		// Deliberately not returned as this function's own error: query/SNI capture (attached just
+		// above) is still running, so NamesErr must stay nil for that success - this failure belongs on
+		// its own field instead, see DNSLatencyErr's doc comment.
+		o.DNSLatencyErr = fmt.Errorf("the ingress program could not be attached to the root cgroup (%s): %w", cg, err)
+		return nil
+	}
+	o.ingressProg, o.ingressLnk, o.dnsPendingMap = p.ObserveIngress, il, p.DnsPending
 	return nil
 }
 
@@ -249,7 +295,23 @@ func (o *Observer) handleNameRecord(raw []byte) {
 	copy(daddr[:], raw[16:32])
 	dport := binary.LittleEndian.Uint16(raw[34:36])
 	kind := raw[36]
-	length := binary.LittleEndian.Uint32(raw[40:44])
+	rawLength := binary.LittleEndian.Uint32(raw[40:44])
+
+	if kind == nameKindDNSLatency {
+		// This kind repurposes the wire field as the computed round-trip in microseconds, not a byte
+		// count - see flow.c's NAME_KIND_DNS_LATENCY comment. Read it before the byte-count clamping
+		// below, which would otherwise silently cap any real latency past NAME_CAP (1500) microseconds -
+		// a case common enough (most real DNS lookups take several milliseconds) that it would corrupt
+		// nearly every sample, not just an edge case. There is no payload to parse for this kind at all.
+		o.namesMu.Lock()
+		if len(o.pendingNames) < maxPendingNames {
+			o.pendingNames = append(o.pendingNames, observedName{kind: kind, local: addr(saddr), peer: addr(daddr), port: dport, dnsRttUs: rawLength})
+		}
+		o.namesMu.Unlock()
+		return
+	}
+
+	length := rawLength
 	data := raw[eventLen:]
 	if int(length) > len(data) {
 		length = uint32(len(data))
@@ -309,6 +371,11 @@ func (o *Observer) Close() error {
 		o.namesLnk.Close()
 		o.namesProg.Close()
 		o.namesMap.Close()
+	}
+	if o.ingressLnk != nil {
+		o.ingressLnk.Close()
+		o.ingressProg.Close()
+		o.dnsPendingMap.Close()
 	}
 	o.closeMaps()
 	return nil
@@ -456,6 +523,9 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 		case nameKindTLSClientHello:
 			rf.Protocol = "tcp"
 			rf.SniHost = n.name
+		case nameKindDNSLatency:
+			rf.Protocol = "udp"
+			rf.DnsRttUs = n.dnsRttUs
 		default:
 			continue
 		}

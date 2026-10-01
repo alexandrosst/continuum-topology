@@ -581,7 +581,14 @@ type Dependency struct {
 	// per-socket counter - summed the same way Retransmits/FailedAttempts are. A different failure mode
 	// from Retransmits: the receiving application not draining its socket fast enough, not the network
 	// losing a packet in transit. Always 0 on a conntrack-only edge, where it means "not measured".
-	BufferDrops uint64           `json:"bufferDrops,omitempty"`
+	BufferDrops uint64 `json:"bufferDrops,omitempty"`
+	// DnsRttMs is how long a DNS response took to arrive after its matching query, in milliseconds - a
+	// gauge, only ever set on the pod<->resolver edge itself (Noise == "dns"), matched by transaction id
+	// rather than read from a socket (DNS is UDP, so there is no socket state machine the way TCP's
+	// RttMs has). Requires the same optional name-capture opt-in as DnsQueryNames/SniHost. 0 means no
+	// sample yet - most often because the response hasn't arrived, was lost, or this edge is
+	// conntrack-only.
+	DnsRttMs    float64          `json:"dnsRttMs,omitempty"`
 	Note        string           `json:"note,omitempty"`
 	Connections uint64           `json:"connections,omitempty"`
 	Bytes       uint64           `json:"bytes,omitempty"`
