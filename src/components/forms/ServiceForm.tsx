@@ -1,9 +1,10 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Button, Field, Input, LabelsEditor, Modal, Select } from '@/components/ui/primitives'
+import { Button, EvidenceChip, Field, Input, LabelsEditor, Modal, Select } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
 import { uid, useTopology } from '@/store/topology'
 import { useServer } from '@/store/server'
+import { useWeakValue } from '@/store/rowEvidence'
 import { DEFAULT_ORG, type Dependency, type Service, type ServiceKind } from '@/lib/types'
 import { StatusSelect, FormFooter, DiscoveredNote } from './shared'
 
@@ -32,6 +33,30 @@ export function ServiceForm({ initial, onClose, defaultClusterId }: { initial: S
   const isEditable = (d: Dependency) => d.from === f.id && d.fromKind === 'service' && d.toKind === 'service'
   const [deps, setDeps] = useState<Dependency[]>(() => dependencies.filter(isEditable))
   const set = <K extends keyof Service>(k: K, v: Service[K]) => setF((p) => ({ ...p, [k]: v }))
+  // Same "is this a guess, or not known at all" signal ServicesPage's own table already shows per row -
+  // reused here so editing a guessed Application shows exactly the confidence a person would already have
+  // seen before opening this form, instead of a plain, unqualified dropdown. Same confirm-in-place
+  // affordance ClusterForm/NodeForm already offer for their own weak fields.
+  const weak = useWeakValue('service')
+  const confirmField = useTopology((s) => s.confirmField)
+  const appChip = (() => {
+    const w = f.applicationId ? weak(f as never, 'applicationId') : undefined
+    if (!w) return undefined
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <EvidenceChip level={w.level} why={w.why} />
+        {w.level === 'guess' && initial && by && (
+          <button
+            onClick={() => confirmField('service', initial.id, 'applicationId', by)}
+            className="text-[11px] text-accent hover:underline"
+            title="Keep this value as it is; it will not be overwritten by rediscovery."
+          >
+            confirm
+          </button>
+        )}
+      </span>
+    )
+  })()
 
   const clusterNodes = useMemo(() => nodes.filter((n) => n.clusterId === f.clusterId), [nodes, f.clusterId])
   const targets = services.filter((w) => w.id !== f.id)
@@ -97,7 +122,7 @@ export function ServiceForm({ initial, onClose, defaultClusterId }: { initial: S
             ))}
           </Select>
         </Field>
-        <Field label="Application" hint="Groups related services. Manage under Applications." className="col-span-2">
+        <Field label="Application" hint="Groups related services. Manage under Applications." className="col-span-2" adornment={appChip}>
           <Select value={f.applicationId ?? ''} onChange={(e) => set('applicationId', e.target.value || undefined)}>
             <option value="">No application</option>
             {applications.map((a) => (
