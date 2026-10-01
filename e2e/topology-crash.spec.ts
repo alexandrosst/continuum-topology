@@ -24,9 +24,10 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
 async function loadSampleTopology(page: Page) {
   await page.goto('/settings', { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: /Load sample/i }).click()
-  // The confirm modal's button really is labeled "Delete" (ConfirmModal.tsx's one danger-action label,
-  // reused here for "replace with the sample topology") - not a mislabel in this test.
-  await page.getByRole('button', { name: 'Delete', exact: true }).click()
+  // ConfirmModal's danger-action button defaults to "Delete" but SettingsPage overrides it with
+  // confirmLabel for this specific action (it replaces the topology, it doesn't delete anything) - see
+  // ConfirmModal.tsx's confirmLabel prop.
+  await page.getByRole('button', { name: 'Replace', exact: true }).click()
   await expect(page.getByText(/Sample data/i)).toBeVisible({ timeout: 10_000 })
 }
 
