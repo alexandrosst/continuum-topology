@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Field, Input, TagsInput } from '@/components/ui/primitives'
+import { Button, Field, Input, SectionLabel, TagsInput } from '@/components/ui/primitives'
 import { emptyScopeOverride, scopeOverlap, type ScopeOverrideInput, type TelemetryInput } from '@/lib/install'
 
 const APP_SCOPED_KINDS = ['applicationMetrics', 'applicationLogs', 'traces'] as const
@@ -176,7 +176,7 @@ export default function GuidedScope({
     <div className="space-y-5">
       {needsScope && (
         <div className="space-y-2.5 border-t border-nb-850 pt-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-nb-500">Define scope</p>
+          <SectionLabel as="p">Define scope</SectionLabel>
           <p className="text-xs text-nb-500">
             Give one or more namespace scopes a name, then attach each application-scoped signal below to one - or leave it on the install's own global scope.
           </p>
@@ -231,7 +231,7 @@ export default function GuidedScope({
             </Button>
           </div>
 
-          <p className="pt-1 text-xs font-medium uppercase tracking-wide text-nb-500">Attach</p>
+          <SectionLabel as="p" className="pt-1">Attach</SectionLabel>
           <div className="space-y-3">
             {enabledKinds.map((kind) => {
               const choice = attach[kind] ?? 'global'

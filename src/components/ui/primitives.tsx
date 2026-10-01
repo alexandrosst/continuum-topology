@@ -520,6 +520,17 @@ export function Field({ label, hint, children, className, adornment }: { label: 
 }
 
 /**
+ * A small uppercase section/subsection heading - "Define scope", "Attach", "History", "Extra processors"
+ * and the like. The exact className this renders (`text-xs font-medium uppercase tracking-wide text-nb-500`)
+ * was independently hand-rolled on a div, span, p or legend in well over a dozen places across the app before
+ * this existed; sharing it here doesn't migrate every one of those (most are fine left alone), but gives new
+ * call sites, and any of those existing ones worth touching later, one definition instead of another copy.
+ */
+export function SectionLabel({ children, as: As = 'div', className }: { children: ReactNode; as?: 'div' | 'span' | 'p' | 'legend'; className?: string }) {
+  return <As className={clsx('text-xs font-medium uppercase tracking-wide text-nb-500', className)}>{children}</As>
+}
+
+/**
  * A small "it worked" confirmation after a save - the same short ease-in as a popover opening (see `.menu-pop` in
  * index.css), so it registers as a change rather than snapping into place. Always announced to assistive tech.
  * Several pages hand-roll this same `{saved && <span role="status">Saved…</span>}` shape; sharing it here means
