@@ -458,6 +458,27 @@ export interface ServiceDisruption {
   allowed: number
 }
 
+/** One replica backing a Service right now - name, where it's running, and the handful of per-pod facts
+ *  that get flattened away the moment they're summed into the service's own aggregate fields (restarts,
+ *  readyReplicas): in particular `createdAt` is this pod's own age, unlike Service.createdAt (the workload
+ *  object's age, which never changes on a routine scale-up) - the one fact that can actually show a recent
+ *  scaling event. Deliberately as minimal as Service's own discovered fields: no pod IP ever leaves the
+ *  agent (see Address's own doc comment on the same rule). */
+export interface Pod {
+  name: string
+  /** Set only when the pod's own node is itself known to this topology - empty when the node was filtered
+   *  out of scope or the pod is not yet scheduled, the same rule Service.nodeIds already follows. */
+  nodeId?: string
+  /** Pending | Running | Succeeded | Failed | Unknown - exactly as Kubernetes reports it. */
+  phase: string
+  ready?: boolean
+  /** This pod's own restart count (every container's, summed) - Service.restarts above is already this same
+   *  number summed again across every pod, which flattens one unusually-crashy replica among otherwise-
+   *  healthy ones into an unremarkable average. */
+  restarts?: number
+  createdAt?: string
+}
+
 export interface Service extends Provenance {
   id: string
   applicationId?: string
@@ -494,6 +515,9 @@ export interface Service extends Provenance {
    *  case: a restart can be a crash, a deploy or a failed liveness probe, while a nonzero value here means
    *  the pod's last restart specifically was an OOM kill. */
   oomKills?: number
+  /** This service's individual replicas right now - absent/empty means either no pods are up or the agent's
+   *  tier doesn't collect them, same convention as every other optional discovered list here. */
+  pods?: Pod[]
   /** Application discovery grouped this service into. Applied automatically once a person has accepted that application. */
   applicationHint?: string
   mesh?: ServiceMesh

@@ -14,7 +14,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { applyGraphUpdate, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
+import { applyGraphUpdate, APP_CARD, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterLink, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type RegionalOperator, type Service, type Suggestion } from '../src/lib/types'
@@ -1526,6 +1526,65 @@ test('cluster links: a confirmed overlay/subnet edge is drawn directly between t
   const orphan: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'does-not-exist', toName: 'Ghost', kind: 'overlay', via: 'wg0 (wireguard)' }
   const g3 = buildGraph(seed, { ...opts, clusterLinks: [orphan] })
   assert.ok(!g3.edges.some((e) => e.data?.clusterLink), 'an end not on the canvas draws nothing')
+})
+
+test("service card: per-pod dots surface ready state and a recent-scaling-event flag, derived purely from each pod's own createdAt", () => {
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+
+  // No per-pod facts at all (older agent tier, or genuinely no pods up): unchanged from before this existed.
+  const none = buildGraph(seed, opts)
+  const gwNone = none.nodes.find((n) => n.id === cardId('w-gw'))!
+  assert.equal((gwNone.data as { pods?: unknown }).pods, undefined)
+  assert.equal(Number(gwNone.style?.height), APP_CARD.h, 'no pods row reserved when there are no per-pod facts')
+
+  const now = Date.now()
+  const old = new Date(now - 20 * 60 * 1000).toISOString() // 20 minutes old - well outside the scaling window
+  const brandNew = new Date(now - 60 * 1000).toISOString() // 1 minute old - inside the scaling window
+
+  // Two long-lived pods: nothing reads as a scaling event just because pods exist.
+  const steady = {
+    ...seed,
+    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: [
+      { name: 'gw-1', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old },
+      { name: 'gw-2', nodeId: 'n-c3', phase: 'Running', ready: true, createdAt: old },
+    ] } : s)),
+  }
+  const gSteady = buildGraph(steady, opts)
+  const gwSteady = gSteady.nodes.find((n) => n.id === cardId('w-gw'))!
+  const steadyPods = (gwSteady.data as { pods?: { id: string; ready: boolean; recent: boolean }[] }).pods!
+  assert.equal(steadyPods.length, 2)
+  assert.ok(steadyPods.every((p) => p.ready && !p.recent), 'both pods the same age: nothing reads as a scaling event')
+  assert.equal(Number(gwSteady.style?.height), APP_CARD.h + 24, 'the pods row reserves its own height, same as the hint/notReady/mesh row already does')
+
+  // One old pod plus one brand-new, not-ready one, spanning well past the scaling-event window: only the new
+  // one is flagged as recent, and its not-ready state is carried through distinctly from that flag.
+  const scaling = {
+    ...seed,
+    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: [
+      { name: 'gw-1', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old },
+      { name: 'gw-2', nodeId: 'n-c3', phase: 'Pending', ready: false, createdAt: brandNew },
+    ] } : s)),
+  }
+  const gScaling = buildGraph(scaling, opts)
+  const gwScaling = gScaling.nodes.find((n) => n.id === cardId('w-gw'))!
+  const scalingPods = (gwScaling.data as { pods?: { id: string; ready: boolean; recent: boolean }[] }).pods!
+  const byId = new Map(scalingPods.map((p) => [p.id, p]))
+  assert.equal(byId.get('gw-1')?.recent, false, 'the old pod is not the new one')
+  assert.equal(byId.get('gw-2')?.recent, true, 'brand new relative to its older sibling: this is the scaling event')
+  assert.equal(byId.get('gw-2')?.ready, false, 'not-ready is carried through distinctly from the recency flag')
+
+  // No spread at all between pods created within the window of each other (e.g. a fresh rollout where every
+  // pod is new): none of them reads as a scaling event, since there's no older sibling to be new relative to.
+  const freshRollout = {
+    ...seed,
+    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: [
+      { name: 'gw-1', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: brandNew },
+      { name: 'gw-2', nodeId: 'n-c3', phase: 'Running', ready: true, createdAt: brandNew },
+    ] } : s)),
+  }
+  const gFresh = buildGraph(freshRollout, opts)
+  const freshPods = (gFresh.nodes.find((n) => n.id === cardId('w-gw'))!.data as { pods?: { recent: boolean }[] }).pods!
+  assert.ok(freshPods.every((p) => !p.recent), 'everything came up together - no older sibling means no scaling event to flag')
 })
 
 test('resyncNodes: a node mid-drag is left untouched, others keep position until re-parented', () => {

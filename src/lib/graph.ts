@@ -24,6 +24,7 @@ import {
   type MachineKind,
   type MachineNode,
   type Path,
+  type Pod,
   type Service,
   type ServiceKind,
   type Site,
@@ -96,6 +97,11 @@ export type CardData = {
    *  MachineNode.networkInterfaces' speedMbps, not any one interface in particular - which one is fastest
    *  is a detail the Inspector's own per-interface list already covers). */
   hardware?: { hasBattery?: boolean; nicMbps?: number }
+  /** `service` cards only: one dot per current replica, so a scaling event (a pod younger than its
+   *  siblings) is visible without opening the Inspector, rather than flattened into the `meta` replica
+   *  count. Absent/empty means no per-pod facts were collected for this service (older agent tier, or no
+   *  pods up) - the card then falls back to just the replica count, same as before this existed. */
+  pods?: { id: string; ready: boolean; recent: boolean }[]
 }
 
 export type GroupNode = Node<GroupData, 'boundary'>
@@ -252,7 +258,7 @@ const ROW_GAP = 150
 // device name ("Temperature sensors" and beyond) can still truncate; there's no fixed width that fits every
 // arbitrary name, which is exactly why the native `title=` tooltip (added in an earlier pass) exists as the
 // fallback rather than chasing zero truncation by growing every card to accommodate the longest outlier.
-const APP_CARD = { w: 300, h: 68 }
+export const APP_CARD = { w: 300, h: 68 }
 // Exported so a test can assert a card's own height reserves room for whichever extra badge row(s) its data ends up rendering.
 export const MACHINE_CARD = { w: 288, h: 84 }
 const CHIP_ROW = 22
@@ -1063,11 +1069,16 @@ function tierLabel(t: Tier) {
 
 function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint?: string, mesh?: boolean): Item {
   const notReady = w.readyReplicas !== undefined && w.readyReplicas < w.replicas
+  const pods = podDots(w.pods)
+  // One row of small chips under the name; a second for the per-pod dot strip, whichever combination of
+  // the two is actually present (mirrors the machine card's own hint/notReady/mesh/hardware row).
+  const badgeRow = !!(hint || notReady || (mesh && w.mesh))
+  const podsRow = !!pods
+  const extraRows = (badgeRow ? 1 : 0) + (podsRow ? 1 : 0)
   return {
     id: cardId(w.id),
     w: APP_CARD.w,
-    // One row of small chips under the name; two when the mesh chip has to share it with advice or a warning.
-    h: APP_CARD.h + (mesh && w.mesh && (hint || notReady) ? 46 : hint || notReady || (mesh && w.mesh) ? 24 : 0),
+    h: APP_CARD.h + (extraRows === 2 ? 46 : extraRows === 1 ? 24 : 0),
     namespace: w.namespace,
     data: {
       kind: 'service',
@@ -1082,8 +1093,28 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint?: string
       hint,
       notReady: notReady ? `${w.readyReplicas}/${w.replicas} ready` : undefined,
       mesh: mesh && w.mesh ? meshChip(w) : undefined,
+      pods,
     },
   }
+}
+
+// A pod only reads as a scaling event when it's meaningfully younger than its own siblings - a fleet that
+// all came up together (a fresh rollout, or just no timestamps at all) isn't one. Both thresholds are the
+// same 5-minute window: siblings must *span* at least that long for there to be an "older" group at all,
+// and a pod counts as part of the new batch only if it's within that same window of the newest one.
+const SCALING_EVENT_WINDOW_MS = 5 * 60 * 1000
+
+function podDots(pods: Pod[] | undefined): NonNullable<CardData['pods']> | undefined {
+  if (!pods || pods.length === 0) return undefined
+  const times = pods.map((p) => (p.createdAt ? Date.parse(p.createdAt) : NaN)).filter((t) => Number.isFinite(t))
+  const newest = times.length > 0 ? Math.max(...times) : undefined
+  const oldest = times.length > 0 ? Math.min(...times) : undefined
+  const spread = newest !== undefined && oldest !== undefined ? newest - oldest : 0
+  return pods.map((p, i) => {
+    const t = p.createdAt ? Date.parse(p.createdAt) : undefined
+    const recent = !!(t !== undefined && newest !== undefined && spread > SCALING_EVENT_WINDOW_MS && newest - t < SCALING_EVENT_WINDOW_MS)
+    return { id: p.name || `${i}`, ready: !!p.ready, recent }
+  })
 }
 
 function groupMesh(m: NonNullable<Cluster['mesh']>): NonNullable<GroupData['mesh']> {

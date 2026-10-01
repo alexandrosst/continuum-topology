@@ -762,6 +762,33 @@ export default function Inspector({
             ))}
           </Section>
         )}
+        {w.pods && w.pods.length > 0 && (
+          <Section title={`Pods (${w.pods.length})`}>
+            {w.pods.map((p) => {
+              const pn = nodes.find((x) => x.id === p.nodeId)
+              return (
+                <div key={p.name} className="py-1.5 text-sm">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="truncate text-nb-300" title={p.name}>{p.name}</span>
+                    <span className={p.ready ? 'shrink-0 text-xs text-nb-500' : 'shrink-0 text-xs text-warn'}>
+                      {p.phase}
+                      {p.ready === false ? ' · not ready' : ''}
+                    </span>
+                  </div>
+                  <div className="text-xs text-nb-500">
+                    {pn ? (
+                      <button className="underline hover:text-nb-300" onClick={() => onSelect({ kind: 'node', id: p.nodeId! })}>{pn.name}</button>
+                    ) : (
+                      p.nodeId || 'not scheduled'
+                    )}
+                    {p.createdAt && ` · ${ageLabel(p.createdAt)} old`}
+                    {p.restarts ? ` · ${p.restarts} restart${p.restarts === 1 ? '' : 's'}` : ''}
+                  </div>
+                </div>
+              )
+            })}
+          </Section>
+        )}
         <Section title="Can it move?">
           <MobilityPanel service={w} onSelectCluster={(id) => onSelect({ kind: 'cluster', id })} />
         </Section>

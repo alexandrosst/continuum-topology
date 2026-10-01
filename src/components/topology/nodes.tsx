@@ -321,6 +321,22 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
         </div>
       )}
 
+      {!far && data.pods && data.pods.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1" data-testid="pod-dots">
+          {data.pods.map((p) => (
+            <span
+              key={p.id}
+              className={clsx(
+                'size-2 rounded-full',
+                p.ready ? 'bg-nb-600' : 'bg-warn',
+                p.recent && 'ring-2 ring-accent/60 ring-offset-1 ring-offset-nb-925',
+              )}
+              title={`${p.id}${p.ready ? '' : ' · not ready'}${p.recent ? ' · recently added (scaling)' : ''}`}
+            />
+          ))}
+        </div>
+      )}
+
       {!far && data.chips && (
         <div className="flex flex-wrap gap-1.5 border-t border-nb-850 pt-2">
           {data.chips.length === 0 && <span className="text-[11px] text-nb-500">No services</span>}
