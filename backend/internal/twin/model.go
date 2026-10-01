@@ -342,6 +342,12 @@ func (b *builder) observed() {
 		b.evAttr(c, "tier", cl.Tier, cl.Evidence["tier"], false)
 		if cl.Region != "" {
 			b.evAttr(c, "region", cl.Region, cl.Evidence["region"], false)
+		} else if label := b.siteLabelFor(cl.ID); label != "" {
+			// No node carries the region label, but a person has already placed this cluster on the map
+			// (Location, one section up in the sidebar) - saying "unknown" here would flatly contradict
+			// what the UI already shows working. Report the site's own label instead of fabricating a
+			// node-label fact that doesn't exist - see siteLabelFor's own doc comment.
+			c.set("region", Attr{Value: label, Source: FromInferred, Confidence: Inferred, Evidence: "this cluster's own site (no node carries a region label)"})
 		} else {
 			c.unk("region", "", "no node carries a region label")
 		}
@@ -668,6 +674,39 @@ func (b *builder) evAttr(c *ctx, name string, v any, ev model.Evidence, probed b
 		return
 	}
 	c.inf(name, v, ev, probed)
+}
+
+// siteLabelFor returns a short label for the site a person has already placed clusterID at ("" if none
+// has been confirmed). Sites have no typed Go struct on this side - they are kept as loose JSON like
+// every other declared record (see workspace.Declared.Records) - so this reads the raw map directly
+// rather than duplicating the frontend's own, much richer placement heuristics (cloud-region-code table,
+// city names in labels, GeoIP off the egress address - see src/lib/places.ts), which only ever produce a
+// *suggestion* until a person confirms it into exactly this siteId. That confirmation is the one fact
+// this function is allowed to treat as settled.
+func (b *builder) siteLabelFor(clusterID string) string {
+	siteID := b.in.Declared.Refs[clusterID].SiteID
+	if siteID == "" {
+		return ""
+	}
+	for _, r := range b.in.Declared.Records["site"] {
+		if id, _ := r["id"].(string); id != siteID {
+			continue
+		}
+		if name, _ := r["name"].(string); name != "" {
+			return name
+		}
+		city, _ := r["city"].(string)
+		country, _ := r["country"].(string)
+		switch {
+		case city != "" && country != "":
+			return city + ", " + country
+		case city != "":
+			return city
+		case country != "":
+			return country
+		}
+	}
+	return ""
 }
 
 func (b *builder) nodeFacts(n *model.Node) *continuumv1.NodeFacts {

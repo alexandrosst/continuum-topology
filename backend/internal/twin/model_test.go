@@ -280,6 +280,33 @@ func TestDeclaredOverridesWinAndKeepTheObservedValue(t *testing.T) {
 	}
 }
 
+// Regression guard: a cluster whose nodes carry no topology.kubernetes.io/region label, but which a
+// person has already placed on the map (siteId), must not report its region as flatly "unknown" - that
+// would contradict the Location the sidebar shows one section up from this same Evidence list. See
+// siteLabelFor's own doc comment in model.go for why this is read from the site rather than guessed.
+func TestRegionFallsBackToTheClustersSiteWhenNoNodeLabelExists(t *testing.T) {
+	in, _ := fixture(t, "cl-1", "ag-1", 2) // fixture's nodes carry no region label at all
+	in.Declared = workspace.Declared{
+		Refs: map[string]workspace.Ref{"cl-1": {Kind: "cluster", SiteID: "site-1"}},
+		Records: map[string][]map[string]any{
+			"site": {{"id": "site-1", "name": "Patras", "lat": 38.2, "lng": 21.7}},
+		},
+	}
+	c := find(Build(in), "cluster", "edge-a")
+	region := c.Attributes["region"]
+	if region.Value != "Patras" || region.Confidence == Unknown {
+		t.Errorf("region should fall back to the confirmed site's label, got %+v", region)
+	}
+
+	// Without any site assignment at all, the honest "unknown" stays exactly as it was.
+	in2, _ := fixture(t, "cl-2", "ag-2", 2)
+	c2 := find(Build(in2), "cluster", "edge-a")
+	region2 := c2.Attributes["region"]
+	if region2.Confidence != Unknown || region2.Value != nil {
+		t.Errorf("an unplaced cluster with no node label should still say unknown, got %+v", region2)
+	}
+}
+
 func TestTombstonesAppearAsGoneAndComeBackAsLive(t *testing.T) {
 	in, _ := fixture(t, "cl-1", "ag-1", 2)
 	gone := now.Add(-3 * time.Hour)
