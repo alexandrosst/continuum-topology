@@ -162,7 +162,14 @@ func k3sFixture() *facts.State {
 	s.Workloads["shop/Deployment/cart"] = &W{Key: "shop/Deployment/cart", Namespace: "shop", Kind: "Deployment", Name: "cart", Replicas: 2, ReadyReplicas: 1,
 		Images: []*continuumv1.ContainerImage{{Image: "ghcr.io/acme/cart:1.4", Digest: "sha256:abc"}}, NodeNames: []string{"edge-1", "ghost-node"},
 		Annotations: map[string]string{"meta.helm.sh/release-name": "shop"}, Labels: map[string]string{"app.kubernetes.io/managed-by": "Helm"},
-		MemoryRequestBytes: 256 << 20, CpuRequestMillis: 100, Ports: []int32{8080}, Exposure: "ingress", Hosts: []string{"shop.example.com"}}
+		MemoryRequestBytes: 256 << 20, CpuRequestMillis: 100, Ports: []int32{8080}, Exposure: "ingress", Hosts: []string{"shop.example.com"},
+		// One pod on a known node, one on a node this topology doesn't know (same "ghost-node" NodeNames
+		// already exercises for the aggregate NodeIDs filtering above) - so Pod.NodeID's own "empty when
+		// the node isn't known" rule gets exercised too, not just the service-wide NodeIDs list's.
+		Pods: []*continuumv1.PodFacts{
+			{Name: "cart-abc-1", NodeName: "edge-1", Phase: "Running", Ready: true, Restarts: 3},
+			{Name: "cart-abc-2", NodeName: "ghost-node", Phase: "Pending"},
+		}}
 	s.Workloads["shop/StatefulSet/db"] = &W{Key: "shop/StatefulSet/db", Namespace: "shop", Kind: "StatefulSet", Name: "db", Replicas: 1, ReadyReplicas: 1,
 		Annotations: map[string]string{"meta.helm.sh/release-name": "shop"}}
 	s.Workloads["default/Deployment/hello"] = &W{Key: "default/Deployment/hello", Namespace: "default", Kind: "Deployment", Name: "hello", Replicas: 0}
@@ -231,6 +238,15 @@ func TestInterpretK3sCluster(t *testing.T) {
 	}
 	if len(cart.NodeIDs) != 1 || cart.NodeIDs[0] != out.Nodes[0].ID {
 		t.Errorf("placement should keep known nodes only: %v", cart.NodeIDs)
+	}
+	if len(cart.Pods) != 2 {
+		t.Fatalf("pods = %d, want 2 (one per PodFacts entry - unlike NodeIDs, an unscheduled/unknown-node pod is never dropped)", len(cart.Pods))
+	}
+	if p := cart.Pods[0]; p.Name != "cart-abc-1" || p.NodeID != out.Nodes[0].ID || p.Phase != "Running" || !p.Ready || p.Restarts != 3 {
+		t.Errorf("cart.Pods[0] = %+v", p)
+	}
+	if p := cart.Pods[1]; p.Name != "cart-abc-2" || p.NodeID != "" || p.Phase != "Pending" || p.Ready {
+		t.Errorf("cart.Pods[1] = %+v, want empty NodeID (ghost-node is not a known node)", p)
 	}
 	if out.Services[0].Status != "unknown" { // hello, scaled to zero
 		t.Errorf("scaled to zero = %s", out.Services[0].Status)

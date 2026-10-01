@@ -257,6 +257,35 @@ type Service struct {
 	Autoscaler      *Autoscaler  `json:"autoscaler,omitempty"`
 	Disruption      *Disruption  `json:"disruption,omitempty"`
 	Mesh            *ServiceMesh `json:"mesh,omitempty"`
+	// Pods are this service's individual replicas right now - the same minimal, privacy-conscious facts
+	// the probe's own TunnelInterface/Disk carry (no address), so a scaling event (a pod noticeably
+	// younger than its siblings) or one unusually-crashy replica among otherwise-healthy ones is visible
+	// instead of only the aggregate Replicas/ReadyReplicas/Restarts/OOMKills above, which flatten exactly
+	// that into a single number. Unset below tier 2 (pods are not read at all) or when a workload
+	// genuinely has none scheduled yet - the zero value of this slice intentionally cannot distinguish the
+	// two, the same "absence" ambiguity Node.PodCount's own *int32 is careful to avoid for a single count,
+	// but not worth a pointer-to-slice here just to keep that distinction for a per-replica list.
+	Pods []Pod `json:"pods,omitempty"`
+}
+
+// Pod is one replica backing a Service right now. See Service.Pods' own comment for what this is for and
+// why it deliberately carries no address.
+type Pod struct {
+	Name string `json:"name"`
+	// NodeID is set only when the pod's own node is itself known to this topology (the usual case); empty
+	// when the node was filtered out of scope or the pod is not yet scheduled, the same rule Service's own
+	// NodeIDs already follows.
+	NodeID string `json:"nodeId,omitempty"`
+	// Pending | Running | Succeeded | Failed | Unknown - exactly as Kubernetes reports it.
+	Phase string `json:"phase"`
+	Ready bool   `json:"ready,omitempty"`
+	// This pod's own restart count (every container's, summed) - Service.Restarts above is already this
+	// same number summed again across every pod, which is exactly what flattens one unusually-crashy
+	// replica among otherwise-healthy ones into an unremarkable average.
+	Restarts int32 `json:"restarts,omitempty"`
+	// CreatedAt is this pod's own age, unlike Service.CreatedAt (the workload object's own age, which never
+	// changes on a routine scale-up) - the one fact that can actually show a recent scaling event.
+	CreatedAt string `json:"createdAt,omitempty"`
 }
 
 // Volume is a persistent volume claim used by a service.

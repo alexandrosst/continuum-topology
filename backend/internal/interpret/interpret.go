@@ -290,6 +290,9 @@ func Interpret(in Input) model.Topology {
 				s.NodeIDs = append(s.NodeIDs, nid)
 			}
 		}
+		for _, p := range w.Pods {
+			s.Pods = append(s.Pods, model.Pod{Name: p.Name, NodeID: nodeIDs[p.NodeName], Phase: p.Phase, Ready: p.Ready, Restarts: p.Restarts, CreatedAt: rfc3339(p.CreatedAt)})
+		}
 		s.Evidence = map[string]model.Evidence{"application": ev(ref.signal, ref.confidence, "grouped as "+ref.origin)}
 		if controlPlane {
 			// The mesh's own control plane is infrastructure, not one of the person's applications: it is not offered for
