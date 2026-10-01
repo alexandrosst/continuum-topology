@@ -278,7 +278,11 @@ type Pod struct {
 	NodeID string `json:"nodeId,omitempty"`
 	// Pending | Running | Succeeded | Failed | Unknown - exactly as Kubernetes reports it.
 	Phase string `json:"phase"`
-	Ready bool   `json:"ready,omitempty"`
+	// No omitempty: false is a real, meaningful value here (the pod is not ready), not an absent one - the
+	// same reasoning Service.ReadyReplicas above already follows. Dropping it on encoding/json's usual
+	// omitempty-on-zero-value behavior would make a not-ready pod indistinguishable on the wire from one
+	// whose readiness was never collected at all.
+	Ready bool `json:"ready"`
 	// This pod's own restart count (every container's, summed) - Service.Restarts above is already this
 	// same number summed again across every pod, which is exactly what flattens one unusually-crashy
 	// replica among otherwise-healthy ones into an unremarkable average.
