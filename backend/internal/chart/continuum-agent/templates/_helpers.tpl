@@ -13,6 +13,15 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- $t -}}
 {{- end -}}
 
+{{/* A short human name for agent.tier's number - NOTES.txt's own status block, so it reads as a name, not just a digit. */}}
+{{- define "agent.tierName" -}}
+{{- $t := int (include "agent.tier" .) -}}
+{{- if eq $t 0 -}}registered only
+{{- else if eq $t 1 -}}infrastructure
+{{- else -}}services
+{{- end -}}
+{{- end -}}
+
 {{/* The one image for every role. A digest wins over the tag: repository@sha256:... */}}
 {{- define "agent.image" -}}
 {{- $i := .Values.image -}}

@@ -1,7 +1,33 @@
-Continuum server {{ .Chart.AppVersion }} is installed as "{{ .Release.Name }}" in namespace {{ .Release.Namespace }}.
+Continuum server {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} as "{{ .Release.Name }}" in {{ .Release.Namespace }}.
 {{- $fn := include "continuum.fullname" . }}
 {{- $ns := .Release.Namespace }}
 {{- $tls := include "continuum.adminTLS" . }}
+
+  ✓ Agents dial: {{ .Values.agent.publicAddress }}
+  ✓ Web UI: {{ if .Values.httproute.enabled }}exposed{{ else }}not exposed - port-forward only (see Details){{ end }}
+  ✓ Registration: {{ .Values.registration }}
+  ✓ Neo4j: {{ .Values.neo4j.mode }}
+{{- if .Values.backup.volumeSnapshot.enabled }}
+  ✓ Backup: VolumeSnapshots on schedule "{{ .Values.backup.volumeSnapshot.schedule }}"
+{{- end }}
+{{- if and .Release.IsInstall (not .Values.admin.existingPasswordSecret) }}
+
+› NEXT STEP — sign in as admin
+  On a fresh database the server generates a one-time password for "admin" and prints it to its log, once:
+
+    kubectl -n {{ $ns }} logs deployment/{{ $fn }} | grep -A2 'First start'
+
+  You choose a new password at first sign-in. If the line is missing, the database already existed: see
+  "Recovery" in deploy/README.md.
+{{- else if .Release.IsInstall }}
+
+› NEXT STEP — sign in as admin
+  The first administrator "admin" takes its password from Secret {{ .Values.admin.existingPasswordSecret }}
+  (key {{ .Values.admin.existingPasswordSecretKey }}), on a fresh database only.
+{{- end }}
+
+────────────────────────────────────────────────────────────────────────────
+DETAILS
 
 WHAT AGENTS WILL DIAL
   {{ .Values.agent.publicAddress }}

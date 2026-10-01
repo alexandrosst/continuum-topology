@@ -1,4 +1,33 @@
-Continuum agent {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} in namespace {{ .Release.Namespace }} (release "{{ .Release.Name }}").
+Continuum agent {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} as "{{ .Release.Name }}" in {{ .Release.Namespace }}.
+
+  ✓ Access tier {{ include "agent.tier" . }} ({{ include "agent.tierName" . }})
+  ✓ Scope: {{ if .Values.scope.namespaces }}{{ join ", " .Values.scope.namespaces }}{{ else if .Values.scope.selector }}namespaces labelled {{ .Values.scope.selector }}{{ else }}all namespaces{{ end }}{{ if .Values.scope.exclude }} (except {{ join ", " .Values.scope.exclude }}){{ end }}
+{{- if eq .Values.rbac.mode "namespaced" }}
+  ✓ RBAC: namespaced (narrower than tier 2 normally allows - see Details)
+{{- end }}
+{{- if .Values.nodeProbe.enabled }}
+  ✓ Node probe
+{{- end }}
+{{- if .Values.flowObserver.enabled }}
+  ✓ Traffic observer ({{ .Values.flowObserver.method }})
+{{- end }}
+{{- if include "agent.telemetryEnabled" . }}
+  ✓ Telemetry: {{ include "agent.telemetrySignalNames" . }}
+{{- end }}
+{{- if .Release.IsInstall }}
+
+› NEXT STEP — approve this cluster
+  The agent enrolls with {{ .Values.server.address }} and waits for an administrator to approve it (not an
+  error; the pod is not restarted for it). Find its approval code:
+
+    kubectl -n {{ .Release.Namespace }} logs deploy/continuum-agent | grep -i "approval code"
+
+  Open Discovery in the Continuum UI, enter that code, and choose the access tier it may have. Nothing is
+  reported before you do.
+{{- end }}
+
+────────────────────────────────────────────────────────────────────────────
+DETAILS
 
 WHAT IT CAN SEE  (access tier {{ include "agent.tier" . }})
 {{- if eq (int (include "agent.tier" .)) 0 }}
@@ -29,18 +58,6 @@ WHAT IT CAN SEE  (access tier {{ include "agent.tier" . }})
   reported, not what the agent's permissions allow: the access described above is still cluster-wide read access.
   It is read-only: it never creates, changes or deletes anything in the cluster except its own identity Secret
   ({{ include "agent.identitySecret" . }}), and it cannot read any other Secret or any ConfigMap.
-{{- if .Release.IsInstall }}
-
-WHAT HAPPENS NEXT
-  The agent enrolls with {{ .Values.server.address }} and then waits for an administrator to approve it. Waiting is normal:
-  it is not an error and the pod is not restarted for it. It prints a short approval code in its log,
-  as the first thing on the line ("APPROVAL CODE: ..."), so it is easy to spot:
-
-    kubectl -n {{ .Release.Namespace }} logs deploy/continuum-agent | grep -i "approval code"
-
-  Open Discovery in the Continuum UI, enter that code to approve this cluster, and choose the access tier it may have.
-  Nothing is reported before you do.
-{{- end }}
 
 CHECK IT
   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/name=continuum-agent

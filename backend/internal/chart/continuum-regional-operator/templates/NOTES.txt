@@ -1,17 +1,16 @@
-Continuum regional operator {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} in namespace {{ .Release.Namespace }} (release "{{ .Release.Name }}").
+Continuum regional operator {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} as "{{ .Release.Name }}" in {{ .Release.Namespace }}.
+
+  ✓ Receiver: {{ include "operator.name" . }}.{{ .Release.Namespace }}.svc:4317 / :4318 (grpc / http)
+  ✓ Auth: {{ if .Values.receiver.auth.enabled }}bearer token (Secret {{ .Values.receiver.auth.secretName }}/{{ .Values.receiver.auth.secretKey }}){{ else }}none{{ end }}
+  ✓ Re-exports to: {{ .Values.export.otlp.endpoint }}
 
 This operator never dials the Continuum server - it only aggregates OTLP telemetry that source clusters'
-own agent releases export to it, and re-exports it to:
-  {{ .Values.export.otlp.endpoint }}
+own agent releases export to it, and re-exports it to the endpoint above.
 
-RECEIVER
-  OTLP endpoint (grpc/http): {{ include "operator.name" . }}.{{ .Release.Namespace }}.svc:4317 / :4318
-{{- if .Values.receiver.auth.enabled }}
-  Auth: bearer token from Secret {{ .Values.receiver.auth.secretName }}/{{ .Values.receiver.auth.secretKey }} - present
-  it in every source cluster's telemetry.export.otlp.auth for this operator.
-{{- else }}
-  Auth: none. Anything that can reach this Service on the cluster network can push telemetry into it -
-  set receiver.auth.enabled and receiver.networkPolicy for a shared or multi-tenant cluster.
+{{- if not .Values.receiver.auth.enabled }}
+
+› Anything that can reach this Service on the cluster network can push telemetry into it. Set
+  receiver.auth.enabled and receiver.networkPolicy for a shared or multi-tenant cluster.
 {{- end }}
 
 Each source cluster's own agent release still needs its telemetry.export.otlp.endpoint pointed at this
