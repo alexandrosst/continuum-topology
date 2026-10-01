@@ -13,7 +13,7 @@ import { completeness } from '@/lib/completeness'
 import { observation } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
 import { exitIps } from '@/lib/geo'
-import { ageLabel, autoscalerRange, disruptionLabel, formatMemory, GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipInCidr, linkUtilizationPct, podsLabel, podsPercent, volumeSize } from '@/lib/present'
+import { ageLabel, autoscalerRange, disruptionLabel, formatMemory, GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipInCidr, linkUtilizationPct, podsLabel, podsPercent, recentlyScaledPods, volumeSize } from '@/lib/present'
 import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { useHistoryView } from '@/store/history'
 import { useServer } from '@/store/server'
@@ -762,33 +762,43 @@ export default function Inspector({
             ))}
           </Section>
         )}
-        {w.pods && w.pods.length > 0 && (
-          <Section title={`Pods (${w.pods.length})`}>
-            {w.pods.map((p) => {
-              const pn = nodes.find((x) => x.id === p.nodeId)
-              return (
-                <div key={p.name} className="py-1.5 text-sm">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="truncate text-nb-300" title={p.name}>{p.name}</span>
-                    <span className={p.ready ? 'shrink-0 text-xs text-nb-500' : 'shrink-0 text-xs text-warn'}>
-                      {p.phase}
-                      {p.ready === false ? ' · not ready' : ''}
-                    </span>
+        {w.pods && w.pods.length > 0 && (() => {
+          const recent = recentlyScaledPods(w.pods)
+          // Not-ready first, then the scaling event (if any), then everything else - the same priority
+          // order the canvas dot strip uses to decide which pods survive its own display cap, so whichever
+          // 1-2 pods actually need a look are at the top of what could otherwise be a long, scrolled list.
+          const sorted = [...w.pods].sort((a, b) => Number(!!a.ready) - Number(!!b.ready) || Number(recent.has(b.name)) - Number(recent.has(a.name)))
+          return (
+            <Section title={`Pods (${w.pods.length})`}>
+              {sorted.map((p) => {
+                const pn = nodes.find((x) => x.id === p.nodeId)
+                const notReady = !p.ready
+                const isRecent = recent.has(p.name)
+                return (
+                  <div key={p.name} className="py-1.5 text-sm">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="truncate text-nb-300" title={p.name}>{p.name}</span>
+                      <span className={notReady ? 'shrink-0 text-xs text-warn' : 'shrink-0 text-xs text-nb-500'}>
+                        {p.phase}
+                        {notReady ? ' · not ready' : ''}
+                      </span>
+                    </div>
+                    <div className="text-xs text-nb-500">
+                      {pn ? (
+                        <button className="underline hover:text-nb-300" onClick={() => onSelect({ kind: 'node', id: p.nodeId! })}>{pn.name}</button>
+                      ) : (
+                        p.nodeId || 'not scheduled'
+                      )}
+                      {p.createdAt && ` · ${ageLabel(p.createdAt)} old`}
+                      {p.restarts ? ` · ${p.restarts} restart${p.restarts === 1 ? '' : 's'}` : ''}
+                      {isRecent && <span className="text-info"> · recently added (scaling)</span>}
+                    </div>
                   </div>
-                  <div className="text-xs text-nb-500">
-                    {pn ? (
-                      <button className="underline hover:text-nb-300" onClick={() => onSelect({ kind: 'node', id: p.nodeId! })}>{pn.name}</button>
-                    ) : (
-                      p.nodeId || 'not scheduled'
-                    )}
-                    {p.createdAt && ` · ${ageLabel(p.createdAt)} old`}
-                    {p.restarts ? ` · ${p.restarts} restart${p.restarts === 1 ? '' : 's'}` : ''}
-                  </div>
-                </div>
-              )
-            })}
-          </Section>
-        )}
+                )
+              })}
+            </Section>
+          )
+        })()}
         <Section title="Can it move?">
           <MobilityPanel service={w} onSelectCluster={(id) => onSelect({ kind: 'cluster', id })} />
         </Section>
