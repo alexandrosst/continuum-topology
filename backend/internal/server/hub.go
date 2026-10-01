@@ -955,6 +955,15 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 	if err != nil {
 		return doc, err
 	}
+	// Fetched here, before h.mu, not inside the locked section below: ListAudit is a database read keyed
+	// only by org ID, with no dependency on anything the locked loop computes. Every agent's heartbeat and
+	// sync ultimately waits on h.mu too (applySync takes it to merge state), so a slow audit-log query
+	// sitting inside that same critical section would stall live agent traffic behind an unrelated read,
+	// for every org sharing this process - not just the one asking for its audit log.
+	var auditEvents []store.AuditEvent
+	if withAudit {
+		auditEvents, _ = h.C.Store.ListAudit(ctx, h.C.OrgID, 50)
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	showRevoked := h.revokedToShow(agents)
@@ -1074,12 +1083,9 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 	}
 	doc.Topology.Paths = h.pathDocs(agents, located, names, now)
 	sort.Slice(doc.Agents, func(i, j int) bool { return doc.Agents[i].RequestedAt < doc.Agents[j].RequestedAt })
-	if withAudit {
-		events, _ := h.C.Store.ListAudit(ctx, h.C.OrgID, 50)
-		for i := len(events) - 1; i >= 0; i-- {
-			e := events[i]
-			doc.AuditLog = append(doc.AuditLog, AuditDoc{ID: "au-" + itoa(e.ID), OrgID: e.OrgID, At: rfc(e.At), Actor: e.Actor, Action: e.Action, TargetKind: e.TargetKind, TargetID: e.TargetID, Detail: e.Detail})
-		}
+	for i := len(auditEvents) - 1; i >= 0; i-- {
+		e := auditEvents[i]
+		doc.AuditLog = append(doc.AuditLog, AuditDoc{ID: "au-" + itoa(e.ID), OrgID: e.OrgID, At: rfc(e.At), Actor: e.Actor, Action: e.Action, TargetKind: e.TargetKind, TargetID: e.TargetID, Detail: e.Detail})
 	}
 	doc.Tombstones = h.tombstoneDocs(now)
 	doc.Observation = twin.ObservationDoc{StaleAfterSeconds: int(window / time.Second), TombstoneRetentionDays: int(h.retention() / (24 * time.Hour))}
