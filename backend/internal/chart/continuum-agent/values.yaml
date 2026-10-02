@@ -198,7 +198,22 @@ nodeProbe:
   # hostNetwork too - label the namespace privileged, or set this to false and the probe still reports
   # everything else (CPU, DMI, virtualization) unaffected, since those come from /proc and hostSys's
   # own mount, neither of which this namespacing applies to.
+  #
+  # This also changes what networkPolicy (below) must match: the receiver's NetworkPolicy ordinarily
+  # recognizes the probe by pod identity (a podSelector), but a hostNetwork pod's traffic carries no
+  # pod identity at all - it arrives looking like it came from the node itself, the exact same reason
+  # flowObserver.nodeCIDRs exists for the flow collectors just below. With hostNetwork on, networkPolicy
+  # also needs nodeCIDRs filled in (the chart refuses to render otherwise, rather than silently
+  # deploying a NetworkPolicy that quietly refuses every report); set networkPolicy: false instead to
+  # skip this if you are not ready to figure out the right CIDRs yet.
   hostNetwork: true
+  # Only consulted when hostNetwork is also true: the node-side addresses the agent sees the probe's
+  # own reports arrive from (check `kubectl -n <ns> logs` of the agent after a first report, or your
+  # CNI's docs - see flowObserver.nodeCIDRs' own comment, the same caveat about which address a
+  # same-node vs. different-node hop shows applies here too). An incomplete list silently drops
+  # reports from those nodes; leaving this empty with hostNetwork and networkPolicy both on is a
+  # render-time error instead, on purpose.
+  nodeCIDRs: []
   interval: 3m
   # Leave empty to generate one on first install and keep it across upgrades.
   secret: ""

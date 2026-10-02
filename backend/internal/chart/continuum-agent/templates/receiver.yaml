@@ -1,6 +1,9 @@
 {{- if and .Values.flowObserver.enabled .Values.flowObserver.networkPolicy (not .Values.flowObserver.nodeCIDRs) }}
 {{- fail "flowObserver.networkPolicy=true needs flowObserver.nodeCIDRs: the addresses the agent sees the node collectors arrive from (an empty list would block every collector). Leave networkPolicy=false to accept reports from any source (they are signed either way)." }}
 {{- end }}
+{{- if and .Values.nodeProbe.enabled .Values.nodeProbe.networkPolicy .Values.nodeProbe.hostNetwork (not .Values.nodeProbe.nodeCIDRs) }}
+{{- fail "nodeProbe.networkPolicy=true with nodeProbe.hostNetwork=true needs nodeProbe.nodeCIDRs: a hostNetwork pod's traffic carries no pod identity for the podSelector rule to match, so an empty list would block every probe report (the exact same reasoning as flowObserver.nodeCIDRs above). Leave networkPolicy=false to accept reports from any source (they are signed either way), or set hostNetwork=false if you do not need TunnelInterface/host_subnets." }}
+{{- end }}
 {{- if include "agent.receiver" . }}
 # The agent's in-cluster receiver (port 8081) for the optional node probe and flow collector.
 apiVersion: v1
@@ -35,6 +38,20 @@ spec:
             matchLabels: {app.kubernetes.io/name: continuum-node-probe, app.kubernetes.io/instance: {{ .Release.Name }}}
       ports:
         - {port: 8081, protocol: TCP}
+    {{- if .Values.nodeProbe.hostNetwork }}
+    # A hostNetwork probe's traffic carries no pod identity for the podSelector rule above to match -
+    # the exact same reasoning as the flowObserver rule just below, and solved the same way: by source
+    # CIDR instead. nodeProbe.networkPolicy=false falls back to 0.0.0.0/0 here too, so turning this
+    # receiver's restriction off for the probe actually turns it off, regardless of why this policy
+    # object exists at all (nodeProbe.enabled alone, independent of nodeProbe.networkPolicy, is what
+    # gates this whole block - see the comment on the policy's own `if` above).
+    - from:
+        {{- range (ternary .Values.nodeProbe.nodeCIDRs (list "0.0.0.0/0") .Values.nodeProbe.networkPolicy) }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {port: 8081, protocol: TCP}
+    {{- end }}
     {{- end }}
     {{- if .Values.flowObserver.enabled }}
     # The flow collectors run in the host network, so their traffic arrives from node-side addresses, which a

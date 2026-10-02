@@ -348,6 +348,12 @@
         "hostNetwork": {
           "type": "boolean"
         },
+        "nodeCIDRs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "interval": {
           "type": "string"
         },
