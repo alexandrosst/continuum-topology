@@ -220,6 +220,18 @@ export default function EdgeHoverCard({
               <dd className="text-nb-200">{d.clusterLink.redundancy} independent paths</dd>
             </>
           )}
+          {d?.clusterLink && !!d.clusterLink.flowsObserved && (
+            <>
+              <dt title="Live dependency flows actually matched onto this link's confirmed tunnel interface(s) - scoped to the calling service's own cluster, never by interface name alone">Flows observed</dt>
+              <dd className="text-nb-200">
+                {d.clusterLink.flowsObserved} flow{d.clusterLink.flowsObserved === 1 ? '' : 's'}
+                {d.clusterLink.avgRttMs !== undefined ? ` · ${rttLabel(d.clusterLink.avgRttMs)} avg RTT` : ''}
+                {d.clusterLink.avgLossPct !== undefined
+                  ? ` · ${d.clusterLink.avgLossPct < 10 ? d.clusterLink.avgLossPct.toFixed(1) : Math.round(d.clusterLink.avgLossPct)}% avg loss`
+                  : ''}
+              </dd>
+            </>
+          )}
         </dl>
       )}
     </div>

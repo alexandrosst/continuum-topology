@@ -238,6 +238,19 @@ export interface ClusterLink {
    *  "10.8.0.2/24"). Empty for a "subnet" link, where `via` already is the complete evidence. */
   fromAddress?: string
   toAddress?: string
+  /** How many live Dependency flows were actually matched onto this link's confirmed tunnel interface(s),
+   *  scoped per side by the calling service's own cluster - never by interface name alone, since a name
+   *  like "wg0" is commonly reused across unrelated tunnels. Only ever set for a "overlay" link; a
+   *  "subnet" link has no specific interface to correlate flows against. Undefined/0 means no matching
+   *  flow was observed yet, not that none exists. */
+  flowsObserved?: number
+  /** Average RTT (ms) across the matched flows that have a measured sample. Undefined when none of them
+   *  do yet - the same "0 means not measured" convention Dependency.rttMs itself uses, never a fabricated
+   *  0ms. */
+  avgRttMs?: number
+  /** Average loss percentage across the matched flows that have a measured sample. Undefined when none
+   *  of them do yet, never a fabricated 0%. */
+  avgLossPct?: number
 }
 
 export interface Cluster extends Provenance {

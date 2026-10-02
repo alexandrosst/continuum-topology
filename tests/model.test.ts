@@ -1595,6 +1595,21 @@ test('cluster links: a confirmed overlay/subnet edge is drawn directly between t
   assert.equal(edge!.data?.clusterLink?.kind, 'overlay')
   assert.equal(edge!.data?.clusterLink?.via, 'wg0 (wireguard)')
   assert.ok(!edge!.markerEnd, 'undirected in reality (two clusters either are or are not joined this way), so no arrowhead')
+  assert.equal(edge!.data?.clusterLink?.flowsObserved, undefined, 'no rollup data on this link: nothing to show, not a fabricated 0')
+  assert.equal(edge!.data?.clusterLink?.avgRttMs, undefined)
+  assert.equal(edge!.data?.clusterLink?.avgLossPct, undefined)
+
+  const overlayWithRollup: ClusterLink = {
+    ...overlay,
+    flowsObserved: 3,
+    avgRttMs: 42,
+    avgLossPct: 0.2,
+  }
+  const gRollup = buildGraph(seed, { ...opts, clusterLinks: [overlayWithRollup] })
+  const edgeRollup = gRollup.edges.find((e) => e.source === groupId('cl-edge-a') && e.target === groupId('cl-cloud'))
+  assert.equal(edgeRollup?.data?.clusterLink?.flowsObserved, 3, 'the flow-rollup fields pass straight through onto the edge, same as via/redundancy do')
+  assert.equal(edgeRollup?.data?.clusterLink?.avgRttMs, 42)
+  assert.equal(edgeRollup?.data?.clusterLink?.avgLossPct, 0.2)
 
   const subnet: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'subnet', via: '10.20.30.0/24' }
   const g2 = buildGraph(seed, { ...opts, clusterLinks: [subnet] })

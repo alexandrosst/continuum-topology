@@ -211,3 +211,63 @@ describe('EdgeHoverCard · protocol mix', () => {
     expect(screen.queryByText('Protocols')).toBeNull()
   })
 })
+
+describe('EdgeHoverCard · cluster-link flow rollup', () => {
+  test('shows flow count, avg RTT and avg loss together when all three are present', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({
+          clusterLink: { kind: 'overlay', via: 'wg0 (wireguard)', redundancy: 1, flowsObserved: 3, avgRttMs: 42, avgLossPct: 0.2 },
+        })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="edge-a"
+        toName="cloud"
+      />,
+    )
+    expect(screen.getByText('Flows observed')).toBeTruthy()
+    expect(screen.getByText('Flows observed').nextElementSibling).toHaveTextContent('3 flows · 42 ms avg RTT · 0.2% avg loss')
+  })
+
+  test('singular "flow" when exactly one is observed, and the row omits a measurement with no sample yet', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({
+          clusterLink: { kind: 'overlay', via: 'wg0 (wireguard)', redundancy: 1, flowsObserved: 1, avgLossPct: 0 },
+        })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="edge-a"
+        toName="cloud"
+      />,
+    )
+    // avgRttMs is undefined (no measured sample yet) - it must not render as "0 ms", it must be absent.
+    expect(screen.getByText('Flows observed').nextElementSibling).toHaveTextContent('1 flow · 0.0% avg loss')
+  })
+
+  test('no row at all when nothing has been matched onto this link yet', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ clusterLink: { kind: 'overlay', via: 'wg0 (wireguard)', redundancy: 1 } })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="edge-a"
+        toName="cloud"
+      />,
+    )
+    expect(screen.queryByText('Flows observed')).toBeNull()
+  })
+
+  test('the row just reads flowsObserved rather than re-deriving kind === "overlay" itself - the backend is the one place that only ever sets it for an overlay link', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ clusterLink: { kind: 'subnet', via: '10.20.30.0/24', redundancy: 1, flowsObserved: 2 } })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="edge-a"
+        toName="cloud"
+      />,
+    )
+    expect(screen.getByText('Flows observed')).toBeTruthy()
+  })
+})
