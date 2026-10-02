@@ -503,6 +503,12 @@ export default function Inspector({
                     key={`${l.fromCluster}:${l.toCluster}:${l.kind}`}
                     label={otherName}
                     sub={sub}
+                    // This sub is a multi-part joined string (kind/via/encryption/nodes/redundancy), the
+                    // same shape as depSub's own dependency rows below - and like those, long enough to
+                    // regularly overflow the sidebar's fixed width in the default non-stacked layout,
+                    // whose `sub` span is `shrink-0` with no truncation. stacked wraps it under the name
+                    // instead, same as every other long-sub LinkRow call in this file already does.
+                    stacked
                     onClick={() => onSelect({ kind: 'cluster', id: otherId })}
                   />
                 )
@@ -1181,7 +1187,14 @@ export default function Inspector({
     // open, rather than snapping into place - this component mounts fresh each time selection goes from
     // null to something (the early return above), so this only ever plays on that actual open, not on
     // every click to a *different* entity while already open (same DOM node, just new content then).
-    <aside className="modal-pop fixed inset-x-0 bottom-0 z-30 flex max-h-[65vh] flex-col overflow-y-auto rounded-t-xl border-t border-nb-850 bg-nb-920 shadow-2xl lg:static lg:max-h-none lg:w-80 lg:min-h-0 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
+    //
+    // overscroll-contain: without it, a wheel/trackpad scroll that bottoms out this panel's own
+    // overflow-y-auto keeps going - scroll chaining - into whatever sits behind/beneath it: the React
+    // Flow canvas, which treats that leftover scroll delta as a pan/zoom gesture. The visible symptom was
+    // the whole canvas appearing to "jump" the moment the sidebar finished scrolling, since nothing told
+    // the browser this panel's own scroll boundary was the end of the gesture, not a handoff to whatever's
+    // underneath it.
+    <aside className="modal-pop fixed inset-x-0 bottom-0 z-30 flex max-h-[65vh] flex-col overflow-y-auto overscroll-contain rounded-t-xl border-t border-nb-850 bg-nb-920 shadow-2xl lg:static lg:max-h-none lg:w-80 lg:min-h-0 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
       <div className="flex items-start justify-between gap-3 px-5 py-4">
         <div className="min-w-0">
           <h2 className="truncate text-base font-medium text-nb-300">{title}</h2>
