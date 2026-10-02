@@ -781,6 +781,53 @@ export function Pill({ children, title, className }: { children: ReactNode; titl
   )
 }
 
+/** A label/value row shared by the Inspector's sidebar (`dense` omitted: roomier `py-1.5 text-sm`) and a
+ *  hover card's compact stack of rows (`dense`: tighter `py-0.5 text-xs`) - the same label/value color pair
+ *  either way, since density changes only size and padding, never the color pair. `labelTitle` puts a
+ *  tooltip on the label itself (several of EdgeHoverCard's rows explain what a measurement means right on
+ *  the label) without wrapping it in an extra element, so the label stays the direct previous sibling of
+ *  the value for anything that walks the row's own DOM structure. `wrap` lets prose (detection reasons,
+ *  traffic summaries) break onto a second line instead of scrolling horizontally; `badge`/`copy` are kept
+ *  out of that scrolling region so a value+badge (or value+copy) pair stays right after the value no matter
+ *  how long the value is. */
+export function DetailRow({
+  label,
+  labelTitle,
+  children,
+  wrap,
+  badge,
+  copy,
+  dense,
+}: {
+  label: string
+  labelTitle?: string
+  children: ReactNode
+  wrap?: boolean
+  badge?: ReactNode
+  copy?: string
+  dense?: boolean
+}) {
+  const trailing = badge || copy ? (
+    <>
+      {badge}
+      {copy && <CopyIconButton text={copy} title={`Copy ${label.toLowerCase()}`} />}
+    </>
+  ) : null
+  return (
+    <div className={clsx('flex items-baseline justify-between gap-4', dense ? 'py-0.5 text-xs' : 'py-1.5 text-sm')}>
+      <span title={labelTitle} className="shrink-0 text-nb-500">{label}</span>
+      {trailing ? (
+        <span className="inline-flex min-w-0 items-center justify-end gap-1.5 text-right text-nb-300">
+          <span className="scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap">{children}</span>
+          {trailing}
+        </span>
+      ) : (
+        <span className={wrap ? 'min-w-0 break-words text-right text-nb-300' : 'scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap text-right text-nb-300'}>{children}</span>
+      )}
+    </div>
+  )
+}
+
 /* ---------- Popovers ---------- */
 /**
  * The dropdown a toolbar button opens (Filter, Views, view Options, Add - one row of several in the Topology

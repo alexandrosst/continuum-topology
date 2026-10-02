@@ -1,6 +1,7 @@
 import { qualityLabel, rttLabel } from '@/lib/metrics'
 import { bytesPerSec } from '@/lib/observed'
 import { linkUtilizationPct } from '@/lib/present'
+import { DetailRow } from '@/components/ui/primitives'
 import type { TopoEdge } from '@/lib/graph'
 
 export type EdgeHoverPos = { cx: number; cy: number }
@@ -105,153 +106,129 @@ export default function EdgeHoverCard({
             : label !== undefined && (d?.stale ? ' · quiet' : seen ? ' · seen in traffic' : ' · declared')}
       </div>
       {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showJitter || showHandshake || showRetransmits || showFailed || showSni || showDns || showDnsRtt || d?.iface || d?.quality || d?.route || d?.clusterLink || protocolMix) && (
-        <dl className="mt-1.5 grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-0.5 text-nb-400">
+        <div className="mt-1.5">
           {protocolMix && (
-            <>
-              <dt>Protocols</dt>
-              <dd className="text-nb-200">{protocolMix.map(([proto, n]) => `${proto} ×${n}`).join(', ')}</dd>
-            </>
+            <DetailRow dense label="Protocols">
+              {protocolMix.map(([proto, n]) => `${proto} \u00d7${n}`).join(', ')}
+            </DetailRow>
           )}
           {showBps && (
-            <>
-              <dt>{d?.aggregated ? 'Combined throughput' : 'Throughput'}</dt>
-              <dd className="text-nb-200">
-                {bytesPerSec(s!.bytesPerSec!)}
-                {/* The caller's own interface capacity (present.ts's callerIfaceSpeedMbps, resolved once in
-                    graph.ts), right next to the achieved rate it's being measured against - never shown for
-                    an aggregated group<->group link, which has no single caller interface to speak of. */}
-                {!d?.aggregated && d?.ifaceSpeedMbps !== undefined && linkUtilizationPct(s!.bytesPerSec!, d.ifaceSpeedMbps) !== undefined && (
-                  <span className="text-nb-500"> ({linkUtilizationPct(s!.bytesPerSec!, d.ifaceSpeedMbps)}% of {d!.iface}'s {d.ifaceSpeedMbps} Mbps)</span>
-                )}
-              </dd>
-            </>
+            <DetailRow dense label={d?.aggregated ? 'Combined throughput' : 'Throughput'}>
+              {bytesPerSec(s!.bytesPerSec!)}
+              {/* The caller's own interface capacity (present.ts's callerIfaceSpeedMbps, resolved once in
+                  graph.ts), right next to the achieved rate it's being measured against - never shown for
+                  an aggregated group<->group link, which has no single caller interface to speak of. */}
+              {!d?.aggregated && d?.ifaceSpeedMbps !== undefined && linkUtilizationPct(s!.bytesPerSec!, d.ifaceSpeedMbps) !== undefined && (
+                <span className="text-nb-500"> ({linkUtilizationPct(s!.bytesPerSec!, d.ifaceSpeedMbps)}% of {d!.iface}'s {d.ifaceSpeedMbps} Mbps)</span>
+              )}
+            </DetailRow>
           )}
-          {s?.reqPerSec !== undefined && (
-            <>
-              <dt>Requests</dt>
-              <dd className="text-nb-200">{s.reqPerSec}/s</dd>
-            </>
-          )}
+          {s?.reqPerSec !== undefined && <DetailRow dense label="Requests">{s.reqPerSec}/s</DetailRow>}
           {s?.errorRate !== undefined && (
-            <>
-              <dt>Errors</dt>
-              <dd className="text-nb-200">{(s.errorRate * 100).toFixed(s.errorRate < 0.1 ? 1 : 0)}%</dd>
-            </>
+            <DetailRow dense label="Errors">{(s.errorRate * 100).toFixed(s.errorRate < 0.1 ? 1 : 0)}%</DetailRow>
           )}
-          {s?.p95Ms !== undefined && (
-            <>
-              <dt>p95 latency</dt>
-              <dd className="text-nb-200">{s.p95Ms} ms</dd>
-            </>
-          )}
+          {s?.p95Ms !== undefined && <DetailRow dense label="p95 latency">{s.p95Ms} ms</DetailRow>}
           {d?.rttMs !== undefined && (
-            <>
-              <dt title="Smoothed TCP round trip sampled from the kernel, not an active probe">TCP round trip</dt>
-              <dd className="text-nb-200">{rttLabel(d.rttMs)}</dd>
-            </>
+            <DetailRow dense label="TCP round trip" labelTitle="Smoothed TCP round trip sampled from the kernel, not an active probe">
+              {rttLabel(d.rttMs)}
+            </DetailRow>
           )}
           {showJitter && (
-            <>
-              <dt title="Kernel's own RTT mean-deviation, sampled alongside the round trip above">Jitter</dt>
-              <dd className="text-nb-200">{rttLabel(d!.jitterMs!)}</dd>
-            </>
+            <DetailRow dense label="Jitter" labelTitle="Kernel's own RTT mean-deviation, sampled alongside the round trip above">
+              {rttLabel(d!.jitterMs!)}
+            </DetailRow>
           )}
           {showHandshake && (
-            <>
-              <dt title="Time from SYN to ESTABLISHED on this edge's most recent handshake - most telling on a cross-cluster/WAN edge">Connection setup</dt>
-              <dd className="text-nb-200">{rttLabel(d!.handshakeMs!)}</dd>
-            </>
+            <DetailRow dense label="Connection setup" labelTitle="Time from SYN to ESTABLISHED on this edge's most recent handshake - most telling on a cross-cluster/WAN edge">
+              {rttLabel(d!.handshakeMs!)}
+            </DetailRow>
           )}
           {showRetransmits && (
-            <>
-              <dt title={`${Math.round((s!.retransmitsPerMin ?? 0) * 10) / 10} retransmits/min`}>{showLossPct ? 'Loss' : 'Retransmits'}</dt>
-              <dd className="text-nb-200">
-                {showLossPct
-                  ? `${s!.lossPct! < 10 ? s!.lossPct!.toFixed(1) : Math.round(s!.lossPct!)}%`
-                  : `${Math.round((s!.retransmitsPerMin ?? 0) * 10) / 10}/min`}
-              </dd>
-            </>
+            <DetailRow dense label={showLossPct ? 'Loss' : 'Retransmits'} labelTitle={`${Math.round((s!.retransmitsPerMin ?? 0) * 10) / 10} retransmits/min`}>
+              {showLossPct
+                ? `${s!.lossPct! < 10 ? s!.lossPct!.toFixed(1) : Math.round(s!.lossPct!)}%`
+                : `${Math.round((s!.retransmitsPerMin ?? 0) * 10) / 10}/min`}
+            </DetailRow>
           )}
           {showFailed && (
-            <>
-              <dt title="Connection attempts that never reached ESTABLISHED">Failed attempts</dt>
-              <dd className="text-nb-200">{d!.failedAttempts} total</dd>
-            </>
+            <DetailRow dense label="Failed attempts" labelTitle="Connection attempts that never reached ESTABLISHED">
+              {d!.failedAttempts} total
+            </DetailRow>
           )}
           {showSni && (
-            <>
-              <dt title="Hostname seen in this edge's TLS ClientHello (SNI), before the handshake encrypts anything">TLS server name</dt>
-              <dd className="truncate text-nb-200" title={d!.sniHost}>{d!.sniHost}</dd>
-            </>
+            <DetailRow dense label="TLS server name">
+              <span title={d!.sniHost}>{d!.sniHost}</span>
+            </DetailRow>
           )}
           {showDns && (
-            <>
-              <dt title="Distinct domain names resolved toward this edge's destination">DNS queries</dt>
-              <dd className="truncate text-nb-200" title={d!.dnsQueryNames!.join(', ')}>
+            <DetailRow dense label="DNS queries" labelTitle="Distinct domain names resolved toward this edge's destination">
+              <span title={d!.dnsQueryNames!.join(', ')}>
                 {d!.dnsQueryNames!.slice(0, 2).join(', ')}
                 {d!.dnsQueryNames!.length > 2 ? ` +${d!.dnsQueryNames!.length - 2} more` : ''}
-              </dd>
-            </>
+              </span>
+            </DetailRow>
           )}
           {showDnsRtt && (
-            <>
-              <dt title="Time from query to matching response, correlated by transaction ID - UDP only">DNS response</dt>
-              <dd className="text-nb-200">{rttLabel(d!.dnsRttMs!)}</dd>
-            </>
+            <DetailRow dense label="DNS response" labelTitle="Time from query to matching response, correlated by transaction ID - UDP only">
+              {rttLabel(d!.dnsRttMs!)}
+            </DetailRow>
           )}
-          {d?.iface && (
-            <>
-              <dt>Interface</dt>
-              <dd className="text-nb-200">{d.iface}</dd>
-            </>
-          )}
-          {d?.quality && (
-            <>
-              <dt>Network path</dt>
-              <dd className="text-nb-200">{qualityLabel(d.quality)}</dd>
-            </>
-          )}
+          {d?.iface && <DetailRow dense label="Interface">{d.iface}</DetailRow>}
+          {d?.quality && <DetailRow dense label="Network path">{qualityLabel(d.quality)}</DetailRow>}
           {d?.route && (
-            <>
-              <dt title="How this cross-cluster call actually reaches its target: a flat network route, or out through the target's own external exposure (ingress, node port or load balancer)">Route</dt>
-              <dd className="text-nb-200">{d.route === 'gateway' ? 'via gateway' : 'direct (peer network)'}</dd>
-            </>
+            <DetailRow
+              dense
+              label="Route"
+              labelTitle="How this cross-cluster call actually reaches its target: a flat network route, or out through the target's own external exposure (ingress, node port or load balancer)"
+            >
+              {d.route === 'gateway' ? 'via gateway' : 'direct (peer network)'}
+            </DetailRow>
           )}
           {d?.clusterLink && (
-            <>
-              <dt title="The specific evidence behind this link - a tunnel interface's name and kind, or the shared subnet prefix - confirmed from both clusters' own routing/address data, never a guess">Via</dt>
-              <dd className="truncate text-nb-200" title={d.clusterLink.via}>{d.clusterLink.via}</dd>
-            </>
+            <DetailRow
+              dense
+              label="Via"
+              labelTitle="The specific evidence behind this link - a tunnel interface's name and kind, or the shared subnet prefix - confirmed from both clusters' own routing/address data, never a guess"
+            >
+              <span title={d.clusterLink.via}>{d.clusterLink.via}</span>
+            </DetailRow>
           )}
           {d?.clusterLink?.encryption && (
-            <>
-              <dt title="Inferred from the tunnel's driver type alone - WireGuard and IPsec encrypt by design, VXLAN/GRE and similar carry none of their own - never a measurement of a live handshake">
-                Encryption
-              </dt>
-              <dd className={d.clusterLink.encryption === 'plaintext' ? 'text-warn' : 'text-nb-200'}>
-                {ENCRYPTION_WORDS[d.clusterLink.encryption]}
-              </dd>
-            </>
+            <DetailRow
+              dense
+              label="Encryption"
+              labelTitle="Inferred from the tunnel's driver type alone - WireGuard and IPsec encrypt by design, VXLAN/GRE and similar carry none of their own - never a measurement of a live handshake"
+            >
+              {d.clusterLink.encryption === 'plaintext' ? (
+                <span className="text-warn">{ENCRYPTION_WORDS[d.clusterLink.encryption]}</span>
+              ) : (
+                ENCRYPTION_WORDS[d.clusterLink.encryption]
+              )}
+            </DetailRow>
           )}
           {d?.clusterLink && d.clusterLink.redundancy > 1 && (
-            <>
-              <dt title="How many independently corroborating node pairs back this link - more than one means more than one path between these clusters, not a single point of failure">Redundancy</dt>
-              <dd className="text-nb-200">{d.clusterLink.redundancy} independent paths</dd>
-            </>
+            <DetailRow
+              dense
+              label="Redundancy"
+              labelTitle="How many independently corroborating node pairs back this link - more than one means more than one path between these clusters, not a single point of failure"
+            >
+              {d.clusterLink.redundancy} independent paths
+            </DetailRow>
           )}
           {d?.clusterLink && !!d.clusterLink.flowsObserved && (
-            <>
-              <dt title="Live dependency flows actually matched onto this link's confirmed tunnel interface(s) - scoped to the calling service's own cluster, never by interface name alone">Flows observed</dt>
-              <dd className="text-nb-200">
-                {d.clusterLink.flowsObserved} flow{d.clusterLink.flowsObserved === 1 ? '' : 's'}
-                {d.clusterLink.avgRttMs !== undefined ? ` · ${rttLabel(d.clusterLink.avgRttMs)} avg RTT` : ''}
-                {d.clusterLink.avgLossPct !== undefined
-                  ? ` · ${d.clusterLink.avgLossPct < 10 ? d.clusterLink.avgLossPct.toFixed(1) : Math.round(d.clusterLink.avgLossPct)}% avg loss`
-                  : ''}
-              </dd>
-            </>
+            <DetailRow
+              dense
+              label="Flows observed"
+              labelTitle="Live dependency flows actually matched onto this link's confirmed tunnel interface(s) - scoped to the calling service's own cluster, never by interface name alone"
+            >
+              {d.clusterLink.flowsObserved} flow{d.clusterLink.flowsObserved === 1 ? '' : 's'}
+              {d.clusterLink.avgRttMs !== undefined ? ` \u00b7 ${rttLabel(d.clusterLink.avgRttMs)} avg RTT` : ''}
+              {d.clusterLink.avgLossPct !== undefined
+                ? ` \u00b7 ${d.clusterLink.avgLossPct < 10 ? d.clusterLink.avgLossPct.toFixed(1) : Math.round(d.clusterLink.avgLossPct)}% avg loss`
+                : ''}
+            </DetailRow>
           )}
-        </dl>
+        </div>
       )}
     </div>
   )

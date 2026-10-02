@@ -9,7 +9,7 @@ import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
 import ServiceAdvice from '@/components/placement/ServiceAdvice'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
-import { Button, CompletenessBadge, CopyIconButton, Input, IpAddress, ObservationChip, Pill, Select, SourceBadge, StatusDot, TierBadge } from '@/components/ui/primitives'
+import { Button, CompletenessBadge, DetailRow, Input, IpAddress, ObservationChip, Pill, Select, SourceBadge, StatusDot, TierBadge } from '@/components/ui/primitives'
 import { completeness } from '@/lib/completeness'
 import { observation, TONE_CLASS } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
@@ -27,36 +27,14 @@ import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Ev
 
 export type Selection = { kind: 'cluster' | 'tier' | 'node' | 'service' | 'device' | 'site' | 'external' | 'dependency'; id: string } | null
 
+// A thin wrapper around the shared DetailRow (primitives.tsx) - keeps every one of this file's ~50+
+// existing Row(...) call sites unchanged (same props, same roomy non-dense sizing) while the actual
+// label/value layout lives in one place shared with EdgeHoverCard's compact `dense` rows.
 function Row({ label, children, wrap, badge, copy }: { label: string; children: ReactNode; wrap?: boolean; badge?: ReactNode; copy?: string }) {
-  // `wrap` values (prose - detection reasons, traffic summaries) break onto a second line. Everything else stays
-  // one line but scrolls horizontally instead of just being cut off with an ellipsis: a long image reference or
-  // pod CIDR is still there to read, not lost the moment it doesn't fit the sidebar's width.
-  //
-  // `badge` (the "confirmed by hand" tag) and `copy` (a small copy-to-clipboard icon, for values people actually
-  // paste elsewhere - a CIDR, an endpoint, a digest) are both kept out of that scrolling region on purpose:
-  // stuffing either in as just another inline child of the same nowrap span left it with no guaranteed position
-  // of its own, so a value+badge (or value+copy) combination that didn't quite fit could end up somewhere other
-  // than right after the value instead of just scrolling the value underneath it. Splitting them into two flex
-  // items - one that scrolls, one that never does - makes "stays on the same line, right after the value" true
-  // regardless of how long the value is.
-  const trailing = badge || copy ? (
-    <>
-      {badge}
-      {copy && <CopyIconButton text={copy} title={`Copy ${label.toLowerCase()}`} />}
-    </>
-  ) : null
   return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 text-sm">
-      <span className="shrink-0 text-nb-500">{label}</span>
-      {trailing ? (
-        <span className="inline-flex min-w-0 items-center justify-end gap-1.5 text-right text-nb-300">
-          <span className="scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap">{children}</span>
-          {trailing}
-        </span>
-      ) : (
-        <span className={wrap ? 'min-w-0 break-words text-right text-nb-300' : 'scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap text-right text-nb-300'}>{children}</span>
-      )}
-    </div>
+    <DetailRow label={label} wrap={wrap} badge={badge} copy={copy}>
+      {children}
+    </DetailRow>
   )
 }
 
