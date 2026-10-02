@@ -50,7 +50,12 @@ const (
 	defaultProbeEvery = 3 * time.Minute // the chart's nodeProbe.interval
 	defaultFlowEvery  = 30 * time.Second
 	// silentAfterIntervals is how many of a collector's own intervals may pass without a word before it is called silent.
-	silentAfterIntervals    = 3
+	silentAfterIntervals = 3
+	// collectorStartupGrace is the flat floor applied instead of silentAfterIntervals*every when a collector has never
+	// reported even once since it was last enabled - see silent's own comment for why a short, interval-scaled
+	// threshold is wrong for that specific case. Once a collector has reported at least once, a real gap always uses
+	// the tighter silentAfterIntervals*every again.
+	collectorStartupGrace   = 3 * time.Minute
 	diagRefreshEvery        = 5 * time.Minute
 	diagCheckEvery          = 5 * time.Second // how often a changed account is looked for and sent between heartbeats
 	flowDropRemembered      = time.Hour
@@ -338,14 +343,30 @@ func (r *runner) collectorDiagnostics(c *collect.Collector, tier int, paused map
 	if flowEvery <= 0 {
 		flowEvery = defaultFlowEvery
 	}
+	startupGrace := collectorStartupGrace
+	if r.cfg.CollectorStartupGrace > 0 {
+		startupGrace = r.cfg.CollectorStartupGrace
+	}
 	var out []*continuumv1.CollectorDiag
 	silent := func(name string, every time.Duration, last time.Time, where string) bool {
 		since := r.enabledSince(name, now)
 		ref := last
+		threshold := silentAfterIntervals * every
 		if since.After(ref) {
 			ref = since
+			// Never reported even once since being enabled: this collector may be a DaemonSet still rolling
+			// out across every node (scheduling, pulling its image, and - for the flow collector - attaching
+			// its eBPF programs), which can easily run past a few missed report intervals on a cold node
+			// without anything actually being wrong. silentAfterIntervals*every is right for "it was
+			// reporting and stopped" - a real regression worth a prompt warning - but wrong here, where
+			// there is no prior report to have stopped; give it the flatter, more patient startup floor
+			// instead, so a perfectly normal rollout does not flash a WARN before it has had a chance to
+			// report even once.
+			if threshold < startupGrace {
+				threshold = startupGrace
+			}
 		}
-		if now.Sub(ref) > silentAfterIntervals*every {
+		if now.Sub(ref) > threshold {
 			add(CodeCollectorSilent, continuumv1.Problem_WARN, fmt.Sprintf("The %s is switched on but nothing has arrived from it for %s (it should report about every %s). %s", where, now.Sub(ref).Round(time.Second), every, silentAdvice(name)))
 			return true
 		}

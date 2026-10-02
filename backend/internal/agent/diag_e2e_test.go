@@ -347,6 +347,10 @@ func TestASilentCollectorIsReported(t *testing.T) {
 	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
 		c.Probes = probe.NewReceiver([]byte("secret-secret-secret-secret-1234"), nil)
 		c.ProbeInterval = 100 * time.Millisecond // silent after three of these
+		// This probe receiver has never reported even once, so silent() would otherwise apply the real
+		// (DaemonSet-rollout-sized) startup grace instead of 3*ProbeInterval - shrink it too, or this test
+		// would have to wait out that real multi-minute floor.
+		c.CollectorStartupGrace = 100 * time.Millisecond
 	}})
 	g := d.waitDiag("collector_silent", func(g *server.DiagnosticsDoc) bool { return problem(g, "collector_silent") != nil })
 	p := problem(g, "collector_silent")
@@ -362,6 +366,46 @@ func TestASilentCollectorIsReported(t *testing.T) {
 	if !probes.Configured || !probes.Enabled || probes.Producing {
 		t.Fatalf("probes = %+v", probes)
 	}
+}
+
+// Regression guard for the startup-grace fix: a collector that has never reported even once (a DaemonSet that
+// may still be scheduling, pulling its image, or - for the flow collector - attaching eBPF) must not be called
+// silent after only a few missed report intervals. It gets the flatter, more patient startup floor instead.
+func TestACollectorThatHasNeverReportedWaitsOutTheStartupGraceNotJustAFewIntervals(t *testing.T) {
+	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+		c.Probes = probe.NewReceiver([]byte("secret-secret-secret-secret-1234"), nil)
+		c.ProbeInterval = 50 * time.Millisecond           // 3 of these = 150ms
+		c.CollectorStartupGrace = 1200 * time.Millisecond // comfortably longer than 150ms
+	}})
+	time.Sleep(500 * time.Millisecond) // past 3*ProbeInterval, still well short of CollectorStartupGrace
+	if g := d.diag(); g != nil {
+		if p := problem(g, "collector_silent"); p != nil {
+			t.Fatalf("collector_silent fired after 500ms, before the 1.2s startup grace elapsed: %+v", p)
+		}
+	}
+	d.waitDiag("collector_silent once the startup grace actually elapses", func(g *server.DiagnosticsDoc) bool {
+		return problem(g, "collector_silent") != nil
+	})
+}
+
+// The other half of the same fix: once a collector HAS reported at least once, a real gap must still be caught
+// fast, at 3*its own interval - never the much more patient startup floor, which only applies before a first report.
+func TestACollectorThatHadReportedGoesSilentAtTheFastThresholdNotTheStartupGrace(t *testing.T) {
+	var pipe *flow.Pipeline
+	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+		pipe = flow.NewPipeline([]byte("secret-secret-secret-secret-1234"), nil, nil)
+		c.Flows = pipe
+		c.FlowInterval = 50 * time.Millisecond    // 3 of these = 150ms
+		c.CollectorStartupGrace = 8 * time.Second // deliberately much longer - must never be the one that applies here
+	}})
+	pipe.Aggregator.Seen("node-a", "ebpf", true) // it has reported once, then goes quiet
+	// 4s comfortably covers enroll+approve+connect+first-heartbeat overhead (a few seconds, same baseline
+	// TestASilentCollectorIsReported pays) plus the 150ms detection window, while staying well short of the
+	// 8s startup grace the fix must NOT fall back to here.
+	waitFor(t, "collector_silent well inside the 8s startup grace", 4*time.Second, func() bool {
+		g := d.diag()
+		return g != nil && !g.Partial && problem(g, "collector_silent") != nil
+	})
 }
 
 // ---- consent overrides ----

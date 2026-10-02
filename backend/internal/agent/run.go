@@ -107,6 +107,11 @@ type Config struct {
 	// without a word, so it needs to know them (0: the chart's defaults, 3 minutes and 30 seconds).
 	ProbeInterval, FlowInterval time.Duration
 
+	// CollectorStartupGrace overrides the flat startup floor diag.go's silent() gives a collector that has never
+	// reported even once since being enabled, in place of the real 3-minute default (tests only, so they don't
+	// have to wait out a real DaemonSet-rollout-sized grace period; 0 keeps the real default).
+	CollectorStartupGrace time.Duration
+
 	// ChunkBytes is the encoded size at which a picture is split into another message (0: ChunkBytes, one megabyte).
 	ChunkBytes int
 	// SyncWait is how long the collector waits for the first list of every kind before it carries on and reports what
