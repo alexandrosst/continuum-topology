@@ -257,6 +257,54 @@ func TestCleanAndSanitize(t *testing.T) {
 	}
 }
 
+// TestSanitizeKeepsTunnelsAndHostSubnets guards against the regression this session found: Sanitize
+// built its output field-by-field and simply never copied Tunnels or HostSubnets at all, so every
+// node probe report silently lost its network-topology facts between the agent's receiver and
+// everything downstream - regardless of whether networkEvidence() itself found anything.
+func TestSanitizeKeepsTunnelsAndHostSubnets(t *testing.T) {
+	untrusted := &continuumv1.HostProbe{
+		HostSubnets: []string{"10.8.0.0/24", "not-a-prefix", "192.168.1.0/24"},
+		Tunnels: []*continuumv1.TunnelInterface{
+			{Name: "wt0", Kind: "wireguard", Up: true, Mtu: 1420, Addresses: []string{"100.64.0.45/24", "garbage"}, Routes: []string{"100.64.0.0/10", "0.0.0.0/0", "also-garbage"}},
+			{Name: "", Kind: "wireguard"},   // no name: dropped
+			{Name: "tun0", Kind: "openvpn"}, // unknown/unrecognized kind: dropped
+			{Name: "gre1", Kind: "gre", Mtu: 999999}, // out-of-range mtu: cleared, not dropped
+			nil, // must not panic
+		},
+	}
+	s := Sanitize(untrusted)
+	if len(s.HostSubnets) != 2 || s.HostSubnets[0] != "10.8.0.0/24" || s.HostSubnets[1] != "192.168.1.0/24" {
+		t.Fatalf("HostSubnets = %v, want only the two valid prefixes kept", s.HostSubnets)
+	}
+	if len(s.Tunnels) != 2 {
+		t.Fatalf("Tunnels = %v, want wt0 and gre1 kept, the rest dropped", s.Tunnels)
+	}
+	wt0 := s.Tunnels[0]
+	if wt0.Name != "wt0" || wt0.Kind != "wireguard" || !wt0.Up || wt0.Mtu != 1420 {
+		t.Fatalf("Tunnels[0] = %v", wt0)
+	}
+	if len(wt0.Addresses) != 1 || wt0.Addresses[0] != "100.64.0.45/24" {
+		t.Fatalf("wt0.Addresses = %v, want only the valid one kept", wt0.Addresses)
+	}
+	// Sanitize only validates syntax, not the probe's own semantic rule against sending a default
+	// route - a hostile sender's default route is syntactically valid and kept; "also-garbage" is not.
+	if len(wt0.Routes) != 2 || wt0.Routes[0] != "100.64.0.0/10" || wt0.Routes[1] != "0.0.0.0/0" {
+		t.Fatalf("wt0.Routes = %v, want the two valid prefixes kept and the garbage entry dropped", wt0.Routes)
+	}
+	gre1 := s.Tunnels[1]
+	if gre1.Name != "gre1" || gre1.Mtu != 0 {
+		t.Fatalf("an out-of-range mtu must be cleared rather than trusted: %v", gre1)
+	}
+
+	many := &continuumv1.HostProbe{}
+	for i := 0; i < 50; i++ {
+		many.Tunnels = append(many.Tunnels, &continuumv1.TunnelInterface{Name: "wt", Kind: "wireguard"})
+	}
+	if got := Sanitize(many); len(got.Tunnels) != 32 {
+		t.Fatalf("Tunnels must be capped at 32, got %d", len(got.Tunnels))
+	}
+}
+
 func TestSignVerify(t *testing.T) {
 	secret := []byte("0123456789abcdef0123456789abcdef")
 	now := time.Now()

@@ -11,6 +11,7 @@ package probe
 
 import (
 	"bufio"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -363,6 +364,52 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 			nd.SizeBytes = d.SizeBytes
 		}
 		out.Disks = append(out.Disks, nd)
+	}
+	// HostSubnets: bound the count and keep only syntactically valid prefixes - same discipline as
+	// everything else here.
+	for _, s := range h.HostSubnets {
+		if len(out.HostSubnets) >= 32 {
+			break
+		}
+		if _, err := netip.ParsePrefix(s); err == nil {
+			out.HostSubnets = append(out.HostSubnets, s)
+		}
+	}
+	// Tunnels: bound the count, drop anything with no name or a kind this probe does not itself
+	// recognize (overlayKinds, the same allow-list buildTunnels uses), and bound/validate addresses
+	// and routes the same way - the exact same "nothing taken on faith" treatment Interfaces/Disks
+	// get above. This was missing entirely until now: Tunnels and HostSubnets reached this function
+	// on the wire but were never copied into out, so they were silently dropped on every report,
+	// regardless of whether the probe's own netlink read found anything.
+	for _, t := range h.Tunnels {
+		if t == nil || len(out.Tunnels) >= 32 {
+			continue
+		}
+		name := Clean(t.Name)
+		if name == "" || !overlayKinds[t.Kind] {
+			continue
+		}
+		nt := &continuumv1.TunnelInterface{Name: name, Kind: t.Kind, Up: t.Up}
+		if t.Mtu > 0 && t.Mtu <= 65536 {
+			nt.Mtu = t.Mtu
+		}
+		for _, a := range t.Addresses {
+			if len(nt.Addresses) >= 32 {
+				break
+			}
+			if _, err := netip.ParsePrefix(a); err == nil {
+				nt.Addresses = append(nt.Addresses, a)
+			}
+		}
+		for _, rt := range t.Routes {
+			if len(nt.Routes) >= maxTunnelRoutes {
+				break
+			}
+			if _, err := netip.ParsePrefix(rt); err == nil {
+				nt.Routes = append(nt.Routes, rt)
+			}
+		}
+		out.Tunnels = append(out.Tunnels, nt)
 	}
 	return out
 }
