@@ -630,6 +630,24 @@ func (s *Store) LinkEntities(ctx context.Context, org string, at time.Time, relT
 	return s.DB.LinkEntities(ctx, org, at, relType, kind, id, targetKind, targetIDs)
 }
 
+// RecordEntities is RecordEntity for many entities at once (see DB.RecordEntities). Best-effort in the
+// same way RecordEntity is.
+func (s *Store) RecordEntities(ctx context.Context, org string, at time.Time, kind string, recs []EntityRecord) error {
+	if !s.ready.Load() {
+		return ErrUnavailable
+	}
+	return s.DB.RecordEntities(ctx, org, at, kind, recs)
+}
+
+// LinkEntitiesBatch is LinkEntities for many entities at once (see DB.LinkEntitiesBatch). Best-effort in
+// the same way RecordEntity is.
+func (s *Store) LinkEntitiesBatch(ctx context.Context, org string, at time.Time, relType, kind, targetKind string, sets []MemberSet) error {
+	if !s.ready.Load() {
+		return ErrUnavailable
+	}
+	return s.DB.LinkEntitiesBatch(ctx, org, at, relType, kind, targetKind, sets)
+}
+
 // CloseMissingEntities retires whichever entities of a kind are no longer in a full picture the caller
 // can enumerate (see DB.CloseMissingEntities). Best-effort in the same way RecordEntity is.
 func (s *Store) CloseMissingEntities(ctx context.Context, org string, at time.Time, kind string, keepIDs []string) ([]string, error) {

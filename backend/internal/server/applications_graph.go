@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/graph"
 	"continuum/internal/store"
 	"continuum/internal/workspace"
 )
@@ -25,6 +26,20 @@ type entityCloser interface {
 // not implement it, the same way entityRecorder is optional.
 type memberLinker interface {
 	LinkEntities(ctx context.Context, org string, at time.Time, relType, kind, id, targetKind string, targetIDs []string) error
+}
+
+// batchEntityRecorder is RecordEntities, the batch counterpart of entityRecorder (see graph.DB.
+// RecordEntities): one read-then-write round trip for every application in a workspace save, instead of
+// one pair per application. A plain store, or one that only implements the single-entity entityRecorder,
+// does not implement this - optional the same way entityRecorder itself is.
+type batchEntityRecorder interface {
+	RecordEntities(ctx context.Context, org string, at time.Time, kind string, recs []graph.EntityRecord) error
+}
+
+// batchMemberLinker is LinkEntitiesBatch, the batch counterpart of memberLinker (see graph.DB.
+// LinkEntitiesBatch). Optional the same way memberLinker itself is.
+type batchMemberLinker interface {
+	LinkEntitiesBatch(ctx context.Context, org string, at time.Time, relType, kind, targetKind string, sets []graph.MemberSet) error
 }
 
 // applicationDoc is what the graph remembers about an application over time: everything a document
@@ -86,12 +101,8 @@ func (c *Core) recordApplicationsGraph(ctx context.Context, prevData, data []byt
 		if err != nil {
 			c.Log.Warn("history: could not retire removed applications", "err", err)
 		}
-		if linker, ok := c.Store.(memberLinker); ok {
-			for _, id := range closed {
-				if err := linker.LinkEntities(ctx, c.OrgID, now, "CONTAINS", "application", id, "service", nil); err != nil {
-					c.Log.Warn("history: could not retire a removed application's membership", "application", id, "err", err)
-				}
-			}
+		if len(closed) > 0 {
+			retireClosedApplications(ctx, c, now, closed)
 		}
 		for _, id := range closed {
 			name := id
@@ -103,17 +114,17 @@ func (c *Core) recordApplicationsGraph(ctx context.Context, prevData, data []byt
 		}
 	}
 
+	// Batched when the store supports it (every production store does: see graph.DB.RecordEntities/
+	// LinkEntitiesBatch) - one read-then-write round trip for every application in this save, instead of
+	// one pair per application, which is what a workspace with several applications used to cost calling
+	// RecordEntity/LinkEntities in a loop. Falls back to the per-application loop for a store that only
+	// implements the single-entity interfaces (a lightweight test double, say).
+	recorded := recordApplicationsBatch(ctx, c, now, er, apps)
+	if !recorded {
+		return // the whole batch failed: best-effort, same as a single RecordEntity failure used to be
+	}
+
 	for _, app := range apps {
-		doc := applicationDoc{Name: app.Name, Description: app.Description, Origin: app.Origin, Confidence: app.Confidence, ServiceIDs: app.ServiceIDs}
-		if err := er.RecordEntity(ctx, c.OrgID, now, "application", app.ID, app.Name, "", "", doc); err != nil {
-			c.Log.Warn("history: could not record an application's state", "application", app.ID, "err", err)
-			continue
-		}
-		if linker, ok := c.Store.(memberLinker); ok {
-			if err := linker.LinkEntities(ctx, c.OrgID, now, "CONTAINS", "application", app.ID, "service", app.ServiceIDs); err != nil {
-				c.Log.Warn("history: could not link an application to its services", "application", app.ID, "err", err)
-			}
-		}
 		if prev, had := prevByID[app.ID]; had {
 			evs = append(evs, diffApplicationDoc(prev, app, now)...)
 		} else {
@@ -132,6 +143,74 @@ func (c *Core) recordApplicationsGraph(ctx context.Context, prevData, data []byt
 	if el, ok := c.Store.(eventLinker); ok {
 		if err := el.LinkEventChanges(ctx, c.OrgID, now, evs); err != nil {
 			c.Log.Warn("history: could not link an application's events to what they explain", "err", err)
+		}
+	}
+}
+
+// recordApplicationsBatch versions every application in one read-then-write round trip (graph.DB.
+// RecordEntities) when the store supports it, then links each to its member services the same way
+// (LinkEntitiesBatch) - rather than a loop of individual RecordEntity/LinkEntities calls, each its own
+// pair of round trips. Falls back to the original per-application loop for a store that only implements
+// the single-entity interfaces. Returns false only when recording failed outright (nothing to link,
+// nothing to log events for - the caller treats that exactly as a single RecordEntity failure used to be
+// treated: best-effort, silent, logged once here already).
+func recordApplicationsBatch(ctx context.Context, c *Core, now time.Time, er entityRecorder, apps []workspace.ApplicationDoc) bool {
+	br, ok := c.Store.(batchEntityRecorder)
+	if !ok {
+		for _, app := range apps {
+			doc := applicationDoc{Name: app.Name, Description: app.Description, Origin: app.Origin, Confidence: app.Confidence, ServiceIDs: app.ServiceIDs}
+			if err := er.RecordEntity(ctx, c.OrgID, now, "application", app.ID, app.Name, "", "", doc); err != nil {
+				c.Log.Warn("history: could not record an application's state", "application", app.ID, "err", err)
+				continue
+			}
+			if linker, ok := c.Store.(memberLinker); ok {
+				if err := linker.LinkEntities(ctx, c.OrgID, now, "CONTAINS", "application", app.ID, "service", app.ServiceIDs); err != nil {
+					c.Log.Warn("history: could not link an application to its services", "application", app.ID, "err", err)
+				}
+			}
+		}
+		return true
+	}
+
+	recs := make([]graph.EntityRecord, len(apps))
+	for i, app := range apps {
+		recs[i] = graph.EntityRecord{ID: app.ID, Name: app.Name,
+			Doc: applicationDoc{Name: app.Name, Description: app.Description, Origin: app.Origin, Confidence: app.Confidence, ServiceIDs: app.ServiceIDs}}
+	}
+	if err := br.RecordEntities(ctx, c.OrgID, now, "application", recs); err != nil {
+		c.Log.Warn("history: could not record applications' state", "err", err)
+		return false
+	}
+	if linker, ok := c.Store.(batchMemberLinker); ok {
+		sets := make([]graph.MemberSet, len(apps))
+		for i, app := range apps {
+			sets[i] = graph.MemberSet{ID: app.ID, TargetIDs: app.ServiceIDs}
+		}
+		if err := linker.LinkEntitiesBatch(ctx, c.OrgID, now, "CONTAINS", "application", "service", sets); err != nil {
+			c.Log.Warn("history: could not link applications to their services", "err", err)
+		}
+	}
+	return true
+}
+
+// retireClosedApplications closes a removed application's membership the same way LinkEntities(..., nil)
+// used to, one application at a time - batched via LinkEntitiesBatch when the store supports it.
+func retireClosedApplications(ctx context.Context, c *Core, now time.Time, closed []string) {
+	if linker, ok := c.Store.(batchMemberLinker); ok {
+		sets := make([]graph.MemberSet, len(closed))
+		for i, id := range closed {
+			sets[i] = graph.MemberSet{ID: id}
+		}
+		if err := linker.LinkEntitiesBatch(ctx, c.OrgID, now, "CONTAINS", "application", "service", sets); err != nil {
+			c.Log.Warn("history: could not retire removed applications' membership", "err", err)
+		}
+		return
+	}
+	if linker, ok := c.Store.(memberLinker); ok {
+		for _, id := range closed {
+			if err := linker.LinkEntities(ctx, c.OrgID, now, "CONTAINS", "application", id, "service", nil); err != nil {
+				c.Log.Warn("history: could not retire a removed application's membership", "application", id, "err", err)
+			}
 		}
 	}
 }

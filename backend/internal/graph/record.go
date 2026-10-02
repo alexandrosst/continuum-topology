@@ -607,6 +607,195 @@ CREATE (a)-[:%s {org:$org, ekey:row.key, validFrom:datetime($at)}]->(b)`, relTyp
 	return err
 }
 
+// EntityRecord is one entity to version via RecordEntities - the batch counterpart of RecordEntity's own
+// positional id/name/status/cluster/doc arguments, bundled so many entities of the same kind can be
+// checked and written in two round trips total instead of two per entity.
+type EntityRecord struct {
+	ID      string
+	Name    string
+	Status  string
+	Cluster string
+	Doc     any
+}
+
+// RecordEntities is RecordEntity for many entities of the same kind at once: one read checking every
+// entity's current hash/cluster, then one write for whichever actually changed, instead of a read and a
+// write per entity (which is what repeatedly calling RecordEntity in a loop costs - this is purely a
+// call-site batching of the same semantics, not a new transport: Client.Run already carries any number of
+// statements in one transaction). Semantics match RecordEntity exactly, entity by entity: idempotent, the
+// same version-replace-within-the-same-instant handling, the same IN_CLUSTER edge upkeep.
+func (d *DB) RecordEntities(ctx context.Context, org string, at time.Time, kind string, recs []EntityRecord) error {
+	if len(recs) == 0 {
+		return nil
+	}
+	label := labelOf(kind)
+	if label == "" {
+		return fmt.Errorf("graph: %q is not an entity kind", kind)
+	}
+	at = at.UTC().Truncate(time.Second)
+	defer d.lock(org)()
+	sc := d.C.For(org)
+
+	type prepared struct {
+		rec  EntityRecord
+		hash string
+		raw  string
+	}
+	byID := make(map[string]*prepared, len(recs))
+	ids := make([]string, 0, len(recs))
+	for _, r := range recs {
+		raw, err := json.Marshal(r.Doc)
+		if err != nil {
+			return err
+		}
+		byID[r.ID] = &prepared{rec: r, hash: hashDoc(raw), raw: string(raw)}
+		ids = append(ids, r.ID)
+	}
+
+	res, err := d.C.Run(ctx, sc.S(`MATCH (v:Version {org:$org, kind:$kind}) WHERE v.validTo IS NULL AND v.id IN $ids RETURN v.id, v.hash, v.cluster`,
+		map[string]any{"kind": kind, "ids": ids}))
+	if err != nil {
+		return err
+	}
+	type openRow struct{ hash, cluster string }
+	open := map[string]openRow{}
+	for _, row := range res[0].Rows {
+		open[str(row[0])] = openRow{str(row[1]), str(row[2])}
+	}
+
+	atS := ts(at)
+	w := []Stmt{sc.S(`MERGE (t:Tenant {id:$org}) RETURN 1`, nil)}
+	var toClose, toCreate, clusterRows []map[string]any
+	for _, id := range ids {
+		p := byID[id]
+		o, hadOpen := open[id]
+		if hadOpen && o.hash == p.hash && o.cluster == p.rec.Cluster {
+			continue // unchanged, including which cluster it belongs to: nothing to version, nothing to move
+		}
+		if hadOpen {
+			toClose = append(toClose, map[string]any{"id": id})
+		}
+		toCreate = append(toCreate, map[string]any{"id": id, "name": p.rec.Name, "status": p.rec.Status, "cluster": p.rec.Cluster, "hash": p.hash, "doc": p.raw})
+		if p.rec.Cluster != "" {
+			ekey := edge{Type: "IN_CLUSTER", FK: kind, FID: id, TK: "cluster", TID: p.rec.Cluster}.ekey()
+			clusterRows = append(clusterRows, map[string]any{"id": id, "cluster": p.rec.Cluster, "ekey": ekey})
+		}
+	}
+	if len(toCreate) == 0 {
+		return nil
+	}
+	if len(toClose) > 0 {
+		w = append(w,
+			sc.S(`UNWIND $rows AS row
+MATCH (v:Version {org:$org, kind:$kind, id:row.id}) WHERE v.validTo IS NULL AND v.validFrom = datetime($at)
+DETACH DELETE v`, map[string]any{"kind": kind, "rows": toClose, "at": atS}),
+			sc.S(`UNWIND $rows AS row
+MATCH (v:Version {org:$org, kind:$kind, id:row.id}) WHERE v.validTo IS NULL
+SET v.validTo = datetime($at)`, map[string]any{"kind": kind, "rows": toClose, "at": atS}),
+		)
+	}
+	// label is the same for every row of one kind (labelOf(kind) is a function of kind alone, like
+	// RecordEntity's own single-entity write), so one literal :%s applies to the whole UNWIND.
+	w = append(w, sc.S(fmt.Sprintf(`UNWIND $rows AS row
+MERGE (e:Entity {org:$org, kind:$kind, id:row.id})
+ON CREATE SET e.firstSeen = datetime($at)
+SET e:%s, e.name = row.name, e.status = row.status, e.cluster = row.cluster, e.gone = null
+CREATE (v:Version {org:$org, kind:$kind, id:row.id, validFrom:datetime($at), hash:row.hash, doc:row.doc, name:row.name, status:row.status, cluster:row.cluster})
+CREATE (e)-[:HAS_VERSION]->(v)`, label), map[string]any{"kind": kind, "at": atS, "rows": toCreate}))
+	if len(clusterRows) > 0 {
+		w = append(w,
+			sc.S(`UNWIND $rows AS row
+MATCH (:Entity {org:$org, kind:$kind, id:row.id})-[r:IN_CLUSTER {org:$org}]->() WHERE r.validTo IS NULL AND r.ekey <> row.ekey
+SET r.validTo = datetime($at)`, map[string]any{"kind": kind, "rows": clusterRows, "at": atS}),
+			sc.S(`UNWIND $rows AS row
+MATCH (a:Entity {org:$org, kind:$kind, id:row.id})
+MATCH (b:Cluster:Entity {org:$org, kind:'cluster', id:row.cluster})
+MERGE (a)-[r:IN_CLUSTER {org:$org, ekey:row.ekey}]->(b)
+ON CREATE SET r.validFrom = datetime($at)`, map[string]any{"kind": kind, "rows": clusterRows, "at": atS}),
+		)
+	}
+	_, err = d.C.Run(ctx, w...)
+	return err
+}
+
+// MemberSet is one entity's desired member-id set for LinkEntitiesBatch - the batch counterpart of
+// LinkEntities' own id/targetIDs arguments.
+type MemberSet struct {
+	ID        string
+	TargetIDs []string
+}
+
+// LinkEntitiesBatch is LinkEntities for many entities sharing the same kind/relType/targetKind at once:
+// one read covering every entity's currently open edges, then one write for whichever edges actually need
+// to open or close, instead of a read and a write per entity. Semantics match LinkEntities exactly, entity
+// by entity.
+func (d *DB) LinkEntitiesBatch(ctx context.Context, org string, at time.Time, relType, kind, targetKind string, sets []MemberSet) error {
+	if !isRelType(relType) {
+		return fmt.Errorf("graph: %q is not a relationship type", relType)
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	at = at.UTC().Truncate(time.Second)
+	defer d.lock(org)()
+	sc := d.C.For(org)
+
+	ids := make([]string, len(sets))
+	want := make(map[string]map[string]edge, len(sets))
+	for i, s := range sets {
+		ids[i] = s.ID
+		m := make(map[string]edge, len(s.TargetIDs))
+		for _, tid := range s.TargetIDs {
+			e := edge{Type: relType, FK: kind, FID: s.ID, TK: targetKind, TID: tid}
+			m[e.ekey()] = e
+		}
+		want[s.ID] = m
+	}
+
+	res, err := d.C.Run(ctx, sc.S(fmt.Sprintf(`MATCH (a:Entity {org:$org, kind:$kind})-[r:%s {org:$org}]->() WHERE r.validTo IS NULL AND a.id IN $ids RETURN a.id, r.ekey`, relType),
+		map[string]any{"kind": kind, "ids": ids}))
+	if err != nil {
+		return err
+	}
+	type row = map[string]any
+	var closing, opening []row
+	for _, r := range res[0].Rows {
+		id, k := str(r[0]), str(r[1])
+		if m, ok := want[id]; ok {
+			if _, still := m[k]; still {
+				delete(m, k) // already open: nothing to do
+				continue
+			}
+		}
+		closing = append(closing, row{"key": k})
+	}
+	for _, m := range want {
+		for _, e := range m {
+			opening = append(opening, row{"key": e.ekey(), "fk": e.FK, "fid": e.FID, "tk": e.TK, "tid": e.TID})
+		}
+	}
+	sort.Slice(closing, func(i, j int) bool { return closing[i]["key"].(string) < closing[j]["key"].(string) })
+	sort.Slice(opening, func(i, j int) bool { return opening[i]["key"].(string) < opening[j]["key"].(string) })
+
+	var w []Stmt
+	if len(closing) > 0 {
+		w = append(w, sc.S(fmt.Sprintf(`UNWIND $rows AS row
+MATCH ()-[r:%s {org:$org, ekey:row.key}]->() WHERE r.validTo IS NULL
+SET r.validTo = datetime($at)`, relType), map[string]any{"rows": closing, "at": ts(at)}))
+	}
+	if len(opening) > 0 {
+		w = append(w, sc.S(fmt.Sprintf(`UNWIND $rows AS row
+MATCH (a:Entity {org:$org, kind:row.fk, id:row.fid})
+MATCH (b:Entity {org:$org, kind:row.tk, id:row.tid})
+CREATE (a)-[:%s {org:$org, ekey:row.key, validFrom:datetime($at)}]->(b)`, relType), map[string]any{"rows": opening, "at": ts(at)}))
+	}
+	if len(w) == 0 {
+		return nil
+	}
+	_, err = d.C.Run(ctx, w...)
+	return err
+}
+
 // CloseMissingEntities closes the still-open version of every entity of `kind` in this org that is not
 // in keepIDs, and marks it gone - the same "this poll's full picture says so-and-so no longer exists"
 // Record's own diff already does for the seven polled kinds, for the rare RecordEntity-driven kind whose

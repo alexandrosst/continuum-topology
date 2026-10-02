@@ -324,6 +324,66 @@ func TestRecordEntityVersionsSomethingOutsideThePolledTopology(t *testing.T) {
 	}
 }
 
+// TestRecordEntitiesMatchesRecordEntityOneByOne checks the batch call against the exact same scenario
+// TestRecordEntityVersionsSomethingOutsideThePolledTopology already proves for the single-entity call:
+// a repeat that changed nothing opens no second version, a real change opens one, and an entity moving
+// cluster moves its one open IN_CLUSTER edge rather than accumulating a second - all for several entities
+// written in the same call.
+func TestRecordEntitiesMatchesRecordEntityOneByOne(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate()) // clusters c-1/c-2 exist
+
+	type doc struct {
+		AccessTier int `json:"accessTier"`
+	}
+	recs := []EntityRecord{
+		{ID: "ag-1", Name: "edge-collector", Cluster: "c-1", Doc: doc{AccessTier: 1}},
+		{ID: "ag-2", Name: "core-collector", Cluster: "c-1", Doc: doc{AccessTier: 1}},
+	}
+	if err := db.RecordEntities(ctx, org, t0.Add(time.Minute), "agent", recs); err != nil {
+		t.Fatalf("record entities: %v", err)
+	}
+	// Identical again: must not open a second version for either.
+	if err := db.RecordEntities(ctx, org, t0.Add(time.Minute), "agent", recs); err != nil {
+		t.Fatalf("record entities (repeat): %v", err)
+	}
+	// ag-1 changes and moves cluster; ag-2 is untouched.
+	recs2 := []EntityRecord{
+		{ID: "ag-1", Name: "edge-collector", Cluster: "c-2", Doc: doc{AccessTier: 2}},
+		{ID: "ag-2", Name: "core-collector", Cluster: "c-1", Doc: doc{AccessTier: 1}},
+	}
+	if err := db.RecordEntities(ctx, org, t0.Add(2*time.Hour), "agent", recs2); err != nil {
+		t.Fatalf("record entities (change): %v", err)
+	}
+
+	for id, want := range map[string]int{"ag-1": 2, "ag-2": 1} {
+		tl, err := db.Timeline(ctx, org, "agent", id, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tl.Versions) != want {
+			t.Fatalf("%s: expected %d versions, got %+v", id, want, tl.Versions)
+		}
+	}
+
+	res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (:Entity {org:$org, kind:'agent', id:'ag-1'})-[r:IN_CLUSTER {org:$org}]->(c:Cluster) WHERE r.validTo IS NULL RETURN c.id`, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res[0].Rows) != 1 || str(res[0].Rows[0][0]) != "c-2" {
+		t.Fatalf("ag-1's cluster edge did not move as expected: %v", res[0].Rows)
+	}
+
+	if err := db.RecordEntities(ctx, org, t0, "not-a-kind", []EntityRecord{{ID: "x"}}); err == nil {
+		t.Error("an unknown kind should be refused")
+	}
+	if err := db.RecordEntities(ctx, org, t0, "agent", nil); err != nil {
+		t.Errorf("an empty batch should be a no-op, not an error: %v", err)
+	}
+}
+
 // TestAsOfEntitiesSeesEverythingAsOfProjectsOnlyWhatItKnows verifies the split this package's read
 // side is built on. AsOfEntities is the schema-agnostic foundation: it sees an "agent" version
 // (something outside the seven polled kinds) exactly like any other entity, and -- unlike AsOf -- it
@@ -1008,6 +1068,78 @@ func TestLinkEntitiesKeepsExactlyTheGivenMembersOpen(t *testing.T) {
 
 	if err := db.LinkEntities(ctx, org, t0, "NOT_A_TYPE", "application", "app-1", "service", nil); err == nil {
 		t.Error("an unknown relationship type should be refused")
+	}
+}
+
+// TestLinkEntitiesBatchKeepsExactlyTheGivenMembersOpenForEachEntity is
+// TestLinkEntitiesKeepsExactlyTheGivenMembersOpen's scenario, for two entities linked in the same call:
+// each keeps exactly its own member set, a member staying open across a call is left alone (not closed
+// and reopened), and a change to one entity's set never touches the other's edges.
+func TestLinkEntitiesBatchKeepsExactlyTheGivenMembersOpenForEachEntity(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, estate()) // s-1, s-2 exist as services
+
+	for _, id := range []string{"app-1", "app-2"} {
+		if err := db.RecordEntity(ctx, org, t0.Add(time.Minute), "application", id, id, "", "", map[string]any{"name": id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	openOf := func(app string) []string {
+		t.Helper()
+		res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (:Entity {org:$org, kind:'application', id:$id})-[r:CONTAINS {org:$org}]->(m:Entity) WHERE r.validTo IS NULL RETURN m.id ORDER BY m.id`, map[string]any{"id": app}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, row := range res[0].Rows {
+			out = append(out, str(row[0]))
+		}
+		return out
+	}
+	validFromOf := func(app, member string) string {
+		t.Helper()
+		res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (:Entity {org:$org, kind:'application', id:$app})-[r:CONTAINS {org:$org}]->(:Entity {id:$id}) WHERE r.validTo IS NULL RETURN toString(r.validFrom)`,
+			map[string]any{"app": app, "id": member}))
+		if err != nil || len(res[0].Rows) == 0 {
+			t.Fatalf("no open edge %s -> %s", app, member)
+		}
+		return str(res[0].Rows[0][0])
+	}
+
+	if err := db.LinkEntitiesBatch(ctx, org, t0.Add(time.Minute), "CONTAINS", "application", "service",
+		[]MemberSet{{ID: "app-1", TargetIDs: []string{"s-1", "s-2"}}, {ID: "app-2", TargetIDs: []string{"s-2"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := openOf("app-1"); len(got) != 2 || got[0] != "s-1" || got[1] != "s-2" {
+		t.Fatalf("app-1: expected s-1 and s-2 open, got %v", got)
+	}
+	if got := openOf("app-2"); len(got) != 1 || got[0] != "s-2" {
+		t.Fatalf("app-2: expected only s-2 open, got %v", got)
+	}
+	app1S2From := validFromOf("app-1", "s-2")
+
+	// app-1 drops s-1; app-2 is not mentioned in this call at all, and must be left untouched.
+	if err := db.LinkEntitiesBatch(ctx, org, t0.Add(2*time.Minute), "CONTAINS", "application", "service",
+		[]MemberSet{{ID: "app-1", TargetIDs: []string{"s-2"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := openOf("app-1"); len(got) != 1 || got[0] != "s-2" {
+		t.Fatalf("app-1: expected only s-2 open after the change, got %v", got)
+	}
+	if validFromOf("app-1", "s-2") != app1S2From {
+		t.Error("app-1's edge to s-2 should never have been closed and reopened, only left alone")
+	}
+	if got := openOf("app-2"); len(got) != 1 || got[0] != "s-2" {
+		t.Fatalf("app-2: an untouched entity's membership must not change just because another entity was linked in the same call: %v", got)
+	}
+
+	if err := db.LinkEntitiesBatch(ctx, org, t0, "not-a-rel", "application", "service", []MemberSet{{ID: "app-1"}}); err == nil {
+		t.Error("an unknown relationship type should be refused")
+	}
+	if err := db.LinkEntitiesBatch(ctx, org, t0, "CONTAINS", "application", "service", nil); err != nil {
+		t.Errorf("an empty batch should be a no-op, not an error: %v", err)
 	}
 }
 
