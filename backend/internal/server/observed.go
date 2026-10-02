@@ -153,14 +153,21 @@ func satAdd(a, b uint64) uint64 {
 }
 
 func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
+	// One batch, one instant: every edge touched by this call - new or existing, however many flows the
+	// batch carries - shares the exact same timestamp, so there is no need for a fresh *timestamppb.
+	// Timestamp allocation per flow (two, previously, on a new edge's first report) when one, reused by
+	// every FirstSeen/LastSeen write this call makes, says the same thing. Nothing here ever mutates a
+	// Timestamp in place (every reader goes through AsTime()), so sharing the pointer across however many
+	// FlowEdges this call touches is safe.
+	nowPb := timestamppb.New(now)
 	for _, f := range b.Flows {
 		k := flowKey(f)
 		e := t.edges[k]
 		if e == nil {
-			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs, Cwnd: f.Cwnd, PacingBps: f.PacingBps, DnsRttUs: f.DnsRttUs}, FirstSeen: timestamppb.New(now)}
+			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs, Cwnd: f.Cwnd, PacingBps: f.PacingBps, DnsRttUs: f.DnsRttUs}, FirstSeen: nowPb}
 			t.edges[k] = e
 		}
-		e.LastSeen = timestamppb.New(now)
+		e.LastSeen = nowPb
 		e.Connections = satAdd(e.Connections, f.Connections)
 		e.BytesOut = satAdd(e.BytesOut, f.BytesOut)
 		e.BytesIn = satAdd(e.BytesIn, f.BytesIn)
@@ -322,6 +329,12 @@ type addrIndex struct {
 }
 
 func uniq(in []string) []string {
+	// The overwhelmingly common case at every call site here (a single node IP, a single owning cluster)
+	// is 0 or 1 elements, already trivially unique and already sorted - skip the map allocation and the
+	// sort for it.
+	if len(in) <= 1 {
+		return in
+	}
 	seen := map[string]bool{}
 	var out []string
 	for _, s := range in {
