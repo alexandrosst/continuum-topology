@@ -383,7 +383,7 @@ let lastKey: unknown[] | undefined
 let lastEff: RawState | undefined
 
 function computeEffective(
-  raw: RawState,
+  actionsSnapshot: RawState,
   clusters: RawState['clusters'],
   nodes: RawState['nodes'],
   namespaces: RawState['namespaces'],
@@ -397,13 +397,25 @@ function computeEffective(
   agents: RawState['agents'],
   suggestions: RawState['suggestions'],
   auditLog: RawState['auditLog'],
+  savedViews: RawState['savedViews'],
+  operators: RawState['operators'],
+  refs: RawState['refs'],
   liveDeps: Dependency[],
   liveExt: ExternalEndpoint[],
   past: SnapshotTopology | null,
   pastAgents: HistoricAgent[],
 ): RawState {
-  const key = [clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents, suggestions, auditLog, liveDeps, liveExt, past, pastAgents]
+  const key = [clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents, suggestions, auditLog, savedViews, operators, refs, liveDeps, liveExt, past, pastAgents]
   if (lastKey && key.length === lastKey.length && key.every((v, i) => v === lastKey![i])) return lastEff!
+  // Actions never change identity (zustand's `set` merges data fields; nothing here ever reassigns an
+  // action), so they're safe to take from a plain, unsubscribed snapshot rather than a hook selector -
+  // the data fields are rebuilt from the individually-selected params below regardless of whatever
+  // `actionsSnapshot` happened to hold at the moment it was taken.
+  const raw: RawState = {
+    ...actionsSnapshot,
+    clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints,
+    agents, suggestions, auditLog, savedViews, operators, refs,
+  }
   const model = past ? { ...raw, ...atSnapshot(raw, past) } : raw
   // Agents don't come back through atSnapshot: unlike the seven kinds it projects, a recorded agent
   // is not already a complete Agent (see historicAgents), so it is merged onto the live list here
@@ -426,11 +438,16 @@ function computeEffective(
 export function useTopology(): RawState
 export function useTopology<T>(selector: (s: RawState) => T): T
 export function useTopology<T>(selector?: (s: RawState) => T) {
-  const raw = useRawTopology()
-  // Subscribed individually (rather than depending on `raw` itself, which is a new object identity on
-  // every store write) so the cache above only recomputes when a field it actually reads has changed -
-  // not on every poll that reports back unchanged data. See lib/discovered.ts's mergeList/mergeDiscovered,
-  // which is what makes these fields keep their old identity when nothing in them changed.
+  // NOT a hook call - `getState()` reads the current store snapshot without subscribing to it. It exists
+  // only to source the (referentially stable) action functions below; every data field is read through
+  // its own selector instead; see computeEffective's isolated spread.
+  const actionsSnapshot = useRawTopology.getState()
+  // Subscribed individually (rather than depending on the whole store, which is a new object identity on
+  // every store write - and, worse, a bare `useRawTopology()` call with no selector at all re-renders this
+  // component on EVERY write regardless of what changed) so both this component's re-render and the cache
+  // above only fire when a field actually read here has changed - not on every poll that reports back
+  // unchanged data. See lib/discovered.ts's mergeList/mergeDiscovered, which is what makes these fields
+  // keep their old identity when nothing in them changed.
   const clusters = useRawTopology((s) => s.clusters)
   const nodes = useRawTopology((s) => s.nodes)
   const namespaces = useRawTopology((s) => s.namespaces)
@@ -444,17 +461,17 @@ export function useTopology<T>(selector?: (s: RawState) => T) {
   const agents = useRawTopology((s) => s.agents)
   const suggestions = useRawTopology((s) => s.suggestions)
   const auditLog = useRawTopology((s) => s.auditLog)
+  const savedViews = useRawTopology((s) => s.savedViews)
+  const operators = useRawTopology((s) => s.operators)
+  const refs = useRawTopology((s) => s.refs)
   const liveDeps = useObserved((s) => s.dependencies)
   const liveExt = useObserved((s) => s.externalEndpoints)
   const past = useHistoryView((s) => s.snapshot)
   const pastAgents = useHistoryView((s) => s.agents)
-  // raw is read fresh above (always current for this render) but deliberately left out of the cache key
-  // below, same reason the old useMemo's deps array left it out: an unrelated store write (e.g. a rename
-  // of an action, none exist here, or a future field) changes `raw`'s own identity without changing any of
-  // the fields actually read here, and shouldn't force a recompute on its own.
   const eff = computeEffective(
-    raw,
+    actionsSnapshot,
     clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents, suggestions, auditLog,
+    savedViews, operators, refs,
     liveDeps, liveExt, past, pastAgents,
   )
   return selector ? selector(eff) : eff

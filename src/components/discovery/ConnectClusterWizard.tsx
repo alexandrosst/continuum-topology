@@ -204,7 +204,10 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
   const imagesConfigured = !!info?.install?.imagesConfigured
   // The one image this command makes the cluster pull, as the server resolved it (the organisation's setting, else the server's flags).
   const img = previewImage({ registry: info?.install?.imageRegistry ?? '', tag: info?.install?.imageTag ?? '', digest: info?.install?.imageDigest ?? '' })
-  const raw = useRawTopology()
+  const clusters = useRawTopology((s) => s.clusters)
+  const agents = useRawTopology((s) => s.agents)
+  const nodes = useRawTopology((s) => s.nodes)
+  const services = useRawTopology((s) => s.services)
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [tier, setTier] = useState<AccessTier>(2)
@@ -229,7 +232,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
   // A default name so Create works the moment the wizard opens; still yours to change, and renameable later either way.
   // Deliberately keyed on `open` alone: it should fill in once per open, not re-fill while the count changes under it.
   useEffect(() => {
-    if (open) setName((n) => n || `cluster-${raw.clusters.length + 1}`)
+    if (open) setName((n) => n || `cluster-${clusters.length + 1}`)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
   // Deliberately keyed on `open` alone too, for the same reason: seed once per open from whatever was left
@@ -247,10 +250,10 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
     const since = new Date(created.meta.createdAt).getTime() - 1000
     return state?.agents?.find((a) => a.name === created.meta.name && new Date(a.requestedAt).getTime() >= since)
   }, [state, created])
-  const mine = raw.agents.find((a) => a.id === agent?.id)
-  const cluster = raw.clusters.find((c) => c.agentId === agent?.id)
+  const mine = agents.find((a) => a.id === agent?.id)
+  const cluster = clusters.find((c) => c.agentId === agent?.id)
   const counts = cluster
-    ? { nodes: raw.nodes.filter((n) => n.clusterId === cluster.id && !n.deletedAt).length, services: raw.services.filter((s) => s.clusterId === cluster.id && !s.deletedAt).length }
+    ? { nodes: nodes.filter((n) => n.clusterId === cluster.id && !n.deletedAt).length, services: services.filter((s) => s.clusterId === cluster.id && !s.deletedAt).length }
     : null
   // Whether the agent has finished its first full read of the cluster (every watch synced), not just found
   // one thing: a big cluster can report its first node long before it is done looking around.

@@ -60,7 +60,6 @@ const num = (n: number) => n.toLocaleString()
 
 export default function AgentsPage() {
   const { agents, clusters, sites } = useTopology()
-  const server = useServer()
   const [sp, setSp] = useSearchParams()
   const map = sp.get('view') === 'map'
   const [open, setOpen] = useState<string | null>(null)
@@ -80,9 +79,11 @@ export default function AgentsPage() {
   }, [])
 
   // Diagnostics and overrides are in the raw state document, and only for people who may change an agent's access.
-  const rawAgents = server.state?.agents
-  const connected = server.status === 'connected'
-  const canConsent = connected && server.canEdit()
+  const rawAgents = useServer((s) => s.state?.agents)
+  const connected = useServer((s) => s.status === 'connected')
+  const canConsent = useServer((s) => s.status === 'connected' && s.canEdit())
+  const conn = useServer((s) => s.conn)
+  const refresh = useServer((s) => s.refresh)
   const connect = useConnectFlow()
   const telemetry = useTelemetryFlow()
   const canAdminister = connect.canStart
@@ -115,11 +116,11 @@ export default function AgentsPage() {
   const openAgent = agents.find((a) => a.id === open)
 
   const revoke = async (a: Agent) => {
-    const c = server.conn()
+    const c = conn()
     if (!c) return
     try {
       await api.revoke(c, a.id, 'revoked in the UI')
-      await server.refresh()
+      await refresh()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not revoke.')
     }
