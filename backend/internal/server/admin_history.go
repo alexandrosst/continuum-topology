@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"continuum/internal/history"
+	"continuum/internal/model"
 	"continuum/internal/store"
 )
 
@@ -278,6 +279,101 @@ func (a *Admin) historyTraffic(w http.ResponseWriter, r *http.Request) {
 	payload := map[string]any{"hours": hours, "snapshots": len(samples), "rates": history.Rates(samples)}
 	core.trafficCache.set(hours, now, payload)
 	writeJSON(w, 200, payload)
+}
+
+// maxDependencySeriesPoints caps how many points historyDependencySeries ever decodes and returns -
+// a sparkline only needs enough samples to show the shape of a trend, not every recorded snapshot,
+// and this keeps a long `hours` window cheap the same way historyTraffic's own `most` cap does.
+const maxDependencySeriesPoints = 120
+
+// dependencySeriesPoint is one sample in a dependency's RTT/loss/throughput trend. RttMs follows
+// Dependency.RttMs's own "0 means no sample" convention; LossPct is a pointer for the same reason
+// Dependency.Stats.LossPct is one (nil means not measured, never a fabricated 0%); BytesPerSec is nil
+// for the first point returned (there is no earlier sample to derive a rate from) and whenever the
+// gap to the previous point is zero or negative.
+type dependencySeriesPoint struct {
+	At          string   `json:"at"`
+	RttMs       float64  `json:"rttMs,omitempty"`
+	LossPct     *float64 `json:"lossPct,omitempty"`
+	BytesPerSec *float64 `json:"bytesPerSec,omitempty"`
+}
+
+// historyDependencySeries returns one dependency's RTT/loss/throughput trend across recorded
+// history - the per-point analogue of historyTraffic's aggregate average/peak, for a sparkline
+// rather than a summary number. Same decode-each-snapshot approach and downsampling idea as
+// historyTraffic's slow path; no fast-path cache here, since a sparkline's data volume is tiny next
+// to a full traffic chart and isn't worth one. A snapshot the dependency didn't exist in yet (too
+// young, or since removed) is skipped rather than turned into a fabricated zero point.
+func (a *Admin) historyDependencySeries(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeErr(w, 400, "a dependency id is required")
+		return
+	}
+	hours := 24
+	if v := r.URL.Query().Get("hours"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 24*30 {
+			writeErr(w, 400, "hours must be between 1 and 720")
+			return
+		}
+		hours = n
+	}
+	now := a.C.Now()
+	core := a.core(r)
+	pts, err := a.C.Store.ListHistory(r.Context(), core.OrgID, now.Add(-time.Duration(hours)*time.Hour), time.Time{})
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	if len(pts) > maxDependencySeriesPoints {
+		keep := make([]store.HistoryPoint, 0, maxDependencySeriesPoints)
+		for i := 0; i < maxDependencySeriesPoints; i++ {
+			keep = append(keep, pts[i*(len(pts)-1)/(maxDependencySeriesPoints-1)])
+		}
+		pts = keep
+	}
+	out := make([]dependencySeriesPoint, 0, len(pts))
+	var prevBytes uint64
+	var prevAt time.Time
+	havePrev := false
+	for _, p := range pts {
+		_, data, err := a.C.Store.GetHistory(r.Context(), core.OrgID, p.At)
+		if err != nil {
+			continue
+		}
+		t, err := history.Decode(data)
+		if err != nil {
+			continue
+		}
+		var dep *model.Dependency
+		for i := range t.Dependencies {
+			if t.Dependencies[i].ID == id {
+				dep = &t.Dependencies[i]
+				break
+			}
+		}
+		if dep == nil {
+			continue
+		}
+		pt := dependencySeriesPoint{At: rfc(p.At), RttMs: dep.RttMs}
+		if dep.Stats != nil {
+			pt.LossPct = dep.Stats.LossPct
+		}
+		if havePrev {
+			if dt := p.At.Sub(prevAt).Seconds(); dt > 0 {
+				delta := dep.Bytes - prevBytes // counter reset (dep.Bytes < prevBytes) wraps to a huge
+				if dep.Bytes < prevBytes {     // delta instead, so treat it as a restart from zero.
+					delta = dep.Bytes
+				}
+				bps := float64(delta) / dt
+				pt.BytesPerSec = &bps
+			}
+		}
+		out = append(out, pt)
+		prevBytes, prevAt, havePrev = dep.Bytes, p.At, true
+	}
+	writeJSON(w, 200, map[string]any{"id": id, "hours": hours, "points": out})
 }
 
 type eventDoc struct {

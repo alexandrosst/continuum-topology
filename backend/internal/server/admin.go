@@ -181,6 +181,7 @@ func (a *Admin) Handler() http.Handler {
 	route("GET "+o+"/history", memberRole, a.historyIndex)
 	route("GET "+o+"/history/snapshot", memberRole, a.historySnapshot)
 	route("GET "+o+"/history/traffic", memberRole, a.historyTraffic)
+	route("GET "+o+"/history/dependency/{id}/series", memberRole, a.historyDependencySeries)
 	route("POST "+o+"/history/record", adminRole, a.recordNow)
 	route("GET "+o+"/events", memberRole, a.listEvents)
 	route("POST "+o+"/decide", editorRole, a.decide)

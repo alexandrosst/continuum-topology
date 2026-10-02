@@ -12,7 +12,9 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
+	"continuum/internal/history"
 	"continuum/internal/measure"
+	"continuum/internal/model"
 	"continuum/internal/store"
 )
 
@@ -558,6 +560,86 @@ func TestSettingsEndpointsRolesAndHiddenDeciderURL(t *testing.T) {
 	}
 	if r := a.do("PUT", "/api/v1/settings", Settings{}, withCookie(admin), withoutXRW()); r.Code == 200 {
 		t.Fatal("a settings change without the CSRF header was accepted")
+	}
+}
+
+// TestHistoryDependencySeries checks the per-dependency RTT/loss/throughput trend endpoint: a
+// sparkline's data source. It seeds recorded snapshots directly via history.Encode + Store.AddHistory
+// (the way TestRecorderStoresSnapshotsAndEventsOnlyForRealChanges exercises the recorder itself, not
+// this endpoint) so the dependency's exact RttMs/Stats.LossPct/Bytes at each point are pinned, rather
+// than depending on the flow-aggregation pipeline that normally produces them.
+func TestHistoryDependencySeries(t *testing.T) {
+	a := newAdminRig(t)
+	_, viewer := a.user(t, "eve", RoleViewer)
+
+	snap := func(rttMs float64, lossPct *float64, bytes uint64) model.Topology {
+		d := model.Dependency{ID: "dep-1", OrgID: "org-1", From: "a", To: "b", Protocol: "TCP", RttMs: rttMs, Bytes: bytes}
+		if lossPct != nil {
+			d.Stats = &model.DependencyStats{LossPct: lossPct}
+		}
+		return model.Topology{Dependencies: []model.Dependency{d}}
+	}
+	put := func(at time.Time, top model.Topology) {
+		data, _, err := history.Encode(top)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := a.st.AddHistory(a.ctx, "org-1", at, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	loss1, loss2 := 0.5, 2.0
+	base := *a.now
+	put(base, snap(10, &loss1, 1000))
+	put(base.Add(10*time.Second), snap(12, &loss2, 3000))
+	put(base.Add(20*time.Second), snap(0, nil, 3000)) // gone quiet this round: no rtt/loss sample, bytes unchanged
+
+	r := a.do("GET", "/api/v1/history/dependency/dep-1/series?hours=1", nil, withCookie(viewer))
+	if r.Code != 200 {
+		t.Fatalf("series: %d %s", r.Code, r.Body.String())
+	}
+	body := r.json(t)
+	pts, _ := body["points"].([]any)
+	if len(pts) != 3 {
+		t.Fatalf("got %d points, want 3: %v", len(pts), pts)
+	}
+	p0 := pts[0].(map[string]any)
+	if p0["rttMs"] != float64(10) || p0["lossPct"] != 0.5 {
+		t.Fatalf("point 0 = %v", p0)
+	}
+	if _, has := p0["bytesPerSec"]; has {
+		t.Fatalf("the first point has no earlier sample to derive a rate from: %v", p0)
+	}
+	p1 := pts[1].(map[string]any)
+	if p1["rttMs"] != float64(12) || p1["lossPct"] != 2.0 || p1["bytesPerSec"] != float64(200) {
+		t.Fatalf("point 1 = %v", p1)
+	}
+	p2 := pts[2].(map[string]any)
+	if _, has := p2["rttMs"]; has {
+		t.Fatalf("a 0 rtt sample should be omitted, not fabricated: %v", p2)
+	}
+	if _, has := p2["lossPct"]; has {
+		t.Fatalf("an unmeasured loss should be omitted, not fabricated as 0: %v", p2)
+	}
+	if p2["bytesPerSec"] != float64(0) {
+		t.Fatalf("unchanged bytes over a real gap is a genuine 0 rate, not omitted: %v", p2["bytesPerSec"])
+	}
+
+	none := a.do("GET", "/api/v1/history/dependency/does-not-exist/series", nil, withCookie(viewer))
+	if none.Code != 200 {
+		t.Fatalf("unknown dependency id: %d", none.Code)
+	}
+	if pts, _ := none.json(t)["points"].([]any); len(pts) != 0 {
+		t.Fatalf("unknown dependency id returned points: %v", pts)
+	}
+	if r := a.do("GET", "/api/v1/history/dependency/dep-1/series?hours=0", nil, withCookie(viewer)); r.Code != 400 {
+		t.Fatalf("hours=0: %d", r.Code)
+	}
+	if r := a.do("GET", "/api/v1/history/dependency/dep-1/series?hours=9999", nil, withCookie(viewer)); r.Code != 400 {
+		t.Fatalf("hours=9999: %d", r.Code)
+	}
+	if r := a.do("GET", "/api/v1/history/dependency/dep-1/series", nil); r.Code != 401 {
+		t.Fatalf("anonymous: %d", r.Code)
 	}
 }
 
