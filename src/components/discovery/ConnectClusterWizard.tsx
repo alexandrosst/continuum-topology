@@ -1,9 +1,8 @@
-import clsx from 'clsx'
-import { Check, CheckCircle2, ChevronRight, Loader2, MapPin, Pin, X } from 'lucide-react'
+import { CheckCircle2, ChevronRight, Loader2, MapPin, Pin } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Flag } from '@/components/ui/brand'
-import { Button, CopyButton, ErrorBanner, Field, InfoTip, Input, Modal, TagsInput } from '@/components/ui/primitives'
+import { Button, CopyButton, ErrorBanner, Field, InfoTip, Input, Modal, TagsInput, WizardSteps } from '@/components/ui/primitives'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError, type CreatedToken } from '@/lib/api'
 import { discoveryStatus, extrasOf } from '@/lib/consent'
@@ -139,52 +138,6 @@ const STEPS: { key: Phase; label: string }[] = [
   { key: 'discovering', label: 'Discovering' },
   { key: 'done', label: 'Connected' },
 ]
-
-/**
- * What's already automatic here needs saying out loud: the wizard notices the agent connecting and being
- * approved by itself (it is simply polling), so the only manual step left is typing the approval code. This
- * turns that into a line of ticks that fill in on their own, so it reads as "in progress", not "stuck".
- *
- * `stoppedAt` says which step it never got past when `phase` is `'stopped'`: that step gets a red mark instead
- * of being folded into "done" (a row of green checkmarks next to "this failed" would tell the opposite story
- * of the text underneath it), and nothing after it is implied to have happened either.
- */
-function Stepper({ phase, stoppedAt }: { phase: Phase; stoppedAt: number }) {
-  if (phase === 'form') return null
-  const activeIndex = phase === 'stopped' ? stoppedAt : STEPS.findIndex((s) => s.key === phase)
-  return (
-    <div className="mb-4 flex items-center" data-testid="wizard-steps">
-      {STEPS.map((s, i) => {
-        const failed = phase === 'stopped' && i === activeIndex
-        const done = !failed && i < activeIndex
-        const current = !failed && i === activeIndex
-        return (
-          <div key={s.key} className={clsx('flex items-center', i < STEPS.length - 1 && 'flex-1')}>
-            <span className="relative flex size-5 shrink-0 items-center justify-center">
-              {current && <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent/40" />}
-              <span
-                className={clsx(
-                  'relative flex size-5 items-center justify-center rounded-full border text-[10px] font-medium',
-                  failed
-                    ? 'border-bad/50 bg-bad/15 text-bad'
-                    : done
-                      ? 'border-ok/50 bg-ok/15 text-ok'
-                      : current
-                        ? 'border-accent bg-accent-soft text-accent'
-                        : 'border-nb-800 text-nb-600',
-                )}
-              >
-                {failed ? <X size={11} /> : done ? <Check size={11} /> : i + 1}
-              </span>
-            </span>
-            <span className={clsx('ml-1.5 whitespace-nowrap text-[11px]', failed ? 'text-bad' : done ? 'text-nb-400' : current ? 'text-nb-200' : 'text-nb-600')}>{s.label}</span>
-            {i < STEPS.length - 1 && <span className={clsx('mx-2 h-px flex-1', done ? 'bg-ok/30' : 'bg-nb-850')} />}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
 
 /** Create a token, show the install command, then follow the agent through approval to first discovery. */
 export default function ConnectClusterWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -439,7 +392,11 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
 
       {created && phase !== 'form' && (
         <div className="space-y-5">
-          <Stepper phase={phase} stoppedAt={stoppedAt} />
+          <WizardSteps
+            steps={STEPS.map((s) => s.label)}
+            currentIndex={phase === 'stopped' ? stoppedAt : STEPS.findIndex((s) => s.key === phase)}
+            failedIndex={phase === 'stopped' ? stoppedAt : undefined}
+          />
           {(phase === 'waiting' || phase === 'approve') && (
             <div>
               <div className="mb-1 flex items-center justify-between text-sm text-nb-300">
