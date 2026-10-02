@@ -271,3 +271,46 @@ describe('EdgeHoverCard · cluster-link flow rollup', () => {
     expect(screen.getByText('Flows observed')).toBeTruthy()
   })
 })
+
+describe('EdgeHoverCard · cluster-link encryption posture', () => {
+  test('an encrypted (WireGuard/IPsec) tunnel reads as encrypted, with no warning styling', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ clusterLink: { kind: 'overlay', via: 'wg0 (wireguard)', redundancy: 1, encryption: 'encrypted' } })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="edge-a"
+        toName="cloud"
+      />,
+    )
+    const dd = screen.getByText('encrypted by design')
+    expect(dd.className).not.toContain('text-warn')
+  })
+
+  test('a plaintext tunnel (e.g. GRE) is called out, with warning styling', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ clusterLink: { kind: 'overlay', via: 'gre0 (gre)', redundancy: 1, encryption: 'plaintext' } })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="edge-a"
+        toName="cloud"
+      />,
+    )
+    const dd = screen.getByText('no encryption of its own')
+    expect(dd.className).toContain('text-warn')
+  })
+
+  test('no Encryption row on a subnet link, which has no tunnel driver to classify', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ clusterLink: { kind: 'subnet', via: '10.20.30.0/24', redundancy: 1 } })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="edge-a"
+        toName="cloud"
+      />,
+    )
+    expect(screen.queryByText('Encryption')).toBeNull()
+  })
+})

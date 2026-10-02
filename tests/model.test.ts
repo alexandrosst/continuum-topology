@@ -1611,6 +1611,13 @@ test('cluster links: a confirmed overlay/subnet edge is drawn directly between t
   assert.equal(edgeRollup?.data?.clusterLink?.avgRttMs, 42)
   assert.equal(edgeRollup?.data?.clusterLink?.avgLossPct, 0.2)
 
+  assert.equal(edge!.data?.clusterLink?.encryption, undefined, 'no encryption classification on this fixture link')
+
+  const overlayEncrypted: ClusterLink = { ...overlay, encryption: 'encrypted' }
+  const gEnc = buildGraph(seed, { ...opts, clusterLinks: [overlayEncrypted] })
+  const edgeEnc = gEnc.edges.find((e) => e.source === groupId('cl-edge-a') && e.target === groupId('cl-cloud'))
+  assert.equal(edgeEnc?.data?.clusterLink?.encryption, 'encrypted', 'the encryption classification passes straight through onto the edge, same as the flow-rollup fields do')
+
   const subnet: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'subnet', via: '10.20.30.0/24' }
   const g2 = buildGraph(seed, { ...opts, clusterLinks: [subnet] })
   const edge2 = g2.edges.find((e) => e.source === groupId('cl-edge-a') && e.target === groupId('cl-cloud'))

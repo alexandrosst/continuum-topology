@@ -475,6 +475,9 @@ export default function Inspector({
                 const sub = [
                   l.kind === 'overlay' ? 'overlay' : 'same subnet',
                   l.via,
+                  // Inferred from the tunnel's own driver type, not measured - same caveat the mesh
+                  // mTLS verdict already carries elsewhere on this page.
+                  l.encryption === 'encrypted' ? 'encrypted' : l.encryption === 'plaintext' ? 'not encrypted' : undefined,
                   thisNode && otherNode ? `${thisNode} ↔ ${otherNode}` : undefined,
                   l.redundancy > 1 ? `${l.redundancy} independent paths` : undefined,
                 ].filter(Boolean).join(' · ')

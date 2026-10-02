@@ -5,6 +5,15 @@ import type { TopoEdge } from '@/lib/graph'
 
 export type EdgeHoverPos = { cx: number; cy: number }
 
+// Words for a ClusterLink's inferred encryption posture (EdgeData.clusterLink.encryption) - "unknown" is
+// only ever a driver kind outside the backend's own closed list, not a missing measurement, so it reads
+// as a plain fact rather than a warning the way "plaintext" does.
+const ENCRYPTION_WORDS: Record<'encrypted' | 'plaintext' | 'unknown', string> = {
+  encrypted: 'encrypted by design',
+  plaintext: 'no encryption of its own',
+  unknown: 'driver type not recognized',
+}
+
 /**
  * A compact hover card for a graph/infrastructure-view edge - the canvas equivalent of MapView's own
  * `LinkCard` (same anchoring against `host`'s bounding box, same visual language), so hovering a line here
@@ -212,6 +221,16 @@ export default function EdgeHoverCard({
             <>
               <dt title="The specific evidence behind this link - a tunnel interface's name and kind, or the shared subnet prefix - confirmed from both clusters' own routing/address data, never a guess">Via</dt>
               <dd className="truncate text-nb-200" title={d.clusterLink.via}>{d.clusterLink.via}</dd>
+            </>
+          )}
+          {d?.clusterLink?.encryption && (
+            <>
+              <dt title="Inferred from the tunnel's driver type alone - WireGuard and IPsec encrypt by design, VXLAN/GRE and similar carry none of their own - never a measurement of a live handshake">
+                Encryption
+              </dt>
+              <dd className={d.clusterLink.encryption === 'plaintext' ? 'text-warn' : 'text-nb-200'}>
+                {ENCRYPTION_WORDS[d.clusterLink.encryption]}
+              </dd>
             </>
           )}
           {d?.clusterLink && d.clusterLink.redundancy > 1 && (

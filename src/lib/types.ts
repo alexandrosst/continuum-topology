@@ -251,6 +251,14 @@ export interface ClusterLink {
   /** Average loss percentage across the matched flows that have a measured sample. Undefined when none
    *  of them do yet, never a fabricated 0%. */
   avgLossPct?: number
+  /** Only set for an "overlay" link: whether its confirmed tunnel driver encrypts traffic by design
+   *  (WireGuard, or an IPsec virtual-tunnel kind) or carries none of its own (VXLAN, GRE and its
+   *  variants, IP-in-IP) - see the backend's TunnelEncryptionPosture. This is an inference from the
+   *  driver type alone, the same honesty line the mesh mTLS verdict already draws elsewhere: it makes
+   *  encryption very likely or very unlikely, but nothing here proves what a given packet actually was.
+   *  "unknown" only for a driver kind outside that function's own closed list; undefined for a "subnet"
+   *  link, which has no tunnel to classify at all. */
+  encryption?: 'encrypted' | 'plaintext' | 'unknown'
 }
 
 export interface Cluster extends Provenance {

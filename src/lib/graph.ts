@@ -210,8 +210,10 @@ export type EdgeData = {
    *  independently corroborating node pairs back it (more than 1 means more than one path, not a single
    *  point of failure). `flowsObserved`/`avgRttMs`/`avgLossPct` roll up the live dependency flows actually
    *  matched onto this link's confirmed tunnel interface(s) - see ClusterLink's own doc; undefined/0 means
-   *  no matching flow was observed yet, not that none exists, and only ever set for an "overlay" link. */
-  clusterLink?: { kind: ClusterLink['kind']; via: string; redundancy: number; fromNode?: string; toNode?: string; fromAddress?: string; toAddress?: string; flowsObserved?: number; avgRttMs?: number; avgLossPct?: number }
+   *  no matching flow was observed yet, not that none exists, and only ever set for an "overlay" link.
+   *  `encryption` classifies that same tunnel's driver as "encrypted" or "plaintext" - an inference from
+   *  the driver type alone, never a measured fact; also only set for an "overlay" link. */
+  clusterLink?: { kind: ClusterLink['kind']; via: string; redundancy: number; fromNode?: string; toNode?: string; fromAddress?: string; toAddress?: string; flowsObserved?: number; avgRttMs?: number; avgLossPct?: number; encryption?: ClusterLink['encryption'] }
 }
 export type TopoEdge = Edge<EdgeData>
 
@@ -811,7 +813,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       groupLevel: true,
       from: a,
       to: b,
-      clusterLink: { kind: cl.kind, via: cl.via, redundancy: cl.redundancy, fromNode: cl.fromNode, toNode: cl.toNode, fromAddress: cl.fromAddress, toAddress: cl.toAddress, flowsObserved: cl.flowsObserved, avgRttMs: cl.avgRttMs, avgLossPct: cl.avgLossPct },
+      clusterLink: { kind: cl.kind, via: cl.via, redundancy: cl.redundancy, fromNode: cl.fromNode, toNode: cl.toNode, fromAddress: cl.fromAddress, toAddress: cl.toAddress, flowsObserved: cl.flowsObserved, avgRttMs: cl.avgRttMs, avgLossPct: cl.avgLossPct, encryption: cl.encryption },
     }))
   }
 
@@ -1452,7 +1454,7 @@ function makeEdge(
     /** Set only for a ClusterLink edge - see EdgeData.clusterLink's own doc. Undirected in reality (two
      *  clusters either are, or are not, joined this way), so this suppresses the arrowhead the same way
      *  `aggregated` does, independently of `groupLevel`, which still wants its own real arrowhead. */
-    clusterLink?: { kind: ClusterLink['kind']; via: string; redundancy: number; fromNode?: string; toNode?: string; fromAddress?: string; toAddress?: string; flowsObserved?: number; avgRttMs?: number; avgLossPct?: number }
+    clusterLink?: { kind: ClusterLink['kind']; via: string; redundancy: number; fromNode?: string; toNode?: string; fromAddress?: string; toAddress?: string; flowsObserved?: number; avgRttMs?: number; avgLossPct?: number; encryption?: ClusterLink['encryption'] }
     protocols?: Record<string, number>
   },
 ): TopoEdge {
