@@ -367,12 +367,12 @@ export function TagsInput({
   return (
     <div className={clsx(control, 'flex h-auto min-h-9 flex-wrap items-center gap-1 py-1.5')}>
       {value.map((tag) => (
-        <span key={tag} className="fade-in inline-flex items-center gap-1 rounded bg-nb-940 px-1.5 py-0.5 text-xs text-nb-300">
+        <Pill key={tag} className="fade-in gap-1 text-xs text-nb-300">
           {tag}
           <button type="button" onClick={() => onChange(value.filter((t) => t !== tag))} className="text-nb-500 hover:text-bad" aria-label={`Remove ${tag}`}>
             <X size={10} />
           </button>
-        </span>
+        </Pill>
       ))}
       <input
         value={draft}
@@ -765,9 +765,17 @@ export function IpAddress({ ip, inline }: { ip?: string; inline?: boolean }) {
   )
 }
 
-export function Pill({ children, title }: { children: ReactNode; title?: string }) {
+/** The shared "small rounded label" shape - a border, a slightly-lighter-than-canvas background, rounded-md,
+ *  comfortable padding - used for every plain descriptive tag across the app (a role, a kind, a status
+ *  line) rather than each spot hand-rolling its own near-duplicate of the same four classes. Default
+ *  (no `className`) renders exactly as every existing call site already expects: 12px nb-400 text. A
+ *  caller that passes `className` takes over BOTH size and color (and anything else: gap for an inline
+ *  icon/button, max-width/truncate, a tone color) - it is a full override of those two, not a merge, so a
+ *  Pill around interactive content (a tag with its own remove button) or multi-part content (a dimmer key
+ *  next to a brighter value) can still get the shared shape without fighting the default text styling. */
+export function Pill({ children, title, className }: { children: ReactNode; title?: string; className?: string }) {
   return (
-    <span title={title} className="inline-flex items-center whitespace-nowrap rounded-md border border-nb-800 bg-nb-930 px-2 py-0.5 text-xs text-nb-400">
+    <span title={title} className={clsx('inline-flex items-center whitespace-nowrap rounded-md border border-nb-800 bg-nb-930 px-2 py-0.5', className ?? 'text-xs text-nb-400')}>
       {children}
     </span>
   )
@@ -1091,7 +1099,7 @@ export function ChipList({ items, max = 2 }: { items: string[]; max?: number }) 
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap" title={items.join(', ')}>
       {shown.map((i) => (
-        <span key={i} className="max-w-[9rem] truncate rounded bg-nb-940 px-1.5 py-0.5 text-xs text-nb-400">{i}</span>
+        <Pill key={i} className="max-w-[9rem] truncate text-xs text-nb-400">{i}</Pill>
       ))}
       {rest > 0 && <span className="text-xs text-nb-500">+{rest}</span>}
     </span>

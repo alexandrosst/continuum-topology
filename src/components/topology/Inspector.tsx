@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { Pencil, X } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -234,11 +235,11 @@ function KeyValueChips({ label, pairs }: { label: string; pairs?: Record<string,
       <span className="shrink-0 text-nb-500">{label}</span>
       <div className="flex min-w-0 flex-wrap justify-end gap-1">
         {entries.map(([k, v]) => (
-          <span key={k} className="inline-flex max-w-full items-center gap-0.5 whitespace-nowrap rounded-md border border-nb-800 bg-nb-930 px-1.5 py-0.5 font-mono text-[11px] leading-none">
+          <Pill key={k} className="max-w-full gap-0.5 font-mono text-[11px] leading-none">
             <span className="truncate text-nb-500">{k}</span>
             <span className="text-nb-600">=</span>
             <span className="truncate text-nb-300">{v}</span>
-          </span>
+          </Pill>
         ))}
       </div>
     </div>
@@ -265,16 +266,9 @@ function Chips({ label, items, tone, title }: { label: string; items?: string[];
       <span className="shrink-0 text-nb-500">{label}</span>
       <div className="flex min-w-0 flex-wrap justify-end gap-1" title={title}>
         {items.map((it, i) => (
-          <span
-            key={i}
-            title={it}
-            className={
-              'max-w-full truncate rounded-md border border-nb-800 bg-nb-930 px-1.5 py-0.5 text-[11px] leading-none ' +
-              (tone === 'warn' ? 'text-warn' : 'text-nb-300')
-            }
-          >
+          <Pill key={i} title={it} className={clsx('max-w-full truncate text-[11px] leading-none', tone === 'warn' ? 'text-warn' : 'text-nb-300')}>
             {it}
-          </span>
+          </Pill>
         ))}
       </div>
     </div>
