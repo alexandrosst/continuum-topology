@@ -453,6 +453,18 @@ type ClusterLink struct {
 	// already is the complete evidence.
 	FromAddress string `json:"fromAddress,omitempty"`
 	ToAddress   string `json:"toAddress,omitempty"`
+	// FlowsObserved/AvgRttMs/AvgLossPct roll up the live Dependency flows actually crossing this link's
+	// confirmed tunnel - matched by the calling service's own cluster (whichever of FromCluster/ToCluster
+	// it belongs to) and its Dependency.Iface against the confirmed tunnel interface name(s) correlated
+	// on that same side (every corroborating node pair's interface, not just the first - see Redundancy).
+	// Only ever set for Kind == "overlay": a "subnet" link has no specific interface to correlate
+	// flows against, just a shared network. AvgRttMs is 0 (omitted) when none of the matched flows have
+	// a measured RTT sample yet, the same "0 means not measured" convention Dependency.RttMs itself
+	// uses. AvgLossPct is a pointer for the same reason Dependency.Stats.LossPct is one: nil means none
+	// of the matched flows have a measured loss percentage yet, never a fabricated 0%.
+	FlowsObserved int      `json:"flowsObserved,omitempty"`
+	AvgRttMs      float64  `json:"avgRttMs,omitempty"`
+	AvgLossPct    *float64 `json:"avgLossPct,omitempty"`
 }
 
 // ExternalEndpoint is something outside every onboarded cluster that traffic was seen going to or

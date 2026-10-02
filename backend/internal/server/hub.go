@@ -1175,9 +1175,16 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 	for _, c := range topo.Clusters {
 		names[c.ID] = c.Name
 	}
+	// So correlateClusterLinks can tell which cluster a dependency's calling service belongs to, for its
+	// own network-health rollup (FlowsObserved/AvgRttMs/AvgLossPct) - built here rather than inside it,
+	// keeping that function pure data matching with no topology-wide bookkeeping of its own.
+	serviceClusterID := map[string]string{}
+	for _, s := range topo.Services {
+		serviceClusterID[s.ID] = s.ClusterID
+	}
 	// Same reasoning as correlateTunnels just above: a cluster-pair relationship can only be seen once
 	// every cluster's nodes are in one list, so this also runs once here, after names is built.
-	topo.ClusterLinks = correlateClusterLinks(topo.Nodes, names)
+	topo.ClusterLinks = correlateClusterLinks(topo.Nodes, names, topo.Dependencies, serviceClusterID)
 	topo.Paths = h.pathDocs(agents, located, names, now)
 	tombstones := h.tombstoneDocs(now)
 	observation := twin.ObservationDoc{StaleAfterSeconds: int(window / time.Second), TombstoneRetentionDays: int(h.retention() / (24 * time.Hour))}

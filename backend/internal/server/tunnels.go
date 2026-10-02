@@ -124,7 +124,7 @@ func correlateTunnels(nodes []model.Node) {
 // ClusterLink per distinct (cluster pair, kind) - a pair corroborated by several node pairs, or by both a
 // tunnel and a shared subnet, is never duplicated, and from/to are ordered by cluster ID so the same pair
 // is never recorded twice under swapped ends depending on scan order.
-func correlateClusterLinks(nodes []model.Node, names map[string]string) []model.ClusterLink {
+func correlateClusterLinks(nodes []model.Node, names map[string]string, dependencies []model.Dependency, serviceClusterID map[string]string) []model.ClusterLink {
 	type tunRef struct {
 		nodeIdx, tunIdx int
 		addrs           []net.IP
@@ -170,20 +170,39 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string) []model.
 	// clusters vs. several is the difference between a single point of failure and not).
 	type linkKey struct{ from, to, kind string }
 	seen := map[linkKey]int{} // value is the index into out
+	// Every confirmed tunnel interface name seen on each side of a link, across every corroborating node
+	// pair (not just the first - unlike FromNode/ToNode, which only name the first), keyed the same way
+	// `seen` is. Only ever populated for "overlay" (add's ifaceA/ifaceB are always "" for "subnet").
+	fromIfaces := map[linkKey]map[string]bool{}
+	toIfaces := map[linkKey]map[string]bool{}
 	var out []model.ClusterLink
-	add := func(clusterA, clusterB, kind, via, nodeA, nodeB, addrA, addrB string) {
+	add := func(clusterA, clusterB, kind, via, nodeA, nodeB, addrA, addrB, ifaceA, ifaceB string) {
 		if clusterA == "" || clusterB == "" || clusterA == clusterB {
 			return
 		}
 		from, to := clusterA, clusterB
 		fromNode, toNode := nodeA, nodeB
 		fromAddr, toAddr := addrA, addrB
+		fromIface, toIface := ifaceA, ifaceB
 		if from > to {
 			from, to = to, from
 			fromNode, toNode = toNode, fromNode
 			fromAddr, toAddr = toAddr, fromAddr
+			fromIface, toIface = toIface, fromIface
 		}
 		k := linkKey{from, to, kind}
+		if fromIface != "" {
+			if fromIfaces[k] == nil {
+				fromIfaces[k] = map[string]bool{}
+			}
+			fromIfaces[k][fromIface] = true
+		}
+		if toIface != "" {
+			if toIfaces[k] == nil {
+				toIfaces[k] = map[string]bool{}
+			}
+			toIfaces[k][toIface] = true
+		}
 		if idx, ok := seen[k]; ok {
 			out[idx].Redundancy++
 			return
@@ -216,7 +235,7 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string) []model.
 				if len(tb.Addresses) > 0 {
 					addrB = tb.Addresses[0]
 				}
-				add(ca, cb, "overlay", ta.Name+" ("+ta.Kind+")", nodes[a.nodeIdx].Name, nodes[b.nodeIdx].Name, addrA, addrB)
+				add(ca, cb, "overlay", ta.Name+" ("+ta.Kind+")", nodes[a.nodeIdx].Name, nodes[b.nodeIdx].Name, addrA, addrB, ta.Name, tb.Name)
 			}
 		}
 	}
@@ -247,8 +266,61 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string) []model.
 				continue // every node in a cluster typically shares its site's subnet - not a cross-cluster fact
 			}
 			if sameNetwork(a.network, b.network) {
-				add(ca, cb, "subnet", a.network.String(), nodes[a.nodeIdx].Name, nodes[b.nodeIdx].Name, "", "")
+				add(ca, cb, "subnet", a.network.String(), nodes[a.nodeIdx].Name, nodes[b.nodeIdx].Name, "", "", "", "")
 			}
+		}
+	}
+	// Roll up the live dependency flows that actually cross each confirmed overlay link, now that every
+	// link and its full set of corroborating interface names (both sides, across every redundant path)
+	// is known. A dependency qualifies when its calling service sits in one of the link's two clusters
+	// and its own Iface is one of the confirmed tunnel names correlated on that exact side - matching by
+	// cluster AND interface name together, not interface name alone, since a generic name like "wg0" is
+	// commonly reused across entirely unrelated tunnels on other node pairs.
+	for i := range out {
+		if out[i].Kind != "overlay" {
+			continue
+		}
+		k := linkKey{out[i].FromCluster, out[i].ToCluster, out[i].Kind}
+		fIfaces, tIfaces := fromIfaces[k], toIfaces[k]
+		var flows int
+		var rttSum float64
+		var rttCount int
+		var lossSum float64
+		var lossCount int
+		for _, d := range dependencies {
+			if d.FromKind != "service" || d.Iface == "" {
+				continue
+			}
+			sc := serviceClusterID[d.From]
+			var ifaces map[string]bool
+			switch sc {
+			case out[i].FromCluster:
+				ifaces = fIfaces
+			case out[i].ToCluster:
+				ifaces = tIfaces
+			default:
+				continue
+			}
+			if !ifaces[d.Iface] {
+				continue
+			}
+			flows++
+			if d.RttMs > 0 {
+				rttSum += d.RttMs
+				rttCount++
+			}
+			if d.Stats != nil && d.Stats.LossPct != nil {
+				lossSum += *d.Stats.LossPct
+				lossCount++
+			}
+		}
+		out[i].FlowsObserved = flows
+		if rttCount > 0 {
+			out[i].AvgRttMs = rttSum / float64(rttCount)
+		}
+		if lossCount > 0 {
+			avg := lossSum / float64(lossCount)
+			out[i].AvgLossPct = &avg
 		}
 	}
 	return out
