@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"container/heap"
 	"sort"
 	"sync"
 	"time"
@@ -145,20 +146,52 @@ func mergeDNSNames(cur, add []string) []string {
 	return cur
 }
 
+// agedKey is one held edge's key paired with when it was last touched - the only two fields evict needs
+// to pick evictions, so it never has to copy a whole *continuumv1.Flow just to sort by one of its fields.
+// Mirrors observed.go's edgeAge/oldestEdges (same shape, same reason: evicting a bounded number of oldest
+// entries out of a much larger table shouldn't cost a full sort of that table).
+type agedKey struct {
+	k key
+	t uint64
+}
+
+// agedHeap is a bounded max-heap of the oldest-looking agedKeys seen so far during a single linear scan:
+// its root (index 0) is always the entry with the LATEST t among those currently held - once the heap
+// holds n entries, a new, genuinely older candidate only ever needs to evict that one (the entry least
+// likely to belong in the final "n oldest" answer), never re-examine the rest. See observed.go's ageHeap
+// for the identical reasoning in more detail.
+type agedHeap []agedKey
+
+func (h agedHeap) Len() int           { return len(h) }
+func (h agedHeap) Less(i, j int) bool { return h[i].t > h[j].t }
+func (h agedHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *agedHeap) Push(x any)        { *h = append(*h, x.(agedKey)) }
+func (h *agedHeap) Pop() any {
+	old := *h
+	last := len(old) - 1
+	x := old[last]
+	*h = old[:last]
+	return x
+}
+
 // evict drops the tenth of the held edges that were touched longest ago. It runs once per max/10 additions past the
-// cap, so the cost is amortised, and what was dropped is counted so the agent can say so.
+// cap, so the cost is amortised, and what was dropped is counted so the agent can say so. Finds those n oldest
+// entries in one O(len(a.flows) * log n) pass via a bounded max-heap, rather than a full O(len(a.flows) log
+// len(a.flows)) sort of the whole table just to throw away the n it actually needs.
 func (a *Aggregator) evict() {
 	n := max(len(a.flows)-a.max, a.max/10, 1)
-	type aged struct {
-		k key
-		t uint64
+	h := make(agedHeap, 0, n)
+	for k, t := range a.touched {
+		age := agedKey{k, t}
+		switch {
+		case len(h) < n:
+			heap.Push(&h, age)
+		case age.t < h[0].t:
+			heap.Pop(&h)
+			heap.Push(&h, age)
+		}
 	}
-	all := make([]aged, 0, len(a.flows))
-	for k := range a.flows {
-		all = append(all, aged{k, a.touched[k]})
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].t < all[j].t })
-	for _, x := range all[:min(n, len(all))] {
+	for _, x := range h {
 		delete(a.flows, x.k)
 		delete(a.touched, x.k)
 		a.dropped++
