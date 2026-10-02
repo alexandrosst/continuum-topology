@@ -1359,6 +1359,7 @@ test('edge throughput/quality data reaches EdgeData - a single dependency keeps 
   assert.equal(agg.data?.aggregated, true)
   assert.equal(agg.data?.stats?.bytesPerSec, 3500, 'a single bundled dependency sums to its own figure')
   assert.equal(agg.data?.activeCount, 1, 'seen in traffic (sources includes observed, not stale)')
+  assert.equal(agg.data?.protocols, undefined, 'a single-dependency bundle has nothing to break down')
   // Regression guard: an aggregated group<->group edge used to animate purely because it crossed a cluster
   // boundary (the old `d.cross`-driven trigger); makeEdge's animation now means "real, live traffic"
   // (d.observed && !d.stale, see its own comment), so a bundle must set `observed` itself from its own
@@ -1373,6 +1374,7 @@ test('edge throughput/quality data reaches EdgeData - a single dependency keeps 
   const agg2 = infra2.edges.find((e) => e.id === 'agg:cl-cloud|cl-region')!
   assert.equal(agg2.data?.activeCount, 2, 'both dependencies were seen in traffic')
   assert.equal(agg2.data?.stats?.bytesPerSec, 3500, 'only the one with a measured bytesPerSec contributes to the total')
+  assert.equal(agg2.data?.protocols, undefined, 'still only TCP in the bundle, so still nothing to break down')
 
   // A bundle with NO active dependency (declared only, never observed) must not animate at all - the fix
   // above must not regress back to animating every cross-cluster bundle unconditionally.
@@ -1382,6 +1384,23 @@ test('edge throughput/quality data reaches EdgeData - a single dependency keeps 
   assert.equal(agg3.data?.activeCount, 0, 'nothing in the bundle was ever observed')
   assert.equal(agg3.data?.observed, false)
   assert.equal(agg3.className, undefined, 'a purely-declared bundle does not animate as if it were live traffic')
+})
+
+test('an aggregated group link breaks down its bundle by protocol once it actually mixes more than one', () => {
+  // Three cross-cluster dependencies between the same two clusters, two different protocols: the UI's
+  // "N dependencies" label alone would hide that this is really two HTTP calls and one Kafka one.
+  const t = {
+    ...seed,
+    dependencies: [
+      seenDep({ id: 'dep-http-1', from: 'w-gw', to: 'w-kafka', protocol: 'HTTP' }),
+      seenDep({ id: 'dep-http-2', from: 'w-orch', to: 'w-kafka', protocol: 'HTTP' }),
+      seenDep({ id: 'dep-kafka-1', from: 'w-train', to: 'w-kafka', protocol: 'Kafka' }),
+    ],
+  }
+  const infra = buildGraph(t, { view: 'infrastructure', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
+  const agg = infra.edges.find((e) => e.id === 'agg:cl-cloud|cl-region')!
+  assert.ok(agg, 'the two clusters still get one bundled line')
+  assert.deepEqual(agg.data?.protocols, { HTTP: 2, Kafka: 1 }, 'counted per protocol, not just a total')
 })
 
 test("infrastructure view: a machine card reserves height for its own hardware badge row (Battery/NIC speed), so the badge doesn't sit flush against the card's bottom border", () => {

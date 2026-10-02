@@ -197,6 +197,12 @@ export type EdgeData = {
   /** Aggregated (group<->group) edges only: how many of the bundled dependencies were actually seen in
    *  traffic, out of the total the label already counts - the hover card's "(N seen in traffic)" aside. */
   activeCount?: number
+  /** Aggregated (group<->group) edges only: how many of the bundled dependencies use each protocol
+   *  (Dependency.protocol, e.g. "HTTP", "gRPC", "tcp:5432"'s own "tcp") - a single dependency's own edge
+   *  never needs this, since its one label already names its one protocol exactly. Unset (rather than a
+   *  one-entry map) when every bundled dependency happens to share the same protocol, so the hover card's
+   *  existing single-count line is left alone in the common case. */
+  protocols?: Record<string, number>
   /** Set only on a cluster<->cluster ClusterLink edge (never alongside a dependency's own fields above) -
    *  a confirmed network-level relationship, independent of any traffic or declared dependency between the
    *  two clusters. `via` names the specific evidence (a tunnel's name/kind, or the shared subnet prefix) -
@@ -723,7 +729,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     }
   } else if (o.links) {
     // Aggregate service dependencies into group ↔ group links.
-    const agg = new Map<string, { a: string; b: string; count: number; active: number; bytesPerSec: number }>()
+    const agg = new Map<string, { a: string; b: string; count: number; active: number; bytesPerSec: number; protocols: Map<string, number> }>()
     for (const d of t.dependencies) {
       const from = serviceById.get(d.from)
       const to = serviceById.get(d.to)
@@ -733,13 +739,14 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       if (!a || !b || a === b) continue
       const [k1, k2] = a < b ? [a, b] : [b, a]
       const key = `${k1}|${k2}`
-      const cur = agg.get(key) ?? { a: k1, b: k2, count: 0, active: 0, bytesPerSec: 0 }
+      const cur = agg.get(key) ?? { a: k1, b: k2, count: 0, active: 0, bytesPerSec: 0, protocols: new Map<string, number>() }
       cur.count++
       if (isObserved(d) && !d.stale) cur.active++
       cur.bytesPerSec += d.stats?.bytesPerSec ?? 0
+      cur.protocols.set(d.protocol, (cur.protocols.get(d.protocol) ?? 0) + 1)
       agg.set(key, cur)
     }
-    for (const { a, b, count, active, bytesPerSec } of agg.values()) {
+    for (const { a, b, count, active, bytesPerSec, protocols } of agg.values()) {
       if (!abs.has(groupId(a)) || !abs.has(groupId(b))) continue
       edges.push(makeEdge(`agg:${a}|${b}`, groupId(a), groupId(b), abs, {
         label: `${count} ${count === 1 ? 'dependency' : 'dependencies'}`,
@@ -748,6 +755,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         from: a,
         to: b,
         activeCount: active,
+        protocols: protocols.size > 1 ? Object.fromEntries(protocols) : undefined,
         // Animate this bundle exactly when it actually contains real, live traffic (active > 0) - the same
         // "motion means real traffic, not just cross-cluster" rule makeEdge's own doc applies to a single
         // dependency edge. Without this, an aggregated edge never sets `observed` at all, so makeEdge's
@@ -1443,6 +1451,7 @@ function makeEdge(
      *  clusters either are, or are not, joined this way), so this suppresses the arrowhead the same way
      *  `aggregated` does, independently of `groupLevel`, which still wants its own real arrowhead. */
     clusterLink?: { kind: ClusterLink['kind']; via: string; redundancy: number; fromNode?: string; toNode?: string; fromAddress?: string; toAddress?: string }
+    protocols?: Record<string, number>
   },
 ): TopoEdge {
   const [ss, ts] = pickSides(abs.get(source)!, abs.get(target)!)
@@ -1472,7 +1481,7 @@ function makeEdge(
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,
     markerEnd: d.aggregated || d.clusterLink ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, ifaceSpeedMbps: d.ifaceSpeedMbps, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, dnsRttMs: d.dnsRttMs, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink },
+    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, ifaceSpeedMbps: d.ifaceSpeedMbps, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, dnsRttMs: d.dnsRttMs, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink, protocols: d.protocols },
   }
 }
 

@@ -15,9 +15,11 @@ export type EdgeHoverPos = { cx: number; cy: number }
  * A single dependency (application view) shows its protocol/port, whether it's actually been seen, and
  * whatever of throughput/requests/errors/p95 the backend reported; an aggregated group<->group link (no
  * arrowhead, drawn only when "Cross-cluster links" is on) instead shows how many dependencies it bundles,
- * how many of those were seen in traffic, and their combined throughput. A telemetry edge to a regional
- * operator has neither `stats` nor `quality` set, so it falls through to just the two names and its label -
- * a graceful minimum rather than a special case.
+ * how many of those were seen in traffic, their combined throughput, and - only when the bundle actually
+ * mixes more than one (graph.ts's EdgeData.protocols is unset otherwise) - a breakdown by protocol, so
+ * "14 dependencies" doesn't hide that it's really 9 HTTP calls, 4 Kafka and 1 gRPC. A telemetry edge to a
+ * regional operator has neither `stats` nor `quality` set, so it falls through to just the two names and
+ * its label - a graceful minimum rather than a special case.
  *
  * Round trip, retransmits, TLS server name, DNS queries and interface mirror the Inspector's own
  * "Traffic" section exactly (same eBPF-only gates) - so a click is never needed just to see numbers a
@@ -61,6 +63,9 @@ export default function EdgeHoverCard({
   // when the same opt-in that surfaces dnsQueryNames above is on (it's read off the correlated query/
   // response pair, same privacy posture as the query name itself).
   const showDnsRtt = d?.via === 'ebpf' && d?.dnsRttMs !== undefined
+  // Aggregated edges only - unset whenever the bundle happens to be all one protocol, so the plain
+  // count in the subtitle line below is left to speak for itself in that common case.
+  const protocolMix = d?.protocols && Object.entries(d.protocols).sort((a, b) => b[1] - a[1])
   // Jitter and handshake latency are both eBPF-only gauges, same as rttMs itself (no conntrack
   // equivalent exists for either).
   const showJitter = d?.via === 'ebpf' && d?.jitterMs !== undefined
@@ -90,8 +95,14 @@ export default function EdgeHoverCard({
             ? d.activeCount ? ` · ${d.activeCount} seen in traffic` : undefined
             : label !== undefined && (d?.stale ? ' · quiet' : seen ? ' · seen in traffic' : ' · declared')}
       </div>
-      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showJitter || showHandshake || showRetransmits || showFailed || showSni || showDns || showDnsRtt || d?.iface || d?.quality || d?.route || d?.clusterLink) && (
+      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showJitter || showHandshake || showRetransmits || showFailed || showSni || showDns || showDnsRtt || d?.iface || d?.quality || d?.route || d?.clusterLink || protocolMix) && (
         <dl className="mt-1.5 grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-0.5 text-nb-400">
+          {protocolMix && (
+            <>
+              <dt>Protocols</dt>
+              <dd className="text-nb-200">{protocolMix.map(([proto, n]) => `${proto} ×${n}`).join(', ')}</dd>
+            </>
+          )}
           {showBps && (
             <>
               <dt>{d?.aggregated ? 'Combined throughput' : 'Throughput'}</dt>

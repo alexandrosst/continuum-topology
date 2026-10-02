@@ -169,3 +169,45 @@ describe('EdgeHoverCard · DNS response latency', () => {
     expect(screen.queryByText('DNS response')).toBeNull()
   })
 })
+
+describe('EdgeHoverCard · protocol mix', () => {
+  test('an aggregated edge with more than one protocol shows a breakdown, busiest first', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ aggregated: true, protocols: { gRPC: 1, HTTP: 9, Kafka: 4 } })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="eu"
+        toName="us"
+      />,
+    )
+    expect(screen.getByText('Protocols')).toBeTruthy()
+    expect(screen.getByText('HTTP ×9, Kafka ×4, gRPC ×1')).toBeTruthy()
+  })
+
+  test('no Protocols row when the bundle is entirely one protocol (EdgeData.protocols unset)', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ aggregated: true, activeCount: 3 })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="eu"
+        toName="us"
+      />,
+    )
+    expect(screen.queryByText('Protocols')).toBeNull()
+  })
+
+  test('a single (non-aggregated) dependency edge never shows a Protocols row', () => {
+    render(
+      <EdgeHoverCard
+        edge={makeEdge({ via: 'ebpf', rttMs: 5 })}
+        pos={pos}
+        host={document.createElement('div')}
+        fromName="web"
+        toName="checkout"
+      />,
+    )
+    expect(screen.queryByText('Protocols')).toBeNull()
+  })
+})
