@@ -79,7 +79,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
   // The request was rejected after too many wrong codes. It is no longer pending, so say what happened.
   if (locked || agent.status === 'rejected') {
     return (
-      <div className="rounded-xl border border-bad/30 bg-bad/5 px-5 py-4" data-testid="approval-locked" role="alert">
+      <div className="rounded-xl border border-bad/30 bg-bad/10 px-5 py-4" data-testid="approval-locked" role="alert">
         <div className="flex items-center gap-2 text-sm font-medium text-nb-300">
           <ShieldX size={16} className="text-bad" /> The request from {agent.name} was rejected
         </div>

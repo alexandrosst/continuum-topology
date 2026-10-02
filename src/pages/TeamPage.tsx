@@ -95,7 +95,7 @@ function Danger() {
         <Field label="Name" className="flex-1"><Input value={name} onChange={(e) => { setName(e.target.value); setSaved(false) }} data-testid="org-name" /></Field>
         <Button type="submit" disabled={name.trim().length < 2 || name.trim() === info?.orgName}>{saved ? 'Saved' : 'Rename'}</Button>
       </form>
-      <div className="mt-6 max-w-lg rounded-lg border border-bad/25 bg-bad/5 p-4">
+      <div className="mt-6 max-w-lg rounded-lg border border-bad/30 bg-bad/10 p-4">
         <div className="text-sm font-medium text-bad">Delete this organisation</div>
         <p className="mt-1 text-xs text-nb-400">Erases its agents, topology, history and memberships for good. The people keep their accounts and their other organisations. The audit trail of who deleted it is kept.</p>
         <Button className="mt-3" variant="danger" onClick={() => { setConfirm(''); setOpen(true) }} data-testid="org-delete"><Trash2 size={14} /> Delete organisation…</Button>
