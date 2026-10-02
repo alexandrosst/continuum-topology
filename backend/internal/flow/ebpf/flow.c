@@ -56,12 +56,20 @@ struct sock {
 	// ECONNRESET, EHOSTUNREACH/ENETUNREACH) - the kernel's own diagnosis, read only when the socket is
 	// about to close having never gotten there. See add_failed.
 	int sk_err;
-	// Cumulative receive-side drops (the real kernel type is atomic_t, a struct wrapping one int - binary
-	// compatible with a plain int for a read-only counter sample). Incremented when this socket's own
-	// receive buffer was full and a packet had to be dropped - for both TCP and UDP. A different failure
-	// mode from retransmits (the sender's view of loss on the wire): this is the local application not
-	// draining its socket fast enough, not the network losing anything in transit.
-	int sk_drops;
+	// Cumulative receive-side drops. The real kernel type is atomic_t - a struct wrapping one int, not a
+	// bare int as this field was first declared here - and CO-RE's field relocation matches by kind as
+	// well as name, so a plain `int` here fails to resolve against every kernel's BTF (confirmed by
+	// hand: this is not a host-specific quirk, every struct sock has declared this as atomic_t for
+	// years, so it fails identically everywhere, taking on_state - and with it, all of eBPF flow
+	// observation - down with it). Declared with the same shape as the real type and read through
+	// .counter below, the same pattern any CO-RE program reading an atomic_t field uses. Incremented
+	// when this socket's own receive buffer was full and a packet had to be dropped - for both TCP and
+	// UDP. A different failure mode from retransmits (the sender's view of loss on the wire): this is
+	// the local application not draining its socket fast enough, not the network losing anything in
+	// transit.
+	struct {
+		int counter;
+	} __attribute__((preserve_access_index)) sk_drops;
 	// The pacing rate TCP's own congestion control last set for this socket, bytes/sec (0 = no pacer
 	// active yet, e.g. a very young connection). Read alongside tcp_sock.snd_cwnd below to say whether a
 	// connection is currently window-limited or pacing-limited.
@@ -391,7 +399,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// sk_drops lives on sock, not tcp_sock - read via the original sk pointer with bpf_probe_read_kernel,
 		// the same defensive treatment this file already gives sk's own scalar fields outside __sk_common
 		// (see sk_err's read in the TCP_CLOSE branch below).
-		bpf_probe_read_kernel(&si.last_drops, sizeof(si.last_drops), &sk->sk_drops);
+		bpf_probe_read_kernel(&si.last_drops, sizeof(si.last_drops), &sk->sk_drops.counter);
 		if (bpf_map_update_elem(&socks, &id, &si, BPF_ANY) != 0) {
 			count_lost();
 			return 0;
@@ -441,7 +449,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// fields outside __sk_common (see sk_err just above).
 		int drops = 0;
 		unsigned long pacing_rate = 0;
-		bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops);
+		bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops.counter);
 		bpf_probe_read_kernel(&pacing_rate, sizeof(pacing_rate), &sk->sk_pacing_rate);
 		__u32 ddrops = (__u32)drops > si->last_drops ? (__u32)drops - si->last_drops : 0;
 		// srtt_us/mdev_us are kept as 8x/4x fixed-point averages respectively (see struct tcp_sock's
@@ -492,7 +500,7 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 	bpf_probe_read_kernel(&mdev_raw, sizeof(mdev_raw), &tp->mdev_us);
 	bpf_probe_read_kernel(&segs_out, sizeof(segs_out), &tp->segs_out);
 	bpf_probe_read_kernel(&cwnd, sizeof(cwnd), &tp->snd_cwnd);
-	bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops);
+	bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops.counter);
 	bpf_probe_read_kernel(&pacing_rate, sizeof(pacing_rate), &sk->sk_pacing_rate);
 	__u32 ddrops = (__u32)drops > si->last_drops ? (__u32)drops - si->last_drops : 0;
 	if (out > si->last_out || in > si->last_in || retrans > si->last_retrans || segs_out > si->last_segs_out || ddrops) {
