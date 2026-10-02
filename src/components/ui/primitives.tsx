@@ -340,12 +340,14 @@ export function TagsInput({
   onChange,
   placeholder,
   'aria-invalid': ariaInvalid,
+  'aria-describedby': ariaDescribedBy,
   'data-testid': dataTestId,
 }: {
   value: string[]
   onChange: (value: string[]) => void
   placeholder?: string
   'aria-invalid'?: boolean
+  'aria-describedby'?: string
   'data-testid'?: string
 }) {
   const [draft, setDraft] = useState('')
@@ -390,6 +392,7 @@ export function TagsInput({
         onBlur={() => commit(draft)}
         placeholder={value.length === 0 ? placeholder : undefined}
         aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         data-testid={dataTestId}
         className="min-w-[6rem] flex-1 bg-transparent text-sm text-nb-300 placeholder:text-nb-500 focus:outline-none"
       />
@@ -506,7 +509,7 @@ export function LabelsEditor({
 /** `adornment` sits right after the label text - e.g. an EvidenceChip marking the field's value as a guess or
  * unknown, so a person editing it sees the same "how sure are we" signal this app already shows in tables and
  * the inspector, without a separate lookup. Generic on purpose: Field itself knows nothing about evidence. */
-export function Field({ label, hint, children, className, adornment }: { label: string; hint?: string; children: ReactNode; className?: string; adornment?: ReactNode }) {
+export function Field({ label, hint, hintId, children, className, adornment }: { label: string; hint?: string; hintId?: string; children: ReactNode; className?: string; adornment?: ReactNode }) {
   return (
     <label className={clsx('block', className)}>
       <span className="mb-1.5 flex flex-wrap items-center gap-1.5 text-sm font-medium text-nb-300">
@@ -514,7 +517,7 @@ export function Field({ label, hint, children, className, adornment }: { label: 
         {adornment}
       </span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-nb-500">{hint}</span>}
+      {hint && <span id={hintId} className="mt-1 block text-xs text-nb-500">{hint}</span>}
     </label>
   )
 }

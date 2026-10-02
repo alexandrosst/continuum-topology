@@ -330,10 +330,10 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
 
       <div className="mt-4">
         <Field label="Leave more namespaces out" hint="The agent drops them before anything is sent; they can only be added to what the install already leaves out. System namespaces cannot be left out.">
-          <TagsInput value={excl} onChange={(v) => { setExcl(v); setSaved(false) }} placeholder="e.g. payments, batch" aria-invalid={!valid} data-testid="exclude-input" />
+          <TagsInput value={excl} onChange={(v) => { setExcl(v); setSaved(false) }} placeholder="e.g. payments, batch" aria-invalid={!valid} aria-describedby={valid ? undefined : 'exclude-problems'} data-testid="exclude-input" />
         </Field>
         {!valid && (
-          <ul className="mt-1 text-xs text-bad" role="alert" data-testid="exclude-problems">
+          <ul id="exclude-problems" className="mt-1 text-xs text-bad" role="alert" data-testid="exclude-problems">
             {parsed.problems.map((p) => <li key={p}>{p}</li>)}
           </ul>
         )}

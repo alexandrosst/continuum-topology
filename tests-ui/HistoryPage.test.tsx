@@ -53,8 +53,14 @@ describe('RecordingSettings · Link is quiet after (flowStaleSeconds)', () => {
   test('typing 0 (or leaving it non-positive) is rejected and blocks Save', () => {
     renderField({ flowStaleSeconds: 300 })
     fireEvent.change(screen.getByTestId('setting-flowStaleSeconds'), { target: { value: '0' } })
-    expect(screen.getByTestId('setting-flowStaleSeconds')).toHaveAttribute('aria-invalid', 'true')
+    const field = screen.getByTestId('setting-flowStaleSeconds')
+    expect(field).toHaveAttribute('aria-invalid', 'true')
     expect(screen.getByTestId('save-settings')).toBeDisabled()
+    // A screen reader needs the error text itself, not just the invalid flag: aria-describedby must
+    // resolve to the hint span that now reads the error message, not the normal explanatory text.
+    const describedBy = field.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    expect(document.getElementById(describedBy!)).toHaveTextContent(/between .* and 30 days/i)
   })
 
   test('Save sends the product of the typed number and the selected unit, in seconds', async () => {

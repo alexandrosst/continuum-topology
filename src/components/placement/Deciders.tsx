@@ -260,11 +260,11 @@ function ExternalConfig({ admin, connected, conn }: { admin: boolean; connected:
             <Field label="Name" hint="Shown in comparisons.">
               <Input value={name} onChange={(e) => { setSaved(false); setName(e.target.value) }} placeholder="My scheduler" maxLength={60} data-testid="decider-name" />
             </Field>
-            <Field label="Timeout" hint={badTimeout ? 'Between 1 and 25 seconds.' : 'Seconds the server waits for an answer.'}>
-              <Input type="number" min={1} max={25} value={timeout} onChange={(e) => { setSaved(false); setTimeoutSec(e.target.value) }} className={clsx('w-28', badTimeout && 'border-bad/60')} data-testid="decider-timeout" />
+            <Field label="Timeout" hint={badTimeout ? 'Between 1 and 25 seconds.' : 'Seconds the server waits for an answer.'} hintId="decider-timeout-hint">
+              <Input type="number" min={1} max={25} value={timeout} onChange={(e) => { setSaved(false); setTimeoutSec(e.target.value) }} aria-invalid={badTimeout} aria-describedby="decider-timeout-hint" className={clsx('w-28', badTimeout && 'border-bad/60')} data-testid="decider-timeout" />
             </Field>
-            <Field label="Address" hint={badUrl ? 'Start with http:// or https://.' : 'Leave empty to switch it off.'} className="sm:col-span-2">
-              <Input value={addr} onChange={(e) => { setSaved(false); setAddr(e.target.value) }} placeholder="https://decider.example.org/decide" className={clsx(badUrl && 'border-bad/60')} data-testid="decider-url" />
+            <Field label="Address" hint={badUrl ? 'Start with http:// or https://.' : 'Leave empty to switch it off.'} hintId="decider-url-hint" className="sm:col-span-2">
+              <Input value={addr} onChange={(e) => { setSaved(false); setAddr(e.target.value) }} placeholder="https://decider.example.org/decide" aria-invalid={badUrl} aria-describedby="decider-url-hint" className={clsx(badUrl && 'border-bad/60')} data-testid="decider-url" />
             </Field>
           </div>
 
@@ -277,13 +277,15 @@ function ExternalConfig({ admin, connected, conn }: { admin: boolean; connected:
                     value={secret}
                     onChange={(e) => { setSaved(false); setSecret(e.target.value) }}
                     placeholder="Paste one, or generate one"
+                    aria-invalid={badSecret}
+                    aria-describedby={badSecret ? 'decider-secret-hint' : undefined}
                     className={clsx('max-w-md font-mono text-xs', badSecret && 'border-bad/60')}
                     data-testid="decider-secret"
                   />
                   <Button size="sm" type="button" onClick={() => { setSaved(false); setSecret(generateSecret()) }} data-testid="decider-secret-generate">Generate</Button>
                   <Button size="sm" type="button" onClick={() => { setSecret(''); setEditingSecret(false) }}>Cancel</Button>
                 </div>
-                {badSecret && <p className="text-xs text-bad">Between 16 and 200 characters.</p>}
+                {badSecret && <p id="decider-secret-hint" role="alert" className="text-xs text-bad">Between 16 and 200 characters.</p>}
                 {secret && !badSecret && (
                   <p className="fade-in flex items-center gap-2 text-xs text-warn/90">
                     Copy this now - once saved, it is shown only as “set”, never again.

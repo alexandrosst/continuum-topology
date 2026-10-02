@@ -93,14 +93,14 @@ export default function MailSettings({ conn }: { conn: Conn }) {
           <Field label="Host" hint="Leave empty to switch email off.">
             <Input value={host} onChange={(e) => { setSaved(false); setHost(e.target.value) }} placeholder="smtp.example.com" data-testid="mail-host" />
           </Field>
-          <Field label="Port" hint={badPort ? 'A number between 1 and 65535.' : 'Usually 587 (STARTTLS) or 465.'}>
-            <Input value={port} onChange={(e) => { setSaved(false); setPort(e.target.value) }} placeholder="587" className={clsx('w-28', badPort && 'border-bad/60')} data-testid="mail-port" />
+          <Field label="Port" hint={badPort ? 'A number between 1 and 65535.' : 'Usually 587 (STARTTLS) or 465.'} hintId="mail-port-hint">
+            <Input value={port} onChange={(e) => { setSaved(false); setPort(e.target.value) }} placeholder="587" aria-invalid={badPort} aria-describedby="mail-port-hint" className={clsx('w-28', badPort && 'border-bad/60')} data-testid="mail-port" />
           </Field>
           <Field label="Username" hint="Leave empty for a relay that needs no authentication.">
             <Input value={username} onChange={(e) => { setSaved(false); setUsername(e.target.value) }} data-testid="mail-username" />
           </Field>
-          <Field label="From address" hint={badFrom ? 'Looks incomplete.' : 'What recipients see the code arrive from.'}>
-            <Input value={from} onChange={(e) => { setSaved(false); setFrom(e.target.value) }} placeholder="continuum@example.com" className={clsx(badFrom && 'border-bad/60')} data-testid="mail-from" />
+          <Field label="From address" hint={badFrom ? 'Looks incomplete.' : 'What recipients see the code arrive from.'} hintId="mail-from-hint">
+            <Input value={from} onChange={(e) => { setSaved(false); setFrom(e.target.value) }} placeholder="continuum@example.com" aria-invalid={badFrom} aria-describedby="mail-from-hint" className={clsx(badFrom && 'border-bad/60')} data-testid="mail-from" />
           </Field>
         </div>
 

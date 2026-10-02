@@ -570,8 +570,9 @@ export function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn 
   const dirty = FIELDS.some((f) => String(settings[f.key]) !== draft[f.key]) || settings.eventRetentionDays !== eventParsed.days || settings.flowStaleSeconds !== flowStaleSeconds
   const renderField = (f: (typeof FIELDS)[number]) => {
     const invalid = bad.includes(f)
+    const hintId = `setting-${f.key}-hint`
     return (
-      <Field key={f.key} label={f.label} hint={invalid ? `Between ${f.min} and ${f.max}.` : f.hint}>
+      <Field key={f.key} label={f.label} hint={invalid ? `Between ${f.min} and ${f.max}.` : f.hint} hintId={hintId}>
         <div className="flex items-center gap-2">
           <Input
             type="number"
@@ -581,6 +582,7 @@ export function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn 
             value={draft[f.key] ?? ''}
             disabled={!admin}
             aria-invalid={invalid}
+            aria-describedby={hintId}
             onChange={(e) => { setSaved(false); setDraft((d) => ({ ...d, [f.key]: e.target.value })) }}
             className={clsx('w-28', invalid && 'border-bad/60')}
             data-testid={`setting-${f.key}`}
@@ -595,6 +597,7 @@ export function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn 
       key="flowStaleSeconds"
       label="Link is quiet after"
       hint={!flowStaleValid ? `Between ${FLOW_STALE_MIN_SECONDS} second${FLOW_STALE_MIN_SECONDS === 1 ? '' : 's'} and 30 days.` : 'How long an observed link may go unseen before it is shown as quiet. Pick a smaller unit for near-instant feedback after a deliberate change (a migration, a decommission); a larger one tolerates bursty or low-frequency traffic without flickering.'}
+      hintId="setting-flowStaleSeconds-hint"
     >
       <div className="flex items-center gap-2">
         <Input
@@ -605,6 +608,7 @@ export function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn 
           value={flowStaleDraft}
           disabled={!admin}
           aria-invalid={!flowStaleValid}
+          aria-describedby="setting-flowStaleSeconds-hint"
           onChange={(e) => { setSaved(false); setFlowStaleDraft(e.target.value) }}
           className={clsx('w-24', !flowStaleValid && 'border-bad/60')}
           data-testid="setting-flowStaleSeconds"
@@ -637,6 +641,7 @@ export function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn 
           ? `Between ${EVENT_RETENTION_MIN} and ${EVENT_RETENTION_MAX} days.`
           : 'Only the event/drift log below, never the audit trail: actions people took are kept forever regardless of this setting.'
       }
+      hintId="setting-eventRetentionDays-hint"
     >
       <div className="flex items-center gap-2">
         <label className="flex items-center gap-1.5 text-xs text-nb-400">
@@ -659,6 +664,7 @@ export function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn 
           disabled={!admin || !eventOn}
           placeholder={eventOn ? undefined : 'kept forever'}
           aria-invalid={eventOn && !eventParsed.ok}
+          aria-describedby="setting-eventRetentionDays-hint"
           onChange={(e) => { setSaved(false); setEventDraft(e.target.value) }}
           className={clsx('w-28', eventOn && !eventParsed.ok && 'border-bad/60')}
           data-testid="setting-eventRetentionDays"
