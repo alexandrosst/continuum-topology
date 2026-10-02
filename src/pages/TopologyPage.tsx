@@ -159,8 +159,15 @@ function Canvas() {
   // Confirmed overlay/same-subnet facts, drawn in every view/groupBy combination (see graph.ts) - on by
   // default, same as every other "Show" toggle in this menu.
   const showClusterLinks = sp.get('clusterLinks') !== '0'
+  // Off by default (unlike showClusterLinks itself): recolors a confirmed cluster link by its live
+  // flow-rollup health (ClusterLink.avgLossPct, see tunnels.go's correlateClusterLinks) instead of its
+  // fixed overlay/subnet category color - a different question ("is this link actually healthy right
+  // now") than the category swatch answers ("what kind of link is this"), so it's an opt-in lens over
+  // the always-on category coloring rather than a replacement for it. Meaningless with cluster links
+  // hidden altogether, so it only ever applies alongside showClusterLinks.
+  const showHealthLens = sp.get('health') === '1' && showClusterLinks
   // How many options differ from the defaults, so a hidden option is never a mystery.
-  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow', !showClusterLinks].filter(Boolean).length
+  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow', !showClusterLinks, showHealthLens].filter(Boolean).length
   const setParam = (k: string, v: string | null) =>
     setSp((p) => {
       const n = new URLSearchParams(p)
@@ -495,8 +502,12 @@ function Canvas() {
       // Cluster links get their own two colours, independent of the loss/mesh/crossGroup palette above -
       // they are never a dependency (no quality/mesh verdict can coexist with them), so there's no
       // precedence to resolve, only `hot` (selection focus) still wins. Overlay (purple) vs. subnet (cyan)
-      // mirrors the legend below.
-      const stroke = hot ? '#f68330' : cl ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? '#f87171' : band === 'warn' ? '#fbbf24' : e.data?.crossGroup ? '#98a4ae' : '#6f7b85'
+      // mirrors the legend below. The health lens is opt-in and only ever applies when there's an actual
+      // measured avgLossPct to show - a link with no matched flows yet falls straight back to its fixed
+      // category colour rather than a fabricated "healthy" green.
+      const clHealthBand = showHealthLens && cl?.avgLossPct !== undefined ? lossBand(cl.avgLossPct) : null
+      const clHealthColor = clHealthBand === 'hot' ? '#f87171' : clHealthBand === 'warn' ? '#fbbf24' : clHealthBand === 'ok' ? '#34d399' : null
+      const stroke = hot ? '#f68330' : clHealthColor ?? (cl ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? '#f87171' : band === 'warn' ? '#fbbf24' : e.data?.crossGroup ? '#98a4ae' : '#6f7b85')
       // Seen in traffic: solid, and a touch thicker the busier it is. Only declared (or gone quiet): dotted and
       // thin. Kept close to the declared baseline (1.2) rather than scaling up hard - a busy link should read as
       // "more traffic" without out-weighing the 2.4px used for the current selection/focus.
@@ -529,7 +540,7 @@ function Canvas() {
         markerEnd: e.markerEnd && typeof e.markerEnd === 'object' ? { ...e.markerEnd, color: stroke } : e.markerEnd,
       }
     })
-  }, [graph.edges, selection, groupBy, showLabels])
+  }, [graph.edges, selection, groupBy, showLabels, showHealthLens])
 
   // The raw (un-hidden) label text for every edge, so the hover-only reveal below can put one back without
   // needing to keep the whole graph.edges array around.
@@ -793,6 +804,17 @@ function Canvas() {
                   onChange={(v) => setParam('clusterLinks', v ? null : '0')}
                   label="Cluster links"
                   title="Clusters confirmed joined by an overlay/tunnel, or sitting on the same flat subnet"
+                />
+                <Toggle
+                  checked={showHealthLens}
+                  disabled={!showClusterLinks}
+                  onChange={(v) => setParam('health', v ? '1' : null)}
+                  label="Network health"
+                  title={
+                    showClusterLinks
+                      ? "Colour cluster links by their live measured loss%, instead of overlay/subnet category"
+                      : "Turn on Cluster links first - there's nothing to colour by health otherwise"
+                  }
                 />
 
                 <div className="mt-1 border-t border-nb-850 px-2 pb-1 pt-2.5 text-xs uppercase tracking-wide text-nb-500">Layout</div>
@@ -1153,14 +1175,37 @@ function Canvas() {
                   {graph.edges.some((e) => e.data?.clusterLink) && (
                     <>
                       <span className="h-3 w-px bg-nb-800" />
-                      <span className="flex items-center gap-1.5" title="Clusters joined through an overlay/tunnel interface - confirmed from each side's own routing data, not a guess">
-                        <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={CLUSTER_LINK_COLOR.overlay} strokeWidth="1.8" strokeDasharray="6 4" /></svg>
-                        Overlay link
-                      </span>
-                      <span className="flex items-center gap-1.5" title="Clusters whose nodes sit on the very same flat network segment, with no tunnel at all - confirmed from each side's own address data, not a guess">
-                        <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={CLUSTER_LINK_COLOR.subnet} strokeWidth="1.8" /></svg>
-                        Same subnet
-                      </span>
+                      {showHealthLens ? (
+                        <>
+                          <span className="flex items-center gap-1.5" title="Average measured loss% across the flows matched onto this cluster link is under 1%">
+                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#34d399" strokeWidth="1.8" /></svg>
+                            Healthy
+                          </span>
+                          <span className="flex items-center gap-1.5" title="Average measured loss% across the flows matched onto this cluster link is 1-5%">
+                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#fbbf24" strokeWidth="1.8" /></svg>
+                            Degraded
+                          </span>
+                          <span className="flex items-center gap-1.5" title="Average measured loss% across the flows matched onto this cluster link is 5% or higher">
+                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#f87171" strokeWidth="1.8" /></svg>
+                            Unhealthy
+                          </span>
+                          <span className="flex items-center gap-1.5 text-nb-500" title="No flows have been matched onto this cluster link's confirmed tunnel yet, so it keeps its overlay/subnet category colour until one is">
+                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={CLUSTER_LINK_COLOR.overlay} strokeWidth="1.8" strokeDasharray="6 4" /></svg>
+                            No data yet
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex items-center gap-1.5" title="Clusters joined through an overlay/tunnel interface - confirmed from each side's own routing data, not a guess">
+                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={CLUSTER_LINK_COLOR.overlay} strokeWidth="1.8" strokeDasharray="6 4" /></svg>
+                            Overlay link
+                          </span>
+                          <span className="flex items-center gap-1.5" title="Clusters whose nodes sit on the very same flat network segment, with no tunnel at all - confirmed from each side's own address data, not a guess">
+                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={CLUSTER_LINK_COLOR.subnet} strokeWidth="1.8" /></svg>
+                            Same subnet
+                          </span>
+                        </>
+                      )}
                     </>
                   )}
                   {localOperatorByCluster.size > 0 && (
