@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { ArrowRight, ChevronDown, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { TierBadge } from '@/components/ui/primitives'
+import { ICON_SM, TierBadge } from '@/components/ui/primitives'
 import { bytesPerSec } from '@/lib/observed'
 import type { Recommendation } from '@/lib/placement/types'
 import type { World } from '@/lib/placement/world'
@@ -30,7 +30,7 @@ export default function RecommendationCard({ r, world }: { r: Recommendation; wo
         <h3 className="text-base font-medium text-nb-300">{r.serviceName}</h3>
         <span className="flex items-center gap-2 text-sm text-nb-400">
           {from?.name ?? r.from} {from && <TierBadge tier={from.tier} />}
-          <ArrowRight size={14} aria-hidden />
+          <ArrowRight size={ICON_SM} aria-hidden />
           <span className="text-nb-300">{to?.name ?? r.to}</span> {to && <TierBadge tier={to.tier} />}
         </span>
         <span className="ml-auto flex flex-wrap items-center gap-2">
@@ -67,7 +67,7 @@ export default function RecommendationCard({ r, world }: { r: Recommendation; wo
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
         <button onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1 text-nb-400 hover:text-nb-300" aria-expanded={open}>
-          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Evidence ({r.current.edges.length} connection{r.current.edges.length === 1 ? '' : 's'})
+          {open ? <ChevronDown size={ICON_SM} /> : <ChevronRight size={ICON_SM} />} Evidence ({r.current.edges.length} connection{r.current.edges.length === 1 ? '' : 's'})
         </button>
         <Link to={`/placement?tab=whatif&service=${encodeURIComponent(r.serviceId)}&to=${encodeURIComponent(r.to)}`} className="text-accent hover:underline">Try it in what-if</Link>
         <Link to={`/topology?sel=service:${encodeURIComponent(r.serviceId)}`} className="text-nb-400 hover:text-nb-300 hover:underline">Open the service</Link>

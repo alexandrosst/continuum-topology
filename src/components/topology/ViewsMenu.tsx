@@ -1,7 +1,7 @@
 import { Bookmark, BookmarkPlus, Check, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { ConfirmModal } from '@/components/forms'
-import { Button, Input, MenuPanel } from '@/components/ui/primitives'
+import { Button, ICON_MD, ICON_SM, Input, MenuPanel } from '@/components/ui/primitives'
 import { activeView, describeView, viewParams } from '@/lib/views'
 import { useTopology } from '@/store/topology'
 
@@ -39,7 +39,7 @@ export default function ViewsMenu({
   return (
     <div className="relative">
       <Button onClick={() => onOpenChange(!open)} aria-haspopup="dialog" aria-expanded={open} aria-label="Saved views" data-testid="views-button">
-        <Bookmark size={15} className={current ? 'fill-accent text-accent' : ''} />
+        <Bookmark size={ICON_SM} className={current ? 'fill-accent text-accent' : ''} />
         <span className="max-w-32 truncate">{current ? current.name : 'Views'}</span>
       </Button>
       <MenuPanel open={open} onClose={close} className="w-80 overflow-hidden" role="dialog" aria-label="Saved views">
@@ -55,7 +55,7 @@ export default function ViewsMenu({
                 }}
                 data-testid="saved-view"
               >
-                <span className="mt-0.5 w-3.5 shrink-0">{current?.id === v.id && <Check size={14} className="text-accent" aria-label="current view" />}</span>
+                <span className="mt-0.5 w-3.5 shrink-0">{current?.id === v.id && <Check size={ICON_SM} className="text-accent" aria-label="current view" />}</span>
                 <span className="min-w-0">
                   <span className="block truncate text-sm text-nb-300">{v.name}</span>
                   <span className="block truncate text-xs text-nb-500">{describeView(v.params)}</span>
@@ -66,7 +66,7 @@ export default function ViewsMenu({
                 aria-label={`Delete view ${v.name}`}
                 onClick={() => setToDelete(v.id)}
               >
-                <Trash2 size={13} />
+                <Trash2 size={ICON_MD} />
               </button>
             </div>
           ))}
@@ -84,7 +84,7 @@ export default function ViewsMenu({
           <div className="flex gap-2">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name this view" aria-label="View name" maxLength={60} />
             <Button variant="primary" type="submit" disabled={!name.trim()} aria-label="Save view">
-              <BookmarkPlus size={15} /> Save
+              <BookmarkPlus size={ICON_SM} /> Save
             </Button>
           </div>
         </form>

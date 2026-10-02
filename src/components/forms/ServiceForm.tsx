@@ -1,6 +1,6 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Button, EvidenceChip, Field, Input, LabelsEditor, Modal, Select } from '@/components/ui/primitives'
+import { Button, EvidenceChip, Field, ICON_MD, ICON_SM, Input, LabelsEditor, Modal, Select } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
 import { uid, useTopology } from '@/store/topology'
 import { useServer } from '@/store/server'
@@ -191,7 +191,7 @@ export function ServiceForm({ initial, onClose, defaultClusterId }: { initial: S
               disabled={targets.length === 0}
               onClick={() => setDeps((d) => [...d, { id: uid('d'), orgId: DEFAULT_ORG, from: f.id, fromKind: 'service', to: targets[0].id, toKind: 'service', protocol: 'HTTP', sources: ['manual'], confidence: 'high' }])}
             >
-              <Plus size={14} /> Add
+              <Plus size={ICON_SM} /> Add
             </Button>
           </div>
           {deps.length === 0 && <p className="text-xs text-nb-500">No dependencies.</p>}
@@ -215,7 +215,7 @@ export function ServiceForm({ initial, onClose, defaultClusterId }: { initial: S
                     placeholder="Port"
                   />
                   <Button variant="ghost" className="h-9 px-0" aria-label="Remove dependency" onClick={() => setDeps((all) => all.filter((_, j) => j !== i))}>
-                    <Trash2 size={14} />
+                    <Trash2 size={ICON_MD} />
                   </Button>
                 </div>
               )

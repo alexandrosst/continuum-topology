@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { Check, Lock } from 'lucide-react'
 import { ACCESS_TIERS, ACCESS_TIER_CAPTIONS, type AccessTier } from '@/lib/types'
+import { ICON_MD, ICON_SM } from '@/components/ui/primitives'
 
 const ICON_SIZE = { sm: 18, md: 24 } as const
 
@@ -104,13 +105,13 @@ export default function TierLevels({ tiers, value, max, onSelect, markAt, markLa
             >
               {isCurrent && (
                 <span className="absolute right-3 top-3 flex size-5 items-center justify-center rounded-full bg-accent text-nb-950" aria-hidden>
-                  <Check size={13} strokeWidth={3} />
+                  <Check size={ICON_MD} strokeWidth={3} />
                 </span>
               )}
               <TierIcon level={t} tone={locked ? 'locked' : filled ? 'filled' : 'idle'} marked={marked} size={28} />
               <span className="flex items-center gap-1.5 text-sm font-medium text-nb-300">
                 {label}
-                {locked && <Lock size={12} className="text-nb-500" aria-hidden />}
+                {locked && <Lock size={ICON_SM} className="text-nb-500" aria-hidden />}
               </span>
               <span className="text-sm leading-snug text-nb-400">{caption}</span>
               {marked && <span className="text-xs text-warn">{markLabel ?? `Approved up to here`}</span>}
@@ -135,7 +136,7 @@ export default function TierLevels({ tiers, value, max, onSelect, markAt, markLa
             <span className="min-w-0 flex-1">
               <span className={clsx('flex items-center gap-1.5 font-medium text-nb-300', compact ? 'text-xs' : 'text-sm')}>
                 {label}
-                {locked && <Lock size={11} className="text-nb-500" aria-hidden />}
+                {locked && <Lock size={ICON_SM} className="text-nb-500" aria-hidden />}
               </span>
               {!compact && <span className="block text-sm text-nb-500">{caption}</span>}
               {marked && <span className="block text-xs text-warn">{markLabel ?? `Approved up to here`}</span>}

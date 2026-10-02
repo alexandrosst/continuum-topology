@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { CircleAlert, Play, Save } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Button, CopyButton, Field, Input, Pill, SavedNote } from '@/components/ui/primitives'
+import { Button, CopyButton, Field, ICON_SM, Input, Pill, SavedNote } from '@/components/ui/primitives'
 import { api, atLeast, type Conn } from '@/lib/api'
 import { BUILTIN_DECIDERS, buildDecisionInput, compare, externalDecider, runDecider, type Decider, type DeciderResult } from '@/lib/placement/deciders'
 import type { Policy } from '@/lib/placement/types'
@@ -62,7 +62,7 @@ export default function Deciders({ world, policy }: { world: World; policy: Poli
         title="Who proposes the moves"
         aside={
           <Button variant="primary" onClick={run} disabled={running} data-testid="run-deciders">
-            <Play size={15} /> {running ? 'Running…' : 'Run and compare'}
+            <Play size={ICON_SM} /> {running ? 'Running…' : 'Run and compare'}
           </Button>
         }
       >
@@ -110,7 +110,7 @@ export default function Deciders({ world, policy }: { world: World; policy: Poli
                             <td className="py-2 pr-4 tabular-nums text-nb-500">{r?.tookMs} ms</td>
                           </>
                         ) : (
-                          <td colSpan={4} className="py-2 pr-4 text-bad"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{t.error}</td>
+                          <td colSpan={4} className="py-2 pr-4 text-bad"><CircleAlert size={ICON_SM} className="mr-1 inline" aria-hidden />{t.error}</td>
                         )}
                       </tr>
                     )
@@ -315,7 +315,7 @@ function ExternalConfig({ admin, connected, conn }: { admin: boolean; connected:
             )}
           </div>
 
-          {error && <p className="mt-3 text-sm text-bad" role="alert"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{error}</p>}
+          {error && <p className="mt-3 text-sm text-bad" role="alert"><CircleAlert size={ICON_SM} className="mr-1 inline" aria-hidden />{error}</p>}
           <div className="mt-4 flex items-center gap-3">
             <Button
               variant="primary"
@@ -334,7 +334,7 @@ function ExternalConfig({ admin, connected, conn }: { admin: boolean; connected:
               }}
               data-testid="save-decider"
             >
-              <Save size={15} /> Save
+              <Save size={ICON_SM} /> Save
             </Button>
             {saved && <SavedNote>Saved.</SavedNote>}
           </div>

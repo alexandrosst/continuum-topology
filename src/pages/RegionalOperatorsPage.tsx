@@ -5,7 +5,7 @@ import { CopyCommand } from '@/components/agents/AgentInsight'
 import { ConfirmModal } from '@/components/forms'
 import ProcessorEditor from '@/components/telemetry/ProcessorEditor'
 import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
-import { Button, ChipList, CheckboxList, ComboField, EmptyState, ErrorBanner, Field, Input, Modal, PageHeader, Pill, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
+import { Button, CheckboxList, ChipList, ComboField, EmptyState, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, PageHeader, Pill, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, ApiError, type CreatedOperator } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
@@ -102,7 +102,7 @@ function CategoryTab({ id, label, icon: Icon, active, onClick, testId }: { id: C
       className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${active ? 'bg-nb-940 text-nb-300' : 'text-nb-400 hover:text-nb-300'}`}
       data-testid={testId}
     >
-      <Icon size={14} aria-hidden /> {label}
+      <Icon size={ICON_SM} aria-hidden /> {label}
     </button>
   )
 }
@@ -248,7 +248,7 @@ export default function RegionalOperatorsPage() {
         }
         actions={
           category === 'regional' && admin ? (
-            <Button variant="primary" onClick={() => { setDraft(emptyDraft); setCreating(true) }} data-testid="operator-open"><Plus size={16} /> New operator</Button>
+            <Button variant="primary" onClick={() => { setDraft(emptyDraft); setCreating(true) }} data-testid="operator-open"><Plus size={ICON_SM} /> New operator</Button>
           ) : undefined
         }
       />
@@ -263,7 +263,7 @@ export default function RegionalOperatorsPage() {
           <EmptyState
             title="No local operators running yet"
             description="A local operator is just an already-connected cluster's agent with at least one telemetry signal turned on. Configure one to see it here."
-            action={canConsent ? <Button variant="primary" onClick={() => telemetry.start()}><Antenna size={16} /> Configure telemetry</Button> : undefined}
+            action={canConsent ? <Button variant="primary" onClick={() => telemetry.start()}><Antenna size={ICON_SM} /> Configure telemetry</Button> : undefined}
           />
         ) : (
           <Table data-testid="local-operators-table">
@@ -319,7 +319,7 @@ export default function RegionalOperatorsPage() {
                     {op.status === 'active' && (
                       <Button size="sm" variant="danger" onClick={() => setRevoking(op)}>Revoke</Button>
                     )}
-                    <Button size="sm" variant="danger" aria-label={`Delete ${op.name}`} onClick={() => setDeleting(op)}><Trash2 size={13} /></Button>
+                    <Button size="sm" variant="danger" aria-label={`Delete ${op.name}`} onClick={() => setDeleting(op)}><Trash2 size={ICON_MD} /></Button>
                   </Td>
                 </tr>
               ))}

@@ -1,6 +1,6 @@
 import { CircleHelp } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { ObservationChip } from '@/components/ui/primitives'
+import { ICON_SM, ObservationChip } from '@/components/ui/primitives'
 import { observation } from '@/lib/provenance'
 import { unverifiableClusters, type World } from '@/lib/placement/world'
 import { Card } from './shared'
@@ -18,7 +18,7 @@ export default function CantTell({ world }: { world: World }) {
         {rows.map((r) => (
           <li key={r.cluster.id} className="text-sm" data-testid="cant-tell-target" data-nothing={r.nothing}>
             <div className="flex flex-wrap items-center gap-2">
-              <CircleHelp size={14} className="shrink-0 text-warn" aria-hidden />
+              <CircleHelp size={ICON_SM} className="shrink-0 text-warn" aria-hidden />
               <span className="text-nb-300">{r.cluster.name}</span>
               <ObservationChip info={observation(r.cluster)} />
               <span className="rounded border border-dashed border-warn/50 px-1.5 py-px text-[11px] text-warn">can’t tell</span>

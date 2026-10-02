@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { CircleAlert, Save } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Button, Field, Input, SavedNote } from '@/components/ui/primitives'
+import { Button, Field, ICON_SM, Input, SavedNote } from '@/components/ui/primitives'
 import { api, type Conn, type MailConfig } from '@/lib/api'
 
 /**
@@ -141,13 +141,13 @@ export default function MailSettings({ conn }: { conn: Conn }) {
 
         {error && (
           <p className="mt-3 text-sm text-bad" role="alert">
-            <CircleAlert size={13} className="mr-1 inline" aria-hidden />
+            <CircleAlert size={ICON_SM} className="mr-1 inline" aria-hidden />
             {error}
           </p>
         )}
         <div className="mt-4 flex items-center gap-3">
           <Button variant="primary" disabled={!dirty || badFrom || badPort} onClick={save} data-testid="save-mail">
-            <Save size={15} /> Save
+            <Save size={ICON_SM} /> Save
           </Button>
           {saved && <SavedNote>Saved.</SavedNote>}
         </div>

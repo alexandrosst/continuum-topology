@@ -1,6 +1,6 @@
 import { History, UserRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { SkeletonLines } from '@/components/ui/primitives'
+import { ICON_SM, SkeletonLines } from '@/components/ui/primitives'
 import { api, type Timeline } from '@/lib/api'
 import { kindLabel } from '@/lib/history'
 import { useConn, useServer } from '@/store/server'
@@ -50,7 +50,7 @@ export default function EntityHistory({ kind, id }: { kind: string; id: string }
       <div className="mb-2 text-xs font-medium uppercase tracking-wide text-nb-500">History</div>
       {!tl && state === 'idle' && (
         <button onClick={() => void load()} className="flex items-center gap-2 text-sm text-accent hover:underline" data-testid="entity-history-load">
-          <History size={14} aria-hidden /> Show how this changed over time
+          <History size={ICON_SM} aria-hidden /> Show how this changed over time
         </button>
       )}
       {state === 'loading' && <SkeletonLines lines={3} className="max-w-sm" />}
@@ -109,7 +109,7 @@ export default function EntityHistory({ kind, id }: { kind: string; id: string }
               <ul className="space-y-1 text-xs text-nb-400" data-testid="entity-audit">
                 {tl.audit.map((a) => (
                   <li key={a.id} className="flex items-baseline gap-1.5">
-                    <UserRound size={11} className="shrink-0 translate-y-0.5 text-nb-500" aria-hidden />
+                    <UserRound size={ICON_SM} className="shrink-0 translate-y-0.5 text-nb-500" aria-hidden />
                     <span><span className="text-nb-300">{a.actor}</span> {a.action}{a.detail ? ` — ${a.detail}` : ''} <span className="text-nb-500">{when(a.at)}</span></span>
                   </li>
                 ))}

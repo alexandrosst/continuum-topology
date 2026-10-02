@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { Plus, Trash2, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Select } from '@/components/ui/primitives'
+import { Button, ICON_MD, ICON_SM, Select } from '@/components/ui/primitives'
 import { bytesPerSec } from '@/lib/observed'
 import { evacuate, isMovableKind, whatIf, type Evacuation } from '@/lib/placement/engine'
 import type { Move, Policy } from '@/lib/placement/types'
@@ -85,7 +85,7 @@ export default function WhatIf({ world, policy, initial }: { world: World; polic
               })}
             </Select>
           </label>
-          <Button onClick={add} disabled={!service || !target}><Plus size={15} /> Add the move</Button>
+          <Button onClick={add} disabled={!service || !target}><Plus size={ICON_SM} /> Add the move</Button>
         </div>
         <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-nb-850 pt-4">
           <label className="block min-w-56">
@@ -99,7 +99,7 @@ export default function WhatIf({ world, policy, initial }: { world: World; polic
           <Button onClick={runEvac} disabled={!drain} data-testid="evacuate">Where would its services go?</Button>
           {moves.length > 0 && (
             <Button variant="ghost" onClick={() => { setMoves([]); setEvac(null) }}>
-              <Trash2 size={14} /> Clear the scenario
+              <Trash2 size={ICON_SM} /> Clear the scenario
             </Button>
           )}
         </div>
@@ -130,7 +130,7 @@ export default function WhatIf({ world, policy, initial }: { world: World; polic
             {result.warnings.length > 0 && (
               <ul className="mt-4 space-y-1 rounded-lg border border-warn/20 bg-warn/5 px-3 py-2 text-xs text-warn/90" role="alert">
                 {result.warnings.map((w) => (
-                  <li key={w} className="flex gap-2"><TriangleAlert size={13} className="mt-0.5 shrink-0" aria-hidden />{w}</li>
+                  <li key={w} className="flex gap-2"><TriangleAlert size={ICON_SM} className="mt-0.5 shrink-0" aria-hidden />{w}</li>
                 ))}
               </ul>
             )}
@@ -148,7 +148,7 @@ export default function WhatIf({ world, policy, initial }: { world: World; polic
                     {m.benefit > 0 ? 'saves' : m.benefit < 0 ? 'costs' : 'no change'} {m.benefit !== 0 && `${pts(Math.abs(m.benefit))} points`}
                   </span>
                   <button onClick={() => setMoves((x) => x.filter((y) => y.serviceId !== m.serviceId))} aria-label={`Remove ${svcName(m.serviceId)} from the scenario`} className="rounded p-1 text-nb-500 hover:bg-nb-940 hover:text-nb-300">
-                    <Trash2 size={13} />
+                    <Trash2 size={ICON_MD} />
                   </button>
                   {m.verdict === 'doesNotFit' && <div className="basis-full text-xs text-bad/90">{m.blockers.join('; ')}</div>}
                   {m.verdict === 'cantTell' && <div className="basis-full text-xs text-warn/90" data-testid="cant-tell-why">Can’t tell: {m.unchecked.join('; ')}</div>}

@@ -1,6 +1,6 @@
 import { Download, ScrollText } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { Button, EmptyState, ErrorBanner, Input, PageHeader, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
+import { Button, EmptyState, ErrorBanner, ICON_SM, Input, PageHeader, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast, type AuditRow, type WorkspaceRevision } from '@/lib/api'
 import { downloadCsv, toCsv } from '@/lib/csv'
 import { useConn, useServer } from '@/store/server'
@@ -85,7 +85,7 @@ export default function ActivityPage() {
         </div>
         <Button onClick={() => void load()}>Refresh</Button>
         <Button onClick={downloadAudit} disabled={!rows || rows.length === 0} title="Save the rows currently shown as a CSV file" data-testid="audit-download-csv">
-          <Download size={15} /> <span className="hidden sm:inline">Download CSV</span>
+          <Download size={ICON_SM} /> <span className="hidden sm:inline">Download CSV</span>
         </Button>
         <span className="ml-auto text-xs text-nb-500">{source === 'graph' ? 'Searchable, kept in Neo4j' : 'Latest 500, kept on this server'}</span>
       </div>
@@ -113,7 +113,7 @@ export default function ActivityPage() {
       )}
 
       <section className="mt-10" aria-label="Saved versions of the shared workspace">
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-nb-300"><ScrollText size={14} className="text-nb-500" aria-hidden /> Saves of the shared workspace</h2>
+        <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-nb-300"><ScrollText size={ICON_SM} className="text-nb-500" aria-hidden /> Saves of the shared workspace</h2>
         {revs.length === 0 ? (
           <p className="text-sm text-nb-500">{source === 'graph' ? 'No saves have been kept yet.' : 'Past saves of the workspace are kept when the server is connected to Neo4j.'}</p>
         ) : (

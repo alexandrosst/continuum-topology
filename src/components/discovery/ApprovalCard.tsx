@@ -1,6 +1,6 @@
 import { ChevronRight, KeyRound, ShieldCheck, ShieldX } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Button, CopyButton, ErrorBanner, Input, Pill } from '@/components/ui/primitives'
+import { Button, CopyButton, ErrorBanner, ICON_SM, Input, Pill } from '@/components/ui/primitives'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError } from '@/lib/api'
 import { CODE_LOG_COMMAND, cleanCode, codeComplete, formatCode, fromPaste } from '@/lib/approvalCode'
@@ -81,7 +81,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
     return (
       <div className="rounded-xl border border-bad/30 bg-bad/10 px-5 py-4" data-testid="approval-locked" role="alert">
         <div className="flex items-center gap-2 text-sm font-medium text-nb-300">
-          <ShieldX size={16} className="text-bad" /> The request from {agent.name} was rejected
+          <ShieldX size={ICON_SM} className="text-bad" /> The request from {agent.name} was rejected
         </div>
         <p className="mt-1 text-sm text-nb-400">
           {agent.reason || 'Too many wrong approval codes were typed.'} The agent has stopped for good. To connect this cluster, create a new install command with a new token and run it again.
@@ -103,7 +103,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-medium text-nb-300">
-            <ShieldCheck size={16} className="shrink-0 text-warn" /> <span className="truncate">{agent.name}</span> wants to connect
+            <ShieldCheck size={ICON_SM} className="shrink-0 text-warn" /> <span className="truncate">{agent.name}</span> wants to connect
           </div>
           <p className="mt-1 text-sm text-nb-500">
             An agent enrolled with a valid token. It gets a certificate and can start reporting only after you approve it.
@@ -127,7 +127,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
           </div>
           <details className="group mt-3" data-testid="approval-tier" open={tier !== max}>
             <summary className="flex cursor-pointer select-none items-center gap-1 text-xs text-nb-500 marker:content-none">
-              <ChevronRight size={12} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
+              <ChevronRight size={ICON_SM} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
               Access: <span className="text-nb-300">{ACCESS_TIERS.find((t) => t.value === tier)?.label}</span> <span className="text-nb-600">(change)</span>
             </summary>
             <div className="mt-2">
@@ -166,7 +166,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
           ) : (
             <div>
               <label htmlFor={`approval-code-${agent.id}`} className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-nb-300">
-                <KeyRound size={14} className="text-warn" aria-hidden /> Approval code
+                <KeyRound size={ICON_SM} className="text-warn" aria-hidden /> Approval code
               </label>
               <Input
                 id={`approval-code-${agent.id}`}

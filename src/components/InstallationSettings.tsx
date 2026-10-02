@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { CircleAlert, Pin, Save, TriangleAlert } from 'lucide-react'
 import { useId, useState } from 'react'
-import { Button, Input, SavedNote } from '@/components/ui/primitives'
+import { Button, ICON_SM, Input, SavedNote } from '@/components/ui/primitives'
 import { atLeast, type Conn } from '@/lib/api'
 import { imageOk, imageProblems, previewImage } from '@/lib/image'
 import { useServer } from '@/store/server'
@@ -146,7 +146,7 @@ export default function InstallationSettings({ conn }: { conn: Conn }) {
           {ok && preview.fromServer && <p className="mt-1.5 text-nb-500">Not set here: these are the server’s defaults (its <Code>--image-registry</Code> settings). Saving a registry above replaces them for this organisation.</p>}
           {ok && preview.configured && (
             <p className={clsx('mt-2 flex items-start gap-1.5', preview.digest ? 'text-ok' : 'text-nb-500')} data-testid="preview-pin">
-              {preview.digest ? <Pin size={13} className="mt-px shrink-0" aria-hidden /> : <TriangleAlert size={13} className="mt-px shrink-0" aria-hidden />}
+              {preview.digest ? <Pin size={ICON_SM} className="mt-px shrink-0" aria-hidden /> : <TriangleAlert size={ICON_SM} className="mt-px shrink-0" aria-hidden />}
               {preview.digest ? 'Pinned by digest: every install pulls exactly this image.' : 'Not pinned: a tag is mutable, so pin a digest for reproducible installs.'}
             </p>
           )}
@@ -154,7 +154,7 @@ export default function InstallationSettings({ conn }: { conn: Conn }) {
 
         {error && (
           <p className="mt-3 text-sm text-bad" role="alert" data-testid="image-error">
-            <CircleAlert size={13} className="mr-1 inline" aria-hidden />
+            <CircleAlert size={ICON_SM} className="mr-1 inline" aria-hidden />
             {error}
           </p>
         )}
@@ -162,7 +162,7 @@ export default function InstallationSettings({ conn }: { conn: Conn }) {
           {admin ? (
             <>
               <Button type="submit" variant="primary" disabled={!dirty || !ok || !loaded || busy} data-testid="save-image">
-                <Save size={15} /> {busy ? 'Saving…' : 'Save'}
+                <Save size={ICON_SM} /> {busy ? 'Saving…' : 'Save'}
               </Button>
               {saved && !dirty && <SavedNote data-testid="image-saved">Saved. New install commands use these values.</SavedNote>}
             </>

@@ -1,5 +1,5 @@
 import { Filter as FilterIcon, X } from 'lucide-react'
-import { Button, MenuPanel } from '@/components/ui/primitives'
+import { Button, ICON_SM, MenuPanel } from '@/components/ui/primitives'
 import { filterActive, NO_APP, SERVICE_KINDS, type Filter } from '@/lib/filter'
 import type { Application, Cluster } from '@/lib/types'
 
@@ -59,7 +59,7 @@ export default function FilterMenu({
   return (
     <div className="relative">
       <Button onClick={() => onOpenChange(!open)} aria-haspopup="dialog" aria-expanded={open} aria-label="Filter the topology" data-testid="filter-button">
-        <FilterIcon size={15} className={filterActive(filter) ? 'text-accent' : ''} />
+        <FilterIcon size={ICON_SM} className={filterActive(filter) ? 'text-accent' : ''} />
         <span>Filter</span>
         {count > 0 && (
           <span className="rounded-full bg-accent/20 px-1.5 text-xs text-accent" data-testid="filter-count">
@@ -76,7 +76,7 @@ export default function FilterMenu({
             onClick={() => onChange({ clusters: [], apps: [], kinds: [] })}
             data-testid="filter-clear"
           >
-            <X size={12} /> Clear
+            <X size={ICON_SM} /> Clear
           </button>
         </div>
         <div className="max-h-[26rem] overflow-y-auto p-1">

@@ -5,7 +5,7 @@ import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import { ClusterForm, ConfirmModal } from '@/components/forms'
 import PlacementHint from '@/components/PlacementHint'
 import { DistroIcon, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
-import { Button, CompletenessBadge, DeclaredMark, EmptyState, EvidenceChip, ObservationChip, PageHeader, SourceBadge, StatusDot, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
+import { Button, CompletenessBadge, DeclaredMark, EmptyState, EvidenceChip, ICON_SM, ObservationChip, PageHeader, SourceBadge, StatusDot, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
 import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { observation } from '@/lib/provenance'
 import { ageLabel, shortVersion } from '@/lib/present'
@@ -47,7 +47,7 @@ export default function ClustersPage() {
         description="Kubernetes clusters across the cloud–edge continuum. Nodes and services belong to a cluster."
         actions={
           <Button variant="primary" onClick={() => setEditing('new')}>
-            <Plus size={16} /> Add cluster
+            <Plus size={ICON_SM} /> Add cluster
           </Button>
         }
       />
@@ -62,8 +62,8 @@ export default function ClustersPage() {
           description="Connect a cluster and its agent reports the cluster, its nodes and its services, or describe one by hand if nothing can run inside it."
           action={
             <div className="flex flex-wrap justify-center gap-2">
-              {connect.canStart && <Button variant="primary" onClick={connect.start}><Plug size={16} /> Connect a cluster</Button>}
-              <Button onClick={() => setEditing('new')}><Plus size={16} /> Add manually</Button>
+              {connect.canStart && <Button variant="primary" onClick={connect.start}><Plug size={ICON_SM} /> Connect a cluster</Button>}
+              <Button onClick={() => setEditing('new')}><Plus size={ICON_SM} /> Add manually</Button>
             </div>
           }
         />

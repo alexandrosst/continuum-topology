@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { AlertCircle, AlertTriangle, Check, ChevronRight, Copy, Info, Loader2, ShieldCheck } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Button, Field, TagsInput } from '@/components/ui/primitives'
+import { Button, Field, ICON_MD, ICON_SM, TagsInput } from '@/components/ui/primitives'
 import TelemetryFields from '@/components/telemetry/TelemetryFields'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError, type ServerInfo } from '@/lib/api'
@@ -53,7 +53,7 @@ export function HealthChip({ diagnostics, connected }: { diagnostics?: AgentDiag
   const h = healthSummary(diagnostics, { now: Date.now(), connected })
   return (
     <span className={clsx('inline-flex items-center gap-1 rounded-full border px-2 py-px text-[11px] font-medium', LEVEL_STYLE[h.level])} data-testid="health-chip" data-level={h.level} title={h.level === 'unknown' ? (diagnostics ? 'The agent’s last self-report is old, or the agent is not connected: what it said then may no longer be true.' : 'The agent has not sent a self-report yet (or this is an older agent).') : 'From the agent’s own account of itself'}>
-      {h.level === 'healthy' ? <ShieldCheck size={11} aria-hidden /> : h.level === 'unknown' ? null : <AlertTriangle size={11} aria-hidden />}
+      {h.level === 'healthy' ? <ShieldCheck size={ICON_SM} aria-hidden /> : h.level === 'unknown' ? null : <AlertTriangle size={ICON_SM} aria-hidden />}
       {h.line}
     </span>
   )
@@ -75,7 +75,7 @@ export function DiscoveryChip({ diagnostics }: { diagnostics?: AgentDiagnostics 
         data-state="done"
         title={`Every watch this agent runs (${s.total}) has completed its first full read of the cluster.`}
       >
-        <Check size={11} aria-hidden /> Fully discovered
+        <Check size={ICON_SM} aria-hidden /> Fully discovered
       </span>
     )
   }
@@ -86,7 +86,7 @@ export function DiscoveryChip({ diagnostics }: { diagnostics?: AgentDiagnostics 
       data-state="discovering"
       title="Still doing its first full read of the cluster (a one-time pass, separate from how busy it is once caught up)."
     >
-      <Loader2 size={11} className="animate-spin" aria-hidden /> Discovering {s.synced}/{s.total}
+      <Loader2 size={ICON_SM} className="animate-spin" aria-hidden /> Discovering {s.synced}/{s.total}
     </span>
   )
 }
@@ -102,7 +102,7 @@ export function Problems({ problems }: { problems: AgentProblem[] }) {
         return (
           <li key={`${p.code}-${i}`} className="rounded-md border border-nb-850 bg-nb-950/60 px-3 py-2" data-testid="agent-problem" data-code={p.code}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className={clsx('inline-flex items-center gap-1 rounded-full border px-2 py-px text-[11px] font-medium', s.chip)}><I size={11} aria-hidden /> {s.label}</span>
+              <span className={clsx('inline-flex items-center gap-1 rounded-full border px-2 py-px text-[11px] font-medium', s.chip)}><I size={ICON_SM} aria-hidden /> {s.label}</span>
               <code className="font-mono text-xs text-nb-300">{p.code}</code>
               {p.since && <span className="text-xs text-nb-600">since {new Date(p.since).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>}
             </div>
@@ -182,7 +182,7 @@ export function CopyCommand({ text }: { text: string }) {
           })
         }}
       >
-        {done ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+        {done ? <Check size={ICON_MD} aria-hidden /> : <Copy size={ICON_MD} aria-hidden />}
       </button>
     </div>
   )
@@ -449,7 +449,7 @@ export function TelemetryPanel({
       ) : (
         <details className="group mt-3" open={open} onToggle={(e) => setOpen(e.currentTarget.open)} data-testid={`${testIdPrefix}-change`}>
           <summary className="flex cursor-pointer select-none items-center gap-1 text-xs font-medium text-nb-400 hover:text-nb-300 marker:content-none">
-            <ChevronRight size={12} className="transition-transform group-open:rotate-90" aria-hidden />
+            <ChevronRight size={ICON_SM} className="transition-transform group-open:rotate-90" aria-hidden />
             Change telemetry
           </summary>
           <div className="mt-3 rounded-lg border border-nb-850 bg-nb-925 p-3">{form}</div>

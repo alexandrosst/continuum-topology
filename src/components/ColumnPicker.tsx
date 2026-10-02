@@ -1,6 +1,6 @@
 import { Columns3 } from 'lucide-react'
 import { useState } from 'react'
-import { Button, MenuPanel } from '@/components/ui/primitives'
+import { Button, ICON_SM, MenuPanel } from '@/components/ui/primitives'
 import type { ColumnDef } from '@/lib/columns'
 
 /**
@@ -24,7 +24,7 @@ export default function ColumnPicker({
   return (
     <div className="relative">
       <Button onClick={() => setOpen((o) => !o)} aria-haspopup="dialog" aria-expanded={open} aria-label="Choose columns" data-testid="columns-button">
-        <Columns3 size={15} />
+        <Columns3 size={ICON_SM} />
         <span>Columns</span>
         {hiddenCount > 0 && (
           <span className="rounded-full bg-accent/20 px-1.5 text-xs text-accent" data-testid="columns-hidden-count">

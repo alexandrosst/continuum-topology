@@ -11,6 +11,15 @@ import { IP_SCOPE_HELP, ipScope, ipScopeLabel, loadBand } from '@/lib/present'
 import { EVIDENCE_HELP, EVIDENCE_LABEL, EVIDENCE_TONE, needsEvidenceChip, TONE_CLASS, type EvidenceLevel, type ObsInfo } from '@/lib/provenance'
 import { STATUS_COLOR, TIER_COLOR, type Source, type Status, type Tier } from '@/lib/types'
 
+/** The app's whole icon-size scale: every lucide-react (and brand.tsx) icon's `size` prop should come
+ *  from one of these two constants rather than a one-off literal - the 10-18px range previously in use
+ *  had nine distinct values with no rule for which a given spot got. ICON_SM is for an icon inline with
+ *  text (a label, a row, a dense badge); ICON_MD is for one standing alone (an icon-only button, an empty
+ *  state, a toolbar control). A handful of call sites outside 10-18px (a big empty-state illustration, a
+ *  tiny status glyph) are deliberately outside this scale and keep their own literal. */
+export const ICON_SM = 14
+export const ICON_MD = 16
+
 /* ---------- Button ---------- */
 export function Button({
   variant = 'secondary',
@@ -42,7 +51,7 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
         setTimeout(() => setDone(false), 1500)
       }}
     >
-      {done ? <Check size={12} className="fade-in text-ok" /> : <Copy size={12} />} {done ? 'Copied' : label}
+      {done ? <Check size={ICON_SM} className="fade-in text-ok" /> : <Copy size={ICON_SM} />} {done ? 'Copied' : label}
     </Button>
   )
 }
@@ -64,7 +73,7 @@ export function CopyIconButton({ text, title = 'Copy' }: { text: string; title?:
       }}
       className="shrink-0 rounded p-0.5 text-nb-600 transition-colors hover:bg-nb-850 hover:text-nb-300"
     >
-      {done ? <Check size={11} className="fade-in text-ok" /> : <Copy size={11} />}
+      {done ? <Check size={ICON_MD} className="fade-in text-ok" /> : <Copy size={ICON_MD} />}
     </button>
   )
 }
@@ -93,7 +102,7 @@ export function PasswordInput({ className, ...p }: Omit<ComponentProps<'input'>,
         aria-label={show ? 'Hide password' : 'Show password'}
         className="absolute inset-y-0 right-0 grid w-9 place-items-center text-nb-500 hover:text-nb-300"
       >
-        {show ? <EyeOff size={15} /> : <Eye size={15} />}
+        {show ? <EyeOff size={ICON_MD} /> : <Eye size={ICON_MD} />}
       </button>
     </div>
   )
@@ -233,7 +242,7 @@ export function Select({ className, children, value, defaultValue, onChange, dis
         className={clsx(control.replace('w-full ', className && /(^|\s)w-/.test(className) ? '' : 'w-full '), 'relative flex items-center pr-8 text-left disabled:cursor-not-allowed disabled:opacity-50', className)}
       >
         <span className={clsx('min-w-0 flex-1 truncate', !selected && 'text-nb-500')}>{selected ? selected.label : placeholder ?? '—'}</span>
-        <ChevronDown size={14} className={clsx('pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-nb-500 transition-transform', open && 'rotate-180')} />
+        <ChevronDown size={ICON_SM} className={clsx('pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-nb-500 transition-transform', open && 'rotate-180')} />
       </button>
       {open && pos &&
         createPortal(
@@ -260,7 +269,7 @@ export function Select({ className, children, value, defaultValue, onChange, dis
                 )}
               >
                 <span className="truncate">{o.label || '—'}</span>
-                {o.value === current && <Check size={14} className="shrink-0 text-accent" />}
+                {o.value === current && <Check size={ICON_SM} className="shrink-0 text-accent" />}
               </div>
             ))}
             {options.length === 0 && <div className="px-2.5 py-1.5 text-sm text-nb-500">No options</div>}
@@ -370,7 +379,7 @@ export function TagsInput({
         <Pill key={tag} className="fade-in gap-1 text-xs text-nb-300">
           {tag}
           <button type="button" onClick={() => onChange(value.filter((t) => t !== tag))} className="text-nb-500 hover:text-bad" aria-label={`Remove ${tag}`}>
-            <X size={10} />
+            <X size={ICON_MD} />
           </button>
         </Pill>
       ))}
@@ -495,12 +504,12 @@ export function LabelsEditor({
             className="shrink-0 rounded-md p-1.5 text-nb-500 transition-colors hover:bg-nb-850 hover:text-bad"
             aria-label={`Remove ${row.key || 'label'}`}
           >
-            <X size={14} />
+            <X size={ICON_MD} />
           </button>
         </div>
       ))}
       <Button type="button" size="sm" onClick={() => update([...rows, { key: '', value: '' }])}>
-        <Plus size={12} /> Add label
+        <Plus size={ICON_SM} /> Add label
       </Button>
     </div>
   )
@@ -721,7 +730,7 @@ export function CompletenessBadge({ c, compact }: { c: CompletenessInfo; compact
   // A tick for what is known and a dash for what is not, so the column reads as a checklist.
   const item = (on: boolean, text: string) => (
     <span className={clsx('inline-flex items-center gap-1', on ? 'text-nb-300' : 'text-nb-600')}>
-      {on ? <Check size={11} className="text-ok" aria-hidden /> : <Minus size={11} aria-hidden />}
+      {on ? <Check size={ICON_MD} className="text-ok" aria-hidden /> : <Minus size={ICON_MD} aria-hidden />}
       {text}
       <span className="sr-only">{on ? ' known' : ' not known'}</span>
     </span>
@@ -960,7 +969,7 @@ export function Modal({
           </div>
           {dismissible && (
             <button onClick={onClose} aria-label="Close" className="rounded p-1 text-nb-500 hover:bg-nb-940 hover:text-nb-300">
-              <X size={16} />
+              <X size={ICON_MD} />
             </button>
           )}
         </div>
@@ -1187,7 +1196,7 @@ export function WizardSteps({ steps, currentIndex, failedIndex, testId = 'wizard
                         : 'border-nb-800 text-nb-600',
                 )}
               >
-                {failed ? <X size={11} /> : done ? <Check size={11} /> : i + 1}
+                {failed ? <X size={ICON_MD} /> : done ? <Check size={ICON_MD} /> : i + 1}
               </span>
             </span>
             <span className={clsx('ml-1.5 whitespace-nowrap text-[11px]', failed ? 'text-bad' : done ? 'text-nb-400' : current ? 'text-nb-200' : 'text-nb-600')}>{label}</span>

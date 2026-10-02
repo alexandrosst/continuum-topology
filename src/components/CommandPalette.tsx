@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { buildSearchIndex, KIND_LABEL, searchItems } from '@/lib/search'
 import { useTopology } from '@/store/topology'
+import { ICON_MD } from '@/components/ui/primitives'
 
 /** Cmd-K / Ctrl-K: jump to any cluster, node, service, device, site, application, page or saved view. */
 export default function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -43,7 +44,7 @@ function Dialog({ onClose }: { onClose: () => void }) {
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-nb-850 px-4">
-          <Search size={16} className="shrink-0 text-nb-500" aria-hidden />
+          <Search size={ICON_MD} className="shrink-0 text-nb-500" aria-hidden />
           <input
             autoFocus
             role="combobox"

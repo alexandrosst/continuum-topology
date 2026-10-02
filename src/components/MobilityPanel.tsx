@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Confidence } from '@/components/placement/shared'
 import { FitBadge, Hedge, Why } from '@/components/placement/Why'
-import { ObservationChip, TierBadge } from '@/components/ui/primitives'
+import { ICON_SM, ObservationChip, TierBadge } from '@/components/ui/primitives'
 import { capCtxOf } from '@/lib/capacity'
 import { useJudgedAt } from '@/lib/placement/usePlacement'
 import { observation, TONE_CLASS } from '@/lib/provenance'
@@ -44,7 +44,7 @@ export function MobilityChip({ service, forService }: { service: Service; forSer
       data-testid="mobility-chip"
       data-verdict={m.verdict}
     >
-      <Icon size={12} aria-hidden />
+      <Icon size={ICON_SM} aria-hidden />
       {VERDICT_LABEL[m.verdict]}
     </span>
   )
@@ -66,7 +66,7 @@ export default function MobilityPanel({ service, onSelectCluster }: { service: S
   return (
     <div data-testid="mobility-panel" data-verdict={m.verdict}>
       <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${TONE_CLASS[VERDICT_TONE[m.verdict]]}`}>
-        <Icon size={15} className="mt-0.5 shrink-0" aria-hidden />
+        <Icon size={ICON_SM} className="mt-0.5 shrink-0" aria-hidden />
         <div>
           <div className="font-medium">{VERDICT_LABEL[m.verdict]}</div>
           <div className="text-xs opacity-80">{VERDICT_HELP[m.verdict]}</div>

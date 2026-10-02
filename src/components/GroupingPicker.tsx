@@ -2,6 +2,7 @@ import { ChevronDown } from 'lucide-react'
 import { useState } from 'react'
 import { originLabel } from '@/lib/present'
 import type { GroupingAlternative } from '@/lib/types'
+import { ICON_SM } from '@/components/ui/primitives'
 
 /**
  * A collapsible row of alternative grouping labels. Used both while a create-application suggestion is
@@ -20,7 +21,7 @@ export function GroupingPicker({ label, alternatives, onPick }: { label: string;
         className="inline-flex items-center gap-1 text-xs text-nb-500 hover:text-accent"
         aria-expanded={open}
       >
-        <ChevronDown size={12} className={open ? 'rotate-180' : ''} aria-hidden />
+        <ChevronDown size={ICON_SM} className={open ? 'rotate-180' : ''} aria-hidden />
         {label}
       </button>
       {open && (

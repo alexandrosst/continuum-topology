@@ -1,7 +1,7 @@
 import { ChevronsUpDown, Fingerprint, KeyRound, LogOut, Mail, Monitor, Moon, Plus, ScrollText, ShieldCheck, Sun, Terminal, Ticket, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Button, CopyButton, ErrorBanner, Field, Input, Modal, PasswordInput, Select } from '@/components/ui/primitives'
+import { Button, CopyButton, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, PasswordInput, Select } from '@/components/ui/primitives'
 import { PasswordRequirements, passwordRules } from '@/components/auth/AuthGate'
 import { api, ApiError, atLeast, ROLE_LABEL, type ApiToken, type CreatedApiToken, type Passkey } from '@/lib/api'
 import { bareIpHost, passkeysSupported } from '@/lib/webauthn'
@@ -720,14 +720,14 @@ function TwoFactorHubModal({ onClose, open2FA, openEmail, openPasskeys }: { onCl
     >
       <div className="space-y-2.5">
         <TwoFactorMethodRow
-          icon={<ShieldCheck size={16} />}
+          icon={<ShieldCheck size={ICON_SM} />}
           title="Authenticator app"
           status={user.twoFactorEnabled ? 'On' : 'Off - a code from an app like 1Password or Google Authenticator'}
           on={user.twoFactorEnabled}
           action={{ label: user.twoFactorEnabled ? 'Turn off' : 'Turn on', onClick: () => { onClose(); open2FA() } }}
         />
         <TwoFactorMethodRow
-          icon={<Mail size={16} />}
+          icon={<Mail size={ICON_SM} />}
           title="Email code"
           status={!user.mailConfigured ? 'Not available' : user.emailOtpEnabled ? 'On' : 'Off - a code sent to your address'}
           on={user.mailConfigured && user.emailOtpEnabled}
@@ -737,7 +737,7 @@ function TwoFactorHubModal({ onClose, open2FA, openEmail, openPasskeys }: { onCl
           )}
         />
         <TwoFactorMethodRow
-          icon={<Fingerprint size={16} />}
+          icon={<Fingerprint size={ICON_SM} />}
           title="Passkey"
           status={!supported ? 'Not supported in this browser' : bareIp ? 'Not available' : passkeyCount > 0 ? `${passkeyCount} added - no code to type` : 'None added - no code to type'}
           on={passkeyCount > 0}
@@ -904,13 +904,13 @@ export default function AccountMenu() {
     <div className="relative mb-2" data-testid="account">
       {showTwoFactorNudge && (
         <div className="mb-2 flex items-start gap-2 rounded-lg border border-warn/30 bg-warn-soft p-2.5 text-xs text-nb-300" data-testid="two-factor-nudge">
-          <ShieldCheck size={14} className="mt-0.5 shrink-0 text-warn" aria-hidden />
+          <ShieldCheck size={ICON_SM} className="mt-0.5 shrink-0 text-warn" aria-hidden />
           <p className="flex-1">
             Add a second sign-in step so a leaked password alone can't get in.{' '}
             <button type="button" className="font-medium underline hover:text-warn" onClick={() => setHub(true)} data-testid="two-factor-nudge-setup">Set up now</button>
           </p>
           <button type="button" aria-label="Dismiss" className="shrink-0 text-warn/70 hover:text-warn" onClick={dismissTwoFactorNudge} data-testid="two-factor-nudge-dismiss">
-            <X size={14} />
+            <X size={ICON_MD} />
           </button>
         </div>
       )}
@@ -919,28 +919,28 @@ export default function AccountMenu() {
             <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-nb-600" aria-hidden>Organisation</div>
             {orgId && (
               <NavLink to="/team" className={item} role="menuitem" data-testid="nav-team">
-                <Users size={15} className="text-nb-500" /> Members &amp; access
+                <Users size={ICON_SM} className="text-nb-500" /> Members &amp; access
               </NavLink>
             )}
             {orgId && atLeast(role, 'admin') && (
               <NavLink to="/activity" className={item} role="menuitem" data-testid="nav-activity">
-                <ScrollText size={15} className="text-nb-500" /> Who did what
+                <ScrollText size={ICON_SM} className="text-nb-500" /> Who did what
               </NavLink>
             )}
             {registration === 'open' && (
-              <button onClick={pick(() => setNewOrg(true))} className={item} role="menuitem"><Plus size={15} className="text-nb-500" /> New organisation</button>
+              <button onClick={pick(() => setNewOrg(true))} className={item} role="menuitem"><Plus size={ICON_SM} className="text-nb-500" /> New organisation</button>
             )}
-            <button onClick={pick(() => setJoin(true))} className={item} role="menuitem" data-testid="join-open"><Ticket size={15} className="text-nb-500" /> Join with a code</button>
+            <button onClick={pick(() => setJoin(true))} className={item} role="menuitem" data-testid="join-open"><Ticket size={ICON_SM} className="text-nb-500" /> Join with a code</button>
             <div className="my-1 border-t border-nb-850" />
             <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-nb-600" aria-hidden>Account &amp; security</div>
-            <button onClick={pick(() => setPw(true))} className={item} role="menuitem"><KeyRound size={15} className="text-nb-500" /> Change password</button>
+            <button onClick={pick(() => setPw(true))} className={item} role="menuitem"><KeyRound size={ICON_SM} className="text-nb-500" /> Change password</button>
             <button onClick={pick(() => setHub(true))} className={item} role="menuitem" data-testid="two-factor-open">
-              <ShieldCheck size={15} className="text-nb-500" />
+              <ShieldCheck size={ICON_SM} className="text-nb-500" />
               Two-factor authentication
               {twoFactorMethodsOn > 0 && <span className="ml-auto text-xs text-nb-500">{twoFactorMethodsOn} on</span>}
             </button>
             <button onClick={pick(() => setApiTokens(true))} className={item} role="menuitem" data-testid="api-tokens-open">
-              <Terminal size={15} className="text-nb-500" /> Personal API tokens
+              <Terminal size={ICON_SM} className="text-nb-500" /> Personal API tokens
             </button>
             <div className="my-1 border-t border-nb-850" />
             <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-nb-600" aria-hidden>Appearance</div>
@@ -961,13 +961,13 @@ export default function AccountMenu() {
                   className={`flex flex-1 flex-col items-center gap-1 rounded-md border py-1.5 text-xs ${theme === value ? 'border-accent/60 bg-accent-soft text-nb-300' : 'border-nb-850 text-nb-500 hover:bg-nb-940 hover:text-nb-300'}`}
                   data-testid={`theme-${value}`}
                 >
-                  <Icon size={14} />
+                  <Icon size={ICON_SM} />
                   {label}
                 </button>
               ))}
             </div>
             <div className="my-1 border-t border-nb-850" />
-            <button onClick={pick(() => void signOut())} className={item} role="menuitem" data-testid="sign-out"><LogOut size={15} className="text-nb-500" /> Sign out</button>
+            <button onClick={pick(() => void signOut())} className={item} role="menuitem" data-testid="sign-out"><LogOut size={ICON_SM} className="text-nb-500" /> Sign out</button>
         </div>
       )}
       <div className="rounded-lg border border-nb-850 bg-nb-925 p-2">
@@ -985,7 +985,7 @@ export default function AccountMenu() {
             <span className="block truncate text-sm font-medium text-nb-300" data-testid="account-name">{user.username}</span>
             <span className="block text-[11px] text-nb-500" data-testid="account-role">{role ? ROLE_LABEL[role] : 'No organisation'}</span>
           </span>
-          <ChevronsUpDown size={14} className="shrink-0 text-nb-500" aria-hidden />
+          <ChevronsUpDown size={ICON_SM} className="shrink-0 text-nb-500" aria-hidden />
         </button>
         {orgs.length > 0 && (
           <div className="mt-2">

@@ -24,6 +24,7 @@ import {
   Truck,
   type LucideIcon,
 } from 'lucide-react'
+import { ICON_MD, ICON_SM } from '@/components/ui/primitives'
 import { memo, type ComponentProps, type ReactNode } from 'react'
 import { LoadRow, peakLoad } from '@/components/topology/Load'
 import { DistroIcon, Flag } from '@/components/ui/brand'
@@ -116,7 +117,7 @@ function Badge({
       title={title}
       {...rest}
     >
-      {Icon && <Icon size={10} className="shrink-0" aria-hidden="true" />}
+      {Icon && <Icon size={ICON_SM} className="shrink-0" aria-hidden="true" />}
       <span className="truncate">{children}</span>
     </span>
   )
@@ -150,8 +151,8 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="size-2 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
-            {data.distribution && <DistroIcon distribution={data.distribution} size={16} />}
-            {data.extra === 'operators' && <Antenna size={14} className="shrink-0 text-nb-500" />}
+            {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
+            {data.extra === 'operators' && <Antenna size={ICON_SM} className="shrink-0 text-nb-500" />}
             <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
             {far && peak !== undefined && peak >= 70 && (
               <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
@@ -194,7 +195,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
                 aria-label={`Local telemetry running: ${data.localTelemetry.layers.join(', ') || 'signals active'}. Click to configure.`}
                 className="grid size-5 shrink-0 place-items-center rounded-full bg-accent-soft text-accent transition-colors hover:bg-accent/20"
               >
-                <Antenna size={11} />
+                <Antenna size={ICON_MD} />
               </button>
             )}
             <span
@@ -276,7 +277,7 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
           className="grid size-9 shrink-0 place-items-center rounded-lg"
           style={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}
         >
-          <Icon size={17} />
+          <Icon size={ICON_SM} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">

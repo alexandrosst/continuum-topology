@@ -6,7 +6,7 @@ import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import { ConfirmModal, ServiceForm } from '@/components/forms'
 import { MobilityChip, useMoveModel } from '@/components/MobilityPanel'
 import { GoneRecords } from '@/components/Observations'
-import { Button, ChipList, DeclaredMark, EmptyState, EvidenceChip, ObservationChip, PageHeader, Pill, Select, SourceBadge, StatusDot, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, ChipList, DeclaredMark, EmptyState, EvidenceChip, ICON_SM, ObservationChip, PageHeader, Pill, Select, SourceBadge, StatusDot, Table, Td, Th } from '@/components/ui/primitives'
 import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { observation } from '@/lib/provenance'
 import { useWeakValue } from '@/store/rowEvidence'
@@ -53,7 +53,7 @@ export default function ServicesPage() {
         description="Microservices and applications, where they run, and which other services they call."
         actions={
           <Button variant="primary" onClick={() => setEditing('new')} disabled={clusters.length === 0}>
-            <Plus size={16} /> Add service
+            <Plus size={ICON_SM} /> Add service
           </Button>
         }
       />
@@ -67,7 +67,7 @@ export default function ServicesPage() {
         </Select>
         {nsFilter && (
           <button onClick={() => setParam('namespace', '')} className="inline-flex h-9 items-center gap-2 rounded-md border border-accent/40 bg-accent-soft px-3 text-sm text-accent hover:bg-accent/20" data-testid="namespace-filter" aria-label={`Namespace ${nsFilter}: clear this filter`}>
-            Namespace {nsFilter} <X size={14} aria-hidden />
+            Namespace {nsFilter} <X size={ICON_SM} aria-hidden />
           </button>
         )}
         <ColumnPicker columns={SERVICE_COLUMNS} isVisible={isVisible} onToggle={toggle} />
@@ -76,7 +76,7 @@ export default function ServicesPage() {
       {services.length === 0 ? (
         <EmptyState
           title="No service is known yet"
-          action={!clusters.length && connect.canStart ? <Button variant="primary" onClick={connect.start}><Plug size={16} /> Connect a cluster</Button> : undefined}
+          action={!clusters.length && connect.canStart ? <Button variant="primary" onClick={connect.start}><Plug size={ICON_SM} /> Connect a cluster</Button> : undefined}
           description={clusters.length ? 'No service is on record for these clusters. Connect an agent that reads at the Services access level, or add one by hand.' : 'No cluster is connected or declared yet. Connect a cluster and its agent reports its services, or add a cluster by hand first.'} />
       ) : (
         <Table>

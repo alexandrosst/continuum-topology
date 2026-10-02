@@ -3,7 +3,7 @@ import { Check, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { buttonClass } from '@/components/ui/buttonClass'
-import { Button, Pill } from '@/components/ui/primitives'
+import { Button, ICON_MD, Pill } from '@/components/ui/primitives'
 import { deriveChecklist, dismiss, gettingStartedSeenElsewhere, wasDismissed, type Checklist, type ChecklistStep } from '@/lib/checklist'
 import { useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
@@ -57,7 +57,7 @@ function Marker({ step, n }: { step: ChecklistStep; n: number }) {
         step.state === 'todo' && 'border border-nb-700 text-nb-500',
       )}
     >
-      {step.state === 'done' ? <Check size={14} /> : n}
+      {step.state === 'done' ? <Check size={ICON_MD} /> : n}
     </span>
   )
 }
@@ -95,7 +95,7 @@ export default function GettingStarted({ checklist, onConnect, onDismiss, varian
         </div>
         {onDismiss && (
           <button onClick={onDismiss} aria-label="Dismiss getting started" title="Dismiss" className="-mr-1.5 -mt-1 rounded p-1.5 text-nb-500 hover:bg-nb-940 hover:text-nb-300" data-testid="gs-dismiss">
-            <X size={16} aria-hidden />
+            <X size={ICON_MD} aria-hidden />
           </button>
         )}
       </div>

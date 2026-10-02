@@ -2,7 +2,7 @@ import { CheckCircle2, ChevronRight, Loader2, MapPin, Pin } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Flag } from '@/components/ui/brand'
-import { Button, CopyButton, ErrorBanner, Field, InfoTip, Input, Modal, TagsInput, WizardSteps } from '@/components/ui/primitives'
+import { Button, CopyButton, ErrorBanner, Field, ICON_SM, InfoTip, Input, Modal, TagsInput, WizardSteps } from '@/components/ui/primitives'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError, type CreatedToken } from '@/lib/api'
 import { discoveryStatus, extrasOf } from '@/lib/consent'
@@ -63,7 +63,7 @@ function WhereIsThis({ cluster }: { cluster: Cluster }) {
   return (
     <div className="mt-3 rounded-lg border border-nb-850 bg-nb-925 p-3" data-testid="wizard-where">
       <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-nb-300">
-        <MapPin size={14} className="text-accent" aria-hidden /> Where is this?
+        <MapPin size={ICON_SM} className="text-accent" aria-hidden /> Where is this?
       </div>
       <p className="mb-2 text-xs text-nb-500">
         Nothing about its location could be worked out on its own: no cloud region, no city recognised in a label, and IP lookup found nothing (or is not set up on this server). Type a city, or leave it - you can always set it later from the cluster's own page.
@@ -299,7 +299,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
           {max >= 1 && (
             <details className="group rounded-lg border border-nb-850 bg-nb-925" data-testid="advanced-options" open={moreOpen} onToggle={(e) => setMoreOpen(e.currentTarget.open)}>
               <summary className="flex cursor-pointer select-none items-center gap-1.5 px-4 py-3 text-sm font-medium text-nb-300 marker:content-none">
-                <ChevronRight size={14} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
+                <ChevronRight size={ICON_SM} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
                 More options <span className="font-normal text-nb-500">(access level, node probe, traffic observer, path measurements, namespace scope)</span>
               </summary>
               <div className="space-y-3 border-t border-nb-850 p-3">
@@ -442,7 +442,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                         The image: <code className="break-all font-mono">{img.reference}</code>
                         {img.digest ? (
                           <span className="ml-1.5 inline-flex items-center gap-1 rounded border border-ok/30 bg-ok/10 px-1.5 py-px align-middle text-[11px] text-ok" data-testid="image-pinned" title="Pinned by digest: every install pulls exactly this image">
-                            <Pin size={11} aria-hidden /> pinned
+                            <Pin size={ICON_SM} aria-hidden /> pinned
                           </span>
                         ) : (
                           <span className="block text-nb-500" data-testid="image-mutable">
@@ -469,20 +469,20 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
 
           {phase === 'waiting' && (
             <p className="flex items-center gap-2 text-sm text-nb-400">
-              <Loader2 size={16} className="animate-spin text-accent" /> Waiting for the agent to start and connect. This can take a minute.
+              <Loader2 size={ICON_SM} className="animate-spin text-accent" /> Waiting for the agent to start and connect. This can take a minute.
             </p>
           )}
           {phase === 'approve' && mine && <ApprovalCard agent={mine} />}
           {phase === 'discovering' && (
             <p className="flex items-center gap-2 text-sm text-nb-400">
-              <Loader2 size={16} className="animate-spin text-accent" />
+              <Loader2 size={ICON_SM} className="animate-spin text-accent" />
               {discovery.state === 'discovering' ? `Approved. Looking at the cluster… ${discovery.synced} of ${discovery.total} watches read so far.` : 'Approved. Waiting for the first discovery…'}
             </p>
           )}
           {phase === 'done' && counts && (
             <>
               <p className="flex items-center gap-2 text-sm text-ok">
-                <CheckCircle2 size={16} /> Connected. Found {counts.nodes} {counts.nodes === 1 ? 'node' : 'nodes'} and {counts.services} {counts.services === 1 ? 'service' : 'services'}. Review the grouping suggestions in the Discovery inbox.
+                <CheckCircle2 size={ICON_SM} /> Connected. Found {counts.nodes} {counts.nodes === 1 ? 'node' : 'nodes'} and {counts.services} {counts.services === 1 ? 'service' : 'services'}. Review the grouping suggestions in the Discovery inbox.
               </p>
               {cluster && !effective(cluster).siteId && <WhereIsThis cluster={cluster} />}
             </>

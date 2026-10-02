@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { Bell, CheckCircle2, ChevronRight, CircleAlert, Clock, History as HistoryIcon, Info, Radio, Save, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button, EmptyState, ErrorBanner, Field, Input, PageHeader, Pill, PulseDot, SavedNote, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
+import { Button, EmptyState, ErrorBanner, Field, ICON_SM, Input, PageHeader, Pill, PulseDot, SavedNote, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast, type Conn, type StorageInfo } from '@/lib/api'
 import { ageOf, EVENT_KINDS, EVENT_RETENTION_MAX, EVENT_RETENTION_MIN, kindLabel, parseEventRetention, pointAt, type AppSettings, type ChangeEvent, type HistoryIndex, type TrafficRate } from '@/lib/history'
 import { ago, bytesPerSec } from '@/lib/observed'
@@ -132,7 +132,7 @@ function RecordNow({ conn, onDone }: { conn: Conn; onDone: () => void }) {
         }
       }}
     >
-      <Clock size={15} /> Record now
+      <Clock size={ICON_SM} /> Record now
     </Button>
   )
 }
@@ -165,7 +165,7 @@ function Timeline({ hours, setHours, index, events }: { hours: number; setHours:
     <section className="rounded-xl border border-nb-850 bg-nb-925 p-5" aria-label="Timeline">
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <h2 className="mr-auto flex items-center gap-2 text-sm font-medium text-nb-300">
-          <HistoryIcon size={15} className="text-accent" aria-hidden /> Go back to a moment
+          <HistoryIcon size={ICON_SM} className="text-accent" aria-hidden /> Go back to a moment
         </h2>
         <div className="w-40">
           <Select value={String(hours)} onChange={(e) => { setHours(Number(e.target.value)); setFrac(1) }} aria-label="Time window">
@@ -260,7 +260,7 @@ function Consistency() {
   return (
     <section className="rounded-xl border border-nb-850 bg-nb-925 p-5" aria-label="Consistency checks">
       <h2 className="mb-1 flex items-center gap-2 text-sm font-medium text-nb-300">
-        <CheckCircle2 size={15} className="text-nb-400" aria-hidden /> Is this picture complete?
+        <CheckCircle2 size={ICON_SM} className="text-nb-400" aria-hidden /> Is this picture complete?
       </h2>
       <p className="mb-3 text-xs leading-5 text-nb-500">
         Changes arrive as they happen. Every {minutes} min each agent also re-sends everything it sees, and the server compares that with its own picture. A difference means a change was missed; it is corrected and recorded here, never hidden.
@@ -272,7 +272,7 @@ function Consistency() {
           return (
             <li key={a.id} className="text-sm" data-testid="consistency-row">
               <div className="flex items-center gap-2">
-                {!c ? <Clock size={14} className="text-nb-500" aria-hidden /> : c.differences === 0 ? <CheckCircle2 size={14} className="text-ok" aria-hidden /> : <TriangleAlert size={14} className="text-warn" aria-hidden />}
+                {!c ? <Clock size={ICON_SM} className="text-nb-500" aria-hidden /> : c.differences === 0 ? <CheckCircle2 size={ICON_SM} className="text-ok" aria-hidden /> : <TriangleAlert size={ICON_SM} className="text-warn" aria-hidden />}
                 <span className="font-medium text-nb-300">{a.name}</span>
                 <span className="ml-auto text-xs text-nb-500">{c ? `checked ${ago(c.lastCheck)}` : 'not checked yet'}</span>
               </div>
@@ -316,7 +316,7 @@ function Events({ events, hours }: { events: ChangeEvent[] | null; hours: number
             </Td>
             <Td>
               <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                {(() => { const S = SEVERITY[e.severity]; return <S.icon size={14} className={clsx('shrink-0', S.text)} aria-label={S.label} /> })()}
+                {(() => { const S = SEVERITY[e.severity]; return <S.icon size={ICON_SM} className={clsx('shrink-0', S.text)} aria-label={S.label} /> })()}
                 {kindLabel(e.kind)}
               </span>
             </Td>
@@ -682,7 +682,7 @@ export function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn 
         </div>
         <details className="group mt-4" data-testid="recording-advanced">
           <summary className="flex cursor-pointer select-none items-center gap-1 text-xs text-nb-500 marker:content-none">
-            <ChevronRight size={12} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
+            <ChevronRight size={ICON_SM} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
             Advanced
           </summary>
           <div className="mt-3 grid gap-4 sm:grid-cols-2">
@@ -691,7 +691,7 @@ export function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn 
             {deleteOldEventsField}
           </div>
         </details>
-        {error && <p className="mt-3 text-sm text-bad" role="alert"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{error}</p>}
+        {error && <p className="mt-3 text-sm text-bad" role="alert"><CircleAlert size={ICON_SM} className="mr-1 inline" aria-hidden />{error}</p>}
         <div className="mt-4 flex items-center gap-3">
           {admin ? (
             <>
@@ -701,14 +701,14 @@ export function RecordingSettings({ admin, conn }: { admin: boolean; conn: Conn 
                 onClick={async () => setSaved(await save(conn, { ...settings, ...Object.fromEntries(FIELDS.map((f) => [f.key, Number(draft[f.key])])), flowStaleSeconds, eventRetentionDays: eventParsed.days }))}
                 data-testid="save-settings"
               >
-                <Save size={15} /> Save
+                <Save size={ICON_SM} /> Save
               </Button>
               {saved && <SavedNote>Saved. Agents were told.</SavedNote>}
             </>
           ) : (
             <p className="text-xs text-nb-500">Only administrators can change these.</p>
           )}
-          <Pill><Radio size={11} className="mr-1" aria-hidden /> applies to every connected agent within a minute</Pill>
+          <Pill><Radio size={ICON_SM} className="mr-1" aria-hidden /> applies to every connected agent within a minute</Pill>
         </div>
         <p className="mt-3 text-xs text-nb-500">Measurements between places are set up on the <Link to="/sites" className="text-accent hover:underline">Sites</Link> page.</p>
       </div>

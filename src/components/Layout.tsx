@@ -3,7 +3,7 @@ import { Antenna, BookOpen, Boxes, Cable, Cpu, Folders, History, Keyboard, Layer
 import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Copyright } from '@/components/ui/brand'
-import { PageSkeleton, SkeletonBlock } from '@/components/ui/primitives'
+import { ICON_MD, ICON_SM, PageSkeleton, SkeletonBlock } from '@/components/ui/primitives'
 import AccountMenu from '@/components/auth/AccountMenu'
 import AuthGate from '@/components/auth/AuthGate'
 import SyncNotices from '@/components/auth/SyncNotices'
@@ -77,7 +77,7 @@ function NavItem({ to, label, icon: Icon, badge, slid }: NavEntry & { badge?: nu
       {({ isActive }) => (
         <>
           {isActive && !slid && <span className="absolute -left-3 h-5 w-0.5 rounded-r bg-accent" />}
-          <Icon size={16} className={isActive ? 'text-accent' : ''} />
+          <Icon size={ICON_SM} className={isActive ? 'text-accent' : ''} />
           {label}
           {!!badge && (
             <span className="ml-auto rounded-full bg-warn-soft px-1.5 text-[11px] font-medium text-warn" aria-label={`${badge} waiting`}>
@@ -231,7 +231,7 @@ function SidebarNav({
           aria-label={`Search (${SHORTCUT})`}
           data-testid="search-button"
         >
-          <Search size={14} aria-hidden /> Search
+          <Search size={ICON_SM} aria-hidden /> Search
           <kbd className="ml-auto rounded border border-nb-800 px-1.5 text-[11px]">{SHORTCUT}</kbd>
         </button>
         <nav ref={navRef} className="relative flex flex-col gap-3">
@@ -253,7 +253,7 @@ function SidebarNav({
             rel="noreferrer"
             className="group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm text-nb-400 transition-colors hover:bg-nb-930 hover:text-nb-300"
           >
-            <BookOpen size={16} /> Documentation
+            <BookOpen size={ICON_SM} /> Documentation
           </a>
           <NavItem to="/settings" label="Settings" icon={Settings2} />
           <button
@@ -261,7 +261,7 @@ function SidebarNav({
             className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm text-nb-400 transition-colors hover:bg-nb-930 hover:text-nb-300"
             data-testid="keyboard-shortcuts-open"
           >
-            <Keyboard size={16} /> Keyboard shortcuts
+            <Keyboard size={ICON_SM} /> Keyboard shortcuts
           </button>
           <Copyright className="mt-3 px-3" />
         </div>
@@ -354,11 +354,11 @@ function Shell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-12 shrink-0 items-center gap-3 border-b border-nb-850 bg-nb-920 px-3 xl:hidden">
           <button onClick={() => setMenu(true)} aria-label="Open menu" aria-controls="main-menu" aria-expanded={menu} className="grid size-9 place-items-center rounded-md text-nb-400 hover:bg-nb-930 hover:text-nb-300">
-            <Menu size={18} />
+            <Menu size={ICON_MD} />
           </button>
           <span className="text-sm font-semibold text-nb-300">Continuum</span>
           <button onClick={() => setSearching(true)} aria-label="Search" className="ml-auto grid size-9 place-items-center rounded-md text-nb-400 hover:bg-nb-930 hover:text-nb-300">
-            <Search size={16} />
+            <Search size={ICON_MD} />
           </button>
         </div>
         <SyncNotices />

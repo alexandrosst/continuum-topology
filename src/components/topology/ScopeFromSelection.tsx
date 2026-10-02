@@ -1,5 +1,5 @@
 import { Crosshair } from 'lucide-react'
-import { Button, MenuPanel } from '@/components/ui/primitives'
+import { Button, ICON_SM, MenuPanel } from '@/components/ui/primitives'
 import type { Agent, Cluster, Service } from '@/lib/types'
 
 /**
@@ -57,7 +57,7 @@ export default function ScopeFromSelection({
   if (targets.length === 1) {
     return (
       <Button onClick={() => goTo(targets[0].cluster.name, targets[0].agent.id)} data-testid="scope-from-selection">
-        <Crosshair size={15} /> <span className="hidden sm:inline">{label}</span>
+        <Crosshair size={ICON_SM} /> <span className="hidden sm:inline">{label}</span>
       </Button>
     )
   }
@@ -65,7 +65,7 @@ export default function ScopeFromSelection({
   return (
     <div className="relative">
       <Button onClick={() => onOpenChange(!open)} aria-haspopup="dialog" aria-expanded={open} data-testid="scope-from-selection">
-        <Crosshair size={15} /> <span className="hidden sm:inline">{label}</span>
+        <Crosshair size={ICON_SM} /> <span className="hidden sm:inline">{label}</span>
       </Button>
       <MenuPanel open={open} onClose={() => onOpenChange(false)} className="w-72 overflow-hidden" role="dialog" aria-label="Which cluster's telemetry to scope">
         <p className="border-b border-nb-850 px-3 py-2 text-xs text-nb-500">The selection spans {targets.length} clusters - pick one to start from. The same {namespaces.length} namespace{namespaces.length === 1 ? '' : 's'} carries over either way.</p>

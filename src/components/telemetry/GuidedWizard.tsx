@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { Activity, AppWindow, Check, ChevronLeft, FileText, Plus, Server, Waypoints, X, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
-import { Button, WizardSteps } from '@/components/ui/primitives'
+import { Button, ICON_MD, ICON_SM, WizardSteps } from '@/components/ui/primitives'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
 import type { TelemetryInput } from '@/lib/install'
 import GuidedScope from './GuidedScope'
@@ -56,12 +56,12 @@ function PickCard({
     >
       {selected && (
         <span className="absolute right-3 top-3 flex size-5 items-center justify-center rounded-full bg-accent text-nb-950" aria-hidden>
-          <Check size={13} strokeWidth={3} />
+          <Check size={ICON_MD} strokeWidth={3} />
         </span>
       )}
       {Icon && (
         <span className={clsx('flex size-8 items-center justify-center rounded-lg', selected ? 'bg-accent/15 text-accent' : 'bg-nb-930 text-nb-500')} aria-hidden>
-          <Icon size={16} />
+          <Icon size={ICON_MD} />
         </span>
       )}
       <span className="pr-6 text-sm font-medium text-nb-200">{label}</span>
@@ -77,7 +77,7 @@ function PickCard({
 function BackLink({ onClick, testId }: { onClick: () => void; testId: string }) {
   return (
     <Button variant="ghost" size="sm" onClick={onClick} data-testid={testId}>
-      <ChevronLeft size={13} /> Back
+      <ChevronLeft size={ICON_SM} /> Back
     </Button>
   )
 }
@@ -92,7 +92,7 @@ function SelectedChip({ signal, onRemove, testId }: { signal: (typeof TELEMETRY_
   const Icon = LAYER_META[signal.layer].icon
   return (
     <span className="inline-flex items-center gap-1.5 rounded-md border border-nb-800 bg-nb-930 py-1 pl-2 pr-1 text-xs text-nb-300" data-testid={testId}>
-      <Icon size={12} className="text-nb-500" aria-hidden />
+      <Icon size={ICON_SM} className="text-nb-500" aria-hidden />
       {signal.label}
       <button
         type="button"
@@ -101,7 +101,7 @@ function SelectedChip({ signal, onRemove, testId }: { signal: (typeof TELEMETRY_
         className="rounded p-0.5 text-nb-600 hover:bg-nb-940 hover:text-nb-300"
         data-testid={`${testId}-remove`}
       >
-        <X size={11} />
+        <X size={ICON_MD} />
       </button>
     </span>
   )
@@ -278,7 +278,7 @@ export default function GuidedWizard({
             {kindSignals.some((s) => s.id === 'accelerators') && value.accelerators && <AcceleratorsFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <BackLink onClick={() => setStep('modality')} testId={`${testIdPrefix}-guided-back`} />
-              <Button onClick={addAnother} data-testid={`${testIdPrefix}-guided-add-another`}><Plus size={13} /> Add another</Button>
+              <Button onClick={addAnother} data-testid={`${testIdPrefix}-guided-add-another`}><Plus size={ICON_SM} /> Add another</Button>
               <Button variant="primary" className="ml-auto" onClick={finishKind} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
             </div>
           </div>
@@ -312,7 +312,7 @@ export default function GuidedWizard({
                     return (
                       <div key={l} className="flex flex-wrap items-center gap-1.5">
                         <span className="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-nb-500">
-                          <Icon size={12} /> {LAYER_META[l].label}
+                          <Icon size={ICON_SM} /> {LAYER_META[l].label}
                         </span>
                         {onSignals
                           .filter((s) => s.layer === l)
@@ -332,7 +332,7 @@ export default function GuidedWizard({
               {/* Same reasoning as Scope's own Back button above: 'kind' only ever has something to show
                   once a layer and a modality are both picked. */}
               <BackLink onClick={() => setStep(scopeStepNeeded ? 'scope' : layer && modality ? 'kind' : 'layer')} testId={`${testIdPrefix}-guided-back`} />
-              <Button onClick={addAnother} data-testid={`${testIdPrefix}-guided-add-another`}><Plus size={13} /> Add another</Button>
+              <Button onClick={addAnother} data-testid={`${testIdPrefix}-guided-add-another`}><Plus size={ICON_SM} /> Add another</Button>
             </div>
           </div>
         )}

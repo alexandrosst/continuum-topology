@@ -4,7 +4,7 @@ import ColumnPicker from '@/components/ColumnPicker'
 import { ConfirmModal, SiteForm } from '@/components/forms'
 import MeasuredPaths from '@/components/MeasuredPaths'
 import { Place } from '@/components/ui/brand'
-import { Button, ChipList, EmptyState, PageHeader, Pill, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, ChipList, EmptyState, ICON_SM, PageHeader, Pill, Table, Td, Th } from '@/components/ui/primitives'
 import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { siteLocationIssue } from '@/lib/places'
 import { usePlaceIndex } from '@/lib/places-data'
@@ -39,7 +39,7 @@ export default function SitesPage() {
         description="Physical places where clusters live, declared by you or accepted from a suggestion. Coordinates place them on the map; the country is checked against them."
         actions={
           <Button variant="primary" onClick={() => setEditing('new')}>
-            <Plus size={16} /> Add site
+            <Plus size={ICON_SM} /> Add site
           </Button>
         }
       />
@@ -52,7 +52,7 @@ export default function SitesPage() {
         <EmptyState
           title="No sites yet"
           description="Add a site, then attach clusters to it from the cluster form."
-          action={<Button variant="primary" onClick={() => setEditing('new')}><Plus size={16} /> Add site</Button>}
+          action={<Button variant="primary" onClick={() => setEditing('new')}><Plus size={ICON_SM} /> Add site</Button>}
         />
       ) : (
         <Table>
@@ -76,7 +76,7 @@ export default function SitesPage() {
                     <div className="whitespace-nowrap pl-[26px] font-mono text-xs text-nb-500">{s.lat.toFixed(2)}, {s.lng.toFixed(2)}</div>
                     {issues.has(s.id) && (
                       <div className="mt-0.5 flex items-center gap-1 pl-[26px] text-xs text-warn" title={issues.get(s.id)}>
-                        <AlertTriangle size={12} aria-hidden /> Country and coordinates disagree
+                        <AlertTriangle size={ICON_SM} aria-hidden /> Country and coordinates disagree
                       </div>
                     )}
                   </Td>

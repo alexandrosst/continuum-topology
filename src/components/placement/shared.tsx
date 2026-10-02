@@ -4,6 +4,7 @@ import { VERDICT_HELP, VERDICT_ICON, VERDICT_LABEL, VERDICT_TONE, type MoveVerdi
 import { basisText } from '@/lib/placement/engine'
 import type { Evaluation, RttBasis } from '@/lib/placement/types'
 import { TONE_CLASS } from '@/lib/provenance'
+import { ICON_SM } from '@/components/ui/primitives'
 
 export const fmtMs = (n: number) => (Number.isFinite(n) ? (n < 10 ? n.toFixed(1) : Math.round(n).toString()) : '?')
 export const pts = (n: number) => (Math.abs(n) >= 100 ? Math.round(n).toString() : n.toFixed(1))
@@ -42,7 +43,7 @@ export function Verdict({ v }: { v: MoveVerdict }) {
   const Icon = VERDICT_ICON[v]
   return (
     <span className={clsx('inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 text-xs', TONE_CLASS[VERDICT_TONE[v]])} title={VERDICT_HELP[v]}>
-      <Icon size={12} aria-hidden /> {VERDICT_LABEL[v]}
+      <Icon size={ICON_SM} aria-hidden /> {VERDICT_LABEL[v]}
     </span>
   )
 }

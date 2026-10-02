@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
 import { useState } from 'react'
-import { Button, Field, Input, Select } from '@/components/ui/primitives'
+import { Button, Field, ICON_MD, ICON_SM, Input, Select } from '@/components/ui/primitives'
 import {
   FILTER_OPS,
   newProcessorEntry,
@@ -94,7 +94,7 @@ export default function ProcessorEditor({
       <div className="flex flex-wrap gap-1.5">
         {PROCESSOR_KINDS.map((k) => (
           <Button key={k.id} type="button" size="sm" title={k.hint} onClick={() => add(k.id)} data-testid={`${testIdPrefix}-processor-add-${k.id}`}>
-            <Plus size={12} /> {k.label}
+            <Plus size={ICON_SM} /> {k.label}
           </Button>
         ))}
       </div>
@@ -142,7 +142,7 @@ function ProcessorRow({
             aria-label={`Move ${entry.name || 'processor'} up`}
             data-testid={`${testIdPrefix}-processor-up-${entry.id}`}
           >
-            <ChevronUp size={13} />
+            <ChevronUp size={ICON_MD} />
           </button>
           <button
             type="button"
@@ -152,7 +152,7 @@ function ProcessorRow({
             aria-label={`Move ${entry.name || 'processor'} down`}
             data-testid={`${testIdPrefix}-processor-down-${entry.id}`}
           >
-            <ChevronDown size={13} />
+            <ChevronDown size={ICON_MD} />
           </button>
         </div>
         <button
@@ -173,7 +173,7 @@ function ProcessorRow({
           aria-label={`Remove ${entry.name || kindLabel}`}
           data-testid={`${testIdPrefix}-processor-remove-${entry.id}`}
         >
-          <X size={14} />
+          <X size={ICON_MD} />
         </button>
       </div>
       {open && (
@@ -287,13 +287,13 @@ function FilterForm({
               aria-label="Remove condition"
               data-testid={`${testIdPrefix}-processor-filter-remove-${entryId}-${i}`}
             >
-              <X size={14} />
+              <X size={ICON_MD} />
             </button>
           </div>
         ))}
       </div>
       <Button type="button" size="sm" onClick={addCondition} data-testid={`${testIdPrefix}-processor-filter-add-${entryId}`}>
-        <Plus size={12} /> Condition
+        <Plus size={ICON_SM} /> Condition
       </Button>
     </div>
   )
@@ -365,7 +365,7 @@ function TailSamplingForm({
                 aria-label="Remove policy"
                 data-testid={`${testIdPrefix}-processor-ts-remove-${entryId}-${i}`}
               >
-                <X size={14} />
+                <X size={ICON_MD} />
               </button>
             </div>
             {p.type === 'probabilistic' && (
@@ -404,7 +404,7 @@ function TailSamplingForm({
         ))}
       </div>
       <Button type="button" size="sm" onClick={addPolicy} data-testid={`${testIdPrefix}-processor-ts-add-${entryId}`}>
-        <Plus size={12} /> Policy
+        <Plus size={ICON_SM} /> Policy
       </Button>
     </div>
   )
@@ -478,13 +478,13 @@ function TransformForm({
               aria-label="Remove statement"
               data-testid={`${testIdPrefix}-processor-transform-remove-${entryId}-${i}`}
             >
-              <X size={14} />
+              <X size={ICON_MD} />
             </button>
           </div>
         ))}
       </div>
       <Button type="button" size="sm" onClick={addStatement} data-testid={`${testIdPrefix}-processor-transform-add-${entryId}`}>
-        <Plus size={12} /> Statement
+        <Plus size={ICON_SM} /> Statement
       </Button>
     </div>
   )

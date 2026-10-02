@@ -1,6 +1,6 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
-import { Button, ComboField, Field, Input, LabelsEditor, Modal, Select } from '@/components/ui/primitives'
+import { Button, ComboField, Field, ICON_MD, ICON_SM, Input, LabelsEditor, Modal, Select } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
 import { DEVICE_PROTOCOL_OPTIONS } from '@/lib/present'
 import { uid, useTopology } from '@/store/topology'
@@ -141,7 +141,7 @@ export function DeviceForm({ initial, onClose }: { initial: Device | null; onClo
               disabled={services.length === 0}
               onClick={() => setDeps((d) => [...d, { id: uid('d'), orgId: DEFAULT_ORG, from: f.id, fromKind: 'device', to: services[0].id, toKind: 'service', protocol: f.protocol || 'MQTT', sources: ['manual'], confidence: 'high' }])}
             >
-              <Plus size={14} /> Add
+              <Plus size={ICON_SM} /> Add
             </Button>
           </div>
           {deps.length === 0 && <p className="text-xs text-nb-500">Not connected to any service.</p>}
@@ -160,7 +160,7 @@ export function DeviceForm({ initial, onClose }: { initial: Device | null; onClo
                   <Input value={d.protocol} onChange={(e) => patch({ protocol: e.target.value })} placeholder="Protocol" />
                   <Input type="number" value={d.port ?? ''} onChange={(e) => patch({ port: e.target.value ? Number(e.target.value) : undefined })} placeholder="Port" />
                   <Button variant="ghost" className="h-9 px-0" aria-label="Remove connection" onClick={() => setDeps((all) => all.filter((_, j) => j !== i))}>
-                    <Trash2 size={14} />
+                    <Trash2 size={ICON_MD} />
                   </Button>
                 </div>
               )

@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { Check, Cpu, KeyRound, Minus, X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Copyright } from '@/components/ui/brand'
-import { Button, ErrorBanner, Field, Input, PasswordInput } from '@/components/ui/primitives'
+import { Button, ErrorBanner, Field, ICON_SM, Input, PasswordInput } from '@/components/ui/primitives'
 import { ROLE_LABEL } from '@/lib/api'
 import { useServer } from '@/store/server'
 
@@ -61,7 +61,7 @@ export function PasswordRequirements({ password, username }: { password: string;
     <ul className="space-y-1">
       {passwordRules(password, username).map((r) => (
         <li key={r.key} className={clsx('flex items-center gap-1.5 text-xs', empty ? 'text-nb-500' : r.ok ? 'text-ok' : 'text-bad')}>
-          {empty ? <Minus size={12} aria-hidden /> : r.ok ? <Check size={12} className="fade-in" aria-hidden /> : <X size={12} className="fade-in" aria-hidden />}
+          {empty ? <Minus size={ICON_SM} aria-hidden /> : r.ok ? <Check size={ICON_SM} className="fade-in" aria-hidden /> : <X size={ICON_SM} className="fade-in" aria-hidden />}
           {r.label}
           {!empty && <span className="sr-only">{r.ok ? ' satisfied' : ' not satisfied'}</span>}
         </li>
@@ -186,7 +186,7 @@ function TwoFactorScreen() {
           disabled={passkeyBusy}
           data-testid="webauthn-2fa"
         >
-          <KeyRound size={15} aria-hidden />
+          <KeyRound size={ICON_SM} aria-hidden />
           {passkeyBusy ? 'Waiting for your passkey…' : 'Use your passkey'}
         </Button>
       )}

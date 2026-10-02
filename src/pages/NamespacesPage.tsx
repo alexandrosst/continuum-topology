@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import ColumnPicker from '@/components/ColumnPicker'
 import { GoneRecords } from '@/components/Observations'
-import { Button, DeclaredMark, EmptyState, ObservationChip, PageHeader, Select, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, DeclaredMark, EmptyState, ICON_SM, ObservationChip, PageHeader, Select, Table, Td, Th } from '@/components/ui/primitives'
 import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { buildNamespaceRows, excludedWords, rowMatches, scopeLabel, type NamespaceRow } from '@/lib/namespaces'
 import { TONE_CLASS } from '@/lib/provenance'
@@ -63,7 +63,7 @@ export default function NamespacesPage() {
               ? 'Namespaces are read from a cluster by its agent, so there is nothing to list until one is connected.'
               : 'The clusters here have no namespaces or services on record. An agent below the Services access level does not read them.'
           }
-          action={live.length === 0 && (!connected || connect.canStart) ? <Button variant="primary" onClick={connect.start}><Plug size={16} /> Connect a cluster</Button> : undefined}
+          action={live.length === 0 && (!connected || connect.canStart) ? <Button variant="primary" onClick={connect.start}><Plug size={ICON_SM} /> Connect a cluster</Button> : undefined}
         />
       ) : (
         <>
@@ -137,7 +137,7 @@ export default function NamespacesPage() {
           {left > 0 && (
             <p className="mt-3 max-w-3xl text-xs text-nb-500" data-testid="namespaces-scope-note">
               Some agents were told to read only part of their cluster. The rest is dropped inside the cluster, so this server never receives the names, only how many were left out. The cluster’s owner widens it with <code className="font-mono text-nb-400">helm upgrade</code>; an administrator can narrow it further under Agents.
-              {' '}<Link to="/agents" className="inline-flex items-center gap-1 text-accent hover:underline">Agents <ArrowRight size={12} aria-hidden /></Link>
+              {' '}<Link to="/agents" className="inline-flex items-center gap-1 text-accent hover:underline">Agents <ArrowRight size={ICON_SM} aria-hidden /></Link>
             </p>
           )}
         </>

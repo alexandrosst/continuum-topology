@@ -5,7 +5,7 @@ import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import { ConfirmModal, NodeForm } from '@/components/forms'
 import { WithIcon } from '@/components/ui/brand'
 import { GoneRecords } from '@/components/Observations'
-import { Button, DeclaredMark, EmptyState, EvidenceChip, IpAddress, Meter, ObservationChip, PageHeader, Select, SourceBadge, StatusDot, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, DeclaredMark, EmptyState, EvidenceChip, ICON_MD, ICON_SM, IpAddress, Meter, ObservationChip, PageHeader, Select, SourceBadge, StatusDot, Table, Td, Th } from '@/components/ui/primitives'
 import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { observation } from '@/lib/provenance'
 import { useWeakValue } from '@/store/rowEvidence'
@@ -47,7 +47,7 @@ export default function NodesPage() {
         description="The machines — VMs, bare-metal servers and edge devices — that make up your clusters."
         actions={
           <Button variant="primary" onClick={() => setEditing('new')} disabled={clusters.length === 0}>
-            <Plus size={16} /> Add node
+            <Plus size={ICON_SM} /> Add node
           </Button>
         }
       />
@@ -66,7 +66,7 @@ export default function NodesPage() {
         <EmptyState
           title="No node is known yet"
           description={clusters.length ? 'No machine is on record for these clusters. An agent reads nodes at the Infrastructure access level or above; or describe them by hand.' : 'No cluster is connected or declared yet, so there are no machines to list. Connect a cluster and its agent reports its nodes, or add a cluster by hand first.'}
-          action={!clusters.length && connect.canStart ? <Button variant="primary" onClick={connect.start}><Plug size={16} /> Connect a cluster</Button> : undefined}
+          action={!clusters.length && connect.canStart ? <Button variant="primary" onClick={connect.start}><Plug size={ICON_SM} /> Connect a cluster</Button> : undefined}
         />
       ) : (
         <Table>
@@ -102,7 +102,7 @@ export default function NodesPage() {
                     {n.source === 'manual' && <DeclaredMark />}
                     {n.conditions && n.conditions.length > 0 && (
                       <span className="inline-flex text-warn" title={`Active conditions: ${n.conditions.join(', ')}`}>
-                        <AlertTriangle size={14} aria-label={n.conditions.join(', ')} />
+                        <AlertTriangle size={ICON_MD} aria-label={n.conditions.join(', ')} />
                       </span>
                     )}
                   </div>
@@ -124,7 +124,7 @@ export default function NodesPage() {
                 )}
                 {isVisible('type') && (
                   <Td>
-                    {(() => { const K = KIND_ICON[n.kind]; return <WithIcon icon={<K size={15} className="text-nb-500" />}>{KIND_LABEL[n.kind]}</WithIcon> })()}
+                    {(() => { const K = KIND_ICON[n.kind]; return <WithIcon icon={<K size={ICON_SM} className="text-nb-500" />}>{KIND_LABEL[n.kind]}</WithIcon> })()}
                     <div className="flex items-center gap-1.5 pl-[23px] text-xs text-nb-500">
                       {n.arch ? <span>{n.arch}</span> : chip('arch')}
                       {/* Bare metal/edge rows now carry an explicit "No hypervisor detected" too (see hostprobe.go) - worth a full line in the Inspector, but repeating it on every row here would just be noise next to a kind icon that already says "Bare metal". Only the interesting case (it IS a VM) earns space in this dense list. */}

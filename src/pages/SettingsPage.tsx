@@ -5,7 +5,7 @@ import { ConfirmModal } from '@/components/forms'
 import InstallationSettings from '@/components/InstallationSettings'
 import MailSettings from '@/components/MailSettings'
 import ServerAddressSettings from '@/components/ServerAddressSettings'
-import { Button, PageHeader, PulseDot, SavedNote, StatTile } from '@/components/ui/primitives'
+import { Button, ICON_SM, PageHeader, PulseDot, SavedNote, StatTile } from '@/components/ui/primitives'
 import { atLeast } from '@/lib/api'
 import { declaredNote, rehydrate, toDeclared } from '@/lib/declared'
 import { useConn, useServer } from '@/store/server'
@@ -112,17 +112,17 @@ export default function SettingsPage() {
 
       <div className="space-y-3">
         <Card title="Export topology" description="Download clusters, nodes, services and dependencies as a JSON file.">
-          <Button onClick={download}><Download size={16} /> Export JSON</Button>
+          <Button onClick={download}><Download size={ICON_SM} /> Export JSON</Button>
         </Card>
         <Card title="Import topology" description="Replace the current topology with a JSON file. References to missing clusters, nodes or services are dropped automatically.">
-          <Button onClick={() => fileRef.current?.click()}><Upload size={16} /> Import JSON</Button>
+          <Button onClick={() => fileRef.current?.click()}><Upload size={ICON_SM} /> Import JSON</Button>
           <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={(e) => onFile(e.target.files?.[0])} />
         </Card>
         <Card title="Load sample topology" description="Restore the built-in cloud → edge → far-edge example.">
-          <Button onClick={() => setConfirm('reset')}><RotateCcw size={16} /> Load sample</Button>
+          <Button onClick={() => setConfirm('reset')}><RotateCcw size={ICON_SM} /> Load sample</Button>
         </Card>
         <Card title="Clear everything" description="Remove all clusters, nodes, services and dependencies to start from a blank canvas.">
-          <Button variant="danger" onClick={() => setConfirm('clear')}><Trash2 size={16} /> Clear all</Button>
+          <Button variant="danger" onClick={() => setConfirm('clear')}><Trash2 size={ICON_SM} /> Clear all</Button>
         </Card>
       </div>
 

@@ -1,12 +1,12 @@
 import { Database, Pencil, Scaling, Search, ShieldCheck, Trash2 } from 'lucide-react'
-import { Button, Input, Trait } from '@/components/ui/primitives'
+import { Button, ICON_MD, ICON_SM, Input, Trait } from '@/components/ui/primitives'
 import { autoscalerRange, disruptionLabel, totalVolumeGb, volumeSize } from '@/lib/present'
 import type { Service } from '@/lib/types'
 
 export function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
   return (
     <div className="relative w-80">
-      <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-nb-500" />
+      <Search size={ICON_MD} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-nb-500" />
       <Input className="pl-9" aria-label={placeholder} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
     </div>
   )
@@ -16,10 +16,10 @@ export function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete:
   return (
     <div className="flex justify-end gap-1">
       <Button variant="ghost" size="sm" aria-label="Edit" onClick={onEdit}>
-        <Pencil size={14} />
+        <Pencil size={ICON_MD} />
       </Button>
       <Button variant="ghost" size="sm" aria-label="Delete" onClick={onDelete}>
-        <Trash2 size={14} />
+        <Trash2 size={ICON_MD} />
       </Button>
     </div>
   )
@@ -39,7 +39,7 @@ export function ServiceTraits({ w, nodeName }: { w: Service; nodeName: (id: stri
     <div className="mt-1 flex flex-wrap gap-1">
       {vols.length > 0 && (
         <Trait
-          icon={<Database size={11} />}
+          icon={<Database size={ICON_SM} />}
           warn={pinned.length > 0}
           title={vols.map((v) => `${v.name}: ${volumeSize(v.sizeGb)}${v.storageClass ? ` on ${v.storageClass}` : ''}${v.pinnedNodeIds?.length ? `, data only on ${v.pinnedNodeIds.map(nodeName).join(', ')}` : ''}`).join('\n')}
         >
@@ -48,12 +48,12 @@ export function ServiceTraits({ w, nodeName }: { w: Service; nodeName: (id: stri
         </Trait>
       )}
       {w.autoscaler && (
-        <Trait icon={<Scaling size={11} />} title={`Autoscaled ${autoscalerRange(w.autoscaler)}, now ${w.autoscaler.current}${w.autoscaler.targets?.length ? `; target ${w.autoscaler.targets.join(', ')}` : ''}`}>
+        <Trait icon={<Scaling size={ICON_SM} />} title={`Autoscaled ${autoscalerRange(w.autoscaler)}, now ${w.autoscaler.current}${w.autoscaler.targets?.length ? `; target ${w.autoscaler.targets.join(', ')}` : ''}`}>
           {w.autoscaler.min}–{w.autoscaler.max}
         </Trait>
       )}
       {w.disruption && (
-        <Trait icon={<ShieldCheck size={11} />} title={`Disruption budget: ${disruptionLabel(w.disruption)}; ${w.disruption.allowed} pod(s) may be evicted right now`}>
+        <Trait icon={<ShieldCheck size={ICON_SM} />} title={`Disruption budget: ${disruptionLabel(w.disruption)}; ${w.disruption.allowed} pod(s) may be evicted right now`}>
           {disruptionLabel(w.disruption)}
         </Trait>
       )}

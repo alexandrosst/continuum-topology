@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight, History } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Button } from '@/components/ui/primitives'
+import { Button, ICON_MD, ICON_SM } from '@/components/ui/primitives'
 import { ageOf } from '@/lib/history'
 import { useHistoryView } from '@/store/history'
 import { useConn } from '@/store/server'
@@ -32,7 +32,7 @@ export default function HistoryBanner() {
   }
   return (
     <div role="status" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-warn/30 bg-warn/10 px-4 py-2.5 text-sm text-nb-300 sm:px-6" data-testid="history-banner">
-      <History size={16} className="shrink-0 text-warn" aria-hidden />
+      <History size={ICON_SM} className="shrink-0 text-warn" aria-hidden />
       <span className="min-w-[55%] flex-1 basis-64">
         <strong className="font-medium text-nb-300">The estate as it was on {when(at)}</strong> <span className="text-nb-400">({ageOf(at)})</span>. Read-only: clusters, nodes, services and traffic are from that moment;
         names, sites, applications and policy you set are as they are now.
@@ -41,10 +41,10 @@ export default function HistoryBanner() {
       </span>
       <span className="flex items-center gap-1.5">
         <Button size="sm" onClick={() => step(-1)} disabled={loading || i <= 0} aria-label="Previous recording" title="Previous recording">
-          <ChevronLeft size={14} />
+          <ChevronLeft size={ICON_MD} />
         </Button>
         <Button size="sm" onClick={() => step(1)} disabled={loading || i < 0 || i >= points.length - 1} aria-label="Next recording" title="Next recording">
-          <ChevronRight size={14} />
+          <ChevronRight size={ICON_MD} />
         </Button>
         <Button size="sm" variant="primary" onClick={live} data-testid="history-return">Return to now</Button>
       </span>

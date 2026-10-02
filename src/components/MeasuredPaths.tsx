@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { CircleAlert, Gauge, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Button, Field, Input, Pill, Select, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, Field, ICON_MD, ICON_SM, Input, Pill, Select, Table, Td, Th } from '@/components/ui/primitives'
 import type { ProbeTarget } from '@/lib/history'
 import { ago } from '@/lib/observed'
 import { atLeast } from '@/lib/api'
@@ -27,7 +27,7 @@ export default function MeasuredPaths() {
     <section className="mt-10" aria-label="Measured paths" data-testid="measured-paths">
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <h2 className="flex items-center gap-2 text-lg font-medium text-nb-300">
-          <Gauge size={17} className="text-accent" aria-hidden /> Measured paths
+          <Gauge size={ICON_SM} className="text-accent" aria-hidden /> Measured paths
         </h2>
         {status === 'connected' && (
           <Pill>
@@ -119,14 +119,14 @@ function Targets({ admin, clusterOptions, clusters }: { admin: boolean; clusterO
               {t.label && <span className="text-nb-500">{t.label}</span>}
               {admin && (
                 <Button variant="ghost" size="sm" className="ml-auto" disabled={busy} onClick={() => write(settings.probeTargets.filter((x) => x.id !== t.id))} aria-label={`Stop measuring ${t.host}`}>
-                  <Trash2 size={14} />
+                  <Trash2 size={ICON_MD} />
                 </Button>
               )}
             </li>
           ))}
         </ul>
       )}
-      {error && <p className="mt-3 text-sm text-bad" role="alert"><CircleAlert size={13} className="mr-1 inline" aria-hidden />{error}</p>}
+      {error && <p className="mt-3 text-sm text-bad" role="alert"><CircleAlert size={ICON_SM} className="mr-1 inline" aria-hidden />{error}</p>}
       {admin ? (
         <div className="mt-4 grid gap-3 border-t border-nb-850 pt-4 md:grid-cols-[1fr_1.4fr_6rem_1fr_auto] md:items-end">
           <Field label="Measured from">
@@ -157,7 +157,7 @@ function Targets({ admin, clusterOptions, clusters }: { admin: boolean; clusterO
               }
             }}
           >
-            <Plus size={15} /> Measure
+            <Plus size={ICON_SM} /> Measure
           </Button>
         </div>
       ) : (

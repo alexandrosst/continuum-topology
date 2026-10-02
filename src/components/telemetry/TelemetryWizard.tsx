@@ -2,7 +2,7 @@ import { ChevronLeft, Radio } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TelemetryPanel } from '@/components/agents/AgentInsight'
-import { Button, EmptyState, Modal, TierBadge } from '@/components/ui/primitives'
+import { Button, EmptyState, ICON_SM, Modal, TierBadge } from '@/components/ui/primitives'
 import { ACCESS_TIERS } from '@/lib/types'
 import { extrasOf } from '@/lib/consent'
 import { useServer } from '@/store/server'
@@ -86,7 +86,7 @@ export default function TelemetryWizard({
           <EmptyState
             title="Connect a cluster first"
             description="Telemetry is configured per cluster, and there is no approved cluster yet. Discovery comes first - connect one, then come back here."
-            action={<Button variant="primary" onClick={goConnect} data-testid="telemetry-wizard-connect"><Radio size={16} /> Connect a cluster</Button>}
+            action={<Button variant="primary" onClick={goConnect} data-testid="telemetry-wizard-connect"><Radio size={ICON_SM} /> Connect a cluster</Button>}
           />
         ) : (
           <div>
@@ -121,7 +121,7 @@ export default function TelemetryWizard({
         <div>
           {!agentId && approved.length > 1 && (
             <button type="button" className="mb-3 inline-flex items-center gap-1 text-xs text-nb-500 hover:text-nb-300" onClick={() => setPickedId(undefined)} data-testid="telemetry-wizard-back">
-              <ChevronLeft size={12} /> Change cluster
+              <ChevronLeft size={ICON_SM} /> Change cluster
             </button>
           )}
           <div className="mb-3 text-sm text-nb-300">

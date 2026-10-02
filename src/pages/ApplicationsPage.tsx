@@ -2,7 +2,7 @@ import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import ColumnPicker from '@/components/ColumnPicker'
 import { ApplicationForm, ConfirmModal } from '@/components/forms'
-import { Button, ChipList, EmptyState, PageHeader, Pill, SourceBadge, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, ChipList, EmptyState, ICON_SM, PageHeader, Pill, SourceBadge, Table, Td, Th } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
 import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { originLabel } from '@/lib/present'
@@ -33,7 +33,7 @@ export default function ApplicationsPage() {
         description="Services and devices grouped into the things your users care about. Groupings are declared by you or accepted from a suggestion; no agent observes them."
         actions={
           <Button variant="primary" onClick={() => setEditing('new')}>
-            <Plus size={16} /> Add application
+            <Plus size={ICON_SM} /> Add application
           </Button>
         }
       />
@@ -46,7 +46,7 @@ export default function ApplicationsPage() {
         <EmptyState
           title="No applications yet"
           description="No grouping exists yet. Discovery suggests one once agents report services, or create an application and assign services to it from the Services page."
-          action={<Button variant="primary" onClick={() => setEditing('new')}><Plus size={16} /> Add application</Button>}
+          action={<Button variant="primary" onClick={() => setEditing('new')}><Plus size={ICON_SM} /> Add application</Button>}
         />
       ) : (
         <Table>

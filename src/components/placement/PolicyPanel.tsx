@@ -1,5 +1,5 @@
 import { RotateCcw } from 'lucide-react'
-import { Button, Input } from '@/components/ui/primitives'
+import { Button, ICON_SM, Input } from '@/components/ui/primitives'
 import { DEFAULT_POLICY, type Policy } from '@/lib/placement/types'
 import { usePolicy } from '@/store/placement'
 
@@ -53,7 +53,7 @@ export default function PolicyPanel() {
         </div>
         <div className="mt-4">
           <Button size="sm" onClick={reset} disabled={!changed}>
-            <RotateCcw size={13} /> Back to the defaults
+            <RotateCcw size={ICON_SM} /> Back to the defaults
           </Button>
         </div>
       </div>

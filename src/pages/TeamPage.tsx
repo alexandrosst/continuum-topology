@@ -1,6 +1,6 @@
 import { ChevronRight, Copy, Link2, Trash2, UserPlus } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { Button, ErrorBanner, Field, Input, Modal, PageHeader, Pill, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
+import { Button, ErrorBanner, Field, ICON_SM, Input, Modal, PageHeader, Pill, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, ApiError, grantable, ROLE_HELP, ROLE_LABEL, type Invite, type Member, type Role } from '@/lib/api'
 import { useServer } from '@/store/server'
 
@@ -34,14 +34,14 @@ function InviteCreated({ token, invite, url, org, onClose }: { token: string; in
           <div className="mb-1 text-xs text-nb-500">Link</div>
           <div className="flex items-center gap-2 rounded-md border border-nb-800 bg-nb-925 px-3 py-2">
             <code className="flex-1 select-all break-all font-mono text-xs text-nb-300" data-testid="invite-link">{link}</code>
-            <Button size="sm" onClick={() => void copy('link', link)}><Link2 size={13} /> {copied === 'link' ? 'Copied' : 'Copy'}</Button>
+            <Button size="sm" onClick={() => void copy('link', link)}><Link2 size={ICON_SM} /> {copied === 'link' ? 'Copied' : 'Copy'}</Button>
           </div>
         </div>
         <div>
           <div className="mb-1 text-xs text-nb-500">Or just the code, for someone who already has an account</div>
           <div className="flex items-center gap-2 rounded-md border border-nb-800 bg-nb-925 px-3 py-2">
             <code className="flex-1 select-all break-all font-mono text-xs text-nb-300" data-testid="invite-code">{token}</code>
-            <Button size="sm" onClick={() => void copy('code', token)}><Copy size={13} /> {copied === 'code' ? 'Copied' : 'Copy'}</Button>
+            <Button size="sm" onClick={() => void copy('code', token)}><Copy size={ICON_SM} /> {copied === 'code' ? 'Copied' : 'Copy'}</Button>
           </div>
         </div>
       </div>
@@ -98,7 +98,7 @@ function Danger() {
       <div className="mt-6 max-w-lg rounded-lg border border-bad/30 bg-bad/10 p-4">
         <div className="text-sm font-medium text-bad">Delete this organisation</div>
         <p className="mt-1 text-xs text-nb-400">Erases its agents, topology, history and memberships for good. The people keep their accounts and their other organisations. The audit trail of who deleted it is kept.</p>
-        <Button className="mt-3" variant="danger" onClick={() => { setConfirm(''); setOpen(true) }} data-testid="org-delete"><Trash2 size={14} /> Delete organisation…</Button>
+        <Button className="mt-3" variant="danger" onClick={() => { setConfirm(''); setOpen(true) }} data-testid="org-delete"><Trash2 size={ICON_SM} /> Delete organisation…</Button>
       </div>
       <Modal
         open={open}
@@ -182,7 +182,7 @@ export default function TeamPage() {
       <PageHeader
         title="Members & access"
         description={`People in ${info?.orgName ?? 'this organisation'}. Everything here (clusters, agents, history, settings) belongs to this organisation alone; nobody outside it can see it.`}
-        actions={canInvite ? <Button variant="primary" onClick={() => { setInvRole(mine.includes('viewer') ? 'viewer' : mine[0]); setInviting(true) }} data-testid="invite-open"><UserPlus size={16} /> Invite someone</Button> : undefined}
+        actions={canInvite ? <Button variant="primary" onClick={() => { setInvRole(mine.includes('viewer') ? 'viewer' : mine[0]); setInviting(true) }} data-testid="invite-open"><UserPlus size={ICON_SM} /> Invite someone</Button> : undefined}
       />
       <ErrorLine text={error} />
 
@@ -261,7 +261,7 @@ export default function TeamPage() {
 
       <details className="group mt-10">
         <summary className="flex cursor-pointer select-none items-center gap-1.5 text-sm font-medium text-nb-300 marker:content-none">
-          <ChevronRight size={14} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
+          <ChevronRight size={ICON_SM} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
           What each role can do
         </summary>
         <dl className="mt-3 grid max-w-3xl gap-x-6 gap-y-2 pl-[1.375rem] text-sm sm:grid-cols-[8rem_1fr]">

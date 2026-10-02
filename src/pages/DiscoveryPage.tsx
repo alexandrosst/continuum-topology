@@ -7,7 +7,7 @@ import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
 import { GroupingPicker } from '@/components/GroupingPicker'
 import { GoneRecords, ObservedClusters } from '@/components/Observations'
-import { Button, EmptyState, PageHeader, Pill } from '@/components/ui/primitives'
+import { Button, EmptyState, ICON_SM, PageHeader, Pill } from '@/components/ui/primitives'
 import type { GroupingAlternative, Suggestion } from '@/lib/types'
 import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { useApprovalLocks } from '@/store/approvalLocks'
@@ -63,7 +63,7 @@ export default function DiscoveryPage() {
         actions={
           canAdminister && (
             <Button variant="primary" onClick={connect.start}>
-              <Plug size={16} /> Connect a cluster
+              <Plug size={ICON_SM} /> Connect a cluster
             </Button>
           )
         }
@@ -72,7 +72,7 @@ export default function DiscoveryPage() {
       {!connected && (
         <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-nb-850 bg-nb-925 px-5 py-3" data-testid="server-status">
           <div className="flex items-center gap-3 text-sm text-nb-400">
-            <PlugZap size={16} className="shrink-0 text-nb-500" />
+            <PlugZap size={ICON_SM} className="shrink-0 text-nb-500" />
             {server.status === 'error' ? server.error : 'Not connected to a Continuum server. Without one you can still model topologies by hand.'}
           </div>
           <Button size="sm" onClick={connect.start}>Connect to server</Button>
@@ -84,13 +84,13 @@ export default function DiscoveryPage() {
       {needAttention > 0 && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn/5 px-5 py-3" role="status" data-testid="approvals-banner">
           <p className="flex items-center gap-2.5 text-sm text-warn">
-            <KeyRound size={16} className="shrink-0" aria-hidden />
+            <KeyRound size={ICON_SM} className="shrink-0" aria-hidden />
             {waiting.length > 0
               ? `${waiting.length} cluster${waiting.length === 1 ? ' is' : 's are'} waiting for approval.${canAdminister ? '' : ' An administrator has to approve it.'}`
               : `${rejectedLocked.length} request${rejectedLocked.length === 1 ? ' was' : 's were'} rejected after too many wrong codes.`}
           </p>
           <Link to="/agents#approvals" className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline" data-testid="review-approvals">
-            {canAdminister ? 'Review on Agents' : 'See on Agents'} <ArrowRight size={14} aria-hidden />
+            {canAdminister ? 'Review on Agents' : 'See on Agents'} <ArrowRight size={ICON_SM} aria-hidden />
           </Link>
         </div>
       )}
@@ -108,7 +108,7 @@ export default function DiscoveryPage() {
             <EmptyState
               title="Nothing found yet"
               description="No cluster is connected yet, so no agent has reported anything. What agents find (new devices, outside endpoints, suggested groupings) is listed here for you to accept or dismiss."
-              action={!showStarted && canAdminister ? <Button variant="primary" onClick={connect.start}><Plug size={16} /> Connect a cluster</Button> : undefined}
+              action={!showStarted && canAdminister ? <Button variant="primary" onClick={connect.start}><Plug size={ICON_SM} /> Connect a cluster</Button> : undefined}
             />
           ) : (
             <EmptyState title="Nothing to review" description="The connected agents have no new devices, outside endpoints or groupings to suggest at the moment. Anything they find later is listed here." />
@@ -140,7 +140,7 @@ export default function DiscoveryPage() {
               </div>
               <div className="flex shrink-0 gap-2">
                 <Button size="sm" onClick={() => decide(s, 'dismissed')} aria-label={`Dismiss ${s.title}`}>
-                  <X size={14} /> Dismiss
+                  <X size={ICON_SM} /> Dismiss
                 </Button>
                 {s.apply?.type === 'connect-cluster' ? (
                   canAdminister && (
@@ -154,12 +154,12 @@ export default function DiscoveryPage() {
                       aria-label={`Connect ${s.title}`}
                       data-testid="connect-suspicion"
                     >
-                      <Plug size={14} /> Connect it
+                      <Plug size={ICON_SM} /> Connect it
                     </Button>
                   )
                 ) : (
                   <Button size="sm" variant="primary" onClick={() => decide(s, 'accepted')} aria-label={`${s.apply ? 'Accept' : 'Acknowledge'} ${s.title}`}>
-                    <Check size={14} /> {s.apply ? 'Accept' : 'Acknowledge'}
+                    <Check size={ICON_SM} /> {s.apply ? 'Accept' : 'Acknowledge'}
                   </Button>
                 )}
               </div>
@@ -175,7 +175,7 @@ export default function DiscoveryPage() {
             {waiting.length > 0 && <span className="text-warn"> · {waiting.length} waiting for approval</span>}
           </p>
           <Link to="/agents" className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline" data-testid="see-agents">
-            Agents: enrollment, approval, observability intent and health <ArrowRight size={14} aria-hidden />
+            Agents: enrollment, approval, observability intent and health <ArrowRight size={ICON_SM} aria-hidden />
           </Link>
         </div>
       )}

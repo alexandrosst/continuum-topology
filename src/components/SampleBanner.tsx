@@ -1,7 +1,7 @@
 import { FlaskConical, X } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button } from '@/components/ui/primitives'
+import { Button, ICON_MD, ICON_SM } from '@/components/ui/primitives'
 import { isSampleData } from '@/lib/seed'
 import { useServer } from '@/store/server'
 import { useRawTopology } from '@/store/topology'
@@ -36,14 +36,14 @@ export default function SampleBanner() {
   }
   return (
     <div role="status" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-accent/25 bg-accent-soft px-4 py-2.5 text-sm text-nb-300 sm:px-6" data-testid="sample-banner">
-      <FlaskConical size={16} className="shrink-0 text-accent" aria-hidden />
+      <FlaskConical size={ICON_SM} className="shrink-0 text-accent" aria-hidden />
       <span className="min-w-[60%] flex-1 basis-56">
         <strong className="font-medium text-nb-300">Sample data.</strong> This is a made-up cloud → edge → far-edge example, not your infrastructure. Connect a cluster to see the real thing.
       </span>
       <span className="flex items-center gap-2">
         <Button size="sm" variant="primary" onClick={() => navigate('/discovery?connect=1')}>Connect a cluster</Button>
         <Button size="sm" onClick={() => { clear(); dismiss() }}>Start empty</Button>
-        <button onClick={dismiss} aria-label="Dismiss" className="rounded p-1 text-nb-500 hover:bg-nb-930 hover:text-nb-300"><X size={14} /></button>
+        <button onClick={dismiss} aria-label="Dismiss" className="rounded p-1 text-nb-500 hover:bg-nb-930 hover:text-nb-300"><X size={ICON_MD} /></button>
       </span>
     </div>
   )

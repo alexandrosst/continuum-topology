@@ -10,7 +10,7 @@ import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
 import EntityHistory from '@/components/EntityHistory'
 import { ConfirmModal } from '@/components/forms'
 import { DistroIcon, Flag, WithIcon } from '@/components/ui/brand'
-import { Button, EmptyState, ErrorBanner, PageHeader, PulseDot, StatTile, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
+import { Button, EmptyState, ErrorBanner, ICON_SM, PageHeader, PulseDot, StatTile, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
 import { api, ApiError } from '@/lib/api'
 import { skewLabel, skewWarning } from '@/lib/clock'
 import { extrasOf, type AgentExtras } from '@/lib/consent'
@@ -139,12 +139,12 @@ export default function AgentsPage() {
                 disabled={!agents.some((a) => a.status === 'approved')}
                 title={agents.some((a) => a.status === 'approved') ? undefined : 'Connect a cluster first'}
               >
-                <Radio size={16} /> Configure telemetry
+                <Radio size={ICON_SM} /> Configure telemetry
               </Button>
             )}
             {canAdminister && (
               <Button variant="primary" onClick={connect.start}>
-                <Plug size={16} /> Connect a cluster
+                <Plug size={ICON_SM} /> Connect a cluster
               </Button>
             )}
           </>
@@ -173,7 +173,7 @@ export default function AgentsPage() {
         <EmptyState
           title="No cluster is connected yet"
           description="Agents run inside your clusters and report to this server. Connect a cluster to install one: it dials out to this server, and nothing is read until you approve it."
-          action={canAdminister ? <Button variant="primary" onClick={connect.start}><Plug size={16} /> Connect a cluster</Button> : undefined}
+          action={canAdminister ? <Button variant="primary" onClick={connect.start}><Plug size={ICON_SM} /> Connect a cluster</Button> : undefined}
         />
       ) : (
         <>
@@ -209,7 +209,7 @@ export default function AgentsPage() {
                   className={clsx('flex items-center gap-1.5 px-3 py-1.5 text-sm', map === id ? 'bg-nb-940 text-nb-300' : 'text-nb-400 hover:text-nb-300')}
                   data-testid={`agents-${label.toLowerCase()}`}
                 >
-                  <I size={14} aria-hidden /> {label}
+                  <I size={ICON_SM} aria-hidden /> {label}
                 </button>
               ))}
             </div>
@@ -247,7 +247,7 @@ export default function AgentsPage() {
                       >
                         <Td valign="top">
                           <div className="flex items-center gap-2 whitespace-nowrap font-medium text-nb-300">
-                            {expanded ? <ChevronDown size={14} className="text-nb-500" aria-hidden /> : <ChevronRight size={14} className="text-nb-500" aria-hidden />}
+                            {expanded ? <ChevronDown size={ICON_SM} className="text-nb-500" aria-hidden /> : <ChevronRight size={ICON_SM} className="text-nb-500" aria-hidden />}
                             {a.name}
                           </div>
                           <div className="pl-[22px] text-xs text-nb-500">v{a.version}{a.kubernetesVersion ? ` · Kubernetes ${a.kubernetesVersion}` : ''}</div>
@@ -256,7 +256,7 @@ export default function AgentsPage() {
                           {c ? (
                             <>
                               <Link to={`/topology?sel=${encodeURIComponent(`cluster:${c.id}`)}`} onClick={(e) => e.stopPropagation()} className="hover:text-nb-300 hover:underline">
-                                <WithIcon icon={<DistroIcon distribution={c.distribution} size={16} />}>{c.name}</WithIcon>
+                                <WithIcon icon={<DistroIcon distribution={c.distribution} size={ICON_SM} />}>{c.name}</WithIcon>
                               </Link>
                               <div className="mt-0.5 flex items-center gap-2 text-xs text-nb-500"><TierBadge tier={c.tier as Tier} />{s?.name ?? c.region}</div>
                               {a.scope && a.scope.inScope < a.scope.namespaces && (
@@ -588,7 +588,7 @@ function AgentMap({ rows, clusterOf, selected, onSelect }: { rows: { a: Agent; h
         <g transform={`translate(${hub.x - 70} ${hub.y - 20})`}>
           <rect width={140} height={40} rx={10} style={{ fill: 'var(--color-nb-920)', stroke: 'var(--color-accent)' }} strokeWidth={1.4} />
           <foreignObject x={0} y={0} width={140} height={40}>
-            <div className="flex h-full items-center justify-center gap-2 text-sm font-medium text-nb-300"><Server size={15} className="text-accent" aria-hidden /> This server</div>
+            <div className="flex h-full items-center justify-center gap-2 text-sm font-medium text-nb-300"><Server size={ICON_SM} className="text-accent" aria-hidden /> This server</div>
           </foreignObject>
         </g>
         {labels.map((l) => (

@@ -9,7 +9,7 @@ import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
 import ServiceAdvice from '@/components/placement/ServiceAdvice'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
-import { Button, CompletenessBadge, DetailRow, Input, IpAddress, ObservationChip, Pill, Select, SourceBadge, StatusDot, TierBadge } from '@/components/ui/primitives'
+import { Button, CompletenessBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, ObservationChip, Pill, Select, SourceBadge, StatusDot, TierBadge } from '@/components/ui/primitives'
 import { completeness } from '@/lib/completeness'
 import { observation, TONE_CLASS } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
@@ -361,10 +361,10 @@ export default function Inspector({
       <>
         <Section title="Identity">
           <Row label="Distribution" badge={!!c.overrides?.distribution && <Confirmed meta={c.overrideMeta?.distribution} />}>
-            <WithIcon icon={<DistroIcon distribution={c.distribution} size={16} />}>{c.distribution} {c.version}</WithIcon>
+            <WithIcon icon={<DistroIcon distribution={c.distribution} size={ICON_SM} />}>{c.distribution} {c.version}</WithIcon>
           </Row>
           <Row label="Provider" badge={!!c.overrides?.provider && <Confirmed meta={c.overrideMeta?.provider} />}>
-            {c.provider ? <WithIcon icon={<ProviderIcon provider={c.provider} size={16} />}>{c.provider}</WithIcon> : '—'}
+            {c.provider ? <WithIcon icon={<ProviderIcon provider={c.provider} size={ICON_SM} />}>{c.provider}</WithIcon> : '—'}
           </Row>
           <Maybe label="Age">{c.createdAt ? `${ageLabel(c.createdAt)} (${new Date(c.createdAt).toLocaleDateString()})` : undefined}</Maybe>
           <Maybe label="Trust zone · residency">{[c.trustZone, c.dataResidency].filter(Boolean).join(' · ')}</Maybe>
@@ -1144,11 +1144,11 @@ export default function Inspector({
         <div className="flex shrink-0 items-center gap-1">
           {editable && !inPast && (
             <Button variant="ghost" size="sm" onClick={() => onEdit(selection)} aria-label="Edit">
-              <Pencil size={14} /> Edit
+              <Pencil size={ICON_SM} /> Edit
             </Button>
           )}
           <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close inspector">
-            <X size={14} />
+            <X size={ICON_MD} />
           </Button>
         </div>
       </div>

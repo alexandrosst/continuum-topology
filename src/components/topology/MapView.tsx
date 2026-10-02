@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom'
 import { feature } from 'topojson-client'
 import type { GeometryCollection, Topology } from 'topojson-specification'
 import type { Selection } from '@/components/topology/Inspector'
-import { EmptyState, Pill, StatusDot, TierBadge } from '@/components/ui/primitives'
+import { EmptyState, ICON_MD, Pill, StatusDot, TierBadge } from '@/components/ui/primitives'
 import { buildMapSites, type SiteConnection, clampPan, dominantTier, groupByProximity, groupLabel, siteConnections, unplacedClusters, type MapSite } from '@/lib/geo'
 import { applyFilter, filterActive, knownOnly, type Filter } from '@/lib/filter'
 import { lossBand, rttLabel, clusterLoad, type ClusterLoad } from '@/lib/metrics'
@@ -517,9 +517,9 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
 
       {/* zoom */}
       <div className="absolute right-3 top-3 flex flex-col overflow-hidden rounded-lg border border-nb-850 bg-nb-925/95">
-        <button aria-label="Zoom in" onClick={() => flyTo({ ...zoomTarget(view, 1.8) })} className="grid size-8 place-items-center text-nb-400 hover:bg-nb-940 hover:text-nb-300"><Plus size={15} /></button>
-        <button aria-label="Zoom out" onClick={() => flyTo({ ...zoomTarget(view, 1 / 1.8) })} className="grid size-8 place-items-center border-t border-nb-850 text-nb-400 hover:bg-nb-940 hover:text-nb-300"><Minus size={15} /></button>
-        <button aria-label="Show the whole world" onClick={() => flyTo({ k: 1, x: 0, y: 0 })} className="grid size-8 place-items-center border-t border-nb-850 text-nb-400 hover:bg-nb-940 hover:text-nb-300"><Home size={14} /></button>
+        <button aria-label="Zoom in" onClick={() => flyTo({ ...zoomTarget(view, 1.8) })} className="grid size-8 place-items-center text-nb-400 hover:bg-nb-940 hover:text-nb-300"><Plus size={ICON_MD} /></button>
+        <button aria-label="Zoom out" onClick={() => flyTo({ ...zoomTarget(view, 1 / 1.8) })} className="grid size-8 place-items-center border-t border-nb-850 text-nb-400 hover:bg-nb-940 hover:text-nb-300"><Minus size={ICON_MD} /></button>
+        <button aria-label="Show the whole world" onClick={() => flyTo({ k: 1, x: 0, y: 0 })} className="grid size-8 place-items-center border-t border-nb-850 text-nb-400 hover:bg-nb-940 hover:text-nb-300"><Home size={ICON_MD} /></button>
       </div>
 
       {/* what is not on the map */}

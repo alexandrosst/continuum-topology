@@ -3,7 +3,7 @@ import { useState } from 'react'
 import ColumnPicker from '@/components/ColumnPicker'
 import { ConfirmModal, DeviceForm } from '@/components/forms'
 import { DEVICE_ICON } from '@/components/topology/nodes'
-import { Button, EmptyState, PageHeader, Pill, Select, SourceBadge, StatusDot, Table, Td, Th } from '@/components/ui/primitives'
+import { Button, EmptyState, ICON_SM, PageHeader, Pill, Select, SourceBadge, StatusDot, Table, Td, Th } from '@/components/ui/primitives'
 import { hasOverrides } from '@/lib/effective'
 import { useColumnVisibility, type ColumnDef } from '@/lib/columns'
 import { CONNECTIVITY, DEVICE_KINDS, type Device } from '@/lib/types'
@@ -42,7 +42,7 @@ export default function DevicesPage() {
         description={`Sensors, cameras, PLCs and other things that belong to an application but do not run on Kubernetes. Nothing observes them, so each shows what was declared. ${devices.length ? `${devices.length} groups, ${units} units.` : ''}`}
         actions={
           <Button variant="primary" onClick={() => setEditing('new')}>
-            <Plus size={16} /> Add device
+            <Plus size={ICON_SM} /> Add device
           </Button>
         }
       />
@@ -62,7 +62,7 @@ export default function DevicesPage() {
         <EmptyState
           title="No devices yet"
           description="Add a device group, for example the temperature sensors at a site. Devices show up in the Application view next to the services they talk to."
-          action={<Button variant="primary" onClick={() => setEditing('new')}><Plus size={16} /> Add device</Button>}
+          action={<Button variant="primary" onClick={() => setEditing('new')}><Plus size={ICON_SM} /> Add device</Button>}
         />
       ) : (
         <Table>
@@ -87,7 +87,7 @@ export default function DevicesPage() {
               return (
                 <tr key={d.id} className="group hover:bg-nb-930/60">
                   <Td className="font-medium text-nb-300">
-                    <span className="inline-flex items-center gap-2"><Icon size={14} className="text-nb-500" />{d.name}</span>
+                    <span className="inline-flex items-center gap-2"><Icon size={ICON_SM} className="text-nb-500" />{d.name}</span>
                     <SourceBadge source={d.source} overridden={hasOverrides(d)} />
                     {gw && <div className="whitespace-nowrap pl-6 text-xs font-normal text-nb-500">attached to {gw.name}</div>}
                   </Td>

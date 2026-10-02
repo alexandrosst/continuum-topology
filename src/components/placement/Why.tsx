@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { ChevronDown, ChevronRight, CircleHelp, Check, X } from 'lucide-react'
 import { useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { EvidenceChip, ObservationChip } from '@/components/ui/primitives'
+import { EvidenceChip, ICON_SM, ObservationChip } from '@/components/ui/primitives'
 import { formatFactValue, type Class, type FactRow, type Fix, type Verdict } from '@/lib/advice'
 import { factName, inputsSummary, obsOfState } from '@/lib/placement/why'
 import { ageLabel } from '@/lib/provenance'
@@ -20,7 +20,7 @@ export function FitBadge({ verdict, className }: { verdict: Verdict; className?:
   const { label, tone, Icon, help } = FIT[verdict]
   return (
     <span className={clsx('inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium', tone, className)} title={help} data-testid="fit-badge" data-verdict={verdict}>
-      <Icon size={12} aria-hidden /> {label}
+      <Icon size={ICON_SM} aria-hidden /> {label}
     </span>
   )
 }
@@ -33,7 +33,7 @@ export function Hedge({ level, inputs, verdict }: { level: 'low' | 'none' | 'med
   const s = inputsSummary(inputs)
   return (
     <p className="flex items-start gap-2 rounded-lg border border-dashed border-warn/50 bg-warn/5 px-3 py-2 text-sm text-warn" role="note" data-testid="hedge" data-level={level}>
-      <CircleHelp size={15} className="mt-0.5 shrink-0" aria-hidden />
+      <CircleHelp size={ICON_SM} className="mt-0.5 shrink-0" aria-hidden />
       <span>
         <span className="font-medium">Not enough evidence to recommend</span>
         {s && <> — {s}</>}.{verdict === 'cantTell' && ' Whether it fits could not be told.'} Treat this as a hint, not the best option, and check before acting.
@@ -122,7 +122,7 @@ export function Why({ facts, wouldChange, fixes = [], sensitivity = [], now, lab
   return (
     <div className="mt-2 text-xs" data-testid="why">
       <button type="button" onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1 text-nb-400 hover:text-nb-300" aria-expanded={open} aria-controls={id} data-testid="why-toggle">
-        {open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />} {label}
+        {open ? <ChevronDown size={ICON_SM} aria-hidden /> : <ChevronRight size={ICON_SM} aria-hidden />} {label}
         {n > 0 && <span className="text-nb-600">({n} fact{n === 1 ? '' : 's'})</span>}
       </button>
       {open && (

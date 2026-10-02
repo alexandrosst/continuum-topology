@@ -40,7 +40,7 @@ import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
 import { nodeTypes } from '@/components/topology/nodes'
 import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
-import { Button, EmptyState, MenuPanel, Select, SkeletonBlock } from '@/components/ui/primitives'
+import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock } from '@/components/ui/primitives'
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu from '@/components/topology/FilterMenu'
 import { api } from '@/lib/api'
@@ -688,7 +688,7 @@ function Canvas() {
               title="Show only this service's neighborhood: what it calls and what calls it, this many steps out"
               data-testid="hops-control"
             >
-              <Target size={13} className="ml-0.5 shrink-0 text-nb-500" aria-hidden />
+              <Target size={ICON_SM} className="ml-0.5 shrink-0 text-nb-500" aria-hidden />
               {[1, 2, 3].map((n) => (
                 <button
                   key={n}
@@ -713,7 +713,7 @@ function Canvas() {
                   aria-label="Clear neighborhood filter"
                   data-testid="hops-clear"
                 >
-                  <X size={12} />
+                  <X size={ICON_MD} />
                 </button>
               )}
             </div>
@@ -748,7 +748,7 @@ function Canvas() {
           {!isMap && (
             <div className="relative">
               <Button onClick={() => toggleMenu('options')} aria-expanded={openMenu === 'options'} aria-haspopup="true" data-testid="view-options">
-                <SlidersHorizontal size={15} /> <span className="hidden sm:inline">Options</span>
+                <SlidersHorizontal size={ICON_SM} /> <span className="hidden sm:inline">Options</span>
                 {changedOptions > 0 && <span className="rounded-full bg-accent-soft px-1.5 text-[11px] font-medium text-accent">{changedOptions}</span>}
               </Button>
               <MenuPanel open={openMenu === 'options'} onClose={() => setOpenMenu(null)} className="w-72 p-2" role="group" aria-label="View options">
@@ -863,7 +863,7 @@ function Canvas() {
               title="Reset the canvas layout - snaps every entity back to its computed position. Your view options (filters, grouping, toggles) are untouched."
               data-testid="reset-layout"
             >
-              <RotateCcw size={15} /> <span className="hidden sm:inline">Reset layout</span>
+              <RotateCcw size={ICON_SM} /> <span className="hidden sm:inline">Reset layout</span>
             </Button>
           )}
 
@@ -874,7 +874,7 @@ function Canvas() {
               title="Save the current canvas as a PNG image, at its full extent (not just what's on screen)"
               data-testid="export-png"
             >
-              <Download size={15} /> <span className="hidden sm:inline">{exportingPng ? 'Exporting…' : 'Export PNG'}</span>
+              <Download size={ICON_SM} /> <span className="hidden sm:inline">{exportingPng ? 'Exporting…' : 'Export PNG'}</span>
             </Button>
           )}
 
@@ -886,13 +886,13 @@ function Canvas() {
               title={pickMode ? 'Cancel - click a service or cluster to scope it, or press Escape' : 'Pick a service or cluster on the canvas to configure its telemetry, without selecting it first'}
               data-testid="pick-scope"
             >
-              <Target size={15} /> <span className="hidden sm:inline">Pick from canvas</span>
+              <Target size={ICON_SM} /> <span className="hidden sm:inline">Pick from canvas</span>
             </Button>
           )}
 
           <div className="relative">
             <Button variant="primary" onClick={() => toggleMenu('add')} disabled={inPast} title={inPast ? 'Return to now to add or change things' : undefined}>
-              <Plus size={16} /> Add <ChevronDown size={14} />
+              <Plus size={ICON_SM} /> Add <ChevronDown size={ICON_SM} />
             </Button>
             <MenuPanel open={openMenu === 'add'} onClose={() => setOpenMenu(null)} className="w-48 overflow-hidden p-1">
               {[
@@ -910,7 +910,7 @@ function Canvas() {
                   }}
                   className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-nb-300 hover:bg-nb-940 disabled:opacity-40 disabled:hover:bg-transparent"
                 >
-                  <Icon size={15} className="text-nb-500" /> {label}
+                  <Icon size={ICON_SM} className="text-nb-500" /> {label}
                 </button>
               ))}
             </MenuPanel>
@@ -925,7 +925,7 @@ function Canvas() {
               <EmptyState
                 title="Nothing matches this filter"
                 description="None of the chosen clusters run the chosen applications. Widen the filter, or clear it to see everything again."
-                action={<Button onClick={() => setSp((p) => { const n = new URLSearchParams(p); n.delete('clusters'); n.delete('apps'); return n }, { replace: true })} data-testid="clear-filter"><FilterIcon size={15} /> Clear the filter</Button>}
+                action={<Button onClick={() => setSp((p) => { const n = new URLSearchParams(p); n.delete('clusters'); n.delete('apps'); return n }, { replace: true })} data-testid="clear-filter"><FilterIcon size={ICON_SM} /> Clear the filter</Button>}
               />
             </div>
           ) : empty ? (
@@ -939,7 +939,7 @@ function Canvas() {
                   <GettingStarted variant="hero" checklist={started.checklist} onConnect={connect.start} />
                   <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-nb-500">
                     or describe a cluster yourself
-                    <Button size="sm" onClick={() => setForm({ type: 'cluster' })}><Plus size={14} /> Add manually</Button>
+                    <Button size="sm" onClick={() => setForm({ type: 'cluster' })}><Plus size={ICON_SM} /> Add manually</Button>
                   </div>
                 </div>
               ) : (
@@ -949,9 +949,9 @@ function Canvas() {
                   action={
                     <div className="flex flex-wrap justify-center gap-2">
                       <Button variant="primary" onClick={connect.start} data-testid="empty-connect">
-                        <Plug size={16} /> Connect a cluster
+                        <Plug size={ICON_SM} /> Connect a cluster
                       </Button>
-                      <Button onClick={() => setForm({ type: 'cluster' })}><Plus size={16} /> Add manually</Button>
+                      <Button onClick={() => setForm({ type: 'cluster' })}><Plus size={ICON_SM} /> Add manually</Button>
                     </div>
                   }
                 />
@@ -1167,7 +1167,7 @@ function Canvas() {
                     <>
                       <span className="h-3 w-px bg-nb-800" />
                       <span className="flex items-center gap-1.5" title="This badge on a cluster box means a local operator (an approved agent with telemetry signals on) is running there - click it to configure">
-                        <Antenna size={11} className="text-accent" />
+                        <Antenna size={ICON_SM} className="text-accent" />
                         Local telemetry
                       </span>
                     </>
