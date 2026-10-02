@@ -404,16 +404,22 @@ func buildAddrIndex(cs []observedCluster) *addrIndex {
 					// addresses as the ingress IP and then bind the service's port on that node's
 					// host network - which means every address that node has, including one never
 					// reported as an ingress address at all, such as a Netbird/Tailscale mesh peer
-					// address. Recorded by (cluster, port) alone, the same as node-port just above and
-					// for the same reason: resolveExternal only ever consults this after it already
-					// knows the destination address belongs to one of this cluster's own nodes (via
-					// nodeIPs), so a dedicated, per-service load-balancer VIP (MetalLB and similar)
-					// can never be misattributed this way - a real VIP is never also one of a node's
-					// own reported addresses.
-					if ix.nodePorts[c.id] == nil {
-						ix.nodePorts[c.id] = map[int32][]string{}
+					// address. Only extended to (cluster, port) the way node-port already is when the
+					// reported ingress address is itself provably one of this cluster's own node
+					// addresses (checked against nodeIPs, already fully populated for this cluster by
+					// the node loop above, which always runs first within this same iteration) - a
+					// dedicated, per-service load balancer VIP (MetalLB's L2/BGP mode, a cloud LB) is
+					// never also one of a node's own reported addresses, so it is deliberately left
+					// out of this fallback and kept to the exact ip:port match above; collapsing the
+					// two would let an unrelated connection that merely happens to reach some node on
+					// a VIP's port number be misattributed to that VIP's workload, which an exact-IP
+					// mismatch should instead leave unresolved.
+					if slices.Contains(ix.nodeIPs[a.Ip], c.id) {
+						if ix.nodePorts[c.id] == nil {
+							ix.nodePorts[c.id] = map[int32][]string{}
+						}
+						ix.nodePorts[c.id][a.Port] = append(ix.nodePorts[c.id][a.Port], w.Key)
 					}
-					ix.nodePorts[c.id][a.Port] = append(ix.nodePorts[c.id][a.Port], w.Key)
 				default:
 					k := fmt.Sprintf("%s:%d", a.Ip, a.Port)
 					ix.reach[k] = append(ix.reach[k], target{c.id, w.Key})

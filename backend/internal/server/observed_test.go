@@ -293,6 +293,52 @@ func TestObservedTopologyResolvesLoadBalancerServiceOverTunnelAddress(t *testing
 	}
 }
 
+func TestObservedTopologyNeverAttributesADedicatedLoadBalancerVIPToANodeAddress(t *testing.T) {
+	// The flip side of the klipper-lb case above: a true dedicated-VIP load balancer (MetalLB's L2/BGP
+	// mode, a cloud LB) whose reported ingress address is its own floating IP, never one of the
+	// cluster's node addresses. Sharing a port number with an unrelated, genuinely host-network-bound
+	// load balancer in the same cluster must not let a connection to a node's own address (here, its
+	// Netbird tunnel address) on that port get attributed to the VIP's workload - only to the
+	// host-network-bound one, since only its own ingress IP is actually one of the node's own.
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	seenAt := now.Add(-1 * time.Minute)
+	hostBound := &continuumv1.Address{Ip: "10.0.0.9", Port: 9000, Kind: "load-balancer"} // == the node's own address
+	dedicatedVIP := &continuumv1.Address{Ip: "203.0.113.50", Port: 9000, Kind: "load-balancer"} // a floating VIP, same port, never a node address
+	caller := cluster("caller-cluster", "", nil, wk("app", "Deployment", "client"))
+	target := cluster("target-cluster", "",
+		[]*continuumv1.NodeFacts{{
+			Key:         "n1",
+			InternalIps: []string{"10.0.0.9"},
+			Probe: &continuumv1.HostProbe{
+				Tunnels: []*continuumv1.TunnelInterface{
+					{Name: "wt0", Kind: "wireguard", Addresses: []string{"100.64.0.9/10"}, Up: true},
+				},
+			},
+		}},
+		wk("app", "Deployment", "hostbound-server", hostBound),
+		wk("app", "Deployment", "vip-server", dedicatedVIP))
+
+	client := "app/Deployment/client"
+	hostboundSv := "app/Deployment/hostbound-server"
+	feed(&caller, seenAt, 60, flowOf(wep(client), xep("100.64.0.9"), 9000, 3))
+
+	deps, _ := observedTopology("org", []observedCluster{caller, target}, now, 24*time.Hour)
+	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
+
+	var found *model.Dependency
+	for i := range deps {
+		if deps[i].From == sv("caller-cluster", client) {
+			found = &deps[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected a resolved dependency to the host-network-bound workload, got none: deps=%+v", deps)
+	}
+	if found.To != sv("target-cluster", hostboundSv) {
+		t.Fatalf("resolved to %q, want the host-network-bound workload %q (never the dedicated-VIP one sharing its port)", found.To, sv("target-cluster", hostboundSv))
+	}
+}
+
 func TestObservedTopologyKeepsDifferentProtocolsOnTheSameServiceAndPortSeparate(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	edge := cluster("edge", "", nil, wk("iot", "Deployment", "ingest"), wk("kube-system", "Deployment", "dns"))
