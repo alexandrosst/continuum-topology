@@ -4,7 +4,7 @@ import { completeness } from '../src/lib/completeness'
 import { mergeDiscovered, normalizeServerState, type ServerAgent, type ServerState } from '../src/lib/discovered'
 import { applyEdit, applyEffective, confirmOverride, effective } from '../src/lib/effective'
 import { normalize, upgrade } from '../src/lib/migrate'
-import { accelSummary, ageLabel, autoscalerRange, countryName, disruptionLabel, ipScope, linkUtilizationPct, podsLabel, podsPercent, distroKey, formatCpu, formatMemory, loadBand, placeLabel, providerKey, requestedPercent, shortVersion } from '../src/lib/present'
+import { accelSummary, ageLabel, autoscalerRange, callerIfaceSpeedMbps, countryName, disruptionLabel, ipScope, linkUtilizationPct, podsLabel, podsPercent, distroKey, formatCpu, formatMemory, loadBand, placeLabel, providerKey, requestedPercent, shortVersion } from '../src/lib/present'
 import { buildMapSites, clampPan, dominantTier, exitIps, groupByProximity, groupLabel, siteConnections, unplacedClusters, worstStatus } from '../src/lib/geo'
 import { buildIndex, countryAt, countryShapes, derivePlacementSuggestions, distanceKm, findCities, fold, nearestCity, parseCities, placementCandidates, siteFromCandidate, siteLocationIssue } from '../src/lib/places'
 import { EXONYMS } from '../src/data/exonyms'
@@ -520,6 +520,25 @@ test('linkUtilizationPct: % of a rated link speed actually in use, undefined whe
   assert.equal(linkUtilizationPct(NaN, 1000), undefined)
   // Deliberately uncapped above 100%: real oversubscription/measurement noise is worth showing as-is.
   assert.equal(linkUtilizationPct(250_000_000, 1000), 200)
+})
+
+test("callerIfaceSpeedMbps: a dependency's own interface capacity, resolved from the calling service's node(s), never guessed when ambiguous", () => {
+  const nodeById = new Map([
+    ['n-1', { networkInterfaces: [{ name: 'eth0', kind: 'ethernet', speedMbps: 1000 }] }],
+    ['n-2', { networkInterfaces: [{ name: 'eth0', kind: 'ethernet', speedMbps: 1000 }] }],
+    ['n-3', { networkInterfaces: [{ name: 'eth0', kind: 'ethernet', speedMbps: 100 }] }],
+    ['n-4', { networkInterfaces: [{ name: 'wlan0', kind: 'wifi', speedMbps: 300 }] }],
+    ['n-5', { networkInterfaces: [] }],
+  ])
+  assert.equal(callerIfaceSpeedMbps('eth0', ['n-1'], nodeById), 1000, 'the one node this service runs on')
+  assert.equal(callerIfaceSpeedMbps('eth0', ['n-1', 'n-2'], nodeById), 1000, 'every node agrees - still unambiguous')
+  assert.equal(callerIfaceSpeedMbps('eth0', ['n-1', 'n-3'], nodeById), undefined, 'different hardware behind two replicas disagree on eth0 - never guessed')
+  assert.equal(callerIfaceSpeedMbps('eth0', ['n-4'], nodeById), undefined, "that node has no eth0 at all")
+  assert.equal(callerIfaceSpeedMbps('eth0', ['n-5'], nodeById), undefined, 'a node with no interfaces reported')
+  assert.equal(callerIfaceSpeedMbps(undefined, ['n-1'], nodeById), undefined, 'no interface named at all')
+  assert.equal(callerIfaceSpeedMbps('eth0', undefined, nodeById), undefined, 'no nodes to resolve against (an external/device caller)')
+  assert.equal(callerIfaceSpeedMbps('eth0', [], nodeById), undefined)
+  assert.equal(callerIfaceSpeedMbps('eth0', ['does-not-exist'], nodeById), undefined)
 })
 
 test('a site typed with a lowercase country code is normalized when loaded', () => {
@@ -1574,6 +1593,33 @@ test('cluster links: a confirmed overlay/subnet edge is drawn directly between t
   const orphan: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'does-not-exist', toName: 'Ghost', kind: 'overlay', via: 'wg0 (wireguard)' }
   const g3 = buildGraph(seed, { ...opts, clusterLinks: [orphan] })
   assert.ok(!g3.edges.some((e) => e.data?.clusterLink), 'an end not on the canvas draws nothing')
+})
+
+test("edge interface capacity reaches EdgeData alongside its throughput, never guessed when the caller's own nodes disagree", () => {
+  // w-gw runs on n-c2 and n-c3 (both cl-cloud) - give both the same eth0 speed first.
+  const dep = seenDep({ id: 'dep-iface', from: 'w-gw', to: 'w-orch', iface: 'eth0' })
+  const withSpeed = (mbps: number) => (n: (typeof seed.nodes)[number]) =>
+    n.id === 'n-c2' || n.id === 'n-c3' ? { ...n, networkInterfaces: [{ name: 'eth0', kind: 'ethernet' as const, speedMbps: mbps }] } : n
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+
+  const agree = { ...seed, dependencies: [dep], nodes: seed.nodes.map(withSpeed(1000)) }
+  const g = buildGraph(agree, opts)
+  assert.equal(g.edges.find((e) => e.id === 'dep-iface')?.data?.ifaceSpeedMbps, 1000, "both of w-gw's nodes agree on eth0's speed")
+
+  // One of the two disagrees (different hardware behind two replicas of the same service) - ambiguous, so
+  // this must come back undefined rather than guessing either node's number.
+  const disagree = {
+    ...seed,
+    dependencies: [dep],
+    nodes: seed.nodes.map((n) => (n.id === 'n-c2' ? withSpeed(1000)(n) : n.id === 'n-c3' ? withSpeed(100)(n) : n)),
+  }
+  const g2 = buildGraph(disagree, opts)
+  assert.equal(g2.edges.find((e) => e.id === 'dep-iface')?.data?.ifaceSpeedMbps, undefined)
+
+  // A declared-only (never-observed) dependency has no iface at all, so there is nothing to resolve.
+  const declaredOnly = { ...seed, dependencies: [{ ...dep, iface: undefined, via: undefined, sources: ['declared'] }], nodes: seed.nodes.map(withSpeed(1000)) }
+  const g3 = buildGraph(declaredOnly, opts)
+  assert.equal(g3.edges.find((e) => e.id === 'dep-iface')?.data?.ifaceSpeedMbps, undefined)
 })
 
 test("service card: per-pod dots surface ready state and a recent-scaling-event flag, derived purely from each pod's own createdAt", () => {

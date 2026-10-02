@@ -1,5 +1,5 @@
 // Pure helpers that decide how model values are shown. Kept out of the components so they can be tested.
-import type { GeoUnlocatableReason, Pod, Resources, ServiceVolume, Site } from './types'
+import type { GeoUnlocatableReason, NetworkInterface, Pod, Resources, ServiceVolume, Site } from './types'
 
 /* ---------- places ---------- */
 
@@ -202,6 +202,24 @@ export function linkUtilizationPct(bytesPerSec: number, speedMbps: number): numb
   if (!Number.isFinite(bytesPerSec) || bytesPerSec < 0) return undefined
   const capacityBytesPerSec = (speedMbps * 1_000_000) / 8
   return Math.round((bytesPerSec / capacityBytesPerSec) * 1000) / 10
+}
+
+/** The caller's own negotiated link speed for a dependency's traffic (Dependency.iface), resolved from
+ *  whichever node(s) the calling service is actually scheduled on - the same resolution the Inspector's
+ *  node view already does per-interface (summing traffic across every service on that node), just from
+ *  the other direction: here it's one dependency asking "what is *my* interface rated at". Undefined
+ *  whenever that's ambiguous (the service's own nodes disagree on this interface's speed - different
+ *  hardware behind replicas of the same workload) or there's simply nothing to resolve, rather than
+ *  guessing a number. Exported so graph.ts (the hover card) and Inspector.tsx (the Traffic section) share
+ *  one answer instead of growing two slightly different ones. */
+export function callerIfaceSpeedMbps(iface: string | undefined, nodeIds: string[] | undefined, nodeById: Map<string, { networkInterfaces?: NetworkInterface[] }>): number | undefined {
+  if (!iface || !nodeIds?.length) return undefined
+  const speeds = new Set<number>()
+  for (const id of nodeIds) {
+    const speed = nodeById.get(id)?.networkInterfaces?.find((i) => i.name === iface)?.speedMbps
+    if (speed !== undefined && speed > 0) speeds.add(speed)
+  }
+  return speeds.size === 1 ? [...speeds][0] : undefined
 }
 
 /** 4 -> "4", 0.5 -> "0.5". */

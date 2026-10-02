@@ -1,5 +1,6 @@
 import { qualityLabel, rttLabel } from '@/lib/metrics'
 import { bytesPerSec } from '@/lib/observed'
+import { linkUtilizationPct } from '@/lib/present'
 import type { TopoEdge } from '@/lib/graph'
 
 export type EdgeHoverPos = { cx: number; cy: number }
@@ -94,7 +95,15 @@ export default function EdgeHoverCard({
           {showBps && (
             <>
               <dt>{d?.aggregated ? 'Combined throughput' : 'Throughput'}</dt>
-              <dd className="text-nb-200">{bytesPerSec(s!.bytesPerSec!)}</dd>
+              <dd className="text-nb-200">
+                {bytesPerSec(s!.bytesPerSec!)}
+                {/* The caller's own interface capacity (present.ts's callerIfaceSpeedMbps, resolved once in
+                    graph.ts), right next to the achieved rate it's being measured against - never shown for
+                    an aggregated group<->group link, which has no single caller interface to speak of. */}
+                {!d?.aggregated && d?.ifaceSpeedMbps !== undefined && linkUtilizationPct(s!.bytesPerSec!, d.ifaceSpeedMbps) !== undefined && (
+                  <span className="text-nb-500"> ({linkUtilizationPct(s!.bytesPerSec!, d.ifaceSpeedMbps)}% of {d!.iface}'s {d.ifaceSpeedMbps} Mbps)</span>
+                )}
+              </dd>
             </>
           )}
           {s?.reqPerSec !== undefined && (

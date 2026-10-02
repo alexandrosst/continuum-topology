@@ -13,7 +13,7 @@ import { completeness } from '@/lib/completeness'
 import { observation, TONE_CLASS } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
 import { exitIps } from '@/lib/geo'
-import { ageLabel, autoscalerRange, disruptionLabel, formatMemory, GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipInCidr, linkUtilizationPct, podsLabel, podsPercent, recentlyScaledPods, volumeSize } from '@/lib/present'
+import { ageLabel, autoscalerRange, callerIfaceSpeedMbps, disruptionLabel, formatMemory, GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipInCidr, linkUtilizationPct, podsLabel, podsPercent, recentlyScaledPods, volumeSize } from '@/lib/present'
 import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { useHistoryView } from '@/store/history'
 import { useServer } from '@/store/server'
@@ -994,6 +994,9 @@ export default function Inspector({
     const toSvc = d.toKind === 'service' ? services.find((x) => x.id === d.to) : undefined
     const verdict = connectionVerdict(d, fromSvc, toSvc, clusters.find((x) => x.id === fromSvc?.clusterId), namespaces)
     const s = d.stats
+    // The caller's own interface capacity, right next to its throughput below - same resolution and same
+    // "undefined rather than a guess" rule as the node view's own per-interface utilization above.
+    const ifaceSpeedMbps = callerIfaceSpeedMbps(d.iface, fromSvc?.nodeIds, new Map(nodes.map((n) => [n.id, n])))
     const how = d.via === 'ebpf' ? 'eBPF' : d.via === 'conntrack' ? 'conntrack' : undefined
     title = d.label ?? (d.port ? `${d.protocol}:${d.port}` : d.protocol)
     subtitle = <Pill>{d.stale ? 'Quiet' : seen ? 'Seen in traffic' : 'Declared'}</Pill>
@@ -1017,7 +1020,18 @@ export default function Inspector({
         <Section title="Traffic">
           {seen && s ? (
             <>
-              <Maybe label="Throughput">{s.bytesPerSec !== undefined && (d.via === 'ebpf' || s.bytesPerSec > 0) ? bytesPerSec(s.bytesPerSec) : undefined}</Maybe>
+              <Maybe label="Throughput">
+                {s.bytesPerSec !== undefined && (d.via === 'ebpf' || s.bytesPerSec > 0) ? (
+                  <span>
+                    {bytesPerSec(s.bytesPerSec)}
+                    {ifaceSpeedMbps !== undefined && linkUtilizationPct(s.bytesPerSec, ifaceSpeedMbps) !== undefined && (
+                      <span className="text-nb-500" title={`${d.iface}'s own negotiated link speed - the share of it this dependency's own throughput is using, not a cap enforced here.`}>
+                        {' '}({linkUtilizationPct(s.bytesPerSec, ifaceSpeedMbps)}% of {d.iface}'s {ifaceSpeedMbps} Mbps)
+                      </span>
+                    )}
+                  </span>
+                ) : undefined}
+              </Maybe>
               <Maybe label="Connections">{s.connectionsPerMin !== undefined ? `${Math.round(s.connectionsPerMin * 10) / 10} per minute` : undefined}</Maybe>
               <Maybe label="Requests">{s.reqPerSec !== undefined ? `${s.reqPerSec} per second` : undefined}</Maybe>
               <Maybe label="Errors">{s.errorRate !== undefined ? `${(s.errorRate * 100).toFixed(s.errorRate < 0.1 ? 1 : 0)}%` : undefined}</Maybe>

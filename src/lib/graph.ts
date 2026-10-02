@@ -5,7 +5,7 @@
  * "view" turns entities into boxes and edges, so adding a new plane (network,
  * data-flow, cost…) means adding a branch here + optionally a node component.
  */
-import { placeLabel, recentlyScaledPods } from './present'
+import { callerIfaceSpeedMbps, placeLabel, recentlyScaledPods } from './present'
 import { MarkerType, Position, type Edge, type Node } from '@xyflow/react'
 import { isObserved } from './observed'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
@@ -164,6 +164,11 @@ export type EdgeData = {
   /** The caller's physical network interface for this dependency's traffic (Dependency.iface) - eBPF only,
    *  same as on Dependency itself. Surfaced on the hover card so it doesn't take a click to see. */
   iface?: string
+  /** `iface`'s own rated speed (present.ts's callerIfaceSpeedMbps), when the calling service's node(s)
+   *  unambiguously report one for an interface of that name - the same capacity the Inspector's node view
+   *  already shows per-interface, paired here with this one dependency's own throughput instead of a
+   *  node's total. Undefined whenever that's ambiguous or unknown, never guessed. */
+  ifaceSpeedMbps?: number
   /** Cumulative TCP segments retransmitted over the edge's life (Dependency.retransmits) - eBPF only, 0 on
    *  a conntrack-only edge means "not measured", not "no loss". The hover card pairs this with
    *  `stats.retransmitsPerMin` the same way the Inspector already does. */
@@ -398,6 +403,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   const clusterById = new Map(t.clusters.map((c) => [c.id, c]))
   const serviceById = new Map(t.services.map((w) => [w.id, w]))
   const siteById = new Map(t.sites.map((s) => [s.id, s]))
+  const nodeById = new Map(t.nodes.map((n) => [n.id, n]))
 
   // Per-cluster/per-node indices, built once (O(nodes+services)) instead of the per-group `.filter()` over
   // the FULL nodes/services arrays this used to do below (O(groups * (nodes+services)) - noticeable once a
@@ -683,6 +689,9 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       const quality = o.paths && fc && tc && fc !== tc ? pathQuality(o.paths, fc, tc) : undefined
       const verdict = o.mesh ? connectionVerdict(d, serviceById.get(d.from), serviceById.get(d.to), fc ? clusterById.get(fc) : undefined, t.namespaces) : undefined
       const route = crossClusterRoute(d, serviceById.get(d.to))
+      // Only resolvable for a service caller - external/device sources have no nodeIds of their own to
+      // check an interface's rated speed against.
+      const ifaceSpeedMbps = d.fromKind === 'service' ? callerIfaceSpeedMbps(d.iface, serviceById.get(d.from)?.nodeIds, nodeById) : undefined
       edges.push(makeEdge(d.id, s, tg, abs, {
         // The line says what it is; what the mesh does to it is the colour (see the legend) and the inspector's words.
         label: edgeLabel(d),
@@ -700,6 +709,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         stats: d.stats,
         via: d.via,
         iface: d.iface,
+        ifaceSpeedMbps,
         retransmits: d.retransmits,
         rttMs: d.rttMs,
         jitterMs: d.jitterMs,
@@ -1413,6 +1423,7 @@ function makeEdge(
     stats?: DependencyStats
     via?: 'ebpf' | 'conntrack'
     iface?: string
+    ifaceSpeedMbps?: number
     retransmits?: number
     rttMs?: number
     jitterMs?: number
@@ -1461,7 +1472,7 @@ function makeEdge(
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,
     markerEnd: d.aggregated || d.clusterLink ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, dnsRttMs: d.dnsRttMs, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink },
+    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, ifaceSpeedMbps: d.ifaceSpeedMbps, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, dnsRttMs: d.dnsRttMs, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink },
   }
 }
 
