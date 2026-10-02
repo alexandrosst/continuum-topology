@@ -382,6 +382,38 @@ func TestFlowReceiverPolicyIsHonest(t *testing.T) {
 	}
 }
 
+// Same contract as TestFlowReceiverPolicyIsHonest, for the node probe: hostNetwork defaults to true (needed
+// for TunnelInterface/host_subnets), so unlike the flow collectors - which are always hostNetwork with no
+// opt-out - nodeProbe.networkPolicy defaults to false rather than true, exactly so a first install (just
+// nodeProbe.enabled=true, the wizard's own checkbox) never needs nodeCIDRs nobody could know yet.
+func TestNodeProbeReceiverPolicyIsHonest(t *testing.T) {
+	// Off by default: no node-address list was given, and none is needed because networkPolicy itself defaults off.
+	r := render(t, "--set", "nodeProbe.enabled=true")
+	if len(r.policies) != 0 {
+		t.Errorf("probe only, defaults: no policy expected, got %d", len(r.policies))
+	}
+	// Turning the policy on without nodeCIDRs must fail, same message as flowObserver's.
+	if out, err := helmTemplate(t, "--set", "nodeProbe.enabled=true", "--set", "nodeProbe.networkPolicy=true"); err == nil || !strings.Contains(out, "nodeCIDRs") {
+		t.Errorf("networkPolicy=true without nodeCIDRs must fail, got err=%v\n%s", err, out)
+	}
+	p := render(t, "--set", "nodeProbe.enabled=true", "--set", "nodeProbe.networkPolicy=true", "--set", "nodeProbe.nodeCIDRs={10.42.0.0/16}").policies["continuum-agent-probe"]
+	found := false
+	for _, in := range p.Spec.Ingress {
+		for _, f := range in.From {
+			if f.IPBlock != nil && f.IPBlock.CIDR == "10.42.0.0/16" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("nodeCIDRs not in the receiver policy: %+v", p.Spec.Ingress)
+	}
+	// hostNetwork=false takes the probe back to ordinary pod identity, so networkPolicy=true works without nodeCIDRs.
+	if out, err := helmTemplate(t, "--set", "nodeProbe.enabled=true", "--set", "nodeProbe.networkPolicy=true", "--set", "nodeProbe.hostNetwork=false"); err != nil {
+		t.Errorf("networkPolicy=true with hostNetwork=false should not need nodeCIDRs: %v\n%s", err, out)
+	}
+}
+
 // enrollment.key ("<caPin>.<token>") is what the install command prints instead of server.caPin + enrollment.token
 // separately; the chart must split it back into exactly what those two fields would have produced.
 func TestEnrollmentKeySplitsIntoCAPinAndToken(t *testing.T) {

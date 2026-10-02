@@ -202,10 +202,11 @@ nodeProbe:
   # This also changes what networkPolicy (below) must match: the receiver's NetworkPolicy ordinarily
   # recognizes the probe by pod identity (a podSelector), but a hostNetwork pod's traffic carries no
   # pod identity at all - it arrives looking like it came from the node itself, the exact same reason
-  # flowObserver.nodeCIDRs exists for the flow collectors just below. With hostNetwork on, networkPolicy
-  # also needs nodeCIDRs filled in (the chart refuses to render otherwise, rather than silently
-  # deploying a NetworkPolicy that quietly refuses every report); set networkPolicy: false instead to
-  # skip this if you are not ready to figure out the right CIDRs yet.
+  # flowObserver.nodeCIDRs exists for the flow collectors just below. This is exactly why networkPolicy
+  # below defaults to false rather than true even though hostNetwork defaults to true: with networkPolicy
+  # also on, the chart refuses to render without nodeCIDRs filled in (rather than silently deploying a
+  # NetworkPolicy that quietly refuses every report), and nobody can know the right CIDRs before a first
+  # install. Turn networkPolicy on once you do.
   hostNetwork: true
   # Only consulted when hostNetwork is also true: the node-side addresses the agent sees the probe's
   # own reports arrive from (check `kubectl -n <ns> logs` of the agent after a first report, or your
@@ -218,8 +219,11 @@ nodeProbe:
   # Leave empty to generate one on first install and keep it across upgrades.
   secret: ""
   # Runs the same image as the agent, with the argument `probe` (see `image` above).
-  # Only the probe's own pods may reach the agent's receiver port. Needs a CNI that enforces NetworkPolicy.
-  networkPolicy: true
+  # Off by default, same as flowObserver.networkPolicy below and for the same reason: with hostNetwork
+  # on (the default just above), restricting this needs nodeCIDRs (below) filled in, which nobody knows
+  # on a first install. Turn this on and fill in nodeCIDRs once you do; needs a CNI that enforces
+  # NetworkPolicy. Reports are signed with the probe secret either way.
+  networkPolicy: false
   resources:
     requests: {cpu: 5m, memory: 12Mi}
     limits: {memory: 32Mi}
