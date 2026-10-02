@@ -67,8 +67,17 @@ export default function AgentsPage() {
   const [filter, setFilter] = useState<'all' | Health>('all')
   const [revoking, setRevoking] = useState<Agent | null>(null)
   const [error, setError] = useState('')
-  // A clock the page reads once per render: the poll re-renders it every few seconds, which keeps "ago" honest.
-  const now = Date.now()
+  // A clock that only actually changes on its own tick, not on every re-render this page has plenty of
+  // reasons to do for other reasons (a filter, a search, an approval lock) - reading Date.now() directly
+  // here used to change on every one of those too, which fed straight into rows' useMemo below and made
+  // it recompute every render regardless of whether `agents` itself had changed, same as not memoizing at
+  // all. Ticking on an interval instead keeps "ago"/health staleness honest while actually letting rows
+  // skip work between ticks.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
 
   // Diagnostics and overrides are in the raw state document, and only for people who may change an agent's access.
   const rawAgents = server.state?.agents

@@ -1,5 +1,4 @@
 import { ChevronsUpDown, Fingerprint, KeyRound, LogOut, Mail, Monitor, Moon, Plus, ScrollText, ShieldCheck, Sun, Terminal, Ticket, Users, X } from 'lucide-react'
-import QRCode from 'qrcode'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Button, CopyButton, ErrorBanner, Field, Input, Modal, PasswordInput, Select } from '@/components/ui/primitives'
@@ -31,10 +30,15 @@ function useQrDataUrl(value: string): string | undefined {
   useEffect(() => {
     if (!value) return // initial state is already undefined; nothing to derive yet
     let live = true
-    // Always render as solid black-on-white, in its own fixed-white box below (not tinted to the app's own
-    // theme): some phone camera scanners are unreliable on inverted or low-contrast QR codes, and a code that
-    // has to stay scannable is not the place to experiment with theme-matching colors.
-    QRCode.toDataURL(value, { margin: 1, width: 176, color: { dark: '#000000ff', light: '#ffffffff' } })
+    // Loaded on demand, not at module scope: everyone who opens the account menu used to pay for this
+    // library in their initial bundle even though only someone setting up TOTP ever needs it.
+    import('qrcode')
+      .then(({ default: QRCode }) =>
+        // Always render as solid black-on-white, in its own fixed-white box below (not tinted to the app's
+        // own theme): some phone camera scanners are unreliable on inverted or low-contrast QR codes, and a
+        // code that has to stay scannable is not the place to experiment with theme-matching colors.
+        QRCode.toDataURL(value, { margin: 1, width: 176, color: { dark: '#000000ff', light: '#ffffffff' } }),
+      )
       .then((u) => { if (live) setUrl(u) })
       .catch(() => { if (live) setUrl(undefined) })
     return () => {
