@@ -415,6 +415,60 @@ export function pickClearSide(
   return natural
 }
 
+/** The shape `collectObstacles` needs from `nodeLookup` - just enough of React Flow's own `InternalNode`
+ *  to find each node's type, parent and live absolute box, without importing its full internal type. */
+type ObstacleCandidate = { type?: string; parentId?: string; measured: { width?: number; height?: number }; internals: { positionAbsolute: { x: number; y: number } } }
+
+/** Every node in `nodeLookup` that should count as a routing obstacle for the edge from `source` to
+ *  `target`, restricted to `bounds` (the same generous margin-expanded box around both ends OffsetEdge
+ *  already builds, reused here so this never has to re-derive it) - pulled out of OffsetEdge's own body so
+ *  it's testable with a plain Map, the same reasoning as curvedPath/pickClearSide above.
+ *
+ *  Three node types ever qualify: 'card' (an ordinary service/machine card - the only type the obstacle
+ *  list covered before this), and 'boundary'/'namespace' (the cluster/tier and namespace group BOXES
+ *  themselves - the big background rectangles cards sit inside). Leaving those two out was the actual gap
+ *  behind "the arrow passes through other entities": a bow between two cards in different groups had
+ *  nothing stopping it from sweeping straight across a third, unrelated group's visible box, since that
+ *  box was never in the obstacle list at all - only the individual cards inside it were.
+ *
+ *  Including every 'boundary'/'namespace' box unconditionally would be wrong, though: the group (and, for a
+ *  namespaced card, the namespace box inside it) that CONTAINS the source or the target is not a real
+ *  obstacle - the edge necessarily starts or ends inside it, so its own box would always register as a
+ *  "hit" right at the anchor point, for every single cross-group edge. `skip` is exactly that container
+ *  chain - every ancestor of `source` and of `target`, walked up via `parentId` - excluded so only a
+ *  sibling or unrelated group/namespace box (one neither end is actually inside) ever counts. */
+export function collectObstacles(
+  nodeLookup: Map<string, ObstacleCandidate>,
+  source: string,
+  target: string,
+  bounds: { minX: number; maxX: number; minY: number; maxY: number },
+): PathObstacle[] {
+  const ancestorsOf = (id: string): Set<string> => {
+    const out = new Set<string>()
+    let cur = nodeLookup.get(id)
+    while (cur?.parentId !== undefined) {
+      out.add(cur.parentId)
+      cur = nodeLookup.get(cur.parentId)
+    }
+    return out
+  }
+  const skip = ancestorsOf(source)
+  for (const id of ancestorsOf(target)) skip.add(id)
+  const obstacles: PathObstacle[] = []
+  for (const [nodeId, n] of nodeLookup) {
+    if (nodeId === source || nodeId === target || skip.has(nodeId)) continue
+    if (n.type !== 'card' && n.type !== 'boundary' && n.type !== 'namespace') continue
+    const w = n.measured.width
+    const h = n.measured.height
+    if (!w || !h) continue
+    const bx = n.internals.positionAbsolute.x
+    const by = n.internals.positionAbsolute.y
+    if (bx < bounds.maxX && bx + w > bounds.minX && by < bounds.maxY && by + h > bounds.minY) obstacles.push({ x: bx, y: by, w, h })
+  }
+  return obstacles
+}
+
+
 /**
  * A line like the default one, with its source end moved sideways by `data.sourceOffset` pixels and its
  * target end by `data.targetOffset`, independently. Equal values give the old parallel shift (two lines
@@ -484,15 +538,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
     const maxX = Math.max(sourceBox.x + sourceBox.w, targetBox.x + targetBox.w) + OBSTACLE_MARGIN
     const minY = Math.min(sourceBox.y, targetBox.y) - OBSTACLE_MARGIN
     const maxY = Math.max(sourceBox.y + sourceBox.h, targetBox.y + targetBox.h) + OBSTACLE_MARGIN
-    for (const [nodeId, n] of nodeLookup) {
-      if (nodeId === source || nodeId === target || n.type !== 'card') continue
-      const w = n.measured.width
-      const h = n.measured.height
-      if (!w || !h) continue
-      const bx = n.internals.positionAbsolute.x
-      const by = n.internals.positionAbsolute.y
-      if (bx < maxX && bx + w > minX && by < maxY && by + h > minY) obstacles.push({ x: bx, y: by, w, h })
-    }
+    obstacles.push(...collectObstacles(nodeLookup, source, target, { minX, maxX, minY, maxY }))
 
     const targetCenter = { x: targetBox.x + targetBox.w / 2, y: targetBox.y + targetBox.h / 2 }
     const sourceCenter = { x: sourceBox.x + sourceBox.w / 2, y: sourceBox.y + sourceBox.h / 2 }

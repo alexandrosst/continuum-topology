@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   clampTowardNormal,
+  collectObstacles,
   curvedPath,
   elbowPath,
   intersection,
@@ -363,6 +364,80 @@ describe('curvedPath obstacle avoidance (task #382: keeps an arrowhead\'s curve 
     expect(withObstacle.path.endsWith(' 300,0')).toBe(true)
     // And it actually tried something different from the plain default, even though it couldn't fully clear it.
     expect(withObstacle.path).not.toBe(defaultBow.path)
+  })
+})
+
+describe('collectObstacles (which nodeLookup entries count as a routing obstacle)', () => {
+  // A minimal fake InternalNode - just the fields collectObstacles itself reads.
+  const node = (type: string, parentId: string | undefined, x: number, y: number, w = 100, h = 60) => ({
+    type,
+    parentId,
+    measured: { width: w, height: h },
+    internals: { positionAbsolute: { x, y } },
+  })
+  const bounds = { minX: -1000, maxX: 1000, minY: -1000, maxY: 1000 }
+
+  test('a group/namespace box that contains the source or target is excluded, not counted against itself', () => {
+    const nodeLookup = new Map(
+      Object.entries({
+        'grp-a': node('boundary', undefined, 0, 0, 400, 400),
+        'ns-a': node('namespace', 'grp-a', 10, 10, 200, 200),
+        src: node('card', 'ns-a', 20, 20),
+        'grp-b': node('boundary', undefined, 600, 0, 400, 400),
+        tgt: node('card', 'grp-b', 620, 20),
+      }),
+    )
+    const obstacles = collectObstacles(nodeLookup, 'src', 'tgt', bounds)
+    expect(obstacles).toEqual([])
+  })
+
+  test('a sibling group/namespace box neither end is inside counts as a real obstacle', () => {
+    const nodeLookup = new Map(
+      Object.entries({
+        'grp-a': node('boundary', undefined, 0, 0, 200, 200),
+        src: node('card', 'grp-a', 20, 20),
+        'grp-mid': node('boundary', undefined, 250, 0, 200, 200), // between src and tgt, neither's ancestor
+        'grp-b': node('boundary', undefined, 500, 0, 200, 200),
+        tgt: node('card', 'grp-b', 520, 20),
+      }),
+    )
+    const obstacles = collectObstacles(nodeLookup, 'src', 'tgt', bounds)
+    expect(obstacles).toContainEqual({ x: 250, y: 0, w: 200, h: 200 })
+    // Neither end's own container (nor the ends themselves) is in the result.
+    expect(obstacles).toHaveLength(1)
+  })
+
+  test('a node type that is none of card/boundary/namespace is never an obstacle (e.g. a cluster-link group box)', () => {
+    const nodeLookup = new Map(
+      Object.entries({
+        src: node('card', undefined, 0, 0),
+        tgt: node('card', undefined, 500, 0),
+        other: node('regionalOperator', undefined, 250, 0),
+      }),
+    )
+    expect(collectObstacles(nodeLookup, 'src', 'tgt', bounds)).toEqual([])
+  })
+
+  test('a candidate outside the given bounds is skipped even though it would otherwise qualify', () => {
+    const nodeLookup = new Map(
+      Object.entries({
+        src: node('card', undefined, 0, 0),
+        tgt: node('card', undefined, 500, 0),
+        far: node('card', undefined, 5000, 5000),
+      }),
+    )
+    expect(collectObstacles(nodeLookup, 'src', 'tgt', bounds)).toEqual([])
+  })
+
+  test('an unmeasured node (width/height not yet known) is skipped rather than producing a zero-size obstacle', () => {
+    const nodeLookup = new Map(
+      Object.entries({
+        src: node('card', undefined, 0, 0),
+        tgt: node('card', undefined, 500, 0),
+        unmeasured: { type: 'card', parentId: undefined, measured: {}, internals: { positionAbsolute: { x: 250, y: 0 } } },
+      }),
+    )
+    expect(collectObstacles(nodeLookup, 'src', 'tgt', bounds)).toEqual([])
   })
 })
 

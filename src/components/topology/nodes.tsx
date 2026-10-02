@@ -139,8 +139,15 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
             ? 'Far edge'
             : data.tier[0].toUpperCase() + data.tier.slice(1)
   return (
+    // The selection ring is `inset`, not the plain outward `0_0_0_Npx` box-shadow it used to be: OffsetEdge
+    // places an incoming edge's arrowhead tip with zero gap exactly on this box's true boundary (see its
+    // own pullBackEnds doc comment for why), and an outward ring bleeds a couple of px past that same
+    // boundary on top of it - painted after the edge, since every node sits above the edges' own SVG layer
+    // regardless of z-index. The visible result was a selected card's own ring appearing to swallow the
+    // very tip of any edge pointing at it. Inset keeps the identical highlight look without ever drawing
+    // outside the box OffsetEdge's own math already treats as this card's exact, true extent.
     <div
-      className={clsx('h-full w-full rounded-2xl border transition-shadow', selected && 'shadow-[0_0_0_2px_var(--color-accent)]')}
+      className={clsx('h-full w-full rounded-2xl border transition-shadow', selected && 'shadow-[inset_0_0_0_2px_var(--color-accent)]')}
       style={{
         borderColor: `color-mix(in srgb, ${color} ${selected ? 70 : 32}%, transparent)`,
         background: `color-mix(in srgb, ${color} 5%, var(--color-nb-920))`,
@@ -268,7 +275,10 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
       data-far={far ? '1' : undefined}
       className={clsx(
         'flex h-full w-full flex-col justify-center gap-2 rounded-xl border bg-nb-925 px-3.5 py-2.5 transition-colors',
-        selected ? 'border-accent shadow-[0_0_0_1px_var(--color-accent)]' : 'border-nb-800 hover:border-nb-700',
+        // inset, not outward - see the identical note on the group/boundary box above: an outward ring
+        // here would bleed past this card's own true boundary and sit on top of any edge arrowhead
+        // pointing at it, since edges always render beneath every node regardless of z-index.
+        selected ? 'border-accent shadow-[inset_0_0_0_1px_var(--color-accent)]' : 'border-nb-800 hover:border-nb-700',
       )}
     >
       <AllHandles />
