@@ -31,18 +31,19 @@ import {
   type Severity,
 } from '@/lib/consent'
 import { telemetryActive, type TelemetryInput } from '@/lib/install'
+import { TONE_CLASS } from '@/lib/provenance'
 import type { Agent, AccessTier } from '@/lib/types'
 import { useServer } from '@/store/server'
 
 const SEVERITY_STYLE: Record<Severity, { chip: string; icon: typeof Info; label: string }> = {
-  error: { chip: 'border-bad/30 bg-bad/10 text-bad', icon: AlertCircle, label: 'Error' },
-  warn: { chip: 'border-warn/30 bg-warn/10 text-warn', icon: AlertTriangle, label: 'Warning' },
-  info: { chip: 'border-nb-700 bg-nb-930 text-nb-400', icon: Info, label: 'Notice' },
+  error: { chip: TONE_CLASS.bad, icon: AlertCircle, label: 'Error' },
+  warn: { chip: TONE_CLASS.warn, icon: AlertTriangle, label: 'Warning' },
+  info: { chip: TONE_CLASS.muted, icon: Info, label: 'Notice' },
 }
 
 const LEVEL_STYLE: Record<HealthSummary['level'], string> = {
-  unknown: 'border-nb-700 bg-nb-930 text-nb-400',
-  healthy: 'border-ok/30 bg-ok/10 text-ok',
+  unknown: TONE_CLASS.muted,
+  healthy: TONE_CLASS.ok,
   warn: SEVERITY_STYLE.warn.chip,
   error: SEVERITY_STYLE.error.chip,
 }

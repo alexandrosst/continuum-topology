@@ -94,13 +94,12 @@ export default function NodesPage() {
                 <Td>
                   <div className="flex items-center gap-2 whitespace-nowrap font-medium text-nb-300">
                     <span className="shrink-0">
-                      <StatusDot status={n.status} notCurrent={obs && obs.kind !== 'live' ? (obs.reason ?? obs.label) : undefined} />
+                      <StatusDot status={n.status} withLabel notCurrent={obs && obs.kind !== 'live' ? (obs.reason ?? obs.label) : undefined} />
                     </span>
                     <span>{n.name}</span>
                     <SourceBadge source={n.source} overridden={hasOverrides(n)} />
                     <ObservationChip quiet info={obs} />
                     {n.source === 'manual' && <DeclaredMark />}
-                    {n.status !== 'healthy' && <span className="text-xs font-normal capitalize text-nb-400">{obs && obs.kind !== 'live' ? `was ${n.status}` : n.status}</span>}
                     {n.conditions && n.conditions.length > 0 && (
                       <span className="inline-flex text-warn" title={`Active conditions: ${n.conditions.join(', ')}`}>
                         <AlertTriangle size={14} aria-label={n.conditions.join(', ')} />

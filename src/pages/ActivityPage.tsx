@@ -100,7 +100,7 @@ export default function ActivityPage() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} data-testid="audit-row">
+              <tr key={r.id} data-testid="audit-row" className="hover:bg-nb-930/60">
                 <Td className="whitespace-nowrap text-nb-400">{stamp(r.at)}</Td>
                 <Td className="font-medium text-nb-300">{r.actor}</Td>
                 <Td>{words(r.action)}</Td>
@@ -121,7 +121,7 @@ export default function ActivityPage() {
             <thead><tr><Th>Saved</Th><Th>By</Th><Th>Version</Th><Th>Size</Th><Th /></tr></thead>
             <tbody>
               {revs.slice(0, 20).map((r) => (
-                <tr key={r.rev}>
+                <tr key={r.rev} className="hover:bg-nb-930/60">
                   <Td className="whitespace-nowrap text-nb-400">{stamp(r.at)}</Td>
                   <Td className="font-medium text-nb-300">{r.by}</Td>
                   <Td className="tabular-nums">{r.rev}</Td>

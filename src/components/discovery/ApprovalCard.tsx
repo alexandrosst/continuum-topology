@@ -5,6 +5,7 @@ import TierLevels from '@/components/TierLevels'
 import { api, ApiError } from '@/lib/api'
 import { CODE_LOG_COMMAND, cleanCode, codeComplete, formatCode, fromPaste } from '@/lib/approvalCode'
 import { ipScope, ipScopeLabel } from '@/lib/present'
+import { TONE_CLASS } from '@/lib/provenance'
 import { ACCESS_TIERS, type AccessTier, type Agent } from '@/lib/types'
 import { useApprovalLocks } from '@/store/approvalLocks'
 import { useServer } from '@/store/server'
@@ -145,7 +146,7 @@ export default function ApprovalCard({ agent, onDone }: { agent: Agent; onDone?:
           {legacy ? (
             <div data-testid="legacy-approval">
               <div className="mb-1.5 flex items-center gap-2 text-sm font-medium text-nb-300">
-                Legacy enrollment <span className="rounded-full border border-warn/40 bg-warn/10 px-2 py-px text-[11px] font-medium text-warn">no approval code</span>
+                Legacy enrollment <span className={`rounded-full border px-2 py-px text-[11px] font-medium ${TONE_CLASS.warn}`}>no approval code</span>
               </div>
               <p className="mb-2 text-xs text-nb-500">
                 This agent is an older version and shows no approval code, so the check is weaker: type the first 8 characters of the cluster’s fingerprint, which you read from the cluster itself with the command on the left. Update the agent to get approval codes.

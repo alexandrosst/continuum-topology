@@ -10,7 +10,7 @@ import ServiceAdvice from '@/components/placement/ServiceAdvice'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
 import { Button, CompletenessBadge, CopyIconButton, Input, IpAddress, ObservationChip, Pill, Select, SourceBadge, StatusDot, TierBadge } from '@/components/ui/primitives'
 import { completeness } from '@/lib/completeness'
-import { observation } from '@/lib/provenance'
+import { observation, TONE_CLASS } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
 import { exitIps } from '@/lib/geo'
 import { ageLabel, autoscalerRange, disruptionLabel, formatMemory, GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipInCidr, linkUtilizationPct, podsLabel, podsPercent, recentlyScaledPods, volumeSize } from '@/lib/present'
@@ -131,7 +131,7 @@ function Origin({ e }: { e: Provenance }) {
       <Row label="Origin">
         {e.source === 'manual' ? 'Entered manually' : e.source === 'discovered' ? 'Detected' : 'Imported'}
         <SourceBadge source="manual" overridden={hasOverrides(e)} />
-        {observation(e) ? <ObservationChip className="ml-2" info={observation(e)} /> : e.stale && <span className="ml-2 rounded border border-warn/30 bg-warn/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-warn">Stale</span>}
+        {observation(e) ? <ObservationChip className="ml-2" info={observation(e)} /> : e.stale && <span className={`ml-2 rounded border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide ${TONE_CLASS.warn}`}>Stale</span>}
       </Row>
       <Maybe label="Last seen">{ago(e.lastSeen)}</Maybe>
     </>
