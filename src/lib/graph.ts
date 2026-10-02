@@ -350,7 +350,11 @@ function packItems(items: Item[], headerY: number, pad = PAD): { w: number; h: n
   for (let i = 0; i < n; i += cols) {
     const slice = items.slice(i, i + cols)
     const rowH = Math.max(...slice.map((s) => s.h))
-    slice.forEach((item, j) => children.push({ item, x: pad + j * (cw + GAP_X), y, h: rowH }))
+    // Each child keeps its OWN height here, not the row's tallest - rowH only decides how far the next
+    // row starts (every item in a row is top-aligned at `y`), it is not every item's actual height. A
+    // shorter card sharing a row with a taller one used to be stretched to match, since this used to
+    // store rowH onto every child in the slice instead.
+    slice.forEach((item, j) => children.push({ item, x: pad + j * (cw + GAP_X), y, h: item.h }))
     y += rowH + GAP_Y
   }
   const usedCols = Math.min(cols, n)

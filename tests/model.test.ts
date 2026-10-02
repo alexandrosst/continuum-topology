@@ -1527,6 +1527,27 @@ test('regional operators: a group box + real arrows from each source cluster app
   assert.equal(tierEdges[0].source, groupId('far-edge'))
 })
 
+test("service card: a shorter card sharing a packed row with a taller one keeps its own height, not the row's tallest", () => {
+  // w-registry and w-train (both in cl-cloud, namespace 'ml') sort ahead of w-gw/w-orch (namespace
+  // 'platform') and together already fill the group's first row of two, so w-gw and w-orch land in the
+  // same row together - exactly the layout packItems rows cards into.
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+  const now = Date.now()
+  const old = new Date(now - 20 * 60 * 1000).toISOString()
+  const steady = {
+    ...seed,
+    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: [
+      { name: 'gw-1', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old },
+      { name: 'gw-2', nodeId: 'n-c3', phase: 'Running', ready: true, createdAt: old },
+    ] } : s)),
+  }
+  const g = buildGraph(steady, opts)
+  const gw = g.nodes.find((n) => n.id === cardId('w-gw'))!
+  const orch = g.nodes.find((n) => n.id === cardId('w-orch'))!
+  assert.equal(Number(gw.style?.height), APP_CARD.h + 24, 'the taller card (its own pods row) keeps that height')
+  assert.equal(Number(orch.style?.height), APP_CARD.h, "its shorter row-mate must not be stretched to the taller card's height")
+})
+
 test('cluster links: a confirmed overlay/subnet edge is drawn directly between the two clusters, with no arrowhead', () => {
   const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
   const overlay: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'overlay', via: 'wg0 (wireguard)' }
