@@ -39,6 +39,12 @@ export function useEffectiveModel() {
         promise: api
           .modelIfChanged(c, priorEtag)
           .then((res) => {
+            // The connection this response was for may no longer be the current one (an org switch, or a
+            // sign-out, while the request was in flight) - applying it now would clobber whatever that
+            // switch already loaded with a stale model from the organisation it just left. See server.ts's
+            // own refresh() for the same guard against the same race.
+            const now = useServer.getState().conn()
+            if (!now || now.url !== c.url || now.org !== c.org) return
             lastEtag = { key: connKey, etag: res ? (res.etag ?? undefined) : priorEtag }
             if (res) useObserved.getState().setModel(res.model)
           })
