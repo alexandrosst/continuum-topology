@@ -1207,3 +1207,53 @@ export function WizardSteps({ steps, currentIndex, failedIndex, testId = 'wizard
     </div>
   )
 }
+
+/** A tiny inline trend line for a short numeric series (see api.dependencySeries) - not a chart: no
+ *  axes, no ticks, no hover, just the shape, meant to sit inline in a detail row the way a Pill does.
+ *  An `undefined` entry breaks the line rather than being interpolated across or dropped, so a gap in
+ *  the underlying samples (no measured RTT at some snapshot) reads as a real gap, never a smoothed-over
+ *  guess. Renders nothing when fewer than two points actually have a value - a single dot says nothing
+ *  about a trend. */
+export function Sparkline({
+  values,
+  width = 72,
+  height = 20,
+  className,
+  title,
+}: {
+  values: (number | undefined)[]
+  width?: number
+  height?: number
+  className?: string
+  title?: string
+}) {
+  const defined = values.filter((v): v is number => v !== undefined)
+  if (defined.length < 2 || values.length < 2) return null
+  const min = Math.min(...defined)
+  const max = Math.max(...defined)
+  const span = max - min || 1
+  const dx = width / (values.length - 1)
+  const toY = (v: number) => height - ((v - min) / span) * (height - 2) - 1
+  // Consecutive defined samples join into one segment; an undefined sample ends the current segment
+  // instead of being bridged over, so the drawn line never implies a value that was never measured.
+  const segments: string[] = []
+  let current: string[] = []
+  values.forEach((v, i) => {
+    if (v === undefined) {
+      if (current.length > 1) segments.push(current.join(' '))
+      current = []
+      return
+    }
+    current.push(`${i * dx},${toY(v)}`)
+  })
+  if (current.length > 1) segments.push(current.join(' '))
+  return (
+    <span title={title}>
+      <svg width={width} height={height} className={clsx('shrink-0 overflow-visible text-nb-400', className)}>
+        {segments.map((pts, i) => (
+          <polyline key={i} points={pts} fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+        ))}
+      </svg>
+    </span>
+  )
+}

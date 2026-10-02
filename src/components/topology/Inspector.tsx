@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { Pencil, X } from 'lucide-react'
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckLine } from '@/components/discovery/AgentParts'
 import EntityHistory from '@/components/EntityHistory'
@@ -9,7 +9,7 @@ import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
 import ServiceAdvice from '@/components/placement/ServiceAdvice'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
-import { Button, CompletenessBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, ObservationChip, Pill, Select, SourceBadge, StatusDot, TierBadge } from '@/components/ui/primitives'
+import { Button, CompletenessBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, ObservationChip, Pill, Select, Sparkline, SourceBadge, StatusDot, TierBadge } from '@/components/ui/primitives'
 import { completeness } from '@/lib/completeness'
 import { observation, TONE_CLASS } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
@@ -17,13 +17,15 @@ import { exitIps } from '@/lib/geo'
 import { ageLabel, autoscalerRange, callerIfaceSpeedMbps, disruptionLabel, formatMemory, GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipInCidr, linkUtilizationPct, podsLabel, podsPercent, recentlyScaledPods, volumeSize } from '@/lib/present'
 import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { useHistoryView } from '@/store/history'
-import { useServer } from '@/store/server'
+import { useConn, useServer } from '@/store/server'
 import { useRawTopology, useTopology } from '@/store/topology'
 import { bytesPerSec, bytesTotal, isObserved, trafficSummary } from '@/lib/observed'
 import { lossBand, pathQuality, rttLabel } from '@/lib/metrics'
 import { useClusterLinks, usePaths } from '@/store/topology'
 import { connectionVerdict, meshName, MTLS_WORDS, proxyWords, VERDICT_COLOR } from '@/lib/mesh'
 import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Evidence, type ExternalEndpoint, type ExternalKind, type OverrideMeta, type Provenance, type Resources, type Tier } from '@/lib/types'
+import { api } from '@/lib/api'
+import type { DependencySeriesPoint } from '@/lib/history'
 
 export type Selection = { kind: 'cluster' | 'tier' | 'node' | 'service' | 'device' | 'site' | 'external' | 'dependency'; id: string } | null
 
@@ -42,6 +44,49 @@ function Row({ label, children, wrap, badge, copy }: { label: string; children: 
 function Maybe({ label, children, copy }: { label: string; children: ReactNode; copy?: string }) {
   if (children === undefined || children === null || children === false || children === '') return null
   return <Row label={label} copy={copy}>{children}</Row>
+}
+
+/** The RTT/loss/throughput trend behind a dependency's current numbers (see api.dependencySeries) -
+ *  three tiny inline Sparklines, each silently rendering nothing if that particular signal never had
+ *  two measured points in the window (a conntrack-only dependency, for instance, has throughput
+ *  history but no rttMs/lossPct at all). Fetched once per dependency id rather than kept in the
+ *  topology store: this is 24h of recorded history, a different lifetime from the live polled model
+ *  everything else in this file reads. */
+function DependencyTrend({ dependencyId }: { dependencyId: string }) {
+  const conn = useConn()
+  // Keyed on the dependency id it was fetched for, not just "the latest points": a stale response for
+  // a dependency the selection has since moved away from must never render under the new one, and
+  // starting a fetch sets no state of its own (the state update lives only in the promise
+  // continuation below) - so switching dependencies shows nothing until its own fetch resolves,
+  // rather than another dependency's trend flashing briefly in between.
+  const [state, setState] = useState<{ id: string; points: DependencySeriesPoint[] } | null>(null)
+  useEffect(() => {
+    let live = true
+    api.dependencySeries(conn, dependencyId, 24).then((pts) => {
+      if (live) setState({ id: dependencyId, points: pts })
+    }).catch(() => {
+      if (live) setState({ id: dependencyId, points: [] })
+    })
+    return () => {
+      live = false
+    }
+  }, [conn, dependencyId])
+  if (!state || state.id !== dependencyId) return null
+  const points = state.points
+  const rtt = points.map((p) => p.rttMs)
+  const loss = points.map((p) => p.lossPct)
+  const bps = points.map((p) => p.bytesPerSec)
+  const hasTrend = (s: (number | undefined)[]) => s.filter((v) => v !== undefined).length >= 2
+  if (!hasTrend(rtt) && !hasTrend(loss) && !hasTrend(bps)) return null
+  return (
+    <Row label="Trend (24h)">
+      <span className="flex items-center gap-3">
+        {hasTrend(rtt) && <Sparkline values={rtt} title="Round trip, last 24h" />}
+        {hasTrend(loss) && <Sparkline values={loss} title="Loss%, last 24h" className="text-bad" />}
+        {hasTrend(bps) && <Sparkline values={bps} title="Throughput, last 24h" className="text-ok" />}
+      </span>
+    </Row>
+  )
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -1081,6 +1126,7 @@ export default function Inspector({
               <Maybe label="Pacing rate">
                 {d.via === 'ebpf' && d.pacingBps !== undefined ? <span>{bytesPerSec(d.pacingBps)}</span> : undefined}
               </Maybe>
+              <DependencyTrend dependencyId={d.id} />
               {d.stale && <p className="mt-1 text-xs text-warn">No traffic since {ago(d.lastSeen)}.</p>}
             </>
           ) : (

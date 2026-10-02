@@ -1,6 +1,6 @@
 import { normalizeServerState, type ServerState } from './discovered'
 import type { OperatorDestination, RegionalOperator } from './types'
-import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
+import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
 import type { EffectiveModel } from './provenance'
 
 export class ApiError extends Error {
@@ -500,6 +500,10 @@ export const api = {
     call<Partial<HistoryIndex>>(c, 'GET', `/api/v1/history${since ? `?since=${encodeURIComponent(since)}` : ''}`).then((h) => ({ points: h.points ?? [], snapshotMinutes: h.snapshotMinutes ?? 5, retentionDays: h.retentionDays ?? 30 }) as HistoryIndex),
   snapshot: (c: Conn, at: string) => call<{ at: string; topology?: Partial<Snapshot['topology']>; agents?: Snapshot['agents'] }>(c, 'GET', `/api/v1/history/snapshot?at=${encodeURIComponent(at)}`).then(normalizeSnapshot),
   traffic: (c: Conn, hours: number) => call<{ hours: number; snapshots: number; rates?: TrafficRate[] }>(c, 'GET', `/api/v1/history/traffic?hours=${hours}`).then((r) => ({ ...r, rates: r.rates ?? [] })),
+  // One dependency's RTT/loss/throughput trend across recorded history, for a sparkline - see
+  // DependencySeriesPoint for why each field can be missing on a given point.
+  dependencySeries: (c: Conn, dependencyId: string, hours: number) =>
+    call<{ points?: DependencySeriesPoint[] }>(c, 'GET', `/api/v1/history/dependency/${encodeURIComponent(dependencyId)}/series?hours=${hours}`).then((r) => r.points ?? []),
   events: (c: Conn, q: { since?: string; until?: string; kind?: string; cluster?: string; limit?: number } = {}) => {
     const p = new URLSearchParams()
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v))

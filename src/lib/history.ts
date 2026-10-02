@@ -181,6 +181,18 @@ export interface TrafficRate {
   seconds: number
 }
 
+/** One sample in a dependency's RTT/loss/throughput trend (see api.dependencySeries) - the per-point
+ *  analogue of TrafficRate's aggregate average/peak, for a sparkline rather than a summary number.
+ *  rttMs/lossPct/bytesPerSec are all omitted (not a fabricated 0) whenever that snapshot has no
+ *  measured sample - bytesPerSec is always missing on the series' first point for exactly that
+ *  reason: there is no earlier sample yet to derive a rate from. */
+export interface DependencySeriesPoint {
+  at: string
+  rttMs?: number
+  lossPct?: number
+  bytesPerSec?: number
+}
+
 /** Plain-language names for the kinds of change the server records. */
 export const EVENT_KINDS: { value: string; label: string; group: 'cluster' | 'node' | 'service' | 'traffic' | 'consistency' }[] = [
   { value: 'cluster-added', label: 'Cluster appeared', group: 'cluster' },
