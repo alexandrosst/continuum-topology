@@ -982,6 +982,33 @@ test('observed traffic: seen-only edges are added, but only between things that 
   assert.ok(isObserved(r.dependencies[0]))
 })
 
+test('observed traffic: a seen edge to a real device is kept, not just services and external endpoints', () => {
+  const [a] = seed.services
+  const base = { services: seed.services, devices: seed.devices, dependencies: [] as Dependency[], externalEndpoints: [] as ExternalEndpoint[] }
+  const r = withObserved(base, {
+    dependencies: [
+      seenDep({ from: a.id, to: 'dev-cam-a', toKind: 'device' }),
+      seenDep({ id: 'x', from: a.id, to: 'dev-deleted', toKind: 'device' }),
+    ],
+    externalEndpoints: [],
+  })
+  assert.equal(r.dependencies.length, 1)
+  assert.equal(r.dependencies[0].to, 'dev-cam-a')
+})
+
+test('observed traffic: an observed edge with a real port merges into the matching port, not a portless placeholder it reaches first', () => {
+  const [a, b] = seed.services
+  const portless: Dependency = { id: 'dep-portless', orgId: DEFAULT_ORG, from: a.id, fromKind: 'service', to: b.id, toKind: 'service', sources: ['declared'], confidence: 'low', protocol: 'TCP' }
+  const specific: Dependency = { id: 'dep-5432', orgId: DEFAULT_ORG, from: a.id, fromKind: 'service', to: b.id, toKind: 'service', sources: ['declared'], confidence: 'low', protocol: 'TCP', port: 5432 }
+  const base = { services: seed.services, devices: [] as Device[], dependencies: [portless, specific], externalEndpoints: [] as ExternalEndpoint[] }
+  const r = withObserved(base, { dependencies: [seenDep({ from: a.id, to: b.id, port: 5432 })], externalEndpoints: [] })
+  assert.equal(r.dependencies.length, 2, 'no new edge should have been created')
+  const merged = r.dependencies.find((d) => d.id === 'dep-5432')!
+  const untouched = r.dependencies.find((d) => d.id === 'dep-portless')!
+  assert.ok(isObserved(merged), 'the port-matching edge should have absorbed the observed traffic')
+  assert.ok(!isObserved(untouched), 'the portless placeholder must be left alone when a specific-port match exists')
+})
+
 test('observed traffic: a declared dependency that was also seen becomes one edge with both sources and the numbers', () => {
   const [a, b] = seed.services
   const declared: Dependency = { id: 'dep-1', orgId: DEFAULT_ORG, from: a.id, fromKind: 'service', to: b.id, toKind: 'service', sources: ['declared'], confidence: 'medium', protocol: 'HTTP' }

@@ -20,6 +20,7 @@ export function withObserved(
   if (!observed.dependencies.length) return { dependencies: base.dependencies, externalEndpoints: base.externalEndpoints }
 
   const services = new Set(base.services.map((s) => s.id))
+  const deviceIds = new Set(base.devices.map((d) => d.id))
   const externals = [...base.externalEndpoints]
   const byHost = new Map(base.externalEndpoints.map((e) => [`${e.host}:${e.port ?? 0}`, e.id]))
   const remap = new Map<string, string>()
@@ -32,7 +33,7 @@ export function withObserved(
     }
   }
   const externalIds = new Set(externals.map((e) => e.id))
-  const has = (kind: Dependency['toKind'], id: string) => (kind === 'external' ? externalIds.has(id) : kind === 'service' ? services.has(id) : true)
+  const has = (kind: Dependency['toKind'], id: string) => (kind === 'external' ? externalIds.has(id) : kind === 'service' ? services.has(id) : deviceIds.has(id))
 
   const out = base.dependencies.map((d) => ({ ...d }))
   // Grouped by everything the match cares about except `port` (which is matched conditionally, not by
@@ -53,7 +54,10 @@ export function withObserved(
     const seen: Dependency = { ...o, from, to }
     const key = edgeKey(o.fromKind, from, o.toKind, to)
     const bucket = byEnds.get(key)
-    const same = bucket?.find((d) => d.port === undefined || d.port === o.port)
+    // Prefer an exact port match over a portless placeholder edge: a bucket can hold both a specific-port
+    // declared edge and a portless one for the same pair, and an observed edge with a real port should merge
+    // into the specific one rather than being swallowed by the portless placeholder it happens to iterate past first.
+    const same = bucket?.find((d) => d.port === o.port) ?? bucket?.find((d) => d.port === undefined)
     if (!same) {
       out.push(seen)
       if (bucket) bucket.push(seen)
