@@ -3,7 +3,7 @@ Continuum agent {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed
   ✓ Access tier {{ include "agent.tier" . }} ({{ include "agent.tierName" . }})
   ✓ Scope: {{ if .Values.scope.namespaces }}{{ join ", " .Values.scope.namespaces }}{{ else if .Values.scope.selector }}namespaces labelled {{ .Values.scope.selector }}{{ else }}all namespaces{{ end }}{{ if .Values.scope.exclude }} (except {{ join ", " .Values.scope.exclude }}){{ end }}
 {{- if eq .Values.rbac.mode "namespaced" }}
-  ✓ RBAC: namespaced (narrower than tier 2 normally allows - see Details)
+  ✓ RBAC: namespaced (narrower than tier 2 normally allows - see README)
 {{- end }}
 {{- if .Values.nodeProbe.enabled }}
   ✓ Node probe
@@ -27,123 +27,7 @@ Continuum agent {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed
 {{- end }}
 
 ────────────────────────────────────────────────────────────────────────────
-DETAILS
-
-WHAT IT CAN SEE  (access tier {{ include "agent.tier" . }})
-{{- if eq (int (include "agent.tier" .)) 0 }}
-  Tier 0, "registered only": the UID of the kube-system namespace, which is how Continuum tells clusters apart. Nothing else.
-{{- else if eq (int (include "agent.tier" .)) 1 }}
-  Tier 1, "infrastructure": the cluster's identity, plus nodes, storage classes and ingress classes. No namespaces,
-  workloads or pods.
-{{- else }}
-  Tier 2, "services": the cluster's identity, nodes, storage and ingress classes, plus namespaces, workloads, pods, services
-  and ingresses (and the names of persistent volume claims, autoscaling and disruption rules). Kubernetes cannot grant read
-  access to part of an object, so the agent does receive pod specs; it drops environment variables, commands, arguments and
-  volume sources on arrival and never stores or sends them.
-{{- if eq .Values.rbac.mode "namespaced" }}
-
-  RBAC MODE: namespaced. Tier 2 is granted with a Role + RoleBinding in each of these namespaces only (no ClusterRole for
-  tier 2), narrower than the tier normally allows:
-    {{ join ", " .Values.scope.namespaces }}
-  Two things a ClusterRole would show are not available in this mode, not just filtered out: namespace metadata (labels,
-  creation time — only the name is shown) and persistent volumes (only claims are shown). A namespace added to the cluster
-  later is invisible until it is added here and the release is upgraded:
-
-    helm upgrade {{ .Release.Name }} <chart> -n {{ .Release.Namespace }} --reuse-values --set "scope.namespaces={{ `{` }}{{ join "," .Values.scope.namespaces }},<new-namespace>{{ `}` }}"
-
-  scope.selector cannot be used in this mode (it needs cluster-wide namespace listing, which namespaced mode exists to avoid).
-{{- end }}
-{{- end }}
-  Scope: {{ if or .Values.scope.namespaces .Values.scope.selector }}only {{ if .Values.scope.namespaces }}the namespaces {{ join ", " .Values.scope.namespaces }}{{ end }}{{ if and .Values.scope.namespaces .Values.scope.selector }} and {{ end }}{{ if .Values.scope.selector }}namespaces labelled {{ .Values.scope.selector }}{{ end }} are reported{{ else }}all namespaces are reported{{ end }}{{ if .Values.scope.exclude }}, except {{ join ", " .Values.scope.exclude }}{{ end }}. Narrowing the scope narrows what is
-  reported, not what the agent's permissions allow: the access described above is still cluster-wide read access.
-  It is read-only: it never creates, changes or deletes anything in the cluster except its own identity Secret
-  ({{ include "agent.identitySecret" . }}), and it cannot read any other Secret or any ConfigMap.
-
-CHECK IT
-  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/name=continuum-agent
-  kubectl -n {{ .Release.Namespace }} logs deploy/continuum-agent
-{{- if include "agent.healthEnabled" . }}
-  READY 1/1 means the agent has reached the server (or is waiting for approval); 0/1 means it has not, or has been
-  revoked: the logs say which.
-{{- end }}
-
-CHANGE WHAT IT MAY SEE
-  Always upgrade with --reuse-values, or every setting you gave at install falls back to the chart's default (the tier
-  defaults to 2, "services", the widest). Narrow or widen consent like this:
-
-    helm upgrade {{ .Release.Name }} <chart> -n {{ .Release.Namespace }} --reuse-values --set access.tier=1
-
-  The cluster owner decides here; the server can approve up to this tier and never beyond it.
-{{- if .Values.enrollment.token }}
-
-  The one-time enrollment token is only used on first start. You can remove it from the cluster with
-  --reuse-values --set enrollment.token=   (the agent restarts once and keeps its identity).
-{{- else if .Values.enrollment.key }}
-
-  enrollment.key's token half is only used on first start; it does nothing now. Unlike enrollment.token, though,
-  there's no need (and no safe way) to blank it afterwards - it also carries the CA pin, which the agent needs on
-  every restart, not just the first. Leaving it set is fine.
-{{- end }}
-
-REMOVE IT
-  helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}
-  This removes the agent, its RBAC and the probe/flow parts. It deliberately KEEPS the Secret {{ include "agent.identitySecret" . }}
-  (the agent's private key and certificate), so a reinstall under the same release name and namespace finds its identity
-  again. To remove that too:
-
-    kubectl -n {{ .Release.Namespace }} delete secret {{ include "agent.identitySecret" . }}
-
-  Continuum's server keeps its record of this cluster until you remove it on the Discovery page.
-{{- if .Values.nodeProbe.enabled }}
-
-NODE PROBE
-  One small read-only pod per node reports the machine type to the agent (in-cluster, signed with a generated secret).{{ if .Values.nodeProbe.hostSys }}
-  It mounts the host's /sys read-only; if the pods are refused with a "hostPath" or "PodSecurity" error, label the namespace
-  privileged:
-
-    kubectl label namespace {{ .Release.Namespace }} pod-security.kubernetes.io/enforce=privileged --overwrite
-{{- end }}
-{{- end }}
-{{- if .Values.flowObserver.enabled }}
-
-TRAFFIC OBSERVER
-  One collector per node counts connections between workloads (method: {{ .Values.flowObserver.method }}; eBPF where the kernel
-  supports it, conntrack otherwise). It runs as root with CAP_BPF/CAP_PERFMON and an unconfined seccomp profile because
-  loading a tracing program needs them{{ if .Values.flowObserver.liveBytes }}, and in the host PID namespace so it can count the bytes of open
-  connections{{ end }}; it reads no packets. If the pods are refused by Pod Security, label the namespace privileged:
-
-    kubectl label namespace {{ .Release.Namespace }} pod-security.kubernetes.io/enforce=privileged --overwrite
-{{- end }}
-{{- if include "agent.telemetryEnabled" . }}
-
-TELEMETRY
-  Signals: {{ include "agent.telemetrySignalNames" . }}, sent to {{ if .Values.telemetry.export.otlp.endpoint }}{{ .Values.telemetry.export.otlp.endpoint }}{{ else }}(no destination set yet - see telemetry.export.otlp.endpoint){{ end }}. Independent of the
-  access tier above, on its own ServiceAccount, and never reported to this server.
-{{- if include "agent.telemetryHostEnabled" . }}
-  The host collector mounts several host paths read-only (kubelet stats, container/journal logs) and is refused outright
-  by Pod Security "baseline"/"restricted" and by GKE Autopilot/EKS Fargate (neither runs DaemonSets or hostPath at all).
-{{- end }}
-{{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
-  Kepler (energy) additionally runs privileged, one pod per Linux/amd64 node (the upstream image has no arm64 build;
-  arm64 nodes are skipped by nodeSelector rather than crash-looping).
-{{- end }}
-{{- if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
-  dcgm-exporter (accelerators) additionally runs as root with SYS_ADMIN, one pod per node labelled nvidia.com/gpu.present=true.
-{{- end }}
-{{- if or (include "agent.telemetryHostEnabled" .) (and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler")) (and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm")) }}
-
-  If any telemetry pod is refused with a "hostPath" or "PodSecurity" error, label the namespace privileged:
-
-    kubectl label namespace {{ .Release.Namespace }} pod-security.kubernetes.io/enforce=privileged --overwrite
-
-  On OpenShift, grant the telemetry ServiceAccount the privileged SCC instead (SCCs, not Pod Security labels, gate this there):
-
-    oc adm policy add-scc-to-user privileged -z {{ include "agent.name" . }}-telemetry -n {{ .Release.Namespace }}
-
-  On GKE Autopilot or EKS Fargate, none of the above will ever schedule - both platforms categorically refuse privileged
-  pods, hostPath volumes, and (Fargate) DaemonSets. Point the affected signal(s) at a Kepler/dcgm-exporter/collector you
-  already run elsewhere instead (telemetry.energy.metrics.source=existing, telemetry.accelerators.metrics.source=existing),
-  or collect only cluster-scoped signals (kubernetesState, applicationMetrics, applicationLogs, traces), which need none
-  of this.
-{{- end }}
-{{- end }}
+Full reference - exactly what each tier can see, narrowing/widening or removing access, checking on it, and
+Pod Security / OpenShift / GKE Autopilot troubleshooting for the node probe, traffic observer or telemetry
+above: this chart's own README (`helm show readme` against whatever chart reference you installed from, or
+read README.md directly if you have the chart unpacked).

@@ -49,7 +49,7 @@ func TestPackageIsAChartHelmAccepts(t *testing.T) {
 	}
 	dir := t.TempDir()
 	names := unpack(t, b, dir)
-	want := map[string]bool{"continuum-agent/Chart.yaml": false, "continuum-agent/values.yaml": false, "continuum-agent/templates/_helpers.tpl": false, "continuum-agent/templates/rbac.yaml": false, "continuum-agent/values.schema.json": false, "continuum-agent/templates/NOTES.txt": false}
+	want := map[string]bool{"continuum-agent/Chart.yaml": false, "continuum-agent/values.yaml": false, "continuum-agent/templates/_helpers.tpl": false, "continuum-agent/templates/rbac.yaml": false, "continuum-agent/values.schema.json": false, "continuum-agent/templates/NOTES.txt": false, "continuum-agent/README.md": false}
 	for _, n := range names {
 		if _, ok := want[n]; ok {
 			want[n] = true
