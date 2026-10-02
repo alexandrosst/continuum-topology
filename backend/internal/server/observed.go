@@ -324,6 +324,10 @@ type target struct{ cluster, workload string }
 type addrIndex struct {
 	reach     map[string][]target // "ip:port" of a load balancer or external IP -> workload
 	nodeIPs   map[string][]string // node address -> clusters
+	// nodePorts is "this cluster's own node's port" -> workload: a port reachable on any address one of
+	// this cluster's own nodes has, regardless of which specific address was dialed - populated from
+	// both an explicit NodePort and a load-balancer whose port binds across every node address (see
+	// the load-balancer case in buildAddrIndex for why the latter belongs here too).
 	nodePorts map[string]map[int32][]string
 	egress    map[string][]string // a cluster's connecting address -> clusters
 }
@@ -387,6 +391,25 @@ func buildAddrIndex(cs []observedCluster) *addrIndex {
 			for _, a := range w.Reachable {
 				switch a.Kind {
 				case "node-port":
+					if ix.nodePorts[c.id] == nil {
+						ix.nodePorts[c.id] = map[int32][]string{}
+					}
+					ix.nodePorts[c.id][a.Port] = append(ix.nodePorts[c.id][a.Port], w.Key)
+				case "load-balancer":
+					k := fmt.Sprintf("%s:%d", a.Ip, a.Port)
+					ix.reach[k] = append(ix.reach[k], target{c.id, w.Key})
+					// A load balancer's reported ingress address is not always the only address its
+					// port is actually reachable on. k3s's built-in ServiceLB (klipper-lb) and other
+					// host-network-bound implementations report one of the cluster's own node
+					// addresses as the ingress IP and then bind the service's port on that node's
+					// host network - which means every address that node has, including one never
+					// reported as an ingress address at all, such as a Netbird/Tailscale mesh peer
+					// address. Recorded by (cluster, port) alone, the same as node-port just above and
+					// for the same reason: resolveExternal only ever consults this after it already
+					// knows the destination address belongs to one of this cluster's own nodes (via
+					// nodeIPs), so a dedicated, per-service load-balancer VIP (MetalLB and similar)
+					// can never be misattributed this way - a real VIP is never also one of a node's
+					// own reported addresses.
 					if ix.nodePorts[c.id] == nil {
 						ix.nodePorts[c.id] = map[int32][]string{}
 					}

@@ -241,6 +241,58 @@ func TestObservedTopologyResolvesOverlayTunnelAddress(t *testing.T) {
 	}
 }
 
+func TestObservedTopologyResolvesLoadBalancerServiceOverTunnelAddress(t *testing.T) {
+	// The exact shape this was reported in: a target cluster's Service is type LoadBalancer (k3s's
+	// built-in ServiceLB/klipper-lb, reporting one of the cluster's own node addresses as the ingress
+	// IP and binding the service's own port - 8080 here, not an auto-assigned NodePort - on that node's
+	// host network). The calling pod reaches it over a Netbird mesh instead, dialing the SAME port on
+	// the node's tunnel address rather than its regular, Kubernetes-visible address. Neither the exact
+	// ip:port match (the dialed address is not the reported ingress IP) nor the old node-port-only
+	// fallback (this service was never given a distinct NodePort, or wasn't dialed on it) can resolve
+	// this - only treating the load-balancer's port as reachable on any of this cluster's own node
+	// addresses, tunnel included, can.
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	seenAt := now.Add(-1 * time.Minute) // past unmatchedGrace, see TestObservedTopologyAcrossClusters' own comment
+	lb := &continuumv1.Address{Ip: "10.0.0.9", Port: 8080, Kind: "load-balancer"}
+	caller := cluster("caller-cluster", "", nil, wk("app", "Deployment", "client"))
+	target := cluster("target-cluster", "",
+		[]*continuumv1.NodeFacts{{
+			Key:         "n1",
+			InternalIps: []string{"10.0.0.9"}, // what the LB ingress status actually reports
+			Probe: &continuumv1.HostProbe{
+				Tunnels: []*continuumv1.TunnelInterface{
+					{Name: "wt0", Kind: "wireguard", Addresses: []string{"100.64.0.9/10"}, Up: true},
+				},
+			},
+		}},
+		wk("app", "Deployment", "server", lb))
+
+	client, server := "app/Deployment/client", "app/Deployment/server"
+	// Dialed on the tunnel address, same port the Service declares - never the reported LB ingress IP.
+	feed(&caller, seenAt, 60, flowOf(wep(client), xep("100.64.0.9"), 8080, 4))
+
+	deps, exts := observedTopology("org", []observedCluster{caller, target}, now, 24*time.Hour)
+	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
+
+	var found *model.Dependency
+	for i := range deps {
+		if deps[i].From == sv("caller-cluster", client) && deps[i].To == sv("target-cluster", server) {
+			found = &deps[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected a resolved service-to-service dependency via the LoadBalancer's port over the tunnel address, got deps=%+v exts=%+v", deps, exts)
+	}
+	if !found.CrossCluster {
+		t.Errorf("dependency across two clusters must be marked CrossCluster, got %+v", found)
+	}
+	for _, e := range exts {
+		if e.Host == "100.64.0.9" {
+			t.Errorf("tunnel address should have resolved to the LoadBalancer's workload, not stayed an external endpoint: %+v", e)
+		}
+	}
+}
+
 func TestObservedTopologyKeepsDifferentProtocolsOnTheSameServiceAndPortSeparate(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	edge := cluster("edge", "", nil, wk("iot", "Deployment", "ingest"), wk("kube-system", "Deployment", "dns"))
