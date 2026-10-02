@@ -45,16 +45,17 @@ type modelCache struct {
 }
 
 type twinRT struct {
-	mu        sync.Mutex
-	loaded    bool
-	reg       *twin.Registry
-	tombs     *twin.Tombstones
-	version   int64
-	fp        string
-	cache     *modelCache
-	declared  workspace.Declared
-	declaredA time.Time
-	declaredK bool
+	mu         sync.Mutex
+	loaded     bool
+	reg        *twin.Registry
+	tombs      *twin.Tombstones
+	version    int64
+	fp         string
+	cache      *modelCache
+	stateCache *stateCache
+	declared   workspace.Declared
+	declaredA  time.Time
+	declaredK  bool
 
 	// gen changes whenever an input of the model changes without the clock (a sync, a revocation, a saved workspace).
 	gen atomic.Uint64

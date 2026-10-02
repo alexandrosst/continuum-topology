@@ -436,7 +436,11 @@ func sortedNodes(st *facts.State) []*continuumv1.NodeFacts {
 	return out
 }
 
-// detectAddons names the CNI and ingress controller from what runs in kube-system and friends.
+// detectAddons names the CNI and ingress controller from what runs in kube-system and friends. This
+// used to re-scan every workload name on every single poll, since Interpret (which calls this) ran
+// unconditionally on every stateFor call. That's fixed for free by stateFor's own topology cache
+// (server/hub.go's buildTopology, gated on tw.gen): Interpret now only runs on an actual cache miss,
+// so this scan is no longer redundant. Nothing here needed to change.
 func detectAddons(st *facts.State, nodes []*continuumv1.NodeFacts) (cni, ingress string) {
 	names := map[string]bool{}
 	for _, w := range st.Workloads {

@@ -939,34 +939,108 @@ func (h *Hub) StateFor(ctx context.Context, withAudit bool) (StateDoc, error) {
 	return h.stateFor(ctx, withAudit, nil)
 }
 
-// stateFor builds the state document. When after is set it is called with the finished document and what the
-// model builder needs, while the hub's lock is still held (the facts are only stable under it).
+// stateCache is the cached half of stateFor's work: the topology interpretation/correlation pass, and the
+// effectiveBuild Model() needs from it. Invalidated by exactly the signal Hub.Model's own modelCache
+// already uses - tw.gen, bumped only when a real input changes (applySync, a revocation, a saved
+// workspace, a tombstone added) - and guarded by tw.mu, not h.mu, so a cache hit never contends with live
+// agent sync or heartbeat writes.
+//
+// Deliberately NOT cached here: the per-agent AgentDoc list (built fresh by buildAgentDocs on every call)
+// and the audit log (fetched fresh by stateFor below). Both carry live fields - AccessTier, consent,
+// diagnostics, HardenHelm's own upstream tier comparison - that change through code paths which never
+// bump tw.gen, because nothing needed them to before this cache existed (gen was wired up only for what
+// Model()'s heavier transform reads). Caching those against tw.gen would silently serve stale tier/
+// consent/diagnostics data for up to modelCacheTTL after a change - confirmed by this change's own test
+// run, not a hypothetical: narrowing an agent's access tier doesn't bump gen, so caching AgentDoc the same
+// way as topology served a stale HardenHelm command on the very next poll. Topology and effectiveBuild
+// have no such gap: everything they're built from (facts, declared layer, tombstones) bumps gen on every
+// path that changes it, which is exactly why only they are cached.
+type stateCache struct {
+	at          time.Time
+	gen         uint64
+	stale       time.Duration
+	topology    model.Topology
+	tombstones  []TombstoneDoc
+	observation twin.ObservationDoc
+	eb          *effectiveBuild
+}
+
+// stateFor builds the state document, calling after (when set) with the finished document and what the
+// model builder needs. buildAgentDocs below always runs fresh. buildTopology - the expensive interpret/
+// observe/correlate pass - is cached against tw.gen (see stateCache's own doc for exactly what is and
+// isn't safe to cache and why), so a poll landing between two real topology-affecting changes skips that
+// whole pass, without ever taking h.mu for it.
 func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc, *effectiveBuild)) (StateDoc, error) {
 	h.twinLoad(ctx)
 	now := h.C.Now()
-	set := h.C.Settings()
-	window := time.Duration(set.StaleAfterBeats*HeartbeatSeconds) * time.Second
-	eb := newEffectiveBuild(window)
-	doc := StateDoc{GeneratedAt: rfc(now), Agents: []AgentDoc{}, AuditLog: []AuditDoc{}, Tombstones: []TombstoneDoc{}}
-	doc.Topology = model.Topology{Clusters: []model.Cluster{}, Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Services: []model.Service{}, Suggestions: []model.Suggestion{},
-		Dependencies: []model.Dependency{}, ExternalEndpoints: []model.ExternalEndpoint{}, Paths: []model.Path{}, ClusterLinks: []model.ClusterLink{}}
-	var observed, located []observedCluster
-	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
-	if err != nil {
-		return doc, err
-	}
-	// Fetched here, before h.mu, not inside the locked section below: ListAudit is a database read keyed
-	// only by org ID, with no dependency on anything the locked loop computes. Every agent's heartbeat and
-	// sync ultimately waits on h.mu too (applySync takes it to merge state), so a slow audit-log query
-	// sitting inside that same critical section would stall live agent traffic behind an unrelated read,
-	// for every org sharing this process - not just the one asking for its audit log.
+	window := h.staleWindow()
+
+	// Fetched here, before any lock: ListAudit is a database read keyed only by org ID, with no
+	// dependency on anything built below. Every agent's heartbeat and sync ultimately waits on h.mu too
+	// (applySync takes it to merge state), so a slow audit-log query sitting inside a locked section
+	// would stall live agent traffic behind an unrelated read, for every org sharing this process - not
+	// just the one asking for its audit log. Audit freshness and topology freshness are different
+	// contracts; this is never cached, unlike the topology pass below.
 	var auditEvents []store.AuditEvent
 	if withAudit {
 		auditEvents, _ = h.C.Store.ListAudit(ctx, h.C.OrgID, 50)
 	}
+
+	agentDocs, agents, err := h.buildAgentDocs(ctx, now)
+	if err != nil {
+		return StateDoc{}, err
+	}
+
+	tw := h.tw
+	gen := tw.gen.Load()
+	tw.mu.Lock()
+	if c := tw.stateCache; c != nil && c.gen == gen && c.stale == window && now.Sub(c.at) >= 0 && now.Sub(c.at) < modelCacheTTL {
+		topology, tombstones, observation, eb := c.topology, c.tombstones, c.observation, c.eb
+		tw.mu.Unlock()
+		return h.finishState(agentDocs, topology, tombstones, observation, eb, now, auditEvents, after), nil
+	}
+	tw.mu.Unlock()
+
+	topology, tombstones, observation, eb, err := h.buildTopology(ctx, agents, now, window)
+	if err != nil {
+		return StateDoc{}, err
+	}
+	tw.mu.Lock()
+	tw.stateCache = &stateCache{at: now, gen: gen, stale: window, topology: topology, tombstones: tombstones, observation: observation, eb: eb}
+	tw.mu.Unlock()
+	return h.finishState(agentDocs, topology, tombstones, observation, eb, now, auditEvents, after), nil
+}
+
+// finishState assembles what neither buildAgentDocs nor a cache entry carries - a fresh GeneratedAt stamp
+// and the audit rows stateFor just fetched - and runs the after callback. Shared by stateFor's cache-hit
+// and cache-miss paths so the two can never drift apart on what "finished" means.
+func (h *Hub) finishState(agentDocs []AgentDoc, topology model.Topology, tombstones []TombstoneDoc, observation twin.ObservationDoc, eb *effectiveBuild, now time.Time, auditEvents []store.AuditEvent, after func(*StateDoc, *effectiveBuild)) StateDoc {
+	doc := StateDoc{GeneratedAt: rfc(now), Agents: agentDocs, Topology: topology, Tombstones: tombstones, Observation: observation}
+	doc.AuditLog = make([]AuditDoc, 0, len(auditEvents))
+	for i := len(auditEvents) - 1; i >= 0; i-- {
+		e := auditEvents[i]
+		doc.AuditLog = append(doc.AuditLog, AuditDoc{ID: "au-" + itoa(e.ID), OrgID: e.OrgID, At: rfc(e.At), Actor: e.Actor, Action: e.Action, TargetKind: e.TargetKind, TargetID: e.TargetID, Detail: e.Detail})
+	}
+	if after != nil {
+		after(&doc, eb)
+	}
+	return doc
+}
+
+// buildAgentDocs builds every agent's own document - status, tier, consent, diagnostics, teardown
+// commands, and everything else that can change through a path which does not bump tw.gen (a tier
+// narrowing, a consent override, a diagnostics report). Always a fresh read of h.views under h.mu, on
+// every single call: see stateCache's own doc for why this, unlike the topology pass below, is never
+// cached. Also returns the agent list fetched along the way, so buildTopology does not need to fetch it
+// again.
+func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []store.Agent, error) {
+	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
+	if err != nil {
+		return nil, nil, err
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	showRevoked := h.revokedToShow(agents)
+	agentDocs := make([]AgentDoc, 0, len(agents))
 	for _, a := range agents {
 		v := h.views[a.ID]
 		d := AgentDoc{
@@ -1036,7 +1110,27 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 				d.Modules = append(d.Modules, ModuleDoc{Name: "server limits", Status: "error", Reason: v.refusal})
 			}
 		}
-		doc.Agents = append(doc.Agents, d)
+		agentDocs = append(agentDocs, d)
+	}
+	sort.Slice(agentDocs, func(i, j int) bool { return agentDocs[i].RequestedAt < agentDocs[j].RequestedAt })
+	return agentDocs, agents, nil
+}
+
+// buildTopology does the expensive, h.mu-guarded work of interpreting every approved agent's facts,
+// assessing staleness, and correlating flows/tunnels/cluster-links - exactly what stateFor used to do
+// inline, together with the agent-doc loop, on every single call. stateFor above caches this against
+// tw.gen; this function itself knows nothing about caching, so it is always a real, full rebuild. Takes
+// the agent list buildAgentDocs already fetched, rather than fetching it again.
+func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.Time, window time.Duration) (model.Topology, []TombstoneDoc, twin.ObservationDoc, *effectiveBuild, error) {
+	eb := newEffectiveBuild(window)
+	topo := model.Topology{Clusters: []model.Cluster{}, Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Services: []model.Service{}, Suggestions: []model.Suggestion{},
+		Dependencies: []model.Dependency{}, ExternalEndpoints: []model.ExternalEndpoint{}, Paths: []model.Path{}, ClusterLinks: []model.ClusterLink{}}
+	var observed, located []observedCluster
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	showRevoked := h.revokedToShow(agents)
+	for _, a := range agents {
+		v := h.views[a.ID]
 		revoked := showRevoked[a.ID]
 		if (a.Status != store.StatusApproved && !revoked) || v == nil || v.lastSync.IsZero() {
 			continue
@@ -1056,11 +1150,11 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 		for _, r := range recs {
 			eb.nodes[r.ID] = r
 		}
-		doc.Topology.Clusters = append(doc.Topology.Clusters, t.Clusters...)
-		doc.Topology.Nodes = append(doc.Topology.Nodes, t.Nodes...)
-		doc.Topology.Namespaces = append(doc.Topology.Namespaces, t.Namespaces...)
-		doc.Topology.Services = append(doc.Topology.Services, t.Services...)
-		doc.Topology.Suggestions = append(doc.Topology.Suggestions, t.Suggestions...)
+		topo.Clusters = append(topo.Clusters, t.Clusters...)
+		topo.Nodes = append(topo.Nodes, t.Nodes...)
+		topo.Namespaces = append(topo.Namespaces, t.Namespaces...)
+		topo.Services = append(topo.Services, t.Services...)
+		topo.Suggestions = append(topo.Suggestions, t.Suggestions...)
 		if revoked {
 			continue // a revoked agent's picture is kept to be shown, and is never used to draw traffic or place anything
 		}
@@ -1071,31 +1165,23 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 		}
 	}
 	if len(observed) > 0 {
-		doc.Topology.Dependencies, doc.Topology.ExternalEndpoints = observedTopology(h.C.OrgID, observed, now, h.StaleFlows())
-		doc.Topology.Suggestions = append(doc.Topology.Suggestions, suspicions(h.C.OrgID, observed, located, now)...)
+		topo.Dependencies, topo.ExternalEndpoints = observedTopology(h.C.OrgID, observed, now, h.StaleFlows())
+		topo.Suggestions = append(topo.Suggestions, suspicions(h.C.OrgID, observed, located, now)...)
 	}
 	// Needs every cluster's nodes in one list (a tunnel's other end is often in a different cluster, or
 	// this very same one), so this runs once here rather than per cluster inside the loop above.
-	correlateTunnels(doc.Topology.Nodes)
+	correlateTunnels(topo.Nodes)
 	names := map[string]string{}
-	for _, c := range doc.Topology.Clusters {
+	for _, c := range topo.Clusters {
 		names[c.ID] = c.Name
 	}
 	// Same reasoning as correlateTunnels just above: a cluster-pair relationship can only be seen once
 	// every cluster's nodes are in one list, so this also runs once here, after names is built.
-	doc.Topology.ClusterLinks = correlateClusterLinks(doc.Topology.Nodes, names)
-	doc.Topology.Paths = h.pathDocs(agents, located, names, now)
-	sort.Slice(doc.Agents, func(i, j int) bool { return doc.Agents[i].RequestedAt < doc.Agents[j].RequestedAt })
-	for i := len(auditEvents) - 1; i >= 0; i-- {
-		e := auditEvents[i]
-		doc.AuditLog = append(doc.AuditLog, AuditDoc{ID: "au-" + itoa(e.ID), OrgID: e.OrgID, At: rfc(e.At), Actor: e.Actor, Action: e.Action, TargetKind: e.TargetKind, TargetID: e.TargetID, Detail: e.Detail})
-	}
-	doc.Tombstones = h.tombstoneDocs(now)
-	doc.Observation = twin.ObservationDoc{StaleAfterSeconds: int(window / time.Second), TombstoneRetentionDays: int(h.retention() / (24 * time.Hour))}
-	if after != nil {
-		after(&doc, eb)
-	}
-	return doc, nil
+	topo.ClusterLinks = correlateClusterLinks(topo.Nodes, names)
+	topo.Paths = h.pathDocs(agents, located, names, now)
+	tombstones := h.tombstoneDocs(now)
+	observation := twin.ObservationDoc{StaleAfterSeconds: int(window / time.Second), TombstoneRetentionDays: int(h.retention() / (24 * time.Hour))}
+	return topo, tombstones, observation, eb, nil
 }
 
 // StaleFlows is how long an observed edge may go unseen before it is shown as stale.

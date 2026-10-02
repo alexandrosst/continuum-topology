@@ -330,6 +330,53 @@ func TestSameNamesInTwoClustersAndTwoOrganisationsNeverCollide(t *testing.T) {
 	}
 }
 
+// TestStateForCachesTopologyButNeverAgentDocsOrAudit is a regression test for a real bug caught while
+// adding stateFor's cache: narrowing an agent's access tier (SetAgentTier) never bumps tw.gen, because
+// nothing needed it to before this cache existed. Caching the per-agent AgentDoc list the same way as
+// topology would have served a stale AccessTier/HardenHelm for up to modelCacheTTL after a change - this
+// pins down that AgentDoc is always rebuilt fresh, while the expensive topology/correlation pass is still
+// genuinely cached against tw.gen (a second State() call with nothing changed must agree with the first).
+func TestStateForCachesTopologyButNeverAgentDocsOrAudit(t *testing.T) {
+	r := newHubRig(t)
+	h := r.hub
+	a := twinAgent(t, r.env, h, fp)
+	nodes := []*continuumv1.NodeFacts{twinNode("n1", "")}
+	h.applySync(a, twinFull(fp, nodes, twinWorkload("shop", "cart")), false)
+
+	first, _ := h.State(r.ctx)
+	second, _ := h.State(r.ctx) // same gen, well within modelCacheTTL: must agree with the first
+	if len(first.Topology.Services) != 1 || len(second.Topology.Services) != 1 {
+		t.Fatalf("topology should be stable across an unchanged cache hit: %d vs %d", len(first.Topology.Services), len(second.Topology.Services))
+	}
+
+	// SetAgentTier changes AccessTier through a path that never bumps tw.gen. If AgentDoc were cached the
+	// same way as topology, this would still show the old tier on the very next call.
+	if _, err := h.SetAgentTier(r.ctx, "tester", a.ID, 0, nil); err != nil {
+		t.Fatalf("SetAgentTier: %v", err)
+	}
+	third, _ := h.State(r.ctx)
+	if len(third.Agents) != 1 || third.Agents[0].AccessTier != 0 {
+		t.Fatalf("agent docs must never be served from the topology cache: %+v", third.Agents)
+	}
+
+	// A real topology-affecting change (another sync) is reflected immediately too, even inside the TTL
+	// window: tw.gen, not the clock, is what invalidates the cache.
+	h.applySync(a, twinFull(fp, nodes, twinWorkload("shop", "cart"), twinWorkload("shop", "pay")), true)
+	fourth, _ := h.State(r.ctx)
+	if len(fourth.Topology.Services) != 2 {
+		t.Fatalf("a gen-bumping change must invalidate the topology cache immediately: %d services", len(fourth.Topology.Services))
+	}
+
+	// Audit rows are never cached, regardless of topology cache state: StateFor(ctx, true) always re-reads them.
+	if err := r.core.audited(r.ctx, "tester", "note", "agent", a.ID, "looked at", func() error { return nil }); err != nil {
+		t.Fatalf("audited: %v", err)
+	}
+	withAudit, _ := h.StateFor(r.ctx, true)
+	if len(withAudit.AuditLog) == 0 {
+		t.Fatalf("audit log must be fetched fresh even when the topology cache is hit: %+v", withAudit.AuditLog)
+	}
+}
+
 func TestModelAPIContractETagAndTenancy(t *testing.T) {
 	a := newAdminRig(t)
 	owner, ownerCookie := a.user(t, "boss", RoleOwner)
