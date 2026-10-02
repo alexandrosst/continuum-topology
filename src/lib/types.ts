@@ -719,6 +719,21 @@ export interface Dependency {
   note?: string
   connections?: number
   bytes?: number
+  /** Set when `iface` above matched one side of a confirmed, named overlay ClusterLink between this
+   * dependency's own two endpoints' clusters - see the backend's correlateClusterLinks for the exact
+   * matching rule (cluster AND interface name together, never interface name alone). Lets the UI show
+   * "this traffic crosses a confirmed tunnel" directly on this dependency's own edge, in addition to -
+   * not instead of - the aggregate on the ClusterLink itself (flowsObserved and its own doc), which
+   * still matters for a tunnel used by several distinct dependencies at once, or by none right now.
+   * Deliberately missing flowsObserved/avgRttMs/avgLossPct: those are an aggregate across every
+   * dependency crossing the link, not a fact about this one. */
+  tunnelLink?: {
+    fromCluster: string
+    toCluster: string
+    via: string
+    redundancy: number
+    encryption?: ClusterLink['encryption']
+  }
 }
 
 /** The graph. */

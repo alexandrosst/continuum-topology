@@ -1636,6 +1636,41 @@ test('cluster links: a confirmed overlay/subnet edge is drawn directly between t
   assert.ok(!g3.edges.some((e) => e.data?.clusterLink), 'an end not on the canvas draws nothing')
 })
 
+test('cluster links: a dependency edge whose own tunnelLink matches the overlay link suppresses the standalone line, but only when it is the sole match', () => {
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+  const overlay: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'overlay', via: 'wg0 (wireguard)' }
+  const tunnelLink = { fromCluster: 'cl-edge-a', toCluster: 'cl-cloud', via: 'wg0 (wireguard)', redundancy: 1, encryption: 'encrypted' as const }
+
+  // Zero dependencies cross the tunnel: nothing to suppress it with, so the standalone overlay line still shows.
+  const g0 = buildGraph({ ...seed, dependencies: [] }, { ...opts, clusterLinks: [overlay] })
+  assert.ok(g0.edges.some((e) => e.data?.clusterLink), 'no annotated dependency edge exists yet - the overlay line is the only evidence, so it must stay')
+
+  // Exactly one dependency crosses it: that edge already shows everything the standalone line would, so
+  // the standalone line is redundant and gets suppressed.
+  const oneDep = seenDep({ id: 'dep-tun-1', from: 'w-orch', to: 'w-infer-a', iface: 'wg0', tunnelLink })
+  const g1 = buildGraph({ ...seed, dependencies: [oneDep] }, { ...opts, clusterLinks: [overlay] })
+  assert.ok(!g1.edges.some((e) => e.data?.clusterLink), 'the sole crossing dependency already carries the tunnel info - no need for a second, redundant line')
+  const depEdge1 = g1.edges.find((e) => e.id === 'dep-tun-1')
+  assert.equal(depEdge1?.data?.tunnelLink?.fromCluster, 'cl-edge-a')
+  assert.equal(depEdge1?.data?.tunnelLink?.toCluster, 'cl-cloud')
+  assert.equal(depEdge1?.data?.tunnelLink?.via, 'wg0 (wireguard)')
+  assert.equal(depEdge1?.data?.tunnelLink?.encryption, 'encrypted')
+
+  // Two distinct dependencies cross it: neither one alone is the full picture, so the standalone line
+  // stays alongside both annotated dependency edges.
+  const twoDeps = [oneDep, seenDep({ id: 'dep-tun-2', from: 'w-sensor-a', to: 'w-registry', iface: 'wg0', tunnelLink })]
+  const g2 = buildGraph({ ...seed, dependencies: twoDeps }, { ...opts, clusterLinks: [overlay] })
+  assert.ok(g2.edges.some((e) => e.data?.clusterLink), 'two distinct dependencies share the tunnel - no single edge fully represents it, so the standalone line stays')
+  assert.equal(g2.edges.find((e) => e.id === 'dep-tun-1')?.data?.tunnelLink?.via, 'wg0 (wireguard)')
+  assert.equal(g2.edges.find((e) => e.id === 'dep-tun-2')?.data?.tunnelLink?.via, 'wg0 (wireguard)')
+
+  // A subnet link never produces a tunnelLink match (only overlay tunnels do), so a dependency carrying
+  // one never suppresses a subnet-kind standalone line even if the clusters happen to coincide.
+  const subnet: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'subnet', via: '10.20.30.0/24' }
+  const g3 = buildGraph({ ...seed, dependencies: [oneDep] }, { ...opts, clusterLinks: [subnet] })
+  assert.ok(g3.edges.some((e) => e.data?.clusterLink?.kind === 'subnet'), 'a subnet link is never fully represented by a tunnelLink match, so it is never suppressed')
+})
+
 test("edge interface capacity reaches EdgeData alongside its throughput, never guessed when the caller's own nodes disagree", () => {
   // w-gw runs on n-c2 and n-c3 (both cl-cloud) - give both the same eth0 speed first.
   const dep = seenDep({ id: 'dep-iface', from: 'w-gw', to: 'w-orch', iface: 'eth0' })

@@ -214,6 +214,12 @@ export type EdgeData = {
    *  `encryption` classifies that same tunnel's driver as "encrypted" or "plaintext" - an inference from
    *  the driver type alone, never a measured fact; also only set for an "overlay" link. */
   clusterLink?: { kind: ClusterLink['kind']; via: string; redundancy: number; fromNode?: string; toNode?: string; fromAddress?: string; toAddress?: string; flowsObserved?: number; avgRttMs?: number; avgLossPct?: number; encryption?: ClusterLink['encryption'] }
+  /** Set only on a dependency edge (never alongside clusterLink above) whose own Dependency.tunnelLink
+   *  matched a confirmed overlay ClusterLink - see Dependency.tunnelLink's own doc in types.ts. The same
+   *  evidence shape as clusterLink's via/redundancy/encryption, minus the aggregate flow/RTT/loss fields,
+   *  which stay exclusive to the standalone ClusterLink edge (an aggregate across every dependency
+   *  crossing it, not a fact about this one dependency alone). */
+  tunnelLink?: { fromCluster: string; toCluster: string; via: string; redundancy: number; encryption?: ClusterLink['encryption'] }
 }
 export type TopoEdge = Edge<EdgeData>
 
@@ -729,6 +735,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         dnsQueryNames: d.dnsQueryNames,
         dnsRttMs: d.dnsRttMs,
         route,
+        tunnelLink: d.tunnelLink,
       }))
     }
   } else if (o.links) {
@@ -795,10 +802,19 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
 
   // Cluster links: a confirmed overlay/subnet relationship, drawn directly between the two clusters' own
   // group boxes (never a third box, unlike regional operators above - the relationship IS the two
-  // clusters themselves). Like the operator edges above, this draws the same way in every view/groupBy
-  // combination, independent of whether anything actually calls between the two clusters - it is a
-  // network-level fact, not a traffic one. Two clusters that collapsed into the very same group (both in
-  // the same tier, when groupBy is 'tier') have no distinct "other end" to draw a line to.
+  // clusters themselves), independent of whether anything actually calls between the two clusters - it
+  // is a network-level fact, not a traffic one. Two clusters that collapsed into the very same group
+  // (both in the same tier, when groupBy is 'tier') have no distinct "other end" to draw a line to.
+  //
+  // Suppressed, though, when exactly one already-drawn dependency edge's own tunnelLink (see
+  // EdgeData.tunnelLink) names this exact overlay link: that one edge already shows everything this line
+  // would (via/redundancy/encryption), so drawing both would just look like a duplicate relationship
+  // between the same two boxes. Zero matching dependency edges (nothing is using the tunnel right now, or
+  // the detailed per-dependency edges aren't even drawn in this view/groupBy) still draws this line on its
+  // own - that is the one place a quiet tunnel stays visible at all. More than one matching edge also
+  // keeps this line: no single dependency edge can stand in for the aggregate (flowsObserved/avgRttMs/
+  // avgLossPct) only this line carries. A "subnet" link is never suppressed - dependencies never carry a
+  // tunnelLink for one (see Dependency.tunnelLink's own doc), so there is nothing to check.
   for (const cl of o.clusterLinks ?? []) {
     const a = groupKeyOfCluster(cl.fromCluster)
     const b = groupKeyOfCluster(cl.toCluster)
@@ -806,6 +822,11 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     const ga = groupId(a)
     const gb = groupId(b)
     if (!abs.has(ga) || !abs.has(gb)) continue
+    const matchingDependencyEdges =
+      cl.kind === 'overlay'
+        ? edges.filter((e) => e.data?.tunnelLink?.fromCluster === cl.fromCluster && e.data?.tunnelLink?.toCluster === cl.toCluster).length
+        : 0
+    if (matchingDependencyEdges === 1) continue
     edges.push(makeEdge(`cl:${cl.fromCluster}:${cl.toCluster}:${cl.kind}`, ga, gb, abs, {
       label: cl.kind === 'overlay' ? 'overlay' : 'same subnet',
       cross: true,
@@ -1455,6 +1476,8 @@ function makeEdge(
      *  clusters either are, or are not, joined this way), so this suppresses the arrowhead the same way
      *  `aggregated` does, independently of `groupLevel`, which still wants its own real arrowhead. */
     clusterLink?: { kind: ClusterLink['kind']; via: string; redundancy: number; fromNode?: string; toNode?: string; fromAddress?: string; toAddress?: string; flowsObserved?: number; avgRttMs?: number; avgLossPct?: number; encryption?: ClusterLink['encryption'] }
+    /** See EdgeData.tunnelLink's own doc - mutually exclusive with clusterLink above. */
+    tunnelLink?: { fromCluster: string; toCluster: string; via: string; redundancy: number; encryption?: ClusterLink['encryption'] }
     protocols?: Record<string, number>
   },
 ): TopoEdge {
@@ -1485,7 +1508,7 @@ function makeEdge(
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,
     markerEnd: d.aggregated || d.clusterLink ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, ifaceSpeedMbps: d.ifaceSpeedMbps, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, dnsRttMs: d.dnsRttMs, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink, protocols: d.protocols },
+    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, ifaceSpeedMbps: d.ifaceSpeedMbps, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, dnsRttMs: d.dnsRttMs, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink, tunnelLink: d.tunnelLink, protocols: d.protocols },
   }
 }
 

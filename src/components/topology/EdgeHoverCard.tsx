@@ -87,6 +87,11 @@ export default function EdgeHoverCard({
   const left = Math.min(pos.cx - box.left + 14, box.width - 236)
   const top = Math.max(8, pos.cy - box.top - 12)
   const label = typeof edge.label === 'string' ? edge.label : undefined
+  // The standalone ClusterLink edge and a dependency edge crossing a confirmed tunnel (EdgeData.tunnelLink)
+  // never coexist on the same edge, and share the same via/redundancy/encryption shape - unified here so
+  // the three rows below render identically either way. flowsObserved/avgRttMs/avgLossPct stay exclusive
+  // to clusterLink: an aggregate across every dependency crossing the link, never a fact about just one.
+  const tunnel = d?.clusterLink ?? d?.tunnelLink
 
   return (
     <div
@@ -105,7 +110,7 @@ export default function EdgeHoverCard({
             ? d.activeCount ? ` · ${d.activeCount} seen in traffic` : undefined
             : label !== undefined && (d?.stale ? ' · quiet' : seen ? ' · seen in traffic' : ' · declared')}
       </div>
-      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showJitter || showHandshake || showRetransmits || showFailed || showSni || showDns || showDnsRtt || d?.iface || d?.quality || d?.route || d?.clusterLink || protocolMix) && (
+      {(showBps || s?.reqPerSec !== undefined || s?.errorRate !== undefined || s?.p95Ms !== undefined || d?.rttMs !== undefined || showJitter || showHandshake || showRetransmits || showFailed || showSni || showDns || showDnsRtt || d?.iface || d?.quality || d?.route || tunnel || protocolMix) && (
         <div className="mt-1.5">
           {protocolMix && (
             <DetailRow dense label="Protocols">
@@ -184,35 +189,35 @@ export default function EdgeHoverCard({
               {d.route === 'gateway' ? 'via gateway' : 'direct (peer network)'}
             </DetailRow>
           )}
-          {d?.clusterLink && (
+          {tunnel && (
             <DetailRow
               dense
               label="Via"
               labelTitle="The specific evidence behind this link - a tunnel interface's name and kind, or the shared subnet prefix - confirmed from both clusters' own routing/address data, never a guess"
             >
-              <span title={d.clusterLink.via}>{d.clusterLink.via}</span>
+              <span title={tunnel.via}>{tunnel.via}</span>
             </DetailRow>
           )}
-          {d?.clusterLink?.encryption && (
+          {tunnel?.encryption && (
             <DetailRow
               dense
               label="Encryption"
               labelTitle="Inferred from the tunnel's driver type alone - WireGuard and IPsec encrypt by design, VXLAN/GRE and similar carry none of their own - never a measurement of a live handshake"
             >
-              {d.clusterLink.encryption === 'plaintext' ? (
-                <span className="text-warn">{ENCRYPTION_WORDS[d.clusterLink.encryption]}</span>
+              {tunnel.encryption === 'plaintext' ? (
+                <span className="text-warn">{ENCRYPTION_WORDS[tunnel.encryption]}</span>
               ) : (
-                ENCRYPTION_WORDS[d.clusterLink.encryption]
+                ENCRYPTION_WORDS[tunnel.encryption]
               )}
             </DetailRow>
           )}
-          {d?.clusterLink && d.clusterLink.redundancy > 1 && (
+          {tunnel && tunnel.redundancy > 1 && (
             <DetailRow
               dense
               label="Redundancy"
               labelTitle="How many independently corroborating node pairs back this link - more than one means more than one path between these clusters, not a single point of failure"
             >
-              {d.clusterLink.redundancy} independent paths
+              {tunnel.redundancy} independent paths
             </DetailRow>
           )}
           {d?.clusterLink && !!d.clusterLink.flowsObserved && (
