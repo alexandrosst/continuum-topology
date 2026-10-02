@@ -1005,6 +1005,18 @@ function Canvas() {
                 // leaving pickMode true after it opens the telemetry wizard used to strand the canvas dimmed
                 // with no visible cause once the wizard closed.
                 if (agentId) { setPickMode(false); telemetry.start(agentId); return }
+                // Same technique, for the per-pod expand panel's own node-name buttons (nodes.tsx's Card):
+                // those live inside a SERVICE card but need to select a DIFFERENT entity (the node that
+                // pod happens to be scheduled on) - something only this handler, not the card component
+                // itself, has the selection setters to do. data-select-node carries that node's id.
+                const nodeBtn = (e.target as HTMLElement).closest?.('[data-select-node]')
+                const selectNodeId = nodeBtn?.getAttribute('data-select-node')
+                if (selectNodeId) {
+                  setMultiSelectedIds((prev) => (prev.length === 0 ? prev : []))
+                  select({ kind: 'node', id: selectNodeId })
+                  setNodes((ns) => syncSelected(ns, new Set([selectNodeId])))
+                  return
+                }
                 // Pick mode takes over the click entirely - one click picks (or, for an ineligible node,
                 // just cancels) rather than also falling through to a normal select.
                 if (pickMode) {

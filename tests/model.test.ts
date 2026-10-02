@@ -1800,6 +1800,60 @@ test('service card: the per-pod dot strip caps at a fixed size so it can never o
   assert.ok(ids2.has('gw-scaled'), 'the scaling-event pod survives the cap even when it would otherwise be crowded out')
 })
 
+test("service card: podGroups buckets every live replica by node, uncapped, for the card's expand-in-place pod view", () => {
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+
+  // No per-pod facts at all: no groups either - the same "absent" convention pods/podsOverflow already follow.
+  const none = buildGraph(seed, opts)
+  const gwNone = none.nodes.find((n) => n.id === cardId('w-gw'))!
+  assert.equal((gwNone.data as { podGroups?: unknown }).podGroups, undefined)
+
+  const now = Date.now()
+  const old = new Date(now - 20 * 60 * 1000).toISOString()
+  const brandNew = new Date(now - 60 * 1000).toISOString()
+
+  const grouped = {
+    ...seed,
+    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: [
+      { name: 'gw-1', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old },
+      { name: 'gw-2', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old, restarts: 2 },
+      { name: 'gw-3', nodeId: 'n-c3', phase: 'Pending', ready: false, createdAt: brandNew },
+      { name: 'gw-4', phase: 'Pending', ready: false, createdAt: brandNew },
+    ] } : s)),
+  }
+  const g = buildGraph(grouped, opts)
+  const card = g.nodes.find((n) => n.id === cardId('w-gw'))!
+  type PodGroup = { nodeId: string; nodeName: string; pods: { id: string; ready: boolean; recent: boolean; restarts?: number; title: string }[] }
+  const groups = (card.data as { podGroups?: PodGroup[] }).podGroups!
+
+  // podGroups never caps or drops anything the way the collapsed strip's `pods`/`podsOverflow` do - every
+  // one of the 4 pods above is accounted for across the groups, however many there are.
+  assert.equal(groups.reduce((n, gr) => n + gr.pods.length, 0), 4)
+
+  // Sorted by resolved node name; a pod with no nodeId lands in its own "not scheduled" group rather than
+  // being dropped.
+  assert.deepEqual(groups.map((gr) => gr.nodeName), ['eks-worker-1', 'eks-worker-2', 'not scheduled'])
+  assert.deepEqual(groups.map((gr) => gr.nodeId), ['n-c2', 'n-c3', ''])
+
+  const onC2 = groups.find((gr) => gr.nodeId === 'n-c2')!
+  assert.deepEqual(onC2.pods.map((p) => p.id), ['gw-1', 'gw-2'])
+  assert.ok(onC2.pods.every((p) => p.ready && !p.recent))
+  const gw2 = onC2.pods.find((p) => p.id === 'gw-2')!
+  assert.equal(gw2.restarts, 2)
+  assert.ok(gw2.title.includes('2 restarts'), 'the per-pod title surfaces the restart count')
+
+  const onC3 = groups.find((gr) => gr.nodeId === 'n-c3')!
+  assert.equal(onC3.pods.length, 1)
+  assert.equal(onC3.pods[0].ready, false)
+  assert.equal(onC3.pods[0].recent, true)
+  assert.ok(onC3.pods[0].title.includes('not ready'))
+  assert.ok(onC3.pods[0].title.includes('recently added'))
+
+  const unscheduled = groups.find((gr) => gr.nodeId === '')!
+  assert.equal(unscheduled.nodeName, 'not scheduled')
+  assert.deepEqual(unscheduled.pods.map((p) => p.id), ['gw-4'])
+})
+
 test('resyncNodes: a node mid-drag is left untouched, others keep position until re-parented', () => {
   const node = (id: string, overrides: Record<string, unknown> = {}) =>
     ({ id, type: 'card', position: { x: 0, y: 0 }, parentId: 'g:cl-a', data: {}, ...overrides }) as unknown as ReturnType<typeof buildGraph>['nodes'][number]

@@ -5,7 +5,7 @@
  * "view" turns entities into boxes and edges, so adding a new plane (network,
  * data-flow, cost…) means adding a branch here + optionally a node component.
  */
-import { callerIfaceSpeedMbps, placeLabel, recentlyScaledPods } from './present'
+import { ageLabel, callerIfaceSpeedMbps, placeLabel, recentlyScaledPods } from './present'
 import { MarkerType, Position, type Edge, type Node } from '@xyflow/react'
 import { isObserved } from './observed'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
@@ -107,6 +107,15 @@ export type CardData = {
    *  the one row the card reserves height for, the same reasoning CHIP_LIMIT already follows for the
    *  machine card's hosted-service chips. */
   podsOverflow?: number
+  /** `service` cards only: every live replica grouped by the node it's scheduled on, for the card's own
+   *  expand-in-place pod view (ServiceCard's "N pods on M nodes" toggle - see its own doc comment).
+   *  Deliberately NOT capped the way `pods` above is: expanding is an explicit, one-card-at-a-time action
+   *  triggered by a person who already asked to see everything, not something that has to fit a
+   *  permanently-reserved row the way the collapsed dot strip does. A replica with no known node (not yet
+   *  scheduled, or its node fell outside this topology's own scope) groups under nodeId `''`, named "not
+   *  scheduled" rather than silently dropped. Absent under the same condition `pods` is: no per-pod facts
+   *  collected at all (older agent tier, or no pods up). */
+  podGroups?: { nodeId: string; nodeName: string; pods: { id: string; ready: boolean; recent: boolean; restarts?: number; title: string }[] }[]
 }
 
 export type GroupNode = Node<GroupData, 'boundary'>
@@ -471,7 +480,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       // The mesh's own workloads (istiod, ztunnel, gateways) are machinery: shown only with the mesh overlay.
       if (w.mesh?.controlPlane && !o.mesh) continue
       const g = ensureGroup(c)
-      g.items.push(serviceItem(w, c, o.groupBy === 'tier', o.hints?.get(w.id), o.mesh))
+      g.items.push(serviceItem(w, c, o.groupBy === 'tier', o.hints?.get(w.id), o.mesh, nodeById))
       groupOfEntity.set(w.id, g.key)
     }
 
@@ -1045,6 +1054,7 @@ function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edg
   const clusterById = new Map(t.clusters.map((c) => [c.id, c]))
   const siteById = new Map(t.sites.map((s) => [s.id, s]))
   const serviceById = new Map(t.services.map((w) => [w.id, w]))
+  const nodeById = new Map(t.nodes.map((n) => [n.id, n]))
 
   const services = t.services.filter((w) => {
     const c = clusterById.get(w.clusterId)
@@ -1074,7 +1084,7 @@ function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edg
 
   for (const w of services) {
     const c = clusterById.get(w.clusterId)!
-    const item = serviceItem(w, c, true, o.hints?.get(w.id), o.mesh)
+    const item = serviceItem(w, c, true, o.hints?.get(w.id), o.mesh, nodeById)
     const p = positions.get(w.id) ?? { x: 0, y: 0 }
     nodes.push({ id: item.id, type: 'card', position: { x: p.x, y: p.y }, style: { width: item.w, height: item.h }, zIndex: 10, data: item.data })
     abs.set(item.id, { x: p.x, y: p.y, w: item.w, h: item.h })
@@ -1132,7 +1142,7 @@ function tierLabel(t: Tier) {
   return t === 'far-edge' ? 'Far edge' : t[0].toUpperCase() + t.slice(1)
 }
 
-function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint?: string, mesh?: boolean): Item {
+function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string | undefined, mesh: boolean | undefined, nodeById: Map<string, MachineNode>): Item {
   const notReady = w.readyReplicas !== undefined && w.readyReplicas < w.replicas
   const podInfo = podDots(w.pods)
   // One row of small chips under the name; a second for the per-pod dot strip, whichever combination of
@@ -1162,6 +1172,7 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint?: string
       mesh: mesh && w.mesh ? meshChip(w) : undefined,
       pods: podInfo?.dots,
       podsOverflow: podInfo && podInfo.overflow > 0 ? podInfo.overflow : undefined,
+      podGroups: podGroupsFor(w.pods, nodeById),
     },
   }
 }
@@ -1183,6 +1194,42 @@ function podDots(pods: Pod[] | undefined): { dots: NonNullable<CardData['pods']>
   const rest = dots.filter((d) => d.ready && !d.recent)
   const shown = notable.length >= POD_DOT_LIMIT ? notable.slice(0, POD_DOT_LIMIT) : notable.concat(rest.slice(0, POD_DOT_LIMIT - notable.length))
   return { dots: shown, overflow: dots.length - shown.length }
+}
+
+/** `serviceItem`'s own `podGroups` builder - every one of `pods` (the FULL, uncapped list; see podDots'
+ *  own doc comment for why the dot strip caps but this never does) bucketed by `nodeId`, with each node's
+ *  own display name resolved once from `nodeById` (built once per buildGraph/buildChainGraph call, not
+ *  re-scanned per service - the same O(n) indexing discipline buildGraph's own header comment already
+ *  established for clusters/services/sites). A pod with no `nodeId` at all (not yet scheduled, or its node
+ *  fell outside this topology's own scope - Pod.nodeId's own doc comment) still gets a group, keyed `''`
+ *  and named "not scheduled", rather than silently vanishing from the count the toggle label shows. */
+function podGroupsFor(pods: Pod[] | undefined, nodeById: Map<string, MachineNode>): NonNullable<CardData['podGroups']> | undefined {
+  if (!pods || pods.length === 0) return undefined
+  const recent = recentlyScaledPods(pods)
+  const byNode = new Map<string, { nodeName: string; pods: NonNullable<CardData['podGroups']>[number]['pods'] }>()
+  for (const p of pods) {
+    const nodeId = p.nodeId ?? ''
+    const nodeName = p.nodeId ? nodeById.get(p.nodeId)?.name ?? p.nodeId : 'not scheduled'
+    let g = byNode.get(nodeId)
+    if (!g) {
+      g = { nodeName, pods: [] }
+      byNode.set(nodeId, g)
+    }
+    const isRecent = recent.has(p.name)
+    const title = [
+      p.name,
+      !p.ready ? `${p.phase}, not ready` : p.phase,
+      p.createdAt ? `${ageLabel(p.createdAt)} old` : undefined,
+      p.restarts ? `${p.restarts} restart${p.restarts === 1 ? '' : 's'}` : undefined,
+      isRecent ? 'recently added (scaling)' : undefined,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+    g.pods.push({ id: p.name, ready: !!p.ready, recent: isRecent, restarts: p.restarts, title })
+  }
+  // Nodes ordered by name for a stable, predictable group order rather than whatever order pods happened
+  // to be reported in.
+  return [...byNode.entries()].map(([nodeId, g]) => ({ nodeId, nodeName: g.nodeName, pods: g.pods })).sort((a, b) => a.nodeName.localeCompare(b.nodeName))
 }
 
 function groupMesh(m: NonNullable<Cluster['mesh']>): NonNullable<GroupData['mesh']> {
