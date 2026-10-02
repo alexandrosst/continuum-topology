@@ -1,5 +1,5 @@
 import { Pencil, X } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckLine } from '@/components/discovery/AgentParts'
 import EntityHistory from '@/components/EntityHistory'
@@ -283,6 +283,10 @@ function Chips({ label, items, tone, title }: { label: string; items?: string[];
 
 const connLabel = (c?: string) => CONNECTIVITY.find((x) => x.value === c)?.label
 
+/** Busiest first, machinery (DNS, system) last: the applications' own dependencies are what people look for. */
+const busiest = (a: Dependency, b: Dependency) =>
+  Number(!!a.noise) - Number(!!b.noise) || (b.stats?.bytesPerSec ?? 0) - (a.stats?.bytesPerSec ?? 0) || (b.stats?.connectionsPerMin ?? 0) - (a.stats?.connectionsPerMin ?? 0)
+
 export default function Inspector({
   selection,
   onSelect,
@@ -300,6 +304,26 @@ export default function Inspector({
   const measured = usePaths()
   const clusterLinks = useClusterLinks()
   const publicIpFallbackOn = useServer((s) => s.info?.geoip?.publicIpFallback)
+  // Id -> node, built once per `nodes` change instead of fresh on every render just to resolve the one or
+  // two nodes a selected dependency's caller-interface lookup actually needs (see callerIfaceSpeedMbps below).
+  const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes])
+  // Grouping every dependency by its `from`/`to` end, and sorting each group, is a full scan of the
+  // topology's dependencies - worth doing once per `dependencies` change rather than redoing on every
+  // render regardless of whether the selection (or anything else) actually changed. depSections below
+  // then becomes a plain O(1) lookup into this index.
+  const depIndex = useMemo(() => {
+    const calls = new Map<string, Dependency[]>()
+    const calledBy = new Map<string, Dependency[]>()
+    for (const d of dependencies) {
+      if (!calls.has(d.from)) calls.set(d.from, [])
+      calls.get(d.from)!.push(d)
+      if (!calledBy.has(d.to)) calledBy.set(d.to, [])
+      calledBy.get(d.to)!.push(d)
+    }
+    for (const list of calls.values()) list.sort(busiest)
+    for (const list of calledBy.values()) list.sort(busiest)
+    return { calls, calledBy }
+  }, [dependencies])
   if (!selection) return null
 
   const clusterName = (id: string) => clusters.find((c) => c.id === id)?.name ?? '—'
@@ -338,14 +362,7 @@ export default function Inspector({
     ]
     return bits.filter(Boolean).join(' · ')
   }
-  /** Busiest first, machinery (DNS, system) last: the applications' own dependencies are what people look for. */
-  const busiest = (a: Dependency, b: Dependency) =>
-    Number(!!a.noise) - Number(!!b.noise) || (b.stats?.bytesPerSec ?? 0) - (a.stats?.bytesPerSec ?? 0) || (b.stats?.connectionsPerMin ?? 0) - (a.stats?.connectionsPerMin ?? 0)
-  const depSections = (id: string) => {
-    const calls = dependencies.filter((d) => d.from === id).sort(busiest)
-    const calledBy = dependencies.filter((d) => d.to === id).sort(busiest)
-    return { calls, calledBy }
-  }
+  const depSections = (id: string) => ({ calls: depIndex.calls.get(id) ?? [], calledBy: depIndex.calledBy.get(id) ?? [] })
 
   let title = ''
   let subtitle: ReactNode = null
@@ -996,7 +1013,7 @@ export default function Inspector({
     const s = d.stats
     // The caller's own interface capacity, right next to its throughput below - same resolution and same
     // "undefined rather than a guess" rule as the node view's own per-interface utilization above.
-    const ifaceSpeedMbps = callerIfaceSpeedMbps(d.iface, fromSvc?.nodeIds, new Map(nodes.map((n) => [n.id, n])))
+    const ifaceSpeedMbps = callerIfaceSpeedMbps(d.iface, fromSvc?.nodeIds, nodeById)
     const how = d.via === 'ebpf' ? 'eBPF' : d.via === 'conntrack' ? 'conntrack' : undefined
     title = d.label ?? (d.port ? `${d.protocol}:${d.port}` : d.protocol)
     subtitle = <Pill>{d.stale ? 'Quiet' : seen ? 'Seen in traffic' : 'Declared'}</Pill>
