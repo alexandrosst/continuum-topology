@@ -306,6 +306,43 @@ func TestCorrelateClusterLinksRollsUpFlowsCrossingAConfirmedOverlayLink(t *testi
 	}
 }
 
+// TestCorrelateClusterLinksAnnotatesMatchingDependenciesWithTunnelLink checks the per-dependency
+// counterpart to the rollup above: a dependency whose own Iface matched this link's confirmed tunnel
+// gets its own Dependency.TunnelLink set (so the UI can show "crosses a confirmed tunnel" directly on
+// that dependency's own edge, not only on the separate ClusterLink line) - everyone else's stays nil.
+func TestCorrelateClusterLinksAnnotatesMatchingDependenciesWithTunnelLink(t *testing.T) {
+	a := nodeForClusterLink("cluster-a", "a", "node-a")
+	a.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}}}
+	b := nodeForClusterLink("cluster-b", "b", "node-b")
+	b.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"}}}
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
+
+	deps := []model.Dependency{
+		{From: "svc-a1", FromKind: "service", Iface: "wg0"}, // 0: qualifies, from cluster-a's side
+		{From: "svc-b1", FromKind: "service", Iface: "wg0"}, // 1: qualifies, from cluster-b's side
+		{From: "svc-c1", FromKind: "service", Iface: "wg0"}, // 2: unrelated tunnel elsewhere, same name
+		{From: "svc-a2", FromKind: "service", Iface: "eth0"}, // 3: right cluster, wrong interface
+	}
+	serviceClusterID := map[string]string{"svc-a1": "cluster-a", "svc-a2": "cluster-a", "svc-b1": "cluster-b", "svc-c1": "cluster-z"}
+
+	got := correlateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
+	l := got[0]
+
+	for i, want := range []bool{true, true, false, false} {
+		has := deps[i].TunnelLink != nil
+		if has != want {
+			t.Errorf("deps[%d].TunnelLink set = %v, want %v", i, has, want)
+		}
+	}
+	tl := deps[0].TunnelLink
+	if tl.FromCluster != l.FromCluster || tl.ToCluster != l.ToCluster || tl.Via != l.Via || tl.Redundancy != l.Redundancy || tl.Encryption != l.Encryption {
+		t.Errorf("deps[0].TunnelLink = %+v, want it to mirror the matched ClusterLink %+v", tl, l)
+	}
+	if tl.Encryption != "encrypted" {
+		t.Errorf("Encryption = %q, want \"encrypted\" (wireguard)", tl.Encryption)
+	}
+}
+
 func TestCorrelateClusterLinksRollupLeavesRttAndLossUnsetWithoutAnyMeasuredSample(t *testing.T) {
 	a := nodeForClusterLink("cluster-a", "a", "node-a")
 	a.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}}}

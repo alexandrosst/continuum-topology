@@ -292,7 +292,8 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 		var rttCount int
 		var lossSum float64
 		var lossCount int
-		for _, d := range dependencies {
+		for di := range dependencies {
+			d := &dependencies[di]
 			if d.FromKind != "service" || d.Iface == "" {
 				continue
 			}
@@ -317,6 +318,14 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 			if d.Stats != nil && d.Stats.LossPct != nil {
 				lossSum += *d.Stats.LossPct
 				lossCount++
+			}
+			// Mirrors the aggregate just computed above, but attached to this one dependency's own edge
+			// (see Dependency.TunnelLink's own doc for why this exists in addition to, not instead of,
+			// ClusterLink's rollup). dependencies is mutated through this pointer rather than copied, so
+			// the change reaches the same Topology.Dependencies slice the caller already holds.
+			d.TunnelLink = &model.DependencyTunnelLink{
+				FromCluster: out[i].FromCluster, ToCluster: out[i].ToCluster,
+				Via: out[i].Via, Redundancy: out[i].Redundancy, Encryption: out[i].Encryption,
 			}
 		}
 		out[i].FlowsObserved = flows

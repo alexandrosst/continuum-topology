@@ -476,6 +476,18 @@ type ClusterLink struct {
 	Encryption string `json:"encryption,omitempty"`
 }
 
+// DependencyTunnelLink is the confirmed, cross-cluster overlay ClusterLink a Dependency's own Iface was
+// matched onto - see Dependency.TunnelLink's own doc for exactly when this is set. A deliberately smaller
+// copy of ClusterLink's own evidence fields: FlowsObserved/AvgRttMs/AvgLossPct stay on ClusterLink alone,
+// since those are an aggregate across every dependency crossing the link, not a fact about this one.
+type DependencyTunnelLink struct {
+	FromCluster string `json:"fromCluster"`
+	ToCluster   string `json:"toCluster"`
+	Via         string `json:"via"`
+	Redundancy  int    `json:"redundancy"`
+	Encryption  string `json:"encryption,omitempty"`
+}
+
 // encryptedTunnelKinds are the TunnelInterface.Kind values whose protocol encrypts traffic by design.
 var encryptedTunnelKinds = map[string]bool{"wireguard": true, "vti": true, "vti6": true, "xfrm": true}
 
@@ -638,4 +650,13 @@ type Dependency struct {
 	Connections uint64           `json:"connections,omitempty"`
 	Bytes       uint64           `json:"bytes,omitempty"`
 	Stats       *DependencyStats `json:"stats,omitempty"`
+	// TunnelLink is set when Iface (above) matched one side of a confirmed, named overlay ClusterLink
+	// between this dependency's own two endpoints' clusters - see correlateClusterLinks' own matching
+	// rule (cluster AND interface name together, never interface name alone: a generic name like "wg0"
+	// is commonly reused across entirely unrelated tunnels). Lets the UI show "this traffic crosses a
+	// confirmed tunnel, and here is what kind" directly on the edge that carries it, in addition to -
+	// not instead of - the aggregate rollup on ClusterLink itself (FlowsObserved and its own doc), which
+	// still matters for a tunnel used by several distinct dependencies at once, or by none right now.
+	// Nil when Iface is empty, or non-empty but did not match any confirmed tunnel.
+	TunnelLink *DependencyTunnelLink `json:"tunnelLink,omitempty"`
 }
