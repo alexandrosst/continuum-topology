@@ -383,3 +383,43 @@ func TestCorrelateClusterLinksRollupCountsFlowsOnAnyRedundantInterface(t *testin
 		t.Errorf("AvgRttMs = %v, want 20 (average of 10 and 30 across both paths)", got[0].AvgRttMs)
 	}
 }
+
+func TestCorrelateClusterLinksClassifiesAWireGuardOverlayAsEncrypted(t *testing.T) {
+	a := nodeForClusterLink("cluster-a", "a", "node-a")
+	a.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}}}
+	b := nodeForClusterLink("cluster-b", "b", "node-b")
+	b.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"}}}
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
+	got := correlateClusterLinks([]model.Node{a, b}, names, nil, nil)
+	if len(got) != 1 || got[0].Encryption != "encrypted" {
+		t.Fatalf("got %+v, want exactly one link with Encryption=\"encrypted\" (WireGuard encrypts by design)", got)
+	}
+}
+
+func TestCorrelateClusterLinksClassifiesAGREOverlayAsPlaintext(t *testing.T) {
+	// GRE has no cryptography of its own - unlike WireGuard, it must not be reported as "encrypted" just
+	// because it is a confirmed overlay tunnel.
+	a := nodeForClusterLink("cluster-a", "a", "node-a")
+	a.Tunnels = []model.TunnelInterface{{Name: "gre0", Kind: "gre", Addresses: []string{"192.0.2.1/30"}, Routes: []string{"192.0.2.0/24"}}}
+	b := nodeForClusterLink("cluster-b", "b", "node-b")
+	b.Tunnels = []model.TunnelInterface{{Name: "gre0", Kind: "gre", Addresses: []string{"192.0.2.2/30"}, Routes: []string{"192.0.2.0/24"}}}
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
+	got := correlateClusterLinks([]model.Node{a, b}, names, nil, nil)
+	if len(got) != 1 || got[0].Encryption != "plaintext" {
+		t.Fatalf("got %+v, want exactly one link with Encryption=\"plaintext\" (GRE carries no cryptography of its own)", got)
+	}
+}
+
+func TestCorrelateClusterLinksNeverClassifiesASubnetLink(t *testing.T) {
+	// A "subnet" link has no tunnel driver at all to classify - Encryption must stay empty, never a
+	// fabricated "plaintext" just because there is no tunnel encrypting it either.
+	a := nodeForClusterLink("cluster-a", "a", "node-a")
+	a.HostSubnets = []string{"10.20.30.5/24"}
+	b := nodeForClusterLink("cluster-b", "b", "node-b")
+	b.HostSubnets = []string{"10.20.30.9/24"}
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
+	got := correlateClusterLinks([]model.Node{a, b}, names, nil, nil)
+	if len(got) != 1 || got[0].Encryption != "" {
+		t.Fatalf("got %+v, want Encryption empty for a subnet link", got)
+	}
+}

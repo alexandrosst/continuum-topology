@@ -28,3 +28,27 @@ func TestPodReadyFalseIsNotOmittedFromJSON(t *testing.T) {
 		t.Errorf("marshaled ready pod = %s, want \"ready\":true", b)
 	}
 }
+
+func TestTunnelEncryptionPostureClassifiesEveryDocumentedKind(t *testing.T) {
+	cases := map[string]string{
+		"wireguard": "encrypted",
+		"vti":       "encrypted",
+		"vti6":      "encrypted",
+		"xfrm":      "encrypted",
+		"vxlan":     "plaintext",
+		"geneve":    "plaintext",
+		"gre":       "plaintext",
+		"gretap":    "plaintext",
+		"ip6gre":    "plaintext",
+		"ip6gretap": "plaintext",
+		"ipip":      "plaintext",
+		"sit":       "plaintext",
+		"":          "unknown",
+		"ppp":       "unknown", // not one of TunnelInterface.Kind's documented values - never guessed either way
+	}
+	for kind, want := range cases {
+		if got := TunnelEncryptionPosture(kind); got != want {
+			t.Errorf("TunnelEncryptionPosture(%q) = %q, want %q", kind, got, want)
+		}
+	}
+}

@@ -176,7 +176,7 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 	fromIfaces := map[linkKey]map[string]bool{}
 	toIfaces := map[linkKey]map[string]bool{}
 	var out []model.ClusterLink
-	add := func(clusterA, clusterB, kind, via, nodeA, nodeB, addrA, addrB, ifaceA, ifaceB string) {
+	add := func(clusterA, clusterB, kind, via, nodeA, nodeB, addrA, addrB, ifaceA, ifaceB, driverKind string) {
 		if clusterA == "" || clusterB == "" || clusterA == clusterB {
 			return
 		}
@@ -208,10 +208,15 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 			return
 		}
 		seen[k] = len(out)
+		encryption := ""
+		if driverKind != "" {
+			encryption = model.TunnelEncryptionPosture(driverKind)
+		}
 		out = append(out, model.ClusterLink{
 			FromCluster: from, FromName: names[from], ToCluster: to, ToName: names[to],
 			Kind: kind, Via: via, Redundancy: 1,
 			FromNode: fromNode, ToNode: toNode, FromAddress: fromAddr, ToAddress: toAddr,
+			Encryption: encryption,
 		})
 	}
 
@@ -235,7 +240,7 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 				if len(tb.Addresses) > 0 {
 					addrB = tb.Addresses[0]
 				}
-				add(ca, cb, "overlay", ta.Name+" ("+ta.Kind+")", nodes[a.nodeIdx].Name, nodes[b.nodeIdx].Name, addrA, addrB, ta.Name, tb.Name)
+				add(ca, cb, "overlay", ta.Name+" ("+ta.Kind+")", nodes[a.nodeIdx].Name, nodes[b.nodeIdx].Name, addrA, addrB, ta.Name, tb.Name, ta.Kind)
 			}
 		}
 	}
@@ -266,7 +271,7 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 				continue // every node in a cluster typically shares its site's subnet - not a cross-cluster fact
 			}
 			if sameNetwork(a.network, b.network) {
-				add(ca, cb, "subnet", a.network.String(), nodes[a.nodeIdx].Name, nodes[b.nodeIdx].Name, "", "", "", "")
+				add(ca, cb, "subnet", a.network.String(), nodes[a.nodeIdx].Name, nodes[b.nodeIdx].Name, "", "", "", "", "")
 			}
 		}
 	}

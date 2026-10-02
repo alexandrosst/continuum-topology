@@ -465,6 +465,39 @@ type ClusterLink struct {
 	FlowsObserved int      `json:"flowsObserved,omitempty"`
 	AvgRttMs      float64  `json:"avgRttMs,omitempty"`
 	AvgLossPct    *float64 `json:"avgLossPct,omitempty"`
+	// Encryption classifies an "overlay" link's confirmed tunnel driver (see TunnelInterface.Kind) as
+	// "encrypted" (WireGuard, or an IPsec virtual-tunnel kind: vti/vti6/xfrm) or "plaintext" (a
+	// tunneling/encapsulation protocol with no cryptography of its own: vxlan, geneve, gre and its
+	// variants, ipip, sit) - see TunnelEncryptionPosture. This is an inference from the driver type
+	// alone, the same honesty line the mesh mTLS verdict already draws elsewhere: a WireGuard or IPsec
+	// kind makes it very likely the tunnel is encrypted, but nothing here proves a given packet actually
+	// was - only the wire could. Only set from the first corroborating pair for a link, same as
+	// FromNode/ToNode. Empty for a "subnet" link, which has no tunnel driver to classify at all.
+	Encryption string `json:"encryption,omitempty"`
+}
+
+// encryptedTunnelKinds are the TunnelInterface.Kind values whose protocol encrypts traffic by design.
+var encryptedTunnelKinds = map[string]bool{"wireguard": true, "vti": true, "vti6": true, "xfrm": true}
+
+// plaintextTunnelKinds are the TunnelInterface.Kind values that tunnel/encapsulate traffic but carry no
+// cryptography of their own - real encryption there, if any, comes from something this package has no
+// visibility into (a separate IPsec policy, a mesh sidecar riding on top).
+var plaintextTunnelKinds = map[string]bool{
+	"vxlan": true, "geneve": true, "gre": true, "gretap": true, "ip6gre": true, "ip6gretap": true, "ipip": true, "sit": true,
+}
+
+// TunnelEncryptionPosture classifies a TunnelInterface.Kind as "encrypted", "plaintext", or "unknown" (any
+// kind outside the two sets above - never fabricated as one or the other). See ClusterLink.Encryption's
+// own doc for what this inference does, and does not, establish.
+func TunnelEncryptionPosture(kind string) string {
+	switch {
+	case encryptedTunnelKinds[kind]:
+		return "encrypted"
+	case plaintextTunnelKinds[kind]:
+		return "plaintext"
+	default:
+		return "unknown"
+	}
 }
 
 // ExternalEndpoint is something outside every onboarded cluster that traffic was seen going to or
