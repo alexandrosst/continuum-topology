@@ -345,6 +345,9 @@
         "hostSys": {
           "type": "boolean"
         },
+        "hostNetwork": {
+          "type": "boolean"
+        },
         "interval": {
           "type": "string"
         },

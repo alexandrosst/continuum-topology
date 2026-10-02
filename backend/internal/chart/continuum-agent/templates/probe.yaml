@@ -40,6 +40,21 @@ spec:
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
       automountServiceAccountToken: false   # the probe never talks to the Kubernetes API
+      {{- if .Values.nodeProbe.hostNetwork }}
+      # Network facts (TunnelInterface, host_subnets) come from a netlink link/address/route dump,
+      # which - unlike /proc/cpuinfo and the hostSys-mounted /sys above - is scoped to the reading
+      # process's own network namespace, not the machine's: without this, the probe's netlink socket
+      # only ever sees its own pod's veth and loopback, never the host's real interfaces (a physical
+      # uplink, a WireGuard/overlay tunnel, ...), silently reporting zero tunnels on every node
+      # regardless of what is actually up on the machine. dnsPolicy is set alongside it because a
+      # hostNetwork pod otherwise stops using the cluster's own DNS, and CONTINUUM_PROBE_URL below
+      # names the agent by its in-cluster Service DNS name. Same trade-off nodeProbe.hostSys documents
+      # in values.yaml: a namespace enforcing the Pod Security "baseline" or "restricted" profile
+      # refuses hostNetwork - label the namespace privileged, or set this to false and the probe still
+      # reports everything except TunnelInterface/host_subnets.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

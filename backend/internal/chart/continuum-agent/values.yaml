@@ -189,6 +189,16 @@ nodeProbe:
   # profile refuse hostPath volumes: label the namespace privileged, or set this to false and the
   # probe still tells VMs from bare metal (from DMI and CPU flags) but sees no device tree or uplinks.
   hostSys: true
+  # Run in the host's network namespace. Needed for TunnelInterface/host_subnets: the netlink dump
+  # that finds them is scoped to the reading process's own network namespace, so without this the
+  # probe only ever sees its own pod's veth and loopback - never a physical uplink or an overlay/VPN
+  # tunnel (WireGuard, Netbird, Tailscale, ...) actually up on the machine - and silently reports zero
+  # tunnels everywhere, on every node, regardless of what is really running. Same trade-off as hostSys
+  # just above: a namespace enforcing the Pod Security "baseline" or "restricted" profile refuses
+  # hostNetwork too - label the namespace privileged, or set this to false and the probe still reports
+  # everything else (CPU, DMI, virtualization) unaffected, since those come from /proc and hostSys's
+  # own mount, neither of which this namespacing applies to.
+  hostNetwork: true
   interval: 3m
   # Leave empty to generate one on first install and keep it across upgrades.
   secret: ""
