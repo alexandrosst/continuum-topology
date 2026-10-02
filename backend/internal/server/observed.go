@@ -423,6 +423,14 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 	}
 	deps := map[string]*model.Dependency{}
 	exts := map[string]model.ExternalEndpoint{}
+	// lossRetransmits/lossSegsOut hold the running sums behind each dependency's LossPct, kept apart from
+	// the numbers already summed above (ConnectionsPerMin and friends) because a real loss percentage is a
+	// ratio, not a rate: summing retransmits/segs_out per edge and then adding those ratios together (as
+	// this used to do) is wrong whenever two edges merging into one Dependency have different segs_out -
+	// the fix is to sum numerator and denominator separately here and divide exactly once, below, after
+	// every contributing edge has been added.
+	lossRetransmits := map[string]uint64{}
+	lossSegsOut := map[string]uint64{}
 	stamp := now.UTC().Format(time.RFC3339)
 
 	external := func(agentID, ip string, port uint32, note string, firstSeen time.Time) (string, bool) {
@@ -670,15 +678,13 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 			if e.Key.BytesKnown {
 				st.BytesPerSec += float64(e.WindowBytes) / float64(e.WindowSeconds)
 			}
-			// A real loss percentage, not just a raw retransmit count: only ever computed when there is a
-			// genuine denominator to divide by (an edge with several dependencies summed into it can have
-			// window_segs_out from one and not another - each contributes retransmits/segs_out from its
-			// own window, summed before dividing, same as every other *PerMin stat above).
+			// A real loss percentage, not just a raw retransmit count - but a ratio, so it is not safe to
+			// accumulate the way the *PerMin rates above are: sum the raw numerator and denominator here,
+			// per edge, and divide exactly once in the final pass below, once every edge contributing to
+			// this Dependency across this poll has been added.
 			if e.WindowSegsOut > 0 {
-				if st.LossPct == nil {
-					st.LossPct = new(float64)
-				}
-				*st.LossPct += float64(e.WindowRetransmits) / float64(e.WindowSegsOut) * 100
+				lossRetransmits[id] += e.WindowRetransmits
+				lossSegsOut[id] += e.WindowSegsOut
 			}
 		}
 	}
@@ -754,6 +760,10 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 	for _, d := range deps {
 		if last, err := time.Parse(time.RFC3339, d.LastSeen); err == nil && now.Sub(last) > stale {
 			d.Stale = true
+		}
+		if segs := lossSegsOut[d.ID]; segs > 0 {
+			pct := float64(lossRetransmits[d.ID]) / float64(segs) * 100
+			d.Stats.LossPct = &pct
 		}
 		outDeps = append(outDeps, *d)
 	}

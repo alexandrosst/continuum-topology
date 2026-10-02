@@ -510,6 +510,49 @@ func TestDependencyStatsIncludeJitterHandshakeAndLossPct(t *testing.T) {
 	}
 }
 
+// TestDependencyStatsLossPctSumsAcrossMergedEdges is the case the old implementation got wrong: two
+// raw edges - here, the same source workload reaching the same target workload over two different
+// addresses (e.g. a load balancer backed by more than one IP) - resolve to one Dependency, and each
+// edge has its own, genuinely different window_segs_out. Averaging-by-summing the two ratios
+// (10% + 100%) used to produce a nonsensical 110% loss; the right answer sums retransmits and
+// segs_out separately across both edges and divides exactly once: (10+1)/(100+1)*100.
+func TestDependencyStatsLossPctSumsAcrossMergedEdges(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	x, y := "a/Deployment/x", "a/Deployment/y"
+	c := cluster("a", "", nil,
+		wk("a", "Deployment", "x"),
+		wk("a", "Deployment", "y",
+			&continuumv1.Address{Ip: "203.0.113.10", Port: 5432, Kind: "load-balancer"},
+			&continuumv1.Address{Ip: "203.0.113.11", Port: 5432, Kind: "load-balancer"},
+		),
+	)
+	f1 := &continuumv1.Flow{Src: wep(x), Dst: xep("203.0.113.10"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Retransmits: 10, SegsOut: 100}
+	f2 := &continuumv1.Flow{Src: wep(x), Dst: xep("203.0.113.11"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Retransmits: 1, SegsOut: 1}
+	feed(&c, now, 60, f1, f2)
+
+	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
+	var d *model.Dependency
+	for i := range deps {
+		if deps[i].Port == 5432 && deps[i].To == sv("a", y) {
+			d = &deps[i]
+		}
+	}
+	if d == nil {
+		t.Fatal("expected a merged dependency for port 5432")
+	}
+	if d.Stats == nil || d.Stats.LossPct == nil {
+		t.Fatal("lossPct should be set - both edges reported segs_out")
+	}
+	want := float64(10+1) / float64(100+1) * 100
+	if got := *d.Stats.LossPct; got < want-1e-9 || got > want+1e-9 {
+		t.Errorf("lossPct = %v, want %v (sum of retransmits over sum of segs_out, not 10%%+100%%=110%%)", got, want)
+	}
+	if *d.Stats.LossPct > 100 {
+		t.Errorf("lossPct = %v, a loss percentage can never exceed 100", *d.Stats.LossPct)
+	}
+}
+
 // TestDependencyStatsIncludeCwndPacingAndBufferDrops is Part R's remaining three fields:
 // CwndSegments/PacingBps are gauges carried through Key.cwnd/Key.pacing_bps the same way RttMs/JitterMs
 // already are, and BufferDrops is summed across every FlowEdge folded into the dependency, the same way
