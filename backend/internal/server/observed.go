@@ -357,6 +357,31 @@ func buildAddrIndex(cs []observedCluster) *addrIndex {
 			for _, ip := range append(append([]string{}, n.InternalIps...), n.ExternalIps...) {
 				ix.nodeIPs[ip] = append(ix.nodeIPs[ip], c.id)
 			}
+			// A node's own overlay/tunnel addresses (a Netbird, Tailscale or other mesh peer address,
+			// for example) are just as much this cluster's own address space as its InternalIps/
+			// ExternalIps above - when two clusters are joined only by such a mesh, the traffic this
+			// agent reports between them is addressed to exactly this, never to a Kubernetes-visible
+			// node IP. Without this, resolveExternal/clusterOfAddr below have no way to recognize the
+			// peer side of that traffic as belonging to a known cluster at all, and every such flow
+			// falls through to being recorded as an unresolved external endpoint, by its raw tunnel IP,
+			// forever. Indexed unconditionally (not gated on TunnelInterface.Confirmed): confirmation is
+			// a cross-node correlation verdict that correlateTunnels computes later, from topo.Nodes,
+			// after observedTopology has already run - this index only needs to know "this address is
+			// one of this node's own, reported by its own probe," which is true whether or not the
+			// far end is independently confirmed elsewhere in the topology.
+			if n.Probe != nil {
+				for _, t := range n.Probe.Tunnels {
+					if t == nil {
+						continue
+					}
+					for _, a := range t.Addresses {
+						if p, err := netip.ParsePrefix(a); err == nil {
+							ip := p.Addr().String()
+							ix.nodeIPs[ip] = append(ix.nodeIPs[ip], c.id)
+						}
+					}
+				}
+			}
 		}
 		for _, w := range c.state.Workloads {
 			for _, a := range w.Reachable {

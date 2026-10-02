@@ -192,6 +192,55 @@ func TestObservedTopologyAcrossClusters(t *testing.T) {
 // on protocol too, so these arrive as two distinct edges; observedTopology's own dependency id must not
 // collapse them back into one, or the merged record's Protocol and traffic counters become a coin flip
 // depending on Go's (randomized) map iteration order.
+func TestObservedTopologyResolvesOverlayTunnelAddress(t *testing.T) {
+	// Two clusters joined only by a mesh overlay (Netbird, Tailscale, ...): the traffic one agent
+	// reports is addressed to the other side's tunnel peer address, never to anything Kubernetes-visible
+	// on that node (no InternalIp/ExternalIp in common). Without indexing TunnelInterface.Addresses the
+	// same way node InternalIps/ExternalIps already are, resolveExternal/clusterOfAddr have nothing to
+	// match that address against, and this flow is permanently stuck as an unresolved external endpoint
+	// instead of the cross-cluster service dependency it actually is.
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	np := &continuumv1.Address{Port: 30444, Kind: "node-port"}
+	caller := cluster("caller-cluster", "", nil, wk("app", "Deployment", "client"))
+	target := cluster("target-cluster", "",
+		[]*continuumv1.NodeFacts{{
+			Key: "n1",
+			Probe: &continuumv1.HostProbe{
+				Tunnels: []*continuumv1.TunnelInterface{
+					{Name: "wt0", Kind: "wireguard", Addresses: []string{"100.64.0.5/10"}, Up: true},
+				},
+			},
+		}},
+		wk("app", "Deployment", "server", np))
+
+	client, server := "app/Deployment/client", "app/Deployment/server"
+	feed(&caller, now, 60, flowOf(wep(client), xep("100.64.0.5"), 30444, 7))
+
+	deps, exts := observedTopology("org", []observedCluster{caller, target}, now, 24*time.Hour)
+	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
+
+	var found *model.Dependency
+	for i := range deps {
+		if deps[i].From == sv("caller-cluster", client) && deps[i].To == sv("target-cluster", server) {
+			found = &deps[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected a resolved service-to-service dependency over the tunnel address, got deps=%+v", deps)
+	}
+	if !found.CrossCluster {
+		t.Errorf("dependency across two clusters must be marked CrossCluster, got %+v", found)
+	}
+	if found.Connections != 7 {
+		t.Errorf("Connections = %d, want 7", found.Connections)
+	}
+	for _, e := range exts {
+		if e.Host == "100.64.0.5" {
+			t.Errorf("tunnel address should have resolved to a workload, not stayed an external endpoint: %+v", e)
+		}
+	}
+}
+
 func TestObservedTopologyKeepsDifferentProtocolsOnTheSameServiceAndPortSeparate(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	edge := cluster("edge", "", nil, wk("iot", "Deployment", "ingest"), wk("kube-system", "Deployment", "dns"))
