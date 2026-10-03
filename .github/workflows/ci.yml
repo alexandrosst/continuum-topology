@@ -54,6 +54,17 @@ jobs:
         # graph_test.go. Add a `services: neo4j: ...` block here and set that env var if you want CI to exercise
         # them too; it isn't required for the rest of the suite to mean anything.
 
+      - name: Fix cache ownership after root test run
+        working-directory: backend
+        # The root-run `go test` above reads and writes the same GOCACHE/GOMODCACHE that actions/setup-go's
+        # cache restore and the earlier Build/Vet steps already populated as the `runner` user. Whether plain
+        # `sudo` (no -H) here preserves HOME or resets it to /root depends on this runner image's sudoers
+        # env_reset/always_set_home settings - not something to assume either way - but in both cases any
+        # cache entry root creates or touches along the way lands owned by root, unreadable/unwritable by
+        # `runner`. Reclaim ownership of both caches before the next (non-root) step touches either one, so a
+        # permission error there can't get silently swallowed by that step's continue-on-error.
+        run: sudo chown -R "$(id -u):$(id -g)" "$(go env GOCACHE)" "$(go env GOMODCACHE)"
+
       - name: Vulnerability scan (govulncheck)
         working-directory: backend
         continue-on-error: true
