@@ -17,7 +17,7 @@ import { ageLabel, autoscalerRange, callerIfaceSpeedMbps, disruptionLabel, forma
 import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { useHistoryView } from '@/store/history'
 import { useConn, useServer } from '@/store/server'
-import { useRawTopology, useTopology } from '@/store/topology'
+import { useDiscoveryAgents, useRawTopology, useTopology } from '@/store/topology'
 import { bytesPerSec, bytesTotal, isObserved, trafficSummary } from '@/lib/observed'
 import { lossBand, pathQuality, rttLabel } from '@/lib/metrics'
 import { useClusterPairConnectivity, usePaths } from '@/store/topology'
@@ -26,7 +26,7 @@ import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Ev
 import { api } from '@/lib/api'
 import type { DependencySeriesPoint } from '@/lib/history'
 
-export type Selection = { kind: 'cluster' | 'tier' | 'node' | 'service' | 'device' | 'site' | 'external' | 'dependency'; id: string } | null
+export type Selection = { kind: 'cluster' | 'tier' | 'node' | 'service' | 'device' | 'site' | 'external' | 'dependency' | 'agent'; id: string } | null
 
 // A thin wrapper around the shared DetailRow (primitives.tsx) - keeps every one of this file's ~50+
 // existing Row(...) call sites unchanged (same props, same roomy non-dense sizing) while the actual
@@ -332,6 +332,7 @@ export default function Inspector({
   onClose: () => void
 }) {
   const { clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents } = useTopology()
+  const discoveryAgents = useDiscoveryAgents()
   const placement = usePlacementSuggestions().byCluster
   const inPast = useHistoryView((s) => s.at !== null)
   const measured = usePaths()
@@ -1052,6 +1053,38 @@ export default function Inspector({
           })}
           {calledBy.length === 0 && <p className="text-sm text-nb-500">Nothing sends commands here.</p>}
         </Section>
+      </>
+    )
+  } else if (selection.kind === 'agent') {
+    const ag = discoveryAgents.find((x) => x.id === selection.id)
+    if (!ag) return null
+    const c = clusters.find((x) => x.id === ag.clusterId)
+    title = ag.name
+    subtitle = (
+      <span className="flex flex-wrap items-center gap-2">
+        <StatusDot status={ag.stale ? 'offline' : 'healthy'} withLabel />
+        <Pill>Discovery agent</Pill>
+      </span>
+    )
+    editable = false
+    body = (
+      <>
+        <Section title="Identity">
+          <Row label="Cluster">
+            {c ? <button className="text-accent hover:underline" onClick={() => onSelect({ kind: 'cluster', id: c.id })}>{c.name}</button> : ag.clusterId}
+          </Row>
+          <Row label="Status">{ag.stale ? ag.stateReason || 'Not reporting' : 'Live'}</Row>
+        </Section>
+        {ag.self && (
+          <Section title="Self telemetry">
+            <Row label="Memory (RSS)">{formatMemory(ag.self.rssBytes / 1024 ** 3)}</Row>
+            <Row label="Goroutines">{ag.self.goroutines}</Row>
+            <Row label="As of">{ago(ag.self.t)}</Row>
+            {/* The full history (with derived CPU% and bandwidth share) lives on the System Health page,
+                never duplicated here - no link out yet, since that page's own route isn't settled in this
+                session (see this session's own note on the agent building it concurrently). */}
+          </Section>
+        )}
       </>
     )
   } else if (selection.kind === 'site') {
