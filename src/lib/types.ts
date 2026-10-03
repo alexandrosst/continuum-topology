@@ -239,10 +239,12 @@ export interface ClusterLink {
   fromAddress?: string
   toAddress?: string
   /** How many live Dependency flows were actually matched onto this link's confirmed tunnel interface(s),
-   *  scoped per side by the calling service's own cluster - never by interface name alone, since a name
-   *  like "wg0" is commonly reused across unrelated tunnels. Only ever set for a "overlay" link; a
-   *  "subnet" link has no specific interface to correlate flows against. Undefined/0 means no matching
-   *  flow was observed yet, not that none exists. */
+   *  scoped by the actual cluster PAIR both of the dependency's endpoints resolve to (one side in
+   *  fromCluster, the other in toCluster) - never by interface name alone, and never by just the calling
+   *  side's own cluster either, since a name like "wg0" is commonly reused across unrelated tunnels and
+   *  the same cluster can sit on one side of more than one confirmed link. Only ever set for a "overlay"
+   *  link; a "subnet" link has no specific interface to correlate flows against. Undefined/0 means no
+   *  matching flow was observed yet, not that none exists. */
   flowsObserved?: number
   /** Average RTT (ms) across the matched flows that have a measured sample. Undefined when none of them
    *  do yet - the same "0 means not measured" convention Dependency.rttMs itself uses, never a fabricated

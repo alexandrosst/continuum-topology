@@ -277,10 +277,14 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 	}
 	// Roll up the live dependency flows that actually cross each confirmed overlay link, now that every
 	// link and its full set of corroborating interface names (both sides, across every redundant path)
-	// is known. A dependency qualifies when its calling service sits in one of the link's two clusters
-	// and its own Iface is one of the confirmed tunnel names correlated on that exact side - matching by
-	// cluster AND interface name together, not interface name alone, since a generic name like "wg0" is
-	// commonly reused across entirely unrelated tunnels on other node pairs.
+	// is known. A dependency qualifies when its two endpoints resolve to EXACTLY this link's cluster
+	// pair - one service in FromCluster, the other in ToCluster, in either direction - and the calling
+	// side's own Iface is one of the confirmed tunnel names correlated on that exact side. Both the
+	// cluster pair and the interface name must match together: interface name alone is not enough,
+	// because a generic name like "wg0" is commonly reused across entirely unrelated tunnels on other
+	// node pairs, and matching on the caller's cluster alone (without also pinning the callee's cluster
+	// to this link's OTHER side) would let a dependency bound for some unrelated third cluster that
+	// happens to share the same interface name on this cluster's side get misattributed here too.
 	for i := range out {
 		if out[i].Kind != "overlay" {
 			continue
@@ -294,15 +298,15 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 		var lossCount int
 		for di := range dependencies {
 			d := &dependencies[di]
-			if d.FromKind != "service" || d.Iface == "" {
+			if d.FromKind != "service" || d.ToKind != "service" || d.Iface == "" {
 				continue
 			}
-			sc := serviceClusterID[d.From]
+			sc, tc := serviceClusterID[d.From], serviceClusterID[d.To]
 			var ifaces map[string]bool
-			switch sc {
-			case out[i].FromCluster:
+			switch {
+			case sc == out[i].FromCluster && tc == out[i].ToCluster:
 				ifaces = fIfaces
-			case out[i].ToCluster:
+			case sc == out[i].ToCluster && tc == out[i].FromCluster:
 				ifaces = tIfaces
 			default:
 				continue

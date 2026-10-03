@@ -262,10 +262,11 @@ func TestCorrelateClusterLinksBothKindsCanCoexistForTheSamePair(t *testing.T) {
 }
 
 // TestCorrelateClusterLinksRollsUpFlowsCrossingAConfirmedOverlayLink pins the network-health rollup: a
-// dependency qualifies only when its calling service sits in one of the link's two clusters AND its own
-// Iface matches the confirmed tunnel interface name correlated on that exact side - cluster and interface
-// together, not interface name alone, since a generic name like "wg0" is routinely reused across entirely
-// unrelated tunnels elsewhere in the topology.
+// dependency qualifies only when its two endpoints resolve to exactly this link's cluster pair (one side
+// in FromCluster, the other in ToCluster) AND the calling side's own Iface matches the confirmed tunnel
+// interface name correlated on that exact side - the cluster PAIR and interface name together, not
+// interface name alone, since a generic name like "wg0" is routinely reused across entirely unrelated
+// tunnels elsewhere in the topology.
 func TestCorrelateClusterLinksRollsUpFlowsCrossingAConfirmedOverlayLink(t *testing.T) {
 	a := nodeForClusterLink("cluster-a", "a", "node-a")
 	a.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}}}
@@ -275,20 +276,24 @@ func TestCorrelateClusterLinksRollsUpFlowsCrossingAConfirmedOverlayLink(t *testi
 
 	loss1, loss2 := 1.0, 3.0
 	deps := []model.Dependency{
-		// Calls from cluster-a, over wg0: qualifies.
-		{From: "svc-a1", FromKind: "service", Iface: "wg0", RttMs: 10, Stats: &model.DependencyStats{LossPct: &loss1}},
-		// Calls from cluster-b, over wg0: also qualifies (the other side of the same link).
-		{From: "svc-b1", FromKind: "service", Iface: "wg0", RttMs: 20, Stats: &model.DependencyStats{LossPct: &loss2}},
+		// Calls from cluster-a to cluster-b, over wg0: qualifies.
+		{From: "svc-a1", FromKind: "service", To: "svc-b2", ToKind: "service", Iface: "wg0", RttMs: 10, Stats: &model.DependencyStats{LossPct: &loss1}},
+		// Calls from cluster-b to cluster-a, over wg0: also qualifies (the other side of the same link).
+		{From: "svc-b1", FromKind: "service", To: "svc-a3", ToKind: "service", Iface: "wg0", RttMs: 20, Stats: &model.DependencyStats{LossPct: &loss2}},
 		// Same interface name, but the calling service is in neither of this link's clusters (a totally
 		// unrelated tunnel elsewhere that happens to also be named wg0) - must not be counted.
-		{From: "svc-c1", FromKind: "service", Iface: "wg0", RttMs: 999},
+		{From: "svc-c1", FromKind: "service", To: "svc-c2", ToKind: "service", Iface: "wg0", RttMs: 999},
 		// Right cluster, wrong interface name - must not be counted.
-		{From: "svc-a2", FromKind: "service", Iface: "eth0", RttMs: 5},
+		{From: "svc-a2", FromKind: "service", To: "svc-b2", ToKind: "service", Iface: "eth0", RttMs: 5},
 		// Right cluster and interface, but not a service caller (a device) - Iface still means something
 		// physical here, but this rollup is specifically about service-originated calls.
-		{From: "dev-a1", FromKind: "device", Iface: "wg0", RttMs: 1},
+		{From: "dev-a1", FromKind: "device", To: "svc-b2", ToKind: "service", Iface: "wg0", RttMs: 1},
 	}
-	serviceClusterID := map[string]string{"svc-a1": "cluster-a", "svc-a2": "cluster-a", "svc-b1": "cluster-b", "svc-c1": "cluster-z"}
+	serviceClusterID := map[string]string{
+		"svc-a1": "cluster-a", "svc-a2": "cluster-a", "svc-a3": "cluster-a",
+		"svc-b1": "cluster-b", "svc-b2": "cluster-b",
+		"svc-c1": "cluster-z", "svc-c2": "cluster-z",
+	}
 
 	got := correlateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
 	if len(got) != 1 {
@@ -318,12 +323,16 @@ func TestCorrelateClusterLinksAnnotatesMatchingDependenciesWithTunnelLink(t *tes
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
 
 	deps := []model.Dependency{
-		{From: "svc-a1", FromKind: "service", Iface: "wg0"}, // 0: qualifies, from cluster-a's side
-		{From: "svc-b1", FromKind: "service", Iface: "wg0"}, // 1: qualifies, from cluster-b's side
-		{From: "svc-c1", FromKind: "service", Iface: "wg0"}, // 2: unrelated tunnel elsewhere, same name
-		{From: "svc-a2", FromKind: "service", Iface: "eth0"}, // 3: right cluster, wrong interface
+		{From: "svc-a1", FromKind: "service", To: "svc-b2", ToKind: "service", Iface: "wg0"},  // 0: qualifies, from cluster-a's side
+		{From: "svc-b1", FromKind: "service", To: "svc-a3", ToKind: "service", Iface: "wg0"},  // 1: qualifies, from cluster-b's side
+		{From: "svc-c1", FromKind: "service", To: "svc-c2", ToKind: "service", Iface: "wg0"},  // 2: unrelated tunnel elsewhere, same name
+		{From: "svc-a2", FromKind: "service", To: "svc-b2", ToKind: "service", Iface: "eth0"}, // 3: right cluster, wrong interface
 	}
-	serviceClusterID := map[string]string{"svc-a1": "cluster-a", "svc-a2": "cluster-a", "svc-b1": "cluster-b", "svc-c1": "cluster-z"}
+	serviceClusterID := map[string]string{
+		"svc-a1": "cluster-a", "svc-a2": "cluster-a", "svc-a3": "cluster-a",
+		"svc-b1": "cluster-b", "svc-b2": "cluster-b",
+		"svc-c1": "cluster-z", "svc-c2": "cluster-z",
+	}
 
 	got := correlateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
 	l := got[0]
@@ -353,8 +362,8 @@ func TestCorrelateClusterLinksRollupLeavesRttAndLossUnsetWithoutAnyMeasuredSampl
 	// A conntrack-only call: it still counts as a flow using the tunnel, but RttMs=0 and no Stats means
 	// nothing to average - same "0/nil means not measured" convention Dependency itself uses, not a
 	// fabricated "0ms, 0% loss".
-	deps := []model.Dependency{{From: "svc-a1", FromKind: "service", Iface: "wg0", Via: "conntrack"}}
-	serviceClusterID := map[string]string{"svc-a1": "cluster-a"}
+	deps := []model.Dependency{{From: "svc-a1", FromKind: "service", To: "svc-b1", ToKind: "service", Iface: "wg0", Via: "conntrack"}}
+	serviceClusterID := map[string]string{"svc-a1": "cluster-a", "svc-b1": "cluster-b"}
 
 	got := correlateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
 	l := got[0]
@@ -404,10 +413,10 @@ func TestCorrelateClusterLinksRollupCountsFlowsOnAnyRedundantInterface(t *testin
 	}
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
 	deps := []model.Dependency{
-		{From: "svc-a1", FromKind: "service", Iface: "wg0", RttMs: 10},
-		{From: "svc-a2", FromKind: "service", Iface: "wg1", RttMs: 30},
+		{From: "svc-a1", FromKind: "service", To: "svc-b1", ToKind: "service", Iface: "wg0", RttMs: 10},
+		{From: "svc-a2", FromKind: "service", To: "svc-b1", ToKind: "service", Iface: "wg1", RttMs: 30},
 	}
-	serviceClusterID := map[string]string{"svc-a1": "cluster-a", "svc-a2": "cluster-a"}
+	serviceClusterID := map[string]string{"svc-a1": "cluster-a", "svc-a2": "cluster-a", "svc-b1": "cluster-b"}
 
 	got := correlateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
 	if len(got) != 1 || got[0].Redundancy != 2 {
@@ -458,5 +467,76 @@ func TestCorrelateClusterLinksNeverClassifiesASubnetLink(t *testing.T) {
 	got := correlateClusterLinks([]model.Node{a, b}, names, nil, nil)
 	if len(got) != 1 || got[0].Encryption != "" {
 		t.Fatalf("got %+v, want Encryption empty for a subnet link", got)
+	}
+}
+
+// TestCorrelateClusterLinksDoesNotMisattributeAcrossCollidingInterfaceNamesOnDifferentPairs pins a real
+// fix: tunnel interface names are routinely defaulted by the VPN software (wg0, tun0, ...), not unique
+// per link, so two entirely unrelated cluster pairs can both confirm an overlay link named "wg0" on the
+// very same cluster's side. Before the fix, the flow rollup matched a dependency to a link by the
+// calling service's own cluster plus interface name alone - so a dependency whose traffic actually
+// crossed cluster-a -> cluster-b over "wg0" could ALSO get counted (and its Dependency.TunnelLink
+// overwritten) against the entirely separate cluster-a -> cluster-c link, merely because that link's
+// side in cluster-a happened to confirm a different physical tunnel also named "wg0". Matching must be
+// scoped by the actual cluster pair the dependency's two endpoints resolve to, not interface name alone
+// across the whole fleet.
+func TestCorrelateClusterLinksDoesNotMisattributeAcrossCollidingInterfaceNamesOnDifferentPairs(t *testing.T) {
+	// cluster-a <-> cluster-b, confirmed via node-a1/node-b1, interface "wg0" on cluster-a's side.
+	a1 := nodeForClusterLink("cluster-a", "a1", "node-a1")
+	a1.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}}}
+	b1 := nodeForClusterLink("cluster-b", "b1", "node-b1")
+	b1.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"}}}
+
+	// cluster-a <-> cluster-c, confirmed via node-a2/node-c1 - a completely different, unrelated tunnel
+	// that also happens to be named "wg0" on cluster-a's side (a different node than node-a1, a
+	// different address/route pair - the only thing it shares with the other link is the name).
+	a2 := nodeForClusterLink("cluster-a", "a2", "node-a2")
+	a2.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.9.0.1/24"}, Routes: []string{"10.9.0.0/24"}}}
+	c1 := nodeForClusterLink("cluster-c", "c1", "node-c1")
+	c1.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.9.0.2/24"}, Routes: []string{"10.9.0.0/24"}}}
+
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B", "cluster-c": "Cluster C"}
+
+	deps := []model.Dependency{
+		// Really crosses cluster-a -> cluster-b over wg0: must be attributed to the a<->b link only.
+		{From: "svc-a-caller-1", FromKind: "service", To: "svc-b-callee", ToKind: "service", Iface: "wg0"},
+		// Really crosses cluster-a -> cluster-c over wg0: must be attributed to the a<->c link only.
+		{From: "svc-a-caller-2", FromKind: "service", To: "svc-c-callee", ToKind: "service", Iface: "wg0"},
+	}
+	serviceClusterID := map[string]string{
+		"svc-a-caller-1": "cluster-a", "svc-a-caller-2": "cluster-a",
+		"svc-b-callee": "cluster-b", "svc-c-callee": "cluster-c",
+	}
+
+	got := correlateClusterLinks([]model.Node{a1, b1, a2, c1}, names, deps, serviceClusterID)
+	if len(got) != 2 {
+		t.Fatalf("got %d links, want 2 (cluster-a<->cluster-b and cluster-a<->cluster-c are distinct pairs): %+v", len(got), got)
+	}
+	var ab, ac *model.ClusterLink
+	for i := range got {
+		switch got[i].ToCluster {
+		case "cluster-b":
+			ab = &got[i]
+		case "cluster-c":
+			ac = &got[i]
+		}
+	}
+	if ab == nil || ac == nil {
+		t.Fatalf("got %+v, want one link to cluster-b and one to cluster-c", got)
+	}
+
+	if ab.FlowsObserved != 1 {
+		t.Errorf("a<->b FlowsObserved = %d, want 1 (only the dependency that actually crosses to cluster-b)", ab.FlowsObserved)
+	}
+	if ac.FlowsObserved != 1 {
+		t.Errorf("a<->c FlowsObserved = %d, want 1 (only the dependency that actually crosses to cluster-c)", ac.FlowsObserved)
+	}
+
+	dep1, dep2 := deps[0], deps[1]
+	if dep1.TunnelLink == nil || dep1.TunnelLink.ToCluster != "cluster-b" {
+		t.Errorf("deps[0].TunnelLink = %+v, want it attributed to the cluster-b link, not cluster-c", dep1.TunnelLink)
+	}
+	if dep2.TunnelLink == nil || dep2.TunnelLink.ToCluster != "cluster-c" {
+		t.Errorf("deps[1].TunnelLink = %+v, want it attributed to the cluster-c link, not cluster-b", dep2.TunnelLink)
 	}
 }
