@@ -275,7 +275,7 @@ export const basisText = (b: RttBasis) => BASIS_TEXT[b]
 
 const ms = (n: number) => (Number.isFinite(n) ? (n < 10 ? n.toFixed(1) : Math.round(n).toString()) : '?')
 
-function reasonsFor(cur: Evaluation, tgt: Evaluation, toName: string): string[] {
+export function reasonsFor(cur: Evaluation, tgt: Evaluation, toName: string): string[] {
   const out: string[] = []
   const drop = cur.crossSiteBps - tgt.crossSiteBps
   if (drop > 1024) {
@@ -312,7 +312,17 @@ function reasonsFor(cur: Evaluation, tgt: Evaluation, toName: string): string[] 
     const jitterDelta = (was!.jitterMs ?? 0) - (e.jitterMs ?? 0)
     if (jitterDelta >= 1) {
       out.push(`${e.peerName}: round-trip jitter ${ms(was!.jitterMs ?? 0)} ms → ${ms(e.jitterMs ?? 0)} ms.`)
+      continue
     }
+    // This edge cleared the combined cost-drop bar above (it is in `best`), but none of its individual
+    // deltas cleared its own threshold - RTT, loss and jitter each improved by a little, not a lot. Saying
+    // nothing here would silently drop an edge the ranking just picked as one of the top reasons for the
+    // move, so name it for what it is: several small improvements that only add up to something together.
+    out.push(
+      `${e.peerName}: several small improvements together - round trip ${ms(was!.rtt.ms)} ms → ${ms(e.rtt.ms)} ms, ` +
+        `packet loss ${(was!.lossPct ?? 0).toFixed(1)}% → ${(e.lossPct ?? 0).toFixed(1)}%, ` +
+        `jitter ${ms(was!.jitterMs ?? 0)} ms → ${ms(e.jitterMs ?? 0)} ms.`,
+    )
   }
   return out
 }

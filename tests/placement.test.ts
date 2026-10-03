@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { buildDecisionInput, BUILTIN_DECIDERS, compare, baselineDecider, externalDecider, parseDecisionOutput, runDecider, vet } from '../src/lib/placement/deciders'
-import { evacuate, evaluate, recommend, totals, whatIf } from '../src/lib/placement/engine'
-import { DEFAULT_POLICY, type Policy } from '../src/lib/placement/types'
+import { evacuate, evaluate, reasonsFor, recommend, totals, whatIf } from '../src/lib/placement/engine'
+import { DEFAULT_POLICY, type EdgeEvidence, type Evaluation, type Policy } from '../src/lib/placement/types'
 import { buildWorld, freeCapacity, rtt, withMoves, type World } from '../src/lib/placement/world'
 import { DEFAULT_ORG, type Cluster, type Dependency, type Device, type MachineNode, type Path, type Service, type Site, type SiteLink } from '../src/lib/types'
 
@@ -137,6 +137,30 @@ test('recommend: a busy service moves next to what it talks to, with evidence, a
   assert.ok(!plan.recommendations.some((r) => r.serviceId === 'db'))
   // the recommendation never claims to have applied anything
   assert.equal(world().placement.get('api'), 'cl-edge')
+})
+
+test('reasonsFor: an edge whose gain is several sub-threshold deltas together still gets an honest, non-empty reason', () => {
+  // None of these deltas alone clears reasonsFor's own per-field bar (round trip >= 1 ms, loss >= 0.5
+  // points, jitter >= 1 ms), but the edge still cleared the combined "was.cost - e.cost > 0.5" bar that put
+  // it on the top-reasons list (was.cost 10.6 -> e.cost 10.0, a 0.6-point drop). Before the fix, every
+  // per-field `if` fell through and the edge silently contributed nothing to `reasons`.
+  const edge = (over: Partial<EdgeEvidence>): EdgeEvidence => ({
+    dependencyId: 'd1', peerName: 'db', peerKind: 'service', peerWhere: 'cl-cloud',
+    activity: 1, trafficKnown: true, rtt: { ms: 40, basis: 'declared' }, crossSite: true, cost: 10, ...over,
+  })
+  const curEdge = edge({ cost: 10.6, rtt: { ms: 40.8, basis: 'declared' }, lossPct: 4.3, jitterMs: 12.6 })
+  const tgtEdge = edge({ cost: 10.0, rtt: { ms: 40.0, basis: 'declared' }, lossPct: 4.0, jitterMs: 12.0 })
+  const base = (edges: EdgeEvidence[]): Evaluation => ({
+    serviceId: 'api', clusterId: 'cl-cloud', cost: 0, latencyCost: 0, trafficCost: 0, qualityCost: 0, headroomCost: 0,
+    networkHeadroomCost: 0, migrationCost: 0, weightedRttMs: 40, crossSiteBps: 1024, edges, unknownPeers: 0,
+    confidence: 'high', confidenceClass: 'measured', fitClass: 'measured', verdict: 'fits', fits: true,
+    blockers: [], unchecked: [], fixes: [], facts: [], wouldChange: [], inputs: [],
+  })
+  const cur = base([curEdge])
+  const tgt = base([tgtEdge])
+  const reasons = reasonsFor(cur, tgt, 'cl-cloud')
+  assert.ok(reasons.length > 0, 'an edge that cleared the combined gain bar must never be silently dropped')
+  assert.ok(reasons.some((r) => /db/.test(r) && /small improvements|together/.test(r)), reasons.join(' | '))
 })
 
 test('recommend: nothing to gain, or nothing known, means stay', () => {
