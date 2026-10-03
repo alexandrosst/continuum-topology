@@ -11,6 +11,7 @@ package probe
 
 import (
 	"bufio"
+	"io/fs"
 	"math"
 	"net/netip"
 	"os"
@@ -123,7 +124,92 @@ func Read(p Paths) *continuumv1.HostProbe {
 	h.CpuPressurePct = psiSomeAvg60(filepath.Join(cgroup, "cpu.pressure"))
 	h.MemoryPressurePct = psiSomeAvg60(filepath.Join(cgroup, "memory.pressure"))
 	h.IoPressurePct = psiSomeAvg60(filepath.Join(cgroup, "io.pressure"))
+	h.OomKillCount = oomKillTotal(cgroup)
 	return h
+}
+
+// maxCgroupWalkDepth bounds oomKillTotal's own tree walk below, purely as a self-protective limit
+// against a pathologically deep cgroup hierarchy (there is no cgroup.max.depth guarantee this probe can
+// rely on) - real cgroup v2 nesting on a Kubernetes node (root -> kubepods.slice -> a pod's own slice ->
+// its container scope) never comes close to this.
+const maxCgroupWalkDepth = 24
+
+// oomKillTotal returns how many OOM kills cgroup v2's own per-cgroup accounting has recorded across
+// every cgroup on this host, right now - a live, monotonically increasing total (the server diffs two
+// readings a report-window apart into "this many new kills" the same way it already diffs every other
+// cumulative counter this package is not itself responsible for diffing). Unlike the three PSI
+// percentages right above, which read one fixed file at the root cgroup, this walks the whole cgroup
+// tree (bounded by maxCgroupWalkDepth) summing the "oom_kill" field out of every memory.events file it
+// finds: the root cgroup itself has no memory.events at all - confirmed empirically in this sandbox,
+// and consistent with the kernel's own cgroup v2 model (the root cgroup has no memory.max of its own to
+// ever trigger an OOM kill against; only a non-root cgroup with the memory controller attached gets one)
+// - so there is no single root-level file to read the way psiSomeAvg60 reads one. A node-wide sum needs
+// no cgroup-path resolution at all, unlike a specific pod's own attribution would (see the PSI commit
+// this builds on for why that is a gap this package does not try to close): it never needs to know which
+// cgroup belongs to which pod, only to add up every oom_kill field that exists on the host right now.
+//
+// This is the file-read half of this change's two options (the other being an eBPF fentry/kprobe hook
+// on oom_kill_process giving an exact timestamp+pid, see flow.c's SNAT-exhaustion comment for the
+// general "internal kernel function, not a stable ABI" tradeoff that route would carry) - chosen because
+// it is zero new kernel code, bounded cost (one directory walk per probe read, not a new always-on
+// hook), and already gives a real, correlatable node-level fact without guessing at kernel internals
+// that could silently break on a future kernel refactor. The cost is precision: this cannot say which
+// pod, or when, a kill happened within the probe's own polling interval - see HostProbe.oom_kill_count's
+// own doc for what that gap does and does not block.
+//
+// Returns nil only when no cgroup v2 hierarchy is mounted at cgroupRoot at all (a cgroup v1 host, a
+// kernel with cgroups disabled, or the empty-fixture case TestReadEmptyHostIsNotAnError covers) - 0 is a
+// real, common reading ("every cgroup walked had 0 oom_kill"), never confused with "not read".
+func oomKillTotal(cgroupRoot string) *uint64 {
+	if !exists(cgroupRoot) {
+		return nil
+	}
+	var total uint64
+	_ = filepath.WalkDir(cgroupRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // an unreadable subtree (permissions, a cgroup that disappeared mid-walk) - skip it, not fatal
+		}
+		if d.IsDir() {
+			if path != cgroupRoot {
+				rel, relErr := filepath.Rel(cgroupRoot, path)
+				if relErr == nil && strings.Count(rel, string(filepath.Separator))+1 > maxCgroupWalkDepth {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if d.Name() != "memory.events" {
+			return nil
+		}
+		total += oomKillFromEvents(path)
+		return nil
+	})
+	return &total
+}
+
+// oomKillFromEvents reads one cgroup's own memory.events file for its "oom_kill" line (see
+// Documentation/cgroup-v2.rst): a cgroup that has never had one still has the line, reading "oom_kill 0",
+// which this correctly folds into the running total as 0 - only an unreadable or unrecognized file
+// contributes nothing.
+func oomKillFromEvents(path string) uint64 {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		field, ok := strings.CutPrefix(sc.Text(), "oom_kill ")
+		if !ok {
+			continue
+		}
+		n, err := strconv.ParseUint(strings.TrimSpace(field), 10, 64)
+		if err != nil {
+			return 0
+		}
+		return n
+	}
+	return 0
 }
 
 // psiSomeAvg60 reads one cgroup v2 pressure-stall file's "some avg60" figure - see
@@ -352,6 +438,23 @@ func hasBattery(dir string) bool {
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
+// maxPlausibleOomKillCount bounds oom_kill_count the same way sanitizePressurePct bounds a percentage:
+// a real host restarts long before a legitimate cumulative OOM-kill count could ever reach this, so
+// anything at or beyond it is far more likely a hostile or corrupted sender than a real reading.
+const maxPlausibleOomKillCount = 10_000_000
+
+// sanitizeOomKillCount keeps a sent oom_kill_count only when it is at least plausible - see
+// maxPlausibleOomKillCount. nil (never read, or a cgroup v1 host) passes through unchanged: unlike the
+// percentages below, there is no "negative" or "NaN" case for a uint64 to guard against, only an
+// implausibly large one.
+func sanitizeOomKillCount(v *uint64) *uint64 {
+	if v == nil || *v >= maxPlausibleOomKillCount {
+		return nil
+	}
+	n := *v
+	return &n
+}
+
 // sanitizePressurePct keeps a sent cpu_pressure_pct/memory_pressure_pct/io_pressure_pct only when it is
 // a plausible percentage - PSI's own avg10/avg60/avg300 are each bounded to [0, 100] by the kernel, so
 // anything outside that (or NaN/Inf, which a hostile or buggy sender could still put on the wire despite
@@ -385,6 +488,7 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 	out.CpuPressurePct = sanitizePressurePct(h.CpuPressurePct)
 	out.MemoryPressurePct = sanitizePressurePct(h.MemoryPressurePct)
 	out.IoPressurePct = sanitizePressurePct(h.IoPressurePct)
+	out.OomKillCount = sanitizeOomKillCount(h.OomKillCount)
 	seen := map[string]bool{}
 	for _, u := range h.Uplinks {
 		if (u == "ethernet" || u == "wifi" || u == "cellular") && !seen[u] {

@@ -413,7 +413,7 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 	s := facts.New()
 	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-probe"}
 	s.Nodes["a"] = node("a", func(n *N) {
-		cpuPsi, memPsi, ioPsi := 2.5, 0.0, 13.75
+		cpuPsi, memPsi, ioPsi, oomKills := 2.5, 0.0, 13.75, uint64(2)
 		n.Probe = &P{
 			SysVendor: "Dell Inc.", ProductName: "PowerEdge R640",
 			CpuModel: "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz", CpuThreads: 32,
@@ -424,6 +424,7 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 			CpuPressurePct:    &cpuPsi,
 			MemoryPressurePct: &memPsi,
 			IoPressurePct:     &ioPsi,
+			OomKillCount:      &oomKills,
 		}
 	})
 	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
@@ -462,6 +463,11 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 	if n.IOPressurePct == nil || *n.IOPressurePct != 13.75 {
 		t.Errorf("ioPressurePct = %v, want 13.75", n.IOPressurePct)
 	}
+	// OomKillCount is a plain pass-through too, the same pointer treatment as the PSI fields right
+	// above it - a real, present, non-zero count must survive exactly, not get dropped or zeroed.
+	if n.OomKillCount == nil || *n.OomKillCount != 2 {
+		t.Errorf("oomKillCount = %v, want 2", n.OomKillCount)
+	}
 }
 
 // TestInterpretLeavesPressureNilWhenProbeDidNotReadIt covers a probe run on a cgroup v1 host (or an
@@ -477,6 +483,9 @@ func TestInterpretLeavesPressureNilWhenProbeDidNotReadIt(t *testing.T) {
 	n := out.Nodes[0]
 	if n.CPUPressurePct != nil || n.MemoryPressurePct != nil || n.IOPressurePct != nil {
 		t.Errorf("pressure = %v/%v/%v, want all nil (this probe never reported PSI)", n.CPUPressurePct, n.MemoryPressurePct, n.IOPressurePct)
+	}
+	if n.OomKillCount != nil {
+		t.Errorf("oomKillCount = %v, want nil (this probe never reported it)", n.OomKillCount)
 	}
 }
 

@@ -149,6 +149,26 @@ describe('Inspector · node pressure', () => {
   })
 })
 
+describe('Inspector · node OOM kills', () => {
+  test('no row at all when the probe never read it', () => {
+    renderNodeInspector(node())
+    expect(screen.queryByText('OOM kills')).not.toBeInTheDocument()
+  })
+
+  test('a real, measured 0 still renders - it must not be treated the same as "not read"', () => {
+    renderNodeInspector(node({ oomKillCount: 0 }))
+    expect(screen.getByText('0 total')).toBeInTheDocument()
+  })
+
+  test('a non-zero count renders and is flagged', () => {
+    renderNodeInspector(node({ oomKillCount: 3 }))
+    const row = screen.getByText('3 total')
+    expect(row).toBeInTheDocument()
+    expect(row).toHaveAttribute('title')
+    expect(row.className).toContain('text-bad')
+  })
+})
+
 describe('Inspector · node link saturation', () => {
   test('shows the saturation percentage per interface, with a tooltip', () => {
     renderNodeInspector(node({ linkSaturation: [{ iface: 'eth0', throughputBps: 800_000_000, saturationPct: 80 }] }))

@@ -226,6 +226,18 @@ type Node struct {
 	CPUPressurePct    *float64 `json:"cpuPressurePct,omitempty"`
 	MemoryPressurePct *float64 `json:"memoryPressurePct,omitempty"`
 	IOPressurePct     *float64 `json:"ioPressurePct,omitempty"`
+	// OomKillCount is how many times cgroup v2's own per-cgroup OOM-kill accounting has fired across
+	// every cgroup on this host, summed (see HostProbe.oom_kill_count's own doc for exactly what this
+	// does and does not cover - node-level only, no exact timestamp or pid, no per-pod attribution).
+	// A live, monotonically increasing total: Interpret copies it straight from the probe on every
+	// report, so two readings a report-window apart tell the caller "this many new kills" by diffing
+	// them, the same way any other cumulative counter in this package already works. nil means not
+	// read (no node probe, a cgroup v1 host, or a kernel with cgroups disabled), never a fabricated 0 -
+	// same pointer treatment as CPUPressurePct/MemoryPressurePct/IOPressurePct above. Meant to be read
+	// alongside this same window's flow data for pods scheduled on this node (Dependency.RcvWndBytes
+	// among them): a kill landing in the same window as a sudden drop in a pod's own flow activity is
+	// the node-side explanation retransmit growth alone could never provide.
+	OomKillCount *uint64 `json:"oomKillCount,omitempty"`
 	// LinkSaturation is this node's current per-interface network throughput and, where the interface's
 	// own rated speed could be read, what share of it is in use - computed by the flow collector from
 	// this window's actual flow byte counters (see continuumv1.LinkSaturation's own doc comment), not by

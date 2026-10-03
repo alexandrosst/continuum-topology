@@ -213,6 +213,7 @@ func Interpret(in Input) model.Topology {
 			mn.CPUPressurePct = n.Probe.CpuPressurePct
 			mn.MemoryPressurePct = n.Probe.MemoryPressurePct
 			mn.IOPressurePct = n.Probe.IoPressurePct
+			mn.OomKillCount = n.Probe.OomKillCount
 			for _, iface := range n.Probe.Interfaces {
 				if iface == nil {
 					continue

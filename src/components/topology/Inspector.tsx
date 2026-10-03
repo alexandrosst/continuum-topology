@@ -718,6 +718,16 @@ export default function Inspector({
                     </span>
                   ))}
           </Maybe>
+          <Maybe label="OOM kills">
+            {n.oomKillCount === undefined ? undefined : (
+              <span
+                className={n.oomKillCount > 0 ? 'text-bad' : undefined}
+                title="Cumulative count from cgroup v2's own per-cgroup OOM-kill accounting, summed across every cgroup on this node - node-level only, no per-pod attribution. Worth checking against this node's own pods' flow activity for the same window."
+              >
+                {n.oomKillCount} total
+              </span>
+            )}
+          </Maybe>
           <Maybe label="Link saturation">
             {n.linkSaturation === undefined || n.linkSaturation.length === 0
               ? undefined

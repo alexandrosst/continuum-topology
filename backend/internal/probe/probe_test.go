@@ -179,6 +179,11 @@ func TestReadEmptyHostIsNotAnError(t *testing.T) {
 	if h.CpuPressurePct != nil || h.MemoryPressurePct != nil || h.IoPressurePct != nil {
 		t.Fatalf("pressure = %v/%v/%v, want all nil with no cgroup v2 hierarchy mounted", h.CpuPressurePct, h.MemoryPressurePct, h.IoPressurePct)
 	}
+	// Same "absence is a fact too" rule as the three PSI fields right above: no /sys/fs/cgroup at all
+	// means no cgroup v2 hierarchy to walk, so OomKillCount must stay nil, never a fabricated 0.
+	if h.OomKillCount != nil {
+		t.Fatalf("oomKillCount = %v, want nil with no cgroup v2 hierarchy mounted", h.OomKillCount)
+	}
 }
 
 // TestReadPressure covers the three cgroup v2 PSI files at the root of the unified hierarchy - each
@@ -200,6 +205,32 @@ func TestReadPressure(t *testing.T) {
 	}
 	if h.IoPressurePct == nil || *h.IoPressurePct != 13.75 {
 		t.Fatalf("ioPressurePct = %v, want 13.75 (the \"some\" line, not \"full\"'s 2.00)", h.IoPressurePct)
+	}
+}
+
+// TestReadOomKillCount covers oomKillTotal's own walk: unlike the three PSI files above, which live at
+// one fixed path at the cgroup root, memory.events only exists on non-root cgroups - so this builds a
+// small nested tree (mirroring kubepods.slice-style nesting) and checks the sum comes back right, that
+// a cgroup with no oom_kill line at all (e.g. one with only "full"-less content, or a sibling never
+// touched by the memory controller) contributes nothing rather than erroring the whole walk, and that
+// the root cgroup's own absence of memory.events is not itself treated as "no cgroup v2 here".
+func TestReadOomKillCount(t *testing.T) {
+	root := t.TempDir()
+	sys := filepath.Join(root, "sys")
+	// Real cgroup v2 roots never have their own memory.events (confirmed in TestReadEmptyHostIsNotAnError's
+	// sibling package-level empirical note - see oomKillTotal's own doc) - only non-root cgroups do.
+	write(t, sys, "fs/cgroup/cpu.pressure", "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
+	write(t, sys, "fs/cgroup/kubepods.slice/memory.events", "low 0\nhigh 0\nmax 0\noom 0\noom_kill 3\noom_group_kill 0\n")
+	write(t, sys, "fs/cgroup/kubepods.slice/pod-a/memory.events", "low 0\nhigh 0\nmax 2\noom 2\noom_kill 2\noom_group_kill 0\n")
+	// A sibling cgroup whose memory.events exists but has never recorded a kill - oom_kill 0 must still
+	// fold into the sum as 0, not be skipped or mistaken for "unreadable".
+	write(t, sys, "fs/cgroup/kubepods.slice/pod-b/memory.events", "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n")
+	// A non-memory.events file that happens to sit in the same tree must never be mistaken for one.
+	write(t, sys, "fs/cgroup/kubepods.slice/pod-b/cpu.pressure", "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
+
+	h := Read(Paths{Sys: sys, Proc: t.TempDir()})
+	if h.OomKillCount == nil || *h.OomKillCount != 5 {
+		t.Fatalf("oomKillCount = %v, want a real, present 5 (3 + 2 + 0)", h.OomKillCount)
 	}
 }
 
@@ -311,6 +342,29 @@ func TestSanitizePressure(t *testing.T) {
 	}
 }
 
+// TestSanitizeOomKillCount covers oom_kill_count: a plausible count (including a real, present zero)
+// survives untouched, nil (never read) passes through unchanged, and an implausibly large value - the
+// one shape a hostile/corrupted sender could send that a uint64 cannot otherwise rule out, since it has
+// no negative or NaN case the way the PSI percentages do - is dropped to nil rather than trusted.
+func TestSanitizeOomKillCount(t *testing.T) {
+	ok, zero, tooHigh := uint64(5), uint64(0), uint64(maxPlausibleOomKillCount)
+	s := Sanitize(&continuumv1.HostProbe{OomKillCount: &ok})
+	if s.OomKillCount == nil || *s.OomKillCount != 5 {
+		t.Fatalf("oomKillCount = %v, want 5", s.OomKillCount)
+	}
+	s2 := Sanitize(&continuumv1.HostProbe{OomKillCount: &zero})
+	if s2.OomKillCount == nil || *s2.OomKillCount != 0 {
+		t.Fatalf("oomKillCount = %v, want a real, present 0", s2.OomKillCount)
+	}
+	s3 := Sanitize(&continuumv1.HostProbe{OomKillCount: &tooHigh})
+	if s3.OomKillCount != nil {
+		t.Fatalf("oomKillCount = %v, want nil (implausibly large)", s3.OomKillCount)
+	}
+	if Sanitize(&continuumv1.HostProbe{}).OomKillCount != nil {
+		t.Fatal("an unset oomKillCount must stay nil, not become a fabricated 0")
+	}
+}
+
 // TestSanitizeKeepsTunnelsAndHostSubnets guards against the regression this session found: Sanitize
 // built its output field-by-field and simply never copied Tunnels or HostSubnets at all, so every
 // node probe report silently lost its network-topology facts between the agent's receiver and
@@ -320,10 +374,10 @@ func TestSanitizeKeepsTunnelsAndHostSubnets(t *testing.T) {
 		HostSubnets: []string{"10.8.0.0/24", "not-a-prefix", "192.168.1.0/24"},
 		Tunnels: []*continuumv1.TunnelInterface{
 			{Name: "wt0", Kind: "wireguard", Up: true, Mtu: 1420, Addresses: []string{"100.64.0.45/24", "garbage"}, Routes: []string{"100.64.0.0/10", "0.0.0.0/0", "also-garbage"}},
-			{Name: "", Kind: "wireguard"},   // no name: dropped
-			{Name: "tun0", Kind: "openvpn"}, // unknown/unrecognized kind: dropped
+			{Name: "", Kind: "wireguard"},            // no name: dropped
+			{Name: "tun0", Kind: "openvpn"},          // unknown/unrecognized kind: dropped
 			{Name: "gre1", Kind: "gre", Mtu: 999999}, // out-of-range mtu: cleared, not dropped
-			nil, // must not panic
+			nil,                                      // must not panic
 		},
 	}
 	s := Sanitize(untrusted)

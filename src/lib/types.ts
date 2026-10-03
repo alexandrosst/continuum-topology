@@ -479,6 +479,15 @@ export interface MachineNode extends Provenance {
   cpuPressurePct?: number
   memoryPressurePct?: number
   ioPressurePct?: number
+  /** How many times cgroup v2's own per-cgroup OOM-kill accounting has fired across every cgroup on
+   *  this node, summed - a live, monotonically increasing total (the backend diffs two readings a
+   *  report-window apart the same way it already diffs every other cumulative counter). Node-level
+   *  only: no exact timestamp or pid, no per-pod attribution - see the backend's
+   *  HostProbe.oom_kill_count doc for exactly what that gap does and does not block. Undefined means
+   *  not read (no node probe, a cgroup v1 host, or a kernel with cgroups disabled), never a fabricated
+   *  0. Worth reading alongside this node's own pods' flow data for the same window: a kill landing
+   *  there is a real, node-side explanation a flow row's retransmit growth alone could never provide. */
+  oomKillCount?: number
   /** This node's current per-interface network throughput and, where the interface's own rated speed
    *  could be read, what share of it is in use right now - computed by the flow collector from this
    *  window's real flow byte counters (see the backend's continuumv1.LinkSaturation proto doc), not by
