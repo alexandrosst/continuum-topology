@@ -527,6 +527,22 @@ func ifaceName(b [16]int8) string {
 	return string(raw)
 }
 
+// tlsHandshakeOutcome maps flow.c's own TLS_HANDSHAKE_* constants (flow_val.tls_handshake - see its doc
+// comment there) onto the wire-stable continuumv1.TlsHandshakeOutcome enum. The two do not share numeric
+// values on purpose: flow.c's constants are this program's own internal detail, free to renumber without
+// touching the proto wire format, while the proto enum's numbering is load-bearing (persisted, sent
+// between versions) the moment it ships - so this mapping is written out explicitly rather than cast.
+func tlsHandshakeOutcome(raw uint8) continuumv1.TlsHandshakeOutcome {
+	switch raw {
+	case 1: // TLS_HANDSHAKE_OK
+		return continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK
+	case 2: // TLS_HANDSHAKE_FAILED
+		return continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED
+	default: // TLS_HANDSHAKE_UNKNOWN (0), or anything this Go build does not yet know about
+		return continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN
+	}
+}
+
 // Collect returns everything counted since the previous call, and empties the counters. A connection is
 // counted when it is established. Its bytes are counted when it closes, and also once per call while it
 // is open when live counting is running.
@@ -622,6 +638,12 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			if v.Sndbuf != 0 {
 				sum.Sndbuf = v.Sndbuf
 			}
+			// tls_handshake is a gauge too, set at most once per connection (see flow.c's own doc comment on
+			// flow_val.tls_handshake) - same "0 means no sample" single-writer treatment, just over the C
+			// side's own TLS_HANDSHAKE_* constants rather than RttUs/Cwnd's raw numbers.
+			if v.TlsHandshake != 0 {
+				sum.TlsHandshake = v.TlsHandshake
+			}
 			// Every CPU that ever handled this socket's traffic put_iface'd the same route, so any
 			// non-empty reading is as good as another; take the first rather than requiring them to agree,
 			// since a route change mid-life would otherwise blank it out for no good reason.
@@ -665,6 +687,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			SndWndBytes:       sum.SndWnd,
 			WmemQueuedBytes:   sum.WmemQueued,
 			SndbufBytes:       sum.Sndbuf,
+			TlsHandshake:      tlsHandshakeOutcome(sum.TlsHandshake),
 			FailedAttempts:    sum.FailedAttempts,
 			FailedRefused:     sum.FailedRefused,
 			FailedTimeout:     sum.FailedTimeout,

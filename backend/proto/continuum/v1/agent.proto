@@ -639,6 +639,28 @@ message Revoked {
 
 // One aggregated observation as the node flow collector reports it to the agent. The collector sees
 // addresses only; the agent, which knows the cluster's pods and Services, turns them into workloads.
+// How a TLS handshake this connection's own ClientHello started visibly went, read straight off the
+// wire by the collector's egress hook (see flow.c's observe_tls_outcome for exactly what each value
+// does, and does not, mean) - never a certificate identity or validity check, which the collector has
+// no way to perform at all. UNKNOWN is the zero value: either no ClientHello was ever seen on this
+// connection, name-capture was off, or this connection's own later packets never visibly decided it one
+// way or the other before this report's window closed (or the collector's own tracking entry for it
+// aged out).
+enum TlsHandshakeOutcome {
+  TLS_HANDSHAKE_OUTCOME_UNKNOWN = 0;
+  // A TLS alert record was seen in the clear, before this connection ever encrypted anything - the
+  // shape a fatal handshake-time failure (an unknown CA, a bad certificate, a protocol mismatch, ...)
+  // takes on the wire. A close_notify sent once a handshake already finished normally is never read
+  // this way: every TLS version encrypts it by then, so it is not visible as a plaintext alert record
+  // the way a handshake-time failure is - see flow.c's observe_tls_outcome for the fuller reasoning.
+  TLS_HANDSHAKE_OUTCOME_FAILED = 1;
+  // Several sustained application-data records were seen, with no alert first - a much stronger signal
+  // the handshake actually completed than any single one of them alone would be (TLS 1.3 wraps almost
+  // everything after its own ServerHello, including its own post-handshake alerts, as
+  // application-data at the wire level - see flow.c's own TLS_APPDATA_SUSTAINED_THRESHOLD doc comment).
+  TLS_HANDSHAKE_OUTCOME_OK = 2;
+}
+
 message RawFlow {
   // client=true: local_ip is the caller (a pod or the node), peer_ip is what it dialed (a Service
   // cluster IP, a pod, or anything outside), port is the port it dialed. client=false: local_ip is the
@@ -768,6 +790,12 @@ message RawFlow {
   // The current ceiling on wmem_queued_bytes above (struct sock.sk_sndbuf, SO_SNDBUF - auto-tuned by
   // the kernel unless the application overrode it). A gauge, same treatment as the three fields above.
   uint32 sndbuf_bytes = 32;
+  // See TlsHandshakeOutcome's own doc comment for exactly what this can, and cannot, tell. A gauge set
+  // at most once per connection (TLS_HANDSHAKE_OUTCOME_UNKNOWN until then), like handshake_us above, not
+  // summed. Only ever non-zero when the name-capture opt-in is on, for the role=client direction - the
+  // same scoping sni_host/mesh_bypass_syns above already have. Always TLS_HANDSHAKE_OUTCOME_UNKNOWN on
+  // a conntrack-derived report.
+  TlsHandshakeOutcome tls_handshake = 33;
 }
 
 // One physical network interface's current send+receive throughput on the reporting node, and - when
@@ -915,6 +943,9 @@ message Flow {
   uint32 snd_wnd_bytes = 30;
   uint32 wmem_queued_bytes = 31;
   uint32 sndbuf_bytes = 32;
+  // See RawFlow.tls_handshake/TlsHandshakeOutcome - carried through attribution unchanged, like
+  // rtt_us/cwnd/mss_bytes above: a gauge, the latest sample, never summed.
+  TlsHandshakeOutcome tls_handshake = 33;
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.

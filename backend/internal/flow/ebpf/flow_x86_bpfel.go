@@ -52,7 +52,10 @@ type flowFlowVal struct {
 	Sndbuf            uint32
 	BufferDrops       uint32
 	MeshBypassSyns    uint32
+	TlsHandshake      uint8
+	_                 [3]byte
 	HandshakeUs       uint32
+	_                 [4]byte
 	FailedAttempts    uint64
 	FailedRefused     uint64
 	FailedTimeout     uint64
@@ -87,6 +90,19 @@ type flowSockInfo struct {
 	_                  [7]byte
 }
 
+type flowTlsHelloKey struct {
+	_     structs.HostLayout
+	Saddr [16]uint8
+	Daddr [16]uint8
+	Sport uint16
+	Dport uint16
+}
+
+type flowTlsHelloState struct {
+	_            structs.HostLayout
+	AppdataCount uint8
+}
+
 // Names of all BPF objects in the ELF.
 //
 // Used for safe lookups in a Collection or CollectionSpec.
@@ -97,6 +113,7 @@ const (
 	flowMapNames                   = "names"
 	flowMapSnatExhaustion          = "snat_exhaustion"
 	flowMapSocks                   = "socks"
+	flowMapTlsHelloSeen            = "tls_hello_seen"
 	flowProgObserveEgress          = "observe_egress"
 	flowProgObserveIngress         = "observe_ingress"
 	flowProgOnHashConnectFexit     = "on_hash_connect_fexit"
@@ -166,6 +183,7 @@ type flowMapSpecs struct {
 	Names          *ebpf.MapSpec `ebpf:"names"`
 	SnatExhaustion *ebpf.MapSpec `ebpf:"snat_exhaustion"`
 	Socks          *ebpf.MapSpec `ebpf:"socks"`
+	TlsHelloSeen   *ebpf.MapSpec `ebpf:"tls_hello_seen"`
 }
 
 // flowVariableSpecs contains global variables before they are loaded into the kernel.
@@ -201,6 +219,7 @@ type flowMaps struct {
 	Names          *ebpf.Map `ebpf:"names"`
 	SnatExhaustion *ebpf.Map `ebpf:"snat_exhaustion"`
 	Socks          *ebpf.Map `ebpf:"socks"`
+	TlsHelloSeen   *ebpf.Map `ebpf:"tls_hello_seen"`
 }
 
 func (m *flowMaps) Close() error {
@@ -211,6 +230,7 @@ func (m *flowMaps) Close() error {
 		m.Names,
 		m.SnatExhaustion,
 		m.Socks,
+		m.TlsHelloSeen,
 	)
 }
 

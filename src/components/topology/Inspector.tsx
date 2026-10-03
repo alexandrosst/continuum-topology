@@ -1269,7 +1269,7 @@ export default function Inspector({
             ) : undefined}
           </Maybe>
         </Section>
-        {(verdict || d.meshBypass) && (
+        {(verdict || d.meshBypass || d.tlsHandshake) && (
           <Section title="Service mesh">
             {d.meshBypass && (
               <>
@@ -1284,6 +1284,21 @@ export default function Inspector({
                 <Row label="Encryption"><span style={{ color: VERDICT_COLOR[verdict.state] }}>{verdict.short}</span></Row>
                 <p className="text-xs text-nb-400">{verdict.detail}</p>
                 <p className="mt-1.5 text-xs text-nb-500">Inferred from configuration (proxies, ports kept out of them, and the mesh's mutual-TLS policy). Nothing here was measured on the wire.</p>
+              </>
+            )}
+            {d.tlsHandshake && (
+              <>
+                <Row label="TLS handshake">
+                  <span
+                    style={{ color: d.tlsHandshake === 'failed' ? VERDICT_COLOR.bypassed : undefined }}
+                    title="Read off the wire (eBPF): did this edge's own TLS handshake visibly fail (a plaintext alert record) or complete (sustained application data, no alert) - never a certificate identity or validity check, which this cannot see at all."
+                  >
+                    {d.tlsHandshake === 'failed' ? 'visibly failed' : 'completed'}
+                  </span>
+                </Row>
+                <p className="text-xs text-nb-500">
+                  Only tells whether the handshake itself visibly broke on the wire - not certificate identity, not certificate validity, and not whether this traffic went through a mesh proxy at all (see "bypasses proxy"/"Encryption" above for that).
+                </p>
               </>
             )}
           </Section>

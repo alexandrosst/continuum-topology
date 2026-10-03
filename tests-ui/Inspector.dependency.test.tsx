@@ -104,6 +104,29 @@ describe('Inspector · dependency provenance', () => {
   })
 })
 
+describe('Inspector · dependency TLS handshake outcome', () => {
+  test('a visibly failed handshake is called out under Service mesh, distinctly from mesh verdict wording', () => {
+    renderDependency(dep({ sources: ['declared'], via: undefined, tlsHandshake: 'failed' }))
+    expect(screen.getByText('Service mesh')).toBeInTheDocument()
+    expect(screen.getByText('visibly failed')).toBeInTheDocument()
+  })
+
+  test('a completed handshake says so', () => {
+    renderDependency(dep({ sources: ['declared'], via: undefined, tlsHandshake: 'ok' }))
+    expect(screen.getByText('completed')).toBeInTheDocument()
+  })
+
+  test('is caveated: explains it never checks certificate identity or validity', () => {
+    renderDependency(dep({ sources: ['declared'], via: undefined, tlsHandshake: 'failed' }))
+    expect(screen.getByText(/not certificate identity, not certificate validity/)).toBeInTheDocument()
+  })
+
+  test('no Service mesh section at all when nothing - mesh bypass, verdict, or handshake outcome - was observed', () => {
+    renderDependency(dep({ sources: ['declared'], via: undefined }))
+    expect(screen.queryByText('Service mesh')).not.toBeInTheDocument()
+  })
+})
+
 describe('Inspector · dependency trend', () => {
   test('shows a labeled trend row once the series resolves with at least one measurable signal', async () => {
     dependencySeries.mockResolvedValue([

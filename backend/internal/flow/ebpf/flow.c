@@ -272,6 +272,24 @@ struct flow_val {
 	// pod should be running); that cross-check against the mesh's own declared configuration happens in
 	// Go, downstream (see the server's applyMeshBypassFacts).
 	__u32 mesh_bypass_syns;
+	// tls_handshake: a coarse, best-effort read of how a TLS handshake this program watched the
+	// ClientHello of visibly went, from the same cgroup_skb/egress hook as sni_host/mesh_bypass_syns
+	// above (see observe_tls_outcome, under observe_egress below) - never a certificate identity or
+	// validity check, which this program has no way to perform at all. TLS_HANDSHAKE_UNKNOWN (0, the
+	// zero value every fresh flow_val already starts with) until this connection's own later egress
+	// packets decide it one way or the other: TLS_HANDSHAKE_FAILED (a TLS alert record seen in the
+	// clear, before anything encrypted - see observe_tls_outcome's own doc comment for why that, and
+	// not any alert ever, is what this specifically catches) or TLS_HANDSHAKE_OK (several sustained
+	// application-data records with no such alert first). A gauge set at most once per connection
+	// (observe_tls_outcome deletes its own tracking entry the moment either is decided), like
+	// handshake_us above, not summed. Only ever non-zero when the name-capture opt-in is on, and only
+	// for the role=ROLE_CLIENT direction - the same scoping mesh_bypass_syns above already documents,
+	// for the same reason (this hook only ever sees a dialing pod's own outbound bytes, never a
+	// server's). Pair this with mesh_bypass_syns when reasoning about a mesh workload: plaintext
+	// traffic right after a mesh port, or a failed handshake immediately followed by a bypass-looking
+	// retry, is a stronger signal than either field alone - that correlation happens in Go, downstream,
+	// never here.
+	__u8 tls_handshake;
 	// handshake_us: how long this one connection took to go from its first SYN to ESTABLISHED - a gauge
 	// set exactly once, at the moment a socket reaches ESTABLISHED (see on_state), never touched again by
 	// this same socket's later traffic. Distinct from rtt_us, which is the ongoing steady-state round
@@ -891,6 +909,138 @@ static __always_inline void note_mesh_bypass(const __u8 saddr[16], const __u8 da
 	v->mesh_bypass_syns += 1;
 }
 
+// ---------------------------------------------------------------------------
+// TLS handshake outcome: a ClientHello alone (captured above by the existing SNI-capture logic) says
+// what a connection asked to talk to, never whether that conversation actually worked. This watches the
+// same dialing pod's own later egress packets on that exact connection - the only view this hook has at
+// all (see the file's own doc comment at the top of this section) - for the two shapes, read straight
+// off each record's own content-type byte, that visibly resolve a handshake one way or the other:
+//
+//   - A TLS alert record (content type 0x15) arriving in the clear, before this connection ever
+//     encrypts anything. This is specifically what a fatal handshake-time failure looks like on the
+//     wire (an unknown CA, a bad certificate, a protocol mismatch, ...): TLS 1.2 and earlier send such
+//     an alert unencrypted whenever the failure happens before key exchange completes, and TLS 1.3 does
+//     the same for its own handshake-time failures - anything after that point is wrapped as
+//     application_data instead (the next bullet). A close_notify sent once a handshake already
+//     finished normally is never seen here: every TLS version encrypts it by then, so it never shows up
+//     as a plaintext 0x15 the way a handshake-time failure does. That is exactly why a clear-text alert
+//     this early is read as "the handshake visibly failed", not merely "an alert happened at some point
+//     in this connection's life" - this program does not have to guess which kind of alert this is; the
+//     ones that matter here are the only kind that can still be read in the clear at all.
+//   - Several (TLS_APPDATA_SUSTAINED_THRESHOLD) application-data records (content type 0x17), with no
+//     alert seen first. One such record alone is not decisive: TLS 1.3 wraps essentially everything
+//     after its own ServerHello as 0x17 at the wire level - its real Finished message, session tickets,
+//     even its own post-handshake alerts - all indistinguishable from real application traffic by
+//     content-type byte alone. Several of them, with no clear-text alert ever seen on this same
+//     connection, is a much stronger sign the handshake actually completed and real traffic is flowing:
+//     sustained traffic is not what a connection that failed moments after its own ClientHello looks
+//     like.
+//
+// Either way this is a coarse, best-effort read of the handshake's own visible outcome - never a
+// certificate identity or validity check, which this program has no way to perform at all (see
+// flow_val.tls_handshake's own doc comment, which this writes).
+
+#define TLS_RECORD_ALERT 0x15
+#define TLS_RECORD_APPLICATION_DATA 0x17
+
+#define TLS_HANDSHAKE_UNKNOWN 0
+#define TLS_HANDSHAKE_OK 1
+#define TLS_HANDSHAKE_FAILED 2
+
+// How many application-data records (content type 0x17), with no alert seen first, count as "real
+// traffic is flowing" rather than one of TLS 1.3's own handshake-phase messages merely wearing the same
+// content-type byte - see this section's own doc comment above for why one alone is not enough.
+#define TLS_APPDATA_SUSTAINED_THRESHOLD 3
+
+// The exact connection a ClientHello belongs to, from the wire's own point of view (the same addresses/
+// ports observe_egress already read off this packet - never the socket's own declared ones, which this
+// program never reads at all here). Deliberately not struct flow_key: that key is role-oriented and
+// shared with on_state's own, wholly different bookkeeping, while this only ever needs to recognize
+// "another packet on this exact same egress flow", regardless of role.
+struct tls_hello_key {
+	__u8 saddr[16];
+	__u8 daddr[16];
+	__u16 sport;
+	__u16 dport;
+};
+
+// appdata_count: how many TLS_RECORD_APPLICATION_DATA records this connection has shown since its
+// ClientHello, with no alert seen yet - see TLS_APPDATA_SUSTAINED_THRESHOLD's own doc comment for why
+// this is counted rather than latched on the first one.
+struct tls_hello_state {
+	__u8 appdata_count;
+};
+
+// Remembered from the moment a ClientHello matches (below) until this same connection's own later
+// egress packets decide its outcome one way or the other, or it ages out (a connection whose handshake
+// outcome this program never got to see - lost packets, a long-lived connection outliving the LRU under
+// heavy unrelated load, or simply fewer than TLS_APPDATA_SUSTAINED_THRESHOLD application-data records
+// ever crossing this exact hook again before the entry aged out). Bounded by LRU the same way
+// dns_pending is, for the same reason: this should only ever hold as many entries as there are
+// in-flight TLS handshakes this hook watched the start of, a small fraction of total connection volume.
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__type(key, struct tls_hello_key);
+	__type(value, struct tls_hello_state);
+	__uint(max_entries, 4096);
+} tls_hello_seen SEC(".maps");
+
+// Bumps flow_val.tls_handshake the same way note_mesh_bypass bumps mesh_bypass_syns right above - the
+// exact same flow_key a successful connection to this same peer already accumulates under (role=
+// ROLE_CLIENT, this packet's own saddr/daddr/dport), so Go never has to correlate a second, differently-
+// keyed observation itself. Latched: flow_val.tls_handshake starts at TLS_HANDSHAKE_UNKNOWN (0, every
+// fresh flow_val's own zero value) and this only ever writes to it once - a defensive check, since
+// observe_tls_outcome's own caller already deletes this connection's tls_hello_seen entry the moment
+// either outcome is reached, so a second call for the same connection should not happen in practice.
+static __always_inline void note_tls_outcome(const __u8 saddr[16], const __u8 daddr[16], __u16 dport, __u8 outcome) {
+	struct flow_key key;
+	__builtin_memset(&key, 0, sizeof(key));
+	key.role = ROLE_CLIENT;
+	__builtin_memcpy(key.local, saddr, 16);
+	__builtin_memcpy(key.peer, daddr, 16);
+	key.port = dport;
+
+	struct flow_val zero = {};
+	struct flow_val *v = bpf_map_lookup_elem(&flows, &key);
+	if (!v) {
+		bpf_map_update_elem(&flows, &key, &zero, BPF_NOEXIST);
+		v = bpf_map_lookup_elem(&flows, &key);
+	}
+	if (!v) {
+		count_lost();
+		return;
+	}
+	if (v->tls_handshake == TLS_HANDSHAKE_UNKNOWN)
+		v->tls_handshake = outcome;
+}
+
+// Called for every TCP egress packet that did not itself match the ClientHello shape (observe_egress's
+// own caller already filtered that far) - content_type is the record's own content-type byte, already
+// read by the caller for its own ClientHello check, so this never re-reads the packet itself. A no-op
+// whenever tk names a connection this hook never saw a ClientHello for at all (the overwhelmingly common
+// case for ordinary, non-TLS traffic - one LRU lookup, nothing more, same as dns_pending's own
+// "no matching query" case).
+static __always_inline void observe_tls_outcome(const struct tls_hello_key *tk, __u8 content_type, const __u8 saddr[16], const __u8 daddr[16], __u16 dport_be) {
+	struct tls_hello_state *st = bpf_map_lookup_elem(&tls_hello_seen, tk);
+	if (!st)
+		return;
+	if (content_type == TLS_RECORD_ALERT) {
+		note_tls_outcome(saddr, daddr, __builtin_bswap16(dport_be), TLS_HANDSHAKE_FAILED);
+		bpf_map_delete_elem(&tls_hello_seen, tk);
+		return;
+	}
+	if (content_type != TLS_RECORD_APPLICATION_DATA)
+		return; // some other handshake-phase record (ClientKeyExchange, Finished, ChangeCipherSpec, ...): keep watching
+	struct tls_hello_state next = *st;
+	next.appdata_count++;
+	if (next.appdata_count >= TLS_APPDATA_SUSTAINED_THRESHOLD) {
+		note_tls_outcome(saddr, daddr, __builtin_bswap16(dport_be), TLS_HANDSHAKE_OK);
+		bpf_map_delete_elem(&tls_hello_seen, tk);
+	} else {
+		bpf_map_update_elem(&tls_hello_seen, tk, &next, BPF_EXIST);
+	}
+}
+
 SEC("cgroup_skb/egress")
 int observe_egress(struct __sk_buff *skb) {
 	__u8 v;
@@ -1000,8 +1150,25 @@ int observe_egress(struct __sk_buff *skb) {
 		if (bpf_skb_load_bytes(skb, payload_off, &b0, 1) != 0 || bpf_skb_load_bytes(skb, payload_off + 1, &b1, 1) != 0 ||
 		    bpf_skb_load_bytes(skb, payload_off + 5, &b5, 1) != 0)
 			return 1;
-		if (b0 != 0x16 || b1 != 0x03 || b5 != 0x01)
+		struct tls_hello_key tk;
+		__builtin_memset(&tk, 0, sizeof(tk));
+		__builtin_memcpy(tk.saddr, saddr, 16);
+		__builtin_memcpy(tk.daddr, daddr, 16);
+		tk.sport = sport_be;
+		tk.dport = dport_be;
+		if (b0 != 0x16 || b1 != 0x03 || b5 != 0x01) {
+			// Not a ClientHello - but if this exact connection had one (tk, just built above), this
+			// packet's own content-type byte (b0, already read above) might be this handshake's visible
+			// resolution on the wire. See observe_tls_outcome's own doc comment for exactly what that
+			// can, and cannot, tell.
+			observe_tls_outcome(&tk, b0, saddr, daddr, dport_be);
 			return 1;
+		}
+		// ClientHello: start watching this same connection's own later egress packets for how its
+		// handshake resolves (see observe_tls_outcome's own doc comment), alongside the existing SNI
+		// capture below.
+		struct tls_hello_state fresh = {};
+		bpf_map_update_elem(&tls_hello_seen, &tk, &fresh, BPF_ANY);
 		submit_name(skb, NAME_KIND_TLS_CLIENT_HELLO, saddr, daddr, __builtin_bswap16(sport_be), __builtin_bswap16(dport_be), payload_off, total - payload_off);
 		return 1;
 	}

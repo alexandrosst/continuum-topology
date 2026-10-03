@@ -131,6 +131,12 @@ func mergeFlowCounters(cur, add *continuumv1.Flow) {
 	if add.SndbufBytes != 0 {
 		cur.SndbufBytes = add.SndbufBytes // a gauge, same treatment as the three above
 	}
+	if add.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN {
+		cur.TlsHandshake = add.TlsHandshake // a gauge, same treatment as SniHost below: the latest sample
+		// decided for this edge replaces whatever the last one said, rather than being combined with it -
+		// see RawFlow.tls_handshake/TlsHandshakeOutcome for why only one decision per connection exists in
+		// the first place.
+	}
 	if add.SniHost != "" {
 		cur.SniHost = add.SniHost // also a gauge: one peer essentially always carries one hostname
 	}

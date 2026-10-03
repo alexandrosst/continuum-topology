@@ -821,4 +821,17 @@ type Dependency struct {
 	// like. Always false for a workload with no sidecar configured at all, or one that explicitly
 	// excludes this port - that traffic bypassing the mesh is expected, not a finding.
 	MeshBypass bool `json:"meshBypass,omitempty"`
+	// TlsHandshake is a coarse, best-effort read of how a TLS handshake this edge's own ClientHello
+	// started visibly went, read straight off the wire by the same optional name-capture hook that
+	// produces SniHost/MeshBypass above (flow.c's observe_tls_outcome) - never a certificate identity or
+	// validity check, which the collector has no way to perform at all. One of "ok" (several sustained
+	// application-data records seen, no alert first) or "failed" (a plaintext TLS alert record seen
+	// before anything encrypted - the shape a fatal handshake-time failure takes on the wire, never a
+	// normal close: every TLS version encrypts its own close_notify once a handshake already finished).
+	// Empty means unknown: no ClientHello was ever seen on this edge, name-capture is off, or this edge's
+	// own later packets never visibly decided it one way or the other. A gauge: the latest connection's
+	// own outcome, not a history. Read alongside MeshBypass above when reasoning about a mesh workload -
+	// pairing the two is a stronger signal than either alone - but this field says nothing at all about
+	// whether a connection was supposed to go through a mesh in the first place.
+	TlsHandshake string `json:"tlsHandshake,omitempty"`
 }

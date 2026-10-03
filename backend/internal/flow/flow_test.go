@@ -244,6 +244,22 @@ func TestAggregatorCarriesSniHostAndDnsQueryNames(t *testing.T) {
 	}
 }
 
+// TestAggregatorCarriesTlsHandshake pins TlsHandshake through Add/Flush with the same gauge treatment as
+// SniHost right above: the latest decided outcome (OK or FAILED) wins, and a later report with no
+// ClientHello seen that window (UNKNOWN, the zero value) must never blank out an already-decided one.
+func TestAggregatorCarriesTlsHandshake(t *testing.T) {
+	a := a2(t)
+	dst := &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}
+	f1 := &continuumv1.Flow{Src: workload("app"), Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", TlsHandshake: continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK}
+	a.Add(f1)
+	f2 := &continuumv1.Flow{Src: workload("app"), Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"} // no ClientHello seen this window
+	a.Add(f2)
+	b := a.Flush()
+	if len(b.Flows) != 1 || b.Flows[0].TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK {
+		t.Errorf("tlsHandshake = %v, want OK (a report with none must not blank a known one)", b.Flows[0].TlsHandshake)
+	}
+}
+
 // TestAggregatorCarriesJitterSegsOutAndHandshake pins the three Part R gauge/sum fields through Add: SegsOut
 // sums like Retransmits/bytes (the denominator for a loss percentage computed downstream, never here);
 // JitterUs and HandshakeUs are gauges like RttUs - the latest non-zero sample wins, and a later report with

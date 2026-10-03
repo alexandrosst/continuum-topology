@@ -140,7 +140,7 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 		return "", false
 	}
 	f := &continuumv1.Flow{Port: raw.Port, Protocol: raw.Protocol, Connections: raw.Connections, BytesOut: raw.BytesOut, BytesIn: raw.BytesIn, Method: method, BytesKnown: bytesKnown, Iface: raw.Iface,
-		Retransmits: uint64(raw.Retransmits), RtoRetransmits: raw.RtoRetransmits, RttUs: raw.RttUs, JitterUs: raw.JitterUs, SegsOut: raw.SegsOut, HandshakeUs: raw.HandshakeUs, Cwnd: raw.Cwnd, PacingBps: raw.PacingBps, BufferDrops: raw.BufferDrops, DnsRttUs: raw.DnsRttUs, MeshBypassSyns: raw.MeshBypassSyns, MssBytes: raw.MssBytes, RcvWndBytes: raw.RcvWndBytes, SndWndBytes: raw.SndWndBytes, WmemQueuedBytes: raw.WmemQueuedBytes, SndbufBytes: raw.SndbufBytes, FailedAttempts: raw.FailedAttempts, SniHost: raw.SniHost}
+		Retransmits: uint64(raw.Retransmits), RtoRetransmits: raw.RtoRetransmits, RttUs: raw.RttUs, JitterUs: raw.JitterUs, SegsOut: raw.SegsOut, HandshakeUs: raw.HandshakeUs, Cwnd: raw.Cwnd, PacingBps: raw.PacingBps, BufferDrops: raw.BufferDrops, DnsRttUs: raw.DnsRttUs, MeshBypassSyns: raw.MeshBypassSyns, MssBytes: raw.MssBytes, RcvWndBytes: raw.RcvWndBytes, SndWndBytes: raw.SndWndBytes, WmemQueuedBytes: raw.WmemQueuedBytes, SndbufBytes: raw.SndbufBytes, TlsHandshake: raw.TlsHandshake, FailedAttempts: raw.FailedAttempts, SniHost: raw.SniHost}
 	if raw.DnsQueryName != "" {
 		f.DnsQueryNames = []string{raw.DnsQueryName}
 	}

@@ -879,6 +879,18 @@ export interface Dependency {
    * hostNetwork traffic that skipped the pod's own netns - never a workload that was simply never meshed
    * or that explicitly excludes this port, where direct traffic is expected, not a finding. */
   meshBypass?: boolean
+  /** A coarse, best-effort read of how a TLS handshake this edge's own ClientHello started visibly went,
+   * read straight off the wire by the same optional name-capture hook that produces sniHost/meshBypass
+   * above - never a certificate identity or validity check, which the collector has no way to perform at
+   * all. 'ok' means several sustained application-data records were seen with no alert first; 'failed'
+   * means a plaintext TLS alert record was seen before anything encrypted - the shape a fatal
+   * handshake-time failure takes on the wire, never a normal close (every TLS version encrypts its own
+   * close_notify once a handshake already finished). Unset means unknown: no ClientHello was ever seen on
+   * this edge, name-capture is off, or this edge's later packets never visibly decided it either way. A
+   * gauge: the latest connection's own outcome, not a history. Read alongside meshBypass above when
+   * reasoning about a mesh workload - pairing the two is a stronger signal than either alone - but this
+   * says nothing about whether a connection was supposed to go through a mesh in the first place. */
+  tlsHandshake?: 'ok' | 'failed'
 }
 
 /** The graph. */

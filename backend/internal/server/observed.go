@@ -187,7 +187,7 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		k := flowKey(f)
 		e := t.edges[k]
 		if e == nil {
-			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs, Cwnd: f.Cwnd, PacingBps: f.PacingBps, DnsRttUs: f.DnsRttUs, MssBytes: f.MssBytes, RcvWndBytes: f.RcvWndBytes, SndWndBytes: f.SndWndBytes, WmemQueuedBytes: f.WmemQueuedBytes, SndbufBytes: f.SndbufBytes}, FirstSeen: nowPb}
+			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs, Cwnd: f.Cwnd, PacingBps: f.PacingBps, DnsRttUs: f.DnsRttUs, MssBytes: f.MssBytes, RcvWndBytes: f.RcvWndBytes, SndWndBytes: f.SndWndBytes, WmemQueuedBytes: f.WmemQueuedBytes, SndbufBytes: f.SndbufBytes, TlsHandshake: f.TlsHandshake}, FirstSeen: nowPb}
 			t.edges[k] = e
 		}
 		e.LastSeen = nowPb
@@ -246,6 +246,9 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		}
 		if f.SndbufBytes != 0 {
 			e.Key.SndbufBytes = f.SndbufBytes // a gauge, same treatment as the three above
+		}
+		if f.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN {
+			e.Key.TlsHandshake = f.TlsHandshake // a gauge too, same treatment as SniHost below
 		}
 		if f.SniHost != "" {
 			e.Key.SniHost = f.SniHost // a gauge too, for the same reason as Iface/RttUs above
@@ -815,6 +818,15 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		}
 		if e.Key.SndbufBytes != 0 {
 			d.SndbufBytes = e.Key.SndbufBytes
+		}
+		// See model.Dependency.TlsHandshake's own doc for exactly what "ok"/"failed" can and cannot tell -
+		// mapped from the wire enum to that plain string here, at the one place a RawFlow's internal
+		// numbering turns into the model the rest of the server and the UI actually read.
+		switch e.Key.TlsHandshake {
+		case continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK:
+			d.TlsHandshake = "ok"
+		case continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED:
+			d.TlsHandshake = "failed"
 		}
 		d.Retransmits = satAdd(d.Retransmits, e.Retransmits)
 		d.RtoRetransmits = satAdd(d.RtoRetransmits, e.RtoRetransmits)
