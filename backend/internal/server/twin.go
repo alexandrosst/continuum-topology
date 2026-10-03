@@ -61,6 +61,11 @@ type twinRT struct {
 	gen atomic.Uint64
 	// build serialises model builds so versions are assigned in the order the models were made.
 	build sync.Mutex
+
+	// cacheHits/cacheMisses count how often Model below served the short-lived cache versus had to
+	// rebuild - see ServerSelfStatsSample.ModelCacheHits' own doc comment for what a caller does with
+	// these. Plain running totals since the server started, like every other counter in this package.
+	cacheHits, cacheMisses atomic.Uint64
 }
 
 func newTwinRT() *twinRT { return &twinRT{reg: twin.NewRegistry(), tombs: twin.NewTombstones(0)} }
@@ -335,9 +340,11 @@ func (h *Hub) Model(ctx context.Context) (twin.Model, string, error) {
 	if c := tw.cache; c != nil && c.gen == tw.gen.Load() && c.stale == window && now.Sub(c.at) >= 0 && now.Sub(c.at) < modelCacheTTL {
 		m, etag := c.m, c.etag
 		tw.mu.Unlock()
+		tw.cacheHits.Add(1)
 		return m, etag, nil
 	}
 	tw.mu.Unlock()
+	tw.cacheMisses.Add(1)
 
 	gen := tw.gen.Load()
 	decl := h.declaredNow(ctx, now)

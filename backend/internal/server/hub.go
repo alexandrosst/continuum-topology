@@ -77,6 +77,10 @@ type view struct {
 	// What this agent has sent since the server started (lost on restart; not history, only a gauge of the link).
 	link linkStats
 
+	// self is this agent's own self-telemetry history (SelfStats off every heartbeat that carried one),
+	// a short fixed-window ring - see selfRing's own doc comment. Lost on restart, same as link above.
+	self selfRing[SelfStatsSample]
+
 	// The last consistency check: a full picture compared with what the server held.
 	consAt    time.Time
 	consDrift facts.Drift
@@ -97,7 +101,8 @@ type view struct {
 }
 
 func newView() *view {
-	return &view{state: facts.New(), flows: newFlowTable(), paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}
+	return &view{state: facts.New(), flows: newFlowTable(), paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{},
+		self: newSelfRing(selfStatsWindow, func(s SelfStatsSample) time.Time { return s.At })}
 }
 
 // linkStats counts what one agent has sent over its stream.
@@ -107,10 +112,15 @@ type linkStats struct {
 	bytes                        int64     // size of the messages received, as encoded on the wire (before gRPC framing and TLS)
 	syncs, flows, meas, beats    int
 	lastSync, lastFlows, lastAny time.Time
+	// flowBytes is bytes, bytes is to everything: the same "encoded on the wire, before gRPC framing and
+	// TLS" measure as bytes above, but counting only AgentMessage_Flows messages - what sampleSelfStats
+	// sums across every agent to derive the server's own self-telemetry flow-ingestion rate.
+	flowBytes int64
 }
 
 func (l *linkStats) note(m *continuumv1.AgentMessage, at time.Time) {
-	l.bytes += int64(proto.Size(m))
+	n := int64(proto.Size(m))
+	l.bytes += n
 	l.lastAny = at
 	switch m.Msg.(type) {
 	case *continuumv1.AgentMessage_Sync:
@@ -118,6 +128,7 @@ func (l *linkStats) note(m *continuumv1.AgentMessage, at time.Time) {
 		l.lastSync = at
 	case *continuumv1.AgentMessage_Flows:
 		l.flows++
+		l.flowBytes += n
 		l.lastFlows = at
 	case *continuumv1.AgentMessage_Measurements:
 		l.meas++
@@ -164,12 +175,19 @@ type Hub struct {
 	sessions map[string]*session
 	rec      *recorder
 	tw       *twinRT
+
+	// serverSelf is this server process's own self-telemetry history (see sampleSelfStats and
+	// ServerSelfStatsSample), sampled by Hub.Run's own ticker - guarded by mu, like views/sessions above.
+	serverSelf selfRing[ServerSelfStatsSample]
+	// flow is what sampleSelfStats diffs to derive ServerSelfStatsSample.FlowIngestBytesPerSec.
+	flow flowIngest
 }
 
 func NewHub(c *Core) *Hub {
 	h := &Hub{BaseAgentService: &BaseAgentService{C: c}, C: c, Log: c.Log, views: map[string]*view{}, sessions: map[string]*session{}}
 	h.rec = newRecorder(h)
 	h.tw = newTwinRT()
+	h.serverSelf = newSelfRing(0, func(s ServerSelfStatsSample) time.Time { return s.At })
 	c.OnWorkspace = h.workspaceChanged
 	c.OnRevoke = h.Drop
 	c.OnSettings = h.settingsChanged
@@ -496,11 +514,13 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 					return status.Error(codes.InvalidArgument, err.Error())
 				}
 				skew := min(max(m.Heartbeat.ClockSkewMs, -maxSkewMs), maxSkewMs)
+				now := h.C.Now()
 				h.mu.Lock()
-				v.lastBeat = h.C.Now()
+				v.lastBeat = now
 				if len(m.Heartbeat.Modules) > 0 {
 					v.state.Modules = m.Heartbeat.Modules
 				}
+				noteSelfStats(v, m.Heartbeat.SelfStats, now)
 				if m.Heartbeat.Diagnostics != nil {
 					noteDiagnostics(v, m.Heartbeat.Diagnostics, false, h.C.Now())
 				}

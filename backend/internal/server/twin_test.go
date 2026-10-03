@@ -469,6 +469,44 @@ func TestModelAPIContractETagAndTenancy(t *testing.T) {
 	}
 }
 
+// TestModelCacheHitsAndMissesAreCounted covers twinRT's own cacheHits/cacheMisses counters (see
+// ServerSelfStatsSample.ModelCacheHits' own doc comment for what a caller does with them): a second call
+// within modelCacheTTL must be a hit, a change to an input (here, a new sync - the same gen bump a real
+// agent picture would cause) must force a miss on the next call, and the very first call of all, with
+// nothing cached yet, must also count as a miss, never silently skipped.
+func TestModelCacheHitsAndMissesAreCounted(t *testing.T) {
+	a := newAdminRig(t)
+	h := a.hub()
+	ag := twinAgent(t, a.env, h, fp)
+	h.applySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart")), false)
+
+	if h.tw.cacheHits.Load() != 0 || h.tw.cacheMisses.Load() != 0 {
+		t.Fatalf("before any call: hits=%d misses=%d, want 0/0", h.tw.cacheHits.Load(), h.tw.cacheMisses.Load())
+	}
+	if _, _, err := h.Model(a.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if h.tw.cacheMisses.Load() != 1 || h.tw.cacheHits.Load() != 0 {
+		t.Fatalf("first call: hits=%d misses=%d, want 0/1", h.tw.cacheHits.Load(), h.tw.cacheMisses.Load())
+	}
+	// A second call with nothing changed, still inside modelCacheTTL: a hit.
+	if _, _, err := h.Model(a.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if h.tw.cacheHits.Load() != 1 || h.tw.cacheMisses.Load() != 1 {
+		t.Fatalf("second call (cached): hits=%d misses=%d, want 1/1", h.tw.cacheHits.Load(), h.tw.cacheMisses.Load())
+	}
+	// A real change (gen bumps) forces a rebuild on the next call: another miss, not a third hit.
+	h.applySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart"), twinWorkload("shop", "pay")), true)
+	*a.now = a.now.Add(3 * time.Second) // past the short cache, same as TestModelAPIContractETagAndTenancy
+	if _, _, err := h.Model(a.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if h.tw.cacheMisses.Load() != 2 || h.tw.cacheHits.Load() != 1 {
+		t.Fatalf("after a real change: hits=%d misses=%d, want 1/2", h.tw.cacheHits.Load(), h.tw.cacheMisses.Load())
+	}
+}
+
 func TestWorkspaceHoldsOnlyWhatIsDeclaredAndRefusesNewerFormats(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "ed", RoleEditor)
