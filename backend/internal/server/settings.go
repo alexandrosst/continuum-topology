@@ -73,8 +73,9 @@ type ProbeTarget struct {
 
 // quickStartBackendModality is which modality each quick-start kind is fixed to - a physical fact about
 // the backend (Jaeger only ingests traces; this app's Prometheus quick-start only turns on its OTLP
-// metrics receiver), not something a person picks independently of Kind.
-var quickStartBackendModality = map[string]string{"jaeger": "traces", "prometheus": "metrics"}
+// metrics receiver; the Loki quick-start's config only turns on its OTLP logs endpoint), not something a
+// person picks independently of Kind.
+var quickStartBackendModality = map[string]string{"jaeger": "traces", "prometheus": "metrics", "loki": "logs"}
 
 // QuickStartBackend records that this organisation generated (or is tracking) an install command for a
 // quick-start observability backend, so the telemetry destination picker can offer it and remember it's
@@ -84,7 +85,7 @@ var quickStartBackendModality = map[string]string{"jaeger": "traces", "prometheu
 // to keep, not something the server depends on operationally.
 type QuickStartBackend struct {
 	ID string `json:"id"`
-	// Kind fixes Modality (see quickStartBackendModality) - "jaeger" or "prometheus" today, see
+	// Kind fixes Modality (see quickStartBackendModality) - "jaeger", "prometheus" or "loki" today, see
 	// quickStartBackends.ts for what each one's install command actually does.
 	Kind string `json:"kind"`
 	// Modality must match Kind's own fixed modality; kept explicit (rather than derived server-side only)
@@ -194,7 +195,7 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 	for _, b := range s.QuickStartBackends {
 		wantModality, ok := quickStartBackendModality[b.Kind]
 		if !ok {
-			return s, fmt.Errorf(`quick-start backend kind must be "jaeger" or "prometheus"`)
+			return s, fmt.Errorf(`quick-start backend kind must be "jaeger", "prometheus" or "loki"`)
 		}
 		if b.Modality != wantModality {
 			return s, fmt.Errorf("a %q quick-start backend's modality must be %q", b.Kind, wantModality)
