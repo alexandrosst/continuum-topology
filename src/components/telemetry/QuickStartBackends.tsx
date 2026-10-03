@@ -1,10 +1,12 @@
 import clsx from 'clsx'
-import { ChevronDown, ExternalLink, Plus, Rocket, Trash2 } from 'lucide-react'
-import { useState } from 'react'
-import { Button, CopyButton, Field, ICON_MD, ICON_SM, Input, Select } from '@/components/ui/primitives'
-import { atLeast } from '@/lib/api'
+import { ChevronDown, ExternalLink, Lock, Plus, Rocket, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { CopyCommand } from '@/components/agents/AgentInsight'
+import { Button, CopyButton, Field, ICON_MD, ICON_SM, Input, Modal, Select } from '@/components/ui/primitives'
+import { api, atLeast, ApiError, type GatewayTokenStatus, type MintedGatewayToken } from '@/lib/api'
 import { effectiveAllowedBackendKinds, KNOWN_BACKEND_KINDS, type AppSettings, type QuickStartBackend, type QuickStartKind } from '@/lib/history'
 import { QUICK_START_BACKENDS, quickStartSpec } from '@/lib/quickStartBackends'
+import { gatewayManifest, gatewayPortForward, hasGatewayManifest } from '@/lib/quickStartGateway'
 import type { Modality } from '@/lib/consent'
 import { useConn, useServer } from '@/store/server'
 import { useSettings } from '@/store/settings'
@@ -34,6 +36,36 @@ export default function QuickStartBackends({ enabledModalities, onUseAsDestinati
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState<QuickStartKind | null>(null)
   const [addingCustom, setAddingCustom] = useState(false)
+  // Per-backend gateway token state (Part B/C): whether one has been minted (never the secret - see
+  // api.gatewayTokenStatus), and the plaintext from the most recent mint, shown exactly once.
+  const [gatewayStatus, setGatewayStatus] = useState<Record<string, GatewayTokenStatus>>({})
+  const [minting, setMinting] = useState<string | null>(null)
+  const [mintError, setMintError] = useState<string | null>(null)
+  const [minted, setMinted] = useState<{ backend: QuickStartBackend; token: MintedGatewayToken } | null>(null)
+
+  // Prefetches each gated-eligible saved backend's gateway token status (never the secret) once, so
+  // "Generate access token" can read "regenerate" and the gated note on "Open <tool>" can show up without
+  // a person first opening anything. Keyed on the ids themselves (joined), not the array, so a re-render
+  // that leaves the same set of backends in place does not refetch. Placed before either early return
+  // below so this effect is always called in the same order, whatever `enabledModalities` turns out to be.
+  const gatewayEligibleIds = (settings?.quickStartBackends ?? []).filter((b) => hasGatewayManifest(b.kind)).map((b) => b.id)
+  const gatewayEligibleKey = gatewayEligibleIds.join(',')
+  useEffect(() => {
+    if (!gatewayEligibleKey) return
+    let cancelled = false
+    for (const id of gatewayEligibleKey.split(',')) {
+      void api.gatewayTokenStatus(conn, id).then((st) => {
+        if (!cancelled) setGatewayStatus((prev) => ({ ...prev, [id]: st }))
+      }).catch(() => {
+        // Not fatal - "Generate access token" still works, it just starts from "no status known" instead
+        // of "known inactive". Nothing to show a person for a background prefetch failing quietly.
+      })
+    }
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conn, gatewayEligibleKey])
 
   // With no telemetry signal on at all there is no destination field this sits under in the first
   // place, so there is nothing to quick-start and nowhere sensible to show the allow-list control either
@@ -63,9 +95,26 @@ export default function QuickStartBackends({ enabledModalities, onUseAsDestinati
   }
   const write = (backends: QuickStartBackend[]) => writeSettings({ quickStartBackends: backends })
 
+  // Mints a fresh gateway token for one backend (Part B) and holds the plaintext in `minted` for the
+  // reveal-once dialog below - never written to Settings, never requested again after this response.
+  const generateToken = async (backend: QuickStartBackend) => {
+    setMinting(backend.id)
+    setMintError(null)
+    try {
+      const token = await api.mintGatewayToken(conn, backend.id)
+      setGatewayStatus((prev) => ({ ...prev, [backend.id]: { active: true, expired: false, createdAt: token.createdAt, expiresAt: token.expiresAt } }))
+      setMinted({ backend, token })
+    } catch (e) {
+      setMintError(e instanceof ApiError ? e.message : 'Could not generate an access token.')
+    } finally {
+      setMinting(null)
+    }
+  }
+
   return (
     <div className="sm:col-span-2 rounded-lg border border-dashed border-nb-850 bg-nb-930/60 p-3">
       {error && <p className="mb-2 text-xs text-bad" role="alert">{error}</p>}
+      {mintError && <p className="mb-2 text-xs text-bad" role="alert">{mintError}</p>}
       {admin && <AllowedKindsControl allowed={allowed} busy={busy} onChange={(kinds) => writeSettings({ allowedBackendKinds: kinds })} />}
       <div className="flex flex-col gap-2">
         {relevant.map((spec) => {
@@ -78,10 +127,13 @@ export default function QuickStartBackends({ enabledModalities, onUseAsDestinati
                 admin={admin}
                 busy={busy}
                 canUse={enabledModalities.size === 1}
+                gatewayStatus={gatewayStatus[saved.id]}
+                minting={minting === saved.id}
                 onUse={() => onUseAsDestination(spec.exportEndpoint(saved.namespace), spec.exportProtocol)}
                 onSaveUrl={(url) => write(settings.quickStartBackends.map((b) => (b.id === saved.id ? { ...b, toolUrl: url } : b)))}
                 onSaveRetention={(retention) => write(settings.quickStartBackends.map((b) => (b.id === saved.id ? { ...b, retention } : b)))}
                 onRemove={() => write(settings.quickStartBackends.filter((b) => b.id !== saved.id))}
+                onGenerateToken={() => void generateToken(saved)}
               />
             )
           }
@@ -120,6 +172,7 @@ export default function QuickStartBackends({ enabledModalities, onUseAsDestinati
           />
         )}
       </div>
+      {minted && <GatewayTokenCreated minted={minted} onClose={() => setMinted(null)} />}
     </div>
   )
 }
@@ -151,7 +204,7 @@ function AllowedKindsControl({ allowed, busy, onChange }: { allowed: QuickStartK
   )
 }
 
-function SavedBackend({ backend, admin, busy, canUse, onUse, onSaveUrl, onSaveRetention, onRemove }: {
+function SavedBackend({ backend, admin, busy, canUse, gatewayStatus, minting, onUse, onSaveUrl, onSaveRetention, onRemove, onGenerateToken }: {
   backend: QuickStartBackend
   admin: boolean
   busy: boolean
@@ -159,15 +212,23 @@ function SavedBackend({ backend, admin, busy, canUse, onUse, onSaveUrl, onSaveRe
    *  enabledModalities check) - "Use as destination" is disabled rather than silently misconfiguring the
    *  one exportEndpoint every signal shares, the same guard TelemetryFields' own preset picker applies. */
   canUse: boolean
+  /** Whether a Part B gateway token exists for this backend, and whether it has lapsed - undefined while
+   *  the status prefetch (see QuickStartBackends' own effect) hasn't resolved yet, which reads the same as
+   *  "none known" and just hides the gated note until it has. */
+  gatewayStatus?: GatewayTokenStatus
+  minting: boolean
   onUse: () => void
   onSaveUrl: (url: string) => void
   onSaveRetention: (retention: string) => void
   onRemove: () => void
+  onGenerateToken: () => void
 }) {
   const spec = quickStartSpec(backend.kind)
   const [url, setUrl] = useState(backend.toolUrl ?? '')
   const [editingRetention, setEditingRetention] = useState(false)
   const [retention, setRetention] = useState(backend.retention)
+  const gated = hasGatewayManifest(backend.kind)
+  const active = gated && gatewayStatus?.active && !gatewayStatus.expired
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="font-medium text-nb-300">{backend.label}</span>
@@ -195,9 +256,20 @@ function SavedBackend({ backend, admin, busy, canUse, onUse, onSaveUrl, onSaveRe
       )}
       <div className="ml-auto flex items-center gap-2">
         {backend.toolUrl ? (
-          <a href={backend.toolUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-accent hover:underline">
-            <ExternalLink size={ICON_SM} aria-hidden /> Open {spec.label.split(' ')[0]}
-          </a>
+          <span className="inline-flex items-center gap-1">
+            <a href={backend.toolUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-accent hover:underline">
+              <ExternalLink size={ICON_SM} aria-hidden /> Open {spec.label.split(' ')[0]}
+            </a>
+            {active && (
+              <span
+                className="inline-flex cursor-help text-nb-500"
+                title="Gated by the gateway below - a plain browser tab gets 401 here now. Send Authorization: Bearer <token> (curl, httpie, a header-injecting extension) - the token itself was only ever shown once, when generated."
+                aria-label="Gated"
+              >
+                <Lock size={ICON_SM} aria-hidden />
+              </span>
+            )}
+          </span>
         ) : admin ? (
           <form
             className="flex items-center gap-1"
@@ -210,6 +282,11 @@ function SavedBackend({ backend, admin, busy, canUse, onUse, onSaveUrl, onSaveRe
             <Button type="submit" size="sm" disabled={busy || !url.trim()}>Save URL</Button>
           </form>
         ) : null}
+        {admin && gated && (
+          <Button type="button" size="sm" variant="ghost" onClick={onGenerateToken} disabled={busy || minting} data-testid={`quickstart-gateway-token-${backend.kind}`}>
+            <Lock size={ICON_SM} /> {active ? 'Regenerate access token' : 'Generate access token'}
+          </Button>
+        )}
         <Button
           type="button"
           size="sm"
@@ -227,6 +304,39 @@ function SavedBackend({ backend, admin, busy, canUse, onUse, onSaveUrl, onSaveRe
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * The gateway token's plaintext, shown exactly once - same "shown only now, gone forever" convention as
+ * RegionalOperatorsPage's own OperatorCreated dialog for the receiver token. Alongside it, the Part C
+ * manifest that checks that exact token, as a second `kubectl apply` command block next to the backend's
+ * own `helm install` one, and the gateway's own port-forward line in place of the raw tool's.
+ */
+function GatewayTokenCreated({ minted, onClose }: { minted: { backend: QuickStartBackend; token: MintedGatewayToken }; onClose: () => void }) {
+  const { backend, token } = minted
+  const manifest = gatewayManifest(backend, token.token)
+  return (
+    <Modal open onClose={onClose} title={`${backend.label} access token created`} width="max-w-2xl" footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+      <p className="text-sm text-nb-400">
+        This token is shown only now - the server keeps only its hash. It expires {new Date(token.expiresAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}; generate a new one any time (it replaces this one once applied below).
+      </p>
+      <div className="mt-3">
+        <div className="mb-1 text-xs text-nb-500">The token itself</div>
+        <CopyCommand text={token.token} />
+      </div>
+      <div className="mt-3">
+        <div className="mb-1 text-xs text-nb-500">Apply the gateway (gates {backend.label} behind the token above - checked entirely by this, never by Continuum)</div>
+        <CopyCommand text={manifest} />
+      </div>
+      <div className="mt-3">
+        <div className="mb-1 text-xs text-nb-500">Then, to reach it through the gateway</div>
+        <CopyCommand text={gatewayPortForward(backend)} />
+      </div>
+      <p className="mt-3 text-xs text-nb-500">
+        A plain browser tab cannot send the Authorization header this needs - use curl, httpie, or a header-injecting extension, or front the gateway Service with your own ingress/header-injecting proxy.
+      </p>
+    </Modal>
   )
 }
 

@@ -82,6 +82,23 @@ export interface UpdatedOperatorScope {
   reminders: string[]
 }
 
+/** What minting a quick-start gateway token returns - the plaintext, once, plus when it was minted and
+ *  expires. Never retrievable again after this response (see api.mintGatewayToken). */
+export interface MintedGatewayToken {
+  token: string
+  createdAt: string
+  expiresAt: string
+}
+
+/** What checking a quick-start gateway token's status returns - never the secret, only whether one
+ *  exists and, if so, whether it has already lapsed (see api.gatewayTokenStatus). */
+export interface GatewayTokenStatus {
+  active: boolean
+  expired?: boolean
+  createdAt?: string
+  expiresAt?: string
+}
+
 /** What a person may do inside one organisation, weakest first. */
 export type Role = 'viewer' | 'editor' | 'admin' | 'owner'
 export const ROLES: Role[] = ['viewer', 'editor', 'admin', 'owner']
@@ -474,6 +491,16 @@ export const api = {
     call<UpdatedOperatorScope>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/scope`, { sourceClusterIds, destination }),
   revokeOperator: (c: Conn, id: string, reason: string) => call<void>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/revoke`, { reason }),
   deleteOperator: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/operators/${encodeURIComponent(id)}`),
+
+  // quick-start gateway tokens (see QuickStartBackends.tsx and quickStartGateway.ts): a short-lived
+  // bearer secret scoped to one quick-start backend instance, checked entirely by the nginx gateway
+  // manifest that backend's token is baked into - never by this server. mintGatewayToken returns the
+  // plaintext once, the same "shown only now" convention as createOperator's receiver token;
+  // gatewayTokenStatus never does, only whether one exists and when it expires.
+  mintGatewayToken: (c: Conn, backendId: string, ttlSeconds?: number) =>
+    call<MintedGatewayToken>(c, 'POST', `/api/v1/quick-start/${encodeURIComponent(backendId)}/gateway-token`, { ttlSeconds: ttlSeconds ?? 0 }),
+  gatewayTokenStatus: (c: Conn, backendId: string) =>
+    call<GatewayTokenStatus>(c, 'GET', `/api/v1/quick-start/${encodeURIComponent(backendId)}/gateway-token`),
 
   // workspace: the human layer of the topology, shared by everyone who signs in
   workspace: (c: Conn) => call<WorkspaceDoc>(c, 'GET', '/api/v1/workspace'),

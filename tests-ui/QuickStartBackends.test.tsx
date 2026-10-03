@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, test, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import QuickStartBackends from '@/components/telemetry/QuickStartBackends'
 import { DEFAULT_SETTINGS, type AppSettings, type QuickStartBackend } from '@/lib/history'
 
@@ -21,6 +21,25 @@ vi.mock('@/store/server', () => ({
   useServer: (selector?: (s: { role?: string }) => unknown) => (selector ? selector({ role }) : { role }),
   useConn: () => ({ url: 'https://example.test', org: 'org-1' }),
 }))
+
+// api.gatewayTokenStatus/mintGatewayToken (Part B/D): faked here so the "Generate access token"/gated-note
+// tests below never touch the network, and so the status-prefetch effect has something deterministic to
+// resolve to instead of a real fetch() to a URL that doesn't exist.
+const gatewayTokenStatus = vi.fn(async () => ({ active: false }))
+const mintGatewayToken = vi.fn(async () => ({ token: 'cnq_shown-once', createdAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-02T00:00:00Z' }))
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>()
+  return {
+    ...actual,
+    api: { ...actual.api, gatewayTokenStatus: (...a: Parameters<typeof gatewayTokenStatus>) => gatewayTokenStatus(...a), mintGatewayToken: (...a: Parameters<typeof mintGatewayToken>) => mintGatewayToken(...a) },
+  }
+})
+
+beforeEach(() => {
+  gatewayTokenStatus.mockClear()
+  gatewayTokenStatus.mockResolvedValue({ active: false })
+  mintGatewayToken.mockClear()
+})
 
 describe('QuickStartBackends', () => {
   test('renders nothing when no modality is on at all (every modality now has a matching backend)', () => {
@@ -109,12 +128,13 @@ describe('QuickStartBackends', () => {
     expect(onUseAsDestination).toHaveBeenCalledWith('jaeger-quickstart.obs.svc:4317', 'grpc')
   })
 
-  test('"Use as destination" is disabled once a modality this backend cannot carry is also on', () => {
+  test('"Use as destination" is disabled once a modality this backend cannot carry is also on', async () => {
     const saved: QuickStartBackend = { id: 'qsb-1', kind: 'jaeger', modality: 'traces', namespace: 'obs', retention: '48h', label: 'Jaeger (traces)' }
     settings = { ...DEFAULT_SETTINGS, quickStartBackends: [saved] }
     save = vi.fn()
     role = 'admin'
     render(<QuickStartBackends enabledModalities={new Set(['traces', 'metrics'])} onUseAsDestination={vi.fn()} />)
+    await waitFor(() => expect(gatewayTokenStatus).toHaveBeenCalled())
     expect(screen.getByText('Use as destination')).toBeDisabled()
   })
 
@@ -195,13 +215,53 @@ describe('QuickStartBackends', () => {
     expect(screen.getByText('Elastic APM')).toBeInTheDocument()
   })
 
-  test('once a tool URL is known, "Open" replaces the URL form, linking straight to it', () => {
+  test('once a tool URL is known, "Open" replaces the URL form, linking straight to it', async () => {
     const saved: QuickStartBackend = { id: 'qsb-1', kind: 'jaeger', modality: 'traces', namespace: 'obs', retention: '48h', label: 'Jaeger (traces)', toolUrl: 'http://localhost:16686' }
     settings = { ...DEFAULT_SETTINGS, quickStartBackends: [saved] }
     save = vi.fn()
     role = 'admin'
     render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={vi.fn()} />)
+    await waitFor(() => expect(gatewayTokenStatus).toHaveBeenCalled())
     const link = screen.getByText(/Open Jaeger/)
     expect(link.closest('a')).toHaveAttribute('href', 'http://localhost:16686')
+  })
+
+  test('an administrator can generate a gateway token for a saved backend, shown once', async () => {
+    const user = userEvent.setup()
+    const saved: QuickStartBackend = { id: 'qsb-1', kind: 'jaeger', modality: 'traces', namespace: 'obs', retention: '48h', label: 'Jaeger (traces)', toolUrl: 'http://localhost:16686' }
+    settings = { ...DEFAULT_SETTINGS, quickStartBackends: [saved] }
+    save = vi.fn()
+    role = 'admin'
+    render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={vi.fn()} />)
+    await user.click(screen.getByTestId('quickstart-gateway-token-jaeger'))
+    expect(mintGatewayToken).toHaveBeenCalledWith(expect.anything(), 'qsb-1')
+    expect(await screen.findByText(/Jaeger \(traces\) access token created/)).toBeInTheDocument()
+    expect(screen.getByText('cnq_shown-once')).toBeInTheDocument()
+    // The manifest for this backend's own Service/port is shown alongside the token.
+    expect(screen.getByText(/jaeger-quickstart\.obs\.svc\.cluster\.local:16686/)).toBeInTheDocument()
+  })
+
+  test('a non-administrator never sees "Generate access token"', async () => {
+    const saved: QuickStartBackend = { id: 'qsb-1', kind: 'jaeger', modality: 'traces', namespace: 'obs', retention: '48h', label: 'Jaeger (traces)' }
+    settings = { ...DEFAULT_SETTINGS, quickStartBackends: [saved] }
+    save = vi.fn()
+    role = 'viewer'
+    render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={vi.fn()} />)
+    await waitFor(() => expect(gatewayTokenStatus).toHaveBeenCalled())
+    expect(screen.queryByTestId('quickstart-gateway-token-jaeger')).not.toBeInTheDocument()
+  })
+
+  test('once a token is active, "Open" carries a gated note; a custom backend never offers the action at all', async () => {
+    gatewayTokenStatus.mockResolvedValue({ active: true, expired: false })
+    const jaeger: QuickStartBackend = { id: 'qsb-1', kind: 'jaeger', modality: 'traces', namespace: 'obs', retention: '48h', label: 'Jaeger (traces)', toolUrl: 'http://localhost:16686' }
+    const custom: QuickStartBackend = { id: 'qsb-4', kind: 'custom', modality: 'traces', namespace: 'obs', retention: 'n/a', label: 'Elastic APM', toolUrl: 'https://apm.example.com' }
+    settings = { ...DEFAULT_SETTINGS, allowedBackendKinds: ['jaeger', 'prometheus', 'loki', 'custom'], quickStartBackends: [jaeger, custom] }
+    save = vi.fn()
+    role = 'admin'
+    render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={vi.fn()} />)
+    expect(await screen.findByLabelText('Gated')).toBeInTheDocument()
+    expect(screen.getByTestId('quickstart-gateway-token-jaeger')).toHaveTextContent('Regenerate access token')
+    // "custom" has no gateway manifest (see hasGatewayManifest) - no action to generate one at all.
+    expect(screen.queryByTestId('quickstart-gateway-token-custom')).not.toBeInTheDocument()
   })
 })
