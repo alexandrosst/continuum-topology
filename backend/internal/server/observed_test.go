@@ -302,7 +302,7 @@ func TestObservedTopologyNeverAttributesADedicatedLoadBalancerVIPToANodeAddress(
 	// host-network-bound one, since only its own ingress IP is actually one of the node's own.
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	seenAt := now.Add(-1 * time.Minute)
-	hostBound := &continuumv1.Address{Ip: "10.0.0.9", Port: 9000, Kind: "load-balancer"} // == the node's own address
+	hostBound := &continuumv1.Address{Ip: "10.0.0.9", Port: 9000, Kind: "load-balancer"}        // == the node's own address
 	dedicatedVIP := &continuumv1.Address{Ip: "203.0.113.50", Port: 9000, Kind: "load-balancer"} // a floating VIP, same port, never a node address
 	caller := cluster("caller-cluster", "", nil, wk("app", "Deployment", "client"))
 	target := cluster("target-cluster", "",
@@ -419,6 +419,37 @@ func TestFlowBatchValidationAndTable(t *testing.T) {
 	}
 	if validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 0, Flows: []*continuumv1.Flow{good}}) == nil {
 		t.Error("a window of zero seconds must be refused")
+	}
+
+	// pod_flows is validated the same way flows is (reusing validateFlowEndpoints), plus its own
+	// src_pod/dst_pod length bound and its own, separate per-batch cap.
+	goodPod := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
+	goodPod.SrcPod = "x-abc-1"
+	if err := validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: []*continuumv1.Flow{goodPod}}); err != nil {
+		t.Fatalf("a well-formed pod flow must be accepted: %v", err)
+	}
+	badPod := map[string]*continuumv1.Flow{
+		"no src": {Dst: wep("a/Deployment/x"), Port: 1, Protocol: "tcp"},
+		"port 0": flowOf(wep("a"), xep("1.2.3.4"), 0, 1),
+		"sctp":   {Src: wep("a"), Dst: xep("1.2.3.4"), Port: 1, Protocol: "sctp"},
+		"src_pod too long": func() *continuumv1.Flow {
+			f := flowOf(wep("a"), xep("1.2.3.4"), 1, 1)
+			f.SrcPod = strings.Repeat("x", maxPodNameLen+1)
+			return f
+		}(),
+		"dst_pod too long": func() *continuumv1.Flow {
+			f := flowOf(wep("a"), xep("1.2.3.4"), 1, 1)
+			f.DstPod = strings.Repeat("x", maxPodNameLen+1)
+			return f
+		}(),
+	}
+	for name, f := range badPod {
+		if validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: []*continuumv1.Flow{f}}) == nil {
+			t.Errorf("pod flow %s must be refused", name)
+		}
+	}
+	if validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: make([]*continuumv1.Flow, maxPodFlowsPerBatch+1)}) == nil {
+		t.Error("a pod_flows batch over its own cap must be refused")
 	}
 
 	// persistence round trip and the cap

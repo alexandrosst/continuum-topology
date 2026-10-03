@@ -981,6 +981,52 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 	}
 }
 
+// TestNoteFlowsReplacesPodFlowsWholesale covers view.podFlows' own "right now" rule directly: unlike
+// the flowTable's historically-accumulated edges, a new batch's pod_flows replaces what was held, never
+// merges with it - so a pod pair missing from the latest batch must disappear, not linger from an
+// earlier report.
+func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {
+	r := newHubRig(t)
+	id, _, _ := r.approvedAgent(t, fp)
+	r.hub.mu.Lock()
+	r.hub.views[id] = newView()
+	r.hub.mu.Unlock()
+
+	first := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
+	first.SrcPod = "x-abc-1"
+	if applied, err := r.hub.noteFlows(id, 2, &continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: []*continuumv1.Flow{first}}, time.Now()); !applied || err != nil {
+		t.Fatalf("applied=%v err=%v", applied, err)
+	}
+	r.hub.mu.Lock()
+	got := r.hub.views[id].podFlows
+	r.hub.mu.Unlock()
+	if len(got) != 1 || got[0].SrcPod != "x-abc-1" {
+		t.Fatalf("podFlows after the first batch = %v", got)
+	}
+
+	second := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
+	second.SrcPod = "x-abc-2"
+	if applied, err := r.hub.noteFlows(id, 2, &continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: []*continuumv1.Flow{second}}, time.Now()); !applied || err != nil {
+		t.Fatalf("applied=%v err=%v", applied, err)
+	}
+	r.hub.mu.Lock()
+	got = r.hub.views[id].podFlows
+	r.hub.mu.Unlock()
+	if len(got) != 1 || got[0].SrcPod != "x-abc-2" {
+		t.Fatalf("a second batch must replace the first pod pair, not add to it: %v", got)
+	}
+
+	if applied, err := r.hub.noteFlows(id, 2, &continuumv1.FlowBatch{WindowSeconds: 60}, time.Now()); !applied || err != nil {
+		t.Fatalf("applied=%v err=%v", applied, err)
+	}
+	r.hub.mu.Lock()
+	got = r.hub.views[id].podFlows
+	r.hub.mu.Unlock()
+	if len(got) != 0 {
+		t.Fatalf("a batch reporting no pod flows at all must clear what was held, not leave x-abc-2 behind: %v", got)
+	}
+}
+
 // TestNoteMeasurementsRespectsPauseConsent covers the same backstop for the "measure" collector, using
 // noteMeasurements directly the way the existing tier tests use applySync directly.
 func TestNoteMeasurementsRespectsPauseConsent(t *testing.T) {

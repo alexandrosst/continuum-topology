@@ -275,6 +275,40 @@ func TestInterpretK3sCluster(t *testing.T) {
 	}
 }
 
+// TestInterpretAttachesPerPodTraffic pins buildPodTraffic's join: Input.PodFlows is looked up by pod
+// name (never by workload), contributes an "out" entry on the caller and an "in" entry on the callee
+// when both sides are pods of this same agent's cluster, and a pod this batch says nothing about keeps
+// a nil Traffic rather than an empty-but-present slice.
+func TestInterpretAttachesPerPodTraffic(t *testing.T) {
+	in := Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "edge-patras", State: k3sFixture(), Now: time.Now(), PodFlows: []*continuumv1.Flow{
+		{Src: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: "shop/Deployment/cart"}, Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: "shop/StatefulSet/db"}, Port: 5432, Protocol: "tcp", Connections: 3, BytesOut: 100, SrcPod: "cart-abc-1", DstPod: "db-0"},
+		{Src: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: "shop/Deployment/cart"}, Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 1, BytesOut: 50, SrcPod: "cart-abc-1"},
+	}}
+	out := Interpret(in)
+	var cart model.Service
+	for _, s := range out.Services {
+		if s.Name == "cart" {
+			cart = s
+		}
+	}
+	if cart.Pods[0].Name != "cart-abc-1" {
+		t.Fatalf("fixture order changed, got %+v", cart.Pods)
+	}
+	traffic := cart.Pods[0].Traffic
+	if len(traffic) != 2 {
+		t.Fatalf("cart-abc-1.Traffic = %+v, want 2 entries", traffic)
+	}
+	if traffic[0].Peer != "shop/StatefulSet/db" || traffic[0].PeerKind != "service" || traffic[0].Direction != "out" || traffic[0].Connections != 3 {
+		t.Errorf("cart-abc-1's pod-to-pod entry = %+v", traffic[0])
+	}
+	if traffic[1].Peer != "93.184.216.34" || traffic[1].PeerKind != "external" || traffic[1].Direction != "out" || traffic[1].Connections != 1 {
+		t.Errorf("cart-abc-1's external entry = %+v", traffic[1])
+	}
+	if cart.Pods[1].Name != "cart-abc-2" || cart.Pods[1].Traffic != nil {
+		t.Errorf("cart-abc-2 was never mentioned in PodFlows and must keep a nil Traffic: %+v", cart.Pods[1])
+	}
+}
+
 func TestInterpretIsDeterministicAndIDsSurviveChanges(t *testing.T) {
 	in := Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "e", State: k3sFixture(), Now: time.Now()}
 	a, b := Interpret(in), Interpret(in)

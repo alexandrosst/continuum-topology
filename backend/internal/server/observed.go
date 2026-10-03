@@ -59,6 +59,17 @@ func flowKey(f *continuumv1.Flow) string {
 	return endpointKey(f.Src) + ">" + endpointKey(f.Dst) + fmt.Sprintf("/%s:%d", f.Protocol, f.Port)
 }
 
+// maxPodFlowsPerBatch mirrors maxFlowsPerBatch for FlowBatch.pod_flows - a separate limit, not the same
+// constant, because podFlows (aggregate.go) is already held to its own, smaller cap (MaxHeldPodFlows)
+// independent of MaxHeldFlows/MaxFlowsPerBatch, so a batch legitimately near the main cap can still carry
+// a pod-level breakdown near its own, smaller one.
+const maxPodFlowsPerBatch = 4000
+
+// maxPodNameLen bounds Flow.src_pod/dst_pod the same way maxStr already bounds a FlowEndpoint's Ref: a
+// Kubernetes pod name is capped at 253 characters by the API server itself, so anything longer is
+// already known to be invented.
+const maxPodNameLen = 253
+
 // validateFlowBatch bounds what one agent may report, and refuses anything malformed. It is the last
 // line of defence against a compromised agent inventing traffic or filling memory.
 func validateFlowBatch(b *continuumv1.FlowBatch) error {
@@ -66,6 +77,9 @@ func validateFlowBatch(b *continuumv1.FlowBatch) error {
 		return fmt.Errorf("flow batch is malformed")
 	}
 	if len(b.Collectors) > 5000 {
+		return fmt.Errorf("flow batch is malformed")
+	}
+	if len(b.PodFlows) > maxPodFlowsPerBatch {
 		return fmt.Errorf("flow batch is malformed")
 	}
 	for _, c := range b.Collectors {
@@ -77,6 +91,15 @@ func validateFlowBatch(b *continuumv1.FlowBatch) error {
 		if f.Src == nil || f.Dst == nil || f.Port == 0 || f.Port > 65535 || (f.Protocol != "tcp" && f.Protocol != "udp") || (f.Method != "ebpf" && f.Method != "conntrack") ||
 			(f.Noise != "" && f.Noise != "dns" && f.Noise != "system") {
 			return fmt.Errorf("flow is malformed")
+		}
+		if err := validateFlowEndpoints(f); err != nil {
+			return err
+		}
+	}
+	for _, f := range b.PodFlows {
+		if f == nil || f.Src == nil || f.Dst == nil || f.Port == 0 || f.Port > 65535 || (f.Protocol != "tcp" && f.Protocol != "udp") ||
+			len(f.SrcPod) > maxPodNameLen || len(f.DstPod) > maxPodNameLen {
+			return fmt.Errorf("pod flow is malformed")
 		}
 		if err := validateFlowEndpoints(f); err != nil {
 			return err
@@ -322,8 +345,8 @@ type observedCluster struct {
 type target struct{ cluster, workload string }
 
 type addrIndex struct {
-	reach     map[string][]target // "ip:port" of a load balancer or external IP -> workload
-	nodeIPs   map[string][]string // node address -> clusters
+	reach   map[string][]target // "ip:port" of a load balancer or external IP -> workload
+	nodeIPs map[string][]string // node address -> clusters
 	// nodePorts is "this cluster's own node's port" -> workload: a port reachable on any address one of
 	// this cluster's own nodes has, regardless of which specific address was dialed - populated from
 	// both an explicit NodePort and a load-balancer whose port binds across every node address (see

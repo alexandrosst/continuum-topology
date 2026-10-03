@@ -23,6 +23,12 @@ type Input struct {
 	// (a renamed machine keeps its id; a different machine that reuses a name gets a new one). A node not in the
 	// map gets the id it has always had: a hash of the cluster and its key.
 	NodeIDs map[string]string
+	// PodFlows is this agent's latest per-pod traffic breakdown (Hub.noteFlows copies FlowBatch.pod_flows
+	// into view.podFlows wholesale on every report - see its own doc comment for why nothing here is
+	// historically accumulated). Joined onto this same agent's own Service.Pods by pod name below -
+	// never another agent's, since pod identity is only ever meaningful within the cluster that resolved
+	// it. Nil below access tier 2 or before this agent's first flow report.
+	PodFlows []*continuumv1.Flow
 }
 
 // systemNamespace is excluded from the topology: it is machinery, not the user's applications.
@@ -72,6 +78,54 @@ func Hash(parts ...string) string { return hash(parts...) }
 
 // Interpret builds the schema-v3 view of one cluster from its facts. It is a pure function of its
 // input, so the same facts always give the same ids.
+// buildPodTraffic turns one agent's latest per-pod flow batch (in.PodFlows) into a lookup by pod name,
+// each a small "right now" breakdown of who that one pod is talking to. A Flow with both SrcPod and
+// DstPod set - one pod of this cluster calling another, observed once from the caller's side, see
+// resolve.go - contributes to both: an outbound entry on the caller, an inbound one on the callee.
+func buildPodTraffic(flows []*continuumv1.Flow) map[string][]model.PodPeer {
+	if len(flows) == 0 {
+		return nil
+	}
+	endpoint := func(e *continuumv1.FlowEndpoint) (ref, kind string) {
+		if e == nil {
+			return "", ""
+		}
+		if e.Kind == continuumv1.FlowEndpoint_EXTERNAL {
+			return e.Ip, "external"
+		}
+		return e.Ref, "service"
+	}
+	out := map[string][]model.PodPeer{}
+	add := func(pod, peer, peerKind, direction string, f *continuumv1.Flow) {
+		if pod == "" || peer == "" {
+			return
+		}
+		out[pod] = append(out[pod], model.PodPeer{
+			Peer: peer, PeerKind: peerKind, Direction: direction, Port: f.Port, Protocol: f.Protocol,
+			Connections: f.Connections, BytesOut: f.BytesOut, BytesIn: f.BytesIn,
+		})
+	}
+	for _, f := range flows {
+		if f == nil {
+			continue
+		}
+		dstRef, dstKind := endpoint(f.Dst)
+		srcRef, srcKind := endpoint(f.Src)
+		add(f.SrcPod, dstRef, dstKind, "out", f)
+		add(f.DstPod, srcRef, srcKind, "in", f)
+	}
+	for pod, peers := range out {
+		sort.Slice(peers, func(i, j int) bool {
+			if peers[i].Connections != peers[j].Connections {
+				return peers[i].Connections > peers[j].Connections
+			}
+			return peers[i].Peer < peers[j].Peer
+		})
+		out[pod] = peers
+	}
+	return out
+}
+
 func Interpret(in Input) model.Topology {
 	st := in.State
 	stamp := in.Now.UTC().Format(time.RFC3339)
@@ -79,6 +133,7 @@ func Interpret(in Input) model.Topology {
 		return model.Provenance{OrgID: in.OrgID, Source: "discovered", Key: key, LastSeen: stamp, DetectedAt: stamp, AgentID: in.AgentID, Revision: rev}
 	}
 	out := model.Topology{}
+	podTraffic := buildPodTraffic(in.PodFlows)
 
 	nodes := sortedNodes(st)
 	dist, distEv := detectDistribution(st.Cluster, nodes)
@@ -295,7 +350,7 @@ func Interpret(in Input) model.Topology {
 			if p == nil {
 				continue
 			}
-			s.Pods = append(s.Pods, model.Pod{Name: p.Name, NodeID: nodeIDs[p.NodeName], Phase: p.Phase, Ready: p.Ready, Restarts: p.Restarts, CreatedAt: rfc3339(p.CreatedAt)})
+			s.Pods = append(s.Pods, model.Pod{Name: p.Name, NodeID: nodeIDs[p.NodeName], Phase: p.Phase, Ready: p.Ready, Restarts: p.Restarts, CreatedAt: rfc3339(p.CreatedAt), Traffic: podTraffic[p.Name]})
 		}
 		s.Evidence = map[string]model.Evidence{"application": ev(ref.signal, ref.confidence, "grouped as "+ref.origin)}
 		if controlPlane {

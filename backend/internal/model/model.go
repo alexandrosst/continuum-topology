@@ -302,6 +302,38 @@ type Pod struct {
 	// CreatedAt is this pod's own age, unlike Service.CreatedAt (the workload object's own age, which never
 	// changes on a routine scale-up) - the one fact that can actually show a recent scaling event.
 	CreatedAt string `json:"createdAt,omitempty"`
+	// Traffic is this one pod's own breakdown of who it talks to, right now - unlike Dependency (the
+	// service-level edges the rest of the topology is drawn from, historically accumulated and always
+	// present), this is a point-in-time snapshot from the agent's latest report, and nil whenever this
+	// pod had no traffic of its own to show: below access tier 2, before the agent's first flow report
+	// since this pod started, or simply because every one of its connections currently goes through a
+	// Service address rather than being addressed to this pod directly (see resolve.go's own note on
+	// why a Service-mediated destination never claims a specific pod). Meant to be fetched on demand -
+	// when this one pod is expanded - never drawn as permanent edges on the canvas: see Service.Pods'
+	// own comment on why a per-replica list exists at all, and aggregate.go's podFlows for why this can
+	// exist without the whole topology paying per-pod cardinality.
+	Traffic []PodPeer `json:"traffic,omitempty"`
+}
+
+// PodPeer is one line of a Pod's own traffic breakdown: this pod, and one workload or external address
+// it has been talking to. Several PodPeers can share the same Peer (e.g. one in, one out, or two
+// different ports) - each is its own observed edge, never merged across ports/protocols/directions the
+// way Dependency already merges them at the service level.
+type PodPeer struct {
+	// Peer is the other side's identity: a workload key ("namespace/Kind/name") when PeerKind is
+	// "service", or the raw address when PeerKind is "external" - the same two shapes and the same
+	// non-anonymization already used for Dependency.From/To, which exposes precisely this information at
+	// the service level already; hiding it here would not make it any more private.
+	Peer     string `json:"peer"`
+	PeerKind string `json:"peerKind"` // service | external
+	// Direction is this pod's own role in the flow: "out" when this pod is the caller, "in" when it is
+	// the one receiving.
+	Direction   string `json:"direction"`
+	Port        uint32 `json:"port"`
+	Protocol    string `json:"protocol"`
+	Connections uint64 `json:"connections"`
+	BytesOut    uint64 `json:"bytesOut,omitempty"`
+	BytesIn     uint64 `json:"bytesIn,omitempty"`
 }
 
 // Volume is a persistent volume claim used by a service.

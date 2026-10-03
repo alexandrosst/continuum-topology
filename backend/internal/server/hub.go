@@ -46,6 +46,12 @@ type view struct {
 	obs        observerHealth
 	flowsDirty bool
 	flowsSaved time.Time
+	// podFlows is this agent's latest per-pod traffic breakdown (FlowBatch.pod_flows), replaced wholesale
+	// by every accepted batch in noteFlows below - never merged/accumulated across batches the way flows
+	// above is, so it is always "what this agent's pods were doing as of its last report", not a running
+	// total. Not persisted across a server restart (same as the rest of view): a fresh snapshot arrives
+	// with the agent's next report anyway, and nothing here is meant to survive longer than that.
+	podFlows []*continuumv1.Flow
 
 	// Measured network paths, keyed by the target id the server issued for them.
 	paths   map[string]*pathTrack
@@ -562,6 +568,7 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 	}
 	v.flows.apply(fb, now)
 	v.obs.note(fb, now)
+	v.podFlows = fb.PodFlows
 	v.flowsDirty = true
 	return true, nil
 }
@@ -1136,7 +1143,7 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 			continue
 		}
 		recs := h.nodeRecords(a.ClusterID, v.state, now)
-		t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.state, Now: v.lastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs)})
+		t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.state, Now: v.lastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs), PodFlows: v.podFlows})
 		var revokedAt time.Time
 		if a.RevokedAt != nil {
 			revokedAt = *a.RevokedAt
