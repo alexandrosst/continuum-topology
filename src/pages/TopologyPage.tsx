@@ -17,7 +17,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
 import { toPng } from 'html-to-image'
-import { Antenna, Boxes, ChevronDown, Download, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, Server, SlidersHorizontal, Target, X } from 'lucide-react'
+import { Antenna, Boxes, ChevronDown, Download, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, X } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -75,7 +75,15 @@ const VIEWS: { value: Mode; label: string; hint: string }[] = [
   { value: 'map', label: 'Map', hint: 'Where your sites are in the world' },
 ]
 
-function Toggle({ checked, onChange, label, disabled, title }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; title?: string }) {
+// `lens`, when true, marks a control that changes what the canvas is actually interpreting or
+// computing (recolouring edges by a different live signal, e.g.) rather than just drawing or hiding
+// something already decided - see the "Lenses" subsection below, where every lens-type Toggle in this
+// menu lives together under its own label, the same way this file already splits "Show" from "Layout".
+// It renders the small ScanEye glyph DetailRow-style controls elsewhere use for "not just a plain fact"
+// (never a second, differently-shaped control: a lens is still switched the same way any other toggle
+// here is, it's what it DOES that differs) and keeps the switch itself the same accent colour on, so the
+// distinction reads at a glance without the page growing a second control shape to learn.
+function Toggle({ checked, onChange, label, disabled, title, lens }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; title?: string; lens?: boolean }) {
   return (
     <button
       role="switch"
@@ -89,6 +97,7 @@ function Toggle({ checked, onChange, label, disabled, title }: { checked: boolea
       <span className={clsx('relative h-4 w-7 shrink-0 rounded-full transition-colors', checked ? 'bg-accent' : 'bg-nb-800')}>
         <span className={clsx('absolute top-0.5 size-3 rounded-full bg-white transition-all', checked ? 'left-3.5' : 'left-0.5')} />
       </span>
+      {lens && <ScanEye size={ICON_SM} className="shrink-0 text-accent" aria-hidden />}
       {label}
     </button>
   )
@@ -763,9 +772,13 @@ function Canvas() {
                 {changedOptions > 0 && <span className="rounded-full bg-accent-soft px-1.5 text-[11px] font-medium text-accent">{changedOptions}</span>}
               </Button>
               <MenuPanel open={openMenu === 'options'} onClose={() => setOpenMenu(null)} className="w-72 p-2" role="group" aria-label="View options">
-                {/* Two subsections, same "Show"/how-it's-arranged split as the rest of the page: what's
-                    drawn at all, then how it's laid out. Mirrors FilterMenu's own subsection labels (same
-                    classes) so the toolbar's two popovers read as one family instead of two different menus. */}
+                {/* Three subsections: what's drawn at all, what instead changes which signal the canvas
+                    is reading (a "lens" - recolouring/reinterpreting what's already drawn rather than
+                    adding or removing anything), then how it's all laid out. "Show"/"Layout" mirror
+                    FilterMenu's own subsection labels (same classes) so the toolbar's two popovers read as
+                    one family instead of two different menus; "Lenses" follows the identical pattern
+                    rather than inventing a new one, since a grouped, labelled subsection was already this
+                    page's own way of telling two kinds of option apart. */}
                 <div className="px-2 pb-1 pt-1 text-xs uppercase tracking-wide text-nb-500">Show</div>
                 {mode === 'application' && (
                   <Toggle
@@ -788,16 +801,6 @@ function Canvas() {
                     <Toggle checked={links} onChange={(v) => setParam('links', v ? null : '0')} label="Cross-cluster links" />
                   </>
                 )}
-                {mode === 'application' && (
-                  <Toggle
-                    checked={showMesh}
-                    disabled={!hasMesh}
-                    onChange={(v) => setParam('mesh', v ? '1' : null)}
-                    label="Service mesh"
-                    title={hasMesh ? 'Show the mesh, which services are in it, and what it does to each connection' : 'No service mesh was found in the connected clusters'}
-                  />
-                )}
-                {mode === 'application' && !hasMesh && <p className="-mt-0.5 px-2 pb-1 pl-[46px] text-[11px] text-nb-500">No mesh found in your clusters</p>}
                 <Toggle checked={showLabels} onChange={(v) => setParam('labels', v ? '1' : null)} label="Edge labels" />
                 <Toggle
                   checked={showClusterLinks}
@@ -805,7 +808,33 @@ function Canvas() {
                   label="Cluster links"
                   title="Clusters confirmed joined by an overlay/tunnel, or sitting on the same flat subnet"
                 />
+
+                {/* Lenses: unlike every toggle above (which only ever decides whether something already
+                    computed gets drawn), each of these changes what the canvas itself is interpreting -
+                    Service mesh swaps an edge's colour from the plain loss/quality read to its mTLS
+                    verdict, and Network health swaps a cluster link's fixed overlay/subnet category
+                    colour for its live measured loss% - so they get their own labelled group, and each
+                    Toggle below also carries the small ScanEye glyph (see Toggle's own `lens` prop) as a
+                    second, per-row cue for anyone who lands here without reading the section header.
+                    Network health applies in both modes (a cluster-link tunnel is a network fact, not an
+                    application-view one - same as Cluster links itself above), so only Service mesh's own
+                    row is further gated to the application view. */}
+                <div className="mt-1 border-t border-nb-850 px-2 pb-1 pt-2.5 text-xs uppercase tracking-wide text-nb-500">Lenses</div>
+                {mode === 'application' && (
+                  <>
+                    <Toggle
+                      lens
+                      checked={showMesh}
+                      disabled={!hasMesh}
+                      onChange={(v) => setParam('mesh', v ? '1' : null)}
+                      label="Service mesh"
+                      title={hasMesh ? 'Recolour each connection by its mTLS verdict instead of loss/quality, and show which services are in the mesh' : 'No service mesh was found in the connected clusters'}
+                    />
+                    {!hasMesh && <p className="-mt-0.5 px-2 pb-1 pl-[46px] text-[11px] text-nb-500">No mesh found in your clusters</p>}
+                  </>
+                )}
                 <Toggle
+                  lens
                   checked={showHealthLens}
                   disabled={!showClusterLinks}
                   onChange={(v) => setParam('health', v ? '1' : null)}
