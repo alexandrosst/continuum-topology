@@ -20,7 +20,7 @@ export interface AppSettings {
   flowStaleSeconds: number
   measureSeconds: number
   probeTargets: ProbeTarget[]
-  /** Observability backends (Jaeger, Prometheus) an administrator quick-started an install command for - see QuickStartBackend. */
+  /** Observability backends (Jaeger, Prometheus, Loki) an administrator quick-started an install command for - see QuickStartBackend. */
   quickStartBackends: QuickStartBackend[]
   /** Only administrators receive the address; everyone else learns that one is configured. */
   deciderUrl: string
@@ -48,7 +48,7 @@ export interface ProbeTarget {
   port: number
 }
 
-export type QuickStartKind = 'jaeger' | 'prometheus'
+export type QuickStartKind = 'jaeger' | 'prometheus' | 'loki'
 
 /** A quick-start observability backend a person set up from the telemetry destination picker - see
  * quickStartBackends.ts for what each kind's install command actually does. The server never deploys or
@@ -57,7 +57,7 @@ export type QuickStartKind = 'jaeger' | 'prometheus'
 export interface QuickStartBackend {
   id: string
   kind: QuickStartKind
-  modality: 'traces' | 'metrics'
+  modality: 'traces' | 'metrics' | 'logs'
   namespace: string
   retention: string
   toolUrl?: string

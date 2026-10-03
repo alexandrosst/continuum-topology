@@ -5,18 +5,17 @@ import type { QuickStartKind } from './history'
  * (see QuickStartBackends.tsx). Each one is a plain `helm install` against a well-known upstream chart -
  * the same "mechanism only, here's a command" shape every other install in this app already uses
  * (ConnectClusterWizard, regional operators): this app never deploys or dials a user's cluster itself, so
- * "quick-start" means generating a ready-to-run command, not an automatic install. Scoped to the two
- * modalities most people ask for first (traces, metrics) - logs is a reasonable fast-follow, not covered
- * here (see the Task 6 writeup: "we don't need to cover everything for now").
+ * "quick-start" means generating a ready-to-run command, not an automatic install.
  *
- * Both commands below were checked against the chart's actual current templates/values (not just
- * remembered from an older major version) after a review caught the previous drafts pointing at a
- * values shape neither chart's latest release still has - see each command's own comment.
+ * Every command below was checked against the chart's actual current templates/values (not just
+ * remembered from an older major version, or from docs alone) - verified by actually running
+ * `helm template` against each chart with the exact flags the command passes, after a review caught an
+ * earlier Jaeger/Prometheus draft pointing at a values shape neither chart's latest release still has.
  */
 export interface QuickStartSpec {
   kind: QuickStartKind
   label: string
-  modality: 'traces' | 'metrics'
+  modality: 'traces' | 'metrics' | 'logs'
   defaultRetention: string
   retentionHint: string
   defaultNamespace: string
@@ -101,6 +100,50 @@ export const QUICK_START_BACKENDS: QuickStartSpec[] = [
     openHint: 'The Prometheus web UI, once reachable.',
     portForward: (ns) => `kubectl -n ${ns} port-forward svc/prometheus-quickstart-server 9090:80`,
     docsUrl: 'https://prometheus.io/docs/prometheus/latest/feature_flags/#otlp-receiver',
+  },
+  {
+    kind: 'loki',
+    label: 'Loki (logs)',
+    modality: 'logs',
+    defaultRetention: '168h',
+    retentionHint: 'How long logs are kept before the compactor deletes them. Example: 168h (7d), 720h (30d).',
+    defaultNamespace: 'observability',
+    // grafana/loki's own "single binary, no cloud storage" reference values still bundle MinIO by
+    // default (even SingleBinary mode normally wants an S3-shaped object store) - the chart's own escape
+    // hatch for a genuinely local, zero-extra-component install is `useTestSchema: true` with
+    // `storage.type: filesystem` (literally their own "for testing or playing around" values.yaml
+    // comment). Disabling everything deploymentMode: SingleBinary doesn't already turn off itself
+    // (gateway, the canary DaemonSet, the two memcached-backed caches) gets it down to exactly one pod -
+    // but disabling the canary alone breaks a hard chart-level validation ("Helm test requires the Loki
+    // Canary to be enabled") unless test.enabled is turned off too. OTLP logs land on the standard HTTP
+    // port under /otlp, same "exporter appends /v1/logs itself" shape as the other two.
+    exportEndpoint: (ns) => `loki-quickstart.${ns}.svc:3100/otlp`,
+    exportProtocol: 'http',
+    command: (ns, retention) =>
+      `helm repo add grafana https://grafana.github.io/helm-charts
+` +
+      `helm repo update grafana
+` +
+      `helm upgrade --install loki-quickstart grafana/loki --namespace ${ns} --create-namespace \
+` +
+      `  --set deploymentMode=SingleBinary --set singleBinary.replicas=1 \
+` +
+      `  --set read.replicas=0 --set write.replicas=0 --set backend.replicas=0 \
+` +
+      `  --set gateway.enabled=false --set lokiCanary.enabled=false --set test.enabled=false \
+` +
+      `  --set chunksCache.enabled=false --set resultsCache.enabled=false \
+` +
+      `  --set loki.auth_enabled=false --set loki.commonConfig.replication_factor=1 \
+` +
+      `  --set loki.useTestSchema=true --set loki.storage.type=filesystem \
+` +
+      `  --set loki.limits_config.retention_period=${retention} \
+` +
+      `  --set loki.compactor.retention_enabled=true --set loki.compactor.delete_request_store=filesystem`,
+    openHint: 'Grafana, pointed at this Loki as a data source, once reachable (Loki itself has no UI).',
+    portForward: (ns) => `kubectl -n ${ns} port-forward svc/loki-quickstart 3100:3100`,
+    docsUrl: 'https://grafana.com/docs/loki/latest/send-data/otel/',
   },
 ]
 

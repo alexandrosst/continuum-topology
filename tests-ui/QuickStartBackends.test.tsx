@@ -5,7 +5,7 @@ import QuickStartBackends from '@/components/telemetry/QuickStartBackends'
 import { DEFAULT_SETTINGS, type AppSettings, type QuickStartBackend } from '@/lib/history'
 
 // QuickStartBackends is a small, store-connected disclosure that sits under the telemetry destination
-// field: offers a ready-to-run `helm install` for Jaeger/Prometheus when a matching modality is on,
+// field: offers a ready-to-run `helm install` for Jaeger/Prometheus/Loki when a matching modality is on,
 // remembers one was set up (in Settings.quickStartBackends), and surfaces "Open <tool>"/"Use as
 // destination" once it is. It never deploys or dials anything itself - every assertion below is about what
 // renders and what gets saved, never about anything actually reaching a cluster.
@@ -23,9 +23,38 @@ vi.mock('@/store/server', () => ({
 }))
 
 describe('QuickStartBackends', () => {
-  test('renders nothing when no enabled modality has a matching quick-start backend', () => {
-    render(<QuickStartBackends enabledModalities={new Set(['logs'])} onUseAsDestination={vi.fn()} />)
+  test('renders nothing when no modality is on at all (every modality now has a matching backend)', () => {
+    render(<QuickStartBackends enabledModalities={new Set()} onUseAsDestination={vi.fn()} />)
     expect(screen.queryByTestId('quickstart-toggle-jaeger')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('quickstart-toggle-prometheus')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('quickstart-toggle-loki')).not.toBeInTheDocument()
+  })
+
+  test('offers Loki when logs is on, and expanding it shows a command with the default namespace/retention', async () => {
+    const user = userEvent.setup()
+    settings = DEFAULT_SETTINGS
+    save = vi.fn().mockResolvedValue(true)
+    role = 'admin'
+    render(<QuickStartBackends enabledModalities={new Set(['logs'])} onUseAsDestination={vi.fn()} />)
+    expect(screen.getByTestId('quickstart-toggle-loki')).toBeInTheDocument()
+    expect(screen.queryByTestId('quickstart-toggle-jaeger')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('quickstart-toggle-prometheus')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('quickstart-toggle-loki'))
+    expect(screen.getByTestId('quickstart-namespace-loki')).toHaveValue('observability')
+    expect(screen.getByTestId('quickstart-retention-loki')).toHaveValue('168h')
+    expect(screen.getByText(/grafana\/loki/)).toBeInTheDocument()
+  })
+
+  test('a saved Loki backend\'s "Use as destination" fills the OTLP/HTTP endpoint and protocol', async () => {
+    const user = userEvent.setup()
+    const saved: QuickStartBackend = { id: 'qsb-2', kind: 'loki', modality: 'logs', namespace: 'obs', retention: '168h', label: 'Loki (logs)' }
+    settings = { ...DEFAULT_SETTINGS, quickStartBackends: [saved] }
+    save = vi.fn()
+    role = 'admin'
+    const onUseAsDestination = vi.fn()
+    render(<QuickStartBackends enabledModalities={new Set(['logs'])} onUseAsDestination={onUseAsDestination} />)
+    await user.click(screen.getByText('Use as destination'))
+    expect(onUseAsDestination).toHaveBeenCalledWith('loki-quickstart.obs.svc:3100/otlp', 'http')
   })
 
   test('offers Jaeger when traces is on, and expanding it shows a command with the default namespace/retention', async () => {
