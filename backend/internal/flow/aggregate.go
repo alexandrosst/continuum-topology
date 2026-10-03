@@ -116,6 +116,9 @@ func mergeFlowCounters(cur, add *continuumv1.Flow) {
 	if add.DnsRttUs != 0 {
 		cur.DnsRttUs = add.DnsRttUs // a gauge, same treatment as the other sampled figures above
 	}
+	if add.MssBytes != 0 {
+		cur.MssBytes = add.MssBytes // a gauge, same treatment as Cwnd/PacingBps above
+	}
 	if add.SniHost != "" {
 		cur.SniHost = add.SniHost // also a gauge: one peer essentially always carries one hostname
 	}

@@ -929,6 +929,7 @@ export function TunnelEvidence({
   avgRttMs,
   avgLossPct,
   avgRtoRetransmitsPerMin,
+  avgMssBytes,
 }: {
   dense?: boolean
   via: string
@@ -942,6 +943,7 @@ export function TunnelEvidence({
   avgRttMs?: number
   avgLossPct?: number
   avgRtoRetransmitsPerMin?: number
+  avgMssBytes?: number
 }) {
   return (
     <>
@@ -1000,6 +1002,11 @@ export function TunnelEvidence({
           {!!avgRtoRetransmitsPerMin && (
             <span title="RTO-timer-fired retransmits per minute, averaged across these flows - no ACK at all came back within a full round-trip-plus-backoff, not just ordinary reordering a fast retransmit recovered from instantly. The real sign a link is degrading, which the loss figure above cannot tell apart from on its own.">
               {` \u00b7 ${avgRtoRetransmitsPerMin < 10 ? avgRtoRetransmitsPerMin.toFixed(1) : Math.round(avgRtoRetransmitsPerMin)} RTO/min`}
+            </span>
+          )}
+          {!!avgMssBytes && (
+            <span title="Effective segment size actually in use on these flows, averaged - bounded by the plain interface MTU on a healthy direct path, but shrunk further by this tunnel's own encapsulation headers (VXLAN/WireGuard/GRE). A falling value over time is a real, measured sign of growing per-packet overhead on this specific tunnel.">
+              {` \u00b7 ${Math.round(avgMssBytes)}B MSS`}
             </span>
           )}
         </DetailRow>

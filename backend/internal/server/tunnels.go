@@ -298,6 +298,8 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 		var lossCount int
 		var rtoSum float64
 		var rtoCount int
+		var mssSum float64
+		var mssCount int
 		for di := range dependencies {
 			d := &dependencies[di]
 			if d.FromKind != "service" || d.ToKind != "service" || d.Iface == "" {
@@ -329,6 +331,13 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 				rtoSum += d.Stats.RtoRetransmitsPerMin
 				rtoCount++
 			}
+			// MssBytes is a gauge straight on the Dependency (like RttMs above), not under Stats: see
+			// model.Dependency.MssBytes and ClusterLink.AvgMssBytes for why a confirmed tunnel's effective
+			// segment size is exactly the signal this rollup exists to surface.
+			if d.MssBytes > 0 {
+				mssSum += float64(d.MssBytes)
+				mssCount++
+			}
 			// Mirrors the aggregate just computed above, but attached to this one dependency's own edge
 			// (see Dependency.TunnelLink's own doc for why this exists in addition to, not instead of,
 			// ClusterLink's rollup). dependencies is mutated through this pointer rather than copied, so
@@ -348,6 +357,9 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 		}
 		if rtoCount > 0 {
 			out[i].AvgRtoRetransmitsPerMin = rtoSum / float64(rtoCount)
+		}
+		if mssCount > 0 {
+			out[i].AvgMssBytes = mssSum / float64(mssCount)
 		}
 	}
 	return out

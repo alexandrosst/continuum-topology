@@ -277,9 +277,9 @@ func TestCorrelateClusterLinksRollsUpFlowsCrossingAConfirmedOverlayLink(t *testi
 	loss1, loss2 := 1.0, 3.0
 	deps := []model.Dependency{
 		// Calls from cluster-a to cluster-b, over wg0: qualifies.
-		{From: "svc-a1", FromKind: "service", To: "svc-b2", ToKind: "service", Iface: "wg0", RttMs: 10, Stats: &model.DependencyStats{LossPct: &loss1, RtoRetransmitsPerMin: 2}},
+		{From: "svc-a1", FromKind: "service", To: "svc-b2", ToKind: "service", Iface: "wg0", RttMs: 10, MssBytes: 1400, Stats: &model.DependencyStats{LossPct: &loss1, RtoRetransmitsPerMin: 2}},
 		// Calls from cluster-b to cluster-a, over wg0: also qualifies (the other side of the same link).
-		{From: "svc-b1", FromKind: "service", To: "svc-a3", ToKind: "service", Iface: "wg0", RttMs: 20, Stats: &model.DependencyStats{LossPct: &loss2, RtoRetransmitsPerMin: 4}},
+		{From: "svc-b1", FromKind: "service", To: "svc-a3", ToKind: "service", Iface: "wg0", RttMs: 20, MssBytes: 1360, Stats: &model.DependencyStats{LossPct: &loss2, RtoRetransmitsPerMin: 4}},
 		// Same interface name, but the calling service is in neither of this link's clusters (a totally
 		// unrelated tunnel elsewhere that happens to also be named wg0) - must not be counted.
 		{From: "svc-c1", FromKind: "service", To: "svc-c2", ToKind: "service", Iface: "wg0", RttMs: 999},
@@ -311,6 +311,9 @@ func TestCorrelateClusterLinksRollsUpFlowsCrossingAConfirmedOverlayLink(t *testi
 	}
 	if l.AvgRtoRetransmitsPerMin != 3 {
 		t.Errorf("AvgRtoRetransmitsPerMin = %v, want 3 (average of 2 and 4)", l.AvgRtoRetransmitsPerMin)
+	}
+	if l.AvgMssBytes != 1380 {
+		t.Errorf("AvgMssBytes = %v, want 1380 (average of 1400 and 1360)", l.AvgMssBytes)
 	}
 }
 

@@ -479,6 +479,11 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			if v.PacingBps != 0 {
 				sum.PacingBps = v.PacingBps
 			}
+			// mss_bytes is a gauge too, sampled at the exact same moments as RttUs/Cwnd above - same
+			// "0 means no sample" single-writer treatment.
+			if v.MssBytes != 0 {
+				sum.MssBytes = v.MssBytes
+			}
 			// Every CPU that ever handled this socket's traffic put_iface'd the same route, so any
 			// non-empty reading is as good as another; take the first rather than requiring them to agree,
 			// since a route change mid-life would otherwise blank it out for no good reason.
@@ -517,6 +522,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			PacingBps:         sum.PacingBps,
 			BufferDrops:       sum.BufferDrops,
 			MeshBypassSyns:    sum.MeshBypassSyns,
+			MssBytes:          sum.MssBytes,
 			FailedAttempts:    sum.FailedAttempts,
 			FailedRefused:     sum.FailedRefused,
 			FailedTimeout:     sum.FailedTimeout,

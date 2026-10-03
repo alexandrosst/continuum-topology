@@ -187,7 +187,7 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		k := flowKey(f)
 		e := t.edges[k]
 		if e == nil {
-			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs, Cwnd: f.Cwnd, PacingBps: f.PacingBps, DnsRttUs: f.DnsRttUs}, FirstSeen: nowPb}
+			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs, Cwnd: f.Cwnd, PacingBps: f.PacingBps, DnsRttUs: f.DnsRttUs, MssBytes: f.MssBytes}, FirstSeen: nowPb}
 			t.edges[k] = e
 		}
 		e.LastSeen = nowPb
@@ -231,6 +231,9 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		}
 		if f.DnsRttUs != 0 {
 			e.Key.DnsRttUs = f.DnsRttUs
+		}
+		if f.MssBytes != 0 {
+			e.Key.MssBytes = f.MssBytes // a gauge, same treatment as Cwnd/PacingBps above
 		}
 		if f.SniHost != "" {
 			e.Key.SniHost = f.SniHost // a gauge too, for the same reason as Iface/RttUs above
@@ -781,6 +784,11 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		}
 		if e.Key.DnsRttUs != 0 {
 			d.DnsRttMs = float64(e.Key.DnsRttUs) / 1000
+		}
+		// A gauge like RttMs/CwndSegments above, not a running total - see model.Dependency.MssBytes for
+		// why this is only really meaningful on a confirmed cluster-link tunnel edge (tunnels.go).
+		if e.Key.MssBytes != 0 {
+			d.MssBytes = e.Key.MssBytes
 		}
 		d.Retransmits = satAdd(d.Retransmits, e.Retransmits)
 		d.RtoRetransmits = satAdd(d.RtoRetransmits, e.RtoRetransmits)

@@ -260,6 +260,13 @@ export interface ClusterLink {
    *  rtoRetransmitsPerMin itself (a per-minute rate, unlike avgLossPct's percentage, has no zero-
    *  denominator case that needs telling apart from a real 0). */
   avgRtoRetransmitsPerMin?: number
+  /** Average effective segment size (bytes) across the same matched flows avgRttMs/avgLossPct roll up -
+   *  this is where mssBytes matters most: a healthy direct path's MSS is bounded by the interface MTU
+   *  alone, while this link's own encapsulation overhead (VXLAN/WireGuard/GRE headers) eats into it
+   *  further, so a falling avgMssBytes over time is a real, measured sign of growing per-packet overhead
+   *  on this specific tunnel. Undefined when none of the matched flows have a measured sample yet, the
+   *  same "undefined means not measured" convention avgRttMs itself uses. */
+  avgMssBytes?: number
   /** Only set for an "overlay" link: whether its confirmed tunnel driver encrypts traffic by design
    *  (WireGuard, or an IPsec virtual-tunnel kind) or carries none of its own (VXLAN, GRE and its
    *  variants, IP-in-IP) - see the backend's TunnelEncryptionPosture. This is an inference from the
@@ -753,6 +760,12 @@ export interface Dependency {
    * same treatment as cwndSegments. Unset means no pacer is active yet (a very young connection), not
    * "idle". */
   pacingBps?: number
+  /** The kernel's own current effective segment size, in bytes (tcp_sock.mss_cache) - a gauge, same
+   * treatment as cwndSegments/pacingBps above. Most informative when tunnelLink (below) is set: an
+   * overlay tunnel's own encapsulation headers (VXLAN/WireGuard/GRE) eat into the path MTU, so a falling
+   * mssBytes on a tunneled edge is a real, measured sign of that overhead. Always 0/unset on a
+   * conntrack-only edge. */
+  mssBytes?: number
   /** Cumulative receive-side buffer drops for this dependency, from the kernel's own per-socket counter
    * - summed the same way retransmits/failedAttempts are. A different failure mode from retransmits: the
    * receiving application not draining its socket fast enough, not the network losing a packet in

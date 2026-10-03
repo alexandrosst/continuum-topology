@@ -45,10 +45,10 @@ type flowFlowVal struct {
 	Cwnd              uint32
 	_                 [4]byte
 	PacingBps         uint64
+	MssBytes          uint32
 	BufferDrops       uint32
 	MeshBypassSyns    uint32
 	HandshakeUs       uint32
-	_                 [4]byte
 	FailedAttempts    uint64
 	FailedRefused     uint64
 	FailedTimeout     uint64

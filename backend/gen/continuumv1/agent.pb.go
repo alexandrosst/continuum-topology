@@ -3772,8 +3772,14 @@ type RawFlow struct {
 	// Kubernetes says this workload's mesh membership actually is happens downstream, in Go (the server's
 	// applyMeshBypassFacts), never in this collector.
 	MeshBypassSyns uint32 `protobuf:"varint,26,opt,name=mesh_bypass_syns,json=meshBypassSyns,proto3" json:"mesh_bypass_syns,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The kernel's own current effective segment size for this socket right now (struct
+	// tcp_sock.mss_cache) - the actual usable payload size after PMTU discovery, which shrinks below the
+	// interface MTU when the path crosses any encapsulation (VXLAN/WireGuard/GRE overlay tunnels add their
+	// own headers). A gauge, same 0-means-no-sample convention as rtt_us/cwnd, read at the same moments.
+	// Always 0 on a conntrack-derived report, which has no socket to read this from.
+	MssBytes      uint32 `protobuf:"varint,28,opt,name=mss_bytes,json=mssBytes,proto3" json:"mss_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RawFlow) Reset() {
@@ -3991,6 +3997,13 @@ func (x *RawFlow) GetDnsRttUs() uint32 {
 func (x *RawFlow) GetMeshBypassSyns() uint32 {
 	if x != nil {
 		return x.MeshBypassSyns
+	}
+	return 0
+}
+
+func (x *RawFlow) GetMssBytes() uint32 {
+	if x != nil {
+		return x.MssBytes
 	}
 	return 0
 }
@@ -4215,8 +4228,11 @@ type Flow struct {
 	// icsk_retransmits into an ordinary non-negative delta before this ever saw it, so plain addition here
 	// and all the way through FlowEdge is exactly as safe as it is for retransmits/segs_out.
 	RtoRetransmits uint32 `protobuf:"varint,27,opt,name=rto_retransmits,json=rtoRetransmits,proto3" json:"rto_retransmits,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// See RawFlow.mss_bytes - carried through attribution unchanged, like rtt_us/cwnd: a gauge, the latest
+	// sample, not summed.
+	MssBytes      uint32 `protobuf:"varint,28,opt,name=mss_bytes,json=mssBytes,proto3" json:"mss_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Flow) Reset() {
@@ -4434,6 +4450,13 @@ func (x *Flow) GetMeshBypassSyns() uint32 {
 func (x *Flow) GetRtoRetransmits() uint32 {
 	if x != nil {
 		return x.RtoRetransmits
+	}
+	return 0
+}
+
+func (x *Flow) GetMssBytes() uint32 {
+	if x != nil {
+		return x.MssBytes
 	}
 	return 0
 }
@@ -5678,7 +5701,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2\x18.continuum.v1.PathResultR\aresults\x12\x18\n" +
 	"\arefused\x18\x02 \x01(\rR\arefused\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xda\x06\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xf7\x06\n" +
 	"\aRawFlow\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\bR\x06client\x12\x19\n" +
 	"\blocal_ip\x18\x02 \x01(\tR\alocalIp\x12\x17\n" +
@@ -5709,7 +5732,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\fbuffer_drops\x18\x18 \x01(\rR\vbufferDrops\x12\x1c\n" +
 	"\n" +
 	"dns_rtt_us\x18\x19 \x01(\rR\bdnsRttUs\x12(\n" +
-	"\x10mesh_bypass_syns\x18\x1a \x01(\rR\x0emeshBypassSyns\"\xc1\x01\n" +
+	"\x10mesh_bypass_syns\x18\x1a \x01(\rR\x0emeshBypassSyns\x12\x1b\n" +
+	"\tmss_bytes\x18\x1c \x01(\rR\bmssBytes\"\xc1\x01\n" +
 	"\n" +
 	"FlowReport\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
@@ -5728,7 +5752,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"UNRESOLVED\x10\x00\x12\f\n" +
 	"\bWORKLOAD\x10\x01\x12\b\n" +
 	"\x04NODE\x10\x02\x12\f\n" +
-	"\bEXTERNAL\x10\x03\"\xca\x06\n" +
+	"\bEXTERNAL\x10\x03\"\xe7\x06\n" +
 	"\x04Flow\x12,\n" +
 	"\x03src\x18\x01 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03src\x12,\n" +
 	"\x03dst\x18\x02 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03dst\x12\x12\n" +
@@ -5760,7 +5784,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\asrc_pod\x18\x18 \x01(\tR\x06srcPod\x12\x17\n" +
 	"\adst_pod\x18\x19 \x01(\tR\x06dstPod\x12(\n" +
 	"\x10mesh_bypass_syns\x18\x1a \x01(\rR\x0emeshBypassSyns\x12'\n" +
-	"\x0frto_retransmits\x18\x1b \x01(\rR\x0ertoRetransmits\"\\\n" +
+	"\x0frto_retransmits\x18\x1b \x01(\rR\x0ertoRetransmits\x12\x1b\n" +
+	"\tmss_bytes\x18\x1c \x01(\rR\bmssBytes\"\\\n" +
 	"\rCollectorInfo\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12\x1f\n" +

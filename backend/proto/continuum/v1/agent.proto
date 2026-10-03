@@ -711,6 +711,12 @@ message RawFlow {
   // Kubernetes says this workload's mesh membership actually is happens downstream, in Go (the server's
   // applyMeshBypassFacts), never in this collector.
   uint32 mesh_bypass_syns = 26;
+  // The kernel's own current effective segment size for this socket right now (struct
+  // tcp_sock.mss_cache) - the actual usable payload size after PMTU discovery, which shrinks below the
+  // interface MTU when the path crosses any encapsulation (VXLAN/WireGuard/GRE overlay tunnels add their
+  // own headers). A gauge, same 0-means-no-sample convention as rtt_us/cwnd, read at the same moments.
+  // Always 0 on a conntrack-derived report, which has no socket to read this from.
+  uint32 mss_bytes = 28;
 }
 
 message FlowReport {
@@ -809,6 +815,9 @@ message Flow {
   // icsk_retransmits into an ordinary non-negative delta before this ever saw it, so plain addition here
   // and all the way through FlowEdge is exactly as safe as it is for retransmits/segs_out.
   uint32 rto_retransmits = 27;
+  // See RawFlow.mss_bytes - carried through attribution unchanged, like rtt_us/cwnd: a gauge, the latest
+  // sample, not summed.
+  uint32 mss_bytes = 28;
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.

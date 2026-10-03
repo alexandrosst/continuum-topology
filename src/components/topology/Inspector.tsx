@@ -533,6 +533,7 @@ export default function Inspector({
                         avgRttMs={l.avgRttMs}
                         avgLossPct={l.avgLossPct}
                         avgRtoRetransmitsPerMin={l.avgRtoRetransmitsPerMin}
+                        avgMssBytes={l.avgMssBytes}
                       />
                     </div>
                   </div>
@@ -1213,6 +1214,18 @@ export default function Inspector({
           // links" section instead), so TunnelEvidence renders only Via/Encryption/Redundancy here.
           <Section title="Cluster link">
             <TunnelEvidence via={d.tunnelLink.via} encryption={d.tunnelLink.encryption} redundancy={d.tunnelLink.redundancy} />
+            {/* This dependency's own measured MSS, not the cluster-wide average TunnelEvidence's
+                avgMssBytes prop carries (that one is ClusterLink-only, shown in the cluster's own
+                "Cluster links" section above) - the specific number for this specific edge, which is
+                exactly what crossing a confirmed tunnel makes worth looking at (see Dependency.mssBytes'
+                own doc). */}
+            {!!d.mssBytes && (
+              <Row label="Effective MSS">
+                <span title="This edge's own current effective segment size (tcp_sock.mss_cache) - shrunk below the plain interface MTU by this tunnel's own encapsulation overhead (VXLAN/WireGuard/GRE headers)">
+                  {d.mssBytes}B
+                </span>
+              </Row>
+            )}
             <p className="mt-1.5 text-xs text-nb-500">
               This dependency's own traffic crosses a confirmed overlay tunnel between {clusterName(d.tunnelLink.fromCluster)} and {clusterName(d.tunnelLink.toCluster)}.
             </p>

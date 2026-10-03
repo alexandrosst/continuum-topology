@@ -508,6 +508,15 @@ type ClusterLink struct {
 	// RtoRetransmitsPerMin's own doc already accepts for a per-minute rate (unlike a percentage, where
 	// the zero-denominator case needs telling apart from a real 0%).
 	AvgRtoRetransmitsPerMin float64 `json:"avgRtoRetransmitsPerMin,omitempty"`
+	// AvgMssBytes averages Dependency.MssBytes across the same matched flows AvgRttMs/AvgLossPct roll
+	// up - the effective segment size actually in use on traffic crossing this tunnel right now. This is
+	// where MssBytes matters most: a healthy direct path's MSS is bounded by the interface MTU alone,
+	// while this link's own encapsulation overhead (VXLAN/WireGuard/GRE headers) eats into it further, so
+	// a falling AvgMssBytes over time is a real, measured sign of growing per-packet overhead on this
+	// specific tunnel - not available at all for an unconfirmed link, which has no specific interface to
+	// correlate flows against. 0 means none of the matched flows have a measured MSS sample yet, the
+	// same "0 means not measured" convention AvgRttMs itself uses.
+	AvgMssBytes float64 `json:"avgMssBytes,omitempty"`
 	// Encryption classifies an "overlay" link's confirmed tunnel driver (see TunnelInterface.Kind) as
 	// "encrypted" (WireGuard, or an IPsec virtual-tunnel kind: vti/vti6/xfrm) or "plaintext" (a
 	// tunneling/encapsulation protocol with no cryptography of its own: vxlan, geneve, gre and its
@@ -689,6 +698,13 @@ type Dependency struct {
 	// gauge, same treatment as CwndSegments right above. 0 means no pacer is active yet (e.g. a very
 	// young connection), not "idle".
 	PacingBps uint64 `json:"pacingBps,omitempty"`
+	// MssBytes is the kernel's own current effective segment size for this edge, in bytes (struct
+	// tcp_sock.mss_cache) - a gauge, same "0 means no sample" treatment as CwndSegments/PacingBps above.
+	// Most informative on an edge whose TunnelLink (below) is set: an overlay tunnel's own encapsulation
+	// headers (VXLAN/WireGuard/GRE) eat into the path MTU, so the kernel's PMTU discovery shrinks this
+	// below the plain interface MTU - a falling MssBytes on a tunneled edge is a real, measured sign of
+	// that overhead, not a guess from the tunnel's declared type. Always 0 on a conntrack-only edge.
+	MssBytes uint32 `json:"mssBytes,omitempty"`
 	// BufferDrops is the cumulative count of this edge's receive-side buffer drops, from the kernel's own
 	// per-socket counter - summed the same way Retransmits/FailedAttempts are. A different failure mode
 	// from Retransmits: the receiving application not draining its socket fast enough, not the network

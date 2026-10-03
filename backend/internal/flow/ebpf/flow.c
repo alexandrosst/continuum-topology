@@ -141,6 +141,14 @@ struct tcp_sock {
 	// relocates by the field's own BTF name, not by which C helper wraps it in kernel source - the field
 	// itself is unchanged by that patch, so this read is unaffected by kernel version either side of it.
 	__u32 snd_cwnd;
+	// The current effective SMSS (segment size), in bytes, after the kernel's own PMTU discovery has
+	// already adjusted it downward from the interface MTU for whatever encapsulation sits on the path -
+	// an overlay tunnel (VXLAN/WireGuard/GRE) shrinks this below what a flat network's same interface
+	// would give, and that shrinkage is otherwise invisible: the interface itself still reports its own
+	// MTU, not the smaller size TCP is actually using after discovering the tunnel eats some of it.
+	// Nothing here measures or infers the path's real MTU directly; this just reads the number TCP's own
+	// discovery already settled on.
+	__u32 mss_cache;
 } __attribute__((preserve_access_index));
 
 // One direction of one relationship. Addresses are 16 bytes; IPv4 is stored as ::ffff:a.b.c.d.
@@ -199,6 +207,12 @@ struct flow_val {
 	// target rate in bytes/sec (0 while no pacer is active yet).
 	__u32 cwnd;
 	__u64 pacing_bps;
+	// mss_bytes: tcp_sock.mss_cache, the kernel's own current effective segment size for this socket,
+	// already shrunk by PMTU discovery for whatever the path actually carries - a gauge, same
+	// latest-wins/0-means-no-sample treatment as cwnd/rtt_us above, sampled at the same moments. Most
+	// telling on a dependency that crosses a confirmed overlay tunnel (see model.Dependency.TunnelLink on
+	// the Go side): a low reading there is the concrete, otherwise-invisible cost of that encapsulation.
+	__u32 mss_bytes;
 	// buffer_drops: sock.sk_drops' growth since this socket was last accounted - summed like retransmits,
 	// not a gauge. A different failure mode from retransmits: this socket's own receive buffer overflowed
 	// because nothing drained it fast enough, not the network dropping a packet in transit.
@@ -318,7 +332,7 @@ static __always_inline void put_iface(struct flow_val *v, struct sock *sk) {
 	bpf_probe_read_kernel_str(v->ifname, sizeof(v->ifname), dev->name);
 }
 
-static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rto_retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us, __u32 cwnd, __u64 pacing_bps, __u32 buffer_drops) {
+static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rto_retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us, __u32 cwnd, __u64 pacing_bps, __u32 buffer_drops, __u32 mss_bytes) {
 	struct flow_val zero = {};
 	struct flow_val *v = bpf_map_lookup_elem(&flows, key);
 	if (!v) {
@@ -351,6 +365,8 @@ static __always_inline void add_flow(const struct flow_key *key, struct sock *sk
 		v->cwnd = cwnd;
 	if (pacing_bps)
 		v->pacing_bps = pacing_bps;
+	if (mss_bytes)
+		v->mss_bytes = mss_bytes;
 	v->buffer_drops += buffer_drops;
 	put_iface(v, sk);
 }
@@ -469,7 +485,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// Counted now, so a connection that lives for days is a dependency from its first second. No RTT/
 		// jitter sample exists yet this early (0, unknown, rather than a guess); handshake_us, by contrast,
 		// is known exactly right now - this is the only moment it ever will be.
-		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, 0, handshake_us, 0, 0, 0);
+		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, 0, handshake_us, 0, 0, 0, 0);
 		return 0;
 	}
 
@@ -533,7 +549,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// comment); >>3 and >>2 recover microseconds. A connection that never left slow start can close
 		// with no sample of either at all (0).
 		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, tp->srtt_us >> 3, tp->mdev_us >> 2, dsegs, 0,
-		         tp->snd_cwnd, (__u64)pacing_rate, ddrops);
+		         tp->snd_cwnd, (__u64)pacing_rate, ddrops, tp->mss_cache);
 	}
 	bpf_map_delete_elem(&socks, &id);
 	return 0;
@@ -566,18 +582,19 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 	__u64 out = 0, in = 0;
 	if (bpf_probe_read_kernel(&out, sizeof(out), &tp->bytes_acked) != 0 || bpf_probe_read_kernel(&in, sizeof(in), &tp->bytes_received) != 0)
 		return 0;
-	__u32 retrans = 0, srtt_raw = 0, mdev_raw = 0, segs_out = 0, cwnd = 0;
+	__u32 retrans = 0, srtt_raw = 0, mdev_raw = 0, segs_out = 0, cwnd = 0, mss_bytes = 0;
 	int drops = 0;
 	unsigned long pacing_rate = 0;
 	__u8 rto_raw = 0;
 	// Best-effort: a socket this old is already tracked by role/key regardless of whether these reads
-	// succeed, so a failure here just means no retransmit/RTO/RTT/jitter/loss/cwnd/pacing/drops update
-	// this round, not a dropped flow.
+	// succeed, so a failure here just means no retransmit/RTO/RTT/jitter/loss/cwnd/pacing/drops/MSS
+	// update this round, not a dropped flow.
 	bpf_probe_read_kernel(&retrans, sizeof(retrans), &tp->total_retrans);
 	bpf_probe_read_kernel(&srtt_raw, sizeof(srtt_raw), &tp->srtt_us);
 	bpf_probe_read_kernel(&mdev_raw, sizeof(mdev_raw), &tp->mdev_us);
 	bpf_probe_read_kernel(&segs_out, sizeof(segs_out), &tp->segs_out);
 	bpf_probe_read_kernel(&cwnd, sizeof(cwnd), &tp->snd_cwnd);
+	bpf_probe_read_kernel(&mss_bytes, sizeof(mss_bytes), &tp->mss_cache);
 	bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops.counter);
 	bpf_probe_read_kernel(&pacing_rate, sizeof(pacing_rate), &sk->sk_pacing_rate);
 	// icsk_retransmits: see struct inet_connection_sock's and flow_val.rto_retransmits' own doc comments.
@@ -603,7 +620,7 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 		si->last_segs_out = segs_out > si->last_segs_out ? segs_out : si->last_segs_out;
 		si->last_drops = (__u32)drops > si->last_drops ? (__u32)drops : si->last_drops;
 		si->last_rto_retransmits = rto_raw;
-		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0, cwnd, (__u64)pacing_rate, ddrops);
+		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0, cwnd, (__u64)pacing_rate, ddrops, mss_bytes);
 	}
 	return 0;
 }
