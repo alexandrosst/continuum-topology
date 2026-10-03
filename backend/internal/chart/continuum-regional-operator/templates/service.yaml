@@ -1,0 +1,13 @@
+# So a source cluster's own telemetry.export.otlp.endpoint can point at this operator without knowing its
+# pod IP - the same reason continuum-agent's cluster collector gets a Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "operator.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "operator.labels" . | nindent 4 }}
+spec:
+  selector: {app.kubernetes.io/name: continuum-regional-operator, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
+    - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
