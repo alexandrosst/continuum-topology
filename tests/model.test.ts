@@ -859,6 +859,27 @@ test('movability: selectors, disruption budgets, single replicas and daemon sets
   assert.ok(movability({ ...svc('w-orch'), volumes: undefined }, mm({ storageKnown: false })).reasons.some((r) => r.code === 'storage-unknown'))
 })
 
+test('movability: a device dependency with measured loss or jitter names it in the caution, unmeasured ones do not', () => {
+  // w-infer-a talks to dev-act-a (dependency d20) without being plugged into its gateway node - this is
+  // the 'devices' caution's own existing case, re-verified against the current seed before extending it
+  // below. Unmeasured (the seed's own default): the caution text is unchanged from before this session.
+  const plain = movability(svc('w-infer-a'), mm()).reasons.find((r) => r.code === 'devices')!
+  assert.match(plain.text, /Moving far away adds latency to every message\.$/)
+  assert.ok(!/already measures/.test(plain.text), plain.text)
+
+  // Now with d20 actually eBPF-measuring real loss and jitter on that exact link.
+  const degraded = seed.dependencies.map((d) => (d.id === 'd20' ? { ...d, stats: { ...d.stats, lossPct: 3.2 }, jitterMs: 40 } : d))
+  const withEvidence = movability(svc('w-infer-a'), mm({ dependencies: degraded })).reasons.find((r) => r.code === 'devices')!
+  assert.match(withEvidence.text, /already measures 3\.2% packet loss and 40 ms of jitter/, withEvidence.text)
+  assert.equal(withEvidence.severity, plain.severity) // enriches the existing caution, never changes its severity
+
+  // Below the noteworthy thresholds (see movability.ts's own worstLoss/worstJitter comment): nothing is
+  // added, so a merely-present-but-tiny measurement does not clutter the sentence with noise.
+  const tiny = seed.dependencies.map((d) => (d.id === 'd20' ? { ...d, stats: { ...d.stats, lossPct: 0.1 }, jitterMs: 2 } : d))
+  const withTiny = movability(svc('w-infer-a'), mm({ dependencies: tiny })).reasons.find((r) => r.code === 'devices')!
+  assert.ok(!/already measures/.test(withTiny.text), withTiny.text)
+})
+
 test('movability: a plain stateless public service is free', () => {
   const plain: Service = { ...svc('w-orch'), replicas: 3, sensitivity: 'public', applicationId: undefined, exposure: 'internal', hosts: undefined, volumes: undefined, nodeSelector: undefined, tolerations: undefined, disruption: undefined }
   const r = movability(plain, mm({ clusters: seed.clusters.map((c) => ({ ...c, trustZone: undefined, dataResidency: undefined })), sites: seed.sites.map((s) => ({ ...s, trustZone: undefined, dataResidency: undefined })) }))

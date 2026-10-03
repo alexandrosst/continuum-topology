@@ -150,7 +150,19 @@ export function movability(w: Service, m: MoveModel): Movability {
   const talkers = devs.filter((d) => deviceEnds.has(d.id) && !attached.includes(d))
   if (talkers.length > 0) {
     const sites = [...new Set(talkers.map((d) => m.sites.find((s) => s.id === d.siteId)?.name).filter(Boolean))]
-    add('caution', 'devices', `Talks to ${talkers.map((d) => d.name).join(', ')}${sites.length ? ` at ${sites.join(', ')}` : ''}. Moving far away adds latency to every message.`)
+    // Re-verification note (re: the task's own claim that this file "scores" RTT/traffic): it does not -
+    // this whole function is reasons/verdict only (free/careful/pinned from hard constraints), with no
+    // numeric cost anywhere to weigh a signal into. The one place a real traffic-quality fact can add
+    // something true is right here, where a device link's distance is already called out qualitatively:
+    // when eBPF has actually measured meaningful loss or jitter on one of these exact dependencies, name
+    // it, so "moving far away adds latency" reads as a documented fact about an already-degraded link
+    // instead of a generic warning that would say the same thing regardless of what was measured.
+    const talkerDeps = m.dependencies.filter((d) => deviceEnds.has(d.to) || deviceEnds.has(d.from))
+    const worstLoss = Math.max(0, ...talkerDeps.map((d) => d.stats?.lossPct ?? 0))
+    const worstJitter = Math.max(0, ...talkerDeps.map((d) => d.jitterMs ?? 0))
+    const measured = [worstLoss >= 1 ? `${worstLoss.toFixed(1)}% packet loss` : undefined, worstJitter >= 10 ? `${Math.round(worstJitter)} ms of jitter` : undefined].filter(Boolean)
+    const already = measured.length > 0 ? ` The link already measures ${measured.join(' and ')} - moving further away would make an already degraded connection worse.` : ''
+    add('caution', 'devices', `Talks to ${talkers.map((d) => d.name).join(', ')}${sites.length ? ` at ${sites.join(', ')}` : ''}. Moving far away adds latency to every message.${already}`)
   }
 
   // --- how it is operated

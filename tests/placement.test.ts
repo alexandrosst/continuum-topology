@@ -81,6 +81,46 @@ test('rtt: an outside address is timed from a cluster, or reached through one th
   assert.equal(rtt(w, 'cl-edge', { kind: 'external', host: '203.0.113.1' }).basis, 'unknown')
 })
 
+/* ---------- cost weighs measured loss% and jitter, not just RTT and traffic ---------- */
+
+test('evaluate: measured packet loss and jitter raise the cost of a dependency, on top of RTT and traffic', () => {
+  const lossy = world({
+    dependencies: [
+      dep('d-api-db', 'api', 'db', 4 * 1024 * 1024, { stats: { bytesPerSec: 4 * 1024 * 1024, lossPct: 4 }, jitterMs: 25 }),
+      dep('d-api-cache', 'api', 'cache', 200 * 1024),
+      dep('d-worker-db', 'worker', 'db', 300 * 1024),
+    ],
+  })
+  const clean = world() // byte-identical dependencies, just without lossPct/jitterMs
+  const evLossy = evaluate(lossy, lossy.byService.get('api')!, 'cl-edge', P)
+  const evClean = evaluate(clean, clean.byService.get('api')!, 'cl-edge', P)
+  // 4 MB/s is far over FULL_ACTIVITY_BPS, so this edge's activity is clamped to 1: quality cost is exactly
+  // P.loss * 4 (the lossPct) + P.jitter * 25 (the jitterMs), with no contribution from the cache edge,
+  // which carries neither.
+  assert.equal(evLossy.qualityCost, Math.round((P.loss * 4 + P.jitter * 25) * 10) / 10)
+  assert.equal(evClean.qualityCost, 0)
+  // Nothing else about the cost moved: latency/traffic are computed from the same RTT and bytesPerSec
+  // either way, so the whole difference between the two is exactly qualityCost.
+  assert.equal(evLossy.latencyCost, evClean.latencyCost)
+  assert.equal(evLossy.trafficCost, evClean.trafficCost)
+  assert.equal(Math.round((evLossy.cost - evClean.cost) * 10) / 10, evLossy.qualityCost)
+})
+
+test('evaluate: a dependency with no measured loss/jitter contributes nothing new - old plans are unaffected', () => {
+  // Every dependency in the default fixture world is either declared or eBPF-measured for bytes only,
+  // never for lossPct/jitterMs - so DEFAULT_POLICY's new loss/jitter weights (nonzero, unlike every other
+  // weight before them) must still compute exactly the same evaluate()/recommend() results as before this
+  // policy existed. This is the regression guard for "don't reweight so aggressively that documented
+  // behavior changes without real signal to justify it": here, there is no real signal, so nothing changes.
+  const w = world()
+  const ev = evaluate(w, w.byService.get('api')!, 'cl-cloud', P)
+  assert.equal(ev.qualityCost, 0)
+  const plan = recommend(w, P)
+  const api = plan.recommendations.find((r) => r.serviceId === 'api')!
+  assert.equal(api.to, 'cl-cloud')
+  assert.ok(api.benefit > 30, `benefit ${api.benefit}`)
+})
+
 /* ---------- the recommendation ---------- */
 
 test('recommend: a busy service moves next to what it talks to, with evidence, and the data-heavy peer stays', () => {

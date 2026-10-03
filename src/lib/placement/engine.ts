@@ -24,6 +24,12 @@ interface Peer {
   kind: 'service' | 'device' | 'external'
   id: string
   bps?: number
+  /** Retransmitted segments as a percentage of segments sent - see Dependency.stats.lossPct's own
+   *  "never a fabricated 0%" rule. Undefined (never 0) when not eBPF-measured. */
+  lossPct?: number
+  /** Round-trip jitter (mean deviation), ms - see Dependency.jitterMs's own gauge doc. Undefined
+   *  (never 0) when not eBPF-measured. */
+  jitterMs?: number
   activity: number
   trafficKnown: boolean
 }
@@ -42,7 +48,7 @@ function peersOf(w: World, s: Service): Peer[] {
     if (bps !== undefined) activity = clamp(bps / FULL_ACTIVITY_BPS, MIN_ACTIVITY, 1)
     else if (cpm !== undefined) activity = clamp(cpm / 30, MIN_ACTIVITY, 1)
     if (d.stale) activity = MIN_ACTIVITY
-    out.push({ dependencyId: d.id, kind, id, bps, activity, trafficKnown: bps !== undefined })
+    out.push({ dependencyId: d.id, kind, id, bps, lossPct: d.stats?.lossPct, jitterMs: d.jitterMs, activity, trafficKnown: bps !== undefined })
   }
   return out
 }
@@ -65,17 +71,21 @@ function edgeAt(w: World, P: Policy, cluster: string, p: Peer): EdgeEvidence {
   else if (loc.kind === 'site') cross = !(mySite && mySite === loc.id)
   const latency = P.latency * p.activity * ms
   const traffic = cross && p.bps ? P.traffic * (p.bps / MB) : 0
+  const loss = P.loss * p.activity * (p.lossPct ?? 0)
+  const jitter = P.jitter * p.activity * (p.jitterMs ?? 0)
   return {
     dependencyId: p.dependencyId,
     peerName: peerName(w, p),
     peerKind: p.kind,
     peerWhere: locName(w, loc),
     bytesPerSec: p.bps,
+    lossPct: p.lossPct,
+    jitterMs: p.jitterMs,
     activity: p.activity,
     trafficKnown: p.trafficKnown,
     rtt: { ms: Number.isFinite(r.ms) ? r.ms : NaN, basis: r.basis },
     crossSite: cross,
-    cost: latency + traffic,
+    cost: latency + traffic + loss + jitter,
   }
 }
 
@@ -91,10 +101,16 @@ const DECISIVE_SHARE = 0.1
 function edgeInputs(e: EdgeEvidence): EvidenceInput[] {
   const rttLabel = `round trip to ${e.peerName} (${basisText(e.rtt.basis)})`
   const busyLabel = e.trafficKnown ? `how busy the link to ${e.peerName} is (measured)` : `how busy the link to ${e.peerName} is (not measured: assumed)`
-  return [
+  const out: EvidenceInput[] = [
     { label: rttLabel, class: RTT_CLASS[e.rtt.basis] },
     { label: busyLabel, class: e.trafficKnown ? 'measured' : 'guess' },
   ]
+  // Both, when present, are only ever eBPF-measured (see EdgeEvidence.lossPct/jitterMs's own docs) -
+  // there is no "guess" case to fall back to the way a missing traffic figure has DECLARED_ACTIVITY, so
+  // unlike busyLabel above these never need a ternary: absent simply means they add nothing here.
+  if (e.lossPct !== undefined) out.push({ label: `packet loss on the link to ${e.peerName} (measured)`, class: 'measured' })
+  if (e.jitterMs !== undefined) out.push({ label: `round-trip jitter on the link to ${e.peerName} (measured)`, class: 'measured' })
+  return out
 }
 
 /** The weakest class among the connections that carry the cost of running somewhere, with the inputs that decide it. */
@@ -168,7 +184,8 @@ export function evaluate(w: World, s: Service, clusterId: string, P: Policy, tar
   const current = clusterOfService(w, s.id) ?? s.clusterId
   const edges = peersOf(w, s).map((p) => edgeAt(w, P, clusterId, p))
   const latencyCost = edges.reduce((a, e) => a + P.latency * e.activity * (Number.isFinite(e.rtt.ms) ? e.rtt.ms : P.fallbackMs), 0)
-  const trafficCost = edges.reduce((a, e) => a + e.cost, 0) - latencyCost
+  const qualityCost = edges.reduce((a, e) => a + P.loss * e.activity * (e.lossPct ?? 0) + P.jitter * e.activity * (e.jitterMs ?? 0), 0)
+  const trafficCost = edges.reduce((a, e) => a + e.cost, 0) - latencyCost - qualityCost
   const need = serviceNeed(s)
   const util = utilization(w, clusterId, current === clusterId ? 0 : need.cpu)
   const headroomCost = util === undefined ? 0 : P.headroom * clamp((util - 0.8) / 0.2, 0, 1)
@@ -207,9 +224,10 @@ export function evaluate(w: World, s: Service, clusterId: string, P: Policy, tar
   return {
     serviceId: s.id,
     clusterId,
-    cost: round1(latencyCost + trafficCost + headroomCost),
+    cost: round1(latencyCost + trafficCost + qualityCost + headroomCost),
     latencyCost: round1(latencyCost),
     trafficCost: round1(trafficCost),
+    qualityCost: round1(qualityCost),
     headroomCost: round1(headroomCost),
     migrationCost: clusterId === current ? 0 : round1(P.migration * gb),
     weightedRttMs: round1(weightedRttMs),
@@ -263,7 +281,25 @@ function reasonsFor(cur: Evaluation, tgt: Evaluation, toName: string): string[] 
     .sort((a, b) => b.was!.cost - b.e.cost - (a.was!.cost - a.e.cost))
     .slice(0, 3)
   for (const { e, was } of best) {
-    out.push(`${e.peerName}: round trip ${ms(was!.rtt.ms)} ms (${basisText(was!.rtt.basis)}) → ${ms(e.rtt.ms)} ms (${basisText(e.rtt.basis)}).`)
+    // This edge made the top-3 cost-reducing list, but cost now has three possible drivers (RTT, and -
+    // since this session - loss/jitter), so the sentence has to name whichever one actually moved rather
+    // than always describing RTT the way it unconditionally did before loss/jitter existed: an edge
+    // whose gain comes entirely from measured loss or jitter falling would otherwise print a "round trip
+    // X ms → X ms" sentence that names nothing that actually changed.
+    const rttDelta = was!.rtt.ms - e.rtt.ms
+    if (Number.isFinite(rttDelta) && Math.abs(rttDelta) >= 1) {
+      out.push(`${e.peerName}: round trip ${ms(was!.rtt.ms)} ms (${basisText(was!.rtt.basis)}) → ${ms(e.rtt.ms)} ms (${basisText(e.rtt.basis)}).`)
+      continue
+    }
+    const lossDelta = (was!.lossPct ?? 0) - (e.lossPct ?? 0)
+    if (lossDelta >= 0.5) {
+      out.push(`${e.peerName}: measured packet loss ${(was!.lossPct ?? 0).toFixed(1)}% → ${(e.lossPct ?? 0).toFixed(1)}%.`)
+      continue
+    }
+    const jitterDelta = (was!.jitterMs ?? 0) - (e.jitterMs ?? 0)
+    if (jitterDelta >= 1) {
+      out.push(`${e.peerName}: round-trip jitter ${ms(was!.jitterMs ?? 0)} ms → ${ms(e.jitterMs ?? 0)} ms.`)
+    }
   }
   return out
 }
@@ -308,7 +344,7 @@ const RTT_SOURCE: Record<RttBasis, string> = { 'same-cluster': 'inferred', measu
 
 /** A connection as facts: the round trip and how busy the link is, each with how it is known. */
 function edgeFacts(e: EdgeEvidence): FactRow[] {
-  return [
+  const out: FactRow[] = [
     {
       attribute: 'roundTripMs',
       entity: e.dependencyId,
@@ -330,6 +366,16 @@ function edgeFacts(e: EdgeEvidence): FactRow[] {
       evidence: e.trafficKnown ? undefined : 'the dependency is declared and no traffic was counted, so how busy it is is assumed',
     },
   ]
+  // Only ever pushed when eBPF actually measured them (see EdgeEvidence.lossPct/jitterMs) - unlike
+  // bytesPerSec above, there is no declared/guessed fallback value to report when absent, so the row
+  // itself simply does not exist rather than reporting a null with a "guess" confidence.
+  if (e.lossPct !== undefined) {
+    out.push({ attribute: 'lossPct', entity: e.dependencyId, entityName: e.peerName, value: e.lossPct, unit: '%', source: 'measured', confidence: 'measured' })
+  }
+  if (e.jitterMs !== undefined) {
+    out.push({ attribute: 'jitterMs', entity: e.dependencyId, entityName: e.peerName, value: e.jitterMs, unit: 'ms', source: 'measured', confidence: 'measured' })
+  }
+  return out
 }
 
 /** The point at which a move stops paying for itself, on the connection that carries most of its gain. */
@@ -485,8 +531,13 @@ export function totals(w: World, P: Policy): Totals {
     if (!p) continue
     const e = edgeAt(w, P, clusterOfService(w, anchor) ?? s.clusterId, p)
     const lat = P.latency * e.activity * (Number.isFinite(e.rtt.ms) ? e.rtt.ms : P.fallbackMs)
+    const qual = P.loss * e.activity * (e.lossPct ?? 0) + P.jitter * e.activity * (e.jitterMs ?? 0)
     t.latencyCost += lat
-    t.trafficCost += e.cost - lat
+    // trafficCost is specifically about traffic volume, so loss/jitter's own contribution (qual) is
+    // carved back out here the same way it is in evaluate() above - otherwise it would silently hide
+    // inside this field's total under the wrong name, even though t.cost itself (e.cost summed) was
+    // already right either way.
+    t.trafficCost += e.cost - lat - qual
     t.cost += e.cost
     if (e.crossSite) t.crossSiteBps += e.bytesPerSec ?? 0
     t.edges++
