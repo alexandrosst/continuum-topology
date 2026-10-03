@@ -218,13 +218,27 @@ func (c *Collector) Start(ctx context.Context) error {
 			}
 			return unionLister{infs}
 		}
-		c.pods = kind("pods", ModServices, stripPod, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer { return fa.Core().V1().Pods().Informer() })
-		c.rs = kind("replicasets.apps", ModServices, stripReplicaSet, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer { return fa.Apps().V1().ReplicaSets().Informer() })
-		c.deploys = kind("deployments.apps", ModServices, stripDeployment, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer { return fa.Apps().V1().Deployments().Informer() })
-		c.sts = kind("statefulsets.apps", ModServices, stripStatefulSet, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer { return fa.Apps().V1().StatefulSets().Informer() })
-		c.ds = kind("daemonsets.apps", ModServices, stripDaemonSet, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer { return fa.Apps().V1().DaemonSets().Informer() })
-		c.svcs = kind("services", ModServices, stripService, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer { return fa.Core().V1().Services().Informer() })
-		c.ings = kind("ingresses.networking.k8s.io", ModServices, stripIngress, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer { return fa.Networking().V1().Ingresses().Informer() })
+		c.pods = kind("pods", ModServices, stripPod, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer {
+			return fa.Core().V1().Pods().Informer()
+		})
+		c.rs = kind("replicasets.apps", ModServices, stripReplicaSet, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer {
+			return fa.Apps().V1().ReplicaSets().Informer()
+		})
+		c.deploys = kind("deployments.apps", ModServices, stripDeployment, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer {
+			return fa.Apps().V1().Deployments().Informer()
+		})
+		c.sts = kind("statefulsets.apps", ModServices, stripStatefulSet, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer {
+			return fa.Apps().V1().StatefulSets().Informer()
+		})
+		c.ds = kind("daemonsets.apps", ModServices, stripDaemonSet, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer {
+			return fa.Apps().V1().DaemonSets().Informer()
+		})
+		c.svcs = kind("services", ModServices, stripService, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer {
+			return fa.Core().V1().Services().Informer()
+		})
+		c.ings = kind("ingresses.networking.k8s.io", ModServices, stripIngress, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer {
+			return fa.Networking().V1().Ingresses().Informer()
+		})
 
 		// Optional extras. Each is probed with a one-item list first (once per namespace in namespaced mode, since
 		// there is no cluster-wide list to ask instead) so a missing permission or an API the cluster does not
@@ -245,7 +259,9 @@ func (c *Collector) Start(ctx context.Context) error {
 		}); why != "" {
 			c.optional[ModStorage] = why
 		} else {
-			c.pvcs = kind("persistentvolumeclaims", ModStorage, stripPVC, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer { return fa.Core().V1().PersistentVolumeClaims().Informer() })
+			c.pvcs = kind("persistentvolumeclaims", ModStorage, stripPVC, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer {
+				return fa.Core().V1().PersistentVolumeClaims().Informer()
+			})
 			if !c.namespaced {
 				c.pvs = add("persistentvolumes", ModStorage, f.Core().V1().PersistentVolumes().Informer(), stripPV)
 			}
@@ -259,8 +275,12 @@ func (c *Collector) Start(ctx context.Context) error {
 		}); why != "" {
 			c.optional[ModScaling] = why
 		} else {
-			c.hpas = kind("horizontalpodautoscalers.autoscaling", ModScaling, stripHPA, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer { return fa.Autoscaling().V2().HorizontalPodAutoscalers().Informer() })
-			c.pdbs = kind("poddisruptionbudgets.policy", ModScaling, stripPDB, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer { return fa.Policy().V1().PodDisruptionBudgets().Informer() })
+			c.hpas = kind("horizontalpodautoscalers.autoscaling", ModScaling, stripHPA, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer {
+				return fa.Autoscaling().V2().HorizontalPodAutoscalers().Informer()
+			})
+			c.pdbs = kind("poddisruptionbudgets.policy", ModScaling, stripPDB, func(fa informers.SharedInformerFactory) cache.SharedIndexInformer {
+				return fa.Policy().V1().PodDisruptionBudgets().Informer()
+			})
 		}
 	}
 	f.Start(ctx.Done())

@@ -17,7 +17,7 @@ import (
 type OperatorTLSBundle struct {
 	ReceiverCertPEM, ReceiverKeyPEM []byte
 	ClientCertPEM, ClientKeyPEM     []byte
-	CACertPEM                      []byte
+	CACertPEM                       []byte
 }
 
 // maxOperatorName mirrors the enrollment token's own label limit (see CreateTokenFor) - both name the

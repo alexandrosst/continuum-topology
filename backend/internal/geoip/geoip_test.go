@@ -172,7 +172,7 @@ func TestUnlocatableReason(t *testing.T) {
 		{"::1", "loopback"},
 		{"::", "unspecified"},
 		{"fe80::1", "link-local"},
-		{"fc00::1", "private"},   // RFC 4193 unique local address
+		{"fc00::1", "private"}, // RFC 4193 unique local address
 		{"fd12:3456::1", "private"},
 		{"ff02::1", "link-local-multicast"},
 		{"::ffff:10.0.0.1", "private"}, // 4-in-6 unwraps before classifying, same as Locatable
