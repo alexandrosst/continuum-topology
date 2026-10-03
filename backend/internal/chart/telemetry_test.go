@@ -878,3 +878,65 @@ func TestTelemetryExporterMTLSRequiresSecretName(t *testing.T) {
 		t.Errorf("wrong error for mtls with no secretName: %s", out)
 	}
 }
+
+// Before this test existed, telemetry.export.otlp.protocol was read by nothing in the templates at all -
+// every destination rendered under the gRPC-only "otlp" exporter regardless of what was asked for, so an
+// httpOnly destination (Grafana Cloud, Datadog - see exportPresets.ts) silently got a pipeline that could
+// never actually reach it. This locks in the fix: protocol=http renders "otlphttp" instead, with a full
+// scheme-qualified endpoint (confighttp has no separate plaintext toggle - the URL scheme IS that choice),
+// and every pipeline's own exporters: [...] reference follows the same name, not a literal "otlp".
+func TestTelemetryExportProtocolHTTPUsesOtlphttpExporter(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=otlp-gateway.example.com/otlp", "--set", "telemetry.export.otlp.protocol=http",
+		"--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.kubernetesState.metrics.enabled=true")
+
+	for _, cm := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+		cfg := otelConfig(t, r.configmaps[cm].Data)
+		exporters, _ := cfg["exporters"].(map[string]any)
+		if _, ok := exporters["otlp"]; ok {
+			t.Errorf("%s: a gRPC-only otlp exporter rendered alongside protocol=http", cm)
+		}
+		otlphttp, ok := exporters["otlphttp"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s: no otlphttp exporter rendered: %+v", cm, exporters)
+		}
+		if otlphttp["endpoint"] != "https://otlp-gateway.example.com/otlp" {
+			t.Errorf("%s: otlphttp endpoint = %v, want a scheme-qualified https:// URL", cm, otlphttp["endpoint"])
+		}
+		if _, ok := otlphttp["tls"]; ok {
+			t.Errorf("%s: otlphttp has no insecure toggle to carry - an empty tls stanza shouldn't render: %+v", cm, otlphttp["tls"])
+		}
+
+		pipelines, _ := cfg["service"].(map[string]any)["pipelines"].(map[string]any)
+		if len(pipelines) == 0 {
+			t.Fatalf("%s: no pipelines rendered", cm)
+		}
+		for name, raw := range pipelines {
+			p, _ := raw.(map[string]any)
+			exp, _ := p["exporters"].([]any)
+			if len(exp) != 1 || exp[0] != "otlphttp" {
+				t.Errorf("%s pipeline %q: exporters = %v, want exactly [otlphttp]", cm, name, exp)
+			}
+		}
+	}
+
+	// Plaintext (insecure) still switches the URL scheme, the only lever confighttp actually has for it.
+	ri := render(t, "--set", "telemetry.export.otlp.endpoint=collector.local:4318", "--set", "telemetry.export.otlp.protocol=http",
+		"--set", "telemetry.export.otlp.tls.insecure=true", "--set", "telemetry.resourceUsage.metrics.enabled=true")
+	cfg := otelConfig(t, ri.configmaps["continuum-telemetry-host-config"].Data)
+	exporters, _ := cfg["exporters"].(map[string]any)
+	otlphttp, _ := exporters["otlphttp"].(map[string]any)
+	if otlphttp["endpoint"] != "http://collector.local:4318" {
+		t.Errorf("insecure otlphttp endpoint = %v, want http:// scheme", otlphttp["endpoint"])
+	}
+
+	// grpc (the default) is unaffected: still the plain "otlp" exporter, referenced by the same name.
+	rg := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true")
+	cfgG := otelConfig(t, rg.configmaps["continuum-telemetry-host-config"].Data)
+	expG, _ := cfgG["exporters"].(map[string]any)
+	if _, ok := expG["otlp"]; !ok {
+		t.Fatalf("default protocol dropped the plain otlp exporter: %+v", expG)
+	}
+	if _, ok := expG["otlphttp"]; ok {
+		t.Error("default protocol should not render an otlphttp exporter")
+	}
+}

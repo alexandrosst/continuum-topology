@@ -116,12 +116,12 @@ data:
         metrics:
           receivers: {{ $hMetrics | toJson }}
           processors: {{ $hProcessors | toJson }}
-          exporters: [otlp]
+          exporters: [{{ include "agent.telemetryExporterName" . }}]
         {{- end }}
         {{- if $hLogs }}
         logs:
           receivers: {{ $hLogs | toJson }}
           processors: {{ $hProcessors | toJson }}
-          exporters: [otlp]
+          exporters: [{{ include "agent.telemetryExporterName" . }}]
         {{- end }}
 {{- end }}

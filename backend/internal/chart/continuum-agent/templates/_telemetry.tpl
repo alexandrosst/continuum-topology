@@ -242,10 +242,40 @@ opamp:
 
 {{- define "agent.telemetryName" -}}continuum-telemetry{{- end -}}
 
+{{/* "otlp" (configgrpc) or "otlphttp" (confighttp) - whichever telemetry.export.otlp.protocol asks for.
+     Every exporters:/pipelines: reference below uses this instead of a literal "otlp", so the two stay in
+     sync - see the bug this fixed: protocol=http rendered an httpOnly destination (Grafana Cloud, Datadog)
+     under the gRPC-only exporter, which those backends simply do not speak. */}}
+{{- define "agent.telemetryExporterName" -}}
+{{- if eq .Values.telemetry.export.otlp.protocol "http" -}}otlphttp{{- else -}}otlp{{- end -}}
+{{- end -}}
+
 {{/* The "exporters" stanza shared by both collector ConfigMaps. Emits at column 0; the caller nindents it
      into place. The auth header's value is never written here - only a reference to the environment
      variable the container injects it into from a Secret at start (see telemetryExporterEnv below). */}}
 {{- define "agent.telemetryExporterYAML" -}}
+{{- if eq .Values.telemetry.export.otlp.protocol "http" }}
+{{/* confighttp's otlphttp exporter has no configgrpc-style "insecure" toggle - the endpoint's own scheme
+     IS that choice, and the collector appends /v1/<signal> to whatever is given here itself (so a path
+     already in the endpoint, like Grafana Cloud's "…/otlp", still gets that suffix added on top - this is
+     the backend's own documented shape, not something to strip). */}}
+otlphttp:
+  endpoint: {{ printf "%s://%s" (ternary "http" "https" .Values.telemetry.export.otlp.tls.insecure) .Values.telemetry.export.otlp.endpoint | quote }}
+  {{- if or .Values.telemetry.export.otlp.tls.mtls.enabled .Values.telemetry.export.otlp.tls.caFile }}
+  tls:
+    {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
+    ca_file: /export-mtls/ca.crt
+    cert_file: /export-mtls/tls.crt
+    key_file: /export-mtls/tls.key
+    {{- else }}
+    ca_file: {{ .Values.telemetry.export.otlp.tls.caFile | quote }}
+    {{- end }}
+  {{- end }}
+  {{- if .Values.telemetry.export.otlp.auth.secretName }}
+  headers:
+    {{ .Values.telemetry.export.otlp.auth.headerName }}: "${env:CONTINUUM_TELEMETRY_AUTH}"
+  {{- end }}
+{{- else }}
 otlp:
   endpoint: {{ .Values.telemetry.export.otlp.endpoint | quote }}
   tls:
@@ -264,6 +294,7 @@ otlp:
   headers:
     {{ .Values.telemetry.export.otlp.auth.headerName }}: "${env:CONTINUUM_TELEMETRY_AUTH}"
   {{- end }}
+{{- end }}
 {{- end -}}
 
 {{/* The one extra env entry a telemetry collector container needs beyond NODE_NAME, only when an auth

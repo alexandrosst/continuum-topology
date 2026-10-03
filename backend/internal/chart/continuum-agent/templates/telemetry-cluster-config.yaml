@@ -340,30 +340,30 @@ data:
         metrics/infra:
           receivers: {{ $cMetricsInfra | toJson }}
           processors: {{ $procInfra | toJson }}
-          exporters: [otlp]
+          exporters: [{{ include "agent.telemetryExporterName" . }}]
         {{- end }}
         {{- if $cMetricsApp }}
         metrics/app:
           receivers: {{ $cMetricsApp | toJson }}
           processors: {{ $procApp | toJson }}
-          exporters: [otlp]
+          exporters: [{{ include "agent.telemetryExporterName" . }}]
         {{- end }}
         {{- if $cLogsInfra }}
         logs/infra:
           receivers: {{ $cLogsInfra | toJson }}
           processors: {{ $procLogsInfra | toJson }}
-          exporters: [otlp]
+          exporters: [{{ include "agent.telemetryExporterName" . }}]
         {{- end }}
         {{- if $cLogsApp }}
         logs/app:
           receivers: {{ $cLogsApp | toJson }}
           processors: {{ $procLogsApp | toJson }}
-          exporters: [otlp]
+          exporters: [{{ include "agent.telemetryExporterName" . }}]
         {{- end }}
         {{- if .Values.telemetry.traces.traces.enabled }}
         traces:
           receivers: [otlp]
           processors: {{ $procTraces | toJson }}
-          exporters: [otlp]
+          exporters: [{{ include "agent.telemetryExporterName" . }}]
         {{- end }}
 {{- end }}
