@@ -1,7 +1,9 @@
 package server
 
 import (
+	"fmt"
 	"net"
+	"sort"
 
 	"continuum/internal/model"
 )
@@ -363,4 +365,141 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 		}
 	}
 	return out
+}
+
+// correlateClusterPairConnectivity answers, for every cluster pair that has SOME existing relationship
+// already (an observed cross-cluster Dependency, or a ClusterLink correlateClusterLinks above already
+// confirmed), the broader question a ClusterLink alone cannot: can these two clusters actually reach
+// each other, and how - see model.ClusterPairConnectivity's own doc for exactly what each of its four
+// Status values means and is backed by. clusterLinks is correlateClusterLinks' own output for this same
+// build, reused as-is (never recomputed) for the "tunnel"/"subnet" cases; dependencies/serviceClusterID
+// are the same inputs correlateClusterLinks' flow rollup already takes.
+//
+// Deliberately bounded the same way correlateClusterLinks itself already is: this never iterates every
+// possible pair of onboarded clusters, only the pairs that earn a row by already having a relationship -
+// a confirmed ClusterLink, or at least one observed cross-cluster Dependency between them. Two clusters
+// that have never spoken and share no confirmed link get no row, not a manufactured "unknown".
+//
+// Pure data matching over already-built values, with no I/O of its own - the same testable-in-isolation
+// style as correlateTunnels/correlateClusterLinks above (see tunnels_test.go).
+func correlateClusterPairConnectivity(nodes []model.Node, names map[string]string, dependencies []model.Dependency, serviceClusterID map[string]string, clusterLinks []model.ClusterLink) []model.ClusterPairConnectivity {
+	// hasNetworkEvidence says whether a cluster reported ANYTHING correlateClusterLinks could have
+	// matched from its side - at least one node with a Tunnel or a HostSubnets prefix. This is exactly
+	// what separates "unknown" (this server never got to check) from "unexplained" (it checked, on both
+	// sides, and nothing matched) below.
+	hasNetworkEvidence := map[string]bool{}
+	for i := range nodes {
+		if len(nodes[i].Tunnels) > 0 || len(nodes[i].HostSubnets) > 0 {
+			hasNetworkEvidence[nodes[i].ClusterID] = true
+		}
+	}
+
+	type pairKey struct{ from, to string }
+	// orderedPair mirrors correlateClusterLinks' own add() convention (from/to ordered by cluster ID, so
+	// the same pair is never recorded twice under swapped ends depending on scan order).
+	orderedPair := func(a, b string) pairKey {
+		if a > b {
+			return pairKey{b, a}
+		}
+		return pairKey{a, b}
+	}
+
+	linksByPair := map[pairKey][]model.ClusterLink{}
+	for _, l := range clusterLinks {
+		k := orderedPair(l.FromCluster, l.ToCluster)
+		linksByPair[k] = append(linksByPair[k], l)
+	}
+
+	// depFlowsByPair counts, for every cluster pair with at least one observed cross-cluster Dependency,
+	// how many such dependencies there are - regardless of interface, unlike ClusterLink.FlowsObserved
+	// (which only ever counts flows matched to one confirmed tunnel's own interface names). This is
+	// deliberately the coarser count: it is what earns an otherwise-unlinked pair a row here at all, so
+	// it has to count every crossing dependency, not only the ones a tunnel already explains.
+	depFlowsByPair := map[pairKey]int{}
+	for _, d := range dependencies {
+		if d.FromKind != "service" || d.ToKind != "service" {
+			continue
+		}
+		fc, tc := serviceClusterID[d.From], serviceClusterID[d.To]
+		if fc == "" || tc == "" || fc == tc {
+			continue
+		}
+		depFlowsByPair[orderedPair(fc, tc)]++
+	}
+
+	pairs := map[pairKey]bool{}
+	for k := range linksByPair {
+		pairs[k] = true
+	}
+	for k := range depFlowsByPair {
+		pairs[k] = true
+	}
+	keys := make([]pairKey, 0, len(pairs))
+	for k := range pairs {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].from != keys[j].from {
+			return keys[i].from < keys[j].from
+		}
+		return keys[i].to < keys[j].to
+	})
+
+	var out []model.ClusterPairConnectivity
+	for _, k := range keys {
+		links := linksByPair[k]
+		fromName, toName := names[k.from], names[k.to]
+		cp := model.ClusterPairConnectivity{
+			FromCluster: k.from, FromName: fromName,
+			ToCluster: k.to, ToName: toName,
+			DependencyFlows: depFlowsByPair[k],
+		}
+		hasOverlay := false
+		for _, l := range links {
+			if l.Kind == "overlay" {
+				hasOverlay = true
+				break
+			}
+		}
+		switch {
+		case hasOverlay:
+			cp.Status = "tunnel"
+			cp.Links = links
+		case len(links) > 0:
+			cp.Status = "subnet"
+			cp.Links = links
+		case hasNetworkEvidence[k.from] && hasNetworkEvidence[k.to]:
+			cp.Status = "unexplained"
+			cp.Evidence = &model.Evidence{
+				Signal:     "no tunnel or shared subnet corroborated",
+				Confidence: "high",
+				Detail: fmt.Sprintf("%d cross-cluster dependency flow(s) observed between %s and %s, but neither side's tunnels nor host subnets correlate - this traffic is reaching the other cluster by a path this server cannot see.",
+					cp.DependencyFlows, fromName, toName),
+			}
+		default:
+			cp.Status = "unknown"
+			cp.Evidence = &model.Evidence{
+				Signal:     "not enough network evidence",
+				Confidence: "low",
+				Detail:     missingNetworkEvidenceDetail(hasNetworkEvidence[k.from], hasNetworkEvidence[k.to], fromName, toName),
+			}
+		}
+		out = append(out, cp)
+	}
+	return out
+}
+
+// missingNetworkEvidenceDetail names which side(s) of a cluster pair never reported a Tunnel or a
+// HostSubnets prefix - the context an "unknown" ClusterPairConnectivity's Evidence needs to say WHY
+// nothing could be checked, not just that nothing was. fromHas/toHas are hasNetworkEvidence's own
+// verdict for each side; at least one is always false here (see the switch above).
+func missingNetworkEvidenceDetail(fromHas, toHas bool, fromName, toName string) string {
+	switch {
+	case !fromHas && !toHas:
+		return fmt.Sprintf("Neither %s nor %s has reported any tunnel interface or routable host subnet yet, so no correlation could be attempted.", fromName, toName)
+	case !fromHas:
+		return fmt.Sprintf("%s has not reported any tunnel interface or routable host subnet yet, so no correlation could be attempted on that side.", fromName)
+	default:
+		return fmt.Sprintf("%s has not reported any tunnel interface or routable host subnet yet, so no correlation could be attempted on that side.", toName)
+	}
 }

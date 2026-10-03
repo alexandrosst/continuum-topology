@@ -1171,7 +1171,7 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.Time, window time.Duration) (model.Topology, []TombstoneDoc, twin.ObservationDoc, *effectiveBuild, error) {
 	eb := newEffectiveBuild(window)
 	topo := model.Topology{Clusters: []model.Cluster{}, Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Services: []model.Service{}, Suggestions: []model.Suggestion{},
-		Dependencies: []model.Dependency{}, ExternalEndpoints: []model.ExternalEndpoint{}, Paths: []model.Path{}, ClusterLinks: []model.ClusterLink{}}
+		Dependencies: []model.Dependency{}, ExternalEndpoints: []model.ExternalEndpoint{}, Paths: []model.Path{}, ClusterLinks: []model.ClusterLink{}, ClusterPairConnectivity: []model.ClusterPairConnectivity{}}
 	var observed, located []observedCluster
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -1236,6 +1236,9 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 	// Same reasoning as correlateTunnels just above: a cluster-pair relationship can only be seen once
 	// every cluster's nodes are in one list, so this also runs once here, after names is built.
 	topo.ClusterLinks = correlateClusterLinks(topo.Nodes, names, topo.Dependencies, serviceClusterID)
+	// Builds on topo.ClusterLinks just computed above - see correlateClusterPairConnectivity's own doc
+	// for why it takes that output as-is rather than recomputing the tunnel/subnet correlation itself.
+	topo.ClusterPairConnectivity = correlateClusterPairConnectivity(topo.Nodes, names, topo.Dependencies, serviceClusterID, topo.ClusterLinks)
 	topo.Paths = h.pathDocs(agents, located, names, now)
 	tombstones := h.tombstoneDocs(now)
 	observation := twin.ObservationDoc{StaleAfterSeconds: int(window / time.Second), TombstoneRetentionDays: int(h.retention() / (24 * time.Hour))}

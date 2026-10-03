@@ -495,6 +495,12 @@ type Topology struct {
 	// (overlay/tunnel, or same flat subnet) - see ClusterLink's own doc. Derived fresh with Dependencies
 	// and ExternalEndpoints above, not stored in the workspace.
 	ClusterLinks []ClusterLink `json:"clusterLinks"`
+	// ClusterPairConnectivity is the broader "can these two clusters actually reach each other, and how"
+	// answer for every cluster pair that has SOME existing relationship - see ClusterPairConnectivity's
+	// own doc for the four cases this covers (two of which ClusterLinks above already confirms) and why
+	// this is deliberately not computed for every possible pair of onboarded clusters. Derived fresh,
+	// the same story as ClusterLinks.
+	ClusterPairConnectivity []ClusterPairConnectivity `json:"clusterPairConnectivity"`
 }
 
 // Path is the measured quality of the network path from one cluster to an address.
@@ -600,6 +606,50 @@ type ClusterLink struct {
 	// was - only the wire could. Only set from the first corroborating pair for a link, same as
 	// FromNode/ToNode. Empty for a "subnet" link, which has no tunnel driver to classify at all.
 	Encryption string `json:"encryption,omitempty"`
+}
+
+// ClusterPairConnectivity is the server's answer to "can these two onboarded clusters actually reach
+// each other, and how" - for a cluster pair that has SOME existing relationship (an observed
+// cross-cluster Dependency, or a ClusterLink already confirmed by correlateClusterLinks), not only the
+// two cases a ClusterLink alone can positively confirm. Status is one of four honest outcomes:
+//
+//   - "tunnel": an overlay ClusterLink backs this pair - Links holds it (and, rarely, a "subnet" link
+//     for the same pair too, since the two kinds are independent facts - see ClusterLink's own doc).
+//   - "subnet": a "subnet" ClusterLink backs this pair and no "overlay" one does - Links holds it.
+//   - "unexplained": live Dependency traffic crosses this exact pair, yet neither a tunnel nor a shared
+//     subnet was corroborated between them, even though BOTH sides reported enough of their own network
+//     facts (a node's Tunnels or HostSubnets) for that correlation to have genuinely been attempted. A
+//     real finding: traffic is reaching the other cluster by some path this server cannot see.
+//   - "unknown": one or both clusters never reported any Tunnels or HostSubnets at all, so there is not
+//     enough evidence to say whether a path exists, let alone how - never collapsed into "unexplained",
+//     which would claim a negative this server never actually got to check.
+//
+// Never computed for every pair of onboarded clusters - only pairs with some existing relationship
+// qualify for a row at all, the same cardinality-bounded spirit correlateClusterLinks itself already
+// follows. Derived fresh, like ClusterLink, never part of the stored workspace.
+type ClusterPairConnectivity struct {
+	FromCluster string `json:"fromCluster"`
+	FromName    string `json:"fromName"`
+	ToCluster   string `json:"toCluster"`
+	ToName      string `json:"toName"`
+	// Status: "tunnel" | "subnet" | "unexplained" | "unknown" - see this type's own doc for what each
+	// means and exactly what evidence backs it.
+	Status string `json:"status"`
+	// Links is this pair's own confirmed ClusterLink(s) when Status is "tunnel" or "subnet" - the exact
+	// same record(s) already in Topology.ClusterLinks, repeated here (not duplicated data, just a
+	// convenient reference) so a UI reading ClusterPairConnectivity alone has the full tunnel/subnet
+	// evidence without a second lookup. Nil for "unexplained"/"unknown", which have no such link to
+	// point at.
+	Links []ClusterLink `json:"links,omitempty"`
+	// DependencyFlows is how many observed cross-cluster Dependencies connect exactly this pair right
+	// now, regardless of which interface they used - a coarser count than ClusterLink.FlowsObserved
+	// (which only ever counts flows matched to one confirmed tunnel's own interface names). 0 when this
+	// pair exists only because of a ClusterLink with no live traffic currently observed crossing it.
+	DependencyFlows int `json:"dependencyFlows,omitempty"`
+	// Evidence explains an "unexplained" or "unknown" Status, in the same Signal/Confidence/Detail shape
+	// Provenance.Evidence already uses elsewhere - never a new, one-off shape for this one field. Nil
+	// for "tunnel"/"subnet", whose evidence already lives on Links.
+	Evidence *Evidence `json:"evidence,omitempty"`
 }
 
 // DependencyTunnelLink is the confirmed, cross-cluster overlay ClusterLink a Dependency's own Iface was

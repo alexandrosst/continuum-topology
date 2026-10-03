@@ -546,3 +546,199 @@ func TestCorrelateClusterLinksDoesNotMisattributeAcrossCollidingInterfaceNamesOn
 		t.Errorf("deps[1].TunnelLink = %+v, want it attributed to the cluster-c link, not cluster-b", dep2.TunnelLink)
 	}
 }
+
+func TestCorrelateClusterPairConnectivityReportsTunnelStatusFromAnExistingOverlayLink(t *testing.T) {
+	a := nodeForClusterLink("cluster-a", "a", "node-a")
+	a.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}}}
+	b := nodeForClusterLink("cluster-b", "b", "node-b")
+	b.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"}}}
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
+	nodes := []model.Node{a, b}
+	links := correlateClusterLinks(nodes, names, nil, nil)
+
+	got := correlateClusterPairConnectivity(nodes, names, nil, nil, links)
+	if len(got) != 1 {
+		t.Fatalf("got %d pairs, want 1: %+v", len(got), got)
+	}
+	cp := got[0]
+	if cp.Status != "tunnel" || cp.FromCluster != "cluster-a" || cp.ToCluster != "cluster-b" {
+		t.Errorf("got %+v, want Status=tunnel for cluster-a -> cluster-b", cp)
+	}
+	if len(cp.Links) != 1 || cp.Links[0].Kind != "overlay" {
+		t.Errorf("got Links=%+v, want the one overlay ClusterLink attached", cp.Links)
+	}
+	if cp.Evidence != nil {
+		t.Errorf("got Evidence=%+v, want nil - the attached Link already is the evidence", cp.Evidence)
+	}
+}
+
+func TestCorrelateClusterPairConnectivityReportsSubnetStatusFromAnExistingSubnetLink(t *testing.T) {
+	a := nodeForClusterLink("cluster-a", "a", "node-a")
+	a.HostSubnets = []string{"10.20.30.5/24"}
+	b := nodeForClusterLink("cluster-b", "b", "node-b")
+	b.HostSubnets = []string{"10.20.30.9/24"}
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
+	nodes := []model.Node{a, b}
+	links := correlateClusterLinks(nodes, names, nil, nil)
+
+	got := correlateClusterPairConnectivity(nodes, names, nil, nil, links)
+	if len(got) != 1 || got[0].Status != "subnet" {
+		t.Fatalf("got %+v, want exactly 1 pair with Status=subnet", got)
+	}
+	if len(got[0].Links) != 1 || got[0].Links[0].Kind != "subnet" {
+		t.Errorf("got Links=%+v, want the one subnet ClusterLink attached", got[0].Links)
+	}
+}
+
+// TestCorrelateClusterPairConnectivityPrefersTunnelStatusWhenBothKindsCoexist pins that, for a pair
+// corroborated by both an overlay tunnel and a shared subnet (two independent facts about the same pair -
+// see TestCorrelateClusterLinksBothKindsCanCoexistForTheSamePair), Status reads "tunnel" - the stronger,
+// more specific fact - while Links still carries both, so nothing is actually dropped.
+func TestCorrelateClusterPairConnectivityPrefersTunnelStatusWhenBothKindsCoexist(t *testing.T) {
+	a := nodeForClusterLink("cluster-a", "a", "node-a")
+	a.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}}}
+	a.HostSubnets = []string{"10.20.30.5/24"}
+	b := nodeForClusterLink("cluster-b", "b", "node-b")
+	b.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"}}}
+	b.HostSubnets = []string{"10.20.30.9/24"}
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
+	nodes := []model.Node{a, b}
+	links := correlateClusterLinks(nodes, names, nil, nil)
+	if len(links) != 2 {
+		t.Fatalf("setup: got %d links, want 2", len(links))
+	}
+
+	got := correlateClusterPairConnectivity(nodes, names, nil, nil, links)
+	if len(got) != 1 || got[0].Status != "tunnel" {
+		t.Fatalf("got %+v, want exactly 1 pair with Status=tunnel", got)
+	}
+	if len(got[0].Links) != 2 {
+		t.Errorf("got %d Links, want both the overlay and the subnet link attached", len(got[0].Links))
+	}
+}
+
+// TestCorrelateClusterPairConnectivityFlagsUnexplainedCrossClusterTrafficWithNoCorroboratedLink pins the
+// "unexplained" case: traffic crosses a cluster pair, both sides reported real network evidence of their
+// own (Tunnels/HostSubnets), and none of it correlates - this must never be silently reported as if the
+// pair were simply unconnected.
+func TestCorrelateClusterPairConnectivityFlagsUnexplainedCrossClusterTrafficWithNoCorroboratedLink(t *testing.T) {
+	a := nodeForClusterLink("cluster-a", "a", "node-a")
+	a.HostSubnets = []string{"10.20.30.5/24"} // real network evidence, but...
+	b := nodeForClusterLink("cluster-b", "b", "node-b")
+	b.HostSubnets = []string{"10.20.31.5/24"} // ...a genuinely different /24 - no subnet link, no tunnel.
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
+	nodes := []model.Node{a, b}
+	links := correlateClusterLinks(nodes, names, nil, nil)
+	if links != nil {
+		t.Fatalf("setup: got %+v, want no ClusterLink for these two clusters", links)
+	}
+
+	deps := []model.Dependency{
+		{From: "svc-a", FromKind: "service", To: "svc-b", ToKind: "service"},
+	}
+	serviceClusterID := map[string]string{"svc-a": "cluster-a", "svc-b": "cluster-b"}
+
+	got := correlateClusterPairConnectivity(nodes, names, deps, serviceClusterID, links)
+	if len(got) != 1 {
+		t.Fatalf("got %d pairs, want 1: %+v", len(got), got)
+	}
+	cp := got[0]
+	if cp.Status != "unexplained" {
+		t.Errorf("got Status=%q, want unexplained", cp.Status)
+	}
+	if cp.DependencyFlows != 1 {
+		t.Errorf("got DependencyFlows=%d, want 1", cp.DependencyFlows)
+	}
+	if cp.Links != nil {
+		t.Errorf("got Links=%+v, want nil - there is no corroborated link to point at", cp.Links)
+	}
+	if cp.Evidence == nil || cp.Evidence.Confidence != "high" {
+		t.Fatalf("got Evidence=%+v, want a high-confidence explanation (both sides had evidence to check)", cp.Evidence)
+	}
+}
+
+// TestCorrelateClusterPairConnectivityFlagsUnknownWhenOneSideHasNoNetworkEvidenceAtAll pins the "unknown"
+// case: traffic crosses a cluster pair, but one side never reported a Tunnel or a HostSubnets prefix at
+// all, so there was nothing to correlate from that side - this must read "unknown", never be collapsed
+// into "unexplained", which would claim a negative that was never actually checked.
+func TestCorrelateClusterPairConnectivityFlagsUnknownWhenOneSideHasNoNetworkEvidenceAtAll(t *testing.T) {
+	a := nodeForClusterLink("cluster-a", "a", "node-a")
+	a.HostSubnets = []string{"10.20.30.5/24"}
+	b := nodeForClusterLink("cluster-b", "b", "node-b") // no Tunnels, no HostSubnets at all
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
+	nodes := []model.Node{a, b}
+
+	deps := []model.Dependency{
+		{From: "svc-a", FromKind: "service", To: "svc-b", ToKind: "service"},
+	}
+	serviceClusterID := map[string]string{"svc-a": "cluster-a", "svc-b": "cluster-b"}
+
+	got := correlateClusterPairConnectivity(nodes, names, deps, serviceClusterID, nil)
+	if len(got) != 1 {
+		t.Fatalf("got %d pairs, want 1: %+v", len(got), got)
+	}
+	cp := got[0]
+	if cp.Status != "unknown" {
+		t.Errorf("got Status=%q, want unknown", cp.Status)
+	}
+	if cp.Evidence == nil || cp.Evidence.Confidence != "low" {
+		t.Fatalf("got Evidence=%+v, want a low-confidence \"not enough evidence\" explanation", cp.Evidence)
+	}
+}
+
+// TestCorrelateClusterPairConnectivitySkipsPairsWithNoRelationshipAtAll pins the cardinality bound: two
+// onboarded clusters that have never exchanged an observed dependency and have no confirmed link get no
+// row at all - never a manufactured "unknown" for every possible pair in the topology.
+func TestCorrelateClusterPairConnectivitySkipsPairsWithNoRelationshipAtAll(t *testing.T) {
+	a := nodeForClusterLink("cluster-a", "a", "node-a")
+	b := nodeForClusterLink("cluster-b", "b", "node-b")
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
+	got := correlateClusterPairConnectivity([]model.Node{a, b}, names, nil, nil, nil)
+	if got != nil {
+		t.Errorf("got %+v, want nil - these two clusters have no relationship to report on", got)
+	}
+}
+
+func TestCorrelateClusterPairConnectivityOrdersFromToByClusterIDRegardlessOfScanOrder(t *testing.T) {
+	a := nodeForClusterLink("z-cluster", "a", "node-a")
+	b := nodeForClusterLink("a-cluster", "b", "node-b")
+	names := map[string]string{"z-cluster": "Z", "a-cluster": "A"}
+	deps := []model.Dependency{
+		{From: "svc-z", FromKind: "service", To: "svc-a", ToKind: "service"},
+	}
+	serviceClusterID := map[string]string{"svc-z": "z-cluster", "svc-a": "a-cluster"}
+
+	got := correlateClusterPairConnectivity([]model.Node{a, b}, names, deps, serviceClusterID, nil)
+	if len(got) != 1 || got[0].FromCluster != "a-cluster" || got[0].ToCluster != "z-cluster" {
+		t.Errorf("got %+v, want from=a-cluster to=z-cluster regardless of scan/dependency order", got)
+	}
+}
+
+func TestCorrelateClusterPairConnectivityCountsEveryCrossClusterDependencyRegardlessOfInterface(t *testing.T) {
+	a := nodeForClusterLink("cluster-a", "a", "node-a")
+	b := nodeForClusterLink("cluster-b", "b", "node-b")
+	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
+	deps := []model.Dependency{
+		{From: "svc-a1", FromKind: "service", To: "svc-b1", ToKind: "service"},
+		{From: "svc-a2", FromKind: "service", To: "svc-b1", ToKind: "service", Iface: "eth0"},
+		// Same cluster on both ends - must not be counted as a cross-cluster flow.
+		{From: "svc-a1", FromKind: "service", To: "svc-a2", ToKind: "service"},
+		// A device, not a service - must not be counted (mirrors correlateClusterLinks' own rollup rule).
+		{From: "dev-a1", FromKind: "device", To: "svc-b1", ToKind: "service"},
+	}
+	serviceClusterID := map[string]string{
+		"svc-a1": "cluster-a", "svc-a2": "cluster-a",
+		"svc-b1": "cluster-b",
+	}
+
+	got := correlateClusterPairConnectivity([]model.Node{a, b}, names, deps, serviceClusterID, nil)
+	if len(got) != 1 {
+		t.Fatalf("got %d pairs, want 1: %+v", len(got), got)
+	}
+	if got[0].DependencyFlows != 2 {
+		t.Errorf("got DependencyFlows=%d, want 2 (only the two genuine cross-cluster service calls)", got[0].DependencyFlows)
+	}
+	if got[0].Status != "unknown" {
+		t.Errorf("got Status=%q, want unknown (neither node reported any Tunnels or HostSubnets)", got[0].Status)
+	}
+}
