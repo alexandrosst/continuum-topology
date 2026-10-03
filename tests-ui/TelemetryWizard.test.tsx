@@ -16,8 +16,9 @@ vi.mock('@/store/topology', () => ({
   useTopology: () => topologyState,
 }))
 vi.mock('@/store/server', () => ({
-  useServer: (selector?: (s: { state?: { agents: Agent[] }; info?: { install?: undefined } }) => unknown) =>
-    selector ? selector({ state: { agents: [] }, info: {} }) : { state: { agents: [] }, info: {} },
+  useServer: (selector?: (s: { state?: { agents: Agent[] }; info?: { install?: undefined }; role?: undefined }) => unknown) =>
+    selector ? selector({ state: { agents: [] }, info: {}, role: undefined }) : { state: { agents: [] }, info: {} },
+  useConn: () => ({ url: '', org: '' }),
 }))
 
 function renderWizard(props: { agentId?: string; initialScope?: { name: string; namespaces: string[] } } = {}) {

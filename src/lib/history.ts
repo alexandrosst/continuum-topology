@@ -20,6 +20,8 @@ export interface AppSettings {
   flowStaleSeconds: number
   measureSeconds: number
   probeTargets: ProbeTarget[]
+  /** Observability backends (Jaeger, Prometheus) an administrator quick-started an install command for - see QuickStartBackend. */
+  quickStartBackends: QuickStartBackend[]
   /** Only administrators receive the address; everyone else learns that one is configured. */
   deciderUrl: string
   deciderName: string
@@ -46,6 +48,22 @@ export interface ProbeTarget {
   port: number
 }
 
+export type QuickStartKind = 'jaeger' | 'prometheus'
+
+/** A quick-start observability backend a person set up from the telemetry destination picker - see
+ * quickStartBackends.ts for what each kind's install command actually does. The server never deploys or
+ * dials any of this; it's a note kept so the picker can offer it again and "open this tool" has somewhere
+ * to go once toolUrl is filled in. */
+export interface QuickStartBackend {
+  id: string
+  kind: QuickStartKind
+  modality: 'traces' | 'metrics'
+  namespace: string
+  retention: string
+  toolUrl?: string
+  label: string
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   snapshotMinutes: 5,
   retentionDays: 30,
@@ -57,6 +75,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   flowStaleSeconds: 300,
   measureSeconds: 120,
   probeTargets: [],
+  quickStartBackends: [],
   deciderUrl: '',
   deciderName: '',
   deciderTimeoutSec: 10,
@@ -69,7 +88,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 export function normalizeSettings(s: Partial<AppSettings> | null | undefined): AppSettings {
-  return { ...DEFAULT_SETTINGS, ...s, probeTargets: s?.probeTargets ?? [], imageDefaults: { ...DEFAULT_SETTINGS.imageDefaults, ...s?.imageDefaults } }
+  return { ...DEFAULT_SETTINGS, ...s, probeTargets: s?.probeTargets ?? [], quickStartBackends: s?.quickStartBackends ?? [], imageDefaults: { ...DEFAULT_SETTINGS.imageDefaults, ...s?.imageDefaults } }
 }
 
 /** Event retention is opt-in: off means "keep forever" (0, always valid, whatever text is left in the box).
