@@ -62,9 +62,13 @@ func tokenID(token string) string {
 }
 
 func (r *runner) logCode(id *Identity, why string) {
-	// The code leads the line, right after a fixed short label, and is also its own field: someone
-	// scanning `kubectl logs` output should be able to spot it without reading the rest of the sentence.
-	r.log.Info("APPROVAL CODE: "+id.ApprovalCode+" (enter it in Continuum to approve this cluster)",
+	// The code lives in exactly one place: the "code" field, right after the message. Earlier this also
+	// repeated the code inside the free-text message itself ("APPROVAL CODE: XXXX-XXXX (enter it..."),
+	// which put the same value twice on one line - confusing on a terminal, and especially so once someone
+	// greps for it (grep -i "approval code" returns a line where the code visibly appears twice). A fixed
+	// label in the message plus the single value in "code" still leads the line and is still its own
+	// field for anything that searches logs by field, without the duplication.
+	r.log.Info("APPROVAL CODE (enter it in Continuum to approve this cluster)",
 		"code", id.ApprovalCode, "why", why, "kubectl", "kubectl -n continuum-system logs deploy/continuum-agent | grep -i 'approval code'")
 }
 
