@@ -238,6 +238,16 @@ type Node struct {
 	// among them): a kill landing in the same window as a sudden drop in a pod's own flow activity is
 	// the node-side explanation retransmit growth alone could never provide.
 	OomKillCount *uint64 `json:"oomKillCount,omitempty"`
+	// HostWatts is this node's host-wide power draw, in watts, averaged over a brief sampling window the
+	// node probe itself takes (see continuumv1.HostProbe.host_watts' own doc comment) - from intel-rapl's
+	// package-0 energy counter, when the hardware exposes one. This is host-wide power, honestly
+	// documented as such: it is not, and must never be shown as, Continuum's own share of it - a separate,
+	// clearly-labeled estimate derived elsewhere (see the server's self-telemetry endpoint) divides this
+	// by Continuum's own cgroup CPU share of the node to get that. nil on the overwhelming majority of
+	// this product's actual target hardware (no node probe installed, an ARM/edge board, a VM, or an
+	// amd64 host whose kernel has no RAPL support) - never a fabricated 0, the same pointer treatment
+	// CPUPressurePct/OomKillCount above already use for their own absence.
+	HostWatts *float64 `json:"hostWatts,omitempty"`
 	// LinkSaturation is this node's current per-interface network throughput and, where the interface's
 	// own rated speed could be read, what share of it is in use - computed by the flow collector from
 	// this window's actual flow byte counters (see continuumv1.LinkSaturation's own doc comment), not by

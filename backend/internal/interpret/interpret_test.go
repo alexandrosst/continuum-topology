@@ -413,7 +413,7 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 	s := facts.New()
 	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-probe"}
 	s.Nodes["a"] = node("a", func(n *N) {
-		cpuPsi, memPsi, ioPsi, oomKills := 2.5, 0.0, 13.75, uint64(2)
+		cpuPsi, memPsi, ioPsi, oomKills, watts := 2.5, 0.0, 13.75, uint64(2), 185.5
 		n.Probe = &P{
 			SysVendor: "Dell Inc.", ProductName: "PowerEdge R640",
 			CpuModel: "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz", CpuThreads: 32,
@@ -425,6 +425,7 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 			MemoryPressurePct: &memPsi,
 			IoPressurePct:     &ioPsi,
 			OomKillCount:      &oomKills,
+			HostWatts:         &watts,
 		}
 	})
 	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
@@ -468,6 +469,12 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 	if n.OomKillCount == nil || *n.OomKillCount != 2 {
 		t.Errorf("oomKillCount = %v, want 2", n.OomKillCount)
 	}
+	// HostWatts is a plain pass-through too, the same pointer treatment as the PSI/OomKillCount fields
+	// right above it - host-wide power from RAPL, when the hardware exposes it, honestly documented as
+	// such (never Continuum's own share of it - see model.Node.HostWatts' own doc comment).
+	if n.HostWatts == nil || *n.HostWatts != 185.5 {
+		t.Errorf("hostWatts = %v, want 185.5", n.HostWatts)
+	}
 }
 
 // TestInterpretLeavesPressureNilWhenProbeDidNotReadIt covers a probe run on a cgroup v1 host (or an
@@ -486,6 +493,9 @@ func TestInterpretLeavesPressureNilWhenProbeDidNotReadIt(t *testing.T) {
 	}
 	if n.OomKillCount != nil {
 		t.Errorf("oomKillCount = %v, want nil (this probe never reported it)", n.OomKillCount)
+	}
+	if n.HostWatts != nil {
+		t.Errorf("hostWatts = %v, want nil (no RAPL on this hardware, the overwhelmingly common case)", n.HostWatts)
 	}
 }
 

@@ -365,6 +365,103 @@ func TestSanitizeOomKillCount(t *testing.T) {
 	}
 }
 
+// TestRAPLAbsentIsNotAnError covers the overwhelmingly common case on this product's actual target
+// hardware: no powercap sysfs interface at all (ARM/edge boards, most VMs, an amd64 host without RAPL
+// support). Read must return promptly, paying no sleep, with HostWatts left nil - never a fabricated 0.
+func TestRAPLAbsentIsNotAnError(t *testing.T) {
+	start := time.Now()
+	h := Read(Paths{Sys: t.TempDir(), Proc: t.TempDir()})
+	if h.HostWatts != nil {
+		t.Fatalf("hostWatts = %v, want nil when no powercap interface exists at all", h.HostWatts)
+	}
+	if elapsed := time.Since(start); elapsed > raplSampleWindow {
+		t.Fatalf("absence must cost no sleep at all, took %v (raplSampleWindow is %v)", elapsed, raplSampleWindow)
+	}
+}
+
+// TestRAPLComputesAverageWatts covers the real, present case end to end through Read(): a counter that
+// genuinely increases between the two samples rapl() takes raplSampleWindow apart. raplSampleWindow is
+// shrunk for the test's own duration so this does not slow the suite down; the counter is mutated by a
+// goroutine timed to land inside that window, the same real-timing idiom this package's e2e-style tests
+// already use elsewhere (see e.g. the agent package's multi-second sleeps).
+func TestRAPLComputesAverageWatts(t *testing.T) {
+	old := raplSampleWindow
+	raplSampleWindow = 40 * time.Millisecond
+	defer func() { raplSampleWindow = old }()
+
+	root := t.TempDir()
+	sys := filepath.Join(root, "sys")
+	write(t, sys, "class/powercap/intel-rapl:0/energy_uj", "1000000\n") // 1 J to start
+
+	go func() {
+		time.Sleep(raplSampleWindow / 4)
+		write(t, sys, "class/powercap/intel-rapl:0/energy_uj", "1500000\n") // +0.5 J before the second read
+	}()
+
+	h := Read(Paths{Sys: sys, Proc: t.TempDir()})
+	if h.HostWatts == nil {
+		t.Fatal("hostWatts = nil, want a real reading: the counter file exists and genuinely increased")
+	}
+	// At least 0.5J was consumed over at most a handful of raplSampleWindow's worth of wall-clock time
+	// (generous margin for scheduling jitter in a busy sandbox) - a real, clearly nonzero, clearly
+	// bounded reading, not a crude sanity check for "some number came back".
+	if *h.HostWatts <= 0 || *h.HostWatts > 0.5/(raplSampleWindow.Seconds())*4 {
+		t.Fatalf("hostWatts = %v, want roughly 0.5J divided by about %v", *h.HostWatts, raplSampleWindow)
+	}
+}
+
+// TestRAPLDeltaHandlesWraparoundWithoutAnyRealTiming covers raplDelta's own arithmetic in isolation -
+// see its own doc comment for why this is split out of rapl(): no real sleep, no flakiness, exact
+// expected values.
+func TestRAPLDeltaHandlesWraparoundWithoutAnyRealTiming(t *testing.T) {
+	// The ordinary, non-wrapped case: the max-range reader is never even called.
+	calledMax := false
+	maxFn := func() (uint64, bool) { calledMax = true; return 0, false }
+	if d, ok := raplDelta(100, 150, maxFn); !ok || d != 50 || calledMax {
+		t.Fatalf("delta=%d ok=%v calledMax=%v, want 50/true/false", d, ok, calledMax)
+	}
+
+	// Wrapped once: e2 < e1, corrected using max_energy_range_uj.
+	if d, ok := raplDelta(950, 50, func() (uint64, bool) { return 1000, true }); !ok || d != 100 {
+		t.Fatalf("wrapped delta=%d ok=%v, want 100/true ((1000-950)+50)", d, ok)
+	}
+
+	// Wrapped, but max_energy_range_uj cannot be read: nil, not a guess.
+	if _, ok := raplDelta(950, 50, func() (uint64, bool) { return 0, false }); ok {
+		t.Fatal("want ok=false when a wrap is seen but the range cannot be read")
+	}
+
+	// Wrapped, but the range read back is nonsensical (smaller than e1 itself): nil, not a guess.
+	if _, ok := raplDelta(950, 50, func() (uint64, bool) { return 500, true }); ok {
+		t.Fatal("want ok=false when max_energy_range_uj is smaller than e1, which this package cannot make sense of")
+	}
+
+	// e2 == e1: a real, valid zero-delta reading (the host drew the window's own epsilon of power).
+	if d, ok := raplDelta(500, 500, maxFn); !ok || d != 0 {
+		t.Fatalf("equal readings: delta=%d ok=%v, want 0/true", d, ok)
+	}
+}
+
+func TestSanitizeWatts(t *testing.T) {
+	ok, neg, nan, tooHigh := 185.5, -1.0, math.NaN(), float64(maxPlausibleWatts)
+	s := Sanitize(&continuumv1.HostProbe{HostWatts: &ok})
+	if s.HostWatts == nil || *s.HostWatts != 185.5 {
+		t.Fatalf("hostWatts = %v, want 185.5", s.HostWatts)
+	}
+	if Sanitize(&continuumv1.HostProbe{HostWatts: &neg}).HostWatts != nil {
+		t.Fatal("a negative watts figure must be dropped, not stored or shown as if it were real")
+	}
+	if Sanitize(&continuumv1.HostProbe{HostWatts: &nan}).HostWatts != nil {
+		t.Fatal("NaN must be dropped")
+	}
+	if Sanitize(&continuumv1.HostProbe{HostWatts: &tooHigh}).HostWatts != nil {
+		t.Fatal("an implausibly large watts figure must be dropped")
+	}
+	if Sanitize(&continuumv1.HostProbe{}).HostWatts != nil {
+		t.Fatal("an unset hostWatts must stay nil, not become a fabricated 0")
+	}
+}
+
 // TestSanitizeKeepsTunnelsAndHostSubnets guards against the regression this session found: Sanitize
 // built its output field-by-field and simply never copied Tunnels or HostSubnets at all, so every
 // node probe report silently lost its network-topology facts between the agent's receiver and

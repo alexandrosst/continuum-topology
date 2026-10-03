@@ -2068,7 +2068,18 @@ type HostProbe struct {
 	// same per-pod-attribution gap cpu_pressure_pct/memory_pressure_pct/io_pressure_pct above already
 	// documents and, for the same reason (no cgroup-path-resolution code exists in this codebase to find
 	// one specific pod's own cgroup), does not try to close here either.
-	OomKillCount  *uint64 `protobuf:"varint,23,opt,name=oom_kill_count,json=oomKillCount,proto3,oneof" json:"oom_kill_count,omitempty"`
+	OomKillCount *uint64 `protobuf:"varint,23,opt,name=oom_kill_count,json=oomKillCount,proto3,oneof" json:"oom_kill_count,omitempty"`
+	// Average power draw of the whole host, in watts, over a brief sampling window taken during this one
+	// probe read (see probe.rapl's own doc comment) - from intel-rapl's package-0 energy counter
+	// (/sys/class/powercap/intel-rapl:0/energy_uj, the kernel's RAPL/powercap sysfs interface). This is
+	// host-wide power, when the hardware exposes it - never Continuum's own share of it; a caller wanting
+	// that separate, estimated figure derives it (hostWatts * Continuum's own cgroup CPU share) rather
+	// than reading it from here. optional because RAPL is the overwhelmingly uncommon case across this
+	// product's actual target hardware: absent on essentially every ARM/edge board, on most VMs (the
+	// counter is not virtualized by any hypervisor this probe has seen), and on any amd64 host whose
+	// kernel was not built with RAPL support - absence here is the expected, common case, never an error,
+	// the same discipline cpu_pressure_pct/oom_kill_count above already apply to their own absence.
+	HostWatts     *float64 `protobuf:"fixed64,24,opt,name=host_watts,json=hostWatts,proto3,oneof" json:"host_watts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2260,6 +2271,13 @@ func (x *HostProbe) GetIoPressurePct() float64 {
 func (x *HostProbe) GetOomKillCount() uint64 {
 	if x != nil && x.OomKillCount != nil {
 		return *x.OomKillCount
+	}
+	return 0
+}
+
+func (x *HostProbe) GetHostWatts() float64 {
+	if x != nil && x.HostWatts != nil {
+		return *x.HostWatts
 	}
 	return 0
 }
@@ -6156,7 +6174,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01B\f\n" +
 	"\n" +
-	"_pod_count\"\xf5\a\n" +
+	"_pod_count\"\xa8\b\n" +
 	"\tHostProbe\x12#\n" +
 	"\rprobe_version\x18\x01 \x01(\tR\fprobeVersion\x12%\n" +
 	"\x0ehypervisor_bit\x18\x02 \x01(\bR\rhypervisorBit\x12'\n" +
@@ -6188,11 +6206,14 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x10cpu_pressure_pct\x18\x14 \x01(\x01H\x00R\x0ecpuPressurePct\x88\x01\x01\x123\n" +
 	"\x13memory_pressure_pct\x18\x15 \x01(\x01H\x01R\x11memoryPressurePct\x88\x01\x01\x12+\n" +
 	"\x0fio_pressure_pct\x18\x16 \x01(\x01H\x02R\rioPressurePct\x88\x01\x01\x12)\n" +
-	"\x0eoom_kill_count\x18\x17 \x01(\x04H\x03R\foomKillCount\x88\x01\x01B\x13\n" +
+	"\x0eoom_kill_count\x18\x17 \x01(\x04H\x03R\foomKillCount\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"host_watts\x18\x18 \x01(\x01H\x04R\thostWatts\x88\x01\x01B\x13\n" +
 	"\x11_cpu_pressure_pctB\x16\n" +
 	"\x14_memory_pressure_pctB\x12\n" +
 	"\x10_io_pressure_pctB\x11\n" +
-	"\x0f_oom_kill_count\"k\n" +
+	"\x0f_oom_kill_countB\r\n" +
+	"\v_host_watts\"k\n" +
 	"\x10NetworkInterface\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1d\n" +

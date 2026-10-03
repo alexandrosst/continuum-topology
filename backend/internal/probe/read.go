@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	continuumv1 "continuum/gen/continuumv1"
@@ -125,6 +126,7 @@ func Read(p Paths) *continuumv1.HostProbe {
 	h.MemoryPressurePct = psiSomeAvg60(filepath.Join(cgroup, "memory.pressure"))
 	h.IoPressurePct = psiSomeAvg60(filepath.Join(cgroup, "io.pressure"))
 	h.OomKillCount = oomKillTotal(cgroup)
+	h.HostWatts = rapl(filepath.Join(p.Sys, "class", "powercap"))
 	return h
 }
 
@@ -210,6 +212,89 @@ func oomKillFromEvents(path string) uint64 {
 		return n
 	}
 	return 0
+}
+
+// raplSampleWindow is how long rapl() waits between its two energy-counter readings - see its own doc
+// comment. A var, not a const, so a test can shrink it; production code never changes it.
+var raplSampleWindow = 30 * time.Millisecond
+
+// readUint64 parses a sysfs counter file (one bare decimal number, as every powercap energy_uj/
+// max_energy_range_uj file is documented to hold) - see Documentation/power/powercap/powercap.rst.
+// ok is false for a missing file, a permission error, or content that is not a plain non-negative
+// integer; the caller treats that exactly like psiSomeAvg60/oomKillTotal already treat their own
+// unreadable-file case, never as a fabricated 0.
+func readUint64(path string) (n uint64, ok bool) {
+	s := strings.TrimSpace(readText(path))
+	if s == "" {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(s, 10, 64)
+	return n, err == nil
+}
+
+// rapl reads intel-rapl's package-0 domain energy counter twice, raplSampleWindow apart, and returns
+// the average power draw over that window in watts - see HostProbe.host_watts' own doc comment for what
+// this does and does not claim. sysClassPowercap is /sys/class/powercap.
+//
+// Returns nil - never a fabricated 0 - the instant the counter file does not exist at all, with no
+// sleep paid for that overwhelmingly common case: no RAPL interface on this hardware (most ARM/edge
+// boards), a VM (the counter is not virtualized by any hypervisor this probe has seen), or an amd64 host
+// whose kernel was built without CONFIG_INTEL_RAPL. Only when the file is actually there does this pay
+// raplSampleWindow of real wall-clock time, once per probe read (the DaemonSet's own report interval,
+// nodeProbe.interval, is measured in minutes - this is unnoticeable next to it).
+//
+// package-0 (intel-rapl:0) only, not a sum across every RAPL domain the hardware might expose (dram,
+// per-core psys, ...) - the same reasoning HostProbe.cpu_pressure_pct's own doc gives for reading PSI's
+// "some" line at the root cgroup rather than walking everything available: one number this package can
+// stand fully behind, rather than a figure whose composition would silently vary machine to machine.
+//
+// Handles the counter's own wraparound: intel-rapl's energy_uj is a fixed-width hardware register that
+// resets to 0 once it passes max_energy_range_uj (see the kernel doc above), so a second reading smaller
+// than the first is not itself a problem - it means exactly one wrap happened in between (RAPL's own
+// update rate makes two wraps within one short sample window physically impossible on any real system),
+// corrected for by adding the range back in. If max_energy_range_uj cannot be read at the moment a wrap
+// is seen, this returns nil rather than guess at the correction.
+func rapl(sysClassPowercap string) *float64 {
+	domain := filepath.Join(sysClassPowercap, "intel-rapl:0")
+	energyPath := filepath.Join(domain, "energy_uj")
+	e1, ok := readUint64(energyPath)
+	if !ok {
+		return nil
+	}
+	t1 := time.Now()
+	time.Sleep(raplSampleWindow)
+	e2, ok := readUint64(energyPath)
+	if !ok {
+		return nil
+	}
+	elapsed := time.Since(t1).Seconds()
+	if elapsed <= 0 {
+		return nil
+	}
+	deltaUJ, ok := raplDelta(e1, e2, func() (uint64, bool) { return readUint64(filepath.Join(domain, "max_energy_range_uj")) })
+	if !ok {
+		return nil
+	}
+	watts := float64(deltaUJ) / 1e6 / elapsed
+	return &watts
+}
+
+// raplDelta is rapl()'s pure arithmetic core, split out so the wraparound correction can be tested
+// without depending on real wall-clock timing: how much energy (in microjoules) was consumed between
+// two energy_uj readings, correcting for the counter's own wraparound (see rapl's own doc comment) via
+// maxEnergyRangeUJ, called only when a wrap is actually seen (e2 < e1) - the common, non-wrapped case
+// never touches the filesystem a second time for it. ok is false only when a wrap is seen and
+// max_energy_range_uj cannot be read, or reads back smaller than e1 itself (a value this package cannot
+// make sense of, so it does not guess).
+func raplDelta(e1, e2 uint64, maxEnergyRangeUJ func() (uint64, bool)) (uint64, bool) {
+	if e2 >= e1 {
+		return e2 - e1, true
+	}
+	maxRange, ok := maxEnergyRangeUJ()
+	if !ok || maxRange < e1 {
+		return 0, false
+	}
+	return (maxRange - e1) + e2, true
 }
 
 // psiSomeAvg60 reads one cgroup v2 pressure-stall file's "some avg60" figure - see
@@ -467,6 +552,22 @@ func sanitizePressurePct(v *float64) *float64 {
 	return &n
 }
 
+// maxPlausibleWatts bounds host_watts the same way maxPlausibleOomKillCount bounds a kill count: the
+// largest single-host power draw in any real deployment target of this product (a dense multi-socket
+// server under full load) stays far below this; anything at or beyond it is far more likely a hostile
+// or corrupted sender than a real reading.
+const maxPlausibleWatts = 100_000
+
+// sanitizeWatts keeps a sent host_watts only when it is a plausible, finite, non-negative power figure -
+// see maxPlausibleWatts. nil (RAPL absent, or an older probe) passes through unchanged.
+func sanitizeWatts(v *float64) *float64 {
+	if v == nil || math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0 || *v >= maxPlausibleWatts {
+		return nil
+	}
+	n := *v
+	return &n
+}
+
 // Sanitize bounds and cleans an observation received from the network, so a hostile or buggy sender
 // cannot store anything but short printable strings and known values.
 func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
@@ -489,6 +590,7 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 	out.MemoryPressurePct = sanitizePressurePct(h.MemoryPressurePct)
 	out.IoPressurePct = sanitizePressurePct(h.IoPressurePct)
 	out.OomKillCount = sanitizeOomKillCount(h.OomKillCount)
+	out.HostWatts = sanitizeWatts(h.HostWatts)
 	seen := map[string]bool{}
 	for _, u := range h.Uplinks {
 		if (u == "ethernet" || u == "wifi" || u == "cellular") && !seen[u] {

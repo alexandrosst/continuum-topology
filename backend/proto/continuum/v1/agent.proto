@@ -384,6 +384,17 @@ message HostProbe {
   // documents and, for the same reason (no cgroup-path-resolution code exists in this codebase to find
   // one specific pod's own cgroup), does not try to close here either.
   optional uint64 oom_kill_count = 23;
+  // Average power draw of the whole host, in watts, over a brief sampling window taken during this one
+  // probe read (see probe.rapl's own doc comment) - from intel-rapl's package-0 energy counter
+  // (/sys/class/powercap/intel-rapl:0/energy_uj, the kernel's RAPL/powercap sysfs interface). This is
+  // host-wide power, when the hardware exposes it - never Continuum's own share of it; a caller wanting
+  // that separate, estimated figure derives it (hostWatts * Continuum's own cgroup CPU share) rather
+  // than reading it from here. optional because RAPL is the overwhelmingly uncommon case across this
+  // product's actual target hardware: absent on essentially every ARM/edge board, on most VMs (the
+  // counter is not virtualized by any hypervisor this probe has seen), and on any amd64 host whose
+  // kernel was not built with RAPL support - absence here is the expected, common case, never an error,
+  // the same discipline cpu_pressure_pct/oom_kill_count above already apply to their own absence.
+  optional double host_watts = 24;
 }
 
 // One physical network interface the node probe found up (see HostProbe.interfaces). Everything here is
