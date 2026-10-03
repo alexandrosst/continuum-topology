@@ -442,6 +442,10 @@ func markObservation(t *model.Topology, o twin.Observation, nodes map[string]twi
 		s := &t.Services[i]
 		s.Stale, s.State, s.StateReason = stale, state, reason
 	}
+	for i := range t.Agents {
+		ag := &t.Agents[i]
+		ag.Stale, ag.State, ag.StateReason = stale, state, reason
+	}
 }
 
 // model serves the effective model: GET /api/v1/orgs/{org}/model. It carries an entity tag that changes exactly when

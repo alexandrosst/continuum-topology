@@ -688,3 +688,35 @@ func TestInterpretExtendedFacts(t *testing.T) {
 		t.Errorf("known %d unknown %d", known, unknown)
 	}
 }
+
+// TestInterpretAddsOneAgentPerCluster covers model.Agent's own "identity is just the cluster it serves"
+// contract: Interpret always appends exactly one Agent for its input (ID/ClusterID/Name straight from
+// Input, the same provenance treatment - source/key/agentId - every other entity here gets), and leaves
+// Self nil when the caller passed no self-telemetry sample (Hub.buildTopology never fabricates one).
+func TestInterpretAddsOneAgentPerCluster(t *testing.T) {
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "edge-patras", State: k3sFixture(), Now: time.Now()})
+	if len(out.Agents) != 1 {
+		t.Fatalf("agents = %+v, want exactly 1", out.Agents)
+	}
+	ag := out.Agents[0]
+	if ag.ID != "ag-1" || ag.ClusterID != "cl-x" || ag.Name != "edge-patras" {
+		t.Errorf("agent = %+v", ag)
+	}
+	if ag.OrgID != "org" || ag.Source != "discovered" || ag.AgentID != "ag-1" || ag.Key != "cl-x/agent/ag-1" {
+		t.Errorf("agent provenance = %+v", ag.Provenance)
+	}
+	if ag.Self != nil {
+		t.Errorf("self = %+v, want nil when Input.SelfStats was never set", ag.Self)
+	}
+}
+
+// TestInterpretCarriesSelfStatsOntoTheAgentEntity covers the light pointer-through: whatever
+// Hub.buildTopology hands Input.SelfStats ends up, unchanged, as the Agent's own Self - never recomputed
+// or duplicated here.
+func TestInterpretCarriesSelfStatsOntoTheAgentEntity(t *testing.T) {
+	self := &model.AgentSelfStats{T: "2026-09-19T12:00:00Z", RSSBytes: 123456, Goroutines: 42}
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "edge-patras", State: k3sFixture(), Now: time.Now(), SelfStats: self})
+	if out.Agents[0].Self != self {
+		t.Fatalf("self = %+v, want the exact pointer passed in", out.Agents[0].Self)
+	}
+}

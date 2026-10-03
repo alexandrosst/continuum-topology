@@ -30,6 +30,37 @@ type Provenance struct {
 // does not record a new version every time an age ticks over.
 func (p *Provenance) ClearObservation() { p.State, p.StateReason = "", "" }
 
+// Agent is the discovery agent process running inside a cluster - the per-cluster telemetry pipeline
+// itself (what collects and reports facts), never anything it discovered. Its identity is just the
+// cluster it serves: there is exactly one per cluster (1:1), so unlike RegionalOperator there is no
+// separate edge-target-selection to do - a caller joining this to a cluster already has everything it
+// needs in ClusterID. Carries live/stale status the same way Cluster/Node/etc. do (via Provenance,
+// stamped by markObservation using the same agent connection/heartbeat state Cluster's own staleness
+// already comes from), so the canvas can show a disconnected or stale agent exactly like a disconnected
+// or stale cluster.
+type Agent struct {
+	Provenance
+	ID        string `json:"id"`
+	ClusterID string `json:"clusterId"`
+	Name      string `json:"name"`
+	// Self is this agent's most recent self-telemetry sample (RSS/goroutines as of its last heartbeat
+	// that carried one) - a light pointer to its own resource footprint, not a history. Nil until the
+	// agent's first such heartbeat arrives. The full self-telemetry history (with derived CPU% and
+	// bandwidth share, which need two samples to compute a rate) is served by the dedicated self-
+	// telemetry API (GET .../telemetry/self), never duplicated here.
+	Self *AgentSelfStats `json:"self,omitempty"`
+}
+
+// AgentSelfStats is the single most recent self-telemetry reading carried on model.Agent - see its own
+// doc comment for why this is a snapshot, not a series. Field names/JSON tags mirror
+// server.SelfTelemetrySample (admin_telemetry.go) where they overlap, so a client already reading that
+// API sees the same shape here.
+type AgentSelfStats struct {
+	T          string `json:"t"`
+	RSSBytes   uint64 `json:"rssBytes"`
+	Goroutines uint32 `json:"goroutines"`
+}
+
 type Cluster struct {
 	Provenance
 	ID             string            `json:"id"`
@@ -488,10 +519,15 @@ type GroupingAlternative struct {
 }
 
 type Topology struct {
-	Clusters    []Cluster    `json:"clusters"`
-	Nodes       []Node       `json:"nodes"`
-	Namespaces  []Namespace  `json:"namespaces"`
-	Services    []Service    `json:"services"`
+	Clusters   []Cluster   `json:"clusters"`
+	Nodes      []Node      `json:"nodes"`
+	Namespaces []Namespace `json:"namespaces"`
+	Services   []Service   `json:"services"`
+	// Agents are the discovery agent processes themselves, one per cluster that has one - live/stale
+	// the same way Clusters/Nodes above are, via markObservation. Unlike those, never part of a
+	// historical snapshot (history.Compact leaves it out, same as Dependencies/ClusterLinks below): an
+	// agent process is a live-connection fact, not a recorded one.
+	Agents      []Agent      `json:"agents"`
 	Suggestions []Suggestion `json:"suggestions"`
 	// Observed traffic, worked out from the flows agents report. Unlike the records above these are
 	// derived every time the state is built (rates and cross-cluster matches change with every window

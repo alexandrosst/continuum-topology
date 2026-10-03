@@ -48,6 +48,12 @@ type Input struct {
 	// ever treated as throttling evidence. Absent for a node with nothing to report here, the same
 	// "no entry, not a zeroed one" treatment SnatExhaustion gets.
 	ThermalThrottle map[string]*continuumv1.ThermalThrottle
+	// SelfStats is this agent's own most recent self-telemetry sample (RSS/goroutines as of its last
+	// heartbeat that carried one) - Hub.buildTopology reads it straight off view.self (the ring
+	// Hub.noteSelfStats already keeps), never recomputed here. Nil before the agent's first such
+	// heartbeat. Carried straight through onto the Agent entity this pass builds - see model.Agent.Self's
+	// own doc comment for why this is a snapshot, not a series.
+	SelfStats *model.AgentSelfStats
 }
 
 // systemNamespace is excluded from the topology: it is machinery, not the user's applications.
@@ -323,6 +329,17 @@ func Interpret(in Input) model.Topology {
 	}
 	cl.CNI, cl.Ingress = detectAddons(st, nodes)
 	out.Clusters = append(out.Clusters, cl)
+
+	// ---- discovery agent ----
+	// The agent process itself, not anything it discovered - one per cluster, 1:1 with ClusterID (see
+	// model.Agent's own doc for why that needs no edge-target-selection the way regional operators do).
+	// Appended right after the cluster it serves so a reader scanning top to bottom sees "the cluster,
+	// then its own agent", built from the same `prov` (and so the same live/stale treatment once
+	// markObservation stamps it) as everything else in this function.
+	out.Agents = append(out.Agents, model.Agent{
+		Provenance: prov(in.ClusterID+"/agent/"+in.AgentID, st.Seq),
+		ID:         in.AgentID, ClusterID: in.ClusterID, Name: in.Name, Self: in.SelfStats,
+	})
 
 	// ---- namespaces ----
 	ownNS := continuumOwnedNamespaces(st)

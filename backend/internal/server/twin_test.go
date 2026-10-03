@@ -102,6 +102,11 @@ func TestObservationStateFollowsTheClockTheConnectionAndRevocation(t *testing.T)
 	if len(doc.Topology.Clusters) != 1 || !doc.Topology.Clusters[0].Stale || doc.Topology.Clusters[0].State != "stale" {
 		t.Fatalf("state document: %+v", doc.Topology.Clusters)
 	}
+	// The agent entity is marked exactly as stale as the cluster it serves - markObservation stamps
+	// every entity kind from the same Observation, Agent included.
+	if len(doc.Topology.Agents) != 1 || !doc.Topology.Agents[0].Stale || doc.Topology.Agents[0].State != "stale" || doc.Topology.Agents[0].ClusterID != a.ClusterID {
+		t.Fatalf("agent must be as stale as its cluster: %+v", doc.Topology.Agents)
+	}
 
 	// Revocation: the picture stays, marked revoked, and is never a target.
 	if err := h.C.Revoke(r.ctx, "alex", a.ID, "decommissioned"); err != nil {
@@ -119,6 +124,46 @@ func TestObservationStateFollowsTheClockTheConnectionAndRevocation(t *testing.T)
 	*r.now = r.now.Add(8 * 24 * time.Hour)
 	if m, _, _ = h.Model(r.ctx); entityOf(m, "cluster", a.Name) != nil {
 		t.Fatal("a cluster revoked more than a week ago is still in the model")
+	}
+}
+
+// TestAgentSelfStatsFlowsIntoTheTopologyEntity covers the thread from an agent's heartbeat-reported
+// SelfStats, through its ring (view.self), into Topology.Agents[0].Self - the "light pointer to its own
+// resource footprint" model.Agent.Self documents. Before any heartbeat carries SelfStats, Self stays
+// nil (never a fabricated zero-valued sample); once one does, the document's Agent reflects exactly that
+// sample's RSS/goroutines (never duplicating/recomputing it).
+func TestAgentSelfStatsFlowsIntoTheTopologyEntity(t *testing.T) {
+	r := newHubRig(t)
+	h := r.hub
+	a := twinAgent(t, r.env, h, fp)
+	if _, _, err := h.applySync(a, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}), false); err != nil {
+		t.Fatal(err)
+	}
+
+	doc, err := h.State(r.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Topology.Agents) != 1 || doc.Topology.Agents[0].Self != nil {
+		t.Fatalf("before any heartbeat carries SelfStats, Self must stay nil: %+v", doc.Topology.Agents)
+	}
+
+	h.mu.Lock()
+	noteSelfStats(h.views[a.ID], &continuumv1.SelfStats{RssBytes: 123456, Goroutines: 42}, h.C.Now())
+	h.mu.Unlock()
+	// Bust stateFor's own short (modelCacheTTL) cache: a self-stats sample never bumps tw.gen (see
+	// Hub.sampleSelfStats' own doc for why that counter, like a tier narrowing, deliberately does not),
+	// so only the clock moving the first State call's cache entry past modelCacheTTL guarantees the
+	// second call rebuilds rather than replaying the pre-heartbeat snapshot it already cached.
+	*r.now = r.now.Add(3 * time.Second)
+
+	doc, err = h.State(r.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := doc.Topology.Agents[0]
+	if ag.Self == nil || ag.Self.RSSBytes != 123456 || ag.Self.Goroutines != 42 {
+		t.Fatalf("agent.Self = %+v, want the heartbeat's own RSS/goroutines", ag.Self)
 	}
 }
 

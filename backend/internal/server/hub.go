@@ -1190,7 +1190,7 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 // the agent list buildAgentDocs already fetched, rather than fetching it again.
 func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.Time, window time.Duration) (model.Topology, []TombstoneDoc, twin.ObservationDoc, *effectiveBuild, error) {
 	eb := newEffectiveBuild(window)
-	topo := model.Topology{Clusters: []model.Cluster{}, Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Services: []model.Service{}, Suggestions: []model.Suggestion{},
+	topo := model.Topology{Clusters: []model.Cluster{}, Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Services: []model.Service{}, Agents: []model.Agent{}, Suggestions: []model.Suggestion{},
 		Dependencies: []model.Dependency{}, ExternalEndpoints: []model.ExternalEndpoint{}, Paths: []model.Path{}, ClusterLinks: []model.ClusterLink{}, ClusterPairConnectivity: []model.ClusterPairConnectivity{}}
 	var observed, located []observedCluster
 	h.mu.Lock()
@@ -1203,7 +1203,15 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 			continue
 		}
 		recs := h.nodeRecords(a.ClusterID, v.state, now)
-		t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.state, Now: v.lastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs), PodFlows: v.podFlows, LinkSaturation: v.linkSat, SnatExhaustion: v.snatExhaustion, ThermalThrottle: v.thermalThrottle})
+		// The agent's own most recent self-telemetry sample, read straight off its ring (see
+		// SelfStatsFor's own doc for the exported equivalent of this same read) - nil until its first
+		// heartbeat carrying SelfStats arrives, never fabricated.
+		var selfStats *model.AgentSelfStats
+		if hist := v.self.list(); len(hist) > 0 {
+			last := hist[len(hist)-1]
+			selfStats = &model.AgentSelfStats{T: rfc(last.At), RSSBytes: last.RSSBytes, Goroutines: last.Goroutines}
+		}
+		t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.state, Now: v.lastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs), PodFlows: v.podFlows, LinkSaturation: v.linkSat, SnatExhaustion: v.snatExhaustion, ThermalThrottle: v.thermalThrottle, SelfStats: selfStats})
 		var revokedAt time.Time
 		if a.RevokedAt != nil {
 			revokedAt = *a.RevokedAt
@@ -1221,6 +1229,7 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 		topo.Nodes = append(topo.Nodes, t.Nodes...)
 		topo.Namespaces = append(topo.Namespaces, t.Namespaces...)
 		topo.Services = append(topo.Services, t.Services...)
+		topo.Agents = append(topo.Agents, t.Agents...)
 		topo.Suggestions = append(topo.Suggestions, t.Suggestions...)
 		if revoked {
 			continue // a revoked agent's picture is kept to be shown, and is never used to draw traffic or place anything
