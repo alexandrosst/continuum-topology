@@ -430,3 +430,52 @@ func TestModelOrderIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// TestThermalTripDowngradesCpuCapacityConfidenceWithoutChangingTheFigure covers the cpuCapacity
+// confidence-degradation hook in the node loop above: a node whose flow collector reported at least one
+// thermal:thermal_zone_trip tracepoint firing (continuumv1.ThermalThrottle.ThermalTripCount > 0) keeps
+// the exact same reported cpuCapacity figure (this signal never changes WHAT Kubernetes reports, only
+// how much to trust it), but the attribute's own Source/Confidence move from the plain FromAgent/
+// Reported pair every other node gets to FromInferred/Inferred, with Evidence naming why - the same
+// "less trustworthy, not a different number" treatment the task behind this test exists to lock in.
+func TestThermalTripDowngradesCpuCapacityConfidenceWithoutChangingTheFigure(t *testing.T) {
+	st := facts.New()
+	st.Cluster = &continuumv1.ClusterFacts{Uid: "0a1b2c3d-0000-4000-8000-000000000002", Version: "v1.30.2"}
+	st.Nodes["hot-1"] = &continuumv1.NodeFacts{Key: "hot-1", Name: "hot-1", Ready: true, CpuCapacityMillis: 4000, MemoryCapacityBytes: 8 << 30}
+	topo := interpret.Interpret(interpret.Input{OrgID: "org", AgentID: "ag-2", ClusterID: "cl-2", Name: "edge-b", State: st, Now: now, AccessTier: 2,
+		ThermalThrottle: map[string]*continuumv1.ThermalThrottle{"hot-1": {ThermalTripCount: 3, CpuFreqChangeCount: 500}}})
+	obs := map[string]Observation{"ag-2": Assess(AssessInput{Now: now, LastObserved: now.Add(-5 * time.Second), Connected: true, StaleAfter: 2 * time.Minute})}
+	in := Input{Now: now, StaleAfter: 2 * time.Minute, Retention: DefaultRetention, Topology: topo, Facts: map[string]*facts.State{"cl-2": st},
+		Agents: map[string]AgentInfo{"ag-2": {ID: "ag-2", ClusterID: "cl-2", Tier: 2}}, Observations: obs}
+	m := Build(in)
+	n := find(m, "node", "hot-1")
+	if n == nil {
+		t.Fatal("node missing")
+	}
+	cap := n.Attributes["cpuCapacity"]
+	if cap.Value != 4.0 || cap.Unit != "cores" {
+		t.Fatalf("thermal throttling must not change the reported figure itself: %+v", cap)
+	}
+	if cap.Source != FromInferred || cap.Confidence != Inferred {
+		t.Errorf("a thermally-tripped node's cpuCapacity must be downgraded from Reported to Inferred, got %+v", cap)
+	}
+	if cap.Evidence == "" || !strings.Contains(cap.Evidence, "thermal") {
+		t.Errorf("the downgrade must name its evidence, got %q", cap.Evidence)
+	}
+}
+
+// TestNoThermalTripLeavesCpuCapacityPlainlyReported is the control: a node with no thermal-throttling
+// signal at all (the overwhelmingly common case) must keep cpuCapacity's plain, undegraded Reported
+// confidence - the fixture helper's own edge-1 node, used by every other test in this file.
+func TestNoThermalTripLeavesCpuCapacityPlainlyReported(t *testing.T) {
+	in, _ := fixture(t, "cl-3", "ag-3", 2)
+	m := Build(in)
+	n := find(m, "node", "edge-1")
+	if n == nil {
+		t.Fatal("node missing")
+	}
+	cap := n.Attributes["cpuCapacity"]
+	if cap.Source != FromAgent || cap.Confidence != Reported || cap.Evidence != "" {
+		t.Errorf("a node with no thermal-trip signal must keep the plain Reported confidence, got %+v", cap)
+	}
+}

@@ -36,6 +36,14 @@ type SnatExhaustionSource interface {
 	SnatExhaustion() uint64
 }
 
+// ThermalThrottleSource is implemented by a Source that can also say how many times the kernel's
+// power:cpu_frequency/thermal:thermal_zone_trip tracepoints have fired - currently only the eBPF
+// Observer; conntrack has no eBPF program loaded at all, so it has no tracepoint to attach either
+// counter to. Checked the same way as SnatExhaustionSource above, and for the same reason.
+type ThermalThrottleSource interface {
+	ThermalThrottle() (cpuFreqChangeCount, thermalTripCount uint64)
+}
+
 // Opener tries to start one method.
 type Opener func() (Source, error)
 
@@ -76,7 +84,7 @@ func Choose(mode string, ebpf, conntrack Opener) (Source, []string, error) {
 // Report builds the wire message for one window. snatExhaustion is this node's current lifetime total
 // (see SnatExhaustionSource), 0 when src does not implement it or has not attached either way of
 // counting it.
-func Report(src Source, node string, window time.Duration, flows []*continuumv1.RawFlow, lost uint64, snatExhaustion uint64) *continuumv1.FlowReport {
+func Report(src Source, node string, window time.Duration, flows []*continuumv1.RawFlow, lost uint64, snatExhaustion uint64, thermalThrottle *continuumv1.ThermalThrottle) *continuumv1.FlowReport {
 	// Computed from every flow this window actually saw, before the busiest-first truncation below drops
 	// the rest: a quiet, low-connection-count flow can still carry real bytes on an interface, and the
 	// saturation rollup must not miss those just because the flow list itself got trimmed for size.
@@ -88,14 +96,15 @@ func Report(src Source, node string, window time.Duration, flows []*continuumv1.
 		flows = flows[:flow.MaxRawFlows]
 	}
 	return &continuumv1.FlowReport{
-		Method:         src.Method(),
-		Node:           node,
-		WindowSeconds:  int32(window / time.Second),
-		BytesKnown:     src.BytesKnown(),
-		Lost:           lost,
-		Flows:          flows,
-		LinkSaturation: linkSaturation,
-		SnatExhaustion: snatExhaustion,
+		Method:          src.Method(),
+		Node:            node,
+		WindowSeconds:   int32(window / time.Second),
+		BytesKnown:      src.BytesKnown(),
+		Lost:            lost,
+		Flows:           flows,
+		LinkSaturation:  linkSaturation,
+		SnatExhaustion:  snatExhaustion,
+		ThermalThrottle: thermalThrottle,
 	}
 }
 
@@ -127,9 +136,20 @@ func Run(ctx context.Context, src Source, agentURL string, secret []byte, node s
 		if s, ok := src.(SnatExhaustionSource); ok {
 			snatExhaustion = s.SnatExhaustion()
 		}
+		// Like snatExhaustion above, a lifetime total read fresh every window, never accumulated. nil
+		// (not a zeroed message) when src does not implement ThermalThrottleSource or neither
+		// tracepoint ever attached - see ThermalThrottle's own doc comment for why that ambiguity is
+		// accepted here the same way it already is for snatExhaustion.
+		var thermalThrottle *continuumv1.ThermalThrottle
+		if s, ok := src.(ThermalThrottleSource); ok {
+			cpuFreqChangeCount, thermalTripCount := s.ThermalThrottle()
+			if cpuFreqChangeCount > 0 || thermalTripCount > 0 {
+				thermalThrottle = &continuumv1.ThermalThrottle{CpuFreqChangeCount: cpuFreqChangeCount, ThermalTripCount: thermalTripCount}
+			}
+		}
 		// A window with nothing in it is still reported: it is how the agent, and then the dashboard,
 		// know this node is being observed and simply quiet.
-		rep := Report(src, node, time.Since(last), pending, pendingLost, snatExhaustion)
+		rep := Report(src, node, time.Since(last), pending, pendingLost, snatExhaustion, thermalThrottle)
 		body, err := protojson.Marshal(rep)
 		if err != nil {
 			logf("could not encode a report", "err", err)

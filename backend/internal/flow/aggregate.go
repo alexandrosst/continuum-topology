@@ -360,13 +360,17 @@ func (a *Aggregator) Presence() (collectors int, last time.Time) {
 // collector's own side: the aggregator still just takes the latest reading rather than summing reports,
 // so a collector restart (which resets its own counter to 0) is reflected here too, not papered over by
 // an ever-growing server-side sum.
-func (a *Aggregator) Seen(node, method string, bytesKnown bool, linkSaturation []*continuumv1.LinkSaturation, snatExhaustion uint64) {
+// thermalThrottle is that collector's latest FlowReport.thermal_throttle reading (see ThermalThrottle's
+// own doc comment) - nil, not a zeroed message, when the collector never reported one (an older
+// collector, or neither tracepoint ever attached on that node), the same wholesale-replace-every-report
+// treatment snatExhaustion above gets.
+func (a *Aggregator) Seen(node, method string, bytesKnown bool, linkSaturation []*continuumv1.LinkSaturation, snatExhaustion uint64, thermalThrottle *continuumv1.ThermalThrottle) {
 	a.mu.Lock()
 	if a.paused {
 		a.mu.Unlock()
 		return
 	}
-	a.collectors[node+"/"+method] = collectorSeen{&continuumv1.CollectorInfo{Node: node, Method: method, BytesKnown: bytesKnown, LinkSaturation: linkSaturation, SnatExhaustion: snatExhaustion}, a.now()}
+	a.collectors[node+"/"+method] = collectorSeen{&continuumv1.CollectorInfo{Node: node, Method: method, BytesKnown: bytesKnown, LinkSaturation: linkSaturation, SnatExhaustion: snatExhaustion, ThermalThrottle: thermalThrottle}, a.now()}
 	a.mu.Unlock()
 }
 

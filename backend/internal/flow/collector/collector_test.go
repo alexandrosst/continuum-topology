@@ -25,6 +25,8 @@ type fake struct {
 	// left unset, a *fake behaves exactly like a source with no opinion on SNAT exhaustion at all, the
 	// same as conntrack.Reader; TestChooseFallsBackAndSaysWhy and friends never go near this.
 	snat uint64
+	// cpuFreqChangeCount/thermalTripCount are ThermalThrottle's own analogue of snat above.
+	cpuFreqChangeCount, thermalTripCount uint64
 }
 
 func (f *fake) Method() string   { return f.method }
@@ -44,6 +46,10 @@ func (f *fake) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 // tests that want "no opinion" behavior use a value that is simply always 0, same as an Observer whose
 // SnatExhaustionErr is set.
 func (f *fake) SnatExhaustion() uint64 { return f.snat }
+
+// ThermalThrottle makes *fake satisfy ThermalThrottleSource unconditionally, the same always-on
+// treatment SnatExhaustion above gets.
+func (f *fake) ThermalThrottle() (uint64, uint64) { return f.cpuFreqChangeCount, f.thermalTripCount }
 
 func TestChooseFallsBackAndSaysWhy(t *testing.T) {
 	bad := func() (Source, error) { return nil, errors.New("no BTF") }
@@ -143,9 +149,44 @@ func TestReportBoundsAndSaysWhatItDropped(t *testing.T) {
 	for i := 0; i < flow.MaxRawFlows+10; i++ {
 		many = append(many, rf("10.42.0.5", "10.43.1.1", uint32(1+i%60000), uint64(1+i%3)))
 	}
-	rep := Report(&fake{method: "ebpf", bytes: true}, "n", 30*time.Second, many, 2, 9)
+	rep := Report(&fake{method: "ebpf", bytes: true}, "n", 30*time.Second, many, 2, 9, nil)
 	if len(rep.Flows) != flow.MaxRawFlows || rep.Lost != 12 || rep.WindowSeconds != 30 || rep.SnatExhaustion != 9 {
 		t.Errorf("flows=%d lost=%d window=%d snatExhaustion=%d", len(rep.Flows), rep.Lost, rep.WindowSeconds, rep.SnatExhaustion)
+	}
+}
+
+// TestRunReportsThermalThrottle is ThermalThrottle's own analogue of TestRunReportsSnatExhaustion right
+// above: a source that implements ThermalThrottleSource gets both counters read fresh every window and
+// carried onto the delivered FlowReport/CollectorInfo for this node.
+func TestRunReportsThermalThrottle(t *testing.T) {
+	secret := []byte("0123456789abcdef-flow-secret")
+	p := flow.NewPipeline(secret, func() *collect.Index { return &collect.Index{} }, nil)
+	srv := httptest.NewServer(p.Handler())
+	defer srv.Close()
+
+	src := &fake{method: "ebpf", bytes: true, cpuFreqChangeCount: 500, thermalTripCount: 3}
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		Run(ctx, src, srv.URL, secret, "node-a", 100*time.Millisecond, func(string, ...any) {})
+		close(done)
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	var batch *continuumv1.FlowBatch
+	for time.Now().Before(deadline) {
+		if b := p.Aggregator.Flush(); b != nil && len(b.Collectors) > 0 {
+			batch = b
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if batch == nil || len(batch.Collectors) != 1 || batch.Collectors[0].ThermalThrottle == nil ||
+		batch.Collectors[0].ThermalThrottle.CpuFreqChangeCount != 500 || batch.Collectors[0].ThermalThrottle.ThermalTripCount != 3 {
+		t.Fatalf("batch = %+v", batch)
 	}
 }
 

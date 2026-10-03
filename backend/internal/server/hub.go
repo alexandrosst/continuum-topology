@@ -63,6 +63,10 @@ type view struct {
 	// it was loaded (see flow.c's snat_exhaustion doc comment), but this view only ever holds the most
 	// recent one reported, never a sum of several.
 	snatExhaustion map[string]uint64
+	// thermalThrottle is this agent's latest per-node CPU thermal-throttling tracepoint reading
+	// (FlowBatch.collectors[].thermal_throttle) - the same wholesale-replaced-every-batch treatment as
+	// linkSat/snatExhaustion above, and for the same reason.
+	thermalThrottle map[string]*continuumv1.ThermalThrottle
 
 	// Measured network paths, keyed by the target id the server issued for them.
 	paths   map[string]*pathTrack
@@ -582,6 +586,7 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 	v.podFlows = fb.PodFlows
 	linkSat := map[string][]*continuumv1.LinkSaturation{}
 	snatExhaustion := map[string]uint64{}
+	thermalThrottle := map[string]*continuumv1.ThermalThrottle{}
 	for _, c := range fb.Collectors {
 		if len(c.LinkSaturation) > 0 {
 			linkSat[c.Node] = c.LinkSaturation
@@ -594,9 +599,16 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 		if c.SnatExhaustion > 0 {
 			snatExhaustion[c.Node] = c.SnatExhaustion
 		}
+		// Same "only when there's something to say" treatment as snatExhaustion above - see
+		// ThermalThrottle's own doc comment for why cpu_freq_change_count alone, with no thermal trip,
+		// still counts as "something to say" (it corroborates the tracepoint subsystem is alive).
+		if c.ThermalThrottle != nil && (c.ThermalThrottle.CpuFreqChangeCount > 0 || c.ThermalThrottle.ThermalTripCount > 0) {
+			thermalThrottle[c.Node] = c.ThermalThrottle
+		}
 	}
 	v.linkSat = linkSat
 	v.snatExhaustion = snatExhaustion
+	v.thermalThrottle = thermalThrottle
 	v.flowsDirty = true
 	return true, nil
 }
@@ -1171,7 +1183,7 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 			continue
 		}
 		recs := h.nodeRecords(a.ClusterID, v.state, now)
-		t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.state, Now: v.lastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs), PodFlows: v.podFlows, LinkSaturation: v.linkSat, SnatExhaustion: v.snatExhaustion})
+		t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.state, Now: v.lastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs), PodFlows: v.podFlows, LinkSaturation: v.linkSat, SnatExhaustion: v.snatExhaustion, ThermalThrottle: v.thermalThrottle})
 		var revokedAt time.Time
 		if a.RevokedAt != nil {
 			revokedAt = *a.RevokedAt

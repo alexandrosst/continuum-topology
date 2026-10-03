@@ -751,6 +751,16 @@ export default function Inspector({
               </span>
             )}
           </Maybe>
+          <Maybe label="Thermal throttling">
+            {n.thermalTripCount === undefined || n.thermalTripCount === 0 ? undefined : (
+              <span
+                className="text-bad"
+                title="How many times the kernel's thermal:thermal_zone_trip tracepoint has fired since the flow collector's eBPF program attached - the firmware itself judged a sensor past its limit and started shedding load, normally by capping or downclocking the CPU below whatever capacity this node still advertises. Capacity derating from heat, never a power/energy reading: not the same signal an energy exporter such as Kepler would give."
+              >
+                {n.thermalTripCount} trip{n.thermalTripCount === 1 ? '' : 's'}
+              </span>
+            )}
+          </Maybe>
           <Chips label="Disks" items={n.disks?.map((d) => `${d.model || d.type || 'disk'}${d.sizeBytes ? ` (${formatMemory(d.sizeBytes / 1024 ** 3)})` : ''}`)} />
         </Section>
         <Section title="Network & health">

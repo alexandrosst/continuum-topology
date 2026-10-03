@@ -261,6 +261,23 @@ type Node struct {
 	// while this climbs, since a connection that failed before reaching ESTABLISHED never shows up as a
 	// Dependency, a retransmit, or anything else this model otherwise tracks.
 	SnatExhaustion uint64 `json:"snatExhaustion,omitempty"`
+	// CpuFreqChangeCount/ThermalTripCount are this node's current tracepoint-derived CPU
+	// thermal-throttling counters (power:cpu_frequency / thermal:thermal_zone_trip - see
+	// continuumv1.ThermalThrottle's own doc comment for the full story) - computed by the flow
+	// collector's eBPF program, not the node probe, the same collector-sourced origin SnatExhaustion
+	// above has. CpuFreqChangeCount is corroboration only, never itself throttling evidence (a cpufreq
+	// governor fires it constantly under completely ordinary load); ThermalTripCount is the decisive
+	// signal - the twin builder downgrades this node's own cpuCapacity confidence once it is nonzero
+	// (see twin/model.go), since the figure Kubernetes reports may no longer be sustainable once the
+	// hardware starts shedding heat. This is capacity derating from heat, never a power/energy
+	// reading - do not confuse either field with an external power/energy exporter such as Kepler (a
+	// wholly separate, optional telemetry pipeline this chart can deploy). 0 on both when the
+	// collector's eBPF program never attached to either tracepoint on this kernel (an old kernel, a
+	// VM/board with no thermal zones, or an older collector) - indistinguishable from a real, healthy
+	// 0, the same ambiguity SnatExhaustion's own 0 already leaves unresolved, since the one value worth
+	// a person's attention here is ThermalTripCount being greater than zero.
+	CpuFreqChangeCount uint64 `json:"cpuFreqChangeCount,omitempty"`
+	ThermalTripCount   uint64 `json:"thermalTripCount,omitempty"`
 }
 
 // LinkSaturation is one physical network interface's current send+receive throughput on a node, and,

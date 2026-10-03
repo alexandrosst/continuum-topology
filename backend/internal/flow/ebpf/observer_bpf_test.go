@@ -96,3 +96,22 @@ func TestTlsHandshakeOutcomeMapsCSideConstantsExplicitly(t *testing.T) {
 		}
 	}
 }
+
+// TestThermalThrottleCountersReadZeroWithoutAttaching covers CpuFreqChangeCount/ThermalTripCount/
+// ThermalThrottle's own nil-map guard - the state a zero-value Observer is in before Open() ever runs,
+// and the state it stays in forever on a kernel where openCpuFreqChange/openThermalTrip both failed
+// (see their own doc comments): o.objs.CpuFreqChangeCount/ThermalTripCount are nil, and every accessor
+// here must read that as a plain 0, never panic on the nil map the way a bare .Lookup call would.
+func TestThermalThrottleCountersReadZeroWithoutAttaching(t *testing.T) {
+	o := &Observer{}
+	if got := o.CpuFreqChangeCount(); got != 0 {
+		t.Errorf("CpuFreqChangeCount() = %d, want 0 on a nil map", got)
+	}
+	if got := o.ThermalTripCount(); got != 0 {
+		t.Errorf("ThermalTripCount() = %d, want 0 on a nil map", got)
+	}
+	cpuFreq, trip := o.ThermalThrottle()
+	if cpuFreq != 0 || trip != 0 {
+		t.Errorf("ThermalThrottle() = (%d, %d), want (0, 0) on nil maps", cpuFreq, trip)
+	}
+}

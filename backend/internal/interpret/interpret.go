@@ -41,6 +41,13 @@ type Input struct {
 	// snat_exhaustion doc comment), not something this pass sums itself. Absent for a node with nothing
 	// to report here, the same "no entry, not a zeroed one" treatment LinkSaturation gets.
 	SnatExhaustion map[string]uint64
+	// ThermalThrottle is this agent's latest per-node CPU thermal-throttling tracepoint reading, keyed
+	// by node name (Hub.noteFlows copies FlowBatch.collectors[].thermal_throttle into
+	// view.thermalThrottle, mirroring SnatExhaustion above) - see continuumv1.ThermalThrottle's own doc
+	// comment for what each of its two counters means, and why only one of them (thermal_trip_count) is
+	// ever treated as throttling evidence. Absent for a node with nothing to report here, the same
+	// "no entry, not a zeroed one" treatment SnatExhaustion gets.
+	ThermalThrottle map[string]*continuumv1.ThermalThrottle
 }
 
 // systemNamespace is excluded from the topology: it is machinery, not the user's applications.
@@ -259,6 +266,12 @@ func Interpret(in Input) model.Topology {
 		// a present 0) is how "nothing to report" is spelled here.
 		if se, ok := in.SnatExhaustion[n.Name]; ok {
 			mn.SnatExhaustion = se
+		}
+		// ThermalThrottle shares the same pipeline and the same unconditional-on-n.Probe treatment as
+		// SnatExhaustion just above.
+		if tt, ok := in.ThermalThrottle[n.Name]; ok {
+			mn.CpuFreqChangeCount = tt.CpuFreqChangeCount
+			mn.ThermalTripCount = tt.ThermalTripCount
 		}
 		if nodeStatus(n) == "healthy" {
 			healthy++

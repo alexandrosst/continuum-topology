@@ -1385,3 +1385,99 @@ int BPF_KRETPROBE(on_hash_connect_kretprobe, int ret) {
 		count_snat_exhaustion();
 	return 0;
 }
+
+// --- CPU thermal-throttling (stable kernel tracepoints, not CO-RE) ---
+//
+// power:cpu_frequency and thermal:thermal_zone_trip are both part of the kernel's stable tracepoint
+// ABI (Documentation/trace/events.rst commits to not breaking a tracepoint's existence or its argument
+// list the way tp_btf's inet_sock_set_state above still can on some obscure refactor) - these two
+// programs never read a single field out of either event, only that the event fired at all, so neither
+// needs vmlinux.h/BTF to describe the event's own struct the way tp_btf/fexit elsewhere in this file
+// do: ctx is left an opaque void*, exactly as portable as a plain kprobe, but attached by name/category
+// through the kernel's own tracefs rather than a fragile symbol or offset.
+//
+// power:cpu_frequency fires every time the cpufreq governor actually changes a CPU's clock - which on
+// any system running ondemand/schedutil (the near-universal default) happens constantly under
+// completely ordinary load, up and down, with no heat problem whatsoever. Counting it is NOT itself
+// evidence of thermal throttling: see cpu_freq_change_count's own doc comment below for what it is
+// actually for.
+//
+// thermal:thermal_zone_trip is the decisive signal: it fires only when the kernel's own thermal
+// governor judges a sensor past a configured trip point and starts shedding load - normally by capping
+// or downclocking the CPU below whatever Kubernetes still advertises as this node's capacity. See
+// thermal_trip_count's own doc comment below, and twin/model.go's own use of it, for the rest of this
+// story.
+
+// Index 0: how many times power:cpu_frequency has fired since this program was loaded - a PERCPU_ARRAY
+// running total, the same never-reset-by-Collect() treatment snat_exhaustion above gets, and for the
+// same reason: there is no natural per-window grouping worth losing precision over, and reading a
+// running total is immune to a dropped/delayed report double-counting anything.
+//
+// This is deliberately NOT read anywhere as evidence of throttling (see the section doc comment above
+// for why a cpufreq scaling event means nothing about heat on its own). Its only job is to say the
+// power:cpu_frequency tracepoint itself is alive and firing on this kernel - which lets a caller tell
+// "this CPU has never once thermally tripped" (thermal_trip_count stays 0 while this climbs, a real,
+// corroborated "healthy" reading) apart from "neither tracepoint program ever attached, so neither
+// counter has anything to say" (both stay 0 forever).
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__type(key, __u32);
+	__type(value, __u64);
+	__uint(max_entries, 1);
+} cpu_freq_change_count SEC(".maps");
+
+// Index 0: how many times thermal:thermal_zone_trip has fired since this program was loaded - same
+// PERCPU_ARRAY, never-reset running total as cpu_freq_change_count above. Unlike that counter, THIS one
+// is the actual throttling signal: see the section doc comment above for why a trip means the
+// hardware/firmware itself judged a thermal zone past its limit, and twin/model.go's own cpuCapacity
+// confidence degradation for what a caller does with a nonzero reading here.
+//
+// This is capacity derating from heat. It is never a reading of power/energy draw, and must not be
+// confused with an external power/energy exporter such as Kepler, which this chart can optionally
+// deploy as a wholly separate telemetry pipeline (see the chart's own README): Kepler answers "how many
+// watts is this node drawing", a question this counter has no opinion on at all - a node can draw very
+// little power and still trip a thermal zone (poor airflow, a failed fan, a hot ambient environment),
+// and a node can draw enormous power while never tripping one (good cooling headroom). The two signals
+// are complementary, never interchangeable, and a doc comment or UI label that conflates them is wrong.
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__type(key, __u32);
+	__type(value, __u64);
+	__uint(max_entries, 1);
+} thermal_trip_count SEC(".maps");
+
+static __always_inline void count_cpu_freq_change(void) {
+	__u32 k = 0;
+	__u64 *v = bpf_map_lookup_elem(&cpu_freq_change_count, &k);
+	if (v)
+		*v += 1;
+}
+
+static __always_inline void count_thermal_trip(void) {
+	__u32 k = 0;
+	__u64 *v = bpf_map_lookup_elem(&thermal_trip_count, &k);
+	if (v)
+		*v += 1;
+}
+
+// A plain (non-BTF, non-CO-RE) tracepoint program: ctx is the event's raw, non-BTF-typed layout, which
+// this never reads - only that the event fired. Attached through the kernel's own tracefs by
+// category+name (see observer_bpf.go's openCpuFreqChange), not by any symbol or offset, so this loads
+// and verifies identically regardless of whether the running kernel actually has a power:cpu_frequency
+// event to attach to at all; only the attach call itself can fail on a kernel without it (an old
+// kernel, or a board whose CPU has no cpufreq driver), gracefully, the same as every other optional
+// signal in this file.
+SEC("tracepoint/power/cpu_frequency")
+int on_cpu_freq_change(void *ctx) {
+	count_cpu_freq_change();
+	return 0;
+}
+
+// Same treatment as on_cpu_freq_change above, for thermal:thermal_zone_trip instead - see
+// thermal_trip_count's own doc comment for what a nonzero reading here actually means. Attached by
+// observer_bpf.go's openThermalTrip.
+SEC("tracepoint/thermal/thermal_zone_trip")
+int on_thermal_zone_trip(void *ctx) {
+	count_thermal_trip();
+	return 0;
+}

@@ -521,6 +521,50 @@ func TestInterpretPopulatesLinkSaturationFromFlowCollector(t *testing.T) {
 	}
 }
 
+// TestInterpretPopulatesThermalThrottleFromFlowCollector covers the per-node CPU thermal-throttling
+// counters the flow collector reports (continuumv1.ThermalThrottle), keyed by node name - the same
+// wholly-separate-from-the-node-probe pipeline as LinkSaturation above, copied across unconditionally,
+// independent of whether a probe ran on this node at all.
+func TestInterpretPopulatesThermalThrottleFromFlowCollector(t *testing.T) {
+	s := facts.New()
+	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-thermal"}
+	s.Nodes["a"] = node("a", nil)
+	out := Interpret(Input{
+		OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now(),
+		ThermalThrottle: map[string]*continuumv1.ThermalThrottle{
+			"a": {CpuFreqChangeCount: 500, ThermalTripCount: 3},
+		},
+	})
+	if len(out.Nodes) != 1 {
+		t.Fatalf("nodes = %+v", out.Nodes)
+	}
+	n := out.Nodes[0]
+	if n.CpuFreqChangeCount != 500 || n.ThermalTripCount != 3 {
+		t.Errorf("cpuFreqChangeCount/thermalTripCount = %d/%d, want 500/3", n.CpuFreqChangeCount, n.ThermalTripCount)
+	}
+}
+
+// TestInterpretLeavesThermalThrottleZeroForAnUnreportedNode is ThermalThrottle's own analogue of
+// TestInterpretLeavesLinkSaturationNilForAnUnreportedNode right below - no entry (not a zeroed one) for
+// a node the map does not name, and no entry naming some other node must leak onto this one.
+func TestInterpretLeavesThermalThrottleZeroForAnUnreportedNode(t *testing.T) {
+	s := facts.New()
+	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-thermal-none"}
+	s.Nodes["a"] = node("a", nil)
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
+	if n := out.Nodes[0]; n.CpuFreqChangeCount != 0 || n.ThermalTripCount != 0 {
+		t.Errorf("cpuFreqChangeCount/thermalTripCount = %d/%d, want 0/0 (no collector reported)", n.CpuFreqChangeCount, n.ThermalTripCount)
+	}
+
+	out2 := Interpret(Input{
+		OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now(),
+		ThermalThrottle: map[string]*continuumv1.ThermalThrottle{"b": {ThermalTripCount: 9}},
+	})
+	if n := out2.Nodes[0]; n.CpuFreqChangeCount != 0 || n.ThermalTripCount != 0 {
+		t.Errorf("cpuFreqChangeCount/thermalTripCount = %d/%d, want 0/0 (report was for a different node)", n.CpuFreqChangeCount, n.ThermalTripCount)
+	}
+}
+
 // TestInterpretLeavesLinkSaturationNilForAnUnreportedNode covers both the ordinary case (no flow
 // collector has reported for this node at all) and a report naming some other node - the map not
 // mentioning "a" by name must never leak another node's figures onto it.

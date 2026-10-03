@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/cli"
 	"continuum/internal/flow/collector"
 	"continuum/internal/flow/conntrack"
@@ -99,7 +100,14 @@ func Main(args []string) int {
 			if se, ok := s.(collector.SnatExhaustionSource); ok {
 				snatExhaustion = se.SnatExhaustion()
 			}
-			b, _ := protojson.MarshalOptions{Multiline: true}.Marshal(collector.Report(s, *node, *print, flows, lost, snatExhaustion))
+			var thermalThrottle *continuumv1.ThermalThrottle
+			if tt, ok := s.(collector.ThermalThrottleSource); ok {
+				cpuFreqChangeCount, thermalTripCount := tt.ThermalThrottle()
+				if cpuFreqChangeCount > 0 || thermalTripCount > 0 {
+					thermalThrottle = &continuumv1.ThermalThrottle{CpuFreqChangeCount: cpuFreqChangeCount, ThermalTripCount: thermalTripCount}
+				}
+			}
+			b, _ := protojson.MarshalOptions{Multiline: true}.Marshal(collector.Report(s, *node, *print, flows, lost, snatExhaustion, thermalThrottle))
 			fmt.Println(string(b))
 		}
 		return 0

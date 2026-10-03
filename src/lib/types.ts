@@ -509,6 +509,22 @@ export interface MachineNode extends Provenance {
    *  node can look perfectly healthy by every other signal here while this climbs, since a connection
    *  that failed before reaching ESTABLISHED never shows up as a Dependency or a retransmit. */
   snatExhaustion?: number
+  /** This node's current tracepoint-derived CPU thermal-throttling counters (power:cpu_frequency /
+   *  thermal:thermal_zone_trip - see the backend's continuumv1.ThermalThrottle doc for the full story)
+   *  - computed by the flow collector's eBPF program, not the node probe, the same collector-sourced
+   *  origin snatExhaustion above has. cpuFreqChangeCount is corroboration only, never itself throttling
+   *  evidence (a cpufreq governor fires it constantly under completely ordinary load); thermalTripCount
+   *  is the decisive signal - the backend downgrades this node's own cpuCapacity attribute's confidence
+   *  once it is nonzero (see the backend's twin/model.go), since the figure Kubernetes reports may no
+   *  longer be sustainable once the hardware starts shedding heat. This is capacity derating from heat,
+   *  never a power/energy reading - do not confuse either field with an external power/energy exporter
+   *  such as Kepler (a wholly separate, optional telemetry pipeline). Both undefined/0 when the
+   *  collector's eBPF program never attached to either tracepoint on this kernel (an old kernel, a
+   *  VM/board with no thermal zones, or an older collector) - indistinguishable from a real, healthy 0,
+   *  the same ambiguity snatExhaustion above already leaves unresolved, since the one value worth a
+   *  person's attention here is thermalTripCount being greater than zero. */
+  cpuFreqChangeCount?: number
+  thermalTripCount?: number
 }
 
 /** One physical network interface's current send+receive throughput on a node, and, when its rated

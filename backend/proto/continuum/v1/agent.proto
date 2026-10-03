@@ -836,6 +836,40 @@ message LinkSaturation {
   optional double saturation_pct = 3;
 }
 
+// How many times the kernel's power:cpu_frequency and thermal:thermal_zone_trip tracepoints (both part
+// of the kernel's stable tracepoint ABI, unlike most of this file's CO-RE/BTF-based eBPF reads, which
+// commit only to describing a kernel function or struct shape that exists in this exact build) have
+// fired on one node since the flow collector's eBPF program attached to each - two independent,
+// monotonically increasing totals (a collector restart resets both to 0, the same running-total
+// treatment FlowReport.snat_exhaustion gets, not a per-window count the way most of this file's other
+// counters are).
+//
+// cpu_freq_change_count counts power:cpu_frequency, which fires every time the cpufreq governor
+// actually rescales a CPU's clock - on any system running ondemand/schedutil (the near-universal
+// default) that happens constantly under completely ordinary load, with no heat problem whatsoever.
+// This is NOT itself evidence of thermal throttling: its only purpose is corroboration - a caller can
+// tell "this node's thermal tracepoint has genuinely never fired" (thermal_trip_count stays 0 while
+// this climbs) apart from "neither tracepoint program ever attached, so neither counter means
+// anything" (both stay 0 forever).
+//
+// thermal_trip_count counts thermal:thermal_zone_trip, which fires only when the kernel's own thermal
+// governor judges a sensor past a configured trip point and starts shedding load - normally by capping
+// or downclocking the CPU below whatever Kubernetes still advertises as the node's capacity. This IS
+// the decisive signal: see twin/model.go's own use of it, which downgrades a node's cpuCapacity
+// confidence once this is nonzero, since the figure Kubernetes reports may no longer be sustainable.
+//
+// Capacity derating from heat, never a power/energy reading: do not confuse either field here with an
+// external power/energy exporter such as Kepler (a wholly separate, optional telemetry pipeline this
+// chart can deploy - see its own README). Kepler answers "how many watts is this node drawing"; this
+// message has no opinion on that at all - a node can draw very little power and still trip a thermal
+// zone (poor airflow, a failed fan, a hot ambient environment), and a node can draw a great deal of
+// power while never tripping one (good cooling headroom). The two signals are complementary, never
+// interchangeable.
+message ThermalThrottle {
+  uint64 cpu_freq_change_count = 1;
+  uint64 thermal_trip_count = 2;
+}
+
 message FlowReport {
   // ebpf | conntrack: how these numbers were obtained, which decides how much to trust them.
   string method = 1;
@@ -857,6 +891,13 @@ message FlowReport {
   // conntrack-derived report - conntrack never sees a connect() attempt that failed this way, only the
   // ones that got far enough to need a conntrack entry.
   uint64 snat_exhaustion = 8;
+  // This node's current tracepoint-derived thermal-throttling counters (power:cpu_frequency and
+  // thermal:thermal_zone_trip) - see ThermalThrottle's own doc comment for the full story, including
+  // why cpu_freq_change_count inside it is not itself throttling evidence. Unset when the collector's
+  // eBPF program never attached to either tracepoint on this kernel (an old kernel, or - for
+  // thermal_trip_count specifically - a VM/board with no thermal zones registered at all); always unset
+  // on a conntrack-derived report, which has no eBPF hook to read either counter from.
+  ThermalThrottle thermal_throttle = 9;
 }
 
 message FlowEndpoint {
@@ -976,6 +1017,9 @@ message CollectorInfo {
   // This node's latest FlowReport.snat_exhaustion reading, carried through the same way
   // link_saturation above is - see that field's own doc comment.
   uint64 snat_exhaustion = 5;
+  // This node's latest FlowReport.thermal_throttle reading, carried through the same way
+  // snat_exhaustion above is - see ThermalThrottle's own doc comment.
+  ThermalThrottle thermal_throttle = 6;
 }
 
 message FlowBatch {

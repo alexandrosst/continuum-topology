@@ -109,18 +109,22 @@ type flowTlsHelloState struct {
 //
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
+	flowMapCpuFreqChangeCount      = "cpu_freq_change_count"
 	flowMapDnsPending              = "dns_pending"
 	flowMapFlows                   = "flows"
 	flowMapLost                    = "lost"
 	flowMapNames                   = "names"
 	flowMapSnatExhaustion          = "snat_exhaustion"
 	flowMapSocks                   = "socks"
+	flowMapThermalTripCount        = "thermal_trip_count"
 	flowMapTlsHelloSeen            = "tls_hello_seen"
 	flowProgObserveEgress          = "observe_egress"
 	flowProgObserveIngress         = "observe_ingress"
+	flowProgOnCpuFreqChange        = "on_cpu_freq_change"
 	flowProgOnHashConnectFexit     = "on_hash_connect_fexit"
 	flowProgOnHashConnectKretprobe = "on_hash_connect_kretprobe"
 	flowProgOnState                = "on_state"
+	flowProgOnThermalZoneTrip      = "on_thermal_zone_trip"
 	flowProgSnapshot               = "snapshot"
 	flowVarUnusedNameEvent         = "unused_name_event"
 )
@@ -169,9 +173,11 @@ type flowSpecs struct {
 type flowProgramSpecs struct {
 	ObserveEgress          *ebpf.ProgramSpec `ebpf:"observe_egress"`
 	ObserveIngress         *ebpf.ProgramSpec `ebpf:"observe_ingress"`
+	OnCpuFreqChange        *ebpf.ProgramSpec `ebpf:"on_cpu_freq_change"`
 	OnHashConnectFexit     *ebpf.ProgramSpec `ebpf:"on_hash_connect_fexit"`
 	OnHashConnectKretprobe *ebpf.ProgramSpec `ebpf:"on_hash_connect_kretprobe"`
 	OnState                *ebpf.ProgramSpec `ebpf:"on_state"`
+	OnThermalZoneTrip      *ebpf.ProgramSpec `ebpf:"on_thermal_zone_trip"`
 	Snapshot               *ebpf.ProgramSpec `ebpf:"snapshot"`
 }
 
@@ -179,13 +185,15 @@ type flowProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type flowMapSpecs struct {
-	DnsPending     *ebpf.MapSpec `ebpf:"dns_pending"`
-	Flows          *ebpf.MapSpec `ebpf:"flows"`
-	Lost           *ebpf.MapSpec `ebpf:"lost"`
-	Names          *ebpf.MapSpec `ebpf:"names"`
-	SnatExhaustion *ebpf.MapSpec `ebpf:"snat_exhaustion"`
-	Socks          *ebpf.MapSpec `ebpf:"socks"`
-	TlsHelloSeen   *ebpf.MapSpec `ebpf:"tls_hello_seen"`
+	CpuFreqChangeCount *ebpf.MapSpec `ebpf:"cpu_freq_change_count"`
+	DnsPending         *ebpf.MapSpec `ebpf:"dns_pending"`
+	Flows              *ebpf.MapSpec `ebpf:"flows"`
+	Lost               *ebpf.MapSpec `ebpf:"lost"`
+	Names              *ebpf.MapSpec `ebpf:"names"`
+	SnatExhaustion     *ebpf.MapSpec `ebpf:"snat_exhaustion"`
+	Socks              *ebpf.MapSpec `ebpf:"socks"`
+	ThermalTripCount   *ebpf.MapSpec `ebpf:"thermal_trip_count"`
+	TlsHelloSeen       *ebpf.MapSpec `ebpf:"tls_hello_seen"`
 }
 
 // flowVariableSpecs contains global variables before they are loaded into the kernel.
@@ -215,23 +223,27 @@ func (o *flowObjects) Close() error {
 //
 // It can be passed to loadFlowObjects or ebpf.CollectionSpec.LoadAndAssign.
 type flowMaps struct {
-	DnsPending     *ebpf.Map `ebpf:"dns_pending"`
-	Flows          *ebpf.Map `ebpf:"flows"`
-	Lost           *ebpf.Map `ebpf:"lost"`
-	Names          *ebpf.Map `ebpf:"names"`
-	SnatExhaustion *ebpf.Map `ebpf:"snat_exhaustion"`
-	Socks          *ebpf.Map `ebpf:"socks"`
-	TlsHelloSeen   *ebpf.Map `ebpf:"tls_hello_seen"`
+	CpuFreqChangeCount *ebpf.Map `ebpf:"cpu_freq_change_count"`
+	DnsPending         *ebpf.Map `ebpf:"dns_pending"`
+	Flows              *ebpf.Map `ebpf:"flows"`
+	Lost               *ebpf.Map `ebpf:"lost"`
+	Names              *ebpf.Map `ebpf:"names"`
+	SnatExhaustion     *ebpf.Map `ebpf:"snat_exhaustion"`
+	Socks              *ebpf.Map `ebpf:"socks"`
+	ThermalTripCount   *ebpf.Map `ebpf:"thermal_trip_count"`
+	TlsHelloSeen       *ebpf.Map `ebpf:"tls_hello_seen"`
 }
 
 func (m *flowMaps) Close() error {
 	return _FlowClose(
+		m.CpuFreqChangeCount,
 		m.DnsPending,
 		m.Flows,
 		m.Lost,
 		m.Names,
 		m.SnatExhaustion,
 		m.Socks,
+		m.ThermalTripCount,
 		m.TlsHelloSeen,
 	)
 }
@@ -249,9 +261,11 @@ type flowVariables struct {
 type flowPrograms struct {
 	ObserveEgress          *ebpf.Program `ebpf:"observe_egress"`
 	ObserveIngress         *ebpf.Program `ebpf:"observe_ingress"`
+	OnCpuFreqChange        *ebpf.Program `ebpf:"on_cpu_freq_change"`
 	OnHashConnectFexit     *ebpf.Program `ebpf:"on_hash_connect_fexit"`
 	OnHashConnectKretprobe *ebpf.Program `ebpf:"on_hash_connect_kretprobe"`
 	OnState                *ebpf.Program `ebpf:"on_state"`
+	OnThermalZoneTrip      *ebpf.Program `ebpf:"on_thermal_zone_trip"`
 	Snapshot               *ebpf.Program `ebpf:"snapshot"`
 }
 
@@ -259,9 +273,11 @@ func (p *flowPrograms) Close() error {
 	return _FlowClose(
 		p.ObserveEgress,
 		p.ObserveIngress,
+		p.OnCpuFreqChange,
 		p.OnHashConnectFexit,
 		p.OnHashConnectKretprobe,
 		p.OnState,
+		p.OnThermalZoneTrip,
 		p.Snapshot,
 	)
 }

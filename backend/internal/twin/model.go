@@ -419,7 +419,29 @@ func (b *builder) observed() {
 			c.rep("cpu", n.CPU, "cores")
 		default:
 			if f.CpuCapacityMillis > 0 {
-				c.rep("cpuCapacity", cores(f.CpuCapacityMillis), "cores")
+				if n.ThermalTripCount > 0 {
+					// Degraded, not reported at face value: the node's own thermal-throttling
+					// tracepoint (power:cpu_frequency/thermal:thermal_zone_trip, see
+					// continuumv1.ThermalThrottle's own doc comment) has fired at least once - the
+					// firmware itself judged this node too hot and started shedding load, so the
+					// capacity Kubernetes still advertises may not be what the hardware can actually
+					// sustain. This is capacity derating from heat, never a power/energy reading - not
+					// the same signal an energy exporter such as Kepler would give.
+					//
+					// Built directly with c.set rather than c.inf/evAttr above: neither of those takes
+					// a unit (nothing else that calls them needs one), and this is the one inferred
+					// attribute in this file that does - cores, the same unit cpuCapacity always carries
+					// when c.rep reports it plainly, since this never changes the figure itself, only
+					// how much to trust it.
+					ev := model.Evidence{
+						Signal:     "the node's own thermal-throttling tracepoint",
+						Confidence: "medium",
+						Detail:     fmt.Sprintf("tripped %d time(s) since the collector attached", n.ThermalTripCount),
+					}
+					c.set("cpuCapacity", Attr{Value: cores(f.CpuCapacityMillis), Unit: "cores", Source: FromInferred, Confidence: Inferred, Evidence: strings.TrimSpace(ev.Signal + evDetail(ev))})
+				} else {
+					c.rep("cpuCapacity", cores(f.CpuCapacityMillis), "cores")
+				}
 			} else {
 				c.unk("cpuCapacity", "cores", "the node reported no CPU capacity")
 			}

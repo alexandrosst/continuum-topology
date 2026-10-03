@@ -84,7 +84,7 @@ func (p *Pipeline) SetPaused(paused bool) {
 
 // Ingest attributes one report and adds it to the current window.
 func (p *Pipeline) Ingest(rep *continuumv1.FlowReport) {
-	p.Aggregator.Seen(rep.Node, rep.Method, rep.BytesKnown, rep.LinkSaturation, rep.SnatExhaustion)
+	p.Aggregator.Seen(rep.Node, rep.Method, rep.BytesKnown, rep.LinkSaturation, rep.SnatExhaustion, rep.ThermalThrottle)
 	p.Aggregator.AddLost(rep.Lost)
 	for _, raw := range rep.Flows {
 		if f, ok := p.Resolver.Resolve(raw, rep.Method, rep.BytesKnown); ok {

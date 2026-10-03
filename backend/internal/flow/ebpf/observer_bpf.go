@@ -49,6 +49,13 @@ type Observer struct {
 		// path worked on this kernel; a node where neither attached simply reads 0 forever, the same
 		// as a node that was never asked to look.
 		SnatExhaustion *ebpf.Map `ebpf:"snat_exhaustion"`
+		// CpuFreqChangeCount/ThermalTripCount are loaded eagerly here, in the main collection, exactly
+		// like SnatExhaustion above and for the same reason: the programs that increment them
+		// (on_cpu_freq_change/on_thermal_zone_trip) are attached separately (see openCpuFreqChange/
+		// openThermalTrip), so Collect() can always read these, whether or not either tracepoint attach
+		// worked on this kernel - a node where neither attached simply reads 0 forever.
+		CpuFreqChangeCount *ebpf.Map `ebpf:"cpu_freq_change_count"`
+		ThermalTripCount   *ebpf.Map `ebpf:"thermal_trip_count"`
 	}
 	lnk  link.Link
 	snap *ebpf.Program
@@ -57,6 +64,14 @@ type Observer struct {
 	// succeeded (at most one of them); nil when neither did, in which case SnatExhaustionErr says why.
 	snatProg *ebpf.Program
 	snatLnk  link.Link
+	// cpuFreqProg/cpuFreqLnk and thermalProg/thermalLnk are on_cpu_freq_change/on_thermal_zone_trip's
+	// own program/link, attached independently of each other and of snatProg/snatLnk above (see
+	// openCpuFreqChange/openThermalTrip) - nil when that particular tracepoint attach failed, in which
+	// case CpuFreqChangeErr/ThermalTripErr says why.
+	cpuFreqProg *ebpf.Program
+	cpuFreqLnk  link.Link
+	thermalProg *ebpf.Program
+	thermalLnk  link.Link
 
 	// LiveErr says why live counting was asked for and is not running; nil when it is running or was not asked for.
 	LiveErr error
@@ -74,6 +89,16 @@ type Observer struct {
 	// attach attempts always happen - so it is purely informational (worth logging, never worth
 	// falling back over).
 	SnatExhaustionErr error
+	// CpuFreqChangeErr/ThermalTripErr say why power:cpu_frequency/thermal:thermal_zone_trip (see flow.c's
+	// own doc comment on cpu_freq_change_count/thermal_trip_count) are not being collected; nil when
+	// that tracepoint attached. Like SnatExhaustionErr, never something the caller asked for - both
+	// attach attempts always happen, unconditionally, since neither reads a packet payload and neither
+	// needs a privilege this package does not already require for on_state's own attach - so these are
+	// purely informational. The two are independent: a VM guest can have a working power:cpu_frequency
+	// tracepoint and no thermal zones at all (ThermalTripErr set, CpuFreqChangeErr nil), and a fixed-
+	// frequency board can have thermal zones but no cpufreq driver (the reverse).
+	CpuFreqChangeErr error
+	ThermalTripErr   error
 
 	namesProg *ebpf.Program
 	namesMap  *ebpf.Map
@@ -151,6 +176,8 @@ func Open(opts ...Options) (*Observer, error) {
 	// privilege beyond what this function already required for on_state's own tp_btf attach, and
 	// neither looks at a packet payload, so there is nothing to opt into.
 	o.SnatExhaustionErr = o.openSnatExhaustion()
+	o.CpuFreqChangeErr = o.openCpuFreqChange()
+	o.ThermalTripErr = o.openThermalTrip()
 	if opt.Live {
 		o.LiveErr = o.openSnapshot()
 	}
@@ -258,6 +285,73 @@ func (o *Observer) openSnatExhaustionKretprobe() error {
 	return nil
 }
 
+// openCpuFreqChange attaches on_cpu_freq_change to the kernel's power:cpu_frequency tracepoint (flow.c's
+// cpu_freq_change_count map) - see that map's own doc comment for what it counts and, importantly, what
+// it does NOT mean (a cpufreq scaling event is not itself throttling evidence). Unlike
+// openSnatExhaustion's fexit/kretprobe pair, there is only one attach path here: a plain tracepoint
+// needs no BTF match at load time (ctx is never dereferenced), so the only way this fails is the
+// tracepoint itself not existing in this kernel's tracefs (link.Tracepoint returns that at attach time,
+// never at load) - an old kernel, or a board whose CPU has no cpufreq driver compiled in.
+func (o *Observer) openCpuFreqChange() error {
+	spec, err := loadFlow()
+	if err != nil {
+		return err
+	}
+	delete(spec.Programs, "on_state")
+	delete(spec.Programs, "snapshot")
+	delete(spec.Programs, "observe_egress")
+	delete(spec.Programs, "observe_ingress")
+	delete(spec.Programs, "on_hash_connect_fexit")
+	delete(spec.Programs, "on_hash_connect_kretprobe")
+	delete(spec.Programs, "on_thermal_zone_trip")
+	var p struct {
+		Prog *ebpf.Program `ebpf:"on_cpu_freq_change"`
+	}
+	if err := spec.LoadAndAssign(&p, &ebpf.CollectionOptions{MapReplacements: map[string]*ebpf.Map{"cpu_freq_change_count": o.objs.CpuFreqChangeCount}}); err != nil {
+		return fmt.Errorf("could not load: %w", err)
+	}
+	l, err := link.Tracepoint("power", "cpu_frequency", p.Prog, nil)
+	if err != nil {
+		p.Prog.Close()
+		return fmt.Errorf("could not attach to power:cpu_frequency: %w", err)
+	}
+	o.cpuFreqProg, o.cpuFreqLnk = p.Prog, l
+	return nil
+}
+
+// openThermalTrip attaches on_thermal_zone_trip to the kernel's thermal:thermal_zone_trip tracepoint
+// (flow.c's thermal_trip_count map) - see that map's own doc comment for why, unlike
+// cpu_freq_change_count's counter above, a nonzero reading here IS the decisive thermal-throttling
+// signal. Same single-attach-path treatment as openCpuFreqChange above, for the same reason (no BTF
+// match needed at load time) - the only failure here is the tracepoint not existing (a VM guest, a
+// board with no thermal zones registered, or a kernel too old to have this tracepoint at all).
+func (o *Observer) openThermalTrip() error {
+	spec, err := loadFlow()
+	if err != nil {
+		return err
+	}
+	delete(spec.Programs, "on_state")
+	delete(spec.Programs, "snapshot")
+	delete(spec.Programs, "observe_egress")
+	delete(spec.Programs, "observe_ingress")
+	delete(spec.Programs, "on_hash_connect_fexit")
+	delete(spec.Programs, "on_hash_connect_kretprobe")
+	delete(spec.Programs, "on_cpu_freq_change")
+	var p struct {
+		Prog *ebpf.Program `ebpf:"on_thermal_zone_trip"`
+	}
+	if err := spec.LoadAndAssign(&p, &ebpf.CollectionOptions{MapReplacements: map[string]*ebpf.Map{"thermal_trip_count": o.objs.ThermalTripCount}}); err != nil {
+		return fmt.Errorf("could not load: %w", err)
+	}
+	l, err := link.Tracepoint("thermal", "thermal_zone_trip", p.Prog, nil)
+	if err != nil {
+		p.Prog.Close()
+		return fmt.Errorf("could not attach to thermal:thermal_zone_trip: %w", err)
+	}
+	o.thermalProg, o.thermalLnk = p.Prog, l
+	return nil
+}
+
 // SnatExhaustion reads the running total of connect() attempts that failed with EADDRNOTAVAIL since
 // this program was loaded (see flow.c's snat_exhaustion doc comment for the full story) - it is a
 // lifetime count the map itself never resets, not a per-window delta like Collect()'s own counters, so
@@ -279,6 +373,57 @@ func (o *Observer) SnatExhaustion() uint64 {
 		total += v
 	}
 	return total
+}
+
+// CpuFreqChangeCount reads the running total of power:cpu_frequency tracepoint firings since this
+// program was loaded (see flow.c's cpu_freq_change_count doc comment) - a lifetime count, read never
+// read-and-cleared, exactly like SnatExhaustion above. 0 when openCpuFreqChange's attach did not work
+// (CpuFreqChangeErr != nil) is indistinguishable from a real 0 (a fixed-frequency board that never
+// scales at all) - this counter's only real job is corroborating ThermalTripCount below, not standing
+// on its own as a health signal.
+func (o *Observer) CpuFreqChangeCount() uint64 {
+	if o.objs.CpuFreqChangeCount == nil {
+		return 0
+	}
+	var k uint32
+	var per []uint64
+	if err := o.objs.CpuFreqChangeCount.Lookup(&k, &per); err != nil {
+		return 0
+	}
+	var total uint64
+	for _, v := range per {
+		total += v
+	}
+	return total
+}
+
+// ThermalTripCount reads the running total of thermal:thermal_zone_trip tracepoint firings since this
+// program was loaded (see flow.c's thermal_trip_count doc comment) - the decisive thermal-throttling
+// signal, unlike CpuFreqChangeCount above. A lifetime count, read never read-and-cleared, exactly like
+// SnatExhaustion. 0 when openThermalTrip's attach did not work (ThermalTripErr != nil) is
+// indistinguishable from a real, healthy 0 - the same ambiguity SnatExhaustion already leaves callers
+// to resolve via ThermalTripErr.
+func (o *Observer) ThermalTripCount() uint64 {
+	if o.objs.ThermalTripCount == nil {
+		return 0
+	}
+	var k uint32
+	var per []uint64
+	if err := o.objs.ThermalTripCount.Lookup(&k, &per); err != nil {
+		return 0
+	}
+	var total uint64
+	for _, v := range per {
+		total += v
+	}
+	return total
+}
+
+// ThermalThrottle satisfies collector.ThermalThrottleSource - see CpuFreqChangeCount/ThermalTripCount
+// above for what each return value means on its own, most importantly why only the second one is ever
+// treated as throttling evidence.
+func (o *Observer) ThermalThrottle() (cpuFreqChangeCount, thermalTripCount uint64) {
+	return o.CpuFreqChangeCount(), o.ThermalTripCount()
 }
 
 // cgroupV2Root finds the cgroup2 unified hierarchy's mount point by reading /proc/mounts, rather than
@@ -480,6 +625,8 @@ func (o *Observer) closeMaps() {
 	o.objs.Socks.Close()
 	o.objs.Lost.Close()
 	o.objs.SnatExhaustion.Close()
+	o.objs.CpuFreqChangeCount.Close()
+	o.objs.ThermalTripCount.Close()
 }
 
 func (o *Observer) Close() error {
@@ -493,6 +640,14 @@ func (o *Observer) Close() error {
 	if o.snatLnk != nil {
 		o.snatLnk.Close()
 		o.snatProg.Close()
+	}
+	if o.cpuFreqLnk != nil {
+		o.cpuFreqLnk.Close()
+		o.cpuFreqProg.Close()
+	}
+	if o.thermalLnk != nil {
+		o.thermalLnk.Close()
+		o.thermalProg.Close()
 	}
 	if o.namesRd != nil {
 		o.namesRd.Close() // unblocks drainNames' Read() loop
