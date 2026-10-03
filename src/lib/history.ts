@@ -20,7 +20,10 @@ export interface AppSettings {
   flowStaleSeconds: number
   measureSeconds: number
   probeTargets: ProbeTarget[]
-  /** Observability backends (Jaeger, Prometheus, Loki) an administrator quick-started an install command for - see QuickStartBackend. */
+  /** Which quick-start backend kinds this organisation may add - see QuickStartBackend.kind and
+   * effectiveAllowedBackendKinds (empty means the default, DEFAULT_ALLOWED_BACKEND_KINDS). */
+  allowedBackendKinds: QuickStartKind[]
+  /** Observability backends (Jaeger, Prometheus, Loki, or a custom one) an administrator quick-started an install command for, or registered by hand - see QuickStartBackend. */
   quickStartBackends: QuickStartBackend[]
   /** Only administrators receive the address; everyone else learns that one is configured. */
   deciderUrl: string
@@ -48,7 +51,20 @@ export interface ProbeTarget {
   port: number
 }
 
-export type QuickStartKind = 'jaeger' | 'prometheus' | 'loki'
+export type QuickStartKind = 'jaeger' | 'prometheus' | 'loki' | 'custom'
+
+/** Every kind a QuickStartBackend may carry - the backend's own knownBackendKinds (settings.go). */
+export const KNOWN_BACKEND_KINDS: QuickStartKind[] = ['jaeger', 'prometheus', 'loki', 'custom']
+
+/** What AppSettings.allowedBackendKinds falls back to when empty - the backend's own
+ * defaultAllowedBackendKinds (settings.go). "custom" is deliberately left out: it is a capability an
+ * administrator opts an organisation into, not one every organisation should have by default. */
+export const DEFAULT_ALLOWED_BACKEND_KINDS: QuickStartKind[] = ['jaeger', 'prometheus', 'loki']
+
+/** AppSettings.allowedBackendKinds, with the same "empty means the default" fallback the backend applies. */
+export function effectiveAllowedBackendKinds(allowed: QuickStartKind[]): QuickStartKind[] {
+  return allowed.length > 0 ? allowed : DEFAULT_ALLOWED_BACKEND_KINDS
+}
 
 /** A quick-start observability backend a person set up from the telemetry destination picker - see
  * quickStartBackends.ts for what each kind's install command actually does. The server never deploys or
@@ -56,6 +72,8 @@ export type QuickStartKind = 'jaeger' | 'prometheus' | 'loki'
  * to go once toolUrl is filled in. */
 export interface QuickStartBackend {
   id: string
+  /** 'custom' names no built-in chart (see quickStartBackends.ts's fixed catalog) - a user-supplied label
+   * and toolUrl stand in for what a catalog entry would otherwise provide. */
   kind: QuickStartKind
   modality: 'traces' | 'metrics' | 'logs'
   namespace: string
@@ -75,6 +93,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   flowStaleSeconds: 300,
   measureSeconds: 120,
   probeTargets: [],
+  allowedBackendKinds: [],
   quickStartBackends: [],
   deciderUrl: '',
   deciderName: '',
@@ -88,7 +107,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 export function normalizeSettings(s: Partial<AppSettings> | null | undefined): AppSettings {
-  return { ...DEFAULT_SETTINGS, ...s, probeTargets: s?.probeTargets ?? [], quickStartBackends: s?.quickStartBackends ?? [], imageDefaults: { ...DEFAULT_SETTINGS.imageDefaults, ...s?.imageDefaults } }
+  return { ...DEFAULT_SETTINGS, ...s, probeTargets: s?.probeTargets ?? [], allowedBackendKinds: s?.allowedBackendKinds ?? [], quickStartBackends: s?.quickStartBackends ?? [], imageDefaults: { ...DEFAULT_SETTINGS.imageDefaults, ...s?.imageDefaults } }
 }
 
 /** Event retention is opt-in: off means "keep forever" (0, always valid, whatever text is left in the box).

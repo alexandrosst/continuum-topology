@@ -198,6 +198,59 @@ func TestSettingsQuickStartBackendsAreChecked(t *testing.T) {
 	}
 }
 
+func TestSettingsAllowedBackendKindsGateQuickStartBackends(t *testing.T) {
+	// A custom backend is refused by default: "custom" is not in defaultAllowedBackendKinds.
+	if _, err := (Settings{QuickStartBackends: []QuickStartBackend{
+		{Kind: "custom", Modality: "traces", Namespace: "observability", Retention: "n/a", Label: "My APM", ToolURL: "https://apm.example.com"},
+	}}).Normalize(); err == nil {
+		t.Error("a custom backend was accepted although \"custom\" is not allowed by default")
+	}
+	// Once "custom" is allowed, a custom backend needs a label and a tool URL (there being no catalog
+	// entry to fall back to), but any of the three modalities is fine.
+	if _, err := (Settings{
+		AllowedBackendKinds: []string{"custom"},
+		QuickStartBackends:  []QuickStartBackend{{Kind: "custom", Modality: "traces", Namespace: "observability", Retention: "n/a"}},
+	}).Normalize(); err == nil {
+		t.Error("a custom backend without a label was accepted")
+	}
+	if _, err := (Settings{
+		AllowedBackendKinds: []string{"custom"},
+		QuickStartBackends:  []QuickStartBackend{{Kind: "custom", Modality: "traces", Namespace: "observability", Retention: "n/a", Label: "My APM"}},
+	}).Normalize(); err == nil {
+		t.Error("a custom backend without a tool URL was accepted")
+	}
+	ok, err := (Settings{
+		AllowedBackendKinds: []string{"custom"},
+		QuickStartBackends:  []QuickStartBackend{{Kind: "custom", Modality: "logs", Namespace: "observability", Retention: "n/a", Label: "My APM", ToolURL: "https://apm.example.com"}},
+	}).Normalize()
+	if err != nil {
+		t.Fatalf("a well-formed custom backend was refused: %v", err)
+	}
+	if len(ok.QuickStartBackends) != 1 || ok.QuickStartBackends[0].Kind != "custom" {
+		t.Fatalf("custom backend not kept: %+v", ok.QuickStartBackends)
+	}
+	// Narrowing the allow-list away from a built-in kind refuses a backend of that kind, even though it
+	// would be fine on its own (the modality mismatch tests above already cover the unrestricted default).
+	if _, err := (Settings{
+		AllowedBackendKinds: []string{"prometheus", "loki"},
+		QuickStartBackends:  []QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"}},
+	}).Normalize(); err == nil {
+		t.Error("a jaeger backend was accepted although jaeger was removed from the allow-list")
+	}
+	// An unknown kind in the allow-list itself is refused.
+	if _, err := (Settings{AllowedBackendKinds: []string{"zipkin"}}).Normalize(); err == nil {
+		t.Error("an unknown allowed backend kind was accepted")
+	}
+	// The allow-list is de-duplicated rather than rejected for repeats.
+	allow, err := (Settings{AllowedBackendKinds: []string{"jaeger", "jaeger", "loki"}}).Normalize()
+	if err != nil {
+		t.Fatalf("a repeated allowed kind was refused: %v", err)
+	}
+	if len(allow.AllowedBackendKinds) != 2 {
+		t.Fatalf("allowed backend kinds not de-duplicated: %+v", allow.AllowedBackendKinds)
+	}
+}
+
 func TestSettingsAreAuditedAndSurviveARestart(t *testing.T) {
 	e := newEnv(t)
 	e.core.Decider, _ = NewDeciderPolicy("127.0.0.0/8")

@@ -135,6 +135,66 @@ describe('QuickStartBackends', () => {
     expect(body.quickStartBackends[0]).toMatchObject({ id: 'qsb-1', retention: '168h' })
   })
 
+  test('an administrator can disable a built-in kind, hiding its quick-start offer', async () => {
+    const user = userEvent.setup()
+    settings = DEFAULT_SETTINGS
+    save = vi.fn().mockResolvedValue(true)
+    role = 'admin'
+    render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={vi.fn()} />)
+    expect(screen.getByTestId('quickstart-toggle-jaeger')).toBeInTheDocument()
+    await user.click(screen.getByTestId('allowed-kind-jaeger'))
+    expect(save).toHaveBeenCalledTimes(1)
+    const [, body] = save.mock.calls[0]
+    expect(body.allowedBackendKinds).toEqual(expect.arrayContaining(['prometheus', 'loki']))
+    expect(body.allowedBackendKinds).not.toContain('jaeger')
+  })
+
+  test('a non-administrator never sees the allow-list control', () => {
+    settings = DEFAULT_SETTINGS
+    save = vi.fn()
+    role = 'viewer'
+    render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={vi.fn()} />)
+    expect(screen.queryByTestId('allowed-kind-jaeger')).not.toBeInTheDocument()
+  })
+
+  test('"custom" is off by default, and turning it on reveals the add-custom-backend flow', async () => {
+    const user = userEvent.setup()
+    settings = DEFAULT_SETTINGS
+    save = vi.fn().mockResolvedValue(true)
+    role = 'admin'
+    render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={vi.fn()} />)
+    expect(screen.queryByTestId('quickstart-toggle-custom')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('allowed-kind-custom'))
+    expect(save).toHaveBeenCalledTimes(1)
+    const [, body] = save.mock.calls[0]
+    expect(body.allowedBackendKinds).toEqual(expect.arrayContaining(['jaeger', 'prometheus', 'loki', 'custom']))
+  })
+
+  test('adding a custom backend saves it with kind "custom" and the chosen signal', async () => {
+    const user = userEvent.setup()
+    settings = { ...DEFAULT_SETTINGS, allowedBackendKinds: ['jaeger', 'prometheus', 'loki', 'custom'] }
+    save = vi.fn().mockResolvedValue(true)
+    role = 'admin'
+    render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={vi.fn()} />)
+    await user.click(screen.getByTestId('quickstart-toggle-custom'))
+    await user.type(screen.getByTestId('quickstart-custom-label'), 'Elastic APM')
+    await user.type(screen.getByTestId('quickstart-custom-url'), 'https://apm.example.com')
+    await user.click(screen.getByTestId('quickstart-custom-save'))
+    expect(save).toHaveBeenCalledTimes(1)
+    const [, body] = save.mock.calls[0]
+    expect(body.quickStartBackends).toHaveLength(1)
+    expect(body.quickStartBackends[0]).toMatchObject({ kind: 'custom', modality: 'traces', label: 'Elastic APM', toolUrl: 'https://apm.example.com' })
+  })
+
+  test('once a custom backend has no tool URL, a non-administrator still sees it (read-only) if its signal is on', () => {
+    const saved: QuickStartBackend = { id: 'qsb-3', kind: 'custom', modality: 'traces', namespace: 'obs', retention: 'n/a', label: 'Elastic APM' }
+    settings = { ...DEFAULT_SETTINGS, allowedBackendKinds: ['jaeger', 'prometheus', 'loki', 'custom'], quickStartBackends: [saved] }
+    save = vi.fn()
+    role = 'viewer'
+    render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={vi.fn()} />)
+    expect(screen.getByText('Elastic APM')).toBeInTheDocument()
+  })
+
   test('once a tool URL is known, "Open" replaces the URL form, linking straight to it', () => {
     const saved: QuickStartBackend = { id: 'qsb-1', kind: 'jaeger', modality: 'traces', namespace: 'obs', retention: '48h', label: 'Jaeger (traces)', toolUrl: 'http://localhost:16686' }
     settings = { ...DEFAULT_SETTINGS, quickStartBackends: [saved] }
