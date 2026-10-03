@@ -1,19 +1,10 @@
 import { qualityLabel, rttLabel } from '@/lib/metrics'
 import { bytesPerSec } from '@/lib/observed'
 import { linkUtilizationPct } from '@/lib/present'
-import { DetailRow } from '@/components/ui/primitives'
+import { DetailRow, TunnelEvidence } from '@/components/ui/primitives'
 import type { TopoEdge } from '@/lib/graph'
 
 export type EdgeHoverPos = { cx: number; cy: number }
-
-// Words for a ClusterLink's inferred encryption posture (EdgeData.clusterLink.encryption) - "unknown" is
-// only ever a driver kind outside the backend's own closed list, not a missing measurement, so it reads
-// as a plain fact rather than a warning the way "plaintext" does.
-const ENCRYPTION_WORDS: Record<'encrypted' | 'plaintext' | 'unknown', string> = {
-  encrypted: 'encrypted by design',
-  plaintext: 'no encryption of its own',
-  unknown: 'driver type not recognized',
-}
 
 /**
  * A compact hover card for a graph/infrastructure-view edge - the canvas equivalent of MapView's own
@@ -190,48 +181,25 @@ export default function EdgeHoverCard({
             </DetailRow>
           )}
           {tunnel && (
-            <DetailRow
+            // Via/encryption/redundancy/nodes/addresses/flows - the same shared block the Inspector's
+            // own "Cluster links" list and per-dependency "Cluster link" section render, so this hover
+            // card never shows a different subset of this exact same evidence than a click would. Only
+            // d.clusterLink (never d.tunnelLink, see its own doc above) ever carries nodeA/nodeB,
+            // addressA/addressB or the flow rollup - TunnelEvidence simply renders no row for whichever
+            // of those tunnelLink leaves undefined.
+            <TunnelEvidence
               dense
-              label="Via"
-              labelTitle="The specific evidence behind this link - a tunnel interface's name and kind, or the shared subnet prefix - confirmed from both clusters' own routing/address data, never a guess"
-            >
-              <span title={tunnel.via}>{tunnel.via}</span>
-            </DetailRow>
-          )}
-          {tunnel?.encryption && (
-            <DetailRow
-              dense
-              label="Encryption"
-              labelTitle="Inferred from the tunnel's driver type alone - WireGuard and IPsec encrypt by design, VXLAN/GRE and similar carry none of their own - never a measurement of a live handshake"
-            >
-              {tunnel.encryption === 'plaintext' ? (
-                <span className="text-warn">{ENCRYPTION_WORDS[tunnel.encryption]}</span>
-              ) : (
-                ENCRYPTION_WORDS[tunnel.encryption]
-              )}
-            </DetailRow>
-          )}
-          {tunnel && tunnel.redundancy > 1 && (
-            <DetailRow
-              dense
-              label="Redundancy"
-              labelTitle="How many independently corroborating node pairs back this link - more than one means more than one path between these clusters, not a single point of failure"
-            >
-              {tunnel.redundancy} independent paths
-            </DetailRow>
-          )}
-          {d?.clusterLink && !!d.clusterLink.flowsObserved && (
-            <DetailRow
-              dense
-              label="Flows observed"
-              labelTitle="Live dependency flows actually matched onto this link's confirmed tunnel interface(s) - scoped to the calling service's own cluster, never by interface name alone"
-            >
-              {d.clusterLink.flowsObserved} flow{d.clusterLink.flowsObserved === 1 ? '' : 's'}
-              {d.clusterLink.avgRttMs !== undefined ? ` \u00b7 ${rttLabel(d.clusterLink.avgRttMs)} avg RTT` : ''}
-              {d.clusterLink.avgLossPct !== undefined
-                ? ` \u00b7 ${d.clusterLink.avgLossPct < 10 ? d.clusterLink.avgLossPct.toFixed(1) : Math.round(d.clusterLink.avgLossPct)}% avg loss`
-                : ''}
-            </DetailRow>
+              via={tunnel.via}
+              encryption={tunnel.encryption}
+              redundancy={tunnel.redundancy}
+              nodeA={d?.clusterLink?.fromNode}
+              nodeB={d?.clusterLink?.toNode}
+              addressA={d?.clusterLink?.fromAddress}
+              addressB={d?.clusterLink?.toAddress}
+              flowsObserved={d?.clusterLink?.flowsObserved}
+              avgRttMs={d?.clusterLink?.avgRttMs}
+              avgLossPct={d?.clusterLink?.avgLossPct}
+            />
           )}
         </div>
       )}

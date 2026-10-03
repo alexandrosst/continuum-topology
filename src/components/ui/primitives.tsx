@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom'
 import { buttonClass, type ButtonVariant } from '@/components/ui/buttonClass'
 import type { Completeness as CompletenessInfo } from '@/lib/completeness'
 import { IP_SCOPE_HELP, ipScope, ipScopeLabel, loadBand } from '@/lib/present'
+import { rttLabel } from '@/lib/metrics'
 import { EVIDENCE_HELP, EVIDENCE_LABEL, EVIDENCE_TONE, needsEvidenceChip, TONE_CLASS, type EvidenceLevel, type ObsInfo } from '@/lib/provenance'
 import { STATUS_COLOR, TIER_COLOR, type Source, type Status, type Tier } from '@/lib/types'
 
@@ -834,6 +835,116 @@ export function DetailRow({
         <span className={wrap ? 'min-w-0 break-words text-right text-nb-300' : 'scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap text-right text-nb-300'}>{children}</span>
       )}
     </div>
+  )
+}
+
+/** Words for a ClusterLink's (or a single Dependency.tunnelLink's) inferred encryption posture -
+ *  "unknown" is only ever a driver kind outside the backend's own closed list, not a missing
+ *  measurement, so it reads as a plain fact rather than a warning the way "plaintext" does. Shared by
+ *  TunnelEvidence below (and anything else quoting this same field) so a link's encryption reads
+ *  identically wherever it is shown. */
+export const ENCRYPTION_WORDS: Record<'encrypted' | 'plaintext' | 'unknown', string> = {
+  encrypted: 'encrypted by design',
+  plaintext: 'no encryption of its own',
+  unknown: 'driver type not recognized',
+}
+
+/**
+ * The full evidence behind a confirmed cluster-link tunnel/subnet relationship, or the narrower subset a
+ * single Dependency.tunnelLink mirrors onto its own edge (see each one's own doc in lib/types.ts): via,
+ * inferred encryption, the confirming node names and tunnel addresses, redundancy, and - ClusterLink
+ * only - the live flow rollup. Extracted so the topology Inspector's per-cluster "Cluster links" list and
+ * EdgeHoverCard's hover card (and the Inspector's own per-dependency "Cluster link" section) never show a
+ * different subset of the exact same backend fact, the way they used to before this existed: every field
+ * below renders the same way, with the same label and the same explanatory title, regardless of which of
+ * those three call sites reaches it. A field left undefined (nodeA/nodeB, addressA/addressB,
+ * flowsObserved and its two averages - never populated for a "subnet" link or for Dependency.tunnelLink's
+ * own narrower shape) simply renders no row at all, rather than a blank or fabricated one. `dense`
+ * matches DetailRow's own flag (EdgeHoverCard's compact card passes it; the roomier Inspector call sites
+ * don't).
+ */
+export function TunnelEvidence({
+  dense,
+  via,
+  encryption,
+  redundancy,
+  nodeA,
+  nodeB,
+  addressA,
+  addressB,
+  flowsObserved,
+  avgRttMs,
+  avgLossPct,
+}: {
+  dense?: boolean
+  via: string
+  encryption?: 'encrypted' | 'plaintext' | 'unknown'
+  redundancy: number
+  nodeA?: string
+  nodeB?: string
+  addressA?: string
+  addressB?: string
+  flowsObserved?: number
+  avgRttMs?: number
+  avgLossPct?: number
+}) {
+  return (
+    <>
+      <DetailRow
+        dense={dense}
+        label="Via"
+        labelTitle="The specific evidence behind this link - a tunnel interface's name and kind, or the shared subnet prefix - confirmed from both clusters' own routing/address data, never a guess"
+      >
+        <span title={via}>{via}</span>
+      </DetailRow>
+      {encryption && (
+        <DetailRow
+          dense={dense}
+          label="Encryption"
+          labelTitle="Inferred from the tunnel's driver type alone - WireGuard and IPsec encrypt by design, VXLAN/GRE and similar carry none of their own - never a measurement of a live handshake"
+        >
+          {encryption === 'plaintext' ? <span className="text-warn">{ENCRYPTION_WORDS[encryption]}</span> : ENCRYPTION_WORDS[encryption]}
+        </DetailRow>
+      )}
+      {nodeA && nodeB && (
+        <DetailRow
+          dense={dense}
+          label="Confirmed by"
+          labelTitle="The specific node on each side whose tunnel (or shared subnet) first corroborated this link - named so the evidence points at an actual machine, not only a cluster pair and a driver name"
+        >
+          {nodeA} ↔ {nodeB}
+        </DetailRow>
+      )}
+      {addressA && addressB && (
+        <DetailRow
+          dense={dense}
+          label="Tunnel addresses"
+          labelTitle="The two tunnel interfaces' own addresses that confirmed this link"
+        >
+          <span title={`${addressA} ↔ ${addressB}`}>{addressA} ↔ {addressB}</span>
+        </DetailRow>
+      )}
+      {redundancy > 1 && (
+        <DetailRow
+          dense={dense}
+          label="Redundancy"
+          labelTitle="How many independently corroborating node pairs back this link - more than one means more than one path between these clusters, not a single point of failure"
+        >
+          {redundancy} independent paths
+        </DetailRow>
+      )}
+      {!!flowsObserved && (
+        <DetailRow
+          dense={dense}
+          label="Flows observed"
+          labelTitle="Live dependency flows actually matched onto this link's confirmed tunnel interface(s), scoped by the actual cluster pair on both ends - never by interface name alone"
+        >
+          {flowsObserved} flow{flowsObserved === 1 ? '' : 's'}
+          {avgRttMs !== undefined ? ` \u00b7 ${rttLabel(avgRttMs)} avg RTT` : ''}
+          {avgLossPct !== undefined ? ` \u00b7 ${avgLossPct < 10 ? avgLossPct.toFixed(1) : Math.round(avgLossPct)}% avg loss` : ''}
+        </DetailRow>
+      )}
+    </>
   )
 }
 

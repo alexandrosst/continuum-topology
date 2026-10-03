@@ -9,7 +9,7 @@ import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
 import ServiceAdvice from '@/components/placement/ServiceAdvice'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
-import { Button, CompletenessBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, ObservationChip, Pill, Select, Sparkline, SourceBadge, StatusDot, TierBadge } from '@/components/ui/primitives'
+import { Button, CompletenessBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, ObservationChip, Pill, Select, Sparkline, SourceBadge, StatusDot, TierBadge, TunnelEvidence } from '@/components/ui/primitives'
 import { completeness } from '@/lib/completeness'
 import { observation, TONE_CLASS } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
@@ -489,28 +489,34 @@ export default function Inspector({
                 const otherName = l.fromCluster === c.id ? l.toName : l.fromName
                 const thisNode = l.fromCluster === c.id ? l.fromNode : l.toNode
                 const otherNode = l.fromCluster === c.id ? l.toNode : l.fromNode
-                const sub = [
-                  l.kind === 'overlay' ? 'overlay' : 'same subnet',
-                  l.via,
-                  // Inferred from the tunnel's own driver type, not measured - same caveat the mesh
-                  // mTLS verdict already carries elsewhere on this page.
-                  l.encryption === 'encrypted' ? 'encrypted' : l.encryption === 'plaintext' ? 'not encrypted' : undefined,
-                  thisNode && otherNode ? `${thisNode} ↔ ${otherNode}` : undefined,
-                  l.redundancy > 1 ? `${l.redundancy} independent paths` : undefined,
-                ].filter(Boolean).join(' · ')
+                const thisAddress = l.fromCluster === c.id ? l.fromAddress : l.toAddress
+                const otherAddress = l.fromCluster === c.id ? l.toAddress : l.fromAddress
                 return (
-                  <LinkRow
-                    key={`${l.fromCluster}:${l.toCluster}:${l.kind}`}
-                    label={otherName}
-                    sub={sub}
-                    // This sub is a multi-part joined string (kind/via/encryption/nodes/redundancy), the
-                    // same shape as depSub's own dependency rows below - and like those, long enough to
-                    // regularly overflow the sidebar's fixed width in the default non-stacked layout,
-                    // whose `sub` span is `shrink-0` with no truncation. stacked wraps it under the name
-                    // instead, same as every other long-sub LinkRow call in this file already does.
-                    stacked
-                    onClick={() => onSelect({ kind: 'cluster', id: otherId })}
-                  />
+                  <div key={`${l.fromCluster}:${l.toCluster}:${l.kind}`} className="mb-1.5 last:mb-0">
+                    <LinkRow
+                      label={otherName}
+                      sub={l.kind === 'overlay' ? 'overlay' : 'same subnet'}
+                      onClick={() => onSelect({ kind: 'cluster', id: otherId })}
+                    />
+                    {/* The rest of this link's evidence (via/encryption/confirming nodes/addresses/
+                        redundancy/live flows) - the same TunnelEvidence block EdgeHoverCard renders for
+                        this exact link's canvas edge, so a click here never shows less than a hover
+                        already did. */}
+                    <div className="px-2">
+                      <TunnelEvidence
+                        via={l.via}
+                        encryption={l.encryption}
+                        redundancy={l.redundancy}
+                        nodeA={thisNode}
+                        nodeB={otherNode}
+                        addressA={thisAddress}
+                        addressB={otherAddress}
+                        flowsObserved={l.flowsObserved}
+                        avgRttMs={l.avgRttMs}
+                        avgLossPct={l.avgLossPct}
+                      />
+                    </div>
+                  </div>
                 )
               })}
               <p className="mt-1.5 text-xs text-nb-500">
@@ -1159,6 +1165,19 @@ export default function Inspector({
             <Row label="Encryption"><span style={{ color: VERDICT_COLOR[verdict.state] }}>{verdict.short}</span></Row>
             <p className="text-xs text-nb-400">{verdict.detail}</p>
             <p className="mt-1.5 text-xs text-nb-500">Inferred from configuration (proxies, ports kept out of them, and the mesh's mutual-TLS policy). Nothing here was measured on the wire.</p>
+          </Section>
+        )}
+        {d.tunnelLink && (
+          // Mirrors what EdgeHoverCard already shows on a hover of this exact dependency's edge (see
+          // EdgeData.tunnelLink / Dependency.tunnelLink's own doc) - this used to be the one place a
+          // click showed nothing a hover already had. Never carries nodeA/nodeB, addressA/addressB or
+          // the flow rollup (those are ClusterLink-only, see the aggregate on the cluster's own "Cluster
+          // links" section instead), so TunnelEvidence renders only Via/Encryption/Redundancy here.
+          <Section title="Cluster link">
+            <TunnelEvidence via={d.tunnelLink.via} encryption={d.tunnelLink.encryption} redundancy={d.tunnelLink.redundancy} />
+            <p className="mt-1.5 text-xs text-nb-500">
+              This dependency's own traffic crosses a confirmed overlay tunnel between {clusterName(d.tunnelLink.fromCluster)} and {clusterName(d.tunnelLink.toCluster)}.
+            </p>
           </Section>
         )}
         {across && (
