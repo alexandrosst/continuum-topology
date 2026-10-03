@@ -78,7 +78,7 @@ export default function MobilityPanel({ service, onSelectCluster }: { service: S
   const Icon = VERDICT_ICON[m.verdict]
   const groups: { verdict: Verdict; title: string; rows: MoveTarget[] }[] = [
     { verdict: 'fits', title: 'Fit', rows: targets.filter((t) => t.verdict === 'fits') },
-    { verdict: 'cantTell', title: 'Can’t tell', rows: targets.filter((t) => t.verdict === 'cantTell') },
+    { verdict: 'cantTell', title: 'Can\'t tell', rows: targets.filter((t) => t.verdict === 'cantTell') },
     { verdict: 'doesNotFit', title: 'Do not fit', rows: targets.filter((t) => t.verdict === 'doesNotFit') },
   ]
   const now = model.cap?.now ?? 0
@@ -105,7 +105,7 @@ export default function MobilityPanel({ service, onSelectCluster }: { service: S
         Clusters that could host it{' '}
         {targets.length > 0 && (
           <span className="normal-case text-nb-600" data-testid="target-counts">
-            ({groups[0].rows.length} fit, {groups[1].rows.length} can’t tell, {groups[2].rows.length} do not, of {targets.length})
+            ({groups[0].rows.length} fit, {groups[1].rows.length} can't tell, {groups[2].rows.length} do not, of {targets.length})
           </span>
         )}
       </div>
@@ -159,7 +159,7 @@ function PlanBridge({ service, rec, targetName, recInFitList, skipped, planNow }
           {recInFitList ? (
             <>Of the clusters that fit, <span className="font-medium text-nb-300">{targetName}</span> is the current pick from the last optimization pass (saves {pts(rec.net)} points).</>
           ) : (
-            <>The last optimization pass picked <span className="font-medium text-nb-300">{targetName}</span> (saves {pts(rec.net)} points), but it is not in this sweep’s own fit list right now - the two run on different schedules.</>
+            <>The last optimization pass picked <span className="font-medium text-nb-300">{targetName}</span> (saves {pts(rec.net)} points), but it is not in this sweep's own fit list right now - the two run on different schedules.</>
           )}
         </p>
         {freshness}
@@ -212,7 +212,7 @@ function TargetRow({ t, now, onSelectCluster, recommended, planNow }: { t: MoveT
       {t.blockers.length > 0 && <div className="mt-0.5 text-bad/90" data-testid="blockers">{t.blockers.join('; ')}</div>}
       {t.unknown.length > 0 && (
         <div className="mt-0.5 text-warn/90" data-testid="cant-tell-why">
-          {t.verdict === 'cantTell' ? 'Can’t tell: ' : 'Not checked: '}
+          {t.verdict === 'cantTell' ? 'Can\'t tell: ' : 'Not checked: '}
           {t.unknown.join('; ')}
         </div>
       )}
