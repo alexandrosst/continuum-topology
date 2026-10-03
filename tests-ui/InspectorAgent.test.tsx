@@ -98,6 +98,12 @@ describe('Inspector · discovery agent', () => {
     expect(screen.getByText('42')).toBeTruthy()
   })
 
+  test('self-telemetry links out to the System Health page for the full history', () => {
+    renderInspector(agent({ self: { t: '2026-09-19T12:00:00Z', rssBytes: 256 * 1024 * 1024, goroutines: 42 } }))
+    const link = screen.getByText('View full history').closest('a')
+    expect(link).toHaveAttribute('href', '/system-health')
+  })
+
   test('an agent whose cluster is unknown still renders (no crash), falling back to the raw cluster id', () => {
     renderInspector(agent({ clusterId: 'cl-missing' }), [])
     expect(screen.getByText('cl-missing')).toBeTruthy()

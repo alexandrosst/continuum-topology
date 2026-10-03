@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Pencil, X } from 'lucide-react'
+import { ArrowRight, Pencil, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckLine } from '@/components/discovery/AgentParts'
@@ -1080,9 +1080,13 @@ export default function Inspector({
             <Row label="Memory (RSS)">{formatMemory(ag.self.rssBytes / 1024 ** 3)}</Row>
             <Row label="Goroutines">{ag.self.goroutines}</Row>
             <Row label="As of">{ago(ag.self.t)}</Row>
-            {/* The full history (with derived CPU% and bandwidth share) lives on the System Health page,
-                never duplicated here - no link out yet, since that page's own route isn't settled in this
-                session (see this session's own note on the agent building it concurrently). */}
+            {/* The full history (with derived CPU% and bandwidth share) lives on the System Health
+                page, never duplicated here. */}
+            <div className="pt-1">
+              <Link to="/system-health" className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline">
+                View full history <ArrowRight size={ICON_SM} aria-hidden />
+              </Link>
+            </div>
           </Section>
         )}
       </>
