@@ -507,7 +507,9 @@ export interface ServiceDisruption {
  *  readyReplicas): in particular `createdAt` is this pod's own age, unlike Service.createdAt (the workload
  *  object's age, which never changes on a routine scale-up) - the one fact that can actually show a recent
  *  scaling event. Deliberately as minimal as Service's own discovered fields: no pod IP ever leaves the
- *  agent (see Address's own doc comment on the same rule). */
+ *  agent (see Address's own doc comment on the same rule) - `traffic` below is no exception, since it
+ *  only ever names the OTHER side of a flow (a workload or an external address, exactly what Dependency
+ *  already exposes at the service level), never this pod's own address. */
 export interface Pod {
   name: string
   /** Set only when the pod's own node is itself known to this topology - empty when the node was filtered
@@ -521,6 +523,32 @@ export interface Pod {
    *  healthy ones into an unremarkable average. */
   restarts?: number
   createdAt?: string
+  /** This one pod's own breakdown of who it talks to, right now - unlike a Dependency edge (historically
+   *  accumulated, always present once observed), this is a point-in-time snapshot from the agent's latest
+   *  report: absent below access tier 2, before the agent's first flow report since this pod started, or
+   *  when every one of its connections currently goes through a Service address rather than being
+   *  addressed to this pod directly. Meant to be fetched/shown only once this specific pod is expanded -
+   *  never drawn as permanent edges on the canvas, which is exactly why this stays a per-pod list rather
+   *  than feeding the aggregate dependency graph. */
+  traffic?: PodPeer[]
+}
+
+/** One line of Pod.traffic: this pod, and one workload or external address it has been talking to.
+ *  Several PodPeers can share the same `peer` (one in, one out, or different ports) - each is its own
+ *  observed edge, never merged across ports/protocols/directions the way a Dependency already is. */
+export interface PodPeer {
+  /** The other side's identity: a workload key ("namespace/Kind/name") when peerKind is "service", or the
+   *  raw address when peerKind is "external" - the same two shapes Dependency.from/to already use, and no
+   *  more a privacy concern here than there. */
+  peer: string
+  peerKind: 'service' | 'external'
+  /** This pod's own role in the flow: "out" when it is the caller, "in" when it is the one receiving. */
+  direction: 'out' | 'in'
+  port: number
+  protocol: string
+  connections: number
+  bytesOut?: number
+  bytesIn?: number
 }
 
 export interface Service extends Provenance {
