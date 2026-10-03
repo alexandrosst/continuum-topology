@@ -5,11 +5,13 @@ import { CopyCommand } from '@/components/agents/AgentInsight'
 import { Button, CopyButton, Field, ICON_MD, ICON_SM, Input, Modal, Select } from '@/components/ui/primitives'
 import { api, atLeast, ApiError, type GatewayTokenStatus, type MintedGatewayToken } from '@/lib/api'
 import { effectiveAllowedBackendKinds, KNOWN_BACKEND_KINDS, type AppSettings, type QuickStartBackend, type QuickStartKind } from '@/lib/history'
+import type { ProcessorEntry } from '@/lib/processorCatalog'
 import { QUICK_START_BACKENDS, quickStartSpec } from '@/lib/quickStartBackends'
 import { gatewayManifest, gatewayPortForward, hasGatewayManifest } from '@/lib/quickStartGateway'
 import type { Modality } from '@/lib/consent'
 import { useConn, useServer } from '@/store/server'
 import { useSettings } from '@/store/settings'
+import TelemetryBackendWizard from './TelemetryBackendWizard'
 
 const KIND_LABEL: Record<QuickStartKind, string> = { jaeger: 'Jaeger', prometheus: 'Prometheus', loki: 'Loki', custom: 'Custom' }
 
@@ -26,9 +28,17 @@ const KIND_LABEL: Record<QuickStartKind, string> = { jaeger: 'Jaeger', prometheu
  * CustomBackends) an organisation may add at all is a per-org allow-list (settings.allowedBackendKinds,
  * see effectiveAllowedBackendKinds) an administrator manages right here via AllowedKindsControl.
  */
-export default function QuickStartBackends({ enabledModalities, onUseAsDestination }: {
+export default function QuickStartBackends({ enabledModalities, onUseAsDestination, currentDestination, extraProcessors = [] }: {
   enabledModalities: Set<Modality>
   onUseAsDestination: (exportEndpoint: string, exportProtocol: 'grpc' | 'http') => void
+  /** The destination (if any) already set on the telemetry form this sits under - used only by the guided
+   *  wizard's own compatibility step (see TelemetryBackendWizard), to flag that using a quick-start backend
+   *  as the destination would replace it, and whether doing so also switches the protocol. Optional so
+   *  existing callers/tests that only care about the flat per-kind disclosures need not pass it. */
+  currentDestination?: { endpoint: string; protocol: 'grpc' | 'http' }
+  /** Extra OTel processors already configured on the telemetry form - same reasoning: only the guided
+   *  wizard's compatibility step reads these, to flag one shaped for a signal this backend won't carry. */
+  extraProcessors?: ProcessorEntry[]
 }) {
   const conn = useConn()
   const admin = useServer((s) => atLeast(s.role, 'admin'))
@@ -36,6 +46,7 @@ export default function QuickStartBackends({ enabledModalities, onUseAsDestinati
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState<QuickStartKind | null>(null)
   const [addingCustom, setAddingCustom] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
   // Per-backend gateway token state (Part B/C): whether one has been minted (never the secret - see
   // api.gatewayTokenStatus), and the plaintext from the most recent mint, shown exactly once.
   const [gatewayStatus, setGatewayStatus] = useState<Record<string, GatewayTokenStatus>>({})
@@ -116,6 +127,12 @@ export default function QuickStartBackends({ enabledModalities, onUseAsDestinati
       {error && <p className="mb-2 text-xs text-bad" role="alert">{error}</p>}
       {mintError && <p className="mb-2 text-xs text-bad" role="alert">{mintError}</p>}
       {admin && <AllowedKindsControl allowed={allowed} busy={busy} onChange={(kinds) => writeSettings({ allowedBackendKinds: kinds })} />}
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-xs text-nb-500">Pick a kind below, or walk through it step by step - sensible defaults, then a check for anything already configured that won't play well with it.</p>
+        <Button type="button" size="sm" variant="ghost" onClick={() => setWizardOpen(true)} data-testid="quickstart-guided-setup">
+          <Rocket size={ICON_SM} /> Guided setup
+        </Button>
+      </div>
       <div className="flex flex-col gap-2">
         {relevant.map((spec) => {
           const saved = settings.quickStartBackends.find((b) => b.kind === spec.kind)
@@ -173,6 +190,24 @@ export default function QuickStartBackends({ enabledModalities, onUseAsDestinati
         )}
       </div>
       {minted && <GatewayTokenCreated minted={minted} onClose={() => setMinted(null)} />}
+      <TelemetryBackendWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        allowedKinds={allowed}
+        enabledModalities={enabledModalities}
+        existingBackends={settings.quickStartBackends}
+        currentEndpoint={currentDestination?.endpoint ?? ''}
+        currentProtocol={currentDestination?.protocol ?? 'grpc'}
+        extraProcessors={extraProcessors}
+        admin={admin}
+        busy={busy}
+        error={error}
+        onSave={(rec) => {
+          void write([...settings.quickStartBackends, rec]).then((ok) => {
+            if (ok) setWizardOpen(false)
+          })
+        }}
+      />
     </div>
   )
 }

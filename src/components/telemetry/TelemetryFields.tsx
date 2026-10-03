@@ -430,6 +430,8 @@ export default function TelemetryFields({
         <QuickStartBackends
           enabledModalities={enabledModalitySet}
           onUseAsDestination={(endpoint, protocol) => onChange({ ...value, exportEndpoint: endpoint, exportProtocol: protocol })}
+          currentDestination={{ endpoint: value.exportEndpoint, protocol: value.exportProtocol }}
+          extraProcessors={value.extraProcessors}
         />
         <label className="flex cursor-pointer items-center gap-2 text-sm sm:col-span-2">
           <input

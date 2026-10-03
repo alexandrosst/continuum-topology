@@ -264,4 +264,20 @@ describe('QuickStartBackends', () => {
     // "custom" has no gateway manifest (see hasGatewayManifest) - no action to generate one at all.
     expect(screen.queryByTestId('quickstart-gateway-token-custom')).not.toBeInTheDocument()
   })
+
+  test('"Guided setup" opens the step-by-step wizard, pre-scoped to this org\'s allow-list', async () => {
+    const user = userEvent.setup()
+    settings = { ...DEFAULT_SETTINGS, allowedBackendKinds: ['jaeger', 'loki'] }
+    save = vi.fn()
+    role = 'admin'
+    render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={vi.fn()} />)
+    expect(screen.queryByTestId('backend-wizard-step-kind')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('quickstart-guided-setup'))
+    expect(screen.getByTestId('backend-wizard-step-kind')).toBeInTheDocument()
+    expect(screen.getByTestId('backend-wizard-kind-jaeger')).toBeInTheDocument()
+    expect(screen.getByTestId('backend-wizard-kind-loki')).toBeInTheDocument()
+    // "prometheus" isn't in this org's allow-list above, and "custom" was never opted into.
+    expect(screen.queryByTestId('backend-wizard-kind-prometheus')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('backend-wizard-kind-custom')).not.toBeInTheDocument()
+  })
 })
