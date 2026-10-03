@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { Pencil, X } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckLine } from '@/components/discovery/AgentParts'
 import EntityHistory from '@/components/EntityHistory'
@@ -9,9 +9,9 @@ import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
 import ServiceAdvice from '@/components/placement/ServiceAdvice'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
-import { Button, CompletenessBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, ObservationChip, Pill, Select, Sparkline, SourceBadge, StatusDot, TierBadge, TunnelEvidence } from '@/components/ui/primitives'
+import { Button, CompletenessBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, Pill, Provenance as ProvenanceStrip, Select, Sparkline, SourceBadge, StatusDot, TierBadge, TunnelEvidence } from '@/components/ui/primitives'
 import { completeness } from '@/lib/completeness'
-import { observation, TONE_CLASS } from '@/lib/provenance'
+import { CONFIDENCE_TONE, dependencyProvenance, observation } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
 import { exitIps } from '@/lib/geo'
 import { ageLabel, autoscalerRange, callerIfaceSpeedMbps, disruptionLabel, formatMemory, GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipInCidr, linkUtilizationPct, podsLabel, podsPercent, recentlyScaledPods, volumeSize } from '@/lib/present'
@@ -129,17 +129,6 @@ function Confirmed({ meta }: { meta?: OverrideMeta }) {
   )
 }
 
-function Why({ ev }: { ev?: Evidence }) {
-  if (!ev) return null
-  return (
-    <Row label="Detected via" wrap>
-      <span title={ev.detail}>
-        {ev.signal} <span className={ev.confidence === 'high' ? 'text-ok' : ev.confidence === 'medium' ? 'text-warn' : 'text-bad'}>({ev.confidence})</span>
-      </span>
-    </Row>
-  )
-}
-
 const ago = (iso?: string) => {
   if (!iso) return undefined
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000)
@@ -149,17 +138,45 @@ const ago = (iso?: string) => {
   return new Date(iso).toLocaleDateString()
 }
 
-function Origin({ e }: { e: Provenance }) {
-  return (
-    <>
-      <Row label="Origin">
-        {e.source === 'manual' ? 'Entered manually' : e.source === 'discovered' ? 'Detected' : 'Imported'}
-        <SourceBadge source="manual" overridden={hasOverrides(e)} />
-        {observation(e) ? <ObservationChip className="ml-2" info={observation(e)} /> : e.stale && <span className={`ml-2 rounded border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide ${TONE_CLASS.warn}`}>Stale</span>}
-      </Row>
-      <Maybe label="Last seen">{ago(e.lastSeen)}</Maybe>
-    </>
-  )
+/** The shared Provenance strip's props for one attribute's own detection evidence (a device's "kind", a
+ *  node's "Type", an external endpoint's identity) - the signal discovery saw and how sure it is, nothing
+ *  else. Replaces this file's old Why, which drew the same two facts by hand once per entity kind. */
+function fieldProvenance(ev?: Evidence): ComponentProps<typeof ProvenanceStrip> | undefined {
+  if (!ev) return undefined
+  return { source: ev.signal, sourceTitle: ev.detail, confidence: { tone: CONFIDENCE_TONE[ev.confidence], label: ev.confidence } }
+}
+
+/** The shared Provenance strip's props for a whole discovered/declared record (cluster, node, service,
+ *  device): the origin words this file's old Origin showed, the aggregate "Edited" badge SourceBadge
+ *  already carries for a person's override, confidence from the record's own observation state
+ *  (live/stale/disconnected/revoked/gone - the only "how sure" a whole record carries; a single value's own
+ *  guess/unknown is WeakValues' job and stays separate from this), and when it was last seen. */
+function recordProvenance(e: Provenance): ComponentProps<typeof ProvenanceStrip> {
+  const obs = observation(e)
+  return {
+    source: e.source === 'manual' ? 'Entered manually' : e.source === 'discovered' ? 'Detected' : 'Imported',
+    sourceBadge: <SourceBadge source="manual" overridden={hasOverrides(e)} />,
+    confidence: obs ? { tone: obs.tone, label: obs.label, title: obs.reason } : e.stale ? { tone: 'warn', label: 'stale' } : undefined,
+    freshness: e.lastSeen ? { label: 'Seen', at: e.lastSeen } : undefined,
+  }
+}
+
+/** An external endpoint's own Provenance strip: unlike a device (whose identity evidence and record origin
+ *  sit in separate sections and so get two strips, see the 'device' branch below), an external endpoint's
+ *  Why and Origin used to sit right next to each other in the same "Identity" section - two strips stacked
+ *  there would just repeat the "Provenance" label - so this folds them into one, preferring the sharper
+ *  per-field evidence (what actually named this endpoint) over the generic record-origin wording wherever
+ *  both exist, and keeps the record's own freshness either way. The "found in traffic, not declared
+ *  anywhere" caveat an external-only record used to hardcode into its own freshness sentence rides along as
+ *  `freshness.note` instead - the same mechanism any future caller can reuse, not another bespoke string. */
+function externalProvenance(e: ExternalEndpoint): ComponentProps<typeof ProvenanceStrip> {
+  const record = recordProvenance(e)
+  const field = fieldProvenance(e.evidence?.identity)
+  return {
+    ...record,
+    ...field,
+    freshness: e.source === 'discovered' && e.lastSeen ? { label: 'Seen', at: e.lastSeen, note: 'found in traffic, not declared anywhere' } : record.freshness,
+  }
 }
 
 /**
@@ -364,10 +381,12 @@ export default function Inspector({
     const s = d.stats
     const seen = isObserved(d)
     const others = d.sources.filter((x) => x !== 'observed')
-    const how = d.via === 'ebpf' ? 'eBPF' : d.via === 'conntrack' ? 'conntrack' : ''
+    // Same words dependencyProvenance gives the Inspector's own dependency page and the shared Provenance
+    // strip, so this compact inline summary never drifts into a fourth wording of the same fact.
+    const { source, via } = dependencyProvenance(d)
     const bits = [
       d.port ? `${d.protocol}:${d.port}` : d.protocol,
-      seen ? `seen${how ? ` (${how})` : ''}${others.length ? ` + ${others.join('+')}` : ''}` : d.sources.join('+'),
+      seen ? `seen${via ? ` (${via})` : ''}${others.length ? ` + ${others.join('+')}` : ''}` : source,
       d.confidence === 'high' ? undefined : `${d.confidence} confidence`,
       seen && !d.stale ? trafficSummary(d) : undefined,
       seen && d.stale ? `no traffic since ${ago(d.lastSeen)}` : undefined,
@@ -555,7 +574,7 @@ export default function Inspector({
             </Row>
           )}
           {agent && <CheckLine agent={agent} />}
-          <Origin e={c} />
+          <ProvenanceStrip {...recordProvenance(c)} />
           <WeakValues kind="cluster" rec={c} />
         </Section>
         {c.mesh && (
@@ -645,13 +664,16 @@ export default function Inspector({
             {n.kind === 'vm' ? 'VM' : n.kind === 'bare-metal' ? 'Bare metal' : 'Edge device'}
           </Row>
           {!n.overrides?.kind && n.source === 'discovered' && (n.probed ? n.evidence?.kind?.confidence === 'medium' : n.evidence?.kind?.confidence === 'low') && (
-            <Row label="Not sure" wrap>
-              <span className="text-nb-400">
-                {n.probed
+            <ProvenanceStrip
+              source={n.probed ? 'node probe' : 'Kubernetes API'}
+              confidence={{
+                tone: CONFIDENCE_TONE[n.evidence!.kind!.confidence],
+                label: n.evidence!.kind!.confidence,
+                title: n.probed
                   ? 'The node probe saw no hypervisor flag or firmware name for this - it inferred the type from the chassis or battery instead, which can be wrong. Set it here if it is.'
-                  : 'This type is a guess from the Kubernetes API. Turn on the node probe when connecting the cluster to have the machine tell for itself, or set it here.'}
-              </span>
-            </Row>
+                  : 'This type is a guess from the Kubernetes API. Turn on the node probe when connecting the cluster to have the machine tell for itself, or set it here.',
+              }}
+            />
           )}
           <Maybe label="Virtualization">{n.virtualization}</Maybe>
           <Maybe label="Hardware">{n.hardwareModel}</Maybe>
@@ -697,7 +719,7 @@ export default function Inspector({
           <Chips label="Conditions" items={n.conditions} tone="warn" />
         </Section>
         <Section title="Discovery">
-          <Origin e={n} />
+          <ProvenanceStrip {...recordProvenance(n)} />
           <WeakValues kind="node" rec={n} />
         </Section>
         <Section title={`Services on this node (${ws.length})`}>
@@ -770,7 +792,7 @@ export default function Inspector({
           <Maybe label="Sensitivity">{w.sensitivity}</Maybe>
         </Section>
         <Section title="Discovery">
-          <Origin e={w} />
+          <ProvenanceStrip {...recordProvenance(w)} />
           <WeakValues kind="service" rec={w} />
         </Section>
         {w.mesh && (
@@ -900,7 +922,7 @@ export default function Inspector({
     body = (
       <>
         <Section title="Identity">
-          <Why ev={d.evidence?.kind} />
+          {fieldProvenance(d.evidence?.kind) && <ProvenanceStrip {...fieldProvenance(d.evidence?.kind)!} />}
           <Row label="Application">{appName(d.applicationId) ?? '—'}</Row>
           <Row label="Site">{d.siteId ? (
             <button className="text-accent hover:underline" onClick={() => onSelect({ kind: 'site', id: d.siteId! })}>{siteName(d.siteId)}</button>
@@ -920,7 +942,7 @@ export default function Inspector({
           )}
         </Section>
         <Section title="Discovery">
-          <Origin e={d} />
+          <ProvenanceStrip {...recordProvenance(d)} />
         </Section>
         <Section title={`Sends data to (${calls.length})`}>
           {calls.map((x) => {
@@ -989,7 +1011,6 @@ export default function Inspector({
     const e = externalEndpoints.find((x) => x.id === selection.id)
     if (!e) return null
     const { calls, calledBy } = depSections(e.id)
-    const seenOnly = e.source === 'discovered'
     title = e.name ?? e.host
     subtitle = <Pill>{e.kind}</Pill>
     editable = false
@@ -999,9 +1020,7 @@ export default function Inspector({
           {e.name && <Row label="Address" copy={e.host}><span className="font-mono text-xs">{e.host}</span></Row>}
           <Maybe label="Port">{e.port ? String(e.port) : undefined}</Maybe>
           <Maybe label="Likely">{e.service ? `${e.service} (guessed from the port)` : undefined}</Maybe>
-          {seenOnly && <Maybe label="Seen">{`${ago(e.lastSeen)} · found in traffic, not declared anywhere`}</Maybe>}
-          <Why ev={e.evidence?.identity} />
-          <Origin e={e} />
+          <ProvenanceStrip {...externalProvenance(e)} />
           {(e.ips?.length ?? 0) > 1 && (
             <Chips
               label={`Addresses (${e.ips!.length})`}
@@ -1046,7 +1065,7 @@ export default function Inspector({
     // The caller's own interface capacity, right next to its throughput below - same resolution and same
     // "undefined rather than a guess" rule as the node view's own per-interface utilization above.
     const ifaceSpeedMbps = callerIfaceSpeedMbps(d.iface, fromSvc?.nodeIds, nodeById)
-    const how = d.via === 'ebpf' ? 'eBPF' : d.via === 'conntrack' ? 'conntrack' : undefined
+    const dprov = dependencyProvenance(d)
     title = d.label ?? (d.port ? `${d.protocol}:${d.port}` : d.protocol)
     subtitle = <Pill>{d.stale ? 'Quiet' : seen ? 'Seen in traffic' : 'Declared'}</Pill>
     editable = false
@@ -1058,9 +1077,12 @@ export default function Inspector({
           <div className="mt-1">
             <Row label="Protocol">{d.protocol}{d.port ? `:${d.port}` : ''}</Row>
             <Maybe label="Likely">{d.service ? `${d.service} (guessed from the port)` : undefined}</Maybe>
-            <Row label="Found by">{d.sources.join(' + ')}{how ? ` (${how})` : ''}</Row>
+            <ProvenanceStrip
+              source={dprov.source}
+              sourceBadge={dprov.via && <Pill className="text-[11px] text-nb-400">{dprov.via}</Pill>}
+              confidence={{ tone: CONFIDENCE_TONE[d.confidence], label: d.confidence }}
+            />
             <Maybe label="Interface">{d.iface}</Maybe>
-            <Row label="Confidence">{d.confidence}</Row>
             <Maybe label="First seen">{ago(d.firstSeen)}</Maybe>
             <Maybe label="Last seen">{ago(d.lastSeen)}</Maybe>
             {d.noise && <Row label="Kind of traffic">{d.noise === 'dns' ? 'DNS (machinery)' : 'System (machinery)'}</Row>}

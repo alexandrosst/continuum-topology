@@ -7,7 +7,7 @@ import { buildDecisionInput } from '../src/lib/placement/deciders'
 import { recommend } from '../src/lib/placement/engine'
 import { DEFAULT_POLICY } from '../src/lib/placement/types'
 import { buildWorld, clusterStatus, excludedClusters, unverifiableClusters } from '../src/lib/placement/world'
-import { ageLabel, evidenceLevel, evidenceRows, formatAttr, goneInfo, indexModel, needsEvidenceChip, observation, sourceLabel, targetStatus, weakAttributes, type ModelEntity } from '../src/lib/provenance'
+import { ageLabel, CONFIDENCE_TONE, dependencyProvenance, evidenceLevel, evidenceRows, formatAttr, goneInfo, indexModel, needsEvidenceChip, observation, sourceLabel, targetStatus, weakAttributes, type ModelEntity } from '../src/lib/provenance'
 import { DEFAULT_ORG, type Cluster, type Dependency, type MachineNode, type Service, type Site } from '../src/lib/types'
 
 const NOW = Date.parse('2026-09-21T12:00:00Z')
@@ -110,6 +110,16 @@ test('evidenceRows: weakest first, with source and time, shadowed observed value
   assert.equal(sourceLabel({ source: 'declared' }), 'declared by a person')
   assert.deepEqual([...indexModel({ entities: [e] } as never).keys()], ['node|nd-1'])
   assert.deepEqual(evidenceRows(undefined), [])
+})
+
+test('CONFIDENCE_TONE: high/medium/low map onto the app\'s own ok/warn/bad palette, same as everywhere else', () => {
+  assert.deepEqual(CONFIDENCE_TONE, { high: 'ok', medium: 'warn', low: 'bad' })
+})
+
+test('dependencyProvenance: sources joined, and the measurement method only when it is known', () => {
+  assert.deepEqual(dependencyProvenance({ sources: ['observed'], via: 'ebpf' }), { source: 'observed', via: 'eBPF' })
+  assert.deepEqual(dependencyProvenance({ sources: ['declared', 'observed'], via: 'conntrack' }), { source: 'declared + observed', via: 'conntrack' })
+  assert.deepEqual(dependencyProvenance({ sources: ['declared'] }), { source: 'declared', via: undefined })
 })
 
 /* ---------- a stale, disconnected or revoked cluster is never a target ---------- */

@@ -9,7 +9,7 @@ import { buttonClass, type ButtonVariant } from '@/components/ui/buttonClass'
 import type { Completeness as CompletenessInfo } from '@/lib/completeness'
 import { IP_SCOPE_HELP, ipScope, ipScopeLabel, loadBand } from '@/lib/present'
 import { rttLabel } from '@/lib/metrics'
-import { EVIDENCE_HELP, EVIDENCE_LABEL, EVIDENCE_TONE, needsEvidenceChip, TONE_CLASS, type EvidenceLevel, type ObsInfo } from '@/lib/provenance'
+import { ageLabel, EVIDENCE_HELP, EVIDENCE_LABEL, EVIDENCE_TONE, needsEvidenceChip, TONE_CLASS, type EvidenceLevel, type ObsInfo, type Tone } from '@/lib/provenance'
 import { STATUS_COLOR, TIER_COLOR, type Source, type Status, type Tier } from '@/lib/types'
 
 /** The app's whole icon-size scale: every lucide-react (and brand.tsx) icon's `size` prop should come
@@ -714,6 +714,59 @@ export function EvidenceChip({ level, why, always, className }: { level: Evidenc
     >
       {EVIDENCE_LABEL[level]}
     </span>
+  )
+}
+
+/**
+ * How sure we are of a fact, and why: the one "Source / Confidence / freshness" strip every entity kind used
+ * to reimplement on its own (Inspector's old Origin, WeakValues, Why, a node's bespoke "Not sure" prose, an
+ * external endpoint's bespoke "seen in traffic" line, and a dependency's un-colored "Found by"/"Confidence"
+ * rows) - one component instead of six wordings for the same question. `source` is the origin or detection
+ * method ("Detected", "node probe", "eBPF + conntrack"); `sourceBadge` is for something genuinely specific to
+ * that one entity riding along next to it ("via eBPF") rather than a second wording system of its own;
+ * `confidence` is how sure that source is, colored through the app's one ok/warn/bad/muted palette (never a
+ * new one); `freshness` is when it was last (or first) seen. Any of `confidence`/`freshness` can be omitted
+ * where the fact genuinely carries none (a hand-typed record has no freshness; a declared value with no
+ * per-field evidence has no confidence) - this says nothing rather than fabricating one, the same rule
+ * `formatAttr` already follows for an unknown value.
+ */
+export function Provenance({
+  source,
+  sourceTitle,
+  sourceBadge,
+  confidence,
+  freshness,
+}: {
+  source: ReactNode
+  sourceTitle?: string
+  sourceBadge?: ReactNode
+  confidence?: { tone: Tone; label: string; title?: string }
+  freshness?: { label: 'Seen' | 'First seen'; at: string; note?: string }
+}) {
+  return (
+    <div className="py-1.5 text-sm" data-testid="provenance">
+      <div className="flex items-baseline justify-between gap-4">
+        <span className="shrink-0 text-nb-500">Provenance</span>
+        <span className="flex min-w-0 items-center justify-end gap-1.5 text-right text-nb-300">
+          <span className="scrollbar-none min-w-0 overflow-x-auto whitespace-nowrap" title={sourceTitle}>{source}</span>
+          {sourceBadge}
+          {confidence && (
+            <span
+              title={confidence.title}
+              data-testid="provenance-confidence"
+              className={clsx('inline-flex items-center whitespace-nowrap rounded border px-1.5 py-px text-[10px] font-medium uppercase leading-4 tracking-wide', TONE_CLASS[confidence.tone])}
+            >
+              {confidence.label}
+            </span>
+          )}
+        </span>
+      </div>
+      {freshness && (
+        <div className="text-right text-[11px] leading-4 text-nb-500" data-testid="provenance-freshness">
+          {freshness.label} {ageLabel(freshness.at)} ago{freshness.note ? ` \u00b7 ${freshness.note}` : ''}
+        </div>
+      )}
+    </div>
   )
 }
 

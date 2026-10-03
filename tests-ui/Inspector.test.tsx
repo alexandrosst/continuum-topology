@@ -155,6 +155,35 @@ describe('Inspector · node tunnels', () => {
   })
 })
 
+describe('Inspector · node type confidence', () => {
+  // The node page also shows a record-level Provenance strip of its own, further down in "Discovery" - these
+  // tests scope every query to the "Identity" section so that unrelated strip (observation state, not the
+  // Type guess) is never what a query happens to match.
+  const identity = () => within(screen.getByText('Identity').parentElement!)
+
+  test('an unprobed guess from the Kubernetes API shows the shared Provenance strip, not bespoke prose', () => {
+    renderNodeInspector(node({ kind: 'vm', probed: false, evidence: { kind: { signal: 'Kubernetes API', confidence: 'low' } } }))
+    const scope = identity()
+    expect(scope.getByText('Provenance')).toBeInTheDocument()
+    expect(scope.getByText('Kubernetes API')).toBeInTheDocument()
+    const chip = scope.getByTestId('provenance-confidence')
+    expect(chip).toHaveTextContent('low')
+    expect(chip).toHaveAttribute('title', expect.stringContaining('guess from the Kubernetes API'))
+  })
+
+  test('a probe-based guess names the probe as the source, with its own caveat as the tooltip', () => {
+    renderNodeInspector(node({ kind: 'vm', probed: true, evidence: { kind: { signal: 'chassis', confidence: 'medium' } } }))
+    const scope = identity()
+    expect(scope.getByText('node probe')).toBeInTheDocument()
+    expect(scope.getByTestId('provenance-confidence')).toHaveAttribute('title', expect.stringContaining('no hypervisor flag'))
+  })
+
+  test('a confirmed override shows no confidence strip for Type at all', () => {
+    renderNodeInspector(node({ kind: 'vm', probed: true, evidence: { kind: { signal: 'chassis', confidence: 'medium' } }, overrides: { kind: 'vm' } }))
+    expect(identity().queryByTestId('provenance-confidence')).not.toBeInTheDocument()
+  })
+})
+
 describe('Inspector · external endpoint', () => {
   test('a single-address endpoint shows no address list', () => {
     renderInspector(ext({ name: 'Google', ips: ['216.239.34.178'] }))
@@ -178,8 +207,21 @@ describe('Inspector · external endpoint', () => {
     expect(within(addressesRow).getByText('216.239.38.178')).toBeInTheDocument()
   })
 
-  test('an endpoint reported without ips (older data) does not crash and shows no address list', () => {
-    renderInspector(ext({ name: 'Legacy' }))
-    expect(screen.queryByText(/^Addresses/)).not.toBeInTheDocument()
+  test('an endpoint renders no bespoke "seen in traffic" line any more: it is the shared Provenance freshness', () => {
+    renderInspector(ext({ name: 'Payments API', lastSeen: new Date(Date.now() - 2 * 3600_000).toISOString() }))
+    expect(screen.getByText('Provenance')).toBeInTheDocument()
+    expect(screen.getByTestId('provenance-freshness')).toHaveTextContent('Seen 2 h ago · found in traffic, not declared anywhere')
+  })
+
+  test('per-field identity evidence wins over the generic "Detected" origin wording, with its own confidence', () => {
+    renderInspector(ext({ name: 'Stripe', evidence: { identity: { signal: 'reverse DNS to stripe.com', confidence: 'high' } } }))
+    expect(screen.getByText('reverse DNS to stripe.com')).toBeInTheDocument()
+    expect(screen.getByTestId('provenance-confidence')).toHaveTextContent('high')
+  })
+
+  test('a manually-named endpoint (no agent evidence) falls back to the record origin wording', () => {
+    renderInspector(ext({ name: 'Internal DB', source: 'manual' }))
+    expect(screen.getByText('Entered manually')).toBeInTheDocument()
+    expect(screen.queryByTestId('provenance-freshness')).not.toBeInTheDocument()
   })
 })

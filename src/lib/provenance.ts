@@ -1,4 +1,4 @@
-import type { Evidence, ObservationState, Provenance, Tombstone } from './types'
+import type { Confidence, Dependency, Evidence, ObservationState, Provenance, Tombstone } from './types'
 
 /**
  * What the system knows, and how it knows it: who said it, how sure, how fresh.
@@ -144,6 +144,20 @@ export function targetStatus(c: Pick<Provenance, 'source' | 'state' | 'stateReas
   if (!o.actionable) return { eligible: false, state: o.kind, reason: o.reason ?? (o.kind === 'gone' ? 'the cluster is gone' : o.label) }
   if (!capacityKnown) return { eligible: false, state: o.kind, reason: 'capacity unknown: no node reported what it has free' }
   return { eligible: true, state: o.kind }
+}
+
+/** The app's palette for Dependency's own three-level confidence ('high'|'medium'|'low' - a measurement's
+ *  or declaration's own certainty, distinct from EvidenceLevel's five-level scale above, which rates how a
+ *  single attribute's *value* was worked out). Shared so a dependency's confidence reads the same color
+ *  wherever it is shown (the Inspector's own dependency page, and depSub's compact inline summary). */
+export const CONFIDENCE_TONE: Record<Confidence, Tone> = { high: 'ok', medium: 'warn', low: 'bad' }
+
+/** How a dependency was found, in the one wording every caller shares: which sources reported it, and - only
+ *  ever known for an observed one - the measurement method behind it. Both the Inspector's own dependency
+ *  page and depSub's compact inline summary read this instead of each inventing its own "seen (eBPF)"-style
+ *  text, so a dependency's provenance says the same thing everywhere it appears. */
+export function dependencyProvenance(d: Pick<Dependency, 'sources' | 'via'>): { source: string; via?: string } {
+  return { source: d.sources.join(' + '), via: d.via === 'ebpf' ? 'eBPF' : d.via === 'conntrack' ? 'conntrack' : undefined }
 }
 
 /* ---------- evidence ---------- */

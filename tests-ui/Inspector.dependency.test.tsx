@@ -82,6 +82,28 @@ function renderDependency(d: Dependency) {
   )
 }
 
+describe('Inspector · dependency provenance', () => {
+  test('Found by and Confidence are one shared Provenance strip, with the method as its secondary badge', async () => {
+    dependencySeries.mockResolvedValue([])
+    renderDependency(dep({ sources: ['observed'], via: 'ebpf', confidence: 'medium' }))
+    await waitFor(() => expect(dependencySeries).toHaveBeenCalled())
+    expect(screen.getByText('Provenance')).toBeInTheDocument()
+    expect(screen.getByText('observed')).toBeInTheDocument()
+    expect(screen.getByText('eBPF')).toBeInTheDocument()
+    expect(screen.getByTestId('provenance-confidence')).toHaveTextContent('medium')
+    expect(screen.queryByText('Found by')).not.toBeInTheDocument()
+    expect(screen.queryByText('Confidence')).not.toBeInTheDocument()
+  })
+
+  test('a declared-only dependency (no measurement method) shows no secondary badge', () => {
+    // Never observed, so DependencyTrend's own effect (and its dependencySeries call) never fires here -
+    // nothing to await; the Provenance strip renders synchronously either way.
+    renderDependency(dep({ id: 'dep-3', sources: ['declared'], via: undefined, confidence: 'low' }))
+    expect(screen.getByText('declared')).toBeInTheDocument()
+    expect(screen.getByTestId('provenance-confidence')).toHaveTextContent('low')
+  })
+})
+
 describe('Inspector · dependency trend', () => {
   test('shows a labeled trend row once the series resolves with at least one measurable signal', async () => {
     dependencySeries.mockResolvedValue([
