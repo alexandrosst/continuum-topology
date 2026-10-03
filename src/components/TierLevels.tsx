@@ -1,36 +1,32 @@
 import clsx from 'clsx'
-import { Check, Lock } from 'lucide-react'
+import { Boxes, Check, Fingerprint, HardDrive, Lock, Share2, ShieldCheck, type LucideIcon } from 'lucide-react'
 import { ACCESS_TIERS, ACCESS_TIER_CAPTIONS, type AccessTier } from '@/lib/types'
 import { ICON_MD, ICON_SM } from '@/components/ui/primitives'
 
 const ICON_SIZE = { sm: 18, md: 24 } as const
 
-/** Tier N's icon is N nested squares (tier 0: just a center dot — identity proven, nothing boxed up yet). Reading
- *  down the list, each rung literally draws one more box around the one before it: "Services" (tier 2) is drawn as
- *  a box around "Infrastructure" (tier 1)'s own box, the same relationship the two tiers actually have. A width- or
- *  length-scaled bar said "more" without saying "everything in the shorter one, plus"; this says the second part too. */
+/** One concrete, recognizable icon per tier, not an abstract rung count. One/two/three nested boxes at the sizes
+ *  this actually renders at (18-24px) read as "dots" rather than distinct tiers - a fixed icon per tier reads at
+ *  a glance, independent of its position in the list. The cumulative "everything in the tier below, plus" fact is
+ *  carried by ACCESS_TIER_CAPTIONS' own wording (the single source of truth for that), not by the icon - the
+ *  icon's job is just "which tier is this", not "how many tiers deep are we". */
+const TIER_LEVEL_ICON: Record<number, LucideIcon> = {
+  0: Fingerprint, // proves identity, nothing else is read
+  1: HardDrive, // nodes, storage classes, ingress classes - what the cluster is made of
+  2: Boxes, // + namespaces, workloads, pods, services, ingresses - what runs on it
+  3: Share2, // + dependencies between services (not available yet)
+  4: ShieldCheck, // + control (not available yet)
+}
+
 function TierIcon({ level, tone, marked, size }: { level: number; tone: 'filled' | 'locked' | 'idle'; marked: boolean; size: number }) {
-  const border = tone === 'filled' ? 'border-accent' : tone === 'locked' ? 'border-nb-800' : 'border-nb-700'
-  const dot = tone === 'filled' ? 'bg-accent' : tone === 'locked' ? 'bg-nb-800' : 'bg-nb-700'
-  if (level === 0) {
-    return (
-      <span className="flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
-        <span className={clsx('rounded-full', dot)} style={{ width: size * 0.28, height: size * 0.28 }} />
-      </span>
-    )
-  }
-  // Each box insets a bit further than the last, so `level` of them nest visibly inside `size` without the
-  // innermost one collapsing to a sliver. 2.4 is tuned by eye for the range this actually renders at (2-4
-  // levels, an 18-24px icon): at 4 levels and the smallest icon, the innermost box is still ~6-7px on a side.
-  const step = size / (level * 2.4)
+  const Icon = TIER_LEVEL_ICON[level] ?? HardDrive
+  const color = tone === 'filled' ? 'text-accent' : tone === 'locked' ? 'text-nb-700' : 'text-nb-600'
   return (
     <span
-      className={clsx('relative shrink-0', marked && 'rounded-[3px] ring-2 ring-warn/70 ring-offset-1 ring-offset-nb-925')}
+      className={clsx('relative flex shrink-0 items-center justify-center', marked && 'rounded-full ring-2 ring-warn/70 ring-offset-1 ring-offset-nb-925')}
       style={{ width: size, height: size }}
     >
-      {Array.from({ length: level }, (_, i) => (
-        <span key={i} className={clsx('absolute rounded-[3px] border-[1.5px]', border)} style={{ inset: i * step }} />
-      ))}
+      <Icon size={size * 0.72} strokeWidth={tone === 'filled' ? 2.25 : 1.75} className={color} aria-hidden />
     </span>
   )
 }
