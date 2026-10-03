@@ -1,21 +1,16 @@
 import clsx from 'clsx'
-import { Activity, AppWindow, Check, ChevronLeft, FileText, Plus, Server, Waypoints, X, type LucideIcon } from 'lucide-react'
+import { Activity, Check, ChevronLeft, FileText, Plus, Waypoints, X, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Button, ICON_MD, ICON_SM, WizardSteps } from '@/components/ui/primitives'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
 import type { TelemetryInput } from '@/lib/install'
+import { LAYER_CARDS, LAYER_META, type Layer } from '@/lib/telemetryLayers'
 import GuidedScope from './GuidedScope'
 import { AcceleratorsFields, EnergyFields, SignalRow, type SignalId } from './TelemetryFields'
+import TelemetryReviewPipeline from './TelemetryReviewPipeline'
 
-type Layer = 'infrastructure' | 'application'
 type Modality = 'metrics' | 'logs' | 'traces'
 type Step = 'layer' | 'modality' | 'kind' | 'scope' | 'review'
-
-const LAYER_META: Record<Layer, { label: string; hint: string; icon: LucideIcon }> = {
-  infrastructure: { label: 'Infrastructure', hint: 'The clusters, nodes and Kubernetes objects this agent runs on - not your applications themselves.', icon: Server },
-  application: { label: 'Application', hint: 'What your own workloads emit - metrics they push, logs, and traces.', icon: AppWindow },
-}
-const LAYER_CARDS: Layer[] = ['infrastructure', 'application']
 
 const MODALITY_META: Record<Modality, { label: string; icon: LucideIcon }> = {
   metrics: { label: 'Metrics', icon: Activity },
@@ -305,27 +300,9 @@ export default function GuidedWizard({
               <p className="text-xs text-nb-500">Nothing is turned on yet - go back and pick at least one signal.</p>
             ) : (
               <>
-                <p className="text-xs text-nb-500">Everything this will turn on:</p>
-                <div className="space-y-2" data-testid={`${testIdPrefix}-guided-review-list`}>
-                  {LAYER_CARDS.filter((l) => onSignals.some((s) => s.layer === l)).map((l) => {
-                    const Icon = LAYER_META[l].icon
-                    return (
-                      <div key={l} className="flex flex-wrap items-center gap-1.5">
-                        <span className="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-nb-500">
-                          <Icon size={ICON_SM} /> {LAYER_META[l].label}
-                        </span>
-                        {onSignals
-                          .filter((s) => s.layer === l)
-                          .map((s) => (
-                            <span key={s.id} title={s.what} className="rounded border border-nb-800 bg-nb-930 px-1.5 py-0.5 text-xs text-nb-300">
-                              {s.label}
-                            </span>
-                          ))}
-                      </div>
-                    )
-                  })}
-                </div>
-                <p className="text-xs text-nb-600">Set where this is sent below, then finish from there.</p>
+                <p className="text-xs text-nb-500">How this will flow, end to end:</p>
+                <TelemetryReviewPipeline value={value} onSignals={onSignals} testIdPrefix={testIdPrefix} />
+                {!value.exportEndpoint.trim() && <p className="text-xs text-nb-600">Set where this is sent below, then finish from there.</p>}
               </>
             )}
             <div className="flex flex-wrap items-center gap-2 pt-1">

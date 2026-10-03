@@ -215,7 +215,7 @@ describe('TelemetryFields guided mode', () => {
     await user.click(screen.getByTestId('telemetry-resourceUsage'))
     await user.click(screen.getByTestId('telemetry-guided-continue'))
     expect(screen.getByTestId('telemetry-guided-step-review')).toBeInTheDocument()
-    expect(screen.getByTestId('telemetry-guided-review-list')).toHaveTextContent('Resource usage')
+    expect(screen.getByTestId('telemetry-review-pipeline')).toHaveTextContent('Resource usage')
   })
 
   test('a chip\'s remove button turns that signal off directly, without navigating back to where it was picked', async () => {
@@ -256,8 +256,8 @@ describe('TelemetryFields guided mode', () => {
     // application/logs is also a 1:1 match, landing straight on its scope step.
     expect(screen.getByTestId('telemetry-guided-step-scope')).toBeInTheDocument()
     await user.click(screen.getByTestId('telemetry-guided-continue'))
-    expect(screen.getByTestId('telemetry-guided-review-list')).toHaveTextContent('Resource usage')
-    expect(screen.getByTestId('telemetry-guided-review-list')).toHaveTextContent('Application logs')
+    expect(screen.getByTestId('telemetry-review-pipeline')).toHaveTextContent('Resource usage')
+    expect(screen.getByTestId('telemetry-review-pipeline')).toHaveTextContent('Application logs')
 
     // A third pass still accumulates rather than replacing - resourceUsage from the first pass is untouched.
     await user.click(screen.getByTestId('telemetry-guided-add-another'))
