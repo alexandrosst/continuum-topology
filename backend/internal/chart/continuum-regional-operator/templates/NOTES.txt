@@ -4,15 +4,22 @@ Continuum regional operator {{ .Chart.AppVersion }} — {{ if .Release.IsInstall
   ✓ Auth: {{ if .Values.receiver.auth.enabled }}bearer token (Secret {{ .Values.receiver.auth.secretName }}/{{ .Values.receiver.auth.secretKey }}){{ else }}none{{ end }}
   ✓ Re-exports to: {{ .Values.export.otlp.endpoint }}
 
-This operator never dials the Continuum server - it only aggregates OTLP telemetry that source clusters'
-own agent releases export to it, and re-exports it to the endpoint above.
+› NEXT STEP — point a source cluster at it
+  This operator never dials the Continuum server and applies nothing to another cluster by itself. Each
+  source cluster's own agent release needs a separate `helm upgrade` pointing its
+  telemetry.export.otlp.endpoint here - Continuum prints the exact command for every source cluster named
+  when the operator was created.
+{{- $warnings := list }}
+{{- if not .Values.receiver.auth.enabled }}{{- $warnings = append $warnings "receiver.auth.enabled is false: anything that can reach this Service on the cluster network can push telemetry into it. Set receiver.auth.enabled and receiver.networkPolicy for a shared or multi-tenant cluster." }}{{- end }}
+{{- if $warnings }}
 
-{{- if not .Values.receiver.auth.enabled }}
-
-› Anything that can reach this Service on the cluster network can push telemetry into it. Set
-  receiver.auth.enabled and receiver.networkPolicy for a shared or multi-tenant cluster.
+› WORTH DOING NOW
+{{- range $w := $warnings }}
+  ⚠ {{ $w }}
+{{- end }}
 {{- end }}
 
-Each source cluster's own agent release still needs its telemetry.export.otlp.endpoint pointed at this
-operator - that is a separate `helm upgrade` against that cluster's continuum-agent release, not something
-this chart or install applies for you.
+────────────────────────────────────────────────────────────────────────────
+Full reference - values for export/receiver auth and TLS, the processor pipeline, and removing it: this
+chart's own README (`helm show readme` against whatever chart reference you installed from, or read
+README.md directly if you have the chart unpacked).
