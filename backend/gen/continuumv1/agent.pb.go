@@ -3753,9 +3753,20 @@ type RawFlow struct {
 	// UDP), and only when the same optional name-capture opt-in is on. 0 means no sample, not "instant" -
 	// most often because the response hasn't arrived yet, was lost, or arrived after this report's window
 	// already closed.
-	DnsRttUs      uint32 `protobuf:"varint,25,opt,name=dns_rtt_us,json=dnsRttUs,proto3" json:"dns_rtt_us,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	DnsRttUs uint32 `protobuf:"varint,25,opt,name=dns_rtt_us,json=dnsRttUs,proto3" json:"dns_rtt_us,omitempty"`
+	// Outbound SYNs observed leaving this exact local/peer/port without first being redirected to a local
+	// mesh sidecar proxy - read straight off the wire (flow.c's observe_egress/note_mesh_bypass), never
+	// inferred from configuration. Summed like retransmits/segs_out/buffer_drops, not a gauge. Always 0 on
+	// a conntrack-derived report (which has no packet-level view at all) and, even on an eBPF report, only
+	// ever non-zero when the node collector's optional name-capture is turned on (observe_egress is also
+	// where sni_host/dns_query_name come from) - a non-zero count here does not by itself mean this
+	// workload's mesh is misconfigured; it only means a packet escaped interception, which is entirely
+	// expected for a workload that was never meshed in the first place. Cross-checking that against what
+	// Kubernetes says this workload's mesh membership actually is happens downstream, in Go (the server's
+	// applyMeshBypassFacts), never in this collector.
+	MeshBypassSyns uint32 `protobuf:"varint,26,opt,name=mesh_bypass_syns,json=meshBypassSyns,proto3" json:"mesh_bypass_syns,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RawFlow) Reset() {
@@ -3959,6 +3970,13 @@ func (x *RawFlow) GetBufferDrops() uint32 {
 func (x *RawFlow) GetDnsRttUs() uint32 {
 	if x != nil {
 		return x.DnsRttUs
+	}
+	return 0
+}
+
+func (x *RawFlow) GetMeshBypassSyns() uint32 {
+	if x != nil {
+		return x.MeshBypassSyns
 	}
 	return 0
 }
@@ -4173,9 +4191,12 @@ type Flow struct {
 	// now" breakdown by pod, never on the workload-level flows this message's identity is bounded by.
 	SrcPod string `protobuf:"bytes,24,opt,name=src_pod,json=srcPod,proto3" json:"src_pod,omitempty"`
 	// The actual pod name behind Dst, under the same rule as src_pod above.
-	DstPod        string `protobuf:"bytes,25,opt,name=dst_pod,json=dstPod,proto3" json:"dst_pod,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	DstPod string `protobuf:"bytes,25,opt,name=dst_pod,json=dstPod,proto3" json:"dst_pod,omitempty"`
+	// See RawFlow.mesh_bypass_syns - carried through attribution and the Aggregator's own summing
+	// (mergeFlowCounters) exactly like retransmits/segs_out/buffer_drops.
+	MeshBypassSyns uint32 `protobuf:"varint,26,opt,name=mesh_bypass_syns,json=meshBypassSyns,proto3" json:"mesh_bypass_syns,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Flow) Reset() {
@@ -4383,6 +4404,13 @@ func (x *Flow) GetDstPod() string {
 	return ""
 }
 
+func (x *Flow) GetMeshBypassSyns() uint32 {
+	if x != nil {
+		return x.MeshBypassSyns
+	}
+	return 0
+}
+
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
 // A node collector the agent has heard from lately: what the dashboard shows as "observer health".
 type CollectorInfo struct {
@@ -4581,8 +4609,14 @@ type FlowEdge struct {
 	// live on key.cwnd/key.pacing_bps, not here - gauges, the same treatment key.rtt_us already gets.
 	BufferDrops       uint64 `protobuf:"varint,17,opt,name=buffer_drops,json=bufferDrops,proto3" json:"buffer_drops,omitempty"`
 	WindowBufferDrops uint64 `protobuf:"varint,18,opt,name=window_buffer_drops,json=windowBufferDrops,proto3" json:"window_buffer_drops,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// dns_rtt_us, like jitter_us/handshake_us/cwnd/pacing_bps, lives on key.dns_rtt_us, not here - a
+	// gauge, not a running total, the same treatment every other per-sample figure on this edge gets.
+	// Cumulative mesh-bypass SYNs over the life of this edge, and in the most recent window - see
+	// RawFlow.mesh_bypass_syns; summed the same way retransmits/segs_out/buffer_drops are.
+	MeshBypassSyns       uint64 `protobuf:"varint,19,opt,name=mesh_bypass_syns,json=meshBypassSyns,proto3" json:"mesh_bypass_syns,omitempty"`
+	WindowMeshBypassSyns uint64 `protobuf:"varint,20,opt,name=window_mesh_bypass_syns,json=windowMeshBypassSyns,proto3" json:"window_mesh_bypass_syns,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *FlowEdge) Reset() {
@@ -4737,6 +4771,20 @@ func (x *FlowEdge) GetBufferDrops() uint64 {
 func (x *FlowEdge) GetWindowBufferDrops() uint64 {
 	if x != nil {
 		return x.WindowBufferDrops
+	}
+	return 0
+}
+
+func (x *FlowEdge) GetMeshBypassSyns() uint64 {
+	if x != nil {
+		return x.MeshBypassSyns
+	}
+	return 0
+}
+
+func (x *FlowEdge) GetWindowMeshBypassSyns() uint64 {
+	if x != nil {
+		return x.WindowMeshBypassSyns
 	}
 	return 0
 }
@@ -5585,7 +5633,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2\x18.continuum.v1.PathResultR\aresults\x12\x18\n" +
 	"\arefused\x18\x02 \x01(\rR\arefused\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x87\x06\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xb1\x06\n" +
 	"\aRawFlow\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\bR\x06client\x12\x19\n" +
 	"\blocal_ip\x18\x02 \x01(\tR\alocalIp\x12\x17\n" +
@@ -5614,7 +5662,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"pacing_bps\x18\x17 \x01(\x04R\tpacingBps\x12!\n" +
 	"\fbuffer_drops\x18\x18 \x01(\rR\vbufferDrops\x12\x1c\n" +
 	"\n" +
-	"dns_rtt_us\x18\x19 \x01(\rR\bdnsRttUs\"\xc1\x01\n" +
+	"dns_rtt_us\x18\x19 \x01(\rR\bdnsRttUs\x12(\n" +
+	"\x10mesh_bypass_syns\x18\x1a \x01(\rR\x0emeshBypassSyns\"\xc1\x01\n" +
 	"\n" +
 	"FlowReport\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
@@ -5633,7 +5682,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"UNRESOLVED\x10\x00\x12\f\n" +
 	"\bWORKLOAD\x10\x01\x12\b\n" +
 	"\x04NODE\x10\x02\x12\f\n" +
-	"\bEXTERNAL\x10\x03\"\xf7\x05\n" +
+	"\bEXTERNAL\x10\x03\"\xa1\x06\n" +
 	"\x04Flow\x12,\n" +
 	"\x03src\x18\x01 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03src\x12,\n" +
 	"\x03dst\x18\x02 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03dst\x12\x12\n" +
@@ -5663,7 +5712,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"dns_rtt_us\x18\x17 \x01(\rR\bdnsRttUs\x12\x17\n" +
 	"\asrc_pod\x18\x18 \x01(\tR\x06srcPod\x12\x17\n" +
-	"\adst_pod\x18\x19 \x01(\tR\x06dstPod\"\\\n" +
+	"\adst_pod\x18\x19 \x01(\tR\x06dstPod\x12(\n" +
+	"\x10mesh_bypass_syns\x18\x1a \x01(\rR\x0emeshBypassSyns\"\\\n" +
 	"\rCollectorInfo\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12\x1f\n" +
@@ -5677,7 +5727,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"collectors\x18\x05 \x03(\v2\x1b.continuum.v1.CollectorInfoR\n" +
 	"collectors\x12/\n" +
-	"\tpod_flows\x18\x06 \x03(\v2\x12.continuum.v1.FlowR\bpodFlows\"\xe5\x05\n" +
+	"\tpod_flows\x18\x06 \x03(\v2\x12.continuum.v1.FlowR\bpodFlows\"\xc6\x06\n" +
 	"\bFlowEdge\x12$\n" +
 	"\x03key\x18\x01 \x01(\v2\x12.continuum.v1.FlowR\x03key\x129\n" +
 	"\n" +
@@ -5698,7 +5748,9 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\bsegs_out\x18\x0f \x01(\x04R\asegsOut\x12&\n" +
 	"\x0fwindow_segs_out\x18\x10 \x01(\x04R\rwindowSegsOut\x12!\n" +
 	"\fbuffer_drops\x18\x11 \x01(\x04R\vbufferDrops\x12.\n" +
-	"\x13window_buffer_drops\x18\x12 \x01(\x04R\x11windowBufferDrops\"9\n" +
+	"\x13window_buffer_drops\x18\x12 \x01(\x04R\x11windowBufferDrops\x12(\n" +
+	"\x10mesh_bypass_syns\x18\x13 \x01(\x04R\x0emeshBypassSyns\x125\n" +
+	"\x17window_mesh_bypass_syns\x18\x14 \x01(\x04R\x14windowMeshBypassSyns\"9\n" +
 	"\tFlowTable\x12,\n" +
 	"\x05edges\x18\x01 \x03(\v2\x16.continuum.v1.FlowEdgeR\x05edges\"\x82\x06\n" +
 	"\vDiagnostics\x12#\n" +

@@ -693,6 +693,17 @@ message RawFlow {
   // most often because the response hasn't arrived yet, was lost, or arrived after this report's window
   // already closed.
   uint32 dns_rtt_us = 25;
+  // Outbound SYNs observed leaving this exact local/peer/port without first being redirected to a local
+  // mesh sidecar proxy - read straight off the wire (flow.c's observe_egress/note_mesh_bypass), never
+  // inferred from configuration. Summed like retransmits/segs_out/buffer_drops, not a gauge. Always 0 on
+  // a conntrack-derived report (which has no packet-level view at all) and, even on an eBPF report, only
+  // ever non-zero when the node collector's optional name-capture is turned on (observe_egress is also
+  // where sni_host/dns_query_name come from) - a non-zero count here does not by itself mean this
+  // workload's mesh is misconfigured; it only means a packet escaped interception, which is entirely
+  // expected for a workload that was never meshed in the first place. Cross-checking that against what
+  // Kubernetes says this workload's mesh membership actually is happens downstream, in Go (the server's
+  // applyMeshBypassFacts), never in this collector.
+  uint32 mesh_bypass_syns = 26;
 }
 
 message FlowReport {
@@ -782,6 +793,9 @@ message Flow {
   string src_pod = 24;
   // The actual pod name behind Dst, under the same rule as src_pod above.
   string dst_pod = 25;
+  // See RawFlow.mesh_bypass_syns - carried through attribution and the Aggregator's own summing
+  // (mergeFlowCounters) exactly like retransmits/segs_out/buffer_drops.
+  uint32 mesh_bypass_syns = 26;
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
@@ -854,6 +868,10 @@ message FlowEdge {
   uint64 window_buffer_drops = 18;
   // dns_rtt_us, like jitter_us/handshake_us/cwnd/pacing_bps, lives on key.dns_rtt_us, not here - a
   // gauge, not a running total, the same treatment every other per-sample figure on this edge gets.
+  // Cumulative mesh-bypass SYNs over the life of this edge, and in the most recent window - see
+  // RawFlow.mesh_bypass_syns; summed the same way retransmits/segs_out/buffer_drops are.
+  uint64 mesh_bypass_syns = 19;
+  uint64 window_mesh_bypass_syns = 20;
 }
 
 message FlowTable {

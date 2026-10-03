@@ -765,6 +765,15 @@ export interface Dependency {
     redundancy: number
     encryption?: ClusterLink['encryption']
   }
+  /** True when this edge's traffic has actually been seen (eBPF only) leaving its caller directly -
+   * without first being redirected to a local mesh sidecar proxy - even though that caller is configured
+   * to run one and does not exclude this exact port from it. Unlike mesh.ts's connectionVerdict (which
+   * only ever infers a mesh's effect from configuration), this is read straight off the wire by the node
+   * collector and then cross-checked server-side against that same declared configuration, so it only
+   * ever flags a genuine surprise - injection that silently failed, an iptables rule that never applied,
+   * hostNetwork traffic that skipped the pod's own netns - never a workload that was simply never meshed
+   * or that explicitly excludes this port, where direct traffic is expected, not a finding. */
+  meshBypass?: boolean
 }
 
 /** The graph. */

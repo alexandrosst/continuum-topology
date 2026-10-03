@@ -205,7 +205,12 @@ func (o *Observer) openNames() error {
 	}
 	delete(spec.Programs, "on_state")
 	delete(spec.Programs, "snapshot")
-	delete(spec.Maps, "flows")
+	// "flows" is deliberately NOT deleted here, unlike "socks": observe_egress's mesh-bypass check (see
+	// flow.c's note_mesh_bypass) writes into it directly, on the same flow_key a successful connection to
+	// the same peer would get from on_state - so, unlike socks, it must be the very same map instance
+	// on_state and Collect() already use, not a second, independent one of its own. That is what the
+	// "flows" entry in MapReplacements just below does, mirroring openSnapshot's own reuse of
+	// o.objs.Flows/Socks/Lost above.
 	delete(spec.Maps, "socks")
 	var p struct {
 		ObserveEgress  *ebpf.Program `ebpf:"observe_egress"`
@@ -213,7 +218,7 @@ func (o *Observer) openNames() error {
 		Names          *ebpf.Map     `ebpf:"names"`
 		DnsPending     *ebpf.Map     `ebpf:"dns_pending"`
 	}
-	if err := spec.LoadAndAssign(&p, &ebpf.CollectionOptions{MapReplacements: map[string]*ebpf.Map{"lost": o.objs.Lost}}); err != nil {
+	if err := spec.LoadAndAssign(&p, &ebpf.CollectionOptions{MapReplacements: map[string]*ebpf.Map{"flows": o.objs.Flows, "lost": o.objs.Lost}}); err != nil {
 		var ve *ebpf.VerifierError
 		if errors.As(err, &ve) {
 			return fmt.Errorf("the kernel's verifier rejected the name-capture program: %w", err)
@@ -444,6 +449,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			sum.Retransmits += v.Retransmits
 			sum.SegsOut += v.SegsOut
 			sum.BufferDrops += v.BufferDrops
+			sum.MeshBypassSyns += v.MeshBypassSyns
 			sum.FailedAttempts += v.FailedAttempts
 			sum.FailedRefused += v.FailedRefused
 			sum.FailedTimeout += v.FailedTimeout
@@ -481,7 +487,13 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 				}
 			}
 		}
-		if sum.Connections == 0 && sum.BytesOut == 0 && sum.BytesIn == 0 && sum.FailedAttempts == 0 {
+		// mesh_bypass_syns is checked here too: note_mesh_bypass (flow.c) can create this very entry on a
+		// SYN whose connection has not yet reached ESTABLISHED or failed by the time this window closes
+		// (a plausible race, not a rare one - a bypassing SYN to a dead or unreachable peer can sit
+		// pending for the whole handshake timeout) - without this, such a window would delete the entry
+		// (LookupAndDelete, below) without ever reporting what it held, losing the one signal this
+		// collection cycle exists to catch.
+		if sum.Connections == 0 && sum.BytesOut == 0 && sum.BytesIn == 0 && sum.FailedAttempts == 0 && sum.MeshBypassSyns == 0 {
 			continue
 		}
 		out = append(out, &continuumv1.RawFlow{
@@ -502,6 +514,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			Cwnd:              sum.Cwnd,
 			PacingBps:         sum.PacingBps,
 			BufferDrops:       sum.BufferDrops,
+			MeshBypassSyns:    sum.MeshBypassSyns,
 			FailedAttempts:    sum.FailedAttempts,
 			FailedRefused:     sum.FailedRefused,
 			FailedTimeout:     sum.FailedTimeout,

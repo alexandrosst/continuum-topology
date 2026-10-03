@@ -171,6 +171,21 @@ struct flow_val {
 	// not a gauge. A different failure mode from retransmits: this socket's own receive buffer overflowed
 	// because nothing drained it fast enough, not the network dropping a packet in transit.
 	__u32 buffer_drops;
+	// mesh_bypass_syns: outbound SYNs seen leaving this exact local/peer/port (see note_mesh_bypass,
+	// under observe_egress below) whose wire-level destination was not loopback - i.e. packets that left
+	// the pod for their real, original destination without being redirected to a local proxy first (see
+	// note_mesh_bypass's own doc comment for why "not loopback" is the whole check). Summed like
+	// retransmits/buffer_drops above, not a gauge: each matching SYN adds to it (a
+	// retried SYN for the same stuck attempt counts more than once, which is fine - the point is "this
+	// happened", not a precise attempt count). Only ever non-zero when the name-capture opt-in is on
+	// (Options.Names - this is observed from the same cgroup_skb/egress hook as sni_host/dns_query_name,
+	// not from on_state), and only for the role=ROLE_CLIENT direction: a mesh sidecar intercepts a pod's
+	// own outbound calls, never an inbound accept. Whether a non-zero count here actually means "this
+	// workload's mesh injection is misconfigured" - as opposed to "this workload was never meshed in the
+	// first place" - is a question this program cannot answer (it has no idea what Kubernetes thinks this
+	// pod should be running); that cross-check against the mesh's own declared configuration happens in
+	// Go, downstream (see the server's applyMeshBypassFacts).
+	__u32 mesh_bypass_syns;
 	// handshake_us: how long this one connection took to go from its first SYN to ESTABLISHED - a gauge
 	// set exactly once, at the moment a socket reaches ESTABLISHED (see on_state), never touched again by
 	// this same socket's later traffic. Distinct from rtt_us, which is the ongoing steady-state round
@@ -649,6 +664,87 @@ static __always_inline void submit_name(struct __sk_buff *skb, __u8 kind, const 
 	bpf_ringbuf_submit(ev, 0);
 }
 
+// ---------------------------------------------------------------------------
+// Mesh-bypass detection: a sidecar mesh (Istio, Linkerd) makes a pod's outbound calls transparent to the
+// application by having iptables REDIRECT every outbound TCP packet to a proxy listening on localhost,
+// in the same network namespace, before it ever leaves the pod. That REDIRECT (a DNAT) happens in
+// netfilter's NF_INET_LOCAL_OUT hook, which runs before the routing decision this program's own hook
+// point (BPF_CGROUP_INET_EGRESS, invoked from the IP layer's own output path, after routing) sees - so
+// by the time observe_egress reads an outbound packet's IP header, a properly-intercepted packet's
+// destination has *already* been rewritten to the local proxy's address, while a packet that escaped
+// interception still shows its real, original destination. This is the one place in this whole file that
+// can see that difference: the socket's own address (what on_state/add_flow build flow_key from) is
+// never rewritten by this DNAT - the kernel keeps the application's original destination there for the
+// socket's own lifetime, precisely so the application stays unaware of the redirect - so on_state alone
+// can never tell a redirected connection from a bypassed one; only a packet-level read of the wire can.
+//
+// This deliberately checks only whether the destination is loopback at all, not which exact port on it:
+// Istio's outbound redirect port is 15001 (istio-iptables' own default, stable across versions) and
+// Linkerd's outbound proxy port is 4140 (linkerd2-proxy-init's own default, also stable) - see
+// facts.IstioOutboundPort/LinkerdOutboundPort on the Go side for where anything that needs to say these
+// numbers out loud should keep citing them - but a pod can have entirely legitimate reasons of its own to
+// talk to some other loopback port that have nothing to do with a mesh proxy (a sidecar's own admin/
+// metrics port, an in-process cache, a health-check loop), and getting that wrong in a stricter,
+// port-matching check would misreport ordinary local traffic as a mesh bypass - a worse mistake than this
+// check's actual blind spot, missing a bypass that happens to go out over loopback for some unrelated
+// reason (vanishingly rare in practice: a packet that already made it past the pod's own loopback
+// interface is, almost by definition, not "escaping" anywhere). Consul (envoy-sidecar/consul-dataplane)
+// and Kuma are also detected elsewhere in this codebase (see mesh.go's proxyContainers) but have no
+// comparably long-stable, version-independent default port worth hardcoding here at all - not that this
+// check would need one for them either, since it never actually compares against a specific port.
+
+// TCP flags byte (the 14th byte of a TCP header, right after the data-offset/reserved byte).
+#define TCP_FLAG_FIN 0x01
+#define TCP_FLAG_SYN 0x02
+#define TCP_FLAG_RST 0x04
+#define TCP_FLAG_ACK 0x10
+
+static __always_inline __u8 is_loopback(const __u8 addr[16]) {
+	// IPv4-mapped (::ffff:a.b.c.d - see put_addr4/put_addr): loopback iff the embedded v4 address is in
+	// 127.0.0.0/8. Checking addr[12] alone (the first mapped octet) is enough to tell a v4-mapped address
+	// from a real v6 one here, since every v4 address this program ever builds goes through put_addr4/
+	// put_addr and so already carries that exact prefix.
+	if (addr[10] == 0xff && addr[11] == 0xff)
+		return addr[12] == 127;
+	// ::1, the only IPv6 loopback address - checked byte by byte (a small, compile-time-constant-bounded
+	// loop the compiler unrolls) rather than through memcmp, so the comparison's byte order stays obvious
+	// rather than resting on this build's native endianness.
+	for (int i = 0; i < 15; i++) {
+		if (addr[i] != 0)
+			return 0;
+	}
+	return addr[15] == 1;
+}
+
+// Bumps flow_val.mesh_bypass_syns on the exact same flow_key a successful connection to this same peer
+// would get from on_state/add_flow (role=ROLE_CLIENT, this socket's local/peer/port) - deliberately the
+// same flows map and the same key shape, so Go never has to correlate two differently-keyed observations
+// itself; see struct flow_val's own doc comment on this field for why. Only called for a packet already
+// established as a pure SYN to a non-loopback destination (see observe_egress) - loopback destinations
+// are skipped by the caller before this is ever reached, covering both "properly redirected to a sidecar"
+// and "genuinely local traffic for some other reason", neither of which this program can tell apart from
+// here, so neither is counted either way.
+static __always_inline void note_mesh_bypass(const __u8 saddr[16], const __u8 daddr[16], __u16 dport) {
+	struct flow_key key;
+	__builtin_memset(&key, 0, sizeof(key));
+	key.role = ROLE_CLIENT;
+	__builtin_memcpy(key.local, saddr, 16);
+	__builtin_memcpy(key.peer, daddr, 16);
+	key.port = dport;
+
+	struct flow_val zero = {};
+	struct flow_val *v = bpf_map_lookup_elem(&flows, &key);
+	if (!v) {
+		bpf_map_update_elem(&flows, &key, &zero, BPF_NOEXIST);
+		v = bpf_map_lookup_elem(&flows, &key);
+	}
+	if (!v) {
+		count_lost();
+		return;
+	}
+	v->mesh_bypass_syns += 1;
+}
+
 SEC("cgroup_skb/egress")
 int observe_egress(struct __sk_buff *skb) {
 	__u8 v;
@@ -727,12 +823,26 @@ int observe_egress(struct __sk_buff *skb) {
 	if (proto == AF_INET_PROTO_TCP) {
 		if (total - l4_off < 20) // shorter than a minimal TCP header: not a real TCP packet
 			return 1;
-		__u8 doff_byte;
-		if (bpf_skb_load_bytes(skb, l4_off + 12, &doff_byte, 1) != 0)
+		__u8 doff_byte, flags_byte;
+		if (bpf_skb_load_bytes(skb, l4_off + 12, &doff_byte, 1) != 0 || bpf_skb_load_bytes(skb, l4_off + 13, &flags_byte, 1) != 0)
 			return 1;
 		__u32 tcp_hdr_len = (doff_byte >> 4) * 4;
 		if (tcp_hdr_len < 20)
 			return 1;
+		// Read once, up front, for both uses below (the ClientHello capture further down, and the
+		// mesh-bypass check right here) - previously this read only happened right before submit_name,
+		// which a pure SYN (no payload at all) never reaches.
+		__u16 sport_be, dport_be;
+		if (bpf_skb_load_bytes(skb, l4_off, &sport_be, 2) != 0 || bpf_skb_load_bytes(skb, l4_off + 2, &dport_be, 2) != 0)
+			return 1;
+		// A pure SYN - SYN set, ACK/RST/FIN all clear - is the first packet of a new outbound connection;
+		// see note_mesh_bypass's own doc comment for why this, not the ClientHello match below, is where
+		// mesh-bypass detection belongs. Every other packet on this same connection (the rest of the
+		// handshake, and everything after it) carries no new information for this check, so this only
+		// ever runs once per connection attempt (twice if the SYN itself is retransmitted).
+		if ((flags_byte & (TCP_FLAG_SYN | TCP_FLAG_ACK | TCP_FLAG_RST | TCP_FLAG_FIN)) == TCP_FLAG_SYN && !is_loopback(daddr)) {
+			note_mesh_bypass(saddr, daddr, __builtin_bswap16(dport_be));
+		}
 		__u32 payload_off = l4_off + tcp_hdr_len;
 		if (payload_off >= total || total - payload_off < 6)
 			return 1; // not enough of a first segment here to be a ClientHello's fixed header
@@ -745,9 +855,6 @@ int observe_egress(struct __sk_buff *skb) {
 		    bpf_skb_load_bytes(skb, payload_off + 5, &b5, 1) != 0)
 			return 1;
 		if (b0 != 0x16 || b1 != 0x03 || b5 != 0x01)
-			return 1;
-		__u16 sport_be, dport_be;
-		if (bpf_skb_load_bytes(skb, l4_off, &sport_be, 2) != 0 || bpf_skb_load_bytes(skb, l4_off + 2, &dport_be, 2) != 0)
 			return 1;
 		submit_name(skb, NAME_KIND_TLS_CLIENT_HELLO, saddr, daddr, __builtin_bswap16(sport_be), __builtin_bswap16(dport_be), payload_off, total - payload_off);
 		return 1;

@@ -197,8 +197,9 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		e.Retransmits = satAdd(e.Retransmits, f.Retransmits)
 		e.SegsOut = satAdd(e.SegsOut, uint64(f.SegsOut))
 		e.BufferDrops = satAdd(e.BufferDrops, uint64(f.BufferDrops))
+		e.MeshBypassSyns = satAdd(e.MeshBypassSyns, uint64(f.MeshBypassSyns))
 		e.FailedAttempts = satAdd(e.FailedAttempts, f.FailedAttempts)
-		e.WindowSeconds, e.WindowConnections, e.WindowBytes, e.WindowRetransmits, e.WindowSegsOut, e.WindowBufferDrops, e.WindowFailedAttempts = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn), f.Retransmits, uint64(f.SegsOut), uint64(f.BufferDrops), f.FailedAttempts
+		e.WindowSeconds, e.WindowConnections, e.WindowBytes, e.WindowRetransmits, e.WindowSegsOut, e.WindowBufferDrops, e.WindowMeshBypassSyns, e.WindowFailedAttempts = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn), f.Retransmits, uint64(f.SegsOut), uint64(f.BufferDrops), uint64(f.MeshBypassSyns), f.FailedAttempts
 		if f.BytesKnown {
 			e.Key.BytesKnown = true
 		}
@@ -505,6 +506,41 @@ func dbPort(p uint32) bool {
 }
 
 // observedTopology derives dependencies and external endpoints from every cluster's flows.
+// applyMeshBypassFacts turns observedTopology's tentative model.Dependency.MeshBypass (set wherever a
+// direct, non-redirected egress SYN was merely observed - see FlowEdge.MeshBypassSyns) into the real,
+// cross-checked fact: true only where the caller's own declared mesh configuration (services, built
+// separately by interpret.Interpret from each cluster's own WorkloadFacts) actually calls for this
+// traffic to be intercepted. Run once, after every cluster's services and every observed dependency are
+// both in hand (see hub.go's buildTopology) - observedTopology itself never sees a model.Service at all,
+// only raw flow edges, and must not guess.
+func applyMeshBypassFacts(deps []model.Dependency, services []model.Service) {
+	byID := make(map[string]*model.Service, len(services))
+	for i := range services {
+		byID[services[i].ID] = &services[i]
+	}
+	for i := range deps {
+		d := &deps[i]
+		if !d.MeshBypass {
+			continue
+		}
+		d.MeshBypass = false
+		if d.FromKind != "service" {
+			continue // an external caller, or one this cluster's own agent never reported as a service
+		}
+		svc := byID[d.From]
+		if svc == nil || svc.Mesh == nil || svc.Mesh.Bypass || svc.Mesh.Proxy != facts.ProxySidecar {
+			// Not configured to run a sidecar at all (or explicitly opted out, or running the mesh's
+			// control plane/ambient mode instead - ambient has no per-pod sidecar to redirect to, so this
+			// whole check does not apply to it): direct egress here is exactly what was asked for.
+			continue
+		}
+		if d.Port != 0 && facts.PortExcluded(svc.Mesh.ExcludedPorts, "out", d.Port) {
+			continue // the workload itself declared this exact port out of its proxy
+		}
+		d.MeshBypass = true
+	}
+}
+
 func observedTopology(org string, cs []observedCluster, now time.Time, stale time.Duration) ([]model.Dependency, []model.ExternalEndpoint) {
 	ix := buildAddrIndex(cs)
 	byID := map[string]*observedCluster{}
@@ -747,6 +783,16 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		}
 		d.Retransmits = satAdd(d.Retransmits, e.Retransmits)
 		d.BufferDrops = satAdd(d.BufferDrops, e.BufferDrops)
+		// Tentative: true here means only "a direct, non-redirected egress SYN was observed on this edge
+		// at some point" (see FlowEdge.MeshBypassSyns/flow.c's note_mesh_bypass), nothing yet about
+		// whether this workload was ever supposed to be meshed at all. applyMeshBypassFacts (hub.go),
+		// run once every dependency and every service from every cluster are both in hand, clears this
+		// back to false wherever the caller's own declared mesh configuration does not actually call for
+		// interception - this layer has no access to that configuration (it never sees a Service, only
+		// raw flow edges) and must not guess.
+		if e.MeshBypassSyns > 0 {
+			d.MeshBypass = true
+		}
 		d.FailedAttempts = satAdd(d.FailedAttempts, e.FailedAttempts)
 		if e.Key.SniHost != "" {
 			d.SniHost = e.Key.SniHost

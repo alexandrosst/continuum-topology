@@ -95,6 +95,7 @@ func mergeFlowCounters(cur, add *continuumv1.Flow) {
 	cur.Retransmits += add.Retransmits
 	cur.SegsOut += add.SegsOut
 	cur.BufferDrops += add.BufferDrops
+	cur.MeshBypassSyns += add.MeshBypassSyns
 	cur.FailedAttempts += add.FailedAttempts
 	if add.RttUs != 0 {
 		cur.RttUs = add.RttUs // a gauge, not a sum: the latest sample replaces the last, same as Iface

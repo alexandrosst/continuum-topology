@@ -1173,6 +1173,10 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 	}
 	if len(observed) > 0 {
 		topo.Dependencies, topo.ExternalEndpoints = observedTopology(h.C.OrgID, observed, now, h.StaleFlows())
+		// Needs every cluster's services already collected into topo.Services above (their Mesh facts
+		// come from each agent's own interpret.Interpret, never seen by observedTopology itself) - see
+		// applyMeshBypassFacts' own doc comment for why this cross-check cannot happen any earlier.
+		applyMeshBypassFacts(topo.Dependencies, topo.Services)
 		topo.Suggestions = append(topo.Suggestions, suspicions(h.C.OrgID, observed, located, now)...)
 	}
 	// Needs every cluster's nodes in one list (a tunnel's other end is often in a different cluster, or

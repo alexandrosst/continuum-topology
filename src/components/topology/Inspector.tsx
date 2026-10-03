@@ -1178,11 +1178,23 @@ export default function Inspector({
             ) : undefined}
           </Maybe>
         </Section>
-        {verdict && (
+        {(verdict || d.meshBypass) && (
           <Section title="Service mesh">
-            <Row label="Encryption"><span style={{ color: VERDICT_COLOR[verdict.state] }}>{verdict.short}</span></Row>
-            <p className="text-xs text-nb-400">{verdict.detail}</p>
-            <p className="mt-1.5 text-xs text-nb-500">Inferred from configuration (proxies, ports kept out of them, and the mesh's mutual-TLS policy). Nothing here was measured on the wire.</p>
+            {d.meshBypass && (
+              <>
+                <Row label="Observed"><span style={{ color: VERDICT_COLOR.bypassed }}>bypasses proxy</span></Row>
+                <p className="text-xs text-nb-400">
+                  Traffic was seen leaving {f?.label ?? 'the caller'} directly, without passing through its mesh proxy - not inferred from configuration, but read off the wire (eBPF).
+                </p>
+              </>
+            )}
+            {verdict && !d.meshBypass && (
+              <>
+                <Row label="Encryption"><span style={{ color: VERDICT_COLOR[verdict.state] }}>{verdict.short}</span></Row>
+                <p className="text-xs text-nb-400">{verdict.detail}</p>
+                <p className="mt-1.5 text-xs text-nb-500">Inferred from configuration (proxies, ports kept out of them, and the mesh's mutual-TLS policy). Nothing here was measured on the wire.</p>
+              </>
+            )}
           </Section>
         )}
         {d.tunnelLink && (

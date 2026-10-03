@@ -693,4 +693,16 @@ type Dependency struct {
 	// still matters for a tunnel used by several distinct dependencies at once, or by none right now.
 	// Nil when Iface is empty, or non-empty but did not match any confirmed tunnel.
 	TunnelLink *DependencyTunnelLink `json:"tunnelLink,omitempty"`
+	// MeshBypass is true when this edge's own traffic has actually been seen (eBPF only, never
+	// conntrack) leaving its caller directly - without first being redirected to a local mesh sidecar
+	// proxy - even though that caller is configured to run one and does not declare this exact port out
+	// of it. Unlike mesh.ts's connectionVerdict (which only ever infers a mesh's effect from
+	// configuration: proxies present, ports excluded, mutual-TLS policy), this is read straight off the
+	// wire by the node collector's optional name-capture (flow.c's observe_egress/note_mesh_bypass) and
+	// then cross-checked against that same declared configuration here on the server
+	// (applyMeshBypassFacts) - so it only ever flags a genuine surprise: injection that silently failed,
+	// an iptables rule that never applied, hostNetwork traffic that skipped the pod's own netns, and the
+	// like. Always false for a workload with no sidecar configured at all, or one that explicitly
+	// excludes this port - that traffic bypassing the mesh is expected, not a finding.
+	MeshBypass bool `json:"meshBypass,omitempty"`
 }
