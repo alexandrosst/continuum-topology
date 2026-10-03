@@ -137,6 +137,12 @@ message Heartbeat {
   int64 clock_skew_ms = 2;
   // The agent's own account of itself, sent when it changed and at least every five minutes.
   Diagnostics diagnostics = 3;
+  // What running this agent itself currently costs - see SelfStats' own doc comment. Sent on every
+  // heartbeat (unlike diagnostics above, which is only sent when it changed): it is cheap to gather
+  // (runtime.ReadMemStats and a couple of counters already held in memory, nothing that touches the
+  // cluster), so there is no reason to withhold it between diagnostics refreshes. Absent only for an
+  // agent older than this field.
+  SelfStats self_stats = 4;
 }
 
 message ModuleStatus {
@@ -1177,4 +1183,43 @@ message Problem {
   string message = 3;
   // Since when it has been the case.
   google.protobuf.Timestamp since = 4;
+}
+
+// SelfStats is what Continuum's own agent process costs, right now, on the machine it runs on - sent
+// with every Heartbeat so a person (or the server's own self-telemetry endpoint, see
+// internal/server/hub.go's per-agent ring buffer) can tell "the platform that watches everything else"
+// apart from the workloads it watches, instead of that cost disappearing into the cluster's general
+// noise. Deliberately cheap to gather (the agent must never become the overhead it is trying to
+// measure): everything here comes from counters the Go runtime or the kernel already keeps for this
+// process, never a new scrape of the cluster itself.
+message SelfStats {
+  // Memory the Go runtime has obtained from the OS for this process (runtime.MemStats.Sys), in bytes.
+  // Reported in place of the OS's own RSS counter (e.g. /proc/self/status's VmRSS) specifically because
+  // it needs no /proc dependency - runtime.ReadMemStats is portable and already in-process - at the cost
+  // of being the Go runtime's own view of what it holds rather than the kernel's view of what is
+  // resident; the two normally track closely for a long-running service like this one.
+  uint64 rss_bytes = 1;
+  // runtime.NumGoroutine() at the moment this heartbeat was built.
+  uint32 goroutines = 2;
+  // This process's own cumulative CPU time (user + system), in seconds, from the kernel's per-process
+  // accounting (getrusage) - a live, monotonically increasing total, not a per-window delta. Reported
+  // raw and diffed server-side into a percentage the same way every other cumulative counter in this
+  // file already is (compare HostProbe.oom_kill_count, Diagnostics.flow_dropped): two readings a
+  // heartbeat-interval apart divided by the wall-clock time between them give the average CPU percent
+  // for that interval, without this process ever needing to track its own sampling window.
+  double cpu_seconds = 3;
+  // The agent's own effective flowObserver/nodeProbe report intervals (the chart's flowObserver.interval
+  // and nodeProbe.interval, already resolved the same way collectorDiagnostics resolves them - the
+  // chart's own default substituted for an unset override) - read straight from the agent's already-
+  // parsed Config, never re-derived or guessed. Reported so a caller building a per-agent telemetry
+  // picture does not need its own copy of the chart's defaults to know what cadence this agent's numbers
+  // were sampled at.
+  uint32 flow_interval_seconds = 4;
+  uint32 probe_interval_seconds = 5;
+  // The size (number of flows) and wire size (proto.Size, before gRPC framing and TLS - the same measure
+  // linkStats.bytes server-side already uses) of the last flow batch this agent actually sent, i.e. the
+  // most recent AgentMessage.flows this same stream delivered. Both zero before the first batch of a
+  // fresh connection, or on an agent whose flow collector has nothing installed.
+  uint32 last_flow_batch_flows = 6;
+  uint32 last_flow_batch_bytes = 7;
 }
