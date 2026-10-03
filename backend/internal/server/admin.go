@@ -177,6 +177,7 @@ func (a *Admin) Handler() http.Handler {
 	route("PUT "+o+"/workspace", editorRole, a.putWorkspace)
 
 	route("GET "+o+"/settings", memberRole, a.getSettings)
+	route("GET "+o+"/telemetry/self", memberRole, a.selfTelemetry)
 	route("PUT "+o+"/settings", adminRole, a.putSettings)
 	route("GET "+o+"/history", memberRole, a.historyIndex)
 	route("GET "+o+"/history/snapshot", memberRole, a.historySnapshot)

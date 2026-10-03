@@ -79,6 +79,14 @@ type SelfStatsSample struct {
 	CPUSeconds                                float64
 	FlowIntervalSeconds, ProbeIntervalSeconds uint32
 	LastFlowBatchFlows, LastFlowBatchBytes    uint32
+	// LinkBytesCumulative is a snapshot, taken at the same moment as this sample, of linkStats.bytes -
+	// this agent's own total AgentMessage traffic received since the server started, as encoded on the
+	// wire. Not part of the wire SelfStats message (the server already knows it independently, the same
+	// way it already knows connects/syncs/flows/beats without the agent repeating them); carried here so
+	// a caller deriving a bytes/sec rate (see bandwidthSharePct/rateBetween in admin_telemetry.go) has,
+	// for every ring sample, both halves of the rate - the cumulative total and its own timestamp -
+	// without a second, separately-timed read of linkStats that could race against this one.
+	LinkBytesCumulative uint64
 }
 
 // noteSelfStats adds one agent's SelfStats to v.self, exactly the same "operate on v, caller already
@@ -93,6 +101,7 @@ func noteSelfStats(v *view, ss *continuumv1.SelfStats, now time.Time) {
 		At: now, RSSBytes: ss.RssBytes, Goroutines: ss.Goroutines, CPUSeconds: ss.CpuSeconds,
 		FlowIntervalSeconds: ss.FlowIntervalSeconds, ProbeIntervalSeconds: ss.ProbeIntervalSeconds,
 		LastFlowBatchFlows: ss.LastFlowBatchFlows, LastFlowBatchBytes: ss.LastFlowBatchBytes,
+		LinkBytesCumulative: uint64(v.link.bytes),
 	}, now)
 }
 
@@ -145,6 +154,29 @@ type flowIngest struct {
 	mu         sync.Mutex
 	totalBytes int64
 	at         time.Time
+}
+
+// SelfStatsFor returns a copy of one agent's self-telemetry history (see view.self/SelfStatsSample),
+// oldest first - nil when the agent has never sent a heartbeat carrying SelfStats, or this hub holds no
+// view for it at all (never approved, or forgotten after a restart with nothing restored for it yet).
+// Exported so the self-telemetry API handler (admin_telemetry.go) never reaches into Hub internals
+// directly - the same "small accessor, the lock stays inside the package" shape StateFor already uses.
+func (h *Hub) SelfStatsFor(agentID string) []SelfStatsSample {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	v := h.views[agentID]
+	if v == nil {
+		return nil
+	}
+	return v.self.list()
+}
+
+// ServerSelfStats returns a copy of this server process's own self-telemetry history (see
+// Hub.serverSelf/ServerSelfStatsSample), oldest first.
+func (h *Hub) ServerSelfStats() []ServerSelfStatsSample {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.serverSelf.list()
 }
 
 // sampleSelfStats takes one sample of this server process's own self-telemetry and adds it to
