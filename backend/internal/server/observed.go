@@ -235,17 +235,22 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		if f.MssBytes != 0 {
 			e.Key.MssBytes = f.MssBytes // a gauge, same treatment as Cwnd/PacingBps above
 		}
-		if f.RcvWndBytes != 0 {
-			e.Key.RcvWndBytes = f.RcvWndBytes // a gauge, same treatment as MssBytes/Cwnd above
+		// RcvWndBytes/SndWndBytes/WmemQueuedBytes/SndbufBytes are gauges too, but unlike MssBytes/Cwnd
+		// above 0 is a real, meaningful sample for all four (a zero window, or a drained queue) - that is
+		// exactly why they are `optional uint32` on continuumv1.Flow, so presence is read off the pointer,
+		// not the value: nil means this report carried no sample at all (leave e.Key's running gauge
+		// alone), non-nil (0 included) means a real sample that must replace it.
+		if f.RcvWndBytes != nil {
+			e.Key.RcvWndBytes = f.RcvWndBytes
 		}
-		if f.SndWndBytes != 0 {
-			e.Key.SndWndBytes = f.SndWndBytes // a gauge, same treatment as RcvWndBytes right above
+		if f.SndWndBytes != nil {
+			e.Key.SndWndBytes = f.SndWndBytes
 		}
-		if f.WmemQueuedBytes != 0 {
-			e.Key.WmemQueuedBytes = f.WmemQueuedBytes // a gauge, same treatment as RcvWndBytes/SndWndBytes
+		if f.WmemQueuedBytes != nil {
+			e.Key.WmemQueuedBytes = f.WmemQueuedBytes
 		}
-		if f.SndbufBytes != 0 {
-			e.Key.SndbufBytes = f.SndbufBytes // a gauge, same treatment as the three above
+		if f.SndbufBytes != nil {
+			e.Key.SndbufBytes = f.SndbufBytes
 		}
 		if f.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN {
 			e.Key.TlsHandshake = f.TlsHandshake // a gauge too, same treatment as SniHost below
@@ -805,20 +810,15 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		if e.Key.MssBytes != 0 {
 			d.MssBytes = e.Key.MssBytes
 		}
-		// Gauges too, same treatment as MssBytes/CwndSegments above - see model.Dependency.RcvWndBytes'
-		// own doc for what each actually means (socket buffer/window pressure, not path loss).
-		if e.Key.RcvWndBytes != 0 {
-			d.RcvWndBytes = e.Key.RcvWndBytes
-		}
-		if e.Key.SndWndBytes != 0 {
-			d.SndWndBytes = e.Key.SndWndBytes
-		}
-		if e.Key.WmemQueuedBytes != 0 {
-			d.WmemQueuedBytes = e.Key.WmemQueuedBytes
-		}
-		if e.Key.SndbufBytes != 0 {
-			d.SndbufBytes = e.Key.SndbufBytes
-		}
+		// Gauges too, but see model.Dependency.RcvWndBytes' own doc for why these four are *uint32, not
+		// plain uint32 like MssBytes/CwndSegments above: 0 is a real, meaningful sample for all four (a
+		// zero window, or a drained queue), so copying the pointer straight across - nil stays nil,
+		// nothing fabricates a 0 for an edge that was never sampled, and a real 0 is preserved rather
+		// than being read back as "unset" - is what keeps that distinction all the way out to the API.
+		d.RcvWndBytes = e.Key.RcvWndBytes
+		d.SndWndBytes = e.Key.SndWndBytes
+		d.WmemQueuedBytes = e.Key.WmemQueuedBytes
+		d.SndbufBytes = e.Key.SndbufBytes
 		// See model.Dependency.TlsHandshake's own doc for exactly what "ok"/"failed" can and cannot tell -
 		// mapped from the wire enum to that plain string here, at the one place a RawFlow's internal
 		// numbering turns into the model the rest of the server and the UI actually read.

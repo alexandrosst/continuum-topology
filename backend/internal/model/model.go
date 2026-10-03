@@ -876,27 +876,34 @@ type Dependency struct {
 	// that overhead, not a guess from the tunnel's declared type. Always 0 on a conntrack-only edge.
 	MssBytes uint32 `json:"mssBytes,omitempty"`
 	// RcvWndBytes is the receive window this node is currently advertising to the peer on this edge, in
-	// bytes (struct tcp_sock.rcv_wnd) - a gauge, same "0 means no sample" treatment as MssBytes/CwndSegments
-	// above. 0 is also a real, meaningful reading here: it means this side has told the peer to stop
-	// sending because its own receive buffer is not draining fast enough - the node-side half of a
-	// stalled connection, distinct from Retransmits (above), which is the path losing packets regardless
-	// of either end's buffers. Read alongside SndWndBytes/WmemQueuedBytes/SndbufBytes below to tell a
-	// buffer-pressure stall apart from one caused by the path itself. Always 0 on a conntrack-only edge.
-	RcvWndBytes uint32 `json:"rcvWndBytes,omitempty"`
+	// bytes (struct tcp_sock.rcv_wnd) - a gauge, same latest-sample treatment as MssBytes/CwndSegments
+	// above, but a pointer (not a plain uint32) because 0 is also a real, meaningful reading here, unlike
+	// MssBytes/CwndSegments where 0 only ever means "no sample yet": it means this side has told the peer
+	// to stop sending because its own receive buffer is not draining fast enough - the node-side half of
+	// a stalled connection, distinct from Retransmits (above), which is the path losing packets regardless
+	// of either end's buffers. nil means never sampled (no socket to read it from on a conntrack-only
+	// edge, or no eBPF report with a window sample has arrived yet) - never a fabricated 0, the same
+	// pointer treatment HostProbe.CPUPressurePct/OomKillCount/HostWatts already use for their own absence,
+	// and for the identical reason: 0 is this field's own common, interesting case, not its "unset" case.
+	// Read alongside SndWndBytes/WmemQueuedBytes/SndbufBytes below to tell a buffer-pressure stall apart
+	// from one caused by the path itself.
+	RcvWndBytes *uint32 `json:"rcvWndBytes,omitempty"`
 	// SndWndBytes is the peer's last-advertised receive window to this node on this edge, in bytes
-	// (struct tcp_sock.snd_wnd) - same gauge treatment as RcvWndBytes right above. 0 means the peer
-	// stalled this connection, which looks identical to a congested path from this node's own counters
-	// (CwndSegments/PacingBps) unless this field is read too. Always 0 on a conntrack-only edge.
-	SndWndBytes uint32 `json:"sndWndBytes,omitempty"`
+	// (struct tcp_sock.snd_wnd) - same pointer-gauge treatment as RcvWndBytes right above, for the same
+	// reason. A real 0 means the peer stalled this connection, which looks identical to a congested path
+	// from this node's own counters (CwndSegments/PacingBps) unless this field is read too; nil means
+	// never sampled.
+	SndWndBytes *uint32 `json:"sndWndBytes,omitempty"`
 	// WmemQueuedBytes is bytes currently queued in this edge's own local send/write queue (struct
-	// sock.sk_wmem_queued) - a gauge, same treatment as RcvWndBytes/SndWndBytes above. Read alongside
-	// SndbufBytes below: WmemQueuedBytes at or near SndbufBytes means this edge's local send buffer is
-	// saturated - the application not writing fast enough to notice, or itself backpressured by a
-	// congested path it cannot drain into. Always 0 on a conntrack-only edge.
-	WmemQueuedBytes uint32 `json:"wmemQueuedBytes,omitempty"`
+	// sock.sk_wmem_queued) - same pointer-gauge treatment as RcvWndBytes/SndWndBytes above: 0 is this
+	// field's common, healthy reading (nothing queued), not its "unset" one, so nil (never sampled) has
+	// to stay distinguishable from it. Read alongside SndbufBytes below: WmemQueuedBytes at or near
+	// SndbufBytes means this edge's local send buffer is saturated - the application not writing fast
+	// enough to notice, or itself backpressured by a congested path it cannot drain into.
+	WmemQueuedBytes *uint32 `json:"wmemQueuedBytes,omitempty"`
 	// SndbufBytes is the current ceiling on WmemQueuedBytes above (struct sock.sk_sndbuf, SO_SNDBUF) -
-	// a gauge, same treatment as the three fields above. Always 0 on a conntrack-only edge.
-	SndbufBytes uint32 `json:"sndbufBytes,omitempty"`
+	// same pointer-gauge treatment as the three fields above, nil meaning never sampled.
+	SndbufBytes *uint32 `json:"sndbufBytes,omitempty"`
 	// BufferDrops is the cumulative count of this edge's receive-side buffer drops, from the kernel's own
 	// per-socket counter - summed the same way Retransmits/FailedAttempts are. A different failure mode
 	// from Retransmits: the receiving application not draining its socket fast enough, not the network

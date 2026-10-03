@@ -3931,28 +3931,34 @@ type RawFlow struct {
 	// Always 0 on a conntrack-derived report, which has no socket to read this from.
 	MssBytes uint32 `protobuf:"varint,28,opt,name=mss_bytes,json=mssBytes,proto3" json:"mss_bytes,omitempty"`
 	// The receive window this node is currently advertising to the peer, in bytes (struct
-	// tcp_sock.rcv_wnd) - our own flow-control credit to them. A gauge, same 0-means-no-sample
-	// convention as rtt_us/cwnd, read at the same moments (the collector's per-window open-socket walk).
-	// 0 is also a real, meaningful reading here, not just "unset": it means this side has told the peer
-	// to stop sending because its own receive buffer is not being drained fast enough - the node-side half
-	// of a stalled connection, as distinct from retransmits (above), which is the path losing packets
-	// regardless of either end's buffers. Always 0 on a conntrack-derived report, which has no socket to
-	// read this from.
-	RcvWndBytes uint32 `protobuf:"varint,29,opt,name=rcv_wnd_bytes,json=rcvWndBytes,proto3" json:"rcv_wnd_bytes,omitempty"`
+	// tcp_sock.rcv_wnd) - our own flow-control credit to them. A gauge, same latest-sample convention as
+	// rtt_us/cwnd, read at the same moments (the collector's per-window open-socket walk). optional (not a
+	// plain uint32) because 0 is also a real, meaningful reading here, not just "unset": it means this
+	// side has told the peer to stop sending because its own receive buffer is not being drained fast
+	// enough - the node-side half of a stalled connection, as distinct from retransmits (above), which is
+	// the path losing packets regardless of either end's buffers. Unset is tellable from that real zero
+	// (unlike rtt_us/cwnd/mss_bytes above, where 0 never occurs as a genuine reading, so an ordinary
+	// scalar's implicit "0 means unset" is safe for them but would silently erase this field's own most
+	// interesting reading). Unset on a conntrack-derived report, which has no socket to read this from,
+	// and on any window this collector's per-socket walk never got to.
+	RcvWndBytes *uint32 `protobuf:"varint,29,opt,name=rcv_wnd_bytes,json=rcvWndBytes,proto3,oneof" json:"rcv_wnd_bytes,omitempty"`
 	// The peer's last-advertised receive window to us, in bytes (struct tcp_sock.snd_wnd) - their
-	// flow-control credit to this node. Same gauge treatment as rcv_wnd_bytes right above; 0 means the
-	// peer stalled this connection, which looks identical to a congested path from this side's own
-	// counters (cwnd/pacing_bps) unless this field is read too.
-	SndWndBytes uint32 `protobuf:"varint,30,opt,name=snd_wnd_bytes,json=sndWndBytes,proto3" json:"snd_wnd_bytes,omitempty"`
+	// flow-control credit to this node. Same optional-gauge treatment as rcv_wnd_bytes right above; 0 is a
+	// real reading meaning the peer stalled this connection, which looks identical to a congested path
+	// from this side's own counters (cwnd/pacing_bps) unless this field is read too.
+	SndWndBytes *uint32 `protobuf:"varint,30,opt,name=snd_wnd_bytes,json=sndWndBytes,proto3,oneof" json:"snd_wnd_bytes,omitempty"`
 	// Bytes currently queued in this socket's own local send/write queue (struct sock.sk_wmem_queued) -
-	// handed to the kernel by the application but not yet acknowledged. A gauge, same treatment as
-	// rcv_wnd_bytes/snd_wnd_bytes. Read alongside sndbuf_bytes below: wmem_queued_bytes at or near
-	// sndbuf_bytes means this socket's local send buffer is saturated - the application not writing fast
-	// enough to notice, or itself backpressured by a congested path it cannot drain into.
-	WmemQueuedBytes uint32 `protobuf:"varint,31,opt,name=wmem_queued_bytes,json=wmemQueuedBytes,proto3" json:"wmem_queued_bytes,omitempty"`
+	// handed to the kernel by the application but not yet acknowledged. Same optional-gauge treatment as
+	// rcv_wnd_bytes/snd_wnd_bytes, for the same reason: 0 is the common, healthy reading (nothing queued),
+	// and unset must stay tellable from it rather than silently looking identical. Read alongside
+	// sndbuf_bytes below: wmem_queued_bytes at or near sndbuf_bytes means this socket's local send buffer
+	// is saturated - the application not writing fast enough to notice, or itself backpressured by a
+	// congested path it cannot drain into.
+	WmemQueuedBytes *uint32 `protobuf:"varint,31,opt,name=wmem_queued_bytes,json=wmemQueuedBytes,proto3,oneof" json:"wmem_queued_bytes,omitempty"`
 	// The current ceiling on wmem_queued_bytes above (struct sock.sk_sndbuf, SO_SNDBUF - auto-tuned by
-	// the kernel unless the application overrode it). A gauge, same treatment as the three fields above.
-	SndbufBytes uint32 `protobuf:"varint,32,opt,name=sndbuf_bytes,json=sndbufBytes,proto3" json:"sndbuf_bytes,omitempty"`
+	// the kernel unless the application overrode it). Same optional-gauge treatment as the three fields
+	// above.
+	SndbufBytes *uint32 `protobuf:"varint,32,opt,name=sndbuf_bytes,json=sndbufBytes,proto3,oneof" json:"sndbuf_bytes,omitempty"`
 	// See TlsHandshakeOutcome's own doc comment for exactly what this can, and cannot, tell. A gauge set
 	// at most once per connection (TLS_HANDSHAKE_OUTCOME_UNKNOWN until then), like handshake_us above, not
 	// summed. Only ever non-zero when the name-capture opt-in is on, for the role=client direction - the
@@ -4200,29 +4206,29 @@ func (x *RawFlow) GetMssBytes() uint32 {
 }
 
 func (x *RawFlow) GetRcvWndBytes() uint32 {
-	if x != nil {
-		return x.RcvWndBytes
+	if x != nil && x.RcvWndBytes != nil {
+		return *x.RcvWndBytes
 	}
 	return 0
 }
 
 func (x *RawFlow) GetSndWndBytes() uint32 {
-	if x != nil {
-		return x.SndWndBytes
+	if x != nil && x.SndWndBytes != nil {
+		return *x.SndWndBytes
 	}
 	return 0
 }
 
 func (x *RawFlow) GetWmemQueuedBytes() uint32 {
-	if x != nil {
-		return x.WmemQueuedBytes
+	if x != nil && x.WmemQueuedBytes != nil {
+		return *x.WmemQueuedBytes
 	}
 	return 0
 }
 
 func (x *RawFlow) GetSndbufBytes() uint32 {
-	if x != nil {
-		return x.SndbufBytes
+	if x != nil && x.SndbufBytes != nil {
+		return *x.SndbufBytes
 	}
 	return 0
 }
@@ -4668,11 +4674,13 @@ type Flow struct {
 	// sample, not summed.
 	MssBytes uint32 `protobuf:"varint,28,opt,name=mss_bytes,json=mssBytes,proto3" json:"mss_bytes,omitempty"`
 	// See RawFlow.rcv_wnd_bytes/snd_wnd_bytes/wmem_queued_bytes/sndbuf_bytes - carried through attribution
-	// unchanged, like rtt_us/cwnd/mss_bytes above: gauges, the latest sample, never summed.
-	RcvWndBytes     uint32 `protobuf:"varint,29,opt,name=rcv_wnd_bytes,json=rcvWndBytes,proto3" json:"rcv_wnd_bytes,omitempty"`
-	SndWndBytes     uint32 `protobuf:"varint,30,opt,name=snd_wnd_bytes,json=sndWndBytes,proto3" json:"snd_wnd_bytes,omitempty"`
-	WmemQueuedBytes uint32 `protobuf:"varint,31,opt,name=wmem_queued_bytes,json=wmemQueuedBytes,proto3" json:"wmem_queued_bytes,omitempty"`
-	SndbufBytes     uint32 `protobuf:"varint,32,opt,name=sndbuf_bytes,json=sndbufBytes,proto3" json:"sndbuf_bytes,omitempty"`
+	// unchanged, like rtt_us/cwnd/mss_bytes above: gauges, the latest sample, never summed. optional for
+	// the same reason as on RawFlow itself: 0 is a real sample for all four of these (unlike mss_bytes
+	// above), so presence has to be tellable from the value rather than implied by it.
+	RcvWndBytes     *uint32 `protobuf:"varint,29,opt,name=rcv_wnd_bytes,json=rcvWndBytes,proto3,oneof" json:"rcv_wnd_bytes,omitempty"`
+	SndWndBytes     *uint32 `protobuf:"varint,30,opt,name=snd_wnd_bytes,json=sndWndBytes,proto3,oneof" json:"snd_wnd_bytes,omitempty"`
+	WmemQueuedBytes *uint32 `protobuf:"varint,31,opt,name=wmem_queued_bytes,json=wmemQueuedBytes,proto3,oneof" json:"wmem_queued_bytes,omitempty"`
+	SndbufBytes     *uint32 `protobuf:"varint,32,opt,name=sndbuf_bytes,json=sndbufBytes,proto3,oneof" json:"sndbuf_bytes,omitempty"`
 	// See RawFlow.tls_handshake/TlsHandshakeOutcome - carried through attribution unchanged, like
 	// rtt_us/cwnd/mss_bytes above: a gauge, the latest sample, never summed.
 	TlsHandshake TlsHandshakeOutcome `protobuf:"varint,33,opt,name=tls_handshake,json=tlsHandshake,proto3,enum=continuum.v1.TlsHandshakeOutcome" json:"tls_handshake,omitempty"`
@@ -4912,29 +4920,29 @@ func (x *Flow) GetMssBytes() uint32 {
 }
 
 func (x *Flow) GetRcvWndBytes() uint32 {
-	if x != nil {
-		return x.RcvWndBytes
+	if x != nil && x.RcvWndBytes != nil {
+		return *x.RcvWndBytes
 	}
 	return 0
 }
 
 func (x *Flow) GetSndWndBytes() uint32 {
-	if x != nil {
-		return x.SndWndBytes
+	if x != nil && x.SndWndBytes != nil {
+		return *x.SndWndBytes
 	}
 	return 0
 }
 
 func (x *Flow) GetWmemQueuedBytes() uint32 {
-	if x != nil {
-		return x.WmemQueuedBytes
+	if x != nil && x.WmemQueuedBytes != nil {
+		return *x.WmemQueuedBytes
 	}
 	return 0
 }
 
 func (x *Flow) GetSndbufBytes() uint32 {
-	if x != nil {
-		return x.SndbufBytes
+	if x != nil && x.SndbufBytes != nil {
+		return *x.SndbufBytes
 	}
 	return 0
 }
@@ -6358,7 +6366,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2\x18.continuum.v1.PathResultR\aresults\x12\x18\n" +
 	"\arefused\x18\x02 \x01(\rR\arefused\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xf3\b\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xd2\t\n" +
 	"\aRawFlow\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\bR\x06client\x12\x19\n" +
 	"\blocal_ip\x18\x02 \x01(\tR\alocalIp\x12\x17\n" +
@@ -6390,13 +6398,17 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"dns_rtt_us\x18\x19 \x01(\rR\bdnsRttUs\x12(\n" +
 	"\x10mesh_bypass_syns\x18\x1a \x01(\rR\x0emeshBypassSyns\x12\x1b\n" +
-	"\tmss_bytes\x18\x1c \x01(\rR\bmssBytes\x12\"\n" +
-	"\rrcv_wnd_bytes\x18\x1d \x01(\rR\vrcvWndBytes\x12\"\n" +
-	"\rsnd_wnd_bytes\x18\x1e \x01(\rR\vsndWndBytes\x12*\n" +
-	"\x11wmem_queued_bytes\x18\x1f \x01(\rR\x0fwmemQueuedBytes\x12!\n" +
-	"\fsndbuf_bytes\x18  \x01(\rR\vsndbufBytes\x12F\n" +
+	"\tmss_bytes\x18\x1c \x01(\rR\bmssBytes\x12'\n" +
+	"\rrcv_wnd_bytes\x18\x1d \x01(\rH\x00R\vrcvWndBytes\x88\x01\x01\x12'\n" +
+	"\rsnd_wnd_bytes\x18\x1e \x01(\rH\x01R\vsndWndBytes\x88\x01\x01\x12/\n" +
+	"\x11wmem_queued_bytes\x18\x1f \x01(\rH\x02R\x0fwmemQueuedBytes\x88\x01\x01\x12&\n" +
+	"\fsndbuf_bytes\x18  \x01(\rH\x03R\vsndbufBytes\x88\x01\x01\x12F\n" +
 	"\rtls_handshake\x18! \x01(\x0e2!.continuum.v1.TlsHandshakeOutcomeR\ftlsHandshake\x12\x1b\n" +
-	"\tcgroup_id\x18\" \x01(\x04R\bcgroupId\"\x8c\x01\n" +
+	"\tcgroup_id\x18\" \x01(\x04R\bcgroupIdB\x10\n" +
+	"\x0e_rcv_wnd_bytesB\x10\n" +
+	"\x0e_snd_wnd_bytesB\x14\n" +
+	"\x12_wmem_queued_bytesB\x0f\n" +
+	"\r_sndbuf_bytes\"\x8c\x01\n" +
 	"\x0eLinkSaturation\x12\x14\n" +
 	"\x05iface\x18\x01 \x01(\tR\x05iface\x12%\n" +
 	"\x0ethroughput_bps\x18\x02 \x01(\x04R\rthroughputBps\x12*\n" +
@@ -6426,7 +6438,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"UNRESOLVED\x10\x00\x12\f\n" +
 	"\bWORKLOAD\x10\x01\x12\b\n" +
 	"\x04NODE\x10\x02\x12\f\n" +
-	"\bEXTERNAL\x10\x03\"\xe3\b\n" +
+	"\bEXTERNAL\x10\x03\"\xc2\t\n" +
 	"\x04Flow\x12,\n" +
 	"\x03src\x18\x01 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03src\x12,\n" +
 	"\x03dst\x18\x02 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03dst\x12\x12\n" +
@@ -6459,13 +6471,17 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\adst_pod\x18\x19 \x01(\tR\x06dstPod\x12(\n" +
 	"\x10mesh_bypass_syns\x18\x1a \x01(\rR\x0emeshBypassSyns\x12'\n" +
 	"\x0frto_retransmits\x18\x1b \x01(\rR\x0ertoRetransmits\x12\x1b\n" +
-	"\tmss_bytes\x18\x1c \x01(\rR\bmssBytes\x12\"\n" +
-	"\rrcv_wnd_bytes\x18\x1d \x01(\rR\vrcvWndBytes\x12\"\n" +
-	"\rsnd_wnd_bytes\x18\x1e \x01(\rR\vsndWndBytes\x12*\n" +
-	"\x11wmem_queued_bytes\x18\x1f \x01(\rR\x0fwmemQueuedBytes\x12!\n" +
-	"\fsndbuf_bytes\x18  \x01(\rR\vsndbufBytes\x12F\n" +
+	"\tmss_bytes\x18\x1c \x01(\rR\bmssBytes\x12'\n" +
+	"\rrcv_wnd_bytes\x18\x1d \x01(\rH\x00R\vrcvWndBytes\x88\x01\x01\x12'\n" +
+	"\rsnd_wnd_bytes\x18\x1e \x01(\rH\x01R\vsndWndBytes\x88\x01\x01\x12/\n" +
+	"\x11wmem_queued_bytes\x18\x1f \x01(\rH\x02R\x0fwmemQueuedBytes\x88\x01\x01\x12&\n" +
+	"\fsndbuf_bytes\x18  \x01(\rH\x03R\vsndbufBytes\x88\x01\x01\x12F\n" +
 	"\rtls_handshake\x18! \x01(\x0e2!.continuum.v1.TlsHandshakeOutcomeR\ftlsHandshake\x12\x1b\n" +
-	"\tcgroup_id\x18\" \x01(\x04R\bcgroupId\"\x96\x02\n" +
+	"\tcgroup_id\x18\" \x01(\x04R\bcgroupIdB\x10\n" +
+	"\x0e_rcv_wnd_bytesB\x10\n" +
+	"\x0e_snd_wnd_bytesB\x14\n" +
+	"\x12_wmem_queued_bytesB\x0f\n" +
+	"\r_sndbuf_bytes\"\x96\x02\n" +
 	"\rCollectorInfo\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12\x1f\n" +
@@ -6777,7 +6793,9 @@ func file_continuum_v1_agent_proto_init() {
 		(*ServerMessage_Config)(nil),
 		(*ServerMessage_Revoked)(nil),
 	}
+	file_continuum_v1_agent_proto_msgTypes[36].OneofWrappers = []any{}
 	file_continuum_v1_agent_proto_msgTypes[37].OneofWrappers = []any{}
+	file_continuum_v1_agent_proto_msgTypes[41].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

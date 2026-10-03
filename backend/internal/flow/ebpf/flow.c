@@ -184,6 +184,16 @@ struct flow_key {
 	__u8 pad;
 };
 
+// Bits of flow_val.wnd_sampled (see its own doc comment) - which of rcv_wnd/snd_wnd/wmem_queued/sndbuf
+// has actually been sampled at least once on that exact flow_val copy, independent of what value each
+// one currently holds. Passed into add_flow as a caller-computed mask (wnd_sampled_mask), since only the
+// caller - not add_flow itself - knows whether a given call's rcv_wnd/snd_wnd/wmem_queued/sndbuf argument
+// is a real sample or just a placeholder 0 for "not read this time".
+#define FLOW_WND_RCV_WND    (1 << 0)
+#define FLOW_WND_SND_WND     (1 << 1)
+#define FLOW_WND_WMEM_QUEUED (1 << 2)
+#define FLOW_WND_SNDBUF      (1 << 3)
+
 struct flow_val {
 	__u64 connections;
 	__u64 bytes_out; // sent by the caller
@@ -238,21 +248,37 @@ struct flow_val {
 	// the Go side): a low reading there is the concrete, otherwise-invisible cost of that encapsulation.
 	__u32 mss_bytes;
 	// rcv_wnd/snd_wnd: tcp_sock.rcv_wnd (our receive window, advertised to the peer) and tcp_sock.snd_wnd
-	// (the peer's receive window, advertised to us) - gauges, same latest-wins/0-means-no-sample
-	// treatment as cwnd/mss_bytes above, sampled at the same moments. 0 on rcv_wnd means this side told
-	// the peer to stop sending (we are not draining fast enough); 0 on snd_wnd means the peer told us to
-	// stop (it is the one not draining). Read together with wmem_queued/sndbuf below to tell "the network
-	// is fine but one end's socket buffers are not" apart from retransmit growth, which is a path, not a
-	// buffer, problem.
+	// (the peer's receive window, advertised to us) - gauges, latest-sample treatment like cwnd/mss_bytes
+	// above, sampled at the same moments, but with one crucial difference from them: 0 is a real,
+	// meaningful reading here rather than a stand-in for "unset" (cwnd/mss_bytes never genuinely read 0
+	// once a socket is up, so testing the value itself is a safe way to ask "has this ever been sampled"
+	// for them - it is not safe here). 0 on rcv_wnd means this side told the peer to stop sending (we are
+	// not draining fast enough); 0 on snd_wnd means the peer told us to stop (it is the one not
+	// draining). See wnd_sampled below for how "ever sampled" is actually tracked for this field and the
+	// three below it. Read together with wmem_queued/sndbuf below to tell "the network is fine but one
+	// end's socket buffers are not" apart from retransmit growth, which is a path, not a buffer, problem.
 	__u32 rcv_wnd;
 	__u32 snd_wnd;
 	// wmem_queued/sndbuf: sock.sk_wmem_queued (bytes queued in this socket's own write queue right now)
-	// and sock.sk_sndbuf (the current ceiling on it) - gauges, same treatment as rcv_wnd/snd_wnd above.
+	// and sock.sk_sndbuf (the current ceiling on it) - gauges, same treatment as rcv_wnd/snd_wnd above,
+	// including the same "0 is a real, common reading" story (an idle write queue, not an unset field).
 	// wmem_queued at or near sndbuf means this socket's local send buffer is saturated: either the
 	// application is not writing fast enough to notice, or it is itself being backpressured by a
 	// congested path it cannot drain into - local, node-side pressure, not the peer's.
 	__u32 wmem_queued;
 	__u32 sndbuf;
+	// wnd_sampled: a bitmask (see FLOW_WND_* below) of which of the four fields right above has actually
+	// been written by a real sample at least once on THIS flow_val - i.e. on this one CPU's copy of this
+	// per-CPU-hash entry (see the `flows` map below): add_flow only ever touches the copy local to
+	// whichever CPU happens to run it, so a flow a single CPU has always handled leaves every other CPU's
+	// copy at its BPF_NOEXIST zero-initialized default forever. Collect() (observer_bpf.go, Go side) folds
+	// every CPU's copy of a key together and needs this bit, not rcv_wnd/snd_wnd/wmem_queued/sndbuf's own
+	// value, to tell "this CPU's copy was never touched for this field" (bit clear, field still its
+	// pristine zero-initialized default - not a measurement) from "this CPU's copy really measured 0"
+	// (bit set) - the same distinction add_flow itself makes below when deciding whether to overwrite a
+	// field, for the same reason: unlike rtt_us/cwnd/mss_bytes above, 0 is not a safe stand-in for
+	// "unset" on any of these four.
+	__u8 wnd_sampled;
 	// buffer_drops: sock.sk_drops' growth since this socket was last accounted - summed like retransmits,
 	// not a gauge. A different failure mode from retransmits: this socket's own receive buffer overflowed
 	// because nothing drained it fast enough, not the network dropping a packet in transit.
@@ -413,7 +439,7 @@ static __always_inline void put_iface(struct flow_val *v, struct sock *sk) {
 	bpf_probe_read_kernel_str(v->ifname, sizeof(v->ifname), dev->name);
 }
 
-static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rto_retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us, __u32 cwnd, __u64 pacing_bps, __u32 buffer_drops, __u32 mss_bytes, __u32 rcv_wnd, __u32 snd_wnd, __u32 wmem_queued, __u32 sndbuf, __u64 cgroup_id) {
+static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rto_retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us, __u32 cwnd, __u64 pacing_bps, __u32 buffer_drops, __u32 mss_bytes, __u32 rcv_wnd, __u32 snd_wnd, __u32 wmem_queued, __u32 sndbuf, __u8 wnd_sampled_mask, __u64 cgroup_id) {
 	struct flow_val zero = {};
 	struct flow_val *v = bpf_map_lookup_elem(&flows, key);
 	if (!v) {
@@ -448,14 +474,27 @@ static __always_inline void add_flow(const struct flow_key *key, struct sock *sk
 		v->pacing_bps = pacing_bps;
 	if (mss_bytes)
 		v->mss_bytes = mss_bytes;
-	if (rcv_wnd)
+	// See flow_val.wnd_sampled's own doc comment for why this tests wnd_sampled_mask, supplied by the
+	// caller, rather than rcv_wnd/snd_wnd/wmem_queued/sndbuf's own value the way cwnd/mss_bytes above do:
+	// 0 is a real, meaningful sample for all four of these, so testing the value itself cannot tell "no
+	// sample this call" from "sampled, and it really is 0" - only the caller, which knows whether it read
+	// a real value or passed a placeholder, can make that call.
+	if (wnd_sampled_mask & FLOW_WND_RCV_WND) {
 		v->rcv_wnd = rcv_wnd;
-	if (snd_wnd)
+		v->wnd_sampled |= FLOW_WND_RCV_WND;
+	}
+	if (wnd_sampled_mask & FLOW_WND_SND_WND) {
 		v->snd_wnd = snd_wnd;
-	if (wmem_queued)
+		v->wnd_sampled |= FLOW_WND_SND_WND;
+	}
+	if (wnd_sampled_mask & FLOW_WND_WMEM_QUEUED) {
 		v->wmem_queued = wmem_queued;
-	if (sndbuf)
+		v->wnd_sampled |= FLOW_WND_WMEM_QUEUED;
+	}
+	if (wnd_sampled_mask & FLOW_WND_SNDBUF) {
 		v->sndbuf = sndbuf;
+		v->wnd_sampled |= FLOW_WND_SNDBUF;
+	}
 	// See flow_val.cgroup_id's own doc comment: a gauge set at most once per connection, 0 (never
 	// explicitly written) on every ROLE_SERVER row and on a ROLE_CLIENT row with no cgroup id captured.
 	if (cgroup_id)
@@ -594,7 +633,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// Counted now, so a connection that lives for days is a dependency from its first second. No RTT/
 		// jitter sample exists yet this early (0, unknown, rather than a guess); handshake_us, by contrast,
 		// is known exactly right now - this is the only moment it ever will be.
-		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, 0, handshake_us, 0, 0, 0, 0, 0, 0, 0, 0, cgroup_id);
+		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, 0, handshake_us, 0, 0, 0, 0, 0, 0, 0, 0, 0, cgroup_id);
 		return 0;
 	}
 
@@ -641,9 +680,16 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		bpf_probe_read_kernel(&pacing_rate, sizeof(pacing_rate), &sk->sk_pacing_rate);
 		// wmem_queued/sndbuf live on sock, not tcp_sock, like sk_drops/sk_pacing_rate right above - same
 		// defensive bpf_probe_read_kernel treatment, same reason (sk here is a raw cast, not a
-		// helper-returned trusted pointer like tp).
-		bpf_probe_read_kernel(&wmem_queued, sizeof(wmem_queued), &sk->sk_wmem_queued);
-		bpf_probe_read_kernel(&sndbuf, sizeof(sndbuf), &sk->sk_sndbuf);
+		// helper-returned trusted pointer like tp). Each read's own return value (0 on success) decides
+		// whether add_flow below is told this specific call actually sampled it - see flow_val.wnd_sampled's
+		// own doc comment for why that, not wmem_queued/sndbuf's value, is what must gate the overwrite.
+		__u8 wnd_mask = FLOW_WND_RCV_WND | FLOW_WND_SND_WND; // tp->rcv_wnd/tp->snd_wnd below are trusted
+		// CO-RE field reads through a helper-verified pointer, never a failed read, so these two bits are
+		// unconditional.
+		if (bpf_probe_read_kernel(&wmem_queued, sizeof(wmem_queued), &sk->sk_wmem_queued) == 0)
+			wnd_mask |= FLOW_WND_WMEM_QUEUED;
+		if (bpf_probe_read_kernel(&sndbuf, sizeof(sndbuf), &sk->sk_sndbuf) == 0)
+			wnd_mask |= FLOW_WND_SNDBUF;
 		__u32 ddrops = (__u32)drops > si->last_drops ? (__u32)drops - si->last_drops : 0;
 		// icsk_retransmits: see struct inet_connection_sock's and flow_val.rto_retransmits' own doc
 		// comments - the same raw-cast-and-bpf_probe_read_kernel treatment as sk_drops/sk_pacing_rate
@@ -665,7 +711,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// with no sample of either at all (0).
 		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, tp->srtt_us >> 3, tp->mdev_us >> 2, dsegs, 0,
 		         tp->snd_cwnd, (__u64)pacing_rate, ddrops, tp->mss_cache, tp->rcv_wnd, tp->snd_wnd,
-		         (__u32)wmem_queued, (__u32)sndbuf, si->cgroup_id);
+		         (__u32)wmem_queued, (__u32)sndbuf, wnd_mask, si->cgroup_id);
 	}
 	bpf_map_delete_elem(&socks, &id);
 	return 0;
@@ -712,14 +758,23 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 	bpf_probe_read_kernel(&segs_out, sizeof(segs_out), &tp->segs_out);
 	bpf_probe_read_kernel(&cwnd, sizeof(cwnd), &tp->snd_cwnd);
 	bpf_probe_read_kernel(&mss_bytes, sizeof(mss_bytes), &tp->mss_cache);
-	bpf_probe_read_kernel(&rcv_wnd, sizeof(rcv_wnd), &tp->rcv_wnd);
-	bpf_probe_read_kernel(&snd_wnd, sizeof(snd_wnd), &tp->snd_wnd);
+	// Each read's own return value (0 on success) decides whether add_flow below is told this specific
+	// call actually sampled that field - see flow_val.wnd_sampled's own doc comment for why that, not the
+	// read value, is what must gate whether it is allowed to overwrite a real zero (0 is a real, common
+	// reading for all four of these, so a failed read must not be allowed to masquerade as one).
+	__u8 wnd_mask = 0;
+	if (bpf_probe_read_kernel(&rcv_wnd, sizeof(rcv_wnd), &tp->rcv_wnd) == 0)
+		wnd_mask |= FLOW_WND_RCV_WND;
+	if (bpf_probe_read_kernel(&snd_wnd, sizeof(snd_wnd), &tp->snd_wnd) == 0)
+		wnd_mask |= FLOW_WND_SND_WND;
 	bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops.counter);
 	bpf_probe_read_kernel(&pacing_rate, sizeof(pacing_rate), &sk->sk_pacing_rate);
 	// wmem_queued/sndbuf: see on_state's own TCP_CLOSE branch for why these two are read via sk (a raw
 	// cast here, like tp itself a few lines up) rather than through a trusted CO-RE helper pointer.
-	bpf_probe_read_kernel(&wmem_queued, sizeof(wmem_queued), &sk->sk_wmem_queued);
-	bpf_probe_read_kernel(&sndbuf, sizeof(sndbuf), &sk->sk_sndbuf);
+	if (bpf_probe_read_kernel(&wmem_queued, sizeof(wmem_queued), &sk->sk_wmem_queued) == 0)
+		wnd_mask |= FLOW_WND_WMEM_QUEUED;
+	if (bpf_probe_read_kernel(&sndbuf, sizeof(sndbuf), &sk->sk_sndbuf) == 0)
+		wnd_mask |= FLOW_WND_SNDBUF;
 	// icsk_retransmits: see struct inet_connection_sock's and flow_val.rto_retransmits' own doc comments.
 	// sk here is still the raw struct sock* this whole function started from (the (struct tcp_sock *)
 	// cast a few lines up is this same function's own pre-existing, separate reinterpretation of it for
@@ -743,7 +798,7 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 		si->last_segs_out = segs_out > si->last_segs_out ? segs_out : si->last_segs_out;
 		si->last_drops = (__u32)drops > si->last_drops ? (__u32)drops : si->last_drops;
 		si->last_rto_retransmits = rto_raw;
-		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0, cwnd, (__u64)pacing_rate, ddrops, mss_bytes, rcv_wnd, snd_wnd, (__u32)wmem_queued, (__u32)sndbuf, si->cgroup_id);
+		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0, cwnd, (__u64)pacing_rate, ddrops, mss_bytes, rcv_wnd, snd_wnd, (__u32)wmem_queued, (__u32)sndbuf, wnd_mask, si->cgroup_id);
 	}
 	return 0;
 }

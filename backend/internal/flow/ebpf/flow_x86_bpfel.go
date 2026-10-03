@@ -50,10 +50,12 @@ type flowFlowVal struct {
 	SndWnd            uint32
 	WmemQueued        uint32
 	Sndbuf            uint32
+	WndSampled        uint8
+	_                 [3]byte
 	BufferDrops       uint32
 	MeshBypassSyns    uint32
 	TlsHandshake      uint8
-	_                 [3]byte
+	_                 [7]byte
 	CgroupId          uint64
 	HandshakeUs       uint32
 	_                 [4]byte

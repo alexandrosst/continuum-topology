@@ -119,17 +119,23 @@ func mergeFlowCounters(cur, add *continuumv1.Flow) {
 	if add.MssBytes != 0 {
 		cur.MssBytes = add.MssBytes // a gauge, same treatment as Cwnd/PacingBps above
 	}
-	if add.RcvWndBytes != 0 {
-		cur.RcvWndBytes = add.RcvWndBytes // a gauge, same treatment as MssBytes/Cwnd above
+	// RcvWndBytes/SndWndBytes/WmemQueuedBytes/SndbufBytes are gauges too, but unlike MssBytes/Cwnd above,
+	// 0 is a real, meaningful sample for all four (a zero window, or a drained queue) - these are
+	// `optional uint32` on the wire (RawFlow/Flow) for exactly that reason, so presence is tested on the
+	// pointer, not the value: nil means this report carried no sample of that field at all (never
+	// clobber cur with a fabricated 0), non-nil (0 included) means a real sample that must replace
+	// whatever cur was holding.
+	if add.RcvWndBytes != nil {
+		cur.RcvWndBytes = add.RcvWndBytes
 	}
-	if add.SndWndBytes != 0 {
-		cur.SndWndBytes = add.SndWndBytes // a gauge, same treatment as RcvWndBytes right above
+	if add.SndWndBytes != nil {
+		cur.SndWndBytes = add.SndWndBytes
 	}
-	if add.WmemQueuedBytes != 0 {
-		cur.WmemQueuedBytes = add.WmemQueuedBytes // a gauge, same treatment as RcvWndBytes/SndWndBytes
+	if add.WmemQueuedBytes != nil {
+		cur.WmemQueuedBytes = add.WmemQueuedBytes
 	}
-	if add.SndbufBytes != 0 {
-		cur.SndbufBytes = add.SndbufBytes // a gauge, same treatment as the three above
+	if add.SndbufBytes != nil {
+		cur.SndbufBytes = add.SndbufBytes
 	}
 	if add.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN {
 		cur.TlsHandshake = add.TlsHandshake // a gauge, same treatment as SniHost below: the latest sample

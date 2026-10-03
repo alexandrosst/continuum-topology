@@ -21,6 +21,30 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 )
 
+// Mirrors flow.c's FLOW_WND_* bit defines on flow_val.wnd_sampled - which of RcvWnd/SndWnd/WmemQueued/
+// Sndbuf below has actually been sampled at least once on one CPU's copy of a flow_val, independent of
+// that field's own value (0 is a real, meaningful reading for all four, not a stand-in for "unset" the
+// way it safely is for RttUs/Cwnd/MssBytes). Collect's per-CPU fold below reads this bitmask, rather than
+// testing RcvWnd/SndWnd/WmemQueued/Sndbuf themselves, to tell "this CPU's copy was never touched for this
+// field" from "this CPU's copy really measured 0".
+const (
+	flowWndRcvWnd     = 1 << 0
+	flowWndSndWnd     = 1 << 1
+	flowWndWmemQueued = 1 << 2
+	flowWndSndbuf     = 1 << 3
+)
+
+// optionalWndBytes turns a per-flow-report gauge sample into the *uint32 RawFlow.rcv_wnd_bytes (and
+// snd_wnd_bytes/wmem_queued_bytes/sndbuf_bytes) expects: nil when sampled is false - this window carried
+// no real sample of this field at all, which must never be confused with a measured 0 - and a pointer to
+// value (0 included) when it is true.
+func optionalWndBytes(sampled bool, value uint32) *uint32 {
+	if !sampled {
+		return nil
+	}
+	return &value
+}
+
 // Options tunes what Open loads.
 type Options struct {
 	// Live also loads the socket-snapshot program, so the bytes of connections that are still open are
@@ -779,19 +803,28 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 				sum.MssBytes = v.MssBytes
 			}
 			// RcvWnd/SndWnd/WmemQueued/Sndbuf are gauges too, sampled at the exact same moments as
-			// RttUs/Cwnd/MssBytes above - same "0 means no sample" single-writer treatment. See
-			// flow.c's own flow_val.rcv_wnd/wmem_queued doc comments for what each actually means.
-			if v.RcvWnd != 0 {
+			// RttUs/Cwnd/MssBytes above, but unlike them 0 is a real, meaningful reading for all four of
+			// these (see flow.c's own flow_val.rcv_wnd/wmem_queued doc comments), so "value != 0" cannot
+			// be used to mean "was this sampled" the way it safely can for RttUs/Cwnd/MssBytes above -
+			// that would silently throw away the one reading (a real stall/drained queue) this whole
+			// feature exists to surface. v.WndSampled (flow_val.wnd_sampled) carries that presence signal
+			// instead, independent of the value itself; sum.WndSampled accumulates which fields any CPU's
+			// copy has ever actually sampled, across the whole fold.
+			if v.WndSampled&flowWndRcvWnd != 0 {
 				sum.RcvWnd = v.RcvWnd
+				sum.WndSampled |= flowWndRcvWnd
 			}
-			if v.SndWnd != 0 {
+			if v.WndSampled&flowWndSndWnd != 0 {
 				sum.SndWnd = v.SndWnd
+				sum.WndSampled |= flowWndSndWnd
 			}
-			if v.WmemQueued != 0 {
+			if v.WndSampled&flowWndWmemQueued != 0 {
 				sum.WmemQueued = v.WmemQueued
+				sum.WndSampled |= flowWndWmemQueued
 			}
-			if v.Sndbuf != 0 {
+			if v.WndSampled&flowWndSndbuf != 0 {
 				sum.Sndbuf = v.Sndbuf
+				sum.WndSampled |= flowWndSndbuf
 			}
 			// tls_handshake is a gauge too, set at most once per connection (see flow.c's own doc comment on
 			// flow_val.tls_handshake) - same "0 means no sample" single-writer treatment, just over the C
@@ -844,10 +877,10 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			BufferDrops:       sum.BufferDrops,
 			MeshBypassSyns:    sum.MeshBypassSyns,
 			MssBytes:          sum.MssBytes,
-			RcvWndBytes:       sum.RcvWnd,
-			SndWndBytes:       sum.SndWnd,
-			WmemQueuedBytes:   sum.WmemQueued,
-			SndbufBytes:       sum.Sndbuf,
+			RcvWndBytes:       optionalWndBytes(sum.WndSampled&flowWndRcvWnd != 0, sum.RcvWnd),
+			SndWndBytes:       optionalWndBytes(sum.WndSampled&flowWndSndWnd != 0, sum.SndWnd),
+			WmemQueuedBytes:   optionalWndBytes(sum.WndSampled&flowWndWmemQueued != 0, sum.WmemQueued),
+			SndbufBytes:       optionalWndBytes(sum.WndSampled&flowWndSndbuf != 0, sum.Sndbuf),
 			TlsHandshake:      tlsHandshakeOutcome(sum.TlsHandshake),
 			CgroupId:          sum.CgroupId,
 			FailedAttempts:    sum.FailedAttempts,
