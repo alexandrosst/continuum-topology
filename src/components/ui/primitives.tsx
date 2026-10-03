@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Check, ChevronDown, Copy, Eye, EyeOff, Minus, Plus, X } from 'lucide-react'
+import { Check, ChevronDown, Cloud, Copy, Cpu, Eye, EyeOff, Minus, Plus, Server, X, type LucideIcon } from 'lucide-react'
 import {
   Children, isValidElement, useEffect, useId, useRef, useState,
   type ButtonHTMLAttributes, type ChangeEvent, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type SelectHTMLAttributes,
@@ -616,17 +616,26 @@ export function StatusDot({ status, withLabel, notCurrent }: { status: Status; w
   )
 }
 
+/** One icon per tier, standing in for the hardware class that tier actually implies - not just a color swatch
+ *  with a name next to it. Smallest/most-constrained first: `far-edge` is IoT-class hardware at the literal edge
+ *  of the network (a chip, drawn as one), `edge` is a rack of on-prem/near-edge servers, and `cloud` is the
+ *  hyperscale/datacenter tier the name already says. Same family NodesPage/nodes.tsx already use for a node's
+ *  own machine kind (Cpu for 'edge-device', Server for 'vm') - this is the cluster-level equivalent. */
+export const TIER_ICON: Record<Tier, LucideIcon> = { cloud: Cloud, edge: Server, 'far-edge': Cpu }
+
 export function TierBadge({ tier }: { tier: Tier }) {
   const label = tier === 'far-edge' ? 'Far edge' : tier[0].toUpperCase() + tier.slice(1)
+  const Icon = TIER_ICON[tier]
   return (
     <span
-      className="inline-flex min-w-[4.75rem] items-center justify-center whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-medium leading-5"
+      className="inline-flex min-w-[4.75rem] items-center justify-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-medium leading-5"
       style={{
         color: TIER_COLOR[tier],
         borderColor: `color-mix(in srgb, ${TIER_COLOR[tier]} 35%, transparent)`,
         background: `color-mix(in srgb, ${TIER_COLOR[tier]} 10%, transparent)`,
       }}
     >
+      <Icon size={ICON_SM} aria-hidden="true" />
       {label}
     </span>
   )

@@ -25,7 +25,7 @@ import {
   Truck,
   type LucideIcon,
 } from 'lucide-react'
-import { ICON_MD, ICON_SM } from '@/components/ui/primitives'
+import { ICON_MD, ICON_SM, TIER_ICON } from '@/components/ui/primitives'
 import { memo, useState, type ComponentProps, type ReactNode } from 'react'
 import { LoadRow, peakLoad } from '@/components/topology/Load'
 import { DistroIcon, Flag } from '@/components/ui/brand'
@@ -151,6 +151,9 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
           : data.tier === 'far-edge'
             ? 'Far edge'
             : data.tier[0].toUpperCase() + data.tier.slice(1)
+  // Devices/External/Regional operator are synthetic grouping rows (always laid out as tier: 'cloud', see
+  // graph.ts), not a real tier - no tier icon for those, same as their label above already isn't a tier name.
+  const TierGlyph = data.extra ? undefined : TIER_ICON[data.tier]
   return (
     // The selection ring is `inset`, not the plain outward `0_0_0_Npx` box-shadow it used to be: OffsetEdge
     // places an incoming edge's arrowhead tip with zero gap exactly on this box's true boundary (see its
@@ -223,13 +226,14 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
               // (mesh, networking, the status dot) reads as "a label" because it has a tinted fill behind
               // it - this one was border-only, so at default zoom it nearly disappeared against the box's
               // own faint tier-tinted background. Same color-mix approach as the border, just lower opacity.
-              className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
               style={{
                 color,
                 borderColor: `color-mix(in srgb, ${color} 35%, transparent)`,
                 background: `color-mix(in srgb, ${color} 14%, transparent)`,
               }}
             >
+              {TierGlyph && <TierGlyph size={ICON_SM - 2} aria-hidden="true" />}
               {tierLabel}
             </span>
           </div>
