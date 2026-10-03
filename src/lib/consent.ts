@@ -255,7 +255,9 @@ export function measurementsRunning(d?: AgentDiagnostics): boolean | undefined {
  * so it can optionally opt into namespace scoping too (telemetry.accelerators.metrics.applyScope) without
  * pretending that changes its architectural layer.
  */
-export const TELEMETRY_SIGNALS: { id: string; label: string; layer: 'infrastructure' | 'application'; modality: 'metrics' | 'logs' | 'traces'; scope: 'cluster' | 'node' | 'application'; namespaceScopable?: boolean; what: string; permissions: string }[] = [
+export type Modality = 'metrics' | 'logs' | 'traces'
+
+export const TELEMETRY_SIGNALS: { id: string; label: string; layer: 'infrastructure' | 'application'; modality: Modality; scope: 'cluster' | 'node' | 'application'; namespaceScopable?: boolean; what: string; permissions: string }[] = [
   { id: 'resourceUsage', label: 'Resource usage', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Node and per-container CPU, memory, filesystem and network, from the kubelet and the host.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
   { id: 'energy', label: 'Energy', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Power draw per node/pod, from Kepler (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - Kepler reads host energy counters directly, never the Kubernetes API.' },
   { id: 'kubernetesState', label: 'Kubernetes state', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', what: 'Pod, deployment and replica status and counts, cluster-wide.', permissions: 'Read-only, cluster-wide access to pods, deployments, replica sets, stateful/daemon sets, jobs, cronjobs and autoscalers.' },
@@ -268,6 +270,18 @@ export const TELEMETRY_SIGNALS: { id: string; label: string; layer: 'infrastruct
   { id: 'traces', label: 'Traces', layer: 'application', modality: 'traces', scope: 'application', what: 'Distributed traces your applications push directly (OTLP).', permissions: 'None beyond identity enrichment below.' },
   { id: 'accelerators', label: 'Accelerators (GPU)', layer: 'infrastructure', modality: 'metrics', scope: 'node', namespaceScopable: true, what: 'GPU utilization, memory, temperature and power per node/pod, from NVIDIA DCGM (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - dcgm-exporter reads GPU hardware and the kubelet\'s pod-resources socket directly, never the Kubernetes API.' },
 ]
+
+/** Which modalities are actually turned on in a telemetry draft, derived from TELEMETRY_SIGNALS instead of
+ *  listed by hand a second time. Used to steer a person away from picking a single destination (there is
+ *  only ever one `exportEndpoint` for every signal together) that cannot carry everything they just turned
+ *  on - see exportPresets.ts's own `modalities` field and TelemetryFields' use of both. */
+export function enabledModalities(t: TelemetryInput): Set<Modality> {
+  const on = new Set<Modality>()
+  for (const s of TELEMETRY_SIGNALS) {
+    if ((t as unknown as Record<string, boolean>)[s.id]) on.add(s.modality)
+  }
+  return on
+}
 
 /** The one RBAC grant every signal above shares once ANY of them is on: read-only pods/namespaces/nodes
  *  access so the collector can tag what it collects with the pod/namespace/node it came from. */

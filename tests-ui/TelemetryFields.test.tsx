@@ -30,6 +30,32 @@ describe('TelemetryFields', () => {
     expect(screen.getByTestId('telemetry-accelerators-endpoint')).toBeInTheDocument()
   })
 
+  test('the destination picker hides a backend that cannot carry an already-enabled modality', async () => {
+    const user = userEvent.setup()
+    // Metrics is on; Jaeger (traces only) should not be offered at all.
+    render(<Wrapper initial={{ ...emptyTelemetry, resourceUsage: true }} />)
+    await user.click(screen.getByRole('combobox', { name: /^Send telemetry to/ }))
+    expect(screen.queryByRole('option', { name: 'Jaeger (traces only)' })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Honeycomb' })).toBeInTheDocument()
+  })
+
+  test('a backend already compatible with everything that is on stays pickable, with no warning', async () => {
+    const user = userEvent.setup()
+    // Jaeger was already picked (traces only, nothing else on yet) - picking it is fine here.
+    render(<Wrapper initial={{ ...emptyTelemetry, traces: true }} />)
+    await user.click(screen.getByRole('combobox', { name: /^Send telemetry to/ }))
+    await user.click(screen.getByRole('option', { name: 'Jaeger (traces only)' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  test('turning on a second modality after Jaeger was already the destination warns instead of silently keeping it', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper initial={{ ...emptyTelemetry, traces: true, exportEndpoint: 'jaeger-collector.observability:4317', exportProtocol: 'grpc' }} />)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('telemetry-resourceUsage'))
+    expect(screen.getByRole('alert')).toHaveTextContent('Jaeger (traces only) only carries traces')
+  })
+
   test('picking an intent preset turns on exactly its signals, turning off any that were on before', async () => {
     const user = userEvent.setup()
     render(<Wrapper initial={{ ...emptyTelemetry, traces: true }} />)

@@ -1,3 +1,5 @@
+import type { Modality } from './consent'
+
 /**
  * Recommended OTLP-native export destinations, shown as a pick-from-list option in the telemetry
  * destination field (see ComboField in primitives.tsx and its use in TelemetryFields.tsx) instead of
@@ -10,6 +12,11 @@
  * since they're account-specific and this app has no way to know them. `httpOnly` marks a backend whose
  * OTLP ingestion does not support gRPC at all (only 'http' would work as `exportProtocol`); presets
  * without it work with either.
+ *
+ * `modalities`, when set, is every modality this destination can actually receive - there is only ever one
+ * `exportEndpoint` for every signal together (see TelemetryInput), so a preset that only speaks one
+ * modality (Jaeger: traces) has to say so, rather than silently dropping whatever else was turned on.
+ * Omitted means "a generic OTLP backend, anything goes" - true for every preset below except Jaeger.
  */
 export interface ExportPreset {
   id: string
@@ -18,6 +25,7 @@ export interface ExportPreset {
   headerName: string
   protocol: 'grpc' | 'http'
   httpOnly?: boolean
+  modalities?: Modality[]
   note?: string
   docsUrl: string
 }
@@ -70,6 +78,7 @@ export const EXPORT_PRESETS: ExportPreset[] = [
     endpointPattern: 'jaeger-collector.observability:4317',
     headerName: '',
     protocol: 'grpc',
+    modalities: ['traces'],
     note: 'Traces only - leave the other signals off, or point them somewhere else.',
     docsUrl: 'https://www.jaegertracing.io/docs/latest/apis/#opentelemetry-otlp',
   },
@@ -111,6 +120,17 @@ export const EXPORT_PRESETS: ExportPreset[] = [
     docsUrl: 'https://opentelemetry.io/docs/collector/',
   },
 ]
+
+/**
+ * Whether `preset` can carry every modality in `enabled` - true for any preset that doesn't restrict
+ * modalities at all (a generic OTLP backend), false the moment one enabled modality isn't in its list.
+ * Used to filter the destination picker so the compatible backend is the one that's easy to choose, per
+ * whatever signals are already turned on, rather than something to notice has gone wrong after the fact.
+ */
+export function presetSupportsModalities(preset: ExportPreset, enabled: Set<Modality>): boolean {
+  if (!preset.modalities) return true
+  return [...enabled].every((m) => preset.modalities!.includes(m))
+}
 
 /**
  * Backends whose OTLP ingestion does not fit this chart's generic exporter (each needs its own dedicated

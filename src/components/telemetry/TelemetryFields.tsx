@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useState } from 'react'
 import { ComboField, Field, InfoTip, Input, Select, TagsInput } from '@/components/ui/primitives'
-import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
+import { EXPORT_PRESETS, presetSupportsModalities, unsupportedDestinationNote } from '@/lib/exportPresets'
 import { applyIntentPreset, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, TELEMETRY_UNIVERSAL_PERMISSION } from '@/lib/consent'
 import { telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
 import GuidedWizard from './GuidedWizard'
@@ -162,6 +162,14 @@ export default function TelemetryFields({
   const destinationNote = unsupportedDestinationNote(value.exportEndpoint)
   const exportPreset = EXPORT_PRESETS.find((p) => p.endpointPattern === value.exportEndpoint)
   const grantedRules = TELEMETRY_SIGNALS.filter((s) => (value as unknown as Record<string, boolean>)[s.id])
+  // There is only ever one exportEndpoint for every signal together - a preset that only speaks a subset
+  // of modalities (Jaeger: traces) has to be flagged the moment something it can't carry is also on, not
+  // left to be noticed once telemetry that looked configured never shows up anywhere.
+  const enabledModalitySet = new Set(grantedRules.map((s) => s.modality))
+  const compatiblePresets = EXPORT_PRESETS.filter((p) => presetSupportsModalities(p, enabledModalitySet))
+  const modalityMismatch = exportPreset && !presetSupportsModalities(exportPreset, enabledModalitySet)
+    ? `${exportPreset.label} only carries ${exportPreset.modalities!.join('/')} - turn off the other signals above, or send everything somewhere else.`
+    : undefined
 
   // Which entry path is showing: local UI state, defaulting to the flat grid so a form nobody has opted
   // into guided mode for renders exactly as it always has (see the plan note on TelemetryFields.tsx) -
@@ -398,7 +406,7 @@ export default function TelemetryFields({
               })
             }}
             placeholder="otel-gateway.example.com:4317"
-            options={EXPORT_PRESETS.map((p) => ({ value: p.endpointPattern, label: p.label }))}
+            options={compatiblePresets.map((p) => ({ value: p.endpointPattern, label: p.label }))}
           />
         </Field>
         <Field label="Protocol">
@@ -414,7 +422,10 @@ export default function TelemetryFields({
         {destinationNote && (
           <p role="alert" className="text-xs text-warn sm:col-span-2">{destinationNote}</p>
         )}
-        {!destinationNote && exportPreset?.note && (
+        {!destinationNote && modalityMismatch && (
+          <p role="alert" className="text-xs text-warn sm:col-span-2">{modalityMismatch}</p>
+        )}
+        {!destinationNote && !modalityMismatch && exportPreset?.note && (
           <p className="text-xs text-nb-500 sm:col-span-2">{exportPreset.note}</p>
         )}
         <label className="flex cursor-pointer items-center gap-2 text-sm sm:col-span-2">
