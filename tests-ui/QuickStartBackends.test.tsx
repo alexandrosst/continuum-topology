@@ -77,7 +77,7 @@ describe('QuickStartBackends', () => {
     render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={onUseAsDestination} />)
     expect(screen.queryByTestId('quickstart-toggle-jaeger')).not.toBeInTheDocument()
     await user.click(screen.getByText('Use as destination'))
-    expect(onUseAsDestination).toHaveBeenCalledWith('jaeger-quickstart-collector.obs.svc:4317', 'grpc')
+    expect(onUseAsDestination).toHaveBeenCalledWith('jaeger-quickstart.obs.svc:4317', 'grpc')
   })
 
   test('"Use as destination" is disabled once a modality this backend cannot carry is also on', () => {
