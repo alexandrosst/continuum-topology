@@ -8,6 +8,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
@@ -24,6 +25,14 @@ func attributionCluster() *fake.Clientset {
 		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "shop", OwnerReferences: []metav1.OwnerReference{{Kind: "ReplicaSet", Name: owner}}},
 			Spec: corev1.PodSpec{NodeName: "n1", HostNetwork: hostNet}, Status: corev1.PodStatus{Phase: phase, PodIP: ip, PodIPs: []corev1.PodIP{{IP: ip}}}}
 	}
+	// withUID is pod() plus a UID - only ever needed by the two fixtures below that PodUIDs' own test
+	// coverage requires one of (WorkloadForCgroup resolves by UID, not IP): a host-network pod, which
+	// Pods above deliberately excludes but PodUIDs does not, and a finished one, which neither includes.
+	withUID := func(name, owner, ip string, hostNet bool, phase corev1.PodPhase, uid string) *corev1.Pod {
+		p := pod(name, owner, ip, hostNet, phase)
+		p.UID = types.UID(uid)
+		return p
+	}
 	return fake.NewSimpleClientset(
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system", UID: "uid-1"}},
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "shop"}},
@@ -34,8 +43,8 @@ func attributionCluster() *fake.Clientset {
 		pod("cart-1-a", "cart-1", "10.42.0.5", false, corev1.PodRunning),
 		pod("cart-1-b", "cart-1", "10.42.0.6", false, corev1.PodRunning),
 		pod("db-1-a", "db-1", "10.42.0.7", false, corev1.PodRunning),
-		pod("cart-1-old", "cart-1", "10.42.0.99", false, corev1.PodFailed), // finished pods keep no address
-		pod("cart-1-host", "cart-1", "192.168.1.10", true, corev1.PodRunning),
+		withUID("cart-1-old", "cart-1", "10.42.0.99", false, corev1.PodFailed, "uid-cart-1-old"), // finished pods keep no address
+		withUID("cart-1-host", "cart-1", "192.168.1.10", true, corev1.PodRunning, "uid-cart-1-host"),
 		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "cart", Namespace: "shop"}, Spec: corev1.ServiceSpec{
 			Type: corev1.ServiceTypeLoadBalancer, Selector: sel, ClusterIP: "10.43.0.20", ClusterIPs: []string{"10.43.0.20"},
 			Ports: []corev1.ServicePort{{Port: 80, NodePort: 30080}}},
@@ -88,6 +97,15 @@ func TestIndexAttributesAddressesToWorkloads(t *testing.T) {
 	}
 	if _, ok := ix.Services["None"]; ok {
 		t.Error("a headless Service has no cluster IP to attribute")
+	}
+	// Unlike Pods above, PodUIDs does carry a host-network pod - see its own doc comment for why
+	// (WorkloadForCgroup resolves a cgroup id to a UID first, never to an IP, so the IP-keyed exclusion
+	// Pods applies to host-network pods has no reason to apply here too).
+	if got, ok := ix.PodUIDs["uid-cart-1-host"]; !ok || got != "shop/Deployment/cart" {
+		t.Errorf("host-network pod's UID -> %q, %v, want shop/Deployment/cart, true", got, ok)
+	}
+	if _, ok := ix.PodUIDs["uid-cart-1-old"]; ok {
+		t.Error("a finished pod must not be in PodUIDs either, same as Pods above")
 	}
 }
 

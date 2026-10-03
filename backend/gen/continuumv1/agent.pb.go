@@ -3927,7 +3927,17 @@ type RawFlow struct {
 	// summed. Only ever non-zero when the name-capture opt-in is on, for the role=client direction - the
 	// same scoping sni_host/mesh_bypass_syns above already have. Always TLS_HANDSHAKE_OUTCOME_UNKNOWN on
 	// a conntrack-derived report.
-	TlsHandshake  TlsHandshakeOutcome `protobuf:"varint,33,opt,name=tls_handshake,json=tlsHandshake,proto3,enum=continuum.v1.TlsHandshakeOutcome" json:"tls_handshake,omitempty"`
+	TlsHandshake TlsHandshakeOutcome `protobuf:"varint,33,opt,name=tls_handshake,json=tlsHandshake,proto3,enum=continuum.v1.TlsHandshakeOutcome" json:"tls_handshake,omitempty"`
+	// The dialing process's cgroup v2 id at SYN time (flow.c's sock_info.cgroup_id, read via
+	// bpf_get_current_cgroup_id() in on_state's TCP_SYN_SENT branch - see its own doc comment there for
+	// exactly why this is a ROLE_CLIENT-only, dial-time-only capture, never read on the accept/SYN_RECV
+	// side). A kernel-internal cgroup identifier, not a pod UID - the agent resolves it to a pod (best
+	// effort, see collect.Index.WorkloadForCgroup) only when the caller's own address could not otherwise
+	// be placed as a specific pod (a hostNetwork pod dialing out, indistinguishable by IP alone from the
+	// node itself). A gauge, like handshake_us: set at most once per connection. 0 means no cgroup id was
+	// captured (SYN_RECV/ROLE_SERVER, or a kernel too old for the helper) - always 0 on a conntrack-derived
+	// report, which has no eBPF hook to read it from at all.
+	CgroupId      uint64 `protobuf:"varint,34,opt,name=cgroup_id,json=cgroupId,proto3" json:"cgroup_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4191,6 +4201,13 @@ func (x *RawFlow) GetTlsHandshake() TlsHandshakeOutcome {
 		return x.TlsHandshake
 	}
 	return TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN
+}
+
+func (x *RawFlow) GetCgroupId() uint64 {
+	if x != nil {
+		return x.CgroupId
+	}
+	return 0
 }
 
 // One physical network interface's current send+receive throughput on the reporting node, and - when
@@ -4532,7 +4549,12 @@ type Flow struct {
 	SndbufBytes     uint32 `protobuf:"varint,32,opt,name=sndbuf_bytes,json=sndbufBytes,proto3" json:"sndbuf_bytes,omitempty"`
 	// See RawFlow.tls_handshake/TlsHandshakeOutcome - carried through attribution unchanged, like
 	// rtt_us/cwnd/mss_bytes above: a gauge, the latest sample, never summed.
-	TlsHandshake  TlsHandshakeOutcome `protobuf:"varint,33,opt,name=tls_handshake,json=tlsHandshake,proto3,enum=continuum.v1.TlsHandshakeOutcome" json:"tls_handshake,omitempty"`
+	TlsHandshake TlsHandshakeOutcome `protobuf:"varint,33,opt,name=tls_handshake,json=tlsHandshake,proto3,enum=continuum.v1.TlsHandshakeOutcome" json:"tls_handshake,omitempty"`
+	// See RawFlow.cgroup_id - carried through attribution unchanged, like rtt_us/cwnd/mss_bytes above: a
+	// gauge, the latest sample, never summed. Attribution itself (resolve.go) consumes this to help place
+	// a hostNetwork pod's own outbound traffic (see collect.Index.WorkloadForCgroup); once a Flow has been
+	// produced, this field is kept only for visibility/debugging, not read again downstream.
+	CgroupId      uint64 `protobuf:"varint,34,opt,name=cgroup_id,json=cgroupId,proto3" json:"cgroup_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4796,6 +4818,13 @@ func (x *Flow) GetTlsHandshake() TlsHandshakeOutcome {
 		return x.TlsHandshake
 	}
 	return TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN
+}
+
+func (x *Flow) GetCgroupId() uint64 {
+	if x != nil {
+		return x.CgroupId
+	}
+	return 0
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
@@ -6067,7 +6096,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2\x18.continuum.v1.PathResultR\aresults\x12\x18\n" +
 	"\arefused\x18\x02 \x01(\rR\arefused\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xd6\b\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xf3\b\n" +
 	"\aRawFlow\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\bR\x06client\x12\x19\n" +
 	"\blocal_ip\x18\x02 \x01(\tR\alocalIp\x12\x17\n" +
@@ -6104,7 +6133,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\rsnd_wnd_bytes\x18\x1e \x01(\rR\vsndWndBytes\x12*\n" +
 	"\x11wmem_queued_bytes\x18\x1f \x01(\rR\x0fwmemQueuedBytes\x12!\n" +
 	"\fsndbuf_bytes\x18  \x01(\rR\vsndbufBytes\x12F\n" +
-	"\rtls_handshake\x18! \x01(\x0e2!.continuum.v1.TlsHandshakeOutcomeR\ftlsHandshake\"\x8c\x01\n" +
+	"\rtls_handshake\x18! \x01(\x0e2!.continuum.v1.TlsHandshakeOutcomeR\ftlsHandshake\x12\x1b\n" +
+	"\tcgroup_id\x18\" \x01(\x04R\bcgroupId\"\x8c\x01\n" +
 	"\x0eLinkSaturation\x12\x14\n" +
 	"\x05iface\x18\x01 \x01(\tR\x05iface\x12%\n" +
 	"\x0ethroughput_bps\x18\x02 \x01(\x04R\rthroughputBps\x12*\n" +
@@ -6130,7 +6160,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"UNRESOLVED\x10\x00\x12\f\n" +
 	"\bWORKLOAD\x10\x01\x12\b\n" +
 	"\x04NODE\x10\x02\x12\f\n" +
-	"\bEXTERNAL\x10\x03\"\xc6\b\n" +
+	"\bEXTERNAL\x10\x03\"\xe3\b\n" +
 	"\x04Flow\x12,\n" +
 	"\x03src\x18\x01 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03src\x12,\n" +
 	"\x03dst\x18\x02 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03dst\x12\x12\n" +
@@ -6168,7 +6198,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\rsnd_wnd_bytes\x18\x1e \x01(\rR\vsndWndBytes\x12*\n" +
 	"\x11wmem_queued_bytes\x18\x1f \x01(\rR\x0fwmemQueuedBytes\x12!\n" +
 	"\fsndbuf_bytes\x18  \x01(\rR\vsndbufBytes\x12F\n" +
-	"\rtls_handshake\x18! \x01(\x0e2!.continuum.v1.TlsHandshakeOutcomeR\ftlsHandshake\"\xcc\x01\n" +
+	"\rtls_handshake\x18! \x01(\x0e2!.continuum.v1.TlsHandshakeOutcomeR\ftlsHandshake\x12\x1b\n" +
+	"\tcgroup_id\x18\" \x01(\x04R\bcgroupId\"\xcc\x01\n" +
 	"\rCollectorInfo\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12\x1f\n" +

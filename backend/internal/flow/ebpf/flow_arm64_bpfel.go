@@ -54,6 +54,7 @@ type flowFlowVal struct {
 	MeshBypassSyns    uint32
 	TlsHandshake      uint8
 	_                 [3]byte
+	CgroupId          uint64
 	HandshakeUs       uint32
 	_                 [4]byte
 	FailedAttempts    uint64
@@ -86,6 +87,7 @@ type flowSockInfo struct {
 	LastSegsOut        uint32
 	LastDrops          uint32
 	SynNs              uint64
+	CgroupId           uint64
 	Established        uint8
 	_                  [7]byte
 }

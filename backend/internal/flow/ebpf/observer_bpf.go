@@ -644,6 +644,12 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			if v.TlsHandshake != 0 {
 				sum.TlsHandshake = v.TlsHandshake
 			}
+			// cgroup_id is a gauge too, set at most once per connection (see flow.c's own doc comment on
+			// flow_val.cgroup_id) - same "0 means no sample" treatment, and only ever non-zero on a
+			// ROLE_CLIENT row in the first place.
+			if v.CgroupId != 0 {
+				sum.CgroupId = v.CgroupId
+			}
 			// Every CPU that ever handled this socket's traffic put_iface'd the same route, so any
 			// non-empty reading is as good as another; take the first rather than requiring them to agree,
 			// since a route change mid-life would otherwise blank it out for no good reason.
@@ -688,6 +694,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			WmemQueuedBytes:   sum.WmemQueued,
 			SndbufBytes:       sum.Sndbuf,
 			TlsHandshake:      tlsHandshakeOutcome(sum.TlsHandshake),
+			CgroupId:          sum.CgroupId,
 			FailedAttempts:    sum.FailedAttempts,
 			FailedRefused:     sum.FailedRefused,
 			FailedTimeout:     sum.FailedTimeout,

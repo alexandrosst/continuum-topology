@@ -140,19 +140,35 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 		return "", false
 	}
 	f := &continuumv1.Flow{Port: raw.Port, Protocol: raw.Protocol, Connections: raw.Connections, BytesOut: raw.BytesOut, BytesIn: raw.BytesIn, Method: method, BytesKnown: bytesKnown, Iface: raw.Iface,
-		Retransmits: uint64(raw.Retransmits), RtoRetransmits: raw.RtoRetransmits, RttUs: raw.RttUs, JitterUs: raw.JitterUs, SegsOut: raw.SegsOut, HandshakeUs: raw.HandshakeUs, Cwnd: raw.Cwnd, PacingBps: raw.PacingBps, BufferDrops: raw.BufferDrops, DnsRttUs: raw.DnsRttUs, MeshBypassSyns: raw.MeshBypassSyns, MssBytes: raw.MssBytes, RcvWndBytes: raw.RcvWndBytes, SndWndBytes: raw.SndWndBytes, WmemQueuedBytes: raw.WmemQueuedBytes, SndbufBytes: raw.SndbufBytes, TlsHandshake: raw.TlsHandshake, FailedAttempts: raw.FailedAttempts, SniHost: raw.SniHost}
+		Retransmits: uint64(raw.Retransmits), RtoRetransmits: raw.RtoRetransmits, RttUs: raw.RttUs, JitterUs: raw.JitterUs, SegsOut: raw.SegsOut, HandshakeUs: raw.HandshakeUs, Cwnd: raw.Cwnd, PacingBps: raw.PacingBps, BufferDrops: raw.BufferDrops, DnsRttUs: raw.DnsRttUs, MeshBypassSyns: raw.MeshBypassSyns, MssBytes: raw.MssBytes, RcvWndBytes: raw.RcvWndBytes, SndWndBytes: raw.SndWndBytes, WmemQueuedBytes: raw.WmemQueuedBytes, SndbufBytes: raw.SndbufBytes, TlsHandshake: raw.TlsHandshake, CgroupId: raw.CgroupId, FailedAttempts: raw.FailedAttempts, SniHost: raw.SniHost}
 	if raw.DnsQueryName != "" {
 		f.DnsQueryNames = []string{raw.DnsQueryName}
 	}
 
 	if raw.Client {
-		src, ok := pod(local)
-		if !ok {
-			return nil, false // node processes and pods we cannot place
-		}
-		f.Src = workload(src)
-		if name, ok := ix.PodNames[local]; ok {
-			f.SrcPod = name
+		if src, ok := pod(local); ok {
+			f.Src = workload(src)
+			if name, ok := ix.PodNames[local]; ok {
+				f.SrcPod = name
+			}
+		} else if nodeName, isNode := ix.Nodes[local]; isNode {
+			// local is this node's own address - either a bare node-level process (kubelet, a static pod
+			// dialing out before kubelet's informer cache even has it, ...) or a hostNetwork pod, which
+			// shares the node's address and so cannot be told apart from it by IP alone. raw.CgroupId
+			// (captured only on the dialing/SYN_SENT side - see flow.c's sock_info.cgroup_id doc comment)
+			// is this program's one chance to do better than "the node, generically": WorkloadForCgroup
+			// resolves it to a specific pod's workload, best-effort, when it can (see its own doc comment
+			// for exactly what it does and does not cover). When it cannot - the common case for a
+			// genuine node-level process, an unsupported cgroup driver, or no cgroup id at all (conntrack,
+			// or a kernel too old for the helper) - this falls back to FlowEndpoint_NODE rather than
+			// dropping the row entirely, which is what happened here before this fallback existed.
+			if key, ok := ix.WorkloadForCgroup(raw.CgroupId); ok {
+				f.Src = workload(key)
+			} else {
+				f.Src = &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_NODE, Ref: nodeName}
+			}
+		} else {
+			return nil, false // neither a pod nor a node address this cluster's index recognizes
 		}
 		switch {
 		case ix.Opaque[peer]:

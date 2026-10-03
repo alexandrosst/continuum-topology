@@ -23,6 +23,13 @@ type Index struct {
 	// post-eviction "recent" memory of a pod that has since churned - unlike a workload, which outlives
 	// any one of its pods, a stale pod name would be actively misleading once attached to new traffic.
 	PodNames map[string]string
+	// PodUIDs maps a pod's UID (Pod.ObjectMeta.UID) to the key of the workload that owns it - unlike Pods
+	// above, keyed by UID rather than IP, since the one caller that needs this (WorkloadForCgroup)
+	// resolves a cgroup id to a pod UID first (cgroupIDToPodUID, via the cgroup filesystem), never to an
+	// IP. Populated for every visible pod, including a hostNetwork one - Pods above deliberately excludes
+	// those (see its own doc comment just below), but PodUIDs has no such exclusion: a hostNetwork pod's
+	// UID is exactly what WorkloadForCgroup needs to turn a resolved cgroup id into a workload key.
+	PodUIDs map[string]string
 	// Services maps a Service cluster IP to the workloads it selects.
 	Services map[string][]string
 	// Nodes maps a node address to the node name. Host-network pods share their node's address, so
@@ -49,7 +56,7 @@ type Index struct {
 
 // Index builds the current address index. It returns an empty index below access tier 2.
 func (c *Collector) Index() *Index {
-	ix := &Index{Pods: map[string]string{}, PodNames: map[string]string{}, Services: map[string][]string{}, Nodes: map[string]string{}, Opaque: map[string]bool{}, NodePorts: map[int32][]string{}, Hidden: map[string]bool{}}
+	ix := &Index{Pods: map[string]string{}, PodNames: map[string]string{}, PodUIDs: map[string]string{}, Services: map[string][]string{}, Nodes: map[string]string{}, Opaque: map[string]bool{}, NodePorts: map[int32][]string{}, Hidden: map[string]bool{}}
 	if c.nodes != nil {
 		each(c.nodes.GetStore().List(), func(n *corev1.Node) {
 			for _, a := range n.Status.Addresses {
@@ -109,21 +116,16 @@ func (c *Collector) Index() *Index {
 			}
 			return
 		}
+		if p.UID != "" && p.Status.Phase != corev1.PodSucceeded && p.Status.Phase != corev1.PodFailed {
+			if key := ownerKey(p, rsOwner, known); key != "" {
+				ix.PodUIDs[string(p.UID)] = key
+			}
+		}
 		if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed || p.Spec.HostNetwork {
 			return
 		}
-		key := ""
-		for _, o := range p.OwnerReferences {
-			switch o.Kind {
-			case "ReplicaSet":
-				if d, ok := rsOwner[p.Namespace+"/"+o.Name]; ok {
-					key = p.Namespace + "/Deployment/" + d
-				}
-			case "StatefulSet", "DaemonSet":
-				key = p.Namespace + "/" + o.Kind + "/" + o.Name
-			}
-		}
-		if key == "" || !known[key] {
+		key := ownerKey(p, rsOwner, known)
+		if key == "" {
 			return
 		}
 		ips := map[string]bool{}
@@ -182,6 +184,28 @@ func (c *Collector) Index() *Index {
 		})
 	}
 	return ix
+}
+
+// ownerKey returns the workload key ("namespace/Kind/name") that owns p, by the same
+// ReplicaSet->Deployment/StatefulSet/DaemonSet resolution Index() already applied inline before this
+// was factored out - "" when p has no recognized owner, or its owner is not one Index() already found
+// among this cluster's own Deployments/StatefulSets/DaemonSets (known).
+func ownerKey(p *corev1.Pod, rsOwner map[string]string, known map[string]bool) string {
+	key := ""
+	for _, o := range p.OwnerReferences {
+		switch o.Kind {
+		case "ReplicaSet":
+			if d, ok := rsOwner[p.Namespace+"/"+o.Name]; ok {
+				key = p.Namespace + "/Deployment/" + d
+			}
+		case "StatefulSet", "DaemonSet":
+			key = p.Namespace + "/" + o.Kind + "/" + o.Name
+		}
+	}
+	if key == "" || !known[key] {
+		return ""
+	}
+	return key
 }
 
 func podIPs(p *corev1.Pod) []string {

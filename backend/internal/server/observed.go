@@ -881,6 +881,13 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 				inbound = append(inbound, pending{c, e})
 				continue
 			}
+			// Known gap, not an oversight: resolve.go can now also produce Src.Kind == FlowEndpoint_NODE
+			// (a hostNetwork pod, or a bare node process, whose own cgroup id - see RawFlow.cgroup_id -
+			// either resolved to no known pod or was never captured at all; see resolve.go's own doc
+			// comment on that fallback). serviceOf below expects Ref to be a workload key, so a NODE-kind
+			// Src just never matches here and this row quietly produces no Dependency, the same net
+			// effect as resolve.go dropping it outright used to have - landing node-level attribution as
+			// a Dependency of its own here is future work, intentionally left undone rather than rushed.
 			from, ok := serviceOf(c.id, e.Key.Src.Ref)
 			if !ok {
 				continue

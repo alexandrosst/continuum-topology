@@ -796,6 +796,16 @@ message RawFlow {
   // same scoping sni_host/mesh_bypass_syns above already have. Always TLS_HANDSHAKE_OUTCOME_UNKNOWN on
   // a conntrack-derived report.
   TlsHandshakeOutcome tls_handshake = 33;
+  // The dialing process's cgroup v2 id at SYN time (flow.c's sock_info.cgroup_id, read via
+  // bpf_get_current_cgroup_id() in on_state's TCP_SYN_SENT branch - see its own doc comment there for
+  // exactly why this is a ROLE_CLIENT-only, dial-time-only capture, never read on the accept/SYN_RECV
+  // side). A kernel-internal cgroup identifier, not a pod UID - the agent resolves it to a pod (best
+  // effort, see collect.Index.WorkloadForCgroup) only when the caller's own address could not otherwise
+  // be placed as a specific pod (a hostNetwork pod dialing out, indistinguishable by IP alone from the
+  // node itself). A gauge, like handshake_us: set at most once per connection. 0 means no cgroup id was
+  // captured (SYN_RECV/ROLE_SERVER, or a kernel too old for the helper) - always 0 on a conntrack-derived
+  // report, which has no eBPF hook to read it from at all.
+  uint64 cgroup_id = 34;
 }
 
 // One physical network interface's current send+receive throughput on the reporting node, and - when
@@ -946,6 +956,11 @@ message Flow {
   // See RawFlow.tls_handshake/TlsHandshakeOutcome - carried through attribution unchanged, like
   // rtt_us/cwnd/mss_bytes above: a gauge, the latest sample, never summed.
   TlsHandshakeOutcome tls_handshake = 33;
+  // See RawFlow.cgroup_id - carried through attribution unchanged, like rtt_us/cwnd/mss_bytes above: a
+  // gauge, the latest sample, never summed. Attribution itself (resolve.go) consumes this to help place
+  // a hostNetwork pod's own outbound traffic (see collect.Index.WorkloadForCgroup); once a Flow has been
+  // produced, this field is kept only for visibility/debugging, not read again downstream.
+  uint64 cgroup_id = 34;
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.

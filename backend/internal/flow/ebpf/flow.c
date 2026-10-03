@@ -290,6 +290,18 @@ struct flow_val {
 	// retry, is a stronger signal than either field alone - that correlation happens in Go, downstream,
 	// never here.
 	__u8 tls_handshake;
+	// cgroup_id: the dialing process's cgroup v2 id at the moment its SYN left (bpf_get_current_cgroup_id,
+	// read in on_state's TCP_SYN_SENT branch - see sock_info.cgroup_id's own doc comment for exactly why
+	// only there, never on the accept/SYN_RECV side). A gauge, carried forward from that same socket's
+	// sock_info entry the moment it reaches ESTABLISHED, like handshake_us - set at most once per
+	// connection, never touched again. Only ever non-zero for a ROLE_CLIENT row: nothing on the
+	// ROLE_SERVER/accept side ever writes it, so it stays the zero value there. This is a kernel-internal
+	// cgroup identifier, not a pod UID - resolving it back to a specific pod (when one exists at all; a
+	// bare node-level process has a cgroup id too, just not a pod's) is Go-side work, downstream (see
+	// collect.Index.WorkloadForCgroup), and only ever attempted for a ROLE_CLIENT row whose local address
+	// is a hostNetwork pod's (indistinguishable from the node's own address by IP alone) - exactly the
+	// case this field exists to help disambiguate.
+	__u64 cgroup_id;
 	// handshake_us: how long this one connection took to go from its first SYN to ESTABLISHED - a gauge
 	// set exactly once, at the moment a socket reaches ESTABLISHED (see on_state), never touched again by
 	// this same socket's later traffic. Distinct from rtt_us, which is the ongoing steady-state round
@@ -326,6 +338,17 @@ struct sock_info {
 	// clock handshake_us is measured from. Set once, there, and read back (before this entry is
 	// overwritten) the moment the same socket reaches ESTABLISHED; never touched afterwards.
 	__u64 syn_ns;
+	// bpf_get_current_cgroup_id() at the moment this connection attempt was first seen - but, unlike
+	// syn_ns right above, only ever actually read on the TCP_SYN_SENT path (on_state sets this to 0, its
+	// already-memset value, on the TCP_SYN_RECV path and leaves it there deliberately): SYN_SENT fires
+	// synchronously inside the dialing process's own connect() syscall (process context, where "current
+	// task" means exactly the process that dialed), while SYN_RECV fires from the kernel's own
+	// SYN-processing path, typically softirq/interrupt context on many kernels, where there is no
+	// meaningful "current task" at all - bpf_get_current_cgroup_id there would read whatever happened to
+	// be running on this CPU (ksoftirqd, say), not the pod being connected to, and silently mis-attribute
+	// rather than simply read nothing. Carried forward into flow_val.cgroup_id the moment this socket
+	// reaches ESTABLISHED - see that field's own doc comment for how it is used downstream.
+	__u64 cgroup_id;
 	// 0 from the moment a connection attempt is first seen (SYN_SENT/SYN_RECV) until it reaches
 	// ESTABLISHED, which sets it to 1. A close while still 0 is add_failed's job, not add_flow's.
 	__u8 established;
@@ -390,7 +413,7 @@ static __always_inline void put_iface(struct flow_val *v, struct sock *sk) {
 	bpf_probe_read_kernel_str(v->ifname, sizeof(v->ifname), dev->name);
 }
 
-static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rto_retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us, __u32 cwnd, __u64 pacing_bps, __u32 buffer_drops, __u32 mss_bytes, __u32 rcv_wnd, __u32 snd_wnd, __u32 wmem_queued, __u32 sndbuf) {
+static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rto_retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us, __u32 cwnd, __u64 pacing_bps, __u32 buffer_drops, __u32 mss_bytes, __u32 rcv_wnd, __u32 snd_wnd, __u32 wmem_queued, __u32 sndbuf, __u64 cgroup_id) {
 	struct flow_val zero = {};
 	struct flow_val *v = bpf_map_lookup_elem(&flows, key);
 	if (!v) {
@@ -433,6 +456,10 @@ static __always_inline void add_flow(const struct flow_key *key, struct sock *sk
 		v->wmem_queued = wmem_queued;
 	if (sndbuf)
 		v->sndbuf = sndbuf;
+	// See flow_val.cgroup_id's own doc comment: a gauge set at most once per connection, 0 (never
+	// explicitly written) on every ROLE_SERVER row and on a ROLE_CLIENT row with no cgroup id captured.
+	if (cgroup_id)
+		v->cgroup_id = cgroup_id;
 	v->buffer_drops += buffer_drops;
 	put_iface(v, sk);
 }
@@ -483,6 +510,11 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		si.key.port = si.key.role == ROLE_CLIENT ? __builtin_bswap16(sk->__sk_common.skc_dport) : sk->__sk_common.skc_num;
 		si.established = 0;
 		si.syn_ns = bpf_ktime_get_ns();
+		if (newstate == TCP_SYN_SENT) {
+			// See sock_info.cgroup_id's own doc comment for exactly why this is captured only here, never on
+			// the TCP_SYN_RECV/accept side a few lines above this branch splits from.
+			si.cgroup_id = bpf_get_current_cgroup_id();
+		}
 		bpf_map_update_elem(&socks, &id, &si, BPF_ANY);
 		return 0;
 	}
@@ -505,17 +537,28 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// piece of that earlier entry worth carrying forward; everything else about it (its role, key)
 		// is about to be rebuilt fresh from the socket's current state anyway.
 		__u32 handshake_us = 0;
+		__u64 cgroup_id = 0;
 		struct sock_info *prior = bpf_map_lookup_elem(&socks, &id);
 		if (prior && prior->syn_ns) {
 			__u64 now = bpf_ktime_get_ns();
 			if (now > prior->syn_ns)
 				handshake_us = (__u32)((now - prior->syn_ns) / 1000);
 		}
+		// cgroup_id only ever means anything on the dialing (ROLE_CLIENT) side - see sock_info.cgroup_id and
+		// flow_val.cgroup_id's own doc comments. role is already known to be ROLE_CLIENT or ROLE_SERVER by
+		// this point (the "return 0" a few lines above rules out anything else).
+		if (prior && role == ROLE_CLIENT)
+			cgroup_id = prior->cgroup_id;
 
 		struct sock_info si;
 		__builtin_memset(&si, 0, sizeof(si));
 		si.key.role = role;
 		si.established = 1;
+		// Carried forward so the TCP_CLOSE branch and snapshot() below - which both read this same
+		// persisted sock_info entry for the rest of this socket's life, never the prior one - can still see
+		// it; add_flow itself only ever sets flow_val.cgroup_id once (a gauge, like handshake_us), so every
+		// one of those later calls passing it again is harmless.
+		si.cgroup_id = cgroup_id;
 		__be32 laddr = sk->__sk_common.skc_rcv_saddr;
 		__be32 daddr = sk->__sk_common.skc_daddr;
 		put_addr(si.key.local, laddr, &sk->__sk_common.skc_v6_rcv_saddr, family);
@@ -551,7 +594,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// Counted now, so a connection that lives for days is a dependency from its first second. No RTT/
 		// jitter sample exists yet this early (0, unknown, rather than a guess); handshake_us, by contrast,
 		// is known exactly right now - this is the only moment it ever will be.
-		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, 0, handshake_us, 0, 0, 0, 0, 0, 0, 0, 0);
+		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, 0, handshake_us, 0, 0, 0, 0, 0, 0, 0, 0, cgroup_id);
 		return 0;
 	}
 
@@ -622,7 +665,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// with no sample of either at all (0).
 		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, tp->srtt_us >> 3, tp->mdev_us >> 2, dsegs, 0,
 		         tp->snd_cwnd, (__u64)pacing_rate, ddrops, tp->mss_cache, tp->rcv_wnd, tp->snd_wnd,
-		         (__u32)wmem_queued, (__u32)sndbuf);
+		         (__u32)wmem_queued, (__u32)sndbuf, si->cgroup_id);
 	}
 	bpf_map_delete_elem(&socks, &id);
 	return 0;
@@ -700,7 +743,7 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 		si->last_segs_out = segs_out > si->last_segs_out ? segs_out : si->last_segs_out;
 		si->last_drops = (__u32)drops > si->last_drops ? (__u32)drops : si->last_drops;
 		si->last_rto_retransmits = rto_raw;
-		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0, cwnd, (__u64)pacing_rate, ddrops, mss_bytes, rcv_wnd, snd_wnd, (__u32)wmem_queued, (__u32)sndbuf);
+		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0, cwnd, (__u64)pacing_rate, ddrops, mss_bytes, rcv_wnd, snd_wnd, (__u32)wmem_queued, (__u32)sndbuf, si->cgroup_id);
 	}
 	return 0;
 }

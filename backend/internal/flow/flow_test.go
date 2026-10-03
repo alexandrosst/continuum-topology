@@ -5,8 +5,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -42,7 +45,7 @@ func TestResolveAttributesAndDrops(t *testing.T) {
 		srcKind, dstK continuumv1.FlowEndpoint_Kind
 		noise         string
 	}
-	W, E := continuumv1.FlowEndpoint_WORKLOAD, continuumv1.FlowEndpoint_EXTERNAL
+	W, E, N := continuumv1.FlowEndpoint_WORKLOAD, continuumv1.FlowEndpoint_EXTERNAL, continuumv1.FlowEndpoint_NODE
 	cases := []struct {
 		name string
 		in   *continuumv1.RawFlow
@@ -60,7 +63,7 @@ func TestResolveAttributesAndDrops(t *testing.T) {
 		{"a node port reaches the workload behind it", raw(true, "10.42.0.5", "192.168.1.10", 30080), want{true, "shop/Deployment/cart", "shop/Deployment/cart", W, W, ""}},
 		{"a node service is not application traffic", raw(true, "10.42.0.5", "192.168.1.10", 10250), want{ok: false}},
 		{"the API server's Service is dropped", raw(true, "10.42.0.5", "10.43.0.1", 443), want{ok: false}},
-		{"node processes are not workloads", raw(true, "192.168.1.10", "93.184.216.34", 443), want{ok: false}},
+		{"a node-address caller with no resolvable cgroup id falls back to FlowEndpoint_NODE, not a drop", raw(true, "192.168.1.10", "93.184.216.34", 443), want{true, "n1", "93.184.216.34", N, E, ""}},
 		{"a pod we cannot place is dropped", raw(true, "10.42.0.200", "93.184.216.34", 443), want{ok: false}},
 		{"loopback is dropped", raw(true, "127.0.0.1", "127.0.0.1", 8080), want{ok: false}},
 		{"inbound from outside is recorded from the receiving side", raw(false, "10.42.0.5", "203.0.113.50", 8080), want{true, "203.0.113.50", "shop/Deployment/cart", E, W, ""}},
@@ -140,6 +143,46 @@ func TestResolveSetsPodNamesOnlyFromASpecificLivePod(t *testing.T) {
 	f, ok = r.Resolve(raw(false, "10.42.0.5", "203.0.113.50", 8080), "ebpf", true)
 	if !ok || f.DstPod != "cart-7d9f8b-abc12" {
 		t.Errorf("inbound traffic received by a known pod should carry its name: dst=%q", f.DstPod)
+	}
+}
+
+// TestResolveDisambiguatesAHostNetworkPodByItsCgroupID covers the one case RawFlow.cgroup_id exists
+// for: a hostNetwork pod's own outbound traffic shares its node's address, so pod(local) alone cannot
+// place it - WorkloadForCgroup, given a cgroup id that actually resolves (see collect.cgroup_test.go for
+// the filesystem-walking half of this), lets it attribute to the real pod's workload instead of the
+// FlowEndpoint_NODE fallback TestResolveAttributesAndDrops' own node-address case takes.
+func TestResolveDisambiguatesAHostNetworkPodByItsCgroupID(t *testing.T) {
+	ix := testIndex()
+	ix.PodUIDs = map[string]string{"1a2b3c4d-5e6f-7890-abcd-ef1234567890": "shop/Deployment/cart"}
+	r := NewResolver(func() *collect.Index { return ix })
+
+	root := t.TempDir()
+	rel := "kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod1a2b3c4d_5e6f_7890_abcd_ef1234567890.slice"
+	if err := os.MkdirAll(filepath.Join(root, rel), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(root, rel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := info.Sys().(*syscall.Stat_t).Ino
+	old := collect.CgroupRootForTest(root)
+	defer old()
+
+	in := raw(true, "192.168.1.10", "93.184.216.34", 443)
+	in.CgroupId = id
+	f, ok := r.Resolve(in, "ebpf", true)
+	if !ok || ref(f.Src) != "shop/Deployment/cart" || f.Src.Kind != continuumv1.FlowEndpoint_WORKLOAD {
+		t.Errorf("hostNetwork pod resolved by cgroup id: got %v ok=%v, want shop/Deployment/cart (WORKLOAD)", f, ok)
+	}
+
+	// The same node address, but a cgroup id that never matches anything in the tree: falls back to
+	// FlowEndpoint_NODE, exactly like no cgroup id at all.
+	in2 := raw(true, "192.168.1.10", "93.184.216.34", 443)
+	in2.CgroupId = 424242
+	f2, ok2 := r.Resolve(in2, "ebpf", true)
+	if !ok2 || f2.Src.Kind != continuumv1.FlowEndpoint_NODE || ref(f2.Src) != "n1" {
+		t.Errorf("unresolvable cgroup id must fall back to FlowEndpoint_NODE: got %v ok=%v", f2, ok2)
 	}
 }
 
