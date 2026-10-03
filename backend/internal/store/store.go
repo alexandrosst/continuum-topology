@@ -144,6 +144,21 @@ type Operator struct {
 	Reason                string
 }
 
+// GatewayToken is a short-lived bearer secret scoped to one quick-start backend instance (see
+// server.QuickStartBackend) - minted so the Part C nginx gateway's ConfigMap can check requests entirely
+// on its own, with zero callback to this server, the same one-way trust model as everything else
+// quick-start. Only its hash is ever stored; the secret itself is minted and returned once, never again -
+// the same rule every other secret in this app follows (see server/tokens.go).
+type GatewayToken struct {
+	ID         string
+	OrgID      string
+	BackendID  string
+	SecretHash []byte
+	CreatedBy  string
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+}
+
 // Resume is what a retried enrollment changes on the agent it continues.
 type Resume struct {
 	PollSecretHash []byte
@@ -351,6 +366,15 @@ type Store interface {
 	UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination) error
 	RevokeOperator(ctx context.Context, id, reason string, now time.Time) error
 	DeleteOperator(ctx context.Context, id string) error
+
+	// ---- quick-start gateway tokens ----
+
+	// CreateGatewayToken inserts a freshly minted gateway token's hash - see GatewayToken.
+	CreateGatewayToken(ctx context.Context, t GatewayToken, hash []byte) error
+	// LatestGatewayToken returns the most recently minted gateway token for a quick-start backend
+	// (ErrNotFound if none was ever minted for it) - never the secret, only whether/when one exists and
+	// expires, for the UI's own status display.
+	LatestGatewayToken(ctx context.Context, org, backendID string) (GatewayToken, error)
 
 	AddAudit(ctx context.Context, e AuditEvent) error
 	ListAudit(ctx context.Context, org string, limit int) ([]AuditEvent, error)

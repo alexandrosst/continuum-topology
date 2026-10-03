@@ -20,6 +20,11 @@ const operatorPrefix = "cno_"
 // looks it up.
 const patPrefix = "cnk_"
 
+// gatewayTokenPrefix marks a quick-start gateway token (see store.GatewayToken) - distinct from every
+// other secret this package mints, so its own shape says which kind it is. Checked entirely by the Part C
+// nginx gateway the admin deploys alongside a quick-start backend, never by this server.
+const gatewayTokenPrefix = "cnq_"
+
 // newSecret returns 32 random bytes as URL-safe text.
 func newSecret() (string, error) {
 	b := make([]byte, 32)
@@ -63,6 +68,13 @@ func NewAPITokenSecret() (string, error) {
 	return patPrefix + s, err
 }
 
+// NewGatewayTokenSecret returns a fresh quick-start gateway bearer token. Only HashSecret(secret) is
+// stored - the same rule as every other secret this package mints.
+func NewGatewayTokenSecret() (string, error) {
+	s, err := newSecret()
+	return gatewayTokenPrefix + s, err
+}
+
 // looksLikeAPIToken cheaply rejects malformed input before touching the database.
 func looksLikeAPIToken(s string) bool {
 	if !strings.HasPrefix(s, patPrefix) || len(s) != len(patPrefix)+43 {
@@ -80,10 +92,11 @@ func randHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-func newAgentID() string    { return "ag-" + randHex(6) }
-func newTokenID() string    { return "tk-" + randHex(6) }
-func newAPITokenID() string { return "pat-" + randHex(6) }
-func newOperatorID() string { return "op-" + randHex(6) }
+func newAgentID() string        { return "ag-" + randHex(6) }
+func newTokenID() string        { return "tk-" + randHex(6) }
+func newAPITokenID() string     { return "pat-" + randHex(6) }
+func newOperatorID() string     { return "op-" + randHex(6) }
+func newGatewayTokenID() string { return "gwt-" + randHex(6) }
 
 // ClusterIDFor is stable for a cluster (its kube-system UID), so records keep the same id
 // even if the agent is replaced.

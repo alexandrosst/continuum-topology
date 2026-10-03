@@ -211,6 +211,9 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/operators/{id}/revoke", adminRole, a.revokeOperator)
 	route("DELETE "+o+"/operators/{id}", adminRole, a.deleteOperator)
 
+	route("POST "+o+"/quick-start/{id}/gateway-token", adminRole, a.mintGatewayToken)
+	route("GET "+o+"/quick-start/{id}/gateway-token", adminRole, a.getGatewayToken)
+
 	mux.Handle("/api/", a.cors(a.csrf(api)))
 	if a.UIDir != "" {
 		mux.Handle("/", spa(a.UIDir))

@@ -187,6 +187,18 @@ CREATE TABLE IF NOT EXISTS operators (
   reason TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS operators_org ON operators(org_id);
+-- A quick-start backend's gateway token (see GatewayToken) - there can be more than one per backend_id
+-- over time (each mint is a fresh row); LatestGatewayToken reads the most recent by created_at.
+CREATE TABLE IF NOT EXISTS gateway_tokens (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  backend_id TEXT NOT NULL,
+  secret_hash BLOB NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS gateway_tokens_backend ON gateway_tokens(org_id, backend_id);
 `
 
 type SQLite struct{ db *sql.DB }
@@ -679,6 +691,37 @@ func (s *SQLite) DeleteOperator(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ---- quick-start gateway tokens ----
+
+const gatewayTokenCols = `id, org_id, backend_id, secret_hash, created_by, created_at, expires_at`
+
+func scanGatewayToken(r scanner) (GatewayToken, error) {
+	var t GatewayToken
+	var created, expires int64
+	err := r.Scan(&t.ID, &t.OrgID, &t.BackendID, &t.SecretHash, &t.CreatedBy, &created, &expires)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return GatewayToken{}, ErrNotFound
+		}
+		return GatewayToken{}, err
+	}
+	t.CreatedAt, t.ExpiresAt = fromMS(created), fromMS(expires)
+	return t, nil
+}
+
+func (s *SQLite) CreateGatewayToken(ctx context.Context, t GatewayToken, hash []byte) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO gateway_tokens(id, org_id, backend_id, secret_hash, created_by, created_at, expires_at) VALUES(?,?,?,?,?,?,?)`,
+		t.ID, t.OrgID, t.BackendID, hash, t.CreatedBy, ms(t.CreatedAt), ms(t.ExpiresAt))
+	return err
+}
+
+func (s *SQLite) LatestGatewayToken(ctx context.Context, org, backendID string) (GatewayToken, error) {
+	return scanGatewayToken(s.db.QueryRowContext(ctx,
+		`SELECT `+gatewayTokenCols+` FROM gateway_tokens WHERE org_id=? AND backend_id=? ORDER BY created_at DESC LIMIT 1`,
+		org, backendID))
 }
 
 // ---- audit ----
