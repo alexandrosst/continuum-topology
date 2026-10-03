@@ -204,6 +204,9 @@ func Interpret(in Input) model.Topology {
 			mn.CPUModel = n.Probe.CpuModel
 			mn.CPUThreads = n.Probe.CpuThreads
 			mn.HostSubnets = n.Probe.HostSubnets
+			mn.CPUPressurePct = n.Probe.CpuPressurePct
+			mn.MemoryPressurePct = n.Probe.MemoryPressurePct
+			mn.IOPressurePct = n.Probe.IoPressurePct
 			for _, iface := range n.Probe.Interfaces {
 				if iface == nil {
 					continue

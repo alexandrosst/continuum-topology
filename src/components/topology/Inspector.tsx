@@ -699,6 +699,25 @@ export default function Inspector({
           </Maybe>
           <Chips label="Accelerators" items={n.accelerators?.map((a) => `${a.count}× ${a.vendor} ${a.model}`)} />
           <Maybe label="CPU model">{[n.cpuModel, n.cpuThreads ? `${n.cpuThreads} threads` : undefined].filter(Boolean).join(' · ')}</Maybe>
+          <Maybe label="Pressure">
+            {n.cpuPressurePct === undefined && n.memoryPressurePct === undefined && n.ioPressurePct === undefined
+              ? undefined
+              : [
+                  n.cpuPressurePct !== undefined ? `CPU ${n.cpuPressurePct.toFixed(1)}%` : undefined,
+                  n.memoryPressurePct !== undefined ? `Mem ${n.memoryPressurePct.toFixed(1)}%` : undefined,
+                  n.ioPressurePct !== undefined ? `IO ${n.ioPressurePct.toFixed(1)}%` : undefined,
+                ]
+                  .filter(Boolean)
+                  .map((s, i) => (
+                    <span
+                      key={i}
+                      className={i > 0 ? 'ml-2' : undefined}
+                      title="cgroup v2 PSI: the share of the last 60 seconds this machine had at least one task actually stalled waiting on this resource, not just using it - a direct, measured bottleneck signal, not inferred from a raw usage percentage"
+                    >
+                      {s}
+                    </span>
+                  ))}
+          </Maybe>
           <Chips label="Disks" items={n.disks?.map((d) => `${d.model || d.type || 'disk'}${d.sizeBytes ? ` (${formatMemory(d.sizeBytes / 1024 ** 3)})` : ''}`)} />
         </Section>
         <Section title="Network & health">

@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -172,6 +173,34 @@ func TestReadEmptyHostIsNotAnError(t *testing.T) {
 	if h.CpuModel != "" || h.CpuThreads != 0 || len(h.Interfaces) != 0 {
 		t.Fatalf("a host with no /proc/cpuinfo and no /sys/class/net must report absence, not zeroes-as-guesses: %v", h)
 	}
+	// No /sys/fs/cgroup at all here (a cgroup v1 host, or simply this empty fixture) - all three PSI
+	// fields must stay nil, not a fabricated 0%, the same "absence is a fact too" rule the rest of this
+	// function's doc already states.
+	if h.CpuPressurePct != nil || h.MemoryPressurePct != nil || h.IoPressurePct != nil {
+		t.Fatalf("pressure = %v/%v/%v, want all nil with no cgroup v2 hierarchy mounted", h.CpuPressurePct, h.MemoryPressurePct, h.IoPressurePct)
+	}
+}
+
+// TestReadPressure covers the three cgroup v2 PSI files at the root of the unified hierarchy - each
+// read for its "some avg60" figure only, ignoring "full" (missing here for cpu.pressure, exactly as a
+// pre-5.13 kernel would leave it, and present but unread for memory/io).
+func TestReadPressure(t *testing.T) {
+	root := t.TempDir()
+	sys := filepath.Join(root, "sys")
+	write(t, sys, "fs/cgroup/cpu.pressure", "some avg10=0.00 avg60=2.50 avg300=1.10 total=9000\n")
+	write(t, sys, "fs/cgroup/memory.pressure", "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
+	write(t, sys, "fs/cgroup/io.pressure", "some avg10=5.00 avg60=13.75 avg300=8.40 total=500000\nfull avg10=1.00 avg60=2.00 avg300=1.00 total=100000\n")
+
+	h := Read(Paths{Sys: sys, Proc: t.TempDir()})
+	if h.CpuPressurePct == nil || *h.CpuPressurePct != 2.5 {
+		t.Fatalf("cpuPressurePct = %v, want 2.5", h.CpuPressurePct)
+	}
+	if h.MemoryPressurePct == nil || *h.MemoryPressurePct != 0 {
+		t.Fatalf("memoryPressurePct = %v, want a real, present 0", h.MemoryPressurePct)
+	}
+	if h.IoPressurePct == nil || *h.IoPressurePct != 13.75 {
+		t.Fatalf("ioPressurePct = %v, want 13.75 (the \"some\" line, not \"full\"'s 2.00)", h.IoPressurePct)
+	}
 }
 
 // TestReadInterfaceWithNoSpeedFile covers a NIC whose driver does not expose "speed" (or reports it as
@@ -254,6 +283,31 @@ func TestCleanAndSanitize(t *testing.T) {
 	}
 	if sd.Disks[1].Name != "sdc" || sd.Disks[1].SizeBytes != 0 {
 		t.Fatalf("an implausible size must be cleared rather than trusted: %v", sd.Disks[1])
+	}
+}
+
+// TestSanitizePressure covers the three PSI fields: a plausible, real (including zero) percentage must
+// survive untouched, while anything outside a percentage's own [0, 100] range - or NaN/Inf, which a
+// hostile or buggy sender could put on the wire despite the kernel itself never producing one - must be
+// dropped to nil rather than stored or shown as if it were a real reading.
+func TestSanitizePressure(t *testing.T) {
+	ok, zero, tooHigh, negative, notANumber := 2.5, 0.0, 101.0, -0.1, math.NaN()
+	s := Sanitize(&continuumv1.HostProbe{CpuPressurePct: &ok, MemoryPressurePct: &zero, IoPressurePct: &tooHigh})
+	if s.CpuPressurePct == nil || *s.CpuPressurePct != 2.5 {
+		t.Fatalf("cpuPressurePct = %v, want 2.5", s.CpuPressurePct)
+	}
+	if s.MemoryPressurePct == nil || *s.MemoryPressurePct != 0 {
+		t.Fatalf("memoryPressurePct = %v, want a real, present 0", s.MemoryPressurePct)
+	}
+	if s.IoPressurePct != nil {
+		t.Fatalf("ioPressurePct = %v, want nil (101%% is not a plausible percentage)", s.IoPressurePct)
+	}
+	s2 := Sanitize(&continuumv1.HostProbe{CpuPressurePct: &negative, MemoryPressurePct: &notANumber})
+	if s2.CpuPressurePct != nil || s2.MemoryPressurePct != nil {
+		t.Fatalf("cpuPressurePct/memoryPressurePct = %v/%v, want both nil (negative and NaN are never real readings)", s2.CpuPressurePct, s2.MemoryPressurePct)
+	}
+	if Sanitize(&continuumv1.HostProbe{}).CpuPressurePct != nil {
+		t.Fatal("an unset pressure field must stay nil, not become a fabricated 0")
 	}
 }
 

@@ -413,13 +413,17 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 	s := facts.New()
 	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-probe"}
 	s.Nodes["a"] = node("a", func(n *N) {
+		cpuPsi, memPsi, ioPsi := 2.5, 0.0, 13.75
 		n.Probe = &P{
 			SysVendor: "Dell Inc.", ProductName: "PowerEdge R640",
 			CpuModel: "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz", CpuThreads: 32,
-			Interfaces:  []*continuumv1.NetworkInterface{{Name: "eno1", Kind: "ethernet", SpeedMbps: 10000, Mtu: 9000}},
-			Disks:       []*continuumv1.Disk{{Name: "nvme0n1", Model: "Samsung SSD 970 EVO", SizeBytes: 1 << 40, Type: "nvme"}},
-			HostSubnets: []string{"10.0.5.0/24"},
-			Tunnels:     []*continuumv1.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}, Mtu: 1420, Up: true}},
+			Interfaces:        []*continuumv1.NetworkInterface{{Name: "eno1", Kind: "ethernet", SpeedMbps: 10000, Mtu: 9000}},
+			Disks:             []*continuumv1.Disk{{Name: "nvme0n1", Model: "Samsung SSD 970 EVO", SizeBytes: 1 << 40, Type: "nvme"}},
+			HostSubnets:       []string{"10.0.5.0/24"},
+			Tunnels:           []*continuumv1.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}, Mtu: 1420, Up: true}},
+			CpuPressurePct:    &cpuPsi,
+			MemoryPressurePct: &memPsi,
+			IoPressurePct:     &ioPsi,
 		}
 	})
 	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
@@ -446,6 +450,33 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 	// the comment right above this append in interpret.go - it's a server-side correlation verdict).
 	if len(n.Tunnels) != 1 || n.Tunnels[0].Mtu != 1420 || !n.Tunnels[0].Up {
 		t.Errorf("tunnels = %+v, want one tunnel with Mtu=1420 Up=true", n.Tunnels)
+	}
+	// PSI figures are a plain pass-through too, including the real (not omitted) 0% on memory - a
+	// pointer, like PendingPodCount, must carry a measured zero exactly like any other measured value.
+	if n.CPUPressurePct == nil || *n.CPUPressurePct != 2.5 {
+		t.Errorf("cpuPressurePct = %v, want 2.5", n.CPUPressurePct)
+	}
+	if n.MemoryPressurePct == nil || *n.MemoryPressurePct != 0 {
+		t.Errorf("memoryPressurePct = %v, want a real, present 0", n.MemoryPressurePct)
+	}
+	if n.IOPressurePct == nil || *n.IOPressurePct != 13.75 {
+		t.Errorf("ioPressurePct = %v, want 13.75", n.IOPressurePct)
+	}
+}
+
+// TestInterpretLeavesPressureNilWhenProbeDidNotReadIt covers a probe run on a cgroup v1 host (or an
+// older agent build from before PSI existed): HostProbe's pressure fields are simply absent on the
+// wire, and that absence must survive as nil, never get treated as a measured 0%.
+func TestInterpretLeavesPressureNilWhenProbeDidNotReadIt(t *testing.T) {
+	s := facts.New()
+	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-probe-nopsi"}
+	s.Nodes["a"] = node("a", func(n *N) {
+		n.Probe = &P{CpuModel: "Cortex-A72", CpuThreads: 4}
+	})
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
+	n := out.Nodes[0]
+	if n.CPUPressurePct != nil || n.MemoryPressurePct != nil || n.IOPressurePct != nil {
+		t.Errorf("pressure = %v/%v/%v, want all nil (this probe never reported PSI)", n.CPUPressurePct, n.MemoryPressurePct, n.IOPressurePct)
 	}
 }
 

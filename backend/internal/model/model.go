@@ -213,6 +213,19 @@ type Node struct {
 	CreatedAt    string        `json:"createdAt,omitempty"`
 	PodCapacity  int32         `json:"podCapacity,omitempty"` // most pods the kubelet will run
 	PodCount     *int32        `json:"podCount,omitempty"`    // nil when pods are not read (unknown, not zero)
+	// CPUPressurePct/MemoryPressurePct/IOPressurePct are this node's own cgroup v2 PSI figures (see
+	// HostProbe.cpu_pressure_pct's own doc) - the percentage of the last 60 seconds at least one task on
+	// this whole machine was stalled waiting on that resource and could otherwise have made progress. A
+	// direct, measured bottleneck signal, not inferred from a raw CPU/memory usage percentage the way
+	// CPU/MemoryGb above are. Pointers, like PodCount above: nil means not read (no node probe, a
+	// cgroup v1 host with no unified hierarchy, or a kernel too old for PSI), never a fabricated 0%. Only
+	// ever set from the node probe's own report (like CPUModel/CPUThreads above, independent of whether
+	// kindFromProbe could confidently classify the machine - see interpret.go's own comment on why that
+	// gate is separate from Probed); never populated from the Kubernetes API, which has no view into
+	// this at all.
+	CPUPressurePct    *float64 `json:"cpuPressurePct,omitempty"`
+	MemoryPressurePct *float64 `json:"memoryPressurePct,omitempty"`
+	IOPressurePct     *float64 `json:"ioPressurePct,omitempty"`
 }
 
 type Namespace struct {

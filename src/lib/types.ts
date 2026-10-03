@@ -469,6 +469,16 @@ export interface MachineNode extends Provenance {
   podCapacity?: number
   /** Pods placed on the node. Absent when the agent does not read pods: unknown, not zero. */
   podCount?: number
+  /** cgroup v2 PSI pressure-stall percentages (see Documentation/accounting/psi.rst): the share of the
+   *  last 60 seconds this whole machine had at least one task stalled waiting on cpu/memory/io that
+   *  could otherwise have made progress - a direct, measured bottleneck signal, not inferred from a raw
+   *  usage percentage the way `cpu`/`memoryGb` above are. Node probe only, like cpuModel/cpuThreads
+   *  above (independent of whether the probe could also confidently classify the machine's kind -
+   *  `probed` can be false while these are still set). Undefined means not read: no node probe, a
+   *  cgroup v1 host (no unified hierarchy at all), or a kernel too old for PSI - never a fabricated 0%. */
+  cpuPressurePct?: number
+  memoryPressurePct?: number
+  ioPressurePct?: number
 }
 
 /** A namespace: the default unit for grouping services into applications. */

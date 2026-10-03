@@ -350,6 +350,19 @@ message HostProbe {
   // and does not establish, and why this needs the same two-way, specificity-floored corroboration
   // tunnels already get rather than being trusted from one side alone.
   repeated string host_subnets = 19;
+  // cgroup v2 pressure-stall percentages (see Documentation/accounting/psi.rst), read straight from
+  // /sys/fs/cgroup/{cpu,memory,io}.pressure's own "some avg60" figure at the root cgroup - the share of
+  // the last 60 seconds this whole machine had at least one task stalled waiting on that resource that
+  // could otherwise have made progress. A direct, measured bottleneck signal, not one inferred from a
+  // raw usage counter the way a plain CPU/memory percentage is. optional (not a plain double) because
+  // 0% is a real, common, measured reading here - unset must stay tellable from it: a cgroup v1 host (no
+  // unified hierarchy, so no .pressure files at all) or a kernel older than 4.20 reports none of the
+  // three, and a cgroup v2 host whose kernel predates 5.13 still reports cpu_pressure_pct (the "some"
+  // line has existed for cpu since PSI's introduction) but may be missing the "full" line (not read
+  // here) - that version skew affects only full, never the "some" figure these three fields read.
+  optional double cpu_pressure_pct = 20;
+  optional double memory_pressure_pct = 21;
+  optional double io_pressure_pct = 22;
 }
 
 // One physical network interface the node probe found up (see HostProbe.interfaces). Everything here is

@@ -128,6 +128,27 @@ describe('Inspector · node network interfaces', () => {
   })
 })
 
+describe('Inspector · node pressure', () => {
+  test('cgroup v2 PSI figures show only the resources actually read, each with its own title', () => {
+    renderNodeInspector(node({ cpuPressurePct: 2.5, ioPressurePct: 13.75 }))
+    const cpu = screen.getByText('CPU 2.5%')
+    const io = screen.getByText('IO 13.8%')
+    expect(cpu).toHaveAttribute('title')
+    expect(io).toHaveAttribute('title')
+    expect(screen.queryByText(/^Mem /)).not.toBeInTheDocument()
+  })
+
+  test('no "Pressure" row at all when the probe never read any of the three', () => {
+    renderNodeInspector(node())
+    expect(screen.queryByText('Pressure')).not.toBeInTheDocument()
+  })
+
+  test('a real, measured 0% still renders - it must not be treated the same as "not read"', () => {
+    renderNodeInspector(node({ memoryPressurePct: 0 }))
+    expect(screen.getByText('Mem 0.0%')).toBeInTheDocument()
+  })
+})
+
 describe('Inspector · node tunnels', () => {
   test('an unconfirmed tunnel shows just its kind, no fabricated peer', () => {
     renderNodeInspector(node({ tunnels: [{ name: 'wg0', kind: 'wireguard', addresses: ['10.8.0.1/24'], routes: ['10.8.0.0/24'] }] }))

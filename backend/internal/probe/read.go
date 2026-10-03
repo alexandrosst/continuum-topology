@@ -11,6 +11,7 @@ package probe
 
 import (
 	"bufio"
+	"math"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -118,7 +119,54 @@ func Read(p Paths) *continuumv1.HostProbe {
 	if n, err := strconv.Atoi(strings.TrimSpace(readText(filepath.Join(dmi, "chassis_type")))); err == nil && n > 0 && n < 64 {
 		h.ChassisType = int32(n)
 	}
+	cgroup := filepath.Join(p.Sys, "fs", "cgroup")
+	h.CpuPressurePct = psiSomeAvg60(filepath.Join(cgroup, "cpu.pressure"))
+	h.MemoryPressurePct = psiSomeAvg60(filepath.Join(cgroup, "memory.pressure"))
+	h.IoPressurePct = psiSomeAvg60(filepath.Join(cgroup, "io.pressure"))
 	return h
+}
+
+// psiSomeAvg60 reads one cgroup v2 pressure-stall file's "some avg60" figure - see
+// Documentation/accounting/psi.rst and HostProbe.cpu_pressure_pct's own doc for exactly what that
+// number means and why it is read at the root cgroup rather than per-pod. The file has two lines,
+// "some" and (for memory/io; cpu lacks it on a kernel older than 5.13) "full", each shaped like:
+//
+//	some avg10=0.00 avg60=0.00 avg300=0.00 total=0
+//
+// Returns nil - not a parsed 0 - for anything this probe cannot be sure of: no unified cgroup v2
+// hierarchy mounted here at all (a cgroup v1 host, or a kernel too old to have PSI), a permission
+// error, or a line this parser does not recognize. The "some" line is read, never "full": full only
+// means every task was stalled at once, a stricter and rarer condition this field does not claim to
+// measure, and cpu's own "full" line is missing entirely often enough (pre-5.13 kernels) that reading
+// it here would make cpu_pressure_pct's own presence depend on kernel version in a way the other two
+// fields' does not.
+func psiSomeAvg60(path string) *float64 {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		rest, ok := strings.CutPrefix(line, "some ")
+		if !ok {
+			continue
+		}
+		for _, field := range strings.Fields(rest) {
+			v, ok := strings.CutPrefix(field, "avg60=")
+			if !ok {
+				continue
+			}
+			n, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				return nil
+			}
+			return &n
+		}
+		return nil
+	}
+	return nil
 }
 
 // cpuModel reads the CPU model name the kernel reports (e.g. "Intel(R) Xeon(R) Platinum ..."). It is
@@ -304,6 +352,18 @@ func hasBattery(dir string) bool {
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
+// sanitizePressurePct keeps a sent cpu_pressure_pct/memory_pressure_pct/io_pressure_pct only when it is
+// a plausible percentage - PSI's own avg10/avg60/avg300 are each bounded to [0, 100] by the kernel, so
+// anything outside that (or NaN/Inf, which a hostile or buggy sender could still put on the wire despite
+// the kernel itself never producing one) is dropped rather than stored or shown as if it were real.
+func sanitizePressurePct(v *float64) *float64 {
+	if v == nil || math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0 || *v > 100 {
+		return nil
+	}
+	n := *v
+	return &n
+}
+
 // Sanitize bounds and cleans an observation received from the network, so a hostile or buggy sender
 // cannot store anything but short printable strings and known values.
 func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
@@ -322,6 +382,9 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 	if h.CpuThreads > 0 && h.CpuThreads <= 4096 {
 		out.CpuThreads = h.CpuThreads
 	}
+	out.CpuPressurePct = sanitizePressurePct(h.CpuPressurePct)
+	out.MemoryPressurePct = sanitizePressurePct(h.MemoryPressurePct)
+	out.IoPressurePct = sanitizePressurePct(h.IoPressurePct)
 	seen := map[string]bool{}
 	for _, u := range h.Uplinks {
 		if (u == "ethernet" || u == "wifi" || u == "cellular") && !seen[u] {

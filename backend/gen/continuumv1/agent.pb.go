@@ -1960,9 +1960,22 @@ type HostProbe struct {
 	// network segment with no tunnel involved at all - see model.ClusterLink's own doc for what that does
 	// and does not establish, and why this needs the same two-way, specificity-floored corroboration
 	// tunnels already get rather than being trusted from one side alone.
-	HostSubnets   []string `protobuf:"bytes,19,rep,name=host_subnets,json=hostSubnets,proto3" json:"host_subnets,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	HostSubnets []string `protobuf:"bytes,19,rep,name=host_subnets,json=hostSubnets,proto3" json:"host_subnets,omitempty"`
+	// cgroup v2 pressure-stall percentages (see Documentation/accounting/psi.rst), read straight from
+	// /sys/fs/cgroup/{cpu,memory,io}.pressure's own "some avg60" figure at the root cgroup - the share of
+	// the last 60 seconds this whole machine had at least one task stalled waiting on that resource that
+	// could otherwise have made progress. A direct, measured bottleneck signal, not one inferred from a
+	// raw usage counter the way a plain CPU/memory percentage is. optional (not a plain double) because
+	// 0% is a real, common, measured reading here - unset must stay tellable from it: a cgroup v1 host (no
+	// unified hierarchy, so no .pressure files at all) or a kernel older than 4.20 reports none of the
+	// three, and a cgroup v2 host whose kernel predates 5.13 still reports cpu_pressure_pct (the "some"
+	// line has existed for cpu since PSI's introduction) but may be missing the "full" line (not read
+	// here) - that version skew affects only full, never the "some" figure these three fields read.
+	CpuPressurePct    *float64 `protobuf:"fixed64,20,opt,name=cpu_pressure_pct,json=cpuPressurePct,proto3,oneof" json:"cpu_pressure_pct,omitempty"`
+	MemoryPressurePct *float64 `protobuf:"fixed64,21,opt,name=memory_pressure_pct,json=memoryPressurePct,proto3,oneof" json:"memory_pressure_pct,omitempty"`
+	IoPressurePct     *float64 `protobuf:"fixed64,22,opt,name=io_pressure_pct,json=ioPressurePct,proto3,oneof" json:"io_pressure_pct,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *HostProbe) Reset() {
@@ -2126,6 +2139,27 @@ func (x *HostProbe) GetHostSubnets() []string {
 		return x.HostSubnets
 	}
 	return nil
+}
+
+func (x *HostProbe) GetCpuPressurePct() float64 {
+	if x != nil && x.CpuPressurePct != nil {
+		return *x.CpuPressurePct
+	}
+	return 0
+}
+
+func (x *HostProbe) GetMemoryPressurePct() float64 {
+	if x != nil && x.MemoryPressurePct != nil {
+		return *x.MemoryPressurePct
+	}
+	return 0
+}
+
+func (x *HostProbe) GetIoPressurePct() float64 {
+	if x != nil && x.IoPressurePct != nil {
+		return *x.IoPressurePct
+	}
+	return 0
 }
 
 // One physical network interface the node probe found up (see HostProbe.interfaces). Everything here is
@@ -5528,7 +5562,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01B\f\n" +
 	"\n" +
-	"_pod_count\"\xe5\x05\n" +
+	"_pod_count\"\xb7\a\n" +
 	"\tHostProbe\x12#\n" +
 	"\rprobe_version\x18\x01 \x01(\tR\fprobeVersion\x12%\n" +
 	"\x0ehypervisor_bit\x18\x02 \x01(\bR\rhypervisorBit\x12'\n" +
@@ -5556,7 +5590,13 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"interfaces\x12(\n" +
 	"\x05disks\x18\x11 \x03(\v2\x12.continuum.v1.DiskR\x05disks\x127\n" +
 	"\atunnels\x18\x12 \x03(\v2\x1d.continuum.v1.TunnelInterfaceR\atunnels\x12!\n" +
-	"\fhost_subnets\x18\x13 \x03(\tR\vhostSubnets\"k\n" +
+	"\fhost_subnets\x18\x13 \x03(\tR\vhostSubnets\x12-\n" +
+	"\x10cpu_pressure_pct\x18\x14 \x01(\x01H\x00R\x0ecpuPressurePct\x88\x01\x01\x123\n" +
+	"\x13memory_pressure_pct\x18\x15 \x01(\x01H\x01R\x11memoryPressurePct\x88\x01\x01\x12+\n" +
+	"\x0fio_pressure_pct\x18\x16 \x01(\x01H\x02R\rioPressurePct\x88\x01\x01B\x13\n" +
+	"\x11_cpu_pressure_pctB\x16\n" +
+	"\x14_memory_pressure_pctB\x12\n" +
+	"\x10_io_pressure_pct\"k\n" +
 	"\x10NetworkInterface\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1d\n" +
@@ -6062,6 +6102,7 @@ func file_continuum_v1_agent_proto_init() {
 	}
 	file_continuum_v1_agent_proto_msgTypes[12].OneofWrappers = []any{}
 	file_continuum_v1_agent_proto_msgTypes[16].OneofWrappers = []any{}
+	file_continuum_v1_agent_proto_msgTypes[17].OneofWrappers = []any{}
 	file_continuum_v1_agent_proto_msgTypes[29].OneofWrappers = []any{
 		(*ServerMessage_Ack)(nil),
 		(*ServerMessage_Config)(nil),
