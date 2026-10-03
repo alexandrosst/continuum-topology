@@ -1014,7 +1014,9 @@ function Canvas() {
                 if (selectNodeId) {
                   setMultiSelectedIds((prev) => (prev.length === 0 ? prev : []))
                   select({ kind: 'node', id: selectNodeId })
-                  setNodes((ns) => syncSelected(ns, new Set([selectNodeId])))
+                  // syncSelected checks React Flow node ids, which are cardId(...)-prefixed - not the
+                  // raw MachineNode id data-select-node carries (see cardId's call sites in graph.ts).
+                  setNodes((ns) => syncSelected(ns, new Set([cardId(selectNodeId)])))
                   return
                 }
                 // Pick mode takes over the click entirely - one click picks (or, for an ineligible node,
