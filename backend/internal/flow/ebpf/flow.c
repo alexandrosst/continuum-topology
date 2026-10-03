@@ -452,10 +452,18 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops.counter);
 		bpf_probe_read_kernel(&pacing_rate, sizeof(pacing_rate), &sk->sk_pacing_rate);
 		__u32 ddrops = (__u32)drops > si->last_drops ? (__u32)drops - si->last_drops : 0;
+		// out/in themselves can be behind si->last_out/last_in here: snapshot() (iter/task_file) runs
+		// concurrently against the same unlocked socks LRU entry and may have already advanced
+		// last_out/last_in past what this tracepoint just read for a long-lived socket. Without this
+		// guard, out - si->last_out underflows (__u64) into a multi-exabyte "traffic spike" for one
+		// report cycle - the same hazard dretrans/ddrops above, and dout/din in snapshot() itself,
+		// already guard against.
+		__u64 dout = out > si->last_out ? out - si->last_out : 0;
+		__u64 din = in > si->last_in ? in - si->last_in : 0;
 		// srtt_us/mdev_us are kept as 8x/4x fixed-point averages respectively (see struct tcp_sock's
 		// comment); >>3 and >>2 recover microseconds. A connection that never left slow start can close
 		// with no sample of either at all (0).
-		add_flow(&si->key, sk, 0, out - si->last_out, in - si->last_in, dretrans, tp->srtt_us >> 3, tp->mdev_us >> 2, dsegs, 0,
+		add_flow(&si->key, sk, 0, dout, din, dretrans, tp->srtt_us >> 3, tp->mdev_us >> 2, dsegs, 0,
 		         tp->snd_cwnd, (__u64)pacing_rate, ddrops);
 	}
 	bpf_map_delete_elem(&socks, &id);

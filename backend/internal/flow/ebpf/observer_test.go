@@ -3,9 +3,12 @@
 package ebpf
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -364,4 +367,111 @@ func TestWithoutLiveCountingBytesArriveAtClose(t *testing.T) {
 	}
 	c.Close()
 	srv.Close()
+}
+
+// TestLiveCollectConcurrentWithCloseNeverUnderflowsBytes stresses the exact hazard on_state's TCP_CLOSE
+// branch must guard against: snapshot() (run from inside Collect, via the iter/task_file program) walking
+// the same long-lived socket's entry in the shared, unlocked socks LRU map while that socket is
+// concurrently closing. If on_state ever computes out - si.last_out (or in - si.last_in) after snapshot()
+// has already advanced last_out/last_in past the value on_state read, the unsigned subtraction wraps into
+// a multi-exabyte "spike" for that one report. There is no way to force the two independently-scheduled
+// kernel probes onto a specific interleaving from userspace, so instead of trying to land the race on
+// purpose, this hammers Collect() (and therefore snapshot()) from one goroutine while a steady stream of
+// small connections opens, exchanges a few KB and closes on another - giving the two programs every
+// opportunity to race on the same socket - and asserts the one invariant that must always hold no matter
+// how they interleave: no single flow's bytes in any one window are anywhere near what an underflow would
+// produce. With the out/in guard in place this can never fail; without it, a wrap would blow the bound by
+// many orders of magnitude.
+func TestLiveCollectConcurrentWithCloseNeverUnderflowsBytes(t *testing.T) {
+	o := openWith(t, Options{Live: true})
+	if !o.Live() {
+		t.Fatalf("live counting was asked for and is not running: %v", o.LiveErr)
+	}
+
+	const perConnBytes = 4096
+	// Real traffic here tops out in the low single-digit megabytes across the whole test; a wrapped
+	// uint64 subtraction lands nowhere near this, so the bound cleanly separates "working" from "broken"
+	// without being tight enough to make the test flaky.
+	const sanityBound = 8 << 20 // 8 MiB
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				buf := make([]byte, perConnBytes)
+				if _, err := io.ReadFull(c, buf); err != nil {
+					return
+				}
+				c.Write(buf)
+			}()
+		}
+	}()
+
+	var mu sync.Mutex
+	var bad []string
+	check := func(fl []*continuumv1.RawFlow) {
+		for _, f := range fl {
+			if f.BytesOut > sanityBound || f.BytesIn > sanityBound {
+				mu.Lock()
+				bad = append(bad, fmt.Sprintf("port=%d client=%v connections=%d out=%d in=%d: implausible, looks like a TCP_CLOSE byte-counter underflow", f.Port, f.Client, f.Connections, f.BytesOut, f.BytesIn))
+				mu.Unlock()
+			}
+		}
+	}
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			fl, _, err := o.Collect()
+			if err != nil {
+				mu.Lock()
+				bad = append(bad, fmt.Sprintf("Collect: %v", err))
+				mu.Unlock()
+				return
+			}
+			check(fl)
+		}
+	}()
+
+	const iterations = 300
+	for i := 0; i < iterations; i++ {
+		c, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.Write(make([]byte, perConnBytes))
+		io.ReadFull(c, make([]byte, perConnBytes))
+		c.Close()
+	}
+
+	close(stop)
+	wg.Wait()
+
+	// Drain whatever is left after the stress loop and apply the same check once more.
+	fl, _, err := o.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	check(fl)
+
+	if len(bad) > 0 {
+		t.Errorf("%d implausible byte count(s) seen under concurrent Collect()/close:\n%s", len(bad), strings.Join(bad, "\n"))
+	}
 }
