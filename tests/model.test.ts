@@ -891,6 +891,21 @@ test('moveTargets: residency, trust zone, selectors and capacity rule clusters o
   assert.ok(moveTargets({ ...svc('w-orch'), kind: 'DaemonSet' }, mm()).every((x) => !x.fits))
 })
 
+test('movability: a kubernetes.io/os selector resolves from MachineNode.os, not just the raw label', () => {
+  // None of the seeded nodes carry a literal kubernetes.io/os label (seed.ts's `n` helper defaults labels to {}),
+  // so this is exactly the stock-Helm-chart nodeSelector that used to come back "does not fit" everywhere even
+  // though every node's (required, always-known) os field answers it.
+  const linux = moveTargets({ ...svc('w-orch'), nodeSelector: { 'kubernetes.io/os': 'linux' } }, mm())
+  assert.ok(linux.some((t) => t.fits), 'a linux selector should fit somewhere: every seeded node is Linux')
+  assert.ok(!linux.some((t) => t.blockers.some((b) => /no node carries/.test(b))))
+
+  // os is required, so unlike arch it resolves definitively: a selector nothing can satisfy is a hard "does not
+  // fit", not a "can't tell" waiting on an agent to report it.
+  const windows = moveTargets({ ...svc('w-orch'), nodeSelector: { 'kubernetes.io/os': 'windows' } }, mm())
+  assert.ok(windows.every((t) => !t.fits))
+  assert.ok(windows.some((t) => t.blockers.some((b) => /no node carries/.test(b))))
+})
+
 /* ---------- saved views and search ---------- */
 
 test('views: options are canonical, defaults are dropped, unknown options are ignored', () => {

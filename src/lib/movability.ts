@@ -83,8 +83,19 @@ const isArchKey = (k: string) => k === 'kubernetes.io/arch' || k === 'beta.kuber
 const isOsKey = (k: string) => k === 'kubernetes.io/os' || k === 'beta.kubernetes.io/os'
 const looksLikeAccelerator = (k: string, v: string) => /gpu|nvidia|accelerator|tpu|npu|coral|jetson/i.test(`${k}=${v}`)
 
+/**
+ * `kubernetes.io/os`'s value space is exactly "linux" or "windows", never a distro: `MachineNode.os` is a free-text
+ * OS/version string instead (the node form's placeholder is "Ubuntu 22.04"; "Windows Server 2022" is a picklist
+ * entry too - see OS_OPTIONS in present.ts), so the label has to be derived from it, not copied verbatim.
+ */
+const kubeOs = (os: string): 'linux' | 'windows' => (/windows/i.test(os) ? 'windows' : 'linux')
+
 /** Labels a node can be matched on, including the ones Kubernetes derives from fields. */
 const nodeLabels = (n: MachineNode): Record<string, string> => ({
+  // os is a required field (unlike arch, which a node may never have reported), so this is always known and
+  // resolves a selector definitively - matches() needs no "maybe" case for it the way it has for arch below.
+  'kubernetes.io/os': kubeOs(n.os),
+  'beta.kubernetes.io/os': kubeOs(n.os),
   ...(n.arch ? { 'kubernetes.io/arch': n.arch, 'beta.kubernetes.io/arch': n.arch } : {}),
   ...(n.zone ? { 'topology.kubernetes.io/zone': n.zone } : {}),
   ...n.labels,
