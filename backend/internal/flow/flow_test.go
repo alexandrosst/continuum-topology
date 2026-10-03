@@ -315,6 +315,95 @@ func TestAggregatorCarriesDnsRttUs(t *testing.T) {
 	}
 }
 
+// TestAggregatorBuildsASeparatePodLevelBreakdown pins podFlows' whole point: two distinct pod pairs
+// behind the same workload pair stay distinguishable there, even though flows above (deliberately)
+// collapses them into one edge.
+func TestAggregatorBuildsASeparatePodLevelBreakdown(t *testing.T) {
+	a := a2(t)
+	f1 := &continuumv1.Flow{Src: workload("shop/Deployment/cart"), Dst: workload("shop/Deployment/db"), Port: 5432, Protocol: "tcp", Connections: 2, BytesOut: 100, SrcPod: "cart-aaa", DstPod: "db-xxx"}
+	a.Add(f1)
+	f2 := &continuumv1.Flow{Src: workload("shop/Deployment/cart"), Dst: workload("shop/Deployment/db"), Port: 5432, Protocol: "tcp", Connections: 3, BytesOut: 200, SrcPod: "cart-bbb", DstPod: "db-xxx"}
+	a.Add(f2)
+	// a second report for the first pod pair must merge, not duplicate.
+	f3 := &continuumv1.Flow{Src: workload("shop/Deployment/cart"), Dst: workload("shop/Deployment/db"), Port: 5432, Protocol: "tcp", Connections: 1, BytesOut: 10, SrcPod: "cart-aaa", DstPod: "db-xxx"}
+	a.Add(f3)
+	// traffic with no pod identity on either side must not appear in podFlows at all.
+	a.Add(&continuumv1.Flow{Src: workload("shop/Deployment/cart"), Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 1})
+	b := a.Flush()
+	if len(b.Flows) != 2 {
+		t.Fatalf("the workload-level table still collapses by pod: %d flows, want 2 (cart->db, cart->internet)", len(b.Flows))
+	}
+	if len(b.PodFlows) != 2 {
+		t.Fatalf("the pod-level table keeps the two distinct pod pairs apart: %d, want 2", len(b.PodFlows))
+	}
+	byPods := map[string]*continuumv1.Flow{}
+	for _, f := range b.PodFlows {
+		byPods[f.SrcPod+">"+f.DstPod] = f
+	}
+	if g := byPods["cart-aaa>db-xxx"]; g == nil || g.Connections != 3 || g.BytesOut != 110 {
+		t.Errorf("cart-aaa>db-xxx = %+v, want connections=3 bytesOut=110 (merged across two reports)", g)
+	}
+	if g := byPods["cart-bbb>db-xxx"]; g == nil || g.Connections != 3 || g.BytesOut != 200 {
+		t.Errorf("cart-bbb>db-xxx = %+v, want connections=3 bytesOut=200", g)
+	}
+}
+
+// TestPodFlowsNeverAliasesTheWorkloadLevelEntry guards the exact aliasing bug addPod's own doc comment
+// warns about: a brand-new podFlows entry must be an independent object from flows' entry for the same
+// key, or a later, unrelated pod pair reusing that workload pair's flows[k] object would silently
+// inflate this pod pair's already-flushed-independent counters too.
+func TestPodFlowsNeverAliasesTheWorkloadLevelEntry(t *testing.T) {
+	a := a2(t)
+	f1 := &continuumv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, SrcPod: "cart-aaa"}
+	a.Add(f1) // first touch of key k: flows[k] is literally f1, and podFlows[pk1] must be a clone of it
+	f2 := &continuumv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 100, SrcPod: "cart-bbb"}
+	a.Add(f2) // same k, a different pod pair: this merges into flows[k] (now f1, mutated in place)
+	b := a.Flush()
+	for _, f := range b.PodFlows {
+		if f.SrcPod == "cart-aaa" && f.Connections != 1 {
+			t.Fatalf("cart-aaa's own entry must still read 1, not have absorbed cart-bbb's 100: got %d", f.Connections)
+		}
+	}
+}
+
+// TestPodFlowsResetsEveryFlushUnlikeFlows pins podFlows' "right now" semantics: unlike flows, nothing
+// about it survives a Flush, even though the exact same pod pair keeps reporting traffic.
+func TestPodFlowsResetsEveryFlushUnlikeFlows(t *testing.T) {
+	a := a2(t)
+	a.Add(&continuumv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 5, SrcPod: "cart-aaa"})
+	b1 := a.Flush()
+	if len(b1.PodFlows) != 1 || b1.PodFlows[0].Connections != 5 {
+		t.Fatalf("first window = %v", b1.PodFlows)
+	}
+	if b2 := a.Flush(); b2 != nil {
+		t.Fatalf("an immediate second flush with nothing new added must report nothing: %v", b2)
+	}
+	a.Add(&continuumv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 2, SrcPod: "cart-aaa"})
+	b3 := a.Flush()
+	if len(b3.PodFlows) != 1 || b3.PodFlows[0].Connections != 2 {
+		t.Fatalf("a later window must start from zero, not carry the first window's 5 forward: %v", b3.PodFlows)
+	}
+}
+
+// TestPodFlowsIsBoundedAndPausingForgetsIt mirrors bounded_test.go's own coverage of flows (eviction,
+// and a paused aggregator holding nothing) for the separate pod-level table.
+func TestPodFlowsIsBoundedAndPausingForgetsIt(t *testing.T) {
+	a := NewAggregator()
+	a.SetPodMax(10)
+	for i := 0; i < 100; i++ {
+		a.Add(&continuumv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, SrcPod: "cart-" + strconv.Itoa(i)})
+	}
+	b := a.Flush()
+	if len(b.PodFlows) > 20 {
+		t.Fatalf("holding %d pod-level entries with a cap of 10", len(b.PodFlows))
+	}
+	a.Add(&continuumv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, SrcPod: "cart-x"})
+	a.SetPaused(true)
+	if b := a.Flush(); b != nil {
+		t.Fatal("pausing must forget the pod-level table too")
+	}
+}
+
 // a2 is a second, freshly time-controlled Aggregator for the SNI half of the test above, which needs its
 // own window rather than sharing the first Aggregator's already-flushed one.
 func a2(t *testing.T) *Aggregator {
