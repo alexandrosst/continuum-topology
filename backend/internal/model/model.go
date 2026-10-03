@@ -246,6 +246,21 @@ type Node struct {
 	// throughput attached. Nil when the flow collector never reported one for this node (an older
 	// collector, or nothing has been seen on any interface yet).
 	LinkSaturation []LinkSaturation `json:"linkSaturation,omitempty"`
+	// SnatExhaustion is how many connect() attempts on this node have failed with EADDRNOTAVAIL
+	// (ephemeral port / SNAT exhaustion) since its flow collector's eBPF program was loaded - computed
+	// by the collector (see continuumv1.FlowReport.snat_exhaustion's own doc comment, and flow.c's
+	// snat_exhaustion map, for the full story, including why the kernel function this hooks is an
+	// internal one with no ABI stability guarantee). 0 when the collector never reported one for this
+	// node (an older collector, conntrack rather than eBPF, or a kernel where neither the fexit nor the
+	// kretprobe attach path worked) - indistinguishable from a real, healthy 0, the same ambiguity
+	// LinkSaturation's own "nil means never reported" leaves unresolved for an empty slice; unlike
+	// OomKillCount above this is not given a pointer to disambiguate, since the one case worth a person's
+	// attention is "greater than zero", not "confirmed exactly zero". Most relevant on a gateway node
+	// running many short-lived outbound connections (a NAT/egress point, or anything proxying lots of
+	// small CoAP/MQTT-style flows): such a node can look perfectly healthy by every other signal here
+	// while this climbs, since a connection that failed before reaching ESTABLISHED never shows up as a
+	// Dependency, a retransmit, or anything else this model otherwise tracks.
+	SnatExhaustion uint64 `json:"snatExhaustion,omitempty"`
 }
 
 // LinkSaturation is one physical network interface's current send+receive throughput on a node, and,

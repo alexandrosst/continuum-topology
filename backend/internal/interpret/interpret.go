@@ -35,6 +35,12 @@ type Input struct {
 	// carried any, or when its flow collectors never turned on link-saturation reporting at all (an older
 	// collector binary, say) - either way, a node simply gets no LinkSaturation facts, not zeroed ones.
 	LinkSaturation map[string][]*continuumv1.LinkSaturation
+	// SnatExhaustion is this agent's latest per-node SNAT/ephemeral-port-exhaustion reading, keyed by
+	// node name (Hub.noteFlows copies FlowBatch.collectors[].snat_exhaustion into view.snatExhaustion,
+	// mirroring LinkSaturation above) - a collector-side running total (see flow.c's own
+	// snat_exhaustion doc comment), not something this pass sums itself. Absent for a node with nothing
+	// to report here, the same "no entry, not a zeroed one" treatment LinkSaturation gets.
+	SnatExhaustion map[string]uint64
 }
 
 // systemNamespace is excluded from the topology: it is machinery, not the user's applications.
@@ -247,6 +253,12 @@ func Interpret(in Input) model.Topology {
 				continue
 			}
 			mn.LinkSaturation = append(mn.LinkSaturation, model.LinkSaturation{Iface: ls.Iface, ThroughputBps: ls.ThroughputBps, SaturationPct: ls.SaturationPct})
+		}
+		// SnatExhaustion shares LinkSaturation's own pipeline and the same unconditional-on-n.Probe
+		// treatment - see its own doc comment on Input above for why a missing map entry (rather than
+		// a present 0) is how "nothing to report" is spelled here.
+		if se, ok := in.SnatExhaustion[n.Name]; ok {
+			mn.SnatExhaustion = se
 		}
 		if nodeStatus(n) == "healthy" {
 			healthy++

@@ -27,6 +27,15 @@ type Source interface {
 	Close() error
 }
 
+// SnatExhaustionSource is implemented by a Source that can also say how many connect() attempts have
+// failed with EADDRNOTAVAIL (ephemeral port / SNAT exhaustion) - currently only the eBPF Observer;
+// conntrack has no way to see a connect() attempt that failed before it ever created a conntrack entry.
+// Checked with a type assertion rather than added to Source itself, so conntrack.Reader does not have
+// to grow a method that would always just return 0 for it.
+type SnatExhaustionSource interface {
+	SnatExhaustion() uint64
+}
+
 // Opener tries to start one method.
 type Opener func() (Source, error)
 
@@ -64,8 +73,10 @@ func Choose(mode string, ebpf, conntrack Opener) (Source, []string, error) {
 	return nil, why, fmt.Errorf("no way of observing traffic works on this node: %s", strings.Join(why, "; "))
 }
 
-// Report builds the wire message for one window.
-func Report(src Source, node string, window time.Duration, flows []*continuumv1.RawFlow, lost uint64) *continuumv1.FlowReport {
+// Report builds the wire message for one window. snatExhaustion is this node's current lifetime total
+// (see SnatExhaustionSource), 0 when src does not implement it or has not attached either way of
+// counting it.
+func Report(src Source, node string, window time.Duration, flows []*continuumv1.RawFlow, lost uint64, snatExhaustion uint64) *continuumv1.FlowReport {
 	// Computed from every flow this window actually saw, before the busiest-first truncation below drops
 	// the rest: a quiet, low-connection-count flow can still carry real bytes on an interface, and the
 	// saturation rollup must not miss those just because the flow list itself got trimmed for size.
@@ -84,6 +95,7 @@ func Report(src Source, node string, window time.Duration, flows []*continuumv1.
 		Lost:           lost,
 		Flows:          flows,
 		LinkSaturation: linkSaturation,
+		SnatExhaustion: snatExhaustion,
 	}
 }
 
@@ -109,9 +121,15 @@ func Run(ctx context.Context, src Source, agentURL string, secret []byte, node s
 		}
 		pending = merge(pending, flows)
 		pendingLost += lost
+		// A lifetime total already (see SnatExhaustionSource's own doc comment), so this is read fresh
+		// every window, never accumulated into a pending-like variable the way lost is above.
+		var snatExhaustion uint64
+		if s, ok := src.(SnatExhaustionSource); ok {
+			snatExhaustion = s.SnatExhaustion()
+		}
 		// A window with nothing in it is still reported: it is how the agent, and then the dashboard,
 		// know this node is being observed and simply quiet.
-		rep := Report(src, node, time.Since(last), pending, pendingLost)
+		rep := Report(src, node, time.Since(last), pending, pendingLost, snatExhaustion)
 		body, err := protojson.Marshal(rep)
 		if err != nil {
 			logf("could not encode a report", "err", err)

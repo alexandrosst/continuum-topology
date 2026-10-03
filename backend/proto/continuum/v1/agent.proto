@@ -811,6 +811,14 @@ message FlowReport {
   // LinkSaturation's own doc comment. Empty when the collector saw no traffic on any interface this
   // window, or could not resolve an interface name for anything it saw (RawFlow.iface empty).
   repeated LinkSaturation link_saturation = 7;
+  // Connection attempts on this node that failed with EADDRNOTAVAIL (ephemeral port / SNAT exhaustion)
+  // since the collector's eBPF program was loaded - see flow.c's own snat_exhaustion doc comment for
+  // the full story, including why this hooks an internal kernel function rather than a stable ABI. A
+  // running total, not a per-window count: unlike lost above, the collector never resets it, so this
+  // only ever grows (or resets to 0 if the collector process itself restarts). Always 0 on a
+  // conntrack-derived report - conntrack never sees a connect() attempt that failed this way, only the
+  // ones that got far enough to need a conntrack entry.
+  uint64 snat_exhaustion = 8;
 }
 
 message FlowEndpoint {
@@ -919,6 +927,9 @@ message CollectorInfo {
   // the agent's own Aggregator so the server learns it alongside everything else a collector is
   // "seen" reporting) - see LinkSaturation's own doc comment.
   repeated LinkSaturation link_saturation = 4;
+  // This node's latest FlowReport.snat_exhaustion reading, carried through the same way
+  // link_saturation above is - see that field's own doc comment.
+  uint64 snat_exhaustion = 5;
 }
 
 message FlowBatch {

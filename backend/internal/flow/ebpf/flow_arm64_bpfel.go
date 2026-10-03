@@ -91,16 +91,19 @@ type flowSockInfo struct {
 //
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
-	flowMapDnsPending      = "dns_pending"
-	flowMapFlows           = "flows"
-	flowMapLost            = "lost"
-	flowMapNames           = "names"
-	flowMapSocks           = "socks"
-	flowProgObserveEgress  = "observe_egress"
-	flowProgObserveIngress = "observe_ingress"
-	flowProgOnState        = "on_state"
-	flowProgSnapshot       = "snapshot"
-	flowVarUnusedNameEvent = "unused_name_event"
+	flowMapDnsPending              = "dns_pending"
+	flowMapFlows                   = "flows"
+	flowMapLost                    = "lost"
+	flowMapNames                   = "names"
+	flowMapSnatExhaustion          = "snat_exhaustion"
+	flowMapSocks                   = "socks"
+	flowProgObserveEgress          = "observe_egress"
+	flowProgObserveIngress         = "observe_ingress"
+	flowProgOnHashConnectFexit     = "on_hash_connect_fexit"
+	flowProgOnHashConnectKretprobe = "on_hash_connect_kretprobe"
+	flowProgOnState                = "on_state"
+	flowProgSnapshot               = "snapshot"
+	flowVarUnusedNameEvent         = "unused_name_event"
 )
 
 // loadFlow returns the embedded CollectionSpec for flow.
@@ -145,21 +148,24 @@ type flowSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type flowProgramSpecs struct {
-	ObserveEgress  *ebpf.ProgramSpec `ebpf:"observe_egress"`
-	ObserveIngress *ebpf.ProgramSpec `ebpf:"observe_ingress"`
-	OnState        *ebpf.ProgramSpec `ebpf:"on_state"`
-	Snapshot       *ebpf.ProgramSpec `ebpf:"snapshot"`
+	ObserveEgress          *ebpf.ProgramSpec `ebpf:"observe_egress"`
+	ObserveIngress         *ebpf.ProgramSpec `ebpf:"observe_ingress"`
+	OnHashConnectFexit     *ebpf.ProgramSpec `ebpf:"on_hash_connect_fexit"`
+	OnHashConnectKretprobe *ebpf.ProgramSpec `ebpf:"on_hash_connect_kretprobe"`
+	OnState                *ebpf.ProgramSpec `ebpf:"on_state"`
+	Snapshot               *ebpf.ProgramSpec `ebpf:"snapshot"`
 }
 
 // flowMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type flowMapSpecs struct {
-	DnsPending *ebpf.MapSpec `ebpf:"dns_pending"`
-	Flows      *ebpf.MapSpec `ebpf:"flows"`
-	Lost       *ebpf.MapSpec `ebpf:"lost"`
-	Names      *ebpf.MapSpec `ebpf:"names"`
-	Socks      *ebpf.MapSpec `ebpf:"socks"`
+	DnsPending     *ebpf.MapSpec `ebpf:"dns_pending"`
+	Flows          *ebpf.MapSpec `ebpf:"flows"`
+	Lost           *ebpf.MapSpec `ebpf:"lost"`
+	Names          *ebpf.MapSpec `ebpf:"names"`
+	SnatExhaustion *ebpf.MapSpec `ebpf:"snat_exhaustion"`
+	Socks          *ebpf.MapSpec `ebpf:"socks"`
 }
 
 // flowVariableSpecs contains global variables before they are loaded into the kernel.
@@ -189,11 +195,12 @@ func (o *flowObjects) Close() error {
 //
 // It can be passed to loadFlowObjects or ebpf.CollectionSpec.LoadAndAssign.
 type flowMaps struct {
-	DnsPending *ebpf.Map `ebpf:"dns_pending"`
-	Flows      *ebpf.Map `ebpf:"flows"`
-	Lost       *ebpf.Map `ebpf:"lost"`
-	Names      *ebpf.Map `ebpf:"names"`
-	Socks      *ebpf.Map `ebpf:"socks"`
+	DnsPending     *ebpf.Map `ebpf:"dns_pending"`
+	Flows          *ebpf.Map `ebpf:"flows"`
+	Lost           *ebpf.Map `ebpf:"lost"`
+	Names          *ebpf.Map `ebpf:"names"`
+	SnatExhaustion *ebpf.Map `ebpf:"snat_exhaustion"`
+	Socks          *ebpf.Map `ebpf:"socks"`
 }
 
 func (m *flowMaps) Close() error {
@@ -202,6 +209,7 @@ func (m *flowMaps) Close() error {
 		m.Flows,
 		m.Lost,
 		m.Names,
+		m.SnatExhaustion,
 		m.Socks,
 	)
 }
@@ -217,16 +225,20 @@ type flowVariables struct {
 //
 // It can be passed to loadFlowObjects or ebpf.CollectionSpec.LoadAndAssign.
 type flowPrograms struct {
-	ObserveEgress  *ebpf.Program `ebpf:"observe_egress"`
-	ObserveIngress *ebpf.Program `ebpf:"observe_ingress"`
-	OnState        *ebpf.Program `ebpf:"on_state"`
-	Snapshot       *ebpf.Program `ebpf:"snapshot"`
+	ObserveEgress          *ebpf.Program `ebpf:"observe_egress"`
+	ObserveIngress         *ebpf.Program `ebpf:"observe_ingress"`
+	OnHashConnectFexit     *ebpf.Program `ebpf:"on_hash_connect_fexit"`
+	OnHashConnectKretprobe *ebpf.Program `ebpf:"on_hash_connect_kretprobe"`
+	OnState                *ebpf.Program `ebpf:"on_state"`
+	Snapshot               *ebpf.Program `ebpf:"snapshot"`
 }
 
 func (p *flowPrograms) Close() error {
 	return _FlowClose(
 		p.ObserveEgress,
 		p.ObserveIngress,
+		p.OnHashConnectFexit,
+		p.OnHashConnectKretprobe,
 		p.OnState,
 		p.Snapshot,
 	)

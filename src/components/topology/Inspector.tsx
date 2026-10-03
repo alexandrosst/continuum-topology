@@ -741,6 +741,16 @@ export default function Inspector({
                   </span>
                 ))}
           </Maybe>
+          <Maybe label="SNAT exhaustion">
+            {n.snatExhaustion === undefined || n.snatExhaustion === 0 ? undefined : (
+              <span
+                className="text-bad"
+                title="Connect() attempts on this node that failed with EADDRNOTAVAIL (ran out of ephemeral ports / SNAT mappings) since its flow collector's eBPF program was loaded - a running total, not a per-window count. A connection that fails this way never shows up as a Dependency or a retransmit, so a node can look healthy by every other signal here while this climbs; most relevant on a gateway proxying lots of short-lived outbound connections."
+              >
+                {n.snatExhaustion} failed connects
+              </span>
+            )}
+          </Maybe>
           <Chips label="Disks" items={n.disks?.map((d) => `${d.model || d.type || 'disk'}${d.sizeBytes ? ` (${formatMemory(d.sizeBytes / 1024 ** 3)})` : ''}`)} />
         </Section>
         <Section title="Network & health">

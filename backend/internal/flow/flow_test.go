@@ -507,8 +507,8 @@ func TestQuietCollectorsAreStillReported(t *testing.T) {
 	if a.Flush() != nil {
 		t.Fatal("nothing seen, nothing to say")
 	}
-	a.Seen("n1", "ebpf", true, nil)
-	a.Seen("n1", "conntrack", false, nil) // the same node's UDP supplement
+	a.Seen("n1", "ebpf", true, nil, 0)
+	a.Seen("n1", "conntrack", false, nil, 0) // the same node's UDP supplement
 	b := a.Flush()
 	if b == nil || len(b.Flows) != 0 || len(b.Collectors) != 2 || b.Collectors[0].Node != "n1" || b.Collectors[0].Method != "conntrack" {
 		t.Fatalf("batch = %+v", b)
@@ -526,7 +526,7 @@ func TestQuietCollectorsAreStillReported(t *testing.T) {
 func TestAggregatorCarriesLinkSaturation(t *testing.T) {
 	a := NewAggregator()
 	pct := 61.0
-	a.Seen("n1", "ebpf", true, []*continuumv1.LinkSaturation{{Iface: "eth0", ThroughputBps: 123, SaturationPct: &pct}})
+	a.Seen("n1", "ebpf", true, []*continuumv1.LinkSaturation{{Iface: "eth0", ThroughputBps: 123, SaturationPct: &pct}}, 0)
 	b := a.Flush()
 	if b == nil || len(b.Collectors) != 1 {
 		t.Fatalf("batch = %+v", b)
@@ -537,10 +537,32 @@ func TestAggregatorCarriesLinkSaturation(t *testing.T) {
 	}
 	// The next window's Seen replaces it wholesale, even with nothing at all (a quiet window on every
 	// interface) - stale saturation from a window that has already closed must never linger.
-	a.Seen("n1", "ebpf", true, nil)
+	a.Seen("n1", "ebpf", true, nil, 0)
 	b2 := a.Flush()
 	if b2 == nil || len(b2.Collectors) != 1 || b2.Collectors[0].LinkSaturation != nil {
 		t.Errorf("batch = %+v, want link saturation cleared", b2)
+	}
+}
+
+// TestAggregatorCarriesSnatExhaustion covers Seen's own per-collector SNAT/ephemeral-port-exhaustion
+// reading (continuumv1.FlowReport.snat_exhaustion -> CollectorInfo.snat_exhaustion): wholesale-replaced
+// on the next Seen for the same node/method, the same treatment TestAggregatorCarriesLinkSaturation
+// above covers for link saturation - even though the number itself is already a running total on the
+// collector's own side (see flow.c's snat_exhaustion doc comment), the aggregator never sums reports
+// into something larger than what the collector itself is currently reporting.
+func TestAggregatorCarriesSnatExhaustion(t *testing.T) {
+	a := NewAggregator()
+	a.Seen("n1", "ebpf", true, nil, 7)
+	b := a.Flush()
+	if b == nil || len(b.Collectors) != 1 || b.Collectors[0].SnatExhaustion != 7 {
+		t.Fatalf("batch = %+v", b)
+	}
+	// A collector restart resets its own counter to 0; Seen must carry that back down too, not keep
+	// whatever the highest reading ever seen was.
+	a.Seen("n1", "ebpf", true, nil, 0)
+	b2 := a.Flush()
+	if b2 == nil || len(b2.Collectors) != 1 || b2.Collectors[0].SnatExhaustion != 0 {
+		t.Errorf("batch = %+v, want snat_exhaustion reset to 0", b2)
 	}
 }
 

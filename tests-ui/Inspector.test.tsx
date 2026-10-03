@@ -187,6 +187,26 @@ describe('Inspector · node link saturation', () => {
   })
 })
 
+describe('Inspector · node SNAT exhaustion', () => {
+  test('no row at all when nothing has been reported', () => {
+    renderNodeInspector(node())
+    expect(screen.queryByText('SNAT exhaustion')).not.toBeInTheDocument()
+  })
+
+  test('a real, measured 0 shows no row either - unlike OOM kills, a confirmed healthy 0 is not worth flagging', () => {
+    renderNodeInspector(node({ snatExhaustion: 0 }))
+    expect(screen.queryByText('SNAT exhaustion')).not.toBeInTheDocument()
+  })
+
+  test('a non-zero count renders and is flagged', () => {
+    renderNodeInspector(node({ snatExhaustion: 12 }))
+    const row = screen.getByText('12 failed connects')
+    expect(row).toBeInTheDocument()
+    expect(row).toHaveAttribute('title')
+    expect(row.className).toContain('text-bad')
+  })
+})
+
 describe('Inspector · node tunnels', () => {
   test('an unconfirmed tunnel shows just its kind, no fabricated peer', () => {
     renderNodeInspector(node({ tunnels: [{ name: 'wg0', kind: 'wireguard', addresses: ['10.8.0.1/24'], routes: ['10.8.0.0/24'] }] }))

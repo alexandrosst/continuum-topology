@@ -57,6 +57,12 @@ type view struct {
 	// batch, the same "right now, not accumulated" treatment as podFlows above and for the same reason:
 	// it is a gauge of the window the collector just reported, not a running total.
 	linkSat map[string][]*continuumv1.LinkSaturation
+	// snatExhaustion is this agent's latest per-node SNAT/ephemeral-port-exhaustion reading
+	// (FlowBatch.collectors[].snat_exhaustion) - the same wholesale-replaced-every-batch treatment as
+	// linkSat right above, and for the same reason: a collector's own counter is a running total since
+	// it was loaded (see flow.c's snat_exhaustion doc comment), but this view only ever holds the most
+	// recent one reported, never a sum of several.
+	snatExhaustion map[string]uint64
 
 	// Measured network paths, keyed by the target id the server issued for them.
 	paths   map[string]*pathTrack
@@ -575,12 +581,22 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 	v.obs.note(fb, now)
 	v.podFlows = fb.PodFlows
 	linkSat := map[string][]*continuumv1.LinkSaturation{}
+	snatExhaustion := map[string]uint64{}
 	for _, c := range fb.Collectors {
 		if len(c.LinkSaturation) > 0 {
 			linkSat[c.Node] = c.LinkSaturation
 		}
+		// Only recorded when non-zero, the same "non-empty when something's there" treatment
+		// linkSat above gives an empty slice: a node with nothing to report here (no collector, or a
+		// collector that never saw an exhausted connect()) simply has no entry, indistinguishable
+		// from a node this server has not heard from on this fact at all - which is fine, since the
+		// one thing worth surfacing to a person is a node that has seen this happen at least once.
+		if c.SnatExhaustion > 0 {
+			snatExhaustion[c.Node] = c.SnatExhaustion
+		}
 	}
 	v.linkSat = linkSat
+	v.snatExhaustion = snatExhaustion
 	v.flowsDirty = true
 	return true, nil
 }
@@ -1155,7 +1171,7 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 			continue
 		}
 		recs := h.nodeRecords(a.ClusterID, v.state, now)
-		t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.state, Now: v.lastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs), PodFlows: v.podFlows, LinkSaturation: v.linkSat})
+		t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.state, Now: v.lastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs), PodFlows: v.podFlows, LinkSaturation: v.linkSat, SnatExhaustion: v.snatExhaustion})
 		var revokedAt time.Time
 		if a.RevokedAt != nil {
 			revokedAt = *a.RevokedAt

@@ -159,3 +159,19 @@ struct pt_regs {
 	/* top of stack page */
 };
 #endif /* __TARGET_ARCH_x86 */
+
+#if defined(__TARGET_ARCH_arm64)
+// bpf_tracing.h's own PT_REGS_ARM64 macro (used by BPF_KRETPROBE, in turn used by flow.c's
+// kretprobe/inet_hash_connect fallback) casts its context pointer to this exact type - the kernel's own
+// arm64 struct user_pt_regs (arch/arm64/include/uapi/asm/ptrace.h), which userspace/BPF sees instead of
+// the kernel-internal struct pt_regs the x86 struct above mirrors. bpf_tracing.h only forward-declares
+// `struct pt_regs;` for arm64 and expects the real user_pt_regs definition to come from vmlinux.h or
+// this header, like struct pt_regs above does for x86 - this file has no vmlinux.h include, so without
+// this, an arm64 kretprobe fails to even compile (an incomplete-type error), not merely to attach.
+struct user_pt_regs {
+	unsigned long long regs[31];
+	unsigned long long sp;
+	unsigned long long pc;
+	unsigned long long pstate;
+};
+#endif /* __TARGET_ARCH_arm64 */

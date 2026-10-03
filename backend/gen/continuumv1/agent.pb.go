@@ -4211,6 +4211,14 @@ type FlowReport struct {
 	// LinkSaturation's own doc comment. Empty when the collector saw no traffic on any interface this
 	// window, or could not resolve an interface name for anything it saw (RawFlow.iface empty).
 	LinkSaturation []*LinkSaturation `protobuf:"bytes,7,rep,name=link_saturation,json=linkSaturation,proto3" json:"link_saturation,omitempty"`
+	// Connection attempts on this node that failed with EADDRNOTAVAIL (ephemeral port / SNAT exhaustion)
+	// since the collector's eBPF program was loaded - see flow.c's own snat_exhaustion doc comment for
+	// the full story, including why this hooks an internal kernel function rather than a stable ABI. A
+	// running total, not a per-window count: unlike lost above, the collector never resets it, so this
+	// only ever grows (or resets to 0 if the collector process itself restarts). Always 0 on a
+	// conntrack-derived report - conntrack never sees a connect() attempt that failed this way, only the
+	// ones that got far enough to need a conntrack entry.
+	SnatExhaustion uint64 `protobuf:"varint,8,opt,name=snat_exhaustion,json=snatExhaustion,proto3" json:"snat_exhaustion,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -4292,6 +4300,13 @@ func (x *FlowReport) GetLinkSaturation() []*LinkSaturation {
 		return x.LinkSaturation
 	}
 	return nil
+}
+
+func (x *FlowReport) GetSnatExhaustion() uint64 {
+	if x != nil {
+		return x.SnatExhaustion
+	}
+	return 0
 }
 
 type FlowEndpoint struct {
@@ -4706,6 +4721,9 @@ type CollectorInfo struct {
 	// the agent's own Aggregator so the server learns it alongside everything else a collector is
 	// "seen" reporting) - see LinkSaturation's own doc comment.
 	LinkSaturation []*LinkSaturation `protobuf:"bytes,4,rep,name=link_saturation,json=linkSaturation,proto3" json:"link_saturation,omitempty"`
+	// This node's latest FlowReport.snat_exhaustion reading, carried through the same way
+	// link_saturation above is - see that field's own doc comment.
+	SnatExhaustion uint64 `protobuf:"varint,5,opt,name=snat_exhaustion,json=snatExhaustion,proto3" json:"snat_exhaustion,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -4766,6 +4784,13 @@ func (x *CollectorInfo) GetLinkSaturation() []*LinkSaturation {
 		return x.LinkSaturation
 	}
 	return nil
+}
+
+func (x *CollectorInfo) GetSnatExhaustion() uint64 {
+	if x != nil {
+		return x.SnatExhaustion
+	}
+	return 0
 }
 
 type FlowBatch struct {
@@ -5995,7 +6020,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x05iface\x18\x01 \x01(\tR\x05iface\x12%\n" +
 	"\x0ethroughput_bps\x18\x02 \x01(\x04R\rthroughputBps\x12*\n" +
 	"\x0esaturation_pct\x18\x03 \x01(\x01H\x00R\rsaturationPct\x88\x01\x01B\x11\n" +
-	"\x0f_saturation_pct\"\x88\x02\n" +
+	"\x0f_saturation_pct\"\xb1\x02\n" +
 	"\n" +
 	"FlowReport\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
@@ -6005,7 +6030,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"bytesKnown\x12\x12\n" +
 	"\x04lost\x18\x05 \x01(\x04R\x04lost\x12+\n" +
 	"\x05flows\x18\x06 \x03(\v2\x15.continuum.v1.RawFlowR\x05flows\x12E\n" +
-	"\x0flink_saturation\x18\a \x03(\v2\x1c.continuum.v1.LinkSaturationR\x0elinkSaturation\"\xa3\x01\n" +
+	"\x0flink_saturation\x18\a \x03(\v2\x1c.continuum.v1.LinkSaturationR\x0elinkSaturation\x12'\n" +
+	"\x0fsnat_exhaustion\x18\b \x01(\x04R\x0esnatExhaustion\"\xa3\x01\n" +
 	"\fFlowEndpoint\x123\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x1f.continuum.v1.FlowEndpoint.KindR\x04kind\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x0e\n" +
@@ -6052,13 +6078,14 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\rrcv_wnd_bytes\x18\x1d \x01(\rR\vrcvWndBytes\x12\"\n" +
 	"\rsnd_wnd_bytes\x18\x1e \x01(\rR\vsndWndBytes\x12*\n" +
 	"\x11wmem_queued_bytes\x18\x1f \x01(\rR\x0fwmemQueuedBytes\x12!\n" +
-	"\fsndbuf_bytes\x18  \x01(\rR\vsndbufBytes\"\xa3\x01\n" +
+	"\fsndbuf_bytes\x18  \x01(\rR\vsndbufBytes\"\xcc\x01\n" +
 	"\rCollectorInfo\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12\x1f\n" +
 	"\vbytes_known\x18\x03 \x01(\bR\n" +
 	"bytesKnown\x12E\n" +
-	"\x0flink_saturation\x18\x04 \x03(\v2\x1c.continuum.v1.LinkSaturationR\x0elinkSaturation\"\xf0\x01\n" +
+	"\x0flink_saturation\x18\x04 \x03(\v2\x1c.continuum.v1.LinkSaturationR\x0elinkSaturation\x12'\n" +
+	"\x0fsnat_exhaustion\x18\x05 \x01(\x04R\x0esnatExhaustion\"\xf0\x01\n" +
 	"\tFlowBatch\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12%\n" +
 	"\x0ewindow_seconds\x18\x02 \x01(\x05R\rwindowSeconds\x12\x12\n" +

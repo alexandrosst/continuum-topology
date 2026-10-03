@@ -496,6 +496,19 @@ export interface MachineNode extends Provenance {
    *  interface's own rated capacity with no throughput attached. Undefined when no flow collector has
    *  reported one for this node (an older collector, or simply nothing seen on any interface yet). */
   linkSaturation?: LinkSaturation[]
+  /** How many connect() attempts on this node have failed with EADDRNOTAVAIL (ephemeral port / SNAT
+   *  exhaustion) since its flow collector's eBPF program was loaded - a collector-side running total
+   *  (see the backend's continuumv1.FlowReport.snat_exhaustion doc for the full story, including why
+   *  the kernel function behind this, inet_hash_connect, is an internal one with no ABI stability
+   *  guarantee: a future kernel can simply stop this counting anything). Undefined when nothing has
+   *  been reported for this node (an older collector, conntrack rather than eBPF, or a kernel where
+   *  neither of the collector's two attach paths worked) - indistinguishable from a real, confirmed 0,
+   *  unlike oomKillCount above, since the one value worth a person's attention here is "greater than
+   *  zero", not "confirmed healthy". Most relevant on a gateway node running many short-lived outbound
+   *  connections (a NAT/egress point, or anything proxying lots of small CoAP/MQTT-style flows): such a
+   *  node can look perfectly healthy by every other signal here while this climbs, since a connection
+   *  that failed before reaching ESTABLISHED never shows up as a Dependency or a retransmit. */
+  snatExhaustion?: number
 }
 
 /** One physical network interface's current send+receive throughput on a node, and, when its rated

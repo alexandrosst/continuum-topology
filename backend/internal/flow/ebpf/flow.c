@@ -1107,3 +1107,71 @@ int observe_ingress(struct __sk_buff *skb) {
 	bpf_ringbuf_submit(ev, 0);
 	return 1;
 }
+// ---- SNAT / ephemeral port exhaustion ----
+//
+// inet_hash_connect() is the function both tcp_v4_connect() and tcp_v6_connect() call to pick and bind
+// an ephemeral source port before dialing out (net/ipv4/inet_hash_connect.c in the kernel source); it
+// returns -EADDRNOTAVAIL when the port range this socket is allowed to use is exhausted - typically
+// because SNAT (a NAT gateway, or a cluster's own egress masquerading) has used up every port it can
+// hand out for the destination, or the host's own ephemeral port range is fully in use. This matters
+// most for a gateway node juggling many short-lived outbound connections (CoAP/MQTT-style fan-out):
+// such a node can keep reporting perfectly healthy-looking flows while silently failing a growing
+// fraction of brand-new ones - a failure this file's every other signal is blind to, since they all
+// assume a connection that never reached ESTABLISHED simply was not there to count.
+//
+// inet_hash_connect is an internal kernel function, not a stable tracepoint or syscall ABI: its name,
+// signature and even its existence are free to change on any kernel refactor, unlike tp_btf's
+// inet_sock_set_state tracepoint above, which the kernel commits to keeping. Verified against this
+// build's own BTF (bpftool btf dump file /sys/kernel/btf/vmlinux) to currently be:
+//   int inet_hash_connect(struct inet_timewait_death_row *death_row, struct sock *sk)
+// A kernel that renames, inlines away or restructures it will simply fail the fexit program's attach
+// (the kernel's own BTF-based bpf_check_attach_btf_id rejects an argument-count/type mismatch at attach
+// time - a loud failure, not a silent misread), at which point this whole signal goes back to always
+// reading 0 until it is adjusted for the new kernel. This is an accepted, deliberate tradeoff: the
+// alternative (a stable but much coarser per-interface or per-socket proxy for "ran out of ports") does
+// not exist to attach to instead.
+
+// Index 0: connection attempts that failed with EADDRNOTAVAIL (ephemeral port / SNAT exhaustion) since
+// this program was loaded. A PERCPU_ARRAY like lost above, but deliberately never reset by Collect(),
+// unlike every flow/socket counter in this file: this has no natural per-window grouping worth losing
+// precision over the way a byte or connection count does, and a running total survives a report being
+// dropped or delayed without double-counting anything (it is read, never read-and-cleared). It resets
+// to 0 only when the collector process - and so this BPF program - restarts.
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__type(key, __u32);
+	__type(value, __u64);
+	__uint(max_entries, 1);
+} snat_exhaustion SEC(".maps");
+
+static __always_inline void count_snat_exhaustion(void) {
+	__u32 k = 0;
+	__u64 *v = bpf_map_lookup_elem(&snat_exhaustion, &k);
+	if (v)
+		*v += 1;
+}
+
+// Preferred path: a BTF-validated fexit trampoline, cheaper than a kprobe and immune to the target
+// having been inlined differently than expected, since BTF describes the function as it actually exists
+// in this build's own vmlinux rather than as a fixed offset. death_row is never dereferenced (this only
+// ever reads the return value), so it is left as void* rather than pulling in a CO-RE redeclaration of
+// struct inet_timewait_death_row that nothing here would otherwise need.
+SEC("fexit/inet_hash_connect")
+int BPF_PROG(on_hash_connect_fexit, void *death_row, struct sock *sk, int ret) {
+	if (ret == -99) // -EADDRNOTAVAIL (see /usr/include/asm-generic/errno.h) - not worth a #include for one constant
+		count_snat_exhaustion();
+	return 0;
+}
+
+// Fallback for a kernel whose BTF does not describe inet_hash_connect, or describes it with a different
+// argument count/types than the fexit program above declares (which fails that attach outright, per its
+// own doc comment above): a plain kretprobe, which only needs the symbol to exist and be kprobe-able,
+// not any particular argument layout - the return value alone is all BPF_KRETPROBE exposes, which is
+// all this needs anyway. See observer_bpf.go's openSnatExhaustion for how the two are tried in order;
+// only one of them ends up attached on any given kernel, so this counter is never double-counted.
+SEC("kretprobe/inet_hash_connect")
+int BPF_KRETPROBE(on_hash_connect_kretprobe, int ret) {
+	if (ret == -99)
+		count_snat_exhaustion();
+	return 0;
+}

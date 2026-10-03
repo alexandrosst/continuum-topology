@@ -43,10 +43,20 @@ type Observer struct {
 		Flows   *ebpf.Map     `ebpf:"flows"`
 		Socks   *ebpf.Map     `ebpf:"socks"`
 		Lost    *ebpf.Map     `ebpf:"lost"`
+		// SnatExhaustion is loaded eagerly here, in the main collection, even though the two programs
+		// that increment it (on_hash_connect_fexit/on_hash_connect_kretprobe) are not - see
+		// openSnatExhaustion. That way Collect() can always read it, whether or not either attach
+		// path worked on this kernel; a node where neither attached simply reads 0 forever, the same
+		// as a node that was never asked to look.
+		SnatExhaustion *ebpf.Map `ebpf:"snat_exhaustion"`
 	}
 	lnk  link.Link
 	snap *ebpf.Program
 	iter *link.Iter
+	// snatProg/snatLnk are whichever of the fexit/kretprobe attach paths in openSnatExhaustion
+	// succeeded (at most one of them); nil when neither did, in which case SnatExhaustionErr says why.
+	snatProg *ebpf.Program
+	snatLnk  link.Link
 
 	// LiveErr says why live counting was asked for and is not running; nil when it is running or was not asked for.
 	LiveErr error
@@ -58,6 +68,12 @@ type Observer struct {
 	// ingress and egress are two separate attach points that can fail independently. nil when it is
 	// running or Options.Names was not asked for at all.
 	DNSLatencyErr error
+	// SnatExhaustionErr says why the SNAT/ephemeral-port-exhaustion counter (see flow.c's own
+	// snat_exhaustion doc comment) is not being collected; nil when either attach path worked. Unlike
+	// LiveErr/NamesErr this is never something the caller asked for and might not have gotten - both
+	// attach attempts always happen - so it is purely informational (worth logging, never worth
+	// falling back over).
+	SnatExhaustionErr error
 
 	namesProg *ebpf.Program
 	namesMap  *ebpf.Map
@@ -131,6 +147,10 @@ func Open(opts ...Options) (*Observer, error) {
 		return nil, fmt.Errorf("cannot attach to inet_sock_set_state: %w", err)
 	}
 	o.lnk = l
+	// Attempted unconditionally, unlike Live/Names just below: neither attach path here needs any
+	// privilege beyond what this function already required for on_state's own tp_btf attach, and
+	// neither looks at a packet payload, so there is nothing to opt into.
+	o.SnatExhaustionErr = o.openSnatExhaustion()
 	if opt.Live {
 		o.LiveErr = o.openSnapshot()
 	}
@@ -161,6 +181,104 @@ func (o *Observer) openSnapshot() error {
 	}
 	o.snap, o.iter = p.Snapshot, it
 	return nil
+}
+
+// openSnatExhaustion attaches the SNAT/ephemeral-port-exhaustion counter (flow.c's snat_exhaustion map
+// and its two candidate programs) - see that map's own doc comment for what it counts and why
+// inet_hash_connect, the function both attach paths target, is an inherently fragile hook to have
+// chosen: an internal kernel function, not a stable tracepoint or syscall ABI, free to change shape or
+// disappear on a future kernel refactor. The fexit path is tried first (cheap, BTF-validated); if the
+// running kernel's BTF does not describe inet_hash_connect the way flow.c's fexit program declares it,
+// that load is rejected outright and the kretprobe fallback - which only needs the symbol to exist and
+// be kprobe-able, not any particular signature - is tried instead. If both fail, the error says so and
+// the caller is left with SnatExhaustionErr set; this never blocks Open() itself, since the signal is a
+// bonus, not core function.
+func (o *Observer) openSnatExhaustion() error {
+	fexitErr := o.openSnatExhaustionFexit()
+	if fexitErr == nil {
+		return nil
+	}
+	if kretErr := o.openSnatExhaustionKretprobe(); kretErr == nil {
+		return nil
+	} else {
+		return fmt.Errorf("fexit/inet_hash_connect: %v; kretprobe/inet_hash_connect fallback: %w", fexitErr, kretErr)
+	}
+}
+
+func (o *Observer) openSnatExhaustionFexit() error {
+	spec, err := loadFlow()
+	if err != nil {
+		return err
+	}
+	delete(spec.Programs, "on_state")
+	delete(spec.Programs, "snapshot")
+	delete(spec.Programs, "observe_egress")
+	delete(spec.Programs, "observe_ingress")
+	delete(spec.Programs, "on_hash_connect_kretprobe")
+	var p struct {
+		Prog *ebpf.Program `ebpf:"on_hash_connect_fexit"`
+	}
+	// snat_exhaustion is replaced with the map already loaded as part of o.objs (see its own doc
+	// comment there) so this program increments the one copy Collect() actually reads, the same
+	// MapReplacements treatment openSnapshot above gives flows/socks/lost.
+	if err := spec.LoadAndAssign(&p, &ebpf.CollectionOptions{MapReplacements: map[string]*ebpf.Map{"snat_exhaustion": o.objs.SnatExhaustion}}); err != nil {
+		return fmt.Errorf("could not load: %w", err)
+	}
+	l, err := link.AttachTracing(link.TracingOptions{Program: p.Prog})
+	if err != nil {
+		p.Prog.Close()
+		return fmt.Errorf("could not attach: %w", err)
+	}
+	o.snatProg, o.snatLnk = p.Prog, l
+	return nil
+}
+
+func (o *Observer) openSnatExhaustionKretprobe() error {
+	spec, err := loadFlow()
+	if err != nil {
+		return err
+	}
+	delete(spec.Programs, "on_state")
+	delete(spec.Programs, "snapshot")
+	delete(spec.Programs, "observe_egress")
+	delete(spec.Programs, "observe_ingress")
+	delete(spec.Programs, "on_hash_connect_fexit")
+	var p struct {
+		Prog *ebpf.Program `ebpf:"on_hash_connect_kretprobe"`
+	}
+	if err := spec.LoadAndAssign(&p, &ebpf.CollectionOptions{MapReplacements: map[string]*ebpf.Map{"snat_exhaustion": o.objs.SnatExhaustion}}); err != nil {
+		return fmt.Errorf("could not load: %w", err)
+	}
+	l, err := link.Kretprobe("inet_hash_connect", p.Prog, nil)
+	if err != nil {
+		p.Prog.Close()
+		return fmt.Errorf("could not attach: %w", err)
+	}
+	o.snatProg, o.snatLnk = p.Prog, l
+	return nil
+}
+
+// SnatExhaustion reads the running total of connect() attempts that failed with EADDRNOTAVAIL since
+// this program was loaded (see flow.c's snat_exhaustion doc comment for the full story) - it is a
+// lifetime count the map itself never resets, not a per-window delta like Collect()'s own counters, so
+// unlike those this is read, never read-and-cleared. 0 on a node where neither attach path in
+// openSnatExhaustion worked (SnatExhaustionErr != nil) is indistinguishable from a real, healthy 0 - the
+// same ambiguity Options.Live/Options.Names leave callers to resolve via their own error field, which is
+// exactly why this one exists too.
+func (o *Observer) SnatExhaustion() uint64 {
+	if o.objs.SnatExhaustion == nil {
+		return 0
+	}
+	var k uint32
+	var per []uint64
+	if err := o.objs.SnatExhaustion.Lookup(&k, &per); err != nil {
+		return 0
+	}
+	var total uint64
+	for _, v := range per {
+		total += v
+	}
+	return total
 }
 
 // cgroupV2Root finds the cgroup2 unified hierarchy's mount point by reading /proc/mounts, rather than
@@ -361,6 +479,7 @@ func (o *Observer) closeMaps() {
 	o.objs.Flows.Close()
 	o.objs.Socks.Close()
 	o.objs.Lost.Close()
+	o.objs.SnatExhaustion.Close()
 }
 
 func (o *Observer) Close() error {
@@ -370,6 +489,10 @@ func (o *Observer) Close() error {
 	}
 	if o.lnk != nil {
 		o.lnk.Close()
+	}
+	if o.snatLnk != nil {
+		o.snatLnk.Close()
+		o.snatProg.Close()
 	}
 	if o.namesRd != nil {
 		o.namesRd.Close() // unblocks drainNames' Read() loop

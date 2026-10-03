@@ -76,7 +76,7 @@ func TestATouchedEdgeIsNotTheOldest(t *testing.T) {
 func TestAPausedAggregatorTakesNothingAndFlushesNothing(t *testing.T) {
 	a := NewAggregator()
 	a.Add(edge(1))
-	a.Seen("n1", "ebpf", true, nil)
+	a.Seen("n1", "ebpf", true, nil, 0)
 	a.SetPaused(true)
 	if a.Held() != 0 {
 		t.Fatal("pausing must forget what was held")
@@ -85,7 +85,7 @@ func TestAPausedAggregatorTakesNothingAndFlushesNothing(t *testing.T) {
 		t.Fatal("pausing must forget the collectors")
 	}
 	a.Add(edge(2))
-	a.Seen("n1", "ebpf", true, nil)
+	a.Seen("n1", "ebpf", true, nil, 0)
 	a.AddLost(5)
 	if a.Held() != 0 || a.Flush() != nil {
 		t.Fatal("a paused aggregator took something in")

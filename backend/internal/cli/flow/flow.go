@@ -95,7 +95,11 @@ func Main(args []string) int {
 				log.Error("could not read", "err", err)
 				return 1
 			}
-			b, _ := protojson.MarshalOptions{Multiline: true}.Marshal(collector.Report(s, *node, *print, flows, lost))
+			var snatExhaustion uint64
+			if se, ok := s.(collector.SnatExhaustionSource); ok {
+				snatExhaustion = se.SnatExhaustion()
+			}
+			b, _ := protojson.MarshalOptions{Multiline: true}.Marshal(collector.Report(s, *node, *print, flows, lost, snatExhaustion))
 			fmt.Println(string(b))
 		}
 		return 0

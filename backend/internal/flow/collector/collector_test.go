@@ -21,6 +21,10 @@ type fake struct {
 	bytes  bool
 	next   [][]*continuumv1.RawFlow
 	closed bool
+	// snat, when non-zero, makes fake implement SnatExhaustionSource (see its own method below) -
+	// left unset, a *fake behaves exactly like a source with no opinion on SNAT exhaustion at all, the
+	// same as conntrack.Reader; TestChooseFallsBackAndSaysWhy and friends never go near this.
+	snat uint64
 }
 
 func (f *fake) Method() string   { return f.method }
@@ -34,6 +38,12 @@ func (f *fake) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 	f.next = f.next[1:]
 	return r, 0, nil
 }
+
+// SnatExhaustion makes *fake satisfy SnatExhaustionSource unconditionally (a real eBPF Observer always
+// does too, whether or not either of its own attach paths actually worked - see its own doc comment);
+// tests that want "no opinion" behavior use a value that is simply always 0, same as an Observer whose
+// SnatExhaustionErr is set.
+func (f *fake) SnatExhaustion() uint64 { return f.snat }
 
 func TestChooseFallsBackAndSaysWhy(t *testing.T) {
 	bad := func() (Source, error) { return nil, errors.New("no BTF") }
@@ -133,9 +143,43 @@ func TestReportBoundsAndSaysWhatItDropped(t *testing.T) {
 	for i := 0; i < flow.MaxRawFlows+10; i++ {
 		many = append(many, rf("10.42.0.5", "10.43.1.1", uint32(1+i%60000), uint64(1+i%3)))
 	}
-	rep := Report(&fake{method: "ebpf", bytes: true}, "n", 30*time.Second, many, 2)
-	if len(rep.Flows) != flow.MaxRawFlows || rep.Lost != 12 || rep.WindowSeconds != 30 {
-		t.Errorf("flows=%d lost=%d window=%d", len(rep.Flows), rep.Lost, rep.WindowSeconds)
+	rep := Report(&fake{method: "ebpf", bytes: true}, "n", 30*time.Second, many, 2, 9)
+	if len(rep.Flows) != flow.MaxRawFlows || rep.Lost != 12 || rep.WindowSeconds != 30 || rep.SnatExhaustion != 9 {
+		t.Errorf("flows=%d lost=%d window=%d snatExhaustion=%d", len(rep.Flows), rep.Lost, rep.WindowSeconds, rep.SnatExhaustion)
+	}
+}
+
+// TestRunReportsSnatExhaustion covers Run's own type-assertion wiring (SnatExhaustionSource): a source
+// that implements it gets its reading read fresh every window and carried onto the delivered
+// FlowReport, ending up on the agent's own CollectorInfo for this node.
+func TestRunReportsSnatExhaustion(t *testing.T) {
+	secret := []byte("0123456789abcdef-flow-secret")
+	p := flow.NewPipeline(secret, func() *collect.Index { return &collect.Index{} }, nil)
+	srv := httptest.NewServer(p.Handler())
+	defer srv.Close()
+
+	src := &fake{method: "ebpf", bytes: true, snat: 5}
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		Run(ctx, src, srv.URL, secret, "node-a", 100*time.Millisecond, func(string, ...any) {})
+		close(done)
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	var batch *continuumv1.FlowBatch
+	for time.Now().Before(deadline) {
+		if b := p.Aggregator.Flush(); b != nil && len(b.Collectors) > 0 {
+			batch = b
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if batch == nil || len(batch.Collectors) != 1 || batch.Collectors[0].SnatExhaustion != 5 {
+		t.Fatalf("batch = %+v", batch)
 	}
 }
 

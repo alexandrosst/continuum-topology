@@ -348,14 +348,19 @@ func (a *Aggregator) Presence() (collectors int, last time.Time) {
 // per-interface throughput/saturation reading (FlowReport.link_saturation) - replaced wholesale on
 // every report, the same "latest, not accumulated" treatment collectorSeen already gives the rest of
 // CollectorInfo, since a saturation percentage is a gauge of the window just reported, not something
-// that means anything summed across windows.
-func (a *Aggregator) Seen(node, method string, bytesKnown bool, linkSaturation []*continuumv1.LinkSaturation) {
+// that means anything summed across windows. snatExhaustion is that collector's current lifetime total
+// of EADDRNOTAVAIL connect() failures (FlowReport.snat_exhaustion, see its own doc comment) - the same
+// wholesale-replace treatment, even though the number itself is already a running total from the
+// collector's own side: the aggregator still just takes the latest reading rather than summing reports,
+// so a collector restart (which resets its own counter to 0) is reflected here too, not papered over by
+// an ever-growing server-side sum.
+func (a *Aggregator) Seen(node, method string, bytesKnown bool, linkSaturation []*continuumv1.LinkSaturation, snatExhaustion uint64) {
 	a.mu.Lock()
 	if a.paused {
 		a.mu.Unlock()
 		return
 	}
-	a.collectors[node+"/"+method] = collectorSeen{&continuumv1.CollectorInfo{Node: node, Method: method, BytesKnown: bytesKnown, LinkSaturation: linkSaturation}, a.now()}
+	a.collectors[node+"/"+method] = collectorSeen{&continuumv1.CollectorInfo{Node: node, Method: method, BytesKnown: bytesKnown, LinkSaturation: linkSaturation, SnatExhaustion: snatExhaustion}, a.now()}
 	a.mu.Unlock()
 }
 
