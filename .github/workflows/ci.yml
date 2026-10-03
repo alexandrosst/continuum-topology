@@ -40,7 +40,16 @@ jobs:
 
       - name: Test (race)
         working-directory: backend
-        run: go test ./... -race -count=1
+        # Root, via sudo: the eBPF integration tests in internal/flow/ebpf (observer_test.go) load a real
+        # program into the kernel and only run when os.Geteuid() == 0, skipping quietly otherwise - which is
+        # exactly what a plain `go test` here did, silently giving every push a green check without ever
+        # exercising the CO-RE struct layout, counter diffing, or concurrency those tests cover. ubuntu-latest
+        # runners have passwordless sudo for the default user, and BTF (/sys/kernel/btf/vmlinux) is present on
+        # the image's kernel, so plain `sudo` is enough to satisfy openWith's root check. `env "PATH=$PATH"` is
+        # required alongside it: sudo's default secure_path would otherwise drop the go toolchain that
+        # actions/setup-go put earlier on PATH, and env_reset/always_set_home would otherwise just mean a
+        # fresh (root-owned) build cache for this step, not a missing `go` binary.
+        run: sudo env "PATH=$PATH" go test ./... -race -count=1
         # Neo4j-backed tests (graph package) skip themselves when CONTINUUM_TEST_NEO4J is unset - see
         # graph_test.go. Add a `services: neo4j: ...` block here and set that env var if you want CI to exercise
         # them too; it isn't required for the rest of the suite to mean anything.
