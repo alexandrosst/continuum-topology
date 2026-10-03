@@ -776,6 +776,28 @@ export interface Dependency {
    * mssBytes on a tunneled edge is a real, measured sign of that overhead. Always 0/unset on a
    * conntrack-only edge. */
   mssBytes?: number
+  /** The receive window this node is currently advertising to the peer on this edge, in bytes
+   * (tcp_sock.rcv_wnd) - a gauge, same treatment as mssBytes/cwndSegments above. 0 is also a real,
+   * meaningful reading here, not just "unset": it means this side has told the peer to stop sending
+   * because its own receive buffer is not draining fast enough - the node-side half of a stalled
+   * connection, distinct from retransmits (above), which is the path losing packets regardless of
+   * either end's buffers. Read alongside sndWndBytes/wmemQueuedBytes/sndbufBytes below to tell a
+   * buffer-pressure stall apart from one caused by the path itself. Always 0/unset on a conntrack-only
+   * edge. */
+  rcvWndBytes?: number
+  /** The peer's last-advertised receive window to this node on this edge, in bytes (tcp_sock.snd_wnd) -
+   * same gauge treatment as rcvWndBytes right above. 0 means the peer stalled this connection, which
+   * looks identical to a congested path from this node's own counters (cwndSegments/pacingBps) unless
+   * this field is read too. */
+  sndWndBytes?: number
+  /** Bytes currently queued in this edge's own local send/write queue (sock.sk_wmem_queued) - a gauge,
+   * same treatment as rcvWndBytes/sndWndBytes above. Read alongside sndbufBytes below: wmemQueuedBytes
+   * at or near sndbufBytes means this edge's local send buffer is saturated - the application not
+   * writing fast enough to notice, or itself backpressured by a congested path it cannot drain into. */
+  wmemQueuedBytes?: number
+  /** The current ceiling on wmemQueuedBytes above (sock.sk_sndbuf, SO_SNDBUF) - a gauge, same treatment
+   * as the three fields above. */
+  sndbufBytes?: number
   /** Cumulative receive-side buffer drops for this dependency, from the kernel's own per-socket counter
    * - summed the same way retransmits/failedAttempts are. A different failure mode from retransmits: the
    * receiving application not draining its socket fast enough, not the network losing a packet in

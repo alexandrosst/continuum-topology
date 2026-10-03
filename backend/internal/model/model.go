@@ -718,6 +718,28 @@ type Dependency struct {
 	// below the plain interface MTU - a falling MssBytes on a tunneled edge is a real, measured sign of
 	// that overhead, not a guess from the tunnel's declared type. Always 0 on a conntrack-only edge.
 	MssBytes uint32 `json:"mssBytes,omitempty"`
+	// RcvWndBytes is the receive window this node is currently advertising to the peer on this edge, in
+	// bytes (struct tcp_sock.rcv_wnd) - a gauge, same "0 means no sample" treatment as MssBytes/CwndSegments
+	// above. 0 is also a real, meaningful reading here: it means this side has told the peer to stop
+	// sending because its own receive buffer is not draining fast enough - the node-side half of a
+	// stalled connection, distinct from Retransmits (above), which is the path losing packets regardless
+	// of either end's buffers. Read alongside SndWndBytes/WmemQueuedBytes/SndbufBytes below to tell a
+	// buffer-pressure stall apart from one caused by the path itself. Always 0 on a conntrack-only edge.
+	RcvWndBytes uint32 `json:"rcvWndBytes,omitempty"`
+	// SndWndBytes is the peer's last-advertised receive window to this node on this edge, in bytes
+	// (struct tcp_sock.snd_wnd) - same gauge treatment as RcvWndBytes right above. 0 means the peer
+	// stalled this connection, which looks identical to a congested path from this node's own counters
+	// (CwndSegments/PacingBps) unless this field is read too. Always 0 on a conntrack-only edge.
+	SndWndBytes uint32 `json:"sndWndBytes,omitempty"`
+	// WmemQueuedBytes is bytes currently queued in this edge's own local send/write queue (struct
+	// sock.sk_wmem_queued) - a gauge, same treatment as RcvWndBytes/SndWndBytes above. Read alongside
+	// SndbufBytes below: WmemQueuedBytes at or near SndbufBytes means this edge's local send buffer is
+	// saturated - the application not writing fast enough to notice, or itself backpressured by a
+	// congested path it cannot drain into. Always 0 on a conntrack-only edge.
+	WmemQueuedBytes uint32 `json:"wmemQueuedBytes,omitempty"`
+	// SndbufBytes is the current ceiling on WmemQueuedBytes above (struct sock.sk_sndbuf, SO_SNDBUF) -
+	// a gauge, same treatment as the three fields above. Always 0 on a conntrack-only edge.
+	SndbufBytes uint32 `json:"sndbufBytes,omitempty"`
 	// BufferDrops is the cumulative count of this edge's receive-side buffer drops, from the kernel's own
 	// per-socket counter - summed the same way Retransmits/FailedAttempts are. A different failure mode
 	// from Retransmits: the receiving application not draining its socket fast enough, not the network

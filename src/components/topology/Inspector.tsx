@@ -1184,6 +1184,36 @@ export default function Inspector({
               <Maybe label="Pacing rate">
                 {d.via === 'ebpf' && d.pacingBps !== undefined ? <span>{bytesPerSec(d.pacingBps)}</span> : undefined}
               </Maybe>
+              <Maybe label="Receive window">
+                {d.via === 'ebpf' && d.rcvWndBytes !== undefined ? (
+                  <span
+                    className={d.rcvWndBytes === 0 ? 'text-bad' : undefined}
+                    title="The receive window this node is currently advertising to the peer - 0 means this side has told the peer to stop sending because its own receive buffer is not draining fast enough (the application not reading, not the network losing anything)."
+                  >
+                    {d.rcvWndBytes === 0 ? 'stalled (0)' : bytesTotal(d.rcvWndBytes)}
+                  </span>
+                ) : undefined}
+              </Maybe>
+              <Maybe label="Peer window">
+                {d.via === 'ebpf' && d.sndWndBytes !== undefined ? (
+                  <span
+                    className={d.sndWndBytes === 0 ? 'text-bad' : undefined}
+                    title="The peer's last-advertised receive window to this node - 0 means the peer stalled this connection, which looks identical to a congested path from this node's own counters above unless this is read too."
+                  >
+                    {d.sndWndBytes === 0 ? 'stalled (0)' : bytesTotal(d.sndWndBytes)}
+                  </span>
+                ) : undefined}
+              </Maybe>
+              <Maybe label="Send buffer">
+                {d.via === 'ebpf' && d.wmemQueuedBytes !== undefined && d.sndbufBytes ? (
+                  <span
+                    className={d.wmemQueuedBytes / d.sndbufBytes >= 0.9 ? 'text-bad' : undefined}
+                    title="Bytes queued in this edge's own local send/write queue against its current ceiling (SO_SNDBUF) - near-full means this socket's local send buffer is saturated: the application not writing fast enough to notice, or itself backpressured by a congested path it cannot drain into."
+                  >
+                    {`${bytesTotal(d.wmemQueuedBytes)} / ${bytesTotal(d.sndbufBytes)} (${Math.round((d.wmemQueuedBytes / d.sndbufBytes) * 100)}% full)`}
+                  </span>
+                ) : undefined}
+              </Maybe>
               <DependencyTrend dependencyId={d.id} />
               {d.stale && <p className="mt-1 text-xs text-warn">No traffic since {ago(d.lastSeen)}.</p>}
             </>

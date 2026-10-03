@@ -484,6 +484,21 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			if v.MssBytes != 0 {
 				sum.MssBytes = v.MssBytes
 			}
+			// RcvWnd/SndWnd/WmemQueued/Sndbuf are gauges too, sampled at the exact same moments as
+			// RttUs/Cwnd/MssBytes above - same "0 means no sample" single-writer treatment. See
+			// flow.c's own flow_val.rcv_wnd/wmem_queued doc comments for what each actually means.
+			if v.RcvWnd != 0 {
+				sum.RcvWnd = v.RcvWnd
+			}
+			if v.SndWnd != 0 {
+				sum.SndWnd = v.SndWnd
+			}
+			if v.WmemQueued != 0 {
+				sum.WmemQueued = v.WmemQueued
+			}
+			if v.Sndbuf != 0 {
+				sum.Sndbuf = v.Sndbuf
+			}
 			// Every CPU that ever handled this socket's traffic put_iface'd the same route, so any
 			// non-empty reading is as good as another; take the first rather than requiring them to agree,
 			// since a route change mid-life would otherwise blank it out for no good reason.
@@ -523,6 +538,10 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			BufferDrops:       sum.BufferDrops,
 			MeshBypassSyns:    sum.MeshBypassSyns,
 			MssBytes:          sum.MssBytes,
+			RcvWndBytes:       sum.RcvWnd,
+			SndWndBytes:       sum.SndWnd,
+			WmemQueuedBytes:   sum.WmemQueued,
+			SndbufBytes:       sum.Sndbuf,
 			FailedAttempts:    sum.FailedAttempts,
 			FailedRefused:     sum.FailedRefused,
 			FailedTimeout:     sum.FailedTimeout,

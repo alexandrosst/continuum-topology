@@ -119,6 +119,18 @@ func mergeFlowCounters(cur, add *continuumv1.Flow) {
 	if add.MssBytes != 0 {
 		cur.MssBytes = add.MssBytes // a gauge, same treatment as Cwnd/PacingBps above
 	}
+	if add.RcvWndBytes != 0 {
+		cur.RcvWndBytes = add.RcvWndBytes // a gauge, same treatment as MssBytes/Cwnd above
+	}
+	if add.SndWndBytes != 0 {
+		cur.SndWndBytes = add.SndWndBytes // a gauge, same treatment as RcvWndBytes right above
+	}
+	if add.WmemQueuedBytes != 0 {
+		cur.WmemQueuedBytes = add.WmemQueuedBytes // a gauge, same treatment as RcvWndBytes/SndWndBytes
+	}
+	if add.SndbufBytes != 0 {
+		cur.SndbufBytes = add.SndbufBytes // a gauge, same treatment as the three above
+	}
 	if add.SniHost != "" {
 		cur.SniHost = add.SniHost // also a gauge: one peer essentially always carries one hostname
 	}

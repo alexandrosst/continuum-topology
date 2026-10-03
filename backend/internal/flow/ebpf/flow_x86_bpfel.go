@@ -46,6 +46,10 @@ type flowFlowVal struct {
 	_                 [4]byte
 	PacingBps         uint64
 	MssBytes          uint32
+	RcvWnd            uint32
+	SndWnd            uint32
+	WmemQueued        uint32
+	Sndbuf            uint32
 	BufferDrops       uint32
 	MeshBypassSyns    uint32
 	HandshakeUs       uint32

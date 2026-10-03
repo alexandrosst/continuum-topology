@@ -187,7 +187,7 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		k := flowKey(f)
 		e := t.edges[k]
 		if e == nil {
-			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs, Cwnd: f.Cwnd, PacingBps: f.PacingBps, DnsRttUs: f.DnsRttUs, MssBytes: f.MssBytes}, FirstSeen: nowPb}
+			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs, Cwnd: f.Cwnd, PacingBps: f.PacingBps, DnsRttUs: f.DnsRttUs, MssBytes: f.MssBytes, RcvWndBytes: f.RcvWndBytes, SndWndBytes: f.SndWndBytes, WmemQueuedBytes: f.WmemQueuedBytes, SndbufBytes: f.SndbufBytes}, FirstSeen: nowPb}
 			t.edges[k] = e
 		}
 		e.LastSeen = nowPb
@@ -234,6 +234,18 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		}
 		if f.MssBytes != 0 {
 			e.Key.MssBytes = f.MssBytes // a gauge, same treatment as Cwnd/PacingBps above
+		}
+		if f.RcvWndBytes != 0 {
+			e.Key.RcvWndBytes = f.RcvWndBytes // a gauge, same treatment as MssBytes/Cwnd above
+		}
+		if f.SndWndBytes != 0 {
+			e.Key.SndWndBytes = f.SndWndBytes // a gauge, same treatment as RcvWndBytes right above
+		}
+		if f.WmemQueuedBytes != 0 {
+			e.Key.WmemQueuedBytes = f.WmemQueuedBytes // a gauge, same treatment as RcvWndBytes/SndWndBytes
+		}
+		if f.SndbufBytes != 0 {
+			e.Key.SndbufBytes = f.SndbufBytes // a gauge, same treatment as the three above
 		}
 		if f.SniHost != "" {
 			e.Key.SniHost = f.SniHost // a gauge too, for the same reason as Iface/RttUs above
@@ -789,6 +801,20 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		// why this is only really meaningful on a confirmed cluster-link tunnel edge (tunnels.go).
 		if e.Key.MssBytes != 0 {
 			d.MssBytes = e.Key.MssBytes
+		}
+		// Gauges too, same treatment as MssBytes/CwndSegments above - see model.Dependency.RcvWndBytes'
+		// own doc for what each actually means (socket buffer/window pressure, not path loss).
+		if e.Key.RcvWndBytes != 0 {
+			d.RcvWndBytes = e.Key.RcvWndBytes
+		}
+		if e.Key.SndWndBytes != 0 {
+			d.SndWndBytes = e.Key.SndWndBytes
+		}
+		if e.Key.WmemQueuedBytes != 0 {
+			d.WmemQueuedBytes = e.Key.WmemQueuedBytes
+		}
+		if e.Key.SndbufBytes != 0 {
+			d.SndbufBytes = e.Key.SndbufBytes
 		}
 		d.Retransmits = satAdd(d.Retransmits, e.Retransmits)
 		d.RtoRetransmits = satAdd(d.RtoRetransmits, e.RtoRetransmits)

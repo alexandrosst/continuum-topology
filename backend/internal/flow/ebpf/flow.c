@@ -74,6 +74,19 @@ struct sock {
 	// active yet, e.g. a very young connection). Read alongside tcp_sock.snd_cwnd below to say whether a
 	// connection is currently window-limited or pacing-limited.
 	unsigned long sk_pacing_rate;
+	// sk_wmem_queued: bytes of this socket's own write queue the application has handed the kernel but
+	// that have not yet been acknowledged (queued, not necessarily sent - TCP can be holding them back
+	// for cwnd/pacing reasons of its own). Read alongside sk_sndbuf right below it: the two together say
+	// whether this socket's local send buffer is actually saturated right now (wmem_queued close to or
+	// at sndbuf) - the application either not writing fast enough to notice, or itself being
+	// backpressured by a congested path it cannot drain into. Plain int fields, unlike sk_drops above:
+	// the kernel has never declared either of these atomic_t, so no raw-cast-and-.counter treatment is
+	// needed for them the way it is for sk_drops.
+	int sk_wmem_queued;
+	// sk_sndbuf: the current ceiling on sk_wmem_queued above (SO_SNDBUF, auto-tuned by the kernel unless
+	// the application overrode it) - ordinary bookkeeping the kernel already keeps, not a new limit
+	// this program imposes or measures.
+	int sk_sndbuf;
 } __attribute__((preserve_access_index));
 
 // Only what reads icsk_retransmits: the count of consecutive retransmissions the RTO timer itself has
@@ -149,6 +162,17 @@ struct tcp_sock {
 	// Nothing here measures or infers the path's real MTU directly; this just reads the number TCP's own
 	// discovery already settled on.
 	__u32 mss_cache;
+	// rcv_wnd: the receive window this socket is currently advertising to the peer, in bytes - our own
+	// credit to them, not theirs to us. 0 here means we have told the peer to stop sending: this side is
+	// not draining its receive buffer fast enough (or the application simply isn't reading), the
+	// node-side half of a stalled connection, as opposed to retransmit growth, which is the path losing
+	// packets regardless of either end's buffers.
+	__u32 rcv_wnd;
+	// snd_wnd: the peer's last-advertised receive window to us, in bytes - their credit to us. 0 means
+	// the peer stalled us: it told this side to stop sending, which looks identical to a congested path
+	// from the sender's own perspective (no cwnd/pacing problem of its own) unless this field is read
+	// too.
+	__u32 snd_wnd;
 } __attribute__((preserve_access_index));
 
 // One direction of one relationship. Addresses are 16 bytes; IPv4 is stored as ::ffff:a.b.c.d.
@@ -213,6 +237,22 @@ struct flow_val {
 	// telling on a dependency that crosses a confirmed overlay tunnel (see model.Dependency.TunnelLink on
 	// the Go side): a low reading there is the concrete, otherwise-invisible cost of that encapsulation.
 	__u32 mss_bytes;
+	// rcv_wnd/snd_wnd: tcp_sock.rcv_wnd (our receive window, advertised to the peer) and tcp_sock.snd_wnd
+	// (the peer's receive window, advertised to us) - gauges, same latest-wins/0-means-no-sample
+	// treatment as cwnd/mss_bytes above, sampled at the same moments. 0 on rcv_wnd means this side told
+	// the peer to stop sending (we are not draining fast enough); 0 on snd_wnd means the peer told us to
+	// stop (it is the one not draining). Read together with wmem_queued/sndbuf below to tell "the network
+	// is fine but one end's socket buffers are not" apart from retransmit growth, which is a path, not a
+	// buffer, problem.
+	__u32 rcv_wnd;
+	__u32 snd_wnd;
+	// wmem_queued/sndbuf: sock.sk_wmem_queued (bytes queued in this socket's own write queue right now)
+	// and sock.sk_sndbuf (the current ceiling on it) - gauges, same treatment as rcv_wnd/snd_wnd above.
+	// wmem_queued at or near sndbuf means this socket's local send buffer is saturated: either the
+	// application is not writing fast enough to notice, or it is itself being backpressured by a
+	// congested path it cannot drain into - local, node-side pressure, not the peer's.
+	__u32 wmem_queued;
+	__u32 sndbuf;
 	// buffer_drops: sock.sk_drops' growth since this socket was last accounted - summed like retransmits,
 	// not a gauge. A different failure mode from retransmits: this socket's own receive buffer overflowed
 	// because nothing drained it fast enough, not the network dropping a packet in transit.
@@ -332,7 +372,7 @@ static __always_inline void put_iface(struct flow_val *v, struct sock *sk) {
 	bpf_probe_read_kernel_str(v->ifname, sizeof(v->ifname), dev->name);
 }
 
-static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rto_retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us, __u32 cwnd, __u64 pacing_bps, __u32 buffer_drops, __u32 mss_bytes) {
+static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rto_retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us, __u32 cwnd, __u64 pacing_bps, __u32 buffer_drops, __u32 mss_bytes, __u32 rcv_wnd, __u32 snd_wnd, __u32 wmem_queued, __u32 sndbuf) {
 	struct flow_val zero = {};
 	struct flow_val *v = bpf_map_lookup_elem(&flows, key);
 	if (!v) {
@@ -367,6 +407,14 @@ static __always_inline void add_flow(const struct flow_key *key, struct sock *sk
 		v->pacing_bps = pacing_bps;
 	if (mss_bytes)
 		v->mss_bytes = mss_bytes;
+	if (rcv_wnd)
+		v->rcv_wnd = rcv_wnd;
+	if (snd_wnd)
+		v->snd_wnd = snd_wnd;
+	if (wmem_queued)
+		v->wmem_queued = wmem_queued;
+	if (sndbuf)
+		v->sndbuf = sndbuf;
 	v->buffer_drops += buffer_drops;
 	put_iface(v, sk);
 }
@@ -485,7 +533,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// Counted now, so a connection that lives for days is a dependency from its first second. No RTT/
 		// jitter sample exists yet this early (0, unknown, rather than a guess); handshake_us, by contrast,
 		// is known exactly right now - this is the only moment it ever will be.
-		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, 0, handshake_us, 0, 0, 0, 0);
+		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, 0, handshake_us, 0, 0, 0, 0, 0, 0, 0, 0);
 		return 0;
 	}
 
@@ -527,8 +575,14 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// fields outside __sk_common (see sk_err just above).
 		int drops = 0;
 		unsigned long pacing_rate = 0;
+		int wmem_queued = 0, sndbuf = 0;
 		bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops.counter);
 		bpf_probe_read_kernel(&pacing_rate, sizeof(pacing_rate), &sk->sk_pacing_rate);
+		// wmem_queued/sndbuf live on sock, not tcp_sock, like sk_drops/sk_pacing_rate right above - same
+		// defensive bpf_probe_read_kernel treatment, same reason (sk here is a raw cast, not a
+		// helper-returned trusted pointer like tp).
+		bpf_probe_read_kernel(&wmem_queued, sizeof(wmem_queued), &sk->sk_wmem_queued);
+		bpf_probe_read_kernel(&sndbuf, sizeof(sndbuf), &sk->sk_sndbuf);
 		__u32 ddrops = (__u32)drops > si->last_drops ? (__u32)drops - si->last_drops : 0;
 		// icsk_retransmits: see struct inet_connection_sock's and flow_val.rto_retransmits' own doc
 		// comments - the same raw-cast-and-bpf_probe_read_kernel treatment as sk_drops/sk_pacing_rate
@@ -549,7 +603,8 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// comment); >>3 and >>2 recover microseconds. A connection that never left slow start can close
 		// with no sample of either at all (0).
 		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, tp->srtt_us >> 3, tp->mdev_us >> 2, dsegs, 0,
-		         tp->snd_cwnd, (__u64)pacing_rate, ddrops, tp->mss_cache);
+		         tp->snd_cwnd, (__u64)pacing_rate, ddrops, tp->mss_cache, tp->rcv_wnd, tp->snd_wnd,
+		         (__u32)wmem_queued, (__u32)sndbuf);
 	}
 	bpf_map_delete_elem(&socks, &id);
 	return 0;
@@ -583,20 +638,27 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 	if (bpf_probe_read_kernel(&out, sizeof(out), &tp->bytes_acked) != 0 || bpf_probe_read_kernel(&in, sizeof(in), &tp->bytes_received) != 0)
 		return 0;
 	__u32 retrans = 0, srtt_raw = 0, mdev_raw = 0, segs_out = 0, cwnd = 0, mss_bytes = 0;
-	int drops = 0;
+	__u32 rcv_wnd = 0, snd_wnd = 0;
+	int drops = 0, wmem_queued = 0, sndbuf = 0;
 	unsigned long pacing_rate = 0;
 	__u8 rto_raw = 0;
 	// Best-effort: a socket this old is already tracked by role/key regardless of whether these reads
-	// succeed, so a failure here just means no retransmit/RTO/RTT/jitter/loss/cwnd/pacing/drops/MSS
-	// update this round, not a dropped flow.
+	// succeed, so a failure here just means no retransmit/RTO/RTT/jitter/loss/cwnd/pacing/drops/MSS/
+	// window/send-buffer update this round, not a dropped flow.
 	bpf_probe_read_kernel(&retrans, sizeof(retrans), &tp->total_retrans);
 	bpf_probe_read_kernel(&srtt_raw, sizeof(srtt_raw), &tp->srtt_us);
 	bpf_probe_read_kernel(&mdev_raw, sizeof(mdev_raw), &tp->mdev_us);
 	bpf_probe_read_kernel(&segs_out, sizeof(segs_out), &tp->segs_out);
 	bpf_probe_read_kernel(&cwnd, sizeof(cwnd), &tp->snd_cwnd);
 	bpf_probe_read_kernel(&mss_bytes, sizeof(mss_bytes), &tp->mss_cache);
+	bpf_probe_read_kernel(&rcv_wnd, sizeof(rcv_wnd), &tp->rcv_wnd);
+	bpf_probe_read_kernel(&snd_wnd, sizeof(snd_wnd), &tp->snd_wnd);
 	bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops.counter);
 	bpf_probe_read_kernel(&pacing_rate, sizeof(pacing_rate), &sk->sk_pacing_rate);
+	// wmem_queued/sndbuf: see on_state's own TCP_CLOSE branch for why these two are read via sk (a raw
+	// cast here, like tp itself a few lines up) rather than through a trusted CO-RE helper pointer.
+	bpf_probe_read_kernel(&wmem_queued, sizeof(wmem_queued), &sk->sk_wmem_queued);
+	bpf_probe_read_kernel(&sndbuf, sizeof(sndbuf), &sk->sk_sndbuf);
 	// icsk_retransmits: see struct inet_connection_sock's and flow_val.rto_retransmits' own doc comments.
 	// sk here is still the raw struct sock* this whole function started from (the (struct tcp_sock *)
 	// cast a few lines up is this same function's own pre-existing, separate reinterpretation of it for
@@ -620,7 +682,7 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 		si->last_segs_out = segs_out > si->last_segs_out ? segs_out : si->last_segs_out;
 		si->last_drops = (__u32)drops > si->last_drops ? (__u32)drops : si->last_drops;
 		si->last_rto_retransmits = rto_raw;
-		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0, cwnd, (__u64)pacing_rate, ddrops, mss_bytes);
+		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0, cwnd, (__u64)pacing_rate, ddrops, mss_bytes, rcv_wnd, snd_wnd, (__u32)wmem_queued, (__u32)sndbuf);
 	}
 	return 0;
 }
