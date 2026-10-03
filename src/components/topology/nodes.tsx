@@ -278,6 +278,12 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
   // older agent tier's cards, or a service with zero pods) is handled below by simply never rendering the
   // toggle/panel at all - this state is simply unused then.
   const [podsExpanded, setPodsExpanded] = useState(false)
+  // Which single pod's own traffic breakdown is open, within the panel above - at most one at a time,
+  // and independent of podsExpanded itself: collapsing the whole panel and reopening it, or this card's
+  // data changing identity on a fresh poll, both reset it the same uncontrolled way podsExpanded resets
+  // (see its own comment just above). A pod id rather than a boolean, since only one chip's traffic ever
+  // shows at once and nothing else on this card needs to know which.
+  const [expandedPodId, setExpandedPodId] = useState<string | null>(null)
   const Icon =
     data.kind === 'device'
       ? DEVICE_ICON[data.deviceKind ?? 'other']
@@ -439,23 +445,61 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
                       <span className="truncate text-[10px] text-nb-500">{g.nodeName}</span>
                     )}
                     <div className="mt-0.5 flex flex-wrap gap-1">
-                      {g.pods.map((p) => (
-                        <span
-                          key={p.id}
-                          title={p.title}
-                          className={clsx(
-                            'inline-flex items-center gap-1 rounded-full border bg-nb-900 px-1.5 py-px font-mono text-[10px] text-nb-300',
-                            p.recent ? 'border-info/60' : 'border-nb-800',
-                          )}
-                        >
-                          <span className={clsx('size-1.5 shrink-0 rounded-full', p.ready ? 'bg-ok' : 'bg-warn')} />
-                          {shortPodName(p.id)}
-                          {!!p.restarts && <span className="text-nb-500">·{p.restarts}</span>}
-                        </span>
-                      ))}
+                      {g.pods.map((p) => {
+                        const hasTraffic = !!p.traffic && p.traffic.length > 0
+                        return (
+                          // A plain, disabled chip (same idiom as the outer pod-dots toggle just above)
+                          // when this pod has no traffic breakdown to show - tier below 2, no flow report
+                          // yet, or every one of its connections currently goes through a Service address
+                          // (see model.Pod.Traffic's own doc comment) - rather than a button that opens an
+                          // empty panel. stopPropagation keeps this click from also toggling this card's
+                          // selection the way a plain chip click already harmlessly falls through to.
+                          <button
+                            key={p.id}
+                            type="button"
+                            disabled={!hasTraffic}
+                            onClick={(e) => { e.stopPropagation(); setExpandedPodId((v) => (v === p.id ? null : p.id)) }}
+                            aria-expanded={hasTraffic ? expandedPodId === p.id : undefined}
+                            title={p.title}
+                            data-testid="pod-chip"
+                            className={clsx(
+                              'inline-flex items-center gap-1 rounded-full border bg-nb-900 px-1.5 py-px font-mono text-[10px] text-nb-300',
+                              p.recent ? 'border-info/60' : 'border-nb-800',
+                              hasTraffic && 'cursor-pointer',
+                              expandedPodId === p.id && 'ring-1 ring-info/60',
+                            )}
+                          >
+                            <span className={clsx('size-1.5 shrink-0 rounded-full', p.ready ? 'bg-ok' : 'bg-warn')} />
+                            {shortPodName(p.id)}
+                            {!!p.restarts && <span className="text-nb-500">·{p.restarts}</span>}
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                 ))}
+                {/* This one pod's own traffic breakdown, scoped to whichever chip was just clicked above -
+                    never drawn as canvas edges, and gone the moment a different pod is picked or this
+                    whole panel collapses (expandedPodId/podsExpanded are both plain, uncontrolled state;
+                    see their own comments). Looked up across every group, not just one, since the clicked
+                    pod could be on any node. */}
+                {(() => {
+                  const selected = groups!.flatMap((g) => g.pods).find((p) => p.id === expandedPodId)
+                  if (!selected?.traffic?.length) return null
+                  return (
+                    <div className="flex flex-col gap-1 border-t border-nb-850 pt-1.5" data-testid="pod-traffic">
+                      <span className="truncate font-mono text-[10px] text-nb-400">{shortPodName(selected.id)}'s own traffic right now</span>
+                      {selected.traffic.map((t, i) => (
+                        <div key={i} className="flex items-center gap-1 truncate text-[10px] text-nb-300">
+                          <span className="shrink-0 text-nb-500">{t.direction === 'out' ? '→' : '←'}</span>
+                          <span className="truncate" title={t.peer}>{t.peer}</span>
+                          <span className="shrink-0 text-nb-500">:{t.port}/{t.protocol}</span>
+                          <span className="ml-auto shrink-0 text-nb-500">{t.connections} conn</span>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
               </div>
             )}
           </div>
