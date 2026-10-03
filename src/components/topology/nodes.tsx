@@ -149,7 +149,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
         ? 'External'
         : data.extra === 'operators'
           ? 'Regional operator'
-          : data.extra === 'agent'
+          : data.extra === 'agents'
             ? 'System'
             : data.tier === 'far-edge'
               ? 'Far edge'
@@ -161,7 +161,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
   // A discovery agent box reads as "part of the system", not "part of the application", at a glance -
   // Bot (a background process, distinct from Antenna's "relays telemetry outward" meaning on a regional
   // operator box right below) plus a dashed border instead of every other box's solid one.
-  const isAgent = data.extra === 'agent'
+  const isAgent = data.extra === 'agents'
   return (
     // The selection ring is `inset`, not the plain outward `0_0_0_Npx` box-shadow it used to be: OffsetEdge
     // places an incoming edge's arrowhead tip with zero gap exactly on this box's true boundary (see its
@@ -184,7 +184,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
             <span className="size-2 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
             {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
             {data.extra === 'operators' && <Antenna size={ICON_SM} className="shrink-0 text-nb-500" />}
-            {data.extra === 'agent' && <Bot size={ICON_SM} className="shrink-0 text-nb-500" />}
+            {data.extra === 'agents' && <Bot size={ICON_SM} className="shrink-0 text-nb-500" />}
             <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
             {far && peak !== undefined && peak >= 70 && (
               <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>

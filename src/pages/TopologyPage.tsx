@@ -589,7 +589,7 @@ function Canvas() {
     const d = n.data
     if (d.kind === 'group') {
       if (d.extra === 'devices') return { kind: 'site', id: d.entityId }
-      if (d.extra === 'agent') return { kind: 'agent', id: d.entityId }
+      if (d.extra === 'agents') return { kind: 'agent', id: d.entityId }
       if (d.extra) return null
       return { kind: d.groupBy === 'cluster' ? 'cluster' : 'tier', id: d.entityId }
     }
@@ -1229,7 +1229,7 @@ function Canvas() {
                     </>
                   )}
                   {/* Same "only explain what's actually on the canvas" rule as the operator entry above. */}
-                  {graph.nodes.some((n) => n.data.kind === 'group' && n.data.extra === 'agent') && (
+                  {graph.nodes.some((n) => n.data.kind === 'group' && n.data.extra === 'agents') && (
                     <>
                       <span className="h-3 w-px bg-nb-800" />
                       <span className="flex items-center gap-1.5" title="The discovery agent that serves this cluster - a declared relationship (one agent, one cluster), not measured traffic">

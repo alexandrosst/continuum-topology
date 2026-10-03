@@ -1614,7 +1614,7 @@ test('discovery agents: a group box + a real arrow to its own cluster appear onl
   const g = buildGraph({ ...seed, discoveryAgents: [ag] }, { ...opts, showSystem: true })
   const agBox = g.nodes.find((n) => n.id === groupId('ag:ag-1'))
   assert.ok(agBox, 'the agent gets its own group box')
-  assert.equal((agBox!.data as { extra?: string }).extra, 'agent')
+  assert.equal((agBox!.data as { extra?: string }).extra, 'agents')
   const edge = g.edges.find((e) => e.source === groupId('ag:ag-1') && e.target === groupId('cl-edge-a'))
   assert.ok(edge, 'a real arrow from the agent box to the cluster it serves')
   assert.ok(edge!.markerEnd, 'unlike the aggregated dependency-count lines, this one keeps its arrowhead')
@@ -1650,13 +1650,13 @@ test('system entities toggle: showSystem hides/shows agent and regional-operator
     destination: { kind: 'external', endpoint: 'https://collector.example.com:4317' }, createdAt: SEEN, createdBy: 'alex',
   }
   const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
-  const isSystemGroup = (n: { data: { kind: string; extra?: string } }) => n.data.kind === 'group' && (n.data.extra === 'agent' || n.data.extra === 'operators')
+  const isSystemGroup = (n: { data: { kind: string; extra?: string } }) => n.data.kind === 'group' && (n.data.extra === 'agents' || n.data.extra === 'operators')
 
   const off = buildGraph({ ...seed, discoveryAgents: [ag], operators: [op] }, opts)
   assert.equal(off.nodes.filter(isSystemGroup).length, 0, 'both kinds stay hidden by default')
 
   const on = buildGraph({ ...seed, discoveryAgents: [ag], operators: [op] }, { ...opts, showSystem: true })
-  assert.equal(on.nodes.filter((n) => n.data.kind === 'group' && n.data.extra === 'agent').length, 1)
+  assert.equal(on.nodes.filter((n) => n.data.kind === 'group' && n.data.extra === 'agents').length, 1)
   assert.equal(on.nodes.filter((n) => n.data.kind === 'group' && n.data.extra === 'operators').length, 1)
 })
 

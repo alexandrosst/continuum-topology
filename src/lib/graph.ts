@@ -42,7 +42,7 @@ export type GroupData = {
   entityId: string
   groupBy: GroupBy
   /** Set for groups that are not clusters or tiers. */
-  extra?: 'devices' | 'external' | 'operators' | 'agent'
+  extra?: 'devices' | 'external' | 'operators' | 'agents'
   title: string
   subtitle: string
   /** Distribution of the cluster, for its logo. */
@@ -356,7 +356,7 @@ interface GroupAcc {
   tier: Tier
   cluster?: Cluster
   /** Device / external / operator / agent groups: what to show in the header. */
-  extra?: { kind: 'devices' | 'external' | 'operators' | 'agent'; entityId: string; title: string; subtitle: string; country?: string; status?: Status }
+  extra?: { kind: 'devices' | 'external' | 'operators' | 'agents'; entityId: string; title: string; subtitle: string; country?: string; status?: Status }
   items: Item[]
 }
 
@@ -568,7 +568,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         row: AGENT_ROW,
         tier: 'cloud',
         extra: {
-          kind: 'agent',
+          kind: 'agents',
           entityId: ag.id,
           title: cluster?.name ?? ag.name,
           subtitle: 'Discovery agent',
@@ -677,7 +677,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
               ? `${units} devices`
               : ex?.kind === 'operators'
                 ? 'Regional operator'
-                : ex?.kind === 'agent'
+                : ex?.kind === 'agents'
                   ? ex.status === 'offline' ? 'Not reporting' : 'Reporting'
                   : ex
                     ? `${g.items.length} endpoints`
