@@ -60,11 +60,22 @@ func TestIndexAttributesAddressesToWorkloads(t *testing.T) {
 			t.Errorf("pod %s -> %q, want %q", ip, ix.Pods[ip], want)
 		}
 	}
+	for ip, want := range map[string]string{"10.42.0.5": "cart-1-a", "10.42.0.6": "cart-1-b", "10.42.0.7": "db-1-a"} {
+		if ix.PodNames[ip] != want {
+			t.Errorf("pod %s's own name -> %q, want %q", ip, ix.PodNames[ip], want)
+		}
+	}
 	if _, ok := ix.Pods["10.42.0.99"]; ok {
 		t.Error("a finished pod must not own an address")
 	}
+	if _, ok := ix.PodNames["10.42.0.99"]; ok {
+		t.Error("a finished pod must not own a name either")
+	}
 	if _, ok := ix.Pods["192.168.1.10"]; ok {
 		t.Error("a host-network pod shares its node's address and must not be attributed to a workload")
+	}
+	if _, ok := ix.PodNames["192.168.1.10"]; ok {
+		t.Error("a host-network pod must not be attributed to a pod name either")
 	}
 	if ix.Nodes["192.168.1.10"] != "n1" || ix.Nodes["203.0.113.10"] != "n1" {
 		t.Errorf("node addresses = %v", ix.Nodes)

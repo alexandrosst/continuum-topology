@@ -15,6 +15,14 @@ import (
 type Index struct {
 	// Pods maps a pod IP to the key of the workload that owns it ("namespace/Kind/name").
 	Pods map[string]string
+	// PodNames maps a pod IP to that pod's own name, alongside Pods' workload key for the same IP. Kept
+	// separate (rather than folded into Pods) because almost nothing needs it: resolve.go consults it only
+	// to fill Flow.src_pod/dst_pod, a field the aggregator deliberately excludes from a flow's identity
+	// (flow.key in aggregate.go) so that distinct pods of one workload still collapse into a single,
+	// bounded dependency edge. Only ever consulted for the live index, never through the resolver's
+	// post-eviction "recent" memory of a pod that has since churned - unlike a workload, which outlives
+	// any one of its pods, a stale pod name would be actively misleading once attached to new traffic.
+	PodNames map[string]string
 	// Services maps a Service cluster IP to the workloads it selects.
 	Services map[string][]string
 	// Nodes maps a node address to the node name. Host-network pods share their node's address, so
@@ -41,7 +49,7 @@ type Index struct {
 
 // Index builds the current address index. It returns an empty index below access tier 2.
 func (c *Collector) Index() *Index {
-	ix := &Index{Pods: map[string]string{}, Services: map[string][]string{}, Nodes: map[string]string{}, Opaque: map[string]bool{}, NodePorts: map[int32][]string{}, Hidden: map[string]bool{}}
+	ix := &Index{Pods: map[string]string{}, PodNames: map[string]string{}, Services: map[string][]string{}, Nodes: map[string]string{}, Opaque: map[string]bool{}, NodePorts: map[int32][]string{}, Hidden: map[string]bool{}}
 	if c.nodes != nil {
 		each(c.nodes.GetStore().List(), func(n *corev1.Node) {
 			for _, a := range n.Status.Addresses {
@@ -127,6 +135,7 @@ func (c *Collector) Index() *Index {
 		}
 		for ip := range ips {
 			ix.Pods[ip] = key
+			ix.PodNames[ip] = p.Name
 		}
 	})
 	if c.svcs != nil {

@@ -151,14 +151,22 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 			return nil, false // node processes and pods we cannot place
 		}
 		f.Src = workload(src)
+		if name, ok := ix.PodNames[local]; ok {
+			f.SrcPod = name
+		}
 		switch {
 		case ix.Opaque[peer]:
 			return nil, false
 		case len(ix.Services[peer]) > 0:
+			// peer is a Service ClusterIP, not any one pod's address - which specific backing pod actually
+			// answered is exactly what a Service hides, so DstPod stays unset here.
 			f.Dst = workload(ix.Services[peer][0])
 		default:
 			if k, ok := pod(peer); ok {
 				f.Dst = workload(k)
+				if name, ok := ix.PodNames[peer]; ok {
+					f.DstPod = name
+				}
 			} else if _, isNode := ix.Nodes[peer]; isNode {
 				keys := ix.NodePorts[int32(raw.Port)]
 				if len(keys) == 0 {
@@ -189,6 +197,9 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 		}
 		f.Src = &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: peer}
 		f.Dst = workload(dst)
+		if name, ok := ix.PodNames[local]; ok {
+			f.DstPod = name
+		}
 	}
 	switch {
 	case f.Port == 53:

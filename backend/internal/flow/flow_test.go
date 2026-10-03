@@ -20,6 +20,7 @@ import (
 func testIndex() *collect.Index {
 	return &collect.Index{
 		Pods:        map[string]string{"10.42.0.5": "shop/Deployment/cart", "10.42.0.7": "shop/Deployment/db", "10.42.0.9": "kube-system/Deployment/coredns"},
+		PodNames:    map[string]string{"10.42.0.5": "cart-7d9f8b-abc12", "10.42.0.7": "db-6c5d4a-xyz34"},
 		Services:    map[string][]string{"10.43.0.20": {"shop/Deployment/cart"}, "10.43.0.21": {"shop/Deployment/db"}, "10.43.0.10": {"kube-system/Deployment/coredns"}},
 		Nodes:       map[string]string{"192.168.1.10": "n1"},
 		Opaque:      map[string]bool{"10.43.0.1": true},
@@ -119,6 +120,29 @@ func TestResolveCarriesFailedAttemptsThroughUnattributedOtherwise(t *testing.T) 
 	}
 }
 
+// SrcPod/DstPod carry the specific pod's own name only when that side resolved to one particular live
+// pod - never through a Service (which hides exactly that), and never once the pod has aged out of the
+// live index into the resolver's "recent" memory (recent only remembers the workload, not the pod).
+func TestResolveSetsPodNamesOnlyFromASpecificLivePod(t *testing.T) {
+	r := NewResolver(testIndex)
+	// pod calls another pod directly: both ends are specific, live pods.
+	f, ok := r.Resolve(raw(true, "10.42.0.5", "10.42.0.7", 5432), "ebpf", true)
+	if !ok || f.SrcPod != "cart-7d9f8b-abc12" || f.DstPod != "db-6c5d4a-xyz34" {
+		t.Errorf("pod-to-pod should carry both pod names: src=%q dst=%q", f.SrcPod, f.DstPod)
+	}
+	// pod calls a Service by cluster IP: the backing pod that actually answered is unknowable, so DstPod
+	// must stay empty even though the Service happens to resolve to the same workload as above.
+	f, ok = r.Resolve(raw(true, "10.42.0.5", "10.43.0.21", 5432), "ebpf", true)
+	if !ok || f.SrcPod != "cart-7d9f8b-abc12" || f.DstPod != "" {
+		t.Errorf("a Service-mediated destination must not claim one specific pod: src=%q dst=%q", f.SrcPod, f.DstPod)
+	}
+	// inbound from outside, received by a known local pod.
+	f, ok = r.Resolve(raw(false, "10.42.0.5", "203.0.113.50", 8080), "ebpf", true)
+	if !ok || f.DstPod != "cart-7d9f8b-abc12" {
+		t.Errorf("inbound traffic received by a known pod should carry its name: dst=%q", f.DstPod)
+	}
+}
+
 func TestResolveRemembersPodsThatAreGone(t *testing.T) {
 	ix := testIndex()
 	now := time.Now()
@@ -129,10 +153,14 @@ func TestResolveRemembersPodsThatAreGone(t *testing.T) {
 	}
 	// the pod finishes and leaves the cluster's index
 	delete(ix.Pods, "10.42.0.5")
+	delete(ix.PodNames, "10.42.0.5")
 	now = now.Add(10 * time.Second)
 	f, ok := r.Resolve(raw(true, "10.42.0.5", "10.43.0.21", 5432), "ebpf", true)
 	if !ok || ref(f.Src) != "shop/Deployment/cart" {
 		t.Fatalf("a pod that just finished is still attributed: %v %v", f, ok)
+	}
+	if f.SrcPod != "" {
+		t.Errorf("a pod only remembered through history must not claim a pod name: got %q", f.SrcPod)
 	}
 	// but not forever, since addresses are reused
 	now = now.Add(time.Hour)
