@@ -114,6 +114,58 @@ func TestDiagnosticsReportInstalledTelemetrySignals(t *testing.T) {
 	}
 }
 
+func TestSelfStatsReportsEffectiveIntervalsAndTheLastFlowBatch(t *testing.T) {
+	r := newTestRunner()
+	// Neither interval set: the chart's own defaults, exactly as collectorDiagnostics resolves them.
+	s := r.selfStats()
+	if s.ProbeIntervalSeconds != uint32(defaultProbeEvery.Seconds()) || s.FlowIntervalSeconds != uint32(defaultFlowEvery.Seconds()) {
+		t.Fatalf("defaults: probe=%d flow=%d", s.ProbeIntervalSeconds, s.FlowIntervalSeconds)
+	}
+	if s.LastFlowBatchFlows != 0 || s.LastFlowBatchBytes != 0 {
+		t.Fatalf("no batch sent yet: %+v", s)
+	}
+	if s.Goroutines == 0 {
+		t.Fatalf("goroutines must be a real, nonzero count")
+	}
+	if s.RssBytes == 0 {
+		t.Fatalf("rss_bytes must be a real, nonzero figure for a running process")
+	}
+
+	// Both intervals set by the chart: read straight through, never re-derived.
+	r.cfg.ProbeInterval, r.cfg.FlowInterval = 90*time.Second, 10*time.Second
+	s = r.selfStats()
+	if s.ProbeIntervalSeconds != 90 || s.FlowIntervalSeconds != 10 {
+		t.Fatalf("configured: probe=%d flow=%d", s.ProbeIntervalSeconds, s.FlowIntervalSeconds)
+	}
+
+	// The last flow batch this connection actually sent is read straight from dg, the same place
+	// stream.go's flowTick case writes it.
+	r.dg.mu.Lock()
+	r.dg.lastFlowBatchFlows, r.dg.lastFlowBatchBytes = 42, 1337
+	r.dg.mu.Unlock()
+	s = r.selfStats()
+	if s.LastFlowBatchFlows != 42 || s.LastFlowBatchBytes != 1337 {
+		t.Fatalf("last flow batch: %+v", s)
+	}
+}
+
+func TestProcessCPUSecondsIsPositiveAndMonotonicallyNonDecreasing(t *testing.T) {
+	first := processCPUSeconds()
+	if first < 0 {
+		t.Fatalf("cpu seconds must never be negative: %v", first)
+	}
+	// Burn a little real CPU so the second reading is not just noise-level equal to the first.
+	sum := 0
+	for i := 0; i < 20_000_000; i++ {
+		sum += i
+	}
+	_ = sum
+	second := processCPUSeconds()
+	if second < first {
+		t.Fatalf("cpu seconds is a cumulative counter, it must never go backwards: %v then %v", first, second)
+	}
+}
+
 func TestOverridesIgnoredAreReportedAndClearedWhenPutRight(t *testing.T) {
 	r := newTestRunner()
 	r.enforce(resolveOverrides(&continuumv1.Config{ApprovedAccessTier: 2}, 1))

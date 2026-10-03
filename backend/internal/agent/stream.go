@@ -409,7 +409,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 	}
 	beatMsg := func(force bool) *continuumv1.AgentMessage {
 		return &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{
-			Modules: r.collector.Modules(), ClockSkewMs: r.clockSkewMs(), Diagnostics: r.diagToSend(force)}}}
+			Modules: r.collector.Modules(), ClockSkewMs: r.clockSkewMs(), Diagnostics: r.diagToSend(force), SelfStats: r.selfStats()}}}
 	}
 	if err := sendDiff(true); err != nil {
 		return err
@@ -587,7 +587,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 		case <-diagCheck.C:
 			if d := r.diagToSend(false); d != nil {
 				if err := send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{
-					Modules: r.collector.Modules(), ClockSkewMs: r.clockSkewMs(), Diagnostics: d}}}); err != nil {
+					Modules: r.collector.Modules(), ClockSkewMs: r.clockSkewMs(), Diagnostics: d, SelfStats: r.selfStats()}}}); err != nil {
 					return err
 				}
 			}
@@ -622,6 +622,9 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 			}
 		case <-flowTick:
 			if b := r.cfg.Flows.Aggregator.Flush(); b != nil {
+				r.dg.mu.Lock()
+				r.dg.lastFlowBatchFlows, r.dg.lastFlowBatchBytes = len(b.Flows), proto.Size(b)
+				r.dg.mu.Unlock()
 				if err := send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Flows{Flows: b}}); err != nil {
 					return err
 				}

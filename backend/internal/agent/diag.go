@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
@@ -178,6 +179,11 @@ type diagState struct {
 	// flow drops
 	flowDropSeen uint64
 	flowDropAt   time.Time
+	// lastFlowBatchFlows/lastFlowBatchBytes are the size (flow count) and encoded wire size (proto.Size,
+	// before gRPC framing and TLS) of the last flow batch this agent actually sent on this connection -
+	// see SelfStats.last_flow_batch_flows' own doc comment. Both zero before the first batch of a fresh
+	// connection, written by the stream loop right after it sends one (stream.go's flowTick case).
+	lastFlowBatchFlows, lastFlowBatchBytes int
 	// rbacCeiling is the highest tier checkRBACCeiling last found the cluster still grants (rbac_check.go), and
 	// rbacCheckedAt when: zero until the first check completes. Read by diagnostics(), which must not call the
 	// cluster itself; written only by the RBAC check loop.
@@ -325,6 +331,35 @@ func (r *runner) diagnostics() *continuumv1.Diagnostics {
 	r.probs.replaceDerived(derived)
 	d.Problems = r.probs.list()
 	return d
+}
+
+// selfStats builds SelfStats: what running this agent process itself currently costs. Cheap by design -
+// see SelfStats' own doc comment - it reads only counters the Go runtime and the kernel already keep for
+// this process, plus a couple of fields already sitting in memory (dg's last-flow-batch bookkeeping and
+// the already-parsed Config), never anything that touches the cluster. Safe to call from any goroutine,
+// same as diagnostics() above.
+func (r *runner) selfStats() *continuumv1.SelfStats {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	s := &continuumv1.SelfStats{
+		RssBytes:   mem.Sys,
+		Goroutines: uint32(runtime.NumGoroutine()),
+		CpuSeconds: processCPUSeconds(),
+	}
+	probeEvery, flowEvery := r.cfg.ProbeInterval, r.cfg.FlowInterval
+	if probeEvery <= 0 {
+		probeEvery = defaultProbeEvery
+	}
+	if flowEvery <= 0 {
+		flowEvery = defaultFlowEvery
+	}
+	s.ProbeIntervalSeconds = uint32(probeEvery.Seconds())
+	s.FlowIntervalSeconds = uint32(flowEvery.Seconds())
+	r.dg.mu.Lock()
+	s.LastFlowBatchFlows = uint32(r.dg.lastFlowBatchFlows)
+	s.LastFlowBatchBytes = uint32(r.dg.lastFlowBatchBytes)
+	r.dg.mu.Unlock()
+	return s
 }
 
 // collectorDiagnostics reports the three optional collectors: whether this install configured them, whether they run now,
@@ -525,4 +560,19 @@ func (r *runner) diagToSend(force bool) *continuumv1.Diagnostics {
 	}
 	r.dg.sentSig, r.dg.sentAt = sig, time.Now()
 	return d
+}
+
+// processCPUSeconds is this process's own cumulative CPU time (user + system) in seconds, from the
+// kernel's per-process accounting (getrusage(RUSAGE_SELF, ...)) - see SelfStats.cpu_seconds' own doc
+// comment for why this is reported raw rather than converted to a percentage here. 0 on the (practically
+// never seen in this agent's own deployment target) platform where getrusage fails outright, rather than
+// a value this process cannot actually stand behind.
+func processCPUSeconds() float64 {
+	var ru syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err != nil {
+		return 0
+	}
+	user := float64(ru.Utime.Sec) + float64(ru.Utime.Usec)/1e6
+	sys := float64(ru.Stime.Sec) + float64(ru.Stime.Usec)/1e6
+	return user + sys
 }
