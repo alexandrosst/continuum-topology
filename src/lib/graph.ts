@@ -25,6 +25,7 @@ import {
   type MachineNode,
   type Path,
   type Pod,
+  type PodPeer,
   type Service,
   type ServiceKind,
   type Site,
@@ -114,8 +115,15 @@ export type CardData = {
    *  permanently-reserved row the way the collapsed dot strip does. A replica with no known node (not yet
    *  scheduled, or its node fell outside this topology's own scope) groups under nodeId `''`, named "not
    *  scheduled" rather than silently dropped. Absent under the same condition `pods` is: no per-pod facts
-   *  collected at all (older agent tier, or no pods up). */
-  podGroups?: { nodeId: string; nodeName: string; pods: { id: string; ready: boolean; recent: boolean; restarts?: number; title: string }[] }[]
+   *  collected at all (older agent tier, or no pods up). Each pod also carries `traffic` straight through
+   *  from Pod.traffic unchanged (see its own doc comment in types.ts) - a point-in-time breakdown meant to
+   *  be shown only once that one specific pod is picked within this already-expanded panel, never drawn
+   *  as its own canvas edges. Each entry's `peer` is overwritten here with a display label (the owning
+   *  Service's own name when it could be found, the raw Service id as a fallback, or the bare external
+   *  address unchanged) rather than left as the id PodPeer.peer carries off the wire - the same
+   *  place/pattern nodeName above already resolves a pod's nodeId, so the card component itself never
+   *  needs a services lookup of its own. */
+  podGroups?: { nodeId: string; nodeName: string; pods: { id: string; ready: boolean; recent: boolean; restarts?: number; title: string; traffic?: PodPeer[] }[] }[]
 }
 
 export type GroupNode = Node<GroupData, 'boundary'>
@@ -480,7 +488,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       // The mesh's own workloads (istiod, ztunnel, gateways) are machinery: shown only with the mesh overlay.
       if (w.mesh?.controlPlane && !o.mesh) continue
       const g = ensureGroup(c)
-      g.items.push(serviceItem(w, c, o.groupBy === 'tier', o.hints?.get(w.id), o.mesh, nodeById))
+      g.items.push(serviceItem(w, c, o.groupBy === 'tier', o.hints?.get(w.id), o.mesh, nodeById, serviceById))
       groupOfEntity.set(w.id, g.key)
     }
 
@@ -1084,7 +1092,7 @@ function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edg
 
   for (const w of services) {
     const c = clusterById.get(w.clusterId)!
-    const item = serviceItem(w, c, true, o.hints?.get(w.id), o.mesh, nodeById)
+    const item = serviceItem(w, c, true, o.hints?.get(w.id), o.mesh, nodeById, serviceById)
     const p = positions.get(w.id) ?? { x: 0, y: 0 }
     nodes.push({ id: item.id, type: 'card', position: { x: p.x, y: p.y }, style: { width: item.w, height: item.h }, zIndex: 10, data: item.data })
     abs.set(item.id, { x: p.x, y: p.y, w: item.w, h: item.h })
@@ -1142,7 +1150,7 @@ function tierLabel(t: Tier) {
   return t === 'far-edge' ? 'Far edge' : t[0].toUpperCase() + t.slice(1)
 }
 
-function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string | undefined, mesh: boolean | undefined, nodeById: Map<string, MachineNode>): Item {
+function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string | undefined, mesh: boolean | undefined, nodeById: Map<string, MachineNode>, serviceById: Map<string, Service>): Item {
   const notReady = w.readyReplicas !== undefined && w.readyReplicas < w.replicas
   const podInfo = podDots(w.pods)
   // One row of small chips under the name; a second for the per-pod dot strip, whichever combination of
@@ -1172,7 +1180,7 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string 
       mesh: mesh && w.mesh ? meshChip(w) : undefined,
       pods: podInfo?.dots,
       podsOverflow: podInfo && podInfo.overflow > 0 ? podInfo.overflow : undefined,
-      podGroups: podGroupsFor(w.pods, nodeById),
+      podGroups: podGroupsFor(w.pods, nodeById, serviceById),
     },
   }
 }
@@ -1203,9 +1211,16 @@ function podDots(pods: Pod[] | undefined): { dots: NonNullable<CardData['pods']>
  *  established for clusters/services/sites). A pod with no `nodeId` at all (not yet scheduled, or its node
  *  fell outside this topology's own scope - Pod.nodeId's own doc comment) still gets a group, keyed `''`
  *  and named "not scheduled", rather than silently vanishing from the count the toggle label shows. */
-function podGroupsFor(pods: Pod[] | undefined, nodeById: Map<string, MachineNode>): NonNullable<CardData['podGroups']> | undefined {
+function podGroupsFor(pods: Pod[] | undefined, nodeById: Map<string, MachineNode>, serviceById: Map<string, Service>): NonNullable<CardData['podGroups']> | undefined {
   if (!pods || pods.length === 0) return undefined
   const recent = recentlyScaledPods(pods)
+  // A service-kind peer's `peer` is a Service id (see PodPeer's own doc comment in types.ts) - resolved
+  // to that service's name here, once per pod rather than once per render, the same place nodeName right
+  // below already resolves a pod's own nodeId. An external peer, or a service id this topology no longer
+  // has (the peer workload was deleted since the agent's last flow report), keeps whatever PodPeer itself
+  // already carries rather than showing nothing.
+  const peerLabel = (p: PodPeer): string => (p.peerKind === 'service' ? serviceById.get(p.peer)?.name ?? p.peer : p.peer)
+  const resolveTraffic = (traffic: PodPeer[] | undefined): PodPeer[] | undefined => traffic?.map((t) => ({ ...t, peer: peerLabel(t) }))
   const byNode = new Map<string, { nodeName: string; pods: NonNullable<CardData['podGroups']>[number]['pods'] }>()
   for (const p of pods) {
     const nodeId = p.nodeId ?? ''
@@ -1225,7 +1240,7 @@ function podGroupsFor(pods: Pod[] | undefined, nodeById: Map<string, MachineNode
     ]
       .filter(Boolean)
       .join(' · ')
-    g.pods.push({ id: p.name, ready: !!p.ready, recent: isRecent, restarts: p.restarts, title })
+    g.pods.push({ id: p.name, ready: !!p.ready, recent: isRecent, restarts: p.restarts, title, traffic: resolveTraffic(p.traffic) })
   }
   // Nodes ordered by name for a stable, predictable group order rather than whatever order pods happened
   // to be reported in.

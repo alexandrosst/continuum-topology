@@ -1815,7 +1815,11 @@ test("service card: podGroups buckets every live replica by node, uncapped, for 
   const grouped = {
     ...seed,
     services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: [
-      { name: 'gw-1', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old },
+      { name: 'gw-1', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old, traffic: [
+        { peer: 'w-orch', peerKind: 'service', direction: 'out', port: 9000, protocol: 'tcp', connections: 3 },
+        { peer: 'w-ghost-service', peerKind: 'service', direction: 'out', port: 80, protocol: 'tcp', connections: 1 },
+        { peer: '93.184.216.34', peerKind: 'external', direction: 'out', port: 443, protocol: 'tcp', connections: 2 },
+      ] },
       { name: 'gw-2', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old, restarts: 2 },
       { name: 'gw-3', nodeId: 'n-c3', phase: 'Pending', ready: false, createdAt: brandNew },
       { name: 'gw-4', phase: 'Pending', ready: false, createdAt: brandNew },
@@ -1829,7 +1833,8 @@ test("service card: podGroups buckets every live replica by node, uncapped, for 
   }
   const g = buildGraph(grouped, opts)
   const card = g.nodes.find((n) => n.id === cardId('w-gw'))!
-  type PodGroup = { nodeId: string; nodeName: string; pods: { id: string; ready: boolean; recent: boolean; restarts?: number; title: string }[] }
+  type PodTraffic = { peer: string; peerKind: 'service' | 'external'; direction: 'out' | 'in'; port: number; protocol: string; connections: number }
+  type PodGroup = { nodeId: string; nodeName: string; pods: { id: string; ready: boolean; recent: boolean; restarts?: number; title: string; traffic?: PodTraffic[] }[] }
   const groups = (card.data as { podGroups?: PodGroup[] }).podGroups!
 
   // podGroups never caps or drops anything the way the collapsed strip's `pods`/`podsOverflow` do - every
@@ -1849,6 +1854,16 @@ test("service card: podGroups buckets every live replica by node, uncapped, for 
   const gw2 = onC2.pods.find((p) => p.id === 'gw-2')!
   assert.equal(gw2.restarts, 2)
   assert.ok(gw2.title.includes('2 restarts'), 'the per-pod title surfaces the restart count')
+
+  // gw-1's own traffic breakdown: a service-kind peer resolves to that service's real name (w-orch ->
+  // "orchestrator") rather than staying the bare id a person would have to look up themselves; a
+  // service id this topology no longer recognizes (the peer workload was deleted since the agent's last
+  // report) falls back to the raw id instead of vanishing or showing nothing; and an external peer is
+  // never touched, since there is no service to resolve it against in the first place.
+  const gw1 = onC2.pods.find((p) => p.id === 'gw-1')!
+  assert.deepEqual(gw1.traffic?.map((t) => t.peer), ['orchestrator', 'w-ghost-service', '93.184.216.34'])
+  assert.deepEqual(gw1.traffic?.map((t) => t.peerKind), ['service', 'service', 'external'])
+  assert.equal(gw2.traffic, undefined, "a pod this batch said nothing about keeps a nil/absent traffic, not an empty-but-present array")
 
   const onC3 = groups.find((gr) => gr.nodeId === 'n-c3')!
   assert.equal(onC3.pods.length, 1)
