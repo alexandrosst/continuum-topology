@@ -130,3 +130,31 @@ func TestGatewayTokenHTTPRoleGatedMintAndStatus(t *testing.T) {
 		t.Fatalf("minting for an unknown backend: %d %s", r.Code, r.Body.String())
 	}
 }
+
+// TestGatewayTokenHTTPReportsExpiredOncePastTTL exercises getGatewayToken's "expired" flag against the
+// fake clock (a.now), not wall-clock time - it must come from the same injected clock every other
+// time-dependent check in this package uses, or this would need a real sleep to ever flip to true.
+func TestGatewayTokenHTTPReportsExpiredOncePastTTL(t *testing.T) {
+	a := newAdminRig(t)
+	_, adminCookie := a.user(t, "alex", RoleAdmin)
+	id := a.savedBackend(t, "loki", "logs")
+
+	r := a.do("POST", "/api/v1/quick-start/"+id+"/gateway-token", map[string]any{"ttlSeconds": int(MinGatewayTokenTTL.Seconds())}, withCookie(adminCookie))
+	if r.Code != 201 {
+		t.Fatalf("mint: %d %s", r.Code, r.Body.String())
+	}
+
+	if r := a.do("GET", "/api/v1/quick-start/"+id+"/gateway-token", nil, withCookie(adminCookie)); r.Code != 200 {
+		t.Fatalf("status right after mint: %d %s", r.Code, r.Body.String())
+	} else if got := r.json(t); got["expired"] != false {
+		t.Fatalf("expected not yet expired: %v", got)
+	}
+
+	*a.now = a.now.Add(MinGatewayTokenTTL + time.Second)
+
+	if r := a.do("GET", "/api/v1/quick-start/"+id+"/gateway-token", nil, withCookie(adminCookie)); r.Code != 200 {
+		t.Fatalf("status after ttl elapsed: %d %s", r.Code, r.Body.String())
+	} else if got := r.json(t); got["active"] != true || got["expired"] != true {
+		t.Fatalf("expected active and expired once past ttl: %v", got)
+	}
+}

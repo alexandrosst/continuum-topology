@@ -50,7 +50,7 @@ func (a *Admin) getGatewayToken(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{
 		"active":    true,
-		"expired":   !time.Now().Before(t.ExpiresAt),
+		"expired":   !a.core(r).Now().Before(t.ExpiresAt),
 		"createdAt": rfc(t.CreatedAt),
 		"expiresAt": rfc(t.ExpiresAt),
 	})
