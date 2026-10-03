@@ -151,6 +151,51 @@ func TestSettingsProbeTargetsAndDeciderURLAreChecked(t *testing.T) {
 	}
 }
 
+func TestSettingsQuickStartBackendsAreChecked(t *testing.T) {
+	bad := map[string]Settings{
+		"unknown kind":      {QuickStartBackends: []QuickStartBackend{{Kind: "zipkin", Modality: "traces", Namespace: "observability", Retention: "72h"}}},
+		"modality mismatch": {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "metrics", Namespace: "observability", Retention: "72h"}}},
+		"no namespace":      {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "traces", Retention: "72h"}}},
+		"bad namespace":     {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "Not_Valid!", Retention: "72h"}}},
+		"no retention":      {QuickStartBackends: []QuickStartBackend{{Kind: "prometheus", Modality: "metrics", Namespace: "observability"}}},
+		"bad tool url":      {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h", ToolURL: "not a url"}}},
+		"ftp tool url":      {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h", ToolURL: "ftp://x/y"}}},
+		"duplicate ids":     {QuickStartBackends: []QuickStartBackend{{ID: "a", Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"}, {ID: "a", Kind: "prometheus", Modality: "metrics", Namespace: "observability", Retention: "15d"}}},
+	}
+	for name, s := range bad {
+		if _, err := s.Normalize(); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+
+	many := Settings{}
+	for i := 0; i < 21; i++ {
+		many.QuickStartBackends = append(many.QuickStartBackends, QuickStartBackend{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"})
+	}
+	if _, err := many.Normalize(); err == nil {
+		t.Error("21 quick-start backends were accepted")
+	}
+
+	ok, err := (Settings{QuickStartBackends: []QuickStartBackend{
+		{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"},
+		{Kind: "prometheus", Modality: "metrics", Namespace: "observability", Retention: "15d", ToolURL: "http://localhost:9090"},
+	}}).Normalize()
+	if err != nil {
+		t.Fatalf("two valid quick-start backends were refused: %v", err)
+	}
+	if len(ok.QuickStartBackends) != 2 {
+		t.Fatalf("quick-start backends = %+v", ok.QuickStartBackends)
+	}
+	for _, b := range ok.QuickStartBackends {
+		if b.ID == "" {
+			t.Error("a quick-start backend without an id was not given one")
+		}
+	}
+	if ok.QuickStartBackends[1].ToolURL != "http://localhost:9090" {
+		t.Errorf("tool url was not kept: %+v", ok.QuickStartBackends[1])
+	}
+}
+
 func TestSettingsAreAuditedAndSurviveARestart(t *testing.T) {
 	e := newEnv(t)
 	e.core.Decider, _ = NewDeciderPolicy("127.0.0.0/8")

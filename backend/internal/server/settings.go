@@ -39,6 +39,9 @@ type Settings struct {
 	MeasureSeconds int `json:"measureSeconds"`
 	// ProbeTargets are addresses an administrator asked a cluster to measure, in addition to the ones its traffic shows.
 	ProbeTargets []ProbeTarget `json:"probeTargets"`
+	// QuickStartBackends are observability backends (Jaeger, Prometheus) an administrator generated a
+	// quick-start install command for - see QuickStartBackend.
+	QuickStartBackends []QuickStartBackend `json:"quickStartBackends"`
 	// DeciderURL, when set, is an HTTP endpoint that also gets to recommend placements (see docs).
 	DeciderURL        string `json:"deciderUrl"`
 	DeciderName       string `json:"deciderName"`
@@ -68,8 +71,39 @@ type ProbeTarget struct {
 	Port      int    `json:"port"`
 }
 
+// quickStartBackendModality is which modality each quick-start kind is fixed to - a physical fact about
+// the backend (Jaeger only ingests traces; this app's Prometheus quick-start only turns on its OTLP
+// metrics receiver), not something a person picks independently of Kind.
+var quickStartBackendModality = map[string]string{"jaeger": "traces", "prometheus": "metrics"}
+
+// QuickStartBackend records that this organisation generated (or is tracking) an install command for a
+// quick-start observability backend, so the telemetry destination picker can offer it and remember it's
+// already set up, and so "open this tool" has somewhere to go once a person tells us where they exposed
+// it. The server never deploys or dials any of this itself - same one-way trust model as every other
+// install command in this app (ConnectClusterWizard, regional operators): this is a note a person chose
+// to keep, not something the server depends on operationally.
+type QuickStartBackend struct {
+	ID string `json:"id"`
+	// Kind fixes Modality (see quickStartBackendModality) - "jaeger" or "prometheus" today, see
+	// quickStartBackends.ts for what each one's install command actually does.
+	Kind string `json:"kind"`
+	// Modality must match Kind's own fixed modality; kept explicit (rather than derived server-side only)
+	// so a client can filter/display without a copy of quickStartBackendModality of its own.
+	Modality string `json:"modality"`
+	// Namespace is what the generated install command targets - also most of what ToolURL/the chart's own
+	// Service DNS name depend on, so it's kept even though the server never acts on it directly.
+	Namespace string `json:"namespace"`
+	// Retention is free text echoed into the install command (e.g. "72h", "15d") - never parsed or
+	// enforced here, since what each backend's own retention flag accepts differs by backend.
+	Retention string `json:"retention"`
+	// ToolURL, once a person has the backend reachable (port-forward, ingress, ...) and says so, is what
+	// "open this tool" opens in a new tab. Never dialled by the server.
+	ToolURL string `json:"toolUrl,omitempty"`
+	Label   string `json:"label"`
+}
+
 func DefaultSettings() Settings {
-	return Settings{SnapshotMinutes: 5, RetentionDays: 30, MaxHistoryMB: 512, ConsistencyMinutes: 15, StaleAfterBeats: 4, MeasureSeconds: 120, ProbeTargets: []ProbeTarget{}, DeciderTimeoutSec: 10, TombstoneRetentionDays: 7, EventRetentionDays: 0, FlowStaleSeconds: 300}
+	return Settings{SnapshotMinutes: 5, RetentionDays: 30, MaxHistoryMB: 512, ConsistencyMinutes: 15, StaleAfterBeats: 4, MeasureSeconds: 120, ProbeTargets: []ProbeTarget{}, QuickStartBackends: []QuickStartBackend{}, DeciderTimeoutSec: 10, TombstoneRetentionDays: 7, EventRetentionDays: 0, FlowStaleSeconds: 300}
 }
 
 func inRange(name string, v *int, lo, hi int) error {
@@ -152,6 +186,54 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 		out = append(out, t)
 	}
 	s.ProbeTargets = out
+	if len(s.QuickStartBackends) > 20 {
+		return s, fmt.Errorf("at most 20 quick-start backends")
+	}
+	qsSeen := map[string]bool{}
+	qsOut := make([]QuickStartBackend, 0, len(s.QuickStartBackends))
+	for _, b := range s.QuickStartBackends {
+		wantModality, ok := quickStartBackendModality[b.Kind]
+		if !ok {
+			return s, fmt.Errorf(`quick-start backend kind must be "jaeger" or "prometheus"`)
+		}
+		if b.Modality != wantModality {
+			return s, fmt.Errorf("a %q quick-start backend's modality must be %q", b.Kind, wantModality)
+		}
+		b.Namespace, b.Retention, b.Label = strings.TrimSpace(b.Namespace), strings.TrimSpace(b.Retention), strings.TrimSpace(b.Label)
+		if b.Namespace == "" {
+			return s, fmt.Errorf("a quick-start backend needs a namespace")
+		}
+		if !nsNameRe.MatchString(b.Namespace) {
+			return s, fmt.Errorf("%q is not a valid Kubernetes namespace name", b.Namespace)
+		}
+		if b.Retention == "" {
+			return s, fmt.Errorf("a quick-start backend needs a retention value")
+		}
+		if len(b.Retention) > 20 {
+			return s, fmt.Errorf("a quick-start backend's retention is at most 20 characters")
+		}
+		if len(b.Label) > 80 {
+			return s, fmt.Errorf("a quick-start backend's label is at most 80 characters")
+		}
+		if b.ToolURL = strings.TrimSpace(b.ToolURL); b.ToolURL != "" {
+			if len(b.ToolURL) > 2048 {
+				return s, fmt.Errorf("a quick-start backend's tool URL is at most 2048 characters")
+			}
+			u, err := url.Parse(b.ToolURL)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				return s, fmt.Errorf("%q is not an http(s) URL", b.ToolURL)
+			}
+		}
+		if b.ID == "" {
+			b.ID = "qsb-" + newTokenID()
+		}
+		if qsSeen[b.ID] {
+			return s, fmt.Errorf("duplicate quick-start backend id")
+		}
+		qsSeen[b.ID] = true
+		qsOut = append(qsOut, b)
+	}
+	s.QuickStartBackends = qsOut
 	s.DeciderName = strings.TrimSpace(s.DeciderName)
 	if len(s.DeciderName) > 60 {
 		return s, fmt.Errorf("the decider's name is at most 60 characters")
@@ -270,6 +352,7 @@ func settingsDiff(a, b Settings) string {
 	add("quiet link (s)", a.FlowStaleSeconds, b.FlowStaleSeconds)
 	add("measure every (s)", a.MeasureSeconds, b.MeasureSeconds)
 	add("measurement targets", len(a.ProbeTargets), len(b.ProbeTargets))
+	add("quick-start backends", len(a.QuickStartBackends), len(b.QuickStartBackends))
 	if a.DeciderURL != b.DeciderURL {
 		if b.DeciderURL == "" {
 			d = append(d, "external decider removed")
