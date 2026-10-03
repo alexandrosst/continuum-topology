@@ -331,6 +331,23 @@ test('an invalid namespace in a per-kind scope override is only flagged while it
 })
 
 
+test('telemetryProblems blocks a destination that cannot carry every signal that is on, not just TelemetryFields.tsx\'s warning', () => {
+  const jaeger = EXPORT_PRESETS.find((p) => p.id === 'jaeger')!
+  // Traces only, pointed at Jaeger: fine, nothing to flag.
+  const tracesOnly: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: jaeger.endpointPattern, exportProtocol: jaeger.protocol }
+  assert.deepEqual(telemetryProblems(tracesOnly), [])
+  assert.ok(withTelemetry(base, tracesOnly).includes('telemetry.export.otlp.endpoint'), 'a valid traces-only destination still produces a command')
+
+  // Metrics turned on too, destination still Jaeger (traces only): this must actually block, not just warn.
+  const mismatched: TelemetryInput = { ...tracesOnly, resourceUsage: true }
+  assert.deepEqual(telemetryProblems(mismatched), ['Jaeger (traces only) only carries traces - turn off the other signals, or send everything somewhere else'])
+  assert.equal(withTelemetry(base, mismatched), base, 'withTelemetry must not emit telemetry flags for a destination that cannot carry everything that is on')
+
+  // A generic (unrestricted) destination never trips this check, however many signals are on.
+  const generic: TelemetryInput = { ...emptyTelemetry, traces: true, resourceUsage: true, systemLogs: true, exportEndpoint: 'otel-gateway.example.com:4317' }
+  assert.deepEqual(telemetryProblems(generic), [])
+})
+
 test('scopeOverlap: the shared namespace names between two scopes, or none', () => {
   const a: ScopeOverrideInput = { namespaces: ['shop', 'payments'], exclude: [] }
   const b: ScopeOverrideInput = { namespaces: ['payments', 'ops'], exclude: [] }

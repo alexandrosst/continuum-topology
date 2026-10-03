@@ -168,9 +168,10 @@ export default function TelemetryFields({
   // left to be noticed once telemetry that looked configured never shows up anywhere.
   const enabledModalitySet = new Set(grantedRules.map((s) => s.modality))
   const compatiblePresets = EXPORT_PRESETS.filter((p) => presetSupportsModalities(p, enabledModalitySet))
+  // A mismatch here is also (now) one of `problems` above - install.ts's telemetryProblems is what
+  // actually blocks withTelemetry's generated command, not this component. This derivation only decides
+  // whether to show exportPreset.note (the mismatch already has its own, blocking message in `problems`).
   const modalityMismatch = exportPreset && !presetSupportsModalities(exportPreset, enabledModalitySet)
-    ? `${exportPreset.label} only carries ${exportPreset.modalities!.join('/')} - turn off the other signals above, or send everything somewhere else.`
-    : undefined
 
   // Which entry path is showing: local UI state, defaulting to the flat grid so a form nobody has opted
   // into guided mode for renders exactly as it always has (see the plan note on TelemetryFields.tsx) -
@@ -422,9 +423,6 @@ export default function TelemetryFields({
         </Field>
         {destinationNote && (
           <p role="alert" className="text-xs text-warn sm:col-span-2">{destinationNote}</p>
-        )}
-        {!destinationNote && modalityMismatch && (
-          <p role="alert" className="text-xs text-warn sm:col-span-2">{modalityMismatch}</p>
         )}
         {!destinationNote && !modalityMismatch && exportPreset?.note && (
           <p className="text-xs text-nb-500 sm:col-span-2">{exportPreset.note}</p>

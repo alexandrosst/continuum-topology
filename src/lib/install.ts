@@ -1,4 +1,5 @@
 import { buildExtraProcessors, processorProblems, processorTarget, processorKey, type ProcessorEntry } from './processorCatalog'
+import { EXPORT_PRESETS, presetSupportsModalities } from './exportPresets'
 
 /**
  * The install command the server prints, with optional in-cluster parts switched on.
@@ -204,6 +205,42 @@ export const emptyTelemetry: TelemetryInput = {
   extraProcessors: [],
 }
 
+/** The kind of signal a telemetry field carries - metrics, logs, or distributed traces. Lives here (not
+ *  consent.ts, which re-exports it) because it is a property of TelemetryInput itself, and exportPresets.ts
+ *  (a plain data file with no reason to depend on consent.ts's RBAC-flavoured exports) needs it too. */
+export type Modality = 'metrics' | 'logs' | 'traces'
+
+/**
+ * Every telemetry signal TelemetryInput can carry, with what it is, what it needs and what modality it
+ * belongs to. The UI (consent.ts's re-export, used by TelemetryFields.tsx) reads this for its checkboxes
+ * and permission copy; telemetryProblems below reads it to work out which modalities are actually on.
+ */
+export const TELEMETRY_SIGNALS: { id: string; label: string; layer: 'infrastructure' | 'application'; modality: Modality; scope: 'cluster' | 'node' | 'application'; namespaceScopable?: boolean; what: string; permissions: string }[] = [
+  { id: 'resourceUsage', label: 'Resource usage', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Node and per-container CPU, memory, filesystem and network, from the kubelet and the host.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
+  { id: 'energy', label: 'Energy', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Power draw per node/pod, from Kepler (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - Kepler reads host energy counters directly, never the Kubernetes API.' },
+  { id: 'kubernetesState', label: 'Kubernetes state', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', what: 'Pod, deployment and replica status and counts, cluster-wide.', permissions: 'Read-only, cluster-wide access to pods, deployments, replica sets, stateful/daemon sets, jobs, cronjobs and autoscalers.' },
+  { id: 'nodeRuntime', label: 'Node runtime', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Pod lifecycle and volume metrics from the kubelet.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
+  { id: 'networkLatency', label: 'Network latency', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', what: "This agent's own path measurements, re-emitted as OTel metrics.", permissions: 'None beyond identity enrichment below - reuses this agent\'s existing measurement capability.' },
+  { id: 'applicationMetrics', label: 'Application metrics', layer: 'application', modality: 'metrics', scope: 'application', what: 'Metrics your applications push (OTLP) or that this collector scrapes (Prometheus).', permissions: 'None beyond identity enrichment below.' },
+  { id: 'systemLogs', label: 'System logs', layer: 'infrastructure', modality: 'logs', scope: 'node', what: "Each node's own OS/container runtime logs, never application output.", permissions: 'None beyond identity enrichment below - reads local log files only.' },
+  { id: 'kubernetesEvents', label: 'Kubernetes events', layer: 'infrastructure', modality: 'logs', scope: 'cluster', what: 'Cluster Events, watched cluster-wide.', permissions: 'Read-only, cluster-wide access to Events only.' },
+  { id: 'applicationLogs', label: 'Application logs', layer: 'application', modality: 'logs', scope: 'application', what: 'Logs your applications push directly (OTLP).', permissions: 'None beyond identity enrichment below.' },
+  { id: 'traces', label: 'Traces', layer: 'application', modality: 'traces', scope: 'application', what: 'Distributed traces your applications push directly (OTLP).', permissions: 'None beyond identity enrichment below.' },
+  { id: 'accelerators', label: 'Accelerators (GPU)', layer: 'infrastructure', modality: 'metrics', scope: 'node', namespaceScopable: true, what: 'GPU utilization, memory, temperature and power per node/pod, from NVIDIA DCGM (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - dcgm-exporter reads GPU hardware and the kubelet\'s pod-resources socket directly, never the Kubernetes API.' },
+]
+
+/** Which modalities are actually turned on in a telemetry draft, derived from TELEMETRY_SIGNALS instead of
+ *  listed by hand a second time. Used to steer a person away from picking a single destination (there is
+ *  only ever one `exportEndpoint` for every signal together) that cannot carry everything they just turned
+ *  on - see exportPresets.ts's own `modalities` field and TelemetryFields' use of both. */
+export function enabledModalities(t: TelemetryInput): Set<Modality> {
+  const on = new Set<Modality>()
+  for (const s of TELEMETRY_SIGNALS) {
+    if ((t as unknown as Record<string, boolean>)[s.id]) on.add(s.modality)
+  }
+  return on
+}
+
 /** Whether any signal is on - the export endpoint (and every flag below) only matters once one is. */
 export const telemetryActive = (t: TelemetryInput): boolean =>
   t.resourceUsage || t.energy || t.kubernetesState || t.nodeRuntime || t.networkLatency ||
@@ -227,6 +264,15 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   if (t.applicationMetrics) out.push(...namespaceListProblems([...t.applicationMetricsScope.namespaces, ...t.applicationMetricsScope.exclude]))
   if (t.applicationLogs) out.push(...namespaceListProblems([...t.applicationLogsScope.namespaces, ...t.applicationLogsScope.exclude]))
   if (t.traces) out.push(...namespaceListProblems([...t.tracesScope.namespaces, ...t.tracesScope.exclude]))
+  // There is only ever one exportEndpoint for every signal together (see TelemetryInput) - so a known
+  // preset that only carries a subset of modalities (Jaeger: traces) has to actually block the generated
+  // command, not just show a warning next to the field (TelemetryFields.tsx shows the same thing inline,
+  // with friendlier wording, but withTelemetry below only consults this function - a cosmetic-only warning
+  // there would let an invalid preset+signal combo stay copyable/saveable).
+  const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === t.exportEndpoint.trim())
+  if (preset && !presetSupportsModalities(preset, enabledModalities(t))) {
+    out.push(`${preset.label} only carries ${preset.modalities!.join('/')} - turn off the other signals, or send everything somewhere else`)
+  }
   return out
 }
 

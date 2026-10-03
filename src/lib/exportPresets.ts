@@ -1,4 +1,6 @@
-import type { Modality } from './consent'
+// From install.ts, not consent.ts: this is a plain data file and must not depend on consent.ts, which
+// itself depends on install.ts (install.ts's telemetryProblems reads EXPORT_PRESETS from here too).
+import type { Modality } from './install'
 
 /**
  * Recommended OTLP-native export destinations, shown as a pick-from-list option in the telemetry
