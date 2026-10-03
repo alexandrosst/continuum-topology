@@ -29,6 +29,7 @@ export const routeLoaders: Record<string, () => Promise<{ default: ComponentType
   '/agents': () => import('@/pages/AgentsPage'),
   '/operators': () => import('@/pages/RegionalOperatorsPage'),
   '/history': () => import('@/pages/HistoryPage'),
+  '/system-health': () => import('@/pages/SystemHealthPage'),
   '/placement': () => import('@/pages/PlacementPage'),
   '/settings': () => import('@/pages/SettingsPage'),
   '/activity': () => import('@/pages/ActivityPage'),

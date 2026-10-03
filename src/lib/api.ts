@@ -1,6 +1,7 @@
 import { normalizeServerState, type ServerState } from './discovered'
 import type { OperatorDestination, RegionalOperator } from './types'
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
+import type { SelfTelemetryEntity } from './selfHealth'
 import type { EffectiveModel } from './provenance'
 
 export class ApiError extends Error {
@@ -531,6 +532,10 @@ export const api = {
   // DependencySeriesPoint for why each field can be missing on a given point.
   dependencySeries: (c: Conn, dependencyId: string, hours: number) =>
     call<{ points?: DependencySeriesPoint[] }>(c, 'GET', `/api/v1/history/dependency/${encodeURIComponent(dependencyId)}/series?hours=${hours}`).then((r) => r.points ?? []),
+  // What running Continuum itself costs, per entity (the server, and every connected agent) - see
+  // admin_telemetry.go's own doc comment for the exact response shape. Entities with no self-telemetry
+  // history yet are left out server-side, not returned with an empty samples array.
+  selfTelemetry: (c: Conn) => call<SelfTelemetryEntity[]>(c, 'GET', '/api/v1/telemetry/self'),
   events: (c: Conn, q: { since?: string; until?: string; kind?: string; cluster?: string; limit?: number } = {}) => {
     const p = new URLSearchParams()
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v))

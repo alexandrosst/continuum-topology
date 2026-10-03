@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Antenna, BookOpen, Boxes, Cable, Cpu, Folders, History, Keyboard, Layers, MapPin, Menu, Network, Package, Radar, Radio, Route, Search, Server, Settings2 } from 'lucide-react'
+import { Antenna, BookOpen, Boxes, Cable, Cpu, Folders, HeartPulse, History, Keyboard, Layers, MapPin, Menu, Network, Package, Radar, Radio, Route, Search, Server, Settings2 } from 'lucide-react'
 import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Copyright } from '@/components/ui/brand'
@@ -51,6 +51,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
       { to: '/operators', label: 'Operators', icon: Antenna },
       { to: '/placement', label: 'Placement', icon: Route },
       { to: '/history', label: 'History', icon: History },
+      { to: '/system-health', label: 'System Health', icon: HeartPulse },
     ],
   },
 ]

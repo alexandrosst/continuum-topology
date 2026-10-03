@@ -14,6 +14,7 @@ const ClustersPage = lazy(routeLoaders['/clusters'])
 const DevicesPage = lazy(routeLoaders['/devices'])
 const DiscoveryPage = lazy(routeLoaders['/discovery'])
 const HistoryPage = lazy(routeLoaders['/history'])
+const SystemHealthPage = lazy(routeLoaders['/system-health'])
 const NamespacesPage = lazy(routeLoaders['/namespaces'])
 const NodesPage = lazy(routeLoaders['/nodes'])
 const PlacementPage = lazy(routeLoaders['/placement'])
@@ -70,6 +71,7 @@ export default function App() {
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/operators" element={<RegionalOperatorsPage />} />
           <Route path="/history" element={<HistoryPage />} />
+          <Route path="/system-health" element={<SystemHealthPage />} />
           <Route path="/placement" element={<PlacementPage />} />
           <Route path="/workloads" element={<Navigate to="/services" replace />} />
           <Route path="/settings" element={<SettingsPage />} />
