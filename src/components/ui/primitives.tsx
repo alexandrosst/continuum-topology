@@ -928,6 +928,7 @@ export function TunnelEvidence({
   flowsObserved,
   avgRttMs,
   avgLossPct,
+  avgRtoRetransmitsPerMin,
 }: {
   dense?: boolean
   via: string
@@ -940,6 +941,7 @@ export function TunnelEvidence({
   flowsObserved?: number
   avgRttMs?: number
   avgLossPct?: number
+  avgRtoRetransmitsPerMin?: number
 }) {
   return (
     <>
@@ -995,6 +997,11 @@ export function TunnelEvidence({
           {flowsObserved} flow{flowsObserved === 1 ? '' : 's'}
           {avgRttMs !== undefined ? ` \u00b7 ${rttLabel(avgRttMs)} avg RTT` : ''}
           {avgLossPct !== undefined ? ` \u00b7 ${avgLossPct < 10 ? avgLossPct.toFixed(1) : Math.round(avgLossPct)}% avg loss` : ''}
+          {!!avgRtoRetransmitsPerMin && (
+            <span title="RTO-timer-fired retransmits per minute, averaged across these flows - no ACK at all came back within a full round-trip-plus-backoff, not just ordinary reordering a fast retransmit recovered from instantly. The real sign a link is degrading, which the loss figure above cannot tell apart from on its own.">
+              {` \u00b7 ${avgRtoRetransmitsPerMin < 10 ? avgRtoRetransmitsPerMin.toFixed(1) : Math.round(avgRtoRetransmitsPerMin)} RTO/min`}
+            </span>
+          )}
         </DetailRow>
       )}
     </>

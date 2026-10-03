@@ -296,6 +296,8 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 		var rttCount int
 		var lossSum float64
 		var lossCount int
+		var rtoSum float64
+		var rtoCount int
 		for di := range dependencies {
 			d := &dependencies[di]
 			if d.FromKind != "service" || d.ToKind != "service" || d.Iface == "" {
@@ -323,6 +325,10 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 				lossSum += *d.Stats.LossPct
 				lossCount++
 			}
+			if d.Stats != nil && d.Stats.RtoRetransmitsPerMin > 0 {
+				rtoSum += d.Stats.RtoRetransmitsPerMin
+				rtoCount++
+			}
 			// Mirrors the aggregate just computed above, but attached to this one dependency's own edge
 			// (see Dependency.TunnelLink's own doc for why this exists in addition to, not instead of,
 			// ClusterLink's rollup). dependencies is mutated through this pointer rather than copied, so
@@ -339,6 +345,9 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 		if lossCount > 0 {
 			avg := lossSum / float64(lossCount)
 			out[i].AvgLossPct = &avg
+		}
+		if rtoCount > 0 {
+			out[i].AvgRtoRetransmitsPerMin = rtoSum / float64(rtoCount)
 		}
 	}
 	return out

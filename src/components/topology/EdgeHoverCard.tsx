@@ -199,6 +199,7 @@ export default function EdgeHoverCard({
               flowsObserved={d?.clusterLink?.flowsObserved}
               avgRttMs={d?.clusterLink?.avgRttMs}
               avgLossPct={d?.clusterLink?.avgLossPct}
+              avgRtoRetransmitsPerMin={d?.clusterLink?.avgRtoRetransmitsPerMin}
             />
           )}
         </div>

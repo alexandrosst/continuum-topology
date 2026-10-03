@@ -93,6 +93,7 @@ func mergeFlowCounters(cur, add *continuumv1.Flow) {
 	cur.BytesOut += add.BytesOut
 	cur.BytesIn += add.BytesIn
 	cur.Retransmits += add.Retransmits
+	cur.RtoRetransmits += add.RtoRetransmits
 	cur.SegsOut += add.SegsOut
 	cur.BufferDrops += add.BufferDrops
 	cur.MeshBypassSyns += add.MeshBypassSyns

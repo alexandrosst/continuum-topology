@@ -532,6 +532,7 @@ export default function Inspector({
                         flowsObserved={l.flowsObserved}
                         avgRttMs={l.avgRttMs}
                         avgLossPct={l.avgLossPct}
+                        avgRtoRetransmitsPerMin={l.avgRtoRetransmitsPerMin}
                       />
                     </div>
                   </div>
@@ -1129,6 +1130,13 @@ export default function Inspector({
                   ) : (
                     `${Math.round((s.retransmitsPerMin ?? 0) * 10) / 10} per minute${d.retransmits ? ` (${d.retransmits} total)` : ''}`
                   )
+                ) : undefined}
+              </Maybe>
+              <Maybe label="RTO retransmits">
+                {d.via === 'ebpf' && d.rtoRetransmits ? (
+                  <span title="The subset of the retransmits above that the RTO timer itself fired for - no ACK at all came back within a full round-trip-plus-backoff, as opposed to a fast retransmit recovering from ordinary reordering without ever stalling the connection. This is the real leading sign of a degrading link.">
+                    {`${Math.round((s.rtoRetransmitsPerMin ?? 0) * 10) / 10} per minute (${d.rtoRetransmits} total)`}
+                  </span>
                 ) : undefined}
               </Maybe>
               <Maybe label="Failed attempts">

@@ -499,6 +499,15 @@ type ClusterLink struct {
 	FlowsObserved int      `json:"flowsObserved,omitempty"`
 	AvgRttMs      float64  `json:"avgRttMs,omitempty"`
 	AvgLossPct    *float64 `json:"avgLossPct,omitempty"`
+	// AvgRtoRetransmitsPerMin averages Dependency.Stats.RtoRetransmitsPerMin across the same matched
+	// flows AvgRttMs/AvgLossPct roll up - RTO retransmits specifically (see RtoRetransmits' own doc on
+	// Dependency) rather than the raw, undifferentiated retransmit rate, because this field exists to
+	// say something about the tunnel's own link quality, and a fast retransmit recovering from ordinary
+	// reordering says nothing about that. Plain float64 like AvgRttMs, not a pointer like AvgLossPct: 0
+	// means "not measured" and "genuinely none happened" alike, the same tolerated ambiguity
+	// RtoRetransmitsPerMin's own doc already accepts for a per-minute rate (unlike a percentage, where
+	// the zero-denominator case needs telling apart from a real 0%).
+	AvgRtoRetransmitsPerMin float64 `json:"avgRtoRetransmitsPerMin,omitempty"`
 	// Encryption classifies an "overlay" link's confirmed tunnel driver (see TunnelInterface.Kind) as
 	// "encrypted" (WireGuard, or an IPsec virtual-tunnel kind: vti/vti6/xfrm) or "plaintext" (a
 	// tunneling/encapsulation protocol with no cryptography of its own: vxlan, geneve, gre and its
@@ -579,6 +588,11 @@ type DependencyStats struct {
 	// RetransmitsPerMin is 0 both when there is genuinely no loss and when nothing eBPF-observed has
 	// reported yet (conntrack cannot see retransmits at all) - Dependency.Via says which case it is.
 	RetransmitsPerMin float64 `json:"retransmitsPerMin,omitempty"`
+	// RtoRetransmitsPerMin is the subset of RetransmitsPerMin that the RTO timer itself fired for - no
+	// ACK at all came back within a full round-trip-plus-backoff, as opposed to a fast retransmit
+	// recovering from ordinary reordering without ever stalling the connection. Same "0 means not
+	// measured, not measured-as-zero" story as RetransmitsPerMin, and the same eBPF-only availability.
+	RtoRetransmitsPerMin float64 `json:"rtoRetransmitsPerMin,omitempty"`
 	// FailedAttemptsPerMin is the same "0 means not measured, not measured-as-zero" story as
 	// RetransmitsPerMin: only eBPF sees a connection attempt that never got established at all.
 	FailedAttemptsPerMin float64 `json:"failedAttemptsPerMin,omitempty"`
@@ -629,6 +643,13 @@ type Dependency struct {
 	// conntrack-only edge (Via != "ebpf"), which has no socket to read this from, so a 0 there means
 	// "not measured", not "no loss".
 	Retransmits uint64 `json:"retransmits,omitempty"`
+	// RtoRetransmits is the cumulative subset of Retransmits that the RTO timer itself fired for - the
+	// kernel got no ACK at all within a full round-trip-plus-backoff, as opposed to a fast retransmit
+	// that recovered from ordinary packet reordering without ever stalling the connection. This is the
+	// real leading indicator of a degrading link: Retransmits alone cannot tell the two apart, and a
+	// connection can carry plenty of the ordinary kind while never actually timing out. Same conntrack
+	// caveat as Retransmits: always 0 there, meaning "not measured".
+	RtoRetransmits uint64 `json:"rtoRetransmits,omitempty"`
 	// FailedAttempts is the cumulative count of connection attempts between these two ends that never
 	// reached ESTABLISHED - refused, timed out, reset mid-handshake, or unreachable - summed the same way
 	// Retransmits is, and with the same conntrack caveat: always 0 on a conntrack-only edge, where it

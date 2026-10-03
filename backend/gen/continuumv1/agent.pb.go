@@ -3694,6 +3694,13 @@ type RawFlow struct {
 	// counter (struct tcp_sock.total_retrans) - never inferred from packet timing or loss heuristics of
 	// our own. Always 0 on a conntrack-derived report, which has no socket to read this from.
 	Retransmits uint32 `protobuf:"varint,10,opt,name=retransmits,proto3" json:"retransmits,omitempty"`
+	// The subset of retransmits (above) that the RTO timer itself fired for - no ACK at all came back
+	// within a full round-trip-plus-backoff, as opposed to a fast retransmit triggered by duplicate ACKs
+	// recovering from ordinary packet reordering without ever stalling the connection. From the kernel's
+	// own inet_connection_sock.icsk_retransmits (flow.c's struct inet_connection_sock); see Flow's own copy
+	// of this field for the reset-aware counting rule it needs (icsk_retransmits is not cumulative over
+	// the socket's life the way total_retrans is). Always 0 on a conntrack-derived report.
+	RtoRetransmits uint32 `protobuf:"varint,27,opt,name=rto_retransmits,json=rtoRetransmits,proto3" json:"rto_retransmits,omitempty"`
 	// The most recently sampled smoothed round-trip time, in microseconds, from the kernel's own TCP RTT
 	// estimator (struct tcp_sock.srtt_us). A gauge, not a sum: 0 means no sample yet (a connection that
 	// exchanged too little to measure one, or a conntrack-derived report), not "no delay".
@@ -3865,6 +3872,13 @@ func (x *RawFlow) GetIface() string {
 func (x *RawFlow) GetRetransmits() uint32 {
 	if x != nil {
 		return x.Retransmits
+	}
+	return 0
+}
+
+func (x *RawFlow) GetRtoRetransmits() uint32 {
+	if x != nil {
+		return x.RtoRetransmits
 	}
 	return 0
 }
@@ -4195,6 +4209,12 @@ type Flow struct {
 	// See RawFlow.mesh_bypass_syns - carried through attribution and the Aggregator's own summing
 	// (mergeFlowCounters) exactly like retransmits/segs_out/buffer_drops.
 	MeshBypassSyns uint32 `protobuf:"varint,26,opt,name=mesh_bypass_syns,json=meshBypassSyns,proto3" json:"mesh_bypass_syns,omitempty"`
+	// See RawFlow.rto_retransmits - carried through attribution and the Aggregator's own summing
+	// (mergeFlowCounters) exactly like retransmits/segs_out/buffer_drops. Also reset-aware the same way, on
+	// this same field: RawFlow.rto_retransmits already turned the kernel's own resettable
+	// icsk_retransmits into an ordinary non-negative delta before this ever saw it, so plain addition here
+	// and all the way through FlowEdge is exactly as safe as it is for retransmits/segs_out.
+	RtoRetransmits uint32 `protobuf:"varint,27,opt,name=rto_retransmits,json=rtoRetransmits,proto3" json:"rto_retransmits,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -4411,6 +4431,13 @@ func (x *Flow) GetMeshBypassSyns() uint32 {
 	return 0
 }
 
+func (x *Flow) GetRtoRetransmits() uint32 {
+	if x != nil {
+		return x.RtoRetransmits
+	}
+	return 0
+}
+
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
 // A node collector the agent has heard from lately: what the dashboard shows as "observer health".
 type CollectorInfo struct {
@@ -4615,6 +4642,10 @@ type FlowEdge struct {
 	// RawFlow.mesh_bypass_syns; summed the same way retransmits/segs_out/buffer_drops are.
 	MeshBypassSyns       uint64 `protobuf:"varint,19,opt,name=mesh_bypass_syns,json=meshBypassSyns,proto3" json:"mesh_bypass_syns,omitempty"`
 	WindowMeshBypassSyns uint64 `protobuf:"varint,20,opt,name=window_mesh_bypass_syns,json=windowMeshBypassSyns,proto3" json:"window_mesh_bypass_syns,omitempty"`
+	// Cumulative RTO-timer-fired retransmits over the life of this edge, and in the most recent window -
+	// see RawFlow.rto_retransmits/Flow.rto_retransmits; summed the same way retransmits/segs_out are.
+	RtoRetransmits       uint64 `protobuf:"varint,21,opt,name=rto_retransmits,json=rtoRetransmits,proto3" json:"rto_retransmits,omitempty"`
+	WindowRtoRetransmits uint64 `protobuf:"varint,22,opt,name=window_rto_retransmits,json=windowRtoRetransmits,proto3" json:"window_rto_retransmits,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -4785,6 +4816,20 @@ func (x *FlowEdge) GetMeshBypassSyns() uint64 {
 func (x *FlowEdge) GetWindowMeshBypassSyns() uint64 {
 	if x != nil {
 		return x.WindowMeshBypassSyns
+	}
+	return 0
+}
+
+func (x *FlowEdge) GetRtoRetransmits() uint64 {
+	if x != nil {
+		return x.RtoRetransmits
+	}
+	return 0
+}
+
+func (x *FlowEdge) GetWindowRtoRetransmits() uint64 {
+	if x != nil {
+		return x.WindowRtoRetransmits
 	}
 	return 0
 }
@@ -5633,7 +5678,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2\x18.continuum.v1.PathResultR\aresults\x12\x18\n" +
 	"\arefused\x18\x02 \x01(\rR\arefused\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xb1\x06\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xda\x06\n" +
 	"\aRawFlow\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\bR\x06client\x12\x19\n" +
 	"\blocal_ip\x18\x02 \x01(\tR\alocalIp\x12\x17\n" +
@@ -5645,7 +5690,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\bbytes_in\x18\b \x01(\x04R\abytesIn\x12\x14\n" +
 	"\x05iface\x18\t \x01(\tR\x05iface\x12 \n" +
 	"\vretransmits\x18\n" +
-	" \x01(\rR\vretransmits\x12\x15\n" +
+	" \x01(\rR\vretransmits\x12'\n" +
+	"\x0frto_retransmits\x18\x1b \x01(\rR\x0ertoRetransmits\x12\x15\n" +
 	"\x06rtt_us\x18\v \x01(\rR\x05rttUs\x12'\n" +
 	"\x0ffailed_attempts\x18\f \x01(\x04R\x0efailedAttempts\x12%\n" +
 	"\x0efailed_refused\x18\r \x01(\x04R\rfailedRefused\x12%\n" +
@@ -5682,7 +5728,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"UNRESOLVED\x10\x00\x12\f\n" +
 	"\bWORKLOAD\x10\x01\x12\b\n" +
 	"\x04NODE\x10\x02\x12\f\n" +
-	"\bEXTERNAL\x10\x03\"\xa1\x06\n" +
+	"\bEXTERNAL\x10\x03\"\xca\x06\n" +
 	"\x04Flow\x12,\n" +
 	"\x03src\x18\x01 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03src\x12,\n" +
 	"\x03dst\x18\x02 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03dst\x12\x12\n" +
@@ -5713,7 +5759,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"dns_rtt_us\x18\x17 \x01(\rR\bdnsRttUs\x12\x17\n" +
 	"\asrc_pod\x18\x18 \x01(\tR\x06srcPod\x12\x17\n" +
 	"\adst_pod\x18\x19 \x01(\tR\x06dstPod\x12(\n" +
-	"\x10mesh_bypass_syns\x18\x1a \x01(\rR\x0emeshBypassSyns\"\\\n" +
+	"\x10mesh_bypass_syns\x18\x1a \x01(\rR\x0emeshBypassSyns\x12'\n" +
+	"\x0frto_retransmits\x18\x1b \x01(\rR\x0ertoRetransmits\"\\\n" +
 	"\rCollectorInfo\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12\x1f\n" +
@@ -5727,7 +5774,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"collectors\x18\x05 \x03(\v2\x1b.continuum.v1.CollectorInfoR\n" +
 	"collectors\x12/\n" +
-	"\tpod_flows\x18\x06 \x03(\v2\x12.continuum.v1.FlowR\bpodFlows\"\xc6\x06\n" +
+	"\tpod_flows\x18\x06 \x03(\v2\x12.continuum.v1.FlowR\bpodFlows\"\xa5\a\n" +
 	"\bFlowEdge\x12$\n" +
 	"\x03key\x18\x01 \x01(\v2\x12.continuum.v1.FlowR\x03key\x129\n" +
 	"\n" +
@@ -5750,7 +5797,9 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\fbuffer_drops\x18\x11 \x01(\x04R\vbufferDrops\x12.\n" +
 	"\x13window_buffer_drops\x18\x12 \x01(\x04R\x11windowBufferDrops\x12(\n" +
 	"\x10mesh_bypass_syns\x18\x13 \x01(\x04R\x0emeshBypassSyns\x125\n" +
-	"\x17window_mesh_bypass_syns\x18\x14 \x01(\x04R\x14windowMeshBypassSyns\"9\n" +
+	"\x17window_mesh_bypass_syns\x18\x14 \x01(\x04R\x14windowMeshBypassSyns\x12'\n" +
+	"\x0frto_retransmits\x18\x15 \x01(\x04R\x0ertoRetransmits\x124\n" +
+	"\x16window_rto_retransmits\x18\x16 \x01(\x04R\x14windowRtoRetransmits\"9\n" +
 	"\tFlowTable\x12,\n" +
 	"\x05edges\x18\x01 \x03(\v2\x16.continuum.v1.FlowEdgeR\x05edges\"\x82\x06\n" +
 	"\vDiagnostics\x12#\n" +

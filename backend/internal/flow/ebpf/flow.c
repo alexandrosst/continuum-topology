@@ -76,6 +76,19 @@ struct sock {
 	unsigned long sk_pacing_rate;
 } __attribute__((preserve_access_index));
 
+// Only what reads icsk_retransmits: the count of consecutive retransmissions the RTO timer itself has
+// fired for whichever segment is currently stuck at the front of the send queue - reset to 0 the moment
+// any new data gets acknowledged, so it is not cumulative the way tcp_sock.total_retrans is (see
+// flow_val.rto_retransmits' own doc comment for what that means for how this gets diffed). In the real
+// kernel, struct inet_sock's first member is a plain struct sock, and struct inet_connection_sock's first
+// member is a struct inet_sock in turn - a "first member, so same starting address" layout, exactly what
+// the kernel's own inet_csk() macro relies on to turn a plain struct sock* into a struct
+// inet_connection_sock* with nothing more than a cast (no real conversion happens; the bytes are the
+// kernel's one real inet_connection_sock all along). This declares only the one field read through it.
+struct inet_connection_sock {
+	__u8 icsk_retransmits;
+} __attribute__((preserve_access_index));
+
 struct socket {
 	struct sock *sk;
 } __attribute__((preserve_access_index));
@@ -152,6 +165,25 @@ struct flow_val {
 	// rtt_us is a gauge, not a sum: it is overwritten by the latest sample rather than accumulated, the
 	// same latest-wins treatment as ifindex/ifname above. 0 means no sample yet, not "no delay".
 	__u32 retransmits;
+	// rto_retransmits: the growth, since this socket was last accounted, in tcp_sock's own
+	// inet_connection_sock.icsk_retransmits (see struct inet_connection_sock above) - segments
+	// retransmitted because the RTO timer itself fired with no ACK at all, as opposed to a fast
+	// retransmit triggered by duplicate ACKs (reordering the network recovered from on its own, without
+	// ever stalling the connection). retransmits above counts both kinds together (tcp_sock.total_retrans
+	// does not distinguish them); this is the subset that actually means a full round-trip-plus-backoff
+	// of dead time elapsed with nothing coming back - the real, leading sign of a degrading link, where
+	// retransmits alone could just as easily mean "a little packet reordering, recovered instantly".
+	// Diffed like retransmits, except icsk_retransmits is not cumulative over the socket's life the way
+	// total_retrans is: the kernel resets it to 0 on every acknowledged forward progress, so a lower
+	// reading than last time means real progress happened, not that time ran backwards. Treated the way
+	// any reset-prone counter is: current >= last is ordinary growth (current - last); current < last is
+	// treated as a reset partway through, and current itself (not current - last, which would double-
+	// count nothing and underflow if simply clamped to 0 like the other counters here) is added, on the
+	// assumption the reset happened at or before this read and growth resumed from 0 - an approximation
+	// (it slightly undercounts whatever growth happened between the actual reset and this read, in the
+	// case where it reset and then grew again before this), never an overcount, and well-documented
+	// rather than silently treated like an ordinary monotonic counter.
+	__u32 rto_retransmits;
 	__u32 rtt_us;
 	// jitter_us: the RTT estimator's own mean-deviation sample (tcp_sock.mdev_us >> 2) - a gauge, same
 	// latest-wins/0-means-no-sample treatment as rtt_us right above it, read at exactly the same moments.
@@ -211,6 +243,10 @@ struct sock_info {
 	__u64 last_out;
 	__u64 last_in;
 	__u32 last_retrans;
+	// icsk_retransmits at the last time this socket was accounted - see flow_val.rto_retransmits' own doc
+	// comment for why this is diffed differently from last_retrans right above it (icsk_retransmits can
+	// go down, not just up).
+	__u32 last_rto_retransmits;
 	__u32 last_segs_out;
 	// sock.sk_drops at the last time this socket was accounted - diffed the same way last_retrans is.
 	__u32 last_drops;
@@ -282,7 +318,7 @@ static __always_inline void put_iface(struct flow_val *v, struct sock *sk) {
 	bpf_probe_read_kernel_str(v->ifname, sizeof(v->ifname), dev->name);
 }
 
-static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us, __u32 cwnd, __u64 pacing_bps, __u32 buffer_drops) {
+static __always_inline void add_flow(const struct flow_key *key, struct sock *sk, __u64 conns, __u64 out, __u64 in, __u32 retrans, __u32 rto_retrans, __u32 rtt_us, __u32 jitter_us, __u32 segs_out, __u32 handshake_us, __u32 cwnd, __u64 pacing_bps, __u32 buffer_drops) {
 	struct flow_val zero = {};
 	struct flow_val *v = bpf_map_lookup_elem(&flows, key);
 	if (!v) {
@@ -303,6 +339,7 @@ static __always_inline void add_flow(const struct flow_key *key, struct sock *sk
 		v->bytes_in += out;
 	}
 	v->retransmits += retrans;
+	v->rto_retransmits += rto_retrans;
 	if (rtt_us)
 		v->rtt_us = rtt_us;
 	if (jitter_us)
@@ -415,6 +452,16 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// the same defensive treatment this file already gives sk's own scalar fields outside __sk_common
 		// (see sk_err's read in the TCP_CLOSE branch below).
 		bpf_probe_read_kernel(&si.last_drops, sizeof(si.last_drops), &sk->sk_drops.counter);
+		// icsk_retransmits lives on inet_connection_sock, not tcp_sock - read via the same raw-cast
+		// technique as struct inet_connection_sock's own doc comment, with the same defensive
+		// bpf_probe_read_kernel treatment as sk_drops just above (not a trusted-pointer CO-RE dereference,
+		// since this is a raw cast of sk, not a helper-returned pointer like tp).
+		{
+			struct inet_connection_sock *icsk = (struct inet_connection_sock *)sk;
+			__u8 rto0 = 0;
+			bpf_probe_read_kernel(&rto0, sizeof(rto0), &icsk->icsk_retransmits);
+			si.last_rto_retransmits = rto0;
+		}
 		if (bpf_map_update_elem(&socks, &id, &si, BPF_ANY) != 0) {
 			count_lost();
 			return 0;
@@ -422,7 +469,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// Counted now, so a connection that lives for days is a dependency from its first second. No RTT/
 		// jitter sample exists yet this early (0, unknown, rather than a guess); handshake_us, by contrast,
 		// is known exactly right now - this is the only moment it ever will be.
-		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, handshake_us, 0, 0, 0);
+		add_flow(&si.key, sk, 1, 0, 0, 0, 0, 0, 0, 0, handshake_us, 0, 0, 0);
 		return 0;
 	}
 
@@ -467,6 +514,13 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops.counter);
 		bpf_probe_read_kernel(&pacing_rate, sizeof(pacing_rate), &sk->sk_pacing_rate);
 		__u32 ddrops = (__u32)drops > si->last_drops ? (__u32)drops - si->last_drops : 0;
+		// icsk_retransmits: see struct inet_connection_sock's and flow_val.rto_retransmits' own doc
+		// comments - the same raw-cast-and-bpf_probe_read_kernel treatment as sk_drops/sk_pacing_rate
+		// just above, and the reset-aware (not clamped-to-0) diff flow_val.rto_retransmits documents.
+		struct inet_connection_sock *icsk = (struct inet_connection_sock *)sk;
+		__u8 rto_raw = 0;
+		bpf_probe_read_kernel(&rto_raw, sizeof(rto_raw), &icsk->icsk_retransmits);
+		__u32 drto = rto_raw >= si->last_rto_retransmits ? (__u32)rto_raw - si->last_rto_retransmits : (__u32)rto_raw;
 		// out/in themselves can be behind si->last_out/last_in here: snapshot() (iter/task_file) runs
 		// concurrently against the same unlocked socks LRU entry and may have already advanced
 		// last_out/last_in past what this tracepoint just read for a long-lived socket. Without this
@@ -478,7 +532,7 @@ int BPF_PROG(on_state, struct sock *sk, int oldstate, int newstate) {
 		// srtt_us/mdev_us are kept as 8x/4x fixed-point averages respectively (see struct tcp_sock's
 		// comment); >>3 and >>2 recover microseconds. A connection that never left slow start can close
 		// with no sample of either at all (0).
-		add_flow(&si->key, sk, 0, dout, din, dretrans, tp->srtt_us >> 3, tp->mdev_us >> 2, dsegs, 0,
+		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, tp->srtt_us >> 3, tp->mdev_us >> 2, dsegs, 0,
 		         tp->snd_cwnd, (__u64)pacing_rate, ddrops);
 	}
 	bpf_map_delete_elem(&socks, &id);
@@ -515,9 +569,10 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 	__u32 retrans = 0, srtt_raw = 0, mdev_raw = 0, segs_out = 0, cwnd = 0;
 	int drops = 0;
 	unsigned long pacing_rate = 0;
+	__u8 rto_raw = 0;
 	// Best-effort: a socket this old is already tracked by role/key regardless of whether these reads
-	// succeed, so a failure here just means no retransmit/RTT/jitter/loss/cwnd/pacing/drops update this
-	// round, not a dropped flow.
+	// succeed, so a failure here just means no retransmit/RTO/RTT/jitter/loss/cwnd/pacing/drops update
+	// this round, not a dropped flow.
 	bpf_probe_read_kernel(&retrans, sizeof(retrans), &tp->total_retrans);
 	bpf_probe_read_kernel(&srtt_raw, sizeof(srtt_raw), &tp->srtt_us);
 	bpf_probe_read_kernel(&mdev_raw, sizeof(mdev_raw), &tp->mdev_us);
@@ -525,18 +580,30 @@ int snapshot(struct bpf_iter__task_file *ctx) {
 	bpf_probe_read_kernel(&cwnd, sizeof(cwnd), &tp->snd_cwnd);
 	bpf_probe_read_kernel(&drops, sizeof(drops), &sk->sk_drops.counter);
 	bpf_probe_read_kernel(&pacing_rate, sizeof(pacing_rate), &sk->sk_pacing_rate);
+	// icsk_retransmits: see struct inet_connection_sock's and flow_val.rto_retransmits' own doc comments.
+	// sk here is still the raw struct sock* this whole function started from (the (struct tcp_sock *)
+	// cast a few lines up is this same function's own pre-existing, separate reinterpretation of it for
+	// tcp_sock's fields), so the same raw-cast technique applies starting from it, not from tp.
+	struct inet_connection_sock *icsk = (struct inet_connection_sock *)sk;
+	bpf_probe_read_kernel(&rto_raw, sizeof(rto_raw), &icsk->icsk_retransmits);
 	__u32 ddrops = (__u32)drops > si->last_drops ? (__u32)drops - si->last_drops : 0;
-	if (out > si->last_out || in > si->last_in || retrans > si->last_retrans || segs_out > si->last_segs_out || ddrops) {
+	// rto_raw != si->last_rto_retransmits (not just >) belongs in the trigger condition because, unlike
+	// every other counter here, a drop - the reset flow_val.rto_retransmits documents - is itself new
+	// information worth a report, not nothing happening.
+	if (out > si->last_out || in > si->last_in || retrans > si->last_retrans || segs_out > si->last_segs_out || ddrops ||
+	    (__u32)rto_raw != si->last_rto_retransmits) {
 		__u64 dout = out > si->last_out ? out - si->last_out : 0;
 		__u64 din = in > si->last_in ? in - si->last_in : 0;
 		__u32 dretrans = retrans > si->last_retrans ? retrans - si->last_retrans : 0;
 		__u32 dsegs = segs_out > si->last_segs_out ? segs_out - si->last_segs_out : 0;
+		__u32 drto = (__u32)rto_raw >= si->last_rto_retransmits ? (__u32)rto_raw - si->last_rto_retransmits : (__u32)rto_raw;
 		si->last_out = out > si->last_out ? out : si->last_out;
 		si->last_in = in > si->last_in ? in : si->last_in;
 		si->last_retrans = retrans > si->last_retrans ? retrans : si->last_retrans;
 		si->last_segs_out = segs_out > si->last_segs_out ? segs_out : si->last_segs_out;
 		si->last_drops = (__u32)drops > si->last_drops ? (__u32)drops : si->last_drops;
-		add_flow(&si->key, sk, 0, dout, din, dretrans, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0, cwnd, (__u64)pacing_rate, ddrops);
+		si->last_rto_retransmits = rto_raw;
+		add_flow(&si->key, sk, 0, dout, din, dretrans, drto, srtt_raw >> 3, mdev_raw >> 2, dsegs, 0, cwnd, (__u64)pacing_rate, ddrops);
 	}
 	return 0;
 }

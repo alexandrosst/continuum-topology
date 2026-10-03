@@ -195,11 +195,12 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		e.BytesOut = satAdd(e.BytesOut, f.BytesOut)
 		e.BytesIn = satAdd(e.BytesIn, f.BytesIn)
 		e.Retransmits = satAdd(e.Retransmits, f.Retransmits)
+		e.RtoRetransmits = satAdd(e.RtoRetransmits, uint64(f.RtoRetransmits))
 		e.SegsOut = satAdd(e.SegsOut, uint64(f.SegsOut))
 		e.BufferDrops = satAdd(e.BufferDrops, uint64(f.BufferDrops))
 		e.MeshBypassSyns = satAdd(e.MeshBypassSyns, uint64(f.MeshBypassSyns))
 		e.FailedAttempts = satAdd(e.FailedAttempts, f.FailedAttempts)
-		e.WindowSeconds, e.WindowConnections, e.WindowBytes, e.WindowRetransmits, e.WindowSegsOut, e.WindowBufferDrops, e.WindowMeshBypassSyns, e.WindowFailedAttempts = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn), f.Retransmits, uint64(f.SegsOut), uint64(f.BufferDrops), uint64(f.MeshBypassSyns), f.FailedAttempts
+		e.WindowSeconds, e.WindowConnections, e.WindowBytes, e.WindowRetransmits, e.WindowRtoRetransmits, e.WindowSegsOut, e.WindowBufferDrops, e.WindowMeshBypassSyns, e.WindowFailedAttempts = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn), f.Retransmits, uint64(f.RtoRetransmits), uint64(f.SegsOut), uint64(f.BufferDrops), uint64(f.MeshBypassSyns), f.FailedAttempts
 		if f.BytesKnown {
 			e.Key.BytesKnown = true
 		}
@@ -782,6 +783,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 			d.DnsRttMs = float64(e.Key.DnsRttUs) / 1000
 		}
 		d.Retransmits = satAdd(d.Retransmits, e.Retransmits)
+		d.RtoRetransmits = satAdd(d.RtoRetransmits, e.RtoRetransmits)
 		d.BufferDrops = satAdd(d.BufferDrops, e.BufferDrops)
 		// Tentative: true here means only "a direct, non-redirected egress SYN was observed on this edge
 		// at some point" (see FlowEdge.MeshBypassSyns/flow.c's note_mesh_bypass), nothing yet about
@@ -810,6 +812,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 			st.WindowSec = e.WindowSeconds
 			st.ConnectionsPerMin += float64(e.WindowConnections) * 60 / float64(e.WindowSeconds)
 			st.RetransmitsPerMin += float64(e.WindowRetransmits) * 60 / float64(e.WindowSeconds)
+			st.RtoRetransmitsPerMin += float64(e.WindowRtoRetransmits) * 60 / float64(e.WindowSeconds)
 			st.FailedAttemptsPerMin += float64(e.WindowFailedAttempts) * 60 / float64(e.WindowSeconds)
 			if e.Key.BytesKnown {
 				st.BytesPerSec += float64(e.WindowBytes) / float64(e.WindowSeconds)

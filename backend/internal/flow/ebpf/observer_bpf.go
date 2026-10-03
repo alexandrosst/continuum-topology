@@ -447,6 +447,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			sum.BytesOut += v.BytesOut
 			sum.BytesIn += v.BytesIn
 			sum.Retransmits += v.Retransmits
+			sum.RtoRetransmits += v.RtoRetransmits
 			sum.SegsOut += v.SegsOut
 			sum.BufferDrops += v.BufferDrops
 			sum.MeshBypassSyns += v.MeshBypassSyns
@@ -507,6 +508,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 			BytesIn:           sum.BytesIn,
 			Iface:             iface,
 			Retransmits:       sum.Retransmits,
+			RtoRetransmits:    sum.RtoRetransmits,
 			RttUs:             sum.RttUs,
 			JitterUs:          sum.JitterUs,
 			SegsOut:           sum.SegsOut,

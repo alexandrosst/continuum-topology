@@ -38,10 +38,12 @@ type flowFlowVal struct {
 	Ifindex           int32
 	Ifname            [16]int8
 	Retransmits       uint32
+	RtoRetransmits    uint32
 	RttUs             uint32
 	JitterUs          uint32
 	SegsOut           uint32
 	Cwnd              uint32
+	_                 [4]byte
 	PacingBps         uint64
 	BufferDrops       uint32
 	MeshBypassSyns    uint32
@@ -67,18 +69,18 @@ type flowNameEvent struct {
 }
 
 type flowSockInfo struct {
-	_           structs.HostLayout
-	Key         flowFlowKey
-	_           [4]byte
-	LastOut     uint64
-	LastIn      uint64
-	LastRetrans uint32
-	LastSegsOut uint32
-	LastDrops   uint32
-	_           [4]byte
-	SynNs       uint64
-	Established uint8
-	_           [7]byte
+	_                  structs.HostLayout
+	Key                flowFlowKey
+	_                  [4]byte
+	LastOut            uint64
+	LastIn             uint64
+	LastRetrans        uint32
+	LastRtoRetransmits uint32
+	LastSegsOut        uint32
+	LastDrops          uint32
+	SynNs              uint64
+	Established        uint8
+	_                  [7]byte
 }
 
 // Names of all BPF objects in the ELF.

@@ -253,6 +253,13 @@ export interface ClusterLink {
   /** Average loss percentage across the matched flows that have a measured sample. Undefined when none
    *  of them do yet, never a fabricated 0%. */
   avgLossPct?: number
+  /** Average rtoRetransmitsPerMin (not the raw, undifferentiated retransmit rate) across the same matched
+   *  flows avgRttMs/avgLossPct roll up - specifically the RTO-timer-fired subset, since this field exists
+   *  to say something about the tunnel's own link quality, and a fast retransmit recovering from ordinary
+   *  reordering says nothing about that. Same "0 means not measured" tolerated ambiguity as
+   *  rtoRetransmitsPerMin itself (a per-minute rate, unlike avgLossPct's percentage, has no zero-
+   *  denominator case that needs telling apart from a real 0). */
+  avgRtoRetransmitsPerMin?: number
   /** Only set for an "overlay" link: whether its confirmed tunnel driver encrypts traffic by design
    *  (WireGuard, or an IPsec virtual-tunnel kind) or carries none of its own (VXLAN, GRE and its
    *  variants, IP-in-IP) - see the backend's TunnelEncryptionPosture. This is an inference from the
@@ -642,6 +649,11 @@ export interface DependencyStats {
   /** 0 both when there is genuinely no loss and when nothing eBPF-observed has reported yet (conntrack
    * cannot see retransmits at all) - Dependency.via says which case it is. */
   retransmitsPerMin?: number
+  /** The subset of retransmitsPerMin that the RTO timer itself fired for - the real leading indicator of
+   * a degrading link, as opposed to a fast retransmit recovering from ordinary reordering without ever
+   * stalling the connection. Same "0 means not measured, not measured-as-zero" story as
+   * retransmitsPerMin, and the same eBPF-only availability. */
+  rtoRetransmitsPerMin?: number
   /** Retransmitted segments as a percentage of segments sent in this window - a real loss rate, not just
    * a raw retransmit count. Undefined (never 0) whenever no segs_out has been reported for this edge yet
    * (a conntrack-only edge, or an eBPF edge too young to have sent a full segment): there is deliberately
@@ -697,6 +709,12 @@ export interface Dependency {
    * conntrack-only edge (via !== 'ebpf'), which has no socket to read this from: there, 0 means "not
    * measured", not "no loss". */
   retransmits?: number
+  /** The cumulative subset of retransmits (above) that the RTO timer itself fired for - no ACK at all
+   * came back within a full round-trip-plus-backoff, as opposed to a fast retransmit that recovered
+   * from ordinary packet reordering without ever stalling the connection. The real leading indicator of
+   * a degrading link: retransmits alone cannot tell the two apart. Same conntrack caveat as retransmits
+   * (always 0 there, meaning "not measured"). */
+  rtoRetransmits?: number
   /** Cumulative connection attempts between these two ends that never reached ESTABLISHED - refused,
    * timed out, reset mid-handshake, or unreachable - summed the same way retransmits is, with the same
    * conntrack caveat (0 there means "not measured"). A dependency can have this set with connections
