@@ -1819,6 +1819,12 @@ test("service card: podGroups buckets every live replica by node, uncapped, for 
       { name: 'gw-2', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old, restarts: 2 },
       { name: 'gw-3', nodeId: 'n-c3', phase: 'Pending', ready: false, createdAt: brandNew },
       { name: 'gw-4', phase: 'Pending', ready: false, createdAt: brandNew },
+      // A nodeId outside this topology's own scope (deleted node, or just never reported here) - the
+      // doc comment on podGroupsFor covers this case too: still a real group, not silently dropped, named
+      // from the raw nodeId since there is nothing else to resolve it to. Picked to sort after "not
+      // scheduled" (unlike the real node names above, which all sort before it) so the sort-order
+      // assertion below is pinned by an actual comparison, not a coincidence of this fixture's names.
+      { name: 'gw-5', nodeId: 'zzz-ghost', phase: 'Running', ready: true, createdAt: old },
     ] } : s)),
   }
   const g = buildGraph(grouped, opts)
@@ -1827,13 +1833,15 @@ test("service card: podGroups buckets every live replica by node, uncapped, for 
   const groups = (card.data as { podGroups?: PodGroup[] }).podGroups!
 
   // podGroups never caps or drops anything the way the collapsed strip's `pods`/`podsOverflow` do - every
-  // one of the 4 pods above is accounted for across the groups, however many there are.
-  assert.equal(groups.reduce((n, gr) => n + gr.pods.length, 0), 4)
+  // one of the 5 pods above is accounted for across the groups, however many there are.
+  assert.equal(groups.reduce((n, gr) => n + gr.pods.length, 0), 5)
 
   // Sorted by resolved node name; a pod with no nodeId lands in its own "not scheduled" group rather than
-  // being dropped.
-  assert.deepEqual(groups.map((gr) => gr.nodeName), ['eks-worker-1', 'eks-worker-2', 'not scheduled'])
-  assert.deepEqual(groups.map((gr) => gr.nodeId), ['n-c2', 'n-c3', ''])
+  // being dropped, and a nodeId this topology doesn't recognize falls back to the raw id (gw-5's
+  // 'zzz-ghost') instead of vanishing or crashing - and, sorting after "not scheduled" here, proves the
+  // ordering is a real localeCompare over whatever names are present, not a hardcoded "unscheduled last".
+  assert.deepEqual(groups.map((gr) => gr.nodeName), ['eks-worker-1', 'eks-worker-2', 'not scheduled', 'zzz-ghost'])
+  assert.deepEqual(groups.map((gr) => gr.nodeId), ['n-c2', 'n-c3', '', 'zzz-ghost'])
 
   const onC2 = groups.find((gr) => gr.nodeId === 'n-c2')!
   assert.deepEqual(onC2.pods.map((p) => p.id), ['gw-1', 'gw-2'])
