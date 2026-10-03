@@ -1,13 +1,16 @@
+import { Star } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { Confidence } from '@/components/placement/shared'
+import { Confidence, pts } from '@/components/placement/shared'
 import { FitBadge, Hedge, Why } from '@/components/placement/Why'
 import { ICON_SM, ObservationChip, TierBadge } from '@/components/ui/primitives'
 import { capCtxOf } from '@/lib/capacity'
-import { useJudgedAt } from '@/lib/placement/usePlacement'
-import { observation, TONE_CLASS } from '@/lib/provenance'
+import { isMovableKind } from '@/lib/placement/engine'
+import { useJudgedAt, usePlan } from '@/lib/placement/usePlacement'
+import { ageLabel, observation, TONE_CLASS } from '@/lib/provenance'
 import { movability, moveTargets, VERDICT_HELP, VERDICT_ICON, VERDICT_LABEL, VERDICT_TONE, type MoveModel, type MoveTarget, type ReasonSeverity } from '@/lib/movability'
 import { sensitivityText, type Verdict } from '@/lib/advice'
+import type { Recommendation } from '@/lib/placement/types'
 import type { Service } from '@/lib/types'
 import { useEffectiveModel } from '@/store/effectiveModel'
 import { useTopology } from '@/store/topology'
@@ -50,12 +53,28 @@ export function MobilityChip({ service, forService }: { service: Service; forSer
   )
 }
 
-/** Why a service can or cannot move, and which other clusters could take it. */
+/**
+ * Why a service can or cannot move, which other clusters could take it, and - folded in rather than shown as
+ * its own section (see the Inspector, where this used to sit above a separate ServiceAdvice) - where the last
+ * optimization pass thinks it should actually go. The two answer different questions on different clocks
+ * (this is an instant, client-side feasibility sweep across every cluster; the plan's pick is one
+ * globally-cost-optimized recommendation that is only as fresh as the last run), so they stay two separate
+ * computations; only their *presentation* is merged, as a highlight on the one fit-list row they agree on
+ * plus one bridge sentence, rather than two near-identical badge rows repeating the same clusters.
+ */
 export default function MobilityPanel({ service, onSelectCluster }: { service: Service; onSelectCluster?: (id: string) => void }) {
   const { forService } = useMoveModel()
   const model = useMemo(() => forService(service), [forService, service])
   const m = useMemo(() => movability(service, model), [service, model])
   const targets = useMemo(() => moveTargets(service, model), [service, model])
+  const { world, plan } = usePlan()
+  const rec = plan.recommendations.find((r) => r.serviceId === service.id)
+  const skipped = plan.skipped.find((s) => s.serviceId === service.id)
+  const recTarget = rec ? targets.find((t) => t.cluster.id === rec.to) : undefined
+  // The plan only ever recommends a cluster it itself certified as fitting; if it is not sitting in this
+  // sweep's own "Fit" group too (a stale plan run, most likely, since the two run on different schedules),
+  // the two computations disagree and the highlight has no row of this sweep's own to attach to.
+  const recInFitList = !!recTarget && recTarget.verdict === 'fits'
   const Icon = VERDICT_ICON[m.verdict]
   const groups: { verdict: Verdict; title: string; rows: MoveTarget[] }[] = [
     { verdict: 'fits', title: 'Fit', rows: targets.filter((t) => t.verdict === 'fits') },
@@ -99,18 +118,81 @@ export default function MobilityPanel({ service, onSelectCluster }: { service: S
               <h4 className="mb-1 text-[11px] font-medium text-nb-400">{g.title} ({g.rows.length})</h4>
               <ul className="space-y-2.5">
                 {g.rows.map((t) => (
-                  <TargetRow key={t.cluster.id} t={t} now={now} onSelectCluster={onSelectCluster} />
+                  <TargetRow
+                    key={t.cluster.id}
+                    t={t}
+                    now={now}
+                    onSelectCluster={onSelectCluster}
+                    recommended={recInFitList && g.verdict === 'fits' && t.cluster.id === rec!.to ? rec : undefined}
+                    planNow={world.cap.now}
+                  />
                 ))}
               </ul>
             </section>
           ),
       )}
+      <PlanBridge
+        service={service}
+        rec={rec}
+        targetName={rec ? world.byCluster.get(rec.to)?.name ?? rec.to : undefined}
+        recInFitList={recInFitList}
+        skipped={skipped?.why}
+        planNow={world.cap.now}
+      />
       <p className="mt-3 text-[11px] leading-4 text-nb-600">Worked out from what was discovered and the policy you set. It does not move anything.</p>
     </div>
   )
 }
 
-function TargetRow({ t, now, onSelectCluster }: { t: MoveTarget; now: number; onSelectCluster?: (id: string) => void }) {
+/** The relationship between this instant feasibility sweep and the last global optimization pass: which of
+ * the fits, if any, the plan actually picked, or - when it has nothing to recommend here at all - why. Shown
+ * once, below the fit list, instead of as ServiceAdvice's own separate "Where should this run?" section. The
+ * freshness note is deliberately its own line: the fit list above is live and client-side, this pick is only
+ * as fresh as the plan's last run, and a reader should never have to guess which clock either one is on. */
+function PlanBridge({ service, rec, targetName, recInFitList, skipped, planNow }: { service: Service; rec?: Recommendation; targetName?: string; recInFitList: boolean; skipped?: string; planNow: number }) {
+  const ranAgo = ageLabel(new Date(planNow).toISOString())
+  const freshness = <p className="mt-1 text-[11px] text-nb-600" data-testid="plan-freshness">Plan run {ranAgo} ago.</p>
+  if (rec) {
+    return (
+      <div className="mt-3 text-xs text-nb-400" data-testid="plan-bridge">
+        <p>
+          {recInFitList ? (
+            <>Of the clusters that fit, <span className="font-medium text-nb-300">{targetName}</span> is the current pick from the last optimization pass (saves {pts(rec.net)} points).</>
+          ) : (
+            <>The last optimization pass picked <span className="font-medium text-nb-300">{targetName}</span> (saves {pts(rec.net)} points), but it is not in this sweep’s own fit list right now - the two run on different schedules.</>
+          )}
+        </p>
+        {freshness}
+      </div>
+    )
+  }
+  if (skipped) {
+    return (
+      <div className="mt-3 text-xs text-nb-400" data-testid="plan-bridge">
+        <p>{skipped}</p>
+        {freshness}
+      </div>
+    )
+  }
+  if (!isMovableKind(service)) {
+    return (
+      <div className="mt-3 text-xs text-nb-400" data-testid="plan-bridge">
+        <p>A {service.kind} does not move.</p>
+        {freshness}
+      </div>
+    )
+  }
+  return (
+    <div className="mt-3 text-xs text-nb-400" data-testid="plan-bridge">
+      <p>
+        Nothing beats where it runs now, or nothing is known yet about what it talks to. <Link to="/placement" className="text-accent hover:underline">Placement</Link>
+      </p>
+      {freshness}
+    </div>
+  )
+}
+
+function TargetRow({ t, now, onSelectCluster, recommended, planNow }: { t: MoveTarget; now: number; onSelectCluster?: (id: string) => void; recommended?: Recommendation; planNow: number }) {
   const dim = t.fits ? 'text-nb-300' : t.verdict === 'cantTell' ? 'text-warn' : 'text-nb-500'
   const hedged = t.confidence === 'low' || t.confidence === 'none'
   return (
@@ -152,6 +234,34 @@ function TargetRow({ t, now, onSelectCluster }: { t: MoveTarget; now: number; on
         </ul>
       )}
       <Why facts={t.facts} wouldChange={t.advice.changes.map((c) => c.text)} fixes={[]} now={now} />
+      {recommended && <RecommendedHighlight rec={recommended} now={planNow} />}
     </li>
+  )
+}
+
+/** The plan's own pick, as a small accent strip under the one fit-list row it agrees with - not a second
+ * FitBadge/Confidence/Why trio repeating the same cluster a second time. */
+function RecommendedHighlight({ rec, now }: { rec: Recommendation; now: number }) {
+  return (
+    <div className="mt-2 rounded-lg border border-accent/30 bg-accent-soft px-3 py-2" data-testid="recommended-highlight">
+      <div className="flex flex-wrap items-center gap-2">
+        <Star size={ICON_SM} className="shrink-0 text-accent" aria-hidden />
+        <span className="font-medium text-accent">Recommended — {rec.reasons[0] ?? 'The combined effect of several small differences.'}</span>
+        <span className="whitespace-nowrap rounded-md bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent" title="Steady-state improvement in cost points after the one-off cost of copying data. See how points are weighed under Policy.">
+          saves {pts(rec.net)} points
+        </span>
+      </div>
+      {(rec.confidence === 'low' || rec.confidence === 'none') && (
+        <div className="mt-1.5">
+          <Hedge level={rec.confidence} inputs={rec.inputs} verdict={rec.fit} />
+        </div>
+      )}
+      <div className="mt-1.5">
+        <Link to={`/placement?tab=whatif&service=${encodeURIComponent(rec.serviceId)}&to=${encodeURIComponent(rec.to)}`} className="text-accent hover:underline">
+          See the evidence
+        </Link>
+      </div>
+      <Why facts={rec.facts} wouldChange={rec.wouldChange.map((c) => c.text)} fixes={rec.fixes} now={now} label="Why this pick" />
+    </div>
   )
 }

@@ -7,7 +7,6 @@ import EntityHistory from '@/components/EntityHistory'
 import { EvidenceSection, WeakValues } from '@/components/EvidenceSection'
 import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
-import ServiceAdvice from '@/components/placement/ServiceAdvice'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
 import { Button, CompletenessBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, Pill, Provenance as ProvenanceStrip, Select, Sparkline, SourceBadge, StatusDot, TierBadge, TunnelEvidence } from '@/components/ui/primitives'
 import { completeness } from '@/lib/completeness'
@@ -880,9 +879,6 @@ export default function Inspector({
         })()}
         <Section title="Can it move?">
           <MobilityPanel service={w} onSelectCluster={(id) => onSelect({ kind: 'cluster', id })} />
-        </Section>
-        <Section title="Where should this run?">
-          <ServiceAdvice serviceId={w.id} />
         </Section>
         <Section title={`Runs on (${w.nodeIds.length})`}>
           {w.nodeIds.map((id) => {
