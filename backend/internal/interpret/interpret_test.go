@@ -480,6 +480,59 @@ func TestInterpretLeavesPressureNilWhenProbeDidNotReadIt(t *testing.T) {
 	}
 }
 
+// TestInterpretPopulatesLinkSaturationFromFlowCollector covers the per-node network-capacity fact the
+// flow collector reports (continuumv1.LinkSaturation), keyed by node name - a wholly separate pipeline
+// from the node probe (n.Probe) above, so it must be copied across unconditionally, independent of
+// whether a probe ran on this node at all.
+func TestInterpretPopulatesLinkSaturationFromFlowCollector(t *testing.T) {
+	s := facts.New()
+	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-linksat"}
+	s.Nodes["a"] = node("a", nil)
+	pct := 42.5
+	out := Interpret(Input{
+		OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now(),
+		LinkSaturation: map[string][]*continuumv1.LinkSaturation{
+			"a": {{Iface: "eth0", ThroughputBps: 800_000_000, SaturationPct: &pct}, {Iface: "veth1", ThroughputBps: 10}},
+		},
+	})
+	if len(out.Nodes) != 1 {
+		t.Fatalf("nodes = %+v", out.Nodes)
+	}
+	n := out.Nodes[0]
+	if len(n.LinkSaturation) != 2 {
+		t.Fatalf("linkSaturation = %+v", n.LinkSaturation)
+	}
+	if n.LinkSaturation[0].Iface != "eth0" || n.LinkSaturation[0].ThroughputBps != 800_000_000 || n.LinkSaturation[0].SaturationPct == nil || *n.LinkSaturation[0].SaturationPct != 42.5 {
+		t.Errorf("linkSaturation[0] = %+v", n.LinkSaturation[0])
+	}
+	// veth1 has no readable rated speed (e.g. a virtual interface): the collector omits the percentage
+	// rather than fabricating one, and that omission must survive as nil here too.
+	if n.LinkSaturation[1].Iface != "veth1" || n.LinkSaturation[1].SaturationPct != nil {
+		t.Errorf("linkSaturation[1] = %+v, want SaturationPct nil", n.LinkSaturation[1])
+	}
+}
+
+// TestInterpretLeavesLinkSaturationNilForAnUnreportedNode covers both the ordinary case (no flow
+// collector has reported for this node at all) and a report naming some other node - the map not
+// mentioning "a" by name must never leak another node's figures onto it.
+func TestInterpretLeavesLinkSaturationNilForAnUnreportedNode(t *testing.T) {
+	s := facts.New()
+	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-linksat-none"}
+	s.Nodes["a"] = node("a", nil)
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
+	if n := out.Nodes[0]; n.LinkSaturation != nil {
+		t.Errorf("linkSaturation = %+v, want nil (no collector reported)", n.LinkSaturation)
+	}
+
+	out2 := Interpret(Input{
+		OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now(),
+		LinkSaturation: map[string][]*continuumv1.LinkSaturation{"b": {{Iface: "eth0", ThroughputBps: 1}}},
+	})
+	if n := out2.Nodes[0]; n.LinkSaturation != nil {
+		t.Errorf("linkSaturation = %+v, want nil (report was for a different node)", n.LinkSaturation)
+	}
+}
+
 // TestInterpretPopulatesDiskCapacity covers the node's own root filesystem capacity/allocatable
 // ("ephemeral-storage" in Kubernetes' Capacity/Allocatable) - a plain pass-through the same way
 // CPU/MemoryGb are, distinct from the node probe's own per-physical-disk sizes above.

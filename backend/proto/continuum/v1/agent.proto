@@ -363,6 +363,21 @@ message HostProbe {
   optional double cpu_pressure_pct = 20;
   optional double memory_pressure_pct = 21;
   optional double io_pressure_pct = 22;
+  // How many times cgroup v2's own per-cgroup OOM-kill accounting (memory.events' "oom_kill" line,
+  // see Documentation/cgroup-v2.rst) has fired across every cgroup on this host, summed - a live,
+  // monotonically increasing total, not a per-window delta (the server diffs two readings a report
+  // apart the same way it already diffs every other cumulative counter this probe is not itself
+  // responsible for diffing). Unlike the three PSI percentages above, this has no single root-cgroup
+  // file to read: cgroup v2's root cgroup has no memory.events at all (confirmed empirically - only a
+  // non-root cgroup with the memory controller attached gets one), so this walks the whole cgroup tree
+  // instead (see probe.oomKillTotal). optional (not a plain uint64) because a cgroup v1 host, or a
+  // kernel with cgroups disabled, has no cgroup v2 hierarchy to walk at all - absence there must stay
+  // tellable from a real, common 0 ("every cgroup walked had zero kills"). Node-level only: this cannot
+  // say which pod, or at what moment within this probe's own polling interval, a kill happened - the
+  // same per-pod-attribution gap cpu_pressure_pct/memory_pressure_pct/io_pressure_pct above already
+  // documents and, for the same reason (no cgroup-path-resolution code exists in this codebase to find
+  // one specific pod's own cgroup), does not try to close here either.
+  optional uint64 oom_kill_count = 23;
 }
 
 // One physical network interface the node probe found up (see HostProbe.interfaces). Everything here is
@@ -755,6 +770,34 @@ message RawFlow {
   uint32 sndbuf_bytes = 32;
 }
 
+// One physical network interface's current send+receive throughput on the reporting node, and - when
+// the interface's own rated speed could be read from the kernel - what share of that speed it is
+// currently using. Computed entirely by the flow collector itself (never the separate node probe):
+// summed from this same window's raw flow byte counters, grouped by the interface each flow's traffic
+// actually routed over (RawFlow.iface), divided by the window's real duration. node-level, not
+// per-flow, which is why it travels on FlowReport/CollectorInfo rather than as a RawFlow field: one
+// node can have several interfaces, and a single flow only ever uses one of them at a time, but the
+// saturation question ("is this link close to its limit") is about the interface as a whole, not any
+// one flow crossing it.
+message LinkSaturation {
+  string iface = 1;
+  // Bytes/sec, both directions summed, over this report's real elapsed window - never a sum of RawFlow's
+  // own cumulative counters without dividing by time, which would not be a rate at all.
+  uint64 throughput_bps = 2;
+  // 0-100: throughput_bps against the interface's own rated speed (read from /sys/class/net/<iface>/speed
+  // once per unique interface per window, the same sysfs file the node probe's own, unrelated
+  // NetworkInterface.speed_mbps reads - see that field's doc comment for why this is still a wholly
+  // separate reading rather than reusing the probe's, which may not even be running on this node).
+  // Unset - not 0% - when that file could not be read (absent, permission denied, or a virtual
+  // interface with no rated speed at all, e.g. a veth or bridge): a real 0% reading and "we don't know
+  // this interface's capacity" must never be confused with each other. Never clamped below 0 (a
+  // negative rate cannot happen, since throughput_bps itself is unsigned), but clamped to 100 above it:
+  // a byte-counter race across this exact window boundary could otherwise read fractionally over the
+  // interface's own rated speed, which is noise worth capping, not a real finding worth reporting as
+  // "105% saturated".
+  optional double saturation_pct = 3;
+}
+
 message FlowReport {
   // ebpf | conntrack: how these numbers were obtained, which decides how much to trust them.
   string method = 1;
@@ -764,6 +807,10 @@ message FlowReport {
   // Observations the collector had to discard (map full, events lost).
   uint64 lost = 5;
   repeated RawFlow flows = 6;
+  // This node's current per-interface send+receive throughput and link saturation - see
+  // LinkSaturation's own doc comment. Empty when the collector saw no traffic on any interface this
+  // window, or could not resolve an interface name for anything it saw (RawFlow.iface empty).
+  repeated LinkSaturation link_saturation = 7;
 }
 
 message FlowEndpoint {
@@ -868,6 +915,10 @@ message CollectorInfo {
   string node = 1;
   string method = 2;   // ebpf | conntrack
   bool bytes_known = 3;
+  // This node's latest per-interface link saturation (FlowReport.link_saturation, carried through
+  // the agent's own Aggregator so the server learns it alongside everything else a collector is
+  // "seen" reporting) - see LinkSaturation's own doc comment.
+  repeated LinkSaturation link_saturation = 4;
 }
 
 message FlowBatch {

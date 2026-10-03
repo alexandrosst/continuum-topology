@@ -247,6 +247,27 @@ export function totalCapacity(w: World, clusterId: string): { cpu: number; memGb
   return { cpu: ns.reduce((a, n) => a + n.allocatable!.cpu, 0), memGb: ns.reduce((a, n) => a + n.allocatable!.memoryGb, 0) }
 }
 
+/**
+ * The most-saturated physical link among this cluster's own nodes, as a 0-100 share of that interface's
+ * own rated speed - the single number placement's headroom cost cares about, since one maxed-out node's
+ * uplink is enough to make scheduling more onto this cluster a bad idea, the same way one node's own CPU
+ * being nearly full matters even while the cluster average looks fine. Undefined when no node in the
+ * cluster has reported a link-saturation fact with a known percentage at all (no flow collector running
+ * here, or every interface it saw had no rated speed to compare against) - never defaulted to 0, which
+ * would claim a healthy link that was simply never measured.
+ */
+export function networkSaturation(w: World, clusterId: string): number | undefined {
+  let worst: number | undefined
+  for (const n of w.nodes) {
+    if (n.clusterId !== clusterId) continue
+    for (const ls of n.linkSaturation ?? []) {
+      if (ls.saturationPct === undefined) continue
+      if (worst === undefined || ls.saturationPct > worst) worst = ls.saturationPct
+    }
+  }
+  return worst
+}
+
 /** What all replicas of a service ask for, in cores and GB. Zero when nothing is declared (which is "not known", not "nothing"; see needOf). */
 export function serviceNeed(s: Service): { cpu: number; memGb: number } {
   const n = needOf(s)

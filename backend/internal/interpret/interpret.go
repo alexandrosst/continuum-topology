@@ -29,6 +29,12 @@ type Input struct {
 	// never another agent's, since pod identity is only ever meaningful within the cluster that resolved
 	// it. Nil below access tier 2 or before this agent's first flow report.
 	PodFlows []*continuumv1.Flow
+	// LinkSaturation is this agent's latest per-node, per-interface link throughput/saturation, keyed by
+	// node name (Hub.noteFlows copies FlowBatch.collectors[].link_saturation into view.linkSat wholesale
+	// on every report, mirroring PodFlows above). Nil before this agent's first flow report that actually
+	// carried any, or when its flow collectors never turned on link-saturation reporting at all (an older
+	// collector binary, say) - either way, a node simply gets no LinkSaturation facts, not zeroed ones.
+	LinkSaturation map[string][]*continuumv1.LinkSaturation
 }
 
 // systemNamespace is excluded from the topology: it is machinery, not the user's applications.
@@ -207,6 +213,7 @@ func Interpret(in Input) model.Topology {
 			mn.CPUPressurePct = n.Probe.CpuPressurePct
 			mn.MemoryPressurePct = n.Probe.MemoryPressurePct
 			mn.IOPressurePct = n.Probe.IoPressurePct
+			mn.OomKillCount = n.Probe.OomKillCount
 			for _, iface := range n.Probe.Interfaces {
 				if iface == nil {
 					continue
@@ -232,6 +239,15 @@ func Interpret(in Input) model.Topology {
 			}
 		}
 		mn.Accelerators = accelerators(n)
+		// LinkSaturation comes from the flow collector, a wholly separate pipeline from the node probe
+		// above (n.Probe) - read unconditionally on in.LinkSaturation having this node's name, never
+		// gated behind n.Probe != nil the way CPUModel/CPUPressurePct etc. are just above.
+		for _, ls := range in.LinkSaturation[n.Name] {
+			if ls == nil {
+				continue
+			}
+			mn.LinkSaturation = append(mn.LinkSaturation, model.LinkSaturation{Iface: ls.Iface, ThroughputBps: ls.ThroughputBps, SaturationPct: ls.SaturationPct})
+		}
 		if nodeStatus(n) == "healthy" {
 			healthy++
 		}

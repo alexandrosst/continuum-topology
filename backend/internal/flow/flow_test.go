@@ -507,8 +507,8 @@ func TestQuietCollectorsAreStillReported(t *testing.T) {
 	if a.Flush() != nil {
 		t.Fatal("nothing seen, nothing to say")
 	}
-	a.Seen("n1", "ebpf", true)
-	a.Seen("n1", "conntrack", false) // the same node's UDP supplement
+	a.Seen("n1", "ebpf", true, nil)
+	a.Seen("n1", "conntrack", false, nil) // the same node's UDP supplement
 	b := a.Flush()
 	if b == nil || len(b.Flows) != 0 || len(b.Collectors) != 2 || b.Collectors[0].Node != "n1" || b.Collectors[0].Method != "conntrack" {
 		t.Fatalf("batch = %+v", b)
@@ -517,6 +517,30 @@ func TestQuietCollectorsAreStillReported(t *testing.T) {
 	a.now = func() time.Time { return time.Now().Add(collectorTTL + time.Minute) }
 	if b := a.Flush(); b != nil {
 		t.Errorf("a vanished collector must not be listed forever: %+v", b)
+	}
+}
+
+// TestAggregatorCarriesLinkSaturation covers Seen's own per-collector link-saturation reading
+// (continuumv1.LinkSaturation): a gauge of the window just reported, replaced wholesale on the next
+// Seen for the same node/method, never accumulated across windows the way flows/bytes are.
+func TestAggregatorCarriesLinkSaturation(t *testing.T) {
+	a := NewAggregator()
+	pct := 61.0
+	a.Seen("n1", "ebpf", true, []*continuumv1.LinkSaturation{{Iface: "eth0", ThroughputBps: 123, SaturationPct: &pct}})
+	b := a.Flush()
+	if b == nil || len(b.Collectors) != 1 {
+		t.Fatalf("batch = %+v", b)
+	}
+	ls := b.Collectors[0].LinkSaturation
+	if len(ls) != 1 || ls[0].Iface != "eth0" || ls[0].ThroughputBps != 123 || ls[0].SaturationPct == nil || *ls[0].SaturationPct != 61 {
+		t.Errorf("link saturation = %+v", ls)
+	}
+	// The next window's Seen replaces it wholesale, even with nothing at all (a quiet window on every
+	// interface) - stale saturation from a window that has already closed must never linger.
+	a.Seen("n1", "ebpf", true, nil)
+	b2 := a.Flush()
+	if b2 == nil || len(b2.Collectors) != 1 || b2.Collectors[0].LinkSaturation != nil {
+		t.Errorf("batch = %+v, want link saturation cleared", b2)
 	}
 }
 

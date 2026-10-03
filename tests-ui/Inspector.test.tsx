@@ -149,6 +149,24 @@ describe('Inspector · node pressure', () => {
   })
 })
 
+describe('Inspector · node link saturation', () => {
+  test('shows the saturation percentage per interface, with a tooltip', () => {
+    renderNodeInspector(node({ linkSaturation: [{ iface: 'eth0', throughputBps: 800_000_000, saturationPct: 80 }] }))
+    const chip = screen.getByText('eth0 80%')
+    expect(chip).toHaveAttribute('title')
+  })
+
+  test('an interface with no known rated speed shows "unknown%", not a fabricated 0%', () => {
+    renderNodeInspector(node({ linkSaturation: [{ iface: 'veth1', throughputBps: 100 }] }))
+    expect(screen.getByText('veth1 unknown%')).toBeInTheDocument()
+  })
+
+  test('no "Link saturation" row at all when the flow collector never reported one', () => {
+    renderNodeInspector(node())
+    expect(screen.queryByText('Link saturation')).not.toBeInTheDocument()
+  })
+})
+
 describe('Inspector · node tunnels', () => {
   test('an unconfirmed tunnel shows just its kind, no fabricated peer', () => {
     renderNodeInspector(node({ tunnels: [{ name: 'wg0', kind: 'wireguard', addresses: ['10.8.0.1/24'], routes: ['10.8.0.0/24'] }] }))

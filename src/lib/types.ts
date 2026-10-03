@@ -479,6 +479,26 @@ export interface MachineNode extends Provenance {
   cpuPressurePct?: number
   memoryPressurePct?: number
   ioPressurePct?: number
+  /** This node's current per-interface network throughput and, where the interface's own rated speed
+   *  could be read, what share of it is in use right now - computed by the flow collector from this
+   *  window's real flow byte counters (see the backend's continuumv1.LinkSaturation proto doc), not by
+   *  the node probe. A live, traffic-driven utilization gauge: distinct from
+   *  NetworkInterface.speedMbps above, which is only ever a static, unrelated sysfs reading of the
+   *  interface's own rated capacity with no throughput attached. Undefined when no flow collector has
+   *  reported one for this node (an older collector, or simply nothing seen on any interface yet). */
+  linkSaturation?: LinkSaturation[]
+}
+
+/** One physical network interface's current send+receive throughput on a node, and, when its rated
+ *  speed could be read, what share of it is currently in use - see MachineNode.linkSaturation's own
+ *  doc comment for the fuller story of where this comes from. */
+export interface LinkSaturation {
+  iface: string
+  throughputBps: number
+  /** 0-100, uncapped only below (never negative); see the backend's continuumv1.LinkSaturation.saturation_pct
+   *  doc for why it is clamped at 100 but not 0, and absent (not a fabricated 0%) when the interface's
+   *  own rated speed could not be read (e.g. a virtual interface, or sysfs permission denied). */
+  saturationPct?: number
 }
 
 /** A namespace: the default unit for grouping services into applications. */

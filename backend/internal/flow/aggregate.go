@@ -344,14 +344,18 @@ func (a *Aggregator) Presence() (collectors int, last time.Time) {
 	return collectors, last
 }
 
-// Seen records that a collector reported, whatever it saw.
-func (a *Aggregator) Seen(node, method string, bytesKnown bool) {
+// Seen records that a collector reported, whatever it saw. linkSaturation is that collector's latest
+// per-interface throughput/saturation reading (FlowReport.link_saturation) - replaced wholesale on
+// every report, the same "latest, not accumulated" treatment collectorSeen already gives the rest of
+// CollectorInfo, since a saturation percentage is a gauge of the window just reported, not something
+// that means anything summed across windows.
+func (a *Aggregator) Seen(node, method string, bytesKnown bool, linkSaturation []*continuumv1.LinkSaturation) {
 	a.mu.Lock()
 	if a.paused {
 		a.mu.Unlock()
 		return
 	}
-	a.collectors[node+"/"+method] = collectorSeen{&continuumv1.CollectorInfo{Node: node, Method: method, BytesKnown: bytesKnown}, a.now()}
+	a.collectors[node+"/"+method] = collectorSeen{&continuumv1.CollectorInfo{Node: node, Method: method, BytesKnown: bytesKnown, LinkSaturation: linkSaturation}, a.now()}
 	a.mu.Unlock()
 }
 

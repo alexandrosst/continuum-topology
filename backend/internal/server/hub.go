@@ -52,6 +52,11 @@ type view struct {
 	// total. Not persisted across a server restart (same as the rest of view): a fresh snapshot arrives
 	// with the agent's next report anyway, and nothing here is meant to survive longer than that.
 	podFlows []*continuumv1.Flow
+	// linkSat is this agent's latest per-node, per-interface link throughput/saturation
+	// (FlowBatch.collectors[].link_saturation), keyed by node name - replaced wholesale on every accepted
+	// batch, the same "right now, not accumulated" treatment as podFlows above and for the same reason:
+	// it is a gauge of the window the collector just reported, not a running total.
+	linkSat map[string][]*continuumv1.LinkSaturation
 
 	// Measured network paths, keyed by the target id the server issued for them.
 	paths   map[string]*pathTrack
@@ -569,6 +574,13 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 	v.flows.apply(fb, now)
 	v.obs.note(fb, now)
 	v.podFlows = fb.PodFlows
+	linkSat := map[string][]*continuumv1.LinkSaturation{}
+	for _, c := range fb.Collectors {
+		if len(c.LinkSaturation) > 0 {
+			linkSat[c.Node] = c.LinkSaturation
+		}
+	}
+	v.linkSat = linkSat
 	v.flowsDirty = true
 	return true, nil
 }
@@ -1143,7 +1155,7 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 			continue
 		}
 		recs := h.nodeRecords(a.ClusterID, v.state, now)
-		t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.state, Now: v.lastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs), PodFlows: v.podFlows})
+		t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.state, Now: v.lastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs), PodFlows: v.podFlows, LinkSaturation: v.linkSat})
 		var revokedAt time.Time
 		if a.RevokedAt != nil {
 			revokedAt = *a.RevokedAt

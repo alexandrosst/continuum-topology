@@ -398,7 +398,7 @@ func TestACollectorThatHadReportedGoesSilentAtTheFastThresholdNotTheStartupGrace
 		c.FlowInterval = 50 * time.Millisecond    // 3 of these = 150ms
 		c.CollectorStartupGrace = 8 * time.Second // deliberately much longer - must never be the one that applies here
 	}})
-	pipe.Aggregator.Seen("node-a", "ebpf", true) // it has reported once, then goes quiet
+	pipe.Aggregator.Seen("node-a", "ebpf", true, nil) // it has reported once, then goes quiet
 	// 4s comfortably covers enroll+approve+connect+first-heartbeat overhead (a few seconds, same baseline
 	// TestASilentCollectorIsReported pays) plus the 150ms detection window, while staying well short of the
 	// 8s startup grace the fix must NOT fall back to here.
@@ -446,7 +446,7 @@ func TestPausedCollectorsAndExcludedNamespacesTakeEffect(t *testing.T) {
 		}
 	}
 	// Really stopped: the aggregator takes nothing in, nothing is timed, and the excluded namespace's workloads are gone.
-	pipe.Aggregator.Seen("node-a", "ebpf", true)
+	pipe.Aggregator.Seen("node-a", "ebpf", true, nil)
 	if n, _ := pipe.Aggregator.Presence(); n != 0 {
 		t.Fatalf("a paused flow collector still registers nodes: %d", n)
 	}

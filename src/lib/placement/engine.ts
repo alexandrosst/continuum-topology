@@ -4,7 +4,7 @@ import { bytesPerSec as bytesPerSecShort } from '../observed'
 import { observation } from '../provenance'
 import type { Service } from '../types'
 import type { EdgeEvidence, EvidenceInput, Evaluation, Move, Plan, Policy, Recommendation, RttBasis, Skipped, WouldChange } from './types'
-import { clusterOfService, freeCapacity, locName, locOf, moveModel, rtt, serviceNeed, siteIdOf, siteOfCluster, storageKnown, totalCapacity, withMoves, type World } from './world'
+import { clusterOfService, freeCapacity, locName, locOf, moveModel, networkSaturation, rtt, serviceNeed, siteIdOf, siteOfCluster, storageKnown, totalCapacity, withMoves, type World } from './world'
 
 /** Traffic at or above this counts as "constantly used"; below it, an edge counts for proportionally less. */
 const FULL_ACTIVITY_BPS = 50 * 1024
@@ -188,7 +188,18 @@ export function evaluate(w: World, s: Service, clusterId: string, P: Policy, tar
   const trafficCost = edges.reduce((a, e) => a + e.cost, 0) - latencyCost - qualityCost
   const need = serviceNeed(s)
   const util = utilization(w, clusterId, current === clusterId ? 0 : need.cpu)
-  const headroomCost = util === undefined ? 0 : P.headroom * clamp((util - 0.8) / 0.2, 0, 1)
+  const cpuHeadroomCost = util === undefined ? 0 : P.headroom * clamp((util - 0.8) / 0.2, 0, 1)
+  // Network headroom: the worst-saturated physical link among the target cluster's own nodes right now
+  // (see networkSaturation's own doc comment on why "worst node", not a cluster average). Same shape and
+  // weight as the CPU headroom term right above - a link already close to its own rated speed makes
+  // moving more traffic-generating work onto this cluster a bad idea for exactly the same "almost full"
+  // reason a nearly-saturated CPU pool does, so it costs the same way rather than inventing a second
+  // weight nobody has reason to tune independently of the first. Unlike CPU headroom, this does not (and
+  // cannot) account for what the move itself would add: a flow collector's reading is this cluster's
+  // nodes as they stand right now, not a prediction of what one more replica would push across them.
+  const netSaturationPct = networkSaturation(w, clusterId)
+  const networkHeadroomCost = netSaturationPct === undefined ? 0 : P.headroom * clamp((netSaturationPct / 100 - 0.8) / 0.2, 0, 1)
+  const headroomCost = cpuHeadroomCost + networkHeadroomCost
   const act = edges.reduce((a, e) => a + e.activity, 0)
   const weightedRttMs = act > 0 ? edges.reduce((a, e) => a + e.activity * (Number.isFinite(e.rtt.ms) ? e.rtt.ms : P.fallbackMs), 0) / act : 0
 
@@ -229,6 +240,7 @@ export function evaluate(w: World, s: Service, clusterId: string, P: Policy, tar
     trafficCost: round1(trafficCost),
     qualityCost: round1(qualityCost),
     headroomCost: round1(headroomCost),
+    networkHeadroomCost: round1(networkHeadroomCost),
     migrationCost: clusterId === current ? 0 : round1(P.migration * gb),
     weightedRttMs: round1(weightedRttMs),
     crossSiteBps: edges.filter((e) => e.crossSite).reduce((a, e) => a + (e.bytesPerSec ?? 0), 0),
@@ -247,6 +259,7 @@ export function evaluate(w: World, s: Service, clusterId: string, P: Policy, tar
     advice,
     inputs: [...ee.inputs, ...fitInputs({ verdict, advice })],
     utilAfter: util,
+    networkUtilAfter: netSaturationPct === undefined ? undefined : netSaturationPct / 100,
   }
 }
 

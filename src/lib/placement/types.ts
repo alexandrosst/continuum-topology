@@ -110,6 +110,12 @@ export interface Evaluation {
    *  existed. */
   qualityCost: number
   headroomCost: number
+  /** headroomCost's own network component: the worst-saturated physical link among the target
+   *  cluster's nodes, costed the same way (and with the same Policy.headroom weight) as the CPU
+   *  headroom term it is added to - see engine.ts's own comment at networkHeadroomCost's computation.
+   *  Always 0 when networkUtilAfter (below) is undefined, the same "nothing to add" rule headroomCost
+   *  itself already follows for an unknown CPU utilization. */
+  networkHeadroomCost: number
   /** One-off: copying persistent data. Not part of `cost`. */
   migrationCost: number
   /** Activity-weighted average round trip to what it talks to. */
@@ -151,6 +157,10 @@ export interface Evaluation {
   advice?: Advice
   /** Share of the target's CPU that would be requested after the move, when known. */
   utilAfter?: number
+  /** The target cluster's own worst-saturated physical link, as a 0-1 share of its rated speed - see
+   *  world.ts's networkSaturation for exactly what "worst" means here. Undefined when no node in the
+   *  cluster has a link-saturation reading with a known percentage at all, never defaulted to 0. */
+  networkUtilAfter?: number
 }
 
 export interface Recommendation {

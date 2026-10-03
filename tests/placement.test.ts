@@ -189,6 +189,22 @@ test('recommend: capacity is a hard limit and a nearly full cluster costs more',
   assert.ok(e2.headroomCost > 0 && e2.utilAfter! > 0.85, `headroom ${e2.headroomCost}, util ${e2.utilAfter}`)
 })
 
+test('evaluate: a saturated link on the target cluster costs the same way a nearly-full CPU does', () => {
+  // cl-cloud has plenty of free CPU, but its one node's uplink is reporting 95% saturated.
+  const w = world({ nodes: [node('n-cloud', 'cl-cloud', 32, 2, { linkSaturation: [{ iface: 'eth0', throughputBps: 950_000_000, saturationPct: 95 }] }), node('n-edge', 'cl-edge', 8, 2), node('n-us', 'cl-us', 16, 2)] })
+  const ev = evaluate(w, w.byService.get('api')!, 'cl-cloud', P)
+  assert.equal(ev.fits, true) // CPU/mem still fit; the network term never blocks, only costs
+  assert.ok(ev.networkHeadroomCost > 0 && ev.networkUtilAfter === 0.95, `networkHeadroomCost ${ev.networkHeadroomCost}, networkUtilAfter ${ev.networkUtilAfter}`)
+  assert.ok(ev.cost >= ev.networkHeadroomCost)
+
+  // A cluster whose nodes never reported a link-saturation reading at all costs nothing extra for it -
+  // "not measured" must never be treated as "saturated" or as "idle".
+  const unmeasured = world({ nodes: [node('n-cloud', 'cl-cloud', 32, 2), node('n-edge', 'cl-edge', 8, 2), node('n-us', 'cl-us', 16, 2)] })
+  const ev2 = evaluate(unmeasured, unmeasured.byService.get('api')!, 'cl-cloud', P)
+  assert.equal(ev2.networkHeadroomCost, 0)
+  assert.equal(ev2.networkUtilAfter, undefined)
+})
+
 test('recommend: the policy changes the answer, and unmeasured traffic lowers confidence', () => {
   const w = world()
   // caring only about traffic volume makes the light edge to the cache irrelevant but the db call decisive

@@ -1027,6 +1027,43 @@ func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {
 	}
 }
 
+// TestNoteFlowsReplacesLinkSaturationWholesale is linkSat's own counterpart to
+// TestNoteFlowsReplacesPodFlowsWholesale right above: a node's link-saturation reading is a gauge of
+// the window just reported, not a running total, so a batch that no longer mentions a node (or mentions
+// it with nothing on any interface) must clear what was held for it, never let a stale reading linger.
+func TestNoteFlowsReplacesLinkSaturationWholesale(t *testing.T) {
+	r := newHubRig(t)
+	id, _, _ := r.approvedAgent(t, fp)
+	r.hub.mu.Lock()
+	r.hub.views[id] = newView()
+	r.hub.mu.Unlock()
+
+	pct := 55.0
+	first := &continuumv1.FlowBatch{WindowSeconds: 60, Collectors: []*continuumv1.CollectorInfo{
+		{Node: "n1", Method: "ebpf", LinkSaturation: []*continuumv1.LinkSaturation{{Iface: "eth0", ThroughputBps: 1, SaturationPct: &pct}}},
+	}}
+	if applied, err := r.hub.noteFlows(id, 2, first, time.Now()); !applied || err != nil {
+		t.Fatalf("applied=%v err=%v", applied, err)
+	}
+	r.hub.mu.Lock()
+	got := r.hub.views[id].linkSat
+	r.hub.mu.Unlock()
+	if len(got["n1"]) != 1 || got["n1"][0].Iface != "eth0" {
+		t.Fatalf("linkSat after the first batch = %v", got)
+	}
+
+	second := &continuumv1.FlowBatch{WindowSeconds: 60, Collectors: []*continuumv1.CollectorInfo{{Node: "n1", Method: "ebpf"}}}
+	if applied, err := r.hub.noteFlows(id, 2, second, time.Now()); !applied || err != nil {
+		t.Fatalf("applied=%v err=%v", applied, err)
+	}
+	r.hub.mu.Lock()
+	got = r.hub.views[id].linkSat
+	r.hub.mu.Unlock()
+	if len(got["n1"]) != 0 {
+		t.Fatalf("a batch with no link saturation for n1 must clear what was held, not leave eth0's old reading behind: %v", got)
+	}
+}
+
 // TestNoteMeasurementsRespectsPauseConsent covers the same backstop for the "measure" collector, using
 // noteMeasurements directly the way the existing tier tests use applySync directly.
 func TestNoteMeasurementsRespectsPauseConsent(t *testing.T) {

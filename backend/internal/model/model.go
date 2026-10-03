@@ -226,6 +226,23 @@ type Node struct {
 	CPUPressurePct    *float64 `json:"cpuPressurePct,omitempty"`
 	MemoryPressurePct *float64 `json:"memoryPressurePct,omitempty"`
 	IOPressurePct     *float64 `json:"ioPressurePct,omitempty"`
+	// LinkSaturation is this node's current per-interface network throughput and, where the interface's
+	// own rated speed could be read, what share of it is in use - computed by the flow collector from
+	// this window's actual flow byte counters (see continuumv1.LinkSaturation's own doc comment), not by
+	// the node probe: a live, traffic-driven utilization gauge, distinct from NetworkInterfaces[].SpeedMbps
+	// above, which is only ever a static, unrelated reading of the interface's own rated capacity with no
+	// throughput attached. Nil when the flow collector never reported one for this node (an older
+	// collector, or nothing has been seen on any interface yet).
+	LinkSaturation []LinkSaturation `json:"linkSaturation,omitempty"`
+}
+
+// LinkSaturation is one physical network interface's current send+receive throughput on a node, and,
+// when its rated speed could be read, what share of it is currently in use - see Node.LinkSaturation's
+// own doc comment, and continuumv1.LinkSaturation's, for the fuller story of where this comes from.
+type LinkSaturation struct {
+	Iface         string   `json:"iface"`
+	ThroughputBps uint64   `json:"throughputBps"`
+	SaturationPct *float64 `json:"saturationPct,omitempty"`
 }
 
 type Namespace struct {

@@ -718,6 +718,19 @@ export default function Inspector({
                     </span>
                   ))}
           </Maybe>
+          <Maybe label="Link saturation">
+            {n.linkSaturation === undefined || n.linkSaturation.length === 0
+              ? undefined
+              : n.linkSaturation.map((ls, i) => (
+                  <span
+                    key={ls.iface}
+                    className={[i > 0 ? 'ml-2' : undefined, ls.saturationPct !== undefined && ls.saturationPct >= 90 ? 'text-bad' : undefined].filter(Boolean).join(' ') || undefined}
+                    title={`${ls.iface}: ${(ls.throughputBps / 1_000_000).toFixed(1)} Mbps of traffic this window${ls.saturationPct === undefined ? " (the interface's own rated speed could not be read, so a saturation share is not known)" : ' of its own rated speed'}`}
+                  >
+                    {ls.iface} {ls.saturationPct !== undefined ? `${ls.saturationPct.toFixed(0)}%` : 'unknown%'}
+                  </span>
+                ))}
+          </Maybe>
           <Chips label="Disks" items={n.disks?.map((d) => `${d.model || d.type || 'disk'}${d.sizeBytes ? ` (${formatMemory(d.sizeBytes / 1024 ** 3)})` : ''}`)} />
         </Section>
         <Section title="Network & health">

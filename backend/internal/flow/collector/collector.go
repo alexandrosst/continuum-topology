@@ -66,6 +66,10 @@ func Choose(mode string, ebpf, conntrack Opener) (Source, []string, error) {
 
 // Report builds the wire message for one window.
 func Report(src Source, node string, window time.Duration, flows []*continuumv1.RawFlow, lost uint64) *continuumv1.FlowReport {
+	// Computed from every flow this window actually saw, before the busiest-first truncation below drops
+	// the rest: a quiet, low-connection-count flow can still carry real bytes on an interface, and the
+	// saturation rollup must not miss those just because the flow list itself got trimmed for size.
+	linkSaturation := rollupSaturation(flows, window)
 	if len(flows) > flow.MaxRawFlows {
 		// Keep the busiest; the rest are counted as lost so the report says so.
 		lost += uint64(len(flows) - flow.MaxRawFlows)
@@ -73,12 +77,13 @@ func Report(src Source, node string, window time.Duration, flows []*continuumv1.
 		flows = flows[:flow.MaxRawFlows]
 	}
 	return &continuumv1.FlowReport{
-		Method:        src.Method(),
-		Node:          node,
-		WindowSeconds: int32(window / time.Second),
-		BytesKnown:    src.BytesKnown(),
-		Lost:          lost,
-		Flows:         flows,
+		Method:         src.Method(),
+		Node:           node,
+		WindowSeconds:  int32(window / time.Second),
+		BytesKnown:     src.BytesKnown(),
+		Lost:           lost,
+		Flows:          flows,
+		LinkSaturation: linkSaturation,
 	}
 }
 

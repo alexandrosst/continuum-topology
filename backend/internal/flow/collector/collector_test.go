@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -136,3 +138,96 @@ func TestReportBoundsAndSaysWhatItDropped(t *testing.T) {
 		t.Errorf("flows=%d lost=%d window=%d", len(rep.Flows), rep.Lost, rep.WindowSeconds)
 	}
 }
+
+func TestRollupSaturationSumsByIfaceAndDividesByWindow(t *testing.T) {
+	flows := []*continuumv1.RawFlow{
+		{Iface: "eth0", BytesOut: 1_000_000, BytesIn: 500_000},
+		{Iface: "eth0", BytesOut: 500_000, BytesIn: 0},
+		{Iface: "wlan0", BytesOut: 100, BytesIn: 100},
+		{BytesOut: 999}, // no iface resolved: must not be attributed anywhere
+	}
+	got := rollupSaturation(flows, 2*time.Second)
+	want := map[string]uint64{"eth0": (1_000_000 + 500_000 + 500_000) * 8 / 2, "wlan0": (100 + 100) * 8 / 2}
+	if len(got) != len(want) {
+		t.Fatalf("len(got)=%d, want %d (%+v)", len(got), len(want), got)
+	}
+	for _, ls := range got {
+		if ls.ThroughputBps != want[ls.Iface] {
+			t.Errorf("%s: throughput_bps=%d, want %d", ls.Iface, ls.ThroughputBps, want[ls.Iface])
+		}
+	}
+}
+
+func TestRollupSaturationNilOnNothingToReport(t *testing.T) {
+	if got := rollupSaturation(nil, 30*time.Second); got != nil {
+		t.Errorf("no flows: got %+v, want nil", got)
+	}
+	if got := rollupSaturation([]*continuumv1.RawFlow{{Iface: "eth0", BytesOut: 1}}, 0); got != nil {
+		t.Errorf("zero window: got %+v, want nil", got)
+	}
+	if got := rollupSaturation([]*continuumv1.RawFlow{{BytesOut: 1}}, time.Second); got != nil {
+		t.Errorf("no iface resolved anywhere: got %+v, want nil", got)
+	}
+}
+
+func TestRollupSaturationComputesPctWhenSpeedIsReadable(t *testing.T) {
+	dir := t.TempDir()
+	old := sysClassNet
+	sysClassNet = dir
+	defer func() { sysClassNet = old }()
+
+	mk := func(name, speed string) {
+		if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if speed != "" {
+			if err := os.WriteFile(filepath.Join(dir, name, "speed"), []byte(speed), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	mk("eth0", "1000") // 1000 Mbps
+	mk("veth1", "-1")  // "no link": must stay unknown, not treated as 0 capacity
+	mk("wlan0", "")    // no speed file at all (virtual-like): same treatment
+
+	// eth0: 100,000,000 bytes/sec = 800 Mbps out of a 1000 Mbps link = 80%.
+	flows := []*continuumv1.RawFlow{
+		{Iface: "eth0", BytesOut: 100_000_000},
+		{Iface: "veth1", BytesOut: 123},
+		{Iface: "wlan0", BytesOut: 456},
+	}
+	got := rollupSaturation(flows, time.Second)
+	byIface := map[string]*continuumv1.LinkSaturation{}
+	for _, ls := range got {
+		byIface[ls.Iface] = ls
+	}
+	if byIface["eth0"].SaturationPct == nil || round1(*byIface["eth0"].SaturationPct) != 80 {
+		t.Errorf("eth0 saturation_pct = %v, want 80", byIface["eth0"].SaturationPct)
+	}
+	if byIface["veth1"].SaturationPct != nil {
+		t.Errorf("veth1 (no link / speed=-1) got a saturation_pct: %v, want nil (unknown, not 0%%)", *byIface["veth1"].SaturationPct)
+	}
+	if byIface["wlan0"].SaturationPct != nil {
+		t.Errorf("wlan0 (no speed file) got a saturation_pct: %v, want nil (unknown, not 0%%)", *byIface["wlan0"].SaturationPct)
+	}
+}
+
+func TestRollupSaturationClampsAt100(t *testing.T) {
+	dir := t.TempDir()
+	old := sysClassNet
+	sysClassNet = dir
+	defer func() { sysClassNet = old }()
+	if err := os.MkdirAll(filepath.Join(dir, "eth0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "eth0", "speed"), []byte("10"), 0o644); err != nil { // 10 Mbps
+		t.Fatal(err)
+	}
+	// Vastly more than 10 Mbps worth of bytes in one second - a counter race across the window boundary.
+	got := rollupSaturation([]*continuumv1.RawFlow{{Iface: "eth0", BytesOut: 100_000_000}}, time.Second)
+	if len(got) != 1 || got[0].SaturationPct == nil || *got[0].SaturationPct != 100 {
+		t.Fatalf("got %+v, want clamped to 100", got)
+	}
+}
+
+func round1(f float64) float64 { return float64(int(f*10+0.5)) / 10 }
