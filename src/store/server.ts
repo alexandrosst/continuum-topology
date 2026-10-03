@@ -592,7 +592,7 @@ export const useServer = create<ServerStore>((set, get) => {
           const now = get().conn()
           if (!now || now.url !== c.url || now.org !== c.org) return
           set({ state, error: undefined })
-          useObserved.getState().set(state.topology.dependencies, state.topology.externalEndpoints, state.topology.paths, state.tombstones, state.topology.clusterLinks)
+          useObserved.getState().set(state.topology.dependencies, state.topology.externalEndpoints, state.topology.paths, state.tombstones, state.topology.clusterLinks, state.topology.clusterPairConnectivity)
           const raw = useRawTopology.getState()
           useRawTopology.setState(mergeDiscovered(raw, state))
           void useWorkspace.getState().poll()

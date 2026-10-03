@@ -8,7 +8,7 @@ import { EvidenceSection, WeakValues } from '@/components/EvidenceSection'
 import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
-import { Button, CompletenessBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, Pill, Provenance as ProvenanceStrip, Select, Sparkline, SourceBadge, StatusDot, TierBadge, TunnelEvidence } from '@/components/ui/primitives'
+import { Button, CompletenessBadge, ConnectivityStatusBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, Pill, Provenance as ProvenanceStrip, Select, Sparkline, SourceBadge, StatusDot, TierBadge, TunnelEvidence } from '@/components/ui/primitives'
 import { completeness } from '@/lib/completeness'
 import { CONFIDENCE_TONE, dependencyProvenance, observation } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
@@ -20,7 +20,7 @@ import { useConn, useServer } from '@/store/server'
 import { useRawTopology, useTopology } from '@/store/topology'
 import { bytesPerSec, bytesTotal, isObserved, trafficSummary } from '@/lib/observed'
 import { lossBand, pathQuality, rttLabel } from '@/lib/metrics'
-import { useClusterLinks, usePaths } from '@/store/topology'
+import { useClusterPairConnectivity, usePaths } from '@/store/topology'
 import { connectionVerdict, meshName, MTLS_WORDS, proxyWords, VERDICT_COLOR } from '@/lib/mesh'
 import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Evidence, type ExternalEndpoint, type ExternalKind, type OverrideMeta, type Provenance, type Resources, type Tier } from '@/lib/types'
 import { api } from '@/lib/api'
@@ -335,7 +335,7 @@ export default function Inspector({
   const placement = usePlacementSuggestions().byCluster
   const inPast = useHistoryView((s) => s.at !== null)
   const measured = usePaths()
-  const clusterLinks = useClusterLinks()
+  const clusterPairConnectivity = useClusterPairConnectivity()
   const publicIpFallbackOn = useServer((s) => s.info?.geoip?.publicIpFallback)
   // Id -> node, built once per `nodes` change instead of fresh on every render just to resolve the one or
   // two nodes a selected dependency's caller-interface lookup actually needs (see callerIfaceSpeedMbps below).
@@ -499,48 +499,82 @@ export default function Inspector({
           )}
         </Section>
         {(() => {
-          const links = clusterLinks.filter((l) => l.fromCluster === c.id || l.toCluster === c.id)
-          return links.length > 0 && (
-            <Section title={`Cluster links (${links.length})`}>
-              {links.map((l) => {
-                const otherId = l.fromCluster === c.id ? l.toCluster : l.fromCluster
-                const otherName = l.fromCluster === c.id ? l.toName : l.fromName
-                const thisNode = l.fromCluster === c.id ? l.fromNode : l.toNode
-                const otherNode = l.fromCluster === c.id ? l.toNode : l.fromNode
-                const thisAddress = l.fromCluster === c.id ? l.fromAddress : l.toAddress
-                const otherAddress = l.fromCluster === c.id ? l.toAddress : l.fromAddress
+          // Every cluster pair c has SOME relationship with (a confirmed ClusterLink, or observed
+          // cross-cluster traffic) - a strict superset of the old "Cluster links" section, which only
+          // ever showed the two cases a ClusterLink can positively confirm. See
+          // ClusterPairConnectivity's own doc for what each status means and is backed by.
+          const pairs = clusterPairConnectivity.filter((p) => p.fromCluster === c.id || p.toCluster === c.id)
+          return pairs.length > 0 && (
+            <Section title={`Cluster connectivity (${pairs.length})`}>
+              {pairs.map((p) => {
+                const otherId = p.fromCluster === c.id ? p.toCluster : p.fromCluster
+                const otherName = p.fromCluster === c.id ? p.toName : p.fromName
+                // fieldProvenance(ev?) already returns undefined for an undefined ev - computed once
+                // here, rather than spread straight off a conditional, so a "tunnel"/"subnet" row (whose
+                // evidence lives entirely on `links` below, not on this field) never tries to render a
+                // Provenance strip with nothing behind it.
+                const fp = p.evidence ? fieldProvenance(p.evidence) : undefined
                 return (
-                  <div key={`${l.fromCluster}:${l.toCluster}:${l.kind}`} className="mb-1.5 last:mb-0">
+                  <div key={`${p.fromCluster}:${p.toCluster}`} className="mb-2.5 last:mb-0">
                     <LinkRow
                       label={otherName}
-                      sub={l.kind === 'overlay' ? 'overlay' : 'same subnet'}
                       onClick={() => onSelect({ kind: 'cluster', id: otherId })}
                     />
-                    {/* The rest of this link's evidence (via/encryption/confirming nodes/addresses/
-                        redundancy/live flows) - the same TunnelEvidence block EdgeHoverCard renders for
-                        this exact link's canvas edge, so a click here never shows less than a hover
-                        already did. */}
+                    <div className="flex items-center gap-2 px-2 pb-1">
+                      <ConnectivityStatusBadge status={p.status} />
+                      {!!p.dependencyFlows && (
+                        <span
+                          className="text-xs text-nb-500"
+                          title="Observed cross-cluster dependency flows connecting exactly this pair, regardless of which interface they used"
+                        >
+                          {p.dependencyFlows} dependency flow{p.dependencyFlows === 1 ? '' : 's'}
+                        </span>
+                      )}
+                    </div>
+                    {/* "tunnel"/"subnet": the same TunnelEvidence block EdgeHoverCard renders for this
+                        exact link's canvas edge, so a click here never shows less than a hover already
+                        did - one block per link when both an overlay and a subnet link corroborate the
+                        same pair (independent facts, see ClusterLink's own doc). "unexplained"/
+                        "unknown": the Provenance strip every other guessed/uncertain field already uses,
+                        carrying the same signal/confidence/detail this evidence was built from. */}
                     <div className="px-2">
-                      <TunnelEvidence
-                        via={l.via}
-                        encryption={l.encryption}
-                        redundancy={l.redundancy}
-                        nodeA={thisNode}
-                        nodeB={otherNode}
-                        addressA={thisAddress}
-                        addressB={otherAddress}
-                        flowsObserved={l.flowsObserved}
-                        avgRttMs={l.avgRttMs}
-                        avgLossPct={l.avgLossPct}
-                        avgRtoRetransmitsPerMin={l.avgRtoRetransmitsPerMin}
-                        avgMssBytes={l.avgMssBytes}
-                      />
+                      {p.links && p.links.length > 0 ? (
+                        p.links.map((l, i) => {
+                          const thisNode = l.fromCluster === c.id ? l.fromNode : l.toNode
+                          const otherNode = l.fromCluster === c.id ? l.toNode : l.fromNode
+                          const thisAddress = l.fromCluster === c.id ? l.fromAddress : l.toAddress
+                          const otherAddress = l.fromCluster === c.id ? l.toAddress : l.fromAddress
+                          return (
+                            <div key={l.kind} className={i > 0 ? 'mt-1.5 border-t border-nb-850 pt-1.5' : undefined}>
+                              {p.links!.length > 1 && (
+                                <div className="text-[11px] uppercase tracking-wide text-nb-600">{l.kind === 'overlay' ? 'Overlay' : 'Same subnet'}</div>
+                              )}
+                              <TunnelEvidence
+                                via={l.via}
+                                encryption={l.encryption}
+                                redundancy={l.redundancy}
+                                nodeA={thisNode}
+                                nodeB={otherNode}
+                                addressA={thisAddress}
+                                addressB={otherAddress}
+                                flowsObserved={l.flowsObserved}
+                                avgRttMs={l.avgRttMs}
+                                avgLossPct={l.avgLossPct}
+                                avgRtoRetransmitsPerMin={l.avgRtoRetransmitsPerMin}
+                                avgMssBytes={l.avgMssBytes}
+                              />
+                            </div>
+                          )
+                        })
+                      ) : fp ? (
+                        <ProvenanceStrip {...fp} />
+                      ) : null}
                     </div>
                   </div>
                 )
               })}
               <p className="mt-1.5 text-xs text-nb-500">
-                Confirmed from each side's own routing/address data - never a guess from naming or a declared exposure setting. Absence here means nothing was corroborated from both sides, not that these clusters are definitely unconnected.
+                Whether each related cluster is actually reachable, and how - confirmed from both sides' own routing/address data where possible, never a guess from naming or a declared exposure setting. "Unexplained" means traffic crosses with nothing here to explain how; "unknown" means not enough was collected from one or both sides to say either way.
               </p>
             </Section>
           )

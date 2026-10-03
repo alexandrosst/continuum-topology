@@ -8,7 +8,7 @@ import { refuseEdit, useHistoryView, viewingThePast } from './history'
 import { useObserved } from './observed'
 import { seedTopology } from '@/lib/seed'
 import { applySuggestion } from '@/lib/suggestions'
-import type { ClusterLink } from '@/lib/types'
+import type { ClusterLink, ClusterPairConnectivity } from '@/lib/types'
 import {
   DEFAULT_ORG,
   SCHEMA_VERSION,
@@ -505,4 +505,14 @@ export function useClusterLinks() {
   const live = useObserved((s) => s.clusterLinks)
   const past = useHistoryView((s) => s.snapshot)
   return past ? NO_CLUSTER_LINKS : live
+}
+
+// Same "live correlation, never a recorded fact, so a past view honestly shows none" story as
+// NO_CLUSTER_LINKS/useClusterLinks just above - see ClusterPairConnectivity's own doc.
+const NO_CLUSTER_PAIR_CONNECTIVITY: ClusterPairConnectivity[] = []
+
+export function useClusterPairConnectivity() {
+  const live = useObserved((s) => s.clusterPairConnectivity)
+  const past = useHistoryView((s) => s.snapshot)
+  return past ? NO_CLUSTER_PAIR_CONNECTIVITY : live
 }

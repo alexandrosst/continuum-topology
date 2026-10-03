@@ -1,6 +1,6 @@
 import { ipScope } from './present'
 import { applyRef } from './declared'
-import type { AccessTier, Agent, AgentLink, AgentScope, AuditEvent, ClusterLink, ConsistencyStatus, DeclaredRef, ObserverStatus, Path, Cluster, Dependency, ExternalEndpoint, GeoHint, GeoUnlocatableReason, MachineNode, Model, Namespace, Service, Suggestion, Tombstone } from './types'
+import type { AccessTier, Agent, AgentLink, AgentScope, AuditEvent, ClusterLink, ClusterPairConnectivity, ConsistencyStatus, DeclaredRef, ObserverStatus, Path, Cluster, Dependency, ExternalEndpoint, GeoHint, GeoUnlocatableReason, MachineNode, Model, Namespace, Service, Suggestion, Tombstone } from './types'
 
 /** What the Continuum server returns from GET /api/v1/state. */
 export interface ServerAgent {
@@ -61,6 +61,10 @@ export interface ServerState {
     /** Confirmed overlay/subnet network relationships between cluster pairs - derived fresh, like
      *  dependencies/externalEndpoints/paths above, never part of the stored workspace. */
     clusterLinks: ClusterLink[]
+    /** The broader cluster-pair connectivity picture (tunnel/subnet/unexplained/unknown), for every
+     *  cluster pair that has some relationship at all - see ClusterPairConnectivity's own doc. Derived
+     *  fresh, same story as clusterLinks above. */
+    clusterPairConnectivity: ClusterPairConnectivity[]
   }
   auditLog: AuditEvent[]
   /** Records that disappeared from what their agents report, kept for a retention window (see Tombstone). */
@@ -91,6 +95,7 @@ export function normalizeServerState(s: Partial<ServerState> | null | undefined)
       externalEndpoints: t.externalEndpoints ?? [],
       paths: t.paths ?? [],
       clusterLinks: t.clusterLinks ?? [],
+      clusterPairConnectivity: t.clusterPairConnectivity ?? [],
     },
   }
 }

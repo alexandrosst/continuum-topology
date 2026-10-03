@@ -911,6 +911,49 @@ export const ENCRYPTION_WORDS: Record<'encrypted' | 'plaintext' | 'unknown', str
   unknown: 'driver type not recognized',
 }
 
+/** Tone/label/explanation for a ClusterPairConnectivity's four possible `status` values - the single
+ *  source of truth so a connectivity verdict reads identically wherever it is shown (today: the
+ *  Inspector's "Cluster connectivity" section). "tunnel"/"subnet" are the same confirmed fact a
+ *  ClusterLink's own evidence (TunnelEvidence below) already proves - this is just the broader
+ *  pair-level verdict wrapping it; "unexplained"/"unknown" are the two honest outcomes a ClusterLink
+ *  alone never surfaces at all. See the backend's model.ClusterPairConnectivity doc for exactly what
+ *  distinguishes them. */
+export const CONNECTIVITY_TONE: Record<'tunnel' | 'subnet' | 'unexplained' | 'unknown', Tone> = {
+  tunnel: 'ok',
+  subnet: 'ok',
+  unexplained: 'warn',
+  unknown: 'muted',
+}
+
+export const CONNECTIVITY_LABEL: Record<'tunnel' | 'subnet' | 'unexplained' | 'unknown', string> = {
+  tunnel: 'confirmed tunnel',
+  subnet: 'confirmed subnet',
+  unexplained: 'unexplained',
+  unknown: 'unknown',
+}
+
+export const CONNECTIVITY_HELP: Record<'tunnel' | 'subnet' | 'unexplained' | 'unknown', string> = {
+  tunnel: 'An overlay/tunnel interface on each side was independently confirmed to reach the other - see the evidence below.',
+  subnet: 'Both sides report the exact same routable network, with no tunnel involved - see the evidence below.',
+  unexplained: 'Traffic crosses this pair, and both sides reported enough of their own network facts to check, but neither a tunnel nor a shared subnet corroborates it - something explains this traffic that this server cannot see.',
+  unknown: 'Not enough network evidence was collected from one or both sides to say whether a path exists, let alone how.',
+}
+
+/** The small status pill for a ClusterPairConnectivity row - the same bordered, uppercase, tone-colored
+ *  badge every other confidence/evidence marker in this file already uses (EvidenceChip, Provenance's
+ *  own confidence chip), so a connectivity verdict reads in the same visual language as everything
+ *  around it rather than inventing a new one. */
+export function ConnectivityStatusBadge({ status }: { status: 'tunnel' | 'subnet' | 'unexplained' | 'unknown' }) {
+  return (
+    <span
+      title={CONNECTIVITY_HELP[status]}
+      className={clsx('inline-flex items-center whitespace-nowrap rounded border px-1.5 py-px text-[10px] font-medium uppercase leading-4 tracking-wide', TONE_CLASS[CONNECTIVITY_TONE[status]])}
+    >
+      {CONNECTIVITY_LABEL[status]}
+    </span>
+  )
+}
+
 /**
  * The full evidence behind a confirmed cluster-link tunnel/subnet relationship, or the narrower subset a
  * single Dependency.tunnelLink mirrors onto its own edge (see each one's own doc in lib/types.ts): via,

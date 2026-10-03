@@ -277,6 +277,44 @@ export interface ClusterLink {
   encryption?: 'encrypted' | 'plaintext' | 'unknown'
 }
 
+/**
+ * The broader "can these two clusters actually reach each other, and how" answer for a cluster pair that
+ * already has SOME relationship - an observed cross-cluster Dependency, or a ClusterLink already
+ * confirmed above. ClusterLink alone only ever positively confirms two of the four honest outcomes this
+ * covers; see the backend's model.ClusterPairConnectivity doc for exactly what each `status` means and
+ * is backed by. Deliberately never computed for every possible pair of onboarded clusters - only pairs
+ * that already relate to each other (traffic crossing them, or a confirmed link) earn a row at all, the
+ * same cardinality-bounded spirit ClusterLink correlation itself already follows. Derived fresh on every
+ * poll, like ClusterLink; not available for a past/historic view, for the same reason.
+ */
+export interface ClusterPairConnectivity {
+  fromCluster: string
+  fromName: string
+  toCluster: string
+  toName: string
+  /** tunnel: an overlay ClusterLink backs this pair (see `links`). subnet: a "subnet" ClusterLink backs
+   *  it and no overlay one does. unexplained: traffic crosses this pair, both sides reported enough of
+   *  their own network evidence (tunnels or host subnets) for a correlation to genuinely have been
+   *  attempted, and none of it matched - a real finding, not an absence. unknown: one or both clusters
+   *  never reported any tunnel or host subnet at all, so there is not enough evidence to say either way -
+   *  never collapsed into "unexplained", which would claim a negative never actually checked. */
+  status: 'tunnel' | 'subnet' | 'unexplained' | 'unknown'
+  /** This pair's own confirmed ClusterLink(s) when status is "tunnel" or "subnet" - the exact same
+   *  record(s) already in Topology.clusterLinks (an overlay and a subnet link for the same pair are
+   *  independent facts and can both be present). Undefined for "unexplained"/"unknown", which have no
+   *  such link to point at. */
+  links?: ClusterLink[]
+  /** How many observed cross-cluster Dependencies connect exactly this pair right now, regardless of
+   *  which interface they used - a coarser count than any one ClusterLink's own flowsObserved (which
+   *  only ever counts flows matched to one confirmed tunnel's own interface names). 0 when this pair
+   *  exists only because of a ClusterLink with no live traffic currently observed crossing it. */
+  dependencyFlows?: number
+  /** Explains an "unexplained" or "unknown" status, in the same signal/confidence/detail shape Evidence
+   *  already uses everywhere else - never a new, one-off shape for this one field. Undefined for
+   *  "tunnel"/"subnet", whose evidence already lives on `links`. */
+  evidence?: Evidence
+}
+
 export interface Cluster extends Provenance {
   id: string
   siteId?: string
