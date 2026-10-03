@@ -298,8 +298,9 @@ func TestInterpretAttachesPerPodTraffic(t *testing.T) {
 	if len(traffic) != 2 {
 		t.Fatalf("cart-abc-1.Traffic = %+v, want 2 entries", traffic)
 	}
-	if traffic[0].Peer != "shop/StatefulSet/db" || traffic[0].PeerKind != "service" || traffic[0].Direction != "out" || traffic[0].Connections != 3 {
-		t.Errorf("cart-abc-1's pod-to-pod entry = %+v", traffic[0])
+	wantDBID := svcID("cl-x", "shop/StatefulSet/db")
+	if traffic[0].Peer != wantDBID || traffic[0].PeerKind != "service" || traffic[0].Direction != "out" || traffic[0].Connections != 3 {
+		t.Errorf("cart-abc-1's pod-to-pod entry = %+v, want peer=%q (db's own Service ID, joinable against Service.id)", traffic[0], wantDBID)
 	}
 	if traffic[1].Peer != "93.184.216.34" || traffic[1].PeerKind != "external" || traffic[1].Direction != "out" || traffic[1].Connections != 1 {
 		t.Errorf("cart-abc-1's external entry = %+v", traffic[1])

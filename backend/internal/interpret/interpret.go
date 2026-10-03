@@ -82,7 +82,17 @@ func Hash(parts ...string) string { return hash(parts...) }
 // each a small "right now" breakdown of who that one pod is talking to. A Flow with both SrcPod and
 // DstPod set - one pod of this cluster calling another, observed once from the caller's side, see
 // resolve.go - contributes to both: an outbound entry on the caller, an inbound one on the callee.
-func buildPodTraffic(flows []*continuumv1.Flow) map[string][]model.PodPeer {
+//
+// A workload peer is resolved to its Service ID (the same svcID this same Interpret call gives that
+// workload's own Service a few lines below, and the same id observed.go's serviceOf gives it for
+// Dependency.From/To) rather than left as the raw "namespace/Kind/name" ref FlowEndpoint carries - every
+// Flow this agent resolves names a workload of this same cluster (attribution.go's Index is built per-
+// agent, scoped to its own cluster, so cluster is always clusterID here), and a Service ID is what the
+// frontend can actually join against Service.id. An external peer has no such id available this early -
+// that resolution needs every cluster's reachability data assembled together, which only happens later
+// in buildTopology, well after this one agent's own Interpret call returns - so it stays the raw address,
+// same as Dependency already shows for the cases resolveExternal itself cannot place either.
+func buildPodTraffic(flows []*continuumv1.Flow, clusterID string) map[string][]model.PodPeer {
 	if len(flows) == 0 {
 		return nil
 	}
@@ -93,7 +103,7 @@ func buildPodTraffic(flows []*continuumv1.Flow) map[string][]model.PodPeer {
 		if e.Kind == continuumv1.FlowEndpoint_EXTERNAL {
 			return e.Ip, "external"
 		}
-		return e.Ref, "service"
+		return svcID(clusterID, e.Ref), "service"
 	}
 	out := map[string][]model.PodPeer{}
 	add := func(pod, peer, peerKind, direction string, f *continuumv1.Flow) {
@@ -133,7 +143,7 @@ func Interpret(in Input) model.Topology {
 		return model.Provenance{OrgID: in.OrgID, Source: "discovered", Key: key, LastSeen: stamp, DetectedAt: stamp, AgentID: in.AgentID, Revision: rev}
 	}
 	out := model.Topology{}
-	podTraffic := buildPodTraffic(in.PodFlows)
+	podTraffic := buildPodTraffic(in.PodFlows, in.ClusterID)
 
 	nodes := sortedNodes(st)
 	dist, distEv := detectDistribution(st.Cluster, nodes)

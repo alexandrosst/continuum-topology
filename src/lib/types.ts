@@ -537,9 +537,10 @@ export interface Pod {
  *  Several PodPeers can share the same `peer` (one in, one out, or different ports) - each is its own
  *  observed edge, never merged across ports/protocols/directions the way a Dependency already is. */
 export interface PodPeer {
-  /** The other side's identity: a workload key ("namespace/Kind/name") when peerKind is "service", or the
-   *  raw address when peerKind is "external" - the same two shapes Dependency.from/to already use, and no
-   *  more a privacy concern here than there. */
+  /** The other side's identity: a Service id (joinable against Service.id, same as Dependency.from/to
+   *  already give for the "service" case) when peerKind is "service", or the raw address when peerKind is
+   *  "external" - the backend cannot resolve that case to an id this early (see PodPeer's own Go doc
+   *  comment), so it stays a bare address there. */
   peer: string
   peerKind: 'service' | 'external'
   /** This pod's own role in the flow: "out" when it is the caller, "in" when it is the one receiving. */

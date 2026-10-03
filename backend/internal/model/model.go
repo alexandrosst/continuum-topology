@@ -320,10 +320,12 @@ type Pod struct {
 // different ports) - each is its own observed edge, never merged across ports/protocols/directions the
 // way Dependency already merges them at the service level.
 type PodPeer struct {
-	// Peer is the other side's identity: a workload key ("namespace/Kind/name") when PeerKind is
-	// "service", or the raw address when PeerKind is "external" - the same two shapes and the same
-	// non-anonymization already used for Dependency.From/To, which exposes precisely this information at
-	// the service level already; hiding it here would not make it any more private.
+	// Peer is the other side's identity: a Service ID (joinable against Service.ID, same as
+	// Dependency.From/To already give for the "service" case) when PeerKind is "service", or the raw
+	// address when PeerKind is "external" - Dependency already resolves that case too, but doing the same
+	// here would need every cluster's reachability data assembled together, which happens later than one
+	// agent's own interpretation does; showing the bare address is accordingly its own honest limit, not
+	// a privacy choice.
 	Peer     string `json:"peer"`
 	PeerKind string `json:"peerKind"` // service | external
 	// Direction is this pod's own role in the flow: "out" when this pod is the caller, "in" when it is
