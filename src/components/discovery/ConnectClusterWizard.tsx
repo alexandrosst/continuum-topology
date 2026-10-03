@@ -426,7 +426,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                     )}
                     {!imagesConfigured && (
                       <li>
-                        Make the image <code className="font-mono">{img.repository}</code> available to the cluster: point this server at a registry you publish it to, under <SettingsLink newTab /> (see the deployment guide), or load a locally built image straight into the nodes (<code className="font-mono">k3s ctr images import</code> for k3s, <code className="font-mono">kind load docker-image</code> for kind).
+                        Make the image <code className="font-mono">{img.repository}</code> available to the cluster: set a registry above, or for a local cluster load it directly — <code className="font-mono">k3s ctr images import</code> (k3s), <code className="font-mono">kind load docker-image</code> (kind).
                       </li>
                     )}
                   </ol>
