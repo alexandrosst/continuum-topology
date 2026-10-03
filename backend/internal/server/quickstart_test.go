@@ -43,6 +43,9 @@ func TestMintGatewayTokenHappyPathReturnsTheSecretOnceAndStoresOnlyItsHash(t *te
 	if len(stored.SecretHash) == 0 {
 		t.Fatal("no hash stored")
 	}
+	if string(tok.SecretHash) != string(stored.SecretHash) {
+		t.Fatalf("the struct MintGatewayToken returned must carry the same hash that got persisted, got %x want %x", tok.SecretHash, stored.SecretHash)
+	}
 }
 
 func TestMintGatewayTokenRejectsAnUnknownBackend(t *testing.T) {

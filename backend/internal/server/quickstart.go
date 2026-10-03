@@ -52,16 +52,18 @@ func (c *Core) MintGatewayToken(ctx context.Context, actor, backendID string, tt
 		return store.GatewayToken{}, "", err
 	}
 	now := c.Now()
+	hash := HashSecret(secret)
 	t := store.GatewayToken{
-		ID:        newGatewayTokenID(),
-		OrgID:     c.OrgID,
-		BackendID: backendID,
-		CreatedBy: actor,
-		CreatedAt: now,
-		ExpiresAt: now.Add(ttl),
+		ID:         newGatewayTokenID(),
+		OrgID:      c.OrgID,
+		BackendID:  backendID,
+		SecretHash: hash, // also handed to CreateGatewayToken below, so the in-memory struct matches what's persisted
+		CreatedBy:  actor,
+		CreatedAt:  now,
+		ExpiresAt:  now.Add(ttl),
 	}
 	if err := c.audited(ctx, actor, "quick-start-gateway-token-minted", "quick-start-backend", backendID, backend.Label, func() error {
-		return c.Store.CreateGatewayToken(ctx, t, HashSecret(secret))
+		return c.Store.CreateGatewayToken(ctx, t, hash)
 	}); err != nil {
 		return store.GatewayToken{}, "", err
 	}
