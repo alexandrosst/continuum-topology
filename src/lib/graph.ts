@@ -42,7 +42,7 @@ export type GroupData = {
   entityId: string
   groupBy: GroupBy
   /** Set for groups that are not clusters or tiers. */
-  extra?: 'devices' | 'external' | 'operators'
+  extra?: 'devices' | 'external' | 'operators' | 'agent'
   title: string
   subtitle: string
   /** Distribution of the cluster, for its logo. */
@@ -270,6 +270,12 @@ export interface GraphOptions {
    *  poll (see ClusterLink's own doc), passed in the same way `paths` is rather than living on Topology
    *  itself, since neither is ever part of the stored workspace. */
   clusterLinks?: ClusterLink[]
+  /** Draw "system" entities - discovery agent boxes and the regional-operator boxes - as one group,
+   *  distinct from the application/infrastructure the rest of the canvas shows. Off by default, the
+   *  same "extra detail stays opt-in" convention noise/mesh/namespaces already follow (see
+   *  TopologyPage.tsx's own Options menu), rather than the "on unless turned off" treatment devices and
+   *  cluster links get - unlike those, nothing else on the canvas depends on these being visible. */
+  showSystem?: boolean
 }
 
 export const groupId = (key: string) => `g:${key}`
@@ -341,15 +347,16 @@ interface Item {
  * operators below that again - the row order mirrors "how far this is from the workload itself". */
 const DEVICE_ROW = 3
 const EXTERNAL_ROW = 4
-const OPERATOR_ROW = 5
+const AGENT_ROW = 5
+const OPERATOR_ROW = 6
 
 interface GroupAcc {
   key: string
   row: number
   tier: Tier
   cluster?: Cluster
-  /** Device / external / operator groups: what to show in the header. */
-  extra?: { kind: 'devices' | 'external' | 'operators'; entityId: string; title: string; subtitle: string; country?: string }
+  /** Device / external / operator / agent groups: what to show in the header. */
+  extra?: { kind: 'devices' | 'external' | 'operators' | 'agent'; entityId: string; title: string; subtitle: string; country?: string; status?: Status }
   items: Item[]
 }
 
@@ -540,29 +547,63 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     }
   }
 
+  // Discovery agents: one box per cluster that has one (Topology.agents - part of the continuously-
+  // polled model, unlike the regional operators below, so this never needs a mount-time fetch of its
+  // own). One agent is always exactly one cluster's own (ClusterId is its whole identity - no source-
+  // cluster selection like operators need below), so this is a map from agent id straight to its one
+  // cluster group key, not a set of keys per entity. Gated behind showSystem together with the operator
+  // boxes right below: both are "system" entities (the telemetry pipeline itself, not the application),
+  // so one toggle shows or hides the whole group. An agent whose cluster was filtered out (or doesn't
+  // exist in this topology) gets no box, same "no arrow into nothing" rule operators use below.
+  const agentClusterKey = new Map<string, string>()
+  if (o.showSystem) {
+    for (const ag of t.discoveryAgents ?? []) {
+      const clusterKey = groupKeyOfCluster(ag.clusterId)
+      if (!clusterKey) continue
+      agentClusterKey.set(ag.id, clusterKey)
+      const key = `ag:${ag.id}`
+      const cluster = clusterById.get(ag.clusterId)
+      groups.set(key, {
+        key,
+        row: AGENT_ROW,
+        tier: 'cloud',
+        extra: {
+          kind: 'agent',
+          entityId: ag.id,
+          title: cluster?.name ?? ag.name,
+          subtitle: 'Discovery agent',
+          status: ag.stale ? 'offline' : 'healthy',
+        },
+        items: [],
+      })
+    }
+  }
+
   // Regional operators: a peer-group row, same mechanism as devices/external, but not gated to either
   // view branch above - an operator aggregates telemetry at the cluster level, which means the same thing
   // whether the canvas is currently showing services or nodes. An operator whose source clusters were all
   // filtered out (or don't exist) gets no box: a box with no arrows into it would just be noise. The group
   // has no items of its own (unlike devices/external) - the box itself *is* the operator.
   const operatorSourceKeys = new Map<string, string[]>()
-  for (const op of (t.operators ?? []).filter((o2) => o2.status === 'active')) {
-    const sourceKeys = [...new Set(op.sourceClusterIds.map(groupKeyOfCluster).filter((k): k is string => !!k))]
-    if (!sourceKeys.length) continue
-    operatorSourceKeys.set(op.id, sourceKeys)
-    const key = `op:${op.id}`
-    groups.set(key, {
-      key,
-      row: OPERATOR_ROW,
-      tier: 'cloud',
-      extra: {
-        kind: 'operators',
-        entityId: op.id,
-        title: op.name,
-        subtitle: `${sourceKeys.length} source cluster${sourceKeys.length === 1 ? '' : 's'}`,
-      },
-      items: [],
-    })
+  if (o.showSystem) {
+    for (const op of (t.operators ?? []).filter((o2) => o2.status === 'active')) {
+      const sourceKeys = [...new Set(op.sourceClusterIds.map(groupKeyOfCluster).filter((k): k is string => !!k))]
+      if (!sourceKeys.length) continue
+      operatorSourceKeys.set(op.id, sourceKeys)
+      const key = `op:${op.id}`
+      groups.set(key, {
+        key,
+        row: OPERATOR_ROW,
+        tier: 'cloud',
+        extra: {
+          kind: 'operators',
+          entityId: op.id,
+          title: op.name,
+          subtitle: `${sourceKeys.length} source cluster${sourceKeys.length === 1 ? '' : 's'}`,
+        },
+        items: [],
+      })
+    }
   }
 
   /* 2. Lay out: tiers are rows (cloud on top → far edge at the bottom), groups sit side by side. */
@@ -600,7 +641,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       const { g } = p
       const gid = groupId(g.key)
       const cl = g.cluster
-      const groupStatus = worstStatus(cl ? [cl.status, ...g.items.map((i) => i.data.status)] : g.items.map((i) => i.data.status))
+      const groupStatus = g.extra?.status ?? worstStatus(cl ? [cl.status, ...g.items.map((i) => i.data.status)] : g.items.map((i) => i.data.status))
       const clustersInTier = clusterCountByTier.get(g.tier) ?? 0
       const ex = g.extra
       const units = g.items.reduce((s, i) => s + (i.data.units ?? 1), 0)
@@ -636,9 +677,11 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
               ? `${units} devices`
               : ex?.kind === 'operators'
                 ? 'Regional operator'
-                : ex
-                  ? `${g.items.length} endpoints`
-                  : `${g.items.length} ${o.view === 'application' ? 'services' : 'nodes'}`,
+                : ex?.kind === 'agent'
+                  ? ex.status === 'offline' ? 'Not reporting' : 'Reporting'
+                  : ex
+                    ? `${g.items.length} endpoints`
+                    : `${g.items.length} ${o.view === 'application' ? 'services' : 'nodes'}`,
           empty: o.view === 'application' ? 'No services' : 'No nodes',
         },
       })
@@ -795,6 +838,24 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         stats: bytesPerSec > 0 ? { bytesPerSec } : undefined,
       }))
     }
+  }
+
+  // Discovery agents: a real arrow from the agent's own box to the cluster it serves - the same
+  // "declared relationship, not traffic" treatment the regional-operator arrows just below get, and the
+  // same makeEdge/groupLevel mechanism, just with the single fixed target a 1:1 relationship needs
+  // instead of a source-cluster list.
+  for (const [agentId, clusterKey] of agentClusterKey) {
+    const agGid = groupId(`ag:${agentId}`)
+    const clusterGid = groupId(clusterKey)
+    if (!abs.has(agGid) || !abs.has(clusterGid)) continue
+    edges.push(makeEdge(`ag:${agentId}:${clusterKey}`, agGid, clusterGid, abs, {
+      label: 'monitors',
+      cross: true,
+      aggregated: false,
+      groupLevel: true,
+      from: `ag:${agentId}`,
+      to: clusterKey,
+    }))
   }
 
   // Regional operators: a real arrow from each source cluster's group box to the operator's box - this is

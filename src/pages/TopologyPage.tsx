@@ -55,7 +55,7 @@ import { parseSel } from '@/lib/search'
 import { TIER_COLOR, TIERS, type ClusterLink, type GroupBy, type RegionalOperator, type ViewKind } from '@/lib/types'
 import { useServer } from '@/store/server'
 import { useHistoryView } from '@/store/history'
-import { useClusterLinks, usePaths, useTopology } from '@/store/topology'
+import { useClusterLinks, useDiscoveryAgents, usePaths, useTopology } from '@/store/topology'
 
 /** Overlay (joined through a tunnel) vs. subnet (same flat network, no tunnel) - a cluster link's own
  *  two-colour palette, independent of the mesh/loss colours above it in precedence (see styledEdges).
@@ -175,8 +175,13 @@ function Canvas() {
   // the always-on category coloring rather than a replacement for it. Meaningless with cluster links
   // hidden altogether, so it only ever applies alongside showClusterLinks.
   const showHealthLens = sp.get('health') === '1' && showClusterLinks
+  // Discovery agent boxes and the regional-operator boxes, shown or hidden together as one "system"
+  // group - off by default, same as every other extra-detail toggle here (noise/mesh/namespaces/chain),
+  // since nothing else on the canvas depends on these being visible (unlike devices/cluster links, which
+  // default on).
+  const showSystem = sp.get('system') === '1'
   // How many options differ from the defaults, so a hidden option is never a mystery.
-  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow', !showClusterLinks, showHealthLens].filter(Boolean).length
+  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow', !showClusterLinks, showHealthLens, showSystem].filter(Boolean).length
   const setParam = (k: string, v: string | null) =>
     setSp((p) => {
       const n = new URLSearchParams(p)
@@ -331,6 +336,7 @@ function Canvas() {
   }, [selParam, observedReady])
   const paths = usePaths()
   const clusterLinks = useClusterLinks()
+  const discoveryAgents = useDiscoveryAgents()
   // Placement advice, shown as a small marker on the services it would move.
   const { plan, world } = usePlan()
   const hints = useMemo(() => new Map(plan.recommendations.map((r) => [r.serviceId, world.byCluster.get(r.to)?.name ?? r.to])), [plan, world])
@@ -356,13 +362,13 @@ function Canvas() {
   const graph = useMemo(
     () =>
       buildGraph(
-        { ...shown, operators },
+        { ...shown, operators, discoveryAgents },
         {
           view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, chain: showChain, paths, hints, localOperators: localOperatorByCluster,
-          clusterLinks: showClusterLinks ? clusterLinks : [],
+          clusterLinks: showClusterLinks ? clusterLinks : [], showSystem,
         },
       ),
-    [shown, operators, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks, showClusterLinks],
+    [shown, operators, discoveryAgents, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks, showClusterLinks, showSystem],
   )
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
 
@@ -583,6 +589,7 @@ function Canvas() {
     const d = n.data
     if (d.kind === 'group') {
       if (d.extra === 'devices') return { kind: 'site', id: d.entityId }
+      if (d.extra === 'agent') return { kind: 'agent', id: d.entityId }
       if (d.extra) return null
       return { kind: d.groupBy === 'cluster' ? 'cluster' : 'tier', id: d.entityId }
     }
@@ -807,6 +814,17 @@ function Canvas() {
                   onChange={(v) => setParam('clusterLinks', v ? null : '0')}
                   label="Cluster links"
                   title="Clusters confirmed joined by an overlay/tunnel, or sitting on the same flat subnet"
+                />
+                <Toggle
+                  checked={showSystem}
+                  onChange={(v) => {
+                    setParam('system', v ? '1' : null)
+                    // Hiding system entities removes the selected one from the canvas, same reasoning
+                    // as hiding devices just above.
+                    if (!v && selection?.kind === 'agent') setSelection(null)
+                  }}
+                  label="System entities"
+                  title="The discovery agent running in each cluster, and any regional operator it feeds"
                 />
 
                 {/* Lenses: unlike every toggle above (which only ever decides whether something already
@@ -1207,6 +1225,16 @@ function Canvas() {
                       <span className="flex items-center gap-1.5" title="A cluster feeding a regional operator - a declared relationship (its source clusters), not measured traffic">
                         <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.6" strokeDasharray="1 4" /></svg>
                         Telemetry
+                      </span>
+                    </>
+                  )}
+                  {/* Same "only explain what's actually on the canvas" rule as the operator entry above. */}
+                  {graph.nodes.some((n) => n.data.kind === 'group' && n.data.extra === 'agent') && (
+                    <>
+                      <span className="h-3 w-px bg-nb-800" />
+                      <span className="flex items-center gap-1.5" title="The discovery agent that serves this cluster - a declared relationship (one agent, one cluster), not measured traffic">
+                        <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.6" strokeDasharray="1 4" /></svg>
+                        Monitors
                       </span>
                     </>
                   )}

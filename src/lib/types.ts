@@ -963,6 +963,12 @@ export interface Topology {
    *  view; see RegionalOperatorsPage / TopologyPage). Optional so every other Topology producer (seed data,
    *  history snapshots, tests) is unaffected. */
   operators?: RegionalOperator[]
+  /** Discovery agents, one per cluster that has one - unlike operators above, this IS part of the
+   *  continuously-polled model (see ServerState.topology.agents), so it is never a one-off fetch. Named
+   *  `discoveryAgents`, not `agents`: Control.agents (the enrollment/admin Agent[] this same Model also
+   *  extends) already owns that name for a completely different shape. Still optional for the same
+   *  "every other Topology producer is unaffected" reason operators is. */
+  discoveryAgents?: DiscoveryAgent[]
 }
 
 /* ---------- control plane: how the graph was learned ---------- */
@@ -1166,6 +1172,32 @@ export interface RegionalOperator {
   createdBy: string
   revokedAt?: string
   reason?: string
+}
+
+/**
+ * The discovery agent process running inside a cluster - the per-cluster telemetry pipeline itself
+ * (what collects and reports facts), never anything it discovered. One per cluster (ClusterId is its
+ * whole identity: there is no separate source-cluster selection the way RegionalOperator needs, since
+ * this is always a 1:1 relationship). Extends Provenance for the same live/stale treatment Cluster/
+ * MachineNode already get from it, even though an agent has nothing a person can override - there is
+ * no `overrides` use here, only `stale`/`state`/`stateReason`.
+ */
+export interface DiscoveryAgent extends Provenance {
+  id: string
+  clusterId: string
+  name: string
+  /** This agent's most recent self-telemetry sample (RSS/goroutines as of its last heartbeat that
+   *  carried one) - a light pointer to its own resource footprint, not a history. Undefined until the
+   *  agent's first such heartbeat arrives. The full history (with derived CPU% and bandwidth share)
+   *  lives on the System Health page (lib/selfHealth.ts's SelfTelemetrySample), never duplicated here. */
+  self?: AgentSelfSnapshot
+}
+
+/** model.Agent.Self's own mirror - see DiscoveryAgent.self's own doc for why this is a snapshot, not a series. */
+export interface AgentSelfSnapshot {
+  t: string
+  rssBytes: number
+  goroutines: number
 }
 
 /** Whether the server's picture of a cluster matched what the cluster itself reported at the last check. */

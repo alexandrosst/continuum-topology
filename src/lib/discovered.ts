@@ -1,6 +1,6 @@
 import { ipScope } from './present'
 import { applyRef } from './declared'
-import type { AccessTier, Agent, AgentLink, AgentScope, AuditEvent, ClusterLink, ClusterPairConnectivity, ConsistencyStatus, DeclaredRef, ObserverStatus, Path, Cluster, Dependency, ExternalEndpoint, GeoHint, GeoUnlocatableReason, MachineNode, Model, Namespace, Service, Suggestion, Tombstone } from './types'
+import type { AccessTier, Agent, AgentLink, AgentScope, AuditEvent, ClusterLink, ClusterPairConnectivity, ConsistencyStatus, DeclaredRef, DiscoveryAgent, ObserverStatus, Path, Cluster, Dependency, ExternalEndpoint, GeoHint, GeoUnlocatableReason, MachineNode, Model, Namespace, Service, Suggestion, Tombstone } from './types'
 
 /** What the Continuum server returns from GET /api/v1/state. */
 export interface ServerAgent {
@@ -65,6 +65,10 @@ export interface ServerState {
      *  cluster pair that has some relationship at all - see ClusterPairConnectivity's own doc. Derived
      *  fresh, same story as clusterLinks above. */
     clusterPairConnectivity: ClusterPairConnectivity[]
+    /** The discovery agent processes themselves, one per cluster that has one - live/stale the same way
+     *  clusters/nodes above are (see DiscoveryAgent's own doc), but like clusterLinks above never part of
+     *  the stored workspace: a connected agent is a live fact, not a recorded one. */
+    agents: DiscoveryAgent[]
   }
   auditLog: AuditEvent[]
   /** Records that disappeared from what their agents report, kept for a retention window (see Tombstone). */
@@ -96,6 +100,7 @@ export function normalizeServerState(s: Partial<ServerState> | null | undefined)
       paths: t.paths ?? [],
       clusterLinks: t.clusterLinks ?? [],
       clusterPairConnectivity: t.clusterPairConnectivity ?? [],
+      agents: t.agents ?? [],
     },
   }
 }

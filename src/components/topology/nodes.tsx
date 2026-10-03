@@ -4,6 +4,7 @@ import {
   Antenna,
   ArrowUpRight,
   BatteryCharging,
+  Bot,
   Box,
   Cable,
   Camera,
@@ -148,12 +149,19 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
         ? 'External'
         : data.extra === 'operators'
           ? 'Regional operator'
-          : data.tier === 'far-edge'
-            ? 'Far edge'
-            : data.tier[0].toUpperCase() + data.tier.slice(1)
-  // Devices/External/Regional operator are synthetic grouping rows (always laid out as tier: 'cloud', see
-  // graph.ts), not a real tier - no tier icon for those, same as their label above already isn't a tier name.
+          : data.extra === 'agent'
+            ? 'System'
+            : data.tier === 'far-edge'
+              ? 'Far edge'
+              : data.tier[0].toUpperCase() + data.tier.slice(1)
+  // Devices/External/Regional operator/Agent are synthetic grouping rows (always laid out as tier:
+  // 'cloud', see graph.ts), not a real tier - no tier icon for those, same as their label above already
+  // isn't a tier name.
   const TierGlyph = data.extra ? undefined : TIER_ICON[data.tier]
+  // A discovery agent box reads as "part of the system", not "part of the application", at a glance -
+  // Bot (a background process, distinct from Antenna's "relays telemetry outward" meaning on a regional
+  // operator box right below) plus a dashed border instead of every other box's solid one.
+  const isAgent = data.extra === 'agent'
   return (
     // The selection ring is `inset`, not the plain outward `0_0_0_Npx` box-shadow it used to be: OffsetEdge
     // places an incoming edge's arrowhead tip with zero gap exactly on this box's true boundary (see its
@@ -163,9 +171,9 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
     // very tip of any edge pointing at it. Inset keeps the identical highlight look without ever drawing
     // outside the box OffsetEdge's own math already treats as this card's exact, true extent.
     <div
-      className={clsx('h-full w-full rounded-2xl border transition-shadow', selected && 'shadow-[inset_0_0_0_2px_var(--color-accent)]')}
+      className={clsx('h-full w-full rounded-2xl border transition-shadow', isAgent && 'border-dashed', selected && 'shadow-[inset_0_0_0_2px_var(--color-accent)]')}
       style={{
-        borderColor: `color-mix(in srgb, ${color} ${selected ? 70 : 32}%, transparent)`,
+        borderColor: `color-mix(in srgb, ${color} ${selected ? 70 : isAgent ? 45 : 32}%, transparent)`,
         background: `color-mix(in srgb, ${color} 5%, var(--color-nb-920))`,
       }}
     >
@@ -176,6 +184,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
             <span className="size-2 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
             {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
             {data.extra === 'operators' && <Antenna size={ICON_SM} className="shrink-0 text-nb-500" />}
+            {data.extra === 'agent' && <Bot size={ICON_SM} className="shrink-0 text-nb-500" />}
             <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
             {far && peak !== undefined && peak >= 70 && (
               <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>

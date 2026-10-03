@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { deepEqual } from '@/lib/discovered'
 import type { EffectiveModel } from '@/lib/provenance'
-import type { ClusterLink, ClusterPairConnectivity, Dependency, ExternalEndpoint, Path, Tombstone } from '@/lib/types'
+import type { ClusterLink, ClusterPairConnectivity, Dependency, DiscoveryAgent, ExternalEndpoint, Path, Tombstone } from '@/lib/types'
 
 /**
  * What agents saw on the wire and measured, as the server last reported it. It is derived data that changes
@@ -22,11 +22,22 @@ interface ObservedStore {
   /** The broader cluster-pair connectivity picture (tunnel/subnet/unexplained/unknown) - same "derived
    *  every window, never stored, not available for a past view" story as clusterLinks above. */
   clusterPairConnectivity: ClusterPairConnectivity[]
+  /** Discovery agents - a live connection fact (see DiscoveryAgent's own doc), never stored in the
+   *  workspace or recorded into a snapshot, same story as clusterLinks/clusterPairConnectivity above. */
+  discoveryAgents: DiscoveryAgent[]
   tombstones: Tombstone[]
   model?: EffectiveModel
   /** Server clock minus this browser's clock, in ms, from the last state poll: facts are aged on the server's time, not this machine's. */
   skewMs: number
-  set: (d: Dependency[], e: ExternalEndpoint[], paths?: Path[], tombstones?: Tombstone[], clusterLinks?: ClusterLink[], clusterPairConnectivity?: ClusterPairConnectivity[]) => void
+  set: (
+    d: Dependency[],
+    e: ExternalEndpoint[],
+    paths?: Path[],
+    tombstones?: Tombstone[],
+    clusterLinks?: ClusterLink[],
+    clusterPairConnectivity?: ClusterPairConnectivity[],
+    discoveryAgents?: DiscoveryAgent[],
+  ) => void
   setModel: (m: EffectiveModel | undefined) => void
   setSkew: (ms: number) => void
   clear: () => void
@@ -38,6 +49,7 @@ export const useObserved = create<ObservedStore>((set) => ({
   paths: [],
   clusterLinks: [],
   clusterPairConnectivity: [],
+  discoveryAgents: [],
   tombstones: [],
   model: undefined,
   skewMs: 0,
@@ -50,7 +62,7 @@ export const useObserved = create<ObservedStore>((set) => ({
   // effective model (effectiveModel.ts). deepEqual (see lib/discovered.ts's own doc comment on it) hands
   // back the *same* array a poll that changed nothing about that particular field, so a memo keyed on it
   // only sees a new identity when something in it actually did change.
-  set: (dependencies, externalEndpoints, paths = [], tombstones = [], clusterLinks = [], clusterPairConnectivity = []) =>
+  set: (dependencies, externalEndpoints, paths = [], tombstones = [], clusterLinks = [], clusterPairConnectivity = [], discoveryAgents = []) =>
     set((s) => ({
       dependencies: deepEqual(dependencies, s.dependencies) ? s.dependencies : dependencies,
       externalEndpoints: deepEqual(externalEndpoints, s.externalEndpoints) ? s.externalEndpoints : externalEndpoints,
@@ -58,8 +70,9 @@ export const useObserved = create<ObservedStore>((set) => ({
       tombstones: deepEqual(tombstones, s.tombstones) ? s.tombstones : tombstones,
       clusterLinks: deepEqual(clusterLinks, s.clusterLinks) ? s.clusterLinks : clusterLinks,
       clusterPairConnectivity: deepEqual(clusterPairConnectivity, s.clusterPairConnectivity) ? s.clusterPairConnectivity : clusterPairConnectivity,
+      discoveryAgents: deepEqual(discoveryAgents, s.discoveryAgents) ? s.discoveryAgents : discoveryAgents,
     })),
   setModel: (model) => set({ model }),
   setSkew: (skewMs) => set({ skewMs }),
-  clear: () => set({ dependencies: [], externalEndpoints: [], paths: [], clusterLinks: [], clusterPairConnectivity: [], tombstones: [], model: undefined }),
+  clear: () => set({ dependencies: [], externalEndpoints: [], paths: [], clusterLinks: [], clusterPairConnectivity: [], discoveryAgents: [], tombstones: [], model: undefined }),
 }))
