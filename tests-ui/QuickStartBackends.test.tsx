@@ -80,6 +80,32 @@ describe('QuickStartBackends', () => {
     expect(onUseAsDestination).toHaveBeenCalledWith('jaeger-quickstart-collector.obs.svc:4317', 'grpc')
   })
 
+  test('"Use as destination" is disabled once a modality this backend cannot carry is also on', () => {
+    const saved: QuickStartBackend = { id: 'qsb-1', kind: 'jaeger', modality: 'traces', namespace: 'obs', retention: '48h', label: 'Jaeger (traces)' }
+    settings = { ...DEFAULT_SETTINGS, quickStartBackends: [saved] }
+    save = vi.fn()
+    role = 'admin'
+    render(<QuickStartBackends enabledModalities={new Set(['traces', 'metrics'])} onUseAsDestination={vi.fn()} />)
+    expect(screen.getByText('Use as destination')).toBeDisabled()
+  })
+
+  test('an admin can change a saved backend\'s retention', async () => {
+    const user = userEvent.setup()
+    const saved: QuickStartBackend = { id: 'qsb-1', kind: 'jaeger', modality: 'traces', namespace: 'obs', retention: '48h', label: 'Jaeger (traces)' }
+    settings = { ...DEFAULT_SETTINGS, quickStartBackends: [saved] }
+    save = vi.fn().mockResolvedValue(true)
+    role = 'admin'
+    render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={vi.fn()} />)
+    await user.click(screen.getByText('48h'))
+    const field = screen.getByLabelText('Jaeger (traces) retention')
+    await user.clear(field)
+    await user.type(field, '168h')
+    await user.click(screen.getByText('Save'))
+    expect(save).toHaveBeenCalledTimes(1)
+    const [, body] = save.mock.calls[0]
+    expect(body.quickStartBackends[0]).toMatchObject({ id: 'qsb-1', retention: '168h' })
+  })
+
   test('once a tool URL is known, "Open" replaces the URL form, linking straight to it', () => {
     const saved: QuickStartBackend = { id: 'qsb-1', kind: 'jaeger', modality: 'traces', namespace: 'obs', retention: '48h', label: 'Jaeger (traces)', toolUrl: 'http://localhost:16686' }
     settings = { ...DEFAULT_SETTINGS, quickStartBackends: [saved] }

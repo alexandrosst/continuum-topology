@@ -53,8 +53,10 @@ export default function QuickStartBackends({ enabledModalities, onUseAsDestinati
                 backend={saved}
                 admin={admin}
                 busy={busy}
+                canUse={enabledModalities.size === 1}
                 onUse={() => onUseAsDestination(spec.exportEndpoint(saved.namespace), spec.exportProtocol)}
                 onSaveUrl={(url) => write(settings.quickStartBackends.map((b) => (b.id === saved.id ? { ...b, toolUrl: url } : b)))}
+                onSaveRetention={(retention) => write(settings.quickStartBackends.map((b) => (b.id === saved.id ? { ...b, retention } : b)))}
                 onRemove={() => write(settings.quickStartBackends.filter((b) => b.id !== saved.id))}
               />
             )
@@ -81,20 +83,48 @@ export default function QuickStartBackends({ enabledModalities, onUseAsDestinati
   )
 }
 
-function SavedBackend({ backend, admin, busy, onUse, onSaveUrl, onRemove }: {
+function SavedBackend({ backend, admin, busy, canUse, onUse, onSaveUrl, onSaveRetention, onRemove }: {
   backend: QuickStartBackend
   admin: boolean
   busy: boolean
+  /** False once a modality this backend cannot carry is also turned on (see QuickStartBackends' own
+   *  enabledModalities check) - "Use as destination" is disabled rather than silently misconfiguring the
+   *  one exportEndpoint every signal shares, the same guard TelemetryFields' own preset picker applies. */
+  canUse: boolean
   onUse: () => void
   onSaveUrl: (url: string) => void
+  onSaveRetention: (retention: string) => void
   onRemove: () => void
 }) {
   const spec = quickStartSpec(backend.kind)
   const [url, setUrl] = useState(backend.toolUrl ?? '')
+  const [editingRetention, setEditingRetention] = useState(false)
+  const [retention, setRetention] = useState(backend.retention)
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="font-medium text-nb-300">{backend.label}</span>
-      <span className="font-mono text-xs text-nb-500">{backend.namespace} · {backend.retention}</span>
+      <span className="font-mono text-xs text-nb-500">{backend.namespace} ·</span>
+      {editingRetention ? (
+        <form
+          className="flex items-center gap-1"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (retention.trim()) {
+              onSaveRetention(retention.trim())
+              setEditingRetention(false)
+            }
+          }}
+        >
+          <Input value={retention} onChange={(e) => setRetention(e.target.value)} className="h-7 w-20 text-xs" aria-label={`${backend.label} retention`} />
+          <Button type="submit" size="sm" disabled={busy || !retention.trim()}>Save</Button>
+        </form>
+      ) : admin ? (
+        <button type="button" className="font-mono text-xs text-nb-500 underline-offset-2 hover:text-nb-300 hover:underline" onClick={() => setEditingRetention(true)} title="Change retention">
+          {backend.retention}
+        </button>
+      ) : (
+        <span className="font-mono text-xs text-nb-500">{backend.retention}</span>
+      )}
       <div className="ml-auto flex items-center gap-2">
         {backend.toolUrl ? (
           <a href={backend.toolUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-accent hover:underline">
@@ -112,7 +142,16 @@ function SavedBackend({ backend, admin, busy, onUse, onSaveUrl, onRemove }: {
             <Button type="submit" size="sm" disabled={busy || !url.trim()}>Save URL</Button>
           </form>
         ) : null}
-        <Button type="button" size="sm" variant="ghost" onClick={onUse} disabled={busy}>Use as destination</Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={onUse}
+          disabled={busy || !canUse}
+          title={canUse ? undefined : `${spec.label} only carries ${spec.modality} - turn off the other signals above first.`}
+        >
+          Use as destination
+        </Button>
         {admin && (
           <Button type="button" size="sm" variant="ghost" onClick={onRemove} disabled={busy} aria-label={`Forget ${backend.label}`}>
             <Trash2 size={ICON_SM} />
