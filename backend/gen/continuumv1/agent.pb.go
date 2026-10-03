@@ -4162,7 +4162,18 @@ type Flow struct {
 	BufferDrops uint32 `protobuf:"varint,22,opt,name=buffer_drops,json=bufferDrops,proto3" json:"buffer_drops,omitempty"`
 	// DNS response latency observed in this report - see RawFlow.dns_rtt_us. A gauge, same treatment as
 	// rtt_us/jitter_us: the latest sample, carried through attribution unchanged.
-	DnsRttUs      uint32 `protobuf:"varint,23,opt,name=dns_rtt_us,json=dnsRttUs,proto3" json:"dns_rtt_us,omitempty"`
+	DnsRttUs uint32 `protobuf:"varint,23,opt,name=dns_rtt_us,json=dnsRttUs,proto3" json:"dns_rtt_us,omitempty"`
+	// The actual pod name behind Src, when Src is a WORKLOAD endpoint resolved from this agent's own
+	// live collector.Index (not its post-eviction "recent" memory of a pod that has since churned) - see
+	// attribution.go's Index.PodNames. Empty for a Service-resolved or node-resolved Src, for an EXTERNAL
+	// Src, or whenever the owning pod is no longer live enough for the agent to be sure of its name.
+	// Descriptive only, like iface/sni_host: never part of an edge's identity (flow.key in aggregate.go
+	// deliberately excludes it, so distinct pods of the same workload keep collapsing into one dependency
+	// edge) - this field only ever rides along on FlowBatch.pod_flows, a separate, unaccumulated, "right
+	// now" breakdown by pod, never on the workload-level flows this message's identity is bounded by.
+	SrcPod string `protobuf:"bytes,24,opt,name=src_pod,json=srcPod,proto3" json:"src_pod,omitempty"`
+	// The actual pod name behind Dst, under the same rule as src_pod above.
+	DstPod        string `protobuf:"bytes,25,opt,name=dst_pod,json=dstPod,proto3" json:"dst_pod,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4358,6 +4369,20 @@ func (x *Flow) GetDnsRttUs() uint32 {
 	return 0
 }
 
+func (x *Flow) GetSrcPod() string {
+	if x != nil {
+		return x.SrcPod
+	}
+	return ""
+}
+
+func (x *Flow) GetDstPod() string {
+	if x != nil {
+		return x.DstPod
+	}
+	return ""
+}
+
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
 // A node collector the agent has heard from lately: what the dashboard shows as "observer health".
 type CollectorInfo struct {
@@ -4428,7 +4453,15 @@ type FlowBatch struct {
 	Flows         []*Flow                `protobuf:"bytes,4,rep,name=flows,proto3" json:"flows,omitempty"`
 	// Every collector that reported in the last few windows, whether or not it saw any traffic. A batch
 	// with no flows is still sent while collectors are present, so silence means "no collector", not "quiet".
-	Collectors    []*CollectorInfo `protobuf:"bytes,5,rep,name=collectors,proto3" json:"collectors,omitempty"`
+	Collectors []*CollectorInfo `protobuf:"bytes,5,rep,name=collectors,proto3" json:"collectors,omitempty"`
+	// This window's traffic broken down by the specific pod on at least one side (src_pod and/or dst_pod
+	// set) - see aggregate.go's separate, smaller podFlows table. Unlike flows above, the server never
+	// accumulates this across batches: each batch's pod_flows wholesale-replaces what the server holds for
+	// this agent, so it is always "what this pod is doing right now", not a running total. This is what the
+	// topology view's per-pod breakdown (shown only when a specific pod is expanded) is drawn from, kept
+	// separate from flows so that per-pod cardinality never touches the bounded, historically-accumulated
+	// workload-level dependency graph.
+	PodFlows      []*Flow `protobuf:"bytes,6,rep,name=pod_flows,json=podFlows,proto3" json:"pod_flows,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4494,6 +4527,13 @@ func (x *FlowBatch) GetFlows() []*Flow {
 func (x *FlowBatch) GetCollectors() []*CollectorInfo {
 	if x != nil {
 		return x.Collectors
+	}
+	return nil
+}
+
+func (x *FlowBatch) GetPodFlows() []*Flow {
+	if x != nil {
+		return x.PodFlows
 	}
 	return nil
 }
@@ -5593,7 +5633,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"UNRESOLVED\x10\x00\x12\f\n" +
 	"\bWORKLOAD\x10\x01\x12\b\n" +
 	"\x04NODE\x10\x02\x12\f\n" +
-	"\bEXTERNAL\x10\x03\"\xc5\x05\n" +
+	"\bEXTERNAL\x10\x03\"\xf7\x05\n" +
 	"\x04Flow\x12,\n" +
 	"\x03src\x18\x01 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03src\x12,\n" +
 	"\x03dst\x18\x02 \x01(\v2\x1a.continuum.v1.FlowEndpointR\x03dst\x12\x12\n" +
@@ -5621,12 +5661,14 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"pacing_bps\x18\x15 \x01(\x04R\tpacingBps\x12!\n" +
 	"\fbuffer_drops\x18\x16 \x01(\rR\vbufferDrops\x12\x1c\n" +
 	"\n" +
-	"dns_rtt_us\x18\x17 \x01(\rR\bdnsRttUs\"\\\n" +
+	"dns_rtt_us\x18\x17 \x01(\rR\bdnsRttUs\x12\x17\n" +
+	"\asrc_pod\x18\x18 \x01(\tR\x06srcPod\x12\x17\n" +
+	"\adst_pod\x18\x19 \x01(\tR\x06dstPod\"\\\n" +
 	"\rCollectorInfo\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12\x1f\n" +
 	"\vbytes_known\x18\x03 \x01(\bR\n" +
-	"bytesKnown\"\xbf\x01\n" +
+	"bytesKnown\"\xf0\x01\n" +
 	"\tFlowBatch\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12%\n" +
 	"\x0ewindow_seconds\x18\x02 \x01(\x05R\rwindowSeconds\x12\x12\n" +
@@ -5634,7 +5676,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x05flows\x18\x04 \x03(\v2\x12.continuum.v1.FlowR\x05flows\x12;\n" +
 	"\n" +
 	"collectors\x18\x05 \x03(\v2\x1b.continuum.v1.CollectorInfoR\n" +
-	"collectors\"\xe5\x05\n" +
+	"collectors\x12/\n" +
+	"\tpod_flows\x18\x06 \x03(\v2\x12.continuum.v1.FlowR\bpodFlows\"\xe5\x05\n" +
 	"\bFlowEdge\x12$\n" +
 	"\x03key\x18\x01 \x01(\v2\x12.continuum.v1.FlowR\x03key\x129\n" +
 	"\n" +
@@ -5849,33 +5892,34 @@ var file_continuum_v1_agent_proto_depIdxs = []int32{
 	42, // 51: continuum.v1.Flow.dst:type_name -> continuum.v1.FlowEndpoint
 	43, // 52: continuum.v1.FlowBatch.flows:type_name -> continuum.v1.Flow
 	44, // 53: continuum.v1.FlowBatch.collectors:type_name -> continuum.v1.CollectorInfo
-	43, // 54: continuum.v1.FlowEdge.key:type_name -> continuum.v1.Flow
-	61, // 55: continuum.v1.FlowEdge.first_seen:type_name -> google.protobuf.Timestamp
-	61, // 56: continuum.v1.FlowEdge.last_seen:type_name -> google.protobuf.Timestamp
-	46, // 57: continuum.v1.FlowTable.edges:type_name -> continuum.v1.FlowEdge
-	17, // 58: continuum.v1.Diagnostics.scope:type_name -> continuum.v1.ScopeFacts
-	49, // 59: continuum.v1.Diagnostics.collectors:type_name -> continuum.v1.CollectorDiag
-	50, // 60: continuum.v1.Diagnostics.informers:type_name -> continuum.v1.InformerDiag
-	51, // 61: continuum.v1.Diagnostics.problems:type_name -> continuum.v1.Problem
-	61, // 62: continuum.v1.Diagnostics.generated_at:type_name -> google.protobuf.Timestamp
-	61, // 63: continuum.v1.CollectorDiag.last_data:type_name -> google.protobuf.Timestamp
-	3,  // 64: continuum.v1.Problem.severity:type_name -> continuum.v1.Problem.Severity
-	61, // 65: continuum.v1.Problem.since:type_name -> google.protobuf.Timestamp
-	5,  // 66: continuum.v1.Enrollment.Enroll:input_type -> continuum.v1.EnrollRequest
-	7,  // 67: continuum.v1.Enrollment.PollEnrollment:input_type -> continuum.v1.PollRequest
-	4,  // 68: continuum.v1.Enrollment.Rejoin:input_type -> continuum.v1.RejoinRequest
-	11, // 69: continuum.v1.AgentService.Connect:input_type -> continuum.v1.AgentMessage
-	9,  // 70: continuum.v1.AgentService.Renew:input_type -> continuum.v1.RenewRequest
-	6,  // 71: continuum.v1.Enrollment.Enroll:output_type -> continuum.v1.EnrollResponse
-	8,  // 72: continuum.v1.Enrollment.PollEnrollment:output_type -> continuum.v1.PollResponse
-	10, // 73: continuum.v1.Enrollment.Rejoin:output_type -> continuum.v1.RenewResponse
-	33, // 74: continuum.v1.AgentService.Connect:output_type -> continuum.v1.ServerMessage
-	10, // 75: continuum.v1.AgentService.Renew:output_type -> continuum.v1.RenewResponse
-	71, // [71:76] is the sub-list for method output_type
-	66, // [66:71] is the sub-list for method input_type
-	66, // [66:66] is the sub-list for extension type_name
-	66, // [66:66] is the sub-list for extension extendee
-	0,  // [0:66] is the sub-list for field type_name
+	43, // 54: continuum.v1.FlowBatch.pod_flows:type_name -> continuum.v1.Flow
+	43, // 55: continuum.v1.FlowEdge.key:type_name -> continuum.v1.Flow
+	61, // 56: continuum.v1.FlowEdge.first_seen:type_name -> google.protobuf.Timestamp
+	61, // 57: continuum.v1.FlowEdge.last_seen:type_name -> google.protobuf.Timestamp
+	46, // 58: continuum.v1.FlowTable.edges:type_name -> continuum.v1.FlowEdge
+	17, // 59: continuum.v1.Diagnostics.scope:type_name -> continuum.v1.ScopeFacts
+	49, // 60: continuum.v1.Diagnostics.collectors:type_name -> continuum.v1.CollectorDiag
+	50, // 61: continuum.v1.Diagnostics.informers:type_name -> continuum.v1.InformerDiag
+	51, // 62: continuum.v1.Diagnostics.problems:type_name -> continuum.v1.Problem
+	61, // 63: continuum.v1.Diagnostics.generated_at:type_name -> google.protobuf.Timestamp
+	61, // 64: continuum.v1.CollectorDiag.last_data:type_name -> google.protobuf.Timestamp
+	3,  // 65: continuum.v1.Problem.severity:type_name -> continuum.v1.Problem.Severity
+	61, // 66: continuum.v1.Problem.since:type_name -> google.protobuf.Timestamp
+	5,  // 67: continuum.v1.Enrollment.Enroll:input_type -> continuum.v1.EnrollRequest
+	7,  // 68: continuum.v1.Enrollment.PollEnrollment:input_type -> continuum.v1.PollRequest
+	4,  // 69: continuum.v1.Enrollment.Rejoin:input_type -> continuum.v1.RejoinRequest
+	11, // 70: continuum.v1.AgentService.Connect:input_type -> continuum.v1.AgentMessage
+	9,  // 71: continuum.v1.AgentService.Renew:input_type -> continuum.v1.RenewRequest
+	6,  // 72: continuum.v1.Enrollment.Enroll:output_type -> continuum.v1.EnrollResponse
+	8,  // 73: continuum.v1.Enrollment.PollEnrollment:output_type -> continuum.v1.PollResponse
+	10, // 74: continuum.v1.Enrollment.Rejoin:output_type -> continuum.v1.RenewResponse
+	33, // 75: continuum.v1.AgentService.Connect:output_type -> continuum.v1.ServerMessage
+	10, // 76: continuum.v1.AgentService.Renew:output_type -> continuum.v1.RenewResponse
+	72, // [72:77] is the sub-list for method output_type
+	67, // [67:72] is the sub-list for method input_type
+	67, // [67:67] is the sub-list for extension type_name
+	67, // [67:67] is the sub-list for extension extendee
+	0,  // [0:67] is the sub-list for field type_name
 }
 
 func init() { file_continuum_v1_agent_proto_init() }

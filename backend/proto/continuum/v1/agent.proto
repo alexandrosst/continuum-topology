@@ -771,6 +771,17 @@ message Flow {
   // DNS response latency observed in this report - see RawFlow.dns_rtt_us. A gauge, same treatment as
   // rtt_us/jitter_us: the latest sample, carried through attribution unchanged.
   uint32 dns_rtt_us = 23;
+  // The actual pod name behind Src, when Src is a WORKLOAD endpoint resolved from this agent's own
+  // live collector.Index (not its post-eviction "recent" memory of a pod that has since churned) - see
+  // attribution.go's Index.PodNames. Empty for a Service-resolved or node-resolved Src, for an EXTERNAL
+  // Src, or whenever the owning pod is no longer live enough for the agent to be sure of its name.
+  // Descriptive only, like iface/sni_host: never part of an edge's identity (flow.key in aggregate.go
+  // deliberately excludes it, so distinct pods of the same workload keep collapsing into one dependency
+  // edge) - this field only ever rides along on FlowBatch.pod_flows, a separate, unaccumulated, "right
+  // now" breakdown by pod, never on the workload-level flows this message's identity is bounded by.
+  string src_pod = 24;
+  // The actual pod name behind Dst, under the same rule as src_pod above.
+  string dst_pod = 25;
 }
 
 // What the agent sends up: everything seen in one window, already attributed inside the cluster.
@@ -789,6 +800,14 @@ message FlowBatch {
   // Every collector that reported in the last few windows, whether or not it saw any traffic. A batch
   // with no flows is still sent while collectors are present, so silence means "no collector", not "quiet".
   repeated CollectorInfo collectors = 5;
+  // This window's traffic broken down by the specific pod on at least one side (src_pod and/or dst_pod
+  // set) - see aggregate.go's separate, smaller podFlows table. Unlike flows above, the server never
+  // accumulates this across batches: each batch's pod_flows wholesale-replaces what the server holds for
+  // this agent, so it is always "what this pod is doing right now", not a running total. This is what the
+  // topology view's per-pod breakdown (shown only when a specific pod is expanded) is drawn from, kept
+  // separate from flows so that per-pod cardinality never touches the bounded, historically-accumulated
+  // workload-level dependency graph.
+  repeated Flow pod_flows = 6;
 }
 
 // What the server keeps per agent: totals per distinct edge.
