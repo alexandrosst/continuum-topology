@@ -91,7 +91,10 @@ func newLog() (*slog.Logger, *safeBuf) {
 	return slog.New(slog.NewTextHandler(b, nil)), b
 }
 
-var codeRe = regexp.MustCompile(`(?i)approval code:\s+([0-9A-Z]{4}-[0-9A-Z]{4})`)
+// codeRe matches logCode's own "code" field (enroll.go), not the free-text message - the message
+// no longer repeats the code inline (that duplication is exactly what a7fabde fixed), so this must
+// match the structured field or every codesLogged call below finds nothing.
+var codeRe = regexp.MustCompile(`code=([0-9A-Z]{4}-[0-9A-Z]{4})`)
 
 // codesLogged lists, in order, the approval codes an agent has printed in its log.
 func codesLogged(log *safeBuf) []string {
