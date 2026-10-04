@@ -422,6 +422,94 @@ func TestStateForCachesTopologyButNeverAgentDocsOrAudit(t *testing.T) {
 	}
 }
 
+// TestStateForTopologyCacheHitMissAndTTL pins down stateFor's own topology cache (tw.stateCache,
+// guarded by tw.mu, never h.mu) more precisely than TestStateForCachesTopologyButNeverAgentDocsOrAudit
+// above: it observes a hit/miss directly, by pointer identity of the *effectiveBuild buildTopology
+// produces (the same object twin.Model's "after" callback also reads) rather than by the shape of the
+// resulting document, and it exercises every invalidation path - a real gen bump, and the clock alone
+// carrying the entry past modelCacheTTL - separately. It also confirms, with a call counter rather than
+// just a non-empty slice, that the audit-log fetch happens on every single call, hit or miss alike.
+func TestStateForTopologyCacheHitMissAndTTL(t *testing.T) {
+	r := newHubRig(t)
+	h := r.hub
+	a := twinAgent(t, r.env, h, fp)
+	nodes := []*continuumv1.NodeFacts{twinNode("n1", "")}
+	h.applySync(a, twinFull(fp, nodes, twinWorkload("shop", "cart")), false)
+
+	var auditFetches int
+	// stateFor's own after callback does not see the fetched audit rows directly, so the count is taken
+	// the same way the existing cache test does: an audited() call between two stateFor calls must show
+	// up in StateFor(ctx, true)'s AuditLog every time, cache hit or not.
+	auditedOnce := func() {
+		auditFetches++
+		if err := r.core.audited(r.ctx, "tester", "note", "agent", a.ID, "looked at "+itoa(int64(auditFetches)), func() error { return nil }); err != nil {
+			t.Fatalf("audited: %v", err)
+		}
+	}
+	captureEB := func() *effectiveBuild {
+		var got *effectiveBuild
+		if _, err := h.stateFor(r.ctx, false, func(_ *StateDoc, eb *effectiveBuild) { got = eb }); err != nil {
+			t.Fatalf("stateFor: %v", err)
+		}
+		return got
+	}
+
+	// First call: nothing cached yet, so this is necessarily a build. Capture its effectiveBuild.
+	eb1 := captureEB()
+	if eb1 == nil {
+		t.Fatal("expected an effectiveBuild from the first call")
+	}
+
+	// Second call, immediately after, same gen, well within modelCacheTTL: a hit - the exact same
+	// effectiveBuild instance, proving buildTopology (and the interpret/observe/correlate pass inside it)
+	// did not run again.
+	eb2 := captureEB()
+	if eb2 != eb1 {
+		t.Fatalf("expected a cache hit (identical effectiveBuild pointer) on an unchanged second call")
+	}
+
+	// A real input change (another sync, which bumps tw.gen) forces a miss on the very next call, even
+	// though it happens well inside the TTL window.
+	h.applySync(a, twinFull(fp, nodes, twinWorkload("shop", "cart"), twinWorkload("shop", "pay")), true)
+	eb3 := captureEB()
+	if eb3 == eb2 {
+		t.Fatal("a gen-bumping change must force a rebuild, not reuse the cached effectiveBuild")
+	}
+
+	// Immediately after that miss, with nothing changed again: back to a hit.
+	eb4 := captureEB()
+	if eb4 != eb3 {
+		t.Fatal("expected a cache hit immediately after a rebuild, with nothing changed since")
+	}
+
+	// The clock alone, with no further gen bump, carrying the entry past modelCacheTTL forces a miss too.
+	*r.now = r.now.Add(modelCacheTTL + time.Second)
+	eb5 := captureEB()
+	if eb5 == eb4 {
+		t.Fatal("an entry older than modelCacheTTL must force a rebuild, even with nothing else changed")
+	}
+
+	// And a hit resumes right after that rebuild.
+	eb6 := captureEB()
+	if eb6 != eb5 {
+		t.Fatal("expected a cache hit immediately after the TTL-driven rebuild")
+	}
+
+	// The audit-log fetch must never be skipped or served from this cache, on a hit or a miss: add one
+	// audit row before each of several calls (two of which land on what was just shown above to be a
+	// topology cache hit) and confirm every single one shows up.
+	for i := 0; i < 3; i++ {
+		auditedOnce()
+		doc, err := h.StateFor(r.ctx, true)
+		if err != nil {
+			t.Fatalf("StateFor: %v", err)
+		}
+		if len(doc.AuditLog) < auditFetches {
+			t.Fatalf("call %d: audit log has %d rows, want at least %d - the audit fetch was skipped or cached", i, len(doc.AuditLog), auditFetches)
+		}
+	}
+}
+
 func TestModelAPIContractETagAndTenancy(t *testing.T) {
 	a := newAdminRig(t)
 	owner, ownerCookie := a.user(t, "boss", RoleOwner)
