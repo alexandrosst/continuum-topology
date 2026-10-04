@@ -1,8 +1,8 @@
-import { Cable, Cpu, GitBranch, MemoryStick, Server, Waves, Zap, type LucideIcon } from 'lucide-react'
+import { ArrowDownUp, Cable, Cpu, Database, GitBranch, MemoryStick, Recycle, Server, Users, Waves, Zap, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { ICON_SM, InfoTip, Pill, PulseDot } from '@/components/ui/primitives'
 import { ageOf } from '@/lib/history'
-import { bytesTotal } from '@/lib/observed'
+import { bytesPerSec, bytesTotal } from '@/lib/observed'
 import {
   entityLabel,
   fieldEverReported,
@@ -109,6 +109,7 @@ function UnavailableMetricTile({ label, icon: Icon, reason, badge }: { label: st
 const pct1 = (v: number) => `${v.toFixed(1)}%`
 const pct2 = (v: number) => `${v.toFixed(2)}%`
 const watts = (v: number) => `${v.toFixed(1)} W`
+const msPerSec = (v: number) => `${v.toFixed(1)} ms/s`
 
 /**
  * One entity's (the server itself, or one connected agent/cluster) self-telemetry: a header naming it and
@@ -118,7 +119,9 @@ const watts = (v: number) => `${v.toFixed(1)} W`
  * last two tiles at all, not even an "unavailable" one - they describe a *cluster's* network/power
  * footprint and a bare server process has no cluster of its own to report one for, so showing a
  * permanently-impossible tile for it would be noise dressed up as a hardware limitation (admin_telemetry.go
- * never sets either field for a "server" entity, by design).
+ * never sets either field for a "server" entity, by design). The server entity gets four tiles of its own
+ * instead - connected agents, flow-ingest rate, model-cache hit rate and GC pause time - each describing
+ * the server process itself rather than a cluster, so there is nothing for an agent entity to show here.
  */
 export default function EntityHealthCard({ entity }: { entity: SelfTelemetryEntity }) {
   const flowInterval = latestDefined(entity, 'flowIntervalSeconds')
@@ -180,6 +183,43 @@ export default function EntityHealthCard({ entity }: { entity: SelfTelemetryEnti
               badge={flowInterval !== undefined && <Pill title="How often this cluster's flow collector reports">Flow report every {flowInterval}s</Pill>}
             />
           ))}
+
+        {entity.kind === 'server' && (
+          <MetricTile
+            label="Connected agents"
+            icon={Users}
+            points={toPoints(entity, 'connectedAgents')}
+            valueFormat={(v) => Math.round(v).toLocaleString()}
+            help="How many agents currently hold a live connection to this server."
+          />
+        )}
+        {entity.kind === 'server' && (
+          <MetricTile
+            label="Flow ingest rate"
+            icon={ArrowDownUp}
+            points={toPoints(entity, 'flowIngestBytesPerSec')}
+            valueFormat={bytesPerSec}
+            help="Flow traffic, as encoded on the wire, received across every connected agent, per second."
+          />
+        )}
+        {entity.kind === 'server' && (
+          <MetricTile
+            label="Model cache hit rate"
+            icon={Database}
+            points={toPoints(entity, 'modelCacheHitPct')}
+            valueFormat={pct1}
+            help="This interval's own share of effective-model requests served from cache rather than rebuilt. Omitted on an entity's very first sample, or any interval with no cache lookups at all."
+          />
+        )}
+        {entity.kind === 'server' && (
+          <MetricTile
+            label="GC pause time"
+            icon={Recycle}
+            points={toPoints(entity, 'gcPauseMsPerSec')}
+            valueFormat={msPerSec}
+            help="Milliseconds the Go garbage collector spent in a stop-the-world pause, per second of wall-clock time, since the previous sample."
+          />
+        )}
 
         {entity.kind === 'agent' &&
           (hasWatts ? (

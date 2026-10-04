@@ -128,6 +128,14 @@ type ServerSelfStatsSample struct {
 	// counter in this file; a caller wanting a rate diffs two samples the same way FlowIngestBytesPerSec
 	// is derived from linkStats' own cumulative counters.
 	ModelCacheHits, ModelCacheMisses uint64
+	// GCPauseTotalNs/NumGC are runtime.MemStats' own cumulative GC figures (mem.PauseTotalNs/mem.NumGC),
+	// read in the same ReadMemStats call this file already makes for RSSBytes. Cumulative since the
+	// process started, the same "caller diffs two samples" treatment as CPUSeconds - see
+	// serverTelemetrySamples' own derivation of gcPauseMsPerSec. NumGC is kept alongside it for a future
+	// caller that wants average pause-per-collection, even though this pass derives no field from it on
+	// its own (see SelfTelemetrySample's own doc comment for why no tile is added for it yet).
+	GCPauseTotalNs uint64
+	NumGC          uint32
 }
 
 // processCPUSeconds is this process's own cumulative CPU time (user + system) in seconds, from the
@@ -211,6 +219,7 @@ func (h *Hub) sampleSelfStats(now time.Time) {
 		At: now, RSSBytes: mem.Sys, Goroutines: uint32(runtime.NumGoroutine()), CPUSeconds: processCPUSeconds(),
 		ConnectedAgents: connected, FlowIngestBytesPerSec: rate,
 		ModelCacheHits: h.tw.cacheHits.Load(), ModelCacheMisses: h.tw.cacheMisses.Load(),
+		GCPauseTotalNs: mem.PauseTotalNs, NumGC: mem.NumGC,
 	}
 	h.mu.Lock()
 	h.serverSelf.add(s, now)

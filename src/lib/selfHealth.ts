@@ -29,6 +29,20 @@ export interface SelfTelemetrySample {
   flowIntervalSeconds?: number
   /** Agent entities only. */
   probeIntervalSeconds?: number
+  /** Server entity only. Always present on every server sample (0 is a real reading - e.g. no agent
+   *  currently connected), never omitted for "nothing to derive a rate from" the way cpuPct is. */
+  connectedAgents?: number
+  /** Server entity only. Always present on every server sample - already a rate when sampled on the
+   *  backend, so unlike cpuPct/modelCacheHitPct/gcPauseMsPerSec it needs no previous sample to derive
+   *  (0 on the very first sample after a restart, a real reading, not an omission). */
+  flowIngestBytesPerSec?: number
+  /** Server entity only. This interval's own cache hit rate (hits over hits+misses since the previous
+   *  sample, not the all-time ratio) - omitted on an entity's very first sample, or on any interval
+   *  where no cache lookup happened at all. */
+  modelCacheHitPct?: number
+  /** Server entity only. Milliseconds of Go garbage-collector pause time per second of wall-clock time
+   *  since the previous sample - omitted on an entity's very first sample. */
+  gcPauseMsPerSec?: number
 }
 
 /** One agent (one organisation's cluster) or the server itself, with its own self-telemetry history. */
@@ -42,7 +56,15 @@ export interface SelfTelemetryEntity {
 
 /** A field that is sometimes absent on a sample, rather than always present (rssBytes/goroutines are
  *  always present and so never need this). */
-export type OptionalSampleKey = 'cpuPct' | 'bandwidthSharePct' | 'watts' | 'continuumWattsEstimate'
+export type OptionalSampleKey =
+  | 'cpuPct'
+  | 'bandwidthSharePct'
+  | 'watts'
+  | 'continuumWattsEstimate'
+  | 'connectedAgents'
+  | 'flowIngestBytesPerSec'
+  | 'modelCacheHitPct'
+  | 'gcPauseMsPerSec'
 
 /** The name an entity's card should show. */
 export function entityLabel(entity: SelfTelemetryEntity): string {

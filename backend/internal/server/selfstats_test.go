@@ -1,6 +1,7 @@
 package server
 
 import (
+	"runtime"
 	"testing"
 	"time"
 
@@ -153,6 +154,33 @@ func TestSampleSelfStatsCountsConnectedAgentsAndDerivesTheFlowRate(t *testing.T)
 	samples = h.serverSelf.list()
 	if got := samples[2].FlowIngestBytesPerSec; got != 0 {
 		t.Fatalf("rate after the total went down = %v, want 0, not a negative-turned-positive fabrication", got)
+	}
+}
+
+// TestSampleSelfStatsCapturesGCStats covers the plumbing from runtime.MemStats' own cumulative
+// PauseTotalNs/NumGC (read by the same ReadMemStats call this function already makes for RSSBytes)
+// through to ServerSelfStatsSample.GCPauseTotalNs/NumGC. Bounded rather than exact, since a real GC can
+// run at any point around the call: both figures are monotonic counters, so a sample taken between two
+// ReadMemStats calls made just before and just after it must fall within that bracket.
+func TestSampleSelfStatsCapturesGCStats(t *testing.T) {
+	h := NewHub(&Core{Now: time.Now})
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	h.sampleSelfStats(time.Unix(1, 0))
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+
+	samples := h.serverSelf.list()
+	if len(samples) != 1 {
+		t.Fatalf("%d samples, want 1", len(samples))
+	}
+	s := samples[0]
+	if s.GCPauseTotalNs < before.PauseTotalNs || s.GCPauseTotalNs > after.PauseTotalNs {
+		t.Fatalf("gcPauseTotalNs = %d, want between %d and %d (a monotonic counter, bracketed by reads just before/after)",
+			s.GCPauseTotalNs, before.PauseTotalNs, after.PauseTotalNs)
+	}
+	if s.NumGC < before.NumGC || s.NumGC > after.NumGC {
+		t.Fatalf("numGC = %d, want between %d and %d", s.NumGC, before.NumGC, after.NumGC)
 	}
 }
 

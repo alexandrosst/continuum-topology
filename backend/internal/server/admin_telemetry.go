@@ -29,6 +29,31 @@ type SelfTelemetrySample struct {
 	// SelfStats - 0 (and so omitted) for the "server" entity, which has no such intervals of its own.
 	FlowIntervalSeconds  uint32 `json:"flowIntervalSeconds,omitempty"`
 	ProbeIntervalSeconds uint32 `json:"probeIntervalSeconds,omitempty"`
+	// ConnectedAgents/FlowIngestBytesPerSec/ModelCacheHitPct/GCPauseMsPerSec are "server" entity only
+	// (always omitted for an agent entity, which has none of these of its own) - see
+	// serverTelemetrySamples' own doc comment for exactly what each is. Pointers, not plain values, for
+	// the same reason FlowIntervalSeconds/ProbeIntervalSeconds are agent-only above: a plain 0 could
+	// never be told apart from "not applicable to this entity", and ConnectedAgents in particular has a
+	// real, meaningful 0 (no agent currently connected) that must stay visible rather than disappear
+	// behind omitempty.
+	ConnectedAgents *int `json:"connectedAgents,omitempty"`
+	// FlowIngestBytesPerSec is a live snapshot already expressed as a rate (sampleSelfStats derives it
+	// itself from its own internal cumulative counters - see ServerSelfStatsSample's own doc comment), so
+	// unlike CPUPct/ModelCacheHitPct/GCPauseMsPerSec it needs no further diffing here and is present on
+	// every sample, including the first (0 there, same "never a fabricated large rate" contract
+	// FlowIngestBytesPerSec's own doc comment already documents).
+	FlowIngestBytesPerSec *float64 `json:"flowIngestBytesPerSec,omitempty"`
+	// ModelCacheHitPct is this interval's own cache hit rate - diffed hits over diffed (hits+misses)
+	// between consecutive samples, not the all-time cumulative ratio, so a recent change in workload
+	// shows up promptly instead of being diluted by the server's whole uptime. Omitted on an entity's
+	// first sample (nothing to diff yet) and whenever no cache lookup happened at all in the interval
+	// (0/0 is "no data", never a fabricated 0% or 100%).
+	ModelCacheHitPct *float64 `json:"modelCacheHitPct,omitempty"`
+	// GCPauseMsPerSec is milliseconds of Go garbage-collector stop-the-world pause time per second of
+	// wall-clock time since the previous sample - runtime.MemStats.PauseTotalNs diffed the same way
+	// CPUSeconds already is (rateBetween), then converted from ns to ms. Omitted on an entity's first
+	// sample, same as CPUPct.
+	GCPauseMsPerSec *float64 `json:"gcPauseMsPerSec,omitempty"`
 }
 
 // SelfTelemetryEntity is one agent (one organisation's cluster) or the server itself, with its own
@@ -134,15 +159,37 @@ func agentTelemetrySamples(history []SelfStatsSample, clusterThroughputBps uint6
 }
 
 // serverTelemetrySamples is agentTelemetrySamples' counterpart for the "server" entity: the server has
-// no cluster, so bandwidthSharePct/watts/the two interval fields never apply and are left unset.
+// no cluster, so bandwidthSharePct/watts/the two interval fields never apply and are left unset. It does
+// carry four fields of its own that have no agent-entity counterpart - connectedAgents (a plain
+// snapshot, always present), flowIngestBytesPerSec (already a rate when sampled, also always present),
+// and modelCacheHitPct/gcPauseMsPerSec (both derived here from consecutive cumulative readings via
+// rateBetween, the same way cpuPct already is - so omitted on the first sample).
 func serverTelemetrySamples(history []ServerSelfStatsSample) []SelfTelemetrySample {
 	out := make([]SelfTelemetrySample, 0, len(history))
 	for i, s := range history {
-		d := SelfTelemetrySample{T: s.At.UTC().Format(time.RFC3339), RSSBytes: s.RSSBytes, Goroutines: s.Goroutines}
+		connected, flowRate := s.ConnectedAgents, s.FlowIngestBytesPerSec
+		d := SelfTelemetrySample{
+			T: s.At.UTC().Format(time.RFC3339), RSSBytes: s.RSSBytes, Goroutines: s.Goroutines,
+			ConnectedAgents: &connected, FlowIngestBytesPerSec: &flowRate,
+		}
 		if i > 0 {
-			if cpuRate, ok := rateBetween(history[i-1].CPUSeconds, s.CPUSeconds, s.At.Sub(history[i-1].At)); ok {
+			prev := history[i-1]
+			elapsed := s.At.Sub(prev.At)
+			if cpuRate, ok := rateBetween(prev.CPUSeconds, s.CPUSeconds, elapsed); ok {
 				pct := cpuRate * 100
 				d.CPUPct = &pct
+			}
+			hitsRate, hitsOK := rateBetween(float64(prev.ModelCacheHits), float64(s.ModelCacheHits), elapsed)
+			missRate, missOK := rateBetween(float64(prev.ModelCacheMisses), float64(s.ModelCacheMisses), elapsed)
+			if hitsOK && missOK {
+				if total := hitsRate + missRate; total > 0 {
+					pct := hitsRate / total * 100
+					d.ModelCacheHitPct = &pct
+				}
+			}
+			if pauseRate, ok := rateBetween(float64(prev.GCPauseTotalNs), float64(s.GCPauseTotalNs), elapsed); ok {
+				msPerSec := pauseRate / 1e6
+				d.GCPauseMsPerSec = &msPerSec
 			}
 		}
 		out = append(out, d)
@@ -176,7 +223,14 @@ func serverTelemetrySamples(history []ServerSelfStatsSample) []SelfTelemetrySamp
 //	       sample, not a historical reading of its own>,
 //	    "continuumWattsEstimate": always omitted in this pass - see "Deferred" below,
 //	    "flowIntervalSeconds": <uint32, agent entities only>,
-//	    "probeIntervalSeconds": <uint32, agent entities only>
+//	    "probeIntervalSeconds": <uint32, agent entities only>,
+//	    "connectedAgents": <int, server entity only, always present - len(sessions) at sample time>,
+//	    "flowIngestBytesPerSec": <float64, server entity only, always present (0 when there is nothing
+//	       yet to derive a rate from) - total AgentMessage_Flows bytes/sec across every agent>,
+//	    "modelCacheHitPct": <float64, server entity only, omitted on the first sample or when no cache
+//	       lookup happened in the interval - this interval's own twinRT effective-model cache hit rate>,
+//	    "gcPauseMsPerSec": <float64, server entity only, omitted on the first sample - Go garbage
+//	       collector stop-the-world pause time, in milliseconds per second of wall-clock time>
 //	  }, ...]
 //	}
 //

@@ -49,8 +49,17 @@ const serverEntity: SelfTelemetryEntity = {
   id: 'server',
   kind: 'server',
   samples: [
-    { t: iso(60), rssBytes: 150 << 20, goroutines: 80 },
-    { t: iso(10), rssBytes: 152 << 20, goroutines: 81, cpuPct: 7.1 },
+    { t: iso(60), rssBytes: 150 << 20, goroutines: 80, connectedAgents: 3, flowIngestBytesPerSec: 0 },
+    {
+      t: iso(10),
+      rssBytes: 152 << 20,
+      goroutines: 81,
+      cpuPct: 7.1,
+      connectedAgents: 4,
+      flowIngestBytesPerSec: 2048,
+      modelCacheHitPct: 92.5,
+      gcPauseMsPerSec: 0.8,
+    },
   ],
 }
 
@@ -95,6 +104,19 @@ describe('SystemHealthPage - full data', () => {
     const serverCard = screen.getByText('Continuum server').closest('section') as HTMLElement
     expect(within(serverCard).queryByText('Bandwidth share')).toBeNull()
     expect(within(serverCard).queryByText('Host watts')).toBeNull()
+
+    // The server entity gets its own four tiles instead, describing the process itself.
+    expect(within(serverCard).getByText('Connected agents')).toBeInTheDocument()
+    expect(within(serverCard).getByText('Flow ingest rate')).toBeInTheDocument()
+    expect(within(serverCard).getByText('Model cache hit rate')).toBeInTheDocument()
+    expect(within(serverCard).getByText('GC pause time')).toBeInTheDocument()
+
+    // An agent entity never gets the server's own four tiles - they describe the process, not a cluster.
+    const agentCard = screen.getByText('edge-cluster').closest('section') as HTMLElement
+    expect(within(agentCard).queryByText('Connected agents')).toBeNull()
+    expect(within(agentCard).queryByText('Flow ingest rate')).toBeNull()
+    expect(within(agentCard).queryByText('Model cache hit rate')).toBeNull()
+    expect(within(agentCard).queryByText('GC pause time')).toBeNull()
   })
 
   test('a metric this entity has never reported shows a calm "not available" state, not an empty chart', async () => {

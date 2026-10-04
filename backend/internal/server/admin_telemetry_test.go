@@ -98,6 +98,11 @@ func TestAgentTelemetrySamplesOmitsRatesOnTheFirstSampleAndDerivesThemOnLater(t 
 	if out[0].FlowIntervalSeconds != 30 || out[0].ProbeIntervalSeconds != 180 {
 		t.Fatalf("interval fields must be copied straight through: %+v", out[0])
 	}
+	// The four server-only fields (added alongside flow/bandwidth telemetry) must never be set on an
+	// agent entity's samples - they have no agent-entity meaning.
+	if out[0].ConnectedAgents != nil || out[0].FlowIngestBytesPerSec != nil || out[0].ModelCacheHitPct != nil || out[0].GCPauseMsPerSec != nil {
+		t.Fatalf("server-only fields must stay unset on an agent entity's samples: %+v", out[0])
+	}
 	// 2 CPU-seconds over 10s = 20% CPU. 5000 more link bytes over 10s = 500 B/s, / 10000 Bps = 5%.
 	if out[1].CPUPct == nil || *out[1].CPUPct != 20 {
 		t.Fatalf("cpuPct = %v, want 20", out[1].CPUPct)
@@ -146,6 +151,64 @@ func TestServerTelemetrySamplesNeverSetsAgentOnlyFields(t *testing.T) {
 		if s.BandwidthSharePct != nil || s.Watts != nil || s.FlowIntervalSeconds != 0 || s.ProbeIntervalSeconds != 0 {
 			t.Fatalf("sample %d: agent-only fields must stay unset for the server entity: %+v", i, s)
 		}
+	}
+}
+
+// TestServerTelemetrySamplesDerivesConnectedAgentsFlowRateCacheHitPctAndGCPause covers
+// serverTelemetrySamples' own four server-only fields: connectedAgents/flowIngestBytesPerSec are plain
+// snapshots present even on the first sample, while modelCacheHitPct/gcPauseMsPerSec are diffed between
+// consecutive samples the same way cpuPct already is, and so omitted on the first.
+func TestServerTelemetrySamplesDerivesConnectedAgentsFlowRateCacheHitPctAndGCPause(t *testing.T) {
+	base := time.Unix(3000, 0)
+	history := []ServerSelfStatsSample{
+		{At: base, RSSBytes: 50 << 20, Goroutines: 20, CPUSeconds: 2, ConnectedAgents: 3, FlowIngestBytesPerSec: 0,
+			ModelCacheHits: 10, ModelCacheMisses: 5, GCPauseTotalNs: 1_000_000},
+		{At: base.Add(5 * time.Second), RSSBytes: 60 << 20, Goroutines: 21, CPUSeconds: 3, ConnectedAgents: 4,
+			FlowIngestBytesPerSec: 500, ModelCacheHits: 18, ModelCacheMisses: 7, GCPauseTotalNs: 6_000_000},
+	}
+	out := serverTelemetrySamples(history)
+	if len(out) != 2 {
+		t.Fatalf("%d samples, want 2", len(out))
+	}
+
+	if out[0].ConnectedAgents == nil || *out[0].ConnectedAgents != 3 {
+		t.Fatalf("first sample connectedAgents = %v, want 3", out[0].ConnectedAgents)
+	}
+	if out[0].FlowIngestBytesPerSec == nil || *out[0].FlowIngestBytesPerSec != 0 {
+		t.Fatalf("first sample flowIngestBytesPerSec = %v, want 0", out[0].FlowIngestBytesPerSec)
+	}
+	if out[0].ModelCacheHitPct != nil || out[0].GCPauseMsPerSec != nil {
+		t.Fatalf("first sample must omit the diffed fields, nothing to diff against yet: %+v", out[0])
+	}
+
+	if out[1].ConnectedAgents == nil || *out[1].ConnectedAgents != 4 {
+		t.Fatalf("second sample connectedAgents = %v, want 4", out[1].ConnectedAgents)
+	}
+	if out[1].FlowIngestBytesPerSec == nil || *out[1].FlowIngestBytesPerSec != 500 {
+		t.Fatalf("second sample flowIngestBytesPerSec = %v, want 500", out[1].FlowIngestBytesPerSec)
+	}
+	// 8 more hits, 2 more misses over 5s -> hit rate = 8/(8+2) = 80%.
+	if out[1].ModelCacheHitPct == nil || *out[1].ModelCacheHitPct != 80 {
+		t.Fatalf("modelCacheHitPct = %v, want 80", out[1].ModelCacheHitPct)
+	}
+	// 5,000,000 more pause-ns over 5s = 1,000,000 ns/s = 1 ms/s.
+	if out[1].GCPauseMsPerSec == nil || *out[1].GCPauseMsPerSec != 1 {
+		t.Fatalf("gcPauseMsPerSec = %v, want 1", out[1].GCPauseMsPerSec)
+	}
+}
+
+// TestServerTelemetrySamplesOmitsModelCacheHitPctWhenNoLookupHappened covers the explicit "0/0 is no
+// data, never a fabricated 0% or 100%" requirement: an interval with no cache hits or misses at all
+// must omit modelCacheHitPct rather than divide by zero.
+func TestServerTelemetrySamplesOmitsModelCacheHitPctWhenNoLookupHappened(t *testing.T) {
+	base := time.Unix(4000, 0)
+	history := []ServerSelfStatsSample{
+		{At: base, ModelCacheHits: 5, ModelCacheMisses: 5},
+		{At: base.Add(time.Second), ModelCacheHits: 5, ModelCacheMisses: 5},
+	}
+	out := serverTelemetrySamples(history)
+	if out[1].ModelCacheHitPct != nil {
+		t.Fatalf("no lookups in the interval must omit modelCacheHitPct, got %v", *out[1].ModelCacheHitPct)
 	}
 }
 
@@ -242,5 +305,16 @@ func TestSelfTelemetryEndpointShapeAndRBAC(t *testing.T) {
 	}
 	if _, has := serverEntity["clusterName"]; has {
 		t.Fatalf("the server entity has no cluster, clusterName must be omitted, got %v", serverEntity)
+	}
+	serverSamples := serverEntity["samples"].([]any)
+	if len(serverSamples) == 0 {
+		t.Fatal("the server entity must carry at least one sample")
+	}
+	lastServerSample := serverSamples[len(serverSamples)-1].(map[string]any)
+	if ca, ok := lastServerSample["connectedAgents"].(float64); !ok || ca < 0 {
+		t.Fatalf("connectedAgents must be present and sane on the server entity, got %v", lastServerSample["connectedAgents"])
+	}
+	if _, ok := lastServerSample["flowIngestBytesPerSec"].(float64); !ok {
+		t.Fatalf("flowIngestBytesPerSec must be present on the server entity, got %v", lastServerSample["flowIngestBytesPerSec"])
 	}
 }
