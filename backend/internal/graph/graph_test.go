@@ -1189,6 +1189,57 @@ func TestCloseMissingEntitiesRetiresGoneOnesAndLeavesOthersAlone(t *testing.T) {
 	}
 }
 
+// TestBatchMethodsCostAConstantNumberOfRoundTripsNotOnePerEntity is what RecordEntities and
+// LinkEntitiesBatch exist for: a call-site loop of RecordEntity/LinkEntities costs one read-then-write
+// pair of round trips per entity, and the whole point of batching is that the siblings cost the same
+// small constant number regardless of how many entities are in the batch. This package's tests run
+// against a real Neo4j (or skip outright) rather than a mock transport, so this counts actual calls to
+// Client.Run via RunCount - test-only instrumentation on the one Client every test already shares -
+// instead of inventing a fake client the rest of the suite does not use.
+func TestBatchMethodsCostAConstantNumberOfRoundTripsNotOnePerEntity(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+
+	const n = 25
+	recs := make([]EntityRecord, n)
+	for i := range recs {
+		id := fmt.Sprintf("app-%d", i)
+		recs[i] = EntityRecord{ID: id, Name: id, Doc: map[string]any{"name": id}}
+	}
+
+	before := db.C.RunCount()
+	if err := db.RecordEntities(ctx, org, t0, "application", recs); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.C.RunCount() - before; got != 2 {
+		t.Fatalf("RecordEntities of %d new entities should cost exactly 2 round trips (one read, one write), cost %d", n, got)
+	}
+
+	// No members for any of them: the read alone should settle it, with nothing left to open or close.
+	sets := make([]MemberSet, n)
+	for i := range sets {
+		sets[i] = MemberSet{ID: recs[i].ID}
+	}
+	before = db.C.RunCount()
+	if err := db.LinkEntitiesBatch(ctx, org, t0, "CONTAINS", "application", "service", sets); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.C.RunCount() - before; got != 1 {
+		t.Fatalf("LinkEntitiesBatch of %d entities with nothing to open or close should cost exactly 1 round trip (the read), cost %d", n, got)
+	}
+
+	// Repeating RecordEntities with identical state costs only the read: nothing changed, so there is
+	// nothing to write - the same short-circuit RecordEntity itself takes, just for the whole batch at once.
+	before = db.C.RunCount()
+	if err := db.RecordEntities(ctx, org, t0, "application", recs); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.C.RunCount() - before; got != 1 {
+		t.Fatalf("RecordEntities repeating unchanged state should cost exactly 1 round trip (the read, nothing to write), cost %d", got)
+	}
+}
+
 func TestEventsExplainTheVersionTheyProduced(t *testing.T) {
 	db, org := testDB(t)
 	ctx := context.Background()

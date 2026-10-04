@@ -44,6 +44,7 @@ type Client struct {
 	mu        sync.Mutex
 	downUntil time.Time
 	lastErr   string
+	runs      int64 // how many times Run has been called; test-only instrumentation (see RunCount)
 }
 
 func NewClient(cfg Config) (*Client, error) {
@@ -159,6 +160,16 @@ type Result struct {
 	Rows [][]any
 }
 
+// RunCount reports how many times Run has been called so far. Test-only instrumentation: this package's
+// tests run against a real Neo4j (or skip outright) rather than a mock transport, so this is how a test
+// confirms a batched call site costs a small constant number of round trips instead of one per item,
+// without inventing a fake client the rest of the suite does not use.
+func (c *Client) RunCount() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.runs
+}
+
 // Healthy reports whether the last call worked (or none has failed recently).
 func (c *Client) Healthy() bool {
 	c.mu.Lock()
@@ -209,6 +220,9 @@ type wireResp struct {
 
 // Run executes the statements as one transaction: all of them take effect or none do.
 func (c *Client) Run(ctx context.Context, stmts ...Stmt) ([]Result, error) {
+	c.mu.Lock()
+	c.runs++
+	c.mu.Unlock()
 	if len(stmts) == 0 {
 		return nil, nil
 	}
