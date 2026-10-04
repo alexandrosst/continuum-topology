@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strings"
 	"testing"
 
 	"continuum/internal/store"
@@ -181,5 +182,131 @@ func TestTelemetryIntentsAreScopedToTheirOrganisation(t *testing.T) {
 	}
 	if _, err := other.ListTelemetryIntentsForAgent(e.ctx, agentID); kindOf(err) != KindNotFound {
 		t.Fatalf("an agent from another organisation must be invisible, got %v", err)
+	}
+}
+
+// TestCreateTelemetryIntentRejectsASignalTheTargetOperatorDoesNotAccept confirms
+// Core.checkOperatorAcceptsSignals is actually wired in: an operator that narrowed
+// AcceptedModalities to metrics must reject a TelemetryIntent granting traces into it, naming the
+// offending signal in the error (see telemetry-intent.md's "Where a grant exports to" - previously this
+// was checked nowhere).
+func TestCreateTelemetryIntentRejectsASignalTheTargetOperatorDoesNotAccept(t *testing.T) {
+	e := newEnv(t)
+	opCluster := e.approvedCluster(t, fp)
+	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens-regional", []string{opCluster}, extDest("collector.example:4317"), []store.Modality{store.ModalityMetrics})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := e.approvedAgentID(t, fp2)
+	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
+	_, err = e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil,
+		[]store.SignalGrant{{ID: "traces", Source: "existing"}}, dest)
+	if kindOf(err) != KindInvalid {
+		t.Fatalf("expected KindInvalid granting traces into a metrics-only operator, got %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "traces") {
+		t.Fatalf("expected the error to name the offending signal, got %v", err)
+	}
+}
+
+// TestCreateTelemetryIntentAcceptsCompatibleSignalsForANarrowedOperator is the positive counterpart of
+// the above: metrics-shaped signals into a metrics-only operator must still succeed.
+func TestCreateTelemetryIntentAcceptsCompatibleSignalsForANarrowedOperator(t *testing.T) {
+	e := newEnv(t)
+	opCluster := e.approvedCluster(t, fp)
+	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens-regional", []string{opCluster}, extDest("collector.example:4317"), []store.Modality{store.ModalityMetrics})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := e.approvedAgentID(t, fp2)
+	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
+	_, err = e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil,
+		[]store.SignalGrant{{ID: "resourceUsage", Source: "builtin"}, {ID: "kubernetesState", Source: "builtin"}}, dest)
+	if err != nil {
+		t.Fatalf("expected metrics signals into a metrics-only operator to be accepted, got %v", err)
+	}
+}
+
+// TestCreateTelemetryIntentAllowsAnythingIntoAnOperatorWithNoModalityRestriction is a regression check:
+// an operator with an empty AcceptedModalities must keep accepting every signal, the behaviour that
+// existed before AcceptedModalities did.
+func TestCreateTelemetryIntentAllowsAnythingIntoAnOperatorWithNoModalityRestriction(t *testing.T) {
+	e := newEnv(t)
+	opCluster := e.approvedCluster(t, fp)
+	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens-regional", []string{opCluster}, extDest("collector.example:4317"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := e.approvedAgentID(t, fp2)
+	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
+	_, err = e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil,
+		[]store.SignalGrant{{ID: "traces", Source: "existing"}}, dest)
+	if err != nil {
+		t.Fatalf("expected an operator with no AcceptedModalities to accept anything, got %v", err)
+	}
+}
+
+// TestUpdateTelemetryIntentScopeRejectsAnIncompatibleSignalAgainstTheCurrentOperatorDestination confirms
+// the re-check UpdateTelemetryIntentScope must make against the intent's CURRENT (unchanged) destination
+// when only the signals are changing.
+func TestUpdateTelemetryIntentScopeRejectsAnIncompatibleSignalAgainstTheCurrentOperatorDestination(t *testing.T) {
+	e := newEnv(t)
+	opCluster := e.approvedCluster(t, fp)
+	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens-regional", []string{opCluster}, extDest("collector.example:4317"), []store.Modality{store.ModalityMetrics})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := e.approvedAgentID(t, fp2)
+	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
+	ti, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil,
+		[]store.SignalGrant{{ID: "resourceUsage", Source: "builtin"}}, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = e.core.UpdateTelemetryIntentScope(e.ctx, "alex", ti.ID, nil, nil,
+		[]store.SignalGrant{{ID: "resourceUsage", Source: "builtin"}, {ID: "traces", Source: "existing"}})
+	if kindOf(err) != KindInvalid {
+		t.Fatalf("expected KindInvalid adding a traces signal against a metrics-only operator destination, got %v", err)
+	}
+}
+
+// TestUpdateTelemetryIntentDestinationRejectsAnIncompatibleOperatorAgainstTheCurrentSignals confirms the
+// re-check UpdateTelemetryIntentDestination must make against the intent's CURRENT signals when only the
+// destination is changing: a metrics-only intent cannot be repointed at a traces-only operator.
+func TestUpdateTelemetryIntentDestinationRejectsAnIncompatibleOperatorAgainstTheCurrentSignals(t *testing.T) {
+	e := newEnv(t)
+	agentID := e.approvedAgentID(t, fp)
+	ti, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil,
+		[]store.SignalGrant{{ID: "resourceUsage", Source: "builtin"}}, extDest("collector.example:4317"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opCluster := e.approvedCluster(t, fp2)
+	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens-regional", []string{opCluster}, extDest("collector2.example:4317"), []store.Modality{store.ModalityTraces})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
+	if err := e.core.UpdateTelemetryIntentDestination(e.ctx, "alex", ti.ID, dest); kindOf(err) != KindInvalid {
+		t.Fatalf("expected KindInvalid repointing a metrics-only intent at a traces-only operator, got %v", err)
+	}
+}
+
+// TestCreateTelemetryIntentDoesNotBlockAnUnrecognisedSignalID confirms the fail-open behaviour for a
+// signal id signalModality does not recognise (a newer frontend's not-yet-known id): it must be let
+// through rather than treated as a mismatch, since this backend cannot vouch for its modality either way.
+func TestCreateTelemetryIntentDoesNotBlockAnUnrecognisedSignalID(t *testing.T) {
+	e := newEnv(t)
+	opCluster := e.approvedCluster(t, fp)
+	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens-regional", []string{opCluster}, extDest("collector.example:4317"), []store.Modality{store.ModalityMetrics})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := e.approvedAgentID(t, fp2)
+	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
+	_, err = e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil,
+		[]store.SignalGrant{{ID: "futureSignal", Source: "existing"}}, dest)
+	if err != nil {
+		t.Fatalf("expected an unrecognised signal id to be let through unchecked, got %v", err)
 	}
 }

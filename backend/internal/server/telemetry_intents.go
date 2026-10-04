@@ -18,6 +18,62 @@ const maxTelemetryIntentName = 80
 // maxDiagTelemetrySignals gives for the agent's own report of what it has installed.
 const maxTelemetrySignals = 32
 
+// signalModality mirrors the frontend's TELEMETRY_SIGNALS table (src/lib/install.ts) - the only place a
+// SignalGrant.ID is ever minted from today - so a grant's modality can be checked against the target
+// operator's own Operator.AcceptedModalities (see checkOperatorAcceptsSignals). It is deliberately a
+// lookup of known ids, not a validator: store.SignalGrant's own comment says ID is opaque to this
+// package, and an id this map does not recognise (a newer frontend's not-yet-known signal) must stay
+// unchecked rather than be treated as a mismatch - see checkOperatorAcceptsSignals.
+var signalModality = map[string]store.Modality{
+	"resourceUsage":      store.ModalityMetrics,
+	"energy":             store.ModalityMetrics,
+	"kubernetesState":    store.ModalityMetrics,
+	"nodeRuntime":        store.ModalityMetrics,
+	"networkLatency":     store.ModalityMetrics,
+	"applicationMetrics": store.ModalityMetrics,
+	"systemLogs":         store.ModalityLogs,
+	"kubernetesEvents":   store.ModalityLogs,
+	"applicationLogs":    store.ModalityLogs,
+	"traces":             store.ModalityTraces,
+	"accelerators":       store.ModalityMetrics,
+}
+
+// checkOperatorAcceptsSignals confirms, when dest is a DestinationOperator, that every signal whose
+// modality this package recognises (signalModality) is one the target operator's own
+// Operator.AcceptedModalities actually takes. It is a no-op for a DestinationExternal (nothing to check
+// against) and for a target operator with an empty AcceptedModalities (accepts everything, per that
+// field's own doc comment). This is deliberately separate from validateDestination: that method checks a
+// Destination's own shape and the target operator's existence/status, the same check Operator's own
+// CreateOperator/UpdateOperatorScope need for a Destination that is not modality-specific by itself -
+// only a TelemetryIntent's paired signals make the modality question meaningful, so only
+// TelemetryIntent's own Core methods call this, right after validateDestination succeeds.
+func (c *Core) checkOperatorAcceptsSignals(ctx context.Context, dest store.Destination, signals []store.SignalGrant) error {
+	if dest.Kind != store.DestinationOperator {
+		return nil
+	}
+	op, err := c.operatorInOrg(ctx, dest.TargetOperatorID)
+	if err != nil {
+		return err
+	}
+	if len(op.AcceptedModalities) == 0 {
+		return nil
+	}
+	accepted := make(map[store.Modality]bool, len(op.AcceptedModalities))
+	for _, m := range op.AcceptedModalities {
+		accepted[m] = true
+	}
+	for _, sg := range signals {
+		modality, known := signalModality[sg.ID]
+		if !known {
+			continue
+		}
+		if !accepted[modality] {
+			return errf(KindInvalid, "%q is a %s signal, but the target operator only accepts %v", sg.ID, modality, op.AcceptedModalities)
+		}
+	}
+	return nil
+}
+
 // telemetryIntentInOrg finds a telemetry intent of this organisation. One belonging to another
 // organisation is reported as not existing, the same convention operatorInOrg uses.
 func (c *Core) telemetryIntentInOrg(ctx context.Context, id string) (store.TelemetryIntent, error) {
@@ -116,6 +172,9 @@ func (c *Core) CreateTelemetryIntent(ctx context.Context, actor, agentID, name s
 	if err != nil {
 		return store.TelemetryIntent{}, err
 	}
+	if err := c.checkOperatorAcceptsSignals(ctx, dest, sig); err != nil {
+		return store.TelemetryIntent{}, err
+	}
 	existing, err := c.Store.ListTelemetryIntentsByAgent(ctx, agent.ID)
 	if err != nil {
 		return store.TelemetryIntent{}, err
@@ -167,6 +226,9 @@ func (c *Core) UpdateTelemetryIntentScope(ctx context.Context, actor, id string,
 	if err != nil {
 		return err
 	}
+	if err := c.checkOperatorAcceptsSignals(ctx, ti.Destination, sig); err != nil {
+		return err
+	}
 	detail := fmt.Sprintf("%q: scope changed", ti.Name)
 	return c.audited(ctx, actor, "telemetry-intent-scope-changed", "telemetry-intent", id, detail, func() error {
 		if err := c.Store.UpdateTelemetryIntentScope(ctx, id, ns, exc, sig); err != nil {
@@ -187,6 +249,9 @@ func (c *Core) UpdateTelemetryIntentDestination(ctx context.Context, actor, id s
 		return err
 	}
 	if err := c.validateDestination(ctx, dest); err != nil {
+		return err
+	}
+	if err := c.checkOperatorAcceptsSignals(ctx, dest, ti.Signals); err != nil {
 		return err
 	}
 	detail := fmt.Sprintf("%q: destination changed", ti.Name)
