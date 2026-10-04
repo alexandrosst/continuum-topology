@@ -449,7 +449,7 @@ export default function RegionalOperatorsPage() {
       {revoking && (
         <ConfirmModal
           title={`Revoke ${revoking.name}?`}
-          message="Its receiver token stops accepting telemetry at once. The record stays for the audit trail; delete it separately if you want it gone entirely."
+          message="This only marks it revoked here - there is no channel back to the deployed collector, so its receiver token keeps working until you rotate or delete the Kubernetes Secret holding it (or uninstall the release). The record stays for the audit trail; delete it separately if you want it gone entirely."
           confirmLabel="Revoke"
           onConfirm={() => void revoke(revoking)}
           onClose={() => setRevoking(null)}
