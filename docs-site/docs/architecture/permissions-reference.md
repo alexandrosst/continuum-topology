@@ -91,7 +91,15 @@ an RBAC-only, capability-dropped container:
   upstream image's own documented requirement is `privileged: true` and `hostPID: true`, with no
   capability-based alternative — the chart's own comment is explicit that this is a third-party
   requirement, not a Continuum design choice. It reads `/proc` and `/sys` read-only to attribute RAPL
-  energy readings to the processes/pods actually using it.
+  energy readings to the processes/pods actually using it. RAPL is not, however, a hard
+  requirement for Kepler to produce that attribution at all — its eBPF-sampled, model-based estimator is
+  the documented upstream fallback once `/sys/class/powercap/intel-rapl` isn't present, and this chart
+  passes the Kepler container no command, args, or env of any kind that would force RAPL-only behavior
+  (see [Energy telemetry](./telemetry-intent.md#energy-telemetry) for what was actually verified against
+  this chart's rendered config). That fallback is real for non-RAPL x86_64 hosts; it is not an arm64 path
+  — `telemetry.energy.metrics.nodeSelector`'s `kubernetes.io/arch: amd64` default keeps this DaemonSet off
+  arm64 nodes entirely, because the upstream image itself ships no arm64 build, a hard platform limit this
+  permission set can't narrow away.
 - **dcgm-exporter** (`telemetry.accelerators.metrics.enabled` + `source: bundle-dcgm`, GPU metrics):
   NVIDIA's own documented requirement is `runAsUser: 0` plus the single `SYS_ADMIN` capability (everything
   else dropped) — narrower than Kepler (no `hostPID`, no arbitrary device access), but still root inside
