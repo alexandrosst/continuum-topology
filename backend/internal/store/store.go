@@ -122,6 +122,17 @@ type Destination struct {
 	TargetOperatorID string
 }
 
+// Modality is a telemetry signal category: what an operator (regional or local) actually moves. Used
+// today only by Operator.AcceptedModalities, to narrow which kinds of telemetry a regional operator will
+// take from a source cluster's agent.
+type Modality string
+
+const (
+	ModalityMetrics Modality = "metrics"
+	ModalityLogs    Modality = "logs"
+	ModalityTraces  Modality = "traces"
+)
+
 // Operator is a regional operator: a standalone OTel Collector that aggregates telemetry already
 // exported by a set of approved agents' clusters (SourceClusterIDs) and re-exports it to Destination.
 // Unlike Agent it never connects back to the server - ReceiverAuthTokenHash is the only credential it
@@ -135,6 +146,11 @@ type Operator struct {
 	Status           OperatorStatus
 	SourceClusterIDs []string
 	Destination      Destination
+	// AcceptedModalities restricts which signal modalities this operator will accept from its source
+	// clusters' agents; empty/nil means it accepts everything - the only behaviour possible before this
+	// field existed, and so what every operator row written before it was added keeps reading back as
+	// (see telemetry_migrate.go).
+	AcceptedModalities []Modality
 	// ReceiverAuthTokenHash is the hash of the bearer token the operator's receiver expects; the token
 	// itself is minted and returned once, the same as an enrollment token.
 	ReceiverAuthTokenHash []byte
@@ -142,6 +158,54 @@ type Operator struct {
 	CreatedAt             time.Time
 	RevokedAt             *time.Time
 	Reason                string
+}
+
+// TelemetryIntentStatus is the lifecycle of a TelemetryIntent. Like Operator there is no "pending" state:
+// creating one takes effect immediately, there being nothing external to wait on.
+type TelemetryIntentStatus string
+
+const (
+	TelemetryIntentActive  TelemetryIntentStatus = "active"
+	TelemetryIntentRevoked TelemetryIntentStatus = "revoked"
+)
+
+// SignalGrant is one telemetry signal a TelemetryIntent asks an agent's bundled local operator (the
+// OTel-collector telemetry extractors in the continuum-agent chart) to collect. ID matches the frontend's
+// TELEMETRY_SIGNALS vocabulary (resourceUsage, energy, kubernetesState, nodeRuntime, networkLatency,
+// applicationMetrics, systemLogs, kubernetesEvents, applicationLogs, traces, accelerators) but is opaque
+// to this package - nothing here validates it against that list. Source says where the grant came from:
+// "builtin" (a signal the chart turns on by default), "existing" (already running before this intent), or
+// "bundle-<tool>" (installed alongside a named quick-start tool).
+type SignalGrant struct {
+	ID     string
+	Source string
+}
+
+// TelemetryIntent is what a local operator (the telemetry extractors bundled in one agent's own
+// continuum-agent install) is granted to collect and where to export it: the same server-side
+// professionalism Operator already gives the standalone regional-operator chart, but scoped to a single
+// agent instead of a fleet of source clusters. Namespaces/Exclude narrow which of the agent's own
+// namespaces are in scope (on top of whatever the agent's tier/consent already leaves out); Signals is
+// which telemetry signals are granted. Core.CreateTelemetryIntent enforces at most one active intent per
+// agent - update the existing one instead of layering a second.
+type TelemetryIntent struct {
+	ID      string
+	OrgID   string
+	AgentID string
+	Name    string
+	Status  TelemetryIntentStatus
+	// Namespaces/Exclude mirror the shape of Consent.Excluded - names, not reported facts - except
+	// Namespaces here is a positive scope (empty means "every namespace the agent's own tier/consent
+	// already allows") where Exclude narrows it further.
+	Namespaces []string
+	Exclude    []string
+	Signals    []SignalGrant
+	// Destination reuses store.Destination as-is; see Operator's own field for the shape it follows.
+	Destination Destination
+	CreatedBy   string
+	CreatedAt   time.Time
+	RevokedAt   *time.Time
+	Reason      string
 }
 
 // GatewayToken is a short-lived bearer secret scoped to one quick-start backend instance (see
@@ -416,11 +480,29 @@ type Store interface {
 	CreateOperator(ctx context.Context, op Operator, tokenHash []byte) error
 	GetOperator(ctx context.Context, id string) (Operator, error)
 	ListOperators(ctx context.Context, org string) ([]Operator, error)
-	// UpdateOperatorScope replaces an operator's source clusters and destination together, atomically -
-	// there is no reason to leave them in an inconsistent combination between two separate calls.
-	UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination) error
+	// UpdateOperatorScope replaces an operator's source clusters, destination and accepted modalities
+	// together, atomically - there is no reason to leave them in an inconsistent combination between two
+	// separate calls.
+	UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination, acceptedModalities []Modality) error
 	RevokeOperator(ctx context.Context, id, reason string, now time.Time) error
 	DeleteOperator(ctx context.Context, id string) error
+
+	// ---- telemetry intents ----
+
+	// CreateTelemetryIntent inserts a new telemetry intent for one agent.
+	CreateTelemetryIntent(ctx context.Context, ti TelemetryIntent) error
+	GetTelemetryIntent(ctx context.Context, id string) (TelemetryIntent, error)
+	// ListTelemetryIntentsByAgent lists every intent (active or revoked) belonging to one agent, oldest first.
+	ListTelemetryIntentsByAgent(ctx context.Context, agentID string) ([]TelemetryIntent, error)
+	ListTelemetryIntents(ctx context.Context, org string) ([]TelemetryIntent, error)
+	// UpdateTelemetryIntentScope replaces an intent's namespaces, exclusions and signal grants together,
+	// atomically, the same reasoning UpdateOperatorScope gives for an operator's own scope.
+	UpdateTelemetryIntentScope(ctx context.Context, id string, namespaces, exclude []string, signals []SignalGrant) error
+	// UpdateTelemetryIntentDestination replaces where an intent exports to, kept separate from its scope
+	// since the two change independently (a destination rotates far less often than namespaces/signals do).
+	UpdateTelemetryIntentDestination(ctx context.Context, id string, dest Destination) error
+	RevokeTelemetryIntent(ctx context.Context, id, reason string, now time.Time) error
+	DeleteTelemetryIntent(ctx context.Context, id string) error
 
 	// ---- quick-start gateway tokens ----
 

@@ -28,16 +28,17 @@ func (d destinationDoc) toStore() store.Destination {
 }
 
 type operatorDoc struct {
-	ID               string         `json:"id"`
-	Name             string         `json:"name"`
-	SiteID           string         `json:"siteId,omitempty"`
-	Status           string         `json:"status"`
-	SourceClusterIDs []string       `json:"sourceClusterIds"`
-	Destination      destinationDoc `json:"destination"`
-	CreatedAt        string         `json:"createdAt"`
-	CreatedBy        string         `json:"createdBy"`
-	RevokedAt        string         `json:"revokedAt,omitempty"`
-	Reason           string         `json:"reason,omitempty"`
+	ID                 string         `json:"id"`
+	Name               string         `json:"name"`
+	SiteID             string         `json:"siteId,omitempty"`
+	Status             string         `json:"status"`
+	SourceClusterIDs   []string       `json:"sourceClusterIds"`
+	Destination        destinationDoc `json:"destination"`
+	AcceptedModalities []string       `json:"acceptedModalities,omitempty"`
+	CreatedAt          string         `json:"createdAt"`
+	CreatedBy          string         `json:"createdBy"`
+	RevokedAt          string         `json:"revokedAt,omitempty"`
+	Reason             string         `json:"reason,omitempty"`
 }
 
 func toOperatorDoc(op store.Operator) operatorDoc {
@@ -49,10 +50,26 @@ func toOperatorDoc(op store.Operator) operatorDoc {
 	if op.SourceClusterIDs == nil {
 		d.SourceClusterIDs = []string{}
 	}
+	for _, m := range op.AcceptedModalities {
+		d.AcceptedModalities = append(d.AcceptedModalities, string(m))
+	}
 	if op.RevokedAt != nil {
 		d.RevokedAt = rfc(*op.RevokedAt)
 	}
 	return d
+}
+
+// modalitiesFromDoc converts a request's plain-string modality list to store.Modality - validated later
+// by Core (validModalities), the same deferral destinationDoc.toStore's own untyped Kind follows.
+func modalitiesFromDoc(in []string) []store.Modality {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]store.Modality, len(in))
+	for i, m := range in {
+		out[i] = store.Modality(m)
+	}
+	return out
 }
 
 func (a *Admin) listOperators(w http.ResponseWriter, r *http.Request) {
@@ -79,15 +96,16 @@ func (a *Admin) getOperator(w http.ResponseWriter, r *http.Request) {
 
 func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name             string         `json:"name"`
-		SourceClusterIDs []string       `json:"sourceClusterIds"`
-		Destination      destinationDoc `json:"destination"`
+		Name               string         `json:"name"`
+		SourceClusterIDs   []string       `json:"sourceClusterIds"`
+		Destination        destinationDoc `json:"destination"`
+		AcceptedModalities []string       `json:"acceptedModalities,omitempty"`
 	}
 	if err := decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	op, secret, tlsBundle, err := a.core(r).CreateOperator(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore())
+	op, secret, tlsBundle, err := a.core(r).CreateOperator(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -109,15 +127,16 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 
 func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SourceClusterIDs []string       `json:"sourceClusterIds"`
-		Destination      destinationDoc `json:"destination"`
+		SourceClusterIDs   []string       `json:"sourceClusterIds"`
+		Destination        destinationDoc `json:"destination"`
+		AcceptedModalities []string       `json:"acceptedModalities,omitempty"`
 	}
 	if err := decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
 	id := r.PathValue("id")
-	if err := a.core(r).UpdateOperatorScope(r.Context(), actor(r), id, req.SourceClusterIDs, req.Destination.toStore()); err != nil {
+	if err := a.core(r).UpdateOperatorScope(r.Context(), actor(r), id, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities)); err != nil {
 		a.fail(w, err)
 		return
 	}

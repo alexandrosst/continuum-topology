@@ -52,6 +52,19 @@ func validateDestination(dest store.Destination) error {
 	}
 }
 
+// validModalities checks every value is a known telemetry modality. An empty list is always valid - see
+// Operator.AcceptedModalities's own doc comment for what that means.
+func validModalities(ms []store.Modality) error {
+	for _, m := range ms {
+		switch m {
+		case store.ModalityMetrics, store.ModalityLogs, store.ModalityTraces:
+		default:
+			return errf(KindInvalid, "%q is not a telemetry modality (metrics, logs or traces)", m)
+		}
+	}
+	return nil
+}
+
 // validSourceClusters checks that every id names a currently approved agent's cluster in this
 // organisation - the same source of truth the wizard itself reads from, re-checked here since the
 // client's own list can be stale by the time it submits.
@@ -84,7 +97,7 @@ func (c *Core) validSourceClusters(ctx context.Context, ids []string) error {
 
 // CreateOperator registers a new regional operator and mints its receiver bearer token. The secret is
 // returned once and never stored - the same rule CreateToken follows for enrollment tokens.
-func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination) (store.Operator, string, OperatorTLSBundle, error) {
+func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality) (store.Operator, string, OperatorTLSBundle, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxOperatorName {
 		return store.Operator{}, "", OperatorTLSBundle{}, errf(KindInvalid, "name the regional operator (1-%d characters)", maxOperatorName)
@@ -95,19 +108,23 @@ func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClu
 	if err := c.validSourceClusters(ctx, sourceClusterIDs); err != nil {
 		return store.Operator{}, "", OperatorTLSBundle{}, err
 	}
+	if err := validModalities(acceptedModalities); err != nil {
+		return store.Operator{}, "", OperatorTLSBundle{}, err
+	}
 	secret, err := NewOperatorReceiverSecret()
 	if err != nil {
 		return store.Operator{}, "", OperatorTLSBundle{}, err
 	}
 	op := store.Operator{
-		ID:               newOperatorID(),
-		OrgID:            c.OrgID,
-		Name:             name,
-		Status:           store.OperatorActive,
-		SourceClusterIDs: sourceClusterIDs,
-		Destination:      dest,
-		CreatedBy:        actor,
-		CreatedAt:        c.Now(),
+		ID:                 newOperatorID(),
+		OrgID:              c.OrgID,
+		Name:               name,
+		Status:             store.OperatorActive,
+		SourceClusterIDs:   sourceClusterIDs,
+		Destination:        dest,
+		AcceptedModalities: acceptedModalities,
+		CreatedBy:          actor,
+		CreatedAt:          c.Now(),
 	}
 	// Minted alongside the bearer token, shown once the same way: the operator's own receiver server
 	// cert (valid for the Service DNS name it is reachable at once installed with this chart's own
@@ -151,7 +168,7 @@ func (c *Core) ListOperators(ctx context.Context) ([]store.Operator, error) {
 // UpdateOperatorScope replaces which clusters feed this operator and where it exports to. There is no
 // live reparenting here (see the plan): applying the corresponding change to each source cluster's own
 // agent release remains a manual step, printed as a reminder by operatorInstallCommand.
-func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, sourceClusterIDs []string, dest store.Destination) error {
+func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality) error {
 	if _, err := c.operatorInOrg(ctx, id); err != nil {
 		return err
 	}
@@ -161,8 +178,11 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 	if err := c.validSourceClusters(ctx, sourceClusterIDs); err != nil {
 		return err
 	}
+	if err := validModalities(acceptedModalities); err != nil {
+		return err
+	}
 	return c.audited(ctx, actor, "operator-scope-changed", "operator", id, "", func() error {
-		if err := c.Store.UpdateOperatorScope(ctx, id, sourceClusterIDs, dest); err != nil {
+		if err := c.Store.UpdateOperatorScope(ctx, id, sourceClusterIDs, dest, acceptedModalities); err != nil {
 			if errors.Is(err, store.ErrBadState) {
 				return errf(KindConflict, "only an active operator's scope can be changed")
 			}

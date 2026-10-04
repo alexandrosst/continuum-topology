@@ -20,8 +20,9 @@ import (
 // History: 1 organisations, 2 audit hash chain, 3 approval codes and token binding, 4 the twin (observation
 // tombstones, node identities, the model version, declared-only workspaces), 5 optional TOTP two-factor
 // authentication on accounts, 6 an optional email address on accounts (verified-at, and whether it is turned
-// on as a second sign-in factor), 7 optional passkeys/security keys (WebAuthn) on accounts.
-const SchemaVersion = 7
+// on as a second sign-in factor), 7 optional passkeys/security keys (WebAuthn) on accounts, 8 a regional
+// operator's accepted modalities (telemetry_intents is a new table, not a migration - see the schema string).
+const SchemaVersion = 8
 
 // ErrSchemaNewer is returned when the database was written by a newer version of the software.
 var ErrSchemaNewer = errors.New("the database was written by a newer version of Continuum")

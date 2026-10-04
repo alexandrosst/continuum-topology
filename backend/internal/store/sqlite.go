@@ -187,6 +187,27 @@ CREATE TABLE IF NOT EXISTS operators (
   reason TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS operators_org ON operators(org_id);
+-- A telemetry intent is a local operator's grant: which signals (and from which namespaces) one agent's
+-- own bundled OTel-collector telemetry extractors are told to collect, and where to export them - see
+-- store.TelemetryIntent's own comment. Unlike operators above it belongs to exactly one agent; Core
+-- enforces at most one active intent per agent (see Core.CreateTelemetryIntent), not this table.
+CREATE TABLE IF NOT EXISTS telemetry_intents (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  namespaces TEXT NOT NULL DEFAULT '[]',
+  exclude TEXT NOT NULL DEFAULT '[]',
+  signals TEXT NOT NULL DEFAULT '[]',
+  destination TEXT NOT NULL DEFAULT '{}',
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  reason TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS telemetry_intents_org ON telemetry_intents(org_id);
+CREATE INDEX IF NOT EXISTS telemetry_intents_agent ON telemetry_intents(agent_id);
 -- A quick-start backend's gateway token (see GatewayToken) - there can be more than one per backend_id
 -- over time (each mint is a fresh row); LatestGatewayToken reads the most recent by created_at.
 CREATE TABLE IF NOT EXISTS gateway_tokens (
@@ -282,6 +303,10 @@ func OpenSQLite(path string) (*SQLite, error) {
 	if err := migrateWebAuthn(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("upgrading to passkey accounts: %w", err)
+	}
+	if err := migrateTelemetry(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("upgrading to operator accepted modalities: %w", err)
 	}
 	return &SQLite{db: db}, nil
 }
@@ -638,14 +663,30 @@ func parseDestination(s string) Destination {
 	return d
 }
 
-const operatorCols = `id, org_id, name, site_id, status, source_cluster_ids, destination, receiver_auth_token_hash, created_by, created_at, revoked_at, reason`
+// acceptedModalitiesJSON/parseAcceptedModalities encode/decode Operator.AcceptedModalities the same way
+// sourceClusterIDsJSON does for SourceClusterIDs; a blank or unparsable column (a row from before this
+// column existed) reads back as no restriction, per AcceptedModalities's own doc comment.
+func acceptedModalitiesJSON(m []Modality) string {
+	if len(m) == 0 {
+		return "[]"
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+func parseAcceptedModalities(s string) []Modality {
+	var m []Modality
+	_ = json.Unmarshal([]byte(s), &m)
+	return m
+}
+
+const operatorCols = `id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, revoked_at, reason`
 
 func scanOperator(r scanner) (Operator, error) {
 	var op Operator
-	var st, sourceIDs, dest string
+	var st, sourceIDs, dest, modalities string
 	var created int64
 	var revoked sql.NullInt64
-	err := r.Scan(&op.ID, &op.OrgID, &op.Name, &op.SiteID, &st, &sourceIDs, &dest, &op.ReceiverAuthTokenHash, &op.CreatedBy, &created, &revoked, &op.Reason)
+	err := r.Scan(&op.ID, &op.OrgID, &op.Name, &op.SiteID, &st, &sourceIDs, &dest, &modalities, &op.ReceiverAuthTokenHash, &op.CreatedBy, &created, &revoked, &op.Reason)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Operator{}, ErrNotFound
@@ -655,6 +696,7 @@ func scanOperator(r scanner) (Operator, error) {
 	op.Status = OperatorStatus(st)
 	op.SourceClusterIDs = parseSourceClusterIDs(sourceIDs)
 	op.Destination = parseDestination(dest)
+	op.AcceptedModalities = parseAcceptedModalities(modalities)
 	op.CreatedAt = fromMS(created)
 	op.RevokedAt = fromNullMS(revoked)
 	return op, nil
@@ -662,9 +704,9 @@ func scanOperator(r scanner) (Operator, error) {
 
 func (s *SQLite) CreateOperator(ctx context.Context, op Operator, tokenHash []byte) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO operators(id, org_id, name, site_id, status, source_cluster_ids, destination, receiver_auth_token_hash, created_by, created_at, reason)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-		op.ID, op.OrgID, op.Name, op.SiteID, string(op.Status), sourceClusterIDsJSON(op.SourceClusterIDs), destinationJSON(op.Destination), tokenHash, op.CreatedBy, ms(op.CreatedAt), op.Reason)
+		`INSERT INTO operators(id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, reason)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+		op.ID, op.OrgID, op.Name, op.SiteID, string(op.Status), sourceClusterIDsJSON(op.SourceClusterIDs), destinationJSON(op.Destination), acceptedModalitiesJSON(op.AcceptedModalities), tokenHash, op.CreatedBy, ms(op.CreatedAt), op.Reason)
 	return err
 }
 
@@ -689,10 +731,10 @@ func (s *SQLite) ListOperators(ctx context.Context, org string) ([]Operator, err
 	return out, rows.Err()
 }
 
-func (s *SQLite) UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination) error {
+func (s *SQLite) UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination, acceptedModalities []Modality) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE operators SET source_cluster_ids=?, destination=? WHERE id=? AND status='active'`,
-		sourceClusterIDsJSON(sourceClusterIDs), destinationJSON(dest), id)
+		`UPDATE operators SET source_cluster_ids=?, destination=?, accepted_modalities=? WHERE id=? AND status='active'`,
+		sourceClusterIDsJSON(sourceClusterIDs), destinationJSON(dest), acceptedModalitiesJSON(acceptedModalities), id)
 	if err != nil {
 		return err
 	}
@@ -711,6 +753,148 @@ func (s *SQLite) RevokeOperator(ctx context.Context, id, reason string, now time
 
 func (s *SQLite) DeleteOperator(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM operators WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ---- telemetry intents ----
+
+// namespacesJSON/parseNamespaces encode/decode a plain list of namespace names - TelemetryIntent.Namespaces
+// and .Exclude both need this, the same convention sourceClusterIDsJSON uses for Operator.SourceClusterIDs.
+func namespacesJSON(ns []string) string {
+	if len(ns) == 0 {
+		return "[]"
+	}
+	b, _ := json.Marshal(ns)
+	return string(b)
+}
+func parseNamespaces(s string) []string {
+	var ns []string
+	_ = json.Unmarshal([]byte(s), &ns)
+	return ns
+}
+
+// signalGrantsJSON/parseSignalGrants encode/decode TelemetryIntent.Signals - a small list of {ID, Source}
+// pairs with nothing in it ever queried across rows, the same reasoning destinationJSON gives for keeping
+// Destination a single JSON column instead of flattening it into more table columns.
+func signalGrantsJSON(sg []SignalGrant) string {
+	if len(sg) == 0 {
+		return "[]"
+	}
+	b, _ := json.Marshal(sg)
+	return string(b)
+}
+func parseSignalGrants(s string) []SignalGrant {
+	var sg []SignalGrant
+	_ = json.Unmarshal([]byte(s), &sg)
+	return sg
+}
+
+const telemetryIntentCols = `id, org_id, agent_id, name, status, namespaces, exclude, signals, destination, created_by, created_at, revoked_at, reason`
+
+func scanTelemetryIntent(r scanner) (TelemetryIntent, error) {
+	var ti TelemetryIntent
+	var st, ns, exc, sig, dest string
+	var created int64
+	var revoked sql.NullInt64
+	err := r.Scan(&ti.ID, &ti.OrgID, &ti.AgentID, &ti.Name, &st, &ns, &exc, &sig, &dest, &ti.CreatedBy, &created, &revoked, &ti.Reason)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TelemetryIntent{}, ErrNotFound
+		}
+		return TelemetryIntent{}, err
+	}
+	ti.Status = TelemetryIntentStatus(st)
+	ti.Namespaces = parseNamespaces(ns)
+	ti.Exclude = parseNamespaces(exc)
+	ti.Signals = parseSignalGrants(sig)
+	ti.Destination = parseDestination(dest)
+	ti.CreatedAt = fromMS(created)
+	ti.RevokedAt = fromNullMS(revoked)
+	return ti, nil
+}
+
+func (s *SQLite) CreateTelemetryIntent(ctx context.Context, ti TelemetryIntent) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO telemetry_intents(id, org_id, agent_id, name, status, namespaces, exclude, signals, destination, created_by, created_at, reason)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+		ti.ID, ti.OrgID, ti.AgentID, ti.Name, string(ti.Status), namespacesJSON(ti.Namespaces), namespacesJSON(ti.Exclude), signalGrantsJSON(ti.Signals), destinationJSON(ti.Destination), ti.CreatedBy, ms(ti.CreatedAt), ti.Reason)
+	return err
+}
+
+func (s *SQLite) GetTelemetryIntent(ctx context.Context, id string) (TelemetryIntent, error) {
+	return scanTelemetryIntent(s.db.QueryRowContext(ctx, `SELECT `+telemetryIntentCols+` FROM telemetry_intents WHERE id=?`, id))
+}
+
+func (s *SQLite) ListTelemetryIntentsByAgent(ctx context.Context, agentID string) ([]TelemetryIntent, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+telemetryIntentCols+` FROM telemetry_intents WHERE agent_id=? ORDER BY created_at`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TelemetryIntent
+	for rows.Next() {
+		ti, err := scanTelemetryIntent(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ti)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLite) ListTelemetryIntents(ctx context.Context, org string) ([]TelemetryIntent, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+telemetryIntentCols+` FROM telemetry_intents WHERE org_id=? ORDER BY created_at`, org)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TelemetryIntent
+	for rows.Next() {
+		ti, err := scanTelemetryIntent(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ti)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLite) UpdateTelemetryIntentScope(ctx context.Context, id string, namespaces, exclude []string, signals []SignalGrant) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE telemetry_intents SET namespaces=?, exclude=?, signals=? WHERE id=? AND status='active'`,
+		namespacesJSON(namespaces), namespacesJSON(exclude), signalGrantsJSON(signals), id)
+	if err != nil {
+		return err
+	}
+	return needOne(res)
+}
+
+func (s *SQLite) UpdateTelemetryIntentDestination(ctx context.Context, id string, dest Destination) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE telemetry_intents SET destination=? WHERE id=? AND status='active'`, destinationJSON(dest), id)
+	if err != nil {
+		return err
+	}
+	return needOne(res)
+}
+
+func (s *SQLite) RevokeTelemetryIntent(ctx context.Context, id, reason string, now time.Time) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE telemetry_intents SET status='revoked', reason=?, revoked_at=? WHERE id=? AND status='active'`,
+		reason, ms(now), id)
+	if err != nil {
+		return err
+	}
+	return needOne(res)
+}
+
+func (s *SQLite) DeleteTelemetryIntent(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM telemetry_intents WHERE id=?`, id)
 	if err != nil {
 		return err
 	}

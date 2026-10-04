@@ -48,11 +48,12 @@ func TestOperatorCRUDInTheStore(t *testing.T) {
 		t.Fatalf("cross-org leak: %+v %v", other, err)
 	}
 
-	if err := st.UpdateOperatorScope(ctx, "op-1", []string{"cl-edge-c"}, Destination{Kind: DestinationExternal, Endpoint: "collector2.example:4317"}); err != nil {
+	if err := st.UpdateOperatorScope(ctx, "op-1", []string{"cl-edge-c"}, Destination{Kind: DestinationExternal, Endpoint: "collector2.example:4317"}, []Modality{ModalityMetrics}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = st.GetOperator(ctx, "op-1")
-	if len(got.SourceClusterIDs) != 1 || got.SourceClusterIDs[0] != "cl-edge-c" || got.Destination.Endpoint != "collector2.example:4317" {
+	if len(got.SourceClusterIDs) != 1 || got.SourceClusterIDs[0] != "cl-edge-c" || got.Destination.Endpoint != "collector2.example:4317" ||
+		len(got.AcceptedModalities) != 1 || got.AcceptedModalities[0] != ModalityMetrics {
 		t.Fatalf("scope not updated: %+v", got)
 	}
 
@@ -65,7 +66,7 @@ func TestOperatorCRUDInTheStore(t *testing.T) {
 	}
 
 	// A revoked operator's scope can no longer be changed - the same "only active" guard RevokeOperator itself needs.
-	if err := st.UpdateOperatorScope(ctx, "op-1", []string{"cl-edge-d"}, Destination{Kind: DestinationExternal, Endpoint: "x"}); err != ErrBadState {
+	if err := st.UpdateOperatorScope(ctx, "op-1", []string{"cl-edge-d"}, Destination{Kind: DestinationExternal, Endpoint: "x"}, nil); err != ErrBadState {
 		t.Fatalf("expected ErrBadState updating a revoked operator's scope, got %v", err)
 	}
 	if err := st.RevokeOperator(ctx, "op-1", "again", now); err != ErrBadState {
