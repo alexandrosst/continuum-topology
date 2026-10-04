@@ -339,7 +339,7 @@ export default function AgentsPage() {
       {revoking && (
         <ConfirmModal
           title={`Revoke ${revoking.name}?`}
-          message="The agent is disconnected at once and cannot come back with its current identity. Records it discovered stay in your topology. To reconnect the cluster you enroll it again with a new token."
+          message="The agent is disconnected at once and cannot come back with its current identity. Records it discovered stay in your topology. To reconnect the cluster you enroll it again with a new token. Nothing is removed from the cluster itself \u2014 its ServiceAccount, RBAC and pods stay running until you remove them there; you'll see ready-to-run cleanup commands on this agent's detail view once it's revoked."
           confirmLabel="Revoke"
           onConfirm={() => revoke(revoking)}
           onClose={() => setRevoking(null)}
