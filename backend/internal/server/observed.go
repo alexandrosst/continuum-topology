@@ -108,6 +108,34 @@ func validateFlowBatch(b *continuumv1.FlowBatch) error {
 	return nil
 }
 
+// boundFlowFacts nulls out a reported LinkSaturation.saturation_pct that falls outside what a
+// well-behaved collector ever computes it from (0-100 inclusive; see LinkSaturation.saturation_pct's
+// own doc comment: never negative, since it is a ratio against an unsigned throughput, and clamped to
+// 100 before the agent ever sends it) and returns how many entries, across every one of b's collectors,
+// it had to drop this way. A data-integrity backstop independent of validateFlowBatch's own shape
+// checks above, for a compromised or merely buggy collector that skipped its own clamp: Iface and
+// ThroughputBps on the same entry are left untouched, and the percentage is nulled - the same "not
+// reported" the field already uses when the interface's rated speed could not be read at all - never
+// clamped to 100, which would report a saturation level nothing actually measured.
+func boundFlowFacts(b *continuumv1.FlowBatch) int {
+	n := 0
+	for _, c := range b.Collectors {
+		if c == nil {
+			continue
+		}
+		for _, ls := range c.LinkSaturation {
+			if ls == nil || ls.SaturationPct == nil {
+				continue
+			}
+			if v := *ls.SaturationPct; v != v || v < 0 || v > 100 {
+				ls.SaturationPct = nil
+				n++
+			}
+		}
+	}
+	return n
+}
+
 func validateFlowEndpoints(f *continuumv1.Flow) error {
 	for _, e := range []*continuumv1.FlowEndpoint{f.Src, f.Dst} {
 		switch e.Kind {

@@ -91,6 +91,10 @@ type view struct {
 	// often the same problem is written to the audit trail and the event list.
 	refusal       string
 	refusalLogged time.Time
+	// implausibleLogged limits how often a report that was accepted but had a physically impossible
+	// value quietly omitted (see boundSyncFacts/boundFlowFacts) is itself warned about - the same
+	// per-agent rate limit refusalLogged above gives a full refusal.
+	implausibleLogged time.Time
 
 	// skewMs is the clock skew the agent last reported (its clock minus the server's); skewKnown says it was reported.
 	skewMs    int64
@@ -444,6 +448,9 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 					h.refuseSync(ctx, cur, v, err)
 					return status.Error(codes.InvalidArgument, err.Error())
 				}
+				if n := boundSyncFacts(m.Sync); n > 0 {
+					h.noteImplausibleFacts(cur.ID, v, n)
+				}
 				sy, chunked := m.Sync, false
 				if isChunk(sy) {
 					// A piece of a larger picture: keep it, and apply nothing until the last one is in.
@@ -595,11 +602,22 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 	if err := validateFlowBatch(fb); err != nil {
 		return false, err
 	}
+	// A data-integrity backstop independent of validateFlowBatch's own shape checks above: a
+	// physically impossible value (e.g. a saturation percentage outside 0-100) is omitted from just
+	// its own field, never the whole batch - see boundFlowFacts' own doc comment.
+	implausible := boundFlowFacts(fb)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	v := h.views[agentID]
 	if v == nil {
 		return false, nil
+	}
+	if implausible > 0 {
+		Metrics.implausibleFacts.Add(int64(implausible))
+		if now.Sub(v.implausibleLogged) >= refusalEvery {
+			v.implausibleLogged = now
+			h.Log.Warn("flow batch had a physically impossible value; affected field(s) omitted, rest of the batch kept", "agent", agentID, "count", implausible)
+		}
 	}
 	v.flows.apply(fb, now)
 	v.obs.note(fb, now)
@@ -788,6 +806,117 @@ func validateSync(s *continuumv1.Sync) error {
 		return fmt.Errorf("facts are malformed: %v", err)
 	}
 	return nil
+}
+
+// ---- data-integrity backstop: physically impossible values, independent of the shape checks above ----
+//
+// validateSync/validateFlowBatch above refuse a message that is malformed - too big, too long, the
+// wrong shape. They never ask whether a well-formed value could actually have been measured. A
+// negative RTT, a CPU-pressure percentage over 100, or a negative pod count cannot come from any real
+// kernel counter or kubelet reading; nothing stops a compromised or merely buggy agent from sending one
+// anyway, and nothing before this caught it, so it would otherwise sit in the topology model exactly
+// like a real reading, including feeding a placement decision.
+//
+// boundSyncFacts and boundFlowFacts below null out only the one field that is impossible, keeping the
+// rest of the record - dropping the whole record would hide a real signal (and make a collector bug
+// harder to diagnose), and clamping the value to the nearest plausible number would fabricate a reading
+// that was never actually taken. Both are the same "absence is a fact, never a fabricated zero"
+// discipline this model already applies to a probe that never ran (see HostProbe.cpu_pressure_pct's own
+// doc comment), extended to a reading that did arrive but cannot be trusted. Only ever applied to a
+// field already represented as a pointer (nil means "not reported"): a field with no such convention
+// (Node.CPU, say) has no way to say "omitted" without changing what it means, so it is left alone here.
+
+// boundPct returns p unchanged when it is nil or holds a plausible percentage (0-100 inclusive), and
+// nil, with ok true, when it holds a value no real measurement can produce (negative, over 100, or
+// NaN) - never clamped to the nearest end of the range, which would report a number nothing measured.
+func boundPct(p *float64) (out *float64, dropped bool) {
+	if p == nil {
+		return nil, false
+	}
+	if v := *p; v != v || v < 0 || v > 100 {
+		return nil, true
+	}
+	return p, false
+}
+
+// boundNonNeg is boundPct's twin for a field with a floor but no ceiling of its own (a power reading,
+// in watts): a real measurement is never negative, but nothing here second-guesses how large.
+func boundNonNeg(p *float64) (out *float64, dropped bool) {
+	if p == nil {
+		return nil, false
+	}
+	if v := *p; v != v || v < 0 {
+		return nil, true
+	}
+	return p, false
+}
+
+// boundCount is boundNonNeg's int32 twin, for a pointer count field (PodCount, PendingPodCount): a
+// count of pods can never be negative.
+func boundCount(p *int32) (out *int32, dropped bool) {
+	if p == nil || *p >= 0 {
+		return p, false
+	}
+	return nil, true
+}
+
+// boundSyncFacts nulls out any field of s that holds a value no real probe or kubelet reading could
+// produce, leaving the rest of every record untouched, and returns how many fields it dropped - see
+// this section's own doc comment above for why a field is nulled rather than dropping the record or
+// clamping the value.
+func boundSyncFacts(s *continuumv1.Sync) int {
+	n := 0
+	if c := s.Cluster; c != nil {
+		if v, dropped := boundCount(c.PendingPodCount); dropped {
+			c.PendingPodCount = v
+			n++
+		}
+	}
+	for _, nd := range s.Nodes {
+		if v, dropped := boundCount(nd.PodCount); dropped {
+			nd.PodCount = v
+			n++
+		}
+		p := nd.Probe
+		if p == nil {
+			continue
+		}
+		if v, dropped := boundPct(p.CpuPressurePct); dropped {
+			p.CpuPressurePct = v
+			n++
+		}
+		if v, dropped := boundPct(p.MemoryPressurePct); dropped {
+			p.MemoryPressurePct = v
+			n++
+		}
+		if v, dropped := boundPct(p.IoPressurePct); dropped {
+			p.IoPressurePct = v
+			n++
+		}
+		if v, dropped := boundNonNeg(p.HostWatts); dropped {
+			p.HostWatts = v
+			n++
+		}
+	}
+	return n
+}
+
+// noteImplausibleFacts counts n field(s) just nulled out of one agent's report for being physically
+// impossible (see boundSyncFacts/boundFlowFacts) and, at most once per refusalEvery for this agent,
+// warns about it - the same rate-limited-diagnostic treatment refuseSync already gives a full refusal,
+// extended to a report that was still accepted and applied, minus the one value nothing could trust.
+func (h *Hub) noteImplausibleFacts(agentID string, v *view, n int) {
+	Metrics.implausibleFacts.Add(int64(n))
+	now := h.C.Now()
+	h.mu.Lock()
+	record := now.Sub(v.implausibleLogged) >= refusalEvery
+	if record {
+		v.implausibleLogged = now
+	}
+	h.mu.Unlock()
+	if record {
+		h.Log.Warn("agent report had a physically impossible value; affected field(s) omitted, rest of the report kept", "agent", agentID, "count", n)
+	}
 }
 
 func validateModules(ms []*continuumv1.ModuleStatus) error {
