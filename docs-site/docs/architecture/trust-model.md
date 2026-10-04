@@ -158,3 +158,6 @@ rather than letting it go unsaid:
 
 None of these are urgent fixes hiding in plain sight — they're the boundary of what this specific trust
 model was built to cover, stated so a reader doesn't have to discover it the hard way.
+
+For the exact RBAC, Linux capabilities and host access each workload asks for — scope by scope, with
+citations into the chart templates — see [Permissions reference](./permissions-reference.md).

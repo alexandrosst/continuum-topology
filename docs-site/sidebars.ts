@@ -29,6 +29,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'architecture/overview',
         'architecture/trust-model',
+        'architecture/permissions-reference',
         'architecture/agent-trust-model',
         'architecture/observability-intent',
         'architecture/telemetry-intent',
