@@ -1,4 +1,4 @@
-import { Antenna, Globe2, Plus, Trash2 } from 'lucide-react'
+import { Antenna, ChevronRight, Globe2, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { CopyCommand } from '@/components/agents/AgentInsight'
@@ -60,6 +60,11 @@ function OperatorCreated({ created, extraProcessors, onClose }: { created: Creat
       <p className="text-sm text-nb-400">
         Run this where the operator itself should live. It carries the receiver token below already; the token
         is shown only now - if it is lost, revoke this operator and create another.
+      </p>
+      <p className="mt-2 rounded-md border border-nb-850 bg-nb-930 px-3 py-2 text-xs leading-relaxed text-nb-400" data-testid="operator-no-rbac-note">
+        No Kubernetes RBAC was applied, and none was needed: this chart requests no ServiceAccount token at all
+        (<code className="font-mono">automountServiceAccountToken: false</code>, no ClusterRole, no Role, no binding).
+        The receiver token below and the destination you chose are the complete list of what this operator was granted.
       </p>
       <div className="mt-3">
         <div className="mb-1 text-xs text-nb-500">Create the receiver token Secret first</div>
@@ -258,6 +263,31 @@ export default function RegionalOperatorsPage() {
         <CategoryTab id="regional" label="Regional" icon={Globe2} active={category === 'regional'} onClick={() => setCategory('regional')} testId="operators-regional" />
       </div>
 
+      {category === 'regional' && admin && (
+        <details className="group mb-4 rounded-lg border border-nb-850 bg-nb-925" data-testid="operator-access-note">
+          <summary className="flex cursor-pointer select-none items-center gap-1.5 px-4 py-3 text-sm font-medium text-nb-300 marker:content-none">
+            <ChevronRight size={ICON_SM} className="text-nb-500 transition-transform group-open:rotate-90" aria-hidden />
+            What a regional operator needs, and what you grant it
+          </summary>
+          <div className="space-y-2 border-t border-nb-850 px-4 py-3 text-xs leading-relaxed text-nb-400">
+            <p>
+              <span className="font-medium text-nb-200">No Kubernetes API access of any kind.</span> This chart renders no
+              ClusterRole, Role or RoleBinding, and its ServiceAccount is created with{' '}
+              <code className="font-mono">automountServiceAccountToken: false</code> - it cannot present a token to the API
+              server even if it tried. It never dials the Continuum server either, and never watches this cluster's own
+              objects the way a discovery agent's RBAC lets it (see the chart's own README for the full architecture).
+            </p>
+            <p>
+              What you actually configure, in full: <span className="text-nb-200">a receiver bearer token</span> (minted
+              once when the operator is created below, shown only in the install command - the server keeps only a hash),
+              optionally a TLS certificate for mutual TLS on that receiver, and{' '}
+              <span className="text-nb-200">the destination</span> it re-exports aggregated telemetry to. Nothing else is
+              asked for or needed.
+            </p>
+          </div>
+        </details>
+      )}
+
       {category === 'local' ? (
         localRows.length === 0 ? (
           <EmptyState
@@ -339,6 +369,12 @@ export default function RegionalOperatorsPage() {
       >
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (problems.length === 0) void create() }}>
           <Field label="Name"><Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} maxLength={80} data-testid="operator-name" /></Field>
+
+          <p className="rounded-md border border-nb-850 bg-nb-930 px-3 py-2 text-xs leading-relaxed text-nb-400" data-testid="operator-create-no-rbac-note">
+            This needs no Kubernetes API access at all - no RBAC is applied and no ServiceAccount token is even requested.
+            The destination below, plus the receiver token the next screen hands you, are the complete list of what this
+            operator is granted.
+          </p>
 
           <Field label="Source clusters" hint="Clusters whose already-exported telemetry this operator aggregates. Only clusters with a currently-approved agent are listed.">
             <CheckboxList

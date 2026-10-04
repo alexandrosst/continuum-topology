@@ -995,6 +995,76 @@ export const ACCESS_TIER_CAPTIONS: Record<AccessTier, string> = {
   4: 'Not available yet.',
 }
 
+/**
+ * What each implemented tier's Kubernetes RBAC *actually* grants, verb by verb, resource by resource —
+ * the honest answer to "what does this need, and what do I have to do to grant it", surfaced by
+ * TierLevels' per-rung "What this grants" disclosure (ApprovalCard, ConnectClusterWizard, AgentInsight).
+ *
+ * This is NOT the same text as ACCESS_TIER_CAPTIONS above, on purpose: that constant says what the agent
+ * *collects* at a tier (its audience is "what will I see in the UI"); this one says what Kubernetes
+ * *rule* was granted to let it do that (its audience is "what did I just hand a ServiceAccount"), and the
+ * two can differ — tier 0's caption says "proves which cluster this is", but the actual rule it needs for
+ * that is `get` on one resourceName ("kube-system"), not "read namespaces" in general; tier 2 needs `get`
+ * on namespaces themselves (to enumerate scope), which nothing in its caption mentions at all.
+ *
+ * MUST be kept in sync with backend/internal/chart/continuum-agent/templates/rbac.yaml by hand — this is
+ * frontend prose describing a Helm template, nothing wires them together at build time. What keeps them
+ * from drifting apart silently is backend/internal/chart/agent_rbac_grants_test.go, which renders
+ * rbac.yaml for every tier with `helm template` and fails if the real ClusterRole/Role rules stop
+ * containing the apiGroup/resource/verb triples this constant claims. Change one, the other's test tells
+ * you. (The same discipline ACCESS_TIER_CAPTIONS already asks for, and the reason consent.go's own
+ * ceiling/floor split between server and chart exists: two places that can each only tell half the truth
+ * must still never disagree about which half.)
+ */
+export interface AccessTierGrant {
+  /** Every Kubernetes RBAC rule in force once this tier is installed, cumulative (tier 2's list already
+   *  includes tier 1's and tier 0's) — one line per apiGroup+resource(s)+verbs rule, in the chart's own
+   *  order. Tiers 3 and 4 are reserved placeholders with no backing RBAC at all: say so plainly, matching
+   *  ACCESS_TIER_CAPTIONS, rather than inventing a permission that doesn't exist yet. */
+  grants: string[]
+  /** The install-time flag that selects this tier; shown next to the grants so "what it needs" and "how
+   *  you give it" are never answered in two disconnected places — the full command carrying it is
+   *  already printed wherever a tier is actually picked (the install command, or the `helm upgrade`
+   *  this app prints to widen an existing install). */
+  setBy?: string
+}
+
+/** Every install, at any tier, also carries these two — neither varies with `access.tier`, so they are
+ *  not repeated per rung below. Sourced from the same rbac.yaml: the always-present identity Role, and
+ *  the optional (default on) endpoint-resolution Role. */
+export const ACCESS_TIER_BASELINE_GRANT =
+  'Every tier also includes two fixed, tier-independent rules: get/update/patch on its own identity certificate Secret (one, created empty by the chart — it can read or write no other Secret, and create none), and, unless access.resolveApiEndpoint=false, get on the "kubernetes" Endpoints object in the default namespace (resolves the control plane\'s real address instead of the internal ClusterIP every in-cluster client is handed).'
+
+export const ACCESS_TIER_GRANTS: Record<AccessTier, AccessTierGrant> = {
+  0: {
+    grants: ['get the namespace named "kube-system" (resourceName-scoped — this one namespace only, not list/watch of all of them)'],
+  },
+  1: {
+    grants: [
+      'get the namespace named "kube-system" (tier 0, unchanged)',
+      'get/list/watch nodes',
+      'get/list/watch storage classes (storage.k8s.io)',
+      'get/list/watch ingress classes (networking.k8s.io)',
+    ],
+    setBy: '--set access.tier=1',
+  },
+  2: {
+    grants: [
+      'get the namespace named "kube-system" (tier 0, unchanged)',
+      'get/list/watch nodes, storage classes, ingress classes (tier 1, unchanged)',
+      'get/list/watch namespaces (all of them, to enumerate scope — cluster mode only; in rbac.mode=namespaced this and persistentvolumes drop out, since neither has a namespaced form), pods, services, persistentvolumeclaims, persistentvolumes',
+      'get/list/watch deployments, statefulsets, daemonsets, replicasets (apps)',
+      'get/list/watch ingresses (networking.k8s.io)',
+      'get/list/watch horizontalpodautoscalers (autoscaling)',
+      'get/list/watch poddisruptionbudgets (policy)',
+      'get/list (not watch) PeerAuthentication, Istio mutual-TLS policy only (security.istio.io) — on by default, turned off with mesh.readPolicy=false',
+    ],
+    setBy: '--set access.tier=2',
+  },
+  3: { grants: ['Not available yet.'] },
+  4: { grants: ['Not available yet.'] },
+}
+
 export interface AgentModule {
   name: string // infrastructure, services, dependencies, geo…
   status: 'ok' | 'skipped' | 'error'
