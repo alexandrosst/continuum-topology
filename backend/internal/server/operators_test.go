@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"testing"
 
 	"continuum/internal/store"
@@ -214,5 +216,69 @@ func TestCreateOperatorAudits(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("no operator-created audit row among %+v", evs)
+	}
+}
+
+// TestIssueOperatorClientCertReissuesOnDemand covers IssueOperatorClientCert's own promise: it mints a
+// fresh, independently valid client certificate every time it is called (not once, cached), and refuses
+// to do so for an operator that is not active, does not exist, or belongs to another organisation - the
+// same not-found-not-forbidden convention operatorInOrg already uses for the last of those.
+func TestIssueOperatorClientCertReissuesOnDemand(t *testing.T) {
+	e := newEnv(t)
+	cl := e.approvedCluster(t, fp)
+	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens-regional", []string{cl}, extDest("collector.example:4317"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	certPEM, keyPEM, caPEM, err := e.core.IssueOperatorClientCert(e.ctx, "alex", op.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(certPEM)
+	if block == nil || block.Type != "CERTIFICATE" {
+		t.Fatalf("not a PEM certificate: %q", certPEM)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("invalid certificate: %v", err)
+	}
+	if cert.Subject.CommonName != op.ID+"-export" {
+		t.Fatalf("client identity = %v", cert.Subject)
+	}
+	if kb, _ := pem.Decode(keyPEM); kb == nil || kb.Type != "EC PRIVATE KEY" {
+		t.Fatalf("not a PEM EC private key: %q", keyPEM)
+	}
+	if cb, _ := pem.Decode(caPEM); cb == nil || cb.Type != "CERTIFICATE" {
+		t.Fatalf("not a PEM CA certificate: %q", caPEM)
+	}
+
+	// "On demand" means on demand, not minted once and cached: a second call returns a second,
+	// independently valid certificate rather than replaying the first.
+	certPEM2, _, _, err := e.core.IssueOperatorClientCert(e.ctx, "alex", op.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(certPEM) == string(certPEM2) {
+		t.Fatal("expected a fresh certificate on each call, got the same bytes twice")
+	}
+
+	if err := e.core.RevokeOperator(e.ctx, "alex", op.ID, "decommissioned"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := e.core.IssueOperatorClientCert(e.ctx, "alex", op.ID); kindOf(err) != KindConflict {
+		t.Fatalf("expected KindConflict reissuing for a revoked operator, got %v", err)
+	}
+
+	if _, _, _, err := e.core.IssueOperatorClientCert(e.ctx, "alex", "op-does-not-exist"); kindOf(err) != KindNotFound {
+		t.Fatalf("expected KindNotFound reissuing for an unknown operator, got %v", err)
+	}
+
+	if err := e.st.CreateOrg(e.ctx, store.Org{ID: "org-2", Name: "Org Two", CreatedAt: *e.now, CreatedBy: "u-owner"}, "u-owner"); err != nil {
+		t.Fatal(err)
+	}
+	other := e.base.ForOrg("org-2")
+	if _, _, _, err := other.IssueOperatorClientCert(e.ctx, "alex", op.ID); kindOf(err) != KindNotFound {
+		t.Fatalf("expected KindNotFound reissuing for another organisation's operator, got %v", err)
 	}
 }

@@ -199,18 +199,24 @@ func operatorTLSSecretCommand(op store.Operator, b OperatorTLSBundle) string {
 		operatorReceiverTLSSecretName(op), b.ReceiverCertPEM, b.ReceiverKeyPEM, b.CACertPEM)
 }
 
-// operatorClientTLSSecretCommand is the `kubectl create secret` a source cluster runs, once, to install
-// the client certificate it presents to this operator - shown per source cluster in
-// operatorSourceReminders since that is the only place each source cluster's own namespace is known, but
-// the content is identical everywhere (one client identity per operator, not per cluster - see
-// pki.IssueOperatorClientTLS).
-func operatorClientTLSSecretCommand(op store.Operator, b OperatorTLSBundle, namespace string) string {
-	if len(b.ClientCertPEM) == 0 {
-		return ""
+// operatorDestinationCommand builds the --set export.otlp.* flags (and, if a fresh client cert was minted,
+// the kubectl create secret command for it) that point one agent's telemetry export at this operator -
+// the same shape operatorSourceReminders already builds per source cluster at creation/scope-update time,
+// factored out so TelemetryIntent's own /command endpoint (admin_telemetry_intents.go) can call it for a
+// single agent on demand, reusing a freshly reissued client cert rather than requiring one from creation time.
+func operatorDestinationCommand(op store.Operator, certPEM, keyPEM, caPEM []byte, namespace string) (setFlags string, secretCmd string) {
+	endpoint := fmt.Sprintf("%s.continuum-system.svc:4317", op.ID)
+	setFlags = fmt.Sprintf("--set telemetry.export.otlp.endpoint=%s", endpoint)
+	if len(certPEM) == 0 {
+		return setFlags, ""
 	}
-	return fmt.Sprintf(
+	// mTLS is additive: every source cluster of this operator presents a client certificate verified
+	// against the CA bundle in the same Secret - see pki.IssueOperatorClientTLS.
+	secretCmd = fmt.Sprintf(
 		"kubectl create secret generic %s --namespace %s \\\n  --from-literal=tls.crt=\"%s\" \\\n  --from-literal=tls.key=\"%s\" \\\n  --from-literal=ca.crt=\"%s\"",
-		operatorClientTLSSecretName(op), namespace, b.ClientCertPEM, b.ClientKeyPEM, b.CACertPEM)
+		operatorClientTLSSecretName(op), namespace, certPEM, keyPEM, caPEM)
+	setFlags += fmt.Sprintf(" --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=%s", operatorClientTLSSecretName(op))
+	return setFlags, secretCmd
 }
 
 func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle) (install, secretCmd string) {
@@ -277,7 +283,6 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 			byCluster[ag.ClusterID] = ag
 		}
 	}
-	endpoint := fmt.Sprintf("%s.continuum-system.svc:4317", op.ID)
 	out := make([]string, 0, len(op.SourceClusterIDs))
 	for _, cl := range op.SourceClusterIDs {
 		ag, ok := byCluster[cl]
@@ -286,15 +291,14 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 			ns, name = hub.NamespaceOf(ag.ID), hub.ReleaseNameOf(ag.ID)
 		}
 		rns, rname, _ := releaseTarget(ns, name)
-		upgrade := fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reuse-values --set telemetry.export.otlp.endpoint=%s", rname, ref, version, rns, endpoint)
-		// mTLS is additive: every source cluster of this operator presents the same shared client
-		// certificate (see pki.IssueOperatorClientTLS), verified against the CA bundle in the same
-		// Secret - only wired in here when CreateOperator actually minted it (see its own comment on
-		// why that mint can fail without failing operator creation itself).
-		if cmd := operatorClientTLSSecretCommand(op, tlsBundle, rns); cmd != "" {
-			out = append(out, fmt.Sprintf("%s  # cluster %s: create the client certificate Secret first", cmd, cl))
-			upgrade += fmt.Sprintf(" --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=%s", operatorClientTLSSecretName(op))
+		// Only wired in here when CreateOperator actually minted the client certificate (see its own
+		// comment on why that mint can fail without failing operator creation itself) - this is additive,
+		// the bearer token alone still works without it.
+		setFlags, secretCmd := operatorDestinationCommand(op, tlsBundle.ClientCertPEM, tlsBundle.ClientKeyPEM, tlsBundle.CACertPEM, rns)
+		if secretCmd != "" {
+			out = append(out, fmt.Sprintf("%s  # cluster %s: create the client certificate Secret first", secretCmd, cl))
 		}
+		upgrade := fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reuse-values %s", rname, ref, version, rns, setFlags)
 		out = append(out, upgrade+fmt.Sprintf("  # cluster %s", cl))
 	}
 	return out

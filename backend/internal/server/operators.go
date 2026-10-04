@@ -234,3 +234,30 @@ func (c *Core) DeleteOperator(ctx context.Context, actor, id string) error {
 		return nil
 	})
 }
+
+// IssueOperatorClientCert mints a fresh mTLS client certificate for an existing operator's receiver,
+// on demand - for a cluster granted a TelemetryIntent pointing at this operator after its creation,
+// which never received the one shared client cert minted (and shown once, never stored) at CreateOperator
+// time. Safe to call repeatedly: the operator's receiver trusts this organisation's CA via client_ca_file,
+// not one pinned certificate, so every certificate this mints validates identically. Not stored server-side,
+// same rule every certificate/secret in this app follows - returned once, to be put directly into a
+// Kubernetes Secret the admin creates.
+func (c *Core) IssueOperatorClientCert(ctx context.Context, actor, operatorID string) (certPEM, keyPEM, caPEM []byte, err error) {
+	op, err := c.operatorInOrg(ctx, operatorID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if op.Status != store.OperatorActive {
+		return nil, nil, nil, errf(KindConflict, "operator is not active")
+	}
+	certPEM, keyPEM, err = c.CA.IssueOperatorClientTLS(op.ID, c.OrgID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	// Side-effect-free beyond the mint above: nothing is stored, so this is recorded with the
+	// fire-and-forget c.audit rather than c.audited (which wraps a do func() error for a store mutation
+	// that must not happen unseen - see CreateOperator's own "operator-tls-mint-failed" for the same
+	// reasoning when a TLS mint itself is what is being logged).
+	c.audit(ctx, actor, "operator-client-cert-reissued", "operator", op.ID, "")
+	return certPEM, keyPEM, c.CA.CertPEM(), nil
+}
