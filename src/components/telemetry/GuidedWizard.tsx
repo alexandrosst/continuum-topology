@@ -1,16 +1,26 @@
 import clsx from 'clsx'
-import { Activity, Check, ChevronLeft, FileText, Plus, Waypoints, X, type LucideIcon } from 'lucide-react'
-import { useState } from 'react'
-import { Button, ICON_MD, ICON_SM, WizardSteps } from '@/components/ui/primitives'
+import { Activity, Check, ChevronLeft, ExternalLink, FileText, Plus, Rocket, Waypoints, X, type LucideIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { buttonClass } from '@/components/ui/buttonClass'
+import { Button, ComboField, Field, ICON_MD, ICON_SM, WizardSteps } from '@/components/ui/primitives'
+import { api, atLeast } from '@/lib/api'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
-import type { TelemetryInput } from '@/lib/install'
+import { buildDestinationCatalog, type DestinationCatalogEntry } from '@/lib/destinationCatalog'
+import { EXPORT_PRESETS } from '@/lib/exportPresets'
+import { effectiveAllowedBackendKinds, type QuickStartBackend } from '@/lib/history'
+import { enabledModalities, type TelemetryInput } from '@/lib/install'
 import { LAYER_CARDS, LAYER_META, type Layer } from '@/lib/telemetryLayers'
+import type { RegionalOperator } from '@/lib/types'
+import { useConn, useServer } from '@/store/server'
+import { useSettings } from '@/store/settings'
 import GuidedScope from './GuidedScope'
 import { AcceleratorsFields, EnergyFields, SignalRow, type SignalId } from './TelemetryFields'
+import TelemetryBackendWizard from './TelemetryBackendWizard'
 import TelemetryReviewPipeline from './TelemetryReviewPipeline'
 
 type Modality = 'metrics' | 'logs' | 'traces'
-type Step = 'layer' | 'modality' | 'kind' | 'scope' | 'review'
+type Step = 'layer' | 'modality' | 'kind' | 'scope' | 'destination' | 'review'
 
 const MODALITY_META: Record<Modality, { label: string; icon: LucideIcon }> = {
   metrics: { label: 'Metrics', icon: Activity },
@@ -27,6 +37,8 @@ function PickCard({
   hint,
   icon: Icon,
   selected,
+  disabled,
+  title,
   onClick,
   testId,
 }: {
@@ -34,6 +46,13 @@ function PickCard({
   hint: string
   icon?: LucideIcon
   selected: boolean
+  /** Shown disabled rather than hidden - an option that exists but isn't valid for what's already turned
+   *  on right now (the same convention the destination step's catalog cards use for an incompatible
+   *  regional operator or quick-started backend), so a person sees it was considered and why it's off
+   *  limits instead of wondering where it went. */
+  disabled?: boolean
+  /** The reason behind `disabled` above, shown as a native tooltip - absent when not disabled. */
+  title?: string
   onClick: () => void
   testId: string
 }) {
@@ -42,11 +61,18 @@ function PickCard({
       type="button"
       role="radio"
       aria-checked={selected}
+      disabled={disabled}
+      title={title}
       onClick={onClick}
       data-testid={testId}
       className={clsx(
-        'relative flex flex-col items-start gap-1.5 rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20',
-        selected ? 'border-accent bg-accent-soft ring-1 ring-accent/40' : 'border-nb-850 bg-nb-925 hover:border-nb-800 hover:bg-nb-930',
+        'relative flex flex-col items-start gap-1.5 rounded-xl border p-4 text-left transition-all',
+        disabled
+          ? 'cursor-not-allowed border-nb-850 bg-nb-930/40 opacity-50'
+          : clsx(
+              'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20',
+              selected ? 'border-accent bg-accent-soft ring-1 ring-accent/40' : 'border-nb-850 bg-nb-925 hover:border-nb-800 hover:bg-nb-930',
+            ),
       )}
     >
       {selected && (
@@ -148,7 +174,9 @@ export default function GuidedWizard({
   // the "Define scope" screen simply never has a moment where it shows with nothing left to attach. This is
   // reachable now: removing a signal's chip (see SelectedChip above) while sitting on the scope step is
   // exactly that case.
-  const step: Step = rawStep === 'scope' && !needsScope ? 'review' : rawStep
+  // Same reasoning, but landing on Destination (not Review) now that it always sits between Scope and
+  // Review - Destination is still worth seeing even once there is nothing left to scope.
+  const step: Step = rawStep === 'scope' && !needsScope ? 'destination' : rawStep
 
   // Whether the rail shows 4 steps or 5 is latched at each actual step transition (see finishKind and
   // removeSignal below), not derived from `value` on every render like `needsScope` above: reading it live
@@ -158,18 +186,103 @@ export default function GuidedWizard({
   // outside) starts the rail showing the right step count from the first paint.
   const [scopeStepNeeded, setScopeStepNeeded] = useState<boolean>(needsScope)
 
-  const stepKeys: Step[] = scopeStepNeeded ? ['layer', 'modality', 'kind', 'scope', 'review'] : ['layer', 'modality', 'kind', 'review']
-  const stepLabels: Record<Step, string> = { layer: 'Layer', modality: 'Modality', kind: 'Kind', scope: 'Scope', review: 'Review' }
+  const stepKeys: Step[] = scopeStepNeeded
+    ? ['layer', 'modality', 'kind', 'scope', 'destination', 'review']
+    : ['layer', 'modality', 'kind', 'destination', 'review']
+  const stepLabels: Record<Step, string> = { layer: 'Layer', modality: 'Modality', kind: 'Kind', scope: 'Scope', destination: 'Destination', review: 'Review' }
   const currentIndex = Math.max(0, stepKeys.indexOf(step))
 
   const modalities = layer ? [...new Set(TELEMETRY_SIGNALS.filter((s) => s.layer === layer).map((s) => s.modality))] : []
   const kindSignals = layer && modality ? TELEMETRY_SIGNALS.filter((s) => s.layer === layer && s.modality === modality) : []
   const onSignals = TELEMETRY_SIGNALS.filter((s) => value[s.id as SignalId])
 
+  // Where Back from Destination, and from Review, both land: whichever screen was last worth seeing
+  // before Destination - Scope when this session actually needed one, otherwise Kind (or, for a scope
+  // handed off from outside with no layer/modality ever picked, Layer itself).
+  const beforeDestination: Step = scopeStepNeeded ? 'scope' : layer && modality ? 'kind' : 'layer'
+
   const advancePastKind = (justTurnedOn?: SignalId) => {
     const willNeedScope = APP_SCOPED.some((k) => k === justTurnedOn || value[k])
     setScopeStepNeeded(willNeedScope)
-    setStep(willNeedScope ? 'scope' : 'review')
+    setStep(willNeedScope ? 'scope' : 'destination')
+  }
+
+  // Destination step: a modality-filtered merge of regional operators, external-backend presets and
+  // already-quick-started backends (see destinationCatalog.ts) - operators are fetched here, not read
+  // from some wider store, since nothing else in this wizard already holds them and GET /operators is
+  // adminRole-gated server-side (admin.go), so a non-administrator never even tries.
+  const conn = useConn()
+  const isAdmin = useServer((s) => atLeast(s.role, 'admin'))
+  const { settings, save, error: settingsError } = useSettings()
+  const [operators, setOperators] = useState<RegionalOperator[]>([])
+  useEffect(() => {
+    if (!isAdmin) {
+      setOperators([])
+      return
+    }
+    let cancelled = false
+    void api
+      .listOperators(conn)
+      .then((ops) => {
+        if (!cancelled) setOperators(ops)
+      })
+      .catch(() => {
+        // Not fatal - the destination step simply offers no regional-operator cards; the presets, the
+        // already-quick-started backends and the free-text fallback all still work.
+      })
+    return () => {
+      cancelled = true
+    }
+    // Deliberately depend on conn's own identifying fields rather than the conn object itself: useConn's
+    // real implementation (store/server.ts) memoizes it by url/org, but a test double or any other caller
+    // that hands back a fresh object every render would otherwise re-fire this effect (and, via
+    // setOperators, re-render) on every single render - an infinite loop no caller should have to avoid by
+    // memoizing just right.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conn.url, conn.org, isAdmin])
+
+  const enabledModalitySet = enabledModalities(value)
+  const catalog = buildDestinationCatalog({
+    operators,
+    enabledModalities: enabledModalitySet,
+    quickStartBackends: settings.quickStartBackends,
+    isAdmin,
+  })
+  // The ComboField free-text fallback's own dropdown options are just this catalog's already-filtered
+  // preset entries, read back out - never a second, independently-filtered list that could drift from
+  // the cards above it.
+  const comboOptions = catalog.entries.filter((e): e is DestinationCatalogEntry & { kind: 'external-preset' } => e.kind === 'external-preset').map((e) => ({ value: e.preset.endpointPattern, label: e.preset.label }))
+
+  const destinationEndpoint = (entry: DestinationCatalogEntry): string => (entry.kind === 'external-preset' ? entry.preset.endpointPattern : entry.exportEndpoint)
+  const destinationHint = (entry: DestinationCatalogEntry): string => {
+    if ('reason' in entry && entry.reason) return entry.reason
+    if (entry.kind === 'operator') return 'Regional operator in this organisation.'
+    if (entry.kind === 'quickstart') return `Already quick-started here · ${entry.backend.modality}.`
+    return 'Known external backend.'
+  }
+  const applyDestinationEntry = (entry: DestinationCatalogEntry) => {
+    if (entry.kind === 'external-preset') {
+      onChange({
+        ...value,
+        exportEndpoint: entry.preset.endpointPattern,
+        exportProtocol: entry.preset.protocol,
+        exportAuthHeaderName: entry.preset.headerName ? entry.preset.headerName : value.exportAuthHeaderName,
+      })
+    } else {
+      onChange({ ...value, exportEndpoint: entry.exportEndpoint, exportProtocol: entry.exportProtocol })
+    }
+  }
+
+  const [backendWizardOpen, setBackendWizardOpen] = useState(false)
+  const [backendBusy, setBackendBusy] = useState(false)
+  const saveBackend = async (rec: QuickStartBackend) => {
+    setBackendBusy(true)
+    try {
+      const ok = await save(conn, { ...settings, quickStartBackends: [...settings.quickStartBackends, rec] })
+      if (ok) setBackendWizardOpen(false)
+    } finally {
+      setBackendBusy(false)
+    }
   }
 
   const pickLayer = (l: Layer) => {
@@ -289,6 +402,58 @@ export default function GuidedWizard({
                   Layer instead of unconditionally targeting 'kind' avoids landing on a blank step with no
                   controls at all - the dead end this used to be. */}
               <BackLink onClick={() => setStep(layer && modality ? 'kind' : 'layer')} testId={`${testIdPrefix}-guided-back`} />
+              <Button variant="primary" className="ml-auto" onClick={() => setStep('destination')} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
+            </div>
+          </div>
+        )}
+
+        {step === 'destination' && (
+          <div className="space-y-3" data-testid={`${testIdPrefix}-guided-step-destination`}>
+            <p className="text-xs text-nb-500">Where should this go? Pick a destination already known to this organisation, or type your own below.</p>
+            {catalog.entries.length > 0 && (
+              <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Destination">
+                {catalog.entries.map((entry) => (
+                  <PickCard
+                    key={`${entry.kind}-${entry.id}`}
+                    label={entry.label}
+                    hint={destinationHint(entry)}
+                    selected={entry.compatible && value.exportEndpoint.trim() !== '' && value.exportEndpoint === destinationEndpoint(entry)}
+                    disabled={!entry.compatible}
+                    title={'reason' in entry ? entry.reason : undefined}
+                    onClick={() => applyDestinationEntry(entry)}
+                    testId={`${testIdPrefix}-guided-destination-${entry.kind}-${entry.id}`}
+                  />
+                ))}
+              </div>
+            )}
+            <Field label="Or type your own endpoint" hint="Not every backend is in the list above - an existing collector gateway or observability backend works exactly as it does on the flat form.">
+              <ComboField
+                value={value.exportEndpoint}
+                onChange={(v) => {
+                  const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === v)
+                  onChange({
+                    ...value,
+                    exportEndpoint: v,
+                    exportProtocol: preset ? preset.protocol : value.exportProtocol,
+                    exportAuthHeaderName: preset && preset.headerName ? preset.headerName : value.exportAuthHeaderName,
+                  })
+                }}
+                placeholder="otel-gateway.example.com:4317"
+                options={comboOptions}
+              />
+            </Field>
+            <div className="flex flex-wrap items-center gap-2 border-t border-nb-850 pt-3">
+              <Button type="button" size="sm" onClick={() => setBackendWizardOpen(true)} data-testid={`${testIdPrefix}-guided-deploy-backend`}>
+                <Rocket size={ICON_SM} /> Deploy a new backend
+              </Button>
+              {catalog.canDeployOperator && (
+                <Link to="/operators" className={buttonClass('secondary', 'sm')} data-testid={`${testIdPrefix}-guided-deploy-operator`}>
+                  <ExternalLink size={ICON_SM} /> Deploy a new regional operator
+                </Link>
+              )}
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <BackLink onClick={() => setStep(beforeDestination)} testId={`${testIdPrefix}-guided-back`} />
               <Button variant="primary" className="ml-auto" onClick={() => setStep('review')} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
             </div>
           </div>
@@ -302,18 +467,31 @@ export default function GuidedWizard({
               <>
                 <p className="text-xs text-nb-500">How this will flow, end to end:</p>
                 <TelemetryReviewPipeline value={value} onSignals={onSignals} testIdPrefix={testIdPrefix} />
-                {!value.exportEndpoint.trim() && <p className="text-xs text-nb-600">Set where this is sent below, then finish from there.</p>}
+                {!value.exportEndpoint.trim() && <p className="text-xs text-nb-600">Go back to Destination to set where this is sent.</p>}
               </>
             )}
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              {/* Same reasoning as Scope's own Back button above: 'kind' only ever has something to show
-                  once a layer and a modality are both picked. */}
-              <BackLink onClick={() => setStep(scopeStepNeeded ? 'scope' : layer && modality ? 'kind' : 'layer')} testId={`${testIdPrefix}-guided-back`} />
+              {/* Destination always sits directly before Review now, whatever scopeStepNeeded is. */}
+              <BackLink onClick={() => setStep('destination')} testId={`${testIdPrefix}-guided-back`} />
               <Button onClick={addAnother} data-testid={`${testIdPrefix}-guided-add-another`}><Plus size={ICON_SM} /> Add another</Button>
             </div>
           </div>
         )}
       </div>
+      <TelemetryBackendWizard
+        open={backendWizardOpen}
+        onClose={() => setBackendWizardOpen(false)}
+        allowedKinds={effectiveAllowedBackendKinds(settings.allowedBackendKinds)}
+        enabledModalities={enabledModalitySet}
+        existingBackends={settings.quickStartBackends}
+        currentEndpoint={value.exportEndpoint}
+        currentProtocol={value.exportProtocol}
+        extraProcessors={value.extraProcessors}
+        admin={isAdmin}
+        busy={backendBusy}
+        error={settingsError}
+        onSave={(rec) => void saveBackend(rec)}
+      />
     </div>
   )
 }
