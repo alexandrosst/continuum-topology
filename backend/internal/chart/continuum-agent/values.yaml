@@ -350,6 +350,16 @@ telemetry:
         secretName: ""              # a Secret in this release's namespace, created outside this chart
         secretKey: token            # the key within that Secret holding the header's value, e.g. "Bearer ..."
 
+  # Provenance stamped onto every exported signal, regardless of what telemetry.processors.extraProcessors
+  # sets - resource/continuum always runs last before the batch processor, with action: upsert, so these
+  # three values always win. Never hand-typed: filled in by the server's own generated `helm upgrade`
+  # command when a telemetry grant is created or changed, the same way access.tier and server.caPin are
+  # server-composed rather than user-edited.
+  resource:
+    orgId: ""
+    clusterId: ""
+    intentId: ""
+
   # Processor-level controls applied to the OTel Collector pipelines themselves, independent of which
   # signals above are enabled. memory_limiter is always rendered (baseline collector hygiene, not a
   # toggle); the rest are opt-in/opt-out as documented per field.

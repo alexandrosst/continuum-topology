@@ -561,6 +561,21 @@
             }
           }
         },
+        "resource": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "orgId": {
+              "type": "string"
+            },
+            "clusterId": {
+              "type": "string"
+            },
+            "intentId": {
+              "type": "string"
+            }
+          }
+        },
         "resourceUsage": {
           "type": "object",
           "additionalProperties": false,

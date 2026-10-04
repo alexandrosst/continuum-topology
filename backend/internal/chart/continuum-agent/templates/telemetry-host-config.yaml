@@ -10,6 +10,7 @@
 {{- if .Values.telemetry.processors.resourceDetection.enabled }}{{ $hProcessors = append $hProcessors "resourcedetection" }}{{ end }}
 {{- if .Values.telemetry.processors.redaction.enabled }}{{ $hProcessors = append $hProcessors "redaction" }}{{ end }}
 {{- range .Values.telemetry.processors.extraProcessorNames }}{{ $hProcessors = append $hProcessors . }}{{ end }}
+{{- $hProcessors = append $hProcessors "resource/continuum" }}
 {{- $hProcessors = append $hProcessors "batch" }}
 apiVersion: v1
 kind: ConfigMap
@@ -97,6 +98,7 @@ data:
       {{- with .Values.telemetry.processors.extraProcessors }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
+      {{- include "agent.telemetryContinuumProvenanceYAML" . | nindent 6 }}
       batch: {}
 
     {{- if .Values.telemetry.opamp.enabled }}

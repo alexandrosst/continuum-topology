@@ -124,6 +124,24 @@ redaction:
 {{- end }}
 {{- end -}}
 
+{{/* Continuum provenance: stamps this release's org/cluster/telemetry-grant identity onto every signal
+     this agent emits, as plain resource attributes - continuum.org.id, continuum.cluster.id,
+     continuum.intent.id. Unlike every other processor above, this one is never a user on/off toggle and
+     is not meant to be hand-edited in values.yaml: telemetry.resource.* is filled in by the server's own
+     generated `helm upgrade` command when a telemetry grant is created or changed, the same way
+     access.tier and server.caPin are server-composed rather than user-edited. It must win over anything a
+     user's own telemetry.processors.extraProcessors sets on these same keys, so the host/cluster config
+     templates append "resource/continuum" to every pipeline's processor list after extraProcessorNames
+     (and, for traces, extraTracesProcessorNames) and right before the final "batch" - action: upsert plus
+     running last beats whatever an earlier, user-supplied processor set first. */}}
+{{- define "agent.telemetryContinuumProvenanceYAML" -}}
+resource/continuum:
+  attributes:
+    - {key: continuum.org.id, value: {{ .Values.telemetry.resource.orgId | quote }}, action: upsert}
+    - {key: continuum.cluster.id, value: {{ .Values.telemetry.resource.clusterId | quote }}, action: upsert}
+    - {key: continuum.intent.id, value: {{ .Values.telemetry.resource.intentId | quote }}, action: upsert}
+{{- end -}}
+
 {{/* Traces only, referenced only from the traces pipeline in telemetry-cluster-config.yaml. 100 (default)
      means no sampling; the pipeline only references this by name when the percentage is below 100, so a
      default install renders no probabilistic_sampler block or pipeline entry at all. */}}

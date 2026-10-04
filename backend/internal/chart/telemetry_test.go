@@ -318,7 +318,7 @@ func TestTelemetryProcessorOrderMatchesSpec(t *testing.T) {
 		t.Fatal("traces pipeline missing")
 	}
 	got, _ := traces["processors"].([]any)
-	want := []any{"memory_limiter", "k8sattributes", "resourcedetection", "redaction", "filter/scope", "probabilistic_sampler", "batch"}
+	want := []any{"memory_limiter", "k8sattributes", "resourcedetection", "redaction", "filter/scope", "probabilistic_sampler", "resource/continuum", "batch"}
 	if len(got) != len(want) {
 		t.Fatalf("traces processors = %v, want %v", got, want)
 	}
@@ -995,5 +995,139 @@ func TestTelemetryExportProtocolHTTPUsesOtlphttpExporter(t *testing.T) {
 	}
 	if _, ok := expG["otlphttp"]; ok {
 		t.Error("default protocol should not render an otlphttp exporter")
+	}
+}
+
+// -----------------------------------------------------------------------------------------------------
+// resource/continuum: Continuum's own org/cluster/intent provenance, stamped last before batch so it
+// always wins over a user's own telemetry.processors.extraProcessors (action: upsert, last in the list).
+// -----------------------------------------------------------------------------------------------------
+
+func TestTelemetryContinuumProvenanceProcessorStampsResourceAttributes(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.resourceUsage.metrics.enabled=true",
+		"--set", "telemetry.kubernetesState.metrics.enabled=true",
+		"--set", "telemetry.resource.orgId=org-1",
+		"--set", "telemetry.resource.clusterId=cluster-1",
+		"--set", "telemetry.resource.intentId=intent-1",
+	)
+
+	checkAttrs := func(t *testing.T, cmName string, attrs []any) {
+		t.Helper()
+		want := map[string]string{
+			"continuum.org.id":     "org-1",
+			"continuum.cluster.id": "cluster-1",
+			"continuum.intent.id":  "intent-1",
+		}
+		if len(attrs) != len(want) {
+			t.Fatalf("%s: resource/continuum attributes = %v, want %d entries", cmName, attrs, len(want))
+		}
+		for _, a := range attrs {
+			m, _ := a.(map[string]any)
+			key, _ := m["key"].(string)
+			wantVal, ok := want[key]
+			if !ok {
+				t.Errorf("%s: unexpected attribute key %q in resource/continuum: %v", cmName, key, m)
+				continue
+			}
+			if m["value"] != wantVal {
+				t.Errorf("%s: resource/continuum[%s].value = %v, want %q", cmName, key, m["value"], wantVal)
+			}
+			if m["action"] != "upsert" {
+				t.Errorf("%s: resource/continuum[%s].action = %v, want upsert", cmName, key, m["action"])
+			}
+			delete(want, key)
+		}
+		if len(want) != 0 {
+			t.Errorf("%s: resource/continuum missing attribute keys: %v", cmName, want)
+		}
+	}
+
+	for _, cmName := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+		cfg := otelConfig(t, r.configmaps[cmName].Data)
+		procs, _ := cfg["processors"].(map[string]any)
+		rc, ok := procs["resource/continuum"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s: resource/continuum processor missing: %v", cmName, procs)
+		}
+		attrs, _ := rc["attributes"].([]any)
+		checkAttrs(t, cmName, attrs)
+
+		svc, _ := cfg["service"].(map[string]any)
+		pipelines, _ := svc["pipelines"].(map[string]any)
+		if len(pipelines) == 0 {
+			t.Fatalf("%s: no pipelines rendered", cmName)
+		}
+		for name, raw := range pipelines {
+			p, _ := raw.(map[string]any)
+			procList, _ := p["processors"].([]any)
+			if len(procList) < 2 || procList[len(procList)-1] != "batch" || procList[len(procList)-2] != "resource/continuum" {
+				t.Errorf("%s pipeline %q processors = %v, want resource/continuum immediately before batch", cmName, name, procList)
+			}
+		}
+	}
+}
+
+func TestTelemetryContinuumProvenanceAlwaysAfterUsersExtraProcessor(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.traces.traces.enabled=true",
+		"--set", "telemetry.resource.orgId=org-1", "--set", "telemetry.resource.clusterId=cluster-1", "--set", "telemetry.resource.intentId=intent-1",
+		"--set-json", `telemetry.processors.extraProcessors={"attributes/spoof_org":{"actions":[{"key":"continuum.org.id","value":"attacker","action":"upsert"}]}}`,
+		"--set", "telemetry.processors.extraProcessorNames[0]=attributes/spoof_org")
+	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cfg := otelConfig(t, cm.Data)
+	svc, _ := cfg["service"].(map[string]any)
+	pipelines, _ := svc["pipelines"].(map[string]any)
+	traces, ok := pipelines["traces"].(map[string]any)
+	if !ok {
+		t.Fatal("traces pipeline missing")
+	}
+	procList, _ := traces["processors"].([]any)
+
+	spoofIdx, provIdx := -1, -1
+	for i, p := range procList {
+		if p == "attributes/spoof_org" {
+			spoofIdx = i
+		}
+		if p == "resource/continuum" {
+			provIdx = i
+		}
+	}
+	if spoofIdx == -1 || provIdx == -1 {
+		t.Fatalf("expected both attributes/spoof_org and resource/continuum in traces processors, got %v", procList)
+	}
+	// Position is what proves the point: processors run in list order and a later action:upsert on the
+	// same key wins, so resource/continuum must sit after the user's own extra processor, not before it.
+	if provIdx <= spoofIdx {
+		t.Errorf("resource/continuum (index %d) must come after the user's own extra processor (index %d) so its action:upsert wins, got %v", provIdx, spoofIdx, procList)
+	}
+	if procList[len(procList)-1] != "batch" {
+		t.Errorf("batch must stay last even with resource/continuum added, got %v", procList)
+	}
+	if procList[len(procList)-2] != "resource/continuum" {
+		t.Errorf("resource/continuum must sit immediately before batch, got %v", procList)
+	}
+}
+
+func TestTelemetryContinuumProvenanceDefaultsToEmptyAttributesAndStillRenders(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true")
+	cm := r.configmaps["continuum-telemetry-host-config"]
+	cfg := otelConfig(t, cm.Data)
+	procs, _ := cfg["processors"].(map[string]any)
+	rc, ok := procs["resource/continuum"].(map[string]any)
+	if !ok {
+		t.Fatalf("resource/continuum processor missing even with telemetry.resource left at its empty-string defaults: %v", procs)
+	}
+	attrs, _ := rc["attributes"].([]any)
+	if len(attrs) != 3 {
+		t.Fatalf("resource/continuum attributes = %v, want 3 entries even with empty values", attrs)
+	}
+	for _, a := range attrs {
+		m, _ := a.(map[string]any)
+		if m["value"] != "" {
+			t.Errorf("resource/continuum attribute %v should default to an empty string, not be hand-typed", m)
+		}
+		if m["action"] != "upsert" {
+			t.Errorf("resource/continuum attribute %v should still use action: upsert at defaults", m)
+		}
 	}
 }
