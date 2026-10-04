@@ -265,13 +265,13 @@ The server also has its own `server backup` and `server restore` commands: a con
 
 ### Encrypting the CA key at rest
 
-`pki.encryptAtRest` (default `true`) means the key on disk is never plaintext: this chart generates a passphrase itself, once, into its own Secret (kept across upgrades and even a `helm uninstall`, the same way the PVC is), and the server encrypts the key under it (argon2id + AES-256-GCM) the moment it starts. You do not need to set anything for this; it is the default, not an opt-in.
+`pki.encryptAtRest` (default `true`) means the key on disk is never plaintext: the server encrypts it under a passphrase (argon2id + AES-256-GCM) the moment it starts. You do not need to set anything for this; it is the default, not an opt-in.
 
-That Secret is deliberately kept apart from both the PVC (the encrypted key material) and the database: back it up separately, the same way you would a private key, because **the passphrase is as sensitive as the key it protects, and losing it is exactly as bad as losing the key** — a backup of the encrypted key without it is useless. `kubectl get secret <release>-continuum-server-ca-passphrase -o jsonpath='{.data.passphrase}' | base64 -d` reads it out to store somewhere independent (a password manager, a separate secret store), which is worth doing once right after the first install rather than discovering it's needed during a disaster recovery.
+By default (no `pki.caKeyPassphraseSecret.name`) the chart passes `--ca-key-auto-passphrase`: the server itself mints the passphrase with `crypto/rand` on first start and writes it to `<data-dir>/pki/ca.passphrase` (mode 0600), next to `ca.crt`/`ca.key`, reusing it on every restart. This needs no Kubernetes permissions at all - the chart's ServiceAccount still never talks to the Kubernetes API - but it also means the passphrase lives on the same PVC as the key it protects: back up `/data` (below) and you have both, which is simpler but gives up keeping them apart. If you want that separation - the passphrase recoverable even if the PVC, its snapshots or its backups are compromised on their own - bring your own instead:
 
-Bringing your own passphrase (from an external secret manager, say, via External Secrets Operator or similar) instead of the chart's own: set `pki.caKeyPassphraseSecret.name` (and `.key` if not `passphrase`) to an existing Secret; it always takes priority over the auto-generated one, and the auto-generated Secret is then simply not created.
+Bringing your own passphrase (from an external secret manager, say, via External Secrets Operator, or a plain Secret you create and fill in yourself) instead of the server's auto-generated one: set `pki.caKeyPassphraseSecret.name` (and `.key` if not `passphrase`) to an existing Secret containing it. It always takes priority over `--ca-key-auto-passphrase`, which the chart then does not pass at all. **The passphrase is as sensitive as the key it protects, and losing it is exactly as bad as losing the key** — a backup of the encrypted key without it is useless; keep this Secret's content wherever you keep other long-lived credentials, independent of the PVC and the database.
 
-Turning it off (`pki.encryptAtRest=false`) goes back to the key sitting in plaintext on the PVC, mode 0600, with only a log warning at startup. Reasonable for local development against a throwaway cluster; not for anything where the PVC, its snapshots, or its backups might ever leave a trust boundary you control end to end. Under `helm template` for a GitOps flow (Argo CD, Flux), the auto-generated passphrase cannot be looked up from the live cluster (`lookup` returns nothing there), so it would render a new random value on every run — in that flow, create the Secret yourself and set `pki.caKeyPassphraseSecret.name`, exactly as with `neo4j.auth.existingSecret`.
+Turning encryption off (`pki.encryptAtRest=false`) goes back to the key sitting in plaintext on the PVC, mode 0600, with only a log warning at startup. Reasonable for local development against a throwaway cluster; not for anything where the PVC, its snapshots, or its backups might ever leave a trust boundary you control end to end.
 
 See `internal/pki/ROTATION.md` in the server source for the full backup/restore/rotation mechanics.
 
@@ -332,15 +332,17 @@ kubectl -n continuum scale deployment/continuum-server --replicas=1
 
 (Replace `continuum-server-data` with your PVC name. `helm upgrade` also resets replicas to 1.) Encrypt the archive (`age`, `gpg`) before it leaves your workstation: it contains the CA private key (encrypted under the passphrase, by default — see "Encrypting the CA key at rest" above — but treat the archive as sensitive regardless).
 
-With `pki.encryptAtRest` (the default), also export the passphrase Secret alongside this archive — the key in the archive is useless without it, so a backup missing the passphrase is not really a backup:
+With the default `--ca-key-auto-passphrase` (no `pki.caKeyPassphraseSecret.name`), the passphrase lives at `pki/ca.passphrase` inside `/data` itself, so this archive already contains it - nothing extra to export, which is exactly the trade-off that default makes (see "Encrypting the CA key at rest" above).
+
+If you instead brought your own passphrase with `pki.caKeyPassphraseSecret.name`, also export that Secret alongside this archive — the key in the archive is useless without it, so a backup missing the passphrase is not really a backup:
 
 ```console
-kubectl -n continuum get secret continuum-server-ca-passphrase -o yaml > continuum-ca-passphrase-$(date +%F).yaml
+kubectl -n continuum get secret <your-passphrase-secret> -o yaml > continuum-ca-passphrase-$(date +%F).yaml
 ```
 
-(Replace the Secret name if you set `pki.caKeyPassphraseSecret.name`, or if the release name differs from `continuum-server`.) Keep this file wherever you keep the archive's decryption key: together they reconstruct the CA, separately neither does much.
+Keep this file wherever you keep the archive's decryption key: together they reconstruct the CA, separately neither does much.
 
-Restore: scale to 0, run the same pod with the volume writable (drop `readOnly`) and `kubectl exec -i ... -- sh -c 'cd /data && tar xzf -' < archive.tgz`, make sure the files end up owned by 65532 (`fsGroup` and the pod's user do that), delete the pod, scale back to 1. If the passphrase Secret currently in the cluster is not the one this archive's key was encrypted under (a rare case: the Secret was deleted and regenerated since this backup was taken), restore it too with `kubectl apply -f continuum-ca-passphrase-....yaml` before scaling back up, or the server will refuse to start with `ErrWrongPassphrase`. The server logs `continuum server started` with the same `ca_pin` as before; if it differs, agents will not connect.
+Restore: scale to 0, run the same pod with the volume writable (drop `readOnly`) and `kubectl exec -i ... -- sh -c 'cd /data && tar xzf -' < archive.tgz`, make sure the files end up owned by 65532 (`fsGroup` and the pod's user do that), delete the pod, scale back to 1. With the default auto-generated passphrase this also restores `pki/ca.passphrase`, so there is nothing else to do. With your own passphrase Secret (`pki.caKeyPassphraseSecret.name`), and the one currently in the cluster is not the one this archive's key was encrypted under (a rare case: the Secret was deleted and regenerated since this backup was taken), restore it too with `kubectl apply -f continuum-ca-passphrase-....yaml` before scaling back up, or the server will refuse to start with `ErrWrongPassphrase`. The server logs `continuum server started` with the same `ca_pin` as before; if it differs, agents will not connect.
 
 ### Neo4j
 
@@ -506,8 +508,8 @@ The important values; all of them are documented in `values.yaml` and tabulated 
 | `admin.existingPasswordSecret` | `""` | first administrator's password from a Secret |
 | `registration` | `invite` | `invite` / `closed` / `open` |
 | `persistence.size` / `storageClass` / `existingClaim` | `5Gi` / default / `""` | the `/data` volume |
-| `pki.encryptAtRest` | `true` | encrypt the CA key at rest; this chart generates and manages the passphrase itself |
-| `pki.caKeyPassphraseSecret.name` | `""` | bring your own passphrase Secret instead of the generated one |
+| `pki.encryptAtRest` | `true` | encrypt the CA key at rest; the server mints and persists its own passphrase (`--ca-key-auto-passphrase`) |
+| `pki.caKeyPassphraseSecret.name` | `""` | bring your own passphrase Secret instead |
 | `neo4j.mode` | `bundled` | `bundled` / `external` (mandatory: no `none`) |
 | `agentInstall.imageRegistry` / `imageTag` / `chartRef` | `""` | what the printed agent install command uses |
 | `image.repository` / `tag` / `digest` | `continuum/server` / appVersion / `""` | the server image |
@@ -551,7 +553,7 @@ Ready-made combinations to copy from live in `helm/continuum-server/ci/`.
 * **Registration.** Leave it `invite` (default) or `closed` on any reachable server. `open` gives anyone with network access an account and an organization of their own.
 * **Who can reach the admin port.** Everything a signed-in person does goes through it, and in proxy mode the server trusts `X-Forwarded-For` and `X-Forwarded-Proto` from whoever connects, so a client that can reach port 8080 directly can forge its address. Only the proxy should be able to. Use `networkPolicy.enabled` with `networkPolicy.ingress.admin.from` set to your Gateway's namespace; do not put `admin.service.type` on a LoadBalancer without TLS in front.
 * **The agent port** is the trust boundary for agents: mutual TLS with a private CA, agents pinned to it, enrollment by one-time token and explicit approval. Restrict who can connect with `agent.service.loadBalancerSourceRanges` or `networkPolicy.ingress.agent.from` when you know the agents' networks.
-* **The CA key** is the crown jewel: it is encrypted at rest by default (`pki.encryptAtRest`, see "Encrypting the CA key at rest" above), but that only protects the key on disk — still guard the PVC, its snapshots and backups (encrypted, off-cluster) and, separately, the passphrase Secret, since a stolen backup plus a stolen passphrase is the same as a stolen plaintext key.
+* **The CA key** is the crown jewel: it is encrypted at rest by default (`pki.encryptAtRest`, see "Encrypting the CA key at rest" above), but that only protects the key on disk — still guard the PVC, its snapshots and backups (encrypted, off-cluster). The default auto-generated passphrase lives on that same PVC (no Kubernetes permissions needed to put it anywhere else); bring your own passphrase Secret with `pki.caKeyPassphraseSecret.name` and guard it separately if you want a stolen PVC backup alone to be useless.
 * **Content-Security-Policy and headers.** The server sets a strict CSP (`'self'` only, no framing), `X-Content-Type-Options`, `Referrer-Policy`, and HSTS when the request was HTTPS. Do not weaken them at the proxy.
 * **The pod** runs as 65532 with a read-only root file system, all capabilities dropped, `RuntimeDefault` seccomp, no privilege escalation and no service-account token: the server never talks to the Kubernetes API, so it holds no cluster permissions. Only the optional backup CronJob has a token, limited to `VolumeSnapshot`s in the release namespace.
 * **NetworkPolicy** (`networkPolicy.enabled`, `neo4j.networkPolicy.enabled`) needs a CNI that enforces it and is off by default. Egress is limited to DNS, Neo4j and `deciderCIDRs`; if you configure an external decider in the UI, add its CIDR there **and** to `decider.allowCIDRs` if it is a private address (the server refuses private and loopback decider addresses otherwise; cloud metadata addresses are always refused).

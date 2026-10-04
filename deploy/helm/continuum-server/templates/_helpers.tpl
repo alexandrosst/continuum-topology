@@ -164,22 +164,19 @@ own helper because several templates read it rather than repeating the mode chec
 {{- end -}}
 {{- end -}}
 
-{{/* Secret and key that hold the CA key passphrase: an explicit existing Secret (BYO, e.g. from an external secret
-manager) if one is named, this chart's own auto-generated one otherwise (only when pki.encryptAtRest is true), or
-nothing at all when the passphrase is turned off outright. Empty means "no passphrase": the deployment template
-checks for that and never mounts anything or passes --ca-key-passphrase-file in that case. */}}
+{{/* Name and key of an existing Secret the operator brought their own CA key passphrase in (e.g. from an
+external secret manager) - empty when none is named, which is also what pki.encryptAtRest's default (no
+pki.caKeyPassphraseSecret.name) looks like: the server then mints and persists its own passphrase on first
+boot (--ca-key-auto-passphrase, see cmd/server and internal/pki.AutoPassphrase) rather than expecting one
+in a Secret, so the deployment template mounts nothing and only passes --ca-key-passphrase-file when this
+is non-empty. */}}
 {{- define "continuum.caPassphraseSecretName" -}}
-{{- if .Values.pki.caKeyPassphraseSecret.name -}}
 {{- .Values.pki.caKeyPassphraseSecret.name -}}
-{{- else if .Values.pki.encryptAtRest -}}
-{{- printf "%s-ca-passphrase" (include "continuum.fullname" .) -}}
-{{- end -}}
 {{- end -}}
 
 {{- define "continuum.caPassphraseSecretKey" -}}
 {{- if .Values.pki.caKeyPassphraseSecret.name -}}
-{{- .Values.pki.caKeyPassphraseSecret.key -}}
-{{- else -}}passphrase
+{{- .Values.pki.caKeyPassphraseSecret.key | default "passphrase" -}}
 {{- end -}}
 {{- end -}}
 

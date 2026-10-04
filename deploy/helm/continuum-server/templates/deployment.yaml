@@ -114,6 +114,8 @@ spec:
             {{- end }}
             {{- if $passName }}
             - --ca-key-passphrase-file=/etc/continuum/ca/{{ $passKey }}
+            {{- else if .Values.pki.encryptAtRest }}
+            - --ca-key-auto-passphrase
             {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}

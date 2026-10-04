@@ -60,6 +60,7 @@ The chart only renders flags the server understands **when you ask for the featu
 | `geoip.publicIpService` | `--geoip-public-ip-service` | builds that have it (present in this tree) |
 | `geoip.asnPath` | `--geoip-asn-db` | builds that have it (present in this tree) |
 | `pki.caKeyPassphraseSecret.name` | `--ca-key-passphrase-file` | **newer**: a server that adds it (not in the tree this chart was written against) |
+| (default, no `pki.caKeyPassphraseSecret.name`) | `--ca-key-auto-passphrase` | **newer**: a server that adds it, generating and persisting its own passphrase instead of expecting a chart-filled Secret |
 | `neo4j.allowInsecureHttp=true` | `--neo4j-allow-insecure-http` | **newer**: same |
 
 A server that will refuse plain `http://` to a non-loopback Neo4j (which includes the bundled one, in the cluster) needs `neo4j.allowInsecureHttp=true` (or an `https://` external Neo4j). Today's servers only log a warning. Set the value when you move to a build that has the flag.
@@ -116,7 +117,7 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 | `persistence.storageClass` | `""` | `""` cluster default, `"-"` none |
 | `persistence.size` / `accessModes` | `5Gi` / `[ReadWriteOnce]` | |
 | `persistence.keepOnUninstall` | `true` | `helm.sh/resource-policy: keep` on the PVC |
-| `pki.caKeyPassphraseSecret.name` / `key` | `""` / `passphrase` | encrypt the CA key at rest (needs a newer server) |
+| `pki.caKeyPassphraseSecret.name` / `key` | `""` / `passphrase` | bring your own CA key passphrase Secret instead of letting the server mint and persist one itself (needs a newer server either way) |
 | `neo4j.mode` | `bundled` | `bundled`, `external` (mandatory: no `none`) |
 | `neo4j.allowInsecureHttp` | `false` | pass `--neo4j-allow-insecure-http` (needs a newer server) |
 | `neo4j.user` / `database` | `neo4j` / `neo4j` | |

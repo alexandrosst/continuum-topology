@@ -74,6 +74,7 @@ func main() {
 	agentBehindProxy := flag.Bool("agent-behind-proxy", os.Getenv("CONTINUUM_AGENT_BEHIND_PROXY") == "true", "an L4 load balancer or reverse proxy sits in front of --agent-listen and is configured to send a PROXY protocol header (v1 or v2) ahead of each connection - the way to preserve the real client address through a TCP passthrough, since the agent's own mTLS handshake rules out a TLS-terminating HTTP proxy here. With it, every connection must carry that header (one that doesn't is refused) and its declared address - not the proxy's own - is what approval cards, rate limits, the audit trail and an agent's suggested location use. Only set it when the proxy is the sole way to reach this port and is actually configured to send the header; env CONTINUUM_AGENT_BEHIND_PROXY=true")
 	deciderAllow := flag.String("decider-allow-cidrs", os.Getenv("CONTINUUM_DECIDER_ALLOW_CIDRS"), "comma-separated CIDRs (10.0.0.0/8,127.0.0.1/32) the server may call for the external decider although they are private or loopback. By default only public addresses are allowed, so a decider address cannot be used to reach internal services. Cloud metadata and link-local addresses are never allowed; env CONTINUUM_DECIDER_ALLOW_CIDRS")
 	caPassFile := flag.String("ca-key-passphrase-file", os.Getenv("CONTINUUM_CA_KEY_PASSPHRASE_FILE"), "file holding a passphrase (at least 12 characters) that encrypts the CA private key at rest (argon2id + AES-256-GCM). A plaintext key is encrypted the first time this is given; an encrypted key without it stops the server. Never give the passphrase itself as a flag value; env CONTINUUM_CA_KEY_PASSPHRASE_FILE. Without it the key is stored unencrypted (mode 0600) and a warning is logged. See internal/pki/ROTATION.md")
+	caAutoPass := flag.Bool("ca-key-auto-passphrase", os.Getenv("CONTINUUM_CA_KEY_AUTO_PASSPHRASE") == "true", "generate the CA key passphrase ourselves with crypto/rand on first start and persist it at <data-dir>/pki/ca.passphrase (mode 0600), reused on every restart, instead of requiring --ca-key-passphrase-file. Mutually exclusive with it. This is what the continuum-server chart passes by default (pki.encryptAtRest, with no pki.caKeyPassphraseSecret.name given) now that it no longer generates the passphrase itself in the chart template; give --ca-key-passphrase-file instead if you want the passphrase kept apart from the data directory. env CONTINUUM_CA_KEY_AUTO_PASSPHRASE=true")
 	looseOK := flag.Bool("allow-loose-permissions", os.Getenv("CONTINUUM_ALLOW_LOOSE_PERMISSIONS") == "true", "start although the data directory, the CA key or the database is readable or writable by group or other users (by default the server refuses and prints the chmod to run). For platforms that set modes themselves, such as a Kubernetes fsGroup volume only this pod can reach; env CONTINUUM_ALLOW_LOOSE_PERMISSIONS=true")
 	uiDir := flag.String("ui-dir", "", "built UI to serve (dist/)")
 	chartRef := flag.String("chart-ref", "", "Helm chart to install, as shown in install commands (an OCI, repository or https reference). Empty: oci://<image-registry>/continuum-agent. \"local\": the copy of the chart this server serves, which the wizard offers as a download")
@@ -161,7 +162,7 @@ func main() {
 		}
 		mail = server.MailConfig{Host: *smtpHost, Port: *smtpPort, Username: *smtpUser, Password: pw, From: *smtpFrom}
 	}
-	if err := run(log, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *ssoHeader, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AllowLoose: *looseOK}, origins); err != nil {
+	if err := run(log, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *ssoHeader, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AutoPassphrase: *caAutoPass, AllowLoose: *looseOK}, origins); err != nil {
 		fatal(log, err)
 	}
 }
@@ -169,7 +170,24 @@ func main() {
 // keyOpts is how the operator asked for the CA key and the data directory to be protected.
 type keyOpts struct {
 	PassphraseFile string
+	AutoPassphrase bool
 	AllowLoose     bool
+}
+
+// resolveCAPassphrase decides what (if anything) protects the CA key at rest, from how the operator
+// asked for it via keyOpts: their own passphrase file, this process minting and persisting one itself
+// (see pki.AutoPassphrase), or neither (an unencrypted key - pki.LoadOrCreateWith logs the warning).
+func resolveCAPassphrase(log *slog.Logger, keys keyOpts, dataDir string) ([]byte, error) {
+	switch {
+	case keys.PassphraseFile != "" && keys.AutoPassphrase:
+		return nil, errors.New("--ca-key-passphrase-file and --ca-key-auto-passphrase are mutually exclusive: give one or the other")
+	case keys.PassphraseFile != "":
+		return readPassphraseFile(log, keys.PassphraseFile)
+	case keys.AutoPassphrase:
+		return pki.AutoPassphrase(filepath.Join(dataDir, "pki"))
+	default:
+		return nil, nil
+	}
 }
 
 func envOr(k, def string) string {
@@ -221,12 +239,9 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 	if err := checkPermissions(log, dataDir, keys.AllowLoose); err != nil {
 		return err
 	}
-	var passphrase []byte
-	if keys.PassphraseFile != "" {
-		var err error
-		if passphrase, err = readPassphraseFile(log, keys.PassphraseFile); err != nil {
-			return err
-		}
+	passphrase, err := resolveCAPassphrase(log, keys, dataDir)
+	if err != nil {
+		return err
 	}
 	ca, err := pki.LoadOrCreateWith(filepath.Join(dataDir, "pki"), pki.Options{Passphrase: passphrase, Log: log})
 	if err != nil {

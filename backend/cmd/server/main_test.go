@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -124,5 +125,47 @@ func TestNeo4jCredentialsOverPlainHTTPNeedAnExplicitFlagOffLoopback(t *testing.T
 		if err != nil && !strings.Contains(err.Error(), "--neo4j-allow-insecure-http") {
 			t.Errorf("the refusal should name the flag: %v", err)
 		}
+	}
+}
+
+// TestResolveCAPassphrasePrefersTheGivenFileAndRefusesBoth proves the admin-supplied override path is
+// untouched by --ca-key-auto-passphrase: a file wins exactly as it always has, giving both is refused
+// rather than silently picking one, and neither leaves the key unencrypted exactly as before.
+func TestResolveCAPassphrasePrefersTheGivenFileAndRefusesBoth(t *testing.T) {
+	log, _ := testLog()
+	dir := t.TempDir()
+	f := filepath.Join(dir, "pass")
+	if err := os.WriteFile(f, []byte("an administrator's own passphrase"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Neither flag: no encryption, same as today.
+	b, err := resolveCAPassphrase(log, keyOpts{}, dir)
+	if err != nil || b != nil {
+		t.Fatalf("got %q, %v; want no passphrase and no error", b, err)
+	}
+
+	// The override path: --ca-key-passphrase-file alone, unchanged by this change.
+	b, err = resolveCAPassphrase(log, keyOpts{PassphraseFile: f}, dir)
+	if err != nil || string(b) != "an administrator's own passphrase" {
+		t.Fatalf("got %q, %v; want the file's own content", b, err)
+	}
+
+	// --ca-key-auto-passphrase alone: minted and persisted under dataDir/pki, not the admin's file.
+	b, err = resolveCAPassphrase(log, keyOpts{AutoPassphrase: true}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) == 0 || string(b) == "an administrator's own passphrase" {
+		t.Fatalf("auto-passphrase must mint its own value, got %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pki", "ca.passphrase")); err != nil {
+		t.Fatalf("expected the minted passphrase to be persisted under dataDir/pki: %v", err)
+	}
+
+	// Both at once: refused outright rather than silently preferring one.
+	if _, err := resolveCAPassphrase(log, keyOpts{PassphraseFile: f, AutoPassphrase: true}, dir); err == nil ||
+		!strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("got %v, want a mutual-exclusivity refusal", err)
 	}
 }

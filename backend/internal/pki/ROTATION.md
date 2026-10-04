@@ -60,9 +60,10 @@ Removing the flag later does not decrypt the key; the server will refuse to star
 is supplied again.
 
 **The `continuum-server` Helm chart does this for you by default** (`pki.encryptAtRest`, on unless set
-to `false`): it generates the passphrase itself into its own Secret, kept across upgrades and
-uninstalls, and passes the flag automatically. See deploy/README.md, "Encrypting the CA key at rest",
-for how to back that Secret up, bring your own instead, or turn it off.
+to `false`): it passes `--ca-key-auto-passphrase`, so the server mints its own passphrase with
+`crypto/rand` on first start and persists it at `<data-dir>/pki/ca.passphrase`, reusing it on every
+restart. See deploy/README.md, "Encrypting the CA key at rest", for what that trades away, how to back
+it up, bring your own passphrase instead, or turn encryption off.
 
 ## Rotation
 

@@ -197,16 +197,16 @@ persistence:
 # (advanced: the default below is already secure - read on only if you want to bring your own passphrase Secret.)
 # The private key of the enrollment CA lives in /data/pki and signs every certificate this server ever issues to an
 # agent; anyone who reads it (a node compromise, a stray backup, a misconfigured volume snapshot) can mint a
-# certificate every agent would trust. encryptAtRest (default true) protects it with a passphrase: this chart
-# generates one itself, once, into its own Secret (see ca-passphrase-secret.yaml) kept separate from both the key
-# material (on the PVC) and the identity database (in /data). The passphrase is part of the backup: back it up (and
-# store it) separately from the PVC snapshot, exactly like the CA key itself; losing it is losing the CA (README.md,
-# "Encrypting the CA key at rest").
-#   true (default)  this chart generates and manages the passphrase Secret; nothing to configure
+# certificate every agent would trust. encryptAtRest (default true) protects it with a passphrase: the server itself
+# mints one with crypto/rand on first start (--ca-key-auto-passphrase) and persists it at /data/pki/ca.passphrase,
+# reusing it on every restart - needing no Kubernetes permissions, but keeping it on the same PVC as the key it
+# protects. The passphrase is part of the backup either way: back it up (and store it) alongside the PVC snapshot,
+# exactly like the CA key itself; losing it is losing the CA (README.md, "Encrypting the CA key at rest").
+#   true (default)  the server mints and persists its own passphrase; nothing to configure
 #   false           the key stays unencrypted on disk (mode 0600), as this chart did before this setting existed;
 #                   only for local/dev use or a cluster where disk-level or volume encryption already covers this
 # caKeyPassphraseSecret.name, if set, always wins over both of the above: bring your own Secret (from an external
-# secret manager, say) instead of the one this chart generates.
+# secret manager, say) instead, kept apart from the PVC rather than on it.
 pki:
   encryptAtRest: true
   caKeyPassphraseSecret:
