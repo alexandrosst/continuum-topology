@@ -24,6 +24,7 @@ type rendered struct {
 	policies            map[string]networkingv1.NetworkPolicy
 	configmaps          map[string]corev1.ConfigMap
 	clusterroles        map[string]rbacv1.ClusterRole
+	roles               map[string]rbacv1.Role
 	serviceaccounts     map[string]corev1.ServiceAccount
 	clusterrolebindings map[string]rbacv1.ClusterRoleBinding
 }
@@ -57,7 +58,7 @@ func render(t *testing.T, extra ...string) rendered {
 	if err != nil {
 		t.Fatalf("helm template %v: %v\n%s", extra, err, out)
 	}
-	r := rendered{map[string]appsv1.Deployment{}, map[string]appsv1.DaemonSet{}, map[string]corev1.Secret{}, map[string]networkingv1.NetworkPolicy{}, map[string]corev1.ConfigMap{}, map[string]rbacv1.ClusterRole{}, map[string]corev1.ServiceAccount{}, map[string]rbacv1.ClusterRoleBinding{}}
+	r := rendered{map[string]appsv1.Deployment{}, map[string]appsv1.DaemonSet{}, map[string]corev1.Secret{}, map[string]networkingv1.NetworkPolicy{}, map[string]corev1.ConfigMap{}, map[string]rbacv1.ClusterRole{}, map[string]rbacv1.Role{}, map[string]corev1.ServiceAccount{}, map[string]rbacv1.ClusterRoleBinding{}}
 	dec := yaml.NewYAMLOrJSONDecoder(strings.NewReader(out), 4096)
 	for {
 		var raw json.RawMessage
@@ -106,6 +107,10 @@ func render(t *testing.T, extra ...string) rendered {
 			var c rbacv1.ClusterRole
 			into(&c)
 			r.clusterroles[name] = c
+		case "Role":
+			var ro rbacv1.Role
+			into(&ro)
+			r.roles[name] = ro
 		case "ServiceAccount":
 			var a corev1.ServiceAccount
 			into(&a)
