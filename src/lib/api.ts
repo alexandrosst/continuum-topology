@@ -1,5 +1,5 @@
 import { normalizeServerState, type ServerState } from './discovered'
-import type { OperatorDestination, RegionalOperator } from './types'
+import type { OperatorDestination, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
 import type { DecisionLogEntry } from './placement/deciders'
 import type { SelfTelemetryEntity } from './selfHealth'
@@ -82,6 +82,17 @@ export interface CreatedOperator {
 export interface UpdatedOperatorScope {
   operator: RegionalOperator
   reminders: string[]
+}
+
+/** What GET /telemetry-intents/{id}/command returns: the `--set` flags a person runs against the
+ *  intent's own agent to actually point its bundled local operator's export at what the intent grants,
+ *  plus (for a destination chained to a regional operator) the `kubectl create secret` for a freshly
+ *  minted mTLS client certificate - see admin_telemetry_intents.go's telemetryIntentCommand for exactly
+ *  what each covers. Built fresh on every call (adminRole, unlike the rest of this feature), never cached:
+ *  an operator-chained destination mints a new client certificate each time. */
+export interface TelemetryIntentCommand {
+  installFragment: string
+  secretCommands: string[]
 }
 
 /** What minting a quick-start gateway token returns - the plaintext, once, plus when it was minted and
@@ -516,6 +527,23 @@ export const api = {
     call<UpdatedOperatorScope>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/scope`, { sourceClusterIds, destination }),
   revokeOperator: (c: Conn, id: string, reason: string) => call<void>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/revoke`, { reason }),
   deleteOperator: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/operators/${encodeURIComponent(id)}`),
+
+  // telemetry intents: the server-side counterpart of one agent's bundled local-operator telemetry grant
+  // (scope + signals + destination) - see lib/types.ts's own TelemetryIntent doc comment. CRUD like
+  // operators above, plus `command`, which (unlike every other call here) needs adminRole: it mints
+  // operator client credential material, not just reads or writes a record.
+  listTelemetryIntents: (c: Conn, agentId?: string) =>
+    call<TelemetryIntent[]>(c, 'GET', `/api/v1/telemetry-intents${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`),
+  getTelemetryIntent: (c: Conn, id: string) => call<TelemetryIntent>(c, 'GET', `/api/v1/telemetry-intents/${encodeURIComponent(id)}`),
+  createTelemetryIntent: (c: Conn, agentId: string, name: string, namespaces: string[], exclude: string[], signals: SignalGrant[], destination: OperatorDestination) =>
+    call<TelemetryIntent>(c, 'POST', '/api/v1/telemetry-intents', { agentId, name, namespaces, exclude, signals, destination }),
+  updateTelemetryIntentScope: (c: Conn, id: string, namespaces: string[], exclude: string[], signals: SignalGrant[]) =>
+    call<TelemetryIntent>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/scope`, { namespaces, exclude, signals }),
+  updateTelemetryIntentDestination: (c: Conn, id: string, destination: OperatorDestination) =>
+    call<TelemetryIntent>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/destination`, { destination }),
+  revokeTelemetryIntent: (c: Conn, id: string, reason: string) => call<void>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/revoke`, { reason }),
+  deleteTelemetryIntent: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/telemetry-intents/${encodeURIComponent(id)}`),
+  getTelemetryIntentCommand: (c: Conn, id: string) => call<TelemetryIntentCommand>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/command`),
 
   // quick-start gateway tokens (see QuickStartBackends.tsx and quickStartGateway.ts): a short-lived
   // bearer secret scoped to one quick-start backend instance, checked entirely by the nginx gateway

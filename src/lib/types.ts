@@ -1205,12 +1205,15 @@ export interface AgentLink {
  *  own design note: it is CRUD over a record plus a minted credential, not a live connection). */
 export type OperatorStatus = 'active' | 'revoked'
 
-/** Where a regional operator re-exports what it aggregates. 'operator' (chaining to another regional
- *  operator) is reserved for future use and rejected by the server today - only 'external' is accepted. */
+/** Where a regional operator (or, via TelemetryIntent below, one agent's own bundled local operator)
+ *  re-exports what it aggregates. 'operator' (chaining to another regional operator already active in
+ *  this org) is now accepted by the server, alongside the original 'external' - see
+ *  OperatorDestination.targetOperatorId. */
 export type DestinationKind = 'external' | 'operator'
 
 /** An OTLP export target, shaped like TelemetryInput's own export block (see lib/install.ts) so the same
- *  rendering logic applies to both a cluster's own telemetry export and a regional operator's. */
+ *  rendering logic applies to both a cluster's own telemetry export and a regional operator's. Also the
+ *  destination shape for TelemetryIntent below - this is the server's `destinationDoc`, shared by both. */
 export interface OperatorDestination {
   kind: DestinationKind
   endpoint: string
@@ -1219,7 +1222,8 @@ export interface OperatorDestination {
   authHeaderName?: string
   authSecretName?: string
   authSecretKey?: string
-  /** Only meaningful for kind 'operator', which is not yet accepted - always absent today. */
+  /** Only meaningful for kind 'operator': the id of the active regional operator in this org this
+   *  destination chains to. The server rejects a kind 'operator' destination that doesn't name one. */
   targetOperatorId?: string
 }
 
@@ -1237,6 +1241,47 @@ export interface RegionalOperator {
   siteId?: string
   status: OperatorStatus
   sourceClusterIds: string[]
+  destination: OperatorDestination
+  /** Which modalities ('metrics'/'logs'/'traces' - lib/install.ts's own Modality) this operator's
+   *  receiver accepts. Empty/absent means "accepts anything" - an operator created before this field
+   *  existed must read the same way, never as "accepts nothing" (see destinationCatalog.ts's own
+   *  compatibility check, the one place besides creation/scope-editing this is read). */
+  acceptedModalities?: string[]
+  createdAt: string
+  createdBy: string
+  revokedAt?: string
+  reason?: string
+}
+
+/** One extractor signal a TelemetryIntent grants, and where it is sourced from - `id` matches one of
+ *  TELEMETRY_SIGNALS' own ids (lib/consent.ts); `source` is 'builtin' for a signal with no source choice
+ *  of its own, 'existing' for one scraping something already running, or 'bundle-<tool>' (e.g.
+ *  'bundle-kepler', 'bundle-dcgm') for one that deploys its own bundled exporter - the same per-signal
+ *  source knobs TelemetryInput already carries (energySource/acceleratorsSource), just named uniformly
+ *  here instead of one bespoke field per signal. */
+export interface SignalGrant {
+  id: string
+  source: string
+}
+
+export type TelemetryIntentStatus = 'active' | 'revoked'
+
+/**
+ * The server-side counterpart of a telemetry grant for one agent's bundled local-operator telemetry:
+ * scope (namespaces/exclude), which extractor signals, and a destination - an external OTLP endpoint or
+ * another regional operator already active in this org (OperatorDestination, with `kind: 'operator'`
+ * naming it via `targetOperatorId`). Unlike RegionalOperator, this is per-agent bookkeeping, not a
+ * standalone aggregation point - see backend/internal/server/admin_telemetry_intents.go's own doc
+ * comments for the full lifecycle (no "pending" state, like RegionalOperator; revoke/delete, like it).
+ */
+export interface TelemetryIntent {
+  id: string
+  agentId: string
+  name: string
+  status: TelemetryIntentStatus
+  namespaces: string[]
+  exclude: string[]
+  signals: SignalGrant[]
   destination: OperatorDestination
   createdAt: string
   createdBy: string
