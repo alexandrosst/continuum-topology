@@ -1,6 +1,7 @@
 import { normalizeServerState, type ServerState } from './discovered'
 import type { OperatorDestination, RegionalOperator } from './types'
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
+import type { DecisionLogEntry } from './placement/deciders'
 import type { SelfTelemetryEntity } from './selfHealth'
 import type { EffectiveModel } from './provenance'
 
@@ -306,6 +307,29 @@ export interface Timeline {
   audit: AuditRow[]
 }
 
+/** One row of the decision log, as the server stores and returns it - see DecisionLogEntry in
+ *  lib/placement/deciders.ts for what produces one and backend/internal/store/store.go's DecisionLog for
+ *  the full field-by-field rationale. Read-only from here: there is no UI to edit or delete a row. */
+export interface DecisionLogRow {
+  id: string
+  at: string
+  recordedBy: string
+  deciderId: string
+  deciderName: string
+  deciderKind: 'builtin' | 'external'
+  serviceId: string
+  serviceName: string
+  from: string
+  to: string
+  reason?: string
+  benefit: number
+  confidence: string
+  verdict: string
+  beforeCost: number
+  afterCost: number
+  migrationCost: number
+}
+
 export interface WorkspaceRevision {
   rev: number
   at: string
@@ -566,6 +590,11 @@ export const api = {
   workspaceRevisions: (c: Conn) => call<{ revisions?: WorkspaceRevision[] }>(c, 'GET', '/api/v1/workspace/revisions').then((r) => r.revisions ?? []),
   recordNow: (c: Conn) => call<void>(c, 'POST', '/api/v1/history/record'),
   decide: (c: Conn, input: unknown) => call<{ decider: string; result: unknown }>(c, 'POST', '/api/v1/decide', input),
+  // Fire-and-forget from the caller's point of view - see recordDecisionLog in lib/placement/deciders.ts,
+  // which is what actually calls this and swallows whatever it rejects with.
+  recordDecisions: (c: Conn, entries: DecisionLogEntry[]) => call<{ recorded: number }>(c, 'POST', '/api/v1/decisions', { entries }),
+  listDecisions: (c: Conn, limit?: number) =>
+    call<{ decisions?: DecisionLogRow[] }>(c, 'GET', `/api/v1/decisions${limit ? `?limit=${limit}` : ''}`).then((r) => r.decisions ?? []),
 }
 
 /** What probe() above learns from its one request: whether a Continuum server is even there, and - when

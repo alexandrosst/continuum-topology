@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildDecisionInput, BUILTIN_DECIDERS, compare, baselineDecider, externalDecider, parseDecisionOutput, runDecider, vet } from '../src/lib/placement/deciders'
+import { buildDecisionInput, BUILTIN_DECIDERS, compare, baselineDecider, externalDecider, parseDecisionOutput, recordDecisionLog, runDecider, toDecisionLogEntry, vet, type DecisionLogEntry } from '../src/lib/placement/deciders'
 import { evacuate, evaluate, reasonsFor, recommend, totals, whatIf } from '../src/lib/placement/engine'
 import { DEFAULT_POLICY, type EdgeEvidence, type Evaluation, type Policy } from '../src/lib/placement/types'
 import { buildWorld, freeCapacity, rtt, withMoves, type World } from '../src/lib/placement/world'
@@ -363,6 +363,79 @@ test('runDecider + compare: built-in and external deciders are scored by the sam
   assert.equal(c.totals.find((t) => t.deciderId === 'baseline')!.moves, base.moves.length)
   assert.equal(c.totals.find((t) => !t.ok)!.moves, 0)
   assert.equal(baselineDecider.kind, 'builtin')
+})
+
+/* ---------- decision log: a record of what a decider recommended, for later evaluation ---------- */
+
+test('toDecisionLogEntry: records exactly the numbers the engine computed, not a placeholder', async () => {
+  const w = world()
+  const r = await runDecider(baselineDecider, w, P)
+  const entry = toDecisionLogEntry(baselineDecider, w, P, r)!
+  assert.equal(entry.deciderId, 'baseline')
+  assert.equal(entry.deciderKind, 'builtin')
+  assert.equal(entry.input.schema, 1)
+  assert.equal(entry.input.clusterCount, w.clusters.length)
+  assert.equal(entry.input.serviceCount, w.services.length)
+  assert.deepEqual(entry.input.policy, P)
+  assert.equal(entry.moves.length, r.moves.length)
+
+  const kept = r.moves.find((m) => m.serviceId === 'api')!
+  const outcome = r.outcome!.moves.find((m) => m.serviceId === 'api')!
+  const logged = entry.moves.find((m) => m.serviceId === 'api')!
+  // Every recorded number is read straight off what runDecider already produced - never recomputed, so
+  // a change to the cost model could never make the log quietly disagree with what was actually shown.
+  assert.equal(logged.to, kept.to)
+  assert.equal(logged.benefit, kept.benefit)
+  assert.equal(logged.confidence, kept.confidence)
+  assert.equal(logged.reason, kept.reason)
+  assert.equal(logged.from, outcome.from)
+  assert.equal(logged.verdict, outcome.verdict)
+  assert.equal(logged.beforeCost, outcome.before.cost)
+  assert.equal(logged.afterCost, outcome.after.cost)
+  assert.equal(logged.migrationCost, outcome.after.migrationCost)
+  // Sanity: these are not all coincidentally zero (which a copy/paste placeholder could satisfy too).
+  assert.ok(logged.beforeCost > logged.afterCost, 'a kept move must show a real cost reduction')
+  assert.ok(logged.benefit > 0)
+
+  // A decider that kept nothing has nothing worth logging.
+  const broken = externalDecider('Broken', async () => {
+    throw new Error('unreachable')
+  }, 'broken')
+  const brokenResult = await runDecider(broken, w, P)
+  assert.equal(toDecisionLogEntry(broken, w, P, brokenResult), undefined)
+  const quiet = externalDecider('Quiet', async () => ({ decider: 'x', result: { recommendations: [] } }), 'quiet')
+  const quietResult = await runDecider(quiet, w, P)
+  assert.equal(toDecisionLogEntry(quiet, w, P, quietResult), undefined)
+})
+
+test('recordDecisionLog: a failure to record never throws and never blocks on the result', async () => {
+  const w = world()
+  const r = await runDecider(baselineDecider, w, P)
+  const entry = toDecisionLogEntry(baselineDecider, w, P, r)!
+
+  let calls = 0
+  const failing = async (es: DecisionLogEntry[]) => {
+    calls++
+    void es
+    throw new Error('the server is unreachable')
+  }
+  // The whole point: a rejected post must not escape recordDecisionLog's own promise.
+  await assert.doesNotReject(recordDecisionLog(failing, [entry]))
+  assert.equal(calls, 1, 'the entry was still handed to post before the failure was swallowed')
+
+  // Nothing to log means post is never called at all - not called-with-nothing, not called and ignored.
+  let calledWithNothing = false
+  await recordDecisionLog(async () => {
+    calledWithNothing = true
+  }, [])
+  assert.equal(calledWithNothing, false)
+
+  // The success path really does deliver what was asked, unmodified.
+  let got: unknown
+  await recordDecisionLog(async (es) => {
+    got = es
+  }, [entry])
+  assert.deepEqual(got, [entry])
 })
 
 for (const { name, fn } of queue) {

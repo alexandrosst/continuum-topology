@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button, CopyButton, Field, ICON_SM, Input, Pill, SavedNote } from '@/components/ui/primitives'
 import { api, atLeast, type Conn } from '@/lib/api'
-import { BUILTIN_DECIDERS, buildDecisionInput, compare, externalDecider, runDecider, type Decider, type DeciderResult } from '@/lib/placement/deciders'
+import { BUILTIN_DECIDERS, buildDecisionInput, compare, externalDecider, recordDecisionLog, runDecider, toDecisionLogEntry, type Decider, type DecisionLogEntry, type DeciderResult } from '@/lib/placement/deciders'
 import type { Policy } from '@/lib/placement/types'
 import type { World } from '@/lib/placement/world'
 import { useConn, useServer } from '@/store/server'
@@ -47,7 +47,14 @@ export default function Deciders({ world, policy }: { world: World; policy: Poli
   const run = async () => {
     setRunning(true)
     try {
-      setResults(await Promise.all(deciders.map((d) => runDecider(d, world, policy))))
+      const rs = await Promise.all(deciders.map((d) => runDecider(d, world, policy)))
+      setResults(rs)
+      // File away what each decider just recommended, so its quality can later be judged against what
+      // the topology actually looked like afterward. Best effort only, by design (see recordDecisionLog's
+      // own doc comment): the recommendation above is already computed and already on screen, and a
+      // logging failure must never take that away or hold up the next run.
+      const entries: DecisionLogEntry[] = deciders.map((d, i) => toDecisionLogEntry(d, world, policy, rs[i])).filter((e): e is DecisionLogEntry => e !== undefined)
+      void recordDecisionLog((es) => api.recordDecisions(conn, es), entries)
     } finally {
       setRunning(false)
     }

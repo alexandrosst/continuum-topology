@@ -3,7 +3,7 @@ import { movability } from '../movability'
 import { observation, targetStatus } from '../provenance'
 import type { Service } from '../types'
 import { evaluate, isMovableKind, recommend, whatIf, type WhatIf } from './engine'
-import type { Move, Policy } from './types'
+import type { Evaluation, Move, Policy } from './types'
 import { clusterOfService, clusterStatus, freeCapacity, moveModel, rtt, siteOfCluster, storageKnown, type World } from './world'
 
 /**
@@ -346,4 +346,95 @@ export function compare(w: World, results: DeciderResult[]): Comparison {
     error: r.error,
   }))
   return { rows, totals }
+}
+
+/* ---------- decision log ----------
+ *
+ * A record of what a decider recommended, kept so its quality can later be judged against what the
+ * topology actually looked like afterward. This is pure recording: toDecisionLogEntry only reads a
+ * DeciderResult that already exists (nothing here recomputes anything), and recordDecisionLog only ever
+ * sends it somewhere - neither one ever applies a move. See this file's own "a decider recommends, a
+ * person decides."
+ */
+
+/** One service a decider proposed moving, with exactly the numbers the engine computed for it - not
+ *  recomputed or approximated here. beforeCost/afterCost/migrationCost come from the same Evaluation the
+ *  comparison table above already shows (whatIf's MoveOutcome.before/after), not from a second pass. */
+export interface DecisionLogMove {
+  serviceId: string
+  serviceName: string
+  from: string
+  to: string
+  reason?: string
+  benefit: number
+  confidence: Level
+  verdict: Evaluation['verdict']
+  beforeCost: number
+  afterCost: number
+  migrationCost: number
+}
+
+/** What a decider was given, summarised rather than stored in full: the estate (every service, flow and
+ *  cluster) is already kept elsewhere - the live topology and its own history - so repeating it on every
+ *  logged run would multiply without a later lookup gaining anything it could not already answer. Policy
+ *  is the one input worth keeping in full: it is small, carries no secret (the same "no secrets, no
+ *  environment values" rule DecisionInput itself follows - see Deciders.tsx), and it is the direct
+ *  explanation for why beforeCost/afterCost/benefit came out the way they did. */
+export interface DecisionLogInput {
+  schema: typeof DECISION_SCHEMA
+  clusterCount: number
+  serviceCount: number
+  policy: Policy
+}
+
+/** One decider's result from one comparison run, as worth filing away. */
+export interface DecisionLogEntry {
+  deciderId: string
+  deciderName: string
+  deciderKind: 'builtin' | 'external'
+  input: DecisionLogInput
+  moves: DecisionLogMove[]
+}
+
+/** What is worth recording from one decider's result. Returns undefined when there is nothing to log: a
+ *  failed run proposed nothing, and a run that proposed nothing kept is not a recommendation to judge
+ *  later. Pure - no network, no React, nothing that can throw on its own - so the caller decides where,
+ *  or whether, this goes (see recordDecisionLog). */
+export function toDecisionLogEntry(d: Decider, w: World, P: Policy, r: DeciderResult): DecisionLogEntry | undefined {
+  if (!r.ok || r.moves.length === 0) return undefined
+  const outcomeByService = new Map((r.outcome?.moves ?? []).map((m) => [m.serviceId, m]))
+  const moves: DecisionLogMove[] = r.moves.map((k) => {
+    const o = outcomeByService.get(k.serviceId)
+    return {
+      serviceId: k.serviceId,
+      serviceName: w.byService.get(k.serviceId)?.name ?? k.serviceId,
+      from: o?.from ?? clusterOfService(w, k.serviceId) ?? '',
+      to: k.to,
+      reason: k.reason,
+      benefit: k.benefit,
+      confidence: k.confidence,
+      verdict: o?.verdict ?? 'fits',
+      beforeCost: o?.before.cost ?? 0,
+      afterCost: o?.after.cost ?? 0,
+      migrationCost: o?.after.migrationCost ?? 0,
+    }
+  })
+  return { deciderId: d.id, deciderName: d.name, deciderKind: d.kind, moves, input: { schema: DECISION_SCHEMA, clusterCount: w.clusters.length, serviceCount: w.services.length, policy: P } }
+}
+
+/**
+ * Sends decision log entries wherever `post` delivers them (normally the server, over the admin API - see
+ * api.recordDecisions), best effort. A decider's recommendation is already computed and already shown by
+ * the time this runs; a failure to log it is not the viewer's problem, so this never throws and never
+ * reports back whether it worked - the same "best effort, log and carry on" rule Core.audit follows
+ * server-side for its own non-privileged writes. Call sites that want to know a failure happened should
+ * have `post` do its own logging before this swallows it.
+ */
+export async function recordDecisionLog(post: (entries: DecisionLogEntry[]) => Promise<unknown>, entries: DecisionLogEntry[]): Promise<void> {
+  if (entries.length === 0) return
+  try {
+    await post(entries)
+  } catch {
+    /* best effort: see this function's own doc comment */
+  }
 }

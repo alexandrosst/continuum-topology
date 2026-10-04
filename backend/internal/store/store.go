@@ -313,6 +313,61 @@ type AuditEvent struct {
 	Detail     string
 }
 
+// DecisionLog is one row of the decision log: one service a single decider proposed moving, at a single
+// moment, with the numbers the engine computed for it at the time (see src/lib/placement/deciders.ts's
+// DecisionLogEntry, which is this row's frontend counterpart). It exists so a decider's quality can later
+// be judged - was its predicted benefit real? - by comparing a past recommendation against what the
+// topology actually looked like afterward.
+//
+// This is pure recording, nothing more: unlike AuditEvent it needs no tamper-evident hash chain (that is
+// for what a person or administrator did; a decision log row is a decider's advisory output, never
+// anything that was carried out - see Deciders.tsx's own "a decider recommends, a person decides"), and
+// unlike the Neo4j graph's versioned topology entities it is an append-only event log, so it belongs here
+// next to the other SQLite-only logs (audit, events) rather than in the graph.
+//
+// Schema/ClusterCount/ServiceCount/PolicyJSON summarise what the decider was given rather than storing it
+// in full: the estate (every service, flow and cluster) is already kept elsewhere (the live topology, and
+// its own history), so storing it again on every row of every run would multiply without adding anything
+// a later lookup could not already answer, and - the same "no secrets, no environment values" rule the
+// decision input itself already follows (see Deciders.tsx) - none of it is or carries a secret.
+type DecisionLog struct {
+	ID    int64
+	OrgID string
+	At    time.Time
+	// RecordedBy is who was signed in when the recommendation was computed, not necessarily anyone who
+	// acted on it (nothing here is ever executed).
+	RecordedBy string
+
+	DeciderID   string
+	DeciderName string
+	// DeciderKind is "builtin" or "external", mirroring Decider.kind in src/lib/placement/deciders.ts.
+	DeciderKind string
+
+	// Schema is DECISION_SCHEMA (src/lib/placement/deciders.ts) at the time this was computed.
+	Schema       int
+	ClusterCount int
+	ServiceCount int
+	// PolicyJSON is the cost model's own weights (Policy, serialised) used for this recommendation - small,
+	// never a secret, and the one input that directly explains why BeforeCost/AfterCost/Benefit came out
+	// the way they did.
+	PolicyJSON []byte
+
+	ServiceID   string
+	ServiceName string
+	FromCluster string
+	ToCluster   string
+	// Reason is the decider's own one-line explanation, when it gave one.
+	Reason string
+	// Benefit, BeforeCost, AfterCost and MigrationCost are exactly what the engine computed for this move
+	// (Recommendation/MoveOutcome in engine.ts) - not recomputed or approximated here.
+	Benefit       float64
+	Confidence    string // Level, e.g. "high" | "medium" | "low"
+	Verdict       string // Evaluation.verdict, e.g. "fits" | "cantTell"
+	BeforeCost    float64
+	AfterCost     float64
+	MigrationCost float64
+}
+
 type Store interface {
 	CreateToken(ctx context.Context, t Token, hash []byte) error
 	ListTokens(ctx context.Context, org string) ([]Token, error)
@@ -381,6 +436,14 @@ type Store interface {
 	// AuditSince returns audit rows of every organisation with an id above afterID, oldest first
 	// (the graph projection reads the trail this way and remembers where it stopped).
 	AuditSince(ctx context.Context, afterID int64, limit int) ([]AuditEvent, error)
+
+	// AddDecisions appends the rows one decider run produced, in a single transaction. Each row's OrgID
+	// and At are the caller's to set (see DecisionLog); an empty slice is a no-op. There is no per-row
+	// AddDecision: nothing writes just one of these outside a test, since a run compares at least one
+	// decider's worth of moves at a time.
+	AddDecisions(ctx context.Context, ds []DecisionLog) error
+	// ListDecisions returns one organisation's decision log, newest first, limited the same way ListAudit is.
+	ListDecisions(ctx context.Context, org string, limit int) ([]DecisionLog, error)
 
 	// SaveSnapshot / LoadSnapshot keep the last full set of facts an agent reported,
 	// so the server can serve state immediately after a restart.

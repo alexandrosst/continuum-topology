@@ -199,6 +199,33 @@ CREATE TABLE IF NOT EXISTS gateway_tokens (
   expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS gateway_tokens_backend ON gateway_tokens(org_id, backend_id);
+-- One row per service a decider proposed moving, in one run - see store.DecisionLog's own doc comment
+-- for why this is an append-only log beside audit/events rather than a hash chain or a graph entity.
+CREATE TABLE IF NOT EXISTS decisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  recorded_by TEXT NOT NULL DEFAULT '',
+  decider_id TEXT NOT NULL,
+  decider_name TEXT NOT NULL,
+  decider_kind TEXT NOT NULL,
+  schema_version INTEGER NOT NULL DEFAULT 0,
+  cluster_count INTEGER NOT NULL DEFAULT 0,
+  service_count INTEGER NOT NULL DEFAULT 0,
+  policy TEXT NOT NULL DEFAULT '{}',
+  service_id TEXT NOT NULL,
+  service_name TEXT NOT NULL,
+  from_cluster TEXT NOT NULL,
+  to_cluster TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  benefit REAL NOT NULL DEFAULT 0,
+  confidence TEXT NOT NULL DEFAULT '',
+  verdict TEXT NOT NULL DEFAULT '',
+  before_cost REAL NOT NULL DEFAULT 0,
+  after_cost REAL NOT NULL DEFAULT 0,
+  migration_cost REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS decisions_org ON decisions(org_id, at DESC);
 `
 
 type SQLite struct{ db *sql.DB }

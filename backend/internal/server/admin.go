@@ -186,6 +186,8 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/history/record", adminRole, a.recordNow)
 	route("GET "+o+"/events", memberRole, a.listEvents)
 	route("POST "+o+"/decide", editorRole, a.decide)
+	route("POST "+o+"/decisions", editorRole, a.recordDecisions)
+	route("GET "+o+"/decisions", memberRole, a.listDecisions)
 	route("GET "+o+"/storage", memberRole, a.storage)
 	route("GET "+o+"/timeline", memberRole, a.timeline)
 	route("GET "+o+"/graph/snapshot", memberRole, a.graphSnapshot)
@@ -428,8 +430,13 @@ func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 			ctx = context.WithValue(ctx, ctxTenant{}, t)
 		}
 		limit := int64(64 << 10)
-		if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/workspace") {
+		switch {
+		case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/workspace"):
 			limit = MaxWorkspaceBytes + 4<<10
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/decisions"):
+			// A run can compare several deciders at once, each with up to MAX_MOVES proposals
+			// (see maxDecisionMovesTotal's own comment) - comfortably more than the default limit.
+			limit = 256 << 10
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next(w, r.WithContext(context.WithValue(ctx, ctxPrincipal{}, p)))
