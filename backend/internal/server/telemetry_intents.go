@@ -109,7 +109,7 @@ func (c *Core) CreateTelemetryIntent(ctx context.Context, actor, agentID, name s
 	if err != nil {
 		return store.TelemetryIntent{}, err
 	}
-	if err := validateDestination(dest); err != nil {
+	if err := c.validateDestination(ctx, dest); err != nil {
 		return store.TelemetryIntent{}, err
 	}
 	ns, exc, sig, err := cleanTelemetryScope(namespaces, exclude, signals)
@@ -186,7 +186,7 @@ func (c *Core) UpdateTelemetryIntentDestination(ctx context.Context, actor, id s
 	if err != nil {
 		return err
 	}
-	if err := validateDestination(dest); err != nil {
+	if err := c.validateDestination(ctx, dest); err != nil {
 		return err
 	}
 	detail := fmt.Sprintf("%q: destination changed", ti.Name)

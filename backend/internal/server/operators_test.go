@@ -75,12 +75,45 @@ func TestCreateOperatorRejectsAnUnapprovedOrForeignClusterID(t *testing.T) {
 	}
 }
 
-func TestCreateOperatorRejectsChainingToAnotherOperator(t *testing.T) {
+// TestCreateOperatorAcceptsChainingToAnActiveOperatorInOrg covers the three ways a destination naming
+// another regional operator is checked: a currently active operator in the same organisation is accepted
+// (a two-tier fleet - see validateDestination's own comment), a revoked one is rejected, and an unknown
+// or foreign-org one is reported not found rather than forbidden, the same convention operatorInOrg
+// itself follows.
+func TestCreateOperatorAcceptsChainingToAnActiveOperatorInOrg(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
-	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: "op-other"}
-	if _, _, _, err := e.core.CreateOperator(e.ctx, "alex", "x", []string{cl}, dest, nil); kindOf(err) != KindInvalid {
-		t.Fatalf("expected KindInvalid rejecting operator chaining, got %v", err)
+	clA := e.approvedCluster(t, fp)
+	target, _, _, err := e.core.CreateOperator(e.ctx, "alex", "upstream", []string{clA}, extDest("upstream.example:4317"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clB := e.approvedCluster(t, fp2)
+	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: target.ID}
+	if _, _, _, err := e.core.CreateOperator(e.ctx, "alex", "downstream", []string{clB}, dest, nil); err != nil {
+		t.Fatalf("expected an active in-org operator destination to be accepted, got %v", err)
+	}
+
+	if err := e.core.RevokeOperator(e.ctx, "alex", target.ID, "decommissioned"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := e.core.CreateOperator(e.ctx, "alex", "downstream-2", []string{clB}, dest, nil); kindOf(err) != KindInvalid {
+		t.Fatalf("expected KindInvalid chaining to a revoked operator, got %v", err)
+	}
+
+	if _, _, _, err := e.core.CreateOperator(e.ctx, "alex", "downstream-3", []string{clB}, store.Destination{Kind: store.DestinationOperator, TargetOperatorID: "op-does-not-exist"}, nil); kindOf(err) != KindNotFound {
+		t.Fatalf("expected KindNotFound chaining to an unknown operator, got %v", err)
+	}
+
+	if err := e.st.CreateOrg(e.ctx, store.Org{ID: "org-2", Name: "Org Two", CreatedAt: *e.now, CreatedBy: "u-owner"}, "u-owner"); err != nil {
+		t.Fatal(err)
+	}
+	// validateDestination runs before validSourceClusters (see CreateOperator), so an invalid source
+	// cluster list does not mask the destination check this is exercising.
+	other := e.base.ForOrg("org-2")
+	foreignDest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: target.ID}
+	if _, _, _, err := other.CreateOperator(e.ctx, "alex", "cross-org", []string{"irrelevant"}, foreignDest, nil); kindOf(err) != KindNotFound {
+		t.Fatalf("expected KindNotFound chaining to another organisation's operator, got %v", err)
 	}
 }
 

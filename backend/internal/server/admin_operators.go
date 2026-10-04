@@ -17,14 +17,17 @@ type destinationDoc struct {
 	AuthHeaderName string `json:"authHeaderName,omitempty"`
 	AuthSecretName string `json:"authSecretName,omitempty"`
 	AuthSecretKey  string `json:"authSecretKey,omitempty"`
+	// TargetOperatorID is only meaningful for destination kind "operator" - see store.Destination's own
+	// field.
+	TargetOperatorID string `json:"targetOperatorId,omitempty"`
 }
 
 func toDestinationDoc(d store.Destination) destinationDoc {
-	return destinationDoc{Kind: string(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey}
+	return destinationDoc{Kind: string(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID}
 }
 
 func (d destinationDoc) toStore() store.Destination {
-	return store.Destination{Kind: store.DestinationKind(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey}
+	return store.Destination{Kind: store.DestinationKind(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID}
 }
 
 type operatorDoc struct {

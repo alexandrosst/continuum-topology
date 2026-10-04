@@ -26,6 +26,29 @@ func TestCreateTelemetryIntentHappyPath(t *testing.T) {
 	}
 }
 
+// TestCreateTelemetryIntentAcceptsAnOperatorDestination exercises CreateTelemetryIntent with a
+// destination naming a real, active regional operator - previously untested, since validateDestination
+// unconditionally failed it before this release gave DestinationOperator a real check (see
+// Core.validateDestination's own comment on the two-tier fleet it now supports).
+func TestCreateTelemetryIntentAcceptsAnOperatorDestination(t *testing.T) {
+	e := newEnv(t)
+	opCluster := e.approvedCluster(t, fp)
+	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens-regional", []string{opCluster}, extDest("collector.example:4317"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agentID := e.approvedAgentID(t, fp2)
+	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
+	ti, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil, nil, dest)
+	if err != nil {
+		t.Fatalf("expected an active in-org operator destination to be accepted, got %v", err)
+	}
+	if ti.Destination.Kind != store.DestinationOperator || ti.Destination.TargetOperatorID != op.ID {
+		t.Fatalf("%+v", ti.Destination)
+	}
+}
+
 func TestCreateTelemetryIntentRejectsASecondActiveIntentOnTheSameAgent(t *testing.T) {
 	e := newEnv(t)
 	agentID := e.approvedAgentID(t, fp)

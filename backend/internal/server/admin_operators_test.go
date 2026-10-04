@@ -117,13 +117,55 @@ func TestOperatorsHTTPRequiresAdminRole(t *testing.T) {
 	}
 }
 
+// TestOperatorsHTTPRejectsBadDestination covers both ways a destination.kind "operator" can now be
+// rejected over HTTP: naming an operator that does not exist (404, the same not-found convention as
+// fetching that operator directly), and an unrecognised kind altogether (400).
 func TestOperatorsHTTPRejectsBadDestination(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	body := map[string]any{"name": "x", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "operator", "targetOperatorId": "op-other"}}
+	if r := a.do("POST", "/api/v1/operators", body, withCookie(cookie)); r.Code != 404 {
+		t.Fatalf("chained destination naming an unknown operator: %d %s", r.Code, r.Body.String())
+	}
+
+	body["destination"] = map[string]any{"kind": "bogus", "endpoint": "c:4317"}
 	if r := a.do("POST", "/api/v1/operators", body, withCookie(cookie)); r.Code != 400 {
-		t.Fatalf("chained destination: %d %s", r.Code, r.Body.String())
+		t.Fatalf("unrecognised destination kind: %d %s", r.Code, r.Body.String())
+	}
+}
+
+// TestOperatorsHTTPAcceptsChainingToAnActiveOperator is the HTTP-level counterpart of
+// TestCreateOperatorAcceptsChainingToAnActiveOperatorInOrg: an operator's destination can now really name
+// another, currently active, regional operator of the same organisation.
+func TestOperatorsHTTPAcceptsChainingToAnActiveOperator(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleAdmin)
+	clA := a.approvedCluster(t, fp)
+	upstreamBody := map[string]any{
+		"name":             "upstream",
+		"sourceClusterIds": []string{clA},
+		"destination":      map[string]any{"kind": "external", "endpoint": "collector.example:4317"},
+	}
+	r := a.do("POST", "/api/v1/operators", upstreamBody, withCookie(cookie))
+	if r.Code != 201 {
+		t.Fatalf("create upstream: %d %s", r.Code, r.Body.String())
+	}
+	upstreamID, _ := r.json(t)["operator"].(map[string]any)["id"].(string)
+
+	clB := a.approvedCluster(t, fp2)
+	downstreamBody := map[string]any{
+		"name":             "downstream",
+		"sourceClusterIds": []string{clB},
+		"destination":      map[string]any{"kind": "operator", "targetOperatorId": upstreamID},
+	}
+	if r := a.do("POST", "/api/v1/operators", downstreamBody, withCookie(cookie)); r.Code != 201 {
+		t.Fatalf("create downstream chained to upstream: %d %s", r.Code, r.Body.String())
+	} else {
+		dest, _ := r.json(t)["operator"].(map[string]any)["destination"].(map[string]any)
+		if dest["kind"] != "operator" || dest["targetOperatorId"] != upstreamID {
+			t.Fatalf("destination not round-tripped: %v", dest)
+		}
 	}
 }
 

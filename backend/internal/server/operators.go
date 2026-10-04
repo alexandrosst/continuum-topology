@@ -34,11 +34,13 @@ func (c *Core) operatorInOrg(ctx context.Context, id string) (store.Operator, er
 	return op, err
 }
 
-// validateDestination checks the parts of a Destination that do not depend on anything else in the
-// organisation. DestinationOperator (chaining to another regional operator) is deliberately rejected:
-// this release only builds the mechanism for a two-tier fleet (agents feeding one regional operator that
-// exports out), not live reparenting or operator-to-operator chains - see the plan's own §0 for why.
-func validateDestination(dest store.Destination) error {
+// validateDestination checks that a Destination is well-formed and, for DestinationOperator, that it
+// names a currently active regional operator in this organisation. Continuum's fleet is two tiers: an
+// agent's own telemetry intent, or a regional operator's own export, may point directly AT one regional
+// operator, but nothing here builds live reparenting or operator-to-operator chaining beyond that single
+// hop - the target operator's own Destination (if it is itself "operator") is not walked or re-validated
+// here.
+func (c *Core) validateDestination(ctx context.Context, dest store.Destination) error {
 	switch dest.Kind {
 	case store.DestinationExternal:
 		if strings.TrimSpace(dest.Endpoint) == "" {
@@ -46,9 +48,19 @@ func validateDestination(dest store.Destination) error {
 		}
 		return nil
 	case store.DestinationOperator:
-		return errf(KindInvalid, "chaining a regional operator to another regional operator is not supported yet - point it at an external OTLP endpoint instead")
+		if strings.TrimSpace(dest.TargetOperatorID) == "" {
+			return errf(KindInvalid, "destination.targetOperatorId is required")
+		}
+		op, err := c.operatorInOrg(ctx, dest.TargetOperatorID)
+		if err != nil {
+			return err
+		}
+		if op.Status != store.OperatorActive {
+			return errf(KindInvalid, "operator %q is not active", dest.TargetOperatorID)
+		}
+		return nil
 	default:
-		return errf(KindInvalid, "destination.kind must be %q", store.DestinationExternal)
+		return errf(KindInvalid, "destination.kind must be %q or %q", store.DestinationExternal, store.DestinationOperator)
 	}
 }
 
@@ -102,7 +114,7 @@ func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClu
 	if name == "" || len(name) > maxOperatorName {
 		return store.Operator{}, "", OperatorTLSBundle{}, errf(KindInvalid, "name the regional operator (1-%d characters)", maxOperatorName)
 	}
-	if err := validateDestination(dest); err != nil {
+	if err := c.validateDestination(ctx, dest); err != nil {
 		return store.Operator{}, "", OperatorTLSBundle{}, err
 	}
 	if err := c.validSourceClusters(ctx, sourceClusterIDs); err != nil {
@@ -172,7 +184,7 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 	if _, err := c.operatorInOrg(ctx, id); err != nil {
 		return err
 	}
-	if err := validateDestination(dest); err != nil {
+	if err := c.validateDestination(ctx, dest); err != nil {
 		return err
 	}
 	if err := c.validSourceClusters(ctx, sourceClusterIDs); err != nil {

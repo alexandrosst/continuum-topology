@@ -97,9 +97,10 @@ const (
 	OperatorRevoked OperatorStatus = "revoked"
 )
 
-// DestinationKind is where a regional operator re-exports what it aggregates. "operator" (chaining to
-// another regional operator) is reserved for future use and is rejected by validation today - see
-// Core.CreateOperator. Only "external" is accepted in this release.
+// DestinationKind is where a regional operator (or a local operator's own TelemetryIntent) re-exports
+// what it collects. "operator" points at another regional operator in this organisation directly - see
+// Core.validateDestination - rather than at an arbitrary external endpoint. Continuum's fleet is two
+// tiers: that target operator's own export is not itself re-validated or chained any further.
 type DestinationKind string
 
 const (
@@ -117,8 +118,9 @@ type Destination struct {
 	AuthHeaderName string
 	AuthSecretName string
 	AuthSecretKey  string
-	// TargetOperatorID is only meaningful for DestinationOperator, which is not yet accepted - always
-	// empty today.
+	// TargetOperatorID is only meaningful for DestinationOperator: the id of the regional operator in
+	// this organisation to export into, checked by Core.validateDestination the same way an external
+	// destination's Endpoint is.
 	TargetOperatorID string
 }
 
