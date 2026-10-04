@@ -46,6 +46,56 @@ func operatorHelmTemplate(t *testing.T, extra ...string) (string, error) {
 	return string(out), err
 }
 
+// operatorHelmTemplateNamed is operatorHelmTemplate with the release name as a parameter, instead of the
+// fixed "op" - used to check that two different releases of this chart never collide on object names
+// (see operator.name in _helpers.tpl: this chart is designed to run many instances per namespace, unlike
+// continuum-agent, which is 1:1 with a cluster).
+func operatorHelmTemplateNamed(t *testing.T, release string, extra ...string) (string, error) {
+	t.Helper()
+	h, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm is not installed")
+	}
+	b, err := RegionalOperator.Package()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	tgz := filepath.Join(dir, RegionalOperator.Filename())
+	if err := os.WriteFile(tgz, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := []string{"--set", "export.otlp.endpoint=collector.example:4317"}
+	args := append(append([]string{"template", release, tgz}, base...), extra...)
+	out, err := exec.Command(h, args...).CombinedOutput()
+	return string(out), err
+}
+
+func operatorObjectNames(t *testing.T, out string) []string {
+	t.Helper()
+	var names []string
+	dec := yaml.NewYAMLOrJSONDecoder(strings.NewReader(out), 4096)
+	for {
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		var meta struct {
+			Kind     string `json:"kind"`
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+		}
+		if json.Unmarshal(raw, &meta) != nil || meta.Kind == "" {
+			continue
+		}
+		names = append(names, meta.Kind+"/"+meta.Metadata.Name)
+	}
+	return names
+}
+
 func operatorRender(t *testing.T, extra ...string) operatorRendered {
 	t.Helper()
 	out, err := operatorHelmTemplate(t, extra...)
@@ -100,7 +150,7 @@ func operatorRender(t *testing.T, extra ...string) operatorRendered {
 
 func TestRegionalOperatorReceiverAndExporterRender(t *testing.T) {
 	r := operatorRender(t, "--set", "export.otlp.endpoint=collector.example:4317", "--set", "export.otlp.tls.insecure=true")
-	cfg := otelConfig(t, r.configmaps["continuum-regional-operator-config"].Data)
+	cfg := otelConfig(t, r.configmaps["op-regional-operator-config"].Data)
 	receivers, _ := cfg["receivers"].(map[string]any)
 	if _, ok := receivers["otlp"]; !ok {
 		t.Fatalf("no otlp receiver: %+v", cfg)
@@ -114,7 +164,7 @@ func TestRegionalOperatorReceiverAndExporterRender(t *testing.T) {
 	if tls["insecure"] != true {
 		t.Fatalf("tls.insecure not set: %+v", otlp)
 	}
-	svc, ok := r.services["continuum-regional-operator"]
+	svc, ok := r.services["op-regional-operator"]
 	if !ok {
 		t.Fatal("no Service rendered")
 	}
@@ -128,7 +178,7 @@ func TestRegionalOperatorProcessorOrderMatchesSpec(t *testing.T) {
 	r := operatorRender(t, "--set", "processors.resourceDetection.enabled=true", "--set-json", "processors.extraProcessors="+extra,
 		"--set", "processors.extraProcessorNames[0]=filter/drop_debug", "--set", "processors.tracesSampling.percentage=50",
 		"--set", "processors.extraTracesProcessorNames[0]=tail_sampling")
-	cfg := otelConfig(t, r.configmaps["continuum-regional-operator-config"].Data)
+	cfg := otelConfig(t, r.configmaps["op-regional-operator-config"].Data)
 	svc, _ := cfg["service"].(map[string]any)
 	pipelines, _ := svc["pipelines"].(map[string]any)
 
@@ -163,7 +213,7 @@ func toStrings(v any) []string {
 
 func TestRegionalOperatorReceiverAuthWiresBearerToken(t *testing.T) {
 	r := operatorRender(t, "--set", "receiver.auth.enabled=true", "--set", "receiver.auth.secretName=op-receiver-auth")
-	cfg := otelConfig(t, r.configmaps["continuum-regional-operator-config"].Data)
+	cfg := otelConfig(t, r.configmaps["op-regional-operator-config"].Data)
 	receivers, _ := cfg["receivers"].(map[string]any)
 	otlp, _ := receivers["otlp"].(map[string]any)
 	protocols, _ := otlp["protocols"].(map[string]any)
@@ -177,7 +227,7 @@ func TestRegionalOperatorReceiverAuthWiresBearerToken(t *testing.T) {
 		t.Fatalf("no bearertokenauth extension: %+v", cfg)
 	}
 
-	dep := r.deployments["continuum-regional-operator"]
+	dep := r.deployments["op-regional-operator"]
 	found := false
 	for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
 		if e.Name == "CONTINUUM_OPERATOR_RECEIVER_AUTH" {
@@ -201,7 +251,7 @@ func TestRegionalOperatorRequiresExportEndpoint(t *testing.T) {
 
 func TestRegionalOperatorReceiverTLSWiresCertAndMTLS(t *testing.T) {
 	r := operatorRender(t, "--set", "receiver.tls.enabled=true", "--set", "receiver.tls.secretName=op-receiver-tls")
-	cfg := otelConfig(t, r.configmaps["continuum-regional-operator-config"].Data)
+	cfg := otelConfig(t, r.configmaps["op-regional-operator-config"].Data)
 	receivers, _ := cfg["receivers"].(map[string]any)
 	otlp, _ := receivers["otlp"].(map[string]any)
 	protocols, _ := otlp["protocols"].(map[string]any)
@@ -216,7 +266,7 @@ func TestRegionalOperatorReceiverTLSWiresCertAndMTLS(t *testing.T) {
 			t.Fatalf("%s tls.client_ca_file = %+v, want /receiver-tls/ca.crt (mtls defaults to true)", proto, tls)
 		}
 	}
-	dep := r.deployments["continuum-regional-operator"]
+	dep := r.deployments["op-regional-operator"]
 	foundMount, foundVol := false, false
 	for _, m := range dep.Spec.Template.Spec.Containers[0].VolumeMounts {
 		if m.Name == "receiver-tls" && m.MountPath == "/receiver-tls" && m.ReadOnly {
@@ -235,7 +285,7 @@ func TestRegionalOperatorReceiverTLSWiresCertAndMTLS(t *testing.T) {
 
 func TestRegionalOperatorReceiverTLSWithoutMTLSOmitsClientCAFile(t *testing.T) {
 	r := operatorRender(t, "--set", "receiver.tls.enabled=true", "--set", "receiver.tls.secretName=op-receiver-tls", "--set", "receiver.tls.mtls=false")
-	cfg := otelConfig(t, r.configmaps["continuum-regional-operator-config"].Data)
+	cfg := otelConfig(t, r.configmaps["op-regional-operator-config"].Data)
 	receivers, _ := cfg["receivers"].(map[string]any)
 	otlp, _ := receivers["otlp"].(map[string]any)
 	protocols, _ := otlp["protocols"].(map[string]any)
@@ -253,5 +303,146 @@ func TestRegionalOperatorReceiverTLSRequiresSecretName(t *testing.T) {
 	_, err := operatorHelmTemplate(t, "--set", "receiver.tls.enabled=true")
 	if err == nil {
 		t.Fatal("expected helm template to fail with receiver.tls.enabled and no secretName")
+	}
+}
+
+// TestRegionalOperatorObjectNamesDontCollideAcrossReleases guards the regression this chart actually hit:
+// operator.name used to be a hardcoded literal ("continuum-regional-operator"), so every ServiceAccount,
+// ConfigMap, Service and Deployment from two operators installed into the same namespace collided byte
+// for byte - the second `helm install` would silently adopt (and then fight over) the first operator's
+// objects. Unlike continuum-agent (1:1 with a cluster, so a fixed name is safe), this chart is designed
+// to run many instances per namespace, so object names must be derived from .Release.Name.
+func TestRegionalOperatorObjectNamesDontCollideAcrossReleases(t *testing.T) {
+	outA, err := operatorHelmTemplateNamed(t, "op-aaa111")
+	if err != nil {
+		t.Fatalf("helm template op-aaa111: %v\n%s", err, outA)
+	}
+	outB, err := operatorHelmTemplateNamed(t, "op-bbb222")
+	if err != nil {
+		t.Fatalf("helm template op-bbb222: %v\n%s", err, outB)
+	}
+	namesA := operatorObjectNames(t, outA)
+	namesB := operatorObjectNames(t, outB)
+	if len(namesA) == 0 || len(namesB) == 0 {
+		t.Fatalf("expected rendered objects, got A=%v B=%v", namesA, namesB)
+	}
+	if len(namesA) != len(namesB) {
+		t.Fatalf("the two releases rendered a different number of objects: A=%v B=%v", namesA, namesB)
+	}
+	seenA := map[string]bool{}
+	for _, n := range namesA {
+		seenA[n] = true
+	}
+	for _, n := range namesB {
+		if seenA[n] {
+			t.Fatalf("object %q collides between release op-aaa111 and op-bbb222:\nA=%v\nB=%v", n, namesA, namesB)
+		}
+	}
+	// And a release name that already contains "regional-operator" must not be doubled up.
+	outC, err := operatorHelmTemplateNamed(t, "my-regional-operator")
+	if err != nil {
+		t.Fatalf("helm template my-regional-operator: %v\n%s", err, outC)
+	}
+	if !strings.Contains(outC, "name: my-regional-operator\n") {
+		t.Fatalf("expected the dedup convention (release name already contains the suffix) to apply, got:\n%s", outC)
+	}
+	if strings.Contains(outC, "my-regional-operator-regional-operator") {
+		t.Fatalf("release name suffix was doubled up:\n%s", outC)
+	}
+}
+
+// TestRegionalOperatorHealthCheckWiredToLivenessReadiness confirms the health_check extension the
+// otel/opentelemetry-collector-contrib image ships for free is actually turned on - both in the generated
+// OTel Collector config (the top-level "extensions" map AND the "service.extensions" activation list,
+// which are two different things in this config format - a pipeline itself has no "extensions" field of
+// its own) and in the Deployment's livenessProbe/readinessProbe, on the same configurable port.
+func TestRegionalOperatorHealthCheckWiredToLivenessReadiness(t *testing.T) {
+	r := operatorRender(t, "--set", "health.port=13199")
+	cfg := otelConfig(t, r.configmaps["op-regional-operator-config"].Data)
+
+	extensions, _ := cfg["extensions"].(map[string]any)
+	hc, ok := extensions["health_check"].(map[string]any)
+	if !ok {
+		t.Fatalf("no health_check extension defined: %+v", cfg)
+	}
+	if hc["endpoint"] != "0.0.0.0:13199" {
+		t.Fatalf("health_check endpoint = %+v, want 0.0.0.0:13199", hc["endpoint"])
+	}
+
+	svc, _ := cfg["service"].(map[string]any)
+	active := toStrings(svc["extensions"])
+	found := false
+	for _, e := range active {
+		if e == "health_check" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("health_check missing from service.extensions (the activation list): %v", active)
+	}
+
+	dep := r.deployments["op-regional-operator"]
+	containers := dep.Spec.Template.Spec.Containers
+	if len(containers) != 1 {
+		t.Fatalf("expected one container, got %d", len(containers))
+	}
+	var healthPort int32
+	portFound := false
+	for _, p := range containers[0].Ports {
+		if p.Name == "health" {
+			healthPort = p.ContainerPort
+			portFound = true
+		}
+	}
+	if !portFound || healthPort != 13199 {
+		t.Fatalf("health containerPort not wired to health.port=13199: %+v", containers[0].Ports)
+	}
+	lp := containers[0].LivenessProbe
+	if lp == nil || lp.HTTPGet == nil || lp.HTTPGet.Path != "/" || lp.HTTPGet.Port.StrVal != "health" {
+		t.Fatalf("livenessProbe not wired to the health port: %+v", lp)
+	}
+	rp := containers[0].ReadinessProbe
+	if rp == nil || rp.HTTPGet == nil || rp.HTTPGet.Path != "/" || rp.HTTPGet.Port.StrVal != "health" {
+		t.Fatalf("readinessProbe not wired to the health port: %+v", rp)
+	}
+}
+
+// TestRegionalOperatorSelfMetricsOptIn confirms the optional self-metrics reader renders only when turned
+// on, lands in service.telemetry (not a pipeline), and gets its own container/Service port.
+func TestRegionalOperatorSelfMetricsOptIn(t *testing.T) {
+	off := operatorRender(t)
+	cfgOff := otelConfig(t, off.configmaps["op-regional-operator-config"].Data)
+	if svc, _ := cfgOff["service"].(map[string]any); svc["telemetry"] != nil {
+		t.Fatalf("selfMetrics defaults to off, but service.telemetry was rendered: %+v", svc["telemetry"])
+	}
+
+	on := operatorRender(t, "--set", "selfMetrics.enabled=true", "--set", "selfMetrics.port=9999")
+	cfgOn := otelConfig(t, on.configmaps["op-regional-operator-config"].Data)
+	svcOn, _ := cfgOn["service"].(map[string]any)
+	telemetry, _ := svcOn["telemetry"].(map[string]any)
+	metrics, _ := telemetry["metrics"].(map[string]any)
+	readers, _ := metrics["readers"].([]any)
+	if len(readers) != 1 {
+		t.Fatalf("expected one self-metrics reader, got %+v", metrics)
+	}
+	dep := on.deployments["op-regional-operator"]
+	found := false
+	for _, p := range dep.Spec.Template.Spec.Containers[0].Ports {
+		if p.Name == "metrics" && p.ContainerPort == 9999 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("metrics containerPort not wired to selfMetrics.port=9999: %+v", dep.Spec.Template.Spec.Containers[0].Ports)
+	}
+	svcPort := on.services["op-regional-operator"]
+	foundSvc := false
+	for _, p := range svcPort.Spec.Ports {
+		if p.Name == "metrics" && p.Port == 9999 {
+			foundSvc = true
+		}
+	}
+	if !foundSvc {
+		t.Fatalf("Service has no metrics port: %+v", svcPort.Spec.Ports)
 	}
 }

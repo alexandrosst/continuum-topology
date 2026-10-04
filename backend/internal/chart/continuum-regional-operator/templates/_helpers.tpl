@@ -1,4 +1,18 @@
-{{- define "operator.name" -}}continuum-regional-operator{{- end -}}
+{{/* Object name for everything this chart templates - NOT the same as the fixed app.kubernetes.io/name
+     label below (that stays "continuum-regional-operator" for every release, it is the chart identity).
+     Derived from .Release.Name so two operators installed into the same namespace never collide on
+     object names (ServiceAccount/ConfigMap/Service/Deployment/NetworkPolicy) - this chart is explicitly
+     designed to run many instances per namespace, unlike continuum-agent, which is 1:1 with a cluster and
+     so can safely hardcode its own name. Same dedup convention as continuum-server's continuum.fullname:
+     a release already named with "regional-operator" in it is not repeated. */}}
+{{- define "operator.name" -}}
+{{- $suffix := "regional-operator" -}}
+{{- if contains $suffix .Release.Name -}}
+{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-%s" .Release.Name $suffix | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
 {{- define "operator.labels" -}}
 app.kubernetes.io/name: continuum-regional-operator
 app.kubernetes.io/instance: {{ .Release.Name }}

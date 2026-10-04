@@ -56,6 +56,26 @@ spec:
           ports:
             - {name: otlp-grpc, containerPort: 4317, protocol: TCP}
             - {name: otlp-http, containerPort: 4318, protocol: TCP}
+            - {name: health, containerPort: {{ include "operator.healthPort" . }}, protocol: TCP}
+            {{- if .Values.selfMetrics.enabled }}
+            - {name: metrics, containerPort: {{ .Values.selfMetrics.port }}, protocol: TCP}
+            {{- end }}
+          # health_check always on (see config.yaml); liveness fails only once the collector itself has
+          # stopped answering, readiness the same but checked more eagerly and recovers faster - neither
+          # knows whether the export destination is reachable, only that this process is alive and its
+          # pipelines started.
+          livenessProbe:
+            httpGet: {path: /, port: health}
+            initialDelaySeconds: {{ .Values.health.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.health.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.health.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.health.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet: {path: /, port: health}
+            initialDelaySeconds: {{ .Values.health.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.health.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.health.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.health.readinessProbe.failureThreshold }}
           volumeMounts:
             - {name: config, mountPath: /conf, readOnly: true}
             {{- if .Values.receiver.tls.enabled }}

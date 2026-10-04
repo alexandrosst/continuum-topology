@@ -126,3 +126,72 @@ func TestOperatorsHTTPRejectsBadDestination(t *testing.T) {
 		t.Fatalf("chained destination: %d %s", r.Code, r.Body.String())
 	}
 }
+
+// TestOperatorInstallCommandReleaseNameIsUniquePerOperator guards the chart-side fix in
+// continuum-regional-operator (operator.name now derives from .Release.Name, see _helpers.tpl): that fix
+// only closes the collision if operatorInstallCommand actually hands each operator a distinct, valid
+// Helm release name in the first place, instead of always suggesting the same namespace+release for
+// every operator. newOperatorID already mints a short, lowercase, hyphenated id ("op-<12 hex>") per
+// operator and operatorInstallCommand uses it as the release name - this pins that down so a future
+// change can't quietly go back to a fixed release name.
+func TestOperatorInstallCommandReleaseNameIsUniquePerOperator(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleAdmin)
+	cl := a.approvedCluster(t, fp)
+
+	create := func(name string) string {
+		body := map[string]any{
+			"name":             name,
+			"sourceClusterIds": []string{cl},
+			"destination":      map[string]any{"kind": "external", "endpoint": "collector.example:4317"},
+		}
+		r := a.do("POST", "/api/v1/operators", body, withCookie(cookie))
+		if r.Code != 201 {
+			t.Fatalf("create %q: %d %s", name, r.Code, r.Body.String())
+		}
+		install, _ := r.json(t)["install"].(string)
+		if install == "" {
+			t.Fatalf("no install command for %q", name)
+		}
+		return install
+	}
+
+	installA := create("athens-regional")
+	installB := create("corinth-regional")
+
+	releaseOf := func(install string) string {
+		t.Helper()
+		const marker = "helm install "
+		i := strings.Index(install, marker)
+		if i < 0 {
+			t.Fatalf("install command has no %q: %s", marker, install)
+		}
+		rest := install[i+len(marker):]
+		return rest[:strings.IndexAny(rest, " \n")]
+	}
+
+	releaseA, releaseB := releaseOf(installA), releaseOf(installB)
+	if releaseA == "" || releaseB == "" {
+		t.Fatalf("empty release name(s): %q %q", releaseA, releaseB)
+	}
+	if releaseA == releaseB {
+		t.Fatalf("two different operators got the same helm release name %q - every object the chart templates (now keyed off .Release.Name) would collide:\nA: %s\nB: %s", releaseA, installA, installB)
+	}
+	// Both still install into the same shared namespace - the fix is a unique release name, not a
+	// unique namespace, since the chart's own object names are now derived from .Release.Name.
+	if !strings.Contains(installA, "--namespace continuum-system") || !strings.Contains(installB, "--namespace continuum-system") {
+		t.Fatalf("expected both installs to target --namespace continuum-system:\nA: %s\nB: %s", installA, installB)
+	}
+	// A valid Helm release name: lowercase alphanumeric and hyphens only.
+	validRelease := func(s string) bool {
+		for _, c := range s {
+			if !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '-' {
+				return false
+			}
+		}
+		return s != ""
+	}
+	if !validRelease(releaseA) || !validRelease(releaseB) {
+		t.Fatalf("release name(s) not a valid Helm release name: %q %q", releaseA, releaseB)
+	}
+}

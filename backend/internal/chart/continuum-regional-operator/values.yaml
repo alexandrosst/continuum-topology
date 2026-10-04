@@ -106,6 +106,30 @@ processors:
   # interface) - appended after extraProcessorNames, still before batch, in the traces pipeline only.
   extraTracesProcessorNames: []
 
+# Health check for the collector process itself, independent of whatever it is relaying - the upstream
+# otel/opentelemetry-collector-contrib image already ships the health_check extension for this (always
+# wired into the generated config, see _telemetry.tpl). livenessProbe/readinessProbe below read from it.
+health:
+  port: 13133
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 4
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 2
+
+# The collector's own metrics about itself (queue depth, dropped items, process memory) - separate from
+# whatever telemetry this operator relays. A standard OTel Collector service.telemetry.metrics Prometheus
+# reader. Off by default: it is one more open port on every operator pod, worth turning on once something
+# is actually set up to scrape it.
+selfMetrics:
+  enabled: false
+  port: 8888
+
 resources:
   requests: {cpu: 50m, memory: 96Mi}
   limits: {memory: 384Mi}

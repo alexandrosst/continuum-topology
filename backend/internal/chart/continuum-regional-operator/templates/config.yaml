@@ -15,13 +15,15 @@
 {{- if lt (int .Values.processors.tracesSampling.percentage) 100 }}{{ $procTraces = append $procTraces "probabilistic_sampler" }}{{ end }}
 {{- $procTraces = concat $procTraces $extraNames .Values.processors.extraTracesProcessorNames (list "batch") }}
 
-{{- $extensions := list }}
+{{/* health_check is always on (see operator.healthCheckExtensionYAML) - livenessProbe/readinessProbe in
+     deployment.yaml depend on it, unlike bearertokenauth which only applies when receiver.auth is on. */}}
+{{- $extensions := list "health_check" }}
 {{- if .Values.receiver.auth.enabled }}{{ $extensions = append $extensions "bearertokenauth" }}{{ end }}
 
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "operator.name" . }}-config
+  name: {{ printf "%s-config" (include "operator.name" .) | trunc 63 | trimSuffix "-" }}
   namespace: {{ .Release.Namespace }}
   labels: {{- include "operator.labels" . | nindent 4 }}
 data:
@@ -68,18 +70,16 @@ data:
       {{- end }}
       batch: {}
 
-    {{- if $extensions }}
     extensions:
+      {{- include "operator.healthCheckExtensionYAML" . | nindent 6 }}
       {{- include "operator.receiverAuthExtensionYAML" . | nindent 6 }}
-    {{- end }}
 
     exporters:
       {{- include "operator.exporterYAML" . | nindent 6 }}
 
     service:
-      {{- if $extensions }}
       extensions: {{ $extensions | toJson }}
-      {{- end }}
+      {{- include "operator.selfMetricsYAML" . | nindent 6 }}
       pipelines:
         metrics:
           receivers: [otlp]

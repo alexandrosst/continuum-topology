@@ -59,6 +59,33 @@ probabilistic_sampler:
 {{- end -}}
 {{- end -}}
 
+{{/* health_check extension: always on, unlike bearertokenauth above - this is what
+     livenessProbe/readinessProbe in deployment.yaml point at (see operator.healthPort below), and the
+     upstream otel/opentelemetry-collector-contrib image ships it for free. Serves plain GET / on its own
+     port, 200 once the collector's pipelines have started. */}}
+{{- define "operator.healthPort" -}}{{- .Values.health.port | default 13133 | int -}}{{- end -}}
+{{- define "operator.healthCheckExtensionYAML" -}}
+health_check:
+  endpoint: "0.0.0.0:{{ include "operator.healthPort" . }}"
+{{- end -}}
+
+{{/* Self-metrics: the collector's own standard service.telemetry.metrics stanza (queue depth, dropped
+     items, process memory - about the collector itself, not whatever it is relaying). A plain Prometheus
+     pull reader, same shape the OTel Collector docs show. Off by default (see selfMetrics.enabled in
+     values.yaml) - callers turn it on once they actually have something to scrape it. */}}
+{{- define "operator.selfMetricsYAML" -}}
+{{- if .Values.selfMetrics.enabled }}
+telemetry:
+  metrics:
+    readers:
+      - pull:
+          exporter:
+            prometheus:
+              host: "0.0.0.0"
+              port: {{ .Values.selfMetrics.port }}
+{{- end }}
+{{- end -}}
+
 {{/* The bearertokenauth extension and its one env var, same convention as
      agent.telemetryReceiverAuthExtensionYAML / agent.telemetryReceiverAuthEnv. Both no-ops when
      receiver.auth is off, so callers can always include them unconditionally. */}}
