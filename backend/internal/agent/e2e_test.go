@@ -305,17 +305,18 @@ func TestNodeProbeReachesTopology(t *testing.T) {
 	url := "http://" + probeAddr
 	hc := &http.Client{Timeout: 5 * time.Second}
 	waitFor(t, "probe receiver", 5*time.Second, func() bool {
-		return probe.Push(ctx, hc, url, []byte("not the right secret, not at all"), "n1", &continuumv1.HostProbe{}, time.Now()) != nil
+		_, err := probe.Push(ctx, hc, url, []byte("not the right secret, not at all"), "n1", &continuumv1.HostProbe{}, time.Now())
+		return err != nil
 	})
 	time.Sleep(300 * time.Millisecond)
 	if state().Topology.Nodes[0].Probed {
 		t.Fatal("a report signed with the wrong secret must change nothing")
 	}
 	// A report about a node the cluster does not have is accepted but never shown.
-	if err := probe.Push(ctx, hc, url, secret, "ghost", &continuumv1.HostProbe{SysVendor: "Ghost"}, time.Now()); err != nil {
+	if _, err := probe.Push(ctx, hc, url, secret, "ghost", &continuumv1.HostProbe{SysVendor: "Ghost"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := probe.Push(ctx, hc, url, secret, "n1", &continuumv1.HostProbe{SysVendor: "Dell Inc.", ProductName: "PowerEdge R640", Uplinks: []string{"ethernet"}}, time.Now()); err != nil {
+	if _, err := probe.Push(ctx, hc, url, secret, "n1", &continuumv1.HostProbe{SysVendor: "Dell Inc.", ProductName: "PowerEdge R640", Uplinks: []string{"ethernet"}}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "probe facts in the topology", 10*time.Second, func() bool { return state().Topology.Nodes[0].Probed })

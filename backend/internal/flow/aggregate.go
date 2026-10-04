@@ -308,6 +308,15 @@ func (a *Aggregator) Held() int {
 	return len(a.flows)
 }
 
+// Paused reports whether the aggregator is currently discarding everything it is given (see
+// SetPaused). The agent's HTTP handler uses this to tell a collector that its report was ignored for
+// that reason, rather than merely accepted (see probe.HeaderPaused).
+func (a *Aggregator) Paused() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.paused
+}
+
 // SetMax lowers or raises the cap on held edges (tests use a small one).
 func (a *Aggregator) SetMax(n int) {
 	a.mu.Lock()

@@ -14,6 +14,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agent/collect"
 	"continuum/internal/flow"
+	"continuum/internal/probe"
 )
 
 type fake struct {
@@ -27,12 +28,18 @@ type fake struct {
 	snat uint64
 	// cpuFreqChangeCount/thermalTripCount are ThermalThrottle's own analogue of snat above.
 	cpuFreqChangeCount, thermalTripCount uint64
+	// calls counts every real Collect() call - the stand-in, in tests, for the eBPF map read/fold a
+	// real Source does. Run calling this less often than once per tick is exactly what a pause backing
+	// off real work is supposed to look like; atomic because Run's goroutine writes it while a test
+	// reads it concurrently.
+	calls atomic.Int64
 }
 
 func (f *fake) Method() string   { return f.method }
 func (f *fake) BytesKnown() bool { return f.bytes }
 func (f *fake) Close() error     { f.closed = true; return nil }
 func (f *fake) Collect() ([]*continuumv1.RawFlow, uint64, error) {
+	f.calls.Add(1)
 	if len(f.next) == 0 {
 		return nil, 0, nil
 	}
@@ -141,6 +148,61 @@ func TestRunWithTheWrongSecretDeliversNothing(t *testing.T) {
 	Run(ctx, src, srv.URL, []byte("0123456789abcdef-wrong-secret!"), "node-a", 100*time.Millisecond, func(string, ...any) {})
 	if b := p.Aggregator.Flush(); b != nil && len(b.Flows) > 0 {
 		t.Fatalf("a report signed with the wrong secret was accepted: %+v", b.Flows)
+	}
+}
+
+// TestRunSkipsRealCollectionWhilePausedAndResumesPromptly proves Run actually does less real work
+// while the agent is paused, not just that the pause toggle exists: with the agent's Pipeline paused
+// from the start, src.Collect() - the stand-in for the eBPF map read/fold a real Source does - is
+// called far less often than once per tick, because most ticks are skipped outright (no Collect(), no
+// sign, no POST). Once unpaused, the next real Collect() happens within the documented bound of
+// probe.PauseBackoffTicks ticks.
+func TestRunSkipsRealCollectionWhilePausedAndResumesPromptly(t *testing.T) {
+	secret := []byte("0123456789abcdef-flow-secret")
+	p := flow.NewPipeline(secret, func() *collect.Index { return &collect.Index{} }, nil)
+	p.SetPaused(true)
+	srv := httptest.NewServer(p.Handler())
+	defer srv.Close()
+
+	src := &fake{method: "ebpf", bytes: true}
+	// 300ms, not the production 30s, so the test runs quickly - but still well over a second between
+	// real attempts (PauseBackoffTicks*every = 1.2s) so two real attempts never land on the same
+	// whole-second timestamp and collide in the replay cache (see Sign/ReplayCache), which would
+	// otherwise make every real attempt fail and defeat the very backoff this test is checking.
+	every := 300 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		Run(ctx, src, srv.URL, secret, "node-a", every, func(string, ...any) {})
+		close(done)
+	}()
+
+	// Let roughly 12 ticks pass while paused. probe.PauseBackoffTicks=4 means about 3 of those should
+	// be real Collect() calls (tick 1, then every 4th after); nowhere near all 12.
+	time.Sleep(12*every + 8*every) // + margin for scheduling jitter
+	gotPaused := src.calls.Load()
+	if gotPaused == 0 {
+		t.Fatal("Collect() was never called at all while paused - Run never even checks")
+	}
+	if gotPaused > 6 {
+		t.Fatalf("Collect() calls while paused = %d over ~12 ticks; want far fewer than one per tick, "+
+			"i.e. the real collect/sign/POST cycle must be skipped on most ticks while paused", gotPaused)
+	}
+
+	// Resume, and check the bound this design promises: at most probe.PauseBackoffTicks ticks after
+	// the agent stops reporting paused, the next real Collect() happens.
+	before := src.calls.Load()
+	p.SetPaused(false)
+	bound := time.Duration(probe.PauseBackoffTicks) * every
+	deadline := time.Now().Add(bound + 10*every) // margin for scheduling jitter on top of the bound itself
+	for time.Now().Before(deadline) && src.calls.Load() == before {
+		time.Sleep(every / 2)
+	}
+	cancel()
+	<-done
+	if src.calls.Load() == before {
+		t.Fatalf("no real Collect() within the stated resume bound of %v (PauseBackoffTicks * interval)", bound)
 	}
 }
 

@@ -68,7 +68,9 @@ func (p *Pipeline) Handler() http.Handler {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		p.Ingest(&rep)
+		if p.Ingest(&rep) {
+			w.Header().Set(probe.HeaderPaused, "1")
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	return mux
@@ -82,8 +84,12 @@ func (p *Pipeline) SetPaused(paused bool) {
 	}
 }
 
-// Ingest attributes one report and adds it to the current window.
-func (p *Pipeline) Ingest(rep *continuumv1.FlowReport) {
+// Ingest attributes one report and adds it to the current window. It reports whether the aggregator
+// was paused at the time, i.e. this report's data was read and verified but thrown away rather than
+// kept - the handler uses this to tell the collector it was ignored for that reason (see
+// probe.HeaderPaused), not merely accepted.
+func (p *Pipeline) Ingest(rep *continuumv1.FlowReport) bool {
+	paused := p.Aggregator.Paused()
 	p.Aggregator.Seen(rep.Node, rep.Method, rep.BytesKnown, rep.LinkSaturation, rep.SnatExhaustion, rep.ThermalThrottle)
 	p.Aggregator.AddLost(rep.Lost)
 	for _, raw := range rep.Flows {
@@ -91,4 +97,5 @@ func (p *Pipeline) Ingest(rep *continuumv1.FlowReport) {
 			p.Aggregator.Add(f)
 		}
 	}
+	return paused
 }

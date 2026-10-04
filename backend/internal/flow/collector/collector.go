@@ -109,7 +109,16 @@ func Report(src Source, node string, window time.Duration, flows []*continuumv1.
 }
 
 // Run collects every interval and reports until ctx ends. A window that cannot be delivered is kept
-// and merged into the next one, so a restarting agent does not lose what was counted meanwhile.
+// and merged into the next one, so a restarting agent does not lose what was counted meanwhile. While
+// the agent reports it is paused (see probe.HeaderPaused), Run backs off its own real cycles through a
+// probe.PauseBackoff: it still wakes on every tick, but most ticks do nothing at all - no src.Collect(),
+// no signing, no POST - and only one in probe.PauseBackoffTicks actually reads and sends, purely to
+// check whether the agent is still paused. Pausing is meant to shed load on an already-overloaded
+// agent, and the whole point is lost if every node keeps doing the full cycle anyway just to have the
+// agent throw the result away; the data for a skipped window is simply never produced, which is fine
+// because a paused agent discards what it is sent regardless (see Pipeline.SetPaused). This bounds how
+// stale a resume can be to probe.PauseBackoffTicks * every: whatever tick the agent unpauses on, the
+// next due tick - which is what notices it - is at most that many ticks away.
 func Run(ctx context.Context, src Source, agentURL string, secret []byte, node string, every time.Duration, logf func(msg string, kv ...any)) {
 	hc := &http.Client{Timeout: 15 * time.Second}
 	var pending []*continuumv1.RawFlow
@@ -117,11 +126,15 @@ func Run(ctx context.Context, src Source, agentURL string, secret []byte, node s
 	last := time.Now()
 	tick := time.NewTicker(every)
 	defer tick.Stop()
+	var backoff probe.PauseBackoff
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+		}
+		if !backoff.Due() {
+			continue
 		}
 		flows, lost, err := src.Collect()
 		if err != nil {
@@ -155,7 +168,8 @@ func Run(ctx context.Context, src Source, agentURL string, secret []byte, node s
 			logf("could not encode a report", "err", err)
 			continue
 		}
-		if err := probe.PostSigned(ctx, hc, agentURL+flow.PathReport, secret, node, body, time.Now()); err != nil {
+		paused, err := probe.PostSigned(ctx, hc, agentURL+flow.PathReport, secret, node, body, time.Now())
+		if err != nil {
 			logf("could not report to the agent, will retry with the next window", "err", err, "pending", len(pending))
 			if len(pending) > 4*flow.MaxRawFlows {
 				pendingLost += uint64(len(pending))
@@ -163,6 +177,7 @@ func Run(ctx context.Context, src Source, agentURL string, secret []byte, node s
 			}
 			continue
 		}
+		backoff.Observe(paused)
 		pending, pendingLost, last = nil, 0, time.Now()
 	}
 }

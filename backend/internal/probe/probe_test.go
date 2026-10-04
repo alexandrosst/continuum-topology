@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -543,7 +544,7 @@ func TestReceiverEndToEnd(t *testing.T) {
 	defer srv.Close()
 
 	h := &continuumv1.HostProbe{ProbeVersion: "1", HypervisorBit: true, SysVendor: "QEMU\x00"}
-	if err := Push(context.Background(), srv.Client(), srv.URL, secret, "worker-1", h, time.Now()); err != nil {
+	if _, err := Push(context.Background(), srv.Client(), srv.URL, secret, "worker-1", h, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	got := r.Get("worker-1")
@@ -556,7 +557,7 @@ func TestReceiverEndToEnd(t *testing.T) {
 		t.Fatal("a new observation must signal a change")
 	}
 	// The same report again (a second later; the same signature would be a replay) is not a change.
-	if err := Push(context.Background(), srv.Client(), srv.URL, secret, "worker-1", h, time.Now().Add(time.Second)); err != nil {
+	if _, err := Push(context.Background(), srv.Client(), srv.URL, secret, "worker-1", h, time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -565,14 +566,14 @@ func TestReceiverEndToEnd(t *testing.T) {
 	default:
 	}
 	// Wrong secret, bad node name, oversized body, wrong method.
-	if err := Push(context.Background(), srv.Client(), srv.URL, []byte("wrong wrong wrong wrong wrong!!!"), "worker-2", h, time.Now()); err == nil || r.Get("worker-2") != nil {
+	if _, err := Push(context.Background(), srv.Client(), srv.URL, []byte("wrong wrong wrong wrong wrong!!!"), "worker-2", h, time.Now()); err == nil || r.Get("worker-2") != nil {
 		t.Fatal("a report signed with the wrong secret must be refused")
 	}
-	if err := Push(context.Background(), srv.Client(), srv.URL, secret, "../etc/passwd", h, time.Now()); err == nil {
+	if _, err := Push(context.Background(), srv.Client(), srv.URL, secret, "../etc/passwd", h, time.Now()); err == nil {
 		t.Fatal("a bad node name must be refused")
 	}
 	big := &continuumv1.HostProbe{ProductName: strings.Repeat("x", MaxBody*2)}
-	if err := Push(context.Background(), srv.Client(), srv.URL, secret, "worker-3", big, time.Now()); err == nil {
+	if _, err := Push(context.Background(), srv.Client(), srv.URL, secret, "worker-3", big, time.Now()); err == nil {
 		t.Fatal("an oversized report must be refused")
 	}
 	resp, err := http.Get(srv.URL + PathReport)
@@ -592,7 +593,7 @@ func TestReceiverEndToEnd(t *testing.T) {
 
 func TestAPausedReceiverForgetsAndIgnoresNodes(t *testing.T) {
 	r := NewReceiver([]byte("secret-secret-secret-secret-1234"), nil)
-	if !r.put("node-a", &continuumv1.HostProbe{}) {
+	if accepted, paused := r.put("node-a", &continuumv1.HostProbe{}); !accepted || paused {
 		t.Fatal("a report was not accepted")
 	}
 	if n, _ := r.Presence(time.Hour); n != 1 || r.Get("node-a") == nil {
@@ -607,13 +608,118 @@ func TestAPausedReceiverForgetsAndIgnoresNodes(t *testing.T) {
 	if n, _ := r.Presence(time.Hour); n != 0 || r.Get("node-a") != nil {
 		t.Fatal("pausing must forget what nodes reported")
 	}
-	r.put("node-b", &continuumv1.HostProbe{}) // answered as usual, thrown away
+	if accepted, paused := r.put("node-b", &continuumv1.HostProbe{}); !accepted || !paused {
+		t.Fatal("a paused receiver must still accept and mark the report as ignored")
+	} // answered as usual, thrown away
 	if n, _ := r.Presence(time.Hour); n != 0 {
 		t.Fatal("a paused receiver remembers a node")
 	}
 	r.SetPaused(false)
-	if !r.put("node-b", &continuumv1.HostProbe{}) {
+	if accepted, paused := r.put("node-b", &continuumv1.HostProbe{}); !accepted || paused {
 		t.Fatal("a resumed receiver refuses reports")
+	}
+}
+
+// TestPauseBackoffSkipsMostTicksAndChecksOnSchedule exercises PauseBackoff directly (no HTTP, no
+// clock): the deterministic sequencing that both Run loops (probe's own below and the flow collector's
+// in package collector) lean on. A real "still paused" answer must be followed by exactly
+// PauseBackoffTicks-1 free skips before the next real attempt, and a "not paused" answer must clear the
+// backoff so every following tick is due again.
+func TestPauseBackoffSkipsMostTicksAndChecksOnSchedule(t *testing.T) {
+	var b PauseBackoff
+	if !b.Due() {
+		t.Fatal("a fresh backoff must be due on its first tick")
+	}
+	b.Observe(true) // the receiver says: still paused
+	skipped := 0
+	for !b.Due() {
+		skipped++
+		if skipped > PauseBackoffTicks {
+			t.Fatal("never became due again; a paused backoff must not skip forever")
+		}
+	}
+	if skipped != PauseBackoffTicks-1 {
+		t.Fatalf("skipped %d ticks before the next real attempt, want exactly %d (PauseBackoffTicks-1)", skipped, PauseBackoffTicks-1)
+	}
+	b.Observe(false) // the receiver says: not paused any more
+	for i := 0; i < 2*PauseBackoffTicks; i++ {
+		if !b.Due() {
+			t.Fatalf("tick %d: a backoff that just observed 'not paused' must stay due every tick", i)
+		}
+	}
+	// Paused again, but this time the loop never calls Observe before the skip run ends (as if the
+	// real check attempt kept failing on the transport, not on pause) - Due must still return to true
+	// on schedule rather than skipping forever, since nothing re-arms the skip counter without Observe.
+	b.Observe(true)
+	for i := 0; i < PauseBackoffTicks-1; i++ {
+		if b.Due() {
+			t.Fatalf("tick %d of the skip run fired early", i)
+		}
+	}
+	if !b.Due() {
+		t.Fatal("the tick right after a full skip run must be due")
+	}
+}
+
+// TestRunBacksOffWhilePausedAndNoticesResumePromptly proves the node-side loop actually does less real
+// work while the receiver is paused, not merely that the toggle exists: with the receiver paused from
+// the start, only a fraction of the ticks that elapse ever reach the server at all (every Read of
+// procfs/sysfs, the sign and the POST are skipped on the rest), and once resumed the next real request
+// lands within the documented bound of PauseBackoffTicks ticks.
+func TestRunBacksOffWhilePausedAndNoticesResumePromptly(t *testing.T) {
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	r := NewReceiver(secret, nil)
+	r.SetPaused(true)
+
+	var requests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests.Add(1)
+		r.Handler().ServeHTTP(w, req)
+	}))
+	defer srv.Close()
+
+	// An empty sys/proc, exactly like TestReadEmptyHostIsNotAnError's fixture: Read must not need a
+	// real host to run every tick that is due.
+	paths := Paths{Sys: t.TempDir(), Proc: t.TempDir()}
+	// 300ms, not the production 3m, so the test runs quickly - but still well over a second between
+	// real attempts (PauseBackoffTicks*every = 1.2s) so two real attempts never land on the same
+	// whole-second timestamp and collide in the replay cache (see Sign/ReplayCache), which would
+	// otherwise make every real attempt fail and defeat the very backoff this test is checking.
+	every := 300 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		Run(ctx, paths, srv.URL, secret, "node-a", every, func(string, ...any) {})
+		close(done)
+	}()
+
+	// Let roughly 12 ticks pass while paused. PauseBackoffTicks=4 means about 3 of those should be
+	// real attempts (tick 1, then every 4th after); nowhere near all 12.
+	time.Sleep(12*every + 8*every) // + margin for scheduling jitter
+	gotPaused := requests.Load()
+	if gotPaused == 0 {
+		t.Fatal("no request reached the receiver at all while paused - Run never even checks")
+	}
+	if gotPaused > 6 {
+		t.Fatalf("requests reaching the receiver while paused = %d over ~12 ticks; want far fewer than "+
+			"one per tick, i.e. the real read/sign/POST cycle must be skipped on most ticks while paused", gotPaused)
+	}
+
+	// Resume, and check the bound this design promises: at most PauseBackoffTicks ticks after the
+	// server stops reporting paused, the next real attempt happens.
+	before := requests.Load()
+	r.SetPaused(false)
+	bound := time.Duration(PauseBackoffTicks) * every
+	deadline := time.Now().Add(bound + 10*every) // margin for scheduling jitter on top of the bound itself
+	for time.Now().Before(deadline) && requests.Load() == before {
+		time.Sleep(every / 2)
+	}
+	cancel()
+	<-done
+	if requests.Load() == before {
+		t.Fatalf("no real attempt within the stated resume bound of %v (PauseBackoffTicks * interval)", bound)
 	}
 }
 

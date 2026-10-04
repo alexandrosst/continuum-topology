@@ -120,15 +120,17 @@ func (r *Receiver) Presence(within time.Duration) (nodes int, last time.Time) {
 	return nodes, last
 }
 
-func (r *Receiver) put(node string, h *continuumv1.HostProbe) (accepted bool) {
+// put stores one node's report, unless the receiver is paused (then the report is answered as usual
+// but thrown away - paused is reported true so the caller can tell the collector it was ignored).
+func (r *Receiver) put(node string, h *continuumv1.HostProbe) (accepted, paused bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.paused {
-		return true
+		return true, true
 	}
 	old, exists := r.nodes[node]
 	if !exists && len(r.nodes) >= maxNodes {
-		return false
+		return false, false
 	}
 	r.nodes[node] = h
 	r.seen[node] = r.now()
@@ -138,7 +140,7 @@ func (r *Receiver) put(node string, h *continuumv1.HostProbe) (accepted bool) {
 		default:
 		}
 	}
-	return true
+	return true, false
 }
 
 // Handler serves POST /v1/probe. It answers with the least information possible.
@@ -158,7 +160,11 @@ func (r *Receiver) Handler() http.Handler {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		if !r.put(node, Sanitize(&h)) {
+		accepted, paused := r.put(node, Sanitize(&h))
+		if paused {
+			w.Header().Set(HeaderPaused, "1")
+		}
+		if !accepted {
 			http.Error(w, "too many nodes", http.StatusInsufficientStorage)
 			return
 		}
