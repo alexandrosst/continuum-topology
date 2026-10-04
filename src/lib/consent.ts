@@ -66,6 +66,27 @@ export interface AgentDiagnostics {
    *  really runs, as opposed to what the install command below merely offers to turn on. Empty: none enabled,
    *  or an agent older than this field. */
   installedTelemetry?: string[]
+  /** The effective configuration behind installedTelemetry above - not just which signals are on, but how
+   *  each is actually configured right now (export destination, the processor settings that matter most
+   *  for "safe by default", and which source backs energy/accelerators). Undefined: no telemetry signal
+   *  installed, or an agent older than this field - see seedTelemetryFromInstalled below for where this
+   *  actually gets used. */
+  installedTelemetryConfig?: AgentTelemetryConfig
+}
+
+/**
+ * The effective configuration behind AgentDiagnostics.installedTelemetry - the server's DiagnosticsDoc.
+ * InstalledTelemetryConfig, one-to-one. tracesSamplingPercent/energySource/acceleratorsSource are each
+ * only meaningful (and only ever present) when their own signal is itself on - see InstalledTelemetryConfig's
+ * own doc comment in agent.proto for why.
+ */
+export interface AgentTelemetryConfig {
+  exportEndpoint: string
+  redactionEnabled: boolean
+  resourceDetectionEnabled: boolean
+  tracesSamplingPercent?: number
+  energySource?: 'bundle-kepler' | 'existing'
+  acceleratorsSource?: 'bundle-dcgm' | 'existing'
 }
 
 /** What an administrator has asked one agent to leave out, and whether the agent has caught up with it. */
@@ -292,19 +313,30 @@ export function applyIntentPreset(current: TelemetryInput, preset: TelemetryInte
 }
 
 /**
- * Seeds a fresh TelemetryInput from the agent's own self-reported signal list (`installedTelemetry`) -
- * only which signals are actually on right now, mirroring applyIntentPreset's shape - because that self-
- * report is the only part of the effective configuration the agent currently sends back (see
- * TelemetryPanel in AgentInsight.tsx). Everything else (destination, processors, accelerators source)
- * starts at its install default, same as a fresh install, since there is nothing today to seed those from.
- * Without this, the "change telemetry" panel starts blank on every open - and because withTelemetry always
- * states every signal explicitly (see its own comment on why), running the generated command from a blank
- * draft would silently turn off every signal the operator didn't happen to re-check.
+ * Seeds a fresh TelemetryInput from the agent's own self-report: which signals are actually on
+ * (`installedTelemetry`), mirroring applyIntentPreset's shape, and - when the agent is new enough to send
+ * it - the effective configuration behind them (`installedTelemetryConfig`): the export destination, the
+ * redaction/resourcedetection/traces-sampling processor settings, and which source backs energy/
+ * accelerators. Without `config`, every one of those starts at its install default, same as a fresh
+ * install - the only thing seeded is still which signals are on, matching an agent too old to report the
+ * rest. Without this function at all, the "change telemetry" panel starts blank on every open - and because
+ * withTelemetry always states every signal explicitly (see its own comment on why), running the generated
+ * command from a blank draft would silently turn off every signal the operator didn't happen to re-check;
+ * the same is true field-by-field for `config`, which is why a real self-reported value always takes over
+ * from the respective default rather than only filling in what a blank form left empty.
  */
-export function seedTelemetryFromInstalled(installed: string[]): TelemetryInput {
+export function seedTelemetryFromInstalled(installed: string[], config?: AgentTelemetryConfig): TelemetryInput {
   const next: TelemetryInput = { ...emptyTelemetry }
   const rec = next as unknown as Record<string, boolean>
   for (const s of TELEMETRY_SIGNALS) rec[s.id] = installed.includes(s.id)
+  if (config) {
+    next.exportEndpoint = config.exportEndpoint
+    next.redaction = config.redactionEnabled
+    next.resourceDetection = config.resourceDetectionEnabled
+    if (config.tracesSamplingPercent !== undefined) next.tracesSamplingPercent = config.tracesSamplingPercent
+    if (config.energySource) next.energySource = config.energySource
+    if (config.acceleratorsSource) next.acceleratorsSource = config.acceleratorsSource
+  }
   return next
 }
 

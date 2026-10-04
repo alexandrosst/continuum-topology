@@ -32,6 +32,25 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// TelemetryConfig is the effective telemetry configuration one chart install rendered - the destination,
+// the processor settings telemetry-intent.md names as mattering most for "safe by default" (redaction,
+// resourcedetection, traces sampling), and which source backs energy/accelerators when either signal is
+// on. Built once, in cli/agent/agent.go, from the chart's own CONTINUUM_TELEMETRY_* env vars - never
+// re-derived or re-validated here, the same "the chart's rendered config IS the effective config" stance
+// TelemetrySignals already takes (telemetry is declarative-only; there is no runtime drift to chase).
+// TracesSamplingPercentage/EnergySource/AcceleratorsSource are pointers because each is only meaningful
+// when its own signal is enabled - the same optional-field treatment host_watts/oom_kill_count already use
+// in the probe package, for the same reason (nil, not a fabricated zero value, when there is nothing to
+// report).
+type TelemetryConfig struct {
+	Destination              string
+	RedactionEnabled         bool
+	ResourceDetectionEnabled bool
+	TracesSamplingPercentage *uint32
+	EnergySource             *string
+	AcceleratorsSource       *string
+}
+
 type Config struct {
 	Server   string // host:port
 	CAPin    string // sha256 of the server CA, from the install command
@@ -57,6 +76,13 @@ type Config struct {
 	// what the chart was told to install, so the UI can show real state instead of a blind guess. Nil outside
 	// the chart, or when no telemetry signal is enabled.
 	TelemetrySignals []string
+	// TelemetryConfig is the effective configuration behind TelemetrySignals above - not just which signals
+	// are on, but how each is actually configured (the chart computes and injects it as a handful of sibling
+	// CONTINUUM_TELEMETRY_* env vars, read in cli/agent/agent.go). Reported in Diagnostics as
+	// InstalledTelemetryConfig, the same "effective value the chart rendered" treatment Tier/
+	// TelemetrySignals already get. Nil outside the chart, when no telemetry signal is enabled, or when the
+	// chart predates this field (an older chart only sets the signals list above).
+	TelemetryConfig *TelemetryConfig
 
 	// RBACSelfCheck, when true, periodically asks the cluster (SelfSubjectAccessReview, which every ServiceAccount
 	// may always ask about itself, needing no permission of its own) whether it still grants more than Tier

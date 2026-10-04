@@ -40,6 +40,17 @@ func Main(args []string) int {
 	ns := fs.String("namespace", cli.Env("POD_NAMESPACE", "continuum-system"), "the agent's namespace")
 	releaseName := fs.String("release-name", cli.Env("CONTINUUM_RELEASE_NAME", ""), "the Helm release this agent was installed as (the chart sets this; empty outside it)")
 	telemetrySignals := fs.String("telemetry-signals", cli.Env("CONTINUUM_TELEMETRY_SIGNALS", ""), "telemetry signals this install's chart enabled (telemetry.*.enabled), comma separated - purely informational, reported in Diagnostics; the chart sets this automatically")
+	// The effective configuration behind telemetrySignals above - not just which signals are on, but how
+	// each is actually configured. Siblings of telemetry-signals, same "the chart sets this automatically"
+	// contract; see TelemetryConfig's own doc comment in internal/agent/run.go for why each is shaped as
+	// it is (and why three of these are read as strings here rather than typed, parsed only once telemetry
+	// actually turns out to be enabled, below).
+	telemetryDestination := fs.String("telemetry-destination", cli.Env("CONTINUUM_TELEMETRY_DESTINATION", ""), "effective telemetry.export.otlp.endpoint this install's chart configured the collector to send to - purely informational, reported in Diagnostics; the chart sets this automatically")
+	telemetryRedaction := fs.Bool("telemetry-redaction", cli.Env("CONTINUUM_TELEMETRY_REDACTION", "") == "true", "effective telemetry.processors.redaction.enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
+	telemetryResourceDetection := fs.Bool("telemetry-resource-detection", cli.Env("CONTINUUM_TELEMETRY_RESOURCE_DETECTION", "") == "true", "effective telemetry.processors.resourceDetection.enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
+	telemetryTracesSampling := fs.String("telemetry-traces-sampling", cli.Env("CONTINUUM_TELEMETRY_TRACES_SAMPLING", ""), "effective telemetry.processors.tracesSampling.percentage, only set by the chart when the traces signal is enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
+	telemetryEnergySource := fs.String("telemetry-energy-source", cli.Env("CONTINUUM_TELEMETRY_ENERGY_SOURCE", ""), "effective telemetry.energy.metrics.source (bundle-kepler | existing), only set by the chart when the energy signal is enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
+	telemetryAcceleratorsSource := fs.String("telemetry-accelerators-source", cli.Env("CONTINUUM_TELEMETRY_ACCELERATORS_SOURCE", ""), "effective telemetry.accelerators.metrics.source (bundle-dcgm | existing), only set by the chart when the accelerators signal is enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
 	rbacSelfCheck := fs.Bool("rbac-self-check", cli.Env("CONTINUUM_RBAC_SELF_CHECK", "true") == "true", "periodically ask the cluster (SelfSubjectAccessReview) whether it still grants more than --tier declares, and report it as a problem if so; catches a helm upgrade that narrowed access.tier locally but was never run against the cluster")
 	probeListen := fs.String("probe-listen", cli.Env("CONTINUUM_PROBE_LISTEN", ""), "address to listen on for node probe reports, e.g. :8081 (empty: no node probes)")
 	probeSecretFile := fs.String("probe-secret-file", cli.Env("CONTINUUM_PROBE_SECRET_FILE", ""), "file holding the secret shared with the node probes")
@@ -99,6 +110,32 @@ func Main(args []string) int {
 		if s = strings.TrimSpace(s); s != "" {
 			telemetrySignalList = append(telemetrySignalList, s)
 		}
+	}
+	// Built only once there is a destination to report - the chart only ever sets CONTINUUM_TELEMETRY_
+	// DESTINATION (and its siblings) when agent.telemetryEnabled, mirroring telemetrySignalList's own "nil
+	// outside the chart, or when no telemetry signal is enabled" contract exactly, rather than a second,
+	// independently-maintained condition that could drift from it.
+	var telemetryConfig *agent.TelemetryConfig
+	if *telemetryDestination != "" {
+		tc := &agent.TelemetryConfig{Destination: *telemetryDestination, RedactionEnabled: *telemetryRedaction, ResourceDetectionEnabled: *telemetryResourceDetection}
+		if *telemetryTracesSampling != "" {
+			n, perr := strconv.Atoi(*telemetryTracesSampling)
+			if perr != nil || n < 0 || n > 100 {
+				fmt.Fprintf(os.Stderr, "--telemetry-traces-sampling: %q is not a percentage\n", *telemetryTracesSampling)
+				return 2
+			}
+			v := uint32(n)
+			tc.TracesSamplingPercentage = &v
+		}
+		if *telemetryEnergySource != "" {
+			v := *telemetryEnergySource
+			tc.EnergySource = &v
+		}
+		if *telemetryAcceleratorsSource != "" {
+			v := *telemetryAcceleratorsSource
+			tc.AcceleratorsSource = &v
+		}
+		telemetryConfig = tc
 	}
 	var rbacNamespaced bool
 	switch *rbacMode {
@@ -186,7 +223,7 @@ func Main(args []string) int {
 		}
 		defer stopHealth()
 	}
-	err = agent.Run(ctx, agent.Config{Server: *server, CAPin: *pin, Token: token, Tier: *tier, Kube: client, APIHost: apiHost, Identity: ids, Version: cli.Version, Log: log, Probes: probes, Flows: flows, FlowWindow: *flowWindow, Measure: *measureOn, ProbeListen: *probeListen, Scope: scope, Health: health, RevokedHold: *revokedHold, ProbeInterval: *probeEvery, FlowInterval: *flowEvery, Namespace: *ns, ReleaseName: *releaseName, TelemetrySignals: telemetrySignalList, RBACSelfCheck: *rbacSelfCheck, RBACNamespaced: rbacNamespaced})
+	err = agent.Run(ctx, agent.Config{Server: *server, CAPin: *pin, Token: token, Tier: *tier, Kube: client, APIHost: apiHost, Identity: ids, Version: cli.Version, Log: log, Probes: probes, Flows: flows, FlowWindow: *flowWindow, Measure: *measureOn, ProbeListen: *probeListen, Scope: scope, Health: health, RevokedHold: *revokedHold, ProbeInterval: *probeEvery, FlowInterval: *flowEvery, Namespace: *ns, ReleaseName: *releaseName, TelemetrySignals: telemetrySignalList, TelemetryConfig: telemetryConfig, RBACSelfCheck: *rbacSelfCheck, RBACNamespaced: rbacNamespaced})
 	if errors.Is(err, agent.ErrRevoked) {
 		// Exit with a code of its own (agent.ExitRevoked) so `kubectl get pod` and the restart count say what
 		// happened. Run has already said why, in plain words, and has waited a random 5-10 minutes if this was a

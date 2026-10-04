@@ -536,6 +536,27 @@ type DiagnosticsDoc struct {
 	// by name - purely informational, exactly like InstalledTier: this server never pushes or changes it, and
 	// it never affects discovery. Empty: no telemetry signal installed, or an agent older than this field.
 	InstalledTelemetry []string `json:"installedTelemetry,omitempty"`
+	// InstalledTelemetryConfig is the effective configuration behind InstalledTelemetry above - not just
+	// which signals are on, but how each is actually configured (export destination, the processor settings
+	// that matter most for "safe by default", and which source backs energy/accelerators). Same purely
+	// informational, never-pushed-by-this-server treatment as InstalledTier/InstalledTelemetry. Nil: no
+	// telemetry signal installed, or an agent older than this field.
+	InstalledTelemetryConfig *TelemetryConfigDoc `json:"installedTelemetryConfig,omitempty"`
+}
+
+// TelemetryConfigDoc is the effective configuration behind DiagnosticsDoc.InstalledTelemetryConfig - see
+// InstalledTelemetryConfig's own doc comment in agent.proto for why each field is shaped as it is.
+// EnergySource/AcceleratorsSource are plain strings (empty already means "that signal is not enabled", the
+// same meaning their absence would carry) rather than pointers; TracesSamplingPercent is a pointer because
+// 0 is a real, meaningful percentage (drop every span) that must stay distinguishable from "traces is not
+// enabled" - the same ambiguous-zero problem SelfTelemetrySample.CPUPct's own doc comment names.
+type TelemetryConfigDoc struct {
+	ExportEndpoint           string  `json:"exportEndpoint"`
+	RedactionEnabled         bool    `json:"redactionEnabled"`
+	ResourceDetectionEnabled bool    `json:"resourceDetectionEnabled"`
+	TracesSamplingPercent    *uint32 `json:"tracesSamplingPercent,omitempty"`
+	EnergySource             string  `json:"energySource,omitempty"`
+	AcceleratorsSource       string  `json:"acceleratorsSource,omitempty"`
 }
 
 // maxDiag* bound what an agent may make the server hold about its own diagnostics.
@@ -669,6 +690,20 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 	}
 	for _, s := range d.InstalledTelemetrySignals {
 		out.InstalledTelemetry = append(out.InstalledTelemetry, printable(s, 40))
+	}
+	if tc := d.InstalledTelemetryConfig; tc != nil {
+		cfg := &TelemetryConfigDoc{
+			ExportEndpoint:           printable(tc.ExportEndpoint, 300),
+			RedactionEnabled:         tc.RedactionEnabled,
+			ResourceDetectionEnabled: tc.ResourceDetectionEnabled,
+			EnergySource:             printable(tc.GetEnergySource(), 40),
+			AcceleratorsSource:       printable(tc.GetAcceleratorsSource(), 40),
+		}
+		if tc.TracesSamplingPercentage != nil {
+			v := *tc.TracesSamplingPercentage
+			cfg.TracesSamplingPercent = &v
+		}
+		out.InstalledTelemetryConfig = cfg
 	}
 	for _, c := range d.Collectors {
 		cd := AgentCollectorDoc{Name: printable(c.Name, 20), Configured: c.Configured, Enabled: c.Enabled, PausedByServer: c.PausedByServer, Producing: c.Producing,

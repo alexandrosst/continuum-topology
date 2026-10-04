@@ -404,8 +404,11 @@ export function TelemetryPanel({
   const [open, setOpen] = useState(() => !!initialScope)
   // Seeded from what the agent actually reports running, not a blank form: withTelemetry states every
   // signal explicitly on every call, so a blank draft would silently turn off everything the operator
-  // didn't happen to re-check the moment they ran the generated command for an unrelated change.
-  const [draft, setDraft] = useState<TelemetryInput>(() => seedTelemetryFromInstalled(installed))
+  // didn't happen to re-check the moment they ran the generated command for an unrelated change. The
+  // agent's installedTelemetryConfig (destination, redaction/resourcedetection/traces-sampling, energy/
+  // accelerators source) seeds those same fields too, when the agent is new enough to report it - see
+  // seedTelemetryFromInstalled's own doc comment for exactly which fields that covers.
+  const [draft, setDraft] = useState<TelemetryInput>(() => seedTelemetryFromInstalled(installed, d?.installedTelemetryConfig))
   const measurementsOn = measurementsRunning(d)
   // Without measurementsOn, withTelemetry's own telemetryProblems check (see its doc comment) can never see
   // the one validation rule that depends on it - a network-latency signal with measurements off - so the

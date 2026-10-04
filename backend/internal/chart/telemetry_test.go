@@ -204,6 +204,63 @@ func TestTelemetrySignalsEnvVarMatchesEnabledSignals(t *testing.T) {
 	}
 }
 
+// TestTelemetryEffectiveConfigEnvVars covers the three things telemetry-intent.md names as missing from the
+// agent's self-report: the effective export destination, the effective processor settings (redaction,
+// resourcedetection, traces sampling), and which source backs energy/accelerators - rendered as siblings of
+// CONTINUUM_TELEMETRY_SIGNALS on the agent container, not the collector's own ConfigMap, so the agent can
+// report them in Diagnostics the same way it already reports CONTINUUM_TIER.
+func TestTelemetryEffectiveConfigEnvVars(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=otel-collector.example:4317",
+		"--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.energy.metrics.source=bundle-kepler",
+		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=existing",
+		"--set", "telemetry.accelerators.metrics.existing.prometheusEndpoint=dcgm.example:9400",
+		"--set", "telemetry.traces.traces.enabled=true", "--set", "telemetry.processors.tracesSampling.percentage=20",
+		"--set", "telemetry.processors.resourceDetection.enabled=true",
+	)
+	c := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
+	want := map[string]string{
+		"CONTINUUM_TELEMETRY_DESTINATION":         "otel-collector.example:4317",
+		"CONTINUUM_TELEMETRY_REDACTION":           "true", // on by default
+		"CONTINUUM_TELEMETRY_RESOURCE_DETECTION":  "true",
+		"CONTINUUM_TELEMETRY_TRACES_SAMPLING":     "20",
+		"CONTINUUM_TELEMETRY_ENERGY_SOURCE":       "bundle-kepler",
+		"CONTINUUM_TELEMETRY_ACCELERATORS_SOURCE": "existing",
+	}
+	for name, wantVal := range want {
+		v, ok := env(c, name)
+		if !ok {
+			t.Errorf("%s not set on the agent container", name)
+			continue
+		}
+		if v != wantVal {
+			t.Errorf("%s = %q, want %q", name, v, wantVal)
+		}
+	}
+
+	// Redaction turned off explicitly: the env var must follow, not stay stuck at the chart's own default.
+	r2 := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.processors.redaction.enabled=false")
+	c2 := r2.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
+	if v, ok := env(c2, "CONTINUUM_TELEMETRY_REDACTION"); !ok || v != "false" {
+		t.Errorf("CONTINUUM_TELEMETRY_REDACTION = %q, ok=%v, want \"false\"", v, ok)
+	}
+	// Neither traces nor energy nor accelerators is enabled here, so their own env vars must be absent too.
+	for _, name := range []string{"CONTINUUM_TELEMETRY_TRACES_SAMPLING", "CONTINUUM_TELEMETRY_ENERGY_SOURCE", "CONTINUUM_TELEMETRY_ACCELERATORS_SOURCE"} {
+		if _, ok := env(c2, name); ok {
+			t.Errorf("%s should be absent when its own signal is not enabled", name)
+		}
+	}
+
+	// No telemetry signal enabled at all: the whole family of env vars is entirely absent, matching
+	// CONTINUUM_TELEMETRY_SIGNALS's own "absent, not present-and-empty" contract.
+	r3 := render(t)
+	c3 := r3.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
+	for name := range want {
+		if _, ok := env(c3, name); ok {
+			t.Errorf("%s should be entirely absent when no telemetry signal is enabled", name)
+		}
+	}
+}
+
 func TestTelemetryKubeletStatsUsesCanonicalReceiverName(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true")
 	cm := r.configmaps["continuum-telemetry-host-config"]

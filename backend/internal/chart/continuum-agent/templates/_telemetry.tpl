@@ -214,6 +214,19 @@ bearertokenauth:
 {{- join "," $n -}}
 {{- end -}}
 
+{{/* The effective-configuration counterparts to agent.telemetrySignalNames above, for the agent container's
+     own CONTINUUM_TELEMETRY_* env vars (see deployment.yaml): not just which signals are on, but how each is
+     actually configured - the destination, the processor settings telemetry-intent.md names as mattering
+     most for "safe by default" (redaction, resourcedetection, traces sampling), and which source backs
+     energy/accelerators when either is on. Same self-report mechanism installed_tier already uses, extended
+     from a flat ceiling to a small config shape - see Diagnostics.installed_telemetry_config's own doc
+     comment in agent.proto. Every one of these is only ever read, during `helm template`/`helm upgrade`, by
+     deployment.yaml below gating the whole block on agent.telemetryEnabled, so none of them needs its own
+     "is telemetry even on" guard. */}}
+{{- define "agent.telemetryEffectiveDestination" -}}{{- .Values.telemetry.export.otlp.endpoint -}}{{- end -}}
+{{- define "agent.telemetryEffectiveRedactionEnabled" -}}{{- .Values.telemetry.processors.redaction.enabled -}}{{- end -}}
+{{- define "agent.telemetryEffectiveResourceDetectionEnabled" -}}{{- .Values.telemetry.processors.resourceDetection.enabled -}}{{- end -}}
+
 {{/* The OpAMP extension block (ALPHA status upstream), and its entry in service.extensions - both emit
      nothing when telemetry.opamp.enabled is false, so callers can always include them unconditionally.
      Report-only: reports_effective_config/reports_health/reports_available_components default to true in

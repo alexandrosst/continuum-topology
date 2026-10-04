@@ -242,6 +242,16 @@ func (r *runner) diagnostics() *continuumv1.Diagnostics {
 		d.InstalledTelemetrySignals = append([]string(nil), r.cfg.TelemetrySignals...)
 		sort.Strings(d.InstalledTelemetrySignals)
 	}
+	if tc := r.cfg.TelemetryConfig; tc != nil {
+		d.InstalledTelemetryConfig = &continuumv1.InstalledTelemetryConfig{
+			ExportEndpoint:           tc.Destination,
+			RedactionEnabled:         tc.RedactionEnabled,
+			ResourceDetectionEnabled: tc.ResourceDetectionEnabled,
+			TracesSamplingPercentage: tc.TracesSamplingPercentage,
+			EnergySource:             tc.EnergySource,
+			AcceleratorsSource:       tc.AcceleratorsSource,
+		}
+	}
 	if c != nil {
 		d.Scope = c.ScopeSummary()
 	} else {

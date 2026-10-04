@@ -290,7 +290,7 @@ func (x Problem_Severity) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Problem_Severity.Descriptor instead.
 func (Problem_Severity) EnumDescriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{49, 0}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{50, 0}
 }
 
 type RejoinRequest struct {
@@ -5464,8 +5464,15 @@ type Diagnostics struct {
 	// UI can show what telemetry is actually installed without a live control-plane channel for it. Empty:
 	// no telemetry signal is enabled, or an agent older than this field.
 	InstalledTelemetrySignals []string `protobuf:"bytes,17,rep,name=installed_telemetry_signals,json=installedTelemetrySignals,proto3" json:"installed_telemetry_signals,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// The effective configuration behind installed_telemetry_signals above - not just which signals are on,
+	// but how each is actually configured right now. Same "report the effective value the way installed_tier
+	// already does" treatment, extended from a flat ceiling to a small config shape. Absent entirely when no
+	// telemetry signal is enabled (nothing to report), or an agent older than this field - never present with
+	// every sub-field at its zero value, the same "absent rather than present-and-empty" rule
+	// installed_telemetry_signals already follows.
+	InstalledTelemetryConfig *InstalledTelemetryConfig `protobuf:"bytes,18,opt,name=installed_telemetry_config,json=installedTelemetryConfig,proto3" json:"installed_telemetry_config,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *Diagnostics) Reset() {
@@ -5617,6 +5624,117 @@ func (x *Diagnostics) GetInstalledTelemetrySignals() []string {
 	return nil
 }
 
+func (x *Diagnostics) GetInstalledTelemetryConfig() *InstalledTelemetryConfig {
+	if x != nil {
+		return x.InstalledTelemetryConfig
+	}
+	return nil
+}
+
+// The effective configuration behind Diagnostics.installed_telemetry_config - the destination, the
+// processor settings telemetry-intent.md names as mattering most for "safe by default", and which source
+// backs energy/accelerators when either is on. Purely informational, exactly like installed_tier: this
+// server never pushes or changes any of it, and every value here is read straight from the chart's own
+// rendered configuration (telemetry is declarative-only - see telemetry-intent.md's "Four commitments"),
+// never from anything the collector does at runtime.
+type InstalledTelemetryConfig struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// telemetry.export.otlp.endpoint, as rendered into this install's collectors. Empty only if somehow no
+	// telemetry signal were enabled while this message is still present, which the chart's own
+	// agent.telemetryValidate never allows - present here mainly so the type doesn't have to special-case it.
+	ExportEndpoint string `protobuf:"bytes,1,opt,name=export_endpoint,json=exportEndpoint,proto3" json:"export_endpoint,omitempty"`
+	// telemetry.processors.redaction.enabled / telemetry.processors.resourceDetection.enabled - both always
+	// meaningful whenever this message is present at all (every pipeline decides them the same way regardless
+	// of which signals are on), so plain bool is enough: no separate presence bit needed the way the
+	// signal-specific fields below need one.
+	RedactionEnabled         bool `protobuf:"varint,2,opt,name=redaction_enabled,json=redactionEnabled,proto3" json:"redaction_enabled,omitempty"`
+	ResourceDetectionEnabled bool `protobuf:"varint,3,opt,name=resource_detection_enabled,json=resourceDetectionEnabled,proto3" json:"resource_detection_enabled,omitempty"`
+	// telemetry.processors.tracesSampling.percentage - optional because it has no referent at all unless the
+	// traces signal is itself enabled (see installed_telemetry_signals), not because 0% is an unusual value to
+	// report honestly.
+	TracesSamplingPercentage *uint32 `protobuf:"varint,4,opt,name=traces_sampling_percentage,json=tracesSamplingPercentage,proto3,oneof" json:"traces_sampling_percentage,omitempty"`
+	// telemetry.energy.metrics.source ("bundle-kepler" | "existing") - optional for the same reason: absent
+	// unless the energy signal is enabled.
+	EnergySource *string `protobuf:"bytes,5,opt,name=energy_source,json=energySource,proto3,oneof" json:"energy_source,omitempty"`
+	// telemetry.accelerators.metrics.source ("bundle-dcgm" | "existing") - optional for the same reason:
+	// absent unless the accelerators signal is enabled.
+	AcceleratorsSource *string `protobuf:"bytes,6,opt,name=accelerators_source,json=acceleratorsSource,proto3,oneof" json:"accelerators_source,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *InstalledTelemetryConfig) Reset() {
+	*x = InstalledTelemetryConfig{}
+	mi := &file_continuum_v1_agent_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InstalledTelemetryConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InstalledTelemetryConfig) ProtoMessage() {}
+
+func (x *InstalledTelemetryConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_continuum_v1_agent_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InstalledTelemetryConfig.ProtoReflect.Descriptor instead.
+func (*InstalledTelemetryConfig) Descriptor() ([]byte, []int) {
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *InstalledTelemetryConfig) GetExportEndpoint() string {
+	if x != nil {
+		return x.ExportEndpoint
+	}
+	return ""
+}
+
+func (x *InstalledTelemetryConfig) GetRedactionEnabled() bool {
+	if x != nil {
+		return x.RedactionEnabled
+	}
+	return false
+}
+
+func (x *InstalledTelemetryConfig) GetResourceDetectionEnabled() bool {
+	if x != nil {
+		return x.ResourceDetectionEnabled
+	}
+	return false
+}
+
+func (x *InstalledTelemetryConfig) GetTracesSamplingPercentage() uint32 {
+	if x != nil && x.TracesSamplingPercentage != nil {
+		return *x.TracesSamplingPercentage
+	}
+	return 0
+}
+
+func (x *InstalledTelemetryConfig) GetEnergySource() string {
+	if x != nil && x.EnergySource != nil {
+		return *x.EnergySource
+	}
+	return ""
+}
+
+func (x *InstalledTelemetryConfig) GetAcceleratorsSource() string {
+	if x != nil && x.AcceleratorsSource != nil {
+		return *x.AcceleratorsSource
+	}
+	return ""
+}
+
 // One optional collector: the node probe receiver ("probes"), the flow pipeline ("flow") or connection timing
 // ("measure").
 type CollectorDiag struct {
@@ -5640,7 +5758,7 @@ type CollectorDiag struct {
 
 func (x *CollectorDiag) Reset() {
 	*x = CollectorDiag{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[47]
+	mi := &file_continuum_v1_agent_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5652,7 +5770,7 @@ func (x *CollectorDiag) String() string {
 func (*CollectorDiag) ProtoMessage() {}
 
 func (x *CollectorDiag) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[47]
+	mi := &file_continuum_v1_agent_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5665,7 +5783,7 @@ func (x *CollectorDiag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CollectorDiag.ProtoReflect.Descriptor instead.
 func (*CollectorDiag) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{47}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *CollectorDiag) GetName() string {
@@ -5746,7 +5864,7 @@ type InformerDiag struct {
 
 func (x *InformerDiag) Reset() {
 	*x = InformerDiag{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[48]
+	mi := &file_continuum_v1_agent_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5758,7 +5876,7 @@ func (x *InformerDiag) String() string {
 func (*InformerDiag) ProtoMessage() {}
 
 func (x *InformerDiag) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[48]
+	mi := &file_continuum_v1_agent_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5771,7 +5889,7 @@ func (x *InformerDiag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InformerDiag.ProtoReflect.Descriptor instead.
 func (*InformerDiag) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{48}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *InformerDiag) GetName() string {
@@ -5824,7 +5942,7 @@ type Problem struct {
 
 func (x *Problem) Reset() {
 	*x = Problem{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[49]
+	mi := &file_continuum_v1_agent_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5836,7 +5954,7 @@ func (x *Problem) String() string {
 func (*Problem) ProtoMessage() {}
 
 func (x *Problem) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[49]
+	mi := &file_continuum_v1_agent_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5849,7 +5967,7 @@ func (x *Problem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Problem.ProtoReflect.Descriptor instead.
 func (*Problem) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{49}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *Problem) GetCode() string {
@@ -5924,7 +6042,7 @@ type SelfStats struct {
 
 func (x *SelfStats) Reset() {
 	*x = SelfStats{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[50]
+	mi := &file_continuum_v1_agent_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5936,7 +6054,7 @@ func (x *SelfStats) String() string {
 func (*SelfStats) ProtoMessage() {}
 
 func (x *SelfStats) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[50]
+	mi := &file_continuum_v1_agent_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5949,7 +6067,7 @@ func (x *SelfStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelfStats.ProtoReflect.Descriptor instead.
 func (*SelfStats) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{50}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *SelfStats) GetRssBytes() uint64 {
@@ -6525,7 +6643,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x0frto_retransmits\x18\x15 \x01(\x04R\x0ertoRetransmits\x124\n" +
 	"\x16window_rto_retransmits\x18\x16 \x01(\x04R\x14windowRtoRetransmits\"9\n" +
 	"\tFlowTable\x12,\n" +
-	"\x05edges\x18\x01 \x03(\v2\x16.continuum.v1.FlowEdgeR\x05edges\"\x82\x06\n" +
+	"\x05edges\x18\x01 \x03(\v2\x16.continuum.v1.FlowEdgeR\x05edges\"\xe8\x06\n" +
 	"\vDiagnostics\x12#\n" +
 	"\ragent_version\x18\x01 \x01(\tR\fagentVersion\x12\x12\n" +
 	"\x04arch\x18\x02 \x01(\tR\x04arch\x12\x0e\n" +
@@ -6546,7 +6664,18 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\fflow_dropped\x18\x0e \x01(\x04R\vflowDropped\x12=\n" +
 	"\fgenerated_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\vgeneratedAt\x126\n" +
 	"\x17own_excluded_namespaces\x18\x10 \x01(\rR\x15ownExcludedNamespaces\x12>\n" +
-	"\x1binstalled_telemetry_signals\x18\x11 \x03(\tR\x19installedTelemetrySignals\"\xac\x02\n" +
+	"\x1binstalled_telemetry_signals\x18\x11 \x03(\tR\x19installedTelemetrySignals\x12d\n" +
+	"\x1ainstalled_telemetry_config\x18\x12 \x01(\v2&.continuum.v1.InstalledTelemetryConfigR\x18installedTelemetryConfig\"\x9a\x03\n" +
+	"\x18InstalledTelemetryConfig\x12'\n" +
+	"\x0fexport_endpoint\x18\x01 \x01(\tR\x0eexportEndpoint\x12+\n" +
+	"\x11redaction_enabled\x18\x02 \x01(\bR\x10redactionEnabled\x12<\n" +
+	"\x1aresource_detection_enabled\x18\x03 \x01(\bR\x18resourceDetectionEnabled\x12A\n" +
+	"\x1atraces_sampling_percentage\x18\x04 \x01(\rH\x00R\x18tracesSamplingPercentage\x88\x01\x01\x12(\n" +
+	"\renergy_source\x18\x05 \x01(\tH\x01R\fenergySource\x88\x01\x01\x124\n" +
+	"\x13accelerators_source\x18\x06 \x01(\tH\x02R\x12acceleratorsSource\x88\x01\x01B\x1d\n" +
+	"\x1b_traces_sampling_percentageB\x10\n" +
+	"\x0e_energy_sourceB\x16\n" +
+	"\x14_accelerators_source\"\xac\x02\n" +
 	"\rCollectorDiag\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +
@@ -6612,79 +6741,80 @@ func file_continuum_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_continuum_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_continuum_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
+var file_continuum_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 61)
 var file_continuum_v1_agent_proto_goTypes = []any{
-	(TlsHandshakeOutcome)(0),      // 0: continuum.v1.TlsHandshakeOutcome
-	(PollResponse_State)(0),       // 1: continuum.v1.PollResponse.State
-	(ModuleStatus_State)(0),       // 2: continuum.v1.ModuleStatus.State
-	(FlowEndpoint_Kind)(0),        // 3: continuum.v1.FlowEndpoint.Kind
-	(Problem_Severity)(0),         // 4: continuum.v1.Problem.Severity
-	(*RejoinRequest)(nil),         // 5: continuum.v1.RejoinRequest
-	(*EnrollRequest)(nil),         // 6: continuum.v1.EnrollRequest
-	(*EnrollResponse)(nil),        // 7: continuum.v1.EnrollResponse
-	(*PollRequest)(nil),           // 8: continuum.v1.PollRequest
-	(*PollResponse)(nil),          // 9: continuum.v1.PollResponse
-	(*RenewRequest)(nil),          // 10: continuum.v1.RenewRequest
-	(*RenewResponse)(nil),         // 11: continuum.v1.RenewResponse
-	(*AgentMessage)(nil),          // 12: continuum.v1.AgentMessage
-	(*Hello)(nil),                 // 13: continuum.v1.Hello
-	(*Heartbeat)(nil),             // 14: continuum.v1.Heartbeat
-	(*ModuleStatus)(nil),          // 15: continuum.v1.ModuleStatus
-	(*Sync)(nil),                  // 16: continuum.v1.Sync
-	(*ClusterFacts)(nil),          // 17: continuum.v1.ClusterFacts
-	(*ScopeFacts)(nil),            // 18: continuum.v1.ScopeFacts
-	(*MeshFacts)(nil),             // 19: continuum.v1.MeshFacts
-	(*WorkloadMesh)(nil),          // 20: continuum.v1.WorkloadMesh
-	(*NodeFacts)(nil),             // 21: continuum.v1.NodeFacts
-	(*HostProbe)(nil),             // 22: continuum.v1.HostProbe
-	(*NetworkInterface)(nil),      // 23: continuum.v1.NetworkInterface
-	(*Disk)(nil),                  // 24: continuum.v1.Disk
-	(*TunnelInterface)(nil),       // 25: continuum.v1.TunnelInterface
-	(*NamespaceFacts)(nil),        // 26: continuum.v1.NamespaceFacts
-	(*ContainerImage)(nil),        // 27: continuum.v1.ContainerImage
-	(*WorkloadFacts)(nil),         // 28: continuum.v1.WorkloadFacts
-	(*PodFacts)(nil),              // 29: continuum.v1.PodFacts
-	(*Address)(nil),               // 30: continuum.v1.Address
-	(*VolumeClaim)(nil),           // 31: continuum.v1.VolumeClaim
-	(*Autoscaler)(nil),            // 32: continuum.v1.Autoscaler
-	(*Disruption)(nil),            // 33: continuum.v1.Disruption
-	(*ServerMessage)(nil),         // 34: continuum.v1.ServerMessage
-	(*Ack)(nil),                   // 35: continuum.v1.Ack
-	(*Config)(nil),                // 36: continuum.v1.Config
-	(*ProbeTarget)(nil),           // 37: continuum.v1.ProbeTarget
-	(*PathResult)(nil),            // 38: continuum.v1.PathResult
-	(*Measurements)(nil),          // 39: continuum.v1.Measurements
-	(*Revoked)(nil),               // 40: continuum.v1.Revoked
-	(*RawFlow)(nil),               // 41: continuum.v1.RawFlow
-	(*LinkSaturation)(nil),        // 42: continuum.v1.LinkSaturation
-	(*ThermalThrottle)(nil),       // 43: continuum.v1.ThermalThrottle
-	(*FlowReport)(nil),            // 44: continuum.v1.FlowReport
-	(*FlowEndpoint)(nil),          // 45: continuum.v1.FlowEndpoint
-	(*Flow)(nil),                  // 46: continuum.v1.Flow
-	(*CollectorInfo)(nil),         // 47: continuum.v1.CollectorInfo
-	(*FlowBatch)(nil),             // 48: continuum.v1.FlowBatch
-	(*FlowEdge)(nil),              // 49: continuum.v1.FlowEdge
-	(*FlowTable)(nil),             // 50: continuum.v1.FlowTable
-	(*Diagnostics)(nil),           // 51: continuum.v1.Diagnostics
-	(*CollectorDiag)(nil),         // 52: continuum.v1.CollectorDiag
-	(*InformerDiag)(nil),          // 53: continuum.v1.InformerDiag
-	(*Problem)(nil),               // 54: continuum.v1.Problem
-	(*SelfStats)(nil),             // 55: continuum.v1.SelfStats
-	nil,                           // 56: continuum.v1.MeshFacts.NamespaceMtlsEntry
-	nil,                           // 57: continuum.v1.NodeFacts.LabelsEntry
-	nil,                           // 58: continuum.v1.NodeFacts.AnnotationsEntry
-	nil,                           // 59: continuum.v1.NodeFacts.ExtendedResourcesEntry
-	nil,                           // 60: continuum.v1.NamespaceFacts.LabelsEntry
-	nil,                           // 61: continuum.v1.NamespaceFacts.AnnotationsEntry
-	nil,                           // 62: continuum.v1.WorkloadFacts.LabelsEntry
-	nil,                           // 63: continuum.v1.WorkloadFacts.AnnotationsEntry
-	nil,                           // 64: continuum.v1.WorkloadFacts.NodeSelectorEntry
-	(*timestamppb.Timestamp)(nil), // 65: google.protobuf.Timestamp
+	(TlsHandshakeOutcome)(0),         // 0: continuum.v1.TlsHandshakeOutcome
+	(PollResponse_State)(0),          // 1: continuum.v1.PollResponse.State
+	(ModuleStatus_State)(0),          // 2: continuum.v1.ModuleStatus.State
+	(FlowEndpoint_Kind)(0),           // 3: continuum.v1.FlowEndpoint.Kind
+	(Problem_Severity)(0),            // 4: continuum.v1.Problem.Severity
+	(*RejoinRequest)(nil),            // 5: continuum.v1.RejoinRequest
+	(*EnrollRequest)(nil),            // 6: continuum.v1.EnrollRequest
+	(*EnrollResponse)(nil),           // 7: continuum.v1.EnrollResponse
+	(*PollRequest)(nil),              // 8: continuum.v1.PollRequest
+	(*PollResponse)(nil),             // 9: continuum.v1.PollResponse
+	(*RenewRequest)(nil),             // 10: continuum.v1.RenewRequest
+	(*RenewResponse)(nil),            // 11: continuum.v1.RenewResponse
+	(*AgentMessage)(nil),             // 12: continuum.v1.AgentMessage
+	(*Hello)(nil),                    // 13: continuum.v1.Hello
+	(*Heartbeat)(nil),                // 14: continuum.v1.Heartbeat
+	(*ModuleStatus)(nil),             // 15: continuum.v1.ModuleStatus
+	(*Sync)(nil),                     // 16: continuum.v1.Sync
+	(*ClusterFacts)(nil),             // 17: continuum.v1.ClusterFacts
+	(*ScopeFacts)(nil),               // 18: continuum.v1.ScopeFacts
+	(*MeshFacts)(nil),                // 19: continuum.v1.MeshFacts
+	(*WorkloadMesh)(nil),             // 20: continuum.v1.WorkloadMesh
+	(*NodeFacts)(nil),                // 21: continuum.v1.NodeFacts
+	(*HostProbe)(nil),                // 22: continuum.v1.HostProbe
+	(*NetworkInterface)(nil),         // 23: continuum.v1.NetworkInterface
+	(*Disk)(nil),                     // 24: continuum.v1.Disk
+	(*TunnelInterface)(nil),          // 25: continuum.v1.TunnelInterface
+	(*NamespaceFacts)(nil),           // 26: continuum.v1.NamespaceFacts
+	(*ContainerImage)(nil),           // 27: continuum.v1.ContainerImage
+	(*WorkloadFacts)(nil),            // 28: continuum.v1.WorkloadFacts
+	(*PodFacts)(nil),                 // 29: continuum.v1.PodFacts
+	(*Address)(nil),                  // 30: continuum.v1.Address
+	(*VolumeClaim)(nil),              // 31: continuum.v1.VolumeClaim
+	(*Autoscaler)(nil),               // 32: continuum.v1.Autoscaler
+	(*Disruption)(nil),               // 33: continuum.v1.Disruption
+	(*ServerMessage)(nil),            // 34: continuum.v1.ServerMessage
+	(*Ack)(nil),                      // 35: continuum.v1.Ack
+	(*Config)(nil),                   // 36: continuum.v1.Config
+	(*ProbeTarget)(nil),              // 37: continuum.v1.ProbeTarget
+	(*PathResult)(nil),               // 38: continuum.v1.PathResult
+	(*Measurements)(nil),             // 39: continuum.v1.Measurements
+	(*Revoked)(nil),                  // 40: continuum.v1.Revoked
+	(*RawFlow)(nil),                  // 41: continuum.v1.RawFlow
+	(*LinkSaturation)(nil),           // 42: continuum.v1.LinkSaturation
+	(*ThermalThrottle)(nil),          // 43: continuum.v1.ThermalThrottle
+	(*FlowReport)(nil),               // 44: continuum.v1.FlowReport
+	(*FlowEndpoint)(nil),             // 45: continuum.v1.FlowEndpoint
+	(*Flow)(nil),                     // 46: continuum.v1.Flow
+	(*CollectorInfo)(nil),            // 47: continuum.v1.CollectorInfo
+	(*FlowBatch)(nil),                // 48: continuum.v1.FlowBatch
+	(*FlowEdge)(nil),                 // 49: continuum.v1.FlowEdge
+	(*FlowTable)(nil),                // 50: continuum.v1.FlowTable
+	(*Diagnostics)(nil),              // 51: continuum.v1.Diagnostics
+	(*InstalledTelemetryConfig)(nil), // 52: continuum.v1.InstalledTelemetryConfig
+	(*CollectorDiag)(nil),            // 53: continuum.v1.CollectorDiag
+	(*InformerDiag)(nil),             // 54: continuum.v1.InformerDiag
+	(*Problem)(nil),                  // 55: continuum.v1.Problem
+	(*SelfStats)(nil),                // 56: continuum.v1.SelfStats
+	nil,                              // 57: continuum.v1.MeshFacts.NamespaceMtlsEntry
+	nil,                              // 58: continuum.v1.NodeFacts.LabelsEntry
+	nil,                              // 59: continuum.v1.NodeFacts.AnnotationsEntry
+	nil,                              // 60: continuum.v1.NodeFacts.ExtendedResourcesEntry
+	nil,                              // 61: continuum.v1.NamespaceFacts.LabelsEntry
+	nil,                              // 62: continuum.v1.NamespaceFacts.AnnotationsEntry
+	nil,                              // 63: continuum.v1.WorkloadFacts.LabelsEntry
+	nil,                              // 64: continuum.v1.WorkloadFacts.AnnotationsEntry
+	nil,                              // 65: continuum.v1.WorkloadFacts.NodeSelectorEntry
+	(*timestamppb.Timestamp)(nil),    // 66: google.protobuf.Timestamp
 }
 var file_continuum_v1_agent_proto_depIdxs = []int32{
 	1,  // 0: continuum.v1.PollResponse.state:type_name -> continuum.v1.PollResponse.State
-	65, // 1: continuum.v1.PollResponse.not_after:type_name -> google.protobuf.Timestamp
-	65, // 2: continuum.v1.RenewResponse.not_after:type_name -> google.protobuf.Timestamp
+	66, // 1: continuum.v1.PollResponse.not_after:type_name -> google.protobuf.Timestamp
+	66, // 2: continuum.v1.RenewResponse.not_after:type_name -> google.protobuf.Timestamp
 	13, // 3: continuum.v1.AgentMessage.hello:type_name -> continuum.v1.Hello
 	16, // 4: continuum.v1.AgentMessage.sync:type_name -> continuum.v1.Sync
 	14, // 5: continuum.v1.AgentMessage.heartbeat:type_name -> continuum.v1.Heartbeat
@@ -6693,39 +6823,39 @@ var file_continuum_v1_agent_proto_depIdxs = []int32{
 	51, // 8: continuum.v1.Hello.diagnostics:type_name -> continuum.v1.Diagnostics
 	15, // 9: continuum.v1.Heartbeat.modules:type_name -> continuum.v1.ModuleStatus
 	51, // 10: continuum.v1.Heartbeat.diagnostics:type_name -> continuum.v1.Diagnostics
-	55, // 11: continuum.v1.Heartbeat.self_stats:type_name -> continuum.v1.SelfStats
+	56, // 11: continuum.v1.Heartbeat.self_stats:type_name -> continuum.v1.SelfStats
 	2,  // 12: continuum.v1.ModuleStatus.state:type_name -> continuum.v1.ModuleStatus.State
 	17, // 13: continuum.v1.Sync.cluster:type_name -> continuum.v1.ClusterFacts
 	21, // 14: continuum.v1.Sync.nodes:type_name -> continuum.v1.NodeFacts
 	26, // 15: continuum.v1.Sync.namespaces:type_name -> continuum.v1.NamespaceFacts
 	28, // 16: continuum.v1.Sync.workloads:type_name -> continuum.v1.WorkloadFacts
 	15, // 17: continuum.v1.Sync.modules:type_name -> continuum.v1.ModuleStatus
-	65, // 18: continuum.v1.ClusterFacts.created_at:type_name -> google.protobuf.Timestamp
+	66, // 18: continuum.v1.ClusterFacts.created_at:type_name -> google.protobuf.Timestamp
 	18, // 19: continuum.v1.ClusterFacts.scope:type_name -> continuum.v1.ScopeFacts
 	19, // 20: continuum.v1.ClusterFacts.mesh:type_name -> continuum.v1.MeshFacts
-	56, // 21: continuum.v1.MeshFacts.namespace_mtls:type_name -> continuum.v1.MeshFacts.NamespaceMtlsEntry
-	57, // 22: continuum.v1.NodeFacts.labels:type_name -> continuum.v1.NodeFacts.LabelsEntry
-	58, // 23: continuum.v1.NodeFacts.annotations:type_name -> continuum.v1.NodeFacts.AnnotationsEntry
-	59, // 24: continuum.v1.NodeFacts.extended_resources:type_name -> continuum.v1.NodeFacts.ExtendedResourcesEntry
-	65, // 25: continuum.v1.NodeFacts.created_at:type_name -> google.protobuf.Timestamp
+	57, // 21: continuum.v1.MeshFacts.namespace_mtls:type_name -> continuum.v1.MeshFacts.NamespaceMtlsEntry
+	58, // 22: continuum.v1.NodeFacts.labels:type_name -> continuum.v1.NodeFacts.LabelsEntry
+	59, // 23: continuum.v1.NodeFacts.annotations:type_name -> continuum.v1.NodeFacts.AnnotationsEntry
+	60, // 24: continuum.v1.NodeFacts.extended_resources:type_name -> continuum.v1.NodeFacts.ExtendedResourcesEntry
+	66, // 25: continuum.v1.NodeFacts.created_at:type_name -> google.protobuf.Timestamp
 	22, // 26: continuum.v1.NodeFacts.probe:type_name -> continuum.v1.HostProbe
 	23, // 27: continuum.v1.HostProbe.interfaces:type_name -> continuum.v1.NetworkInterface
 	24, // 28: continuum.v1.HostProbe.disks:type_name -> continuum.v1.Disk
 	25, // 29: continuum.v1.HostProbe.tunnels:type_name -> continuum.v1.TunnelInterface
-	60, // 30: continuum.v1.NamespaceFacts.labels:type_name -> continuum.v1.NamespaceFacts.LabelsEntry
-	61, // 31: continuum.v1.NamespaceFacts.annotations:type_name -> continuum.v1.NamespaceFacts.AnnotationsEntry
+	61, // 30: continuum.v1.NamespaceFacts.labels:type_name -> continuum.v1.NamespaceFacts.LabelsEntry
+	62, // 31: continuum.v1.NamespaceFacts.annotations:type_name -> continuum.v1.NamespaceFacts.AnnotationsEntry
 	27, // 32: continuum.v1.WorkloadFacts.images:type_name -> continuum.v1.ContainerImage
-	62, // 33: continuum.v1.WorkloadFacts.labels:type_name -> continuum.v1.WorkloadFacts.LabelsEntry
-	63, // 34: continuum.v1.WorkloadFacts.annotations:type_name -> continuum.v1.WorkloadFacts.AnnotationsEntry
-	64, // 35: continuum.v1.WorkloadFacts.node_selector:type_name -> continuum.v1.WorkloadFacts.NodeSelectorEntry
-	65, // 36: continuum.v1.WorkloadFacts.created_at:type_name -> google.protobuf.Timestamp
+	63, // 33: continuum.v1.WorkloadFacts.labels:type_name -> continuum.v1.WorkloadFacts.LabelsEntry
+	64, // 34: continuum.v1.WorkloadFacts.annotations:type_name -> continuum.v1.WorkloadFacts.AnnotationsEntry
+	65, // 35: continuum.v1.WorkloadFacts.node_selector:type_name -> continuum.v1.WorkloadFacts.NodeSelectorEntry
+	66, // 36: continuum.v1.WorkloadFacts.created_at:type_name -> google.protobuf.Timestamp
 	31, // 37: continuum.v1.WorkloadFacts.volume_claims:type_name -> continuum.v1.VolumeClaim
 	32, // 38: continuum.v1.WorkloadFacts.autoscaler:type_name -> continuum.v1.Autoscaler
 	33, // 39: continuum.v1.WorkloadFacts.disruption:type_name -> continuum.v1.Disruption
 	30, // 40: continuum.v1.WorkloadFacts.reachable:type_name -> continuum.v1.Address
 	20, // 41: continuum.v1.WorkloadFacts.mesh:type_name -> continuum.v1.WorkloadMesh
 	29, // 42: continuum.v1.WorkloadFacts.pods:type_name -> continuum.v1.PodFacts
-	65, // 43: continuum.v1.PodFacts.created_at:type_name -> google.protobuf.Timestamp
+	66, // 43: continuum.v1.PodFacts.created_at:type_name -> google.protobuf.Timestamp
 	35, // 44: continuum.v1.ServerMessage.ack:type_name -> continuum.v1.Ack
 	36, // 45: continuum.v1.ServerMessage.config:type_name -> continuum.v1.Config
 	40, // 46: continuum.v1.ServerMessage.revoked:type_name -> continuum.v1.Revoked
@@ -6745,32 +6875,33 @@ var file_continuum_v1_agent_proto_depIdxs = []int32{
 	47, // 60: continuum.v1.FlowBatch.collectors:type_name -> continuum.v1.CollectorInfo
 	46, // 61: continuum.v1.FlowBatch.pod_flows:type_name -> continuum.v1.Flow
 	46, // 62: continuum.v1.FlowEdge.key:type_name -> continuum.v1.Flow
-	65, // 63: continuum.v1.FlowEdge.first_seen:type_name -> google.protobuf.Timestamp
-	65, // 64: continuum.v1.FlowEdge.last_seen:type_name -> google.protobuf.Timestamp
+	66, // 63: continuum.v1.FlowEdge.first_seen:type_name -> google.protobuf.Timestamp
+	66, // 64: continuum.v1.FlowEdge.last_seen:type_name -> google.protobuf.Timestamp
 	49, // 65: continuum.v1.FlowTable.edges:type_name -> continuum.v1.FlowEdge
 	18, // 66: continuum.v1.Diagnostics.scope:type_name -> continuum.v1.ScopeFacts
-	52, // 67: continuum.v1.Diagnostics.collectors:type_name -> continuum.v1.CollectorDiag
-	53, // 68: continuum.v1.Diagnostics.informers:type_name -> continuum.v1.InformerDiag
-	54, // 69: continuum.v1.Diagnostics.problems:type_name -> continuum.v1.Problem
-	65, // 70: continuum.v1.Diagnostics.generated_at:type_name -> google.protobuf.Timestamp
-	65, // 71: continuum.v1.CollectorDiag.last_data:type_name -> google.protobuf.Timestamp
-	4,  // 72: continuum.v1.Problem.severity:type_name -> continuum.v1.Problem.Severity
-	65, // 73: continuum.v1.Problem.since:type_name -> google.protobuf.Timestamp
-	6,  // 74: continuum.v1.Enrollment.Enroll:input_type -> continuum.v1.EnrollRequest
-	8,  // 75: continuum.v1.Enrollment.PollEnrollment:input_type -> continuum.v1.PollRequest
-	5,  // 76: continuum.v1.Enrollment.Rejoin:input_type -> continuum.v1.RejoinRequest
-	12, // 77: continuum.v1.AgentService.Connect:input_type -> continuum.v1.AgentMessage
-	10, // 78: continuum.v1.AgentService.Renew:input_type -> continuum.v1.RenewRequest
-	7,  // 79: continuum.v1.Enrollment.Enroll:output_type -> continuum.v1.EnrollResponse
-	9,  // 80: continuum.v1.Enrollment.PollEnrollment:output_type -> continuum.v1.PollResponse
-	11, // 81: continuum.v1.Enrollment.Rejoin:output_type -> continuum.v1.RenewResponse
-	34, // 82: continuum.v1.AgentService.Connect:output_type -> continuum.v1.ServerMessage
-	11, // 83: continuum.v1.AgentService.Renew:output_type -> continuum.v1.RenewResponse
-	79, // [79:84] is the sub-list for method output_type
-	74, // [74:79] is the sub-list for method input_type
-	74, // [74:74] is the sub-list for extension type_name
-	74, // [74:74] is the sub-list for extension extendee
-	0,  // [0:74] is the sub-list for field type_name
+	53, // 67: continuum.v1.Diagnostics.collectors:type_name -> continuum.v1.CollectorDiag
+	54, // 68: continuum.v1.Diagnostics.informers:type_name -> continuum.v1.InformerDiag
+	55, // 69: continuum.v1.Diagnostics.problems:type_name -> continuum.v1.Problem
+	66, // 70: continuum.v1.Diagnostics.generated_at:type_name -> google.protobuf.Timestamp
+	52, // 71: continuum.v1.Diagnostics.installed_telemetry_config:type_name -> continuum.v1.InstalledTelemetryConfig
+	66, // 72: continuum.v1.CollectorDiag.last_data:type_name -> google.protobuf.Timestamp
+	4,  // 73: continuum.v1.Problem.severity:type_name -> continuum.v1.Problem.Severity
+	66, // 74: continuum.v1.Problem.since:type_name -> google.protobuf.Timestamp
+	6,  // 75: continuum.v1.Enrollment.Enroll:input_type -> continuum.v1.EnrollRequest
+	8,  // 76: continuum.v1.Enrollment.PollEnrollment:input_type -> continuum.v1.PollRequest
+	5,  // 77: continuum.v1.Enrollment.Rejoin:input_type -> continuum.v1.RejoinRequest
+	12, // 78: continuum.v1.AgentService.Connect:input_type -> continuum.v1.AgentMessage
+	10, // 79: continuum.v1.AgentService.Renew:input_type -> continuum.v1.RenewRequest
+	7,  // 80: continuum.v1.Enrollment.Enroll:output_type -> continuum.v1.EnrollResponse
+	9,  // 81: continuum.v1.Enrollment.PollEnrollment:output_type -> continuum.v1.PollResponse
+	11, // 82: continuum.v1.Enrollment.Rejoin:output_type -> continuum.v1.RenewResponse
+	34, // 83: continuum.v1.AgentService.Connect:output_type -> continuum.v1.ServerMessage
+	11, // 84: continuum.v1.AgentService.Renew:output_type -> continuum.v1.RenewResponse
+	80, // [80:85] is the sub-list for method output_type
+	75, // [75:80] is the sub-list for method input_type
+	75, // [75:75] is the sub-list for extension type_name
+	75, // [75:75] is the sub-list for extension extendee
+	0,  // [0:75] is the sub-list for field type_name
 }
 
 func init() { file_continuum_v1_agent_proto_init() }
@@ -6796,13 +6927,14 @@ func file_continuum_v1_agent_proto_init() {
 	file_continuum_v1_agent_proto_msgTypes[36].OneofWrappers = []any{}
 	file_continuum_v1_agent_proto_msgTypes[37].OneofWrappers = []any{}
 	file_continuum_v1_agent_proto_msgTypes[41].OneofWrappers = []any{}
+	file_continuum_v1_agent_proto_msgTypes[47].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_continuum_v1_agent_proto_rawDesc), len(file_continuum_v1_agent_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   60,
+			NumMessages:   61,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

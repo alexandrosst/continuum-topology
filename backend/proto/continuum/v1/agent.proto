@@ -1159,6 +1159,42 @@ message Diagnostics {
   // UI can show what telemetry is actually installed without a live control-plane channel for it. Empty:
   // no telemetry signal is enabled, or an agent older than this field.
   repeated string installed_telemetry_signals = 17;
+  // The effective configuration behind installed_telemetry_signals above - not just which signals are on,
+  // but how each is actually configured right now. Same "report the effective value the way installed_tier
+  // already does" treatment, extended from a flat ceiling to a small config shape. Absent entirely when no
+  // telemetry signal is enabled (nothing to report), or an agent older than this field - never present with
+  // every sub-field at its zero value, the same "absent rather than present-and-empty" rule
+  // installed_telemetry_signals already follows.
+  InstalledTelemetryConfig installed_telemetry_config = 18;
+}
+
+// The effective configuration behind Diagnostics.installed_telemetry_config - the destination, the
+// processor settings telemetry-intent.md names as mattering most for "safe by default", and which source
+// backs energy/accelerators when either is on. Purely informational, exactly like installed_tier: this
+// server never pushes or changes any of it, and every value here is read straight from the chart's own
+// rendered configuration (telemetry is declarative-only - see telemetry-intent.md's "Four commitments"),
+// never from anything the collector does at runtime.
+message InstalledTelemetryConfig {
+  // telemetry.export.otlp.endpoint, as rendered into this install's collectors. Empty only if somehow no
+  // telemetry signal were enabled while this message is still present, which the chart's own
+  // agent.telemetryValidate never allows - present here mainly so the type doesn't have to special-case it.
+  string export_endpoint = 1;
+  // telemetry.processors.redaction.enabled / telemetry.processors.resourceDetection.enabled - both always
+  // meaningful whenever this message is present at all (every pipeline decides them the same way regardless
+  // of which signals are on), so plain bool is enough: no separate presence bit needed the way the
+  // signal-specific fields below need one.
+  bool redaction_enabled = 2;
+  bool resource_detection_enabled = 3;
+  // telemetry.processors.tracesSampling.percentage - optional because it has no referent at all unless the
+  // traces signal is itself enabled (see installed_telemetry_signals), not because 0% is an unusual value to
+  // report honestly.
+  optional uint32 traces_sampling_percentage = 4;
+  // telemetry.energy.metrics.source ("bundle-kepler" | "existing") - optional for the same reason: absent
+  // unless the energy signal is enabled.
+  optional string energy_source = 5;
+  // telemetry.accelerators.metrics.source ("bundle-dcgm" | "existing") - optional for the same reason:
+  // absent unless the accelerators signal is enabled.
+  optional string accelerators_source = 6;
 }
 
 // One optional collector: the node probe receiver ("probes"), the flow pipeline ("flow") or connection timing

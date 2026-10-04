@@ -364,6 +364,50 @@ func TestInstalledTelemetrySignalsRoundTripAndTruncate(t *testing.T) {
 	}
 }
 
+func TestInstalledTelemetryConfigRoundTrips(t *testing.T) {
+	v := newView()
+	tracesPct := uint32(20)
+	energySource := "bundle-kepler"
+	noteDiagnostics(v, &continuumv1.Diagnostics{
+		AgentVersion:              "1",
+		InstalledTelemetrySignals: []string{"traces", "energy"},
+		InstalledTelemetryConfig: &continuumv1.InstalledTelemetryConfig{
+			ExportEndpoint:           "otel-collector.example:4317",
+			RedactionEnabled:         true,
+			ResourceDetectionEnabled: false,
+			TracesSamplingPercentage: &tracesPct,
+			EnergySource:             &energySource,
+		},
+	}, false, time.Now())
+	doc := v.diagDoc()
+	cfg := doc.InstalledTelemetryConfig
+	if cfg == nil {
+		t.Fatal("InstalledTelemetryConfig is nil, want it carried over from the agent's diagnostics")
+	}
+	if cfg.ExportEndpoint != "otel-collector.example:4317" {
+		t.Errorf("ExportEndpoint = %q, want the reported destination", cfg.ExportEndpoint)
+	}
+	if !cfg.RedactionEnabled || cfg.ResourceDetectionEnabled {
+		t.Errorf("RedactionEnabled/ResourceDetectionEnabled = %v/%v, want true/false", cfg.RedactionEnabled, cfg.ResourceDetectionEnabled)
+	}
+	if cfg.TracesSamplingPercent == nil || *cfg.TracesSamplingPercent != 20 {
+		t.Errorf("TracesSamplingPercent = %v, want 20", cfg.TracesSamplingPercent)
+	}
+	if cfg.EnergySource != "bundle-kepler" {
+		t.Errorf("EnergySource = %q, want \"bundle-kepler\"", cfg.EnergySource)
+	}
+	if cfg.AcceleratorsSource != "" {
+		t.Errorf("AcceleratorsSource = %q, want empty (accelerators not reported as enabled)", cfg.AcceleratorsSource)
+	}
+
+	// No telemetry config reported at all: the doc field stays nil, not present-with-zero-values.
+	v2 := newView()
+	noteDiagnostics(v2, &continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
+	if doc2 := v2.diagDoc(); doc2.InstalledTelemetryConfig != nil {
+		t.Fatalf("InstalledTelemetryConfig = %v, want nil when the agent reported none", doc2.InstalledTelemetryConfig)
+	}
+}
+
 // ---- chunked full sync ----
 
 func workloads(n int, prefix string) []*continuumv1.WorkloadFacts {

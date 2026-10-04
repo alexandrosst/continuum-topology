@@ -65,6 +65,26 @@ spec:
             # than present-and-empty when no signal is enabled.
             - {name: CONTINUUM_TELEMETRY_SIGNALS, value: {{ . | quote }}}
             {{- end }}
+            {{- if include "agent.telemetryEnabled" . }}
+            # Effective telemetry configuration, not just which signals are on - the chart's own answer to
+            # "how" rather than just "which" (see telemetry-intent.md's "Where this doesn't reach yet").
+            # Reported in Diagnostics alongside CONTINUUM_TELEMETRY_SIGNALS above, same self-report
+            # mechanism, same "absent entirely rather than present-and-empty" rule: this whole block is
+            # gated on telemetry being enabled at all, and the traces/energy/accelerators-specific entries
+            # below are each further gated on that one signal actually being on.
+            - {name: CONTINUUM_TELEMETRY_DESTINATION, value: {{ include "agent.telemetryEffectiveDestination" . | quote }}}
+            - {name: CONTINUUM_TELEMETRY_REDACTION, value: {{ include "agent.telemetryEffectiveRedactionEnabled" . | quote }}}
+            - {name: CONTINUUM_TELEMETRY_RESOURCE_DETECTION, value: {{ include "agent.telemetryEffectiveResourceDetectionEnabled" . | quote }}}
+            {{- if .Values.telemetry.traces.traces.enabled }}
+            - {name: CONTINUUM_TELEMETRY_TRACES_SAMPLING, value: {{ .Values.telemetry.processors.tracesSampling.percentage | quote }}}
+            {{- end }}
+            {{- if .Values.telemetry.energy.metrics.enabled }}
+            - {name: CONTINUUM_TELEMETRY_ENERGY_SOURCE, value: {{ .Values.telemetry.energy.metrics.source | quote }}}
+            {{- end }}
+            {{- if .Values.telemetry.accelerators.metrics.enabled }}
+            - {name: CONTINUUM_TELEMETRY_ACCELERATORS_SOURCE, value: {{ .Values.telemetry.accelerators.metrics.source | quote }}}
+            {{- end }}
+            {{- end }}
             {{- if eq .Values.rbac.mode "namespaced" }}
             # Tells the collector that tier 2's RBAC is a Role per namespace (rbac.yaml), not one cluster-wide
             # ClusterRole: it watches each of CONTINUUM_SCOPE_NAMESPACES individually instead of the whole cluster,

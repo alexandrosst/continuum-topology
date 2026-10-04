@@ -114,6 +114,49 @@ func TestDiagnosticsReportInstalledTelemetrySignals(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsReportInstalledTelemetryConfig(t *testing.T) {
+	r := newTestRunner()
+	tracesPct := uint32(20)
+	energySource := "bundle-kepler"
+	r.cfg.TelemetryConfig = &TelemetryConfig{
+		Destination:              "otel-collector.example:4317",
+		RedactionEnabled:         true,
+		ResourceDetectionEnabled: false,
+		TracesSamplingPercentage: &tracesPct,
+		EnergySource:             &energySource,
+		// AcceleratorsSource left nil: accelerators is not enabled on this install.
+	}
+	d := r.diagnostics()
+	cfg := d.InstalledTelemetryConfig
+	if cfg == nil {
+		t.Fatal("InstalledTelemetryConfig is nil, want it set from r.cfg.TelemetryConfig")
+	}
+	if cfg.ExportEndpoint != "otel-collector.example:4317" {
+		t.Errorf("ExportEndpoint = %q, want the configured destination", cfg.ExportEndpoint)
+	}
+	if !cfg.RedactionEnabled {
+		t.Error("RedactionEnabled = false, want true")
+	}
+	if cfg.ResourceDetectionEnabled {
+		t.Error("ResourceDetectionEnabled = true, want false")
+	}
+	if cfg.TracesSamplingPercentage == nil || *cfg.TracesSamplingPercentage != 20 {
+		t.Errorf("TracesSamplingPercentage = %v, want 20", cfg.TracesSamplingPercentage)
+	}
+	if cfg.EnergySource == nil || *cfg.EnergySource != "bundle-kepler" {
+		t.Errorf("EnergySource = %v, want \"bundle-kepler\"", cfg.EnergySource)
+	}
+	if cfg.AcceleratorsSource != nil {
+		t.Errorf("AcceleratorsSource = %v, want nil (accelerators not enabled)", *cfg.AcceleratorsSource)
+	}
+
+	// No telemetry configured at all: the whole sub-message is absent, not present with zero values.
+	r2 := newTestRunner()
+	if d2 := r2.diagnostics(); d2.InstalledTelemetryConfig != nil {
+		t.Fatalf("InstalledTelemetryConfig = %v, want nil when no telemetry is configured", d2.InstalledTelemetryConfig)
+	}
+}
+
 func TestSelfStatsReportsEffectiveIntervalsAndTheLastFlowBatch(t *testing.T) {
 	r := newTestRunner()
 	// Neither interval set: the chart's own defaults, exactly as collectorDiagnostics resolves them.
