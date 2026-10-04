@@ -92,11 +92,12 @@ func randHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-func newAgentID() string        { return "ag-" + randHex(6) }
-func newTokenID() string        { return "tk-" + randHex(6) }
-func newAPITokenID() string     { return "pat-" + randHex(6) }
-func newOperatorID() string     { return "op-" + randHex(6) }
-func newGatewayTokenID() string { return "gwt-" + randHex(6) }
+func newAgentID() string           { return "ag-" + randHex(6) }
+func newTokenID() string           { return "tk-" + randHex(6) }
+func newAPITokenID() string        { return "pat-" + randHex(6) }
+func newOperatorID() string        { return "op-" + randHex(6) }
+func newGatewayTokenID() string    { return "gwt-" + randHex(6) }
+func newTelemetryIntentID() string { return "ti-" + randHex(6) }
 
 // ClusterIDFor is stable for a cluster (its kube-system UID), so records keep the same id
 // even if the agent is replaced.

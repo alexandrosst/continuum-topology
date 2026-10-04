@@ -214,6 +214,17 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/operators/{id}/revoke", adminRole, a.revokeOperator)
 	route("DELETE "+o+"/operators/{id}", adminRole, a.deleteOperator)
 
+	// A telemetry intent narrows what one agent's bundled local operator collects and where it exports
+	// to - the same kind of narrowing action as an agent's own tier/consent, so it takes editorRole rather
+	// than the adminRole a regional operator's receiver credential needs.
+	route("GET "+o+"/telemetry-intents", editorRole, a.listTelemetryIntents)
+	route("POST "+o+"/telemetry-intents", editorRole, a.createTelemetryIntent)
+	route("GET "+o+"/telemetry-intents/{id}", editorRole, a.getTelemetryIntent)
+	route("POST "+o+"/telemetry-intents/{id}/scope", editorRole, a.updateTelemetryIntentScope)
+	route("POST "+o+"/telemetry-intents/{id}/destination", editorRole, a.updateTelemetryIntentDestination)
+	route("POST "+o+"/telemetry-intents/{id}/revoke", editorRole, a.revokeTelemetryIntent)
+	route("DELETE "+o+"/telemetry-intents/{id}", editorRole, a.deleteTelemetryIntent)
+
 	route("POST "+o+"/quick-start/{id}/gateway-token", adminRole, a.mintGatewayToken)
 	route("GET "+o+"/quick-start/{id}/gateway-token", adminRole, a.getGatewayToken)
 

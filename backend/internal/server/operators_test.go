@@ -23,6 +23,17 @@ func (e *env) approvedCluster(t *testing.T, fingerprint string) string {
 	return a.ClusterID
 }
 
+// approvedAgentID enrolls and approves one agent, returning its agent id - what CreateTelemetryIntent's
+// own validation targets directly, unlike CreateOperator which targets a cluster id (see approvedCluster).
+func (e *env) approvedAgentID(t *testing.T, fingerprint string) string {
+	t.Helper()
+	resp, _ := e.enroll(t, 2, fingerprint)
+	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, fingerprint, 1); err != nil {
+		t.Fatal(err)
+	}
+	return resp.AgentId
+}
+
 func extDest(endpoint string) store.Destination {
 	return store.Destination{Kind: store.DestinationExternal, Endpoint: endpoint}
 }
