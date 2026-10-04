@@ -1,6 +1,9 @@
 package server
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestTelemetryIntentsHTTPCreateListGetScopeDestinationRevokeDelete(t *testing.T) {
 	a := newAdminRig(t)
@@ -112,5 +115,134 @@ func TestTelemetryIntentsHTTPRejectsASecondActiveIntentOnTheSameAgent(t *testing
 	body["name"] = "second"
 	if r := a.do("POST", "/api/v1/telemetry-intents", body, withCookie(cookie)); r.Code != 409 {
 		t.Fatalf("second create on the same agent: %d %s", r.Code, r.Body.String())
+	}
+}
+
+// TestTelemetryIntentCommandExternalDestination covers an external-destination intent's /command
+// response: only the provenance flags (added to the chart in c8a2a99, alongside this intent model) -
+// everything else about an external endpoint (its own address, auth, TLS) is already built client-side
+// by the frontend's own withTelemetry(), not duplicated here.
+func TestTelemetryIntentCommandExternalDestination(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleAdmin)
+	agentID := a.approvedAgentID(t, fp)
+	ag, err := a.st.GetAgent(a.ctx, agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := map[string]any{
+		"agentId":     agentID,
+		"name":        "patras-edge",
+		"destination": map[string]any{"kind": "external", "endpoint": "collector.example:4317"},
+	}
+	r := a.do("POST", "/api/v1/telemetry-intents", body, withCookie(cookie))
+	if r.Code != 201 {
+		t.Fatalf("create: %d %s", r.Code, r.Body.String())
+	}
+	id, _ := r.json(t)["id"].(string)
+
+	r = a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(cookie))
+	if r.Code != 200 {
+		t.Fatalf("command: %d %s", r.Code, r.Body.String())
+	}
+	doc := r.json(t)
+	frag, _ := doc["installFragment"].(string)
+	for _, want := range []string{
+		"--set telemetry.resource.orgId=org-1",
+		"--set telemetry.resource.clusterId=" + ag.ClusterID,
+		"--set telemetry.resource.intentId=" + id,
+	} {
+		if !strings.Contains(frag, want) {
+			t.Fatalf("installFragment missing %q: %q", want, frag)
+		}
+	}
+	if strings.Contains(frag, "export.otlp") {
+		t.Fatalf("an external destination must not get operator export flags: %q", frag)
+	}
+	secretCommands, _ := doc["secretCommands"].([]any)
+	if len(secretCommands) != 0 {
+		t.Fatalf("expected no secret commands for an external destination, got %v", secretCommands)
+	}
+}
+
+// TestTelemetryIntentCommandOperatorDestinationReissuesEachTime covers an operator-destination intent's
+// /command response: the resolved export flags plus exactly one secret-creation command, and a second
+// call minting a genuinely fresh certificate rather than replaying the first - "on demand" the same way
+// TestIssueOperatorClientCertReissuesOnDemand proves it at the Core level.
+func TestTelemetryIntentCommandOperatorDestinationReissuesEachTime(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleAdmin)
+	opCluster := a.approvedCluster(t, fp)
+	opBody := map[string]any{
+		"name":             "athens-regional",
+		"sourceClusterIds": []string{opCluster},
+		"destination":      map[string]any{"kind": "external", "endpoint": "collector.example:4317"},
+	}
+	r := a.do("POST", "/api/v1/operators", opBody, withCookie(cookie))
+	if r.Code != 201 {
+		t.Fatalf("create operator: %d %s", r.Code, r.Body.String())
+	}
+	opID, _ := r.json(t)["operator"].(map[string]any)["id"].(string)
+
+	agentID := a.approvedAgentID(t, fp2)
+	body := map[string]any{
+		"agentId":     agentID,
+		"name":        "patras-edge",
+		"destination": map[string]any{"kind": "operator", "targetOperatorId": opID},
+	}
+	r = a.do("POST", "/api/v1/telemetry-intents", body, withCookie(cookie))
+	if r.Code != 201 {
+		t.Fatalf("create intent: %d %s", r.Code, r.Body.String())
+	}
+	id, _ := r.json(t)["id"].(string)
+
+	command := func() (frag string, secretCmd string) {
+		r := a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(cookie))
+		if r.Code != 200 {
+			t.Fatalf("command: %d %s", r.Code, r.Body.String())
+		}
+		doc := r.json(t)
+		frag, _ = doc["installFragment"].(string)
+		cmds, _ := doc["secretCommands"].([]any)
+		if len(cmds) != 1 {
+			t.Fatalf("expected exactly one secret command, got %v", cmds)
+		}
+		secretCmd, _ = cmds[0].(string)
+		return frag, secretCmd
+	}
+
+	frag1, secret1 := command()
+	if !strings.Contains(frag1, "--set telemetry.export.otlp.endpoint="+opID+".continuum-system.svc:4317") {
+		t.Fatalf("installFragment missing the resolved operator endpoint: %q", frag1)
+	}
+	if !strings.Contains(frag1, "telemetry.export.otlp.tls.mtls.enabled=true") {
+		t.Fatalf("installFragment missing mTLS flags: %q", frag1)
+	}
+	if !strings.Contains(secret1, "-----BEGIN CERTIFICATE-----") {
+		t.Fatalf("secret command does not carry a certificate: %q", secret1)
+	}
+
+	frag2, secret2 := command()
+	if frag2 != frag1 {
+		t.Fatalf("installFragment should be stable across calls (same operator, same agent): %q vs %q", frag1, frag2)
+	}
+	if secret2 == secret1 {
+		t.Fatal("expected a freshly minted certificate on each call, got identical secret commands")
+	}
+}
+
+func TestTelemetryIntentCommandRequiresAdminRole(t *testing.T) {
+	a := newAdminRig(t)
+	_, editor := a.user(t, "jamie", RoleEditor)
+	agentID := a.approvedAgentID(t, fp)
+	body := map[string]any{"agentId": agentID, "name": "x", "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
+	r := a.do("POST", "/api/v1/telemetry-intents", body, withCookie(editor))
+	if r.Code != 201 {
+		t.Fatalf("create (editor should still be allowed): %d %s", r.Code, r.Body.String())
+	}
+	id, _ := r.json(t)["id"].(string)
+	if r := a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(editor)); r.Code != 403 {
+		t.Fatalf("editor calling /command: %d %s", r.Code, r.Body.String())
 	}
 }

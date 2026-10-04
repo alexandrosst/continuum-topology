@@ -224,6 +224,10 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/telemetry-intents/{id}/destination", editorRole, a.updateTelemetryIntentDestination)
 	route("POST "+o+"/telemetry-intents/{id}/revoke", editorRole, a.revokeTelemetryIntent)
 	route("DELETE "+o+"/telemetry-intents/{id}", editorRole, a.deleteTelemetryIntent)
+	// /command mints and returns operator credential material when the destination is an operator (via
+	// IssueOperatorClientCert) - the same bar as operator CRUD itself (adminRole), higher than the
+	// editorRole the rest of this intent's own CRUD takes above.
+	route("POST "+o+"/telemetry-intents/{id}/command", adminRole, a.telemetryIntentCommand)
 
 	route("POST "+o+"/quick-start/{id}/gateway-token", adminRole, a.mintGatewayToken)
 	route("GET "+o+"/quick-start/{id}/gateway-token", adminRole, a.getGatewayToken)

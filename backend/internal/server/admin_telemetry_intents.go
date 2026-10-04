@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 
 	"continuum/internal/store"
@@ -170,4 +171,49 @@ func (a *Admin) deleteTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// telemetryIntentCommand returns the --set flags (and, for an operator destination, the kubectl secret
+// command) a person runs against the intent's own agent to actually point its bundled local operator's
+// export at what the intent now grants - the single-agent counterpart of operatorSourceReminders, built
+// on demand rather than only once at creation/scope-update time, so it can hand out a freshly minted
+// client certificate (see Core.IssueOperatorClientCert) no matter when the intent's destination was set.
+// Provenance flags (telemetry.resource.orgId/clusterId/intentId - added in the chart alongside this
+// intent model) are always included; an external destination gets nothing beyond them, since the
+// endpoint/auth flags for that are already built client-side by the frontend's own withTelemetry().
+func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
+	ti, err := a.core(r).GetTelemetryIntent(r.Context(), r.PathValue("id"))
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	agent, err := a.core(r).agentInOrg(r.Context(), ti.AgentID)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	installFragment := fmt.Sprintf(
+		"--set telemetry.resource.orgId=%s --set telemetry.resource.clusterId=%s --set telemetry.resource.intentId=%s",
+		a.core(r).OrgID, agent.ClusterID, ti.ID)
+	secretCommands := []string{}
+	if ti.Destination.Kind == store.DestinationOperator {
+		op, err := a.core(r).GetOperator(r.Context(), ti.Destination.TargetOperatorID)
+		if err != nil {
+			a.fail(w, err)
+			return
+		}
+		certPEM, keyPEM, caPEM, err := a.core(r).IssueOperatorClientCert(r.Context(), actor(r), op.ID)
+		if err != nil {
+			a.fail(w, err)
+			return
+		}
+		hub := a.tn(r).Hub
+		rns, _, _ := releaseTarget(hub.NamespaceOf(agent.ID), hub.ReleaseNameOf(agent.ID))
+		setFlags, secretCmd := operatorDestinationCommand(op, certPEM, keyPEM, caPEM, rns)
+		installFragment += " " + setFlags
+		if secretCmd != "" {
+			secretCommands = append(secretCommands, secretCmd)
+		}
+	}
+	writeJSON(w, 200, map[string]any{"installFragment": installFragment, "secretCommands": secretCommands})
 }
