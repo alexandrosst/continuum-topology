@@ -28,6 +28,7 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'architecture/overview'},
       items: [
         'architecture/overview',
+        'architecture/trust-model',
         'architecture/agent-trust-model',
         'architecture/observability-intent',
         'architecture/telemetry-intent',

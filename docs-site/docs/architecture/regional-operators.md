@@ -54,3 +54,5 @@ Two things worth naming here on purpose, the same way [Telemetry intent's own ga
 - **No dynamic or automatic assignment.** Nothing decides which regional operator a cluster's traffic should feed, and nothing moves that assignment once it's made — a person names the source clusters by hand, once, and changes them by hand later. This is exactly where a future decision-making or reinforcement-learning layer would plug in, once one exists: reassigning a cluster's export target based on load, latency or cost is a real capability this mechanism makes possible, not one it provides today.
 
 Neither gap is urgent, and neither is an oversight — both are the same kind of "decide this on purpose later" the rest of this project's telemetry documentation is honest about elsewhere.
+
+For how a regional operator's own trust boundary (absence of a credential, not absence of a network path) fits alongside agent enrollment and the quick-start gateway token, see [Trust model](./trust-model.md).

@@ -40,3 +40,5 @@ Revoking an agent is immediate and checked on every call — a live stream drops
 ## Where this connects
 
 Enrollment and approval decide *whether* an agent is trusted at all; they say nothing about *what* it is then allowed to see. That's a separate, ongoing question — see [Observability intent](./observability-intent.md) for the access tier, paused collectors and excluded namespaces that actually govern a connected agent's scope, all independent of trust.
+
+For the assembled, single-page version of this story — including regional operators, the quick-start gateway token, and what the whole model deliberately does not cover — see [Trust model](./trust-model.md).

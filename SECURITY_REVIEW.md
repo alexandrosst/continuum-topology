@@ -9,6 +9,11 @@ audit-trail integrity, cryptography and secret generation, the two Helm charts, 
 reading the real code and the existing test suite in full rather than sampling, and each asked to report only
 findings it could back with a concrete attack scenario, not stylistic nitpicks.
 
+> This review predates the quick-start gateway-token feature; see
+> [docs-site/docs/architecture/trust-model.md](docs-site/docs/architecture/trust-model.md) for that
+> tradeoff (no revocation before TTL expiry) written down alongside the agent-enrollment and
+> regional-operator trust model this review does cover.
+
 The overall picture: this is an unusually well-hardened codebase for its size. Several areas that are common
 sources of real vulnerabilities elsewhere — SQL/Cypher injection, cross-tenant IDOR, session fixation, CSRF,
 SSRF via the decider/geoip integrations, timing-based account enumeration, agent identity spoofing — turned
