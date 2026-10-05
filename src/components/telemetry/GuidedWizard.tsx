@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Activity, Check, ChevronLeft, FileText, Plus, Waypoints, X, type LucideIcon } from 'lucide-react'
+import { ChevronLeft, Pencil, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button, ICON_MD, ICON_SM, WizardSteps } from '@/components/ui/primitives'
 import { api, atLeast } from '@/lib/api'
@@ -8,90 +8,23 @@ import { buildDestinationCatalog } from '@/lib/destinationCatalog'
 import { effectiveAllowedBackendKinds, type QuickStartBackend, type QuickStartKind } from '@/lib/history'
 import { enabledModalities, type TelemetryInput } from '@/lib/install'
 import { hasQuickStartSpec, quickStartSpec } from '@/lib/quickStartBackends'
-import { LAYER_CARDS, LAYER_META, type Layer } from '@/lib/telemetryLayers'
+import { LAYER_META } from '@/lib/telemetryLayers'
 import type { RegionalOperator } from '@/lib/types'
 import { useConn, useServer } from '@/store/server'
 import { useSettings } from '@/store/settings'
 import { useTopology } from '@/store/topology'
+import CollectStep from './CollectStep'
 import DestinationStep from './DestinationStep'
 import GuidedScope from './GuidedScope'
 import ProcessStep from './ProcessStep'
 import { AllowedKindsControl } from './QuickStartBackends'
-import { AcceleratorsFields, EnergyFields, SignalRow, type SignalId } from './TelemetryFields'
+import type { SignalId } from './TelemetryFields'
 import TelemetryBackendWizard from './TelemetryBackendWizard'
 import TelemetryReviewPipeline from './TelemetryReviewPipeline'
 
-type Modality = 'metrics' | 'logs' | 'traces'
-type Step = 'layer' | 'modality' | 'kind' | 'scope' | 'process' | 'destination' | 'review' | 'run'
+type Step = 'collect' | 'scope' | 'process' | 'destination' | 'review' | 'run'
 
-const MODALITY_META: Record<Modality, { label: string; icon: LucideIcon }> = {
-  metrics: { label: 'Metrics', icon: Activity },
-  logs: { label: 'Logs', icon: FileText },
-  traces: { label: 'Traces', icon: Waypoints },
-}
 const APP_SCOPED = ['applicationMetrics', 'applicationLogs', 'traces'] as const
-
-/** A single selectable option, laid out as a card: the same "bordered box, filled + checkmark once picked"
- *  language TierLevels' own `layout="cards"` uses for the connect wizard's tier picker, reused here for a
- *  one-of-N choice rather than an ordered ladder. */
-function PickCard({
-  label,
-  hint,
-  icon: Icon,
-  selected,
-  disabled,
-  title,
-  onClick,
-  testId,
-}: {
-  label: string
-  hint: string
-  icon?: LucideIcon
-  selected: boolean
-  /** Shown disabled rather than hidden - an option that exists but isn't valid for what's already turned
-   *  on right now (the same convention the destination step's catalog cards use for an incompatible
-   *  regional operator or quick-started backend), so a person sees it was considered and why it's off
-   *  limits instead of wondering where it went. */
-  disabled?: boolean
-  /** The reason behind `disabled` above, shown as a native tooltip - absent when not disabled. */
-  title?: string
-  onClick: () => void
-  testId: string
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      disabled={disabled}
-      title={title}
-      onClick={onClick}
-      data-testid={testId}
-      className={clsx(
-        'relative flex flex-col items-start gap-1.5 rounded-xl border p-4 text-left transition-all',
-        disabled
-          ? 'cursor-not-allowed border-nb-850 bg-nb-930/40 opacity-50'
-          : clsx(
-              'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20',
-              selected ? 'border-accent bg-accent-soft ring-1 ring-accent/40' : 'border-nb-850 bg-nb-925 hover:border-nb-800 hover:bg-nb-930',
-            ),
-      )}
-    >
-      {selected && (
-        <span className="absolute right-3 top-3 flex size-5 items-center justify-center rounded-full bg-accent text-nb-950" aria-hidden>
-          <Check size={ICON_MD} strokeWidth={3} />
-        </span>
-      )}
-      {Icon && (
-        <span className={clsx('flex size-8 items-center justify-center rounded-lg', selected ? 'bg-accent/15 text-accent' : 'bg-nb-930 text-nb-500')} aria-hidden>
-          <Icon size={ICON_MD} />
-        </span>
-      )}
-      <span className="pr-6 text-sm font-medium text-nb-200">{label}</span>
-      {hint && <span className="text-xs text-nb-500">{hint}</span>}
-    </button>
-  )
-}
 
 /** A low-weight "go back" link, not a bordered button - a wizard already has one strong action per screen
  *  (Continue, or a card pick), and a second box of equal visual weight next to it reads as two competing
@@ -105,7 +38,7 @@ function BackLink({ onClick, testId }: { onClick: () => void; testId: string }) 
   )
 }
 
-/** One signal already turned on, anywhere in the flow (not just on the Kind step it was picked from) - a
+/** One signal already turned on, anywhere in the flow (not just on the Collect step it was picked from) - a
  *  small removable chip, so "Add another" builds up a visible, editable set instead of a running total a
  *  person can only see by scrolling all the way to Review. Removing here is the same action unchecking its
  *  SignalRow checkbox would be - it writes straight into `value`, there is nothing to "confirm" first. Its
@@ -133,20 +66,11 @@ function SelectedChip({ signal, onRemove, testId }: { signal: (typeof TELEMETRY_
 /**
  * The navigable guided path into telemetry configuration: target is resolved before this ever mounts (see
  * TelemetryWizard.tsx's own `pick` phase, or a scope handed off from the topology canvas), so this only
- * ever walks layer -> modality -> kind -> scope (only when something picked needs one) -> review, one
- * screen at a time with Back/Next - reusing GuidedScope for its scope-drafting step alone (its old
- * standalone signal-picker path is gone; this is its only caller now) rather than a second, driftable copy
- * of that logic. "Add another", offered once a kind has been picked, loops back to layer so a person can
- * build up e.g. infrastructure metrics + application logs + traces in one guided session, all accumulating
- * into the same TelemetryInput draft (every checkbox here writes straight into `value`, exactly like the
- * flat grid does - there is nothing to "commit", so leaving mid-flow never loses a change already made).
- *
- * Every application-layer modality happens to map to exactly one signal (applicationMetrics, applicationLogs
- * and traces are each their own modality's only member - see TELEMETRY_SIGNALS) - there is no real "which
- * one(s)" decision left to make once that modality is picked, so picking it turns that one signal on and
- * skips straight past what would otherwise be a Kind screen holding a single, already-obvious checkbox.
- * Infrastructure's modalities are never this trivial (metrics alone covers six signals), so its Kind step
- * is unchanged.
+ * ever walks Collect (every signal on one screen, grouped layer > modality) -> Scope (only when something
+ * picked needs one) -> Process -> Destination -> Review -> Run, one screen at a time with Back/Next -
+ * reusing GuidedScope for its scope-drafting step alone rather than a second, driftable copy of that logic.
+ * Every checkbox writes straight into `value`, exactly like the flat grid does - there is nothing to
+ * "commit", so leaving mid-flow never loses a change already made.
  */
 export default function GuidedWizard({
   value,
@@ -168,17 +92,14 @@ export default function GuidedWizard({
   /** A scope pre-filled from outside the wizard (see GuidedScope.tsx's own doc on this same prop). */
   initialScope?: { name: string; namespaces: string[] }
 }) {
-  const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
   const needsScope = APP_SCOPED.some((k) => value[k])
   // A scope handed off from outside (the topology canvas's "Define scope from selection") only means
   // something to land on directly when there's already a signal on to attach it to - re-opening an agent
   // that already has application-scoped telemetry configured, say. The common case is the opposite: a scope
   // picked from a fresh, unconfigured selection, where nothing has been turned on yet and "attach a scope"
-  // has nothing to attach - that has to start at layer/modality/kind like any other fresh session, same as
+  // has nothing to attach - that has to start at Collect like any other fresh session, same as
   // the render-time `step` override just below already assumes once something IS on the scope step.
-  const [rawStep, setStep] = useState<Step>(() => (initialScope && needsScope ? 'scope' : 'layer'))
-  const [layer, setLayer] = useState<Layer | undefined>()
-  const [modality, setModality] = useState<Modality | undefined>()
+  const [rawStep, setStep] = useState<Step>(() => (initialScope && needsScope ? 'scope' : 'collect'))
   // If the only application-scoped signal gets unchecked while the scope step is showing, there is nothing
   // left to scope - derived at render time (not an effect) so it never needs a second render to catch up:
   // the "Define scope" screen simply never has a moment where it shows with nothing left to attach. This is
@@ -188,34 +109,31 @@ export default function GuidedWizard({
   // seeing even once there is nothing left to scope.
   const step: Step = rawStep === 'scope' && !needsScope ? 'process' : rawStep
 
-  // Whether the rail shows 4 steps or 5 is latched at each actual step transition (see finishKind and
+  // Whether the rail shows 4 steps or 5 is latched at each actual step transition (see finishCollect and
   // removeSignal below), not derived from `value` on every render like `needsScope` above: reading it live
   // here would reflow the step rail under the user's cursor the instant they ticked an application-scoped
-  // checkbox on the Kind step, before they had asked to move on anywhere. Seeded from `needsScope` at mount
+  // checkbox on the Collect step, before they had asked to move on anywhere. Seeded from `needsScope` at mount
   // so a value that already has scoped signals on (editing an existing install, or a scope handed off from
   // outside) starts the rail showing the right step count from the first paint.
   const [scopeStepNeeded, setScopeStepNeeded] = useState<boolean>(needsScope)
 
   const stepKeys: Step[] = scopeStepNeeded
-    ? ['layer', 'modality', 'kind', 'scope', 'process', 'destination', 'review', 'run']
-    : ['layer', 'modality', 'kind', 'process', 'destination', 'review', 'run']
-  const stepLabels: Record<Step, string> = { layer: 'Layer', modality: 'Modality', kind: 'Kind', scope: 'Scope', process: 'Process', destination: 'Destination', review: 'Review', run: 'Run' }
+    ? ['collect', 'scope', 'process', 'destination', 'review', 'run']
+    : ['collect', 'process', 'destination', 'review', 'run']
+  const stepLabels: Record<Step, string> = { collect: 'Collect', scope: 'Scope', process: 'Process', destination: 'Destination', review: 'Review', run: 'Run' }
   const currentIndex = Math.max(0, stepKeys.indexOf(step))
 
-  const modalities = layer ? [...new Set(TELEMETRY_SIGNALS.filter((s) => s.layer === layer).map((s) => s.modality))] : []
-  const kindSignals = layer && modality ? TELEMETRY_SIGNALS.filter((s) => s.layer === layer && s.modality === modality) : []
   const onSignals = TELEMETRY_SIGNALS.filter((s) => value[s.id as SignalId])
 
   // Review's "Create the command" needs something to put in it: at least one signal, and somewhere to send it.
   const canCreate = onSignals.length > 0 && value.exportEndpoint.trim() !== ''
 
-  // Where Back from Process lands: whichever screen was last worth seeing before it - Scope when this
-  // session actually needed one, otherwise Kind (or, for a scope handed off from outside with no
-  // layer/modality ever picked, Layer itself).
-  const beforeProcess: Step = scopeStepNeeded ? 'scope' : layer && modality ? 'kind' : 'layer'
+  // Where Back from Process lands: Scope when this session actually needed one, otherwise Collect.
+  const beforeProcess: Step = scopeStepNeeded ? 'scope' : 'collect'
 
-  const advancePastKind = (justTurnedOn?: SignalId) => {
-    const willNeedScope = APP_SCOPED.some((k) => k === justTurnedOn || value[k])
+  // Collect's Continue: latch whether the rail gains a Scope step, then go to it (or straight to Process).
+  const finishCollect = () => {
+    const willNeedScope = APP_SCOPED.some((k) => value[k])
     setScopeStepNeeded(willNeedScope)
     setStep(willNeedScope ? 'scope' : 'process')
   }
@@ -312,30 +230,6 @@ export default function GuidedWizard({
     }
   }
 
-  const pickLayer = (l: Layer) => {
-    setLayer(l)
-    setModality(undefined)
-    setStep('modality')
-  }
-  const pickModality = (m: Modality) => {
-    setModality(m)
-    const matches = layer ? TELEMETRY_SIGNALS.filter((s) => s.layer === layer && s.modality === m) : []
-    if (matches.length === 1) {
-      // The only kind this modality has - nothing left to choose, so turn it on and skip straight past
-      // what would otherwise be a Kind screen holding one, already-obvious, pre-checked box.
-      const id = matches[0].id as SignalId
-      if (!value[id]) set(id, true)
-      advancePastKind(id)
-    } else {
-      setStep('kind')
-    }
-  }
-  const addAnother = () => {
-    setLayer(undefined)
-    setModality(undefined)
-    setStep('layer')
-  }
-  const finishKind = () => advancePastKind()
   const removeSignal = (id: SignalId) => {
     const next = { ...value, [id]: false }
     onChange(next)
@@ -364,7 +258,7 @@ export default function GuidedWizard({
 
       {/* Hidden on Review: that screen is this same set, already grouped and spelled out in full below -
           repeating it as a chip strip right above would just say the same thing twice in a row. */}
-      {onSignals.length > 0 && step !== 'review' && step !== 'run' && (
+      {onSignals.length > 0 && step !== 'collect' && step !== 'review' && step !== 'run' && (
         <div className="flex flex-wrap items-center gap-1.5 border-b border-nb-850 pb-3" data-testid={`${testIdPrefix}-guided-selected`}>
           <span className="text-xs text-nb-600">Turning on:</span>
           {onSignals.map((s) => (
@@ -374,61 +268,13 @@ export default function GuidedWizard({
       )}
 
       <div key={step} className={clsx('wizard-step-in', direction === 'back' && 'wizard-step-in-back')}>
-        {step === 'layer' && (
-          <div data-testid={`${testIdPrefix}-guided-step-layer`}>
-            <p className="mb-2.5 text-xs text-nb-500">What kind of thing is this signal about?</p>
-            <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Layer">
-              {LAYER_CARDS.map((l) => (
-                <PickCard key={l} label={LAYER_META[l].label} hint={LAYER_META[l].hint} icon={LAYER_META[l].icon} selected={layer === l} onClick={() => pickLayer(l)} testId={`${testIdPrefix}-guided-layer-${l}`} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {step === 'modality' && layer && (
-          <div data-testid={`${testIdPrefix}-guided-step-modality`}>
-            <p className="mb-2.5 text-xs text-nb-500">And which modality?</p>
-            <div className="grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Modality">
-              {modalities.map((m) => (
-                <PickCard key={m} label={MODALITY_META[m].label} hint="" icon={MODALITY_META[m].icon} selected={modality === m} onClick={() => pickModality(m)} testId={`${testIdPrefix}-guided-modality-${m}`} />
-              ))}
-            </div>
-            <div className="mt-3">
-              <BackLink onClick={() => setStep('layer')} testId={`${testIdPrefix}-guided-back`} />
-            </div>
-          </div>
-        )}
-
-        {step === 'kind' && layer && modality && (
-          <div className="space-y-3" data-testid={`${testIdPrefix}-guided-step-kind`}>
-            <p className="text-xs text-nb-500">
-              {LAYER_META[layer].label} · {MODALITY_META[modality].label} - pick everything this covers that you want.
-            </p>
-            <div className="space-y-2.5">
-              {kindSignals.map((s) => (
-                <SignalRow key={s.id} signal={s} checked={value[s.id as SignalId]} onChange={(v) => set(s.id as SignalId, v)} testIdPrefix={testIdPrefix} />
-              ))}
-            </div>
-            {kindSignals.some((s) => s.id === 'energy') && value.energy && <EnergyFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
-            {kindSignals.some((s) => s.id === 'accelerators') && value.accelerators && <AcceleratorsFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <BackLink onClick={() => setStep('modality')} testId={`${testIdPrefix}-guided-back`} />
-              <Button onClick={addAnother} data-testid={`${testIdPrefix}-guided-add-another`}><Plus size={ICON_SM} /> Add another</Button>
-              <Button variant="primary" className="ml-auto" onClick={finishKind} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
-            </div>
-          </div>
-        )}
+        {step === 'collect' && <CollectStep value={value} onChange={onChange} testIdPrefix={testIdPrefix} onContinue={finishCollect} />}
 
         {step === 'scope' && (
           <div className="space-y-3" data-testid={`${testIdPrefix}-guided-step-scope`}>
             <GuidedScope value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialDraft={initialScope} />
             <div className="flex items-center gap-2 pt-1">
-              {/* Kind only ever renders with both a layer and a modality picked (see its own gate below) -
-                  arriving here straight from `initialScope` (a scope handed off from outside, e.g. the
-                  topology canvas) skips both, so there is no Kind screen to go back to yet. Falling back to
-                  Layer instead of unconditionally targeting 'kind' avoids landing on a blank step with no
-                  controls at all - the dead end this used to be. */}
-              <BackLink onClick={() => setStep(layer && modality ? 'kind' : 'layer')} testId={`${testIdPrefix}-guided-back`} />
+              <BackLink onClick={() => setStep('collect')} testId={`${testIdPrefix}-guided-back`} />
               <Button variant="primary" className="ml-auto" onClick={() => setStep('process')} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
             </div>
           </div>
@@ -474,7 +320,7 @@ export default function GuidedWizard({
             <div className="flex flex-wrap items-center gap-2 pt-1">
               {/* Destination always sits directly before Review now, whatever scopeStepNeeded is. */}
               <BackLink onClick={() => setStep('destination')} testId={`${testIdPrefix}-guided-back`} />
-              <Button onClick={addAnother} data-testid={`${testIdPrefix}-guided-add-another`}><Plus size={ICON_SM} /> Add another</Button>
+              <Button onClick={() => setStep('collect')} data-testid={`${testIdPrefix}-guided-edit-signals`}><Pencil size={ICON_SM} /> Change what is collected</Button>
               {/* The command is the last thing, not something drawn under every step: it is only worth
                   reading once everything it contains has been decided. */}
               <Button variant="primary" className="ml-auto" disabled={!canCreate} onClick={() => setStep('run')} data-testid={`${testIdPrefix}-guided-create-command`}>

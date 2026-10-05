@@ -20,10 +20,8 @@ vi.mock('@/store/server', () => ({
 
 async function pickHoneycomb(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByTestId('tp-mode-guided'))
-  await user.click(screen.getByTestId('tp-guided-layer-infrastructure'))
-  await user.click(screen.getByTestId('tp-guided-modality-metrics'))
   await user.click(screen.getByTestId('tp-resourceUsage'))
-  await user.click(screen.getByTestId('tp-guided-continue')) // Kind -> Process
+  await user.click(screen.getByTestId('tp-guided-continue')) // Collect -> Process
   await user.click(screen.getByTestId('tp-guided-continue')) // Process -> Destination
   await user.click(screen.getByTestId('tp-guided-destination-external-preset-honeycomb'))
 }

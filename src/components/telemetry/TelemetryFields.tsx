@@ -250,7 +250,7 @@ export default function TelemetryFields({
         {(
           [
             ['All fields', 'Every signal on one screen, exactly as before.'],
-            ['Guided setup', 'Step through layer, modality and which signals - one screen at a time, like the discovery wizard.'],
+            ['Guided setup', 'Pick what to collect on one screen, then step through scope, processing, destination and the command - like the discovery wizard.'],
           ] as const
         ).map(([label, hint], i) => (
           <button

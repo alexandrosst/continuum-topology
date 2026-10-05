@@ -163,14 +163,16 @@ describe('TelemetryFields facets and application scope overrides', () => {
 
 
 describe('TelemetryFields guided mode', () => {
-  /** Walks the navigable wizard from its landing step through layer + modality. Every application modality
-   *  is a 1:1 match with its only signal (see GuidedWizard.tsx), so picking one turns that signal on and
-   *  skips straight past Kind to Scope or Review - callers landing on an infrastructure combination with
-   *  more than one matching signal land on Kind instead, exactly as before. */
-  async function gotoModality(user: ReturnType<typeof userEvent.setup>, layer: 'infrastructure' | 'application', modality: string) {
+  /** Switches to the guided wizard, which opens on Collect: every signal on one screen. */
+  async function gotoCollect(user: ReturnType<typeof userEvent.setup>) {
     await user.click(screen.getByTestId('telemetry-mode-guided'))
-    await user.click(screen.getByTestId(`telemetry-guided-layer-${layer}`))
-    await user.click(screen.getByTestId(`telemetry-guided-modality-${modality}`))
+  }
+  /** Collect with one application signal on (ticked here unless it already is), then its Continue: the Scope step. */
+  async function gotoScope(user: ReturnType<typeof userEvent.setup>, id = 'applicationMetrics') {
+    await gotoCollect(user)
+    const box = screen.getByTestId(`telemetry-${id}`) as HTMLInputElement
+    if (!box.checked) await user.click(box)
+    await user.click(screen.getByTestId('telemetry-guided-continue'))
   }
 
   test('defaults to the flat grid, and switching modes does not lose what was already picked', async () => {
@@ -183,21 +185,17 @@ describe('TelemetryFields guided mode', () => {
     await user.click(screen.getByTestId('telemetry-mode-guided'))
     expect(screen.getByTestId('telemetry-mode-guided')).toHaveAttribute('aria-checked', 'true')
     expect(screen.queryByTestId('telemetry-facet-scope')).not.toBeInTheDocument()
-    // Lands on the first step (Layer), not the signal itself - but walking to where resourceUsage lives
-    // (infrastructure / metrics) shows it's still checked, exactly as the flat grid left it. It also shows
-    // up immediately as a chip, before even reaching the Kind step that owns its checkbox.
+    // Lands on Collect, where every signal is on the one screen and the one picked is still checked, exactly
+    // as the flat grid left it.
     expect(screen.getByTestId('telemetry-guided-steps')).toBeInTheDocument()
-    expect(screen.getByTestId('telemetry-guided-chip-resourceUsage')).toBeInTheDocument()
-    await user.click(screen.getByTestId('telemetry-guided-layer-infrastructure'))
-    await user.click(screen.getByTestId('telemetry-guided-modality-metrics'))
+    expect(screen.getByTestId('telemetry-guided-step-collect')).toBeInTheDocument()
     expect(screen.getByTestId('telemetry-resourceUsage')).toBeChecked()
   })
 
-  test('an application modality is a 1:1 match with its only signal, so picking it turns that signal on and skips straight to Scope', async () => {
+  test('an application signal picked on Collect makes Continue go to Scope, and the signal shows as a chip there', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
-    await gotoModality(user, 'application', 'metrics')
-    expect(screen.queryByTestId('telemetry-guided-step-kind')).not.toBeInTheDocument()
+    await gotoScope(user)
     expect(screen.getByTestId('telemetry-guided-step-scope')).toBeInTheDocument()
     expect(screen.getByTestId('telemetry-guided-add-scope')).toBeInTheDocument()
     expect(screen.getByTestId('telemetry-guided-attach-applicationMetrics')).toBeInTheDocument()
@@ -211,7 +209,7 @@ describe('TelemetryFields guided mode', () => {
   test('with nothing application-scoped, Continue skips the scope step: process, destination, then review', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
-    await gotoModality(user, 'infrastructure', 'metrics')
+    await gotoCollect(user)
     await user.click(screen.getByTestId('telemetry-resourceUsage'))
     await user.click(screen.getByTestId('telemetry-guided-continue'))
     expect(screen.queryByTestId('telemetry-guided-step-scope')).not.toBeInTheDocument()
@@ -227,59 +225,54 @@ describe('TelemetryFields guided mode', () => {
   test('a chip\'s remove button turns that signal off directly, without navigating back to where it was picked', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
-    await gotoModality(user, 'infrastructure', 'metrics')
+    await gotoCollect(user)
     await user.click(screen.getByTestId('telemetry-resourceUsage'))
-    // The chip strip tracks the pick live, right there on the same Kind screen it was made on - not just
-    // once Review is reached.
+    await user.click(screen.getByTestId('telemetry-guided-continue'))
+    // On Process the Collect screen's own checkbox is not on screen, but the chip strip is.
     expect(screen.getByTestId('telemetry-guided-chip-resourceUsage')).toBeInTheDocument()
     await user.click(screen.getByTestId('telemetry-guided-chip-resourceUsage-remove'))
     expect(screen.queryByTestId('telemetry-guided-chip-resourceUsage')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('telemetry-guided-back'))
     expect(screen.getByTestId('telemetry-resourceUsage')).not.toBeChecked()
   })
 
   test('removing the only application-scoped signal while its scope step is showing falls back to the process step, not a pointless scope screen', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
-    await gotoModality(user, 'application', 'metrics')
+    await gotoScope(user)
     expect(screen.getByTestId('telemetry-guided-step-scope')).toBeInTheDocument()
     await user.click(screen.getByTestId('telemetry-guided-chip-applicationMetrics-remove'))
     expect(screen.queryByTestId('telemetry-guided-step-scope')).not.toBeInTheDocument()
     expect(screen.getByTestId('telemetry-guided-step-process')).toBeInTheDocument()
   })
 
-  test('"Add another" loops back to the layer step, accumulating into one draft with a visible, removable chip for each pick', async () => {
+  test('"Change what is collected" on Review returns to Collect with everything still ticked, and a second pass accumulates', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
-    await gotoModality(user, 'infrastructure', 'metrics')
+    await gotoCollect(user)
     await user.click(screen.getByTestId('telemetry-resourceUsage'))
-    await user.click(screen.getByTestId('telemetry-guided-add-another'))
-    expect(screen.getByTestId('telemetry-guided-step-layer')).toBeInTheDocument()
-    // What was picked on the first pass stays visible (and removable) while building the second.
-    expect(screen.getByTestId('telemetry-guided-chip-resourceUsage')).toBeInTheDocument()
+    await user.click(screen.getByTestId('telemetry-guided-continue')) // -> process
+    await user.click(screen.getByTestId('telemetry-guided-continue')) // -> destination
+    await user.click(screen.getByTestId('telemetry-guided-destination-external-preset-honeycomb'))
+    await user.click(screen.getByTestId('telemetry-guided-continue')) // -> review
+    await user.click(screen.getByTestId('telemetry-guided-edit-signals'))
+    expect(screen.getByTestId('telemetry-guided-step-collect')).toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-resourceUsage')).toBeChecked()
 
-    await user.click(screen.getByTestId('telemetry-guided-layer-application'))
-    await user.click(screen.getByTestId('telemetry-guided-modality-logs'))
-    // application/logs is also a 1:1 match, landing straight on its scope step.
+    await user.click(screen.getByTestId('telemetry-applicationLogs'))
+    await user.click(screen.getByTestId('telemetry-guided-continue'))
     expect(screen.getByTestId('telemetry-guided-step-scope')).toBeInTheDocument()
     await user.click(screen.getByTestId('telemetry-guided-continue')) // scope -> process
     await user.click(screen.getByTestId('telemetry-guided-continue')) // process -> destination
-    expect(screen.getByTestId('telemetry-guided-step-destination')).toBeInTheDocument()
-    await user.click(screen.getByTestId('telemetry-guided-destination-external-preset-honeycomb'))
-    await user.click(screen.getByTestId('telemetry-guided-continue'))
+    await user.click(screen.getByTestId('telemetry-guided-continue')) // destination -> review (its pick is kept)
     expect(screen.getByTestId('telemetry-review-pipeline')).toHaveTextContent('Resource usage')
     expect(screen.getByTestId('telemetry-review-pipeline')).toHaveTextContent('Application logs')
-
-    // A third pass still accumulates rather than replacing - resourceUsage from the first pass is untouched.
-    await user.click(screen.getByTestId('telemetry-guided-add-another'))
-    await user.click(screen.getByTestId('telemetry-guided-layer-infrastructure'))
-    await user.click(screen.getByTestId('telemetry-guided-modality-metrics'))
-    expect(screen.getByTestId('telemetry-resourceUsage')).toBeChecked()
   })
 
   test('naming a scope and attaching a signal to it copies its namespaces into that signal\'s override', async () => {
     const user = userEvent.setup()
     render(<Wrapper initial={{ ...emptyTelemetry, applicationMetrics: true }} />)
-    await gotoModality(user, 'application', 'metrics')
+    await gotoScope(user)
     expect(screen.getByTestId('telemetry-guided-step-scope')).toBeInTheDocument()
     await user.click(screen.getByTestId('telemetry-guided-add-scope'))
     const nameInput = screen.getByPlaceholderText('Name this scope')
@@ -313,7 +306,7 @@ describe('TelemetryFields guided mode', () => {
   test('two scopes that both include the same namespace warn, and merging keeps only one', async () => {
     const user = userEvent.setup()
     render(<Wrapper initial={{ ...emptyTelemetry, applicationMetrics: true, applicationLogs: true }} />)
-    await gotoModality(user, 'application', 'metrics')
+    await gotoScope(user)
     await user.click(screen.getByTestId('telemetry-guided-add-scope'))
     await user.click(screen.getByTestId('telemetry-guided-add-scope'))
 

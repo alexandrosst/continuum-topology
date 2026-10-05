@@ -65,19 +65,11 @@ function renderWizard(initial?: TelemetryInput, clusterId?: string) {
   )
 }
 
-/** Walks from the landing step to the Kind screen for infrastructure/metrics, the same path
- *  TelemetryFields.test.tsx's own gotoModality helper takes. */
-async function gotoKind(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByTestId('t-guided-layer-infrastructure'))
-  await user.click(screen.getByTestId('t-guided-modality-metrics'))
-}
-
 /** Gets to the Destination step for one infrastructure signal. With nothing of the organisation's own to
  *  offer, the list opens on the first few built-in presets - Honeycomb is one of them. */
 async function gotoDestination(user: ReturnType<typeof userEvent.setup>) {
-  await gotoKind(user)
   await user.click(screen.getByTestId('t-resourceUsage'))
-  await user.click(screen.getByTestId('t-guided-continue')) // Kind -> Process
+  await user.click(screen.getByTestId('t-guided-continue')) // Collect -> Process
   await user.click(screen.getByTestId('t-guided-continue')) // Process -> Destination
 }
 
@@ -119,10 +111,9 @@ describe('GuidedWizard: the command comes last', () => {
 })
 
 describe('GuidedWizard destination step: reachability', () => {
-  test('Continue from Kind (no scope needed) lands on Destination, and Continue from there lands on Review', async () => {
+  test('Continue from Collect (no scope needed) lands on Destination, and Continue from there lands on Review', async () => {
     const user = userEvent.setup()
     renderWizard()
-    await gotoKind(user)
     await user.click(screen.getByTestId('t-resourceUsage'))
     await user.click(screen.getByTestId('t-guided-continue'))
     expect(screen.getByTestId('t-guided-step-process')).toBeInTheDocument()
@@ -133,14 +124,13 @@ describe('GuidedWizard destination step: reachability', () => {
     expect(screen.getByTestId('t-guided-step-review')).toBeInTheDocument()
   })
 
-  test('Back from Process returns to Kind; Back from Destination to Process; Back from Review to Destination', async () => {
+  test('Back from Process returns to Collect; Back from Destination to Process; Back from Review to Destination', async () => {
     const user = userEvent.setup()
     renderWizard()
-    await gotoKind(user)
     await user.click(screen.getByTestId('t-resourceUsage'))
     await user.click(screen.getByTestId('t-guided-continue'))
     await user.click(screen.getByTestId('t-guided-back'))
-    expect(screen.getByTestId('t-guided-step-kind')).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-step-collect')).toBeInTheDocument()
 
     await user.click(screen.getByTestId('t-guided-continue')) // on to Process
     await user.click(screen.getByTestId('t-guided-continue')) // on to Destination
@@ -157,8 +147,8 @@ describe('GuidedWizard destination step: reachability', () => {
   test('an application modality (needs scope) reaches Process via Scope\'s own Continue, and Back from Process returns to Scope', async () => {
     const user = userEvent.setup()
     renderWizard()
-    await user.click(screen.getByTestId('t-guided-layer-application'))
-    await user.click(screen.getByTestId('t-guided-modality-metrics'))
+    await user.click(screen.getByTestId('t-applicationMetrics'))
+    await user.click(screen.getByTestId('t-guided-continue'))
     expect(screen.getByTestId('t-guided-step-scope')).toBeInTheDocument()
     await user.click(screen.getByTestId('t-guided-continue'))
     expect(screen.getByTestId('t-guided-step-process')).toBeInTheDocument()
@@ -173,10 +163,9 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     const backend: QuickStartBackend = { id: 'qsb-1', kind: 'jaeger', modality: 'traces', namespace: 'obs', retention: '72h', label: 'Jaeger (traces)' }
     settings = { ...DEFAULT_SETTINGS, quickStartBackends: [backend] }
     renderWizard()
-    // application/traces is a 1:1 modality match (see GuidedWizard.tsx) and is itself application-scoped,
-    // so picking it lands straight on Scope; its own Continue is what reaches Destination from there.
-    await user.click(screen.getByTestId('t-guided-layer-application'))
-    await user.click(screen.getByTestId('t-guided-modality-traces'))
+    // Traces is application-scoped, so Collect's Continue lands on Scope; its own Continue goes on from there.
+    await user.click(screen.getByTestId('t-traces'))
+    await user.click(screen.getByTestId('t-guided-continue')) // Collect -> Scope
     await user.click(screen.getByTestId('t-guided-continue')) // Scope -> Process
     await user.click(screen.getByTestId('t-guided-continue')) // Process -> Destination
     expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
