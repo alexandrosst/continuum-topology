@@ -534,7 +534,7 @@ export function TelemetryPanel({
                 <p className="text-warn" role="status" data-testid={`${p}-operator-stale`}>Out of date - generate again. The settings changed after this was generated, so it is no longer copyable.</p>
               ) : (
                 <p role="status" data-testid={`${p}-operator-fresh`}>
-                  {generated.action === 'created' ? 'Recorded a telemetry intent for this agent.' : 'Updated this agent’s telemetry intent.'} The cluster&apos;s owner runs this in that cluster. If a Secret of the same name from an earlier run still exists there, delete it first: <code className="font-mono">kubectl create</code> does not overwrite.
+                  {generated.action === 'created' ? 'Recorded a telemetry intent for this agent.' : 'Updated this agent’s telemetry intent.'} The cluster&apos;s owner runs this in that cluster. It is safe to run more than once: the Secrets are replaced, not duplicated.
                 </p>
               )}
               {generated.endpointNote && <p className="mt-1 text-warn" data-testid={`${p}-operator-endpoint-note`}>{generated.endpointNote}</p>}
