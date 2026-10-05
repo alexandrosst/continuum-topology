@@ -17,7 +17,8 @@ import type { OperatorDestination, ReceiverAuth, SignalGrant, TelemetryIntent } 
  *  stale id (the endpoint was edited by a path that forgot to clear it) must never trigger a certificate. */
 export function exportOperatorId(t: TelemetryInput): string {
   const id = t.exportOperatorId
-  if (!id) return ''
+  // Each signal type with its own destination is handled lane by lane, never as the one operator.
+  if (!id || t.exportSplit) return ''
   return t.exportEndpoint.trim() === operatorReceiverEndpoint({ id }) ? id : ''
 }
 

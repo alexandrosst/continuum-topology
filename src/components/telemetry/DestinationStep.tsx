@@ -127,6 +127,8 @@ export default function DestinationStep({
   adminKindsControl,
   onBack,
   onContinue,
+  bare = false,
+  heading = true,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
@@ -146,6 +148,11 @@ export default function DestinationStep({
   adminKindsControl?: ReactNode
   onBack: () => void
   onContinue: () => void
+  /** One signal type's destination inside a card (see RoutesStep): no heading and no Back/Continue of its
+   *  own, and no word about what happens next - the step around it has those. */
+  bare?: boolean
+  /** Whether the step shows its own "Where should this telemetry go?" - off when the wizard already has. */
+  heading?: boolean
 }) {
   const p = `${testIdPrefix}-guided`
   const [mode, setMode] = useState<Mode>('list')
@@ -256,10 +263,12 @@ export default function DestinationStep({
 
   return (
     <div className="space-y-3" data-testid={`${p}-step-destination`}>
-      <div>
-        <h3 className="text-sm font-medium text-nb-200">Where should this telemetry go?</h3>
-        <p className="mt-0.5 text-xs text-nb-500">Only destinations that can carry the signals you turned on are offered.</p>
-      </div>
+      {!bare && heading && (
+        <div>
+          <h3 className="text-sm font-medium text-nb-200">Where should this telemetry go?</h3>
+          <p className="mt-0.5 text-xs text-nb-500">Only destinations that can carry the signals you turned on are offered.</p>
+        </div>
+      )}
 
       {mode === 'list' && !showSummary && (
         <div className="space-y-3" data-testid={`${p}-destination-list`}>
@@ -490,7 +499,7 @@ export default function DestinationStep({
             </div>
           </details>
 
-          <p className="text-xs text-nb-500" data-testid={`${p}-destination-next`}>
+          {!bare && <p className="text-xs text-nb-500" data-testid={`${p}-destination-next`}>
             <span className="font-medium text-nb-400">Next:</span> review how this flows, then create the command.{' '}
             {isOperator
               ? catalog.canDeployOperator
@@ -499,22 +508,24 @@ export default function DestinationStep({
               : 'You run it in the cluster yourself; this page never runs anything.'}
             {secretNamed && !isOperator && ' It also creates the Secret above - set TELEMETRY_EXPORT_TOKEN to your credential first.'}
             {secretNamed && operatorBearer && ' It also creates the receiver token Secret above - set TELEMETRY_EXPORT_TOKEN to Bearer followed by the operator’s token first.'}
-          </p>
+          </p>}
         </div>
       )}
 
-      {!endpointSet && mode === 'list' && (
+      {!bare && !endpointSet && mode === 'list' && (
         <p className="text-xs text-nb-500" data-testid={`${p}-destination-skip-note`}>
           You can continue without one, but no command is generated until a destination is set.
         </p>
       )}
 
-      <div className="flex items-center gap-2 pt-1">
-        <Button variant="ghost" size="sm" onClick={onBack} data-testid={`${testIdPrefix}-guided-back`}>
-          <ChevronLeft size={ICON_SM} /> Back
-        </Button>
-        <Button variant="primary" className="ml-auto" onClick={onContinue} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
-      </div>
+      {!bare && (
+        <div className="flex items-center gap-2 pt-1">
+          <Button variant="ghost" size="sm" onClick={onBack} data-testid={`${testIdPrefix}-guided-back`}>
+            <ChevronLeft size={ICON_SM} /> Back
+          </Button>
+          <Button variant="primary" className="ml-auto" onClick={onContinue} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
+        </div>
+      )}
     </div>
   )
 }

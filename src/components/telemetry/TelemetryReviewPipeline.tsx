@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowRight } from 'lucide-react'
 import { ICON_SM } from '@/components/ui/primitives'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
-import { cleanTags, exportProtocolLabel, scopeTag, type TelemetryInput } from '@/lib/install'
+import { activeLanes, cleanTags, exportProtocolLabel, scopeTag, type ExportTarget, type TelemetryInput } from '@/lib/install'
 import { EXPORT_PRESETS } from '@/lib/exportPresets'
 import { PROCESSOR_KINDS, processorTarget, type ProcessorEntry } from '@/lib/processorCatalog'
 import { LAYER_CARDS, LAYER_META } from '@/lib/telemetryLayers'
@@ -77,8 +77,24 @@ export default function TelemetryReviewPipeline({
     tracesOnly: processorTarget(e) === 'extraTracesProcessorNames',
   }))
 
-  const destination = value.exportEndpoint.trim()
-  const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === destination)
+  /** One destination as the Send stage describes it. */
+  const target = (t: ExportTarget, label?: string) => {
+    const endpoint = t.exportEndpoint.trim()
+    const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === endpoint)
+    return endpoint ? (
+      <div className="space-y-1" key={label ?? 'one'}>
+        <p className="break-all text-xs text-nb-300">{label && <span className="mr-1.5 text-nb-500">{label}</span>}{preset?.label ?? endpoint}</p>
+        <p className="text-xs text-nb-500">
+          {exportProtocolLabel(t.exportProtocol)}
+          {t.exportInsecure ? ' · TLS verification skipped' : ''}
+        </p>
+        {t.exportAuthSecretName.trim() && <p className="text-xs text-nb-600">Authenticated via {t.exportAuthHeaderName || 'Authorization'}</p>}
+      </div>
+    ) : (
+      <p className="text-xs text-warn" key={label ?? 'one'}>{label ? `${label}: ` : ''}Not set yet - go back to Destination.</p>
+    )
+  }
+  const lanes = activeLanes(value)
 
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch" data-testid={`${testIdPrefix}-review-pipeline`}>
@@ -137,19 +153,12 @@ export default function TelemetryReviewPipeline({
       <StageArrow />
 
       <Stage title="Send" testId={`${testIdPrefix}-review-send`}>
-        {destination ? (
-          <div className="space-y-1">
-            <p className="break-all text-xs text-nb-300">{preset?.label ?? destination}</p>
-            <p className="text-xs text-nb-500">
-              {exportProtocolLabel(value.exportProtocol)}
-              {value.exportInsecure ? ' · TLS verification skipped' : ''}
-            </p>
-            {value.exportAuthSecretName.trim() && (
-              <p className="text-xs text-nb-600">Authenticated via {value.exportAuthHeaderName || 'Authorization'}</p>
-            )}
+        {value.exportSplit ? (
+          <div className="space-y-2" data-testid={`${testIdPrefix}-review-routes`}>
+            {lanes.map((m) => target(value.exportLanes[m], m[0].toUpperCase() + m.slice(1)))}
           </div>
         ) : (
-          <p className="text-xs text-warn">Not set yet - go back to Destination.</p>
+          target(value)
         )}
       </Stage>
     </div>

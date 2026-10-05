@@ -222,6 +222,17 @@ export interface TelemetryInput {
    *  freshly issued client certificate only the server can mint (the panel's "Generate commands" action,
    *  see lib/operatorIntent.ts). Every edit of the endpoint by hand clears it. */
   exportOperatorId: string
+  /** Send each signal type to its own destination (`telemetry.export.routes.<metrics|logs|traces>`) instead
+   *  of all of them to the one above. The one above stays what it is - the default every signal falls back to
+   *  - and a route only overrides it, so turning this off again never loses the single choice. */
+  exportSplit: boolean
+  /** One destination per signal type, used only while `exportSplit` is on. Kept (not cleared) while it is off,
+   *  so switching back and forth is not destructive. */
+  exportLanes: Record<Modality, ExportTarget>
+  /** Whether the install already has routes (the agent reported a `metrics=...,default=...` destination).
+   *  Only used to decide whether a single-destination command must state the routes empty so that they are
+   *  cleared: under `helm upgrade --reuse-values` an unmentioned route would keep sending. */
+  exportRoutesInstalled: boolean
   /* ---------- Pipeline processors (telemetry.processors.*): independent of which signals above are on,
      applied whenever any of them is. See the chart's own values.yaml for exactly what each one does. ---------- */
   /** Off by default: enriches every signal with resource attributes about the collector's own environment. */
@@ -252,6 +263,21 @@ export interface TelemetryInput {
 /** How the one export destination is spoken to. 'zipkin' posts spans to a Zipkin-compatible /api/v2/spans
  *  endpoint with the collector's own zipkin exporter: it carries traces only (see telemetryProblems). */
 export type ExportProtocol = 'grpc' | 'http' | 'zipkin'
+/** Everything that says where one stream of telemetry goes and how it is spoken to: the fields the single
+ *  destination has on TelemetryInput itself, and what each signal type's own destination carries. */
+export type ExportTarget = Pick<
+  TelemetryInput,
+  'exportEndpoint' | 'exportProtocol' | 'exportInsecure' | 'exportAuthHeaderName' | 'exportAuthSecretName' | 'exportAuthSecretKey' | 'exportOperatorId'
+>
+export const emptyExportTarget: ExportTarget = {
+  exportEndpoint: '',
+  exportProtocol: 'grpc',
+  exportInsecure: false,
+  exportAuthHeaderName: '',
+  exportAuthSecretName: '',
+  exportAuthSecretKey: '',
+  exportOperatorId: '',
+}
 export const exportProtocolLabel = (p: ExportProtocol): string => (p === 'http' ? 'OTLP/HTTP' : p === 'zipkin' ? 'Zipkin (HTTP, traces only)' : 'OTLP/gRPC')
 
 export interface TagEntry {
@@ -292,6 +318,9 @@ export const emptyTelemetry: TelemetryInput = {
   exportAuthSecretName: '',
   exportAuthSecretKey: '',
   exportOperatorId: '',
+  exportSplit: false,
+  exportLanes: { metrics: emptyExportTarget, logs: emptyExportTarget, traces: emptyExportTarget },
+  exportRoutesInstalled: false,
   resourceDetection: false,
   redaction: true,
   tracesSamplingPercent: 100,
@@ -389,6 +418,53 @@ export function enabledModalities(t: TelemetryInput): Set<Modality> {
   return on
 }
 
+export const ROUTE_MODALITIES: Modality[] = ['metrics', 'logs', 'traces']
+
+/** The signal types that need a destination of their own while the draft sends each type separately: the ones
+ *  with a signal turned on, in a fixed order. Empty while it does not. */
+export const activeLanes = (t: TelemetryInput): Modality[] => (t.exportSplit ? ROUTE_MODALITIES.filter((m) => enabledModalities(t).has(m)) : [])
+
+/** A lane seen as a whole draft: the lane's destination in place of the single one, so everything that edits
+ *  or explains one destination (the picker, its connection details) works on a lane unchanged. */
+export const laneView = (t: TelemetryInput, m: Modality): TelemetryInput => ({ ...t, ...t.exportLanes[m] })
+
+/** Write back what was edited on a `laneView`: only the destination fields, never anything else of the draft. */
+export function withLane(t: TelemetryInput, m: Modality, edited: TelemetryInput): TelemetryInput {
+  const { exportEndpoint, exportProtocol, exportInsecure, exportAuthHeaderName, exportAuthSecretName, exportAuthSecretKey, exportOperatorId } = edited
+  return { ...t, exportLanes: { ...t.exportLanes, [m]: { exportEndpoint, exportProtocol, exportInsecure, exportAuthHeaderName, exportAuthSecretName, exportAuthSecretKey, exportOperatorId } } }
+}
+
+/** Whether every destination the draft needs is named: the one, or - sending each signal type separately -
+ *  one for every type that has a signal on. */
+export const destinationReady = (t: TelemetryInput): boolean =>
+  t.exportSplit ? activeLanes(t).every((m) => t.exportLanes[m].exportEndpoint.trim() !== '') : t.exportEndpoint.trim() !== ''
+
+/** Turning "one for each signal type" on: every lane that is still empty starts with the single destination
+ *  where that one can actually carry the lane's signals, so a person who already picked something is not
+ *  asked for it again; a lane it cannot carry (Zipkin takes traces only) starts empty. */
+export function startLanes(t: TelemetryInput): TelemetryInput {
+  const lanes = { ...t.exportLanes }
+  const single = t.exportEndpoint.trim() !== ''
+  for (const m of ROUTE_MODALITIES) {
+    if (lanes[m].exportEndpoint.trim() !== '' || !single) continue
+    const preset = EXPORT_PRESETS.find((x) => x.endpointPattern === t.exportEndpoint.trim())
+    if (t.exportProtocol === 'zipkin' && m !== 'traces') continue
+    // A regional operator needs a client certificate the server issues for it, which a lane cannot ask for yet.
+    if (t.exportOperatorId) continue
+    if (preset && !presetSupportsModalities(preset, new Set([m]))) continue
+    lanes[m] = {
+      exportEndpoint: t.exportEndpoint,
+      exportProtocol: t.exportProtocol,
+      exportInsecure: t.exportInsecure,
+      exportAuthHeaderName: t.exportAuthHeaderName,
+      exportAuthSecretName: t.exportAuthSecretName,
+      exportAuthSecretKey: t.exportAuthSecretKey,
+      exportOperatorId: t.exportOperatorId,
+    }
+  }
+  return { ...t, exportSplit: true, exportLanes: lanes }
+}
+
 /** Whether any signal is on - the export endpoint (and every flag below) only matters once one is. */
 export const telemetryActive = (t: TelemetryInput): boolean =>
   t.resourceUsage || t.energy || t.kubernetesState || t.nodeRuntime || t.networkLatency ||
@@ -403,7 +479,7 @@ export const telemetryActive = (t: TelemetryInput): boolean =>
 export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): string[] {
   if (!telemetryActive(t)) return []
   const out: string[] = []
-  if (!t.exportEndpoint.trim()) out.push('An export endpoint is required once any telemetry signal is on')
+  if (!t.exportSplit && !t.exportEndpoint.trim()) out.push('An export endpoint is required once any telemetry signal is on')
   if (t.energy && t.energySource === 'existing' && !t.energyExistingEndpoint.trim()) out.push('The existing Prometheus endpoint is required when energy points at an existing source')
   if (t.accelerators && t.acceleratorsSource === 'existing' && !t.acceleratorsExistingEndpoint.trim()) out.push('The existing Prometheus endpoint is required when accelerators points at an existing source')
   if (t.networkLatency && measurementsOn === false) out.push('Network latency re-emits the path measurements extra, so turn that on too, or it will report nothing')
@@ -418,6 +494,20 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   // command, not just show a warning next to the field (TelemetryFields.tsx shows the same thing inline,
   // with friendlier wording, but withTelemetry below only consults this function - a cosmetic-only warning
   // there would let an invalid preset+signal combo stay copyable/saveable).
+  if (t.exportSplit) {
+    for (const m of activeLanes(t)) {
+      const lane = t.exportLanes[m]
+      const endpoint = lane.exportEndpoint.trim()
+      if (!endpoint) {
+        out.push(`${m[0].toUpperCase()}${m.slice(1)} needs a destination`)
+        continue
+      }
+      if (lane.exportProtocol === 'zipkin' && m !== 'traces') out.push(`Zipkin only carries traces, so it cannot be where ${m} go`)
+      const lp = EXPORT_PRESETS.find((p) => p.endpointPattern === endpoint)
+      if (lp && !presetSupportsModalities(lp, new Set([m]))) out.push(`${lp.label} only carries ${lp.modalities!.join('/')}, so it cannot be where ${m} go`)
+    }
+    return out
+  }
   if (t.exportProtocol === 'zipkin') {
     const others = [...enabledModalities(t)].filter((m) => m !== 'traces')
     if (others.length > 0) out.push(`Zipkin only carries traces - turn off ${others.join(' and ')}, or send everything somewhere that speaks OTLP`)
@@ -448,15 +538,43 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   const add = (flag: string) => { cmd += ` \\\n  --set ${flag}` }
   const addString = (flag: string, value: string) => { cmd += ` \\\n  --set-string ${flag}=${value}` }
   const addJson = (flag: string, value: unknown) => { cmd += ` \\\n  --set-json ${flag}=${shQuote(JSON.stringify(value))}` }
-  addString('telemetry.export.otlp.endpoint', t.exportEndpoint.trim())
+  // Sending each signal type to its own destination: the routes below say where everything goes, so the
+  // default is left alone (it is only used by a signal without a route, and there is none here).
+  if (!t.exportSplit) addString('telemetry.export.otlp.endpoint', t.exportEndpoint.trim())
   // Who this belongs to, for every destination (an operator's server-built fragment states the same two, and
   // the intent id, after this; helm takes the last). The scope and the tags are stated even when empty, for
   // the --reuse-values reason below: clearing them has to actually clear them.
   if (t.resourceOrgId) addString('telemetry.resource.orgId', t.resourceOrgId)
   if (t.resourceClusterId) addString('telemetry.resource.clusterId', t.resourceClusterId)
   addString('telemetry.resource.scope', scopeTag(t))
-  if (t.exportProtocol !== 'grpc') add(`telemetry.export.otlp.protocol=${t.exportProtocol}`)
-  if (t.exportInsecure) add('telemetry.export.otlp.tls.insecure=true')
+  if (!t.exportSplit) {
+    if (t.exportProtocol !== 'grpc') add(`telemetry.export.otlp.protocol=${t.exportProtocol}`)
+    if (t.exportInsecure) add('telemetry.export.otlp.tls.insecure=true')
+  }
+  // The routes. Every route is stated on every command (an unmentioned one would keep sending under
+  // `--reuse-values`): a route in use in full - protocol, TLS and credential too, so that what an earlier
+  // command set cannot linger - and one not in use as an empty endpoint, which is how the chart reads "no route".
+  // A single destination states them empty only when the install is known to have some to clear.
+  const lanes = new Set(activeLanes(t))
+  if (t.exportSplit || t.exportRoutesInstalled) {
+    for (const m of ROUTE_MODALITIES) {
+      const base = `telemetry.export.routes.${m}`
+      if (!lanes.has(m)) {
+        addString(`${base}.endpoint`, '')
+        continue
+      }
+      const lane = t.exportLanes[m]
+      addString(`${base}.endpoint`, lane.exportEndpoint.trim())
+      add(`${base}.protocol=${lane.exportProtocol}`)
+      add(`${base}.tls.insecure=${lane.exportInsecure}`)
+      const secret = lane.exportAuthSecretName.trim()
+      addString(`${base}.auth.secretName`, secret)
+      if (secret) {
+        addString(`${base}.auth.secretKey`, lane.exportAuthSecretKey.trim() || 'token')
+        addString(`${base}.auth.headerName`, lane.exportAuthHeaderName.trim() || 'Authorization')
+      }
+    }
+  }
   add(`telemetry.resourceUsage.metrics.enabled=${t.resourceUsage}`)
   add(`telemetry.energy.metrics.enabled=${t.energy}`)
   if (t.energy && t.energySource === 'existing') {
@@ -507,7 +625,7 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   // the same --reuse-values staleness reasoning: a previous applyScope=true left unmentioned would survive
   // a later edit that turns accelerators off and back on without re-checking this box.
   add(`telemetry.accelerators.metrics.applyScope=${t.acceleratorsApplyScope}`)
-  if (t.exportAuthSecretName.trim()) {
+  if (!t.exportSplit && t.exportAuthSecretName.trim()) {
     addString('telemetry.export.otlp.auth.secretName', t.exportAuthSecretName.trim())
     addString('telemetry.export.otlp.auth.secretKey', t.exportAuthSecretKey.trim() || 'token')
     if (t.exportAuthHeaderName.trim() && t.exportAuthHeaderName.trim() !== 'Authorization') {

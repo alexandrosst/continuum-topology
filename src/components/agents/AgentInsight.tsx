@@ -20,6 +20,7 @@ import {
   sortProblems,
   telemetryUpgradeCommand,
   telemetrySecretCommand,
+  telemetrySecrets,
   TELEMETRY_CREDENTIAL_VAR,
   seedTelemetryFromInstalled,
   TELEMETRY_SIGNALS,
@@ -480,7 +481,8 @@ export function TelemetryPanel({
   // A receiver gated by the client certificate alone has no token to present: a Secret named in the draft is
   // ignored for it (the command builder drops it too, see operatorCommandDraft).
   const operatorMtls = !!operatorId && operatorAuth === 'mtls'
-  const needsCredential = !operatorMtls && telemetrySecretCommand(draft, measurementsOn) !== undefined
+  const secrets = telemetrySecrets(draft, measurementsOn)
+  const needsCredential = !operatorMtls && secrets.length > 0
   const operatorProblems = telemetryActive(draft) ? telemetryProblems(operatorMtls ? operatorCommandDraft(draft, 'mtls') : draft, measurementsOn) : []
   // Everything the generated block depends on. It is stale the moment any of it differs from what it was
   // generated from, and then shows dimmed and uncopyable rather than a command that is wrong now.
@@ -573,9 +575,22 @@ export function TelemetryPanel({
     <ol className="space-y-4" data-testid={`${p}-run-steps`}>
       {needsCredential && (
         <RunStep n={1} title="Put the destination’s credential in your shell">
-          <p data-testid={`${p}-credential-hint`}>
-            Set <code className="font-mono text-nb-400">{TELEMETRY_CREDENTIAL_VAR}</code> to the destination&apos;s credential in the shell you run the command in - it is read from there, so it never passes through this page. The command stores it as the Secret you named, then upgrades the release.
-          </p>
+          {secrets.length > 1 || secrets[0]?.lanes.length ? (
+            <div data-testid={`${p}-credential-hint`} className="space-y-1.5">
+              <p>Each signal type that needs a credential reads it from a variable in the shell you run the command in - it never passes through this page. The command stores each as the Secret named, then upgrades the release.</p>
+              <ul className="space-y-0.5">
+                {secrets.map((s) => (
+                  <li key={s.name}>
+                    Set <code className="font-mono text-nb-400">{s.variable}</code> to the credential for {s.lanes.join(' and ')} (Secret <code className="font-mono text-nb-400">{s.name}</code>)
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p data-testid={`${p}-credential-hint`}>
+              Set <code className="font-mono text-nb-400">{TELEMETRY_CREDENTIAL_VAR}</code> to the destination&apos;s credential in the shell you run the command in - it is read from there, so it never passes through this page. The command stores it as the Secret you named, then upgrades the release.
+            </p>
+          )}
         </RunStep>
       )}
       <RunStep n={needsCredential ? 2 : 1} title="Run the command in that cluster">

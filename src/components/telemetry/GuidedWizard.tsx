@@ -6,7 +6,7 @@ import { api, atLeast } from '@/lib/api'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
 import { buildDestinationCatalog } from '@/lib/destinationCatalog'
 import { effectiveAllowedBackendKinds, type QuickStartBackend, type QuickStartKind } from '@/lib/history'
-import { enabledModalities, type TelemetryInput } from '@/lib/install'
+import { activeLanes, destinationReady, enabledModalities, startLanes, withLane, laneView, type Modality, type TelemetryInput } from '@/lib/install'
 import { hasQuickStartSpec, quickStartSpec } from '@/lib/quickStartBackends'
 import { LAYER_META } from '@/lib/telemetryLayers'
 import type { RegionalOperator } from '@/lib/types'
@@ -16,11 +16,18 @@ import { useTopology } from '@/store/topology'
 import CollectStep from './CollectStep'
 import DestinationStep from './DestinationStep'
 import GuidedScope from './GuidedScope'
+import RoutesStep, { DestinationMode } from './RoutesStep'
 import ProcessStep from './ProcessStep'
 import { AllowedKindsControl } from './QuickStartBackends'
 import type { SignalId } from './TelemetryFields'
 import TelemetryBackendWizard from './TelemetryBackendWizard'
 import TelemetryReviewPipeline from './TelemetryReviewPipeline'
+
+/** "3 destinations, one per signal type" - or "one destination" when they all turned out to be the same. */
+function sentTo(t: TelemetryInput): string {
+  const n = new Set(activeLanes(t).map((m) => t.exportLanes[m].exportEndpoint.trim())).size
+  return n === 1 ? 'one destination, set per signal type' : `${n} destinations, one per signal type`
+}
 
 type Step = 'collect' | 'scope' | 'process' | 'destination' | 'review' | 'run'
 
@@ -126,7 +133,7 @@ export default function GuidedWizard({
   const onSignals = TELEMETRY_SIGNALS.filter((s) => value[s.id as SignalId])
 
   // Review's "Create the command" needs something to put in it: at least one signal, and somewhere to send it.
-  const canCreate = onSignals.length > 0 && value.exportEndpoint.trim() !== ''
+  const canCreate = onSignals.length > 0 && destinationReady(value)
 
   // Where Back from Process lands: Scope when this session actually needed one, otherwise Collect.
   const beforeProcess: Step = scopeStepNeeded ? 'scope' : 'collect'
@@ -195,6 +202,19 @@ export default function GuidedWizard({
   // Which catalog entry the person picked (DestinationStep's own destinationKey), or 'custom' - held here,
   // not in the step, so it survives leaving Destination for Review and coming back.
   const [destChoice, setDestChoice] = useState<string | null>(null)
+  // The same, for each signal type while it has a destination of its own.
+  const [laneChoices, setLaneChoices] = useState<Record<Modality, string | null>>({ metrics: null, logs: null, traces: null })
+  // Which signal type the backend setup opened from, so that what it set up becomes that one's destination.
+  const [deployLane, setDeployLane] = useState<Modality | null>(null)
+  // What can carry just one signal type. A regional operator is not offered: it needs a client certificate the
+  // server issues for the whole agent, which one signal type's own destination cannot ask for.
+  const catalogFor = (m: Modality) => {
+    const c = buildDestinationCatalog({ services, clusterId, operators, enabledModalities: new Set<Modality>([m]), quickStartBackends: settings.quickStartBackends, isAdmin })
+    return { ...c, entries: c.entries.filter((e) => e.kind !== 'operator'), canDeployOperator: false }
+  }
+  // Only worth offering with two or more signal types on - one has nothing to split. A draft that already
+  // sends them separately keeps the choice visible even if that is no longer so.
+  const canSplit = enabledModalitySet.size > 1 || value.exportSplit
 
   const [backendWizardOpen, setBackendWizardOpen] = useState(false)
   const [backendBusy, setBackendBusy] = useState(false)
@@ -203,6 +223,15 @@ export default function GuidedWizard({
   // backend: it only ever carries one modality, so it can only be THE destination while that is the only
   // modality turned on - otherwise it stays in the list, shown unavailable with its reason.
   const chooseDeployedBackend = (rec: QuickStartBackend) => {
+    if (deployLane) {
+      // One signal type's own destination: it only has to carry that type.
+      if (!hasQuickStartSpec(rec.kind) || rec.modality !== deployLane) return
+      const spec = quickStartSpec(rec.kind)
+      const lane = deployLane
+      onChange(withLane(value, lane, { ...laneView(value, lane), exportEndpoint: spec.exportEndpoint(rec.namespace), exportProtocol: spec.exportProtocol, exportInsecure: true, exportAuthHeaderName: '', exportAuthSecretName: '', exportAuthSecretKey: '', exportOperatorId: '' }))
+      setLaneChoices((c) => ({ ...c, [lane]: `quickstart-${rec.id}` }))
+      return
+    }
     if (!hasQuickStartSpec(rec.kind) || enabledModalitySet.size !== 1 || !enabledModalitySet.has(rec.modality)) return
     const spec = quickStartSpec(rec.kind)
     onChange({ ...value, exportEndpoint: spec.exportEndpoint(rec.namespace), exportProtocol: spec.exportProtocol, exportOperatorId: '' })
@@ -285,20 +314,68 @@ export default function GuidedWizard({
         )}
 
         {step === 'destination' && (
-          <DestinationStep
-            value={value}
-            onChange={onChange}
-            testIdPrefix={testIdPrefix}
-            catalog={catalog}
-            catalogReady={operatorsReady}
-            clusterId={clusterId}
-            choice={destChoice}
-            onChoose={setDestChoice}
-            onDeployBackend={() => setBackendWizardOpen(true)}
-            adminKindsControl={isAdmin ? <AllowedKindsControl allowed={effectiveAllowedBackendKinds(settings.allowedBackendKinds)} busy={kindsBusy} onChange={(kinds) => void saveAllowedKinds(kinds)} /> : undefined}
-            onBack={() => setStep('process')}
-            onContinue={() => setStep('review')}
-          />
+          <div className="space-y-3">
+            {canSplit && (
+              <div className="space-y-2" data-testid={`${testIdPrefix}-guided-destination-mode`}>
+                <div>
+                  <h3 className="text-sm font-medium text-nb-200">Where should this telemetry go?</h3>
+                  <p className="mt-0.5 text-xs text-nb-500">
+                    {value.exportSplit
+                      ? 'Each signal type has its own destination.'
+                      : 'Everything to one place, unless the place you pick cannot take every signal you turned on.'}
+                  </p>
+                </div>
+                <DestinationMode split={value.exportSplit} onChange={(split) => onChange(split ? startLanes(value) : { ...value, exportSplit: false })} testIdPrefix={`${testIdPrefix}-guided`} />
+              </div>
+            )}
+            {value.exportSplit ? (
+              <>
+                <RoutesStep
+                  value={value}
+                  onChange={onChange}
+                  testIdPrefix={testIdPrefix}
+                  catalogFor={catalogFor}
+                  catalogReady={operatorsReady}
+                  clusterId={clusterId}
+                  choices={laneChoices}
+                  onChoose={(m, key) => setLaneChoices((c) => ({ ...c, [m]: key }))}
+                  onDeployBackend={(m) => {
+                    setDeployLane(m)
+                    setBackendWizardOpen(true)
+                  }}
+                  adminKindsControl={isAdmin ? <AllowedKindsControl allowed={effectiveAllowedBackendKinds(settings.allowedBackendKinds)} busy={kindsBusy} onChange={(kinds) => void saveAllowedKinds(kinds)} /> : undefined}
+                />
+                {!destinationReady(value) && (
+                  <p className="text-xs text-nb-500" data-testid={`${testIdPrefix}-guided-routes-incomplete`}>
+                    {activeLanes(value).filter((m) => value.exportLanes[m].exportEndpoint.trim() === '').join(' and ')} still need a destination. You can continue without, but no command is generated until each has one.
+                  </p>
+                )}
+                <div className="flex items-center gap-2 pt-1">
+                  <BackLink onClick={() => setStep('process')} testId={`${testIdPrefix}-guided-back`} />
+                  <Button variant="primary" className="ml-auto" onClick={() => setStep('review')} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
+                </div>
+              </>
+            ) : (
+              <DestinationStep
+                value={value}
+                onChange={onChange}
+                testIdPrefix={testIdPrefix}
+                catalog={catalog}
+                catalogReady={operatorsReady}
+                clusterId={clusterId}
+                choice={destChoice}
+                onChoose={setDestChoice}
+                onDeployBackend={() => {
+                  setDeployLane(null)
+                  setBackendWizardOpen(true)
+                }}
+                adminKindsControl={isAdmin ? <AllowedKindsControl allowed={effectiveAllowedBackendKinds(settings.allowedBackendKinds)} busy={kindsBusy} onChange={(kinds) => void saveAllowedKinds(kinds)} /> : undefined}
+                onBack={() => setStep('process')}
+                onContinue={() => setStep('review')}
+                heading={!canSplit}
+              />
+            )}
+          </div>
         )}
 
         {step === 'review' && (
@@ -309,9 +386,9 @@ export default function GuidedWizard({
               <>
                 <p className="text-xs text-nb-500">How this will flow, end to end:</p>
                 <TelemetryReviewPipeline value={value} onSignals={onSignals} testIdPrefix={testIdPrefix} />
-                {!value.exportEndpoint.trim() && (
+                {!destinationReady(value) && (
                   <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" role="status" data-testid={`${testIdPrefix}-guided-no-destination`}>
-                    <span>No destination yet, so no command is generated.</span>
+                    <span>{value.exportSplit ? `${activeLanes(value).filter((m) => value.exportLanes[m].exportEndpoint.trim() === '').join(' and ')} still need a destination, so no command is generated.` : 'No destination yet, so no command is generated.'}</span>
                     <Button size="sm" onClick={() => setStep('destination')} data-testid={`${testIdPrefix}-guided-choose-destination`}>Choose a destination</Button>
                   </div>
                 )}
@@ -335,7 +412,7 @@ export default function GuidedWizard({
             <div>
               <h3 className="text-sm font-medium text-nb-200">Apply it to the cluster</h3>
               <p className="mt-0.5 text-xs text-nb-500" data-testid={`${testIdPrefix}-guided-run-summary`}>
-                {onSignals.length} {onSignals.length === 1 ? 'signal' : 'signals'} to {value.exportEndpoint.trim() || 'no destination yet'}. Nothing changes until the command is run.
+                {onSignals.length} {onSignals.length === 1 ? 'signal' : 'signals'} to {value.exportSplit ? sentTo(value) : value.exportEndpoint.trim() || 'no destination yet'}. Nothing changes until the command is run.
               </p>
             </div>
             {runSection}
@@ -349,7 +426,7 @@ export default function GuidedWizard({
         open={backendWizardOpen}
         onClose={() => setBackendWizardOpen(false)}
         allowedKinds={effectiveAllowedBackendKinds(settings.allowedBackendKinds)}
-        enabledModalities={enabledModalitySet}
+        enabledModalities={deployLane ? new Set<Modality>([deployLane]) : enabledModalitySet}
         existingBackends={settings.quickStartBackends}
         currentEndpoint={value.exportEndpoint}
         currentProtocol={value.exportProtocol}

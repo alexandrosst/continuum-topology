@@ -404,7 +404,12 @@ export default function TelemetryFields({
 
       {/* The guided wizard's Destination step already owns the destination, the protocol, TLS and the
           credential - rendering this block under it as well showed every one of those choices twice. */}
-      {!guided && (
+      {!guided && value.exportSplit && (
+        <p className="border-t border-nb-850 pt-3 text-xs text-nb-400" data-testid={`${testIdPrefix}-split-note`}>
+          This install sends each signal type to its own destination. Change them in the guided steps - this grid only holds the one default destination.
+        </p>
+      )}
+      {!guided && !value.exportSplit && (
         <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
           <Field label="Send telemetry to" hint="Pick a known backend to fill in its endpoint pattern and credential header, or type your own - an existing collector gateway or observability backend.">
             <ComboField

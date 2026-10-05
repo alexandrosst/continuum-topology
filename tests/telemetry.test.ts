@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { cleanTags, combinedScope, emptyScopeOverride, emptyTelemetry, scopeOverlap, scopeTag, tagProblems, TAG_LIMIT, telemetryActive, telemetryProblems, withTelemetry, workloadProblems, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
+import { activeLanes, cleanTags, combinedScope, destinationReady, emptyExportTarget, startLanes, withLane, laneView, emptyScopeOverride, emptyTelemetry, scopeOverlap, scopeTag, tagProblems, TAG_LIMIT, telemetryActive, telemetryProblems, withTelemetry, workloadProblems, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
 import { newProcessorEntry } from '../src/lib/processorCatalog'
-import { applyIntentPreset, seedTelemetryFromInstalled, TELEMETRY_CREDENTIAL_VAR, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetrySecretCommand, telemetryUpgradeCommand } from '../src/lib/consent'
+import { applyIntentPreset, parseRoutedDestination, seedTelemetryFromInstalled, telemetrySecrets, TELEMETRY_CREDENTIAL_VAR, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetrySecretCommand, telemetryUpgradeCommand } from '../src/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '../src/lib/exportPresets'
 
 const base = 'helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace'
@@ -505,4 +505,128 @@ test('infrastructure scope is stated every time: the combined scope when followe
   assert.match(off, /--set telemetry\.scope\.infra\.namespaces='\{\}'/)
   assert.match(off, /--set-json telemetry\.scope\.infra\.workloads='\[\]'/)
   assert.match(withTelemetry(base, on), /--set telemetry\.scope\.infra\.namespaces='\{\}'/)
+})
+
+/* ---------- one destination per signal type ---------- */
+
+const lane = (endpoint: string, over: Partial<typeof emptyExportTarget> = {}) => ({ ...emptyExportTarget, exportEndpoint: endpoint, ...over })
+const routed = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({
+  ...emptyTelemetry,
+  resourceUsage: true,
+  applicationLogs: true,
+  traces: true,
+  exportSplit: true,
+  exportLanes: { metrics: lane('mimir.example.com:4317'), logs: lane('loki.monitoring.svc:3100/otlp', { exportProtocol: 'http', exportInsecure: true }), traces: lane('zipkin.tracing.svc:9411/api/v2/spans', { exportProtocol: 'zipkin', exportInsecure: true }) },
+  ...over,
+})
+
+test('sending each signal type separately states every route in full and leaves the default alone', () => {
+  const cmd = withTelemetry(base, routed())
+  assert.doesNotMatch(cmd, /telemetry\.export\.otlp\.endpoint/)
+  assert.match(cmd, /--set-string telemetry\.export\.routes\.metrics\.endpoint=mimir\.example\.com:4317/)
+  assert.match(cmd, /--set telemetry\.export\.routes\.metrics\.protocol=grpc/)
+  assert.match(cmd, /--set telemetry\.export\.routes\.metrics\.tls\.insecure=false/)
+  assert.match(cmd, /--set telemetry\.export\.routes\.logs\.protocol=http/)
+  assert.match(cmd, /--set telemetry\.export\.routes\.logs\.tls\.insecure=true/)
+  assert.match(cmd, /--set telemetry\.export\.routes\.traces\.protocol=zipkin/)
+  // No credential named: stated empty, so one an earlier command set does not linger.
+  assert.match(cmd, /--set-string telemetry\.export\.routes\.metrics\.auth\.secretName=(\s|\\|$)/)
+})
+
+test('a signal type with nothing on has its route stated empty, so an old one stops sending', () => {
+  const cmd = withTelemetry(base, routed({ traces: false }))
+  assert.match(cmd, /--set-string telemetry\.export\.routes\.traces\.endpoint=(\s|\\|$)/)
+  assert.doesNotMatch(cmd, /routes\.traces\.protocol/)
+})
+
+test('a single destination states no routes, unless the install has some to clear', () => {
+  const single: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'gw.example.com:4317' }
+  assert.doesNotMatch(withTelemetry(base, single), /export\.routes/)
+  const cleared = withTelemetry(base, { ...single, exportRoutesInstalled: true })
+  for (const m of ['metrics', 'logs', 'traces']) assert.match(cleared, new RegExp(`--set-string telemetry\\.export\\.routes\\.${m}\\.endpoint=(\\s|\\\\|$)`))
+  assert.match(cleared, /--set-string telemetry\.export\.otlp\.endpoint=gw\.example\.com:4317/)
+})
+
+test('a lane needs a destination for every signal type that is on, and only a lane that can carry it', () => {
+  assert.deepEqual(activeLanes(routed()), ['metrics', 'logs', 'traces'])
+  assert.deepEqual(activeLanes(routed({ traces: false })), ['metrics', 'logs'])
+  assert.deepEqual(activeLanes({ ...routed(), exportSplit: false }), [])
+  const missing = routed({ exportLanes: { ...routed().exportLanes, logs: lane('') } })
+  assert.equal(destinationReady(missing), false)
+  assert.ok(telemetryProblems(missing).some((p) => /Logs needs a destination/.test(p)))
+  assert.equal(withTelemetry(base, missing), base)
+  const zipkinForMetrics = routed({ exportLanes: { ...routed().exportLanes, metrics: lane('z:9411', { exportProtocol: 'zipkin' }) } })
+  assert.ok(telemetryProblems(zipkinForMetrics).some((p) => /Zipkin only carries traces, so it cannot be where metrics go/.test(p)))
+  assert.equal(destinationReady(routed()), true)
+  // Not routed, the one endpoint is what is needed.
+  assert.equal(destinationReady({ ...routed(), exportSplit: false }), false)
+})
+
+test('a preset that carries one signal type is fine as that lane and refused as another', () => {
+  const jaeger = EXPORT_PRESETS.find((p) => p.id === 'jaeger')!
+  const ok = routed({ exportLanes: { ...routed().exportLanes, traces: lane(jaeger.endpointPattern, { exportProtocol: jaeger.protocol }) } })
+  assert.deepEqual(telemetryProblems(ok), [])
+  const bad = routed({ exportLanes: { ...routed().exportLanes, logs: lane(jaeger.endpointPattern) } })
+  assert.ok(telemetryProblems(bad).some((p) => /cannot be where logs go/.test(p)))
+})
+
+test('lanes start from the single destination where it fits, and keep what they already have', () => {
+  const single: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, traces: true, exportEndpoint: 'gw.example.com:4317', exportAuthSecretName: 'gw-token' }
+  const started = startLanes(single)
+  assert.equal(started.exportSplit, true)
+  assert.equal(started.exportLanes.logs.exportEndpoint, 'gw.example.com:4317')
+  assert.equal(started.exportLanes.metrics.exportAuthSecretName, 'gw-token')
+  const kept = startLanes({ ...single, exportLanes: { ...single.exportLanes, metrics: lane('mine:4317') } })
+  assert.equal(kept.exportLanes.metrics.exportEndpoint, 'mine:4317')
+  // Zipkin carries traces only, so the other lanes start empty.
+  const zip = startLanes({ ...single, exportEndpoint: 'z:9411/api/v2/spans', exportProtocol: 'zipkin' })
+  assert.equal(zip.exportLanes.traces.exportEndpoint, 'z:9411/api/v2/spans')
+  assert.equal(zip.exportLanes.metrics.exportEndpoint, '')
+  // A regional operator needs a certificate a lane cannot ask for yet.
+  assert.equal(startLanes({ ...single, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu' }).exportLanes.metrics.exportEndpoint, '')
+})
+
+test('editing a lane through its view changes only that lane\'s destination', () => {
+  const t = routed()
+  const edited = withLane(t, 'logs', { ...laneView(t, 'logs'), exportEndpoint: 'new:3100', resourceUsage: false })
+  assert.equal(edited.exportLanes.logs.exportEndpoint, 'new:3100')
+  assert.equal(edited.exportLanes.metrics.exportEndpoint, 'mimir.example.com:4317')
+  assert.equal(edited.resourceUsage, true)
+  assert.equal(edited.exportEndpoint, '')
+})
+
+test('each lane names its own credential Secret, and lanes that name the same one share it', () => {
+  const t = routed({ exportLanes: { metrics: lane('m:4317', { exportAuthSecretName: 'grafana-token' }), logs: lane('l:4317', { exportAuthSecretName: 'grafana-token' }), traces: lane('t:4317', { exportAuthSecretName: 'tempo-token' }) } })
+  const cmd = withTelemetry(base, t)
+  assert.match(cmd, /routes\.metrics\.auth\.secretName=grafana-token/)
+  assert.match(cmd, /routes\.traces\.auth\.secretName=tempo-token/)
+  assert.match(cmd, /routes\.traces\.auth\.headerName=Authorization/)
+  const secrets = telemetrySecrets(t)
+  assert.deepEqual(secrets.map((s) => [s.name, s.variable, s.lanes]), [['grafana-token', `${TELEMETRY_CREDENTIAL_VAR}_METRICS`, ['metrics', 'logs']], ['tempo-token', `${TELEMETRY_CREDENTIAL_VAR}_TRACES`, ['traces']]])
+  assert.equal(secrets[0].command.match(/kubectl create secret/g)?.length, 1)
+  assert.equal(telemetrySecretCommand(t)?.split('\n').length, 2)
+  // The single destination keeps its own variable and a single command.
+  const one = telemetrySecrets({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'g:4317', exportAuthSecretName: 'tok' })
+  assert.deepEqual(one.map((s) => s.variable), [TELEMETRY_CREDENTIAL_VAR])
+})
+
+test('the same Secret read under two keys is one command with both', () => {
+  const t = routed({ exportLanes: { metrics: lane('m:4317', { exportAuthSecretName: 'shared', exportAuthSecretKey: 'a' }), logs: lane('l:4317', { exportAuthSecretName: 'shared', exportAuthSecretKey: 'b' }), traces: lane('t:4317') } })
+  const [secret, ...rest] = telemetrySecrets(t)
+  assert.equal(rest.length, 0)
+  assert.match(secret.command, /--from-literal=a=.*_METRICS.* --from-literal=b=.*_LOGS/)
+})
+
+test('an install that sends signals to several places is seeded as routes, not as one endpoint', () => {
+  assert.deepEqual(parseRoutedDestination('gw:4317'), undefined)
+  assert.deepEqual(parseRoutedDestination('traces=z:9411,default=gw:4317'), { routes: { traces: 'z:9411' }, fallback: 'gw:4317' })
+  const seeded = seedTelemetryFromInstalled(['resourceUsage', 'traces'], { exportEndpoint: 'traces=z:9411,default=gw:4317', redactionEnabled: true, resourceDetectionEnabled: false })
+  assert.equal(seeded.exportSplit, true)
+  assert.equal(seeded.exportRoutesInstalled, true)
+  assert.equal(seeded.exportLanes.traces.exportEndpoint, 'z:9411')
+  assert.equal(seeded.exportLanes.metrics.exportEndpoint, 'gw:4317')
+  assert.equal(destinationReady(seeded), true)
+  const plain = seedTelemetryFromInstalled(['resourceUsage'], { exportEndpoint: 'gw:4317', redactionEnabled: true, resourceDetectionEnabled: false })
+  assert.equal(plain.exportSplit, false)
+  assert.equal(plain.exportEndpoint, 'gw:4317')
 })

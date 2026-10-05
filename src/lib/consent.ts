@@ -6,7 +6,7 @@
  * namespaces left out). Widening is done by the cluster's owner with `helm upgrade`, and this file builds the exact command.
  * Everything here is pure so that it can be tested without a browser.
  */
-import { emptyTelemetry, enabledModalities, scopeProblems, splitNames, telemetryActive, telemetryProblems, withTelemetry, type Modality, type TelemetryInput, TELEMETRY_SIGNALS } from './install'
+import { activeLanes, emptyExportTarget, emptyTelemetry, enabledModalities, ROUTE_MODALITIES, scopeProblems, splitNames, telemetryActive, telemetryProblems, withTelemetry, type Modality, type TelemetryInput, TELEMETRY_SIGNALS } from './install'
 // Re-exported for every existing `from '@/lib/consent'` import site - Modality/TELEMETRY_SIGNALS/
 // enabledModalities now live in install.ts (see its own comment on why), consent.ts just re-exports them.
 export { enabledModalities, type Modality, TELEMETRY_SIGNALS }
@@ -325,12 +325,47 @@ export function applyIntentPreset(current: TelemetryInput, preset: TelemetryInte
  * the same is true field-by-field for `config`, which is why a real self-reported value always takes over
  * from the respective default rather than only filling in what a blank form left empty.
  */
+/**
+ * What the agent reports as its destination when signals go to more than one place: `traces=zipkin:9411,default=gw:4317`
+ * (a route per signal type that has its own, then the default for the rest). A plain `host:port` is the one
+ * destination of an install without routes and returns undefined here. Anything unrecognised is ignored
+ * rather than guessed at.
+ */
+export function parseRoutedDestination(s: string): { routes: Partial<Record<Modality, string>>; fallback: string } | undefined {
+  if (!s.includes('=')) return undefined
+  const routes: Partial<Record<Modality, string>> = {}
+  let fallback = ''
+  for (const part of s.split(',')) {
+    const [k, ...rest] = part.split('=')
+    const v = rest.join('=').trim()
+    if (!v) continue
+    if (k.trim() === 'default') fallback = v
+    else if ((ROUTE_MODALITIES as string[]).includes(k.trim())) routes[k.trim() as Modality] = v
+  }
+  return { routes, fallback }
+}
+
 export function seedTelemetryFromInstalled(installed: string[], config?: AgentTelemetryConfig): TelemetryInput {
   const next: TelemetryInput = { ...emptyTelemetry }
   const rec = next as unknown as Record<string, boolean>
   for (const s of TELEMETRY_SIGNALS) rec[s.id] = installed.includes(s.id)
   if (config) {
-    next.exportEndpoint = config.exportEndpoint
+    const routed = parseRoutedDestination(config.exportEndpoint)
+    if (routed) {
+      // Signals go to more than one place: the draft keeps that shape, so that running its command does not
+      // quietly send everything to one of them. The protocol and TLS of each are not reported, so they start
+      // at their defaults, like the single destination's always have.
+      next.exportSplit = true
+      next.exportRoutesInstalled = true
+      next.exportEndpoint = routed.fallback
+      next.exportLanes = {
+        metrics: { ...emptyExportTarget, exportEndpoint: routed.routes.metrics ?? routed.fallback },
+        logs: { ...emptyExportTarget, exportEndpoint: routed.routes.logs ?? routed.fallback },
+        traces: { ...emptyExportTarget, exportEndpoint: routed.routes.traces ?? routed.fallback },
+      }
+    } else {
+      next.exportEndpoint = config.exportEndpoint
+    }
     next.redaction = config.redactionEnabled
     next.resourceDetection = config.resourceDetectionEnabled
     if (config.tracesSamplingPercent !== undefined) next.tracesSamplingPercent = config.tracesSamplingPercent
@@ -389,13 +424,56 @@ export const TELEMETRY_CREDENTIAL_VAR = 'TELEMETRY_EXPORT_TOKEN'
  * or key that isn't a plain Kubernetes name yields undefined rather than being pasted into a shell line.
  */
 export function telemetrySecretCommand(t: TelemetryInput, measurementsOn?: boolean, target?: ReleaseTarget): string | undefined {
-  if (!telemetryActive(t) || telemetryProblems(t, measurementsOn).length) return undefined
-  const name = t.exportAuthSecretName.trim()
-  if (!name) return undefined
-  const key = t.exportAuthSecretKey.trim() || 'token'
-  if (!/^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/.test(name) || !/^[-._a-zA-Z0-9]+$/.test(key)) return undefined
-  const v = TELEMETRY_CREDENTIAL_VAR
-  return `kubectl create secret generic ${name} --namespace ${releaseTarget(target).namespace} --from-literal=${key}="\${${v}:?set ${v} to the credential first}" --dry-run=client -o yaml | kubectl apply -f -`
+  const cmds = telemetrySecrets(t, measurementsOn, target).map((s) => s.command)
+  // Joined so that one failing (a credential variable unset) stops the rest, and the upgrade after them.
+  return cmds.length ? cmds.join(' && \\\n') : undefined
+}
+
+export interface TelemetrySecret {
+  /** The Secret's name. */
+  name: string
+  /** The environment variable the credential is read from for this one. */
+  variable: string
+  /** The signal types whose destination reads this Secret (empty for the single destination). */
+  lanes: Modality[]
+  command: string
+}
+
+const SECRET_NAME = /^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/
+const SECRET_KEY = /^[-._a-zA-Z0-9]+$/
+
+/**
+ * Every Secret the command's credential flags point at, each with the command that creates it: one for the
+ * single destination, or - sending each signal type separately - one per Secret name the lanes use. Two lanes
+ * that name the same Secret share it (one command, one variable): that is how one credential serves a
+ * backend that takes metrics and logs. A lane that needs a different credential under the same Secret name
+ * is a different key in it, read from its own variable. Nothing is returned for a draft that has no
+ * valid command, for the reason `telemetrySecretCommand` gives.
+ */
+export function telemetrySecrets(t: TelemetryInput, measurementsOn?: boolean, target?: ReleaseTarget): TelemetrySecret[] {
+  if (!telemetryActive(t) || telemetryProblems(t, measurementsOn).length) return []
+  const namespace = releaseTarget(target).namespace
+  const uses = t.exportSplit
+    ? activeLanes(t).map((m) => ({ lane: m as Modality | undefined, name: t.exportLanes[m].exportAuthSecretName.trim(), key: t.exportLanes[m].exportAuthSecretKey.trim() || 'token' }))
+    : [{ lane: undefined, name: t.exportAuthSecretName.trim(), key: t.exportAuthSecretKey.trim() || 'token' }]
+  const byName = new Map<string, { key: string; variable: string; lanes: Modality[] }[]>()
+  for (const u of uses) {
+    if (!u.name || !SECRET_NAME.test(u.name) || !SECRET_KEY.test(u.key)) continue
+    const entries = byName.get(u.name) ?? []
+    const same = entries.find((e) => e.key === u.key)
+    if (same) {
+      if (u.lane) same.lanes.push(u.lane)
+    } else {
+      entries.push({ key: u.key, variable: u.lane ? `${TELEMETRY_CREDENTIAL_VAR}_${u.lane.toUpperCase()}` : TELEMETRY_CREDENTIAL_VAR, lanes: u.lane ? [u.lane] : [] })
+    }
+    byName.set(u.name, entries)
+  }
+  return [...byName.entries()].map(([name, entries]) => ({
+    name,
+    variable: entries[0].variable,
+    lanes: entries.flatMap((e) => e.lanes),
+    command: `kubectl create secret generic ${name} --namespace ${namespace} ${entries.map((e) => `--from-literal=${e.key}="\${${e.variable}:?set ${e.variable} to the credential first}"`).join(' ')} --dry-run=client -o yaml | kubectl apply -f -`,
+  }))
 }
 
 /* ---------- what an administrator may ask ---------- */
