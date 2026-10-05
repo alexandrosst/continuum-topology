@@ -3,7 +3,7 @@ package store
 import "database/sql"
 
 // migrateReceiverAuth adds Operator.ReceiverAuth (PRAGMA user_version 10): which gate a regional operator's
-// OTLP receiver has - a bearer token, or only the org-CA mTLS client certificate. The default 'bearer' is
+// OTLP receiver has - a bearer token, or only an mTLS client certificate. The default 'bearer' is
 // exactly what every existing row is: they were installed with receiver.auth.enabled=true, and the server
 // cannot recover their token (it keeps only the hash), so nothing about them may change.
 func migrateReceiverAuth(db *sql.DB) error {

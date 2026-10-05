@@ -35,8 +35,8 @@ func TestOperatorCreatedUnderSchemaNineReadsBackAsBearer(t *testing.T) {
 	}
 	defer up.Close()
 	var v int
-	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 10 {
-		t.Fatalf("user_version = %d (%v), want 10", v, err)
+	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
+		t.Fatalf("user_version = %d (%v), want %d", v, err, SchemaVersion)
 	}
 	got, err := up.GetOperator(ctx, "op-v9")
 	if err != nil {

@@ -27,6 +27,8 @@ type env struct {
 	st   *store.SQLite
 	now  *time.Time
 	ctx  context.Context
+	// dbPath is the SQLite file behind st, for tests that must look at what is really stored.
+	dbPath string
 }
 
 // newEnv is a server with one organisation, "org-1", owned by a user nobody signs in as.
@@ -46,7 +48,8 @@ func newEnv(t *testing.T) *env {
 // newEnvBare has no accounts and no organisation yet (BootstrapAdmin would create "org-1").
 func newEnvBare(t *testing.T) *env {
 	t.Helper()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "t.db"))
+	dbPath := filepath.Join(t.TempDir(), "t.db")
+	st, err := store.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +61,7 @@ func newEnvBare(t *testing.T) *env {
 	base := NewCore(st, ca, "", nil)
 	base.DefaultOrg = "org-1"
 	now := time.Now()
-	e := &env{base: base, st: st, now: &now, ctx: context.Background()}
+	e := &env{base: base, st: st, now: &now, ctx: context.Background(), dbPath: dbPath}
 	base.Now = func() time.Time { return *e.now }
 	base.EnrollRL = NewLimiter(6000, 1000) // out of the way unless a test wants it
 	e.core = base.ForOrg("org-1")

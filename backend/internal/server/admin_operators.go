@@ -55,9 +55,15 @@ type operatorDoc struct {
 	RevokedAt          string         `json:"revokedAt,omitempty"`
 	Reason             string         `json:"reason,omitempty"`
 	// ReceiverAuth is how the operator's receiver authenticates what exports into it: "mtls" (only the
-	// org-CA-signed client certificate every source cluster presents - no bearer token exists) or "bearer"
+	// client certificate every source cluster presents, signed by the operator's own CA - no bearer token exists) or "bearer"
 	// (a bearer token, as every operator created before this field existed - read back as "bearer").
 	ReceiverAuth string `json:"receiverAuth"`
+	// ClientCaScope says which CA the receiver trusts for client certificates: "operator" (the operator's
+	// own private CA: no other operator's certificate, and not the org CA's, is accepted), "org" (an mTLS
+	// operator created before per-operator CAs: its receiver trusts the server-wide org CA, so any
+	// certificate that CA signed is accepted - weaker, fixed by recreating the operator) or "" (a bearer
+	// operator: the token is the gate).
+	ClientCaScope string `json:"clientCaScope"`
 	// Health is always present; for an operator that never opted in to a heartbeat it is
 	// {state: "unknown", reporting: false}.
 	Health operatorHealthDoc `json:"health"`
@@ -68,7 +74,7 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 	d := operatorDoc{
 		ID: op.ID, Name: op.Name, SiteID: op.SiteID, Status: string(op.Status),
 		SourceClusterIDs: op.SourceClusterIDs, Destination: toDestinationDoc(op.Destination),
-		CreatedAt: rfc(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason, ReceiverAuth: string(op.ReceiverAuth),
+		CreatedAt: rfc(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason, ReceiverAuth: string(op.ReceiverAuth), ClientCaScope: op.ClientCAScope(),
 		Health: operatorHealthDoc{State: h.State, LastSeenAt: rfcp(h.LastSeenAt), Reporting: h.Reporting},
 	}
 	if op.SourceClusterIDs == nil {
@@ -198,9 +204,11 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 	// Nothing about the previously issued one stops working: there is no per-certificate revocation
 	// here, only the operator-wide bearer token and (if the operator itself is later revoked) the CA
 	// relationship as a whole, so reissuing here does not disturb clusters already configured.
+	// IssueOperatorClientCert signs with the operator's own CA when it has one and hands back that CA's
+	// certificate, so the Secret in the reminders trusts what the receiver trusts (and audits the reissue).
 	var tlsBundle OperatorTLSBundle
-	if clientCert, clientKey, tlsErr := a.core(r).CA.IssueOperatorClientTLS(op.ID, a.core(r).OrgID); tlsErr == nil {
-		tlsBundle = OperatorTLSBundle{ClientCertPEM: clientCert, ClientKeyPEM: clientKey, CACertPEM: a.core(r).CA.CertPEM()}
+	if clientCert, clientKey, caPEM, tlsErr := a.core(r).IssueOperatorClientCert(r.Context(), actor(r), op.ID); tlsErr == nil {
+		tlsBundle = OperatorTLSBundle{ClientCertPEM: clientCert, ClientKeyPEM: clientKey, CACertPEM: caPEM}
 	}
 	writeJSON(w, 200, map[string]any{"operator": toOperatorDoc(op, a.core(r).Now()), "reminders": a.operatorSourceReminders(r, op, tlsBundle)})
 }
@@ -279,7 +287,7 @@ func (a *Admin) operatorChartArgs(img ImageConfig) (ref, version string) {
 //
 // How the receiver authenticates follows op.ReceiverAuth:
 //   - ReceiverAuthMTLS: receiver.auth.enabled=false and receiver.tls.enabled/mtls=true, so the ONLY gate is
-//     the required, org-CA-signed client certificate. receiver.requireAuth=true makes the chart refuse to
+//     the required client certificate (signed by the operator's own CA, see ClientCaScope). receiver.requireAuth=true makes the chart refuse to
 //     render at all if either half is missing, so this operator can never be installed open. There is no
 //     receiver token: secret is unused and secretCmd is "".
 //   - ReceiverAuthBearer (every operator from before ReceiverAuth existed, and a new one whose TLS mint

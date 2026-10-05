@@ -143,10 +143,22 @@ const (
 	// did for every operator created before ReceiverAuth existed. Also what an operator falls back to if
 	// its mTLS material could not be minted at creation, so a receiver is never left with no gate at all.
 	ReceiverAuthBearer ReceiverAuth = "bearer"
-	// ReceiverAuthMTLS: the receiver's only gate is TLS with a required client certificate signed by this
-	// organisation's CA (every source cluster presents one). No bearer token exists for it:
+	// ReceiverAuthMTLS: the receiver's only gate is TLS with a required client certificate signed by the
+	// operator's own CA, or - for one created before schema 11 - the org CA (see ClientCAScope). Every source
+	// cluster presents one. No bearer token exists for it:
 	// ReceiverAuthTokenHash is empty.
 	ReceiverAuthMTLS ReceiverAuth = "mtls"
+)
+
+// The scopes of the CA that vouches for an mTLS operator's client certificates (Operator.ClientCAScope).
+const (
+	// ClientCAScopeOperator: the operator's own private CA. A certificate from any other operator, or the
+	// org CA, is rejected by its receiver.
+	ClientCAScopeOperator = "operator"
+	// ClientCAScopeOrg: the legacy scope of an mTLS operator created before it had a CA of its own - its
+	// receiver trusts the server-wide org CA, so ANY certificate that CA signed, for any operator, is
+	// accepted. Weaker; fixed only by recreating the operator.
+	ClientCAScopeOrg = "org"
 )
 
 // Operator is a regional operator: a standalone OTel Collector that aggregates telemetry already
@@ -178,6 +190,16 @@ type Operator struct {
 	// ReceiverAuthBearer - they were all installed with receiver.auth.enabled=true and the server cannot
 	// recover their token (it keeps only the hash), so their behaviour must not change.
 	ReceiverAuth ReceiverAuth
+	// ClientCACertPEM is the certificate of this operator's own private CA, when it has one: an mTLS operator
+	// created since schema 11. That CA signs the receiver's server certificate and every client certificate
+	// its source clusters present, and is the only trust anchor in the operator's receiver Secret, so no
+	// certificate from any other CA - the org CA, or another operator's - is accepted. Nil for a bearer
+	// operator and for an mTLS operator created before schema 11 (see ClientCAScope).
+	ClientCACertPEM []byte
+	// ClientCAKeyPEM is that CA's private key, sealed like the org CA key (encrypted under the CA passphrase
+	// when one is configured). WRITE-ONLY here: CreateOperator stores it, reads never return it, and it is
+	// fetched by GetOperatorClientCAKey alone. RevokeOperator erases it; DeleteOperator drops the row.
+	ClientCAKeyPEM []byte
 	// HeartbeatHash is the hash of the secret the operator presents when it reports that it is alive (see
 	// Core.EnableOperatorHeartbeat); nil when the operator never opted in. It is a different credential from
 	// ReceiverAuthTokenHash on purpose: that one authenticates traffic INTO the operator, this one
@@ -519,6 +541,9 @@ type Store interface {
 	UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination, acceptedModalities []Modality) error
 	RevokeOperator(ctx context.Context, id, reason string, now time.Time) error
 	DeleteOperator(ctx context.Context, id string) error
+	// GetOperatorClientCAKey returns the sealed private key of the operator's own CA; ErrNotFound when it has
+	// none (legacy mTLS or bearer operator) or it was erased by RevokeOperator.
+	GetOperatorClientCAKey(ctx context.Context, id string) ([]byte, error)
 	// SetOperatorHeartbeat stores the hash of a freshly minted heartbeat secret for an ACTIVE operator,
 	// replacing any earlier one (so the earlier secret stops working at once). ErrBadState if it is not
 	// active, ErrNotFound if there is no such operator. last_seen_at is deliberately left as it was.
@@ -737,4 +762,17 @@ type EventQuery struct {
 	ClusterID    string
 	TargetID     string
 	Limit        int // default 200, at most 2000
+}
+
+// ClientCAScope says which CA a receiver trusts for client certificates: ClientCAScopeOperator, ClientCAScopeOrg,
+// or "" for a bearer operator (whose gate is the token, not a certificate).
+func (o Operator) ClientCAScope() string {
+	switch {
+	case o.ReceiverAuth != ReceiverAuthMTLS:
+		return ""
+	case len(o.ClientCACertPEM) > 0:
+		return ClientCAScopeOperator
+	default:
+		return ClientCAScopeOrg
+	}
 }

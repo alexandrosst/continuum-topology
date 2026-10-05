@@ -12,8 +12,8 @@ import (
 func failTLSMint(t *testing.T) {
 	t.Helper()
 	old := mintOperatorTLS
-	mintOperatorTLS = func(*Core, string, []string) (OperatorTLSBundle, error) {
-		return OperatorTLSBundle{}, errors.New("simulated mint failure")
+	mintOperatorTLS = func(*Core, string, []string) (OperatorTLSBundle, []byte, error) {
+		return OperatorTLSBundle{}, nil, errors.New("simulated mint failure")
 	}
 	t.Cleanup(func() { mintOperatorTLS = old })
 }

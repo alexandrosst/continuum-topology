@@ -316,6 +316,10 @@ func OpenSQLite(path string) (*SQLite, error) {
 		db.Close()
 		return nil, fmt.Errorf("upgrading to operator receiver auth modes: %w", err)
 	}
+	if err := migrateOperatorCA(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("upgrading to per-operator CAs: %w", err)
+	}
 	return &SQLite{db: db}, nil
 }
 
@@ -687,14 +691,14 @@ func parseAcceptedModalities(s string) []Modality {
 	return m
 }
 
-const operatorCols = `id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, revoked_at, reason, heartbeat_hash, heartbeat_enabled_at, last_seen_at, receiver_auth`
+const operatorCols = `id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, revoked_at, reason, heartbeat_hash, heartbeat_enabled_at, last_seen_at, receiver_auth, client_ca_cert`
 
 func scanOperator(r scanner) (Operator, error) {
 	var op Operator
 	var st, sourceIDs, dest, modalities, recvAuth string
 	var created int64
 	var revoked, hbEnabled, lastSeen sql.NullInt64
-	err := r.Scan(&op.ID, &op.OrgID, &op.Name, &op.SiteID, &st, &sourceIDs, &dest, &modalities, &op.ReceiverAuthTokenHash, &op.CreatedBy, &created, &revoked, &op.Reason, &op.HeartbeatHash, &hbEnabled, &lastSeen, &recvAuth)
+	err := r.Scan(&op.ID, &op.OrgID, &op.Name, &op.SiteID, &st, &sourceIDs, &dest, &modalities, &op.ReceiverAuthTokenHash, &op.CreatedBy, &created, &revoked, &op.Reason, &op.HeartbeatHash, &hbEnabled, &lastSeen, &recvAuth, &op.ClientCACertPEM)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Operator{}, ErrNotFound
@@ -710,6 +714,9 @@ func scanOperator(r scanner) (Operator, error) {
 	op.ReceiverAuth = ReceiverAuth(recvAuth)
 	if op.ReceiverAuth == "" {
 		op.ReceiverAuth = ReceiverAuthBearer
+	}
+	if len(op.ClientCACertPEM) == 0 {
+		op.ClientCACertPEM = nil
 	}
 	op.HeartbeatEnabledAt = fromNullMS(hbEnabled)
 	op.LastSeenAt = fromNullMS(lastSeen)
@@ -741,11 +748,31 @@ func (s *SQLite) CreateOperator(ctx context.Context, op Operator, tokenHash []by
 	if tokenHash == nil {
 		tokenHash = []byte{} // the column is NOT NULL; an mTLS operator has no bearer token, so its hash is empty
 	}
+	var caCert, caKey any // NULL for an operator without a CA of its own
+	if len(op.ClientCACertPEM) > 0 {
+		caCert = op.ClientCACertPEM
+	}
+	if len(op.ClientCAKeyPEM) > 0 {
+		caKey = op.ClientCAKeyPEM
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO operators(id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, reason, heartbeat_hash, heartbeat_enabled_at, receiver_auth)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		op.ID, op.OrgID, op.Name, op.SiteID, string(op.Status), sourceClusterIDsJSON(op.SourceClusterIDs), destinationJSON(op.Destination), acceptedModalitiesJSON(op.AcceptedModalities), tokenHash, op.CreatedBy, ms(op.CreatedAt), op.Reason, hb, nullMS(op.HeartbeatEnabledAt), string(recv))
+		`INSERT INTO operators(id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, reason, heartbeat_hash, heartbeat_enabled_at, receiver_auth, client_ca_cert, client_ca_key)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		op.ID, op.OrgID, op.Name, op.SiteID, string(op.Status), sourceClusterIDsJSON(op.SourceClusterIDs), destinationJSON(op.Destination), acceptedModalitiesJSON(op.AcceptedModalities), tokenHash, op.CreatedBy, ms(op.CreatedAt), op.Reason, hb, nullMS(op.HeartbeatEnabledAt), string(recv), caCert, caKey)
 	return err
+}
+
+// GetOperatorClientCAKey returns the sealed private key of an operator's own CA (the PEM CreateOperator was
+// given in Operator.ClientCAKeyPEM). It is deliberately not part of Operator as read back: the key is
+// fetched only by the one caller that must sign with it, never listed. ErrNotFound when the operator does not
+// exist or has no key - a legacy or bearer operator, or one that has been revoked (RevokeOperator erases it).
+func (s *SQLite) GetOperatorClientCAKey(ctx context.Context, id string) ([]byte, error) {
+	var key []byte
+	err := s.db.QueryRowContext(ctx, `SELECT client_ca_key FROM operators WHERE id=?`, id).Scan(&key)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && len(key) == 0) {
+		return nil, ErrNotFound
+	}
+	return key, err
 }
 
 func (s *SQLite) SetOperatorHeartbeat(ctx context.Context, id string, hash []byte, now time.Time) error {
@@ -809,7 +836,7 @@ func (s *SQLite) UpdateOperatorScope(ctx context.Context, id string, sourceClust
 
 func (s *SQLite) RevokeOperator(ctx context.Context, id, reason string, now time.Time) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE operators SET status='revoked', reason=?, revoked_at=? WHERE id=? AND status='active'`,
+		`UPDATE operators SET status='revoked', reason=?, revoked_at=?, client_ca_key=NULL WHERE id=? AND status='active'`,
 		reason, ms(now), id)
 	if err != nil {
 		return err

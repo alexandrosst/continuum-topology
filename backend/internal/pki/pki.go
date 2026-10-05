@@ -49,6 +49,11 @@ type CA struct {
 	cert *x509.Certificate
 	key  *ecdsa.PrivateKey
 	DER  []byte
+	// passphrase and log are what the org CA was opened with (a per-operator CA inherits them): the
+	// passphrase seals the key of every per-operator CA minted from the org CA, so those keys are
+	// protected exactly like the org CA key - see NewOperatorCA.
+	passphrase []byte
+	log        *slog.Logger
 }
 
 // Options say how the CA key is protected at rest.
@@ -84,6 +89,7 @@ func LoadOrCreateWith(dir string, opts Options) (*CA, error) {
 		if err != nil {
 			return nil, err
 		}
+		ca.passphrase, ca.log = opts.Passphrase, log
 		switch {
 		case !encrypted && len(opts.Passphrase) > 0:
 			// First start with a passphrase: encrypt the key that is already there, and check that it
@@ -142,7 +148,7 @@ func LoadOrCreateWith(dir string, opts Options) (*CA, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &CA{cert: cert, key: key, DER: der}, nil
+	return &CA{cert: cert, key: key, DER: der, passphrase: opts.Passphrase, log: log}, nil
 }
 
 func warnUnencrypted(log *slog.Logger, keyPath string) {
@@ -153,25 +159,37 @@ func warnUnencrypted(log *slog.Logger, keyPath string) {
 // encrypted key is read back and decrypted before it replaces the file, so a bug or a full disk cannot
 // leave the CA unopenable.
 func writeKey(path string, key *ecdsa.PrivateKey, passphrase []byte) error {
-	der, err := x509.MarshalECPrivateKey(key)
+	data, err := sealKey(key, passphrase)
 	if err != nil {
 		return err
+	}
+	return writeFile(path, data, 0o600)
+}
+
+// sealKey is the PEM form a CA key is kept in: encrypted under the passphrase (and read back to prove it
+// opens) when one is given, a plain "EC PRIVATE KEY" block when not. The org CA's key file and every
+// per-operator CA key stored in the database both come from here, so neither can be protected more
+// weakly than the other.
+func sealKey(key *ecdsa.PrivateKey, passphrase []byte) ([]byte, error) {
+	der, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, err
 	}
 	data := pem.EncodeToMemory(&pem.Block{Type: plainKeyType, Bytes: der})
 	if len(passphrase) > 0 {
 		if data, err = EncryptKey(der, passphrase); err != nil {
-			return err
+			return nil, err
 		}
 		blk, _ := pem.Decode(data)
 		if blk == nil {
-			return errors.New("pki: internal error: the encrypted key is not valid PEM")
+			return nil, errors.New("pki: internal error: the encrypted key is not valid PEM")
 		}
 		back, err := DecryptKey(blk, passphrase)
 		if err != nil || string(back) != string(der) {
-			return errors.New("pki: internal error: the encrypted key does not decrypt to the original")
+			return nil, errors.New("pki: internal error: the encrypted key does not decrypt to the original")
 		}
 	}
-	return writeFile(path, data, 0o600)
+	return data, nil
 }
 
 // parseCA reads the certificate and key files. encrypted says whether the key file was encrypted.
@@ -345,6 +363,11 @@ func (ca *CA) issueLeaf(subject pkix.Name, ttl time.Duration, eku x509.ExtKeyUsa
 		return nil, nil, err
 	}
 	now := time.Now()
+	if left := ca.cert.NotAfter.Sub(now); left <= 0 {
+		return nil, nil, errors.New("pki: the CA certificate has expired")
+	} else if ttl > left {
+		ttl = left // never outlive the CA that signs it: a leaf valid past its issuer verifies nowhere
+	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               subject,
@@ -397,6 +420,78 @@ func (ca *CA) IssueOperatorClientTLS(operatorID, orgID string) (certPEM, keyPEM 
 	}
 	subject := pkix.Name{CommonName: operatorID + "-export", Organization: []string{orgID}}
 	return ca.issueLeaf(subject, OperatorTLSTTL, x509.ExtKeyUsageClientAuth, nil)
+}
+
+// OperatorCATTL is how long a per-operator CA certificate is valid: five years, comfortably longer than the
+// OperatorTLSTTL (one year) of anything it signs, so the receiver certificate and client certificates
+// reissued late in its life are not cut short, yet far shorter than the org CA's ten. Nothing renews it:
+// when it expires the operator must be revoked and recreated (reissue refuses with "the CA certificate has
+// expired"), the same remedy an expiring leaf already has. A variable only so tests can shorten it.
+var OperatorCATTL = 5 * 365 * 24 * time.Hour
+
+// NewOperatorCA mints a private issuing CA for one regional operator: a fresh ECDSA P-256 key and a SELF-SIGNED
+// certificate (CN "Continuum operator CA <operatorID>", O orgID), NOT chained to this CA. Being its own root is
+// the point: a receiver that trusts only this certificate rejects every certificate this org CA, or any other
+// operator's CA, ever signed. MaxPathLen 0 lets it sign leaves and nothing else.
+//
+// It returns an issuer (usable at once: it signs the operator's receiver certificate and its clients'
+// certificates), the certificate PEM, and the key PEM sealed exactly as the org CA key is (sealKey: argon2id +
+// AES-256-GCM under the same passphrase when one is configured, otherwise a plain key block and the same warning).
+// The caller stores certPEM and keyPEM; keyPEM is the only copy of the key and OpenOperatorCA is the only way back.
+func (ca *CA) NewOperatorCA(operatorID, orgID string) (issuer *CA, certPEM, keyPEM []byte, err error) {
+	if operatorID == "" {
+		return nil, nil, nil, errors.New("pki: operator id required")
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	serial, err := newSerial()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	now := time.Now()
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: "Continuum operator CA " + operatorID, Organization: []string{orgID}},
+		NotBefore:             now.Add(-clockSkew),
+		NotAfter:              now.Add(OperatorCATTL),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLenZero:        true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if keyPEM, err = sealKey(key, ca.passphrase); err != nil {
+		return nil, nil, nil, err
+	}
+	if len(ca.passphrase) == 0 {
+		log := ca.log
+		if log == nil {
+			log = slog.Default()
+		}
+		log.Warn("a per-operator CA private key is stored UNENCRYPTED in the database, like the org CA key. Set --ca-key-passphrase-file (env CONTINUUM_CA_KEY_PASSPHRASE_FILE) to encrypt operator CA keys at rest", "operator", operatorID)
+	}
+	issuer = &CA{cert: cert, key: key, DER: der, passphrase: ca.passphrase, log: ca.log}
+	return issuer, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), keyPEM, nil
+}
+
+// OpenOperatorCA loads a per-operator CA written by NewOperatorCA, decrypting its key with the passphrase this
+// (org) CA was opened with. It refuses a certificate that does not match the key and one that has expired.
+func (ca *CA) OpenOperatorCA(certPEM, keyPEM []byte) (*CA, error) {
+	op, _, err := parseCA(certPEM, keyPEM, ca.passphrase)
+	if err != nil {
+		return nil, err
+	}
+	op.passphrase, op.log = ca.passphrase, ca.log
+	return op, nil
 }
 
 // VerifyExpiredAgent checks that der is an agent certificate signed by this CA, valid for client
