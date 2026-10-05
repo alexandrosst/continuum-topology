@@ -97,9 +97,63 @@ export function withScope(install: string, s: ScopeInput): string {
 export interface ScopeOverrideInput {
   namespaces: string[]
   exclude: string[]
+  /** Inside a namespace, only these workloads: a namespace listed with no names keeps nothing of it. A
+   *  namespace that is not listed stays whole. A list (not a map) because the chart takes it as one, so a
+   *  `helm upgrade --reuse-values` replaces it instead of merging into an earlier command's. */
+  workloads: WorkloadScope[]
 }
 
-export const emptyScopeOverride: ScopeOverrideInput = { namespaces: [], exclude: [] }
+export interface WorkloadScope {
+  namespace: string
+  names: string[]
+}
+
+export const emptyScopeOverride: ScopeOverrideInput = { namespaces: [], exclude: [], workloads: [] }
+
+/** A workload (deployment, statefulset, ...) name as the chart's filter accepts it: lowercase letters, digits and hyphens. */
+export const WORKLOAD_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
+
+export function workloadProblems(w: WorkloadScope[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const e of w) {
+    if (!WORKLOAD_NAME.test(e.namespace)) out.push(`"${e.namespace}" is not a valid namespace name`)
+    if (seen.has(e.namespace)) out.push(`Workloads for "${e.namespace}" are listed twice`)
+    seen.add(e.namespace)
+    for (const n of e.names) if (!WORKLOAD_NAME.test(n)) out.push(`"${n}" is not a valid workload name (lowercase letters, digits and hyphens)`)
+  }
+  return out
+}
+
+/** Whether this scope narrows anything at all. */
+export const scopeNarrows = (s: ScopeOverrideInput) => s.namespaces.length > 0 || s.exclude.length > 0 || s.workloads.length > 0
+
+/**
+ * The one scope the infrastructure signals follow, worked out from the application signals that are on: a
+ * namespace is kept if ANY of those signals keeps it (so nothing an application signal collects is cut off
+ * from the infrastructure data around it), and dropped only if EVERY one of them drops it. A signal with no
+ * narrowing of its own collects everything, so one such signal makes the combined scope the whole cluster.
+ * Workloads are narrowed only when every signal that keeps the namespace narrows it to workloads - then to
+ * the union of those. Nothing to follow when no application signal is on.
+ */
+export function combinedScope(t: TelemetryInput): ScopeOverrideInput {
+  const scopes = [t.applicationMetrics && t.applicationMetricsScope, t.applicationLogs && t.applicationLogsScope, t.traces && t.tracesScope].filter((s): s is ScopeOverrideInput => !!s)
+  if (scopes.length === 0 || scopes.some((s) => !scopeNarrows(s))) return emptyScopeOverride
+  const everywhere = scopes.some((s) => s.namespaces.length === 0)
+  const namespaces = everywhere ? [] : [...new Set(scopes.flatMap((s) => s.namespaces))].sort()
+  // Dropped by all: in every signal's exclude list.
+  const exclude = scopes.map((s) => s.exclude).reduce((a, b) => a.filter((n) => b.includes(n))).slice().sort()
+  const workloads: WorkloadScope[] = []
+  const candidates = [...new Set(scopes.flatMap((s) => s.workloads.map((w) => w.namespace)))].sort()
+  for (const ns of candidates) {
+    // Every signal that collects this namespace must narrow it, or the namespace stays whole.
+    const collecting = scopes.filter((s) => (s.namespaces.length === 0 ? !s.exclude.includes(ns) : s.namespaces.includes(ns)))
+    const narrowed = collecting.map((s) => s.workloads.find((w) => w.namespace === ns))
+    if (collecting.length === 0 || narrowed.some((w) => !w)) continue
+    workloads.push({ namespace: ns, names: [...new Set(narrowed.flatMap((w) => w!.names))].sort() })
+  }
+  return { namespaces, exclude, workloads }
+}
 
 /**
  * The namespace names two scope overrides both explicitly include, or [] if none - the guided telemetry
@@ -135,6 +189,11 @@ export interface TelemetryInput {
   traces: boolean
   /** Per-signal scope override for traces - see `ScopeOverrideInput`. */
   tracesScope: ScopeOverrideInput
+  /** Whether the infrastructure signals that can follow a scope (the pod and container parts of resource
+   *  usage and node runtime, cluster state, Kubernetes events) follow the one the application signals
+   *  combine to (see `combinedScope`). Nodes and host metrics never do. Nothing to follow unless an
+   *  application signal is narrowed, so on by default. */
+  scopeInfrastructure: boolean
   /** GPU/accelerator utilization, memory and power, via NVIDIA DCGM - bundled, or an existing one already scraped. */
   accelerators: boolean
   /** Only meaningful when `accelerators` is on: deploy the bundled dcgm-exporter DaemonSet, or scrape one that already exists. */
@@ -216,6 +275,7 @@ export const emptyTelemetry: TelemetryInput = {
   applicationLogsScope: emptyScopeOverride,
   traces: false,
   tracesScope: emptyScopeOverride,
+  scopeInfrastructure: true,
   accelerators: false,
   acceleratorsSource: 'bundle-dcgm',
   acceleratorsExistingEndpoint: '',
@@ -266,15 +326,26 @@ export const cleanTags = (tags: TagEntry[]): TagEntry[] => tags.map((t) => ({ ke
 
 /**
  * What this telemetry covers, for the continuum.scope tag: the namespaces of the application signals that are
- * narrowed ("shop; payments"), plus what they leave out ("- excluding legacy+tmp"). No commas: the value
- * travels through `helm --set`. Empty when nothing is narrowed (everything the agent can see).
+ * narrowed ("shop; payments"), a namespace narrowed to workloads as "payments: api+worker", plus what they
+ * leave out ("- excluding legacy+tmp"). No commas: the value travels through `helm --set`. Empty when nothing
+ * is narrowed (everything the agent can see).
  */
 export function scopeTag(t: TelemetryInput): string {
   const scopes = [t.applicationMetrics && t.applicationMetricsScope, t.applicationLogs && t.applicationLogsScope, t.traces && t.tracesScope].filter((s): s is ScopeOverrideInput => !!s)
   const only = [...new Set(scopes.flatMap((s) => s.namespaces))].sort()
   const not = [...new Set(scopes.flatMap((s) => s.exclude))].sort()
-  if (only.length === 0 && not.length === 0) return ''
-  return `${only.length ? only.join('; ') : 'all namespaces'}${not.length ? ` - excluding ${not.join('+')}` : ''}`
+  // The widest view of each namespace's workloads: whole when any signal does not narrow it.
+  const workloadNs = [...new Set(scopes.flatMap((s) => s.workloads.map((w) => w.namespace)))]
+  const narrowedTo = new Map<string, string[]>()
+  for (const ns of workloadNs) {
+    const collecting = scopes.filter((s) => s.namespaces.length === 0 || s.namespaces.includes(ns))
+    const w = collecting.map((s) => s.workloads.find((x) => x.namespace === ns))
+    if (w.every((x) => x)) narrowedTo.set(ns, [...new Set(w.flatMap((x) => x!.names))].sort())
+  }
+  const names = [...new Set([...only, ...narrowedTo.keys()])].sort()
+  if (names.length === 0 && not.length === 0) return ''
+  const listed = names.map((n) => (narrowedTo.has(n) ? `${n}: ${narrowedTo.get(n)!.length ? narrowedTo.get(n)!.join('+') : 'nothing'}` : n))
+  return `${listed.length ? listed.join('; ') : 'all namespaces'}${not.length ? ` - excluding ${not.join('+')}` : ''}`
 }
 
 /** The kind of signal a telemetry field carries - metrics, logs, or distributed traces. Lives here (not
@@ -334,9 +405,9 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   if (t.tracesSamplingPercent < 0 || t.tracesSamplingPercent > 100) out.push('Traces sampling must be between 0 and 100')
   out.push(...processorProblems(t.extraProcessors))
   out.push(...tagProblems(t.tags))
-  if (t.applicationMetrics) out.push(...namespaceListProblems([...t.applicationMetricsScope.namespaces, ...t.applicationMetricsScope.exclude]))
-  if (t.applicationLogs) out.push(...namespaceListProblems([...t.applicationLogsScope.namespaces, ...t.applicationLogsScope.exclude]))
-  if (t.traces) out.push(...namespaceListProblems([...t.tracesScope.namespaces, ...t.tracesScope.exclude]))
+  if (t.applicationMetrics) out.push(...namespaceListProblems([...t.applicationMetricsScope.namespaces, ...t.applicationMetricsScope.exclude]), ...workloadProblems(t.applicationMetricsScope.workloads))
+  if (t.applicationLogs) out.push(...namespaceListProblems([...t.applicationLogsScope.namespaces, ...t.applicationLogsScope.exclude]), ...workloadProblems(t.applicationLogsScope.workloads))
+  if (t.traces) out.push(...namespaceListProblems([...t.tracesScope.namespaces, ...t.tracesScope.exclude]), ...workloadProblems(t.tracesScope.workloads))
   // There is only ever one exportEndpoint for every signal together (see TelemetryInput) - so a known
   // preset that only carries a subset of modalities (Jaeger: traces) has to actually block the generated
   // command, not just show a warning next to the field (TelemetryFields.tsx shows the same thing inline,
@@ -348,6 +419,8 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   }
   return out
 }
+
+const shQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
 /**
  * Adds telemetry to the install command: the export target, then every signal's enabled flag, explicitly
@@ -364,6 +437,7 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   let cmd = install.trimEnd()
   const add = (flag: string) => { cmd += ` \\\n  --set ${flag}` }
   const addString = (flag: string, value: string) => { cmd += ` \\\n  --set-string ${flag}=${value}` }
+  const addJson = (flag: string, value: unknown) => { cmd += ` \\\n  --set-json ${flag}=${shQuote(JSON.stringify(value))}` }
   addString('telemetry.export.otlp.endpoint', t.exportEndpoint.trim())
   // Who this belongs to, for every destination (an operator's server-built fragment states the same two, and
   // the intent id, after this; helm takes the last). The scope and the tags are stated even when empty, for
@@ -392,6 +466,7 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   if (t.applicationMetrics) {
     add(`telemetry.applicationMetrics.metrics.scope.namespaces=${helmList(t.applicationMetricsScope.namespaces)}`)
     add(`telemetry.applicationMetrics.metrics.scope.exclude=${helmList(t.applicationMetricsScope.exclude)}`)
+    addJson('telemetry.applicationMetrics.metrics.scope.workloads', t.applicationMetricsScope.workloads)
   }
   add(`telemetry.systemLogs.logs.enabled=${t.systemLogs}`)
   add(`telemetry.kubernetesEvents.logs.enabled=${t.kubernetesEvents}`)
@@ -399,12 +474,20 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   if (t.applicationLogs) {
     add(`telemetry.applicationLogs.logs.scope.namespaces=${helmList(t.applicationLogsScope.namespaces)}`)
     add(`telemetry.applicationLogs.logs.scope.exclude=${helmList(t.applicationLogsScope.exclude)}`)
+    addJson('telemetry.applicationLogs.logs.scope.workloads', t.applicationLogsScope.workloads)
   }
   add(`telemetry.traces.traces.enabled=${t.traces}`)
   if (t.traces) {
     add(`telemetry.traces.traces.scope.namespaces=${helmList(t.tracesScope.namespaces)}`)
     add(`telemetry.traces.traces.scope.exclude=${helmList(t.tracesScope.exclude)}`)
+    addJson('telemetry.traces.traces.scope.workloads', t.tracesScope.workloads)
   }
+  // What the infrastructure signals follow: the application signals' combined scope when that is switched on,
+  // otherwise nothing - stated either way (lists replace under --reuse-values, so an old one is cleared).
+  const infra = t.scopeInfrastructure ? combinedScope(t) : emptyScopeOverride
+  add(`telemetry.scope.infra.namespaces=${helmList(infra.namespaces)}`)
+  add(`telemetry.scope.infra.exclude=${helmList(infra.exclude)}`)
+  addJson('telemetry.scope.infra.workloads', infra.workloads)
   add(`telemetry.accelerators.metrics.enabled=${t.accelerators}`)
   if (t.accelerators && t.acceleratorsSource === 'existing') {
     add('telemetry.accelerators.metrics.source=existing')
@@ -441,7 +524,6 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   // there are none, same as the chart's own default - an empty --set-json '{}' is harmless but adds
   // nothing worth stating.
   if (t.extraProcessors.length) {
-    const shQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
     cmd += ` \
   --set-json telemetry.processors.extraProcessors=${shQuote(JSON.stringify(buildExtraProcessors(t.extraProcessors)))}`
     const byTarget = { extraProcessorNames: [] as string[], extraTracesProcessorNames: [] as string[] }

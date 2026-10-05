@@ -272,7 +272,7 @@ export default function GuidedWizard({
 
         {step === 'scope' && (
           <div className="space-y-3" data-testid={`${testIdPrefix}-guided-step-scope`}>
-            <GuidedScope value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialDraft={initialScope} />
+            <GuidedScope value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialDraft={initialScope} clusterId={clusterId} />
             <div className="flex items-center gap-2 pt-1">
               <BackLink onClick={() => setStep('collect')} testId={`${testIdPrefix}-guided-back`} />
               <Button variant="primary" className="ml-auto" onClick={() => setStep('process')} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>

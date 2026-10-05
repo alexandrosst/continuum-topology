@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { cleanTags, emptyTelemetry, scopeOverlap, scopeTag, tagProblems, TAG_LIMIT, telemetryActive, telemetryProblems, withTelemetry, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
+import { cleanTags, combinedScope, emptyScopeOverride, emptyTelemetry, scopeOverlap, scopeTag, tagProblems, TAG_LIMIT, telemetryActive, telemetryProblems, withTelemetry, workloadProblems, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
 import { newProcessorEntry } from '../src/lib/processorCatalog'
 import { applyIntentPreset, seedTelemetryFromInstalled, TELEMETRY_CREDENTIAL_VAR, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetrySecretCommand, telemetryUpgradeCommand } from '../src/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '../src/lib/exportPresets'
@@ -311,7 +311,7 @@ test('per-kind application scope override: stated only while its own kind is on,
 
   const withOverride: TelemetryInput = {
     ...on,
-    applicationMetricsScope: { namespaces: ['shop', 'payments'], exclude: ['hr-data'] },
+    applicationMetricsScope: { namespaces: ['shop', 'payments'], exclude: ['hr-data'], workloads: [] },
   }
   const cmdOverride = withTelemetry(base, withOverride)
   assert.match(cmdOverride, /--set telemetry\.applicationMetrics\.metrics\.scope\.namespaces='\{shop,payments\}'/)
@@ -319,13 +319,13 @@ test('per-kind application scope override: stated only while its own kind is on,
 
   // the kind itself off: its scope fields are omitted entirely, matching the energy/accelerators-existing-
   // endpoint precedent - the chart's own .enabled gate makes an unstated (or stale) override harmless.
-  const off: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317', applicationMetricsScope: { namespaces: ['shop'], exclude: [] } }
+  const off: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317', applicationMetricsScope: { namespaces: ['shop'], exclude: [], workloads: [] } }
   const cmdOff = withTelemetry(base, off)
   assert.ok(!cmdOff.includes('telemetry.applicationMetrics.metrics.scope'))
 })
 
 test('an invalid namespace in a per-kind scope override is only flagged while its own kind is on', () => {
-  const off: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317', applicationMetricsScope: { namespaces: ['not valid!'], exclude: [] } }
+  const off: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317', applicationMetricsScope: { namespaces: ['not valid!'], exclude: [], workloads: [] } }
   assert.deepEqual(telemetryProblems(off), [], 'applicationMetrics is off, so its override is not even looked at')
 
   const on: TelemetryInput = { ...off, applicationMetrics: true }
@@ -351,13 +351,13 @@ test('telemetryProblems blocks a destination that cannot carry every signal that
 })
 
 test('scopeOverlap: the shared namespace names between two scopes, or none', () => {
-  const a: ScopeOverrideInput = { namespaces: ['shop', 'payments'], exclude: [] }
-  const b: ScopeOverrideInput = { namespaces: ['payments', 'ops'], exclude: [] }
+  const a: ScopeOverrideInput = { namespaces: ['shop', 'payments'], exclude: [], workloads: [] }
+  const b: ScopeOverrideInput = { namespaces: ['payments', 'ops'], exclude: [], workloads: [] }
   assert.deepEqual(scopeOverlap(a, b), ['payments'])
   assert.deepEqual(scopeOverlap(b, a), ['payments'], 'symmetric in content, whichever side is asked')
-  assert.deepEqual(scopeOverlap(a, { namespaces: ['ops'], exclude: [] }), [])
-  assert.deepEqual(scopeOverlap(a, { namespaces: [], exclude: ['shop'] }), [], 'a shared exclude is not a claim on the same namespace, so it is not an overlap')
-  assert.deepEqual(scopeOverlap({ namespaces: [], exclude: [] }, a), [], 'an empty scope (falls back to global) overlaps nothing')
+  assert.deepEqual(scopeOverlap(a, { namespaces: ['ops'], exclude: [], workloads: [] }), [])
+  assert.deepEqual(scopeOverlap(a, { namespaces: [], exclude: ['shop'], workloads: [] }), [], 'a shared exclude is not a claim on the same namespace, so it is not an overlap')
+  assert.deepEqual(scopeOverlap({ namespaces: [], exclude: [], workloads: [] }, a), [], 'an empty scope (falls back to global) overlaps nothing')
 })
 
 test('telemetrySecretCommand creates the Secret the credential flags name, reading the value from the environment', () => {
@@ -417,11 +417,11 @@ test('tag problems: reserved prefix, limit, duplicates, missing parts, spaces', 
 
 test('the scope tag names the namespaces of the narrowed application signals, with no commas', () => {
   assert.equal(scopeTag(on), '')
-  const t: TelemetryInput = { ...on, traces: true, tracesScope: { namespaces: ['shop', 'payments'], exclude: [] }, applicationLogs: true, applicationLogsScope: { namespaces: ['shop'], exclude: ['tmp', 'legacy'] } }
+  const t: TelemetryInput = { ...on, traces: true, tracesScope: { namespaces: ['shop', 'payments'], exclude: [], workloads: [] }, applicationLogs: true, applicationLogsScope: { namespaces: ['shop'], exclude: ['tmp', 'legacy'], workloads: [] } }
   assert.equal(scopeTag(t), 'payments; shop - excluding legacy+tmp')
   assert.doesNotMatch(scopeTag(t), /,/)
   // A scope on a signal that is off says nothing.
-  assert.equal(scopeTag({ ...on, tracesScope: { namespaces: ['shop'], exclude: [] } }), '')
+  assert.equal(scopeTag({ ...on, tracesScope: { namespaces: ['shop'], exclude: [], workloads: [] } }), '')
   assert.match(withTelemetry(base, t), /--set-string telemetry\.resource\.scope=payments; shop - excluding legacy\+tmp/)
   assert.match(withTelemetry(base, on), /--set-string telemetry\.resource\.scope=(\s|$)/)
 })
@@ -431,4 +431,63 @@ test('the debug exporter is count-only unless changed, and always stated', () =>
   assert.match(withTelemetry(base, on), /--set-string telemetry\.debug\.verbosity=basic/)
   assert.match(withTelemetry(base, { ...on, debugVerbosity: 'detailed' }), /telemetry\.debug\.verbosity=detailed/)
   assert.match(withTelemetry(base, { ...on, debugVerbosity: '' }), /telemetry\.debug\.verbosity=(\s|$)/)
+})
+
+const scoped = (ns: string[], workloads: { namespace: string; names: string[] }[] = [], exclude: string[] = []): ScopeOverrideInput => ({ namespaces: ns, exclude, workloads })
+
+test('the scope tag spells out a namespace narrowed to workloads, still without commas', () => {
+  const t: TelemetryInput = { ...on, traces: true, tracesScope: scoped(['checkout', 'payments'], [{ namespace: 'checkout', names: ['payment-api', 'cart'] }]) }
+  assert.equal(scopeTag(t), 'checkout: cart+payment-api; payments')
+  assert.doesNotMatch(scopeTag(t), /,/)
+  // Another signal that takes the whole namespace makes it whole again.
+  const wider: TelemetryInput = { ...t, applicationLogs: true, applicationLogsScope: scoped(['checkout']) }
+  assert.equal(scopeTag(wider), 'checkout; payments')
+  assert.equal(scopeTag({ ...on, traces: true, tracesScope: scoped(['shop'], [{ namespace: 'shop', names: [] }]) }), 'shop: nothing')
+})
+
+test('a signal with a workload scope states it as JSON, and clearing it states an empty list', () => {
+  const t: TelemetryInput = { ...on, traces: true, tracesScope: scoped(['checkout'], [{ namespace: 'checkout', names: ['cart'] }]) }
+  assert.match(withTelemetry(base, t), /--set-json telemetry\.traces\.traces\.scope\.workloads='\[\{"namespace":"checkout","names":\["cart"\]\}\]'/)
+  assert.match(withTelemetry(base, { ...t, tracesScope: scoped(['checkout']) }), /--set-json telemetry\.traces\.traces\.scope\.workloads='\[\]'/)
+  // Not stated for a signal that is off.
+  assert.doesNotMatch(withTelemetry(base, on), /scope\.workloads/)
+})
+
+test('workload names the chart would refuse are refused here first', () => {
+  assert.deepEqual(workloadProblems([{ namespace: 'shop', names: ['cart', 'api-2'] }]), [])
+  assert.equal(workloadProblems([{ namespace: 'shop', names: ['Cart'] }]).length, 1)
+  assert.equal(workloadProblems([{ namespace: 'shop', names: ['a.b'] }]).length, 1)
+  assert.equal(workloadProblems([{ namespace: 'shop', names: [] }, { namespace: 'shop', names: [] }]).length, 1)
+  const bad: TelemetryInput = { ...on, traces: true, tracesScope: scoped(['shop'], [{ namespace: 'shop', names: ['A|B'] }]) }
+  assert.ok(telemetryProblems(bad).length > 0)
+  assert.equal(withTelemetry(base, bad), base)
+})
+
+test('the scope infrastructure follows: any signal keeping a namespace keeps it, every signal must drop one to drop it', () => {
+  const t = (tr: ScopeOverrideInput, lg: ScopeOverrideInput): TelemetryInput => ({ ...on, traces: true, tracesScope: tr, applicationLogs: true, applicationLogsScope: lg })
+  assert.deepEqual(combinedScope(t(scoped(['a']), scoped(['b']))), scoped(['a', 'b']))
+  assert.deepEqual(combinedScope(t(scoped([], [], ['x', 'y']), scoped([], [], ['y', 'z']))), scoped([], [], ['y']))
+  // One signal with no narrowing at all collects everything, so there is nothing to follow.
+  assert.deepEqual(combinedScope(t(scoped(['a']), emptyScopeOverride)), emptyScopeOverride)
+  assert.deepEqual(combinedScope(on), emptyScopeOverride)
+})
+
+test('workloads of a namespace combine only when every signal collecting it narrows it', () => {
+  const w = (names: string[]) => [{ namespace: 'a', names }]
+  const t = (tr: ScopeOverrideInput, lg: ScopeOverrideInput): TelemetryInput => ({ ...on, traces: true, tracesScope: tr, applicationLogs: true, applicationLogsScope: lg })
+  assert.deepEqual(combinedScope(t(scoped(['a'], w(['x'])), scoped(['a'], w(['y'])))).workloads, w(['x', 'y']))
+  assert.deepEqual(combinedScope(t(scoped(['a'], w(['x'])), scoped(['a']))).workloads, [])
+  // A signal that does not collect the namespace at all does not make it whole.
+  assert.deepEqual(combinedScope(t(scoped(['a'], w(['x'])), scoped(['b']))).workloads, w(['x']))
+})
+
+test('infrastructure scope is stated every time: the combined scope when followed, empty when not or when nothing narrows', () => {
+  const t: TelemetryInput = { ...on, traces: true, tracesScope: scoped(['checkout'], [{ namespace: 'checkout', names: ['cart'] }]) }
+  const cmd = withTelemetry(base, t)
+  assert.match(cmd, /--set telemetry\.scope\.infra\.namespaces='\{checkout\}'/)
+  assert.match(cmd, /--set-json telemetry\.scope\.infra\.workloads='\[\{"namespace":"checkout","names":\["cart"\]\}\]'/)
+  const off = withTelemetry(base, { ...t, scopeInfrastructure: false })
+  assert.match(off, /--set telemetry\.scope\.infra\.namespaces='\{\}'/)
+  assert.match(off, /--set-json telemetry\.scope\.infra\.workloads='\[\]'/)
+  assert.match(withTelemetry(base, on), /--set telemetry\.scope\.infra\.namespaces='\{\}'/)
 })

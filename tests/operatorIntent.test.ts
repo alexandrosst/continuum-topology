@@ -14,7 +14,7 @@ test('exportOperatorId never changes any command string', () => {
   const drafts: TelemetryInput[] = [
     { ...emptyTelemetry },
     { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'otel.example.com:4317' },
-    { ...emptyTelemetry, traces: true, tracesScope: { namespaces: ['shop'], exclude: ['kube-system'] }, applicationLogs: true, exportEndpoint: 'x.example.com:4318', exportProtocol: 'http', exportInsecure: true },
+    { ...emptyTelemetry, traces: true, tracesScope: { namespaces: ['shop'], exclude: ['kube-system'], workloads: [] }, applicationLogs: true, exportEndpoint: 'x.example.com:4318', exportProtocol: 'http', exportInsecure: true },
     { ...emptyTelemetry, energy: true, energySource: 'existing', energyExistingEndpoint: 'kepler:9102/metrics', accelerators: true, exportEndpoint: 'o:4317', exportAuthHeaderName: 'x-api-key', exportAuthSecretName: 'tok', exportAuthSecretKey: 'k' },
   ]
   for (const d of drafts) {
@@ -53,7 +53,7 @@ test('intentSignals: one grant per signal that is on, source from the draft\'s o
 
 test('intentScope never records a scope narrower than what is collected', () => {
   // A cluster-wide signal ignores namespaces: everything, nothing excluded - whatever the scoped ones say.
-  const scoped = { applicationLogs: true, applicationLogsScope: { namespaces: ['shop'], exclude: ['shop-test'] } }
+  const scoped = { applicationLogs: true, applicationLogsScope: { namespaces: ['shop'], exclude: ['shop-test'], workloads: [] } }
   assert.deepEqual(intentScope({ ...emptyTelemetry, resourceUsage: true, ...scoped }), { namespaces: [], exclude: [] })
   // Only scoped signals, all with included namespaces: their union; excluded only where every one excludes it.
   assert.deepEqual(
@@ -61,7 +61,7 @@ test('intentScope never records a scope narrower than what is collected', () => 
       ...emptyTelemetry,
       ...scoped,
       traces: true,
-      tracesScope: { namespaces: ['payments', 'shop'], exclude: ['shop-test', 'x'] },
+      tracesScope: { namespaces: ['payments', 'shop'], exclude: ['shop-test', 'x'], workloads: [] },
     }),
     { namespaces: ['payments', 'shop'], exclude: ['shop-test'] },
   )

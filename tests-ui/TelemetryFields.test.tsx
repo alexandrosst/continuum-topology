@@ -153,7 +153,7 @@ describe('TelemetryFields facets and application scope overrides', () => {
         initial={{
           ...emptyTelemetry,
           applicationMetrics: true,
-          applicationMetricsScope: { namespaces: ['shop'], exclude: [] },
+          applicationMetricsScope: { namespaces: ['shop'], exclude: [], workloads: [] },
         }}
       />,
     )

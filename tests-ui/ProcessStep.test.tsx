@@ -26,7 +26,7 @@ describe('ProcessStep', () => {
   })
 
   test('a narrowed application signal adds the scope tag, with its value', () => {
-    render(<Wrapper initial={{ ...emptyTelemetry, traces: true, tracesScope: { namespaces: ['shop'], exclude: [] } }} />)
+    render(<Wrapper initial={{ ...emptyTelemetry, traces: true, tracesScope: { namespaces: ['shop'], exclude: [], workloads: [] } }} />)
     expect(screen.getByTestId('t-guided-fact-scope')).toHaveTextContent('continuum.scope=shop')
   })
 
