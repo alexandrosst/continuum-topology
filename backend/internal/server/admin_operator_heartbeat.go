@@ -138,8 +138,8 @@ func operatorHeartbeatSetFlags(op store.Operator, url string) string {
 // operatorHeartbeatSecretCommand creates the Secret the chart's heartbeat.auth.secretName points at. For a
 // rotation the Secret already exists, so it is replaced in place instead.
 func operatorHeartbeatSecretCommand(op store.Operator, secret string, replace bool) string {
-	if replace {
-		return fmt.Sprintf("kubectl create secret generic %s --namespace continuum-system --from-literal=token=%s --dry-run=client -o yaml | kubectl apply -f -", operatorHeartbeatSecretName(op), secret)
-	}
-	return fmt.Sprintf("kubectl create secret generic %s --namespace continuum-system --from-literal=token=%s", operatorHeartbeatSecretName(op), secret)
+	// Always create-or-update: a first install and a rotation are the same command, and a regenerated first
+	// install no longer fails on "already exists". replace is kept so callers need not change.
+	_ = replace
+	return applySecretCommand(operatorHeartbeatSecretName(op), "continuum-system", "token="+secret)
 }

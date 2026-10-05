@@ -100,8 +100,9 @@ export function fragmentEndpoint(fragment: string): string | undefined {
  */
 export function operatorCommandBlock(opts: { install: InstallInfo | undefined; draft: TelemetryInput; measurementsOn?: boolean; result: TelemetryIntentCommand }): string {
   const d = operatorCommandDraft(opts.draft, opts.result.receiverAuth)
-  const upgrade = `${telemetryUpgradeCommand(opts.install, d, opts.measurementsOn).trimEnd()} \\\n  ${opts.result.installFragment}`
-  const cred = telemetrySecretCommand(d, opts.measurementsOn)
+  const target = { namespace: opts.result.namespace, release: opts.result.release }
+  const upgrade = `${telemetryUpgradeCommand(opts.install, d, opts.measurementsOn, target).trimEnd()} \\\n  ${opts.result.installFragment}`
+  const cred = telemetrySecretCommand(d, opts.measurementsOn, target)
   return [...opts.result.secretCommands, ...(cred ? [cred] : []), upgrade].join(' && \\\n')
 }
 

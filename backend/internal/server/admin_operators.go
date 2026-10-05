@@ -242,9 +242,22 @@ func operatorTLSSecretCommand(op store.Operator, b OperatorTLSBundle) string {
 	if len(b.ReceiverCertPEM) == 0 {
 		return ""
 	}
-	return fmt.Sprintf(
-		"kubectl create secret generic %s --namespace continuum-system \\\n  --from-literal=tls.crt=\"%s\" \\\n  --from-literal=tls.key=\"%s\" \\\n  --from-literal=ca.crt=\"%s\"",
-		operatorReceiverTLSSecretName(op), b.ReceiverCertPEM, b.ReceiverKeyPEM, b.CACertPEM)
+	return applySecretCommand(operatorReceiverTLSSecretName(op), "continuum-system",
+		fmt.Sprintf("tls.crt=\"%s\"", b.ReceiverCertPEM), fmt.Sprintf("tls.key=\"%s\"", b.ReceiverKeyPEM), fmt.Sprintf("ca.crt=\"%s\"", b.CACertPEM))
+}
+
+// applySecretCommand is every Secret line this file hands out: a create-or-update, so running a generated
+// command a second time (the person regenerates it, a first attempt failed half way, a certificate is
+// reissued) replaces the Secret rather than failing on "already exists". Each literal is a complete
+// `key=value` (already quoted where it needs to be).
+func applySecretCommand(name, namespace string, literals ...string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "kubectl create secret generic %s --namespace %s", name, namespace)
+	for _, l := range literals {
+		fmt.Fprintf(&b, " \\\n  --from-literal=%s", l)
+	}
+	b.WriteString(" \\\n  --dry-run=client -o yaml | kubectl apply -f -")
+	return b.String()
 }
 
 // operatorDestinationCommand builds the --set export.otlp.* flags (and, if a fresh client cert was minted,
@@ -260,9 +273,8 @@ func operatorDestinationCommand(op store.Operator, certPEM, keyPEM, caPEM []byte
 	}
 	// mTLS is additive: every source cluster of this operator presents a client certificate verified
 	// against the CA bundle in the same Secret - see pki.IssueOperatorClientTLS.
-	secretCmd = fmt.Sprintf(
-		"kubectl create secret generic %s --namespace %s \\\n  --from-literal=tls.crt=\"%s\" \\\n  --from-literal=tls.key=\"%s\" \\\n  --from-literal=ca.crt=\"%s\"",
-		operatorClientTLSSecretName(op), namespace, certPEM, keyPEM, caPEM)
+	secretCmd = applySecretCommand(operatorClientTLSSecretName(op), namespace,
+		fmt.Sprintf("tls.crt=\"%s\"", certPEM), fmt.Sprintf("tls.key=\"%s\"", keyPEM), fmt.Sprintf("ca.crt=\"%s\"", caPEM))
 	setFlags += fmt.Sprintf(" --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=%s", operatorClientTLSSecretName(op))
 	return setFlags, secretCmd
 }
@@ -336,7 +348,7 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 		}
 	}
 	if !mtlsOnly {
-		secretCmd = fmt.Sprintf("kubectl create secret generic %s --namespace continuum-system --from-literal=%s=%s", secretName, "token", secret)
+		secretCmd = applySecretCommand(secretName, "continuum-system", "token="+secret)
 	}
 	return b.String(), secretCmd
 }

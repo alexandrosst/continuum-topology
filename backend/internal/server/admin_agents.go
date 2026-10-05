@@ -3,10 +3,14 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"continuum/internal/chart"
 )
+
+// validKubeName is a DNS-1123 label, which is what both a namespace and a Helm release name must be.
+var validKubeName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 // releaseTarget is the namespace and Helm release name a command should target: the agent's own, as it reported in its
 // last Hello, or a guess when either is not yet known (an agent older than these fields, or one that has never
@@ -14,6 +18,14 @@ import (
 // of the release name, so only the two `helm` commands need it; `kubectl` commands only ever need the namespace. The
 // guesses are the chart's own documentation defaults, not facts, so callers that show them to a person should say so.
 func releaseTarget(namespace, release string) (ns, name string, guessed bool) {
+	// What an agent reported about itself ends up inside a command a person pastes into a shell, so anything
+	// that is not a plain Kubernetes / Helm name is treated as not reported at all.
+	if !validKubeName.MatchString(namespace) {
+		namespace = ""
+	}
+	if !validKubeName.MatchString(release) {
+		release = ""
+	}
 	ns, name = namespace, release
 	if ns == "" {
 		ns, guessed = "continuum-system", true

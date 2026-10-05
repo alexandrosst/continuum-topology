@@ -196,7 +196,12 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 		"--set telemetry.resource.orgId=%s --set telemetry.resource.clusterId=%s --set telemetry.resource.intentId=%s",
 		a.core(r).OrgID, agent.ClusterID, ti.ID)
 	secretCommands := []string{}
-	resp := map[string]any{}
+	// Where the agent really runs (or the chart's documented defaults when it never said): the Secret below
+	// and the caller's `helm upgrade` must name the same namespace, or the release cannot find its
+	// certificate. Always returned so the caller does not have to guess it.
+	hub := a.tn(r).Hub
+	rns, rname, _ := releaseTarget(hub.NamespaceOf(agent.ID), hub.ReleaseNameOf(agent.ID))
+	resp := map[string]any{"namespace": rns, "release": rname}
 	if ti.Destination.Kind == store.DestinationOperator {
 		op, err := a.core(r).GetOperator(r.Context(), ti.Destination.TargetOperatorID)
 		if err != nil {
@@ -208,8 +213,6 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			a.fail(w, err)
 			return
 		}
-		hub := a.tn(r).Hub
-		rns, _, _ := releaseTarget(hub.NamespaceOf(agent.ID), hub.ReleaseNameOf(agent.ID))
 		setFlags, secretCmd := operatorDestinationCommand(op, certPEM, keyPEM, caPEM, rns)
 		installFragment += " " + setFlags
 		// Whether the person must also supply a receiver bearer token: not for an "mtls" operator, whose

@@ -64,7 +64,7 @@ func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 	if got != want {
 		t.Fatalf("bearer install command changed:\n got: %q\nwant: %q", got, want)
 	}
-	if secretCmd != "kubectl create secret generic op-abc123-receiver-auth --namespace continuum-system --from-literal=token=cno_SECRET" {
+	if secretCmd != "kubectl create secret generic op-abc123-receiver-auth --namespace continuum-system \\\n  --from-literal=token=cno_SECRET \\\n  --dry-run=client -o yaml | kubectl apply -f -" {
 		t.Fatalf("secret command = %q", secretCmd)
 	}
 	// No certificates minted: bearer only, as before.
@@ -120,7 +120,7 @@ func TestOperatorDestinationCommandIsTheSameForBothAuthModes(t *testing.T) {
 		op := store.Operator{ID: "op-abc123", ReceiverAuth: mode}
 		flags, secret := operatorDestinationCommand(op, []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
 		wantFlags := "--set telemetry.export.otlp.endpoint=op-abc123.continuum-system.svc:4317 --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-abc123-export-mtls"
-		wantSecret := "kubectl create secret generic op-abc123-export-mtls --namespace ns1 \\\n  --from-literal=tls.crt=\"CERT\" \\\n  --from-literal=tls.key=\"KEY\" \\\n  --from-literal=ca.crt=\"CA\""
+		wantSecret := "kubectl create secret generic op-abc123-export-mtls --namespace ns1 \\\n  --from-literal=tls.crt=\"CERT\" \\\n  --from-literal=tls.key=\"KEY\" \\\n  --from-literal=ca.crt=\"CA\" \\\n  --dry-run=client -o yaml | kubectl apply -f -"
 		if flags != wantFlags || secret != wantSecret {
 			t.Fatalf("%s: flags=%q secret=%q", mode, flags, secret)
 		}

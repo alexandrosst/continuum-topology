@@ -340,15 +340,36 @@ export function seedTelemetryFromInstalled(installed: string[], config?: AgentTe
   return next
 }
 
+/** Where an agent's Helm release actually lives, when the server knows (it is what the agent reported). */
+export interface ReleaseTarget {
+  namespace?: string
+  release?: string
+}
+
+const KUBE_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
+
+/**
+ * The namespace and release a command should target: the given ones when they are plain Kubernetes names,
+ * otherwise the chart's documented defaults. The values come from a server response (which got them from
+ * the agent) and end up in a shell line, so anything else is dropped rather than pasted.
+ */
+export function releaseTarget(t?: ReleaseTarget): { namespace: string; release: string } {
+  return {
+    namespace: t?.namespace && KUBE_NAME.test(t.namespace) ? t.namespace : 'continuum-system',
+    release: t?.release && KUBE_NAME.test(t.release) ? t.release : 'continuum-agent',
+  }
+}
+
 /**
  * The command to change an agent's telemetry after install - `--reuse-values` keeps everything else,
  * mirroring `helmUpgradeCommand`'s tier-widening shape exactly. Command-generation only, like that one:
  * nothing here is ever pushed live (see the panel that uses this).
  */
-export function telemetryUpgradeCommand(install: InstallInfo | undefined, t: TelemetryInput, measurementsOn?: boolean): string {
+export function telemetryUpgradeCommand(install: InstallInfo | undefined, t: TelemetryInput, measurementsOn?: boolean, target?: ReleaseTarget): string {
+  const { namespace, release } = releaseTarget(target)
   const ref = install?.chartRef || `./${install?.chartFile || 'continuum-agent.tgz'}`
   const version = install?.chartRef && !install.chartRef.endsWith('.tgz') && install.chartVersion ? ` --version ${install.chartVersion}` : ''
-  const base = `helm upgrade continuum-agent ${ref}${version} --namespace continuum-system --reuse-values`
+  const base = `helm upgrade ${release} ${ref}${version} --namespace ${namespace} --reuse-values`
   return withTelemetry(base, t, measurementsOn)
 }
 
@@ -367,14 +388,14 @@ export const TELEMETRY_CREDENTIAL_VAR = 'TELEMETRY_EXPORT_TOKEN'
  * re-run (create-or-update) where a bare `kubectl create secret` would fail the second time. A Secret name
  * or key that isn't a plain Kubernetes name yields undefined rather than being pasted into a shell line.
  */
-export function telemetrySecretCommand(t: TelemetryInput, measurementsOn?: boolean): string | undefined {
+export function telemetrySecretCommand(t: TelemetryInput, measurementsOn?: boolean, target?: ReleaseTarget): string | undefined {
   if (!telemetryActive(t) || telemetryProblems(t, measurementsOn).length) return undefined
   const name = t.exportAuthSecretName.trim()
   if (!name) return undefined
   const key = t.exportAuthSecretKey.trim() || 'token'
   if (!/^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/.test(name) || !/^[-._a-zA-Z0-9]+$/.test(key)) return undefined
   const v = TELEMETRY_CREDENTIAL_VAR
-  return `kubectl create secret generic ${name} --namespace continuum-system --from-literal=${key}="\${${v}:?set ${v} to the credential first}" --dry-run=client -o yaml | kubectl apply -f -`
+  return `kubectl create secret generic ${name} --namespace ${releaseTarget(target).namespace} --from-literal=${key}="\${${v}:?set ${v} to the credential first}" --dry-run=client -o yaml | kubectl apply -f -`
 }
 
 /* ---------- what an administrator may ask ---------- */

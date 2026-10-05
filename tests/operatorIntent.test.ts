@@ -97,3 +97,21 @@ test('operatorCommandBlock puts the receiver-token Secret between the certificat
   assert.ok(parts[1].startsWith('kubectl create secret generic op-token'))
   assert.ok(parts[2].startsWith('helm upgrade') && parts[2].includes('auth.secretName=op-token'))
 })
+
+test('operatorCommandBlock targets the namespace and release the server reports, for the Secrets and the upgrade alike', () => {
+  const draft = operatorDraft({ exportAuthSecretName: 'op-token' })
+  const cmd = operatorCommandBlock({
+    install: undefined, draft,
+    result: { installFragment: '--set a=b', secretCommands: ['kubectl create secret generic cert --namespace edge-agents'], namespace: 'edge-agents', release: 'cont-edge' },
+  })
+  const parts = cmd.split(' && \\\n')
+  assert.ok(parts[1].includes('--namespace edge-agents '), 'the receiver-token Secret is created where the release runs')
+  assert.ok(parts[2].startsWith('helm upgrade cont-edge ') && parts[2].includes('--namespace edge-agents '))
+})
+
+test('a namespace or release that is not a plain Kubernetes name is never pasted into a command', () => {
+  const draft = operatorDraft({ exportAuthSecretName: 'op-token' })
+  const cmd = operatorCommandBlock({ install: undefined, draft, result: { installFragment: '--set a=b', secretCommands: [], namespace: 'x; rm -rf /', release: '$(id)' } })
+  assert.ok(!cmd.includes('rm -rf') && !cmd.includes('$(id)'))
+  assert.ok(cmd.includes('helm upgrade continuum-agent ') && cmd.includes('--namespace continuum-system '))
+})

@@ -130,6 +130,10 @@ export interface TelemetryIntentCommand {
    *  client certificate in `secretCommands` is the only credential; anything else (including absent) means a
    *  bearer token is also expected, supplied by the person. */
   receiverAuth?: ReceiverAuth
+  /** Where the agent's Helm release runs, as the server knows it (or the chart's defaults). Both the Secrets
+   *  above and the upgrade command must use it, so the release finds what was created for it. */
+  namespace?: string
+  release?: string
 }
 
 /** What minting a quick-start gateway token returns - the plaintext, once, plus when it was minted and
