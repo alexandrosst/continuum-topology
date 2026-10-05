@@ -27,6 +27,12 @@ async function pickHoneycomb(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByTestId('tp-guided-destination-external-preset-honeycomb'))
 }
 
+/** Continue from Destination to Review, then "Create the command": the last step. */
+async function toRun(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByTestId('tp-guided-continue'))
+  await user.click(screen.getByTestId('tp-guided-create-command'))
+}
+
 describe('TelemetryPanel command', () => {
   test('a destination with a credential Secret gets one block: create the Secret, then upgrade', async () => {
     const user = userEvent.setup()
@@ -36,11 +42,17 @@ describe('TelemetryPanel command', () => {
       </MemoryRouter>,
     )
     await pickHoneycomb(user)
+    // The command is not under the destination step: it comes last, after Review.
+    expect(screen.queryByTestId('helm-command')).not.toBeInTheDocument()
+    await toRun(user)
     // No Secret named yet: just the upgrade command, and no hint about a credential.
     expect(screen.getByTestId('helm-command').textContent).not.toContain('kubectl')
     expect(screen.queryByTestId('tp-credential-hint')).not.toBeInTheDocument()
 
+    await user.click(screen.getByTestId('tp-guided-back'))
+    await user.click(screen.getByTestId('tp-guided-back'))
     await user.type(screen.getByTestId('tp-export-auth-secret'), 'honeycomb-token')
+    await toRun(user)
     const cmd = screen.getByTestId('helm-command').textContent ?? ''
     expect(cmd).toContain('kubectl create secret generic honeycomb-token')
     expect(cmd.indexOf('kubectl create secret')).toBeLessThan(cmd.indexOf('helm upgrade'))

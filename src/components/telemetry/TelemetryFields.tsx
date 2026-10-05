@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ComboField, Field, InfoTip, Input, Select, TagsInput } from '@/components/ui/primitives'
 import { EXPORT_PRESETS, presetSupportsModalities, unsupportedDestinationNote } from '@/lib/exportPresets'
 import { applyIntentPreset, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, TELEMETRY_UNIVERSAL_PERMISSION } from '@/lib/consent'
@@ -150,9 +150,15 @@ export default function TelemetryFields({
   initialScope,
   agentId,
   clusterId,
+  runSection,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
+  /** The command to run (or, for an operator destination, the button that generates it) - the caller builds
+   *  it, since it depends on things this form doesn't hold. In guided mode it is the wizard's last step,
+   *  after Review, so nobody meets a command before they have chosen everything it contains; in the flat
+   *  grid, which has no steps, it follows the form. */
+  runSection?: ReactNode
   measurementsOn?: boolean
   testIdPrefix?: string
   /** The agent/cluster being configured, when known - handed to the guided wizard's destination step. */
@@ -265,7 +271,7 @@ export default function TelemetryFields({
       </div>
 
       {guided ? (
-        <GuidedWizard value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialScope={initialScope} agentId={agentId} clusterId={clusterId} />
+        <GuidedWizard value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialScope={initialScope} agentId={agentId} clusterId={clusterId} runSection={runSection} />
       ) : (
       <>
       <div className="space-y-1.5">
@@ -543,6 +549,8 @@ export default function TelemetryFields({
           {problems.join('. ')}.
         </p>
       )}
+
+      {!guided && runSection}
     </div>
   )
 }

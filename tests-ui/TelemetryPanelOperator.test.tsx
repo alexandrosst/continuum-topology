@@ -99,6 +99,16 @@ async function pickOperator(user: ReturnType<typeof userEvent.setup>) {
   expect(screen.getByTestId('tp-guided-destination-name')).toHaveTextContent('EU regional operator')
 }
 
+/** On to the last step: Continue from Destination to Review, then "Create the command" - the command, or the
+ *  button that generates it, is only on that step. */
+async function toRun(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByTestId('tp-guided-continue'))
+  await user.click(screen.getByTestId('tp-guided-create-command'))
+}
+async function backTo(user: ReturnType<typeof userEvent.setup>, times: number) {
+  for (let i = 0; i < times; i++) await user.click(screen.getByTestId('tp-guided-back'))
+}
+
 const generateButton = () => screen.findByTestId('tp-operator-generate')
 const noApiCalls = () => {
   expect(listTelemetryIntents).not.toHaveBeenCalled()
@@ -113,6 +123,10 @@ describe('TelemetryPanel with a regional operator destination', () => {
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
+    // Editing the draft after picking does not generate anything either (each generation reissues a certificate).
+    await user.type(screen.getByTestId('tp-export-auth-secret'), 'tok')
+    expect(screen.queryByTestId('tp-operator')).not.toBeInTheDocument()
+    await toRun(user)
     const button = await generateButton()
     expect(button).toHaveTextContent('Generate commands for EU regional operator')
     expect(screen.getByTestId('tp-operator')).toHaveTextContent('fresh client certificate')
@@ -120,8 +134,6 @@ describe('TelemetryPanel with a regional operator destination', () => {
     expect(screen.getByTestId('tp-operator')).toHaveTextContent('shown once')
     expect(screen.queryByTestId('helm-command')).not.toBeInTheDocument()
     expect(screen.queryByTestId('tp-operator-command')).not.toBeInTheDocument()
-    // Editing the draft after picking does not generate anything either (each generation reissues a certificate).
-    await user.type(screen.getByTestId('tp-export-auth-secret'), 'tok')
     noApiCalls()
   })
 
@@ -129,6 +141,7 @@ describe('TelemetryPanel with a regional operator destination', () => {
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
+    await toRun(user)
     await user.click(await generateButton())
     const cmd = (await screen.findByTestId('tp-operator-command')).textContent ?? ''
 
@@ -168,6 +181,7 @@ describe('TelemetryPanel with a regional operator destination', () => {
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
+    await toRun(user)
     await user.click(await generateButton())
     await screen.findByTestId('tp-operator-command')
 
@@ -182,6 +196,7 @@ describe('TelemetryPanel with a regional operator destination', () => {
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
+    await toRun(user)
     await user.click(await generateButton())
     await screen.findByTestId('tp-operator-command')
     expect(createTelemetryIntent).not.toHaveBeenCalled()
@@ -194,11 +209,14 @@ describe('TelemetryPanel with a regional operator destination', () => {
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
+    await toRun(user)
     await user.click(await generateButton())
     await screen.findByTestId('tp-operator-command')
     expect(screen.getByTestId('tp-operator-fresh')).toBeInTheDocument()
 
+    await backTo(user, 2)
     await user.type(screen.getByTestId('tp-export-auth-secret'), 'receiver-token')
+    await toRun(user)
     expect(screen.getByTestId('tp-operator-stale')).toHaveTextContent('Out of date - generate again')
     expect(screen.getByTestId('tp-operator-result')).toHaveAttribute('data-stale', 'true')
     expect(screen.getByRole('button', { name: 'Copy the command' })).toBeDisabled()
@@ -220,6 +238,7 @@ describe('TelemetryPanel with a regional operator destination', () => {
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
+    await toRun(user)
     await user.click(await generateButton())
     expect(screen.queryByTestId('tp-export-auth-secret')).not.toBeInTheDocument()
     expect(await screen.findByTestId('tp-operator-mtls-note')).toHaveTextContent('client certificate alone')
@@ -236,6 +255,7 @@ describe('TelemetryPanel with a regional operator destination', () => {
     await pickOperator(user)
     role = 'editor' // signed in as an editor from here on
     rerender(tree())
+    await toRun(user)
     expect(screen.getByTestId('tp-operator-admin-note')).toHaveTextContent('An administrator has to generate the commands')
     expect(screen.queryByTestId('tp-operator-generate')).not.toBeInTheDocument()
     expect(screen.queryByTestId('helm-command')).not.toBeInTheDocument()
@@ -253,6 +273,7 @@ describe('TelemetryPanel with a regional operator destination', () => {
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
+    await toRun(user)
     await user.click(await generateButton())
     const alert = await screen.findByTestId('tp-operator-error')
     expect(alert).toHaveTextContent(verbatim)
@@ -265,11 +286,11 @@ describe('TelemetryPanel with a regional operator destination', () => {
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
-    await generateButton()
     await user.click(screen.getByTestId('tp-guided-destination-change'))
     await user.click(screen.getByTestId('tp-guided-destination-custom'))
     await user.type(screen.getByTestId('tp-guided-destination-custom-endpoint'), 'otel.example.com:4317')
     await user.click(screen.getByTestId('tp-guided-destination-custom-use'))
+    await toRun(user)
     expect(screen.queryByTestId('tp-operator')).not.toBeInTheDocument()
     expect(screen.getByTestId('helm-command').textContent).toContain('otel.example.com:4317')
     noApiCalls()

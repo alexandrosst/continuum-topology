@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { Activity, Check, ChevronLeft, FileText, Plus, Waypoints, X, type LucideIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Button, ICON_MD, ICON_SM, WizardSteps } from '@/components/ui/primitives'
 import { api, atLeast } from '@/lib/api'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
@@ -21,7 +21,7 @@ import TelemetryBackendWizard from './TelemetryBackendWizard'
 import TelemetryReviewPipeline from './TelemetryReviewPipeline'
 
 type Modality = 'metrics' | 'logs' | 'traces'
-type Step = 'layer' | 'modality' | 'kind' | 'scope' | 'destination' | 'review'
+type Step = 'layer' | 'modality' | 'kind' | 'scope' | 'destination' | 'review' | 'run'
 
 const MODALITY_META: Record<Modality, { label: string; icon: LucideIcon }> = {
   metrics: { label: 'Metrics', icon: Activity },
@@ -153,7 +153,11 @@ export default function GuidedWizard({
   testIdPrefix,
   initialScope,
   clusterId,
+  runSection,
 }: {
+  /** The last screen's content: the command to run, or the button that generates it. Built by the caller
+   *  (TelemetryPanel), which holds what it depends on. Nothing in the wizard shows a command before this. */
+  runSection?: ReactNode
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
   testIdPrefix: string
@@ -192,14 +196,17 @@ export default function GuidedWizard({
   const [scopeStepNeeded, setScopeStepNeeded] = useState<boolean>(needsScope)
 
   const stepKeys: Step[] = scopeStepNeeded
-    ? ['layer', 'modality', 'kind', 'scope', 'destination', 'review']
-    : ['layer', 'modality', 'kind', 'destination', 'review']
-  const stepLabels: Record<Step, string> = { layer: 'Layer', modality: 'Modality', kind: 'Kind', scope: 'Scope', destination: 'Destination', review: 'Review' }
+    ? ['layer', 'modality', 'kind', 'scope', 'destination', 'review', 'run']
+    : ['layer', 'modality', 'kind', 'destination', 'review', 'run']
+  const stepLabels: Record<Step, string> = { layer: 'Layer', modality: 'Modality', kind: 'Kind', scope: 'Scope', destination: 'Destination', review: 'Review', run: 'Run' }
   const currentIndex = Math.max(0, stepKeys.indexOf(step))
 
   const modalities = layer ? [...new Set(TELEMETRY_SIGNALS.filter((s) => s.layer === layer).map((s) => s.modality))] : []
   const kindSignals = layer && modality ? TELEMETRY_SIGNALS.filter((s) => s.layer === layer && s.modality === modality) : []
   const onSignals = TELEMETRY_SIGNALS.filter((s) => value[s.id as SignalId])
+
+  // Review's "Create the command" needs something to put in it: at least one signal, and somewhere to send it.
+  const canCreate = onSignals.length > 0 && value.exportEndpoint.trim() !== ''
 
   // Where Back from Destination, and from Review, both land: whichever screen was last worth seeing
   // before Destination - Scope when this session actually needed one, otherwise Kind (or, for a scope
@@ -355,7 +362,7 @@ export default function GuidedWizard({
 
       {/* Hidden on Review: that screen is this same set, already grouped and spelled out in full below -
           repeating it as a chip strip right above would just say the same thing twice in a row. */}
-      {onSignals.length > 0 && step !== 'review' && (
+      {onSignals.length > 0 && step !== 'review' && step !== 'run' && (
         <div className="flex flex-wrap items-center gap-1.5 border-b border-nb-850 pb-3" data-testid={`${testIdPrefix}-guided-selected`}>
           <span className="text-xs text-nb-600">Turning on:</span>
           {onSignals.map((s) => (
@@ -462,6 +469,26 @@ export default function GuidedWizard({
               {/* Destination always sits directly before Review now, whatever scopeStepNeeded is. */}
               <BackLink onClick={() => setStep('destination')} testId={`${testIdPrefix}-guided-back`} />
               <Button onClick={addAnother} data-testid={`${testIdPrefix}-guided-add-another`}><Plus size={ICON_SM} /> Add another</Button>
+              {/* The command is the last thing, not something drawn under every step: it is only worth
+                  reading once everything it contains has been decided. */}
+              <Button variant="primary" className="ml-auto" disabled={!canCreate} onClick={() => setStep('run')} data-testid={`${testIdPrefix}-guided-create-command`}>
+                Create the command
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {step === 'run' && (
+          <div className="space-y-4" data-testid={`${testIdPrefix}-guided-step-run`}>
+            <div>
+              <h3 className="text-sm font-medium text-nb-200">Apply it to the cluster</h3>
+              <p className="mt-0.5 text-xs text-nb-500" data-testid={`${testIdPrefix}-guided-run-summary`}>
+                {onSignals.length} {onSignals.length === 1 ? 'signal' : 'signals'} to {value.exportEndpoint.trim() || 'no destination yet'}. Nothing changes until the command is run.
+              </p>
+            </div>
+            {runSection}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <BackLink onClick={() => setStep('review')} testId={`${testIdPrefix}-guided-back`} />
             </div>
           </div>
         )}

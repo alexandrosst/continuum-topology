@@ -220,7 +220,9 @@ test('intent presets set every signal to exactly their combination, and leave ev
 
 test('every export preset resolves to the existing generic export.otlp shape (no destination-specific export mode)', () => {
   for (const preset of EXPORT_PRESETS) {
-    const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: preset.endpointPattern, exportProtocol: preset.protocol }
+    // A signal this preset can carry: a metrics-only or logs-only one is refused with traces turned on.
+    const signal = { metrics: 'resourceUsage', logs: 'systemLogs', traces: 'traces' }[preset.modalities?.[0] ?? 'traces']
+    const t: TelemetryInput = { ...emptyTelemetry, [signal]: true, exportEndpoint: preset.endpointPattern, exportProtocol: preset.protocol }
     const cmd = withTelemetry(base, t)
     assert.match(cmd, /--set-string telemetry\.export\.otlp\.endpoint=/, `${preset.id} should still set telemetry.export.otlp.endpoint`)
   }
