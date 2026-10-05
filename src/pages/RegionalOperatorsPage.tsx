@@ -122,9 +122,9 @@ function OperatorCreated({ created, extraProcessors, onClose }: { created: Creat
       {mtls && (
         <p className="mt-2 text-xs leading-relaxed text-nb-400" data-testid="operator-created-mtls">
           There is no receiver token for this operator. Its receiver accepts agents that present a client certificate
-          issued by this server, and a certificate is issued per agent when that agent&apos;s commands are generated (from the
-          agent&apos;s Telemetry panel). The receiver checks that the certificate came from this server&apos;s CA, not which operator
-          it was issued for, so any certificate this server issued is accepted.
+          from this operator&apos;s own certificate authority, and a certificate is issued per agent when that agent&apos;s
+          commands are generated (from the agent&apos;s Telemetry panel). A certificate issued for any other operator, or by
+          the organisation&apos;s own CA, is refused by this receiver.
         </p>
       )}
       {hasToken && (
@@ -425,8 +425,8 @@ export default function RegionalOperatorsPage() {
             </p>
             <p>
               What you actually configure, in full: <span className="text-nb-200">how its receiver authenticates agents</span>{' '}
-              - for an operator created now, the client certificate alone, with no receiver token at all (the receiver
-              accepts any client certificate this server&apos;s CA issued, not only one issued for this operator), and for an
+              - for an operator created now, the client certificate alone, with no receiver token at all (each operator has its own
+              certificate authority, so a certificate issued for another operator is refused), and for an
               older operator the bearer token it was created with, minted once and kept only as a hash;{' '}
               <span className="text-nb-200">the destination</span> it re-exports aggregated telemetry to; and, optionally,{' '}
               <span className="text-nb-200">health reporting</span>, which is what lets this page say online or offline.

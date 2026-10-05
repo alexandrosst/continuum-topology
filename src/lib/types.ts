@@ -1271,6 +1271,10 @@ export interface RegionalOperator {
   /** How its receiver authenticates agents - see ReceiverAuth. Optional so an older server (or a fixture)
    *  that does not send it reads as 'bearer'. */
   receiverAuth?: ReceiverAuth
+  /** Which CA its client certificates come from: 'operator' (its own - a certificate for another operator is
+   *  refused), 'org' (an mTLS operator created before per-operator CAs: any certificate this server's org CA
+   *  issued is accepted - the weaker legacy scope) or '' for a bearer operator. Absent reads as ''. */
+  clientCaScope?: 'operator' | 'org' | ''
   /** Its opt-in heartbeat's verdict. Absent reads as never reported. */
   health?: OperatorHealth
 }

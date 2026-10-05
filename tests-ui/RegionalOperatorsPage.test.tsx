@@ -418,7 +418,7 @@ describe('RegionalOperatorsPage - creating with and without health reporting', (
     expect(mtls).toHaveTextContent('no receiver token')
     expect(mtls).toHaveTextContent('client certificate')
     expect(mtls).toHaveTextContent('issued per agent when that agent')
-    expect(mtls).toHaveTextContent('any certificate this server issued is accepted')
+    expect(mtls).toHaveTextContent('own certificate authority')
     expect(screen.queryByText(/receiver token Secret first/)).not.toBeInTheDocument()
     expect(screen.queryByTestId('operator-secret-command')).not.toBeInTheDocument()
     expect(screen.getByTestId('operator-no-rbac-note')).toHaveTextContent('client-certificate requirement')
@@ -463,7 +463,7 @@ describe('RegionalOperatorsPage - explanatory notes', () => {
     const text = note.textContent ?? ''
     expect(text).toContain('unless you turn on health reporting')
     expect(text).toContain('client certificate alone')
-    expect(text).toContain('any client certificate this server')
+    expect(text).toContain('its own certificate authority')
     expect(text).toContain('older operator the bearer token')
     expect(text).not.toContain('a receiver bearer token (minted')
   })
