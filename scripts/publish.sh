@@ -7,7 +7,7 @@
 #   scripts/publish.sh ghcr.io/me 0.2.0    # another registry / tag (REGISTRY and TAG env work too)
 #   DRY_RUN=1 scripts/publish.sh myname    # print what it would run
 #   ONLY=image scripts/publish.sh myname   # just the image  (image | chart)
-#   ONLY=chart scripts/publish.sh myname   # just the agent chart
+#   ONLY=chart scripts/publish.sh myname   # just the charts (the agent's and the regional operator's)
 #   ONLY=server scripts/publish.sh myname  # the server image (<registry>/server) and the server chart (oci://<registry>/continuum-server)
 #
 # There is no default registry on purpose: where you publish is your decision, and nothing in the source points at anyone's namespace.
@@ -126,6 +126,10 @@ chart_push() {
 
 if want chart; then
   chart_push "$CHART_DIR" "$(oci_base "$REG")" continuum-agent
+  # The regional operator's chart goes next to it: the install command the server prints for an operator
+  # names oci://<registry>/continuum-regional-operator. It has no image of its own to publish - it runs the
+  # upstream OpenTelemetry Collector image - so only the chart is pushed.
+  chart_push backend/internal/chart/continuum-regional-operator "$(oci_base "$REG")" continuum-regional-operator
 fi
 
 # The server (control plane + UI) is a separate image and chart. It runs in ONE place, so amd64 only by default

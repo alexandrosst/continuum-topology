@@ -338,15 +338,11 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 	if heartbeatURL != "" {
 		fmt.Fprintf(&b, " \\\n  %s", operatorHeartbeatSetFlags(op, heartbeatURL))
 	}
-	if img.Configured() {
-		fmt.Fprintf(&b, " \\\n  --set image.repository=%s/continuum-regional-operator", img.Registry)
-		if img.Tag != "" {
-			fmt.Fprintf(&b, " \\\n  --set image.tag=%s", img.Tag)
-		}
-		if img.Digest != "" {
-			fmt.Fprintf(&b, " \\\n  --set image.digest=%s", img.Digest)
-		}
-	}
+	// No image flags, on purpose. The operator runs the upstream OpenTelemetry Collector image the chart
+	// already names - not the `continuum` image the configured registry holds - so pointing it at
+	// <registry>/continuum-regional-operator (an image nothing ever published) made every install of it
+	// fail with ImagePullBackOff. A cluster that must pull from its own registry sets image.repository
+	// and image.tag itself (see the chart's values.yaml).
 	if !mtlsOnly {
 		secretCmd = applySecretCommand(secretName, "continuum-system", "token="+secret)
 	}

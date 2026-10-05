@@ -3,6 +3,8 @@ package server
 import (
 	"strings"
 	"testing"
+
+	"continuum/internal/store"
 )
 
 // What an agent reports about itself is pasted into commands, so only plain Kubernetes names count.
@@ -28,5 +30,18 @@ func TestApplySecretCommandIsCreateOrUpdate(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "| kubectl apply -f -") {
 		t.Fatal("not an apply")
+	}
+}
+
+// The regional operator runs the upstream collector image its chart names. A configured registry holds the
+// `continuum` image, not an operator one, so the command must not point the operator's image at it.
+func TestOperatorInstallCommandNeverOverridesTheImage(t *testing.T) {
+	a := newAdminRig(t)
+	op := store.Operator{ID: "op-abc123", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS,
+		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "c:4317"}}
+	img := ImageConfig{Registry: "ghcr.io/me", Tag: "0.2.0-dev", Digest: "sha256:" + strings.Repeat("a", 64)}
+	got, _ := a.a.operatorInstallCommand(img, "", op, OperatorTLSBundle{ReceiverCertPEM: []byte("x")}, "")
+	if strings.Contains(got, "image.") {
+		t.Fatalf("operator install command sets an image: %s", got)
 	}
 }
