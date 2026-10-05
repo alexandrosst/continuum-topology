@@ -28,6 +28,14 @@ export interface ExportPreset {
   protocol: 'grpc' | 'http'
   httpOnly?: boolean
   modalities?: Modality[]
+  /** 'self-hosted' for something the person runs themselves (shown in its own group); absent means a
+   *  hosted/cloud service. */
+  group?: 'self-hosted'
+  /** An in-cluster receiver that speaks plain text (no TLS) by default: picking it turns "skip TLS
+   *  verification" on, which for this chart's exporter is what makes it use http:// / a plaintext gRPC channel. */
+  plain?: boolean
+  /** Extra words the destination search matches on (a Grafana stack's pieces all answer to "grafana"). */
+  keywords?: string[]
   note?: string
   docsUrl: string
 }
@@ -81,6 +89,8 @@ export const EXPORT_PRESETS: ExportPreset[] = [
     headerName: '',
     protocol: 'grpc',
     modalities: ['traces'],
+    group: 'self-hosted',
+    plain: true,
     note: 'Traces only - leave the other signals off, or point them somewhere else.',
     docsUrl: 'https://www.jaegertracing.io/docs/latest/apis/#opentelemetry-otlp',
   },
@@ -114,11 +124,80 @@ export const EXPORT_PRESETS: ExportPreset[] = [
     docsUrl: 'https://www.elastic.co/guide/en/apm/guide/current/open-telemetry-elastic.html',
   },
   {
+    id: 'prometheus',
+    label: 'Prometheus',
+    endpointPattern: 'prometheus.<namespace>.svc:9090/api/v1/otlp',
+    headerName: '',
+    protocol: 'http',
+    httpOnly: true,
+    modalities: ['metrics'],
+    group: 'self-hosted',
+    plain: true,
+    note: 'Metrics only. Prometheus must run with --web.enable-otlp-receiver for this to work.',
+    docsUrl: 'https://prometheus.io/docs/guides/opentelemetry/',
+  },
+  {
+    id: 'loki',
+    label: 'Grafana Loki',
+    endpointPattern: 'loki.<namespace>.svc:3100/otlp',
+    headerName: '',
+    protocol: 'http',
+    httpOnly: true,
+    modalities: ['logs'],
+    group: 'self-hosted',
+    plain: true,
+    keywords: ['grafana'],
+    note: 'Logs only.',
+    docsUrl: 'https://grafana.com/docs/loki/latest/send-data/otel/',
+  },
+  {
+    id: 'tempo',
+    label: 'Grafana Tempo',
+    endpointPattern: 'tempo.<namespace>.svc:4317',
+    headerName: '',
+    protocol: 'grpc',
+    modalities: ['traces'],
+    group: 'self-hosted',
+    plain: true,
+    keywords: ['grafana'],
+    note: 'Traces only.',
+    docsUrl: 'https://grafana.com/docs/tempo/latest/configuration/',
+  },
+  {
+    id: 'mimir',
+    label: 'Grafana Mimir',
+    endpointPattern: 'mimir-nginx.<namespace>.svc/otlp',
+    headerName: '',
+    protocol: 'http',
+    httpOnly: true,
+    modalities: ['metrics'],
+    group: 'self-hosted',
+    plain: true,
+    keywords: ['grafana'],
+    note: 'Metrics only.',
+    docsUrl: 'https://grafana.com/docs/mimir/latest/configure/configure-otel-collector/',
+  },
+  {
+    id: 'victoria-metrics',
+    label: 'VictoriaMetrics',
+    endpointPattern: 'victoria-metrics.<namespace>.svc:8428/opentelemetry',
+    headerName: '',
+    protocol: 'http',
+    httpOnly: true,
+    modalities: ['metrics'],
+    group: 'self-hosted',
+    plain: true,
+    note: 'Metrics only.',
+    docsUrl: 'https://docs.victoriametrics.com/victoriametrics/data-ingestion/opentelemetry-collector/',
+  },
+  {
     id: 'self-hosted',
     label: 'Self-hosted OTel Collector',
     endpointPattern: 'otel-gateway.example.com:4317',
     headerName: '',
     protocol: 'grpc',
+    group: 'self-hosted',
+    keywords: ['collector', 'gateway', 'otlp'],
     docsUrl: 'https://opentelemetry.io/docs/collector/',
   },
 ]

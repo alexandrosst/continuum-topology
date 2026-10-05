@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { applyDestination, buildDestinationCatalog, destinationKey, destinationNeedsCredential, layoutDestinations } from '@/lib/destinationCatalog'
+import { applyDestination, buildDestinationCatalog, destinationGroup, destinationKey, destinationNeedsCredential, layoutDestinations, searchDestinations } from '@/lib/destinationCatalog'
+import { detectBackends, imageRepository } from '@/lib/detectBackends'
 import { emptyTelemetry } from '@/lib/install'
 import type { QuickStartBackend } from '@/lib/history'
-import type { RegionalOperator } from '@/lib/types'
+import type { RegionalOperator, Service } from '@/lib/types'
 
 // Pure-logic test for the guided wizard's destination step (GuidedWizard.tsx): buildDestinationCatalog
 // merges regional operators, external-backend presets and already-quick-started backends into one
@@ -100,14 +101,17 @@ describe('buildDestinationCatalog: external presets', () => {
     expect(entries.find((e) => e.kind === 'external-preset' && e.id === 'honeycomb')).toBeDefined()
   })
 
-  test('Jaeger (traces only) is left out once a non-traces modality is also enabled - still unchanged, filtering only', () => {
+  test('Jaeger (traces only) stays in the catalog once a non-traces modality is enabled, but cannot carry it and says why', () => {
     const { entries } = buildDestinationCatalog({
       operators: [],
       enabledModalities: new Set(['metrics']),
       quickStartBackends: [],
       isAdmin: false,
     })
-    expect(entries.find((e) => e.kind === 'external-preset' && e.id === 'jaeger')).toBeUndefined()
+    const jaeger = entries.find((e) => e.kind === 'external-preset' && e.id === 'jaeger')
+    expect(jaeger).toBeDefined()
+    expect(jaeger!.compatible).toBe(false)
+    expect(jaeger!.reason).toBe('Takes traces only, not metrics.')
   })
 
   test('Jaeger is offered once only traces is enabled, and every preset entry reports compatible: true', () => {
@@ -124,14 +128,14 @@ describe('buildDestinationCatalog: external presets', () => {
 })
 
 describe('buildDestinationCatalog: already quick-started backends', () => {
-  test('a saved backend whose modality is not enabled at all is left out', () => {
+  test('a saved backend whose modality is not enabled at all cannot carry what is enabled, and says so', () => {
     const { entries } = buildDestinationCatalog({
       operators: [],
       enabledModalities: new Set(['metrics']),
       quickStartBackends: [backend({ modality: 'traces' })],
       isAdmin: false,
     })
-    expect(entries.find((e) => e.kind === 'quickstart')).toBeUndefined()
+    expect(entries.find((e) => e.kind === 'quickstart')).toMatchObject({ compatible: false, reason: 'Takes traces only, not metrics.' })
   })
 
   test('a saved backend whose modality is enabled, alone, is compatible and carries its computed endpoint', () => {
@@ -194,16 +198,21 @@ describe('layoutDestinations', () => {
     expect(layout.all.slice(0, 2).map(destinationKey)).toEqual(['operator-op-1', 'quickstart-qsb-1'])
   })
 
-  test('with nothing of its own, the first three presets are what is shown by default', () => {
+  test('with nothing of its own, the first three of each preset group are what is shown by default', () => {
     const layout = layoutDestinations(buildDestinationCatalog({ operators: [], enabledModalities: enabled, quickStartBackends: [], isAdmin: false }))
     expect(layout.known).toEqual([])
-    expect(layout.primary).toHaveLength(3)
+    expect(layout.sections.map((s) => s.group)).toEqual(['self', 'cloud'])
+    for (const s of layout.sections) expect(s.shown).toHaveLength(3)
     expect(layout.primary.every((e) => e.kind === 'external-preset')).toBe(true)
+    expect(layout.all.length).toBeGreaterThan(layout.primary.length)
   })
 
   test('an entry that cannot carry what is enabled is "unavailable", never in primary or all', () => {
     const layout = layoutDestinations(buildDestinationCatalog({ operators: [operator({ acceptedModalities: ['traces'] })], enabledModalities: enabled, quickStartBackends: [], isAdmin: true }))
-    expect(layout.unavailable.map(destinationKey)).toEqual(['operator-op-1'])
+    // Metrics-only presets (Prometheus...) are fine; the traces-only and logs-only ones are unavailable too.
+    expect(layout.unavailable.map(destinationKey)).toContain('operator-op-1')
+    expect(layout.unavailable.map(destinationKey)).toContain('external-preset-jaeger')
+    expect(layout.unavailable.every((e) => !!e.reason)).toBe(true)
     expect(layout.all.some((e) => e.kind === 'operator')).toBe(false)
     expect(layout.known).toEqual([])
   })
@@ -269,5 +278,105 @@ describe('applyDestination', () => {
       const e = catalog.entries.find((x) => x.kind === kind)!
       expect(applyDestination(picked, e).exportOperatorId, kind).toBe('')
     }
+  })
+})
+
+const svc = (o: Partial<Service>): Service => ({ id: 's1', name: 'loki', namespace: 'monitoring', clusterId: 'cl-1', kind: 'deployment', image: 'grafana/loki:3.1.0', replicas: 1, nodeIds: [], status: 'healthy', labels: {}, ...o }) as Service
+
+describe('imageRepository', () => {
+  test('drops registry host, tag and digest', () => {
+    expect(imageRepository('docker.io/grafana/loki:3.1.0')).toBe('grafana/loki')
+    expect(imageRepository('registry.local:5000/team/prometheus:v2@sha256:abc')).toBe('team/prometheus')
+    expect(imageRepository('otel/opentelemetry-collector-contrib:0.160.0')).toBe('otel/opentelemetry-collector-contrib')
+    expect(imageRepository('prom/prometheus')).toBe('prom/prometheus')
+  })
+})
+
+describe('detectBackends', () => {
+  test('finds a known receiver in the named cluster and builds its in-cluster address from the workload name', () => {
+    const found = detectBackends([svc({}), svc({ id: 's2', name: 'prometheus-server', image: 'quay.io/prometheus/prometheus:v3', ports: [9090] })], { clusterId: 'cl-1' })
+    expect(found.map((d) => [d.kind.id, d.endpoint])).toEqual([
+      ['loki', 'loki.monitoring.svc:3100/otlp'],
+      ['prometheus', 'prometheus-server.monitoring.svc:9090/api/v1/otlp'],
+    ])
+  })
+
+  test('ignores other clusters, the platform’s own namespace, unknown images and a workload that does not expose the receiver port', () => {
+    const found = detectBackends(
+      [
+        svc({ id: 'a', clusterId: 'cl-2' }),
+        svc({ id: 'b', namespace: 'continuum-system', image: 'otel/opentelemetry-collector-contrib:0.160.0' }),
+        svc({ id: 'c', image: 'nginx:1.27' }),
+        svc({ id: 'd', ports: [3101] }),
+      ],
+      { clusterId: 'cl-1' },
+    )
+    expect(found).toEqual([])
+  })
+})
+
+describe('buildDestinationCatalog: found in the cluster', () => {
+  const catalog = (enabled: Array<'metrics' | 'logs' | 'traces'>, clusterId = 'cl-1') =>
+    buildDestinationCatalog({ operators: [], enabledModalities: new Set(enabled), quickStartBackends: [], isAdmin: false, services: [svc({})], clusterId })
+
+  test('a detected receiver leads its own group and carries the signals it takes', () => {
+    const entry = catalog(['logs']).entries.find((e) => e.kind === 'detected')!
+    expect(entry).toMatchObject({ label: 'Grafana Loki', compatible: true, accepts: ['logs'], exportEndpoint: 'loki.monitoring.svc:3100/otlp', exportProtocol: 'http' })
+    expect(destinationGroup(entry)).toBe('cluster')
+    const layout = layoutDestinations(catalog(['logs']))
+    expect(layout.sections[0].group).toBe('cluster')
+    // Something already in the cluster is enough for the presets to wait behind "show more".
+    expect(layout.primary.map(destinationKey)).toEqual([destinationKey(entry)])
+  })
+
+  test('with no cluster named nothing is detected', () => {
+    const none = buildDestinationCatalog({ operators: [], enabledModalities: new Set(['logs']), quickStartBackends: [], isAdmin: false, services: [svc({})] })
+    expect(none.entries.some((e) => e.kind === 'detected')).toBe(false)
+  })
+
+  test('it is greyed out, with a reason, when it cannot carry everything turned on', () => {
+    const entry = catalog(['logs', 'metrics']).entries.find((e) => e.kind === 'detected')!
+    expect(entry).toMatchObject({ compatible: false, reason: 'Takes logs only, not metrics.' })
+  })
+
+  test('picking it sets a plain in-cluster connection with no credential; a lone detected one is never auto-picked as "own"', () => {
+    const entry = catalog(['logs']).entries.find((e) => e.kind === 'detected')!
+    const next = applyDestination({ ...emptyTelemetry, exportAuthHeaderName: 'x-honeycomb-team', exportAuthSecretName: 'hc' }, entry)
+    expect(next).toMatchObject({ exportEndpoint: 'loki.monitoring.svc:3100/otlp', exportProtocol: 'http', exportInsecure: true, exportAuthHeaderName: '', exportAuthSecretName: '', exportOperatorId: '' })
+    expect(layoutDestinations(catalog(['logs'])).own).toEqual([])
+  })
+})
+
+describe('self-hosted presets', () => {
+  test('they form their own group, plain in-cluster, and only the ones that take what is turned on are usable', () => {
+    const catalog = buildDestinationCatalog({ operators: [], enabledModalities: new Set(['logs']), quickStartBackends: [], isAdmin: false })
+    const loki = catalog.entries.find((e) => e.kind === 'external-preset' && e.id === 'loki')!
+    expect(destinationGroup(loki)).toBe('self')
+    expect(loki.compatible).toBe(true)
+    expect(catalog.entries.find((e) => e.kind === 'external-preset' && e.id === 'prometheus')!.compatible).toBe(false)
+    const next = applyDestination(emptyTelemetry, loki)
+    expect(next).toMatchObject({ exportEndpoint: 'loki.<namespace>.svc:3100/otlp', exportProtocol: 'http', exportInsecure: true })
+    // A cloud preset picked afterwards starts verified again.
+    const honeycomb = catalog.entries.find((e) => e.kind === 'external-preset' && e.id === 'honeycomb')!
+    expect(applyDestination(next, honeycomb).exportInsecure).toBe(false)
+  })
+})
+
+describe('searchDestinations', () => {
+  const catalog = buildDestinationCatalog({ operators: [operator()], enabledModalities: new Set(['logs']), quickStartBackends: [], isAdmin: true })
+
+  test('matches name, address, group and signals, every word having to match', () => {
+    const ids = (q: string) => searchDestinations(catalog, q).usable.map(destinationKey)
+    expect(ids('grafana')).toEqual(expect.arrayContaining(['external-preset-loki', 'external-preset-grafana-cloud']))
+    expect(ids('grafana self')).toEqual(['external-preset-loki'])
+    expect(ids('EU')).toContain('operator-op-1')
+    expect(ids('nothing like this')).toEqual([])
+  })
+
+  test('reports a match that cannot carry the signals separately, with its reason', () => {
+    const r = searchDestinations(catalog, 'prometheus')
+    expect(r.usable).toEqual([])
+    expect(r.unavailable.map(destinationKey)).toEqual(['external-preset-prometheus'])
+    expect(r.unavailable[0].reason).toBe('Takes metrics only, not logs.')
   })
 })

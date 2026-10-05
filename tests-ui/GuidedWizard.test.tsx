@@ -165,6 +165,36 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     expect(screen.queryByTestId('t-guided-destination-summary')).not.toBeInTheDocument()
   })
 
+  test('the list is grouped, and searching reaches what "show more" would hide', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+    await gotoDestination(user) // metrics only
+    expect(screen.getByTestId('t-guided-destination-group-self')).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-destination-group-cloud')).toBeInTheDocument()
+    // The self-hosted collector is the fourth usable self-hosted one, so not among the first three shown.
+    expect(screen.queryByTestId('t-guided-destination-external-preset-self-hosted')).not.toBeInTheDocument()
+    await user.type(screen.getByTestId('t-guided-destination-search'), 'collector')
+    expect(screen.getByTestId('t-guided-destination-external-preset-self-hosted')).toBeInTheDocument()
+    expect(screen.queryByTestId('t-guided-destination-group-self')).not.toBeInTheDocument()
+    await user.clear(screen.getByTestId('t-guided-destination-search'))
+    await user.type(screen.getByTestId('t-guided-destination-search'), 'victoria')
+    await user.click(screen.getByTestId('t-guided-destination-external-preset-victoria-metrics'))
+    expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('VictoriaMetrics')
+    expect(latest.exportInsecure).toBe(true)
+    expect(screen.getByTestId('t-guided-destination-selfhosted-note')).toBeInTheDocument()
+  })
+
+  test('a search that only matches something unable to carry the signals shows it greyed with why; no match says so', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+    await gotoDestination(user) // metrics only
+    await user.type(screen.getByTestId('t-guided-destination-search'), 'tempo')
+    expect(screen.getByTestId('t-guided-destination-external-preset-tempo')).toHaveTextContent('Takes traces only, not metrics.')
+    await user.clear(screen.getByTestId('t-guided-destination-search'))
+    await user.type(screen.getByTestId('t-guided-destination-search'), 'zzzz')
+    expect(screen.getByTestId('t-guided-destination-no-match')).toBeInTheDocument()
+  })
+
   test('a non-administrator never sees a regional operator, and listOperators is never even called', async () => {
     const user = userEvent.setup()
     role = 'editor'
@@ -338,7 +368,7 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     const toggle = await screen.findByTestId('t-guided-destination-unavailable-toggle')
     expect(screen.queryByTestId('t-guided-destination-operator-op-eu')).not.toBeInTheDocument()
     await user.click(toggle)
-    expect(screen.getByTestId('t-guided-destination-operator-op-eu')).toHaveTextContent('only accepts traces')
+    expect(screen.getByTestId('t-guided-destination-operator-op-eu')).toHaveTextContent('Takes traces only')
   })
 
   test('picking a preset opens its connection details, pre-filled, and keeps its note after the endpoint is edited', async () => {

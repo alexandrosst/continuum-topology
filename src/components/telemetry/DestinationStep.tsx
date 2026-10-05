@@ -1,18 +1,56 @@
 import clsx from 'clsx'
-import { Check, ChevronDown, ChevronLeft, ExternalLink, Network, Rocket, Server, Cloud, type LucideIcon } from 'lucide-react'
+import { Activity, Check, ChevronDown, ChevronLeft, ExternalLink, FileText, Rocket, Search, Waypoints, type LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { buttonClass } from '@/components/ui/buttonClass'
 import { OperatorHealth } from '@/components/operators/OperatorHealth'
 import { Button, Field, ICON_MD, ICON_SM, InfoTip, Input, Select } from '@/components/ui/primitives'
-import { applyDestination, destinationEndpoint, destinationKey, destinationNeedsCredential, layoutDestinations, type DestinationCatalog, type DestinationCatalogEntry } from '@/lib/destinationCatalog'
-import type { TelemetryInput } from '@/lib/install'
+import { applyDestination, destinationEndpoint, destinationIsPlain, destinationKey, destinationNeedsCredential, layoutDestinations, searchDestinations, type DestinationCatalog, type DestinationCatalogEntry } from '@/lib/destinationCatalog'
+import { imageRepository } from '@/lib/detectBackends'
+import type { Modality, TelemetryInput } from '@/lib/install'
 import { operatorLiveness, receiverAuthOf } from '@/lib/operatorHealth'
 
 type Mode = 'list' | 'custom' | 'new'
 
-const KIND_ICON: Record<DestinationCatalogEntry['kind'], LucideIcon> = { operator: Network, 'external-preset': Cloud, quickstart: Server }
-const KIND_LABEL: Record<DestinationCatalogEntry['kind'], string> = { operator: 'Regional operator', 'external-preset': 'Backend', quickstart: 'Quick-started' }
+const SIGNAL_ICON: Record<Modality, { icon: LucideIcon; label: string }> = {
+  metrics: { icon: Activity, label: 'Metrics' },
+  logs: { icon: FileText, label: 'Logs' },
+  traces: { icon: Waypoints, label: 'Traces' },
+}
+const MODALITIES: Modality[] = ['metrics', 'logs', 'traces']
+
+/** The small tag at the right of a row: what sort of destination it is. */
+function kindLabel(e: DestinationCatalogEntry): string {
+  if (e.kind === 'operator') return 'Regional operator'
+  if (e.kind === 'quickstart') return 'Quick-started'
+  if (e.kind === 'detected') return 'Detected'
+  return e.preset.group === 'self-hosted' ? 'Self-hosted' : 'Cloud'
+}
+
+/** A destination's initials in a tile - no logos, which would need licensing and keeping up to date, and
+ *  would make the one custom-built row look less finished than the rest. */
+function monogram(label: string): string {
+  const words = label.replace(/[()·-]/g, ' ').split(/\s+/).filter(Boolean)
+  const first = words[0] ?? '?'
+  return (words.length > 1 ? first[0] + words[1][0] : first.slice(0, 2)).toUpperCase()
+}
+
+/** Which of the three signals a destination takes: lit for what it carries, dimmed for what it does not. */
+function SignalChips({ accepts, testId }: { accepts: Modality[]; testId: string }) {
+  return (
+    <span className="flex shrink-0 items-center gap-1" data-testid={testId} aria-label={`Takes ${accepts.join(', ')}`}>
+      {MODALITIES.map((m) => {
+        const { icon: Icon, label } = SIGNAL_ICON[m]
+        const on = accepts.includes(m)
+        return (
+          <span key={m} title={on ? `Takes ${label.toLowerCase()}` : `Doesn’t take ${label.toLowerCase()}`} data-on={on} className={clsx('flex size-5 items-center justify-center rounded', on ? 'bg-nb-930 text-nb-300' : 'text-nb-700 opacity-60')}>
+            <Icon size={ICON_SM} aria-hidden />
+          </span>
+        )
+      })}
+    </span>
+  )
+}
 
 /** The second line of a destination row - what a person needs to tell it apart from the others without
  *  opening anything. A regional operator's line also says what its opt-in heartbeat last told this server
@@ -26,7 +64,9 @@ function entryMeta(e: DestinationCatalogEntry): string {
     return live.kind === 'unreported' ? base : `${base} · ${live.text}`
   }
   if (e.kind === 'quickstart') return `Quick-started here · ${e.backend.modality}`
+  if (e.kind === 'detected') return `${e.exportEndpoint} · ${imageRepository(e.detected.service.image)}`
   const proto = e.preset.httpOnly ? 'OTLP/HTTP only' : e.preset.protocol === 'http' ? 'OTLP/HTTP' : 'OTLP/gRPC'
+  if (e.preset.group === 'self-hosted') return `${proto} · ${e.preset.endpointPattern}`
   return e.preset.headerName ? `${proto} · needs a credential` : proto
 }
 
@@ -34,7 +74,6 @@ function entryMeta(e: DestinationCatalogEntry): string {
  *  row, since this step shows more than a handful of them and a grid of tall cards pushes everything else
  *  below the fold. */
 function DestinationRow({ entry, selected, badge, onPick, testId }: { entry: DestinationCatalogEntry; selected: boolean; /** Why this one is recommended, when it is. */ badge?: string; onPick: () => void; testId: string }) {
-  const Icon = KIND_ICON[entry.kind]
   return (
     <button
       type="button"
@@ -48,14 +87,15 @@ function DestinationRow({ entry, selected, badge, onPick, testId }: { entry: Des
       )}
     >
       <span className={clsx('flex size-8 shrink-0 items-center justify-center rounded-lg', selected ? 'bg-accent/15 text-accent' : 'bg-nb-930 text-nb-500')} aria-hidden>
-        <Icon size={ICON_MD} />
+        <span className="text-[11px] font-semibold tracking-tight">{monogram(entry.label)}</span>
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-nb-200">{entry.label}</span>
         <span className="block truncate text-xs text-nb-500">{entryMeta(entry)}</span>
       </span>
       {badge && <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent" data-testid={`${testId}-recommended`}>{badge}</span>}
-      <span className="shrink-0 text-xs text-nb-500">{KIND_LABEL[entry.kind]}</span>
+      <SignalChips accepts={entry.accepts} testId={`${testId}-signals`} />
+      <span className={clsx('w-24 shrink-0 text-right text-xs', entry.kind === 'detected' ? 'font-medium text-accent' : 'text-nb-500')}>{kindLabel(entry)}</span>
     </button>
   )
 }
@@ -113,6 +153,7 @@ export default function DestinationStep({
   const [more, setMore] = useState(false)
   const [unavailableOpen, setUnavailableOpen] = useState(false)
   const [connOpen, setConnOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const [customDraft, setCustomDraft] = useState('')
   const [autoPicked, setAutoPicked] = useState(false)
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
@@ -129,9 +170,11 @@ export default function DestinationStep({
   useEffect(() => {
     if (autoDone.current || !catalogReady) return
     autoDone.current = true
-    if (choice !== null || endpointSet || layout.known.length !== 1) return
-    onChange(applyDestination(value, layout.known[0]))
-    onChoose(destinationKey(layout.known[0]))
+    // Only the organisation's own (a detected address is a guess from a workload's name), and only when it is
+    // the sole thing on offer at all.
+    if (choice !== null || endpointSet || layout.known.length !== 1 || layout.own.length !== 1) return
+    onChange(applyDestination(value, layout.own[0]))
+    onChoose(destinationKey(layout.own[0]))
     setAutoPicked(true)
     // Once per mount, after the catalog is ready: deliberately not re-run as `value` changes under it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -173,11 +216,28 @@ export default function DestinationStep({
   // Driven by the choice, not by the endpoint text: clearing the endpoint field to retype it must not
   // collapse the summary the person is editing back into the list.
   const showSummary = mode === 'list' && activeKey !== null && !picking
-  const visible = more ? layout.all : layout.primary
   const moreCount = layout.all.length - layout.primary.length
+  const searching = query.trim() !== ''
+  const found = searching ? searchDestinations(catalog, query) : undefined
+  const rowFor = (entry: DestinationCatalogEntry) => (
+    <DestinationRow key={destinationKey(entry)} entry={entry} selected={destinationKey(entry) === activeKey} badge={layout.recommended.has(destinationKey(entry)) ? 'Already receives this cluster' : undefined} onPick={() => choose(entry)} testId={`${p}-destination-${destinationKey(entry)}`} />
+  )
+  const unavailableRows = (entries: DestinationCatalogEntry[]) => (
+    <ul className="space-y-1.5" data-testid={searching ? `${p}-destination-search-unavailable` : `${p}-destination-unavailable`}>
+      {entries.map((e) => (
+        <li key={destinationKey(e)} className="flex items-center gap-3 rounded-xl border border-dashed border-nb-850 px-3.5 py-2 text-xs text-nb-500" data-testid={`${p}-destination-${destinationKey(e)}`}>
+          <span className="min-w-0 flex-1 truncate text-nb-400">{e.label}</span>
+          <span className="text-right">{e.reason}</span>
+          <SignalChips accepts={e.accepts} testId={`${p}-destination-${destinationKey(e)}-signals`} />
+        </li>
+      ))}
+    </ul>
+  )
   const isOperator = selected?.kind === 'operator'
   const preset = selected?.kind === 'external-preset' ? selected.preset : undefined
-  const endpointEditable = !selected || selected.kind === 'external-preset'
+  // A preset's pattern and a detected workload's guessed address are both starting points to correct.
+  const endpointEditable = !selected || selected.kind === 'external-preset' || selected.kind === 'detected'
+  const plain = !!selected && destinationIsPlain(selected)
   const unresolved = /<[^>]+>/.test(value.exportEndpoint)
   const name = selected ? selected.label : 'Custom endpoint'
   // How the chosen operator's receiver authenticates this agent. Only a bearer one (every operator from before
@@ -192,7 +252,7 @@ export default function DestinationStep({
     ? operatorBearer
       ? `OTLP/gRPC · mTLS${secretNamed ? ` · receiver token from Secret ${value.exportAuthSecretName.trim()}` : ''}`
       : 'OTLP/gRPC · mTLS · client certificate only'
-    : `${value.exportProtocol === 'http' ? 'OTLP/HTTP' : 'OTLP/gRPC'} · ${secretNamed ? `credential from Secret ${value.exportAuthSecretName.trim()}` : 'no credential'} · TLS ${value.exportInsecure ? 'not verified' : 'verified'}`
+    : `${value.exportProtocol === 'http' ? 'OTLP/HTTP' : 'OTLP/gRPC'} · ${secretNamed ? `credential from Secret ${value.exportAuthSecretName.trim()}` : 'no credential'} · ${value.exportInsecure ? (plain ? 'plain in-cluster connection (no TLS)' : 'TLS not verified') : 'TLS verified'}`
 
   return (
     <div className="space-y-3" data-testid={`${p}-step-destination`}>
@@ -208,11 +268,38 @@ export default function DestinationStep({
               Keep {name}
             </button>
           )}
-          {visible.length > 0 ? (
-            <div className="space-y-2" role="radiogroup" aria-label="Destination">
-              {visible.map((entry) => (
-                <DestinationRow key={destinationKey(entry)} entry={entry} selected={destinationKey(entry) === activeKey} badge={layout.recommended.has(destinationKey(entry)) ? 'Already receives this cluster' : undefined} onPick={() => choose(entry)} testId={`${p}-destination-${destinationKey(entry)}`} />
-              ))}
+          <div className="relative">
+            <Search size={ICON_SM} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-nb-500" aria-hidden />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search - a name, a signal, “loki”, “logs”…" aria-label="Search destinations" className="pl-9" data-testid={`${p}-destination-search`} />
+          </div>
+
+          {found ? (
+            <div className="space-y-2" data-testid={`${p}-destination-results`}>
+              {found.usable.length > 0 && (
+                <div className="space-y-2" role="radiogroup" aria-label="Destination">
+                  {found.usable.map(rowFor)}
+                </div>
+              )}
+              {found.unavailable.length > 0 && unavailableRows(found.unavailable)}
+              {found.usable.length === 0 && found.unavailable.length === 0 && (
+                <div className="rounded-xl border border-dashed border-nb-800 p-4 text-sm text-nb-400" data-testid={`${p}-destination-no-match`}>
+                  Nothing matches “{query.trim()}”. Use a custom endpoint below if yours isn’t listed.
+                </div>
+              )}
+            </div>
+          ) : layout.all.length > 0 ? (
+            <div className="space-y-4" role="radiogroup" aria-label="Destination">
+              {layout.sections.map((section) => {
+                const rows = more ? section.entries : section.shown
+                if (rows.length === 0) return null
+                return (
+                  <section key={section.group} className="space-y-2" data-testid={`${p}-destination-group-${section.group}`}>
+                    <h4 className="text-[11px] font-medium uppercase tracking-wide text-nb-500">{section.title}</h4>
+                    {section.group === 'cluster' && <p className="-mt-1 text-xs text-nb-500">Receivers discovery already sees running here. The address is worked out from the workload’s name - check it before you rely on it.</p>}
+                    {rows.map(rowFor)}
+                  </section>
+                )
+              })}
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-nb-800 p-4 text-sm text-nb-400" data-testid={`${p}-destination-empty`}>
@@ -220,7 +307,7 @@ export default function DestinationStep({
             </div>
           )}
 
-          {(moreCount > 0 || layout.unavailable.length > 0) && (
+          {!searching && (moreCount > 0 || layout.unavailable.length > 0) && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
               {moreCount > 0 && (
                 <button type="button" className="text-accent hover:underline" onClick={() => setMore((m) => !m)} data-testid={`${p}-destination-more`}>
@@ -234,16 +321,7 @@ export default function DestinationStep({
               )}
             </div>
           )}
-          {unavailableOpen && (
-            <ul className="space-y-1.5" data-testid={`${p}-destination-unavailable`}>
-              {layout.unavailable.map((e) => (
-                <li key={destinationKey(e)} className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-nb-850 px-3.5 py-2 text-xs text-nb-500" data-testid={`${p}-destination-${destinationKey(e)}`}>
-                  <span className="text-nb-400">{e.label}</span>
-                  <span className="text-right">{'reason' in e ? e.reason : ''}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          {!searching && unavailableOpen && unavailableRows(layout.unavailable)}
 
           <div className="flex flex-wrap items-center gap-2 border-t border-nb-850 pt-3">
             <span className="mr-1 text-xs text-nb-500">Not listed?</span>
@@ -341,6 +419,13 @@ export default function DestinationStep({
               {unresolved && (
                 <p role="alert" className="text-xs text-warn" data-testid={`${p}-destination-placeholder`}>
                   Replace the &lt;…&gt; parts with your own account’s values.
+                </p>
+              )}
+              {preset?.group === 'self-hosted' && preset.note && <p className="text-xs text-nb-400" data-testid={`${p}-destination-selfhosted-note`}>{preset.note}</p>}
+              {selected?.kind === 'detected' && (
+                <p className="text-xs text-nb-400" data-testid={`${p}-destination-detected-note`}>
+                  Found running in this cluster as {selected.detected.service.name} in {selected.detected.service.namespace}. The address is worked out from that name, so check it matches the Service in front of it.
+                  {selected.detected.kind.note ? ` ${selected.detected.kind.note}` : ''}
                 </p>
               )}
               {autoPicked && <p className="text-xs text-nb-400" data-testid={`${p}-destination-auto`}>The only destination in your organisation that fits these signals, so it was picked for you.</p>}

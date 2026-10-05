@@ -12,6 +12,7 @@ import { LAYER_CARDS, LAYER_META, type Layer } from '@/lib/telemetryLayers'
 import type { RegionalOperator } from '@/lib/types'
 import { useConn, useServer } from '@/store/server'
 import { useSettings } from '@/store/settings'
+import { useTopology } from '@/store/topology'
 import DestinationStep from './DestinationStep'
 import GuidedScope from './GuidedScope'
 import { AllowedKindsControl } from './QuickStartBackends'
@@ -254,7 +255,11 @@ export default function GuidedWizard({
   }, [conn.url, conn.org, isAdmin])
 
   const enabledModalitySet = enabledModalities(value)
+  // Receivers discovery already sees running in this cluster ("Found in your cluster").
+  const { services } = useTopology()
   const catalog = buildDestinationCatalog({
+    services,
+    clusterId,
     operators,
     enabledModalities: enabledModalitySet,
     quickStartBackends: settings.quickStartBackends,
