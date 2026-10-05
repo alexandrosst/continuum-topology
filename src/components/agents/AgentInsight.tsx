@@ -19,6 +19,8 @@ import {
   scopeWords,
   sortProblems,
   telemetryUpgradeCommand,
+  telemetrySecretCommand,
+  TELEMETRY_CREDENTIAL_VAR,
   seedTelemetryFromInstalled,
   TELEMETRY_SIGNALS,
   tierName,
@@ -415,7 +417,14 @@ export function TelemetryPanel({
   // generated command used to build as if that problem didn't exist, silently disagreeing with the
   // role="alert" warning TelemetryFields (right above, given the same measurementsOn) already shows for
   // exactly that case.
-  const command = useMemo(() => telemetryUpgradeCommand(install, draft, measurementsOn), [install, draft, measurementsOn])
+  const command = useMemo(() => {
+    const upgrade = telemetryUpgradeCommand(install, draft, measurementsOn)
+    // One block to paste, not two: the Secret the credential flags name is created first, and a failure
+    // there (credential variable unset) stops everything before anything is upgraded.
+    const secret = telemetrySecretCommand(draft, measurementsOn)
+    return secret ? `${secret} && \\\n${upgrade}` : upgrade
+  }, [install, draft, measurementsOn])
+  const needsCredential = telemetrySecretCommand(draft, measurementsOn) !== undefined
 
   const form = (
     <>
@@ -423,6 +432,11 @@ export function TelemetryPanel({
       {telemetryActive(draft) && (
         <div className="mt-3 text-xs text-nb-500">
           The cluster's owner runs this in that cluster:
+          {needsCredential && (
+            <p className="mt-1" data-testid={`${testIdPrefix}-credential-hint`}>
+              First set <code className="font-mono text-nb-400">{TELEMETRY_CREDENTIAL_VAR}</code> to the destination's credential in that shell - it is read from there, so it never passes through this page.
+            </p>
+          )}
           <CopyCommand text={command} />
         </div>
       )}

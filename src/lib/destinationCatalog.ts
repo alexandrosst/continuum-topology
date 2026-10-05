@@ -1,4 +1,4 @@
-import type { Modality } from './install'
+import type { Modality, TelemetryInput } from './install'
 import { EXPORT_PRESETS, presetSupportsModalities, type ExportPreset } from './exportPresets'
 import type { QuickStartBackend } from './history'
 import { hasQuickStartSpec, quickStartSpec } from './quickStartBackends'
@@ -148,5 +148,61 @@ export function buildDestinationCatalog(opts: {
     entries: [...operatorEntries, ...presetEntries, ...quickstartEntries],
     canDeployBackend: true,
     canDeployOperator: isAdmin,
+  }
+}
+
+/** Stable identity for one catalog entry across renders - kind-qualified, since an operator id and a preset
+ *  id live in different namespaces and could in principle collide. The destination step keeps its own
+ *  "which one did the person pick" as this string, not as a match against `exportEndpoint`: a preset's
+ *  endpoint is a pattern the person then edits in place (`otlp-gateway-<region>...`), after which the text
+ *  no longer equals the entry's endpoint and a text match would forget what they picked. */
+export const destinationKey = (e: DestinationCatalogEntry): string => `${e.kind}-${e.id}`
+
+/** The endpoint text picking `e` starts the draft with (a preset's is a pattern still to be filled in). */
+export const destinationEndpoint = (e: DestinationCatalogEntry): string => (e.kind === 'external-preset' ? e.preset.endpointPattern : e.exportEndpoint)
+
+/** Whether `e` expects a credential header - only a known external preset says so; an operator authenticates
+ *  by mTLS and a quick-started in-cluster backend carries none by default. */
+export const destinationNeedsCredential = (e: DestinationCatalogEntry): boolean => e.kind === 'external-preset' && !!e.preset.headerName
+
+/** The draft with `e` picked as the destination: its endpoint, its protocol, and (for a preset that names
+ *  one) its credential header - the same three fields the flat form's own preset picker fills in. */
+export function applyDestination(value: TelemetryInput, e: DestinationCatalogEntry): TelemetryInput {
+  if (e.kind === 'external-preset') {
+    return {
+      ...value,
+      exportEndpoint: e.preset.endpointPattern,
+      exportProtocol: e.preset.protocol,
+      exportAuthHeaderName: e.preset.headerName ? e.preset.headerName : value.exportAuthHeaderName,
+    }
+  }
+  return { ...value, exportEndpoint: e.exportEndpoint, exportProtocol: e.exportProtocol }
+}
+
+/**
+ * How the destination step lays the catalog out: what is offered up front, what waits behind "show more",
+ * and what can't be used right now and why. Entries this organisation already has (a regional operator, a
+ * backend it quick-started) come first and are all that is shown by default; the built-in external presets
+ * only lead when there is nothing of the organisation's own to offer, and otherwise sit behind "show more".
+ * Entries that exist but can't carry the signals turned on stay visible, as `unavailable` with their reason.
+ */
+export function layoutDestinations(catalog: DestinationCatalog): {
+  /** Shown by default. */
+  primary: DestinationCatalogEntry[]
+  /** Everything usable, primary first - what "show more" reveals. */
+  all: DestinationCatalogEntry[]
+  /** Exists, but can't carry what is turned on - always with a reason. */
+  unavailable: DestinationCatalogEntry[]
+  /** This organisation's own usable destinations (operators and quick-started backends). */
+  known: DestinationCatalogEntry[]
+} {
+  const usable = catalog.entries.filter((e) => e.compatible)
+  const known = usable.filter((e) => e.kind !== 'external-preset')
+  const presets = usable.filter((e) => e.kind === 'external-preset')
+  return {
+    primary: known.length > 0 ? known : presets.slice(0, 3),
+    all: [...known, ...presets],
+    unavailable: catalog.entries.filter((e) => !e.compatible),
+    known,
   }
 }

@@ -217,7 +217,7 @@ export default function QuickStartBackends({ enabledModalities, onUseAsDestinati
  * *effective* set (defaults included), so unchecking one of the defaults persists the rest explicitly
  * rather than an empty "nothing allowed" list, and checking "custom" for the first time keeps the three
  * built-ins enabled alongside it. */
-function AllowedKindsControl({ allowed, busy, onChange }: { allowed: QuickStartKind[]; busy: boolean; onChange: (kinds: QuickStartKind[]) => void }) {
+export function AllowedKindsControl({ allowed, busy, onChange }: { allowed: QuickStartKind[]; busy: boolean; onChange: (kinds: QuickStartKind[]) => void }) {
   const toggle = (kind: QuickStartKind) => onChange(allowed.includes(kind) ? allowed.filter((k) => k !== kind) : [...allowed, kind])
   return (
     <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-nb-850 pb-3 text-xs">

@@ -390,61 +390,65 @@ export default function TelemetryFields({
       </>
       )}
 
-      <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
-        <Field label="Send telemetry to" hint="Pick a known backend to fill in its endpoint pattern and credential header, or type your own - an existing collector gateway or observability backend.">
-          <ComboField
-            value={value.exportEndpoint}
-            onChange={(v) => {
-              // Picking a preset also carries its known-correct protocol and credential header, not just
-              // the endpoint text - otherwise a backend that needs OTLP/HTTP (Grafana Cloud, Datadog) or a
-              // non-"Authorization" header (New Relic, SigNoz, ...) would silently deploy misconfigured
-              // even though the preset already knew the right values.
-              const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === v)
-              onChange({
-                ...value,
-                exportEndpoint: v,
-                exportProtocol: preset ? preset.protocol : value.exportProtocol,
-                exportAuthHeaderName: preset && preset.headerName ? preset.headerName : value.exportAuthHeaderName,
-              })
-            }}
-            placeholder="otel-gateway.example.com:4317"
-            options={compatiblePresets.map((p) => ({ value: p.endpointPattern, label: p.label }))}
+      {/* The guided wizard's Destination step already owns the destination, the protocol, TLS and the
+          credential - rendering this block under it as well showed every one of those choices twice. */}
+      {!guided && (
+        <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
+          <Field label="Send telemetry to" hint="Pick a known backend to fill in its endpoint pattern and credential header, or type your own - an existing collector gateway or observability backend.">
+            <ComboField
+              value={value.exportEndpoint}
+              onChange={(v) => {
+                // Picking a preset also carries its known-correct protocol and credential header, not just
+                // the endpoint text - otherwise a backend that needs OTLP/HTTP (Grafana Cloud, Datadog) or a
+                // non-"Authorization" header (New Relic, SigNoz, ...) would silently deploy misconfigured
+                // even though the preset already knew the right values.
+                const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === v)
+                onChange({
+                  ...value,
+                  exportEndpoint: v,
+                  exportProtocol: preset ? preset.protocol : value.exportProtocol,
+                  exportAuthHeaderName: preset && preset.headerName ? preset.headerName : value.exportAuthHeaderName,
+                })
+              }}
+              placeholder="otel-gateway.example.com:4317"
+              options={compatiblePresets.map((p) => ({ value: p.endpointPattern, label: p.label }))}
+            />
+          </Field>
+          <Field label="Protocol">
+            <Select
+              value={value.exportProtocol}
+              onChange={(e) => set('exportProtocol', e.target.value as TelemetryInput['exportProtocol'])}
+              data-testid={`${testIdPrefix}-export-protocol`}
+            >
+              <option value="grpc">OTLP/gRPC</option>
+              <option value="http">OTLP/HTTP</option>
+            </Select>
+          </Field>
+          {destinationNote && (
+            <p role="alert" className="text-xs text-warn sm:col-span-2">{destinationNote}</p>
+          )}
+          {!destinationNote && !modalityMismatch && exportPreset?.note && (
+            <p className="text-xs text-nb-500 sm:col-span-2">{exportPreset.note}</p>
+          )}
+          <QuickStartBackends
+            enabledModalities={enabledModalitySet}
+            onUseAsDestination={(endpoint, protocol) => onChange({ ...value, exportEndpoint: endpoint, exportProtocol: protocol })}
+            currentDestination={{ endpoint: value.exportEndpoint, protocol: value.exportProtocol }}
+            extraProcessors={value.extraProcessors}
           />
-        </Field>
-        <Field label="Protocol">
-          <Select
-            value={value.exportProtocol}
-            onChange={(e) => set('exportProtocol', e.target.value as TelemetryInput['exportProtocol'])}
-            data-testid={`${testIdPrefix}-export-protocol`}
-          >
-            <option value="grpc">OTLP/gRPC</option>
-            <option value="http">OTLP/HTTP</option>
-          </Select>
-        </Field>
-        {destinationNote && (
-          <p role="alert" className="text-xs text-warn sm:col-span-2">{destinationNote}</p>
-        )}
-        {!destinationNote && !modalityMismatch && exportPreset?.note && (
-          <p className="text-xs text-nb-500 sm:col-span-2">{exportPreset.note}</p>
-        )}
-        <QuickStartBackends
-          enabledModalities={enabledModalitySet}
-          onUseAsDestination={(endpoint, protocol) => onChange({ ...value, exportEndpoint: endpoint, exportProtocol: protocol })}
-          currentDestination={{ endpoint: value.exportEndpoint, protocol: value.exportProtocol }}
-          extraProcessors={value.extraProcessors}
-        />
-        <label className="flex cursor-pointer items-center gap-2 text-sm sm:col-span-2">
-          <input
-            type="checkbox"
-            className="size-4 accent-[var(--color-accent)]"
-            checked={value.exportInsecure}
-            onChange={(e) => set('exportInsecure', e.target.checked)}
-            data-testid={`${testIdPrefix}-export-insecure`}
-          />
-          <span className="text-nb-300">Skip TLS verification for this endpoint</span>
-          <InfoTip>Only for a self-signed or internal endpoint you already trust by other means - the connection is still encrypted, its certificate is just not checked.</InfoTip>
-        </label>
-      </div>
+          <label className="flex cursor-pointer items-center gap-2 text-sm sm:col-span-2">
+            <input
+              type="checkbox"
+              className="size-4 accent-[var(--color-accent)]"
+              checked={value.exportInsecure}
+              onChange={(e) => set('exportInsecure', e.target.checked)}
+              data-testid={`${testIdPrefix}-export-insecure`}
+            />
+            <span className="text-nb-300">Skip TLS verification for this endpoint</span>
+            <InfoTip>Only for a self-signed or internal endpoint you already trust by other means - the connection is still encrypted, its certificate is just not checked.</InfoTip>
+          </label>
+        </div>
+      )}
 
       <details
         className="group rounded-lg border border-nb-850"
@@ -453,25 +457,29 @@ export default function TelemetryFields({
         data-testid={`${testIdPrefix}-advanced`}
       >
         <summary className="flex cursor-pointer select-none items-center gap-1.5 px-3 py-2 text-xs font-medium text-nb-400 hover:text-nb-300 marker:content-none">
-          Credentials &amp; processing
+          {guided ? 'Processing options' : 'Credentials & processing'}
         </summary>
         <div className="grid gap-3 border-t border-nb-850 p-3 sm:grid-cols-2">
-          <Field label="Credential header" hint="Which header the destination expects its credential in.">
-            <Input
-              value={value.exportAuthHeaderName}
-              onChange={(e) => set('exportAuthHeaderName', e.target.value)}
-              placeholder="Authorization"
-              data-testid={`${testIdPrefix}-export-auth-header`}
-            />
-          </Field>
-          <Field label="Secret holding it" hint="A Secret you create in the release namespace, outside this chart - never the credential value itself.">
-            <Input
-              value={value.exportAuthSecretName}
-              onChange={(e) => set('exportAuthSecretName', e.target.value)}
-              placeholder="telemetry-export-token"
-              data-testid={`${testIdPrefix}-export-auth-secret`}
-            />
-          </Field>
+          {!guided && (
+            <>
+              <Field label="Credential header" hint="Which header the destination expects its credential in.">
+                <Input
+                  value={value.exportAuthHeaderName}
+                  onChange={(e) => set('exportAuthHeaderName', e.target.value)}
+                  placeholder="Authorization"
+                  data-testid={`${testIdPrefix}-export-auth-header`}
+                />
+              </Field>
+              <Field label="Secret holding it" hint="A Secret you create in the release namespace, outside this chart - never the credential value itself.">
+                <Input
+                  value={value.exportAuthSecretName}
+                  onChange={(e) => set('exportAuthSecretName', e.target.value)}
+                  placeholder="telemetry-export-token"
+                  data-testid={`${testIdPrefix}-export-auth-secret`}
+                />
+              </Field>
+            </>
+          )}
           <legend className="text-xs font-medium uppercase tracking-wide text-nb-500 sm:col-span-2">Processing</legend>
           <label className="flex cursor-pointer items-start gap-2.5 text-sm">
             <input

@@ -6,7 +6,7 @@
  * namespaces left out). Widening is done by the cluster's owner with `helm upgrade`, and this file builds the exact command.
  * Everything here is pure so that it can be tested without a browser.
  */
-import { emptyTelemetry, enabledModalities, scopeProblems, splitNames, withTelemetry, type Modality, type TelemetryInput, TELEMETRY_SIGNALS } from './install'
+import { emptyTelemetry, enabledModalities, scopeProblems, splitNames, telemetryActive, telemetryProblems, withTelemetry, type Modality, type TelemetryInput, TELEMETRY_SIGNALS } from './install'
 // Re-exported for every existing `from '@/lib/consent'` import site - Modality/TELEMETRY_SIGNALS/
 // enabledModalities now live in install.ts (see its own comment on why), consent.ts just re-exports them.
 export { enabledModalities, type Modality, TELEMETRY_SIGNALS }
@@ -350,6 +350,31 @@ export function telemetryUpgradeCommand(install: InstallInfo | undefined, t: Tel
   const version = install?.chartRef && !install.chartRef.endsWith('.tgz') && install.chartVersion ? ` --version ${install.chartVersion}` : ''
   const base = `helm upgrade continuum-agent ${ref}${version} --namespace continuum-system --reuse-values`
   return withTelemetry(base, t, measurementsOn)
+}
+
+/** The environment variable the credential is read from in `telemetrySecretCommand` - named here so the
+ *  wizard's own hint and the generated command can never disagree about it. */
+export const TELEMETRY_CREDENTIAL_VAR = 'TELEMETRY_EXPORT_TOKEN'
+
+/**
+ * The command that creates (or updates) the Secret `withTelemetry`'s credential flags point at, to run just
+ * before the upgrade - or undefined when there is nothing to create (no Secret named, telemetry off, or the
+ * draft not valid yet, in which case `telemetryUpgradeCommand` doesn't emit the credential flags either).
+ *
+ * The credential value itself never passes through this page: the command reads it from an environment
+ * variable the person sets in their own shell, and `:?` makes the shell stop with a message rather than
+ * create an empty Secret when it is unset. `--dry-run=client -o yaml | kubectl apply` makes it safe to
+ * re-run (create-or-update) where a bare `kubectl create secret` would fail the second time. A Secret name
+ * or key that isn't a plain Kubernetes name yields undefined rather than being pasted into a shell line.
+ */
+export function telemetrySecretCommand(t: TelemetryInput, measurementsOn?: boolean): string | undefined {
+  if (!telemetryActive(t) || telemetryProblems(t, measurementsOn).length) return undefined
+  const name = t.exportAuthSecretName.trim()
+  if (!name) return undefined
+  const key = t.exportAuthSecretKey.trim() || 'token'
+  if (!/^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/.test(name) || !/^[-._a-zA-Z0-9]+$/.test(key)) return undefined
+  const v = TELEMETRY_CREDENTIAL_VAR
+  return `kubectl create secret generic ${name} --namespace continuum-system --from-literal=${key}="\${${v}:?set ${v} to the credential first}" --dry-run=client -o yaml | kubectl apply -f -`
 }
 
 /* ---------- what an administrator may ask ---------- */

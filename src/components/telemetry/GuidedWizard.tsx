@@ -1,20 +1,20 @@
 import clsx from 'clsx'
-import { Activity, Check, ChevronLeft, ExternalLink, FileText, Plus, Rocket, Waypoints, X, type LucideIcon } from 'lucide-react'
+import { Activity, Check, ChevronLeft, FileText, Plus, Waypoints, X, type LucideIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { buttonClass } from '@/components/ui/buttonClass'
-import { Button, ComboField, Field, ICON_MD, ICON_SM, WizardSteps } from '@/components/ui/primitives'
+import { Button, ICON_MD, ICON_SM, WizardSteps } from '@/components/ui/primitives'
 import { api, atLeast } from '@/lib/api'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
-import { buildDestinationCatalog, type DestinationCatalogEntry } from '@/lib/destinationCatalog'
-import { EXPORT_PRESETS } from '@/lib/exportPresets'
-import { effectiveAllowedBackendKinds, type QuickStartBackend } from '@/lib/history'
+import { buildDestinationCatalog } from '@/lib/destinationCatalog'
+import { effectiveAllowedBackendKinds, type QuickStartBackend, type QuickStartKind } from '@/lib/history'
 import { enabledModalities, type TelemetryInput } from '@/lib/install'
+import { hasQuickStartSpec, quickStartSpec } from '@/lib/quickStartBackends'
 import { LAYER_CARDS, LAYER_META, type Layer } from '@/lib/telemetryLayers'
 import type { RegionalOperator } from '@/lib/types'
 import { useConn, useServer } from '@/store/server'
 import { useSettings } from '@/store/settings'
+import DestinationStep from './DestinationStep'
 import GuidedScope from './GuidedScope'
+import { AllowedKindsControl } from './QuickStartBackends'
 import { AcceleratorsFields, EnergyFields, SignalRow, type SignalId } from './TelemetryFields'
 import TelemetryBackendWizard from './TelemetryBackendWizard'
 import TelemetryReviewPipeline from './TelemetryReviewPipeline'
@@ -215,20 +215,28 @@ export default function GuidedWizard({
   const isAdmin = useServer((s) => atLeast(s.role, 'admin'))
   const { settings, save, error: settingsError } = useSettings()
   const [operators, setOperators] = useState<RegionalOperator[]>([])
+  // Whether the operator list has settled (fetched, failed, or never needed) - the destination step waits
+  // for it before auto-picking a lone match, see DestinationStep.
+  const [operatorsReady, setOperatorsReady] = useState(!isAdmin)
   useEffect(() => {
     if (!isAdmin) {
       setOperators([])
+      setOperatorsReady(true)
       return
     }
     let cancelled = false
     void api
       .listOperators(conn)
       .then((ops) => {
-        if (!cancelled) setOperators(ops)
+        if (!cancelled) {
+          setOperators(ops)
+          setOperatorsReady(true)
+        }
       })
       .catch(() => {
-        // Not fatal - the destination step simply offers no regional-operator cards; the presets, the
-        // already-quick-started backends and the free-text fallback all still work.
+        // Not fatal - the destination step simply offers no regional operators; the presets, the
+        // already-quick-started backends and the custom endpoint all still work.
+        if (!cancelled) setOperatorsReady(true)
       })
     return () => {
       cancelled = true
@@ -248,38 +256,39 @@ export default function GuidedWizard({
     quickStartBackends: settings.quickStartBackends,
     isAdmin,
   })
-  // The ComboField free-text fallback's own dropdown options are just this catalog's already-filtered
-  // preset entries, read back out - never a second, independently-filtered list that could drift from
-  // the cards above it.
-  const comboOptions = catalog.entries.filter((e): e is DestinationCatalogEntry & { kind: 'external-preset' } => e.kind === 'external-preset').map((e) => ({ value: e.preset.endpointPattern, label: e.preset.label }))
-
-  const destinationEndpoint = (entry: DestinationCatalogEntry): string => (entry.kind === 'external-preset' ? entry.preset.endpointPattern : entry.exportEndpoint)
-  const destinationHint = (entry: DestinationCatalogEntry): string => {
-    if ('reason' in entry && entry.reason) return entry.reason
-    if (entry.kind === 'operator') return 'Regional operator in this organisation.'
-    if (entry.kind === 'quickstart') return `Already quick-started here · ${entry.backend.modality}.`
-    return 'Known external backend.'
-  }
-  const applyDestinationEntry = (entry: DestinationCatalogEntry) => {
-    if (entry.kind === 'external-preset') {
-      onChange({
-        ...value,
-        exportEndpoint: entry.preset.endpointPattern,
-        exportProtocol: entry.preset.protocol,
-        exportAuthHeaderName: entry.preset.headerName ? entry.preset.headerName : value.exportAuthHeaderName,
-      })
-    } else {
-      onChange({ ...value, exportEndpoint: entry.exportEndpoint, exportProtocol: entry.exportProtocol })
-    }
-  }
+  // Which catalog entry the person picked (DestinationStep's own destinationKey), or 'custom' - held here,
+  // not in the step, so it survives leaving Destination for Review and coming back.
+  const [destChoice, setDestChoice] = useState<string | null>(null)
 
   const [backendWizardOpen, setBackendWizardOpen] = useState(false)
   const [backendBusy, setBackendBusy] = useState(false)
+  // Back from "set up a new backend" lands on the Destination summary with that backend already picked,
+  // not on a list the person has to find it in again. Same guard the catalog applies to a quick-started
+  // backend: it only ever carries one modality, so it can only be THE destination while that is the only
+  // modality turned on - otherwise it stays in the list, shown unavailable with its reason.
+  const chooseDeployedBackend = (rec: QuickStartBackend) => {
+    if (!hasQuickStartSpec(rec.kind) || enabledModalitySet.size !== 1 || !enabledModalitySet.has(rec.modality)) return
+    const spec = quickStartSpec(rec.kind)
+    onChange({ ...value, exportEndpoint: spec.exportEndpoint(rec.namespace), exportProtocol: spec.exportProtocol })
+    setDestChoice(`quickstart-${rec.id}`)
+  }
+  const [kindsBusy, setKindsBusy] = useState(false)
+  const saveAllowedKinds = async (kinds: QuickStartKind[]) => {
+    setKindsBusy(true)
+    try {
+      await save(conn, { ...settings, allowedBackendKinds: kinds })
+    } finally {
+      setKindsBusy(false)
+    }
+  }
   const saveBackend = async (rec: QuickStartBackend) => {
     setBackendBusy(true)
     try {
       const ok = await save(conn, { ...settings, quickStartBackends: [...settings.quickStartBackends, rec] })
-      if (ok) setBackendWizardOpen(false)
+      if (ok) {
+        setBackendWizardOpen(false)
+        chooseDeployedBackend(rec)
+      }
     } finally {
       setBackendBusy(false)
     }
@@ -408,55 +417,19 @@ export default function GuidedWizard({
         )}
 
         {step === 'destination' && (
-          <div className="space-y-3" data-testid={`${testIdPrefix}-guided-step-destination`}>
-            <p className="text-xs text-nb-500">Where should this go? Pick a destination already known to this organisation, or type your own below.</p>
-            {catalog.entries.length > 0 && (
-              <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Destination">
-                {catalog.entries.map((entry) => (
-                  <PickCard
-                    key={`${entry.kind}-${entry.id}`}
-                    label={entry.label}
-                    hint={destinationHint(entry)}
-                    selected={entry.compatible && value.exportEndpoint.trim() !== '' && value.exportEndpoint === destinationEndpoint(entry)}
-                    disabled={!entry.compatible}
-                    title={'reason' in entry ? entry.reason : undefined}
-                    onClick={() => applyDestinationEntry(entry)}
-                    testId={`${testIdPrefix}-guided-destination-${entry.kind}-${entry.id}`}
-                  />
-                ))}
-              </div>
-            )}
-            <Field label="Or type your own endpoint" hint="Not every backend is in the list above - an existing collector gateway or observability backend works exactly as it does on the flat form.">
-              <ComboField
-                value={value.exportEndpoint}
-                onChange={(v) => {
-                  const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === v)
-                  onChange({
-                    ...value,
-                    exportEndpoint: v,
-                    exportProtocol: preset ? preset.protocol : value.exportProtocol,
-                    exportAuthHeaderName: preset && preset.headerName ? preset.headerName : value.exportAuthHeaderName,
-                  })
-                }}
-                placeholder="otel-gateway.example.com:4317"
-                options={comboOptions}
-              />
-            </Field>
-            <div className="flex flex-wrap items-center gap-2 border-t border-nb-850 pt-3">
-              <Button type="button" size="sm" onClick={() => setBackendWizardOpen(true)} data-testid={`${testIdPrefix}-guided-deploy-backend`}>
-                <Rocket size={ICON_SM} /> Deploy a new backend
-              </Button>
-              {catalog.canDeployOperator && (
-                <Link to="/operators" className={buttonClass('secondary', 'sm')} data-testid={`${testIdPrefix}-guided-deploy-operator`}>
-                  <ExternalLink size={ICON_SM} /> Deploy a new regional operator
-                </Link>
-              )}
-            </div>
-            <div className="flex items-center gap-2 pt-1">
-              <BackLink onClick={() => setStep(beforeDestination)} testId={`${testIdPrefix}-guided-back`} />
-              <Button variant="primary" className="ml-auto" onClick={() => setStep('review')} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
-            </div>
-          </div>
+          <DestinationStep
+            value={value}
+            onChange={onChange}
+            testIdPrefix={testIdPrefix}
+            catalog={catalog}
+            catalogReady={operatorsReady}
+            choice={destChoice}
+            onChoose={setDestChoice}
+            onDeployBackend={() => setBackendWizardOpen(true)}
+            adminKindsControl={isAdmin ? <AllowedKindsControl allowed={effectiveAllowedBackendKinds(settings.allowedBackendKinds)} busy={kindsBusy} onChange={(kinds) => void saveAllowedKinds(kinds)} /> : undefined}
+            onBack={() => setStep(beforeDestination)}
+            onContinue={() => setStep('review')}
+          />
         )}
 
         {step === 'review' && (

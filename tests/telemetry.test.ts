@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { emptyTelemetry, scopeOverlap, telemetryActive, telemetryProblems, withTelemetry, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
 import { newProcessorEntry } from '../src/lib/processorCatalog'
-import { applyIntentPreset, seedTelemetryFromInstalled, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetryUpgradeCommand } from '../src/lib/consent'
+import { applyIntentPreset, seedTelemetryFromInstalled, TELEMETRY_CREDENTIAL_VAR, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetrySecretCommand, telemetryUpgradeCommand } from '../src/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '../src/lib/exportPresets'
 
 const base = 'helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace'
@@ -356,4 +356,28 @@ test('scopeOverlap: the shared namespace names between two scopes, or none', () 
   assert.deepEqual(scopeOverlap(a, { namespaces: ['ops'], exclude: [] }), [])
   assert.deepEqual(scopeOverlap(a, { namespaces: [], exclude: ['shop'] }), [], 'a shared exclude is not a claim on the same namespace, so it is not an overlap')
   assert.deepEqual(scopeOverlap({ namespaces: [], exclude: [] }, a), [], 'an empty scope (falls back to global) overlaps nothing')
+})
+
+test('telemetrySecretCommand creates the Secret the credential flags name, reading the value from the environment', () => {
+  const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317', exportAuthSecretName: 'telemetry-token', exportAuthSecretKey: '' }
+  const cmd = telemetrySecretCommand(t)!
+  assert.match(cmd, /^kubectl create secret generic telemetry-token --namespace continuum-system --from-literal=token=/)
+  // The value is never in the command: it is read from the shell, and an unset variable stops the command.
+  assert.ok(cmd.includes(`"\${${TELEMETRY_CREDENTIAL_VAR}:?set ${TELEMETRY_CREDENTIAL_VAR} to the credential first}"`))
+  // Create-or-update, so re-running the command doesn't fail on the Secret already existing.
+  assert.match(cmd, /--dry-run=client -o yaml \| kubectl apply -f -$/)
+  // The same name and key the upgrade command's own flags point at.
+  const upgrade = telemetryUpgradeCommand(undefined, t)
+  assert.match(upgrade, /auth\.secretName=telemetry-token/)
+  assert.match(upgrade, /auth\.secretKey=token/)
+})
+
+test('telemetrySecretCommand is undefined when there is nothing valid to create', () => {
+  const on: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317' }
+  assert.equal(telemetrySecretCommand(on), undefined, 'no Secret named')
+  assert.equal(telemetrySecretCommand({ ...emptyTelemetry, exportAuthSecretName: 'telemetry-token' }), undefined, 'telemetry off')
+  assert.equal(telemetrySecretCommand({ ...on, exportEndpoint: '', exportAuthSecretName: 'telemetry-token' }), undefined, 'draft invalid, so the upgrade command carries no credential flags either')
+  // A name that is not a plain Kubernetes name is never pasted into a shell line.
+  assert.equal(telemetrySecretCommand({ ...on, exportAuthSecretName: 'x; rm -rf /' }), undefined)
+  assert.equal(telemetrySecretCommand({ ...on, exportAuthSecretName: 'ok', exportAuthSecretKey: 'a b' }), undefined)
 })

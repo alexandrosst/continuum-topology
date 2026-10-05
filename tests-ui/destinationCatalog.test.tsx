@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import { buildDestinationCatalog } from '@/lib/destinationCatalog'
+import { applyDestination, buildDestinationCatalog, destinationKey, destinationNeedsCredential, layoutDestinations } from '@/lib/destinationCatalog'
+import { emptyTelemetry } from '@/lib/install'
 import type { QuickStartBackend } from '@/lib/history'
 import type { RegionalOperator } from '@/lib/types'
 
@@ -178,5 +179,54 @@ describe('buildDestinationCatalog: deploy entry points', () => {
   test('canDeployOperator mirrors isAdmin exactly - creating a regional operator is adminRole-gated server-side', () => {
     expect(buildDestinationCatalog({ operators: [], enabledModalities: new Set(), quickStartBackends: [], isAdmin: false }).canDeployOperator).toBe(false)
     expect(buildDestinationCatalog({ operators: [], enabledModalities: new Set(), quickStartBackends: [], isAdmin: true }).canDeployOperator).toBe(true)
+  })
+})
+
+describe('layoutDestinations', () => {
+  const enabled = new Set(['metrics'] as const)
+
+  test('the organisation\'s own destinations lead and are all that is shown by default; presets wait behind "more"', () => {
+    const catalog = buildDestinationCatalog({ operators: [operator()], enabledModalities: new Set(['traces']), quickStartBackends: [backend()], isAdmin: true })
+    const layout = layoutDestinations(catalog)
+    expect(layout.known.map(destinationKey)).toEqual(['operator-op-1', 'quickstart-qsb-1'])
+    expect(layout.primary.map(destinationKey)).toEqual(['operator-op-1', 'quickstart-qsb-1'])
+    expect(layout.all.length).toBeGreaterThan(layout.primary.length)
+    expect(layout.all.slice(0, 2).map(destinationKey)).toEqual(['operator-op-1', 'quickstart-qsb-1'])
+  })
+
+  test('with nothing of its own, the first three presets are what is shown by default', () => {
+    const layout = layoutDestinations(buildDestinationCatalog({ operators: [], enabledModalities: enabled, quickStartBackends: [], isAdmin: false }))
+    expect(layout.known).toEqual([])
+    expect(layout.primary).toHaveLength(3)
+    expect(layout.primary.every((e) => e.kind === 'external-preset')).toBe(true)
+  })
+
+  test('an entry that cannot carry what is enabled is "unavailable", never in primary or all', () => {
+    const layout = layoutDestinations(buildDestinationCatalog({ operators: [operator({ acceptedModalities: ['traces'] })], enabledModalities: enabled, quickStartBackends: [], isAdmin: true }))
+    expect(layout.unavailable.map(destinationKey)).toEqual(['operator-op-1'])
+    expect(layout.all.some((e) => e.kind === 'operator')).toBe(false)
+    expect(layout.known).toEqual([])
+  })
+})
+
+describe('applyDestination', () => {
+  test('a preset carries its endpoint pattern, protocol and credential header', () => {
+    const catalog = buildDestinationCatalog({ operators: [], enabledModalities: new Set(['metrics']), quickStartBackends: [], isAdmin: false })
+    const grafana = catalog.entries.find((e) => e.kind === 'external-preset' && e.id === 'grafana-cloud')!
+    const next = applyDestination(emptyTelemetry, grafana)
+    expect(next.exportEndpoint).toBe('otlp-gateway-<region>.grafana.net/otlp')
+    expect(next.exportProtocol).toBe('http')
+    expect(next.exportAuthHeaderName).toBe('Authorization')
+    expect(destinationNeedsCredential(grafana)).toBe(true)
+  })
+
+  test('an operator carries its in-cluster receiver over gRPC and leaves the credential header alone', () => {
+    const catalog = buildDestinationCatalog({ operators: [operator()], enabledModalities: new Set(['metrics']), quickStartBackends: [], isAdmin: true })
+    const op = catalog.entries.find((e) => e.kind === 'operator')!
+    const next = applyDestination({ ...emptyTelemetry, exportAuthHeaderName: 'x-keep' }, op)
+    expect(next.exportEndpoint).toBe('op-1.continuum-system.svc:4317')
+    expect(next.exportProtocol).toBe('grpc')
+    expect(next.exportAuthHeaderName).toBe('x-keep')
+    expect(destinationNeedsCredential(op)).toBe(false)
   })
 })
