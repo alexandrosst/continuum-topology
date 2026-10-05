@@ -22,8 +22,9 @@ import (
 // authentication on accounts, 6 an optional email address on accounts (verified-at, and whether it is turned
 // on as a second sign-in factor), 7 optional passkeys/security keys (WebAuthn) on accounts, 8 a regional
 // operator's accepted modalities (telemetry_intents is a new table, not a migration - see the schema string),
-// 9 an operator's optional heartbeat credential and last-seen time.
-const SchemaVersion = 9
+// 9 an operator's optional heartbeat credential and last-seen time, 10 an operator's receiver auth mode
+// (bearer token or mTLS client certificate only).
+const SchemaVersion = 10
 
 // ErrSchemaNewer is returned when the database was written by a newer version of the software.
 var ErrSchemaNewer = errors.New("the database was written by a newer version of Continuum")

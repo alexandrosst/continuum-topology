@@ -196,6 +196,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 		"--set telemetry.resource.orgId=%s --set telemetry.resource.clusterId=%s --set telemetry.resource.intentId=%s",
 		a.core(r).OrgID, agent.ClusterID, ti.ID)
 	secretCommands := []string{}
+	resp := map[string]any{}
 	if ti.Destination.Kind == store.DestinationOperator {
 		op, err := a.core(r).GetOperator(r.Context(), ti.Destination.TargetOperatorID)
 		if err != nil {
@@ -211,9 +212,14 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 		rns, _, _ := releaseTarget(hub.NamespaceOf(agent.ID), hub.ReleaseNameOf(agent.ID))
 		setFlags, secretCmd := operatorDestinationCommand(op, certPEM, keyPEM, caPEM, rns)
 		installFragment += " " + setFlags
+		// Whether the person must also supply a receiver bearer token: not for an "mtls" operator, whose
+		// only gate is the client certificate in the Secret above; for a "bearer" one the flags are exactly
+		// what they always were and the caller still supplies the token itself.
+		resp["receiverAuth"] = string(op.ReceiverAuth)
 		if secretCmd != "" {
 			secretCommands = append(secretCommands, secretCmd)
 		}
 	}
-	writeJSON(w, 200, map[string]any{"installFragment": installFragment, "secretCommands": secretCommands})
+	resp["installFragment"], resp["secretCommands"] = installFragment, secretCommands
+	writeJSON(w, 200, resp)
 }

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: continuum-regional-operator
-description: Standalone OTel Collector that aggregates telemetry already exported by a set of Continuum agents' clusters and re-exports it to one destination. By default it never dials the Continuum server - its only credential is the receiver bearer token it is installed with. With the opt-in heartbeat.enabled it also sends a periodic liveness check (its own health endpoint's result, no telemetry) to the Continuum server, authenticated by a separate heartbeat secret.
+description: Standalone OTel Collector that aggregates telemetry already exported by a set of Continuum agents' clusters and re-exports it to one destination. By default it never dials the Continuum server. What it checks is inbound only, namely the org-CA mTLS client certificate each source cluster presents (the only gate for operators Continuum creates today) or, for older operators, a receiver bearer token. With the opt-in heartbeat.enabled it also sends a periodic liveness check (its own health endpoint's result, no telemetry) to the Continuum server, authenticated by a separate heartbeat secret.
 type: application
 version: 0.1.0
 appVersion: "0.1.0-dev"

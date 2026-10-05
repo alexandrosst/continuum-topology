@@ -54,6 +54,9 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- if and .Values.receiver.tls.enabled (not .Values.receiver.tls.secretName) -}}
 {{- fail "receiver.tls.enabled requires receiver.tls.secretName (a Secret holding tls.crt, tls.key, and - if receiver.tls.mtls is also on - ca.crt)" -}}
 {{- end -}}
+{{- if and .Values.receiver.requireAuth (not .Values.receiver.auth.enabled) (not (and .Values.receiver.tls.enabled .Values.receiver.tls.mtls)) -}}
+{{- fail "receiver.requireAuth is set, but nothing would authenticate the receiver: enable receiver.auth (a bearer token) or receiver.tls with receiver.tls.mtls (a required client certificate). Refusing to render an open receiver." -}}
+{{- end -}}
 {{- if .Values.heartbeat.enabled -}}
 {{- if not .Values.heartbeat.url -}}{{- fail "heartbeat.enabled requires heartbeat.url (the Continuum server's heartbeat address, https://<server>/api/v1/operator-heartbeat)" -}}{{- end -}}
 {{- if not (regexMatch "^https?://[^\\s/]+" (toString .Values.heartbeat.url)) -}}{{- fail (printf "heartbeat.url must be an http(s) URL, got %q" (toString .Values.heartbeat.url)) -}}{{- end -}}

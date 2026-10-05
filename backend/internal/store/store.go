@@ -135,10 +135,25 @@ const (
 	ModalityTraces  Modality = "traces"
 )
 
+// ReceiverAuth is how a regional operator's OTLP receiver authenticates what exports into it.
+type ReceiverAuth string
+
+const (
+	// ReceiverAuthBearer: the receiver requires a bearer token (its hash is ReceiverAuthTokenHash), as it
+	// did for every operator created before ReceiverAuth existed. Also what an operator falls back to if
+	// its mTLS material could not be minted at creation, so a receiver is never left with no gate at all.
+	ReceiverAuthBearer ReceiverAuth = "bearer"
+	// ReceiverAuthMTLS: the receiver's only gate is TLS with a required client certificate signed by this
+	// organisation's CA (every source cluster presents one). No bearer token exists for it:
+	// ReceiverAuthTokenHash is empty.
+	ReceiverAuthMTLS ReceiverAuth = "mtls"
+)
+
 // Operator is a regional operator: a standalone OTel Collector that aggregates telemetry already
 // exported by a set of approved agents' clusters (SourceClusterIDs) and re-exports it to Destination.
-// Unlike Agent it does not connect back to the server by default - ReceiverAuthTokenHash is the only
-// credential it needs, checked when something exports into it, not when it starts up. The one optional
+// Unlike Agent it does not connect back to the server by default - what it checks is on its inbound side
+// only, when something exports into it (see ReceiverAuth: a required mTLS client certificate, or a bearer
+// token whose hash is ReceiverAuthTokenHash), not when it starts up. The one optional
 // exception is the heartbeat (HeartbeatHash): an operator that opted in sends a content-free "I am alive"
 // request, with its own secret, so the server can tell online from offline.
 type Operator struct {
@@ -155,9 +170,14 @@ type Operator struct {
 	// field existed, and so what every operator row written before it was added keeps reading back as
 	// (see telemetry_migrate.go).
 	AcceptedModalities []Modality
-	// ReceiverAuthTokenHash is the hash of the bearer token the operator's receiver expects; the token
-	// itself is minted and returned once, the same as an enrollment token.
+	// ReceiverAuthTokenHash is the hash of the bearer token a ReceiverAuthBearer operator's receiver
+	// expects; the token itself is minted and returned once, the same as an enrollment token. Empty for a
+	// ReceiverAuthMTLS operator, which has no token.
 	ReceiverAuthTokenHash []byte
+	// ReceiverAuth says which gate the receiver has. Rows from before this field read back as
+	// ReceiverAuthBearer - they were all installed with receiver.auth.enabled=true and the server cannot
+	// recover their token (it keeps only the hash), so their behaviour must not change.
+	ReceiverAuth ReceiverAuth
 	// HeartbeatHash is the hash of the secret the operator presents when it reports that it is alive (see
 	// Core.EnableOperatorHeartbeat); nil when the operator never opted in. It is a different credential from
 	// ReceiverAuthTokenHash on purpose: that one authenticates traffic INTO the operator, this one

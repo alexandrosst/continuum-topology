@@ -50,8 +50,8 @@ func TestOperatorCreatedUnderSchemaEightReadsBackWithNoHeartbeat(t *testing.T) {
 	}
 	defer up.Close()
 	var v int
-	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 9 {
-		t.Fatalf("user_version = %d (%v), want 9", v, err)
+	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
+		t.Fatalf("user_version = %d (%v), want SchemaVersion", v, err)
 	}
 	got, err := up.GetOperator(ctx, "op-v8")
 	if err != nil {

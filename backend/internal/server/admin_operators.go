@@ -54,6 +54,10 @@ type operatorDoc struct {
 	CreatedBy          string         `json:"createdBy"`
 	RevokedAt          string         `json:"revokedAt,omitempty"`
 	Reason             string         `json:"reason,omitempty"`
+	// ReceiverAuth is how the operator's receiver authenticates what exports into it: "mtls" (only the
+	// org-CA-signed client certificate every source cluster presents - no bearer token exists) or "bearer"
+	// (a bearer token, as every operator created before this field existed - read back as "bearer").
+	ReceiverAuth string `json:"receiverAuth"`
 	// Health is always present; for an operator that never opted in to a heartbeat it is
 	// {state: "unknown", reporting: false}.
 	Health operatorHealthDoc `json:"health"`
@@ -64,7 +68,7 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 	d := operatorDoc{
 		ID: op.ID, Name: op.Name, SiteID: op.SiteID, Status: string(op.Status),
 		SourceClusterIDs: op.SourceClusterIDs, Destination: toDestinationDoc(op.Destination),
-		CreatedAt: rfc(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason,
+		CreatedAt: rfc(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason, ReceiverAuth: string(op.ReceiverAuth),
 		Health: operatorHealthDoc{State: h.State, LastSeenAt: rfcp(h.LastSeenAt), Reporting: h.Reporting},
 	}
 	if op.SourceClusterIDs == nil {
@@ -141,11 +145,16 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 	}
 	install, secretCmd := a.operatorInstallCommand(img, secret, op, tlsBundle, hbURL)
 	resp := map[string]any{
-		"operator":      toOperatorDoc(op, a.core(r).Now()),
-		"token":         secret,
-		"install":       install,
-		"secretCommand": secretCmd,
-		"reminders":     a.operatorSourceReminders(r, op, tlsBundle),
+		"operator":  toOperatorDoc(op, a.core(r).Now()),
+		"install":   install,
+		"reminders": a.operatorSourceReminders(r, op, tlsBundle),
+	}
+	// A receiver bearer token exists only for a bearer operator (see operatorInstallCommand): for an mTLS
+	// one, "token" and "secretCommand" are absent - there is nothing to show, and operator.receiverAuth
+	// says why.
+	if op.ReceiverAuth != store.ReceiverAuthMTLS {
+		resp["token"] = secret
+		resp["secretCommand"] = secretCmd
 	}
 	if hbSecret != "" {
 		// The install command above already carries the heartbeat --set flags; this is the one extra
@@ -210,22 +219,17 @@ func (a *Admin) deleteOperator(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// operatorInstallCommand is installCommand's own twin for the regional-operator chart: simpler, since
-// this chart does not dial the Continuum server unless its opt-in heartbeat is on (see store.Operator's
-// own comment) - there is no server.address or enrollment.key here, only where the operator exports to and
-// the receiver token it checks incoming OTLP against, plus the heartbeat flags when asked for. Returns the `helm install` command and a companion `kubectl create
-// secret` line for the receiver token, shown once - the same convention as an enrollment token.
 // operatorReceiverTLSSecretName and operatorClientTLSSecretName are the fixed Secret names the operator
 // chart's receiver.tls.secretName and the agent chart's telemetry.export.otlp.tls.mtls.secretName default
-// install commands point at - fixed per operator so the reminders below and this function agree without
-// threading a name through both.
+// install commands point at - fixed per operator so the reminders below and operatorInstallCommand agree
+// without threading a name through both.
 func operatorReceiverTLSSecretName(op store.Operator) string { return op.ID + "-receiver-tls" }
 func operatorClientTLSSecretName(op store.Operator) string   { return op.ID + "-export-mtls" }
 
 // operatorTLSSecretCommand is the `kubectl create secret` for the operator's own receiver certificate -
 // installed once, wherever the operator itself runs. Empty if CreateOperator could not mint the TLS
-// material (a rare failure it already tolerates - see its own comment); the receiver bearer token alone
-// still works in that case, this is additive.
+// material (a rare failure it already tolerates - see its own comment): that operator is then a bearer
+// one, and the bearer token is its only gate.
 func operatorTLSSecretCommand(op store.Operator, b OperatorTLSBundle) string {
 	if len(b.ReceiverCertPEM) == 0 {
 		return ""
@@ -267,8 +271,22 @@ func (a *Admin) operatorChartArgs(img ImageConfig) (ref, version string) {
 	return ref, version
 }
 
-// operatorInstallCommand's heartbeatURL is "" for an operator that did not opt in to a heartbeat (the
-// command is then exactly what it was before heartbeats existed).
+// operatorInstallCommand is installCommand's own twin for the regional-operator chart: simpler, since this
+// chart does not dial the Continuum server unless its opt-in heartbeat is on (see store.Operator's own
+// comment) - there is no server.address or enrollment.key here, only where the operator exports to and how
+// its receiver authenticates what exports into it. Returns the `helm install` command and, for a bearer
+// operator only, a companion `kubectl create secret` line for the receiver token, shown once.
+//
+// How the receiver authenticates follows op.ReceiverAuth:
+//   - ReceiverAuthMTLS: receiver.auth.enabled=false and receiver.tls.enabled/mtls=true, so the ONLY gate is
+//     the required, org-CA-signed client certificate. receiver.requireAuth=true makes the chart refuse to
+//     render at all if either half is missing, so this operator can never be installed open. There is no
+//     receiver token: secret is unused and secretCmd is "".
+//   - ReceiverAuthBearer (every operator from before ReceiverAuth existed, and a new one whose TLS mint
+//     failed): unchanged - the bearer token, plus mTLS on top when the certificates were minted.
+//
+// heartbeatURL is "" for an operator that did not opt in to a heartbeat (the command is then exactly what
+// it was before heartbeats existed).
 func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string) (install, secretCmd string) {
 	ref, version := a.operatorChartArgs(img)
 	secretName := op.ID + "-receiver-auth"
@@ -285,10 +303,16 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 		fmt.Fprintf(&b, " \\\n  --set export.otlp.auth.headerName=%s \\\n  --set export.otlp.auth.secretName=%s \\\n  --set export.otlp.auth.secretKey=%s",
 			op.Destination.AuthHeaderName, op.Destination.AuthSecretName, op.Destination.AuthSecretKey)
 	}
-	fmt.Fprintf(&b, " \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=%s", secretName)
-	// mTLS on the receiver is additive to the bearer token above, not a replacement - see this chart's
-	// own receiver.tls comment. Only set up when CreateOperator actually minted the certificates.
-	if len(tlsBundle.ReceiverCertPEM) > 0 {
+	mtlsOnly := op.ReceiverAuth == store.ReceiverAuthMTLS
+	if mtlsOnly {
+		fmt.Fprintf(&b, " \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=%s \\\n  --set receiver.tls.mtls=true", operatorReceiverTLSSecretName(op))
+	} else {
+		fmt.Fprintf(&b, " \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=%s", secretName)
+	}
+	// For a bearer operator, mTLS on the receiver is additive to the bearer token above, not a
+	// replacement - see this chart's own receiver.tls comment. Only set up when CreateOperator actually
+	// minted the certificates.
+	if !mtlsOnly && len(tlsBundle.ReceiverCertPEM) > 0 {
 		fmt.Fprintf(&b, " \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=%s \\\n  --set receiver.tls.mtls=true", operatorReceiverTLSSecretName(op))
 	}
 	if heartbeatURL != "" {
@@ -303,7 +327,9 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 			fmt.Fprintf(&b, " \\\n  --set image.digest=%s", img.Digest)
 		}
 	}
-	secretCmd = fmt.Sprintf("kubectl create secret generic %s --namespace continuum-system --from-literal=%s=%s", secretName, "token", secret)
+	if !mtlsOnly {
+		secretCmd = fmt.Sprintf("kubectl create secret generic %s --namespace continuum-system --from-literal=%s=%s", secretName, "token", secret)
+	}
 	return b.String(), secretCmd
 }
 

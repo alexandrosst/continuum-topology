@@ -20,6 +20,19 @@ type OperatorTLSBundle struct {
 	CACertPEM                       []byte
 }
 
+// mintOperatorTLS issues an operator's receiver server certificate and the client certificate its source
+// clusters present. A variable only so a test can make the mint fail - the one path (it cannot fail in
+// practice) on which CreateOperator must fall back to a bearer-token operator.
+var mintOperatorTLS = func(c *Core, operatorID string, hosts []string) (OperatorTLSBundle, error) {
+	bundle := OperatorTLSBundle{CACertPEM: c.CA.CertPEM()}
+	var err error
+	bundle.ReceiverCertPEM, bundle.ReceiverKeyPEM, err = c.CA.IssueOperatorReceiverTLS(operatorID, c.OrgID, hosts)
+	if err == nil {
+		bundle.ClientCertPEM, bundle.ClientKeyPEM, err = c.CA.IssueOperatorClientTLS(operatorID, c.OrgID)
+	}
+	return bundle, err
+}
+
 // maxOperatorName mirrors the enrollment token's own label limit (see CreateTokenFor) - both name the
 // same kind of thing (a cluster, or here a fleet of them) for a person to recognise later.
 const maxOperatorName = 80
@@ -107,8 +120,9 @@ func (c *Core) validSourceClusters(ctx context.Context, ids []string) error {
 	return nil
 }
 
-// CreateOperator registers a new regional operator and mints its receiver bearer token. The secret is
-// returned once and never stored - the same rule CreateToken follows for enrollment tokens. The operator
+// CreateOperator registers a new regional operator. For an mTLS operator (the normal case - see
+// CreateOperatorWithHeartbeat) the returned receiver secret is "": there is no bearer token. For a bearer
+// operator the secret is returned once and never stored - the same rule CreateToken follows. The operator
 // is created without a heartbeat; see CreateOperatorWithHeartbeat.
 func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality) (store.Operator, string, OperatorTLSBundle, error) {
 	op, secret, bundle, _, err := c.CreateOperatorWithHeartbeat(ctx, actor, name, sourceClusterIDs, dest, acceptedModalities, false)
@@ -132,10 +146,6 @@ func (c *Core) CreateOperatorWithHeartbeat(ctx context.Context, actor, name stri
 	if err := validModalities(acceptedModalities); err != nil {
 		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
-	secret, err := NewOperatorReceiverSecret()
-	if err != nil {
-		return store.Operator{}, "", OperatorTLSBundle{}, "", err
-	}
 	op := store.Operator{
 		ID:                 newOperatorID(),
 		OrgID:              c.OrgID,
@@ -149,6 +159,7 @@ func (c *Core) CreateOperatorWithHeartbeat(ctx context.Context, actor, name stri
 	}
 	var hbSecret string
 	if heartbeat {
+		var err error
 		if hbSecret, err = NewOperatorHeartbeatSecret(); err != nil {
 			return store.Operator{}, "", OperatorTLSBundle{}, "", err
 		}
@@ -156,19 +167,30 @@ func (c *Core) CreateOperatorWithHeartbeat(ctx context.Context, actor, name stri
 		now := c.Now()
 		op.HeartbeatEnabledAt = &now
 	}
-	// Minted alongside the bearer token, shown once the same way: the operator's own receiver server
-	// cert (valid for the Service DNS name it is reachable at once installed with this chart's own
-	// defaults - see operatorInstallCommand) and the client certificate every source cluster presents to
-	// it. A failure here does not roll back the operator/token already persisted above: the operator is
-	// still usable over its bearer token alone (mTLS is additive, see receiver.tls in the operator
-	// chart), and the admin can be told plainly that the TLS material needs minting again rather than
-	// silently losing the operator itself.
+	// The operator's own receiver server cert (valid for the Service DNS name it is reachable at once
+	// installed with this chart's own defaults - see operatorInstallCommand) and the client certificate
+	// every source cluster presents to it, shown once the same way a secret is.
+	//
+	// What gates the receiver is decided by whether that mint worked. If it did, the operator is
+	// ReceiverAuthMTLS: TLS with a required client certificate signed by this organisation's CA is its ONLY
+	// gate, and no receiver bearer token is minted at all (an agent pointed at it with the per-agent
+	// command presents only a client certificate, so a token on top could never be satisfied). If the mint
+	// failed, the operator falls back to ReceiverAuthBearer and a token IS minted, so the receiver is never
+	// left with no gate whatever happens here. The operator is still created either way - failing the
+	// request would report an operator that does not exist when it does.
 	hosts := []string{op.ID + ".continuum-system", op.ID + ".continuum-system.svc", op.ID + ".continuum-system.svc.cluster.local"}
-	bundle := OperatorTLSBundle{CACertPEM: c.CA.CertPEM()}
-	var tlsErr error
-	bundle.ReceiverCertPEM, bundle.ReceiverKeyPEM, tlsErr = c.CA.IssueOperatorReceiverTLS(op.ID, c.OrgID, hosts)
+	bundle, tlsErr := mintOperatorTLS(c, op.ID, hosts)
+	var secret string
+	var tokenHash []byte
 	if tlsErr == nil {
-		bundle.ClientCertPEM, bundle.ClientKeyPEM, tlsErr = c.CA.IssueOperatorClientTLS(op.ID, c.OrgID)
+		op.ReceiverAuth = store.ReceiverAuthMTLS
+	} else {
+		var err error
+		if secret, err = NewOperatorReceiverSecret(); err != nil {
+			return store.Operator{}, "", OperatorTLSBundle{}, "", err
+		}
+		tokenHash = HashSecret(secret)
+		op.ReceiverAuth = store.ReceiverAuthBearer
 	}
 	detail := name
 	if heartbeat {
@@ -176,15 +198,14 @@ func (c *Core) CreateOperatorWithHeartbeat(ctx context.Context, actor, name stri
 		detail += " (heartbeat enabled)"
 	}
 	if err := c.audited(ctx, actor, "operator-created", "operator", op.ID, detail, func() error {
-		return c.Store.CreateOperator(ctx, op, HashSecret(secret))
+		return c.Store.CreateOperator(ctx, op, tokenHash)
 	}); err != nil {
 		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
 	if tlsErr != nil {
-		// The operator and its bearer token are already persisted and audited above - failing the whole
-		// request now would report an operator that does not exist when it does. Surface this as a
-		// warning the caller can show instead: the receiver bearer token still works on its own (mTLS is
-		// additive, see receiver.tls in the operator chart), just without the extra certificate material.
+		// The operator (as a bearer-token one - see above) is already persisted and audited: failing the
+		// whole request now would report an operator that does not exist when it does. The caller gets no
+		// certificate material and the bearer token that gates the receiver instead.
 		c.audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, tlsErr.Error())
 		return op, secret, OperatorTLSBundle{}, hbSecret, nil
 	}

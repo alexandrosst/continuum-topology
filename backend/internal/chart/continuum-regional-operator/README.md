@@ -22,12 +22,16 @@ the commands you'd only need occasionally, not at every install.
   only relays and re-processes telemetry that already arrived over OTLP; it never watches this cluster's
   own object graph the way `continuum-agent`'s `k8sattributes` processor does, so there is no
   `telemetry.scope` or namespace filter here either.
-- **Its only credential is a receiver bearer token** (plus, if you opt in to the heartbeat, a second,
-  separate heartbeat secret), minted once when the operator is created in the
-  Continuum UI and shown exactly once — the server keeps only a hash of it. The install command Continuum
-  prints already sets `receiver.auth.enabled`/`receiver.tls.enabled` and points them at the Secrets it
-  created alongside that token; the defaults in `values.yaml` (`auth.enabled: false`, `tls.enabled: false`)
-  only matter if you hand-edit these values or mint your own credential some other way.
+- **What it checks is inbound only, and for an operator Continuum creates today it is the client
+  certificate alone.** The install command sets `receiver.tls.enabled` + `receiver.tls.mtls`, so only a
+  source cluster presenting a certificate signed by the organisation CA (in `ca.crt` of the receiver TLS
+  Secret) can send anything; `receiver.auth.enabled` is `false` and no receiver bearer token exists. It also
+  sets `receiver.requireAuth=true`, which makes the chart refuse to render if neither gate is on. Operators
+  created before that (and one whose certificates could not be minted) instead check a receiver bearer
+  token (`receiver.auth.enabled=true`, Secret named by `receiver.auth.secretName`), shown once when created,
+  the server keeping only a hash of it. The defaults in `values.yaml` (both gates off) mean an open receiver
+  and only matter if you hand-edit these values. If you opt in to the heartbeat there is also a second,
+  separate heartbeat secret.
 
 ## Heartbeat (opt-in)
 
@@ -88,8 +92,9 @@ a cluster later is the same `helm upgrade` against that cluster's own release, n
 
 - **`export.otlp`** — where this operator sends what it aggregates: another regional operator's receiver,
   or an observability backend directly. `export.otlp.endpoint` is the only required value in this chart.
-- **`receiver.auth` / `receiver.tls`** — the inbound side: the bearer token and/or mTLS certificate a
-  source cluster's collector must present. Additive, not alternatives — defense in depth.
+- **`receiver.auth` / `receiver.tls` / `receiver.requireAuth`** — the inbound side: the bearer token and/or
+  required mTLS client certificate a source cluster's collector must present. Either can stand alone (new
+  operators use the certificate only); `requireAuth` refuses to render a receiver that has neither.
 - **`receiver.networkPolicy`** / **`networkPolicy.egress`** — ingress and egress lockdown, both off by
   default for the same reason `continuum-agent`'s equivalents are: the right policy depends on your CNI and
   network, and a wrong one silently cuts a pipeline off rather than failing loudly.
@@ -106,7 +111,7 @@ helm uninstall <release> -n <namespace>
 ```
 
 There is no identity Secret to preserve here (unlike `continuum-agent`'s `continuum-agent-identity`) —
-this chart holds no long-lived identity of its own, only the receiver credential you gave it. Continuum
+this chart holds no long-lived identity of its own, only the receiver credential (client-CA certificate or bearer token) you gave it. Continuum
 keeps its own record of the operator until you remove it in the UI; uninstalling the chart does not do
 that for you, and any source cluster still pointed at this receiver will simply fail to export until its
 own `telemetry.export.otlp.endpoint` is changed.

@@ -4,9 +4,10 @@
 # against each source cluster) and re-exports it to one destination below.
 #
 # Unlike continuum-agent, this chart does not dial the Continuum server by default: there is no
-# server.address or enrollment here at all. Its only credential is the receiver bearer token it is
-# installed with (minted once, when the operator is created) - checked when something exports into it,
-# never on startup. The one exception is the opt-in `heartbeat` block below: with heartbeat.enabled true
+# server.address or enrollment here at all. What it checks is on the INBOUND side only, when something
+# exports into it, never on startup: either the org-CA mTLS client certificate every source cluster
+# presents (the only gate for operators Continuum creates today - no bearer token exists for them) or, for
+# operators created before that and as a fallback, a receiver bearer token. The one exception is the opt-in `heartbeat` block below: with heartbeat.enabled true
 # it sends a periodic, content-free "I am alive" request to the Continuum server, authenticated with a
 # second, separate secret (never the receiver token). It is off unless you turn it on. It also
 # needs no Kubernetes API access of its own (see serviceaccount.yaml): it only relays and re-processes
@@ -43,21 +44,29 @@ export:
       secretName: ""
       secretKey: token
 
-# The inbound side: what each source cluster's own telemetry.export.otlp.endpoint is pointed at. Off by
-# default in this file, but the operator's own install command always sets receiver.auth.enabled=true and
-# points secretName at the token minted when the operator was created - every regional operator this
-# server creates is installed with auth on, this default only matters if you hand-edit these values.
+# The inbound side: what each source cluster's own telemetry.export.otlp.endpoint is pointed at. Both gates
+# are off in this file, which means an open receiver - this default only matters if you hand-edit these
+# values. The install command Continuum prints always turns one on: for an operator created today,
+# receiver.tls.enabled + receiver.tls.mtls (the ONLY gate: a client certificate signed by the org CA, no
+# bearer token), with receiver.auth.enabled=false and receiver.requireAuth=true; for an older operator (or
+# one whose certificates could not be minted), receiver.auth.enabled=true with its bearer token.
 receiver:
+  # Safety interlock, off here so hand-written installs keep working: when true, rendering FAILS unless the
+  # receiver has a gate - receiver.auth.enabled, or receiver.tls.enabled with receiver.tls.mtls. Continuum's
+  # install command for an mTLS-only operator sets it, so that operator cannot be rendered open even if
+  # someone later turns the client-certificate requirement off while auth is off too.
+  requireAuth: false
   auth:
     enabled: false
     secretName: ""   # a Secret in this release's namespace, created outside this chart, holding the shared
                       # bearer token minted for this operator
     secretKey: token
-  # TLS on the receiver itself - additive to receiver.auth above, not a replacement (defense in depth: one
-  # proves the connection is encrypted and who signed the cert, the other proves a bearer token). Off by
-  # default in this file, but the operator's own install command always sets this on with the certificate
-  # minted alongside the operator (see CreateOperator/IssueOperatorReceiverTLS) - this default only
-  # matters if you hand-edit these values or mint your own certificate some other way.
+  # TLS on the receiver itself. With mtls (below) it IS an authentication gate: only a client presenting a
+  # certificate signed by ca.crt gets as far as sending anything. It can stand alone (receiver.auth off - the
+  # shape for operators created today) or sit alongside receiver.auth's bearer token (the shape of older
+  # operators). The install command sets it on with the certificate minted alongside the operator (see
+  # CreateOperator/IssueOperatorReceiverTLS); this default only matters if you hand-edit these values or
+  # mint your own certificate some other way.
   tls:
     enabled: false
     secretName: ""   # a Secret in this release's namespace, created outside this chart, holding tls.crt,
@@ -65,8 +74,8 @@ receiver:
                       # both this certificate and, if mtls is on, whatever client certificate is presented)
     mtls: true        # when tls.enabled, also require and verify the exporting client's certificate
                        # against ca.crt in the same Secret - off (tls.enabled with mtls: false) accepts any
-                       # client, encrypted but not authenticated by certificate, still checked by
-                       # receiver.auth's bearer token if that is also on
+                       # client, encrypted but not authenticated by certificate, so with receiver.auth
+                       # also off that is an open receiver (receiver.requireAuth refuses to render it)
   networkPolicy:
     enabled: false
     # Raw NetworkPolicy ingress "from" peer entries (namespaceSelector / podSelector / ipBlock) - the same

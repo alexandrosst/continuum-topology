@@ -72,8 +72,8 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 	if !strings.HasPrefix(hb, heartbeatPrefix) || !looksLikeHeartbeatSecret(hb) {
 		t.Fatalf("heartbeat secret has the wrong shape: %q", hb)
 	}
-	if hb == recv {
-		t.Fatal("the heartbeat secret must be a different credential from the receiver token")
+	if recv != "" {
+		t.Fatalf("an mTLS operator has no receiver bearer token, got %q", recv)
 	}
 	got, _ := e.st.GetOperator(e.ctx, op.ID)
 	if string(got.HeartbeatHash) == hb || len(got.HeartbeatHash) == 0 || got.HeartbeatEnabledAt == nil {
@@ -82,15 +82,16 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 	if string(got.HeartbeatHash) == string(got.ReceiverAuthTokenHash) {
 		t.Fatal("the two credentials share a hash")
 	}
-	// Neither secret opens the other's door.
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, recv); err != errHeartbeatRejected {
+	// A receiver-token-shaped secret does not open the heartbeat door.
+	recvShaped, _ := NewOperatorReceiverSecret()
+	if err := e.core.RecordOperatorHeartbeat(e.ctx, recvShaped); err != errHeartbeatRejected {
 		t.Fatalf("the receiver token was accepted as a heartbeat secret: %v", err)
 	}
 	if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
 		t.Fatalf("the heartbeat secret was refused: %v", err)
 	}
 	_, trail := auditActions(t, e)
-	if strings.Contains(trail, hb) || strings.Contains(trail, recv) || strings.Contains(trail, heartbeatPrefix) {
+	if strings.Contains(trail, hb) || strings.Contains(trail, heartbeatPrefix) {
 		t.Fatalf("audit trail holds secret material:\n%s", trail)
 	}
 	if !strings.Contains(trail, "operator-created|operator|"+op.ID+"|with-hb (heartbeat enabled)") {

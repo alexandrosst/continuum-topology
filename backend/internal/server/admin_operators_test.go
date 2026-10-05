@@ -26,11 +26,17 @@ func TestOperatorsHTTPCreateListGetRevokeDelete(t *testing.T) {
 		t.Fatalf("create: %d %s", r.Code, r.Body.String())
 	}
 	created := r.json(t)
-	token, _ := created["token"].(string)
-	if token == "" {
-		t.Fatalf("no token in create response: %v", created)
+	// Created today, the operator is mTLS-only: there is no receiver token to return.
+	if _, has := created["token"]; has {
+		t.Fatalf("an mTLS operator's create response carries a receiver token: %v", created["token"])
+	}
+	if _, has := created["secretCommand"]; has {
+		t.Fatalf("an mTLS operator's create response carries a receiver-token secret command: %v", created["secretCommand"])
 	}
 	op, _ := created["operator"].(map[string]any)
+	if op["receiverAuth"] != "mtls" {
+		t.Fatalf("operator.receiverAuth = %v", op["receiverAuth"])
+	}
 	id, _ := op["id"].(string)
 	if id == "" || op["status"] != "active" || op["name"] != "athens-regional" {
 		t.Fatalf("create response operator = %v", op)

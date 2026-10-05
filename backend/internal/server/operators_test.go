@@ -40,28 +40,28 @@ func extDest(endpoint string) store.Destination {
 	return store.Destination{Kind: store.DestinationExternal, Endpoint: endpoint}
 }
 
-func TestCreateOperatorHappyPathMintsASecretOnce(t *testing.T) {
+func TestCreateOperatorHappyPathIsMTLSOnlyWithNoReceiverToken(t *testing.T) {
 	e := newEnv(t)
 	cl := e.approvedCluster(t, fp)
-	op, secret, _, err := e.core.CreateOperator(e.ctx, "alex", "athens-regional", []string{cl}, extDest("collector.example:4317"), nil)
+	op, secret, bundle, err := e.core.CreateOperator(e.ctx, "alex", "athens-regional", []string{cl}, extDest("collector.example:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if secret == "" {
-		t.Fatal("no secret returned")
+	if secret != "" {
+		t.Fatalf("an mTLS operator must not be handed a receiver bearer token, got %q", secret)
 	}
-	if op.Status != store.OperatorActive || len(op.SourceClusterIDs) != 1 || op.SourceClusterIDs[0] != cl {
+	if len(bundle.ReceiverCertPEM) == 0 || len(bundle.ClientCertPEM) == 0 {
+		t.Fatal("the TLS material that IS the receiver's gate was not minted")
+	}
+	if op.Status != store.OperatorActive || len(op.SourceClusterIDs) != 1 || op.SourceClusterIDs[0] != cl || op.ReceiverAuth != store.ReceiverAuthMTLS {
 		t.Fatalf("%+v", op)
 	}
 	stored, err := e.st.GetOperator(e.ctx, op.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(stored.ReceiverAuthTokenHash) == secret {
-		t.Fatal("the plaintext secret must never be stored")
-	}
-	if len(stored.ReceiverAuthTokenHash) == 0 {
-		t.Fatal("no hash stored")
+	if stored.ReceiverAuth != store.ReceiverAuthMTLS || len(stored.ReceiverAuthTokenHash) != 0 {
+		t.Fatalf("stored operator = %+v, want mtls with no token hash", stored)
 	}
 }
 
