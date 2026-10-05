@@ -241,13 +241,33 @@ describe('applyDestination', () => {
     expect(destinationNeedsCredential(grafana)).toBe(true)
   })
 
-  test('an operator carries its in-cluster receiver over gRPC and leaves the credential header alone', () => {
+  test('an operator carries its in-cluster receiver over gRPC, records its id, and drops what only an external endpoint uses', () => {
     const catalog = buildDestinationCatalog({ operators: [operator()], enabledModalities: new Set(['metrics']), quickStartBackends: [], isAdmin: true })
     const op = catalog.entries.find((e) => e.kind === 'operator')!
-    const next = applyDestination({ ...emptyTelemetry, exportAuthHeaderName: 'x-keep' }, op)
+    const leftover = { ...emptyTelemetry, exportProtocol: 'http' as const, exportInsecure: true, exportAuthHeaderName: 'x-honeycomb-team', exportAuthSecretName: 'honeycomb-token', exportAuthSecretKey: 'k' }
+    const next = applyDestination(leftover, op)
     expect(next.exportEndpoint).toBe('op-1.continuum-system.svc:4317')
     expect(next.exportProtocol).toBe('grpc')
-    expect(next.exportAuthHeaderName).toBe('x-keep')
+    expect(next.exportOperatorId).toBe('op-1')
+    // The receiver is mutual TLS: a previous preset's skip-verify and credential header/Secret must not ride along.
+    expect(next.exportInsecure).toBe(false)
+    expect([next.exportAuthHeaderName, next.exportAuthSecretName, next.exportAuthSecretKey]).toEqual(['', '', ''])
     expect(destinationNeedsCredential(op)).toBe(false)
+  })
+
+  test('exportOperatorId is empty by default and cleared by every other kind of destination', () => {
+    expect(emptyTelemetry.exportOperatorId).toBe('')
+    const catalog = buildDestinationCatalog({
+      operators: [operator()],
+      enabledModalities: new Set(['traces']),
+      quickStartBackends: [backend()],
+      isAdmin: true,
+    })
+    const picked = applyDestination(emptyTelemetry, catalog.entries.find((e) => e.kind === 'operator')!)
+    expect(picked.exportOperatorId).toBe('op-1')
+    for (const kind of ['external-preset', 'quickstart'] as const) {
+      const e = catalog.entries.find((x) => x.kind === kind)!
+      expect(applyDestination(picked, e).exportOperatorId, kind).toBe('')
+    }
   })
 })

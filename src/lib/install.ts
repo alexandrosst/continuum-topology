@@ -157,6 +157,12 @@ export interface TelemetryInput {
    *  means the destination needs no auth header at all. */
   exportAuthSecretName: string
   exportAuthSecretKey: string
+  /** The regional operator picked as the destination in the guided wizard (its id), or '' for anything
+   *  else. It does NOT change what withTelemetry emits - the endpoint and protocol above are still the whole
+   *  of the client-built command - it records that the destination is an operator, whose receiver needs a
+   *  freshly issued client certificate only the server can mint (the panel's "Generate commands" action,
+   *  see lib/operatorIntent.ts). Every edit of the endpoint by hand clears it. */
+  exportOperatorId: string
   /* ---------- Pipeline processors (telemetry.processors.*): independent of which signals above are on,
      applied whenever any of them is. See the chart's own values.yaml for exactly what each one does. ---------- */
   /** Off by default: enriches every signal with resource attributes about the collector's own environment. */
@@ -199,6 +205,7 @@ export const emptyTelemetry: TelemetryInput = {
   exportAuthHeaderName: '',
   exportAuthSecretName: '',
   exportAuthSecretKey: '',
+  exportOperatorId: '',
   resourceDetection: false,
   redaction: true,
   tracesSamplingPercent: 100,

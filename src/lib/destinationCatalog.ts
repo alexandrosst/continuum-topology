@@ -64,7 +64,7 @@ export interface DestinationCatalog {
 /** The host:port a regional operator's own OTLP receiver answers on, in-cluster - the exact same string
  *  the backend's own operatorDestinationCommand builds (admin_operators.go) for pointing an agent's
  *  export at it. Always plain gRPC: the operator chart's receiver has no HTTP listener. */
-function operatorReceiverEndpoint(op: RegionalOperator): string {
+export function operatorReceiverEndpoint(op: { id: string }): string {
   return `${op.id}.continuum-system.svc:4317`
 }
 
@@ -166,7 +166,11 @@ export const destinationEndpoint = (e: DestinationCatalogEntry): string => (e.ki
 export const destinationNeedsCredential = (e: DestinationCatalogEntry): boolean => e.kind === 'external-preset' && !!e.preset.headerName
 
 /** The draft with `e` picked as the destination: its endpoint, its protocol, and (for a preset that names
- *  one) its credential header - the same three fields the flat form's own preset picker fills in. */
+ *  one) its credential header - the same three fields the flat form's own preset picker fills in.
+ *  `exportOperatorId` is set for a regional operator and cleared for every other kind, so it can never
+ *  outlive the pick that set it. An operator also resets what only makes sense for an external endpoint
+ *  (skipping TLS verification, a credential header and Secret left over from a previously picked preset):
+ *  the receiver is mutual TLS, and those would otherwise ride along into its command. */
 export function applyDestination(value: TelemetryInput, e: DestinationCatalogEntry): TelemetryInput {
   if (e.kind === 'external-preset') {
     return {
@@ -174,9 +178,22 @@ export function applyDestination(value: TelemetryInput, e: DestinationCatalogEnt
       exportEndpoint: e.preset.endpointPattern,
       exportProtocol: e.preset.protocol,
       exportAuthHeaderName: e.preset.headerName ? e.preset.headerName : value.exportAuthHeaderName,
+      exportOperatorId: '',
     }
   }
-  return { ...value, exportEndpoint: e.exportEndpoint, exportProtocol: e.exportProtocol }
+  if (e.kind === 'operator') {
+    return {
+      ...value,
+      exportEndpoint: e.exportEndpoint,
+      exportProtocol: e.exportProtocol,
+      exportInsecure: false,
+      exportAuthHeaderName: '',
+      exportAuthSecretName: '',
+      exportAuthSecretKey: '',
+      exportOperatorId: e.id,
+    }
+  }
+  return { ...value, exportEndpoint: e.exportEndpoint, exportProtocol: e.exportProtocol, exportOperatorId: '' }
 }
 
 /**
