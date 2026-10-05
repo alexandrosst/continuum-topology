@@ -190,6 +190,15 @@ heartbeat:
   # If networkPolicy.egress.enabled is on, the heartbeat url's address and port must be in
   # networkPolicy.egress.allowedEgress as well - egress for the heartbeat is NOT added for you.
 
+# Who this operator is. Set by the install command Continuum generates (never typed by hand): the id and
+# name are stamped as continuum.operator.id / continuum.operator.name, and each label as its own attribute,
+# on every metric, log and trace this operator forwards - after any extraProcessors, with upsert, so a user
+# processor cannot change them. All empty by default: nothing is stamped and the pipelines are unchanged.
+operator:
+  id: ""
+  name: ""
+  labels: []   # [{key, value}] - e.g. region=eu-south. Keys must not start with continuum.
+
 resources:
   requests: {cpu: 50m, memory: 96Mi}
   limits: {memory: 384Mi}

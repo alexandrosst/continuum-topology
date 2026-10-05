@@ -25,7 +25,7 @@ let admin = true
 let canEditFlag = true
 
 const listOperators = vi.fn(async (): Promise<RegionalOperator[]> => [])
-const createOperator = vi.fn(async (_c: unknown, name: string, sourceClusterIds: string[], destination: { endpoint: string }, _options?: { heartbeat?: boolean }) => ({
+const createOperator = vi.fn(async (_c: unknown, name: string, sourceClusterIds: string[], destination: { endpoint: string }, _options?: { heartbeat?: boolean; labels?: { key: string; value: string }[] }) => ({
   operator: {
     id: 'op-1', orgId: 'o', name, status: 'active' as const, sourceClusterIds, destination,
     createdAt: '2026-01-01T00:00:00Z', createdBy: 'me',
@@ -122,6 +122,42 @@ describe('RegionalOperatorsPage', () => {
     expect(submit).not.toBeDisabled()
   })
 
+  test('labels are typed as name = value rows, sent trimmed, and half-filled rows are not sent', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByTestId('operator-open'))
+    expect(screen.getByTestId('operator-labels-explain')).toHaveTextContent('cannot be changed afterwards')
+    await user.type(screen.getByTestId('operator-name'), 'athens-regional')
+    await user.click(screen.getByTestId('checkbox-c1'))
+    await user.click(screen.getByText('otel-gateway.example.com:4317').closest('button')!)
+    await user.click(screen.getByRole('option', { name: 'Other…' }))
+    await user.type(screen.getByPlaceholderText('otel-gateway.example.com:4317'), 'backend.example.com:4317')
+    await user.click(screen.getByTestId('operator-label-tag-add'))
+    await user.type(screen.getByTestId('operator-label-tag-key-0'), ' region ')
+    await user.type(screen.getByTestId('operator-label-tag-value-0'), 'eu-south')
+    await user.click(screen.getByTestId('operator-label-tag-add'))
+    await user.click(screen.getByTestId('operator-create'))
+    await waitFor(() => expect(createOperator).toHaveBeenCalled())
+    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: true, labels: [{ key: 'region', value: 'eu-south' }] })
+  })
+
+  test('a reserved or half-filled label blocks Create and says why', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByTestId('operator-open'))
+    await user.type(screen.getByTestId('operator-name'), 'athens-regional')
+    await user.click(screen.getByTestId('checkbox-c1'))
+    await user.click(screen.getByText('otel-gateway.example.com:4317').closest('button')!)
+    await user.click(screen.getByRole('option', { name: 'Other…' }))
+    await user.type(screen.getByPlaceholderText('otel-gateway.example.com:4317'), 'backend.example.com:4317')
+    expect(screen.getByTestId('operator-create')).toBeEnabled()
+    await user.click(screen.getByTestId('operator-label-tag-add'))
+    await user.type(screen.getByTestId('operator-label-tag-key-0'), 'continuum.region')
+    await user.type(screen.getByTestId('operator-label-tag-value-0'), 'x')
+    expect(screen.getByTestId('operator-label-tag-problems')).toHaveTextContent('reserved')
+    expect(screen.getByTestId('operator-create')).toBeDisabled()
+  })
+
   test('submitting shows the receiver token and install command exactly once, since the server never returns the token again', async () => {
     const user = userEvent.setup()
     renderPage()
@@ -138,7 +174,7 @@ describe('RegionalOperatorsPage', () => {
       'athens-regional',
       ['c1'],
       expect.objectContaining({ endpoint: 'backend.example.com:4317', kind: 'external' }),
-      { heartbeat: true },
+      { heartbeat: true, labels: [] },
     ))
     expect(screen.getByText(/kubectl create secret generic op-1-receiver-auth/)).toBeInTheDocument()
     expect(screen.getByText(/helm install op-1/)).toBeInTheDocument()
@@ -383,7 +419,7 @@ describe('RegionalOperatorsPage - creating with and without health reporting', (
     expect(screen.getByTestId('operator-heartbeat-explain')).toHaveTextContent('turn it on later')
     await user.click(screen.getByTestId('operator-create'))
     await waitFor(() => expect(createOperator).toHaveBeenCalledTimes(1))
-    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: true })
+    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: true, labels: [] })
   })
 
   test('unchecking it sends heartbeat: false and the created screen says the operator never contacts the server', async () => {
@@ -393,7 +429,7 @@ describe('RegionalOperatorsPage - creating with and without health reporting', (
     await user.click(screen.getByTestId('operator-heartbeat'))
     await user.click(screen.getByTestId('operator-create'))
     await waitFor(() => expect(createOperator).toHaveBeenCalledTimes(1))
-    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: false })
+    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: false, labels: [] })
     expect(await screen.findByTestId('operator-no-rbac-note')).toHaveTextContent('never contacts this server')
     expect(screen.queryByTestId('operator-created-heartbeat')).not.toBeInTheDocument()
   })

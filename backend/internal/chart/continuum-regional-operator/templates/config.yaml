@@ -9,11 +9,18 @@
 {{- if .Values.processors.redaction.enabled }}{{ $commonMid = append $commonMid "redaction" }}{{ end }}
 {{- $extraNames := .Values.processors.extraProcessorNames }}
 
-{{- $procSignal := concat (list "memory_limiter") $commonMid $extraNames (list "batch") }}
+{{- /* resource/operator stamps who this operator is and its labels. It goes after every user-supplied
+     processor and right before batch, with action: upsert, so nothing a user's own extraProcessors set for
+     the same key can win - the same rule as continuum-agent's resource/continuum. Left out entirely when no
+     `operator` value is set, so an operator installed without one renders exactly what it always did. */ -}}
+{{- $stamp := list }}
+{{- if or .Values.operator.id .Values.operator.name .Values.operator.labels }}{{ $stamp = list "resource/operator" }}{{ end }}
+
+{{- $procSignal := concat (list "memory_limiter") $commonMid $extraNames $stamp (list "batch") }}
 
 {{- $procTraces := concat (list "memory_limiter") $commonMid }}
 {{- if lt (int .Values.processors.tracesSampling.percentage) 100 }}{{ $procTraces = append $procTraces "probabilistic_sampler" }}{{ end }}
-{{- $procTraces = concat $procTraces $extraNames .Values.processors.extraTracesProcessorNames (list "batch") }}
+{{- $procTraces = concat $procTraces $extraNames .Values.processors.extraTracesProcessorNames $stamp (list "batch") }}
 
 {{/* health_check is always on (see operator.healthCheckExtensionYAML) - livenessProbe/readinessProbe in
      deployment.yaml depend on it, unlike bearertokenauth which only applies when receiver.auth is on. */}}
@@ -70,6 +77,9 @@ data:
       {{- include "operator.probabilisticSamplerYAML" . | nindent 6 }}
       {{- with .Values.processors.extraProcessors }}
       {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- if $stamp }}
+      {{- include "operator.resourceOperatorYAML" . | nindent 6 }}
       {{- end }}
       batch: {}
       {{- if .Values.heartbeat.enabled }}

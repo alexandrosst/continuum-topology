@@ -4,12 +4,14 @@ import { useSearchParams } from 'react-router-dom'
 import { CopyCommand } from '@/components/agents/AgentInsight'
 import { ConfirmModal } from '@/components/forms'
 import { OperatorHealth } from '@/components/operators/OperatorHealth'
+import { TagRows } from '@/components/telemetry/ProcessStep'
 import ProcessorEditor from '@/components/telemetry/ProcessorEditor'
 import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
 import { Button, CheckboxList, ChipList, ComboField, EmptyState, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, PageHeader, Pill, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, ApiError, type CreatedOperator, type OperatorHeartbeatEnabled } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
+import { cleanTags, tagProblems, type TagEntry } from '@/lib/install'
 import { isReportingHealth, receiverAuthOf } from '@/lib/operatorHealth'
 import { buildOperatorInstallCommand, operatorProcessorProblems } from '@/lib/operatorInstall'
 import type { ProcessorEntry } from '@/lib/processorCatalog'
@@ -50,11 +52,14 @@ interface Draft {
   sourceClusterIds: string[]
   destination: OperatorDestination
   extraProcessors: ProcessorEntry[]
+  /** Name = value tags this operator stamps on everything it forwards (a region, an environment). Fixed at
+   *  creation: they are part of the operator's own install. */
+  labels: TagEntry[]
   /** Opt in to the heartbeat that lets this server say online/offline. On by default - it is the point of
    *  asking - but always stated next to the box, and sent explicitly either way. */
   heartbeat: boolean
 }
-const emptyDraft: Draft = { name: '', sourceClusterIds: [], destination: emptyDestination, extraProcessors: [], heartbeat: true }
+const emptyDraft: Draft = { name: '', sourceClusterIds: [], destination: emptyDestination, extraProcessors: [], labels: [], heartbeat: true }
 
 /** What health reporting sends, in one sentence both the create form, the confirmation and the created
  *  screen can lean on: not a telemetry payload, only an availability check, and only when opted in. */
@@ -362,13 +367,14 @@ export default function RegionalOperatorsPage() {
     draft.sourceClusterIds.length === 0 ? ['Pick at least one source cluster'] : [],
     destinationProblems(draft.destination),
     operatorProcessorProblems(draft.extraProcessors),
+    tagProblems(draft.labels),
   ].flat()
 
   const create = () =>
     act(async () => {
       const c = conn()
       if (!c) return
-      const r = await api.createOperator(c, draft.name.trim(), draft.sourceClusterIds, draft.destination, { heartbeat: draft.heartbeat })
+      const r = await api.createOperator(c, draft.name.trim(), draft.sourceClusterIds, draft.destination, { heartbeat: draft.heartbeat, labels: cleanTags(draft.labels) })
       setCreating(false)
       setCreatedProcessors(draft.extraProcessors)
       setDraft(emptyDraft)
@@ -488,7 +494,12 @@ export default function RegionalOperatorsPage() {
             <tbody>
               {operators.map((op) => (
                 <tr key={op.id} className="group hover:bg-nb-930/60" data-testid={`operator-${op.name}`}>
-                  <Td className="text-nb-300">{op.name}</Td>
+                  <Td className="text-nb-300">
+                    {op.name}
+                    {(op.labels?.length ?? 0) > 0 && (
+                      <div className="mt-1"><ChipList items={op.labels!.map((l) => `${l.key}=${l.value}`)} max={3} /></div>
+                    )}
+                  </Td>
                   <Td>
                     <Pill>{op.status === 'active' ? 'Active' : `Revoked${op.reason ? `: ${op.reason}` : ''}`}</Pill>
                     {op.status === 'active' && <div className="mt-1"><OperatorHealth operator={op} /></div>}
@@ -603,6 +614,14 @@ export default function RegionalOperatorsPage() {
                 </span>
               </span>
             </label>
+          </div>
+
+          <div className="border-t border-nb-850 pt-3">
+            <div className="mb-1 text-xs font-medium uppercase tracking-wide text-nb-500">Labels</div>
+            <p className="mb-2 text-xs leading-relaxed text-nb-500" data-testid="operator-labels-explain">
+              Added to every metric, log and trace this operator forwards, next to its own id and name, so that data can be told apart downstream (a region, an environment). They cannot be changed afterwards: they live in the operator&apos;s install.
+            </p>
+            <TagRows tags={draft.labels} onChange={(labels) => setDraft({ ...draft, labels })} testIdPrefix="operator-label" noun="label" />
           </div>
 
           <div className="border-t border-nb-850 pt-3">

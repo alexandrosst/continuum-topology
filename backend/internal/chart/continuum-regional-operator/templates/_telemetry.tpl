@@ -30,6 +30,26 @@ redaction:
 {{- end }}
 {{- end -}}
 
+{{/* The operator's own provenance on everything it forwards: continuum.operator.id / .name, then each label
+     as its own attribute. All upsert, so they overwrite whatever an upstream agent or a user's own processor
+     set under the same key. Renders nothing when no `operator` value was given. */}}
+{{- define "operator.resourceOperatorYAML" -}}
+{{- $op := .Values.operator }}
+{{- if or $op.id $op.name $op.labels }}
+resource/operator:
+  attributes:
+    {{- if $op.id }}
+    - {key: continuum.operator.id, value: {{ $op.id | quote }}, action: upsert}
+    {{- end }}
+    {{- if $op.name }}
+    - {key: continuum.operator.name, value: {{ $op.name | quote }}, action: upsert}
+    {{- end }}
+    {{- range $op.labels }}
+    - {key: {{ .key | quote }}, value: {{ .value | quote }}, action: upsert}
+    {{- end }}
+{{- end }}
+{{- end -}}
+
 {{- define "operator.probabilisticSamplerYAML" -}}
 {{- if lt (int .Values.processors.tracesSampling.percentage) 100 }}
 probabilistic_sampler:

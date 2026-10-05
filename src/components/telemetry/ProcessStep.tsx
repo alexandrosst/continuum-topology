@@ -33,6 +33,8 @@ function Fact({ name, value, testId }: { name: string; value?: string; testId?: 
   )
 }
 
+const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1)
+
 /**
  * The tags a person puts on everything this install emits. Written to the chart as one list, inserted rather
  * than overwritten (a name an application already sets on its own telemetry keeps the application's value),
@@ -40,8 +42,15 @@ function Fact({ name, value, testId }: { name: string; value?: string; testId?: 
  * name and value worth offering in one click (the cluster's own name), left out once it is already there.
  */
 export function TagEditor({ value, onChange, testIdPrefix, suggestion }: { value: TelemetryInput; onChange: (v: TelemetryInput) => void; testIdPrefix: string; suggestion?: TagEntry }) {
-  const tags = value.tags
-  const set = (next: TagEntry[]) => onChange({ ...value, tags: next })
+  return <TagRows tags={value.tags} onChange={(tags) => onChange({ ...value, tags })} testIdPrefix={testIdPrefix} suggestion={suggestion} />
+}
+
+/**
+ * The name = value rows themselves, with no opinion about what they are stamped on: the telemetry wizard's
+ * tags and a regional operator's labels are the same list with the same limits (see `tagProblems`), so both
+ * use this one editor. `noun` only changes the words ("Add a label"), never the test ids.
+ */
+export function TagRows({ tags, onChange: set, testIdPrefix, suggestion, noun = 'tag' }: { tags: TagEntry[]; onChange: (tags: TagEntry[]) => void; testIdPrefix: string; suggestion?: TagEntry; noun?: string }) {
   const problems = tagProblems(tags)
   const filled = tags.filter((t) => t.key.trim() !== '' || t.value.trim() !== '').length
   const offer = suggestion && !tags.some((t) => t.key.trim() === suggestion.key) ? suggestion : undefined
@@ -51,10 +60,10 @@ export function TagEditor({ value, onChange, testIdPrefix, suggestion }: { value
         <ul className="space-y-1.5">
           {tags.map((t, i) => (
             <li key={i} className="flex items-center gap-2">
-              <Input value={t.key} onChange={(e) => set(tags.map((x, j) => (j === i ? { ...x, key: e.target.value } : x)))} placeholder="name, e.g. team" aria-label={`Tag ${i + 1} name`} className="w-2/5 font-mono text-xs" data-testid={`${testIdPrefix}-tag-key-${i}`} />
+              <Input value={t.key} onChange={(e) => set(tags.map((x, j) => (j === i ? { ...x, key: e.target.value } : x)))} placeholder="name, e.g. team" aria-label={`${cap(noun)} ${i + 1} name`} className="w-2/5 font-mono text-xs" data-testid={`${testIdPrefix}-tag-key-${i}`} />
               <span className="text-nb-600" aria-hidden>=</span>
-              <Input value={t.value} onChange={(e) => set(tags.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))} placeholder="value" aria-label={`Tag ${i + 1} value`} className="min-w-0 flex-1 font-mono text-xs" data-testid={`${testIdPrefix}-tag-value-${i}`} />
-              <button type="button" onClick={() => set(tags.filter((_, j) => j !== i))} aria-label={`Remove tag ${i + 1}`} className="rounded p-1 text-nb-600 hover:bg-nb-930 hover:text-nb-300" data-testid={`${testIdPrefix}-tag-remove-${i}`}>
+              <Input value={t.value} onChange={(e) => set(tags.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))} placeholder="value" aria-label={`${cap(noun)} ${i + 1} value`} className="min-w-0 flex-1 font-mono text-xs" data-testid={`${testIdPrefix}-tag-value-${i}`} />
+              <button type="button" onClick={() => set(tags.filter((_, j) => j !== i))} aria-label={`Remove ${noun} ${i + 1}`} className="rounded p-1 text-nb-600 hover:bg-nb-930 hover:text-nb-300" data-testid={`${testIdPrefix}-tag-remove-${i}`}>
                 <X size={ICON_MD} aria-hidden />
               </button>
             </li>
@@ -62,8 +71,8 @@ export function TagEditor({ value, onChange, testIdPrefix, suggestion }: { value
         </ul>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" disabled={filled >= TAG_LIMIT || tags.length >= TAG_LIMIT + 2} onClick={() => set([...tags, { key: '', value: '' }])} data-testid={`${testIdPrefix}-tag-add`}>
-          <Plus size={ICON_SM} /> Add a tag
+        <Button type="button" size="sm" disabled={filled >= TAG_LIMIT || tags.length >= TAG_LIMIT + 2} onClick={() => set([...tags, { key: '', value: '' }])} data-testid={`${testIdPrefix}-tag-add`}>
+          <Plus size={ICON_SM} /> Add a {noun}
         </Button>
         {offer && (
           <button type="button" className="rounded-md border border-dashed border-nb-800 px-2 py-1 font-mono text-[11px] text-nb-400 hover:border-nb-700 hover:text-nb-300" onClick={() => set([...tags, offer])} data-testid={`${testIdPrefix}-tag-suggest`}>

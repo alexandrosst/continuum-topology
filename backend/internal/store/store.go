@@ -209,10 +209,23 @@ type Operator struct {
 	HeartbeatEnabledAt *time.Time
 	// LastSeenAt is when a heartbeat last arrived (coalesced - see Core.RecordOperatorHeartbeat); nil when none ever has.
 	LastSeenAt *time.Time
-	CreatedBy  string
-	CreatedAt  time.Time
-	RevokedAt  *time.Time
-	Reason     string
+	// Labels are tags this operator stamps on everything it forwards (a region, an environment): set when it
+	// is created and fixed from then on, because they live in the operator's own install. Empty for every
+	// operator from before they existed. See OperatorLabel.
+	Labels    []OperatorLabel
+	CreatedBy string
+	CreatedAt time.Time
+	RevokedAt *time.Time
+	Reason    string
+}
+
+// OperatorLabel is one tag a regional operator adds to the resource of every signal passing through it
+// ("region" = "eu-west-1"). Added only when the signal does not already carry that key, so a tag set
+// closer to the source - by the cluster's owner, or the application - is never overwritten; the keys the
+// operator always adds itself (continuum.operator.id and .name) are not labels and are not stored here.
+type OperatorLabel struct {
+	Key   string
+	Value string
 }
 
 // TelemetryIntentStatus is the lifecycle of a TelemetryIntent. Like Operator there is no "pending" state:

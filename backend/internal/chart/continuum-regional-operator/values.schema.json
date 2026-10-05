@@ -196,6 +196,27 @@
     "nodeSelector": { "type": "object" },
     "affinity": { "type": "object" },
     "podAnnotations": { "type": "object" },
+    "operator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "labels": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "value"],
+            "properties": {
+              "key": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,62}$", "not": { "pattern": "^[Cc][Oo][Nn][Tt][Ii][Nn][Uu][Uu][Mm]\\." } },
+              "value": { "type": "string", "minLength": 1, "maxLength": 64 }
+            }
+          }
+        }
+      }
+    },
     "podLabels": { "type": "object" },
     "priorityClassName": { "type": "string" },
     "networkPolicy": {

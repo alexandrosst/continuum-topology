@@ -50,7 +50,8 @@ func TestInstallCommandForAnMTLSOperatorHasNoBearerGate(t *testing.T) {
 	}
 }
 
-// A bearer operator's commands are exactly what they were before ReceiverAuth existed.
+// A bearer operator's commands are exactly what they were before ReceiverAuth existed, plus the one
+// --set-json operator=... that stamps who it is (id, name, labels) on what it forwards.
 func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 	a := newAdminRig(t)
 	op := store.Operator{ID: "op-abc123", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
@@ -60,7 +61,8 @@ func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 	got, secretCmd := a.a.operatorInstallCommand(ImageConfig{}, "cno_SECRET", op, withTLS, "")
 	want := "helm install op-abc123 chart --version 0.1.0 \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=c:4317" +
 		" \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=op-abc123-receiver-auth" +
-		" \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=op-abc123-receiver-tls \\\n  --set receiver.tls.mtls=true"
+		" \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=op-abc123-receiver-tls \\\n  --set receiver.tls.mtls=true" +
+		" \\\n  --set-json operator='{\"id\":\"op-abc123\",\"name\":\"\",\"labels\":[]}'"
 	if got != want {
 		t.Fatalf("bearer install command changed:\n got: %q\nwant: %q", got, want)
 	}
@@ -194,5 +196,19 @@ func TestOperatorDocCarriesReceiverAuthForEveryOperator(t *testing.T) {
 	}
 	if got["new"] != "mtls" || got["legacy"] != "bearer" {
 		t.Fatalf("receiverAuth by operator = %v", got)
+	}
+}
+
+// The operator's name and labels reach the chart as one quoted --set-json value: a single quote in either
+// must be escaped, never close the shell quoting around the command.
+func TestInstallCommandQuotesOperatorNameAndLabels(t *testing.T) {
+	a := newAdminRig(t)
+	op := store.Operator{ID: "op-q", Name: "O'Brien; rm -rf /", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
+		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "c:4317"},
+		Labels:      []store.OperatorLabel{{Key: "region", Value: "eu 'south'"}}}
+	got, _ := a.a.operatorInstallCommand(ImageConfig{}, "cno_SECRET", op, OperatorTLSBundle{}, "")
+	want := `--set-json operator='{"id":"op-q","name":"O'\''Brien; rm -rf /","labels":[{"key":"region","value":"eu '\''south'\''"}]}'`
+	if !strings.Contains(got, want) {
+		t.Fatalf("install command lacks %s:\n%s", want, got)
 	}
 }

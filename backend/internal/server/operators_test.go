@@ -3,6 +3,8 @@ package server
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
+	"strings"
 	"testing"
 
 	"continuum/internal/store"
@@ -280,5 +282,43 @@ func TestIssueOperatorClientCertReissuesOnDemand(t *testing.T) {
 	other := e.base.ForOrg("org-2")
 	if _, _, _, err := other.IssueOperatorClientCert(e.ctx, "alex", op.ID); kindOf(err) != KindNotFound {
 		t.Fatalf("expected KindNotFound reissuing for another organisation's operator, got %v", err)
+	}
+}
+
+func TestOperatorLabelsAreValidatedTrimmedAndStored(t *testing.T) {
+	e := newEnv(t)
+	cl := e.approvedCluster(t, fp)
+	create := func(labels ...store.OperatorLabel) (store.Operator, error) {
+		op, _, _, _, err := e.core.CreateOperatorWithOptions(e.ctx, "alex", "op-"+t.Name(), []string{cl}, extDest("c:4317"), nil, OperatorOptions{Labels: labels})
+		return op, err
+	}
+	bad := map[string][]store.OperatorLabel{
+		"reserved prefix": {{Key: "continuum.region", Value: "x"}},
+		"empty key":       {{Key: " ", Value: "x"}},
+		"bad key":         {{Key: "has space", Value: "x"}},
+		"empty value":     {{Key: "region", Value: "  "}},
+		"long value":      {{Key: "region", Value: strings.Repeat("v", 65)}},
+		"control char":    {{Key: "region", Value: "a\nb"}},
+		"duplicate":       {{Key: "region", Value: "a"}, {Key: "region", Value: "b"}},
+	}
+	for name, labels := range bad {
+		if _, err := create(labels...); kindOf(err) != KindInvalid {
+			t.Fatalf("%s: err = %v, want KindInvalid", name, err)
+		}
+	}
+	tooMany := make([]store.OperatorLabel, 0, maxOperatorLabels+1)
+	for i := 0; i <= maxOperatorLabels; i++ {
+		tooMany = append(tooMany, store.OperatorLabel{Key: fmt.Sprintf("k%d", i), Value: "v"})
+	}
+	if _, err := create(tooMany...); kindOf(err) != KindInvalid {
+		t.Fatalf("too many labels: err = %v", err)
+	}
+	op, err := create(store.OperatorLabel{Key: " region ", Value: " eu-south "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := e.st.GetOperator(e.ctx, op.ID)
+	if err != nil || len(stored.Labels) != 1 || stored.Labels[0] != (store.OperatorLabel{Key: "region", Value: "eu-south"}) {
+		t.Fatalf("stored labels = %+v (%v)", stored.Labels, err)
 	}
 }

@@ -1264,6 +1264,9 @@ export interface RegionalOperator {
    *  existed must read the same way, never as "accepts nothing" (see destinationCatalog.ts's own
    *  compatibility check, the one place besides creation/scope-editing this is read). */
   acceptedModalities?: string[]
+  /** Tags this operator stamps on everything it forwards (a region, an environment), set when it was created
+   *  and fixed after - they live in the operator's own install. Absent reads as none. */
+  labels?: { key: string; value: string }[]
   createdAt: string
   createdBy: string
   revokedAt?: string

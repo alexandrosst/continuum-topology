@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"continuum/internal/pki"
@@ -101,6 +102,47 @@ func validModalities(ms []store.Modality) error {
 	return nil
 }
 
+// maxOperatorLabels bounds the labels one operator may carry: each is stamped on everything it forwards, so
+// each costs storage and cardinality downstream. The agent's own tags are capped the same way.
+const maxOperatorLabels = 8
+
+var operatorLabelKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,62}$`)
+
+// validOperatorLabels trims and checks an operator's labels: at most maxOperatorLabels, each key once, a key
+// an OpenTelemetry attribute can carry, never the reserved continuum. prefix (the operator's own id and
+// name, and the agent's provenance, live there), and a short printable value.
+func validOperatorLabels(in []store.OperatorLabel) ([]store.OperatorLabel, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	if len(in) > maxOperatorLabels {
+		return nil, errf(KindInvalid, "an operator takes at most %d labels", maxOperatorLabels)
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]store.OperatorLabel, 0, len(in))
+	for _, l := range in {
+		k, v := strings.TrimSpace(l.Key), strings.TrimSpace(l.Value)
+		switch {
+		case !operatorLabelKey.MatchString(k):
+			return nil, errf(KindInvalid, "label key %q is not valid (letters, digits, . _ / -, up to 63 characters)", k)
+		case strings.HasPrefix(strings.ToLower(k), "continuum."):
+			return nil, errf(KindInvalid, "label key %q uses the continuum. prefix, which is reserved", k)
+		case seen[k]:
+			return nil, errf(KindInvalid, "label %q is listed twice", k)
+		case v == "" || len(v) > 64:
+			return nil, errf(KindInvalid, "label %q needs a value of 1-64 characters", k)
+		}
+		for _, r := range v {
+			if r < 0x20 || r == 0x7f {
+				return nil, errf(KindInvalid, "label %q has a control character in its value", k)
+			}
+		}
+		seen[k] = true
+		out = append(out, store.OperatorLabel{Key: k, Value: v})
+	}
+	return out, nil
+}
+
 // validSourceClusters checks that every id names a currently approved agent's cluster in this
 // organisation - the same source of truth the wizard itself reads from, re-checked here since the
 // client's own list can be stale by the time it submits.
@@ -144,6 +186,21 @@ func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClu
 // same step (heartbeat true): returned once as the fourth value, "" when heartbeat is false. The heartbeat
 // is opt-in everywhere - see EnableOperatorHeartbeat for what it is.
 func (c *Core) CreateOperatorWithHeartbeat(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality, heartbeat bool) (store.Operator, string, OperatorTLSBundle, string, error) {
+	return c.CreateOperatorWithOptions(ctx, actor, name, sourceClusterIDs, dest, acceptedModalities, OperatorOptions{Heartbeat: heartbeat})
+}
+
+// OperatorOptions are the optional parts of creating an operator, so a new one does not change the
+// signature every caller already uses.
+type OperatorOptions struct {
+	// Heartbeat mints the heartbeat secret in the same step (see EnableOperatorHeartbeat).
+	Heartbeat bool
+	// Labels are stamped on everything the operator forwards (see store.OperatorLabel and validOperatorLabels).
+	Labels []store.OperatorLabel
+}
+
+// CreateOperatorWithOptions is CreateOperatorWithHeartbeat with the options named.
+func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality, opts OperatorOptions) (store.Operator, string, OperatorTLSBundle, string, error) {
+	heartbeat := opts.Heartbeat
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxOperatorName {
 		return store.Operator{}, "", OperatorTLSBundle{}, "", errf(KindInvalid, "name the regional operator (1-%d characters)", maxOperatorName)
@@ -157,6 +214,10 @@ func (c *Core) CreateOperatorWithHeartbeat(ctx context.Context, actor, name stri
 	if err := validModalities(acceptedModalities); err != nil {
 		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
+	labels, err := validOperatorLabels(opts.Labels)
+	if err != nil {
+		return store.Operator{}, "", OperatorTLSBundle{}, "", err
+	}
 	op := store.Operator{
 		ID:                 newOperatorID(),
 		OrgID:              c.OrgID,
@@ -165,6 +226,7 @@ func (c *Core) CreateOperatorWithHeartbeat(ctx context.Context, actor, name stri
 		SourceClusterIDs:   sourceClusterIDs,
 		Destination:        dest,
 		AcceptedModalities: acceptedModalities,
+		Labels:             labels,
 		CreatedBy:          actor,
 		CreatedAt:          c.Now(),
 	}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -42,6 +43,12 @@ type operatorHealthDoc struct {
 	Reporting  bool   `json:"reporting"`
 }
 
+// labelDoc is one operator label on the wire.
+type labelDoc struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 type operatorDoc struct {
 	ID                 string         `json:"id"`
 	Name               string         `json:"name"`
@@ -50,10 +57,13 @@ type operatorDoc struct {
 	SourceClusterIDs   []string       `json:"sourceClusterIds"`
 	Destination        destinationDoc `json:"destination"`
 	AcceptedModalities []string       `json:"acceptedModalities,omitempty"`
-	CreatedAt          string         `json:"createdAt"`
-	CreatedBy          string         `json:"createdBy"`
-	RevokedAt          string         `json:"revokedAt,omitempty"`
-	Reason             string         `json:"reason,omitempty"`
+	// Labels are the tags this operator adds to everything it forwards, next to the continuum.operator.id and
+	// .name it always adds. Absent when there are none.
+	Labels    []labelDoc `json:"labels,omitempty"`
+	CreatedAt string     `json:"createdAt"`
+	CreatedBy string     `json:"createdBy"`
+	RevokedAt string     `json:"revokedAt,omitempty"`
+	Reason    string     `json:"reason,omitempty"`
 	// ReceiverAuth is how the operator's receiver authenticates what exports into it: "mtls" (only the
 	// client certificate every source cluster presents, signed by the operator's own CA - no bearer token exists) or "bearer"
 	// (a bearer token, as every operator created before this field existed - read back as "bearer").
@@ -82,6 +92,9 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 	}
 	for _, m := range op.AcceptedModalities {
 		d.AcceptedModalities = append(d.AcceptedModalities, string(m))
+	}
+	for _, l := range op.Labels {
+		d.Labels = append(d.Labels, labelDoc{Key: l.Key, Value: l.Value})
 	}
 	if op.RevokedAt != nil {
 		d.RevokedAt = rfc(*op.RevokedAt)
@@ -130,6 +143,8 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		SourceClusterIDs   []string       `json:"sourceClusterIds"`
 		Destination        destinationDoc `json:"destination"`
 		AcceptedModalities []string       `json:"acceptedModalities,omitempty"`
+		// Labels are fixed at creation: they live in the operator's own install (see store.OperatorLabel).
+		Labels []labelDoc `json:"labels,omitempty"`
 		// Heartbeat opts the new operator in to reporting that it is alive (see EnableOperatorHeartbeat).
 		// Absent means false: an older client that has never heard of the field must not quietly make an
 		// operator start calling this server. The UI sends true by default and says what it does.
@@ -139,7 +154,11 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	op, secret, tlsBundle, hbSecret, err := a.core(r).CreateOperatorWithHeartbeat(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities), req.Heartbeat)
+	labels := make([]store.OperatorLabel, 0, len(req.Labels))
+	for _, l := range req.Labels {
+		labels = append(labels, store.OperatorLabel{Key: l.Key, Value: l.Value})
+	}
+	op, secret, tlsBundle, hbSecret, err := a.core(r).CreateOperatorWithOptions(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities), OperatorOptions{Heartbeat: req.Heartbeat, Labels: labels})
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -338,6 +357,7 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 	if heartbeatURL != "" {
 		fmt.Fprintf(&b, " \\\n  %s", operatorHeartbeatSetFlags(op, heartbeatURL))
 	}
+	fmt.Fprintf(&b, " \\\n  --set-json operator=%s", shellQuote(operatorProvenanceJSON(op)))
 	// No image flags, on purpose. The operator runs the upstream OpenTelemetry Collector image the chart
 	// already names - not the `continuum` image the configured registry holds - so pointing it at
 	// <registry>/continuum-regional-operator (an image nothing ever published) made every install of it
@@ -347,6 +367,33 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 		secretCmd = applySecretCommand(secretName, "continuum-system", "token="+secret)
 	}
 	return b.String(), secretCmd
+}
+
+// shellQuote wraps s in single quotes for a POSIX shell, closing and reopening the quotes around any
+// single quote inside it, so a name or a label value can never break out of the command it is pasted into.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// operatorProvenanceJSON is the chart's `operator` value: who this operator is (stamped as
+// continuum.operator.id and .name on everything it forwards) and the labels set when it was created. One
+// --set-json object rather than separate --set flags, so a comma or a space in a name or a value needs no
+// escaping beyond the shell quoting around it.
+func operatorProvenanceJSON(op store.Operator) string {
+	type label struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+	labels := make([]label, 0, len(op.Labels))
+	for _, l := range op.Labels {
+		labels = append(labels, label{Key: l.Key, Value: l.Value})
+	}
+	b, _ := json.Marshal(struct {
+		ID     string  `json:"id"`
+		Name   string  `json:"name"`
+		Labels []label `json:"labels"`
+	}{op.ID, op.Name, labels})
+	return string(b)
 }
 
 // operatorSourceReminders is informational only, not applied: for each source cluster, the exact `helm
