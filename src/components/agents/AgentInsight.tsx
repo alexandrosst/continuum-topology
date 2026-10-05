@@ -383,12 +383,18 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
 export function TelemetryPanel({
   diagnostics: d,
   install,
+  agentId,
+  clusterId,
   initialScope,
   standalone = false,
   testIdPrefix = 'telemetry-panel',
 }: {
   diagnostics?: AgentDiagnostics
   install?: InstallInfo
+  /** The agent and cluster this telemetry is being configured for, when the caller knows them - the
+   *  destination step uses the cluster to say which regional operator already receives it. */
+  agentId?: string
+  clusterId?: string
   /** A scope draft handed off from the topology's "Define scope from selection" quick action, or from the
    * standalone telemetry wizard's own picker - pre-fills TelemetryFields' guided wizard and, in inline mode,
    * starts this panel's own disclosure open, so the person doesn't also have to notice and expand it by hand. */
@@ -428,7 +434,7 @@ export function TelemetryPanel({
 
   const form = (
     <>
-      <TelemetryFields value={draft} onChange={setDraft} testIdPrefix={testIdPrefix} initialScope={initialScope} measurementsOn={measurementsOn} />
+      <TelemetryFields value={draft} onChange={setDraft} testIdPrefix={testIdPrefix} initialScope={initialScope} measurementsOn={measurementsOn} agentId={agentId} clusterId={clusterId} />
       {telemetryActive(draft) && (
         <div className="mt-3 text-xs text-nb-500">
           The cluster's owner runs this in that cluster:

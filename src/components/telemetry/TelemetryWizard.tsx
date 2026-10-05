@@ -131,6 +131,8 @@ export default function TelemetryWizard({
           <TelemetryPanel
             diagnostics={extrasOf(rawAgents, target?.id ?? '').diagnostics}
             install={install}
+            agentId={target?.id}
+            clusterId={target?.clusterId}
             initialScope={initialScope}
             standalone
             testIdPrefix="telemetry-wizard"

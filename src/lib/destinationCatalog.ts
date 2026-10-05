@@ -186,7 +186,7 @@ export function applyDestination(value: TelemetryInput, e: DestinationCatalogEnt
  * only lead when there is nothing of the organisation's own to offer, and otherwise sit behind "show more".
  * Entries that exist but can't carry the signals turned on stay visible, as `unavailable` with their reason.
  */
-export function layoutDestinations(catalog: DestinationCatalog): {
+export function layoutDestinations(catalog: DestinationCatalog, opts: { clusterId?: string } = {}): {
   /** Shown by default. */
   primary: DestinationCatalogEntry[]
   /** Everything usable, primary first - what "show more" reveals. */
@@ -195,14 +195,27 @@ export function layoutDestinations(catalog: DestinationCatalog): {
   unavailable: DestinationCatalogEntry[]
   /** This organisation's own usable destinations (operators and quick-started backends). */
   known: DestinationCatalogEntry[]
+  /** Keys of the entries worth recommending - see `isRecommended`. Always a subset of `known`. */
+  recommended: Set<string>
 } {
   const usable = catalog.entries.filter((e) => e.compatible)
-  const known = usable.filter((e) => e.kind !== 'external-preset')
+  const recommended = new Set(usable.filter((e) => isRecommended(e, opts.clusterId)).map(destinationKey))
+  // Recommended first, otherwise the catalog's own order (operators, then quick-started backends).
+  const known = usable.filter((e) => e.kind !== 'external-preset').sort((a, b) => Number(recommended.has(destinationKey(b))) - Number(recommended.has(destinationKey(a))))
   const presets = usable.filter((e) => e.kind === 'external-preset')
   return {
     primary: known.length > 0 ? known : presets.slice(0, 3),
     all: [...known, ...presets],
     unavailable: catalog.entries.filter((e) => !e.compatible),
     known,
+    recommended,
   }
 }
+
+/**
+ * The one thing this catalog actually knows that makes a destination a better pick than another: a regional
+ * operator that is already configured to receive this very cluster (the cluster is one of its source
+ * clusters, see RegionalOperator.sourceClusterIds). Nothing else qualifies - "healthiest" or "closest" are
+ * not facts the catalog holds, and a badge without a reason behind it only trains people to ignore badges.
+ */
+export const isRecommended = (e: DestinationCatalogEntry, clusterId?: string): boolean => e.kind === 'operator' && !!clusterId && e.operator.sourceClusterIds.includes(clusterId)

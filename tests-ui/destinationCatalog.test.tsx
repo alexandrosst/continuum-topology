@@ -209,6 +209,27 @@ describe('layoutDestinations', () => {
   })
 })
 
+describe('layoutDestinations: recommended', () => {
+  test('only an operator that already has this cluster as a source is recommended, and it sorts first', () => {
+    const catalog = buildDestinationCatalog({
+      operators: [operator({ id: 'op-a', name: 'A' }), operator({ id: 'op-b', name: 'B', sourceClusterIds: ['cl-1'] })],
+      enabledModalities: new Set(['metrics']),
+      quickStartBackends: [],
+      isAdmin: true,
+    })
+    const layout = layoutDestinations(catalog, { clusterId: 'cl-1' })
+    expect([...layout.recommended]).toEqual(['operator-op-b'])
+    expect(layout.known.map(destinationKey)).toEqual(['operator-op-b', 'operator-op-a'])
+  })
+
+  test('with no cluster known, nothing is recommended and the order is the catalog\'s own', () => {
+    const catalog = buildDestinationCatalog({ operators: [operator({ id: 'op-a' }), operator({ id: 'op-b', sourceClusterIds: ['cl-1'] })], enabledModalities: new Set(['metrics']), quickStartBackends: [], isAdmin: true })
+    const layout = layoutDestinations(catalog)
+    expect(layout.recommended.size).toBe(0)
+    expect(layout.known.map(destinationKey)).toEqual(['operator-op-a', 'operator-op-b'])
+  })
+})
+
 describe('applyDestination', () => {
   test('a preset carries its endpoint pattern, protocol and credential header', () => {
     const catalog = buildDestinationCatalog({ operators: [], enabledModalities: new Set(['metrics']), quickStartBackends: [], isAdmin: false })

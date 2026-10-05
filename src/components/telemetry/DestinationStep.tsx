@@ -27,7 +27,7 @@ function entryMeta(e: DestinationCatalogEntry): string {
 /** A destination row: the same bordered-box language as GuidedWizard's PickCard, laid out as a compact list
  *  row, since this step shows more than a handful of them and a grid of tall cards pushes everything else
  *  below the fold. */
-function DestinationRow({ entry, selected, onPick, testId }: { entry: DestinationCatalogEntry; selected: boolean; onPick: () => void; testId: string }) {
+function DestinationRow({ entry, selected, badge, onPick, testId }: { entry: DestinationCatalogEntry; selected: boolean; /** Why this one is recommended, when it is. */ badge?: string; onPick: () => void; testId: string }) {
   const Icon = KIND_ICON[entry.kind]
   return (
     <button
@@ -48,6 +48,7 @@ function DestinationRow({ entry, selected, onPick, testId }: { entry: Destinatio
         <span className="block truncate text-sm font-medium text-nb-200">{entry.label}</span>
         <span className="block truncate text-xs text-nb-500">{entryMeta(entry)}</span>
       </span>
+      {badge && <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent" data-testid={`${testId}-recommended`}>{badge}</span>}
       <span className="shrink-0 text-xs text-nb-500">{KIND_LABEL[entry.kind]}</span>
     </button>
   )
@@ -73,6 +74,7 @@ export default function DestinationStep({
   testIdPrefix,
   catalog,
   catalogReady,
+  clusterId,
   choice,
   onChoose,
   onDeployBackend,
@@ -87,6 +89,8 @@ export default function DestinationStep({
   /** False while regional operators are still being fetched - the lone-match auto-pick below waits for it,
    *  so it never picks a quick-started backend a moment before the organisation's operator turns up. */
   catalogReady: boolean
+  /** The cluster this telemetry is for, when known - lets the list recommend the operator that already receives it. */
+  clusterId?: string
   choice: string | null
   onChoose: (key: string | null) => void
   onDeployBackend: () => void
@@ -107,7 +111,7 @@ export default function DestinationStep({
   const [autoPicked, setAutoPicked] = useState(false)
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
 
-  const layout = layoutDestinations(catalog)
+  const layout = layoutDestinations(catalog, { clusterId })
   const endpointSet = value.exportEndpoint.trim() !== ''
   const matched = layout.all.find((e) => destinationEndpoint(e) === value.exportEndpoint)
   const activeKey = choice ?? (endpointSet ? (matched ? destinationKey(matched) : 'custom') : null)
@@ -193,7 +197,7 @@ export default function DestinationStep({
           {visible.length > 0 ? (
             <div className="space-y-2" role="radiogroup" aria-label="Destination">
               {visible.map((entry) => (
-                <DestinationRow key={destinationKey(entry)} entry={entry} selected={destinationKey(entry) === activeKey} onPick={() => choose(entry)} testId={`${p}-destination-${destinationKey(entry)}`} />
+                <DestinationRow key={destinationKey(entry)} entry={entry} selected={destinationKey(entry) === activeKey} badge={layout.recommended.has(destinationKey(entry)) ? 'Already receives this cluster' : undefined} onPick={() => choose(entry)} testId={`${p}-destination-${destinationKey(entry)}`} />
               ))}
             </div>
           ) : (
@@ -373,11 +377,17 @@ export default function DestinationStep({
         </div>
       )}
 
+      {!endpointSet && mode === 'list' && (
+        <p className="text-xs text-nb-500" data-testid={`${p}-destination-skip-note`}>
+          You can continue without one, but no command is generated until a destination is set.
+        </p>
+      )}
+
       <div className="flex items-center gap-2 pt-1">
         <Button variant="ghost" size="sm" onClick={onBack} data-testid={`${testIdPrefix}-guided-back`}>
           <ChevronLeft size={ICON_SM} /> Back
         </Button>
-        <Button variant="primary" className="ml-auto" onClick={onContinue} disabled={!endpointSet} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
+        <Button variant="primary" className="ml-auto" onClick={onContinue} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
       </div>
     </div>
   )

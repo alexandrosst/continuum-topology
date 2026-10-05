@@ -381,7 +381,7 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
             {canConsent && (
               <div>
                 <Heading>Telemetry</Heading>
-                <TelemetryPanel diagnostics={extras.diagnostics} install={install} />
+                <TelemetryPanel diagnostics={extras.diagnostics} install={install} agentId={a.id} clusterId={a.clusterId} />
               </div>
             )}
           </div>
@@ -395,7 +395,7 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
           </div>
           <div>
             <Heading>Telemetry</Heading>
-            <TelemetryPanel diagnostics={undefined} install={install} />
+            <TelemetryPanel diagnostics={undefined} install={install} agentId={a.id} clusterId={a.clusterId} />
           </div>
         </div>
       )}

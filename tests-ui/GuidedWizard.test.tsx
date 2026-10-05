@@ -49,15 +49,15 @@ const operator = (overrides: Partial<RegionalOperator> = {}): RegionalOperator =
   ...overrides,
 })
 
-function Wrapper({ initial = emptyTelemetry }: { initial?: TelemetryInput }) {
+function Wrapper({ initial = emptyTelemetry, clusterId }: { initial?: TelemetryInput; clusterId?: string }) {
   const [value, setValue] = useState<TelemetryInput>(initial)
-  return <GuidedWizard value={value} onChange={setValue} testIdPrefix="t" />
+  return <GuidedWizard value={value} onChange={setValue} testIdPrefix="t" clusterId={clusterId} />
 }
 
-function renderWizard(initial?: TelemetryInput) {
+function renderWizard(initial?: TelemetryInput, clusterId?: string) {
   return render(
     <MemoryRouter>
-      <Wrapper initial={initial} />
+      <Wrapper initial={initial} clusterId={clusterId} />
     </MemoryRouter>,
   )
 }
@@ -93,8 +93,6 @@ describe('GuidedWizard destination step: reachability', () => {
     await user.click(screen.getByTestId('t-resourceUsage'))
     await user.click(screen.getByTestId('t-guided-continue'))
     expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
-    // Nothing picked yet: there is nowhere to send to, so Continue waits.
-    expect(screen.getByTestId('t-guided-continue')).toBeDisabled()
     await user.click(screen.getByTestId('t-guided-destination-external-preset-honeycomb'))
     await user.click(screen.getByTestId('t-guided-continue'))
     expect(screen.getByTestId('t-guided-step-review')).toBeInTheDocument()
@@ -197,10 +195,33 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     await gotoDestination(user)
     await screen.findByTestId('t-guided-destination-operator-op-eu')
     expect(screen.queryByTestId('t-guided-destination-summary')).not.toBeInTheDocument()
-    expect(screen.getByTestId('t-guided-continue')).toBeDisabled()
     await user.click(screen.getByTestId('t-guided-destination-operator-op-us'))
     expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('US regional operator')
     expect(screen.queryByTestId('t-guided-destination-auto')).not.toBeInTheDocument()
+  })
+
+  test('Continue is never blocked: without a destination, Review says so and offers the way back', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+    await gotoDestination(user)
+    expect(screen.getByTestId('t-guided-continue')).toBeEnabled()
+    expect(screen.getByTestId('t-guided-destination-skip-note')).toBeInTheDocument()
+    await user.click(screen.getByTestId('t-guided-continue'))
+    expect(screen.getByTestId('t-guided-no-destination')).toBeInTheDocument()
+    await user.click(screen.getByTestId('t-guided-choose-destination'))
+    expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
+  })
+
+  test('the operator that already receives this cluster is recommended and listed first', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    listOperators.mockResolvedValue([operator({ id: 'op-a', name: 'A operator' }), operator({ id: 'op-b', name: 'B operator', sourceClusterIds: ['cl-1'] })])
+    renderWizard(undefined, 'cl-1')
+    await gotoDestination(user)
+    const rows = await screen.findAllByRole('radio')
+    expect(rows[0]).toHaveAttribute('data-testid', 't-guided-destination-operator-op-b')
+    expect(screen.getByTestId('t-guided-destination-operator-op-b-recommended')).toHaveTextContent('Already receives this cluster')
+    expect(screen.queryByTestId('t-guided-destination-operator-op-a-recommended')).not.toBeInTheDocument()
   })
 
   test('an operator restricted to a modality that is not enabled is listed as unable to carry the signals, with why', async () => {

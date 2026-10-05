@@ -151,10 +151,14 @@ export default function GuidedWizard({
   onChange,
   testIdPrefix,
   initialScope,
+  clusterId,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
   testIdPrefix: string
+  /** The agent and cluster this telemetry is for, when the caller knows them. */
+  agentId?: string
+  clusterId?: string
   /** A scope pre-filled from outside the wizard (see GuidedScope.tsx's own doc on this same prop). */
   initialScope?: { name: string; namespaces: string[] }
 }) {
@@ -423,6 +427,7 @@ export default function GuidedWizard({
             testIdPrefix={testIdPrefix}
             catalog={catalog}
             catalogReady={operatorsReady}
+            clusterId={clusterId}
             choice={destChoice}
             onChoose={setDestChoice}
             onDeployBackend={() => setBackendWizardOpen(true)}
@@ -440,7 +445,12 @@ export default function GuidedWizard({
               <>
                 <p className="text-xs text-nb-500">How this will flow, end to end:</p>
                 <TelemetryReviewPipeline value={value} onSignals={onSignals} testIdPrefix={testIdPrefix} />
-                {!value.exportEndpoint.trim() && <p className="text-xs text-nb-600">Go back to Destination to set where this is sent.</p>}
+                {!value.exportEndpoint.trim() && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" role="status" data-testid={`${testIdPrefix}-guided-no-destination`}>
+                    <span>No destination yet, so no command is generated.</span>
+                    <Button size="sm" onClick={() => setStep('destination')} data-testid={`${testIdPrefix}-guided-choose-destination`}>Choose a destination</Button>
+                  </div>
+                )}
               </>
             )}
             <div className="flex flex-wrap items-center gap-2 pt-1">

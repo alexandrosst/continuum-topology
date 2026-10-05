@@ -148,11 +148,16 @@ export default function TelemetryFields({
   measurementsOn,
   testIdPrefix = 'telemetry',
   initialScope,
+  agentId,
+  clusterId,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
   measurementsOn?: boolean
   testIdPrefix?: string
+  /** The agent/cluster being configured, when known - handed to the guided wizard's destination step. */
+  agentId?: string
+  clusterId?: string
   /** A scope pre-filled from outside this form (see GuidedScope.tsx) - when present, also starts the form
    * in guided mode, so the person lands directly on their pre-filled draft instead of needing to notice
    * and click into guided mode themselves first. */
@@ -260,7 +265,7 @@ export default function TelemetryFields({
       </div>
 
       {guided ? (
-        <GuidedWizard value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialScope={initialScope} />
+        <GuidedWizard value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialScope={initialScope} agentId={agentId} clusterId={clusterId} />
       ) : (
       <>
       <div className="space-y-1.5">
