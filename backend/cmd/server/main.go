@@ -36,6 +36,11 @@ var version = "0.1.0-dev"
 // (the Chart.yaml literal), which is only ever right by coincidence - see Admin.agentChartVersion's doc comment.
 var agentChartVersion = ""
 
+// operatorChartVersion is agentChartVersion's twin for the continuum-regional-operator chart: the release pipeline
+// packages every chart of a run under the same version, so the same value is linked in. Without it the regional
+// operator install command would name the Chart.yaml literal, which the registry does not hold for an edge build.
+var operatorChartVersion = ""
+
 type multi []string
 
 func (m *multi) String() string     { return strings.Join(*m, ",") }
@@ -324,7 +329,7 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 		}
 	}()
 
-	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, Origins: origins, UIDir: uiDir, Version: version, AgentChartVersion: agentChartVersion}
+	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, Origins: origins, UIDir: uiDir, Version: version, AgentChartVersion: agentChartVersion, OperatorChartVersion: operatorChartVersion}
 	admin.Readiness = &server.Readiness{AgentsListening: grpcSrv.Serving}
 	if graphStore != nil {
 		admin.Readiness.Graph = func() (bool, bool) { return true, graphStore.Ready() }

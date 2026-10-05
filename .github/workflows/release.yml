@@ -1,7 +1,7 @@
 name: Release
 
 # Builds and publishes the ONE thing an install command needs to exist for: the `continuum` image (agent, probe
-# and flow collector - one binary, three roles), the `server` image, and both Helm charts, all to this repo's own
+# and flow collector - one binary, three roles), the `server` image, and the three Helm charts (agent, regional operator, server), all to this repo's own
 # GitHub Container Registry namespace (ghcr.io/<owner>) - no separate registry to set up, and nothing for anyone
 # installing this to type in beyond the command the server's "Connect a cluster" screen already prints.
 #
@@ -16,10 +16,10 @@ name: Release
 #   - pushing a tag like v0.3.0 publishes that exact version (and moves "latest" to it) - this is a real release.
 #   - workflow_dispatch, for a manual re-run without needing a new commit or tag.
 #
-# One-time setup this workflow cannot do for you: the first time this runs, GHCR creates the four packages
-# (continuum, server, continuum-agent, continuum-server) as PRIVATE by default, even in a public repo. Nothing
+# One-time setup this workflow cannot do for you: the first time this runs, GHCR creates the five packages
+# (continuum, server, continuum-agent, continuum-regional-operator, continuum-server) as PRIVATE by default, even in a public repo. Nothing
 # using the published install command will work until you flip that: on GitHub, the repo's right sidebar has a
-# "Packages" section once this has run once - open each of the four, "Package settings" at the bottom, "Change
+# "Packages" section once this has run once - open each of the five, "Package settings" at the bottom, "Change
 # visibility" to Public (and confirm "Link to this repository" is checked, so they show up on the repo's page).
 # You only need to do this once; every later push publishes new versions into the same, already-public packages.
 on:
@@ -148,6 +148,11 @@ jobs:
         include:
           - dir: backend/internal/chart/continuum-agent
             name: continuum-agent
+          # No image of its own to bake in (it runs the upstream OpenTelemetry Collector image its values.yaml
+          # names), so the "Bake" step below has no case for it. It still needs publishing: the install command
+          # the server prints for a regional operator names oci://ghcr.io/<owner>/continuum-regional-operator.
+          - dir: backend/internal/chart/continuum-regional-operator
+            name: continuum-regional-operator
           - dir: deploy/helm/continuum-server
             name: continuum-server
     steps:
