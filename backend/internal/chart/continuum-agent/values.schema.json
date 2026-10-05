@@ -515,7 +515,8 @@
                 "protocol": {
                   "enum": [
                     "grpc",
-                    "http"
+                    "http",
+                    "zipkin"
                   ]
                 },
                 "tls": {

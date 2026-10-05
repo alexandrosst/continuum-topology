@@ -315,6 +315,40 @@ describe('detectBackends', () => {
   })
 })
 
+describe('Zipkin', () => {
+  test('a running Zipkin is found by its image and addressed by host:port - the chart adds /api/v2/spans', () => {
+    const found = detectBackends([svc({ id: 'z', name: 'zipkin', image: 'openzipkin/zipkin-slim:3', ports: [9411] })], { clusterId: 'cl-1' })
+    expect(found.map((d) => [d.kind.id, d.kind.protocol, d.endpoint])).toEqual([['zipkin', 'zipkin', 'zipkin.monitoring.svc:9411']])
+  })
+
+  test('the catalog carries Zipkin as a traces-only self-hosted destination that picks the zipkin protocol', () => {
+    const { entries } = buildDestinationCatalog({ operators: [], enabledModalities: new Set(['traces']), quickStartBackends: [], isAdmin: false })
+    const z = entries.find((e) => e.id === 'zipkin')!
+    expect(z.kind).toBe('external-preset')
+    expect(z.compatible).toBe(true)
+    expect(z.accepts).toEqual(['traces'])
+    const picked = applyDestination(emptyTelemetry, z)
+    expect(picked.exportProtocol).toBe('zipkin')
+    expect(picked.exportInsecure).toBe(true)
+    // With metrics also on it is greyed out, with the reason, like Jaeger.
+    const mixed = buildDestinationCatalog({ operators: [], enabledModalities: new Set(['traces', 'metrics']), quickStartBackends: [], isAdmin: false }).entries.find((e) => e.id === 'zipkin')!
+    expect(mixed.compatible).toBe(false)
+    expect(mixed.reason).toMatch(/traces only, not metrics/)
+  })
+
+  test('a quick-started Zipkin exports natively: its own host:port and the zipkin protocol', () => {
+    const { entries } = buildDestinationCatalog({
+      operators: [],
+      enabledModalities: new Set(['traces']),
+      quickStartBackends: [backend({ id: 'qsb-z', kind: 'zipkin', label: 'Zipkin (traces)' })],
+      isAdmin: false,
+    })
+    const q = entries.find((e) => e.kind === 'quickstart')!
+    if (q.kind !== 'quickstart') throw new Error('expected a quick-start entry')
+    expect([q.exportEndpoint, q.exportProtocol]).toEqual(['zipkin-quickstart.observability.svc:9411', 'zipkin'])
+  })
+})
+
 describe('buildDestinationCatalog: found in the cluster', () => {
   const catalog = (enabled: Array<'metrics' | 'logs' | 'traces'>, clusterId = 'cl-1') =>
     buildDestinationCatalog({ operators: [], enabledModalities: new Set(enabled), quickStartBackends: [], isAdmin: false, services: [svc({})], clusterId })

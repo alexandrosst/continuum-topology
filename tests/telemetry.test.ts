@@ -65,6 +65,21 @@ test('non-default export protocol and insecure are carried', () => {
   assert.match(cmd, /--set telemetry\.export\.otlp\.tls\.insecure=true/)
 })
 
+test('zipkin is a protocol of its own, carried like http, and only valid with traces alone', () => {
+  const traces: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'zipkin.obs.svc:9411', exportProtocol: 'zipkin', exportInsecure: true }
+  assert.deepEqual(telemetryProblems(traces), [])
+  const cmd = withTelemetry(base, traces)
+  assert.match(cmd, /--set telemetry\.export\.otlp\.protocol=zipkin/)
+  assert.match(cmd, /--set-string telemetry\.export\.otlp\.endpoint=zipkin\.obs\.svc:9411/)
+  // Anything else on is refused (and so no command is printed): Zipkin cannot receive metrics or logs.
+  const mixed: TelemetryInput = { ...traces, resourceUsage: true, systemLogs: true }
+  assert.match(telemetryProblems(mixed).join(' '), /Zipkin only carries traces - turn off metrics and logs/)
+  assert.equal(withTelemetry(base, mixed), base)
+  // Metrics alone with zipkin is also wrong, and says why rather than printing a command the chart rejects.
+  const none: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'z:9411', exportProtocol: 'zipkin' }
+  assert.match(telemetryProblems(none).join(' '), /Zipkin only carries traces/)
+})
+
 test('energy pointed at an existing source needs its endpoint, and carries the source + endpoint when valid', () => {
   const missing: TelemetryInput = { ...emptyTelemetry, energy: true, energySource: 'existing', exportEndpoint: 'x:4317' }
   assert.deepEqual(telemetryProblems(missing), ['The existing Prometheus endpoint is required when energy points at an existing source'])

@@ -3,6 +3,7 @@ import { Check, ChevronLeft, Info, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 import { Button, CopyButton, Field, ICON_MD, ICON_SM, Input, Modal, Select, WizardSteps } from '@/components/ui/primitives'
 import type { Modality } from '@/lib/consent'
+import { exportProtocolLabel, type ExportProtocol } from '@/lib/install'
 import { KNOWN_BACKEND_KINDS, type QuickStartBackend, type QuickStartKind } from '@/lib/history'
 import { processorTarget, type ProcessorEntry } from '@/lib/processorCatalog'
 import { quickStartSpec, type QuickStartSpec } from '@/lib/quickStartBackends'
@@ -10,7 +11,7 @@ import { quickStartSpec, type QuickStartSpec } from '@/lib/quickStartBackends'
 const KIND_LABEL: Record<QuickStartKind, string> = { jaeger: 'Jaeger', zipkin: 'Zipkin', prometheus: 'Prometheus', loki: 'Loki', custom: 'Custom' }
 const KIND_BLURB: Record<QuickStartKind, string> = {
   jaeger: 'Traces only. OTLP/gRPC.',
-  zipkin: 'Traces only. Zipkin does not read OTLP, so a small collector is installed in front of it.',
+  zipkin: 'Traces only. Spans go straight to the Zipkin API - the agent\'s own Zipkin exporter, no collector in between.',
   prometheus: 'Metrics only. OTLP/HTTP.',
   loki: 'Logs only. OTLP/HTTP.',
   custom: 'Any backend with no catalog entry here - register a name and URL, nothing is installed for you.',
@@ -58,7 +59,7 @@ function compatibilityChecks({
   namespace: string
   enabledModalities: Set<Modality>
   currentEndpoint: string
-  currentProtocol: 'grpc' | 'http'
+  currentProtocol: ExportProtocol
   extraProcessors: ProcessorEntry[]
 }): CompatCheck[] {
   const out: CompatCheck[] = []
@@ -72,7 +73,7 @@ function compatibilityChecks({
     out.push({ tone: 'info', text: `A destination is already set (${dest}) - using this backend as the destination below will replace it.` })
     const spec = kind !== 'custom' ? quickStartSpec(kind) : undefined
     if (spec && spec.exportProtocol !== currentProtocol) {
-      out.push({ tone: 'info', text: `The current destination uses OTLP/${currentProtocol === 'grpc' ? 'gRPC' : 'HTTP'}; this backend expects OTLP/${spec.exportProtocol === 'grpc' ? 'gRPC' : 'HTTP'} - "Use as destination" switches the protocol automatically.` })
+      out.push({ tone: 'info', text: `The current destination uses ${exportProtocolLabel(currentProtocol)}; this backend expects ${exportProtocolLabel(spec.exportProtocol)} - "Use as destination" switches the protocol automatically.` })
     }
   }
 
@@ -159,7 +160,7 @@ export default function TelemetryBackendWizard({
   enabledModalities: Set<Modality>
   existingBackends: QuickStartBackend[]
   currentEndpoint: string
-  currentProtocol: 'grpc' | 'http'
+  currentProtocol: ExportProtocol
   extraProcessors: ProcessorEntry[]
   admin: boolean
   busy: boolean

@@ -1,4 +1,4 @@
-import type { Modality } from './install'
+import type { ExportProtocol, Modality } from './install'
 import type { Service } from './types'
 
 /**
@@ -17,7 +17,7 @@ export interface DetectedKind {
   /** The container port this receiver listens for OTLP on, and what follows it in the endpoint. */
   port: number
   path: string
-  protocol: 'grpc' | 'http'
+  protocol: ExportProtocol
   note?: string
 }
 
@@ -30,6 +30,7 @@ export const DETECTED_KINDS: DetectedKind[] = [
   { id: 'tempo', label: 'Grafana Tempo', image: /(^|\/)tempo$/, modalities: ['traces'], port: 4317, path: '', protocol: 'grpc' },
   { id: 'mimir', label: 'Grafana Mimir', image: /(^|\/)mimir$/, modalities: ['metrics'], port: 80, path: '/otlp', protocol: 'http' },
   { id: 'victoria-metrics', label: 'VictoriaMetrics', image: /(^|\/)(victoria-metrics|victoriametrics)$/, modalities: ['metrics'], port: 8428, path: '/opentelemetry', protocol: 'http' },
+  { id: 'zipkin', label: 'Zipkin', image: /(^|\/)openzipkin\/zipkin(-slim)?$|(^|\/)zipkin(-slim)?$/, modalities: ['traces'], port: 9411, path: '', protocol: 'zipkin', note: 'Spans are posted to its /api/v2/spans endpoint.' },
   { id: 'jaeger', label: 'Jaeger', image: /(^|\/)(jaeger|all-in-one|jaeger-collector|jaeger-all-in-one)$/, modalities: ['traces'], port: 4317, path: '', protocol: 'grpc' },
 ]
 

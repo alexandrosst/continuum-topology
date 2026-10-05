@@ -42,13 +42,14 @@ describe('TelemetryBackendWizard', () => {
     expect(screen.getByTestId('backend-wizard-retention')).toHaveValue('168h')
   })
 
-  test('Zipkin takes a span count, and its install command deploys the collector that feeds it', async () => {
+  test('Zipkin takes a span count, and its install command deploys Zipkin alone', async () => {
     const user = userEvent.setup()
     render(<TelemetryBackendWizard {...baseProps} />)
     await user.click(screen.getByTestId('backend-wizard-kind-zipkin'))
     expect(screen.getByTestId('backend-wizard-retention')).toHaveValue('500000')
     await user.click(screen.getByTestId('backend-wizard-continue'))
-    expect(screen.getByTestId('backend-wizard-step-review')).toHaveTextContent('zipkin-quickstart-otlp')
+    expect(screen.getByTestId('backend-wizard-step-review')).toHaveTextContent('openzipkin/zipkin-slim')
+    expect(screen.getByTestId('backend-wizard-step-review')).not.toHaveTextContent('zipkin-quickstart-otlp')
   })
 
   test('a non-administrator sees nothing editable on Details, and no way to continue', async () => {

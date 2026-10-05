@@ -18,7 +18,7 @@ import { hasQuickStartSpec } from './quickStartBackends'
  * quickStartBackends.ts already creates (see that file's own exportEndpoint/portForward comments, which
  * this mirrors rather than re-deriving):
  *   - jaeger: the jaeger-quickstart Service's http-query port (16686) - the query UI/API.
- *   - zipkin: the zipkin-quickstart Service's port 9411 - the Zipkin UI and API (not the OTLP collector in front of it).
+ *   - zipkin: the zipkin-quickstart Service's port 9411 - the Zipkin UI and API.
  *   - prometheus: the prometheus-quickstart-server Service's port 80 (proxying to the container's 9090) -
  *     the web UI/API.
  *   - loki: the loki-quickstart Service's port 3100 - its HTTP API (Loki itself has no UI).

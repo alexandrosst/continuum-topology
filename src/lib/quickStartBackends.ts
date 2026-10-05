@@ -1,4 +1,5 @@
 import type { QuickStartKind } from './history'
+import type { ExportProtocol } from './install'
 
 /**
  * Specs for the "don't have a backend yet?" quick-start option next to the telemetry destination field
@@ -25,7 +26,7 @@ export interface QuickStartSpec {
    *  destination; this one-line in-cluster install is for getting something up fast, not fleet-wide
    *  collection - said plainly in the UI, not just implied by what's offered. */
   exportEndpoint: (namespace: string) => string
-  exportProtocol: 'grpc' | 'http'
+  exportProtocol: ExportProtocol
   command: (namespace: string, retention: string) => string
   openHint: string
   portForward: (namespace: string) => string
@@ -84,15 +85,15 @@ export const QUICK_START_BACKENDS: QuickStartSpec[] = [
     defaultRetention: '500000',
     retentionHint: 'How many spans Zipkin keeps in memory (MEM_MAX_SPANS) before dropping the oldest. Digits only. Everything is lost when the pod restarts.',
     defaultNamespace: 'observability',
-    // Zipkin cannot ingest OTLP (it takes its own v1/v2 span formats on :9411), so unlike the other three this
-    // is two small Deployments: Zipkin itself, and an OpenTelemetry Collector in front of it that receives
-    // OTLP and forwards to Zipkin's /api/v2/spans with the collector's own `zipkin` exporter. The endpoint
-    // an agent exports to is therefore the collector's Service, not Zipkin's. Plain manifests rather than a
-    // chart: there is no official Zipkin chart this app could pin, and the whole thing is two Deployments
-    // and two Services. Zipkin uses its in-memory store, hence "retention" being a span count and the
+    // Zipkin does not read OTLP - it takes its own v2 span format on :9411 - and the agent's collector has a
+    // `zipkin` exporter for exactly that (telemetry.export.otlp.protocol=zipkin), so this is just Zipkin itself:
+    // one Deployment and one Service, nothing in front of it. The endpoint is the Service's host:port; the
+    // chart adds the http:// scheme (this destination is plain in-cluster, so "skip TLS verification" is on)
+    // and Zipkin's /api/v2/spans path. Plain manifests rather than a chart: there is no official Zipkin chart
+    // this app could pin. Zipkin uses its in-memory store, hence "retention" being a span count and the
     // "not for keeping data around" warning the wizard already shows.
-    exportEndpoint: (ns) => `zipkin-quickstart-otlp.${ns}.svc:4317`,
-    exportProtocol: 'grpc',
+    exportEndpoint: (ns) => `zipkin-quickstart.${ns}.svc:9411`,
+    exportProtocol: 'zipkin',
     command: (ns, retention) => {
       const maxSpans = retention.replace(/\D/g, '') || '500000'
       return (
@@ -133,60 +134,6 @@ export const QUICK_START_BACKENDS: QuickStartSpec[] = [
         `spec:\n` +
         `  selector: {app: zipkin-quickstart}\n` +
         `  ports: [{name: http, port: 9411, targetPort: http}]\n` +
-        `---\n` +
-        `apiVersion: v1\n` +
-        `kind: ConfigMap\n` +
-        `metadata:\n` +
-        `  name: zipkin-quickstart-otlp\n` +
-        `  namespace: ${ns}\n` +
-        `data:\n` +
-        `  config.yaml: |\n` +
-        `    receivers:\n` +
-        `      otlp:\n` +
-        `        protocols:\n` +
-        `          grpc: {endpoint: 0.0.0.0:4317}\n` +
-        `          http: {endpoint: 0.0.0.0:4318}\n` +
-        `    processors:\n` +
-        `      batch: {}\n` +
-        `    exporters:\n` +
-        `      zipkin:\n` +
-        `        endpoint: http://zipkin-quickstart.${ns}.svc:9411/api/v2/spans\n` +
-        `        tls: {insecure: true}\n` +
-        `    service:\n` +
-        `      pipelines:\n` +
-        `        traces: {receivers: [otlp], processors: [batch], exporters: [zipkin]}\n` +
-        `---\n` +
-        `apiVersion: apps/v1\n` +
-        `kind: Deployment\n` +
-        `metadata:\n` +
-        `  name: zipkin-quickstart-otlp\n` +
-        `  namespace: ${ns}\n` +
-        `spec:\n` +
-        `  replicas: 1\n` +
-        `  selector:\n` +
-        `    matchLabels: {app: zipkin-quickstart-otlp}\n` +
-        `  template:\n` +
-        `    metadata:\n` +
-        `      labels: {app: zipkin-quickstart-otlp}\n` +
-        `    spec:\n` +
-        `      containers:\n` +
-        `        - name: collector\n` +
-        `          image: otel/opentelemetry-collector-contrib:0.160.0\n` +
-        `          args: ["--config=/conf/config.yaml"]\n` +
-        `          ports: [{name: otlp-grpc, containerPort: 4317}, {name: otlp-http, containerPort: 4318}]\n` +
-        `          volumeMounts: [{name: conf, mountPath: /conf}]\n` +
-        `      volumes:\n` +
-        `        - name: conf\n` +
-        `          configMap: {name: zipkin-quickstart-otlp}\n` +
-        `---\n` +
-        `apiVersion: v1\n` +
-        `kind: Service\n` +
-        `metadata:\n` +
-        `  name: zipkin-quickstart-otlp\n` +
-        `  namespace: ${ns}\n` +
-        `spec:\n` +
-        `  selector: {app: zipkin-quickstart-otlp}\n` +
-        `  ports: [{name: otlp-grpc, port: 4317, targetPort: otlp-grpc}, {name: otlp-http, port: 4318, targetPort: otlp-http}]\n` +
         `EOF`
       )
     },

@@ -7,7 +7,7 @@ import { OperatorHealth } from '@/components/operators/OperatorHealth'
 import { Button, Field, ICON_MD, ICON_SM, InfoTip, Input, Select } from '@/components/ui/primitives'
 import { applyDestination, destinationEndpoint, destinationIsPlain, destinationKey, destinationNeedsCredential, layoutDestinations, searchDestinations, type DestinationCatalog, type DestinationCatalogEntry } from '@/lib/destinationCatalog'
 import { imageRepository } from '@/lib/detectBackends'
-import type { Modality, TelemetryInput } from '@/lib/install'
+import { exportProtocolLabel, type Modality, type TelemetryInput } from '@/lib/install'
 import { operatorLiveness, receiverAuthOf } from '@/lib/operatorHealth'
 
 type Mode = 'list' | 'custom' | 'new'
@@ -252,7 +252,7 @@ export default function DestinationStep({
     ? operatorBearer
       ? `OTLP/gRPC · mTLS${secretNamed ? ` · receiver token from Secret ${value.exportAuthSecretName.trim()}` : ''}`
       : 'OTLP/gRPC · mTLS · client certificate only'
-    : `${value.exportProtocol === 'http' ? 'OTLP/HTTP' : 'OTLP/gRPC'} · ${secretNamed ? `credential from Secret ${value.exportAuthSecretName.trim()}` : 'no credential'} · ${value.exportInsecure ? (plain ? 'plain in-cluster connection (no TLS)' : 'TLS not verified') : 'TLS verified'}`
+    : `${exportProtocolLabel(value.exportProtocol)} · ${secretNamed ? `credential from Secret ${value.exportAuthSecretName.trim()}` : 'no credential'} · ${value.exportInsecure ? (plain ? 'plain in-cluster connection (no TLS)' : 'TLS not verified') : 'TLS verified'}`
 
   return (
     <div className="space-y-3" data-testid={`${p}-step-destination`}>
@@ -343,6 +343,7 @@ export default function DestinationStep({
             <Select value={value.exportProtocol} onChange={(e) => set('exportProtocol', e.target.value as TelemetryInput['exportProtocol'])} data-testid={`${testIdPrefix}-export-protocol`}>
               <option value="grpc">OTLP/gRPC</option>
               <option value="http">OTLP/HTTP</option>
+              <option value="zipkin">Zipkin (traces only)</option>
             </Select>
           </Field>
           <Button variant="primary" onClick={useCustom} disabled={!customDraft.trim()} data-testid={`${p}-destination-custom-use`}>Use this endpoint</Button>
@@ -467,6 +468,7 @@ export default function DestinationStep({
                         <Select value={value.exportProtocol} onChange={(e) => set('exportProtocol', e.target.value as TelemetryInput['exportProtocol'])} data-testid={`${testIdPrefix}-export-protocol`}>
                           <option value="grpc">OTLP/gRPC</option>
                           <option value="http">OTLP/HTTP</option>
+                          <option value="zipkin">Zipkin (traces only)</option>
                         </Select>
                       )}
                     </Field>

@@ -435,6 +435,7 @@ export default function TelemetryFields({
             >
               <option value="grpc">OTLP/gRPC</option>
               <option value="http">OTLP/HTTP</option>
+              <option value="zipkin">Zipkin (traces only)</option>
             </Select>
           </Field>
           {destinationNote && (

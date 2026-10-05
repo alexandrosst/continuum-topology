@@ -206,7 +206,7 @@ export interface TelemetryInput {
   acceleratorsApplyScope: boolean
   /** Where every enabled signal is sent (`telemetry.export.otlp.*`). Required once any signal above is on. */
   exportEndpoint: string
-  exportProtocol: 'grpc' | 'http'
+  exportProtocol: ExportProtocol
   exportInsecure: boolean
   /** The header a destination expects its credential in (e.g. "Authorization", "X-Api-Key"). Only sent
    *  once `exportAuthSecretName` names a Secret - see it below for why no credential value lives here. */
@@ -248,6 +248,11 @@ export interface TelemetryInput {
   resourceOrgId: string
   resourceClusterId: string
 }
+
+/** How the one export destination is spoken to. 'zipkin' posts spans to a Zipkin-compatible /api/v2/spans
+ *  endpoint with the collector's own zipkin exporter: it carries traces only (see telemetryProblems). */
+export type ExportProtocol = 'grpc' | 'http' | 'zipkin'
+export const exportProtocolLabel = (p: ExportProtocol): string => (p === 'http' ? 'OTLP/HTTP' : p === 'zipkin' ? 'Zipkin (HTTP, traces only)' : 'OTLP/gRPC')
 
 export interface TagEntry {
   key: string
@@ -413,6 +418,11 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   // command, not just show a warning next to the field (TelemetryFields.tsx shows the same thing inline,
   // with friendlier wording, but withTelemetry below only consults this function - a cosmetic-only warning
   // there would let an invalid preset+signal combo stay copyable/saveable).
+  if (t.exportProtocol === 'zipkin') {
+    const others = [...enabledModalities(t)].filter((m) => m !== 'traces')
+    if (others.length > 0) out.push(`Zipkin only carries traces - turn off ${others.join(' and ')}, or send everything somewhere that speaks OTLP`)
+    else if (!t.traces) out.push('Zipkin only carries traces, and traces are not turned on')
+  }
   const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === t.exportEndpoint.trim())
   if (preset && !presetSupportsModalities(preset, enabledModalities(t))) {
     out.push(`${preset.label} only carries ${preset.modalities!.join('/')} - turn off the other signals, or send everything somewhere else`)

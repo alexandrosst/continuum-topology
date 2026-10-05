@@ -327,7 +327,8 @@ telemetry:
   export:
     otlp:
       endpoint: ""    # host:port of your OTLP receiver, e.g. an existing collector gateway or observability backend
-      protocol: grpc  # grpc | http
+      protocol: grpc  # grpc | http | zipkin. zipkin posts spans to a Zipkin-compatible /api/v2/spans endpoint and
+                      # carries traces only: enabling any other signal with it is refused at render time.
       tls:
         insecure: false
         caFile: ""    # path to a CA bundle to mount and trust, if your endpoint's certificate isn't otherwise trusted

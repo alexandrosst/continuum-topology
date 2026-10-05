@@ -1,5 +1,5 @@
 import { detectBackends, type DetectedBackend } from './detectBackends'
-import type { Modality, TelemetryInput } from './install'
+import type { ExportProtocol, Modality, TelemetryInput } from './install'
 import { EXPORT_PRESETS, type ExportPreset } from './exportPresets'
 import type { QuickStartBackend } from './history'
 import { hasQuickStartSpec, quickStartSpec } from './quickStartBackends'
@@ -44,13 +44,13 @@ export type DestinationCatalogEntry =
       kind: 'quickstart'
       backend: QuickStartBackend
       exportEndpoint: string
-      exportProtocol: 'grpc' | 'http'
+      exportProtocol: ExportProtocol
     })
   | (EntryBase & {
       kind: 'detected'
       detected: DetectedBackend
       exportEndpoint: string
-      exportProtocol: 'grpc' | 'http'
+      exportProtocol: ExportProtocol
     })
 
 export interface DestinationCatalog {

@@ -12,24 +12,28 @@ test('every catalog kind is a known kind, offered by default, and has a spec', (
   assert.equal(hasQuickStartSpec('custom'), false)
 })
 
-test('zipkin: traces over OTLP/gRPC through the collector in front of it, not Zipkin itself', () => {
+test('zipkin: traces over its own protocol straight to Zipkin, no collector in front of it', () => {
   const z = quickStartSpec('zipkin')
   assert.equal(z.modality, 'traces')
-  assert.equal(z.exportProtocol, 'grpc')
-  assert.equal(z.exportEndpoint('obs'), 'zipkin-quickstart-otlp.obs.svc:4317')
+  assert.equal(z.exportProtocol, 'zipkin')
+  // A bare host:port: the chart adds the scheme and /api/v2/spans itself.
+  assert.equal(z.exportEndpoint('obs'), 'zipkin-quickstart.obs.svc:9411')
   assert.equal(z.portForward('obs'), 'kubectl -n obs port-forward svc/zipkin-quickstart 9411:9411')
 })
 
-test('zipkin: the command is one kubectl apply heredoc that wires the collector to Zipkin in the same namespace', () => {
+test('zipkin: the command is one kubectl apply heredoc of Zipkin alone - a Deployment and a Service', () => {
   const cmd = quickStartSpec('zipkin').command('obs', '250000')
   assert.ok(cmd.startsWith("kubectl apply -f - <<'EOF'\n"))
   assert.ok(cmd.endsWith('\nEOF'))
   assert.match(cmd, /name: obs\n/)
-  assert.match(cmd, /endpoint: http:\/\/zipkin-quickstart\.obs\.svc:9411\/api\/v2\/spans/)
+  assert.match(cmd, /image: openzipkin\/zipkin-slim/)
   assert.match(cmd, /MEM_MAX_SPANS, value: "250000"/)
-  assert.match(cmd, /exporters: \[zipkin\]/)
+  // The bridge collector this used to install is gone, and so is its ConfigMap.
+  assert.doesNotMatch(cmd, /opentelemetry-collector|zipkin-quickstart-otlp|kind: ConfigMap/)
+  assert.equal((cmd.match(/kind: Deployment/g) ?? []).length, 1)
+  assert.equal((cmd.match(/kind: Service/g) ?? []).length, 1)
   // Every namespaced object lands in the chosen namespace.
-  assert.equal((cmd.match(/namespace: obs\n/g) ?? []).length, 5)
+  assert.equal((cmd.match(/namespace: obs\n/g) ?? []).length, 2)
 })
 
 test('zipkin: the span limit is digits only, so free text cannot reach the manifest', () => {

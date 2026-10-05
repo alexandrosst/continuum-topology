@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowRight } from 'lucide-react'
 import { ICON_SM } from '@/components/ui/primitives'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
-import { cleanTags, scopeTag, type TelemetryInput } from '@/lib/install'
+import { cleanTags, exportProtocolLabel, scopeTag, type TelemetryInput } from '@/lib/install'
 import { EXPORT_PRESETS } from '@/lib/exportPresets'
 import { PROCESSOR_KINDS, processorTarget, type ProcessorEntry } from '@/lib/processorCatalog'
 import { LAYER_CARDS, LAYER_META } from '@/lib/telemetryLayers'
@@ -141,7 +141,7 @@ export default function TelemetryReviewPipeline({
           <div className="space-y-1">
             <p className="break-all text-xs text-nb-300">{preset?.label ?? destination}</p>
             <p className="text-xs text-nb-500">
-              {value.exportProtocol === 'grpc' ? 'OTLP/gRPC' : 'OTLP/HTTP'}
+              {exportProtocolLabel(value.exportProtocol)}
               {value.exportInsecure ? ' · TLS verification skipped' : ''}
             </p>
             {value.exportAuthSecretName.trim() && (

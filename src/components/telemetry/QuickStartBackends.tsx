@@ -9,6 +9,7 @@ import type { ProcessorEntry } from '@/lib/processorCatalog'
 import { QUICK_START_BACKENDS, quickStartSpec } from '@/lib/quickStartBackends'
 import { gatewayManifest, gatewayPortForward, hasGatewayManifest } from '@/lib/quickStartGateway'
 import type { Modality } from '@/lib/consent'
+import type { ExportProtocol } from '@/lib/install'
 import { useConn, useServer } from '@/store/server'
 import { useSettings } from '@/store/settings'
 import TelemetryBackendWizard from './TelemetryBackendWizard'
@@ -30,12 +31,12 @@ const KIND_LABEL: Record<QuickStartKind, string> = { jaeger: 'Jaeger', zipkin: '
  */
 export default function QuickStartBackends({ enabledModalities, onUseAsDestination, currentDestination, extraProcessors = [] }: {
   enabledModalities: Set<Modality>
-  onUseAsDestination: (exportEndpoint: string, exportProtocol: 'grpc' | 'http') => void
+  onUseAsDestination: (exportEndpoint: string, exportProtocol: ExportProtocol) => void
   /** The destination (if any) already set on the telemetry form this sits under - used only by the guided
    *  wizard's own compatibility step (see TelemetryBackendWizard), to flag that using a quick-start backend
    *  as the destination would replace it, and whether doing so also switches the protocol. Optional so
    *  existing callers/tests that only care about the flat per-kind disclosures need not pass it. */
-  currentDestination?: { endpoint: string; protocol: 'grpc' | 'http' }
+  currentDestination?: { endpoint: string; protocol: ExportProtocol }
   /** Extra OTel processors already configured on the telemetry form - same reasoning: only the guided
    *  wizard's compatibility step reads these, to flag one shaped for a signal this backend won't carry. */
   extraProcessors?: ProcessorEntry[]

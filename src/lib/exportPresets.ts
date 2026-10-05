@@ -1,6 +1,6 @@
 // From install.ts, not consent.ts: this is a plain data file and must not depend on consent.ts, which
 // itself depends on install.ts (install.ts's telemetryProblems reads EXPORT_PRESETS from here too).
-import type { Modality } from './install'
+import type { ExportProtocol, Modality } from './install'
 
 /**
  * Recommended OTLP-native export destinations, shown as a pick-from-list option in the telemetry
@@ -25,7 +25,7 @@ export interface ExportPreset {
   label: string
   endpointPattern: string
   headerName: string
-  protocol: 'grpc' | 'http'
+  protocol: ExportProtocol
   httpOnly?: boolean
   modalities?: Modality[]
   /** 'self-hosted' for something the person runs themselves (shown in its own group); absent means a
@@ -93,6 +93,19 @@ export const EXPORT_PRESETS: ExportPreset[] = [
     plain: true,
     note: 'Traces only - leave the other signals off, or point them somewhere else.',
     docsUrl: 'https://www.jaegertracing.io/docs/latest/apis/#opentelemetry-otlp',
+  },
+  {
+    id: 'zipkin',
+    label: 'Zipkin (traces only)',
+    endpointPattern: 'zipkin.observability:9411',
+    headerName: '',
+    protocol: 'zipkin',
+    modalities: ['traces'],
+    group: 'self-hosted',
+    plain: true,
+    keywords: ['zipkin', 'b3'],
+    note: 'Traces only. Spans are posted to the Zipkin API (/api/v2/spans) - a bare host:port gets that path added; a full URL is used as written.',
+    docsUrl: 'https://zipkin.io/zipkin-api/',
   },
   {
     id: 'grafana-cloud',

@@ -37,6 +37,13 @@
 {{- if include "agent.telemetryEnabled" . -}}
 {{- if not .Values.telemetry.export.otlp.endpoint -}}{{- fail "telemetry.export.otlp.endpoint is required once any telemetry.* signal is enabled" -}}{{- end -}}
 {{- end -}}
+{{- if and (eq .Values.telemetry.export.otlp.protocol "zipkin") (include "agent.telemetryEnabled" .) -}}
+{{- $t := .Values.telemetry -}}
+{{- if not $t.traces.traces.enabled -}}{{- fail "telemetry.export.otlp.protocol=zipkin carries traces only, and traces are not enabled" -}}{{- end -}}
+{{- if or (include "agent.telemetryHostEnabled" .) $t.energy.metrics.enabled $t.accelerators.metrics.enabled $t.kubernetesState.metrics.enabled $t.kubernetesEvents.logs.enabled $t.applicationMetrics.metrics.enabled $t.applicationLogs.logs.enabled $t.networkLatency.metrics.enabled -}}
+{{- fail "telemetry.export.otlp.protocol=zipkin carries traces only: Zipkin has no way to receive metrics or logs. Turn off every telemetry signal except traces, or send those to an OTLP destination instead." -}}
+{{- end -}}
+{{- end -}}
 {{- if and .Values.telemetry.networkLatency.metrics.enabled (not .Values.measurements.enabled) -}}
 {{- fail "telemetry.networkLatency.metrics.enabled requires measurements.enabled: true - there is nothing to re-emit otherwise" -}}
 {{- end -}}
@@ -403,19 +410,51 @@ opamp:
 
 {{- define "agent.telemetryName" -}}continuum-telemetry{{- end -}}
 
-{{/* "otlp" (configgrpc) or "otlphttp" (confighttp) - whichever telemetry.export.otlp.protocol asks for.
+{{/* "otlp" (configgrpc), "otlphttp" (confighttp) or "zipkin" - whichever telemetry.export.otlp.protocol asks for.
      Every exporters:/pipelines: reference below uses this instead of a literal "otlp", so the two stay in
      sync - see the bug this fixed: protocol=http rendered an httpOnly destination (Grafana Cloud, Datadog)
      under the gRPC-only exporter, which those backends simply do not speak. */}}
 {{- define "agent.telemetryExporterName" -}}
-{{- if eq .Values.telemetry.export.otlp.protocol "http" -}}otlphttp{{- else -}}otlp{{- end -}}
+{{- if eq .Values.telemetry.export.otlp.protocol "http" -}}otlphttp{{- else if eq .Values.telemetry.export.otlp.protocol "zipkin" -}}zipkin{{- else -}}otlp{{- end -}}
+{{- end -}}
+
+{{/* The URL the zipkin exporter posts spans to. telemetry.export.otlp.endpoint is host:port everywhere else;
+     here a full URL is accepted too, and a bare host[:port] gets the scheme telemetry.export.otlp.tls.insecure
+     picks and Zipkin's own v2 path, which is where every Zipkin server (and the receivers that speak its
+     API) listens. A URL that already has a path is used exactly as written. */}}
+{{- define "agent.telemetryZipkinEndpoint" -}}
+{{- $e := .Values.telemetry.export.otlp.endpoint -}}
+{{- if not (regexMatch "^https?://" $e) -}}{{- $e = printf "%s://%s" (ternary "http" "https" .Values.telemetry.export.otlp.tls.insecure) $e -}}{{- end -}}
+{{- if regexMatch "^https?://[^/]+/?$" $e -}}{{- $e = printf "%s/api/v2/spans" (trimSuffix "/" $e) -}}{{- end -}}
+{{- $e -}}
 {{- end -}}
 
 {{/* The "exporters" stanza shared by both collector ConfigMaps. Emits at column 0; the caller nindents it
      into place. The auth header's value is never written here - only a reference to the environment
      variable the container injects it into from a Secret at start (see telemetryExporterEnv below). */}}
 {{- define "agent.telemetryExporterYAML" -}}
-{{- if eq .Values.telemetry.export.otlp.protocol "http" }}
+{{- if eq .Values.telemetry.export.otlp.protocol "zipkin" }}
+{{/* Traces only (agent.telemetryValidate refuses any other signal with this protocol). The JSON v2 encoding
+     is the one every Zipkin-compatible receiver accepts; proto is opt-in on the backend side only. TLS and
+     the credential header work exactly as for otlphttp above: the endpoint's scheme is the TLS choice. */}}
+zipkin:
+  endpoint: {{ include "agent.telemetryZipkinEndpoint" . | quote }}
+  format: json
+  {{- if or .Values.telemetry.export.otlp.tls.mtls.enabled .Values.telemetry.export.otlp.tls.caFile }}
+  tls:
+    {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
+    ca_file: /export-mtls/ca.crt
+    cert_file: /export-mtls/tls.crt
+    key_file: /export-mtls/tls.key
+    {{- else }}
+    ca_file: {{ .Values.telemetry.export.otlp.tls.caFile | quote }}
+    {{- end }}
+  {{- end }}
+  {{- if .Values.telemetry.export.otlp.auth.secretName }}
+  headers:
+    {{ .Values.telemetry.export.otlp.auth.headerName }}: "${env:CONTINUUM_TELEMETRY_AUTH}"
+  {{- end }}
+{{- else if eq .Values.telemetry.export.otlp.protocol "http" }}
 {{/* confighttp's otlphttp exporter has no configgrpc-style "insecure" toggle - the endpoint's own scheme
      IS that choice, and the collector appends /v1/<signal> to whatever is given here itself (so a path
      already in the endpoint, like Grafana Cloud's "…/otlp", still gets that suffix added on top - this is
