@@ -103,3 +103,24 @@ func TestRegionalOperatorDocsDoNotClaimABearerTokenIsAlwaysRequired(t *testing.T
 		t.Error("Chart.yaml does not mention the client certificate gate")
 	}
 }
+
+// The chart's own text names the CA that gates a receiver correctly: the operator's own private CA for an
+// operator created today, with the org-wide CA called out as the weaker legacy scope - not "the org CA" as if
+// that were the current gate.
+func TestRegionalOperatorDocsNameThePerOperatorCA(t *testing.T) {
+	for _, f := range []string{"Chart.yaml", "values.yaml", "README.md"} {
+		b, err := operatorFiles.ReadFile("continuum-regional-operator/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := strings.ToLower(string(b))
+		if !strings.Contains(s, "own private ca") {
+			t.Errorf("%s does not say the operator's own private CA gates the receiver", f)
+		}
+		for _, stale := range []string{"signed by the org ca, no", "signed by the organisation ca (in"} {
+			if strings.Contains(s, stale) {
+				t.Errorf("%s still says %q", f, stale)
+			}
+		}
+	}
+}

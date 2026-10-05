@@ -5,8 +5,9 @@
 #
 # Unlike continuum-agent, this chart does not dial the Continuum server by default: there is no
 # server.address or enrollment here at all. What it checks is on the INBOUND side only, when something
-# exports into it, never on startup: either the org-CA mTLS client certificate every source cluster
-# presents (the only gate for operators Continuum creates today - no bearer token exists for them) or, for
+# exports into it, never on startup: either the mTLS client certificate every source cluster presents,
+# signed by this operator's OWN private CA (the only gate for operators Continuum creates today - no bearer
+# token exists for them; a certificate from any other operator's CA, or the org CA, is rejected) or, for
 # operators created before that and as a fallback, a receiver bearer token. The one exception is the opt-in `heartbeat` block below: with heartbeat.enabled true
 # it sends a periodic, content-free "I am alive" request to the Continuum server, authenticated with a
 # second, separate secret (never the receiver token). It is off unless you turn it on. It also
@@ -47,8 +48,8 @@ export:
 # The inbound side: what each source cluster's own telemetry.export.otlp.endpoint is pointed at. Both gates
 # are off in this file, which means an open receiver - this default only matters if you hand-edit these
 # values. The install command Continuum prints always turns one on: for an operator created today,
-# receiver.tls.enabled + receiver.tls.mtls (the ONLY gate: a client certificate signed by the org CA, no
-# bearer token), with receiver.auth.enabled=false and receiver.requireAuth=true; for an older operator (or
+# receiver.tls.enabled + receiver.tls.mtls (the ONLY gate: a client certificate signed by this operator's
+# own CA, no bearer token), with receiver.auth.enabled=false and receiver.requireAuth=true; for an older operator (or
 # one whose certificates could not be minted), receiver.auth.enabled=true with its bearer token.
 receiver:
   # Safety interlock, off here so hand-written installs keep working: when true, rendering FAILS unless the
@@ -70,8 +71,11 @@ receiver:
   tls:
     enabled: false
     secretName: ""   # a Secret in this release's namespace, created outside this chart, holding tls.crt,
-                      # tls.key (this receiver's own server certificate) and ca.crt (the CA that signed
-                      # both this certificate and, if mtls is on, whatever client certificate is presented)
+                      # tls.key (this receiver's own server certificate) and ca.crt. For an operator created
+                      # today ca.crt is that operator's OWN private CA, which signed this certificate and every
+                      # client certificate its source clusters present, and is the only CA trusted for them. An
+                      # older mtls operator's ca.crt is the org-wide CA: it then accepts a client certificate
+                      # from ANY operator of that org (weaker; recreate the operator to get its own CA)
     mtls: true        # when tls.enabled, also require and verify the exporting client's certificate
                        # against ca.crt in the same Secret - off (tls.enabled with mtls: false) accepts any
                        # client, encrypted but not authenticated by certificate, so with receiver.auth

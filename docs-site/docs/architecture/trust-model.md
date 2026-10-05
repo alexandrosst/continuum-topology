@@ -78,11 +78,15 @@ doing real work here; a NetworkPolicy, if you turn one on, is defense in depth o
 actually preventing it today.
 
 What it checks is on its own OTLP input only: for an operator created today, the mTLS client certificate a
-source cluster presents - signed by the server's CA, required by the receiver, and the only gate (no bearer
-token exists); for an older operator, or one whose certificates could not be minted, a receiver bearer token
-minted once at creation, of which the server keeps only a hash. The CA is shared by every organisation on
-the server and the receiver checks the chain, not which operator or organisation a certificate was issued
-for, so the certificate is a weaker gate than the per-operator token it replaces. (Plus, only if the
+source cluster presents - signed by THAT operator's own private CA (minted with the operator, signing the
+receiver's certificate and every client certificate, its key sealed like the CA key above and erased on
+revoke), required by the receiver, and the only gate (no bearer token exists). A certificate from another
+operator's CA, or the server-wide CA, is rejected. For an older operator, or one whose certificates could
+not be minted, a receiver bearer token minted once at creation, of which the server keeps only a hash. An
+mTLS operator created before per-operator CAs (`clientCaScope: "org"`) is the exception and is weaker: its
+receiver trusts the server-wide CA, which every organisation shares and which is checked by chain, not by
+which operator a certificate was issued for, so any certificate that CA signed is accepted until the
+operator is recreated. (Plus, only if the
 heartbeat above is turned on, a second secret that opens that one endpoint and nothing else, handled the
 same way as a token.) It also gets no Kubernetes API access of its own
 (`automountServiceAccountToken: false`, no `ClusterRole`), because relaying already-exported telemetry never

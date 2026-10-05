@@ -24,8 +24,10 @@ the commands you'd only need occasionally, not at every install.
   `telemetry.scope` or namespace filter here either.
 - **What it checks is inbound only, and for an operator Continuum creates today it is the client
   certificate alone.** The install command sets `receiver.tls.enabled` + `receiver.tls.mtls`, so only a
-  source cluster presenting a certificate signed by the organisation CA (in `ca.crt` of the receiver TLS
-  Secret) can send anything; `receiver.auth.enabled` is `false` and no receiver bearer token exists. It also
+  source cluster presenting a certificate signed by this operator's own private CA (in `ca.crt` of the receiver TLS
+  Secret, the same CA that signed the receiver's own certificate) can send anything - a certificate from another
+  operator's CA, or from the org CA, is rejected (an mTLS operator created before per-operator CAs has the
+  org CA there instead, and accepts any certificate that CA signed: weaker, fixed by recreating it); `receiver.auth.enabled` is `false` and no receiver bearer token exists. It also
   sets `receiver.requireAuth=true`, which makes the chart refuse to render if neither gate is on. Operators
   created before that (and one whose certificates could not be minted) instead check a receiver bearer
   token (`receiver.auth.enabled=true`, Secret named by `receiver.auth.secretName`), shown once when created,
