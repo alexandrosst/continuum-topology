@@ -351,6 +351,53 @@ telemetry:
         secretName: ""              # a Secret in this release's namespace, created outside this chart
         secretKey: token            # the key within that Secret holding the header's value, e.g. "Bearer ..."
 
+    # Per-signal-type destinations. A route with an endpoint sends that signal type there instead of to
+    # `otlp` above; a type with no endpoint here keeps going to `otlp`. Each route is its own exporter with
+    # its own credential, certificate and protocol (grpc | http | zipkin - zipkin for traces only), takes
+    # exactly the fields `otlp` takes, and is the only place its credential and certificate are used: routes
+    # never share an exporter, a Secret mount or an auth variable. Leave every endpoint empty (the default)
+    # and nothing changes: everything goes to `otlp`.
+    routes:
+      metrics:
+        endpoint: ""
+        protocol: grpc
+        tls:
+          insecure: false
+          caFile: ""
+          mtls:
+            enabled: false
+            secretName: ""
+        auth:
+          headerName: Authorization
+          secretName: ""
+          secretKey: token
+      logs:
+        endpoint: ""
+        protocol: grpc
+        tls:
+          insecure: false
+          caFile: ""
+          mtls:
+            enabled: false
+            secretName: ""
+        auth:
+          headerName: Authorization
+          secretName: ""
+          secretKey: token
+      traces:
+        endpoint: ""
+        protocol: grpc
+        tls:
+          insecure: false
+          caFile: ""
+          mtls:
+            enabled: false
+            secretName: ""
+        auth:
+          headerName: Authorization
+          secretName: ""
+          secretKey: token
+
   # Provenance stamped onto every exported signal, regardless of what telemetry.processors.extraProcessors
   # sets - resource/continuum always runs last before the batch processor, with action: upsert, so these
   # three values always win. Never hand-typed: filled in by the server's own generated `helm upgrade`

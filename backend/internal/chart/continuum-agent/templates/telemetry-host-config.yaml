@@ -117,7 +117,7 @@ data:
     {{- end }}
 
     exporters:
-      {{- include "agent.telemetryExporterYAML" . | nindent 6 }}
+      {{- include "agent.telemetryExporterYAML" (dict "root" . "scope" "host") | nindent 6 }}
       {{- include "agent.telemetryDebugExporterYAML" . | nindent 6 }}
 
     service:
@@ -129,12 +129,12 @@ data:
         metrics:
           receivers: {{ $hMetrics | toJson }}
           processors: {{ $hMetricsProcessors | toJson }}
-          exporters: {{ include "agent.telemetryExporterList" . }}
+          exporters: {{ include "agent.telemetryExporterList" (dict "root" . "m" "metrics") }}
         {{- end }}
         {{- if $hLogs }}
         logs:
           receivers: {{ $hLogs | toJson }}
           processors: {{ $hProcessors | toJson }}
-          exporters: {{ include "agent.telemetryExporterList" . }}
+          exporters: {{ include "agent.telemetryExporterList" (dict "root" . "m" "logs") }}
         {{- end }}
 {{- end }}

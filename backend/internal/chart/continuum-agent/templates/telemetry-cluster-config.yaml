@@ -332,7 +332,7 @@ data:
     {{- end }}
 
     exporters:
-      {{- include "agent.telemetryExporterYAML" . | nindent 6 }}
+      {{- include "agent.telemetryExporterYAML" (dict "root" . "scope" "cluster") | nindent 6 }}
       {{- include "agent.telemetryDebugExporterYAML" . | nindent 6 }}
 
     service:
@@ -344,30 +344,30 @@ data:
         metrics/infra:
           receivers: {{ $cMetricsInfra | toJson }}
           processors: {{ $procInfra | toJson }}
-          exporters: {{ include "agent.telemetryExporterList" . }}
+          exporters: {{ include "agent.telemetryExporterList" (dict "root" . "m" "metrics") }}
         {{- end }}
         {{- if $cMetricsApp }}
         metrics/app:
           receivers: {{ $cMetricsApp | toJson }}
           processors: {{ $procApp | toJson }}
-          exporters: {{ include "agent.telemetryExporterList" . }}
+          exporters: {{ include "agent.telemetryExporterList" (dict "root" . "m" "metrics") }}
         {{- end }}
         {{- if $cLogsInfra }}
         logs/infra:
           receivers: {{ $cLogsInfra | toJson }}
           processors: {{ $procLogsInfra | toJson }}
-          exporters: {{ include "agent.telemetryExporterList" . }}
+          exporters: {{ include "agent.telemetryExporterList" (dict "root" . "m" "logs") }}
         {{- end }}
         {{- if $cLogsApp }}
         logs/app:
           receivers: {{ $cLogsApp | toJson }}
           processors: {{ $procLogsApp | toJson }}
-          exporters: {{ include "agent.telemetryExporterList" . }}
+          exporters: {{ include "agent.telemetryExporterList" (dict "root" . "m" "logs") }}
         {{- end }}
         {{- if .Values.telemetry.traces.traces.enabled }}
         traces:
           receivers: [otlp]
           processors: {{ $procTraces | toJson }}
-          exporters: {{ include "agent.telemetryExporterList" . }}
+          exporters: {{ include "agent.telemetryExporterList" (dict "root" . "m" "traces") }}
         {{- end }}
 {{- end }}

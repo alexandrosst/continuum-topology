@@ -59,7 +59,7 @@ spec:
           env:
             - name: NODE_NAME
               valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
-            {{- include "agent.telemetryExporterEnv" . | nindent 12 }}
+            {{- include "agent.telemetryExporterEnv" (dict "root" . "scope" "host") | nindent 12 }}
             {{- $hostGml := include "agent.telemetryGomemlimit" (include "agent.telemetryHostCollectorResources" . | fromYaml) }}
             {{- if $hostGml }}
             - name: GOMEMLIMIT
@@ -67,8 +67,8 @@ spec:
             {{- end }}
           volumeMounts:
             - {name: config, mountPath: /conf, readOnly: true}
-            {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
-            - {name: export-mtls, mountPath: /export-mtls, readOnly: true}
+            {{- with include "agent.telemetryExportMtlsMounts" (dict "root" . "scope" "host") }}
+            {{- . | nindent 12 }}
             {{- end }}
             {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
             - {name: host-fs, mountPath: /hostfs, readOnly: true}
@@ -83,9 +83,8 @@ spec:
       volumes:
         - name: config
           configMap: {name: {{ include "agent.telemetryName" . }}-host-config}
-        {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
-        - name: export-mtls
-          secret: {secretName: {{ .Values.telemetry.export.otlp.tls.mtls.secretName }}}
+        {{- with include "agent.telemetryExportMtlsVolumes" (dict "root" . "scope" "host") }}
+        {{- . | nindent 8 }}
         {{- end }}
         {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
         # Read-only, and only for the filesystem/network scrapers to see real host mounts and interfaces -
@@ -163,7 +162,7 @@ spec:
             readOnlyRootFilesystem: true
             capabilities: {drop: ["ALL"]}
           env:
-            {{- include "agent.telemetryExporterEnv" . | nindent 12 }}
+            {{- include "agent.telemetryExporterEnv" (dict "root" . "scope" "cluster") | nindent 12 }}
             {{- include "agent.telemetryReceiverAuthEnv" . | nindent 12 }}
             {{- $clusterGml := include "agent.telemetryGomemlimit" (include "agent.telemetryClusterCollectorResources" . | fromYaml) }}
             {{- if $clusterGml }}
@@ -177,16 +176,15 @@ spec:
           {{- end }}
           volumeMounts:
             - {name: config, mountPath: /conf, readOnly: true}
-            {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
-            - {name: export-mtls, mountPath: /export-mtls, readOnly: true}
+            {{- with include "agent.telemetryExportMtlsMounts" (dict "root" . "scope" "cluster") }}
+            {{- . | nindent 12 }}
             {{- end }}
           resources: {{- include "agent.telemetryClusterCollectorResources" . | nindent 12 }}
       volumes:
         - name: config
           configMap: {name: {{ include "agent.telemetryName" . }}-cluster-config}
-        {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
-        - name: export-mtls
-          secret: {secretName: {{ .Values.telemetry.export.otlp.tls.mtls.secretName }}}
+        {{- with include "agent.telemetryExportMtlsVolumes" (dict "root" . "scope" "cluster") }}
+        {{- . | nindent 8 }}
         {{- end }}
       {{- with .Values.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}

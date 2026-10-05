@@ -559,6 +559,177 @@
                   }
                 }
               }
+            },
+            "routes": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "metrics": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "endpoint": {
+                      "type": "string"
+                    },
+                    "protocol": {
+                      "enum": [
+                        "grpc",
+                        "http",
+                        "zipkin"
+                      ]
+                    },
+                    "tls": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "insecure": {
+                          "type": "boolean"
+                        },
+                        "caFile": {
+                          "type": "string"
+                        },
+                        "mtls": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "secretName": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "auth": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "headerName": {
+                          "type": "string"
+                        },
+                        "secretName": {
+                          "type": "string"
+                        },
+                        "secretKey": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "logs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "endpoint": {
+                      "type": "string"
+                    },
+                    "protocol": {
+                      "enum": [
+                        "grpc",
+                        "http",
+                        "zipkin"
+                      ]
+                    },
+                    "tls": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "insecure": {
+                          "type": "boolean"
+                        },
+                        "caFile": {
+                          "type": "string"
+                        },
+                        "mtls": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "secretName": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "auth": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "headerName": {
+                          "type": "string"
+                        },
+                        "secretName": {
+                          "type": "string"
+                        },
+                        "secretKey": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "traces": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "endpoint": {
+                      "type": "string"
+                    },
+                    "protocol": {
+                      "enum": [
+                        "grpc",
+                        "http",
+                        "zipkin"
+                      ]
+                    },
+                    "tls": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "insecure": {
+                          "type": "boolean"
+                        },
+                        "caFile": {
+                          "type": "string"
+                        },
+                        "mtls": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "secretName": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "auth": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "headerName": {
+                          "type": "string"
+                        },
+                        "secretName": {
+                          "type": "string"
+                        },
+                        "secretKey": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         },

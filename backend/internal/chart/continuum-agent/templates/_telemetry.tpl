@@ -35,13 +35,26 @@
      is enabled, and networkLatency has nothing to re-emit unless the underlying measurement is itself on. */}}
 {{- define "agent.telemetryValidate" -}}
 {{- if include "agent.telemetryEnabled" . -}}
-{{- if not .Values.telemetry.export.otlp.endpoint -}}{{- fail "telemetry.export.otlp.endpoint is required once any telemetry.* signal is enabled" -}}{{- end -}}
+{{- if and (include "agent.telemetryDefaultUsed" (dict "root" . "scope" "all")) (not .Values.telemetry.export.otlp.endpoint) -}}{{- fail "telemetry.export.otlp.endpoint is required once any telemetry.* signal is enabled that has no route of its own (telemetry.export.routes.<metrics|logs|traces>.endpoint)" -}}{{- end -}}
 {{- end -}}
-{{- if and (eq .Values.telemetry.export.otlp.protocol "zipkin") (include "agent.telemetryEnabled" .) -}}
-{{- $t := .Values.telemetry -}}
-{{- if not $t.traces.traces.enabled -}}{{- fail "telemetry.export.otlp.protocol=zipkin carries traces only, and traces are not enabled" -}}{{- end -}}
-{{- if or (include "agent.telemetryHostEnabled" .) $t.energy.metrics.enabled $t.accelerators.metrics.enabled $t.kubernetesState.metrics.enabled $t.kubernetesEvents.logs.enabled $t.applicationMetrics.metrics.enabled $t.applicationLogs.logs.enabled $t.networkLatency.metrics.enabled -}}
-{{- fail "telemetry.export.otlp.protocol=zipkin carries traces only: Zipkin has no way to receive metrics or logs. Turn off every telemetry signal except traces, or send those to an OTLP destination instead." -}}
+{{- if and (include "agent.telemetryDefaultUsed" (dict "root" . "scope" "all")) (eq .Values.telemetry.export.otlp.protocol "zipkin") -}}
+{{- $root := . -}}
+{{- range (include "agent.telemetryModalities" (dict "root" . "scope" "all") | fromJsonArray) -}}
+{{- if and (ne . "traces") (not (include "agent.telemetryHasRoute" (dict "root" $root "m" .))) -}}
+{{- fail (printf "telemetry.export.otlp.protocol=zipkin carries traces only: Zipkin has no way to receive %s. Turn those signals off, give them their own destination under telemetry.export.routes.%s, or send everything to an OTLP destination instead." . .) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $vroot := . -}}
+{{- range $m := (list "metrics" "logs" "traces") -}}
+{{- $r := get $vroot.Values.telemetry.export.routes $m -}}
+{{- if and (kindIs "map" $r) $r.endpoint -}}
+{{- if and (eq $r.protocol "zipkin") (ne $m "traces") -}}
+{{- fail (printf "telemetry.export.routes.%s.protocol=zipkin: Zipkin carries traces only" $m) -}}
+{{- end -}}
+{{- if and $r.tls.mtls.enabled (not $r.tls.mtls.secretName) -}}
+{{- fail (printf "telemetry.export.routes.%s.tls.mtls.enabled requires telemetry.export.routes.%s.tls.mtls.secretName (a Secret holding tls.crt, tls.key, and ca.crt)" $m $m) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- if and .Values.telemetry.networkLatency.metrics.enabled (not .Values.measurements.enabled) -}}
@@ -272,10 +285,11 @@ debug:
 {{- end }}
 {{- end -}}
 
-{{/* The exporters list every pipeline names: the real destination, plus the debug exporter when it is on. */}}
+{{/* The exporters list a pipeline of signal type .m (with .root the chart context) names: that type's
+     destination, plus the debug exporter when it is on. */}}
 {{- define "agent.telemetryExporterList" -}}
-{{- $l := list (include "agent.telemetryExporterName" .) -}}
-{{- if .Values.telemetry.debug.verbosity }}{{ $l = append $l "debug" }}{{ end -}}
+{{- $l := list (include "agent.telemetryExporterFor" .) -}}
+{{- if .root.Values.telemetry.debug.verbosity }}{{ $l = append $l "debug" }}{{ end -}}
 {{- toJson $l -}}
 {{- end -}}
 
@@ -378,7 +392,19 @@ bearertokenauth:
      comment in agent.proto. Every one of these is only ever read, during `helm template`/`helm upgrade`, by
      deployment.yaml below gating the whole block on agent.telemetryEnabled, so none of them needs its own
      "is telemetry even on" guard. */}}
-{{- define "agent.telemetryEffectiveDestination" -}}{{- .Values.telemetry.export.otlp.endpoint -}}{{- end -}}
+{{- define "agent.telemetryEffectiveDestination" -}}
+{{- $root := . -}}
+{{- $parts := list -}}
+{{- $routed := false -}}
+{{- range (include "agent.telemetryModalities" (dict "root" . "scope" "all") | fromJsonArray) -}}
+{{- if include "agent.telemetryHasRoute" (dict "root" $root "m" .) -}}{{- $routed = true -}}{{- $parts = append $parts (printf "%s=%s" . (get $root.Values.telemetry.export.routes .).endpoint) -}}{{- end -}}
+{{- end -}}
+{{- if not $routed -}}{{- .Values.telemetry.export.otlp.endpoint -}}
+{{- else -}}
+{{- if include "agent.telemetryDefaultUsed" (dict "root" . "scope" "all") -}}{{- $parts = append $parts (printf "default=%s" .Values.telemetry.export.otlp.endpoint) -}}{{- end -}}
+{{- join "," $parts -}}
+{{- end -}}
+{{- end -}}
 {{- define "agent.telemetryEffectiveRedactionEnabled" -}}{{- .Values.telemetry.processors.redaction.enabled -}}{{- end -}}
 {{- define "agent.telemetryEffectiveResourceDetectionEnabled" -}}{{- .Values.telemetry.processors.resourceDetection.enabled -}}{{- end -}}
 
@@ -410,103 +436,191 @@ opamp:
 
 {{- define "agent.telemetryName" -}}continuum-telemetry{{- end -}}
 
-{{/* "otlp" (configgrpc), "otlphttp" (confighttp) or "zipkin" - whichever telemetry.export.otlp.protocol asks for.
-     Every exporters:/pipelines: reference below uses this instead of a literal "otlp", so the two stay in
-     sync - see the bug this fixed: protocol=http rendered an httpOnly destination (Grafana Cloud, Datadog)
-     under the gRPC-only exporter, which those backends simply do not speak. */}}
-{{- define "agent.telemetryExporterName" -}}
-{{- if eq .Values.telemetry.export.otlp.protocol "http" -}}otlphttp{{- else if eq .Values.telemetry.export.otlp.protocol "zipkin" -}}zipkin{{- else -}}otlp{{- end -}}
+{{/* Which signal types have at least one signal turned on, as a JSON list of "metrics", "logs", "traces",
+     for one collector: .scope is "host" (the per-node DaemonSet: resource usage, node runtime, system logs),
+     "cluster" (the Deployment: everything else) or "all". Routes, exporters, credentials and certificates
+     are only ever rendered for the signal types a collector actually carries - the host collector, running
+     on every node, never gets the credential of a route only the cluster collector uses. */}}
+{{- define "agent.telemetryModalities" -}}
+{{- $t := .root.Values.telemetry -}}
+{{- $host := or (eq .scope "host") (eq .scope "all") -}}
+{{- $cluster := or (eq .scope "cluster") (eq .scope "all") -}}
+{{- $l := list -}}
+{{- if or (and $host (or $t.resourceUsage.metrics.enabled $t.nodeRuntime.metrics.enabled)) (and $cluster (or $t.energy.metrics.enabled $t.accelerators.metrics.enabled $t.kubernetesState.metrics.enabled $t.applicationMetrics.metrics.enabled $t.networkLatency.metrics.enabled)) -}}{{- $l = append $l "metrics" -}}{{- end -}}
+{{- if or (and $host $t.systemLogs.logs.enabled) (and $cluster (or $t.kubernetesEvents.logs.enabled $t.applicationLogs.logs.enabled)) -}}{{- $l = append $l "logs" -}}{{- end -}}
+{{- if and $cluster $t.traces.traces.enabled -}}{{- $l = append $l "traces" -}}{{- end -}}
+{{- toJson $l -}}
 {{- end -}}
 
-{{/* The URL the zipkin exporter posts spans to. telemetry.export.otlp.endpoint is host:port everywhere else;
-     here a full URL is accepted too, and a bare host[:port] gets the scheme telemetry.export.otlp.tls.insecure
-     picks and Zipkin's own v2 path, which is where every Zipkin server (and the receivers that speak its
-     API) listens. A URL that already has a path is used exactly as written. */}}
+{{/* Whether signal type .m (with .root the chart context) has a route of its own. */}}
+{{- define "agent.telemetryHasRoute" -}}
+{{- $r := get .root.Values.telemetry.export.routes .m -}}
+{{- if and (kindIs "map" $r) $r.endpoint -}}true{{- end -}}
+{{- end -}}
+
+{{/* Whether the default destination (telemetry.export.otlp) is used by any enabled signal type of a
+     collector (.root the chart context, .scope as above). */}}
+{{- define "agent.telemetryDefaultUsed" -}}
+{{- $root := .root -}}
+{{- range (include "agent.telemetryModalities" . | fromJsonArray) -}}
+{{- if not (include "agent.telemetryHasRoute" (dict "root" $root "m" .)) -}}true{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* "otlp" (configgrpc), "otlphttp" (confighttp) or "zipkin" for a protocol value. */}}
+{{- define "agent.telemetryExporterType" -}}
+{{- if eq . "http" -}}otlphttp{{- else if eq . "zipkin" -}}zipkin{{- else -}}otlp{{- end -}}
+{{- end -}}
+
+{{/* The default destination's exporter name - whichever telemetry.export.otlp.protocol asks for. Every
+     exporters:/pipelines: reference uses the name from here or from agent.telemetryExporterFor instead of a
+     literal "otlp", so the two stay in sync - see the bug this fixed: protocol=http rendered an httpOnly
+     destination (Grafana Cloud, Datadog) under the gRPC-only exporter, which those backends simply do not
+     speak. */}}
+{{- define "agent.telemetryExporterName" -}}
+{{- include "agent.telemetryExporterType" .Values.telemetry.export.otlp.protocol -}}
+{{- end -}}
+
+{{/* The exporter signal type .m (with .root the chart context) is sent through: its own route's, named
+     "<type>/<signal>" (otlphttp/metrics), or the default destination's. */}}
+{{- define "agent.telemetryExporterFor" -}}
+{{- if include "agent.telemetryHasRoute" . -}}
+{{- $r := get .root.Values.telemetry.export.routes .m -}}
+{{- printf "%s/%s" (include "agent.telemetryExporterType" $r.protocol) .m -}}
+{{- else -}}
+{{- include "agent.telemetryExporterName" .root -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The URL the zipkin exporter posts spans to, from a destination (.endpoint, .tls.insecure).
+     telemetry.export.otlp.endpoint is host:port everywhere else; here a full URL is accepted too, and a bare
+     host[:port] gets the scheme .tls.insecure picks and Zipkin's own v2 path, which is where every Zipkin
+     server (and the receivers that speak its API) listens. A URL that already has a path is used exactly as
+     written. */}}
 {{- define "agent.telemetryZipkinEndpoint" -}}
-{{- $e := .Values.telemetry.export.otlp.endpoint -}}
-{{- if not (regexMatch "^https?://" $e) -}}{{- $e = printf "%s://%s" (ternary "http" "https" .Values.telemetry.export.otlp.tls.insecure) $e -}}{{- end -}}
+{{- $e := .endpoint -}}
+{{- if not (regexMatch "^https?://" $e) -}}{{- $e = printf "%s://%s" (ternary "http" "https" .tls.insecure) $e -}}{{- end -}}
 {{- if regexMatch "^https?://[^/]+/?$" $e -}}{{- $e = printf "%s/api/v2/spans" (trimSuffix "/" $e) -}}{{- end -}}
 {{- $e -}}
 {{- end -}}
 
-{{/* The "exporters" stanza shared by both collector ConfigMaps. Emits at column 0; the caller nindents it
-     into place. The auth header's value is never written here - only a reference to the environment
-     variable the container injects it into from a Secret at start (see telemetryExporterEnv below). */}}
-{{- define "agent.telemetryExporterYAML" -}}
-{{- if eq .Values.telemetry.export.otlp.protocol "zipkin" }}
-{{/* Traces only (agent.telemetryValidate refuses any other signal with this protocol). The JSON v2 encoding
-     is the one every Zipkin-compatible receiver accepts; proto is opt-in on the backend side only. TLS and
-     the credential header work exactly as for otlphttp above: the endpoint's scheme is the TLS choice. */}}
-zipkin:
-  endpoint: {{ include "agent.telemetryZipkinEndpoint" . | quote }}
+{{/* One exporter block for a destination: .key is its name in the collector config, .c the destination
+     (the telemetry.export.otlp shape), .env the variable its credential header is read from and .mtls the
+     directory its client certificate Secret is mounted at. Emits at column 0. The auth header's value is
+     never written here - only a reference to the environment variable the container injects it into from a
+     Secret at start (see agent.telemetryExporterEnv). */}}
+{{- define "agent.telemetryExporterBlock" -}}
+{{- $c := .c -}}
+{{ .key }}:
+{{- if eq $c.protocol "zipkin" }}
+  endpoint: {{ include "agent.telemetryZipkinEndpoint" $c | quote }}
   format: json
-  {{- if or .Values.telemetry.export.otlp.tls.mtls.enabled .Values.telemetry.export.otlp.tls.caFile }}
-  tls:
-    {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
-    ca_file: /export-mtls/ca.crt
-    cert_file: /export-mtls/tls.crt
-    key_file: /export-mtls/tls.key
-    {{- else }}
-    ca_file: {{ .Values.telemetry.export.otlp.tls.caFile | quote }}
-    {{- end }}
-  {{- end }}
-  {{- if .Values.telemetry.export.otlp.auth.secretName }}
-  headers:
-    {{ .Values.telemetry.export.otlp.auth.headerName }}: "${env:CONTINUUM_TELEMETRY_AUTH}"
-  {{- end }}
-{{- else if eq .Values.telemetry.export.otlp.protocol "http" }}
-{{/* confighttp's otlphttp exporter has no configgrpc-style "insecure" toggle - the endpoint's own scheme
-     IS that choice, and the collector appends /v1/<signal> to whatever is given here itself (so a path
-     already in the endpoint, like Grafana Cloud's "…/otlp", still gets that suffix added on top - this is
-     the backend's own documented shape, not something to strip). */}}
-otlphttp:
-  endpoint: {{ printf "%s://%s" (ternary "http" "https" .Values.telemetry.export.otlp.tls.insecure) .Values.telemetry.export.otlp.endpoint | quote }}
-  {{- if or .Values.telemetry.export.otlp.tls.mtls.enabled .Values.telemetry.export.otlp.tls.caFile }}
-  tls:
-    {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
-    ca_file: /export-mtls/ca.crt
-    cert_file: /export-mtls/tls.crt
-    key_file: /export-mtls/tls.key
-    {{- else }}
-    ca_file: {{ .Values.telemetry.export.otlp.tls.caFile | quote }}
-    {{- end }}
-  {{- end }}
-  {{- if .Values.telemetry.export.otlp.auth.secretName }}
-  headers:
-    {{ .Values.telemetry.export.otlp.auth.headerName }}: "${env:CONTINUUM_TELEMETRY_AUTH}"
-  {{- end }}
+{{- else if eq $c.protocol "http" }}
+  endpoint: {{ printf "%s://%s" (ternary "http" "https" $c.tls.insecure) $c.endpoint | quote }}
 {{- else }}
-otlp:
-  endpoint: {{ .Values.telemetry.export.otlp.endpoint | quote }}
+  endpoint: {{ $c.endpoint | quote }}
+{{- end }}
+{{- if eq $c.protocol "grpc" }}
   tls:
-    insecure: {{ .Values.telemetry.export.otlp.tls.insecure }}
-    {{- if .Values.telemetry.export.otlp.tls.mtls.enabled }}
-    {{/* mtls.secretName is mounted at /export-mtls (see telemetry.yaml) - its ca.crt takes priority over
-         a plain caFile below, since the same Secret already carries the one this destination actually
-         trusts (whatever minted the client certificate also minted the server certificate to verify). */}}
-    ca_file: /export-mtls/ca.crt
-    cert_file: /export-mtls/tls.crt
-    key_file: /export-mtls/tls.key
-    {{- else if .Values.telemetry.export.otlp.tls.caFile }}
-    ca_file: {{ .Values.telemetry.export.otlp.tls.caFile | quote }}
+    insecure: {{ $c.tls.insecure }}
+    {{- if $c.tls.mtls.enabled }}
+    ca_file: {{ .mtls }}/ca.crt
+    cert_file: {{ .mtls }}/tls.crt
+    key_file: {{ .mtls }}/tls.key
+    {{- else if $c.tls.caFile }}
+    ca_file: {{ $c.tls.caFile | quote }}
     {{- end }}
-  {{- if .Values.telemetry.export.otlp.auth.secretName }}
+{{- else if or $c.tls.mtls.enabled $c.tls.caFile }}
+  {{/* The http and zipkin exporters have no insecure toggle: the endpoint's scheme IS that choice, and the
+       collector appends /v1/<signal> to an otlphttp endpoint itself. */}}
+  tls:
+    {{- if $c.tls.mtls.enabled }}
+    ca_file: {{ .mtls }}/ca.crt
+    cert_file: {{ .mtls }}/tls.crt
+    key_file: {{ .mtls }}/tls.key
+    {{- else }}
+    ca_file: {{ $c.tls.caFile | quote }}
+    {{- end }}
+{{- end }}
+{{- if $c.auth.secretName }}
   headers:
-    {{ .Values.telemetry.export.otlp.auth.headerName }}: "${env:CONTINUUM_TELEMETRY_AUTH}"
-  {{- end }}
+    {{ $c.auth.headerName }}: {{ printf "${env:%s}" .env | quote }}
 {{- end }}
 {{- end -}}
 
-{{/* The one extra env entry a telemetry collector container needs beyond NODE_NAME, only when an auth
-     header is configured. A no-op (empty) otherwise, so callers can always include it unconditionally. */}}
+{{/* The "exporters" stanza shared by both collector ConfigMaps: the default destination when any enabled
+     signal type uses it, then one exporter per route of an enabled signal type. Emits at column 0; the caller
+     nindents it into place. */}}
+{{- define "agent.telemetryExporterYAML" -}}
+{{- $root := .root -}}
+{{- $blocks := list -}}
+{{- if include "agent.telemetryDefaultUsed" . -}}
+{{- $blocks = append $blocks (include "agent.telemetryExporterBlock" (dict "key" (include "agent.telemetryExporterName" $root) "c" $root.Values.telemetry.export.otlp "env" "CONTINUUM_TELEMETRY_AUTH" "mtls" "/export-mtls")) -}}
+{{- end -}}
+{{- range (include "agent.telemetryModalities" . | fromJsonArray) -}}
+{{- if include "agent.telemetryHasRoute" (dict "root" $root "m" .) -}}
+{{- $blocks = append $blocks (include "agent.telemetryExporterBlock" (dict "key" (include "agent.telemetryExporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.telemetry.export.routes .) "env" (printf "CONTINUUM_TELEMETRY_AUTH_%s" (upper .)) "mtls" (printf "/export-mtls-%s" .))) -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $blocks -}}
+{{- end -}}
+
+{{/* The extra env entries a telemetry collector container needs beyond NODE_NAME: one per destination in use
+     that has an auth header configured - CONTINUUM_TELEMETRY_AUTH for the default, and
+     CONTINUUM_TELEMETRY_AUTH_<SIGNAL> for each route. A no-op (empty) when none has one, so callers can always
+     include it unconditionally. */}}
 {{- define "agent.telemetryExporterEnv" -}}
-{{- if .Values.telemetry.export.otlp.auth.secretName }}
-- name: CONTINUUM_TELEMETRY_AUTH
-  valueFrom:
-    secretKeyRef:
-      name: {{ .Values.telemetry.export.otlp.auth.secretName }}
-      key: {{ .Values.telemetry.export.otlp.auth.secretKey }}
-{{- end }}
+{{- $root := .root -}}
+{{- $entries := list -}}
+{{- $a := $root.Values.telemetry.export.otlp.auth -}}
+{{- if and (include "agent.telemetryDefaultUsed" .) $a.secretName -}}
+{{- $entries = append $entries (printf "- name: CONTINUUM_TELEMETRY_AUTH\n  valueFrom:\n    secretKeyRef:\n      name: %s\n      key: %s" $a.secretName $a.secretKey) -}}
+{{- end -}}
+{{- range (include "agent.telemetryModalities" . | fromJsonArray) -}}
+{{- if include "agent.telemetryHasRoute" (dict "root" $root "m" .) -}}
+{{- $ra := (get $root.Values.telemetry.export.routes .).auth -}}
+{{- if $ra.secretName -}}
+{{- $entries = append $entries (printf "- name: CONTINUUM_TELEMETRY_AUTH_%s\n  valueFrom:\n    secretKeyRef:\n      name: %s\n      key: %s" (upper .) $ra.secretName $ra.secretKey) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $entries -}}
+{{- end -}}
+
+{{/* Client-certificate Secrets for destinations in use that have telemetry.export...tls.mtls.enabled: the
+     default at /export-mtls (as ever), each route at /export-mtls-<signal>. Two lists of entries, one for a
+     container's volumeMounts and one for the pod's volumes; both empty when none is configured. */}}
+{{- define "agent.telemetryExportMtlsMounts" -}}
+{{- $root := .root -}}
+{{- $l := list -}}
+{{- if and (include "agent.telemetryDefaultUsed" .) $root.Values.telemetry.export.otlp.tls.mtls.enabled -}}
+{{- $l = append $l "- {name: export-mtls, mountPath: /export-mtls, readOnly: true}" -}}
+{{- end -}}
+{{- range (include "agent.telemetryModalities" . | fromJsonArray) -}}
+{{- if include "agent.telemetryHasRoute" (dict "root" $root "m" .) -}}
+{{- if (get $root.Values.telemetry.export.routes .).tls.mtls.enabled -}}
+{{- $l = append $l (printf "- {name: export-mtls-%s, mountPath: /export-mtls-%s, readOnly: true}" . .) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $l -}}
+{{- end -}}
+
+{{- define "agent.telemetryExportMtlsVolumes" -}}
+{{- $root := .root -}}
+{{- $l := list -}}
+{{- if and (include "agent.telemetryDefaultUsed" .) $root.Values.telemetry.export.otlp.tls.mtls.enabled -}}
+{{- $l = append $l (printf "- name: export-mtls\n  secret: {secretName: %s}" $root.Values.telemetry.export.otlp.tls.mtls.secretName) -}}
+{{- end -}}
+{{- range (include "agent.telemetryModalities" . | fromJsonArray) -}}
+{{- if include "agent.telemetryHasRoute" (dict "root" $root "m" .) -}}
+{{- $r := get $root.Values.telemetry.export.routes . -}}
+{{- if $r.tls.mtls.enabled -}}
+{{- $l = append $l (printf "- name: export-mtls-%s\n  secret: {secretName: %s}" . $r.tls.mtls.secretName) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $l -}}
 {{- end -}}
 
 {{/* Telemetry's own images: the OTel Collector Contrib distribution, and (only when bundled) Kepler.
