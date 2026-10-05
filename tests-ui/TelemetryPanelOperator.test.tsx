@@ -214,6 +214,22 @@ describe('TelemetryPanel with a regional operator destination', () => {
     expect(screen.getByRole('button', { name: 'Copy the command' })).toBeEnabled()
   })
 
+  test('a certificate-only operator: no receiver-token field or hint, and the command carries no credential Secret even if one was typed earlier', async () => {
+    listOperators.mockResolvedValue([{ ...operator, receiverAuth: 'mtls' }])
+    getTelemetryIntentCommand.mockResolvedValue({ installFragment: FRAGMENT, secretCommands: [SECRET], receiverAuth: 'mtls' })
+    const user = userEvent.setup()
+    render(tree())
+    await pickOperator(user)
+    await user.click(await generateButton())
+    expect(screen.queryByTestId('tp-export-auth-secret')).not.toBeInTheDocument()
+    expect(await screen.findByTestId('tp-operator-mtls-note')).toHaveTextContent('client certificate alone')
+    expect(screen.queryByTestId('tp-credential-hint')).not.toBeInTheDocument()
+    const cmd = (await screen.findByTestId('tp-operator-command')).textContent ?? ''
+    expect(cmd.startsWith('kubectl create secret generic op-eu-export-mtls')).toBe(true)
+    expect(cmd).not.toContain('auth.secretName')
+    expect(cmd).not.toContain('TELEMETRY_EXPORT_TOKEN')
+  })
+
   test('someone below administrator sees a short note and no command, and the API is never called', async () => {
     const user = userEvent.setup()
     const { rerender } = render(tree())

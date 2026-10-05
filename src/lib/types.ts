@@ -1205,6 +1205,23 @@ export interface AgentLink {
  *  own design note: it is CRUD over a record plus a minted credential, not a live connection). */
 export type OperatorStatus = 'active' | 'revoked'
 
+/** How a regional operator's receiver authenticates what exports into it: 'mtls' is the client certificate
+ *  alone (operators created from now on - no receiver bearer token exists), 'bearer' is a bearer token (every
+ *  operator created before that, which keeps it). Absent reads as 'bearer', the conservative reading. */
+export type ReceiverAuth = 'mtls' | 'bearer'
+
+/** Whether an operator has said it is alive. 'unknown' covers both "never opted in to the heartbeat" and
+ *  "opted in, nothing has arrived yet" - the server does not tell those apart, and neither does the UI. */
+export type OperatorHealthState = 'unknown' | 'online' | 'offline'
+
+/** An operator's liveness, computed by the server at read time from its opt-in heartbeat (online = one within
+ *  the last 180 s). `reporting` is true only once at least one heartbeat has arrived. */
+export interface OperatorHealth {
+  state: OperatorHealthState
+  lastSeenAt?: string
+  reporting: boolean
+}
+
 /** Where a regional operator (or, via TelemetryIntent below, one agent's own bundled local operator)
  *  re-exports what it aggregates. 'operator' (chaining to another regional operator already active in
  *  this org) is now accepted by the server, alongside the original 'external' - see
@@ -1230,7 +1247,7 @@ export interface OperatorDestination {
 /**
  * A regional operator: a standalone OTel Collector that aggregates telemetry already exported by a set of
  * approved agents' clusters (sourceClusterIds) and re-exports it to destination. It never connects back to
- * this server the way Agent does - not extending Provenance for the same reason Agent does not: this is
+ * this server the way Agent does, unless its opt-in heartbeat (health) is on - not extending Provenance for the same reason Agent does not: this is
  * control-plane bookkeeping a person created directly, not a discovered record.
  */
 export interface RegionalOperator {
@@ -1251,6 +1268,11 @@ export interface RegionalOperator {
   createdBy: string
   revokedAt?: string
   reason?: string
+  /** How its receiver authenticates agents - see ReceiverAuth. Optional so an older server (or a fixture)
+   *  that does not send it reads as 'bearer'. */
+  receiverAuth?: ReceiverAuth
+  /** Its opt-in heartbeat's verdict. Absent reads as never reported. */
+  health?: OperatorHealth
 }
 
 /** One extractor signal a TelemetryIntent grants, and where it is sourced from - `id` matches one of

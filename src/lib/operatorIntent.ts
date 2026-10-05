@@ -2,7 +2,7 @@ import { api, ApiError, type Conn, type TelemetryIntentCommand } from './api'
 import { operatorReceiverEndpoint } from './destinationCatalog'
 import { TELEMETRY_SIGNALS, type ScopeOverrideInput, type TelemetryInput } from './install'
 import { telemetrySecretCommand, telemetryUpgradeCommand, type InstallInfo } from './consent'
-import type { OperatorDestination, SignalGrant, TelemetryIntent } from './types'
+import type { OperatorDestination, ReceiverAuth, SignalGrant, TelemetryIntent } from './types'
 
 /*
  * The client half of "point this agent at a regional operator". The operator's receiver is mutual TLS, so
@@ -74,8 +74,16 @@ export function intentScope(t: TelemetryInput): { namespaces: string[]; exclude:
 
 /** The draft the CLIENT-built half of the command is built from. The receiver is mutual TLS over OTLP/gRPC, so
  *  whatever a previous destination left behind (HTTP, skip-verify) must not reach the command; the server's
- *  fragment states the mTLS side. */
-export const operatorCommandDraft = (t: TelemetryInput): TelemetryInput => ({ ...t, exportProtocol: 'grpc', exportInsecure: false })
+ *  fragment states the mTLS side. For an operator whose receiver is gated by the client certificate alone
+ *  (`receiverAuth` 'mtls') the credential header and Secret are dropped as well: there is no receiver token to
+ *  present, so a Secret name left in the draft (from before the operator was chosen, say) must not produce a
+ *  Secret command or `auth.*` flags for one. Any other value keeps them - the bearer token is still expected. */
+export const operatorCommandDraft = (t: TelemetryInput, receiverAuth?: ReceiverAuth): TelemetryInput => ({
+  ...t,
+  exportProtocol: 'grpc',
+  exportInsecure: false,
+  ...(receiverAuth === 'mtls' ? { exportAuthHeaderName: '', exportAuthSecretName: '', exportAuthSecretKey: '' } : {}),
+})
 
 /** The endpoint the server's fragment sets, when it sets one - compared with the draft's by the panel. */
 export function fragmentEndpoint(fragment: string): string | undefined {
@@ -84,13 +92,14 @@ export function fragmentEndpoint(fragment: string): string | undefined {
 
 /**
  * The one block to paste: the server's Secret command(s) first (a failure there stops everything after it),
- * then the credential Secret if the draft names one, then the normal upgrade command with the server's
+ * then the credential Secret if the draft names one (never for a certificate-only operator, see
+ * operatorCommandDraft), then the normal upgrade command with the server's
  * fragment appended. The fragment repeats `telemetry.export.otlp.endpoint` with the same value the client
  * writes (both are `<operator id>.continuum-system.svc:4317`); helm takes the last, so if the two ever
  * differed the server's would win - the panel says so (see fragmentEndpoint).
  */
 export function operatorCommandBlock(opts: { install: InstallInfo | undefined; draft: TelemetryInput; measurementsOn?: boolean; result: TelemetryIntentCommand }): string {
-  const d = operatorCommandDraft(opts.draft)
+  const d = operatorCommandDraft(opts.draft, opts.result.receiverAuth)
   const upgrade = `${telemetryUpgradeCommand(opts.install, d, opts.measurementsOn).trimEnd()} \\\n  ${opts.result.installFragment}`
   const cred = telemetrySecretCommand(d, opts.measurementsOn)
   return [...opts.result.secretCommands, ...(cred ? [cred] : []), upgrade].join(' && \\\n')

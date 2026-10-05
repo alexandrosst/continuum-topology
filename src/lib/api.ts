@@ -1,5 +1,5 @@
 import { normalizeServerState, type ServerState } from './discovered'
-import type { OperatorDestination, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
+import type { OperatorDestination, ReceiverAuth, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
 import type { DecisionLogEntry } from './placement/deciders'
 import type { SelfTelemetryEntity } from './selfHealth'
@@ -69,14 +69,47 @@ export interface CreatedToken {
  *  receiver bearer token is never retrievable again after this response. */
 export interface CreatedOperator {
   operator: RegionalOperator
-  token: string
+  /** Absent for an operator whose receiver is gated by the client certificate alone (`operator.receiverAuth`
+   *  is 'mtls'): there is no receiver token to show. Present, once, for a 'bearer' one. */
+  token?: string
   install: string
-  secretCommand: string
+  /** The `kubectl create secret` for `token` - absent exactly when `token` is. */
+  secretCommand?: string
   /** The `kubectl create secret` for the operator's own receiver TLS certificate (server cert + this
    *  org's CA), wherever the operator itself is installed. Absent if minting it failed - see
    *  OperatorTLSBundle's own comment server-side; the receiver bearer token above still works either way. */
   tlsSecretCommand?: string
   reminders: string[]
+  /** Present only when the create request asked for the heartbeat (`heartbeat: true`). The install command
+   *  already carries its `--set heartbeat.*` flags; this is the one extra Secret it points at, shown once. */
+  heartbeatToken?: string
+  heartbeatSecretCommand?: string
+  heartbeatUrl?: string
+  heartbeatIntervalSeconds?: number
+  /** Why the heartbeat address will not work as printed (plain HTTP) - show it next to the commands. */
+  heartbeatWarning?: string
+}
+
+/** What POST /operators/{id}/heartbeat returns: the heartbeat credential, minted now and never shown again,
+ *  and the one-time commands that put it to use. `rotated` is true when the operator already had one (the old
+ *  one stopped working at once; the secret command then replaces the existing Secret, and the collector has to
+ *  restart to present the new value - `heartbeatRestartCommand`). */
+export interface OperatorHeartbeatEnabled {
+  operator: RegionalOperator
+  rotated: boolean
+  heartbeatToken: string
+  heartbeatSecretCommand: string
+  heartbeatUpgradeCommand: string
+  heartbeatUrl: string
+  heartbeatIntervalSeconds: number
+  heartbeatRestartCommand?: string
+  heartbeatWarning?: string
+}
+
+/** Options for creating a regional operator. `heartbeat` opts it in to reporting its health to this server;
+ *  it is sent explicitly (never left to the server's default) so what the person saw is what was asked for. */
+export interface CreateOperatorOptions {
+  heartbeat?: boolean
 }
 
 export interface UpdatedOperatorScope {
@@ -93,6 +126,10 @@ export interface UpdatedOperatorScope {
 export interface TelemetryIntentCommand {
   installFragment: string
   secretCommands: string[]
+  /** Only for an operator destination: how that operator's receiver authenticates this agent. 'mtls' means the
+   *  client certificate in `secretCommands` is the only credential; anything else (including absent) means a
+   *  bearer token is also expected, supplied by the person. */
+  receiverAuth?: ReceiverAuth
 }
 
 /** What minting a quick-start gateway token returns - the plaintext, once, plus when it was minted and
@@ -521,8 +558,11 @@ export const api = {
   // members: no live status to poll, so these are ordinary one-shot calls, not part of `state`.
   listOperators: (c: Conn) => call<RegionalOperator[]>(c, 'GET', '/api/v1/operators'),
   getOperator: (c: Conn, id: string) => call<RegionalOperator>(c, 'GET', `/api/v1/operators/${encodeURIComponent(id)}`),
-  createOperator: (c: Conn, name: string, sourceClusterIds: string[], destination: OperatorDestination) =>
-    call<CreatedOperator>(c, 'POST', '/api/v1/operators', { name, sourceClusterIds, destination }),
+  createOperator: (c: Conn, name: string, sourceClusterIds: string[], destination: OperatorDestination, options: CreateOperatorOptions = {}) =>
+    call<CreatedOperator>(c, 'POST', '/api/v1/operators', { name, sourceClusterIds, destination, heartbeat: options.heartbeat === true }),
+  /** Mints (or rotates) the operator's heartbeat credential: adminRole, audited, and the credential is shown
+   *  once in this response only. */
+  enableOperatorHeartbeat: (c: Conn, id: string) => call<OperatorHeartbeatEnabled>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/heartbeat`),
   updateOperatorScope: (c: Conn, id: string, sourceClusterIds: string[], destination: OperatorDestination) =>
     call<UpdatedOperatorScope>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/scope`, { sourceClusterIds, destination }),
   revokeOperator: (c: Conn, id: string, reason: string) => call<void>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/revoke`, { reason }),
