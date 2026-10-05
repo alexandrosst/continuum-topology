@@ -1,14 +1,16 @@
-import { Antenna, ChevronRight, Globe2, Plus, Trash2 } from 'lucide-react'
+import { Antenna, ChevronRight, Globe2, HeartPulse, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { CopyCommand } from '@/components/agents/AgentInsight'
 import { ConfirmModal } from '@/components/forms'
+import { OperatorHealth } from '@/components/operators/OperatorHealth'
 import ProcessorEditor from '@/components/telemetry/ProcessorEditor'
 import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
 import { Button, CheckboxList, ChipList, ComboField, EmptyState, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, PageHeader, Pill, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
-import { api, ApiError, type CreatedOperator } from '@/lib/api'
+import { api, ApiError, type CreatedOperator, type OperatorHeartbeatEnabled } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
+import { isReportingHealth, receiverAuthOf } from '@/lib/operatorHealth'
 import { buildOperatorInstallCommand, operatorProcessorProblems } from '@/lib/operatorInstall'
 import type { ProcessorEntry } from '@/lib/processorCatalog'
 import type { OperatorDestination, RegionalOperator } from '@/lib/types'
@@ -48,36 +50,115 @@ interface Draft {
   sourceClusterIds: string[]
   destination: OperatorDestination
   extraProcessors: ProcessorEntry[]
+  /** Opt in to the heartbeat that lets this server say online/offline. On by default - it is the point of
+   *  asking - but always stated next to the box, and sent explicitly either way. */
+  heartbeat: boolean
 }
-const emptyDraft: Draft = { name: '', sourceClusterIds: [], destination: emptyDestination, extraProcessors: [] }
+const emptyDraft: Draft = { name: '', sourceClusterIds: [], destination: emptyDestination, extraProcessors: [], heartbeat: true }
 
-/** The receiver token and install command, shown once: the server keeps only a hash of the token, so this
- *  is the only chance to copy it - same "shown once, gone forever" convention as TeamPage's InviteCreated. */
+/** What health reporting sends, in one sentence both the create form, the confirmation and the created
+ *  screen can lean on: not a telemetry payload, only an availability check, and only when opted in. */
+const HEARTBEAT_WHAT = "an availability check: the collector's own health result, once a minute, sent to this server's health endpoint. It carries no telemetry - nothing you relay, no logs, no traces, no cluster data."
+
+/** The commands that put a heartbeat credential to use, in the order to run them: the Secret first (the
+ *  chart reads it), then the helm upgrade that turns the heartbeat on, then - after a rotation - the restart
+ *  that makes the collector pick the new value up. Shown once: the credential is never retrievable again. */
+function HeartbeatCommands({ secretCommand, upgradeCommand, restartCommand, warning, url, intervalSeconds, rotated, testId }: { secretCommand: string; upgradeCommand?: string; restartCommand?: string; warning?: string; url: string; intervalSeconds: number; rotated?: boolean; testId: string }) {
+  return (
+    <div className="space-y-3" data-testid={testId}>
+      <p className="rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs leading-relaxed text-warn" data-testid={`${testId}-once`}>
+        The health credential is shown only now - the server keeps only a hash of it. If it is lost, rotate it to get a new one.
+      </p>
+      {warning && <p role="alert" className="rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs leading-relaxed text-warn" data-testid={`${testId}-warning`}>{warning}</p>}
+      <p className="text-xs text-nb-500">
+        The operator will report to <code className="font-mono text-nb-400">{url}</code> every {intervalSeconds} seconds.
+      </p>
+      <div>
+        <div className="mb-1 text-xs text-nb-500">{rotated ? 'Replace the health credential Secret' : 'Create the health credential Secret first'}</div>
+        <CopyCommand text={secretCommand} testId={`${testId}-secret`} />
+      </div>
+      {upgradeCommand && (
+        <div>
+          <div className="mb-1 text-xs text-nb-500">Then turn health reporting on for the running release</div>
+          <CopyCommand text={upgradeCommand} testId={`${testId}-upgrade`} />
+        </div>
+      )}
+      {restartCommand && (
+        <div>
+          <div className="mb-1 text-xs text-nb-500">Then restart the collector so it presents the new credential (until then it logs a 401 on every attempt)</div>
+          <CopyCommand text={restartCommand} testId={`${testId}-restart`} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The commands for a new operator, shown once: the server keeps only a hash of any receiver token and of the
+ *  health credential, so this is the only chance to copy them - same "shown once, gone forever" convention as
+ *  TeamPage's InviteCreated. A certificate-gated operator (`token` absent) has no receiver token at all. */
 function OperatorCreated({ created, extraProcessors, onClose }: { created: CreatedOperator; extraProcessors: ProcessorEntry[]; onClose: () => void }) {
   const install = buildOperatorInstallCommand(created.install, extraProcessors)
+  const hasToken = !!created.token && !!created.secretCommand
+  const mtls = !hasToken && receiverAuthOf(created.operator) === 'mtls'
+  const heartbeat = !!created.heartbeatToken && !!created.heartbeatSecretCommand
+  const shownOnce = [hasToken && 'the receiver token', heartbeat && 'the health credential'].filter(Boolean).join(' and ')
   return (
     <Modal open onClose={onClose} title={`${created.operator.name} created`} width="max-w-2xl" footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
-      <p className="text-sm text-nb-400">
-        Run this where the operator itself should live. It carries the receiver token below already; the token
-        is shown only now - if it is lost, revoke this operator and create another.
+      <p className="text-sm text-nb-400" data-testid="operator-created-intro">
+        Run these where the operator itself should live.{' '}
+        {shownOnce
+          ? `The install command already refers to what you create first; ${shownOnce} ${hasToken && heartbeat ? 'are' : 'is'} shown only now - if lost, ${hasToken ? 'revoke this operator and create another' : 'rotate the health credential from the Operators page'}.`
+          : 'There is no secret to keep from this screen.'}
       </p>
       <p className="mt-2 rounded-md border border-nb-850 bg-nb-930 px-3 py-2 text-xs leading-relaxed text-nb-400" data-testid="operator-no-rbac-note">
         No Kubernetes RBAC was applied, and none was needed: this chart requests no ServiceAccount token at all
         (<code className="font-mono">automountServiceAccountToken: false</code>, no ClusterRole, no Role, no binding).
-        The receiver token below and the destination you chose are the complete list of what this operator was granted.
+        {' '}{hasToken ? 'The receiver token below' : 'The client-certificate requirement on its receiver'}, the destination you chose
+        {heartbeat ? ', and the health reporting you turned on' : ''} are the complete list of what this operator was granted.
+        {heartbeat
+          ? ' It contacts this server only to send that health check, nothing else.'
+          : ' It never contacts this server: health reporting is off, and can be turned on later from the Operators page.'}
       </p>
-      <div className="mt-3">
-        <div className="mb-1 text-xs text-nb-500">Create the receiver token Secret first</div>
-        <CopyCommand text={created.secretCommand} />
-      </div>
+      {mtls && (
+        <p className="mt-2 text-xs leading-relaxed text-nb-400" data-testid="operator-created-mtls">
+          There is no receiver token for this operator. Its receiver accepts agents that present a client certificate
+          issued by this server, and a certificate is issued per agent when that agent&apos;s commands are generated (from the
+          agent&apos;s Telemetry panel). The receiver checks that the certificate came from this server&apos;s CA, not which operator
+          it was issued for, so any certificate this server issued is accepted.
+        </p>
+      )}
+      {hasToken && (
+        <div className="mt-3">
+          <div className="mb-1 text-xs text-nb-500">Create the receiver token Secret first</div>
+          <CopyCommand text={created.secretCommand!} testId="operator-secret-command" />
+        </div>
+      )}
+      {mtls && created.tlsSecretCommand && (
+        <div className="mt-3">
+          <div className="mb-1 text-xs text-nb-500">Create the receiver&apos;s TLS certificate Secret first - it is what the receiver checks agents&apos; certificates against</div>
+          <CopyCommand text={created.tlsSecretCommand} />
+        </div>
+      )}
+      {heartbeat && (
+        <div className="mt-3">
+          <HeartbeatCommands
+            testId="operator-created-heartbeat"
+            secretCommand={created.heartbeatSecretCommand!}
+            warning={created.heartbeatWarning}
+            url={created.heartbeatUrl ?? ''}
+            intervalSeconds={created.heartbeatIntervalSeconds ?? 60}
+          />
+          <p className="mt-1 text-xs text-nb-500">The install command below already turns health reporting on.</p>
+        </div>
+      )}
       <div className="mt-3">
         <div className="mb-1 text-xs text-nb-500">Then install the operator</div>
         <CopyCommand text={install} />
       </div>
-      {created.tlsSecretCommand && (
+      {!mtls && created.tlsSecretCommand && (
         <div className="mt-3">
           <div className="mb-1 text-xs text-nb-500">
-            And create the receiver's TLS certificate Secret (mTLS, on top of the token above - the install command already turns it on)
+            And create the receiver&apos;s TLS certificate Secret (mTLS, on top of the token above - the install command already turns it on)
           </div>
           <CopyCommand text={created.tlsSecretCommand} />
         </div>
@@ -85,13 +166,76 @@ function OperatorCreated({ created, extraProcessors, onClose }: { created: Creat
       {created.reminders.length > 0 && (
         <div className="mt-3">
           <div className="mb-1 text-xs text-nb-500">
-            Informational only - nothing below runs on your behalf. Each source cluster needs its own copy of the client certificate Secret, then its agent's export endpoint pointed here:
+            Informational only - nothing below runs on your behalf. Each source cluster needs its own copy of the client certificate Secret, then its agent&apos;s export endpoint pointed here:
           </div>
           <div className="space-y-1.5">
             {created.reminders.map((r) => <CopyCommand key={r} text={r} />)}
           </div>
         </div>
       )}
+    </Modal>
+  )
+}
+
+/** Confirms, then mints, an operator's health credential - and only then shows it. Minting is the whole
+ *  point of the confirmation: it creates a credential, replaces any existing one, and makes the operator
+ *  start calling this server, so nothing is requested until the person has read what that means. */
+function HealthModal({ operator, onClose, onDone }: { operator: RegionalOperator; onClose: () => void; onDone: () => void }) {
+  const conn = useServer((s) => s.conn)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState<OperatorHeartbeatEnabled | null>(null)
+  const rotating = isReportingHealth(operator)
+  const verb = rotating ? 'Rotate health credential' : 'Enable health reporting'
+  const confirm = async () => {
+    const c = conn()
+    if (!c || busy) return
+    setBusy(true)
+    setError('')
+    try {
+      setResult(await api.enableOperatorHeartbeat(c, operator.id))
+      onDone()
+    } catch (e) {
+      setError(problem(e, 'Could not enable health reporting.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (result) {
+    return (
+      <Modal open onClose={onClose} title={result.rotated ? `Health credential rotated for ${operator.name}` : `Health reporting enabled for ${operator.name}`} width="max-w-2xl" footer={<Button variant="primary" onClick={onClose} data-testid="operator-health-done">Done</Button>}>
+        {result.rotated && (
+          <p className="mb-3 text-xs leading-relaxed text-nb-400" data-testid="operator-health-rotated">
+            The previous credential stopped working at once. The operator shows as offline until its Secret is replaced and the collector restarted.
+          </p>
+        )}
+        <HeartbeatCommands
+          testId="operator-health-commands"
+          secretCommand={result.heartbeatSecretCommand}
+          upgradeCommand={result.heartbeatUpgradeCommand}
+          restartCommand={result.heartbeatRestartCommand}
+          warning={result.heartbeatWarning}
+          url={result.heartbeatUrl}
+          intervalSeconds={result.heartbeatIntervalSeconds}
+          rotated={result.rotated}
+        />
+      </Modal>
+    )
+  }
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`${verb} for ${operator.name}?`}
+      width="max-w-lg"
+      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" onClick={() => void confirm()} disabled={busy} data-testid="operator-health-confirm">{busy ? 'Working…' : verb}</Button></>}
+    >
+      <div className="space-y-2 text-sm text-nb-400" data-testid="operator-health-explain">
+        <p>This mints a credential for the operator&apos;s heartbeat and shows it once. What the operator then sends is {HEARTBEAT_WHAT}</p>
+        <p>The operator will start contacting this server - the only thing it sends here. It is opt-in: nothing changes until you run the commands that follow, and you can switch it off later with heartbeat.enabled=false on the release.</p>
+        <p>{rotating ? 'Rotating invalidates the old credential at once: until you replace its Secret and restart the collector, the operator will show as offline.' : 'If this operator already has a health credential, this replaces it and the old one stops working at once.'}</p>
+      </div>
+      {error && <ErrorBanner className="mt-3">{error}</ErrorBanner>}
     </Modal>
   )
 }
@@ -135,6 +279,7 @@ export default function RegionalOperatorsPage() {
   const [createdProcessors, setCreatedProcessors] = useState<ProcessorEntry[]>([])
   const [revoking, setRevoking] = useState<RegionalOperator | null>(null)
   const [deleting, setDeleting] = useState<RegionalOperator | null>(null)
+  const [healthFor, setHealthFor] = useState<RegionalOperator | null>(null)
   const admin = isAdmin()
   const canConsent = conn() != null && canEdit()
   const telemetry = useTelemetryFlow()
@@ -223,7 +368,7 @@ export default function RegionalOperatorsPage() {
     act(async () => {
       const c = conn()
       if (!c) return
-      const r = await api.createOperator(c, draft.name.trim(), draft.sourceClusterIds, draft.destination)
+      const r = await api.createOperator(c, draft.name.trim(), draft.sourceClusterIds, draft.destination, { heartbeat: draft.heartbeat })
       setCreating(false)
       setCreatedProcessors(draft.extraProcessors)
       setDraft(emptyDraft)
@@ -274,15 +419,18 @@ export default function RegionalOperatorsPage() {
               <span className="font-medium text-nb-200">No Kubernetes API access of any kind.</span> This chart renders no
               ClusterRole, Role or RoleBinding, and its ServiceAccount is created with{' '}
               <code className="font-mono">automountServiceAccountToken: false</code> - it cannot present a token to the API
-              server even if it tried. It never dials the Continuum server either, and never watches this cluster's own
-              objects the way a discovery agent's RBAC lets it (see the chart's own README for the full architecture).
+              server even if it tried. It never dials the Continuum server either, unless you turn on health reporting
+              for it - and then the only thing it sends is {HEARTBEAT_WHAT} It never watches this cluster&apos;s own
+              objects the way a discovery agent&apos;s RBAC lets it (see the chart&apos;s own README for the full architecture).
             </p>
             <p>
-              What you actually configure, in full: <span className="text-nb-200">a receiver bearer token</span> (minted
-              once when the operator is created below, shown only in the install command - the server keeps only a hash),
-              optionally a TLS certificate for mutual TLS on that receiver, and{' '}
-              <span className="text-nb-200">the destination</span> it re-exports aggregated telemetry to. Nothing else is
-              asked for or needed.
+              What you actually configure, in full: <span className="text-nb-200">how its receiver authenticates agents</span>{' '}
+              - for an operator created now, the client certificate alone, with no receiver token at all (the receiver
+              accepts any client certificate this server&apos;s CA issued, not only one issued for this operator), and for an
+              older operator the bearer token it was created with, minted once and kept only as a hash;{' '}
+              <span className="text-nb-200">the destination</span> it re-exports aggregated telemetry to; and, optionally,{' '}
+              <span className="text-nb-200">health reporting</span>, which is what lets this page say online or offline.
+              Nothing else is asked for or needed.
             </p>
           </div>
         </details>
@@ -341,13 +489,21 @@ export default function RegionalOperatorsPage() {
               {operators.map((op) => (
                 <tr key={op.id} className="group hover:bg-nb-930/60" data-testid={`operator-${op.name}`}>
                   <Td className="text-nb-300">{op.name}</Td>
-                  <Td><Pill>{op.status === 'active' ? 'Active' : `Revoked${op.reason ? `: ${op.reason}` : ''}`}</Pill></Td>
+                  <Td>
+                    <Pill>{op.status === 'active' ? 'Active' : `Revoked${op.reason ? `: ${op.reason}` : ''}`}</Pill>
+                    {op.status === 'active' && <div className="mt-1"><OperatorHealth operator={op} /></div>}
+                  </Td>
                   <Td className="text-nb-500">{op.sourceClusterIds.length} cluster{op.sourceClusterIds.length === 1 ? '' : 's'}</Td>
                   <Td className="text-nb-500"><span className="font-mono text-xs">{op.destination.endpoint}</span></Td>
                   <Td className="text-nb-500">{when(op.createdAt)}</Td>
                   <Td className="text-right">
                     {op.status === 'active' && (
-                      <Button size="sm" variant="danger" onClick={() => setRevoking(op)}>Revoke</Button>
+                      <>
+                        <Button size="sm" onClick={() => setHealthFor(op)} data-testid={`operator-health-open-${op.name}`}>
+                          <HeartPulse size={ICON_SM} aria-hidden /> {isReportingHealth(op) ? 'Rotate health credential' : 'Enable health reporting'}
+                        </Button>{' '}
+                        <Button size="sm" variant="danger" onClick={() => setRevoking(op)}>Revoke</Button>
+                      </>
                     )}
                     <Button size="sm" variant="danger" aria-label={`Delete ${op.name}`} onClick={() => setDeleting(op)}><Trash2 size={ICON_MD} /></Button>
                   </Td>
@@ -372,8 +528,8 @@ export default function RegionalOperatorsPage() {
 
           <p className="rounded-md border border-nb-850 bg-nb-930 px-3 py-2 text-xs leading-relaxed text-nb-400" data-testid="operator-create-no-rbac-note">
             This needs no Kubernetes API access at all - no RBAC is applied and no ServiceAccount token is even requested.
-            The destination below, plus the receiver token the next screen hands you, are the complete list of what this
-            operator is granted.
+            The destination below, how its receiver authenticates agents (normally a client certificate issued by this
+            server), and the health reporting below if you leave it on, are the complete list of what this operator is granted.
           </p>
 
           <Field label="Source clusters" hint="Clusters whose already-exported telemetry this operator aggregates. Only clusters with a currently-approved agent are listed.">
@@ -432,6 +588,24 @@ export default function RegionalOperatorsPage() {
           </div>
 
           <div className="border-t border-nb-850 pt-3">
+            <label className="flex cursor-pointer items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-[var(--color-accent)]"
+                checked={draft.heartbeat}
+                onChange={(e) => setDraft({ ...draft, heartbeat: e.target.checked })}
+                data-testid="operator-heartbeat"
+              />
+              <span>
+                <span className="text-nb-300">Report this operator&apos;s health to this server</span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-nb-500" data-testid="operator-heartbeat-explain">
+                  Sends {HEARTBEAT_WHAT} It is the only thing this operator ever sends to this server, so this page can show online or offline. You can also turn it on later.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div className="border-t border-nb-850 pt-3">
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-nb-500">Extra processors</div>
             <ProcessorEditor entries={draft.extraProcessors} onChange={(extraProcessors) => setDraft({ ...draft, extraProcessors })} testIdPrefix="operator" />
           </div>
@@ -446,10 +620,14 @@ export default function RegionalOperatorsPage() {
         <OperatorCreated created={created} extraProcessors={createdProcessors} onClose={() => setCreated(null)} />
       )}
 
+      {healthFor && (
+        <HealthModal operator={healthFor} onClose={() => setHealthFor(null)} onDone={() => void load()} />
+      )}
+
       {revoking && (
         <ConfirmModal
           title={`Revoke ${revoking.name}?`}
-          message="This only marks it revoked here - there is no channel back to the deployed collector, so its receiver token keeps working until you rotate or delete the Kubernetes Secret holding it (or uninstall the release). The record stays for the audit trail; delete it separately if you want it gone entirely."
+          message="This only marks it revoked here - there is no channel back to the deployed collector, so its receiver keeps accepting what it accepted before (a bearer token until you delete the Kubernetes Secret holding it, a client certificate until you uninstall the release). Its health reports are refused from now on. The record stays for the audit trail; delete it separately if you want it gone entirely."
           confirmLabel="Revoke"
           onConfirm={() => void revoke(revoking)}
           onClose={() => setRevoking(null)}

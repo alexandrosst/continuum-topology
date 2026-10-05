@@ -227,6 +227,84 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     expect(screen.queryByTestId('t-guided-destination-auto')).not.toBeInTheDocument()
   })
 
+  describe('regional operator health and receiver authentication', () => {
+    const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+
+    test('rows say Online, Offline with when it was last seen, or nothing about health when the operator does not report', async () => {
+      const user = userEvent.setup()
+      role = 'admin'
+      listOperators.mockResolvedValue([
+        operator({ id: 'op-on', name: 'On operator', health: { state: 'online', lastSeenAt: minutesAgo(1), reporting: true } }),
+        operator({ id: 'op-off', name: 'Off operator', health: { state: 'offline', lastSeenAt: minutesAgo(30), reporting: true } }),
+        operator({ id: 'op-quiet', name: 'Quiet operator', health: { state: 'unknown', reporting: false } }),
+      ])
+      renderWizard()
+      await gotoDestination(user)
+      expect(await screen.findByTestId('t-guided-destination-operator-op-on')).toHaveTextContent('Accepts any signal · Online')
+      expect(screen.getByTestId('t-guided-destination-operator-op-off')).toHaveTextContent('Offline, last seen 30 min ago')
+      const quiet = screen.getByTestId('t-guided-destination-operator-op-quiet')
+      expect(quiet).toHaveTextContent('Accepts any signal')
+      expect(quiet).not.toHaveTextContent(/online|offline|not reported/i)
+    })
+
+    test('an offline operator can still be chosen; the summary shows its health and a calm note, and an online one shows no note', async () => {
+      const user = userEvent.setup()
+      role = 'admin'
+      listOperators.mockResolvedValue([
+        operator({ id: 'op-on', name: 'On operator', health: { state: 'online', lastSeenAt: minutesAgo(1), reporting: true } }),
+        operator({ id: 'op-off', name: 'Off operator', health: { state: 'offline', lastSeenAt: minutesAgo(30), reporting: true } }),
+      ])
+      renderWizard()
+      await gotoDestination(user)
+      await user.click(await screen.findByTestId('t-guided-destination-operator-op-off'))
+      expect(latest.exportOperatorId).toBe('op-off')
+      expect(screen.getByTestId('t-guided-destination-health')).toHaveTextContent('Offline, last seen 30 min ago')
+      expect(screen.getByTestId('t-guided-destination-offline-note')).toHaveTextContent('has not reported recently')
+      expect(screen.getByTestId('t-guided-destination-offline-note')).toHaveTextContent('may not be able to deliver')
+      expect(screen.getByTestId('t-guided-continue')).toBeEnabled()
+
+      await user.click(screen.getByTestId('t-guided-destination-change'))
+      await user.click(screen.getByTestId('t-guided-destination-operator-op-on'))
+      expect(screen.getByTestId('t-guided-destination-health')).toHaveTextContent('Online')
+      expect(screen.queryByTestId('t-guided-destination-offline-note')).not.toBeInTheDocument()
+    })
+
+    test('an operator that does not report shows no health and no offline note in the summary', async () => {
+      const user = userEvent.setup()
+      role = 'admin'
+      listOperators.mockResolvedValue([operator({ health: { state: 'unknown', reporting: false } })])
+      renderWizard()
+      await gotoDestination(user)
+      await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('EU regional operator'))
+      expect(screen.queryByTestId('t-guided-destination-health')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('t-guided-destination-offline-note')).not.toBeInTheDocument()
+    })
+
+    test('the receiver token Secret field is offered for a bearer operator and for one whose auth is unknown', async () => {
+      const user = userEvent.setup()
+      role = 'admin'
+      listOperators.mockResolvedValue([operator({ receiverAuth: 'bearer' })])
+      renderWizard()
+      await gotoDestination(user)
+      await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('EU regional operator'))
+      expect(screen.getByTestId('t-export-auth-secret')).toBeInTheDocument()
+      expect(screen.queryByTestId('t-guided-destination-operator-mtls')).not.toBeInTheDocument()
+    })
+
+    test('for a certificate-only operator the field is hidden, the connection details say the certificate authenticates, and a leftover Secret name is not mentioned', async () => {
+      const user = userEvent.setup()
+      role = 'admin'
+      listOperators.mockResolvedValue([operator({ receiverAuth: 'mtls' })])
+      renderWizard()
+      await gotoDestination(user)
+      await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('EU regional operator'))
+      expect(screen.queryByTestId('t-export-auth-secret')).not.toBeInTheDocument()
+      expect(screen.getByTestId('t-guided-destination-operator-mtls')).toHaveTextContent('authenticates this cluster by the client certificate')
+      expect(screen.getByTestId('t-guided-destination-connection')).toHaveTextContent('client certificate only')
+      expect(screen.getByTestId('t-guided-destination-next')).not.toHaveTextContent('receiver token')
+    })
+  })
+
   test('Continue is never blocked: without a destination, Review says so and offers the way back', async () => {
     const user = userEvent.setup()
     renderWizard()

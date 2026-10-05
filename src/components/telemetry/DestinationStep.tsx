@@ -3,9 +3,11 @@ import { Check, ChevronDown, ChevronLeft, ExternalLink, Network, Rocket, Server,
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { buttonClass } from '@/components/ui/buttonClass'
+import { OperatorHealth } from '@/components/operators/OperatorHealth'
 import { Button, Field, ICON_MD, ICON_SM, InfoTip, Input, Select } from '@/components/ui/primitives'
 import { applyDestination, destinationEndpoint, destinationKey, destinationNeedsCredential, layoutDestinations, type DestinationCatalog, type DestinationCatalogEntry } from '@/lib/destinationCatalog'
 import type { TelemetryInput } from '@/lib/install'
+import { operatorLiveness, receiverAuthOf } from '@/lib/operatorHealth'
 
 type Mode = 'list' | 'custom' | 'new'
 
@@ -13,11 +15,15 @@ const KIND_ICON: Record<DestinationCatalogEntry['kind'], LucideIcon> = { operato
 const KIND_LABEL: Record<DestinationCatalogEntry['kind'], string> = { operator: 'Regional operator', 'external-preset': 'Backend', quickstart: 'Quick-started' }
 
 /** The second line of a destination row - what a person needs to tell it apart from the others without
- *  opening anything. Never a claim about the destination's health: nothing in the catalog knows it. */
+ *  opening anything. A regional operator's line also says what its opt-in heartbeat last told this server
+ *  (Online, or Offline with when it was last seen); one that does not report says nothing about health at
+ *  all - never a guessed state. Other destinations carry no health claim: nothing here knows it. */
 function entryMeta(e: DestinationCatalogEntry): string {
   if (e.kind === 'operator') {
     const m = e.operator.acceptedModalities
-    return m && m.length > 0 ? `Accepts ${m.join(', ')}` : 'Accepts any signal'
+    const base = m && m.length > 0 ? `Accepts ${m.join(', ')}` : 'Accepts any signal'
+    const live = operatorLiveness(e.operator)
+    return live.kind === 'unreported' ? base : `${base} · ${live.text}`
   }
   if (e.kind === 'quickstart') return `Quick-started here · ${e.backend.modality}`
   const proto = e.preset.httpOnly ? 'OTLP/HTTP only' : e.preset.protocol === 'http' ? 'OTLP/HTTP' : 'OTLP/gRPC'
@@ -174,10 +180,18 @@ export default function DestinationStep({
   const endpointEditable = !selected || selected.kind === 'external-preset'
   const unresolved = /<[^>]+>/.test(value.exportEndpoint)
   const name = selected ? selected.label : 'Custom endpoint'
-  const secretNamed = value.exportAuthSecretName.trim() !== ''
+  // How the chosen operator's receiver authenticates this agent. Only a bearer one (every operator from before
+  // certificate-only receivers, and any whose receiver auth is not known) takes a token on top of the
+  // certificate; a certificate-only one asks for none, so the field is not offered and a leftover name is ignored.
+  const operatorAuth = selected?.kind === 'operator' ? receiverAuthOf(selected.operator) : undefined
+  const operatorBearer = isOperator && operatorAuth === 'bearer'
+  const secretNamed = value.exportAuthSecretName.trim() !== '' && (!isOperator || operatorBearer)
+  const operatorLive = selected?.kind === 'operator' ? operatorLiveness(selected.operator) : undefined
 
   const connSummary = isOperator
-    ? `OTLP/gRPC · mTLS${secretNamed ? ` · receiver token from Secret ${value.exportAuthSecretName.trim()}` : ''}`
+    ? operatorBearer
+      ? `OTLP/gRPC · mTLS${secretNamed ? ` · receiver token from Secret ${value.exportAuthSecretName.trim()}` : ''}`
+      : 'OTLP/gRPC · mTLS · client certificate only'
     : `${value.exportProtocol === 'http' ? 'OTLP/HTTP' : 'OTLP/gRPC'} · ${secretNamed ? `credential from Secret ${value.exportAuthSecretName.trim()}` : 'no credential'} · TLS ${value.exportInsecure ? 'not verified' : 'verified'}`
 
   return (
@@ -316,6 +330,14 @@ export default function DestinationStep({
               ) : (
                 <div className="break-all font-mono text-xs text-nb-400" data-testid={`${p}-destination-endpoint`}>{value.exportEndpoint}</div>
               )}
+              {operatorLive && operatorLive.kind !== 'unreported' && selected?.kind === 'operator' && (
+                <div data-testid={`${p}-destination-health`}><OperatorHealth operator={selected.operator} testId={`${p}-destination-health-chip`} /></div>
+              )}
+              {operatorLive?.kind === 'offline' && (
+                <p className="text-xs text-nb-400" data-testid={`${p}-destination-offline-note`}>
+                  This operator has not reported recently, so agents may not be able to deliver to it until it does. You can still choose it.
+                </p>
+              )}
               {unresolved && (
                 <p role="alert" className="text-xs text-warn" data-testid={`${p}-destination-placeholder`}>
                   Replace the &lt;…&gt; parts with your own account’s values.
@@ -340,9 +362,15 @@ export default function DestinationStep({
                   <p className="text-xs text-nb-400" data-testid={`${p}-destination-operator-note`}>
                     A regional operator takes OTLP/gRPC over mutual TLS, so there is no protocol to set here. The commands that connect this cluster to it are generated by the panel below, once you are done with the wizard: administrators only, and each time it issues a fresh client certificate for this cluster (recorded in the audit log). The certificate, its key and the Secret that holds them are part of those commands.
                   </p>
-                  <Field label="Receiver token Secret (optional)" hint="Operators installed from the Operators page also check a bearer token on top of the certificate. If yours does, name the Secret that will hold it; the generated commands create it from TELEMETRY_EXPORT_TOKEN, which you set to Bearer followed by the token. The token itself never goes through this page.">
-                    <Input value={value.exportAuthSecretName} onChange={(e) => set('exportAuthSecretName', e.target.value)} placeholder="operator-receiver-token" className="font-mono" data-testid={`${testIdPrefix}-export-auth-secret`} />
-                  </Field>
+                  {operatorBearer ? (
+                    <Field label="Receiver token Secret (optional)" hint="This operator was created with a receiver bearer token, which it checks on top of the certificate. Name the Secret that will hold it; the generated commands create it from TELEMETRY_EXPORT_TOKEN, which you set to Bearer followed by the token. The token itself never goes through this page.">
+                      <Input value={value.exportAuthSecretName} onChange={(e) => set('exportAuthSecretName', e.target.value)} placeholder="operator-receiver-token" className="font-mono" data-testid={`${testIdPrefix}-export-auth-secret`} />
+                    </Field>
+                  ) : (
+                    <p className="text-xs text-nb-400" data-testid={`${p}-destination-operator-mtls`}>
+                      This operator&apos;s receiver authenticates this cluster by the client certificate the generated commands install - there is no receiver token to name or supply.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <>
@@ -383,7 +411,7 @@ export default function DestinationStep({
                 : 'ask an administrator to generate the commands for this operator: they include a client certificate only an administrator can issue, so none is shown below for you.'
               : 'run the install command shown below the wizard.'}
             {secretNamed && !isOperator && ' It also creates the Secret above - set TELEMETRY_EXPORT_TOKEN to your credential first.'}
-            {secretNamed && isOperator && ' It also creates the receiver token Secret above - set TELEMETRY_EXPORT_TOKEN to Bearer followed by the operator’s token first.'}
+            {secretNamed && operatorBearer && ' It also creates the receiver token Secret above - set TELEMETRY_EXPORT_TOKEN to Bearer followed by the operator’s token first.'}
           </p>
         </div>
       )}
