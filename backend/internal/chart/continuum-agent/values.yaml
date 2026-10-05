@@ -359,6 +359,24 @@ telemetry:
     orgId: ""
     clusterId: ""
     intentId: ""
+    # What this telemetry covers when it is narrowed, e.g. "shop; payments: api+worker" (no commas: the
+    # value travels through `helm --set`). Stamped as continuum.scope; omitted when empty.
+    scope: ""
+    # Tags put on everything this release emits, as resource attributes:
+    #   [{key: k8s.cluster.name, value: prod-eu}, {key: team, value: payments}]
+    # At most 10, each key once. A list, not a map, so setting it in a `helm upgrade --reuse-values` replaces
+    # the whole set rather than leaving behind keys an earlier command added. Inserted, never upserted - a key
+    # an application already set on its own telemetry keeps the application's value - and the continuum.
+    # prefix is reserved for the provenance above.
+    attributes: []
+
+  # A debug exporter next to the real one, writing to this collector's own log - the quickest way to see
+  # whether anything is flowing at all. "" is off; "basic" logs only how many records passed (no content);
+  # "detailed" logs every record's content, which can include whatever the telemetry carries - for short,
+  # deliberate troubleshooting only, and never alongside anything that ships these logs somewhere that
+  # feeds back into this telemetry.
+  debug:
+    verbosity: ""
 
   # Processor-level controls applied to the OTel Collector pipelines themselves, independent of which
   # signals above are enabled. memory_limiter is always rendered (baseline collector hygiene, not a

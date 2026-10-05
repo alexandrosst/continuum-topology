@@ -561,6 +561,16 @@
             }
           }
         },
+        "debug": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "verbosity": {
+              "type": "string",
+              "enum": ["", "basic", "detailed"]
+            }
+          }
+        },
         "resource": {
           "type": "object",
           "additionalProperties": false,
@@ -573,6 +583,26 @@
             },
             "intentId": {
               "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            },
+            "attributes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["key", "value"],
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           }
         },

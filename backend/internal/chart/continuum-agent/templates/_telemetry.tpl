@@ -52,6 +52,22 @@
 {{- if and .Values.telemetry.opamp.enabled (not .Values.telemetry.opamp.server.endpoint) -}}
 {{- fail "telemetry.opamp.enabled requires telemetry.opamp.server.endpoint" -}}
 {{- end -}}
+{{- if gt (len .Values.telemetry.resource.attributes) 10 -}}
+{{- fail "telemetry.resource.attributes takes at most 10 tags: every one is stamped on every record, so each costs storage and cardinality downstream" -}}
+{{- end -}}
+{{- $seenTags := dict -}}
+{{- range .Values.telemetry.resource.attributes -}}
+{{- if hasPrefix "continuum." (lower .key) -}}
+{{- fail (printf "telemetry.resource.attributes: %q uses the continuum. prefix, which is reserved for the provenance this chart stamps itself (org, cluster, intent, scope)" .key) -}}
+{{- end -}}
+{{- if hasKey $seenTags .key -}}
+{{- fail (printf "telemetry.resource.attributes: %q is listed twice" .key) -}}
+{{- end -}}
+{{- $_ := set $seenTags .key true -}}
+{{- end -}}
+{{- if and .Values.telemetry.debug.verbosity (not (has .Values.telemetry.debug.verbosity (list "basic" "detailed"))) -}}
+{{- fail "telemetry.debug.verbosity must be empty (off), basic or detailed" -}}
+{{- end -}}
 {{- if and .Values.telemetry.receiver.auth.enabled (not .Values.telemetry.receiver.auth.secretName) -}}
 {{- fail "telemetry.receiver.auth.enabled requires telemetry.receiver.auth.secretName" -}}
 {{- end -}}
@@ -139,7 +155,55 @@ resource/continuum:
   attributes:
     - {key: continuum.org.id, value: {{ .Values.telemetry.resource.orgId | quote }}, action: upsert}
     - {key: continuum.cluster.id, value: {{ .Values.telemetry.resource.clusterId | quote }}, action: upsert}
+    {{- if .Values.telemetry.resource.intentId }}
     - {key: continuum.intent.id, value: {{ .Values.telemetry.resource.intentId | quote }}, action: upsert}
+    {{- end }}
+    {{- if .Values.telemetry.resource.scope }}
+    {{- /* What this telemetry covers ("shop; payments: api+worker"), so a backend can tell narrowed from whole-cluster data. */}}
+    - {key: continuum.scope, value: {{ .Values.telemetry.resource.scope | quote }}, action: upsert}
+    {{- end }}
+{{- end -}}
+
+{{/* Tags the person chose to put on everything this release emits (telemetry.resource.attributes, a list of
+     {key, value} - a list rather than a map so that setting it in a `helm upgrade --reuse-values` replaces the
+     whole set, where a map would keep every key an earlier command put there), as plain resource attributes. Two rules keep them from ever misleading a reader: they are INSERTED, never
+     upserted, so a key an application already set on its own telemetry keeps the application's value; and
+     the continuum.* names belong to resource/continuum above - validation (agent.telemetryValidate) refuses
+     a tag using that prefix, and resource/continuum runs after this anyway. Only rendered, and only listed in
+     the pipelines, when at least one tag is set. */}}
+{{- define "agent.telemetryTagsYAML" -}}
+{{- if .Values.telemetry.resource.attributes }}
+resource/tags:
+  attributes:
+    {{- range .Values.telemetry.resource.attributes }}
+    - {key: {{ .key | quote }}, value: {{ .value | quote }}, action: insert}
+    {{- end }}
+{{- end }}
+{{- end -}}
+
+{{/* The processors every pipeline ends with, in order: the tags (when any), provenance, then batch. */}}
+{{- define "agent.telemetryTailProcessors" -}}
+{{- $tail := list -}}
+{{- if .Values.telemetry.resource.attributes }}{{ $tail = append $tail "resource/tags" }}{{ end -}}
+{{- $tail = concat $tail (list "resource/continuum" "batch") -}}
+{{- toJson $tail -}}
+{{- end -}}
+
+{{/* Off unless telemetry.debug.verbosity is "basic" (a count of what passed through, per batch, in the
+     collector's own log - no content) or "detailed" (every record's content in that log: it can include
+     whatever the telemetry carries, so it is for short, deliberate troubleshooting). */}}
+{{- define "agent.telemetryDebugExporterYAML" -}}
+{{- if .Values.telemetry.debug.verbosity }}
+debug:
+  verbosity: {{ .Values.telemetry.debug.verbosity }}
+{{- end }}
+{{- end -}}
+
+{{/* The exporters list every pipeline names: the real destination, plus the debug exporter when it is on. */}}
+{{- define "agent.telemetryExporterList" -}}
+{{- $l := list (include "agent.telemetryExporterName" .) -}}
+{{- if .Values.telemetry.debug.verbosity }}{{ $l = append $l "debug" }}{{ end -}}
+{{- toJson $l -}}
 {{- end -}}
 
 {{/* Traces only, referenced only from the traces pipeline in telemetry-cluster-config.yaml. 100 (default)

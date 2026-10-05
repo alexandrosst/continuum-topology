@@ -10,8 +10,7 @@
 {{- if .Values.telemetry.processors.resourceDetection.enabled }}{{ $hProcessors = append $hProcessors "resourcedetection" }}{{ end }}
 {{- if .Values.telemetry.processors.redaction.enabled }}{{ $hProcessors = append $hProcessors "redaction" }}{{ end }}
 {{- range .Values.telemetry.processors.extraProcessorNames }}{{ $hProcessors = append $hProcessors . }}{{ end }}
-{{- $hProcessors = append $hProcessors "resource/continuum" }}
-{{- $hProcessors = append $hProcessors "batch" }}
+{{- $hProcessors = concat $hProcessors (include "agent.telemetryTailProcessors" . | fromJsonArray) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -98,6 +97,7 @@ data:
       {{- with .Values.telemetry.processors.extraProcessors }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
+      {{- include "agent.telemetryTagsYAML" . | nindent 6 }}
       {{- include "agent.telemetryContinuumProvenanceYAML" . | nindent 6 }}
       batch: {}
 
@@ -108,6 +108,7 @@ data:
 
     exporters:
       {{- include "agent.telemetryExporterYAML" . | nindent 6 }}
+      {{- include "agent.telemetryDebugExporterYAML" . | nindent 6 }}
 
     service:
       {{- if .Values.telemetry.opamp.enabled }}
@@ -118,12 +119,12 @@ data:
         metrics:
           receivers: {{ $hMetrics | toJson }}
           processors: {{ $hProcessors | toJson }}
-          exporters: [{{ include "agent.telemetryExporterName" . }}]
+          exporters: {{ include "agent.telemetryExporterList" . }}
         {{- end }}
         {{- if $hLogs }}
         logs:
           receivers: {{ $hLogs | toJson }}
           processors: {{ $hProcessors | toJson }}
-          exporters: [{{ include "agent.telemetryExporterName" . }}]
+          exporters: {{ include "agent.telemetryExporterList" . }}
         {{- end }}
 {{- end }}

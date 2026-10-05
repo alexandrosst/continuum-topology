@@ -1,6 +1,7 @@
 package chart
 
 import (
+	"fmt"
 	"sigs.k8s.io/yaml"
 	"strings"
 	"testing"
@@ -1118,8 +1119,10 @@ func TestTelemetryContinuumProvenanceDefaultsToEmptyAttributesAndStillRenders(t 
 		t.Fatalf("resource/continuum processor missing even with telemetry.resource left at its empty-string defaults: %v", procs)
 	}
 	attrs, _ := rc["attributes"].([]any)
-	if len(attrs) != 3 {
-		t.Fatalf("resource/continuum attributes = %v, want 3 entries even with empty values", attrs)
+	// Org and cluster are always listed; the intent and the scope only when there is one to say (an empty
+	// continuum.intent.id on every record would be noise, not provenance).
+	if len(attrs) != 2 {
+		t.Fatalf("resource/continuum attributes = %v, want the org and cluster entries even with empty values", attrs)
 	}
 	for _, a := range attrs {
 		m, _ := a.(map[string]any)
@@ -1129,5 +1132,165 @@ func TestTelemetryContinuumProvenanceDefaultsToEmptyAttributesAndStillRenders(t 
 		if m["action"] != "upsert" {
 			t.Errorf("resource/continuum attribute %v should still use action: upsert at defaults", m)
 		}
+	}
+}
+
+// -----------------------------------------------------------------------------------------------------
+// telemetry.resource.attributes (tags), continuum.scope, and the debug exporter.
+// -----------------------------------------------------------------------------------------------------
+
+// pipelineLists returns every pipeline's processors and exporters across both collector ConfigMaps.
+func pipelineLists(t *testing.T, r rendered) map[string][2][]any {
+	t.Helper()
+	out := map[string][2][]any{}
+	for _, name := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+		cm, ok := r.configmaps[name]
+		if !ok {
+			continue
+		}
+		cfg := otelConfig(t, cm.Data)
+		svc, _ := cfg["service"].(map[string]any)
+		pipelines, _ := svc["pipelines"].(map[string]any)
+		for pn, raw := range pipelines {
+			p, _ := raw.(map[string]any)
+			procs, _ := p["processors"].([]any)
+			exps, _ := p["exporters"].([]any)
+			out[name+"/"+pn] = [2][]any{procs, exps}
+		}
+	}
+	return out
+}
+
+func TestTelemetryResourceTagsAreInsertedAfterUserProcessorsAndBeforeProvenance(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.resourceUsage.metrics.enabled=true",
+		"--set", "telemetry.traces.traces.enabled=true",
+		"--set-json", `telemetry.resource.attributes=[{"key":"team","value":"payments"},{"key":"k8s.cluster.name","value":"prod-eu"}]`,
+		"--set", "telemetry.resource.scope=shop; payments: api+worker",
+		"--set", "telemetry.resource.orgId=org-1", "--set", "telemetry.resource.clusterId=cl-1", "--set", "telemetry.resource.intentId=ti-1",
+	)
+	for _, name := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+		cfg := otelConfig(t, r.configmaps[name].Data)
+		procs, _ := cfg["processors"].(map[string]any)
+		tags, ok := procs["resource/tags"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s: resource/tags missing: %v", name, procs)
+		}
+		got := map[string]string{}
+		for _, a := range tags["attributes"].([]any) {
+			m := a.(map[string]any)
+			// insert, never upsert: a key an application already set keeps the application's value.
+			if m["action"] != "insert" {
+				t.Errorf("%s: tag %v must use action: insert", name, m)
+			}
+			got[m["key"].(string)] = m["value"].(string)
+		}
+		if got["team"] != "payments" || got["k8s.cluster.name"] != "prod-eu" || len(got) != 2 {
+			t.Errorf("%s: tags = %v", name, got)
+		}
+		rc := procs["resource/continuum"].(map[string]any)
+		keys := map[string]string{}
+		for _, a := range rc["attributes"].([]any) {
+			m := a.(map[string]any)
+			keys[m["key"].(string)] = m["value"].(string)
+		}
+		if keys["continuum.scope"] != "shop; payments: api+worker" || keys["continuum.intent.id"] != "ti-1" {
+			t.Errorf("%s: provenance = %v, want scope and intent stamped", name, keys)
+		}
+	}
+	for pn, pe := range pipelineLists(t, r) {
+		procs := pe[0]
+		n := len(procs)
+		if n < 3 || procs[n-1] != "batch" || procs[n-2] != "resource/continuum" || procs[n-3] != "resource/tags" {
+			t.Errorf("%s processors = %v, want ... resource/tags, resource/continuum, batch", pn, procs)
+		}
+	}
+}
+
+func TestTelemetryWithoutTagsRendersNoTagProcessor(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true")
+	cfg := otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)
+	if _, ok := cfg["processors"].(map[string]any)["resource/tags"]; ok {
+		t.Error("resource/tags rendered with no telemetry.resource.attributes")
+	}
+	for pn, pe := range pipelineLists(t, r) {
+		for _, p := range pe[0] {
+			if p == "resource/tags" {
+				t.Errorf("%s lists resource/tags with no tags set: %v", pn, pe[0])
+			}
+		}
+	}
+	// And no scope/intent entries when there is nothing to say.
+	rc := cfg["processors"].(map[string]any)["resource/continuum"].(map[string]any)
+	for _, a := range rc["attributes"].([]any) {
+		k := a.(map[string]any)["key"]
+		if k == "continuum.scope" || k == "continuum.intent.id" {
+			t.Errorf("%v stamped with an empty value", k)
+		}
+	}
+}
+
+func TestTelemetryTagsRefuseTheReservedPrefixAndTooManyTags(t *testing.T) {
+	out, err := helmTemplate(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true",
+		"--set-json", `telemetry.resource.attributes=[{"key":"continuum.org.id","value":"attacker"}]`)
+	if err == nil || !strings.Contains(out, "reserved") {
+		t.Errorf("a continuum.* tag must be refused as reserved, got err=%v out=%s", err, out)
+	}
+	var many []string
+	for i := 0; i < 11; i++ {
+		many = append(many, fmt.Sprintf(`{"key":"tag%d","value":"v"}`, i))
+	}
+	out, err = helmTemplate(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true",
+		"--set-json", "telemetry.resource.attributes=["+strings.Join(many, ",")+"]")
+	if err == nil || !strings.Contains(out, "at most 10") {
+		t.Errorf("11 tags must be refused, got err=%v out=%s", err, out)
+	}
+}
+
+func TestTelemetryTagsRefuseADuplicateKey(t *testing.T) {
+	out, err := helmTemplate(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true",
+		"--set-json", `telemetry.resource.attributes=[{"key":"team","value":"a"},{"key":"team","value":"b"}]`)
+	if err == nil || !strings.Contains(out, "listed twice") {
+		t.Errorf("a duplicated tag key must be refused, got err=%v out=%s", err, out)
+	}
+}
+
+func TestTelemetryDebugExporterIsOffByDefaultAndOnEveryPipelineWhenSet(t *testing.T) {
+	base := []string{"--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.traces.traces.enabled=true"}
+
+	off := render(t, base...)
+	for _, name := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+		cfg := otelConfig(t, off.configmaps[name].Data)
+		if _, ok := cfg["exporters"].(map[string]any)["debug"]; ok {
+			t.Errorf("%s: a debug exporter is configured with telemetry.debug.verbosity unset", name)
+		}
+	}
+	for pn, pe := range pipelineLists(t, off) {
+		if len(pe[1]) != 1 {
+			t.Errorf("%s exporters = %v, want only the real destination", pn, pe[1])
+		}
+	}
+
+	for _, verbosity := range []string{"basic", "detailed"} {
+		on := render(t, append(append([]string{}, base...), "--set", "telemetry.debug.verbosity="+verbosity)...)
+		for _, name := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+			cfg := otelConfig(t, on.configmaps[name].Data)
+			d, ok := cfg["exporters"].(map[string]any)["debug"].(map[string]any)
+			if !ok || d["verbosity"] != verbosity {
+				t.Errorf("%s: debug exporter = %v, want verbosity %s", name, d, verbosity)
+			}
+		}
+		for pn, pe := range pipelineLists(t, on) {
+			if len(pe[1]) != 2 || pe[1][0] == "debug" || pe[1][1] != "debug" {
+				t.Errorf("%s exporters = %v, want the real destination then debug", pn, pe[1])
+			}
+		}
+	}
+}
+
+func TestTelemetryDebugVerbosityRefusesAnythingElse(t *testing.T) {
+	out, err := helmTemplate(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.debug.verbosity=verbose")
+	if err == nil {
+		t.Errorf("telemetry.debug.verbosity=verbose must be refused, got:\n%s", out)
 	}
 }

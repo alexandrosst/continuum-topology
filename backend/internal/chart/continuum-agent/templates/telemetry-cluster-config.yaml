@@ -115,27 +115,28 @@
 {{- if .Values.telemetry.processors.resourceDetection.enabled }}{{ $commonMid = append $commonMid "resourcedetection" }}{{ end }}
 {{- if .Values.telemetry.processors.redaction.enabled }}{{ $commonMid = append $commonMid "redaction" }}{{ end }}
 {{- $extraNames := .Values.telemetry.processors.extraProcessorNames }}
+{{- $tail := include "agent.telemetryTailProcessors" . | fromJsonArray }}
 
 {{- $procInfra := list "memory_limiter" "k8sattributes" }}
 {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}{{ $procInfra = append $procInfra "transform/kepler_node" }}{{ end }}
 {{- if and .Values.telemetry.accelerators.metrics.enabled .Values.telemetry.accelerators.metrics.applyScope (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}{{ $procInfra = append $procInfra "transform/dcgm_pod" }}{{ end }}
 {{- if $accConditions }}{{ $procInfra = append $procInfra "filter/scope_accelerators" }}{{ end }}
-{{- $procInfra = concat $procInfra $commonMid $extraNames (list "resource/continuum" "batch") }}
+{{- $procInfra = concat $procInfra $commonMid $extraNames $tail }}
 
 {{- $procApp := concat (list "memory_limiter" "k8sattributes") $commonMid }}
 {{- if $amConditions }}{{ $procApp = append $procApp $amProcessor }}{{ end }}
-{{- $procApp = concat $procApp $extraNames (list "resource/continuum" "batch") }}
+{{- $procApp = concat $procApp $extraNames $tail }}
 
-{{- $procLogsInfra := concat (list "memory_limiter" "k8sattributes") $commonMid $extraNames (list "resource/continuum" "batch") }}
+{{- $procLogsInfra := concat (list "memory_limiter" "k8sattributes") $commonMid $extraNames $tail }}
 
 {{- $procLogsApp := concat (list "memory_limiter" "k8sattributes") $commonMid }}
 {{- if $alConditions }}{{ $procLogsApp = append $procLogsApp $alProcessor }}{{ end }}
-{{- $procLogsApp = concat $procLogsApp $extraNames (list "resource/continuum" "batch") }}
+{{- $procLogsApp = concat $procLogsApp $extraNames $tail }}
 
 {{- $procTraces := concat (list "memory_limiter" "k8sattributes") $commonMid }}
 {{- if $trConditions }}{{ $procTraces = append $procTraces $trProcessor }}{{ end }}
 {{- if lt (int .Values.telemetry.processors.tracesSampling.percentage) 100 }}{{ $procTraces = append $procTraces "probabilistic_sampler" }}{{ end }}
-{{- $procTraces = concat $procTraces $extraNames .Values.telemetry.processors.extraTracesProcessorNames (list "resource/continuum" "batch") }}
+{{- $procTraces = concat $procTraces $extraNames .Values.telemetry.processors.extraTracesProcessorNames $tail }}
 
 {{- $clusterExtensions := list }}
 {{- if .Values.telemetry.opamp.enabled }}{{ $clusterExtensions = append $clusterExtensions "opamp" }}{{ end }}
@@ -320,6 +321,7 @@ data:
       {{- with .Values.telemetry.processors.extraProcessors }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
+      {{- include "agent.telemetryTagsYAML" . | nindent 6 }}
       {{- include "agent.telemetryContinuumProvenanceYAML" . | nindent 6 }}
       batch: {}
 
@@ -331,6 +333,7 @@ data:
 
     exporters:
       {{- include "agent.telemetryExporterYAML" . | nindent 6 }}
+      {{- include "agent.telemetryDebugExporterYAML" . | nindent 6 }}
 
     service:
       {{- if $clusterExtensions }}
@@ -341,30 +344,30 @@ data:
         metrics/infra:
           receivers: {{ $cMetricsInfra | toJson }}
           processors: {{ $procInfra | toJson }}
-          exporters: [{{ include "agent.telemetryExporterName" . }}]
+          exporters: {{ include "agent.telemetryExporterList" . }}
         {{- end }}
         {{- if $cMetricsApp }}
         metrics/app:
           receivers: {{ $cMetricsApp | toJson }}
           processors: {{ $procApp | toJson }}
-          exporters: [{{ include "agent.telemetryExporterName" . }}]
+          exporters: {{ include "agent.telemetryExporterList" . }}
         {{- end }}
         {{- if $cLogsInfra }}
         logs/infra:
           receivers: {{ $cLogsInfra | toJson }}
           processors: {{ $procLogsInfra | toJson }}
-          exporters: [{{ include "agent.telemetryExporterName" . }}]
+          exporters: {{ include "agent.telemetryExporterList" . }}
         {{- end }}
         {{- if $cLogsApp }}
         logs/app:
           receivers: {{ $cLogsApp | toJson }}
           processors: {{ $procLogsApp | toJson }}
-          exporters: [{{ include "agent.telemetryExporterName" . }}]
+          exporters: {{ include "agent.telemetryExporterList" . }}
         {{- end }}
         {{- if .Values.telemetry.traces.traces.enabled }}
         traces:
           receivers: [otlp]
           processors: {{ $procTraces | toJson }}
-          exporters: [{{ include "agent.telemetryExporterName" . }}]
+          exporters: {{ include "agent.telemetryExporterList" . }}
         {{- end }}
 {{- end }}
