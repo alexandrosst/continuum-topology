@@ -583,6 +583,7 @@ telemetry:
       scope:
         namespaces: []
         exclude: []
+        workloads: []
 
   # domain: infrastructure. "systemLogs" means the node's own operating system and container runtime, never
   # application output (see applicationLogs below for that).
@@ -613,6 +614,7 @@ telemetry:
       scope:
         namespaces: []
         exclude: []
+        workloads: []
 
   # domain: application
   traces:
@@ -624,6 +626,7 @@ telemetry:
       scope:
         namespaces: []
         exclude: []
+        workloads: []
 
   # Which namespaces application-scoped signals (applicationMetrics, applicationLogs, traces) are collected
   # from. Reuses the same shape as "scope" above rather than inventing new vocabulary; empty means every
@@ -649,6 +652,24 @@ telemetry:
     namespaces: []
     exclude: []
     selector: ""
+    # Narrow by workload inside a namespace: [{namespace: checkout, names: [cart, payment-api]}] keeps only
+    # those workloads' records from checkout (a list, not a map, so a `helm upgrade --reuse-values` replaces
+    # it rather than merging into what an earlier command set) (matched on the deployment, statefulset, daemonset, job or cronjob name; a
+    # record with none of those, such as a bare pod, does not match). A namespace listed with no names keeps
+    # nothing of it (names: []). Names are lowercase letters, digits and hyphens. Applies where namespaces/exclude do,
+    # and each signal's own override below may set its own.
+    workloads: []
+    # What infrastructure signals follow, when the wizard's "apply this scope to infrastructure signals
+    # too" is ticked. Separate from the fields above on purpose: those are what each application signal
+    # falls back to, this is only for signals that are not application data. Only records that carry a
+    # namespace are narrowed - the pod and container parts of resourceUsage and nodeRuntime, the pod and
+    # deployment parts of kubernetesState, and Kubernetes events (by namespace only; an event has no
+    # workload). Nodes, the host's own CPU and memory, energy, accelerators, network latency and system logs
+    # are never narrowed by this. Empty means not narrowed.
+    infra:
+      namespaces: []
+      exclude: []
+      workloads: []
 
   # Per-workload scheduling and sizing for the host DaemonSet (see telemetry.yaml). Kepler's own equivalent
   # knobs live under energy.metrics above, next to its image, rather than a third top-level block; the

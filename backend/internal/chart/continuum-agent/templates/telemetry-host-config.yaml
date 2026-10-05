@@ -11,6 +11,11 @@
 {{- if .Values.telemetry.processors.redaction.enabled }}{{ $hProcessors = append $hProcessors "redaction" }}{{ end }}
 {{- range .Values.telemetry.processors.extraProcessorNames }}{{ $hProcessors = append $hProcessors . }}{{ end }}
 {{- $hProcessors = concat $hProcessors (include "agent.telemetryTailProcessors" . | fromJsonArray) }}
+{{/* telemetry.scope.infra: the metrics pipeline only (system logs are not narrowed - see values.yaml). Goes
+     right after k8sattributes, which is what puts the workload name on a pod's metrics. */}}
+{{- $infraConditions := include "agent.telemetryInfraScopeConditions" . | fromJsonArray }}
+{{- $hMetricsProcessors := $hProcessors }}
+{{- if $infraConditions }}{{ $hMetricsProcessors = concat (list "memory_limiter" "k8sattributes" "filter/scope_infra") (slice $hProcessors 2) }}{{ end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -88,7 +93,12 @@ data:
               - from: resource_attribute
                 name: k8s.pod.uid
         extract:
-          metadata: [k8s.namespace.name, k8s.pod.name, k8s.pod.uid, k8s.node.name, k8s.deployment.name]
+          metadata: {{ include "agent.telemetryK8sAttrsMetadata" . }}
+      {{- if $infraConditions }}
+      filter/scope_infra:
+        error_mode: ignore
+        metric_conditions: {{ $infraConditions | toJson }}
+      {{- end }}
       resource/node:
         attributes:
           - {key: k8s.node.name, value: "${env:NODE_NAME}", action: upsert}
@@ -118,7 +128,7 @@ data:
         {{- if $hMetrics }}
         metrics:
           receivers: {{ $hMetrics | toJson }}
-          processors: {{ $hProcessors | toJson }}
+          processors: {{ $hMetricsProcessors | toJson }}
           exporters: {{ include "agent.telemetryExporterList" . }}
         {{- end }}
         {{- if $hLogs }}

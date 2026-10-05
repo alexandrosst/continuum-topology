@@ -1294,3 +1294,169 @@ func TestTelemetryDebugVerbosityRefusesAnythingElse(t *testing.T) {
 		t.Errorf("telemetry.debug.verbosity=verbose must be refused, got:\n%s", out)
 	}
 }
+
+// conditionsOf returns the condition list of one filter processor under the given key
+// (metric_conditions, log_conditions, trace_conditions), as plain strings.
+func conditionsOf(t *testing.T, procs map[string]any, name, key string) []string {
+	t.Helper()
+	p, ok := procs[name].(map[string]any)
+	if !ok {
+		t.Fatalf("processor %s missing: %v", name, procs)
+	}
+	raw, _ := p[key].([]any)
+	out := make([]string, 0, len(raw))
+	for _, c := range raw {
+		out = append(out, c.(string))
+	}
+	return out
+}
+
+func TestTelemetryWorkloadScopeKeepsOnlyChosenWorkloadsOfANamespace(t *testing.T) {
+	r := render(t,
+		"--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.traces.traces.enabled=true",
+		"--set-json", `telemetry.scope.namespaces=["checkout","payments"]`,
+		"--set-json", `telemetry.scope.workloads=[{"namespace":"checkout","names":["cart","payment-api"]}]`,
+	)
+	cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	procs, _ := cfg["processors"].(map[string]any)
+	conds := conditionsOf(t, procs, "filter/scope", "trace_conditions")
+	if len(conds) != 2 {
+		t.Fatalf("want the namespace allow-list plus one workload condition, got %v", conds)
+	}
+	if !strings.Contains(conds[0], `not IsMatch(resource.attributes["k8s.namespace.name"], "^(checkout|payments)$")`) {
+		t.Errorf("namespace condition changed: %s", conds[0])
+	}
+	w := conds[1]
+	for _, want := range []string{`resource.attributes["k8s.namespace.name"] == "checkout"`, `not (`, `k8s.deployment.name`, `k8s.statefulset.name`, `k8s.daemonset.name`, `^(cart|payment-api)$`} {
+		if !strings.Contains(w, want) {
+			t.Errorf("workload condition lacks %q: %s", want, w)
+		}
+	}
+	if strings.Contains(w, "payments") {
+		t.Errorf("a namespace not listed under workloads must stay whole: %s", w)
+	}
+}
+
+func TestTelemetryWorkloadScopeEmptyListKeepsNothingOfThatNamespace(t *testing.T) {
+	r := render(t,
+		"--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.traces.traces.enabled=true",
+		"--set-json", `telemetry.scope.workloads=[{"namespace":"checkout","names":[]}]`,
+	)
+	cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	procs, _ := cfg["processors"].(map[string]any)
+	conds := conditionsOf(t, procs, "filter/scope", "trace_conditions")
+	if len(conds) != 1 || conds[0] != `(resource.attributes["k8s.namespace.name"] == "checkout")` {
+		t.Fatalf("got %v", conds)
+	}
+}
+
+func TestTelemetryWorkloadNamesAreExtractedOnlyWhenSomethingFiltersOnThem(t *testing.T) {
+	meta := func(r rendered) []any {
+		cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+		procs, _ := cfg["processors"].(map[string]any)
+		k, _ := procs["k8sattributes"].(map[string]any)
+		ex, _ := k["extract"].(map[string]any)
+		m, _ := ex["metadata"].([]any)
+		return m
+	}
+	base := []string{"--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.traces.traces.enabled=true"}
+	if m := meta(render(t, base...)); containsAny(m, "k8s.statefulset.name") {
+		t.Errorf("workload names extracted with no workload scope: %v", m)
+	}
+	m := meta(render(t, append(base, "--set-json", `telemetry.traces.traces.scope.workloads=[{"namespace":"shop","names":["a"]}]`)...))
+	for _, want := range []string{"k8s.deployment.name", "k8s.statefulset.name", "k8s.daemonset.name", "k8s.job.name", "k8s.cronjob.name"} {
+		if !containsAny(m, want) {
+			t.Errorf("per-signal workload scope should extract %s: %v", want, m)
+		}
+	}
+}
+
+func TestTelemetryPerSignalWorkloadScopeGetsItsOwnProcessor(t *testing.T) {
+	r := render(t,
+		"--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.traces.traces.enabled=true",
+		"--set", "telemetry.applicationLogs.logs.enabled=true",
+		"--set-json", `telemetry.traces.traces.scope.workloads=[{"namespace":"shop","names":["api"]}]`,
+	)
+	cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	procs, _ := cfg["processors"].(map[string]any)
+	if _, ok := procs["filter/scope_traces"]; !ok {
+		t.Fatalf("traces with its own workload scope should get filter/scope_traces: %v", procs)
+	}
+	if _, ok := procs["filter/scope_applicationLogs"]; ok {
+		t.Errorf("logs set nothing of its own")
+	}
+}
+
+func TestTelemetryWorkloadNamesMustBeSafeToPutInARegex(t *testing.T) {
+	for _, bad := range []string{`[{"namespace":"shop","names":["a|b"]}]`, `[{"namespace":"shop","names":["A"]}]`, `[{"namespace":"Shop","names":["a"]}]`, `[{"namespace":"shop","names":["a.b"]}]`, `[{"names":["a"]}]`} {
+		_, err := helmTemplate(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set-json", "telemetry.scope.workloads="+bad)
+		if err == nil {
+			t.Errorf("workloads %s should be refused", bad)
+		}
+	}
+}
+
+func TestTelemetryInfraScopeOffByDefaultRendersNoInfraFilters(t *testing.T) {
+	r := render(t,
+		"--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.kubernetesState.metrics.enabled=true",
+		"--set", "telemetry.kubernetesEvents.logs.enabled=true",
+		"--set", "telemetry.resourceUsage.metrics.enabled=true",
+	)
+	for _, cm := range []string{"continuum-telemetry-cluster-config", "continuum-telemetry-host-config"} {
+		if strings.Contains(r.configmaps[cm].Data["otel-collector-config.yaml"], "scope_infra") {
+			t.Errorf("%s renders an infra scope filter by default", cm)
+		}
+	}
+}
+
+func TestTelemetryInfraScopeNarrowsOnlyRecordsThatCarryANamespace(t *testing.T) {
+	r := render(t,
+		"--set", "telemetry.export.otlp.endpoint=x:4317",
+		"--set", "telemetry.kubernetesState.metrics.enabled=true",
+		"--set", "telemetry.kubernetesEvents.logs.enabled=true",
+		"--set", "telemetry.resourceUsage.metrics.enabled=true",
+		"--set", "telemetry.systemLogs.logs.enabled=true",
+		"--set-json", `telemetry.scope.infra.namespaces=["checkout"]`,
+		"--set-json", `telemetry.scope.infra.workloads=[{"namespace":"checkout","names":["cart"]}]`,
+	)
+	cluster := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	procs, _ := cluster["processors"].(map[string]any)
+	state := conditionsOf(t, procs, "filter/scope_infra", "metric_conditions")
+	if len(state) != 2 || !strings.HasPrefix(state[0], `(resource.attributes["k8s.namespace.name"] != nil and not IsMatch(`) {
+		t.Errorf("a record with no namespace must be kept, got %v", state)
+	}
+	events := conditionsOf(t, procs, "filter/scope_infra_events", "log_conditions")
+	if len(events) != 2 || !strings.Contains(events[1], `body["object"]["metadata"]["namespace"] != nil`) {
+		t.Errorf("events are narrowed by namespace, also from the event object: %v", events)
+	}
+	for _, c := range events {
+		if strings.Contains(c, "deployment") {
+			t.Errorf("an event has no workload, got %s", c)
+		}
+	}
+	pipelines := cluster["service"].(map[string]any)["pipelines"].(map[string]any)
+	if !containsAny(pipelines["metrics/infra"].(map[string]any)["processors"].([]any), "filter/scope_infra") {
+		t.Errorf("metrics/infra lacks the infra filter")
+	}
+	if !containsAny(pipelines["logs/infra"].(map[string]any)["processors"].([]any), "filter/scope_infra_events") {
+		t.Errorf("logs/infra lacks the events filter")
+	}
+
+	host := otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)
+	hp, _ := host["processors"].(map[string]any)
+	if got := conditionsOf(t, hp, "filter/scope_infra", "metric_conditions"); len(got) != 2 {
+		t.Errorf("host metrics filter: %v", got)
+	}
+	hpipes := host["service"].(map[string]any)["pipelines"].(map[string]any)
+	metricsProcs := hpipes["metrics"].(map[string]any)["processors"].([]any)
+	if len(metricsProcs) < 3 || metricsProcs[0] != "memory_limiter" || metricsProcs[1] != "k8sattributes" || metricsProcs[2] != "filter/scope_infra" {
+		t.Errorf("the filter goes right after k8sattributes, got %v", metricsProcs)
+	}
+	if containsAny(hpipes["logs"].(map[string]any)["processors"].([]any), "filter/scope_infra") {
+		t.Errorf("system logs are not narrowed by the infra scope")
+	}
+}

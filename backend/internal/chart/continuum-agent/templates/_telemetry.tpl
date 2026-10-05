@@ -76,10 +76,76 @@
 {{- end -}}
 {{- end -}}
 
+{{/* Turns a scope (namespaces to keep, namespaces to drop, workloads to keep inside a namespace) into the
+     OTTL conditions a filterprocessor DROPS on, as a JSON list - callers `| fromJsonArray` it. Takes a dict:
+       namespaces, exclude  lists of namespace names (Kubernetes namespace names are DNS-1123 labels, so a regex
+                            alternation built from them needs no escaping)
+       workloads            list of {namespace, names}. A namespace listed here keeps only those
+                            workloads (matched against the deployment, statefulset, daemonset, job or cronjob
+                            name k8sattributes put on the record); listed with no names keeps nothing of it.
+                            Workload names are restricted to [a-z0-9-] by values.schema.json for the same
+                            no-escaping reason.
+       exempt               appended to every condition (networkLatency's standing exemption)
+       guard                true for infrastructure signals: a record carrying no namespace at all (a node, the
+                            host's own CPU) is never dropped, only one whose namespace is out of scope.
+                            Application signals keep the old rule, where no namespace means dropped.
+       nsExprs              optional: where to read the namespace from. Defaults to the resource attribute. */}}
+{{- define "agent.telemetryScopeConditions" -}}
+{{- $out := list -}}
+{{- $exempt := .exempt | default "" -}}
+{{- $nsExprs := .nsExprs | default (list "resource.attributes[\"k8s.namespace.name\"]") -}}
+{{- range $nsExpr := $nsExprs -}}
+{{- if $.namespaces -}}
+{{- $m := printf "not IsMatch(%s, \"^(%s)$\")" $nsExpr (join "|" $.namespaces) -}}
+{{- if $.guard }}{{ $m = printf "%s != nil and %s" $nsExpr $m }}{{ end -}}
+{{- $out = append $out (printf "(%s)%s" $m $exempt) -}}
+{{- end -}}
+{{- if $.exclude -}}
+{{- $out = append $out (printf "(IsMatch(%s, \"^(%s)$\"))%s" $nsExpr (join "|" $.exclude) $exempt) -}}
+{{- end -}}
+{{- end -}}
+{{- $nsAttr := "resource.attributes[\"k8s.namespace.name\"]" -}}
+{{- range $w := (.workloads | default list) -}}
+{{- $ns := $w.namespace -}}
+{{- $names := $w.names -}}
+{{- if $names -}}
+{{- $any := list -}}
+{{- range $a := list "k8s.deployment.name" "k8s.statefulset.name" "k8s.daemonset.name" "k8s.job.name" "k8s.cronjob.name" -}}
+{{- $any = append $any (printf "IsMatch(resource.attributes[\"%s\"], \"^(%s)$\")" $a (join "|" $names)) -}}
+{{- end -}}
+{{- $out = append $out (printf "(%s == \"%s\" and not (%s))%s" $nsAttr $ns (join " or " $any) $exempt) -}}
+{{- else -}}
+{{- $out = append $out (printf "(%s == \"%s\")%s" $nsAttr $ns $exempt) -}}
+{{- end -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end -}}
+
+{{/* Whether any scope in this release narrows by workload - the one case where k8sattributes has to extract
+     the workload names (a few more attributes on every record, so only when something filters on them). */}}
+{{- define "agent.telemetryWorkloadScopeEnabled" -}}
+{{- $t := .Values.telemetry -}}
+{{- if or $t.scope.workloads $t.scope.infra.workloads $t.applicationMetrics.metrics.scope.workloads $t.applicationLogs.logs.scope.workloads $t.traces.traces.scope.workloads -}}true{{- end -}}
+{{- end -}}
+
+{{/* The metadata list k8sattributes extracts, in both collector configs. */}}
+{{- define "agent.telemetryK8sAttrsMetadata" -}}
+{{- $m := list "k8s.namespace.name" "k8s.pod.name" "k8s.pod.uid" "k8s.node.name" "k8s.deployment.name" -}}
+{{- if include "agent.telemetryWorkloadScopeEnabled" . }}{{ $m = concat $m (list "k8s.statefulset.name" "k8s.daemonset.name" "k8s.job.name" "k8s.cronjob.name") }}{{ end -}}
+{{- toJson $m -}}
+{{- end -}}
+
+{{/* The scope infrastructure signals follow (telemetry.scope.infra): only what carries a namespace is
+     narrowed; nodes and the host's own metrics pass untouched. */}}
+{{- define "agent.telemetryInfraScopeConditions" -}}
+{{- $i := .Values.telemetry.scope.infra -}}
+{{- include "agent.telemetryScopeConditions" (dict "namespaces" $i.namespaces "exclude" $i.exclude "workloads" $i.workloads "guard" true) -}}
+{{- end -}}
+
 {{/* True when either half of telemetry.scope is set - gates whether the filter/scope_* processors and the
      split app/infra pipelines are emitted in telemetry-cluster-config.yaml at all. */}}
 {{- define "agent.telemetryScopeFilterEnabled" -}}
-{{- if or .Values.telemetry.scope.namespaces .Values.telemetry.scope.exclude -}}true{{- end -}}
+{{- if or .Values.telemetry.scope.namespaces .Values.telemetry.scope.exclude .Values.telemetry.scope.workloads -}}true{{- end -}}
 {{- end -}}
 
 {{/* Per-workload resource requests/limits: the override if the operator set one, else the shared default.

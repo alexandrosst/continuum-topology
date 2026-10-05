@@ -39,60 +39,44 @@
 {{- $nlExempt := "" }}
 {{- if .Values.telemetry.networkLatency.metrics.enabled }}{{ $nlExempt = " and resource.attributes[\"service.name\"] != \"continuum-network-latency\"" }}{{ end }}
 
-{{- $scopeConditions := list }}
-{{- if .Values.telemetry.scope.namespaces }}
-{{- $scopeConditions = append $scopeConditions (printf "(not IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" .Values.telemetry.scope.namespaces) $nlExempt) }}
-{{- end }}
-{{- if .Values.telemetry.scope.exclude }}
-{{- $scopeConditions = append $scopeConditions (printf "(IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" .Values.telemetry.scope.exclude) $nlExempt) }}
-{{- end }}
+{{- $scopeConditions := include "agent.telemetryScopeConditions" (dict "namespaces" .Values.telemetry.scope.namespaces "exclude" .Values.telemetry.scope.exclude "workloads" .Values.telemetry.scope.workloads "exempt" $nlExempt) | fromJsonArray }}
 
 {{/* Per-kind application-scope overrides: applicationMetrics/applicationLogs/traces each fall back to
-     telemetry.scope above, field-by-field, when their own scope.namespaces/scope.exclude are both empty -
-     the default for every existing install, which renders the exact same shared "filter/scope" processor
-     as before. Only a kind that actually sets its own override gets its own filter/scope_<kind> processor,
-     built from its own conditions instead of the shared ones. */}}
+     telemetry.scope above, field-by-field, when their own scope.namespaces/scope.exclude/scope.workloads are
+     all empty - the default for every existing install, which renders the exact same shared "filter/scope"
+     processor as before. Only a kind that actually sets its own override gets its own filter/scope_<kind>
+     processor, built from its own conditions instead of the shared ones. */}}
 {{- $amOverride := .Values.telemetry.applicationMetrics.metrics.scope }}
 {{- $amConditions := $scopeConditions }}
 {{- $amProcessor := "filter/scope" }}
-{{- if or $amOverride.namespaces $amOverride.exclude }}
-{{- $amNamespaces := $amOverride.namespaces }}
-{{- if not $amNamespaces }}{{ $amNamespaces = .Values.telemetry.scope.namespaces }}{{ end }}
-{{- $amExclude := $amOverride.exclude }}
-{{- if not $amExclude }}{{ $amExclude = .Values.telemetry.scope.exclude }}{{ end }}
-{{- $amConditions = list }}
-{{- if $amNamespaces }}{{ $amConditions = append $amConditions (printf "(not IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" $amNamespaces) $nlExempt) }}{{ end }}
-{{- if $amExclude }}{{ $amConditions = append $amConditions (printf "(IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" $amExclude) $nlExempt) }}{{ end }}
+{{- if or $amOverride.namespaces $amOverride.exclude $amOverride.workloads }}
+{{- $amConditions = include "agent.telemetryScopeConditions" (dict "namespaces" ($amOverride.namespaces | default .Values.telemetry.scope.namespaces) "exclude" ($amOverride.exclude | default .Values.telemetry.scope.exclude) "workloads" ($amOverride.workloads | default .Values.telemetry.scope.workloads) "exempt" $nlExempt) | fromJsonArray }}
 {{- $amProcessor = "filter/scope_applicationMetrics" }}
 {{- end }}
 
 {{- $alOverride := .Values.telemetry.applicationLogs.logs.scope }}
 {{- $alConditions := $scopeConditions }}
 {{- $alProcessor := "filter/scope" }}
-{{- if or $alOverride.namespaces $alOverride.exclude }}
-{{- $alNamespaces := $alOverride.namespaces }}
-{{- if not $alNamespaces }}{{ $alNamespaces = .Values.telemetry.scope.namespaces }}{{ end }}
-{{- $alExclude := $alOverride.exclude }}
-{{- if not $alExclude }}{{ $alExclude = .Values.telemetry.scope.exclude }}{{ end }}
-{{- $alConditions = list }}
-{{- if $alNamespaces }}{{ $alConditions = append $alConditions (printf "(not IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" $alNamespaces) $nlExempt) }}{{ end }}
-{{- if $alExclude }}{{ $alConditions = append $alConditions (printf "(IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" $alExclude) $nlExempt) }}{{ end }}
+{{- if or $alOverride.namespaces $alOverride.exclude $alOverride.workloads }}
+{{- $alConditions = include "agent.telemetryScopeConditions" (dict "namespaces" ($alOverride.namespaces | default .Values.telemetry.scope.namespaces) "exclude" ($alOverride.exclude | default .Values.telemetry.scope.exclude) "workloads" ($alOverride.workloads | default .Values.telemetry.scope.workloads) "exempt" $nlExempt) | fromJsonArray }}
 {{- $alProcessor = "filter/scope_applicationLogs" }}
 {{- end }}
 
 {{- $trOverride := .Values.telemetry.traces.traces.scope }}
 {{- $trConditions := $scopeConditions }}
 {{- $trProcessor := "filter/scope" }}
-{{- if or $trOverride.namespaces $trOverride.exclude }}
-{{- $trNamespaces := $trOverride.namespaces }}
-{{- if not $trNamespaces }}{{ $trNamespaces = .Values.telemetry.scope.namespaces }}{{ end }}
-{{- $trExclude := $trOverride.exclude }}
-{{- if not $trExclude }}{{ $trExclude = .Values.telemetry.scope.exclude }}{{ end }}
-{{- $trConditions = list }}
-{{- if $trNamespaces }}{{ $trConditions = append $trConditions (printf "(not IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" $trNamespaces) $nlExempt) }}{{ end }}
-{{- if $trExclude }}{{ $trConditions = append $trConditions (printf "(IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^(%s)$\"))%s" (join "|" $trExclude) $nlExempt) }}{{ end }}
+{{- if or $trOverride.namespaces $trOverride.exclude $trOverride.workloads }}
+{{- $trConditions = include "agent.telemetryScopeConditions" (dict "namespaces" ($trOverride.namespaces | default .Values.telemetry.scope.namespaces) "exclude" ($trOverride.exclude | default .Values.telemetry.scope.exclude) "workloads" ($trOverride.workloads | default .Values.telemetry.scope.workloads) "exempt" $nlExempt) | fromJsonArray }}
 {{- $trProcessor = "filter/scope_traces" }}
 {{- end }}
+
+{{/* What infrastructure signals follow (telemetry.scope.infra, set by the wizard when "apply this scope to
+     infrastructure signals too" is ticked). Cluster-state metrics are narrowed by the namespace on the
+     record; Kubernetes events by the same, or - when the receiver carries it only in the event object - by
+     the object's own namespace. Nodes, and anything else with no namespace, pass. Events have no workload,
+     so for them only the namespace halves apply. */}}
+{{- $infraConditions := include "agent.telemetryInfraScopeConditions" . | fromJsonArray }}
+{{- $infraEventConditions := include "agent.telemetryScopeConditions" (dict "namespaces" .Values.telemetry.scope.infra.namespaces "exclude" .Values.telemetry.scope.infra.exclude "guard" true "nsExprs" (list "resource.attributes[\"k8s.namespace.name\"]" "body[\"object\"][\"metadata\"][\"namespace\"]")) | fromJsonArray }}
 
 {{/* Accelerators scope (telemetry.accelerators.metrics.applyScope, off by default): unlike the app-domain
      kinds above, accelerators has no scope override of its own - it either respects the shared
@@ -121,13 +105,16 @@
 {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}{{ $procInfra = append $procInfra "transform/kepler_node" }}{{ end }}
 {{- if and .Values.telemetry.accelerators.metrics.enabled .Values.telemetry.accelerators.metrics.applyScope (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}{{ $procInfra = append $procInfra "transform/dcgm_pod" }}{{ end }}
 {{- if $accConditions }}{{ $procInfra = append $procInfra "filter/scope_accelerators" }}{{ end }}
+{{- if and $infraConditions .Values.telemetry.kubernetesState.metrics.enabled }}{{ $procInfra = append $procInfra "filter/scope_infra" }}{{ end }}
 {{- $procInfra = concat $procInfra $commonMid $extraNames $tail }}
 
 {{- $procApp := concat (list "memory_limiter" "k8sattributes") $commonMid }}
 {{- if $amConditions }}{{ $procApp = append $procApp $amProcessor }}{{ end }}
 {{- $procApp = concat $procApp $extraNames $tail }}
 
-{{- $procLogsInfra := concat (list "memory_limiter" "k8sattributes") $commonMid $extraNames $tail }}
+{{- $procLogsInfra := list "memory_limiter" "k8sattributes" }}
+{{- if $infraEventConditions }}{{ $procLogsInfra = append $procLogsInfra "filter/scope_infra_events" }}{{ end }}
+{{- $procLogsInfra = concat $procLogsInfra $commonMid $extraNames $tail }}
 
 {{- $procLogsApp := concat (list "memory_limiter" "k8sattributes") $commonMid }}
 {{- if $alConditions }}{{ $procLogsApp = append $procLogsApp $alProcessor }}{{ end }}
@@ -250,7 +237,7 @@ data:
           - sources:
               - from: connection
         extract:
-          metadata: [k8s.namespace.name, k8s.pod.name, k8s.pod.uid, k8s.node.name, k8s.deployment.name]
+          metadata: {{ include "agent.telemetryK8sAttrsMetadata" . }}
       {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
       # Kepler's own Prometheus scrape only carries a raw "node" metric label (see the relabel_configs
       # above) - promote it to the semconv k8s.node.name resource attribute so per-node energy data can
@@ -306,6 +293,19 @@ data:
       filter/scope_traces:
         error_mode: ignore
         trace_conditions: {{ $trConditions | toJson }}
+      {{- end }}
+      {{- if and $infraConditions .Values.telemetry.kubernetesState.metrics.enabled }}
+      # telemetry.scope.infra: narrows the pod/deployment/namespace parts of cluster-state metrics to the
+      # scope; a record with no namespace (a node) is never dropped. Lives in metrics/infra, so it also sees
+      # Kepler's and dcgm-exporter's records - those carry no resource-level namespace here and pass.
+      filter/scope_infra:
+        error_mode: ignore
+        metric_conditions: {{ $infraConditions | toJson }}
+      {{- end }}
+      {{- if $infraEventConditions }}
+      filter/scope_infra_events:
+        error_mode: ignore
+        log_conditions: {{ $infraEventConditions | toJson }}
       {{- end }}
       {{- if $accConditions }}
       # accelerators' opt-in scope filter (telemetry.accelerators.metrics.applyScope) - lives inside

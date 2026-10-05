@@ -916,6 +916,23 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "workloads": {
+                      "type": "array",
+                      "maxItems": 50,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["namespace"],
+                        "properties": {
+                          "namespace": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63},
+                          "names": {
+                            "type": "array",
+                            "maxItems": 50,
+                            "items": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63}
+                          }
+                        }
+                      }
                     }
                   }
                 }
@@ -1001,6 +1018,23 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "workloads": {
+                      "type": "array",
+                      "maxItems": 50,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["namespace"],
+                        "properties": {
+                          "namespace": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63},
+                          "names": {
+                            "type": "array",
+                            "maxItems": 50,
+                            "items": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63}
+                          }
+                        }
+                      }
                     }
                   }
                 }
@@ -1039,6 +1073,23 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "workloads": {
+                      "type": "array",
+                      "maxItems": 50,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["namespace"],
+                        "properties": {
+                          "namespace": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63},
+                          "names": {
+                            "type": "array",
+                            "maxItems": 50,
+                            "items": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63}
+                          }
+                        }
+                      }
                     }
                   }
                 }
@@ -1064,6 +1115,48 @@
             },
             "selector": {
               "type": "string"
+            },
+            "workloads": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["namespace"],
+                "properties": {
+                  "namespace": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63},
+                  "names": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63}
+                  }
+                }
+              }
+            },
+            "infra": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "namespaces": {"type": "array", "items": {"type": "string"}},
+                "exclude": {"type": "array", "items": {"type": "string"}},
+                "workloads": {
+                  "type": "array",
+                  "maxItems": 50,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["namespace"],
+                    "properties": {
+                      "namespace": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63},
+                      "names": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63}
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         },
