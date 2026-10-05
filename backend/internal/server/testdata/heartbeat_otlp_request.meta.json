@@ -1,0 +1,12 @@
+{
+  "capturedFrom": "otelcol-contrib 0.160.0 (the version the continuum-regional-operator chart pins), running the chart's own rendered heartbeat config (heartbeat.enabled=true, intervalSeconds=10, heartbeat.tls.caSecretName set), against a local HTTPS stub server",
+  "method": "POST",
+  "path": "/api/v1/operator-heartbeat",
+  "headers": {
+    "Content-Type": "application/x-protobuf",
+    "Content-Encoding": "gzip",
+    "User-Agent": "OpenTelemetry Collector Contrib/0.160.0 (linux/amd64)",
+    "Authorization": "Bearer <heartbeat secret>"
+  },
+  "body": "heartbeat_otlp_request.bin is the exact request body the exporter sent (a gzip-compressed ExportMetricsServiceRequest holding only the httpcheck.status metric of the collector's own health_check endpoint)"
+}

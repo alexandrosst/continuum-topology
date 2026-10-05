@@ -308,6 +308,10 @@ func OpenSQLite(path string) (*SQLite, error) {
 		db.Close()
 		return nil, fmt.Errorf("upgrading to operator accepted modalities: %w", err)
 	}
+	if err := migrateHeartbeat(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("upgrading to operator heartbeats: %w", err)
+	}
 	return &SQLite{db: db}, nil
 }
 
@@ -679,14 +683,14 @@ func parseAcceptedModalities(s string) []Modality {
 	return m
 }
 
-const operatorCols = `id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, revoked_at, reason`
+const operatorCols = `id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, revoked_at, reason, heartbeat_hash, heartbeat_enabled_at, last_seen_at`
 
 func scanOperator(r scanner) (Operator, error) {
 	var op Operator
 	var st, sourceIDs, dest, modalities string
 	var created int64
-	var revoked sql.NullInt64
-	err := r.Scan(&op.ID, &op.OrgID, &op.Name, &op.SiteID, &st, &sourceIDs, &dest, &modalities, &op.ReceiverAuthTokenHash, &op.CreatedBy, &created, &revoked, &op.Reason)
+	var revoked, hbEnabled, lastSeen sql.NullInt64
+	err := r.Scan(&op.ID, &op.OrgID, &op.Name, &op.SiteID, &st, &sourceIDs, &dest, &modalities, &op.ReceiverAuthTokenHash, &op.CreatedBy, &created, &revoked, &op.Reason, &op.HeartbeatHash, &hbEnabled, &lastSeen)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Operator{}, ErrNotFound
@@ -699,14 +703,61 @@ func scanOperator(r scanner) (Operator, error) {
 	op.AcceptedModalities = parseAcceptedModalities(modalities)
 	op.CreatedAt = fromMS(created)
 	op.RevokedAt = fromNullMS(revoked)
+	op.HeartbeatEnabledAt = fromNullMS(hbEnabled)
+	op.LastSeenAt = fromNullMS(lastSeen)
+	if len(op.HeartbeatHash) == 0 {
+		op.HeartbeatHash = nil
+	}
 	return op, nil
 }
 
+// nullMS is a nullable time column's value: NULL for a nil time.
+func nullMS(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return ms(*t)
+}
+
+// CreateOperator inserts the operator with its receiver token hash; op.HeartbeatHash/HeartbeatEnabledAt, when
+// set, are stored with it (an operator created with its heartbeat already on), and are NULL otherwise.
 func (s *SQLite) CreateOperator(ctx context.Context, op Operator, tokenHash []byte) error {
+	var hb any
+	if len(op.HeartbeatHash) > 0 {
+		hb = op.HeartbeatHash
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO operators(id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, reason)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-		op.ID, op.OrgID, op.Name, op.SiteID, string(op.Status), sourceClusterIDsJSON(op.SourceClusterIDs), destinationJSON(op.Destination), acceptedModalitiesJSON(op.AcceptedModalities), tokenHash, op.CreatedBy, ms(op.CreatedAt), op.Reason)
+		`INSERT INTO operators(id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, reason, heartbeat_hash, heartbeat_enabled_at)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		op.ID, op.OrgID, op.Name, op.SiteID, string(op.Status), sourceClusterIDsJSON(op.SourceClusterIDs), destinationJSON(op.Destination), acceptedModalitiesJSON(op.AcceptedModalities), tokenHash, op.CreatedBy, ms(op.CreatedAt), op.Reason, hb, nullMS(op.HeartbeatEnabledAt))
+	return err
+}
+
+func (s *SQLite) SetOperatorHeartbeat(ctx context.Context, id string, hash []byte, now time.Time) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE operators SET heartbeat_hash=?, heartbeat_enabled_at=? WHERE id=? AND status='active'`, hash, ms(now), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// Tell "no such operator" from "not active" so the caller can word it.
+		if _, err := s.GetOperator(ctx, id); err != nil {
+			return err
+		}
+		return ErrBadState
+	}
+	return nil
+}
+
+func (s *SQLite) GetOperatorByHeartbeatHash(ctx context.Context, hash []byte) (Operator, error) {
+	if len(hash) == 0 {
+		return Operator{}, ErrNotFound
+	}
+	return scanOperator(s.db.QueryRowContext(ctx, `SELECT `+operatorCols+` FROM operators WHERE heartbeat_hash=?`, hash))
+}
+
+func (s *SQLite) TouchOperatorSeen(ctx context.Context, id string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE operators SET last_seen_at=? WHERE id=?`, ms(at), id)
 	return err
 }
 

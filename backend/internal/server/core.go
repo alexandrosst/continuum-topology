@@ -133,6 +133,9 @@ type Core struct {
 	// trafficCache is historyTraffic's short-TTL cache for its SQLite slow path (see admin_history.go).
 	// Reset per organisation in ForOrg so one organisation's cached traffic can never reach another's.
 	trafficCache *trafficCache
+	// heartbeats coalesces regional operators' heartbeat writes (see RecordOperatorHeartbeat). Server-wide
+	// like the rate limiters, so ForOrg's shallow copy shares it.
+	heartbeats *heartbeatSeen
 }
 
 // ForOrg returns a view of the same server scoped to one organisation. It shares the database, the
@@ -152,7 +155,7 @@ func NewCore(st store.Store, ca *pki.CA, org string, log *slog.Logger) *Core {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, auth: newAuthState(), userMu: &sync.Mutex{}, RegMode: RegOpen, settings: &settingsHolder{}, trafficCache: &trafficCache{}, mailer: &mailHolder{}}
+	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, auth: newAuthState(), userMu: &sync.Mutex{}, RegMode: RegOpen, settings: &settingsHolder{}, trafficCache: &trafficCache{}, mailer: &mailHolder{}, heartbeats: newHeartbeatSeen()}
 }
 
 // audit records something that happened. It is best effort: a failure is logged and the caller carries on.

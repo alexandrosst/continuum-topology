@@ -7,10 +7,11 @@ import (
 	"time"
 )
 
-// TestSchemaLandsOnEightAfterTelemetryMigration checks migrateTelemetry's own version bump - a fresh
+// TestSchemaLandsOnTheCurrentVersionAfterMigrations checks the migrations' own version bumps - a fresh
 // database (or one upgraded from any earlier version, which migrateWebAuthn's own sibling migrations
-// already exercise) ends up at the current SchemaVersion once OpenSQLite returns.
-func TestSchemaLandsOnEightAfterTelemetryMigration(t *testing.T) {
+// already exercise) ends up at the current SchemaVersion once OpenSQLite returns. (Named for 8 while
+// migrateTelemetry was the newest; migrateHeartbeat made it 9 - see heartbeat_test.go.)
+func TestSchemaLandsOnTheCurrentVersionAfterMigrations(t *testing.T) {
 	st, err := OpenSQLite(filepath.Join(t.TempDir(), "s.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -20,8 +21,8 @@ func TestSchemaLandsOnEightAfterTelemetryMigration(t *testing.T) {
 	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != 8 || SchemaVersion != 8 {
-		t.Fatalf("user_version = %d, SchemaVersion = %d, want both 8", v, SchemaVersion)
+	if v != 9 || SchemaVersion != 9 {
+		t.Fatalf("user_version = %d, SchemaVersion = %d, want both 9", v, SchemaVersion)
 	}
 }
 

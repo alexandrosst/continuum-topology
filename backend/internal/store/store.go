@@ -137,8 +137,10 @@ const (
 
 // Operator is a regional operator: a standalone OTel Collector that aggregates telemetry already
 // exported by a set of approved agents' clusters (SourceClusterIDs) and re-exports it to Destination.
-// Unlike Agent it never connects back to the server - ReceiverAuthTokenHash is the only credential it
-// needs, checked when something exports into it, not when it starts up.
+// Unlike Agent it does not connect back to the server by default - ReceiverAuthTokenHash is the only
+// credential it needs, checked when something exports into it, not when it starts up. The one optional
+// exception is the heartbeat (HeartbeatHash): an operator that opted in sends a content-free "I am alive"
+// request, with its own secret, so the server can tell online from offline.
 type Operator struct {
 	ID    string
 	OrgID string
@@ -156,10 +158,19 @@ type Operator struct {
 	// ReceiverAuthTokenHash is the hash of the bearer token the operator's receiver expects; the token
 	// itself is minted and returned once, the same as an enrollment token.
 	ReceiverAuthTokenHash []byte
-	CreatedBy             string
-	CreatedAt             time.Time
-	RevokedAt             *time.Time
-	Reason                string
+	// HeartbeatHash is the hash of the secret the operator presents when it reports that it is alive (see
+	// Core.EnableOperatorHeartbeat); nil when the operator never opted in. It is a different credential from
+	// ReceiverAuthTokenHash on purpose: that one authenticates traffic INTO the operator, this one
+	// authenticates the operator's own call OUT to this server, and neither must ever open the other door.
+	HeartbeatHash []byte
+	// HeartbeatEnabledAt is when HeartbeatHash was last minted (first enabled, or rotated); nil with it.
+	HeartbeatEnabledAt *time.Time
+	// LastSeenAt is when a heartbeat last arrived (coalesced - see Core.RecordOperatorHeartbeat); nil when none ever has.
+	LastSeenAt *time.Time
+	CreatedBy  string
+	CreatedAt  time.Time
+	RevokedAt  *time.Time
+	Reason     string
 }
 
 // TelemetryIntentStatus is the lifecycle of a TelemetryIntent. Like Operator there is no "pending" state:
@@ -488,6 +499,15 @@ type Store interface {
 	UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination, acceptedModalities []Modality) error
 	RevokeOperator(ctx context.Context, id, reason string, now time.Time) error
 	DeleteOperator(ctx context.Context, id string) error
+	// SetOperatorHeartbeat stores the hash of a freshly minted heartbeat secret for an ACTIVE operator,
+	// replacing any earlier one (so the earlier secret stops working at once). ErrBadState if it is not
+	// active, ErrNotFound if there is no such operator. last_seen_at is deliberately left as it was.
+	SetOperatorHeartbeat(ctx context.Context, id string, hash []byte, now time.Time) error
+	// GetOperatorByHeartbeatHash finds the operator a heartbeat secret's hash belongs to (any status:
+	// the caller decides what a revoked one means). ErrNotFound if none.
+	GetOperatorByHeartbeatHash(ctx context.Context, hash []byte) (Operator, error)
+	// TouchOperatorSeen records that a heartbeat arrived at the given time.
+	TouchOperatorSeen(ctx context.Context, id string, at time.Time) error
 
 	// ---- telemetry intents ----
 

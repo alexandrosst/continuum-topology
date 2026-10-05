@@ -245,9 +245,11 @@ func serverTelemetrySamples(history []ServerSelfStatsSample) []SelfTelemetrySamp
 //     (SelfStats.cpu_seconds) is reported anywhere; the other two have no self-telemetry channel in this
 //     pass. Adding one for each, correctly, is a separate piece of work, not a small addition here -
 //     left out as a clearly-labeled gap rather than forced as a fragile guess from incomplete data.
-//   - Regional-operator self-telemetry: a regional operator deliberately never dials this server at all
-//     (an explicit trust-model invariant - see the continuum-regional-operator chart's own comments), so
-//     there is currently no channel for one to report anything back over, and this pass does not build one.
+//   - Regional-operator self-telemetry: a regional operator deliberately does not dial this server (an
+//     explicit trust-model invariant - see the continuum-regional-operator chart's own comments). Its only
+//     opt-in exception is the content-free heartbeat (operator_heartbeat.go), which reports liveness and
+//     nothing else, so there is still no channel for one to report resource usage back over, and this pass
+//     does not build one.
 func (a *Admin) selfTelemetry(w http.ResponseWriter, r *http.Request) {
 	h := a.tn(r).Hub
 	doc, err := h.StateFor(r.Context(), false)

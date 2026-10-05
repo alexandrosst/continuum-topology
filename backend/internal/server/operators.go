@@ -108,24 +108,33 @@ func (c *Core) validSourceClusters(ctx context.Context, ids []string) error {
 }
 
 // CreateOperator registers a new regional operator and mints its receiver bearer token. The secret is
-// returned once and never stored - the same rule CreateToken follows for enrollment tokens.
+// returned once and never stored - the same rule CreateToken follows for enrollment tokens. The operator
+// is created without a heartbeat; see CreateOperatorWithHeartbeat.
 func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality) (store.Operator, string, OperatorTLSBundle, error) {
+	op, secret, bundle, _, err := c.CreateOperatorWithHeartbeat(ctx, actor, name, sourceClusterIDs, dest, acceptedModalities, false)
+	return op, secret, bundle, err
+}
+
+// CreateOperatorWithHeartbeat is CreateOperator that can also mint the operator's heartbeat secret in the
+// same step (heartbeat true): returned once as the fourth value, "" when heartbeat is false. The heartbeat
+// is opt-in everywhere - see EnableOperatorHeartbeat for what it is.
+func (c *Core) CreateOperatorWithHeartbeat(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality, heartbeat bool) (store.Operator, string, OperatorTLSBundle, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxOperatorName {
-		return store.Operator{}, "", OperatorTLSBundle{}, errf(KindInvalid, "name the regional operator (1-%d characters)", maxOperatorName)
+		return store.Operator{}, "", OperatorTLSBundle{}, "", errf(KindInvalid, "name the regional operator (1-%d characters)", maxOperatorName)
 	}
 	if err := c.validateDestination(ctx, dest); err != nil {
-		return store.Operator{}, "", OperatorTLSBundle{}, err
+		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
 	if err := c.validSourceClusters(ctx, sourceClusterIDs); err != nil {
-		return store.Operator{}, "", OperatorTLSBundle{}, err
+		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
 	if err := validModalities(acceptedModalities); err != nil {
-		return store.Operator{}, "", OperatorTLSBundle{}, err
+		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
 	secret, err := NewOperatorReceiverSecret()
 	if err != nil {
-		return store.Operator{}, "", OperatorTLSBundle{}, err
+		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
 	op := store.Operator{
 		ID:                 newOperatorID(),
@@ -137,6 +146,15 @@ func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClu
 		AcceptedModalities: acceptedModalities,
 		CreatedBy:          actor,
 		CreatedAt:          c.Now(),
+	}
+	var hbSecret string
+	if heartbeat {
+		if hbSecret, err = NewOperatorHeartbeatSecret(); err != nil {
+			return store.Operator{}, "", OperatorTLSBundle{}, "", err
+		}
+		op.HeartbeatHash = HashSecret(hbSecret)
+		now := c.Now()
+		op.HeartbeatEnabledAt = &now
 	}
 	// Minted alongside the bearer token, shown once the same way: the operator's own receiver server
 	// cert (valid for the Service DNS name it is reachable at once installed with this chart's own
@@ -153,10 +171,14 @@ func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClu
 		bundle.ClientCertPEM, bundle.ClientKeyPEM, tlsErr = c.CA.IssueOperatorClientTLS(op.ID, c.OrgID)
 	}
 	detail := name
+	if heartbeat {
+		// Only the fact, never the secret: the audit trail must hold no credential material.
+		detail += " (heartbeat enabled)"
+	}
 	if err := c.audited(ctx, actor, "operator-created", "operator", op.ID, detail, func() error {
 		return c.Store.CreateOperator(ctx, op, HashSecret(secret))
 	}); err != nil {
-		return store.Operator{}, "", OperatorTLSBundle{}, err
+		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
 	if tlsErr != nil {
 		// The operator and its bearer token are already persisted and audited above - failing the whole
@@ -164,9 +186,9 @@ func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClu
 		// warning the caller can show instead: the receiver bearer token still works on its own (mTLS is
 		// additive, see receiver.tls in the operator chart), just without the extra certificate material.
 		c.audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, tlsErr.Error())
-		return op, secret, OperatorTLSBundle{}, nil
+		return op, secret, OperatorTLSBundle{}, hbSecret, nil
 	}
-	return op, secret, bundle, nil
+	return op, secret, bundle, hbSecret, nil
 }
 
 func (c *Core) GetOperator(ctx context.Context, id string) (store.Operator, error) {

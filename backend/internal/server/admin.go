@@ -76,6 +76,8 @@ type Admin struct {
 	// the session over plain HTTP. On loopback the cookie is Secure only when the request itself was HTTPS.
 	SecureCookies bool
 	authRL        *Limiter
+	// hbFailRL throttles failed regional-operator heartbeat authentications per address (see operatorHeartbeat).
+	hbFailRL *Limiter
 	// Readiness says what /readyz checks besides the database; nil checks only the database.
 	Readiness *Readiness
 }
@@ -115,6 +117,7 @@ func (a *Admin) core(r *http.Request) *Core { return a.tn(r).C }
 
 func (a *Admin) Handler() http.Handler {
 	a.authRL = NewLimiter(30, 10)
+	a.hbFailRL = NewLimiter(30, 10)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("GET /readyz", a.readyz)
@@ -211,6 +214,8 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/operators", adminRole, a.createOperator)
 	route("GET "+o+"/operators/{id}", adminRole, a.getOperator)
 	route("POST "+o+"/operators/{id}/scope", adminRole, a.updateOperatorScope)
+	// Mints (or rotates) the operator's heartbeat secret: credential material, so adminRole like the rest.
+	route("POST "+o+"/operators/{id}/heartbeat", adminRole, a.enableOperatorHeartbeat)
 	route("POST "+o+"/operators/{id}/revoke", adminRole, a.revokeOperator)
 	route("DELETE "+o+"/operators/{id}", adminRole, a.deleteOperator)
 
@@ -232,6 +237,9 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/quick-start/{id}/gateway-token", adminRole, a.mintGatewayToken)
 	route("GET "+o+"/quick-start/{id}/gateway-token", adminRole, a.getGatewayToken)
 
+	// A regional operator's collector reports that it is alive here. Authenticated by its own secret, with
+	// no session, so it sits beside - not inside - the browser-facing wrappers: no CORS, no CSRF.
+	mux.HandleFunc("POST "+OperatorHeartbeatPath, a.operatorHeartbeat)
 	mux.Handle("/api/", a.cors(a.csrf(api)))
 	if a.UIDir != "" {
 		mux.Handle("/", spa(a.UIDir))

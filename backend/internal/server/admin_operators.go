@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"continuum/internal/chart"
 	"continuum/internal/store"
@@ -30,6 +31,17 @@ func (d destinationDoc) toStore() store.Destination {
 	return store.Destination{Kind: store.DestinationKind(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID}
 }
 
+// operatorHealthDoc is an operator's liveness as the UI reads it: computed at read time from the stored
+// last-seen time and the server clock, never stored. state is "unknown" (no heartbeat credential, or none
+// has ever arrived), "online" (a heartbeat within the last three intervals) or "offline". lastSeenAt is
+// absent until one has arrived. reporting is true once the operator has a heartbeat credential and has
+// sent at least one heartbeat. See operatorHealthAt.
+type operatorHealthDoc struct {
+	State      string `json:"state"`
+	LastSeenAt string `json:"lastSeenAt,omitempty"`
+	Reporting  bool   `json:"reporting"`
+}
+
 type operatorDoc struct {
 	ID                 string         `json:"id"`
 	Name               string         `json:"name"`
@@ -42,13 +54,18 @@ type operatorDoc struct {
 	CreatedBy          string         `json:"createdBy"`
 	RevokedAt          string         `json:"revokedAt,omitempty"`
 	Reason             string         `json:"reason,omitempty"`
+	// Health is always present; for an operator that never opted in to a heartbeat it is
+	// {state: "unknown", reporting: false}.
+	Health operatorHealthDoc `json:"health"`
 }
 
-func toOperatorDoc(op store.Operator) operatorDoc {
+func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
+	h := operatorHealthAt(op, now)
 	d := operatorDoc{
 		ID: op.ID, Name: op.Name, SiteID: op.SiteID, Status: string(op.Status),
 		SourceClusterIDs: op.SourceClusterIDs, Destination: toDestinationDoc(op.Destination),
 		CreatedAt: rfc(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason,
+		Health: operatorHealthDoc{State: h.State, LastSeenAt: rfcp(h.LastSeenAt), Reporting: h.Reporting},
 	}
 	if op.SourceClusterIDs == nil {
 		d.SourceClusterIDs = []string{}
@@ -83,7 +100,7 @@ func (a *Admin) listOperators(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []operatorDoc{}
 	for _, op := range ops {
-		out = append(out, toOperatorDoc(op))
+		out = append(out, toOperatorDoc(op, a.core(r).Now()))
 	}
 	writeJSON(w, 200, out)
 }
@@ -94,7 +111,7 @@ func (a *Admin) getOperator(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, toOperatorDoc(op))
+	writeJSON(w, 200, toOperatorDoc(op, a.core(r).Now()))
 }
 
 func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
@@ -103,24 +120,43 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		SourceClusterIDs   []string       `json:"sourceClusterIds"`
 		Destination        destinationDoc `json:"destination"`
 		AcceptedModalities []string       `json:"acceptedModalities,omitempty"`
+		// Heartbeat opts the new operator in to reporting that it is alive (see EnableOperatorHeartbeat).
+		// Absent means false: an older client that has never heard of the field must not quietly make an
+		// operator start calling this server. The UI sends true by default and says what it does.
+		Heartbeat bool `json:"heartbeat,omitempty"`
 	}
 	if err := decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	op, secret, tlsBundle, err := a.core(r).CreateOperator(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities))
+	op, secret, tlsBundle, hbSecret, err := a.core(r).CreateOperatorWithHeartbeat(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities), req.Heartbeat)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
 	img := a.images(a.core(r))
-	install, secretCmd := a.operatorInstallCommand(img, secret, op, tlsBundle)
+	hbURL := ""
+	if hbSecret != "" {
+		hbURL = a.heartbeatURL(r)
+	}
+	install, secretCmd := a.operatorInstallCommand(img, secret, op, tlsBundle, hbURL)
 	resp := map[string]any{
-		"operator":      toOperatorDoc(op),
+		"operator":      toOperatorDoc(op, a.core(r).Now()),
 		"token":         secret,
 		"install":       install,
 		"secretCommand": secretCmd,
 		"reminders":     a.operatorSourceReminders(r, op, tlsBundle),
+	}
+	if hbSecret != "" {
+		// The install command above already carries the heartbeat --set flags; this is the one extra
+		// Secret it points at, plus the same facts a UI wants to show next to it.
+		resp["heartbeatToken"] = hbSecret
+		resp["heartbeatSecretCommand"] = operatorHeartbeatSecretCommand(op, hbSecret, false)
+		resp["heartbeatUrl"] = hbURL
+		resp["heartbeatIntervalSeconds"] = int(OperatorHeartbeatInterval / time.Second)
+		if warn := heartbeatURLWarning(hbURL); warn != "" {
+			resp["heartbeatWarning"] = warn
+		}
 	}
 	if tlsCmd := operatorTLSSecretCommand(op, tlsBundle); tlsCmd != "" {
 		resp["tlsSecretCommand"] = tlsCmd
@@ -157,7 +193,7 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 	if clientCert, clientKey, tlsErr := a.core(r).CA.IssueOperatorClientTLS(op.ID, a.core(r).OrgID); tlsErr == nil {
 		tlsBundle = OperatorTLSBundle{ClientCertPEM: clientCert, ClientKeyPEM: clientKey, CACertPEM: a.core(r).CA.CertPEM()}
 	}
-	writeJSON(w, 200, map[string]any{"operator": toOperatorDoc(op), "reminders": a.operatorSourceReminders(r, op, tlsBundle)})
+	writeJSON(w, 200, map[string]any{"operator": toOperatorDoc(op, a.core(r).Now()), "reminders": a.operatorSourceReminders(r, op, tlsBundle)})
 }
 
 func (a *Admin) revokeOperator(w http.ResponseWriter, r *http.Request) {
@@ -175,9 +211,9 @@ func (a *Admin) deleteOperator(w http.ResponseWriter, r *http.Request) {
 }
 
 // operatorInstallCommand is installCommand's own twin for the regional-operator chart: simpler, since
-// this chart never dials the Continuum server at all (see store.Operator's own comment) - there is no
-// server.address or enrollment.key here, only where the operator exports to and the receiver token it
-// checks incoming OTLP against. Returns the `helm install` command and a companion `kubectl create
+// this chart does not dial the Continuum server unless its opt-in heartbeat is on (see store.Operator's
+// own comment) - there is no server.address or enrollment.key here, only where the operator exports to and
+// the receiver token it checks incoming OTLP against, plus the heartbeat flags when asked for. Returns the `helm install` command and a companion `kubectl create
 // secret` line for the receiver token, shown once - the same convention as an enrollment token.
 // operatorReceiverTLSSecretName and operatorClientTLSSecretName are the fixed Secret names the operator
 // chart's receiver.tls.secretName and the agent chart's telemetry.export.otlp.tls.mtls.secretName default
@@ -219,13 +255,22 @@ func operatorDestinationCommand(op store.Operator, certPEM, keyPEM, caPEM []byte
 	return setFlags, secretCmd
 }
 
-func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle) (install, secretCmd string) {
-	ref, version := a.operatorChartRef(img), ""
+// operatorChartArgs is the chart reference an operator `helm` command names, and the " --version ..." that
+// goes with it when that reference is a registry one (empty for a local .tgz).
+func (a *Admin) operatorChartArgs(img ImageConfig) (ref, version string) {
+	ref = a.operatorChartRef(img)
 	if ref == "" {
 		ref = "./" + chart.RegionalOperator.Filename()
 	} else if !strings.HasSuffix(ref, ".tgz") {
 		version = " --version " + a.operatorChartVersion()
 	}
+	return ref, version
+}
+
+// operatorInstallCommand's heartbeatURL is "" for an operator that did not opt in to a heartbeat (the
+// command is then exactly what it was before heartbeats existed).
+func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string) (install, secretCmd string) {
+	ref, version := a.operatorChartArgs(img)
 	secretName := op.ID + "-receiver-auth"
 	var b strings.Builder
 	fmt.Fprintf(&b, "helm install %s %s%s \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=%s",
@@ -245,6 +290,9 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 	// own receiver.tls comment. Only set up when CreateOperator actually minted the certificates.
 	if len(tlsBundle.ReceiverCertPEM) > 0 {
 		fmt.Fprintf(&b, " \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=%s \\\n  --set receiver.tls.mtls=true", operatorReceiverTLSSecretName(op))
+	}
+	if heartbeatURL != "" {
+		fmt.Fprintf(&b, " \\\n  %s", operatorHeartbeatSetFlags(op, heartbeatURL))
 	}
 	if img.Configured() {
 		fmt.Fprintf(&b, " \\\n  --set image.repository=%s/continuum-regional-operator", img.Registry)

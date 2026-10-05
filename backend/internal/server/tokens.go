@@ -15,6 +15,13 @@ const tokenPrefix = "cnt_"
 // by the operator's own OTel Collector receiver, never by the enrollment/agent machinery.
 const operatorPrefix = "cno_"
 
+// heartbeatPrefix marks a regional operator's heartbeat secret: what its collector presents to this server
+// to report that it is alive. A separate credential from operatorPrefix's receiver token on purpose - that
+// one authenticates traffic coming INTO the operator, this one the operator's own call OUT to us - so a
+// leak of either opens only its own direction, and the prefix makes a pasted-into-the-wrong-place secret
+// recognisable before anything looks it up.
+const heartbeatPrefix = "cnh_"
+
 // patPrefix marks a personal access token - distinct from tokenPrefix's enrollment tokens and
 // sessionPrefix's browser sessions, so a secret's own shape says which kind it is before anything
 // looks it up.
@@ -59,6 +66,22 @@ func LooksLikeToken(s string) bool {
 func NewOperatorReceiverSecret() (string, error) {
 	s, err := newSecret()
 	return operatorPrefix + s, err
+}
+
+// NewOperatorHeartbeatSecret returns a fresh heartbeat secret for a regional operator. Only
+// HashSecret(secret) is stored, shown once like every other secret this package mints.
+func NewOperatorHeartbeatSecret() (string, error) {
+	s, err := newSecret()
+	return heartbeatPrefix + s, err
+}
+
+// looksLikeHeartbeatSecret cheaply rejects malformed input before touching the database.
+func looksLikeHeartbeatSecret(s string) bool {
+	if !strings.HasPrefix(s, heartbeatPrefix) || len(s) != len(heartbeatPrefix)+43 {
+		return false
+	}
+	_, err := base64.RawURLEncoding.DecodeString(s[len(heartbeatPrefix):])
+	return err == nil
 }
 
 // NewAPITokenSecret returns a fresh personal access token. Only HashSecret(secret) is stored - the
