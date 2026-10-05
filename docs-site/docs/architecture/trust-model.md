@@ -77,9 +77,14 @@ server's mTLS handshake would accept. The server rejecting a connection with no 
 doing real work here; a NetworkPolicy, if you turn one on, is defense in depth on top of that, not the thing
 actually preventing it today.
 
-Its only credential is a receiver bearer token for its own OTLP input, minted once at creation and shown
-exactly once — the server keeps only a hash of it (plus, only if the heartbeat above is turned on, a second
-secret that opens that one endpoint and nothing else, handled the same way). It also gets no Kubernetes API access of its own
+What it checks is on its own OTLP input only: for an operator created today, the mTLS client certificate a
+source cluster presents - signed by the server's CA, required by the receiver, and the only gate (no bearer
+token exists); for an older operator, or one whose certificates could not be minted, a receiver bearer token
+minted once at creation, of which the server keeps only a hash. The CA is shared by every organisation on
+the server and the receiver checks the chain, not which operator or organisation a certificate was issued
+for, so the certificate is a weaker gate than the per-operator token it replaces. (Plus, only if the
+heartbeat above is turned on, a second secret that opens that one endpoint and nothing else, handled the
+same way as a token.) It also gets no Kubernetes API access of its own
 (`automountServiceAccountToken: false`, no `ClusterRole`), because relaying already-exported telemetry never
 needs to watch this cluster's object graph the way a cluster's own collectors do. Full detail, including how
 scope is assigned and why chaining operators is rejected in this release, is in [Regional
