@@ -61,6 +61,13 @@ The chart ships zero Continuum client code; nothing in it knows the control-plan
 client certificate, or has any credential the server would accept over the agent port. That's a barrier
 made of an absent capability, not a network boundary.
 
+That holds by default. There is one opt-in exception, off unless `heartbeat.enabled` is set: the operator's
+collector can POST the result of probing its own health endpoint to a single server URL, so the UI can show
+online/offline. It is not a client of the control plane: it uses its own secret, separate from the receiver
+token, that the server accepts at that one endpoint and nowhere else (not the agent port, not the admin
+API), the request carries no telemetry and none of what the operator relays, and the server discards its
+body. See [Regional operators § Optional heartbeat](./regional-operators.md#optional-heartbeat-online-offline-last-seen).
+
 It follows directly that **egress isn't network-isolated by default**. Like its sibling chart's own
 `telemetry.receiver.networkPolicy`, this chart's egress `NetworkPolicy` is off unless an operator turns it
 on (`networkPolicy.egress.enabled`), the same "the right answer depends on your CNI, and a wrong policy
@@ -71,7 +78,8 @@ doing real work here; a NetworkPolicy, if you turn one on, is defense in depth o
 actually preventing it today.
 
 Its only credential is a receiver bearer token for its own OTLP input, minted once at creation and shown
-exactly once — the server keeps only a hash of it. It also gets no Kubernetes API access of its own
+exactly once — the server keeps only a hash of it (plus, only if the heartbeat above is turned on, a second
+secret that opens that one endpoint and nothing else, handled the same way). It also gets no Kubernetes API access of its own
 (`automountServiceAccountToken: false`, no `ClusterRole`), because relaying already-exported telemetry never
 needs to watch this cluster's object graph the way a cluster's own collectors do. Full detail, including how
 scope is assigned and why chaining operators is rejected in this release, is in [Regional
