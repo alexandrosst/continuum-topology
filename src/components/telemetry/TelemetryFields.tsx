@@ -411,6 +411,7 @@ export default function TelemetryFields({
                 onChange({
                   ...value,
                   exportEndpoint: v,
+                  exportOperatorId: '',
                   exportProtocol: preset ? preset.protocol : value.exportProtocol,
                   exportAuthHeaderName: preset && preset.headerName ? preset.headerName : value.exportAuthHeaderName,
                 })
@@ -437,7 +438,7 @@ export default function TelemetryFields({
           )}
           <QuickStartBackends
             enabledModalities={enabledModalitySet}
-            onUseAsDestination={(endpoint, protocol) => onChange({ ...value, exportEndpoint: endpoint, exportProtocol: protocol })}
+            onUseAsDestination={(endpoint, protocol) => onChange({ ...value, exportEndpoint: endpoint, exportProtocol: protocol, exportOperatorId: '' })}
             currentDestination={{ endpoint: value.exportEndpoint, protocol: value.exportProtocol }}
             extraProcessors={value.extraProcessors}
           />

@@ -273,7 +273,7 @@ export default function GuidedWizard({
   const chooseDeployedBackend = (rec: QuickStartBackend) => {
     if (!hasQuickStartSpec(rec.kind) || enabledModalitySet.size !== 1 || !enabledModalitySet.has(rec.modality)) return
     const spec = quickStartSpec(rec.kind)
-    onChange({ ...value, exportEndpoint: spec.exportEndpoint(rec.namespace), exportProtocol: spec.exportProtocol })
+    onChange({ ...value, exportEndpoint: spec.exportEndpoint(rec.namespace), exportProtocol: spec.exportProtocol, exportOperatorId: '' })
     setDestChoice(`quickstart-${rec.id}`)
   }
   const [kindsBusy, setKindsBusy] = useState(false)

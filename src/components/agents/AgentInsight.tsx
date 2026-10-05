@@ -1,10 +1,10 @@
 import clsx from 'clsx'
 import { AlertCircle, AlertTriangle, Check, ChevronRight, Copy, Info, Loader2, ShieldCheck } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button, Field, ICON_MD, ICON_SM, TagsInput } from '@/components/ui/primitives'
 import TelemetryFields from '@/components/telemetry/TelemetryFields'
 import TierLevels from '@/components/TierLevels'
-import { api, ApiError, type ServerInfo } from '@/lib/api'
+import { api, ApiError, atLeast, type ServerInfo } from '@/lib/api'
 import {
   COLLECTORS,
   collectorState,
@@ -32,10 +32,11 @@ import {
   type InstallInfo,
   type Severity,
 } from '@/lib/consent'
-import { telemetryActive, type TelemetryInput } from '@/lib/install'
+import { telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
+import { exportOperatorId, explainIntentError, fragmentEndpoint, generateOperatorCommands, operatorCommandBlock } from '@/lib/operatorIntent'
 import { TONE_CLASS } from '@/lib/provenance'
 import type { Agent, AccessTier } from '@/lib/types'
-import { useServer } from '@/store/server'
+import { useConn, useServer } from '@/store/server'
 
 const SEVERITY_STYLE: Record<Severity, { chip: string; icon: typeof Info; label: string }> = {
   error: { chip: TONE_CLASS.bad, icon: AlertCircle, label: 'Error' },
@@ -168,15 +169,16 @@ export function CanSee({ agent, diagnostics: d }: { agent: Agent; diagnostics: A
 
 /** A one-line command with a copy button. Shared wherever the app hands someone an exact command to run: the
  *  widen hint here, the harden and teardown commands on the Agents page. */
-export function CopyCommand({ text }: { text: string }) {
+export function CopyCommand({ text, stale = false, multiline = false, testId = 'helm-command' }: { text: string; /** Out of date: shown dimmed and not copyable, rather than hand out a command that is wrong now. */ stale?: boolean; /** Keep the command's own line breaks on screen (a certificate's PEM would otherwise run together). */ multiline?: boolean; testId?: string }) {
   const [done, setDone] = useState(false)
   return (
-    <div className="mt-1 flex items-start gap-2 rounded border border-nb-850 bg-nb-950 px-2 py-1.5">
-      <code className="min-w-0 flex-1 break-words font-mono text-[11px] text-nb-300" data-testid="helm-command">{text}</code>
+    <div className={clsx('mt-1 flex items-start gap-2 rounded border border-nb-850 bg-nb-950 px-2 py-1.5', stale && 'opacity-50')} data-stale={stale || undefined}>
+      <code className={clsx('min-w-0 flex-1 break-words font-mono text-[11px] text-nb-300', multiline && 'whitespace-pre-wrap')} data-testid={testId}>{text}</code>
       <button
         type="button"
-        className="shrink-0 rounded p-1 text-nb-500 hover:bg-nb-930 hover:text-nb-300"
+        className="shrink-0 rounded p-1 text-nb-500 hover:bg-nb-930 hover:text-nb-300 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-nb-500"
         aria-label="Copy the command"
+        disabled={stale}
         onClick={() => {
           void navigator.clipboard?.writeText(text).then(() => {
             setDone(true)
@@ -432,10 +434,110 @@ export function TelemetryPanel({
   }, [install, draft, measurementsOn])
   const needsCredential = telemetrySecretCommand(draft, measurementsOn) !== undefined
 
+  // A regional operator destination: its receiver wants a client certificate only the server can issue, so
+  // there is no ready command - only an explicit "Generate" that asks the server for one (and issues a new
+  // certificate every time it runs, which is why it never fires on render or on an edit).
+  const conn = useConn()
+  const isAdmin = useServer((s) => atLeast(s.role, 'admin'))
+  const operatorId = exportOperatorId(draft)
+  const [operatorName, setOperatorName] = useState('')
+  useEffect(() => {
+    if (!operatorId || !isAdmin) return
+    let cancelled = false
+    void api
+      .listOperators(conn)
+      .then((ops) => {
+        if (!cancelled) setOperatorName(ops.find((o) => o.id === operatorId)?.name ?? '')
+      })
+      .catch(() => undefined) // only the label; the id stands in for the name
+    return () => {
+      cancelled = true
+    }
+    // conn's identifying fields, not the object: see GuidedWizard's own operator fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conn.url, conn.org, operatorId, isAdmin])
+  const operatorLabel = operatorName || operatorId
+  const operatorProblems = telemetryActive(draft) ? telemetryProblems(draft, measurementsOn) : []
+  // Everything the generated block depends on. It is stale the moment any of it differs from what it was
+  // generated from, and then shows dimmed and uncopyable rather than a command that is wrong now.
+  const snapshot = useMemo(() => JSON.stringify({ draft, install, measurementsOn, agentId, operatorId }), [draft, install, measurementsOn, agentId, operatorId])
+  const [generated, setGenerated] = useState<{ snapshot: string; text: string; action: 'created' | 'updated'; endpointNote?: string } | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [genError, setGenError] = useState<{ snapshot: string; message: string } | null>(null)
+  const generate = async () => {
+    if (generating || !agentId || !operatorId || operatorProblems.length > 0) return
+    const asked = snapshot
+    setGenerating(true)
+    setGenError(null)
+    try {
+      const { result, action } = await generateOperatorCommands(conn, { agentId, operatorId, name: `Telemetry to ${operatorLabel}`, draft })
+      const theirs = fragmentEndpoint(result.installFragment)
+      setGenerated({
+        snapshot: asked,
+        text: operatorCommandBlock({ install, draft, measurementsOn, result }),
+        action,
+        endpointNote: theirs && theirs !== draft.exportEndpoint.trim() ? `The server sets the export endpoint to ${theirs}, not ${draft.exportEndpoint.trim()}; the server's value comes last, so it is the one that applies.` : undefined,
+      })
+    } catch (e) {
+      setGenError({ snapshot: asked, message: explainIntentError(e) })
+    } finally {
+      setGenerating(false)
+    }
+  }
+  const p = testIdPrefix
+  const staleGenerated = generated !== null && generated.snapshot !== snapshot
+  const operatorSection = (
+    <div className="mt-3 text-xs text-nb-500" data-testid={`${p}-operator`}>
+      {!isAdmin ? (
+        <p data-testid={`${p}-operator-admin-note`}>
+          An administrator has to generate the commands for an operator destination: they include a client certificate for this cluster, which only an administrator can issue. No command is shown here.
+        </p>
+      ) : (
+        <>
+          <p>
+            <span className="text-nb-300">{operatorLabel}</span> only accepts clients holding a certificate from your organisation&apos;s CA, so its commands are generated by the server, not built on this page. Generating issues a <span className="text-nb-300">fresh client certificate for this cluster</span> and is recorded in the audit log. The commands include a Secret holding that certificate and its private key; like the operator&apos;s own install output, it is shown once, here, so copy it when you generate it.
+          </p>
+          {needsCredential && (
+            <p className="mt-1" data-testid={`${p}-credential-hint`}>
+              The receiver token Secret you named is created from <code className="font-mono text-nb-400">{TELEMETRY_CREDENTIAL_VAR}</code>: set it in that shell to <code className="font-mono text-nb-400">Bearer</code> followed by the operator&apos;s token first - it is read from there, so it never passes through this page.
+            </p>
+          )}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button variant="primary" size="sm" disabled={generating || !agentId || operatorProblems.length > 0} onClick={() => void generate()} data-testid={`${p}-operator-generate`}>
+              {generating ? <Loader2 size={ICON_SM} className="animate-spin" aria-hidden /> : null}
+              {generating ? 'Generating…' : generated ? `Generate again for ${operatorLabel}` : `Generate commands for ${operatorLabel}`}
+            </Button>
+            {!agentId && <span data-testid={`${p}-operator-needs-agent`}>Open this from an agent to generate its commands.</span>}
+            {agentId && operatorProblems.length > 0 && <span data-testid={`${p}-operator-problem`}>{operatorProblems[0]}</span>}
+          </div>
+          {genError && genError.snapshot === snapshot && (
+            <div role="alert" className="mt-2 rounded-md border border-bad/30 bg-bad/10 px-3 py-2 text-bad" data-testid={`${p}-operator-error`}>
+              {genError.message}
+            </div>
+          )}
+          {generated && (
+            <div className="mt-2" data-testid={`${p}-operator-result`} data-stale={staleGenerated || undefined}>
+              {staleGenerated ? (
+                <p className="text-warn" role="status" data-testid={`${p}-operator-stale`}>Out of date - generate again. The settings changed after this was generated, so it is no longer copyable.</p>
+              ) : (
+                <p role="status" data-testid={`${p}-operator-fresh`}>
+                  {generated.action === 'created' ? 'Recorded a telemetry intent for this agent.' : 'Updated this agent’s telemetry intent.'} The cluster&apos;s owner runs this in that cluster. If a Secret of the same name from an earlier run still exists there, delete it first: <code className="font-mono">kubectl create</code> does not overwrite.
+                </p>
+              )}
+              {generated.endpointNote && <p className="mt-1 text-warn" data-testid={`${p}-operator-endpoint-note`}>{generated.endpointNote}</p>}
+              <CopyCommand text={generated.text} stale={staleGenerated} multiline testId={`${p}-operator-command`} />
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+
   const form = (
     <>
       <TelemetryFields value={draft} onChange={setDraft} testIdPrefix={testIdPrefix} initialScope={initialScope} measurementsOn={measurementsOn} agentId={agentId} clusterId={clusterId} />
-      {telemetryActive(draft) && (
+      {telemetryActive(draft) && operatorId && operatorSection}
+      {telemetryActive(draft) && !operatorId && (
         <div className="mt-3 text-xs text-nb-500">
           The cluster's owner runs this in that cluster:
           {needsCredential && (
