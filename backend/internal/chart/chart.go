@@ -28,9 +28,9 @@ var operatorFiles embed.FS
 var Agent = newChart(agentFiles, "continuum-agent")
 
 // RegionalOperator is the continuum-regional-operator chart: a standalone OTel Collector that aggregates
-// telemetry already exported by a set of agents' clusters and re-exports it further up. It never dials
-// the Continuum server (see store.Operator's own comment) - its only relationship to Agent is that both
-// are packaged and served the same way.
+// telemetry already exported by a set of agents' clusters and re-exports it further up. It does not dial
+// the Continuum server unless its opt-in heartbeat is turned on (see store.Operator's own comment) - its
+// only relationship to Agent is that both are packaged and served the same way.
 var RegionalOperator = newChart(operatorFiles, "continuum-regional-operator")
 
 // Chart is one Helm chart embedded in the server binary, packaged and versioned independently of any

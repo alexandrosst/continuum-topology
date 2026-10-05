@@ -1,0 +1,184 @@
+---
+# Source: continuum-regional-operator/templates/serviceaccount.yaml
+# This operator needs no Kubernetes API access of its own: it only relays and re-processes telemetry that
+# already arrived over OTLP, it never watches this cluster's own object graph (there is no k8sattributes
+# processor here, unlike continuum-agent's telemetry collectors - see values.yaml's own comment). No
+# ClusterRole or ClusterRoleBinding is rendered by this chart at all.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: op-regional-operator
+  namespace: default
+  labels:
+    app.kubernetes.io/name: continuum-regional-operator
+    app.kubernetes.io/instance: op
+    app.kubernetes.io/part-of: continuum
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: continuum-regional-operator-0.1.0
+automountServiceAccountToken: false
+---
+# Source: continuum-regional-operator/templates/config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: op-regional-operator-config
+  namespace: default
+  labels:
+    app.kubernetes.io/name: continuum-regional-operator
+    app.kubernetes.io/instance: op
+    app.kubernetes.io/part-of: continuum
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: continuum-regional-operator-0.1.0
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:4317"
+          http:
+            endpoint: "0.0.0.0:4318"
+
+    processors:
+      memory_limiter:
+        check_interval: "1s"
+        limit_percentage: 80
+        spike_limit_percentage: 20
+      
+      
+      redaction:
+        allow_all_keys: true
+        blocked_key_patterns: [".*token.*",".*password.*",".*secret.*",".*api[_-]?key.*",".*authorization.*",".*cookie.*"]
+        summary: info
+      
+      batch: {}
+
+    extensions:
+      health_check:
+        endpoint: "0.0.0.0:13133"
+      
+
+    exporters:
+      otlp:
+        endpoint: "collector.example:4317"
+        tls:
+          insecure: false
+
+    service:
+      extensions: ["health_check"]
+      
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: ["memory_limiter","redaction","batch"]
+          exporters: [otlp]
+        logs:
+          receivers: [otlp]
+          processors: ["memory_limiter","redaction","batch"]
+          exporters: [otlp]
+        traces:
+          receivers: [otlp]
+          processors: ["memory_limiter","redaction","batch"]
+          exporters: [otlp]
+---
+# Source: continuum-regional-operator/templates/service.yaml
+# So a source cluster's own telemetry.export.otlp.endpoint can point at this operator without knowing its
+# pod IP - the same reason continuum-agent's cluster collector gets a Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: op-regional-operator
+  namespace: default
+  labels:
+    app.kubernetes.io/name: continuum-regional-operator
+    app.kubernetes.io/instance: op
+    app.kubernetes.io/part-of: continuum
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: continuum-regional-operator-0.1.0
+spec:
+  selector: {app.kubernetes.io/name: continuum-regional-operator, app.kubernetes.io/instance: op}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
+    - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
+---
+# Source: continuum-regional-operator/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: op-regional-operator
+  namespace: default
+  labels:
+    app.kubernetes.io/name: continuum-regional-operator
+    app.kubernetes.io/instance: op
+    app.kubernetes.io/part-of: continuum
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: continuum-regional-operator-0.1.0
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: continuum-regional-operator, app.kubernetes.io/instance: op}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: continuum-regional-operator
+        app.kubernetes.io/instance: op
+        app.kubernetes.io/part-of: continuum
+        
+      annotations:
+        checksum/config: a616c9be93518dd3478b36f99389ce8fc668b242beac8ef58b6789ab69a1789a
+    spec:
+      serviceAccountName: op-regional-operator
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: otel-collector
+          image: "otel/opentelemetry-collector-contrib:0.160.0"
+          imagePullPolicy: IfNotPresent
+          args: ["--config=/conf/otel-collector-config.yaml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            
+            
+            - name: GOMEMLIMIT
+              value: "322122547"
+          ports:
+            - {name: otlp-grpc, containerPort: 4317, protocol: TCP}
+            - {name: otlp-http, containerPort: 4318, protocol: TCP}
+            - {name: health, containerPort: 13133, protocol: TCP}
+          # health_check always on (see config.yaml); liveness fails only once the collector itself has
+          # stopped answering, readiness the same but checked more eagerly and recovers faster - neither
+          # knows whether the export destination is reachable, only that this process is alive and its
+          # pipelines started.
+          livenessProbe:
+            httpGet: {path: /, port: health}
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 4
+          readinessProbe:
+            httpGet: {path: /, port: health}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 2
+          volumeMounts:
+            - {name: config, mountPath: /conf, readOnly: true}
+          resources:
+            limits:
+              memory: 384Mi
+            requests:
+              cpu: 50m
+              memory: 96Mi
+      volumes:
+        - name: config
+          configMap: {name: op-regional-operator-config}
+      nodeSelector:
+        {}

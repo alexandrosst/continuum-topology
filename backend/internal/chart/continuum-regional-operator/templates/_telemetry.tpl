@@ -129,3 +129,58 @@ otlp:
       key: {{ .Values.export.otlp.auth.secretKey }}
 {{- end }}
 {{- end -}}
+
+{{/* Heartbeat (opt-in, see values.yaml's heartbeat block): ONE extra, self-contained metrics pipeline,
+     httpcheck/heartbeat -> filter/heartbeat -> otlphttp/heartbeat, that is fed by nothing but the
+     collector probing its own health_check endpoint. It shares no receiver, processor or exporter with the
+     relaying pipelines, so it cannot carry anything they carry and cannot change what they do. All of these
+     defines are only ever included when heartbeat.enabled. */}}
+{{- define "operator.heartbeatReceiverYAML" -}}
+httpcheck/heartbeat:
+  collection_interval: "{{ .Values.heartbeat.intervalSeconds | default 60 | int }}s"
+  targets:
+    - endpoint: "http://127.0.0.1:{{ include "operator.healthPort" . }}/"
+      method: GET
+{{- end -}}
+
+{{/* Belt and braces: even though only httpcheck feeds this pipeline, drop every metric but the one result
+     the heartbeat is for. */}}
+{{- define "operator.heartbeatProcessorYAML" -}}
+filter/heartbeat:
+  error_mode: ignore
+  metrics:
+    metric:
+      - 'name != "httpcheck.status"'
+{{- end -}}
+
+{{- define "operator.heartbeatExporterYAML" -}}
+otlphttp/heartbeat:
+  metrics_endpoint: {{ .Values.heartbeat.url | quote }}
+  encoding: proto
+  timeout: 10s
+  headers:
+    Authorization: "Bearer ${env:CONTINUUM_OPERATOR_HEARTBEAT_AUTH}"
+  {{- if .Values.heartbeat.tls.caSecretName }}
+  tls:
+    ca_file: {{ printf "/heartbeat-ca/%s" (.Values.heartbeat.tls.caSecretKey | default "ca.crt") | quote }}
+  {{- end }}
+  # A heartbeat is only worth sending while it is fresh: a short, small retry window and queue, so a server
+  # outage never builds up a backlog of stale "alive" messages to deliver afterwards.
+  retry_on_failure:
+    enabled: true
+    initial_interval: 5s
+    max_interval: 30s
+    max_elapsed_time: 90s
+  sending_queue:
+    enabled: true
+    num_consumers: 1
+    queue_size: 3
+{{- end -}}
+
+{{- define "operator.heartbeatEnv" -}}
+- name: CONTINUUM_OPERATOR_HEARTBEAT_AUTH
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.heartbeat.auth.secretName }}
+      key: {{ .Values.heartbeat.auth.secretKey | default "token" }}
+{{- end -}}

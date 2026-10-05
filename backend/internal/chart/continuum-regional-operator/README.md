@@ -13,19 +13,56 @@ the commands you'd only need occasionally, not at every install.
 
 ## What it is, and isn't
 
-- **It never dials the Continuum server.** There is no `server.address` or enrollment anywhere in this
-  chart. The server only ever learns that the operator exists and what it's configured to do, never the
-  data passing through it.
+- **By default it never dials the Continuum server.** There is no `server.address` or enrollment anywhere
+  in this chart. The server only ever learns that the operator exists and what it's configured to do, never
+  the data passing through it. The one exception is the opt-in [heartbeat](#heartbeat-opt-in) below, off
+  unless you set `heartbeat.enabled`.
 - **It needs no Kubernetes API access.** `serviceaccount.yaml` renders a `ServiceAccount` with
   `automountServiceAccountToken: false` and nothing else — no `ClusterRole`, no `ClusterRoleBinding`. It
   only relays and re-processes telemetry that already arrived over OTLP; it never watches this cluster's
   own object graph the way `continuum-agent`'s `k8sattributes` processor does, so there is no
   `telemetry.scope` or namespace filter here either.
-- **Its only credential is a receiver bearer token**, minted once when the operator is created in the
+- **Its only credential is a receiver bearer token** (plus, if you opt in to the heartbeat, a second,
+  separate heartbeat secret), minted once when the operator is created in the
   Continuum UI and shown exactly once — the server keeps only a hash of it. The install command Continuum
   prints already sets `receiver.auth.enabled`/`receiver.tls.enabled` and points them at the Secrets it
   created alongside that token; the defaults in `values.yaml` (`auth.enabled: false`, `tls.enabled: false`)
   only matter if you hand-edit these values or mint your own credential some other way.
+
+## Heartbeat (opt-in)
+
+Off by default. With `heartbeat.enabled: false` this chart renders exactly what it did before the heartbeat
+existed and never contacts the Continuum server. Turn it on and the Continuum UI can show this operator as
+online, offline or last-seen.
+
+**What is sent.** Every `heartbeat.intervalSeconds` (default 60; 10 to 60 allowed) the collector probes its own
+health endpoint on `127.0.0.1` (the one the liveness probe uses) and a separate metrics pipeline - fed by
+nothing else, sharing no receiver, processor or exporter with the pipelines that relay your telemetry - POSTs
+that single result (`httpcheck.status`) to `heartbeat.url`. **It carries no telemetry**: nothing you relay, no
+logs or traces, no cluster or workload data, nothing from `export.*` or `receiver.*`. Continuum discards the
+body and records only that an authenticated request arrived, and when.
+
+**Its credential.** A heartbeat secret, separate from the receiver bearer token (which must never be reused for
+a call in the opposite direction). Continuum mints it once - when the operator is created with the heartbeat
+on, or from the operator's heartbeat action - and prints the exact commands:
+
+```
+kubectl create secret generic <release>-heartbeat-auth --namespace <ns> --from-literal=token=<heartbeat secret>
+helm upgrade <release> <chart> --namespace <ns> --reuse-values \
+  --set heartbeat.enabled=true --set heartbeat.url=https://<server>/api/v1/operator-heartbeat \
+  --set heartbeat.auth.secretName=<release>-heartbeat-auth
+```
+
+Rotating it in Continuum stops the old secret working at once; replace the Secret and restart the Deployment
+(`kubectl rollout restart`) and the heartbeat resumes. Until then the collector logs `401` for each attempt.
+
+**TLS.** `heartbeat.url` must be `https://`. The server's certificate is verified against the image's normal
+trust roots, or - for a private CA - against `ca.crt` (key set by `heartbeat.tls.caSecretKey`) of the Secret named
+in `heartbeat.tls.caSecretName`. Verification is never turned off; `heartbeat.allowPlainHTTP` exists only to
+permit an `http://` URL for a throwaway test and sends the secret unencrypted.
+
+**Egress.** If `networkPolicy.egress.enabled` is on, add the heartbeat URL's address and port to
+`networkPolicy.egress.allowedEgress`; nothing here does it for you.
 
 ## Checking on it
 
@@ -56,6 +93,8 @@ a cluster later is the same `helm upgrade` against that cluster's own release, n
 - **`receiver.networkPolicy`** / **`networkPolicy.egress`** — ingress and egress lockdown, both off by
   default for the same reason `continuum-agent`'s equivalents are: the right policy depends on your CNI and
   network, and a wrong one silently cuts a pipeline off rather than failing loudly.
+- **`heartbeat`** — the opt-in liveness report described above: `enabled`, `url`, `intervalSeconds`, `auth`
+  (the Secret holding the heartbeat secret), `tls` (an optional private CA) and `allowPlainHTTP`.
 - **`processors`** — `memory_limiter`, `resourceDetection`, `redaction`, trace sampling and the
   `extraProcessors`/`extraProcessorNames` escape hatch, deliberately the same shape as
   `continuum-agent`'s `telemetry.processors` so the same processor-editing UI drives both charts unmodified.

@@ -164,6 +164,32 @@
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
       }
     },
+    "heartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "url": { "type": "string", "pattern": "^$|^https?://[^\\s/]+[^\\s]*$" },
+        "intervalSeconds": { "type": "integer", "minimum": 10, "maximum": 60 },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "secretName": { "type": "string" },
+            "secretKey": { "type": "string", "minLength": 1 }
+          }
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "caSecretName": { "type": "string" },
+            "caSecretKey": { "type": "string", "minLength": 1 }
+          }
+        },
+        "allowPlainHTTP": { "type": "boolean" }
+      }
+    },
     "resources": { "type": "object" },
     "tolerations": { "type": "array", "items": { "type": "object" } },
     "nodeSelector": { "type": "object" },

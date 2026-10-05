@@ -3,9 +3,12 @@
 # operator's receiver, separately - see the operator's own install command for the exact command to run
 # against each source cluster) and re-exports it to one destination below.
 #
-# Unlike continuum-agent, this chart never dials the Continuum server: there is no server.address or
-# enrollment here at all. Its only credential is the receiver bearer token it is installed with (minted
-# once, when the operator is created) - checked when something exports into it, never on startup. It also
+# Unlike continuum-agent, this chart does not dial the Continuum server by default: there is no
+# server.address or enrollment here at all. Its only credential is the receiver bearer token it is
+# installed with (minted once, when the operator is created) - checked when something exports into it,
+# never on startup. The one exception is the opt-in `heartbeat` block below: with heartbeat.enabled true
+# it sends a periodic, content-free "I am alive" request to the Continuum server, authenticated with a
+# second, separate secret (never the receiver token). It is off unless you turn it on. It also
 # needs no Kubernetes API access of its own (see serviceaccount.yaml): it only relays and re-processes
 # telemetry that already arrived over OTLP, it never watches this cluster's own object graph the way
 # continuum-agent's k8sattributes processor does.
@@ -129,6 +132,50 @@ health:
 selfMetrics:
   enabled: false
   port: 8888
+
+# Heartbeat: OPT-IN, off by default. Everything above and below this block is unchanged by it - with
+# heartbeat.enabled false this chart never contacts the Continuum server at all, exactly as before.
+#
+# When on, the collector probes its OWN health_check endpoint (the same one the liveness probe reads, on
+# 127.0.0.1 inside the pod) every intervalSeconds with the httpcheck receiver, and a separate metrics
+# pipeline - which nothing else feeds - POSTs that one result to heartbeat.url with its own otlphttp
+# exporter. That is the entire message: the collector's own "httpcheck.status" (is my health endpoint
+# answering 200), carrying no telemetry you relay, no logs, no traces, no cluster or workload data, and
+# nothing from the export.* or receiver.* settings. The Continuum server throws the body away; all it
+# records is that an authenticated request arrived, and when - which is what turns an operator's status
+# in the UI into online/offline/last-seen. The existing receive-process-export pipelines are not touched.
+#
+# It uses its OWN credential (a heartbeat secret, minted separately in Continuum from the receiver bearer
+# token and shown once), never the receiver token: that one authenticates traffic coming INTO this
+# operator and must not be reused for a call going OUT. Continuum prints the exact `kubectl create secret`
+# and `helm` flags to apply when you create the operator, or on demand from its heartbeat action.
+heartbeat:
+  enabled: false
+  # The Continuum server's heartbeat address, e.g. https://continuum.example.com/api/v1/operator-heartbeat.
+  # Required when enabled, and must be https:// (the secret is sent with every request) unless
+  # allowPlainHTTP is set.
+  url: ""
+  # How often to report. The server counts an operator as online for three intervals after its last
+  # heartbeat, calibrated to 60s, so this may be lowered (down to 10) but not raised above 60.
+  intervalSeconds: 60
+  # A Secret in this release's namespace, created outside this chart, holding the heartbeat secret as-is
+  # (no "Bearer " prefix) - the same "point at a Secret you create yourself" convention as export.otlp.auth.
+  auth:
+    secretName: ""
+    secretKey: token
+  # The server's certificate is verified against the image's normal trust roots by default. If it is signed
+  # by a private CA, put that CA's certificate in a Secret (key ca.crt by default - the same key name
+  # continuum-agent's telemetry.export.otlp.tls.mtls.secretName and this chart's receiver.tls.secretName
+  # use) and name it here; it is mounted read-only and used as the only trusted root for this one
+  # connection. Verification is never turned off by anything in this chart.
+  tls:
+    caSecretName: ""
+    caSecretKey: ca.crt
+  # Permit a plain http:// url (a throwaway test server on a trusted network). The heartbeat secret then
+  # crosses the network unencrypted; leave this false for anything real.
+  allowPlainHTTP: false
+  # If networkPolicy.egress.enabled is on, the heartbeat url's address and port must be in
+  # networkPolicy.egress.allowedEgress as well - egress for the heartbeat is NOT added for you.
 
 resources:
   requests: {cpu: 50m, memory: 96Mi}

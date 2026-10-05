@@ -48,6 +48,9 @@ spec:
           env:
             {{- include "operator.exporterEnv" . | nindent 12 }}
             {{- include "operator.receiverAuthEnv" . | nindent 12 }}
+            {{- if .Values.heartbeat.enabled }}
+            {{- include "operator.heartbeatEnv" . | nindent 12 }}
+            {{- end }}
             {{- $gml := include "operator.gomemlimit" .Values.resources }}
             {{- if $gml }}
             - name: GOMEMLIMIT
@@ -81,6 +84,9 @@ spec:
             {{- if .Values.receiver.tls.enabled }}
             - {name: receiver-tls, mountPath: /receiver-tls, readOnly: true}
             {{- end }}
+            {{- if and .Values.heartbeat.enabled .Values.heartbeat.tls.caSecretName }}
+            - {name: heartbeat-ca, mountPath: /heartbeat-ca, readOnly: true}
+            {{- end }}
           resources: {{- toYaml .Values.resources | nindent 12 }}
       volumes:
         - name: config
@@ -88,6 +94,10 @@ spec:
         {{- if .Values.receiver.tls.enabled }}
         - name: receiver-tls
           secret: {secretName: {{ .Values.receiver.tls.secretName }}}
+        {{- end }}
+        {{- if and .Values.heartbeat.enabled .Values.heartbeat.tls.caSecretName }}
+        - name: heartbeat-ca
+          secret: {secretName: {{ .Values.heartbeat.tls.caSecretName }}}
         {{- end }}
       {{- with .Values.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
