@@ -23,7 +23,7 @@ export interface AppSettings {
   /** Which quick-start backend kinds this organisation may add - see QuickStartBackend.kind and
    * effectiveAllowedBackendKinds (empty means the default, DEFAULT_ALLOWED_BACKEND_KINDS). */
   allowedBackendKinds: QuickStartKind[]
-  /** Observability backends (Jaeger, Prometheus, Loki, or a custom one) an administrator quick-started an install command for, or registered by hand - see QuickStartBackend. */
+  /** Observability backends (Jaeger, Zipkin, Prometheus, Loki, or a custom one) an administrator quick-started an install command for, or registered by hand - see QuickStartBackend. */
   quickStartBackends: QuickStartBackend[]
   /** Only administrators receive the address; everyone else learns that one is configured. */
   deciderUrl: string
@@ -51,15 +51,15 @@ export interface ProbeTarget {
   port: number
 }
 
-export type QuickStartKind = 'jaeger' | 'prometheus' | 'loki' | 'custom'
+export type QuickStartKind = 'jaeger' | 'zipkin' | 'prometheus' | 'loki' | 'custom'
 
 /** Every kind a QuickStartBackend may carry - the backend's own knownBackendKinds (settings.go). */
-export const KNOWN_BACKEND_KINDS: QuickStartKind[] = ['jaeger', 'prometheus', 'loki', 'custom']
+export const KNOWN_BACKEND_KINDS: QuickStartKind[] = ['jaeger', 'zipkin', 'prometheus', 'loki', 'custom']
 
 /** What AppSettings.allowedBackendKinds falls back to when empty - the backend's own
  * defaultAllowedBackendKinds (settings.go). "custom" is deliberately left out: it is a capability an
  * administrator opts an organisation into, not one every organisation should have by default. */
-export const DEFAULT_ALLOWED_BACKEND_KINDS: QuickStartKind[] = ['jaeger', 'prometheus', 'loki']
+export const DEFAULT_ALLOWED_BACKEND_KINDS: QuickStartKind[] = ['jaeger', 'zipkin', 'prometheus', 'loki']
 
 /** AppSettings.allowedBackendKinds, with the same "empty means the default" fallback the backend applies. */
 export function effectiveAllowedBackendKinds(allowed: QuickStartKind[]): QuickStartKind[] {

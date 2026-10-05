@@ -13,11 +13,11 @@ import { useConn, useServer } from '@/store/server'
 import { useSettings } from '@/store/settings'
 import TelemetryBackendWizard from './TelemetryBackendWizard'
 
-const KIND_LABEL: Record<QuickStartKind, string> = { jaeger: 'Jaeger', prometheus: 'Prometheus', loki: 'Loki', custom: 'Custom' }
+const KIND_LABEL: Record<QuickStartKind, string> = { jaeger: 'Jaeger', zipkin: 'Zipkin', prometheus: 'Prometheus', loki: 'Loki', custom: 'Custom' }
 
 /**
  * "Don't have a backend yet?" - sits right under the telemetry destination field (see TelemetryFields.tsx)
- * and offers to quick-start one, for whichever of Jaeger/Prometheus/Loki matches a modality that's actually
+ * and offers to quick-start one, for whichever of Jaeger/Zipkin/Prometheus/Loki matches a modality that's actually
  * turned on. This never deploys or dials anything itself: picking one produces a `helm install` command
  * to run by hand, the same "mechanism only" shape as every other install command in this app
  * (ConnectClusterWizard, regional operators). Once a person says it's installed, it's remembered in

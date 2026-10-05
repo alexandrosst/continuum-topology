@@ -153,7 +153,8 @@ func TestSettingsProbeTargetsAndDeciderURLAreChecked(t *testing.T) {
 
 func TestSettingsQuickStartBackendsAreChecked(t *testing.T) {
 	bad := map[string]Settings{
-		"unknown kind":           {QuickStartBackends: []QuickStartBackend{{Kind: "zipkin", Modality: "traces", Namespace: "observability", Retention: "72h"}}},
+		"unknown kind":           {QuickStartBackends: []QuickStartBackend{{Kind: "tempo", Modality: "traces", Namespace: "observability", Retention: "72h"}}},
+		"zipkin is traces only":  {QuickStartBackends: []QuickStartBackend{{Kind: "zipkin", Modality: "logs", Namespace: "observability", Retention: "500000"}}},
 		"modality mismatch":      {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "metrics", Namespace: "observability", Retention: "72h"}}},
 		"no namespace":           {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "traces", Retention: "72h"}}},
 		"bad namespace":          {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "Not_Valid!", Retention: "72h"}}},
@@ -181,11 +182,12 @@ func TestSettingsQuickStartBackendsAreChecked(t *testing.T) {
 		{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"},
 		{Kind: "prometheus", Modality: "metrics", Namespace: "observability", Retention: "15d", ToolURL: "http://localhost:9090"},
 		{Kind: "loki", Modality: "logs", Namespace: "observability", Retention: "168h"},
+		{Kind: "zipkin", Modality: "traces", Namespace: "observability", Retention: "500000"},
 	}}).Normalize()
 	if err != nil {
-		t.Fatalf("three valid quick-start backends were refused: %v", err)
+		t.Fatalf("four valid quick-start backends were refused: %v", err)
 	}
-	if len(ok.QuickStartBackends) != 3 {
+	if len(ok.QuickStartBackends) != 4 {
 		t.Fatalf("quick-start backends = %+v", ok.QuickStartBackends)
 	}
 	for _, b := range ok.QuickStartBackends {
@@ -238,7 +240,7 @@ func TestSettingsAllowedBackendKindsGateQuickStartBackends(t *testing.T) {
 		t.Error("a jaeger backend was accepted although jaeger was removed from the allow-list")
 	}
 	// An unknown kind in the allow-list itself is refused.
-	if _, err := (Settings{AllowedBackendKinds: []string{"zipkin"}}).Normalize(); err == nil {
+	if _, err := (Settings{AllowedBackendKinds: []string{"tempo"}}).Normalize(); err == nil {
 		t.Error("an unknown allowed backend kind was accepted")
 	}
 	// The allow-list is de-duplicated rather than rejected for repeats.

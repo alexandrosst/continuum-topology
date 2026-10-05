@@ -10,7 +10,7 @@ import { hasQuickStartSpec } from './quickStartBackends'
  * admin_quickstart.go) entirely with a local nginx `if` block - no callback to this server, ever, the same
  * one-way trust model as everything else quick-start.
  *
- * Only jaeger/prometheus/loki have a manifest here (see hasGatewayManifest): "custom" names no known
+ * Only jaeger/zipkin/prometheus/loki have a manifest here (see hasGatewayManifest): "custom" names no known
  * upstream chart, so there is no Service/port this app can safely assume - a custom backend's own access
  * control is the admin's to set up, same as everything else about it.
  *
@@ -18,6 +18,7 @@ import { hasQuickStartSpec } from './quickStartBackends'
  * quickStartBackends.ts already creates (see that file's own exportEndpoint/portForward comments, which
  * this mirrors rather than re-deriving):
  *   - jaeger: the jaeger-quickstart Service's http-query port (16686) - the query UI/API.
+ *   - zipkin: the zipkin-quickstart Service's port 9411 - the Zipkin UI and API (not the OTLP collector in front of it).
  *   - prometheus: the prometheus-quickstart-server Service's port 80 (proxying to the container's 9090) -
  *     the web UI/API.
  *   - loki: the loki-quickstart Service's port 3100 - its HTTP API (Loki itself has no UI).
@@ -31,11 +32,12 @@ interface GatewayTarget {
 
 const GATEWAY_TARGET: Partial<Record<QuickStartKind, GatewayTarget>> = {
   jaeger: { service: 'jaeger-quickstart', port: 16686 },
+  zipkin: { service: 'zipkin-quickstart', port: 9411 },
   prometheus: { service: 'prometheus-quickstart-server', port: 80 },
   loki: { service: 'loki-quickstart', port: 3100 },
 }
 
-/** Whether `kind` has a gateway manifest at all - true for jaeger/prometheus/loki, false for "custom"
+/** Whether `kind` has a gateway manifest at all - true for jaeger/zipkin/prometheus/loki, false for "custom"
  * (see this file's own doc comment) and false for any future catalog kind this file has not been taught
  * a proxy target for yet (hasQuickStartSpec alone is not enough - a new catalog entry needs its own
  * GATEWAY_TARGET row before a manifest can be generated for it). */

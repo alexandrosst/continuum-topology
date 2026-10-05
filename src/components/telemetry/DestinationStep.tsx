@@ -357,7 +357,7 @@ export default function DestinationStep({
           <div className={clsx('grid gap-3', catalog.canDeployOperator && 'sm:grid-cols-2')}>
             <div className="flex flex-col gap-2 rounded-xl border border-nb-850 bg-nb-930 p-4">
               <span className="text-sm font-medium text-nb-200">A new backend</span>
-              <span className="flex-1 text-xs text-nb-500">We set up Prometheus, Jaeger or Loki in a cluster you pick, then point this telemetry at it.</span>
+              <span className="flex-1 text-xs text-nb-500">We set up Prometheus, Jaeger, Zipkin or Loki in a cluster you pick, then point this telemetry at it.</span>
               <div>
                 <Button type="button" variant="primary" size="sm" onClick={onDeployBackend} data-testid={`${p}-deploy-backend`}>
                   <Rocket size={ICON_SM} /> Choose a backend

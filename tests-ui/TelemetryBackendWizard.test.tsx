@@ -13,7 +13,7 @@ import { newProcessorEntry } from '@/lib/processorCatalog'
 const baseProps = {
   open: true,
   onClose: vi.fn(),
-  allowedKinds: ['jaeger', 'prometheus', 'loki'] as const,
+  allowedKinds: ['jaeger', 'zipkin', 'prometheus', 'loki'] as const,
   enabledModalities: new Set<'traces' | 'metrics' | 'logs'>(['traces', 'metrics', 'logs']),
   existingBackends: [] as QuickStartBackend[],
   currentEndpoint: '',
@@ -40,6 +40,15 @@ describe('TelemetryBackendWizard', () => {
     await user.click(screen.getByTestId('backend-wizard-kind-loki'))
     expect(screen.getByTestId('backend-wizard-namespace')).toHaveValue('observability')
     expect(screen.getByTestId('backend-wizard-retention')).toHaveValue('168h')
+  })
+
+  test('Zipkin takes a span count, and its install command deploys the collector that feeds it', async () => {
+    const user = userEvent.setup()
+    render(<TelemetryBackendWizard {...baseProps} />)
+    await user.click(screen.getByTestId('backend-wizard-kind-zipkin'))
+    expect(screen.getByTestId('backend-wizard-retention')).toHaveValue('500000')
+    await user.click(screen.getByTestId('backend-wizard-continue'))
+    expect(screen.getByTestId('backend-wizard-step-review')).toHaveTextContent('zipkin-quickstart-otlp')
   })
 
   test('a non-administrator sees nothing editable on Details, and no way to continue', async () => {

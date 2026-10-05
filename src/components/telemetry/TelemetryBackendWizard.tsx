@@ -7,9 +7,10 @@ import { KNOWN_BACKEND_KINDS, type QuickStartBackend, type QuickStartKind } from
 import { processorTarget, type ProcessorEntry } from '@/lib/processorCatalog'
 import { quickStartSpec, type QuickStartSpec } from '@/lib/quickStartBackends'
 
-const KIND_LABEL: Record<QuickStartKind, string> = { jaeger: 'Jaeger', prometheus: 'Prometheus', loki: 'Loki', custom: 'Custom' }
+const KIND_LABEL: Record<QuickStartKind, string> = { jaeger: 'Jaeger', zipkin: 'Zipkin', prometheus: 'Prometheus', loki: 'Loki', custom: 'Custom' }
 const KIND_BLURB: Record<QuickStartKind, string> = {
   jaeger: 'Traces only. OTLP/gRPC.',
+  zipkin: 'Traces only. Zipkin does not read OTLP, so a small collector is installed in front of it.',
   prometheus: 'Metrics only. OTLP/HTTP.',
   loki: 'Logs only. OTLP/HTTP.',
   custom: 'Any backend with no catalog entry here - register a name and URL, nothing is installed for you.',

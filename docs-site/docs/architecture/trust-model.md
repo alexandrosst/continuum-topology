@@ -96,7 +96,7 @@ operators](./regional-operators.md).
 
 ## The quick-start gateway token: an accepted tradeoff, not an oversight
 
-The quick-start flow lets an administrator stand up a backend (Jaeger, Prometheus, or Loki) in-cluster and
+The quick-start flow lets an administrator stand up a backend (Jaeger, Zipkin, Prometheus, or Loki) in-cluster and
 front it with a minimal `nginx:alpine` gateway so it isn't open to anything that can reach the Service
 directly. That gateway is Part C of quick-start (`src/lib/quickStartGateway.ts`); the token it checks is
 minted by the server (`backend/internal/server/quickstart.go`, `admin_quickstart.go`) and handed to the

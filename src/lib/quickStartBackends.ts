@@ -78,6 +78,123 @@ export const QUICK_START_BACKENDS: QuickStartSpec[] = [
     docsUrl: 'https://www.jaegertracing.io/docs/latest/getting-started/',
   },
   {
+    kind: 'zipkin',
+    label: 'Zipkin (traces)',
+    modality: 'traces',
+    defaultRetention: '500000',
+    retentionHint: 'How many spans Zipkin keeps in memory (MEM_MAX_SPANS) before dropping the oldest. Digits only. Everything is lost when the pod restarts.',
+    defaultNamespace: 'observability',
+    // Zipkin cannot ingest OTLP (it takes its own v1/v2 span formats on :9411), so unlike the other three this
+    // is two small Deployments: Zipkin itself, and an OpenTelemetry Collector in front of it that receives
+    // OTLP and forwards to Zipkin's /api/v2/spans with the collector's own `zipkin` exporter. The endpoint
+    // an agent exports to is therefore the collector's Service, not Zipkin's. Plain manifests rather than a
+    // chart: there is no official Zipkin chart this app could pin, and the whole thing is two Deployments
+    // and two Services. Zipkin uses its in-memory store, hence "retention" being a span count and the
+    // "not for keeping data around" warning the wizard already shows.
+    exportEndpoint: (ns) => `zipkin-quickstart-otlp.${ns}.svc:4317`,
+    exportProtocol: 'grpc',
+    command: (ns, retention) => {
+      const maxSpans = retention.replace(/\D/g, '') || '500000'
+      return (
+        `kubectl apply -f - <<'EOF'\n` +
+        `apiVersion: v1\n` +
+        `kind: Namespace\n` +
+        `metadata:\n` +
+        `  name: ${ns}\n` +
+        `---\n` +
+        `apiVersion: apps/v1\n` +
+        `kind: Deployment\n` +
+        `metadata:\n` +
+        `  name: zipkin-quickstart\n` +
+        `  namespace: ${ns}\n` +
+        `spec:\n` +
+        `  replicas: 1\n` +
+        `  selector:\n` +
+        `    matchLabels: {app: zipkin-quickstart}\n` +
+        `  template:\n` +
+        `    metadata:\n` +
+        `      labels: {app: zipkin-quickstart}\n` +
+        `    spec:\n` +
+        `      containers:\n` +
+        `        - name: zipkin\n` +
+        `          image: openzipkin/zipkin-slim:3\n` +
+        `          ports: [{name: http, containerPort: 9411}]\n` +
+        `          env:\n` +
+        `            - {name: STORAGE_TYPE, value: mem}\n` +
+        `            - {name: MEM_MAX_SPANS, value: "${maxSpans}"}\n` +
+        `          readinessProbe:\n` +
+        `            httpGet: {path: /health, port: http}\n` +
+        `---\n` +
+        `apiVersion: v1\n` +
+        `kind: Service\n` +
+        `metadata:\n` +
+        `  name: zipkin-quickstart\n` +
+        `  namespace: ${ns}\n` +
+        `spec:\n` +
+        `  selector: {app: zipkin-quickstart}\n` +
+        `  ports: [{name: http, port: 9411, targetPort: http}]\n` +
+        `---\n` +
+        `apiVersion: v1\n` +
+        `kind: ConfigMap\n` +
+        `metadata:\n` +
+        `  name: zipkin-quickstart-otlp\n` +
+        `  namespace: ${ns}\n` +
+        `data:\n` +
+        `  config.yaml: |\n` +
+        `    receivers:\n` +
+        `      otlp:\n` +
+        `        protocols:\n` +
+        `          grpc: {endpoint: 0.0.0.0:4317}\n` +
+        `          http: {endpoint: 0.0.0.0:4318}\n` +
+        `    processors:\n` +
+        `      batch: {}\n` +
+        `    exporters:\n` +
+        `      zipkin:\n` +
+        `        endpoint: http://zipkin-quickstart.${ns}.svc:9411/api/v2/spans\n` +
+        `        tls: {insecure: true}\n` +
+        `    service:\n` +
+        `      pipelines:\n` +
+        `        traces: {receivers: [otlp], processors: [batch], exporters: [zipkin]}\n` +
+        `---\n` +
+        `apiVersion: apps/v1\n` +
+        `kind: Deployment\n` +
+        `metadata:\n` +
+        `  name: zipkin-quickstart-otlp\n` +
+        `  namespace: ${ns}\n` +
+        `spec:\n` +
+        `  replicas: 1\n` +
+        `  selector:\n` +
+        `    matchLabels: {app: zipkin-quickstart-otlp}\n` +
+        `  template:\n` +
+        `    metadata:\n` +
+        `      labels: {app: zipkin-quickstart-otlp}\n` +
+        `    spec:\n` +
+        `      containers:\n` +
+        `        - name: collector\n` +
+        `          image: otel/opentelemetry-collector-contrib:0.160.0\n` +
+        `          args: ["--config=/conf/config.yaml"]\n` +
+        `          ports: [{name: otlp-grpc, containerPort: 4317}, {name: otlp-http, containerPort: 4318}]\n` +
+        `          volumeMounts: [{name: conf, mountPath: /conf}]\n` +
+        `      volumes:\n` +
+        `        - name: conf\n` +
+        `          configMap: {name: zipkin-quickstart-otlp}\n` +
+        `---\n` +
+        `apiVersion: v1\n` +
+        `kind: Service\n` +
+        `metadata:\n` +
+        `  name: zipkin-quickstart-otlp\n` +
+        `  namespace: ${ns}\n` +
+        `spec:\n` +
+        `  selector: {app: zipkin-quickstart-otlp}\n` +
+        `  ports: [{name: otlp-grpc, port: 4317, targetPort: otlp-grpc}, {name: otlp-http, port: 4318, targetPort: otlp-http}]\n` +
+        `EOF`
+      )
+    },
+    openHint: 'The Zipkin UI, once reachable.',
+    portForward: (ns) => `kubectl -n ${ns} port-forward svc/zipkin-quickstart 9411:9411`,
+    docsUrl: 'https://zipkin.io/pages/quickstart.html',
+  },
+  {
     kind: 'prometheus',
     label: 'Prometheus (metrics)',
     modality: 'metrics',
@@ -153,7 +270,7 @@ export function quickStartSpec(kind: QuickStartKind): QuickStartSpec {
   return s
 }
 
-/** Whether `kind` has a catalog entry above - true for jaeger/prometheus/loki, false for "custom" (see
+/** Whether `kind` has a catalog entry above - true for jaeger/zipkin/prometheus/loki, false for "custom" (see
  * QuickStartBackend.kind in history.ts). A "custom" backend has no known upstream chart, so none of this
  * catalog's generated commands (install, port-forward) or the Part C gateway manifest (gatewaySpec in
  * quickStartGateway.ts) apply to it - only its own user-supplied label and tool URL do. */

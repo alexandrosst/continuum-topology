@@ -40,7 +40,7 @@ type Settings struct {
 	// ProbeTargets are addresses an administrator asked a cluster to measure, in addition to the ones its traffic shows.
 	ProbeTargets []ProbeTarget `json:"probeTargets"`
 	// AllowedBackendKinds is which quick-start backend kinds (see QuickStartBackend.Kind) this organisation
-	// may add. Empty falls back to defaultAllowedBackendKinds (jaeger, prometheus, loki) - "custom" is
+	// may add. Empty falls back to defaultAllowedBackendKinds (jaeger, zipkin, prometheus, loki) - "custom" is
 	// deliberately never on by default, since it is a new capability an administrator opts an organisation
 	// into, not one every existing organisation should gain silently. See allowedBackendKindsOrDefault.
 	AllowedBackendKinds []string `json:"allowedBackendKinds"`
@@ -81,17 +81,17 @@ type ProbeTarget struct {
 // OTLP metrics receiver; the Loki quick-start's config only turns on its OTLP logs endpoint), not
 // something a person picks independently of Kind. The "custom" kind (see QuickStartBackend.Kind) is not
 // in here on purpose: it names no built-in chart, so its Modality is whatever the person who added it says.
-var quickStartBackendModality = map[string]string{"jaeger": "traces", "prometheus": "metrics", "loki": "logs"}
+var quickStartBackendModality = map[string]string{"jaeger": "traces", "zipkin": "traces", "prometheus": "metrics", "loki": "logs"}
 
 // knownBackendKinds is every value QuickStartBackend.Kind may take: the three built-in catalog kinds
 // above, plus "custom" - an open entry for a backend this app has no upstream chart for (a user-supplied
 // display name and tool URL, nothing this server generates an install command for). The same "small fixed
 // typed set plus an open escape hatch" shape processorCatalog.ts uses for extra OTel processors.
-var knownBackendKinds = []string{"jaeger", "prometheus", "loki", "custom"}
+var knownBackendKinds = []string{"jaeger", "zipkin", "prometheus", "loki", "custom"}
 
 // defaultAllowedBackendKinds is what Settings.AllowedBackendKinds falls back to when empty - see its own
 // comment on why "custom" is left out.
-var defaultAllowedBackendKinds = []string{"jaeger", "prometheus", "loki"}
+var defaultAllowedBackendKinds = []string{"jaeger", "zipkin", "prometheus", "loki"}
 
 func allowedBackendKindsOrDefault(allow []string) []string {
 	if len(allow) == 0 {
@@ -234,7 +234,7 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 	for _, k := range s.AllowedBackendKinds {
 		k = strings.TrimSpace(k)
 		if !knownKind[k] {
-			return s, fmt.Errorf(`%q is not a quick-start backend kind ("jaeger", "prometheus", "loki" or "custom")`, k)
+			return s, fmt.Errorf(`%q is not a quick-start backend kind ("jaeger", "zipkin", "prometheus", "loki" or "custom")`, k)
 		}
 		if allowSeen[k] {
 			continue
@@ -265,7 +265,7 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 		} else {
 			wantModality, ok := quickStartBackendModality[b.Kind]
 			if !ok {
-				return s, fmt.Errorf(`quick-start backend kind must be "jaeger", "prometheus", "loki" or "custom"`)
+				return s, fmt.Errorf(`quick-start backend kind must be "jaeger", "zipkin", "prometheus", "loki" or "custom"`)
 			}
 			if b.Modality != wantModality {
 				return s, fmt.Errorf("a %q quick-start backend's modality must be %q", b.Kind, wantModality)
