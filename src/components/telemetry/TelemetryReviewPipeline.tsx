@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowRight } from 'lucide-react'
 import { ICON_SM } from '@/components/ui/primitives'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
-import type { TelemetryInput } from '@/lib/install'
+import { cleanTags, scopeTag, type TelemetryInput } from '@/lib/install'
 import { EXPORT_PRESETS } from '@/lib/exportPresets'
 import { PROCESSOR_KINDS, processorTarget, type ProcessorEntry } from '@/lib/processorCatalog'
 import { LAYER_CARDS, LAYER_META } from '@/lib/telemetryLayers'
@@ -63,7 +63,10 @@ export default function TelemetryReviewPipeline({
     ({ scope }) => scope.namespaces.length > 0 || scope.exclude.length > 0,
   )
 
-  const processingSteps: string[] = []
+  // Always first: where it came from is stamped on everything, whatever else is or isn't switched on.
+  const processingSteps: string[] = ['Stamp where it came from (organisation, cluster' + (scopeTag(value) ? ', scope' : '') + ')']
+  const tags = cleanTags(value.tags)
+  if (tags.length > 0) processingSteps.push(`Add ${tags.length} ${tags.length === 1 ? 'tag' : 'tags'}: ${tags.map((t) => t.key).join(', ')}`)
   if (value.resourceDetection) processingSteps.push('Enrich with collector environment')
   if (value.redaction) processingSteps.push('Mask likely secrets')
   if (value.traces && value.tracesSamplingPercent < 100) processingSteps.push(`Sample ${value.tracesSamplingPercent}% of traces`)
@@ -73,7 +76,6 @@ export default function TelemetryReviewPipeline({
     label: PROCESSOR_KINDS.find((k) => k.id === e.kind)?.label ?? e.kind,
     tracesOnly: processorTarget(e) === 'extraTracesProcessorNames',
   }))
-  const noProcessing = processingSteps.length === 0 && extraProcessors.length === 0
 
   const destination = value.exportEndpoint.trim()
   const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === destination)
@@ -115,20 +117,21 @@ export default function TelemetryReviewPipeline({
       <StageArrow />
 
       <Stage title="Process" testId={`${testIdPrefix}-review-process`}>
-        {noProcessing ? (
-          <p className="text-xs text-nb-600">Sent as collected - no extra processing.</p>
-        ) : (
-          <ul className="space-y-1 text-xs text-nb-300">
-            {processingSteps.map((s) => (
-              <li key={s}>{s}</li>
-            ))}
-            {extraProcessors.map((e) => (
-              <li key={e.id} title={e.tracesOnly ? 'Applies to traces only' : undefined}>
-                {e.label}{e.name ? `: ${e.name}` : ''}{e.tracesOnly ? ' (traces only)' : ''}
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="space-y-1 text-xs text-nb-300">
+          {processingSteps.map((s) => (
+            <li key={s}>{s}</li>
+          ))}
+          {value.debugVerbosity && (
+            <li data-testid={`${testIdPrefix}-review-debug`} className={value.debugVerbosity === 'detailed' ? 'text-warn' : undefined}>
+              {value.debugVerbosity === 'detailed' ? 'Log every record’s content in the collector’s log' : 'Count what passes in the collector’s log'}
+            </li>
+          )}
+          {extraProcessors.map((e) => (
+            <li key={e.id} title={e.tracesOnly ? 'Applies to traces only' : undefined}>
+              {e.label}{e.name ? `: ${e.name}` : ''}{e.tracesOnly ? ' (traces only)' : ''}
+            </li>
+          ))}
+        </ul>
       </Stage>
 
       <StageArrow />
@@ -146,7 +149,7 @@ export default function TelemetryReviewPipeline({
             )}
           </div>
         ) : (
-          <p className="text-xs text-warn">Not set yet - pick one below.</p>
+          <p className="text-xs text-warn">Not set yet - go back to Destination.</p>
         )}
       </Stage>
     </div>

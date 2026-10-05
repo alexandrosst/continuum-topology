@@ -6,6 +6,7 @@ import { applyIntentPreset, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, TELEMET
 import { telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
 import GuidedWizard from './GuidedWizard'
 import ProcessorEditor from './ProcessorEditor'
+import { DebugChoice, TagEditor } from './ProcessStep'
 import QuickStartBackends from './QuickStartBackends'
 
 export type SignalId = 'resourceUsage' | 'energy' | 'kubernetesState' | 'nodeRuntime' | 'networkLatency' | 'applicationMetrics' | 'systemLogs' | 'kubernetesEvents' | 'applicationLogs' | 'traces' | 'accelerators'
@@ -462,6 +463,8 @@ export default function TelemetryFields({
         </div>
       )}
 
+      {/* The guided wizard has its own Process step for all of this; only the flat grid keeps it here. */}
+      {!guided && (
       <details
         className="group rounded-lg border border-nb-850"
         open={advancedOpen}
@@ -530,12 +533,21 @@ export default function TelemetryFields({
               data-testid={`${testIdPrefix}-traces-sampling`}
             />
           </Field>
+          <legend className="border-t border-nb-850 pt-3 text-xs font-medium uppercase tracking-wide text-nb-500 sm:col-span-2">Tags on everything</legend>
+          <div className="sm:col-span-2">
+            <TagEditor value={value} onChange={onChange} testIdPrefix={testIdPrefix} />
+          </div>
+          <legend className="border-t border-nb-850 pt-3 text-xs font-medium uppercase tracking-wide text-nb-500 sm:col-span-2">Check that it works</legend>
+          <div className="sm:col-span-2">
+            <DebugChoice value={value} onChange={onChange} testIdPrefix={testIdPrefix} />
+          </div>
           <legend className="border-t border-nb-850 pt-3 text-xs font-medium uppercase tracking-wide text-nb-500 sm:col-span-2">Extra processors</legend>
           <div className="sm:col-span-2">
             <ProcessorEditor entries={value.extraProcessors} onChange={(extraProcessors) => set('extraProcessors', extraProcessors)} testIdPrefix={testIdPrefix} />
           </div>
         </div>
       </details>
+      )}
 
       {telemetryActive(value) && (
         <p className="border-t border-nb-850 pt-3 text-xs text-nb-500" data-testid={`${testIdPrefix}-permissions-summary`}>

@@ -94,7 +94,8 @@ async function pickOperator(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByTestId('tp-guided-layer-infrastructure'))
   await user.click(screen.getByTestId('tp-guided-modality-metrics'))
   await user.click(screen.getByTestId('tp-resourceUsage'))
-  await user.click(screen.getByTestId('tp-guided-continue'))
+  await user.click(screen.getByTestId('tp-guided-continue')) // Kind -> Process
+  await user.click(screen.getByTestId('tp-guided-continue')) // Process -> Destination
   await screen.findByTestId('tp-guided-destination-summary')
   expect(screen.getByTestId('tp-guided-destination-name')).toHaveTextContent('EU regional operator')
 }

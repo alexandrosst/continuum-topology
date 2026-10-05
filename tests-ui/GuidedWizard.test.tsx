@@ -77,7 +77,8 @@ async function gotoKind(user: ReturnType<typeof userEvent.setup>) {
 async function gotoDestination(user: ReturnType<typeof userEvent.setup>) {
   await gotoKind(user)
   await user.click(screen.getByTestId('t-resourceUsage'))
-  await user.click(screen.getByTestId('t-guided-continue'))
+  await user.click(screen.getByTestId('t-guided-continue')) // Kind -> Process
+  await user.click(screen.getByTestId('t-guided-continue')) // Process -> Destination
 }
 
 beforeEach(() => {
@@ -124,13 +125,15 @@ describe('GuidedWizard destination step: reachability', () => {
     await gotoKind(user)
     await user.click(screen.getByTestId('t-resourceUsage'))
     await user.click(screen.getByTestId('t-guided-continue'))
+    expect(screen.getByTestId('t-guided-step-process')).toBeInTheDocument()
+    await user.click(screen.getByTestId('t-guided-continue'))
     expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
     await user.click(screen.getByTestId('t-guided-destination-external-preset-honeycomb'))
     await user.click(screen.getByTestId('t-guided-continue'))
     expect(screen.getByTestId('t-guided-step-review')).toBeInTheDocument()
   })
 
-  test('Back from Destination returns to Kind; Back from Review returns to Destination', async () => {
+  test('Back from Process returns to Kind; Back from Destination to Process; Back from Review to Destination', async () => {
     const user = userEvent.setup()
     renderWizard()
     await gotoKind(user)
@@ -139,6 +142,10 @@ describe('GuidedWizard destination step: reachability', () => {
     await user.click(screen.getByTestId('t-guided-back'))
     expect(screen.getByTestId('t-guided-step-kind')).toBeInTheDocument()
 
+    await user.click(screen.getByTestId('t-guided-continue')) // on to Process
+    await user.click(screen.getByTestId('t-guided-continue')) // on to Destination
+    await user.click(screen.getByTestId('t-guided-back'))
+    expect(screen.getByTestId('t-guided-step-process')).toBeInTheDocument()
     await user.click(screen.getByTestId('t-guided-continue')) // back to Destination
     await user.click(screen.getByTestId('t-guided-destination-external-preset-honeycomb'))
     await user.click(screen.getByTestId('t-guided-continue')) // on to Review
@@ -147,14 +154,14 @@ describe('GuidedWizard destination step: reachability', () => {
     expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
   })
 
-  test('an application modality (needs scope) reaches Destination via Scope\'s own Continue, and Back from Destination returns to Scope', async () => {
+  test('an application modality (needs scope) reaches Process via Scope\'s own Continue, and Back from Process returns to Scope', async () => {
     const user = userEvent.setup()
     renderWizard()
     await user.click(screen.getByTestId('t-guided-layer-application'))
     await user.click(screen.getByTestId('t-guided-modality-metrics'))
     expect(screen.getByTestId('t-guided-step-scope')).toBeInTheDocument()
     await user.click(screen.getByTestId('t-guided-continue'))
-    expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-step-process')).toBeInTheDocument()
     await user.click(screen.getByTestId('t-guided-back'))
     expect(screen.getByTestId('t-guided-step-scope')).toBeInTheDocument()
   })
@@ -170,7 +177,8 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     // so picking it lands straight on Scope; its own Continue is what reaches Destination from there.
     await user.click(screen.getByTestId('t-guided-layer-application'))
     await user.click(screen.getByTestId('t-guided-modality-traces'))
-    await user.click(screen.getByTestId('t-guided-continue'))
+    await user.click(screen.getByTestId('t-guided-continue')) // Scope -> Process
+    await user.click(screen.getByTestId('t-guided-continue')) // Process -> Destination
     expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
     // The one destination of the organisation's own that fits is picked for it, and the summary says so.
     expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('Jaeger (traces)')

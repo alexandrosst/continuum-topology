@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { emptyTelemetry, scopeOverlap, telemetryActive, telemetryProblems, withTelemetry, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
+import { cleanTags, emptyTelemetry, scopeOverlap, scopeTag, tagProblems, TAG_LIMIT, telemetryActive, telemetryProblems, withTelemetry, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
 import { newProcessorEntry } from '../src/lib/processorCatalog'
 import { applyIntentPreset, seedTelemetryFromInstalled, TELEMETRY_CREDENTIAL_VAR, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetrySecretCommand, telemetryUpgradeCommand } from '../src/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '../src/lib/exportPresets'
@@ -382,4 +382,53 @@ test('telemetrySecretCommand is undefined when there is nothing valid to create'
   // A name that is not a plain Kubernetes name is never pasted into a shell line.
   assert.equal(telemetrySecretCommand({ ...on, exportAuthSecretName: 'x; rm -rf /' }), undefined)
   assert.equal(telemetrySecretCommand({ ...on, exportAuthSecretName: 'ok', exportAuthSecretKey: 'a b' }), undefined)
+})
+
+const on: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'otel.example.com:4317' }
+
+test('provenance: org and cluster are stamped for any destination, only when known', () => {
+  const cmd = withTelemetry(base, { ...on, resourceOrgId: 'org-1', resourceClusterId: 'cl-1' })
+  assert.match(cmd, /--set-string telemetry\.resource\.orgId=org-1/)
+  assert.match(cmd, /--set-string telemetry\.resource\.clusterId=cl-1/)
+  const bare = withTelemetry(base, on)
+  assert.doesNotMatch(bare, /telemetry\.resource\.orgId/)
+  assert.doesNotMatch(bare, /telemetry\.resource\.clusterId/)
+})
+
+test('tags travel as one JSON list, stated even when empty, so a reuse-values upgrade replaces the set', () => {
+  assert.match(withTelemetry(base, on), /--set-json telemetry\.resource\.attributes='\[\]'/)
+  const cmd = withTelemetry(base, { ...on, tags: [{ key: ' team ', value: "pay'ments" }, { key: '', value: '' }] })
+  assert.match(cmd, /--set-json telemetry\.resource\.attributes='\[\{"key":"team","value":"pay'\\''ments"\}\]'/)
+})
+
+test('tag problems: reserved prefix, limit, duplicates, missing parts, spaces', () => {
+  assert.deepEqual(tagProblems([{ key: 'team', value: 'x' }]), [])
+  assert.match(tagProblems([{ key: 'Continuum.org.id', value: 'x' }])[0], /reserved/)
+  assert.match(tagProblems(Array.from({ length: TAG_LIMIT + 1 }, (_, i) => ({ key: `k${i}`, value: 'v' })))[0], /At most 8/)
+  assert.match(tagProblems([{ key: 'a', value: '1' }, { key: 'a', value: '2' }])[0], /listed twice/)
+  assert.match(tagProblems([{ key: 'a', value: ' ' }])[0], /needs a value/)
+  assert.match(tagProblems([{ key: ' ', value: 'v' }])[0], /needs a name/)
+  assert.deepEqual(tagProblems([{ key: '', value: '' }]), [], 'an untouched row is not a tag')
+  assert.match(tagProblems([{ key: 'a b', value: 'v' }])[0], /spaces/)
+  // A bad tag blocks the command, like every other problem.
+  assert.equal(withTelemetry(base, { ...on, tags: [{ key: 'continuum.x', value: 'v' }] }), base)
+  assert.deepEqual(cleanTags([{ key: ' a ', value: ' b ' }, { key: '', value: '' }]), [{ key: 'a', value: 'b' }])
+})
+
+test('the scope tag names the namespaces of the narrowed application signals, with no commas', () => {
+  assert.equal(scopeTag(on), '')
+  const t: TelemetryInput = { ...on, traces: true, tracesScope: { namespaces: ['shop', 'payments'], exclude: [] }, applicationLogs: true, applicationLogsScope: { namespaces: ['shop'], exclude: ['tmp', 'legacy'] } }
+  assert.equal(scopeTag(t), 'payments; shop - excluding legacy+tmp')
+  assert.doesNotMatch(scopeTag(t), /,/)
+  // A scope on a signal that is off says nothing.
+  assert.equal(scopeTag({ ...on, tracesScope: { namespaces: ['shop'], exclude: [] } }), '')
+  assert.match(withTelemetry(base, t), /--set-string telemetry\.resource\.scope=payments; shop - excluding legacy\+tmp/)
+  assert.match(withTelemetry(base, on), /--set-string telemetry\.resource\.scope=(\s|$)/)
+})
+
+test('the debug exporter is count-only unless changed, and always stated', () => {
+  assert.equal(emptyTelemetry.debugVerbosity, 'basic')
+  assert.match(withTelemetry(base, on), /--set-string telemetry\.debug\.verbosity=basic/)
+  assert.match(withTelemetry(base, { ...on, debugVerbosity: 'detailed' }), /telemetry\.debug\.verbosity=detailed/)
+  assert.match(withTelemetry(base, { ...on, debugVerbosity: '' }), /telemetry\.debug\.verbosity=(\s|$)/)
 })

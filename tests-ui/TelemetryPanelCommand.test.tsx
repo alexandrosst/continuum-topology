@@ -23,7 +23,8 @@ async function pickHoneycomb(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByTestId('tp-guided-layer-infrastructure'))
   await user.click(screen.getByTestId('tp-guided-modality-metrics'))
   await user.click(screen.getByTestId('tp-resourceUsage'))
-  await user.click(screen.getByTestId('tp-guided-continue'))
+  await user.click(screen.getByTestId('tp-guided-continue')) // Kind -> Process
+  await user.click(screen.getByTestId('tp-guided-continue')) // Process -> Destination
   await user.click(screen.getByTestId('tp-guided-destination-external-preset-honeycomb'))
 }
 
@@ -59,5 +60,23 @@ describe('TelemetryPanel command', () => {
     expect(cmd).toContain('&&')
     expect(cmd).toContain('auth.secretName=honeycomb-token')
     expect(screen.getByTestId('tp-credential-hint')).toHaveTextContent('TELEMETRY_EXPORT_TOKEN')
+  })
+})
+
+describe('TelemetryPanel command: what every install is stamped with', () => {
+  test('the organisation and cluster, the debug default and the (empty) tags are in the command for any destination', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <TelemetryPanel standalone testIdPrefix="tp" clusterId="cl-9" />
+      </MemoryRouter>,
+    )
+    await pickHoneycomb(user)
+    await toRun(user)
+    const cmd = screen.getByTestId('helm-command').textContent ?? ''
+    expect(cmd).toContain('telemetry.resource.orgId=org-1')
+    expect(cmd).toContain('telemetry.resource.clusterId=cl-9')
+    expect(cmd).toContain('telemetry.debug.verbosity=basic')
+    expect(cmd).toContain("telemetry.resource.attributes='[]'")
   })
 })

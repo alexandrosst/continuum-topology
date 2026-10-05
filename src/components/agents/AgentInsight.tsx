@@ -439,18 +439,21 @@ export function TelemetryPanel({
   // generated command used to build as if that problem didn't exist, silently disagreeing with the
   // role="alert" warning TelemetryFields (right above, given the same measurementsOn) already shows for
   // exactly that case.
+  const conn = useConn()
   const command = useMemo(() => {
-    const upgrade = telemetryUpgradeCommand(install, draft, measurementsOn)
+    // Who this belongs to is stamped on everything it emits, whatever the destination: the signed-in
+    // organisation and this agent's cluster, added here rather than asked for in the wizard.
+    const stamped = { ...draft, resourceOrgId: conn.org ?? '', resourceClusterId: clusterId ?? '' }
+    const upgrade = telemetryUpgradeCommand(install, stamped, measurementsOn)
     // One block to paste, not two: the Secret the credential flags name is created first, and a failure
     // there (credential variable unset) stops everything before anything is upgraded.
-    const secret = telemetrySecretCommand(draft, measurementsOn)
+    const secret = telemetrySecretCommand(stamped, measurementsOn)
     return secret ? `${secret} && \\\n${upgrade}` : upgrade
-  }, [install, draft, measurementsOn])
+  }, [install, draft, measurementsOn, conn.org, clusterId])
 
   // A regional operator destination: its receiver wants a client certificate only the server can issue, so
   // there is no ready command - only an explicit "Generate" that asks the server for one (and issues a new
   // certificate every time it runs, which is why it never fires on render or on an edit).
-  const conn = useConn()
   const isAdmin = useServer((s) => atLeast(s.role, 'admin'))
   const operatorId = exportOperatorId(draft)
   const [operatorName, setOperatorName] = useState('')

@@ -208,13 +208,15 @@ describe('TelemetryFields guided mode', () => {
     expect(screen.getByTestId('telemetry-applicationMetrics')).toBeChecked()
   })
 
-  test('with nothing application-scoped, Continue skips straight to the destination step, then on to review', async () => {
+  test('with nothing application-scoped, Continue skips the scope step: process, destination, then review', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
     await gotoModality(user, 'infrastructure', 'metrics')
     await user.click(screen.getByTestId('telemetry-resourceUsage'))
     await user.click(screen.getByTestId('telemetry-guided-continue'))
     expect(screen.queryByTestId('telemetry-guided-step-scope')).not.toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-guided-step-process')).toBeInTheDocument()
+    await user.click(screen.getByTestId('telemetry-guided-continue'))
     expect(screen.getByTestId('telemetry-guided-step-destination')).toBeInTheDocument()
     await user.click(screen.getByTestId('telemetry-guided-destination-external-preset-honeycomb'))
     await user.click(screen.getByTestId('telemetry-guided-continue'))
@@ -235,14 +237,14 @@ describe('TelemetryFields guided mode', () => {
     expect(screen.getByTestId('telemetry-resourceUsage')).not.toBeChecked()
   })
 
-  test('removing the only application-scoped signal while its scope step is showing falls back to destination, not a pointless scope screen', async () => {
+  test('removing the only application-scoped signal while its scope step is showing falls back to the process step, not a pointless scope screen', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
     await gotoModality(user, 'application', 'metrics')
     expect(screen.getByTestId('telemetry-guided-step-scope')).toBeInTheDocument()
     await user.click(screen.getByTestId('telemetry-guided-chip-applicationMetrics-remove'))
     expect(screen.queryByTestId('telemetry-guided-step-scope')).not.toBeInTheDocument()
-    expect(screen.getByTestId('telemetry-guided-step-destination')).toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-guided-step-process')).toBeInTheDocument()
   })
 
   test('"Add another" loops back to the layer step, accumulating into one draft with a visible, removable chip for each pick', async () => {
@@ -259,7 +261,8 @@ describe('TelemetryFields guided mode', () => {
     await user.click(screen.getByTestId('telemetry-guided-modality-logs'))
     // application/logs is also a 1:1 match, landing straight on its scope step.
     expect(screen.getByTestId('telemetry-guided-step-scope')).toBeInTheDocument()
-    await user.click(screen.getByTestId('telemetry-guided-continue'))
+    await user.click(screen.getByTestId('telemetry-guided-continue')) // scope -> process
+    await user.click(screen.getByTestId('telemetry-guided-continue')) // process -> destination
     expect(screen.getByTestId('telemetry-guided-step-destination')).toBeInTheDocument()
     await user.click(screen.getByTestId('telemetry-guided-destination-external-preset-honeycomb'))
     await user.click(screen.getByTestId('telemetry-guided-continue'))

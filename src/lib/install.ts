@@ -177,7 +177,28 @@ export interface TelemetryInput {
    *  see processorCatalog.ts. Routed into the chart's own extraProcessors/extraProcessorNames escape
    *  hatch; the chart's own memory_limiter-first/batch-last pipeline skeleton is never touched. */
   extraProcessors: ProcessorEntry[]
+  /** Tags the person put on everything this install emits (`telemetry.resource.attributes`). At most
+   *  `TAG_LIMIT`, none under the reserved `continuum.` prefix - see `tagProblems`. */
+  tags: TagEntry[]
+  /** A debug exporter beside the real one, writing to the collector's own log: '' off, 'basic' counts what
+   *  passed (no content), 'detailed' logs every record's content. */
+  debugVerbosity: DebugVerbosity
+  /** Who this telemetry belongs to, stamped as continuum.org.id / continuum.cluster.id. Not a form field: the
+   *  panel fills them in from the signed-in organisation and the agent's cluster when it builds the command,
+   *  so the wizard never holds or shows them. Empty (a test, a standalone use) means not stamped. */
+  resourceOrgId: string
+  resourceClusterId: string
 }
+
+export interface TagEntry {
+  key: string
+  value: string
+}
+export type DebugVerbosity = '' | 'basic' | 'detailed'
+/** How many tags a person can add: each one is stamped on every record, so it costs storage and cardinality. */
+export const TAG_LIMIT = 8
+/** Names under this prefix are the provenance the chart stamps itself; a tag of one would be refused by it. */
+export const RESERVED_TAG_PREFIX = 'continuum.'
 
 export const emptyTelemetry: TelemetryInput = {
   resourceUsage: false,
@@ -210,6 +231,50 @@ export const emptyTelemetry: TelemetryInput = {
   redaction: true,
   tracesSamplingPercent: 100,
   extraProcessors: [],
+  tags: [],
+  // Count-only is on from the start: it is how someone sees that anything is flowing at all, and it
+  // records no content. Full-content logging is a deliberate choice, never a default.
+  debugVerbosity: 'basic',
+  resourceOrgId: '',
+  resourceClusterId: '',
+}
+
+/** What is wrong with a tag list, in words a person can act on. */
+export function tagProblems(tags: TagEntry[]): string[] {
+  const out: string[] = []
+  // A row nobody has typed into yet is not a tag (cleanTags drops it from the command too).
+  const filled = tags.filter((t) => t.key.trim() !== '' || t.value.trim() !== '')
+  if (filled.length > TAG_LIMIT) out.push(`At most ${TAG_LIMIT} tags: each is stamped on every record`)
+  const seen = new Set<string>()
+  for (const t of filled) {
+    const key = t.key.trim()
+    if (!key) {
+      out.push('Every tag needs a name')
+      continue
+    }
+    if (key.toLowerCase().startsWith(RESERVED_TAG_PREFIX)) out.push(`“${key}” starts with ${RESERVED_TAG_PREFIX}, which is reserved for what Continuum adds itself`)
+    if (/\s/.test(key)) out.push(`“${key}”: a tag name cannot contain spaces`)
+    if (seen.has(key)) out.push(`“${key}” is listed twice`)
+    seen.add(key)
+    if (!t.value.trim()) out.push(`“${key}” needs a value`)
+  }
+  return out
+}
+
+/** What the tags are stamped as: trimmed, and with nothing half-filled-in left over. */
+export const cleanTags = (tags: TagEntry[]): TagEntry[] => tags.map((t) => ({ key: t.key.trim(), value: t.value.trim() })).filter((t) => t.key !== '' || t.value !== '')
+
+/**
+ * What this telemetry covers, for the continuum.scope tag: the namespaces of the application signals that are
+ * narrowed ("shop; payments"), plus what they leave out ("- excluding legacy+tmp"). No commas: the value
+ * travels through `helm --set`. Empty when nothing is narrowed (everything the agent can see).
+ */
+export function scopeTag(t: TelemetryInput): string {
+  const scopes = [t.applicationMetrics && t.applicationMetricsScope, t.applicationLogs && t.applicationLogsScope, t.traces && t.tracesScope].filter((s): s is ScopeOverrideInput => !!s)
+  const only = [...new Set(scopes.flatMap((s) => s.namespaces))].sort()
+  const not = [...new Set(scopes.flatMap((s) => s.exclude))].sort()
+  if (only.length === 0 && not.length === 0) return ''
+  return `${only.length ? only.join('; ') : 'all namespaces'}${not.length ? ` - excluding ${not.join('+')}` : ''}`
 }
 
 /** The kind of signal a telemetry field carries - metrics, logs, or distributed traces. Lives here (not
@@ -268,6 +333,7 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   if (t.networkLatency && measurementsOn === false) out.push('Network latency re-emits the path measurements extra, so turn that on too, or it will report nothing')
   if (t.tracesSamplingPercent < 0 || t.tracesSamplingPercent > 100) out.push('Traces sampling must be between 0 and 100')
   out.push(...processorProblems(t.extraProcessors))
+  out.push(...tagProblems(t.tags))
   if (t.applicationMetrics) out.push(...namespaceListProblems([...t.applicationMetricsScope.namespaces, ...t.applicationMetricsScope.exclude]))
   if (t.applicationLogs) out.push(...namespaceListProblems([...t.applicationLogsScope.namespaces, ...t.applicationLogsScope.exclude]))
   if (t.traces) out.push(...namespaceListProblems([...t.tracesScope.namespaces, ...t.tracesScope.exclude]))
@@ -299,6 +365,12 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   const add = (flag: string) => { cmd += ` \\\n  --set ${flag}` }
   const addString = (flag: string, value: string) => { cmd += ` \\\n  --set-string ${flag}=${value}` }
   addString('telemetry.export.otlp.endpoint', t.exportEndpoint.trim())
+  // Who this belongs to, for every destination (an operator's server-built fragment states the same two, and
+  // the intent id, after this; helm takes the last). The scope and the tags are stated even when empty, for
+  // the --reuse-values reason below: clearing them has to actually clear them.
+  if (t.resourceOrgId) addString('telemetry.resource.orgId', t.resourceOrgId)
+  if (t.resourceClusterId) addString('telemetry.resource.clusterId', t.resourceClusterId)
+  addString('telemetry.resource.scope', scopeTag(t))
   if (t.exportProtocol !== 'grpc') add(`telemetry.export.otlp.protocol=${t.exportProtocol}`)
   if (t.exportInsecure) add('telemetry.export.otlp.tls.insecure=true')
   add(`telemetry.resourceUsage.metrics.enabled=${t.resourceUsage}`)
@@ -355,6 +427,10 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   add(`telemetry.processors.resourceDetection.enabled=${t.resourceDetection}`)
   add(`telemetry.processors.redaction.enabled=${t.redaction}`)
   add(`telemetry.processors.tracesSampling.percentage=${t.tracesSamplingPercent}`)
+  addString('telemetry.debug.verbosity', t.debugVerbosity)
+  // The tags are one JSON list (not a --set per key) because a list REPLACES what an earlier command set,
+  // where a map would keep every key since removed - the chart's field is a list for exactly this reason.
+  cmd += ` \\\n  --set-json telemetry.resource.attributes='${JSON.stringify(cleanTags(t.tags)).replace(/'/g, `'\\''`)}'`
   // Extra processors: the raw bodies all go in one --set-json (a map keyed by processorKey()), single-quoted
   // for the shell like any other multi-character value pasted into a terminal (unlike the simple tokens
   // addString/helmList above handle, a processor's JSON body can contain arbitrary characters, including a

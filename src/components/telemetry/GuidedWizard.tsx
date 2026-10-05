@@ -15,13 +15,14 @@ import { useSettings } from '@/store/settings'
 import { useTopology } from '@/store/topology'
 import DestinationStep from './DestinationStep'
 import GuidedScope from './GuidedScope'
+import ProcessStep from './ProcessStep'
 import { AllowedKindsControl } from './QuickStartBackends'
 import { AcceleratorsFields, EnergyFields, SignalRow, type SignalId } from './TelemetryFields'
 import TelemetryBackendWizard from './TelemetryBackendWizard'
 import TelemetryReviewPipeline from './TelemetryReviewPipeline'
 
 type Modality = 'metrics' | 'logs' | 'traces'
-type Step = 'layer' | 'modality' | 'kind' | 'scope' | 'destination' | 'review' | 'run'
+type Step = 'layer' | 'modality' | 'kind' | 'scope' | 'process' | 'destination' | 'review' | 'run'
 
 const MODALITY_META: Record<Modality, { label: string; icon: LucideIcon }> = {
   metrics: { label: 'Metrics', icon: Activity },
@@ -183,9 +184,9 @@ export default function GuidedWizard({
   // the "Define scope" screen simply never has a moment where it shows with nothing left to attach. This is
   // reachable now: removing a signal's chip (see SelectedChip above) while sitting on the scope step is
   // exactly that case.
-  // Same reasoning, but landing on Destination (not Review) now that it always sits between Scope and
-  // Review - Destination is still worth seeing even once there is nothing left to scope.
-  const step: Step = rawStep === 'scope' && !needsScope ? 'destination' : rawStep
+  // Same reasoning, but landing on Process (not Review): it, and Destination after it, are still worth
+  // seeing even once there is nothing left to scope.
+  const step: Step = rawStep === 'scope' && !needsScope ? 'process' : rawStep
 
   // Whether the rail shows 4 steps or 5 is latched at each actual step transition (see finishKind and
   // removeSignal below), not derived from `value` on every render like `needsScope` above: reading it live
@@ -196,9 +197,9 @@ export default function GuidedWizard({
   const [scopeStepNeeded, setScopeStepNeeded] = useState<boolean>(needsScope)
 
   const stepKeys: Step[] = scopeStepNeeded
-    ? ['layer', 'modality', 'kind', 'scope', 'destination', 'review', 'run']
-    : ['layer', 'modality', 'kind', 'destination', 'review', 'run']
-  const stepLabels: Record<Step, string> = { layer: 'Layer', modality: 'Modality', kind: 'Kind', scope: 'Scope', destination: 'Destination', review: 'Review', run: 'Run' }
+    ? ['layer', 'modality', 'kind', 'scope', 'process', 'destination', 'review', 'run']
+    : ['layer', 'modality', 'kind', 'process', 'destination', 'review', 'run']
+  const stepLabels: Record<Step, string> = { layer: 'Layer', modality: 'Modality', kind: 'Kind', scope: 'Scope', process: 'Process', destination: 'Destination', review: 'Review', run: 'Run' }
   const currentIndex = Math.max(0, stepKeys.indexOf(step))
 
   const modalities = layer ? [...new Set(TELEMETRY_SIGNALS.filter((s) => s.layer === layer).map((s) => s.modality))] : []
@@ -208,15 +209,15 @@ export default function GuidedWizard({
   // Review's "Create the command" needs something to put in it: at least one signal, and somewhere to send it.
   const canCreate = onSignals.length > 0 && value.exportEndpoint.trim() !== ''
 
-  // Where Back from Destination, and from Review, both land: whichever screen was last worth seeing
-  // before Destination - Scope when this session actually needed one, otherwise Kind (or, for a scope
-  // handed off from outside with no layer/modality ever picked, Layer itself).
-  const beforeDestination: Step = scopeStepNeeded ? 'scope' : layer && modality ? 'kind' : 'layer'
+  // Where Back from Process lands: whichever screen was last worth seeing before it - Scope when this
+  // session actually needed one, otherwise Kind (or, for a scope handed off from outside with no
+  // layer/modality ever picked, Layer itself).
+  const beforeProcess: Step = scopeStepNeeded ? 'scope' : layer && modality ? 'kind' : 'layer'
 
   const advancePastKind = (justTurnedOn?: SignalId) => {
     const willNeedScope = APP_SCOPED.some((k) => k === justTurnedOn || value[k])
     setScopeStepNeeded(willNeedScope)
-    setStep(willNeedScope ? 'scope' : 'destination')
+    setStep(willNeedScope ? 'scope' : 'process')
   }
 
   // Destination step: a modality-filtered merge of regional operators, external-backend presets and
@@ -263,7 +264,8 @@ export default function GuidedWizard({
 
   const enabledModalitySet = enabledModalities(value)
   // Receivers discovery already sees running in this cluster ("Found in your cluster").
-  const { services } = useTopology()
+  const { services, clusters } = useTopology()
+  const clusterName = clusterId ? clusters?.find((c) => c.id === clusterId)?.name : undefined
   const catalog = buildDestinationCatalog({
     services,
     clusterId,
@@ -427,9 +429,13 @@ export default function GuidedWizard({
                   Layer instead of unconditionally targeting 'kind' avoids landing on a blank step with no
                   controls at all - the dead end this used to be. */}
               <BackLink onClick={() => setStep(layer && modality ? 'kind' : 'layer')} testId={`${testIdPrefix}-guided-back`} />
-              <Button variant="primary" className="ml-auto" onClick={() => setStep('destination')} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
+              <Button variant="primary" className="ml-auto" onClick={() => setStep('process')} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
             </div>
           </div>
+        )}
+
+        {step === 'process' && (
+          <ProcessStep value={value} onChange={onChange} testIdPrefix={testIdPrefix} clusterName={clusterName} onBack={() => setStep(beforeProcess)} onContinue={() => setStep('destination')} />
         )}
 
         {step === 'destination' && (
@@ -444,7 +450,7 @@ export default function GuidedWizard({
             onChoose={setDestChoice}
             onDeployBackend={() => setBackendWizardOpen(true)}
             adminKindsControl={isAdmin ? <AllowedKindsControl allowed={effectiveAllowedBackendKinds(settings.allowedBackendKinds)} busy={kindsBusy} onChange={(kinds) => void saveAllowedKinds(kinds)} /> : undefined}
-            onBack={() => setStep(beforeDestination)}
+            onBack={() => setStep('process')}
             onContinue={() => setStep('review')}
           />
         )}
