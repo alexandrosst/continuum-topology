@@ -35,6 +35,8 @@ const sidebars: SidebarsConfig = {
         'architecture/telemetry-intent',
         'architecture/regional-operators',
         'architecture/fusion-api',
+        'architecture/fusion-grafana',
+        'architecture/regional-operators-lifecycle',
         'architecture/system-memory',
         'architecture/exposure-options',
       ],
