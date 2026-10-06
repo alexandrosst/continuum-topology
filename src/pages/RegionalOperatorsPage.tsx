@@ -7,6 +7,7 @@ import { FusionDot, FusionPanel, useFusion } from '@/components/operators/Fusion
 import { HEARTBEAT_WHAT, HeartbeatCommands } from '@/components/operators/HeartbeatCommands'
 import LocalOperatorsTab from '@/components/operators/LocalOperatorsTab'
 import { OperatorAddressModal } from '@/components/operators/OperatorAddress'
+import OperatorCertificatesModal from '@/components/operators/OperatorCertificatesModal'
 import OperatorCreated from '@/components/operators/OperatorCreated'
 import { OperatorHealth } from '@/components/operators/OperatorHealth'
 import RemoveOperatorModal from '@/components/operators/RemoveOperatorModal'
@@ -154,6 +155,7 @@ export default function RegionalOperatorsPage() {
   const [removing, setRemoving] = useState<{ operator: RegionalOperator; mode: 'revoke' | 'delete' } | null>(null)
   const [healthFor, setHealthFor] = useState<RegionalOperator | null>(null)
   const [addressFor, setAddressFor] = useState<RegionalOperator | null>(null)
+  const [certsFor, setCertsFor] = useState<RegionalOperator | null>(null)
 
   // Whichever category has something in it wins by default (regional if both do, or neither); the URL is the source of truth once a
   // person has picked one, so a tab is bookmarkable. Decided once, the first time the operators have settled, so the page cannot open
@@ -201,6 +203,7 @@ export default function RegionalOperatorsPage() {
     return [
       address,
       { key: 'health', label: isReportingHealth(op) ? 'Rotate health credential' : 'Enable health reporting', onSelect: () => setHealthFor(op), testId: `operator-health-open-${op.name}` },
+      { key: 'certs', label: 'Issued certificates', onSelect: () => setCertsFor(op), testId: `operator-certs-${op.name}` },
       { key: 'renew', label: 'Renew certificates', onSelect: () => void renew(op), testId: `operator-renew-${op.name}` },
       { key: 'revoke', label: 'Revoke…', danger: true, onSelect: () => setRemoving({ operator: op, mode: 'revoke' }), testId: `operator-revoke-${op.name}` },
       { key: 'delete', label: 'Delete…', danger: true, onSelect: () => setRemoving({ operator: op, mode: 'delete' }), testId: `operator-delete-${op.name}` },
@@ -372,6 +375,7 @@ export default function RegionalOperatorsPage() {
         />
       )}
 
+      {certsFor && <OperatorCertificatesModal operator={certsFor} clusterName={(id) => clusters.find((c) => c.id === id)?.name ?? ''} onClose={() => setCertsFor(null)} />}
       {addressFor && (
         <OperatorAddressModal operator={addressFor} central={addressFor.id === CENTRAL_OPERATOR_ID ? { service: fusion.status?.central?.service ?? '', namespace: fusion.status?.central?.namespace ?? '' } : undefined} onClose={() => setAddressFor(null)} onDone={() => { void reload(); void fusion.refresh() }} />
       )}

@@ -260,7 +260,7 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 	}
 
 	// A sender's client certificate, issued from the same CA, is accepted by it.
-	certPEM, _, caPEM, err := a.a.C.IssueOperatorClientCert(ctx, "alex", CentralOperatorID)
+	certPEM, _, caPEM, err := a.a.C.IssueOperatorClientCertFor(ctx, "alex", CentralOperatorID, "cl-test", "")
 	if err != nil || string(caPEM) != string(k.secret["ca.crt"]) {
 		t.Fatalf("client cert: %v (CA matches the gateway's: %v)", err, string(caPEM) == string(k.secret["ca.crt"]))
 	}

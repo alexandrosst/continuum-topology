@@ -409,17 +409,52 @@ func (ca *CA) IssueOperatorReceiverTLS(operatorID, orgID string, hosts []string)
 	return ca.issueLeaf(subject, OperatorTLSTTL, x509.ExtKeyUsageServerAuth, hosts)
 }
 
-// IssueOperatorClientTLS mints the client certificate every one of an operator's source clusters
-// presents to that operator's receiver, so its mTLS check (when enabled) has something real, signed by
-// this same CA, to verify - not just a bearer token over a handshake nothing authenticated. One
-// certificate is shared by every source cluster of the operator, the same granularity its receiver
-// bearer token already uses.
-func (ca *CA) IssueOperatorClientTLS(operatorID, orgID string) (certPEM, keyPEM []byte, err error) {
+// IssueOperatorClientTLS mints the client certificate ONE sender presents to that operator's receiver, so its mTLS
+// check has something real, signed by the operator's own CA, to verify. The sender (the cluster, or the operator, that
+// will hold the key) is named in the certificate's CN, `<operator>-export-<sender>`, so a receiver or an audit can tell
+// two senders apart and the server can say which certificate went to whom. The receiver trusts the CA, not a CN, so
+// this changes nothing about who is let in; what it gives is attribution and a per-sender record (see store.OperatorCert).
+// An empty sender is the operator-level identity, `<operator>-export`.
+func (ca *CA) IssueOperatorClientTLS(operatorID, orgID, sender string) (certPEM, keyPEM []byte, err error) {
 	if operatorID == "" {
 		return nil, nil, errors.New("pki: operator id required")
 	}
-	subject := pkix.Name{CommonName: operatorID + "-export", Organization: []string{orgID}}
+	cn := operatorID + "-export"
+	if sender != "" {
+		cn += "-" + senderLabel(sender, maxCommonName-len(cn)-1)
+	}
+	subject := pkix.Name{CommonName: cn, Organization: []string{orgID}}
 	return ca.issueLeaf(subject, OperatorTLSTTL, x509.ExtKeyUsageClientAuth, nil)
+}
+
+// maxCommonName is the longest CN X.509 allows (RFC 5280 ub-common-name).
+const maxCommonName = 64
+
+// senderLabel makes a sender's name safe and short enough for a CN: letters, digits, dot, underscore and hyphen only,
+// and at most max characters. A name that had to be changed to fit keeps a short hash of the original at its end, so two
+// different senders never share a label.
+func senderLabel(sender string, max int) string {
+	clean := make([]byte, 0, len(sender))
+	changed := false
+	for i := 0; i < len(sender); i++ {
+		c := sender[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '.', c == '_', c == '-':
+			clean = append(clean, c)
+		default:
+			clean = append(clean, '-')
+			changed = true
+		}
+	}
+	if !changed && len(clean) <= max {
+		return string(clean)
+	}
+	sum := sha256.Sum256([]byte(sender))
+	tag := "-" + hex.EncodeToString(sum[:3])
+	if len(clean) > max-len(tag) {
+		clean = clean[:max-len(tag)]
+	}
+	return string(clean) + tag
 }
 
 // OperatorCATTL is how long a per-operator CA certificate is valid: five years, comfortably longer than the
@@ -578,13 +613,18 @@ func (s *ServerCerts) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, er
 // NotAfter is when the first certificate in a PEM block stops being valid: what the server records about a
 // certificate it issues and then forgets (the private key and the certificate itself are shown once, never kept).
 func NotAfter(certPEM []byte) (time.Time, error) {
-	b, _ := pem.Decode(certPEM)
-	if b == nil {
-		return time.Time{}, errors.New("pki: not a PEM certificate")
-	}
-	c, err := x509.ParseCertificate(b.Bytes)
+	c, err := ParseCertificate(certPEM)
 	if err != nil {
 		return time.Time{}, err
 	}
 	return c.NotAfter, nil
+}
+
+// ParseCertificate decodes the first PEM certificate in certPEM.
+func ParseCertificate(certPEM []byte) (*x509.Certificate, error) {
+	b, _ := pem.Decode(certPEM)
+	if b == nil {
+		return nil, errors.New("pki: not a PEM certificate")
+	}
+	return x509.ParseCertificate(b.Bytes)
 }

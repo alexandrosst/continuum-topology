@@ -111,23 +111,30 @@ func TestInstallCommandQuotesEveryInterpolatedValue(t *testing.T) {
 	}
 }
 
-// Source clusters are told the whole destination block, and the client certificate Secret goes once per namespace:
-// two clusters sharing a namespace name do not repeat the private key.
-func TestSourceRemindersStateTheWholeBlockAndOneSecretPerNamespace(t *testing.T) {
+// Source clusters are told the whole destination block, and each gets a Secret with ITS OWN client certificate (a key
+// is never shared between clusters, even when their namespaces have the same name).
+func TestSourceRemindersStateTheWholeBlockAndOneSecretPerCluster(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", RoleAdmin)
 	clA, clB := a.approvedCluster(t, fp), a.approvedCluster(t, fp2)
 	created := a.createOperatorDoc(t, cookie, extBody("athens", clA, clB))
 	id := created["operator"].(map[string]any)["id"].(string)
 	reminders := created["reminders"].([]any)
-	if len(reminders) != 3 {
-		t.Fatalf("want one Secret and two upgrades, got %d: %v", len(reminders), reminders)
+	if len(reminders) != 4 {
+		t.Fatalf("want a Secret and an upgrade per cluster, got %d: %v", len(reminders), reminders)
 	}
-	secret := reminders[0].(string)
-	if !strings.HasPrefix(secret, "# in cluster "+clA+", "+clB+" (namespace continuum-system)") || strings.Count(secret, "BEGIN EC PRIVATE KEY") != 1 {
-		t.Fatalf("secret reminder:\n%s", secret)
+	keys := map[string]bool{}
+	for i, cl := range []string{clA, clB} {
+		secret := reminders[i].(string)
+		if !strings.HasPrefix(secret, "# in cluster "+cl+" (namespace continuum-system)") || strings.Count(secret, "BEGIN EC PRIVATE KEY") != 1 {
+			t.Fatalf("secret reminder for %s:\n%s", cl, secret)
+		}
+		keys[secret[strings.Index(secret, "BEGIN EC PRIVATE KEY"):][:80]] = true
 	}
-	for _, r := range reminders[1:] {
+	if len(keys) != 2 {
+		t.Fatal("two clusters were given the same private key")
+	}
+	for _, r := range reminders[2:] {
 		up := r.(string)
 		for _, want := range []string{"--reuse-values", "--set telemetry.export.otlp.endpoint=" + operatorServiceName(id) + ".continuum-system.svc:4317", "--set telemetry.export.otlp.protocol=grpc",
 			"--set telemetry.export.otlp.tls.insecure=false", "--set telemetry.export.otlp.tls.caFile= ", "--set telemetry.export.otlp.tls.mtls.enabled=true",
@@ -195,7 +202,7 @@ func TestScopeUpdateIssuesAClientCertOnlyWhenAClusterIsGained(t *testing.T) {
 	}
 	doc = scope(clA, clB)
 	n, detail := e.countAudit(t, "operator-client-cert-reissued")
-	if n != before+1 || !strings.Contains(detail, "clusters="+clB) {
+	if n != before+1 || !strings.Contains(detail, "cluster="+clB) {
 		t.Fatalf("audit entries %d (%q)", n-before, detail)
 	}
 	if rem := doc["reminders"].([]any); len(rem) != 3 || !strings.Contains(rem[0].(string), "kind: Secret") {

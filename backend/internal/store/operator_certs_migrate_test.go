@@ -133,8 +133,8 @@ func TestASchemaFifteenDatabaseWithRowsMigratesToSixteenIntact(t *testing.T) {
 		t.Fatalf("opening a version 15 database: %v", err)
 	}
 	var v int
-	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 16 {
-		t.Fatalf("user_version = %d (%v), want 16", v, err)
+	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
+		t.Fatalf("user_version = %d (%v), want %d", v, err, SchemaVersion)
 	}
 	ops, err := st.ListOperators(ctx, "org-1")
 	if err != nil || len(ops) != 4 {

@@ -226,14 +226,21 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 		if out.TLS.ReceiverCertPEM, out.TLS.ReceiverKeyPEM, err = issuer.IssueOperatorReceiverTLS(op.ID, c.OrgID, operatorReceiverHosts(op.ID)); err != nil {
 			return store.Operator{}, out, err
 		}
-		if out.TLS.ClientCertPEM, out.TLS.ClientKeyPEM, err = issuer.IssueOperatorClientTLS(op.ID, c.OrgID); err != nil {
-			return store.Operator{}, out, err
+		r := certNotAfter(out.TLS.ReceiverCertPEM)
+		if r == nil {
+			return store.Operator{}, out, fmt.Errorf("the certificate just issued could not be read back")
 		}
-		r, cl := certNotAfter(out.TLS.ReceiverCertPEM), certNotAfter(out.TLS.ClientCertPEM)
-		if r == nil || cl == nil {
-			return store.Operator{}, out, fmt.Errorf("the certificates just issued could not be read back")
+		recvEnd = *r
+		// One certificate per source cluster, each naming its holder. Unlike at creation a failure here is the
+		// request's failure: this call exists to hand them out.
+		for _, cl := range op.SourceClusterIDs {
+			certPEM, keyPEM, _, err := c.IssueOperatorClientCertFor(ctx, actor, op.ID, cl, "cluster="+cl+" (install again)")
+			if err != nil {
+				return store.Operator{}, out, err
+			}
+			out.TLS.Senders = append(out.TLS.Senders, SenderCert{Sender: cl, CertPEM: certPEM, KeyPEM: keyPEM})
 		}
-		recvEnd, clientEnd = *r, *cl
+		clientEnd = recvEnd // client certificates are minted with the same lifetime
 		did = append(did, "certificates until "+recvEnd.UTC().Format("2006-01-02"))
 	} else {
 		if out.ReceiverToken, err = NewOperatorReceiverSecret(); err != nil {
@@ -270,6 +277,11 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 		return store.Operator{}, OperatorReissue{}, err
 	}
 	op, err = c.operatorInOrg(ctx, id)
+	if err == nil && len(out.TLS.ReceiverCertPEM) > 0 {
+		if rerr := c.recordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", out.TLS.ReceiverCertPEM); rerr != nil {
+			c.Log.Error("receiver certificate not recorded in the ledger", "operator", op.ID, "err", rerr)
+		}
+	}
 	return op, out, err
 }
 

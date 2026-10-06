@@ -383,6 +383,42 @@ func (a *Admin) reissueOperatorInstall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, a.operatorInstallDoc(r, op, installMaterial{Secret: mat.ReceiverToken, TLS: mat.TLS, HeartbeatSecret: mat.HeartbeatSecret, Reissue: true}))
 }
 
+// issuedCertDoc is one ledger entry. state is "ok", "expiring" (inside the first warning threshold) or "expired",
+// judged by the same thresholds as the operator's own certState.
+type issuedCertDoc struct {
+	Serial    string `json:"serial"`
+	Kind      string `json:"kind"`
+	Subject   string `json:"subject"`
+	Sender    string `json:"sender,omitempty"`
+	IssuedBy  string `json:"issuedBy"`
+	IssuedAt  string `json:"issuedAt"`
+	NotBefore string `json:"notBefore"`
+	NotAfter  string `json:"notAfter"`
+	State     string `json:"state"`
+}
+
+// listOperatorCertificates answers "which certificates exist for this operator, who holds them, and when do they
+// stop": the ledger newest first. It never returns a certificate or key.
+func (a *Admin) listOperatorCertificates(w http.ResponseWriter, r *http.Request) {
+	core := a.core(r)
+	certs, err := core.OperatorCertificates(r.Context(), r.PathValue("id"))
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	now := core.Now()
+	out := make([]issuedCertDoc, 0, len(certs))
+	for _, c := range certs {
+		end := c.NotAfter
+		state := OperatorCerts{Receiver: &end}.certState(now)
+		out = append(out, issuedCertDoc{
+			Serial: c.Serial, Kind: string(c.Kind), Subject: c.Subject, Sender: c.Sender, IssuedBy: c.IssuedBy,
+			IssuedAt: rfc(c.IssuedAt), NotBefore: rfc(c.NotBefore), NotAfter: rfc(c.NotAfter), State: state,
+		})
+	}
+	writeJSON(w, 200, map[string]any{"certificates": out})
+}
+
 // operatorRestartCommand restarts the operator's pods, which is how they pick up a Secret read into the environment.
 func operatorRestartCommand(op store.Operator) string {
 	return fmt.Sprintf("kubectl rollout restart deployment/%s --namespace continuum-system", operatorServiceName(op.ID))
@@ -453,17 +489,14 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	// A client certificate is minted only when the scope gained a cluster: that cluster has none yet. The ones already
+	// A client certificate is minted only for a cluster the scope gained: it has none yet. The ones already
 	// configured keep the certificate they have (it stays valid until it expires; renewing is the install route's
 	// job), so a scope change that adds nobody costs no certificate and no key derivation. Nothing about the
-	// previously issued ones stops working either: there is no per-certificate revocation here.
-	// IssueOperatorClientCertFor signs with the operator's own CA when it has one and hands back that CA's
-	// certificate, so the Secret in the reminders trusts what the receiver trusts (and audits the reissue).
+	// previously issued ones stops working either: there is no per-certificate revocation here. Each gained
+	// cluster gets its own, naming it, signed by the operator's own CA, whose certificate the receiver trusts.
 	var tlsBundle OperatorTLSBundle
 	if gained := clustersGained(before.SourceClusterIDs, op.SourceClusterIDs); len(gained) > 0 {
-		if clientCert, clientKey, caPEM, tlsErr := a.core(r).IssueOperatorClientCertFor(r.Context(), actor(r), op.ID, "clusters="+strings.Join(gained, ",")); tlsErr == nil {
-			tlsBundle = OperatorTLSBundle{ClientCertPEM: clientCert, ClientKeyPEM: clientKey, CACertPEM: caPEM}
-		}
+		tlsBundle.Senders, tlsBundle.CACertPEM = a.core(r).mintSenderCerts(r.Context(), actor(r), op, gained)
 	}
 	resp := map[string]any{"operator": a.opDoc(r, op), "reminders": a.operatorSourceReminders(r, op, tlsBundle)}
 	a.addOperatorTargetExport(r, resp, op)
@@ -640,7 +673,7 @@ func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op
 		return
 	}
 	target = a.advertised(target)
-	certPEM, keyPEM, caPEM, err := core.IssueOperatorClientCertFor(r.Context(), actor(r), target.ID, "for="+op.ID)
+	certPEM, keyPEM, caPEM, err := core.IssueOperatorClientCertFor(r.Context(), actor(r), target.ID, op.ID, "for="+op.ID)
 	if err != nil || len(certPEM) == 0 {
 		return
 	}
@@ -839,8 +872,6 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 	}
 	type target struct{ cluster, ns, name string }
 	targets := make([]target, 0, len(op.SourceClusterIDs))
-	clustersIn := map[string][]string{}
-	var namespaces []string
 	for _, cl := range op.SourceClusterIDs {
 		ag, ok := byCluster[cl]
 		ns, name := "", ""
@@ -849,22 +880,23 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 		}
 		rns, rname, _ := releaseTarget(ns, name)
 		targets = append(targets, target{cl, rns, rname})
-		if _, seen := clustersIn[rns]; !seen {
-			namespaces = append(namespaces, rns)
-		}
-		clustersIn[rns] = append(clustersIn[rns], cl)
 	}
-	out := make([]string, 0, len(namespaces)+len(targets))
-	for _, ns := range namespaces {
-		if _, secretCmd := operatorDestinationCommand(op, a.operatorEndpoint(op), tlsBundle.ClientCertPEM, tlsBundle.ClientKeyPEM, tlsBundle.CACertPEM, ns); secretCmd != "" {
-			out = append(out, fmt.Sprintf("# in cluster %s (namespace %s): create the client certificate Secret first\n%s", strings.Join(clustersIn[ns], ", "), ns, secretCmd))
+	out := make([]string, 0, 2*len(targets))
+	// Each cluster holds its own client certificate (see OperatorTLSBundle.Senders), so each gets its own Secret
+	// command, in its own namespace. Only wired in when that certificate was minted (see CreateOperator on why
+	// that can fail without failing the operator): this is additive, the bearer token alone still works without it.
+	for _, t := range targets {
+		sc, ok := tlsBundle.forSender(t.cluster)
+		if !ok {
+			continue
+		}
+		if _, secretCmd := operatorDestinationCommand(op, a.operatorEndpoint(op), sc.CertPEM, sc.KeyPEM, tlsBundle.CACertPEM, t.ns); secretCmd != "" {
+			out = append(out, fmt.Sprintf("# in cluster %s (namespace %s): create its client certificate Secret first\n%s", t.cluster, t.ns, secretCmd))
 		}
 	}
 	for _, t := range targets {
-		// Only wired in here when CreateOperator actually minted the client certificate (see its own
-		// comment on why that mint can fail without failing operator creation itself) - this is additive,
-		// the bearer token alone still works without it.
-		setFlags, _ := operatorDestinationCommand(op, a.operatorEndpoint(op), tlsBundle.ClientCertPEM, tlsBundle.ClientKeyPEM, tlsBundle.CACertPEM, t.ns)
+		sc, _ := tlsBundle.forSender(t.cluster)
+		setFlags, _ := operatorDestinationCommand(op, a.operatorEndpoint(op), sc.CertPEM, sc.KeyPEM, tlsBundle.CACertPEM, t.ns)
 		upgrade := fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reuse-values %s", shellArg(t.name), ref, version, shellArg(t.ns), setFlags)
 		out = append(out, upgrade+fmt.Sprintf("  # cluster %s", t.cluster))
 	}

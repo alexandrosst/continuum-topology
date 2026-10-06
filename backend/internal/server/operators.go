@@ -23,12 +23,30 @@ import (
 // pki.CA.NewOperatorCA, pki.IssueOperatorReceiverTLS and pki.IssueOperatorClientTLS.
 type OperatorTLSBundle struct {
 	ReceiverCertPEM, ReceiverKeyPEM []byte
-	ClientCertPEM, ClientKeyPEM     []byte
 	CACertPEM                       []byte
+	// Senders are the client certificates minted for this operator's source clusters, one each, in the order the
+	// clusters are listed: a cluster holds its own key and the ledger (store.OperatorCert) says which certificate went where.
+	Senders []SenderCert
+}
+
+// SenderCert is the client certificate and key minted for one sender of an operator.
+type SenderCert struct {
+	Sender          string
+	CertPEM, KeyPEM []byte
+}
+
+// forSender is the certificate minted for sender, ok false when none was.
+func (b OperatorTLSBundle) forSender(sender string) (SenderCert, bool) {
+	for _, s := range b.Senders {
+		if s.Sender == sender {
+			return s, true
+		}
+	}
+	return SenderCert{}, false
 }
 
 // mintOperatorTLS gives a new operator its own private CA and issues, from THAT CA, the receiver server
-// certificate and the client certificate its source clusters present. bundle.CACertPEM is the operator CA's
+// certificate. Its source clusters' client certificates are minted afterwards, one each (mintSenderCerts). bundle.CACertPEM is the operator CA's
 // certificate (never the org CA's); caKeyPEM is the CA's private key sealed like the org CA key, for the
 // caller to store - it is not part of the bundle so nothing that renders a bundle can leak it. A variable
 // only so a test can make the mint fail - the one path (it cannot fail in practice) on which CreateOperator
@@ -40,9 +58,6 @@ var mintOperatorTLS = func(c *Core, operatorID string, hosts []string) (bundle O
 	}
 	bundle.CACertPEM = caCertPEM
 	if bundle.ReceiverCertPEM, bundle.ReceiverKeyPEM, err = issuer.IssueOperatorReceiverTLS(operatorID, c.OrgID, hosts); err != nil {
-		return OperatorTLSBundle{}, nil, err
-	}
-	if bundle.ClientCertPEM, bundle.ClientKeyPEM, err = issuer.IssueOperatorClientTLS(operatorID, c.OrgID); err != nil {
 		return OperatorTLSBundle{}, nil, err
 	}
 	return bundle, caKeyPEM, nil
@@ -269,6 +284,8 @@ type OperatorOptions struct {
 
 // CreateOperatorWithOptions is CreateOperatorWithHeartbeat with the options named.
 func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality, opts OperatorOptions) (store.Operator, string, OperatorTLSBundle, string, error) {
+	c.depMu.RLock() // see Core.depMu
+	defer c.depMu.RUnlock()
 	heartbeat := opts.Heartbeat
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxOperatorName {
@@ -331,7 +348,8 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 	if tlsErr == nil {
 		op.ReceiverAuth = store.ReceiverAuthMTLS
 		op.ClientCACertPEM, op.ClientCAKeyPEM = bundle.CACertPEM, caKeyPEM
-		op.ReceiverNotAfter, op.ClientNotAfter = certNotAfter(bundle.ReceiverCertPEM), certNotAfter(bundle.ClientCertPEM)
+		op.ReceiverNotAfter = certNotAfter(bundle.ReceiverCertPEM)
+		op.ClientNotAfter = op.ReceiverNotAfter // client certificates are minted with it, for the same time
 	} else {
 		var err error
 		if secret, err = NewOperatorReceiverSecret(); err != nil {
@@ -357,7 +375,25 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 		c.audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, tlsErr.Error())
 		return op, secret, OperatorTLSBundle{}, hbSecret, nil
 	}
+	if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", bundle.ReceiverCertPEM); err != nil {
+		c.Log.Error("receiver certificate not recorded in the ledger", "operator", op.ID, "err", err)
+	}
+	bundle.Senders, _ = c.mintSenderCerts(ctx, actor, op, op.SourceClusterIDs)
 	return op, secret, bundle, hbSecret, nil
+}
+
+// mintSenderCerts issues each of clusters its own client certificate from op's CA. One that cannot be issued is left out
+// and audited, not fatal: the operator exists, and Renew certificates issues them again.
+func (c *Core) mintSenderCerts(ctx context.Context, actor string, op store.Operator, clusters []string) (out []SenderCert, caPEM []byte) {
+	for _, cl := range clusters {
+		certPEM, keyPEM, ca, err := c.IssueOperatorClientCertFor(ctx, actor, op.ID, cl, "cluster="+cl)
+		if err != nil {
+			c.audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, "client certificate for "+cl+": "+err.Error())
+			continue
+		}
+		out, caPEM = append(out, SenderCert{Sender: cl, CertPEM: certPEM, KeyPEM: keyPEM}), ca
+	}
+	return out, caPEM
 }
 
 func (c *Core) GetOperator(ctx context.Context, id string) (store.Operator, error) {
@@ -372,6 +408,8 @@ func (c *Core) ListOperators(ctx context.Context) ([]store.Operator, error) {
 // live reparenting here (see the plan): applying the corresponding change to each source cluster's own
 // agent release remains a manual step, printed as a reminder by operatorInstallCommand.
 func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality) error {
+	c.depMu.RLock() // see Core.depMu
+	defer c.depMu.RUnlock()
 	if err := guardCentral(id); err != nil {
 		return err
 	}
@@ -575,6 +613,8 @@ func (c *Core) RevokeOperatorForce(ctx context.Context, actor, id, reason string
 	if err := guardCentral(id); err != nil {
 		return err
 	}
+	c.depMu.Lock() // the dependents check and the revoke are one step: see Core.depMu
+	defer c.depMu.Unlock()
 	if _, err := c.operatorInOrg(ctx, id); err != nil {
 		return err
 	}
@@ -605,6 +645,8 @@ func (c *Core) DeleteOperatorForce(ctx context.Context, actor, id string, force 
 	if err := guardCentral(id); err != nil {
 		return err
 	}
+	c.depMu.Lock() // the dependents check and the delete are one step: see Core.depMu
+	defer c.depMu.Unlock()
 	if _, err := c.operatorInOrg(ctx, id); err != nil {
 		return err
 	}
@@ -644,22 +686,16 @@ func (c *Core) operatorIssuer(ctx context.Context, op store.Operator) (*pki.CA, 
 	return issuer, issuer.CertPEM(), nil
 }
 
-// IssueOperatorClientCert mints a fresh mTLS client certificate for an existing operator's receiver,
-// on demand - for a cluster granted a TelemetryIntent pointing at this operator after its creation,
-// which never received the one shared client cert minted (and shown once, never stored) at CreateOperator
-// time. Safe to call repeatedly: the operator's receiver trusts its CA via client_ca_file, not one pinned
-// certificate, so every certificate this mints validates identically. The CA is the operator's own private
-// one when it has one (see operatorIssuer) and the returned caPEM is that CA's certificate, the one the
-// receiver trusts - never the org CA's for such an operator. Not stored server-side, same rule every
-// certificate/secret in this app follows - returned once, to be put directly into a Kubernetes Secret the
-// admin creates.
-func (c *Core) IssueOperatorClientCert(ctx context.Context, actor, operatorID string) (certPEM, keyPEM, caPEM []byte, err error) {
-	return c.IssueOperatorClientCertFor(ctx, actor, operatorID, "")
-}
-
-// IssueOperatorClientCertFor is IssueOperatorClientCert that also records in the audit entry what the certificate is
-// for ("cluster=cl-a", "intent=ti-1 cluster=cl-a"), so the trail says which of an operator's senders it went to.
-func (c *Core) IssueOperatorClientCertFor(ctx context.Context, actor, operatorID, forWhat string) (certPEM, keyPEM, caPEM []byte, err error) {
+// IssueOperatorClientCertFor mints a fresh mTLS client certificate for ONE sender of an existing operator's receiver
+// (sender: the cluster, or the operator, that will hold the key; it is named in the certificate), on demand: for a
+// cluster granted a TelemetryIntent pointing at this operator, a cluster added to its scope, or an operator that exports
+// to it. Safe to call repeatedly: the receiver trusts the operator's CA via client_ca_file, not one pinned certificate,
+// so every certificate this mints validates identically. The CA is the operator's own private one when it has one (see
+// operatorIssuer) and caPEM is that CA's certificate, the one the receiver trusts. The certificate and key are returned
+// once, to be put into a Kubernetes Secret, and never stored; what IS stored is the ledger entry (store.OperatorCert:
+// serial, subject, sender, dates, by whom), and a certificate that cannot be recorded is not handed out. forWhat is
+// extra words for the audit entry ("intent=ti-1 cluster=cl-a").
+func (c *Core) IssueOperatorClientCertFor(ctx context.Context, actor, operatorID, sender, forWhat string) (certPEM, keyPEM, caPEM []byte, err error) {
 	op, err := c.operatorInOrg(ctx, operatorID)
 	if err != nil {
 		return nil, nil, nil, err
@@ -671,15 +707,14 @@ func (c *Core) IssueOperatorClientCertFor(ctx context.Context, actor, operatorID
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	certPEM, keyPEM, err = issuer.IssueOperatorClientTLS(op.ID, c.OrgID)
+	certPEM, keyPEM, err = issuer.IssueOperatorClientTLS(op.ID, c.OrgID, sender)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	// Side-effect-free beyond the mint above: nothing is stored, so this is recorded with the
-	// fire-and-forget c.audit rather than c.audited (which wraps a do func() error for a store mutation
-	// that must not happen unseen - see CreateOperator's own "operator-tls-mint-failed" for the same
-	// reasoning when a TLS mint itself is what is being logged). Only which CA signed it is recorded
-	// ("operator" or the legacy "org"), never any key material.
+	if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertClient, sender, certPEM); err != nil {
+		return nil, nil, nil, err
+	}
+	// Only which CA signed it is audited ("operator" or the legacy "org"), never any key material.
 	scope := op.ClientCAScope()
 	if scope == "" {
 		scope = store.ClientCAScopeOrg // a bearer operator's optional client cert is signed by the org CA
@@ -690,4 +725,24 @@ func (c *Core) IssueOperatorClientCertFor(ctx context.Context, actor, operatorID
 	}
 	c.audit(ctx, actor, "operator-client-cert-reissued", "operator", op.ID, detail)
 	return certPEM, keyPEM, caPEM, nil
+}
+
+// recordOperatorCert writes the ledger entry for a certificate just issued: what it is, whose, and when it ends.
+func (c *Core) recordOperatorCert(ctx context.Context, actor string, op store.Operator, kind store.OperatorCertKind, sender string, certPEM []byte) error {
+	cert, err := pki.ParseCertificate(certPEM)
+	if err != nil {
+		return fmt.Errorf("the certificate just issued could not be read back: %w", err)
+	}
+	return c.Store.AddOperatorCert(ctx, store.OperatorCert{
+		Serial: cert.SerialNumber.Text(16), OrgID: c.OrgID, OperatorID: op.ID, Kind: kind, Subject: cert.Subject.CommonName,
+		Sender: sender, IssuedBy: actor, IssuedAt: c.Now(), NotBefore: cert.NotBefore, NotAfter: cert.NotAfter,
+	})
+}
+
+// OperatorCertificates is the ledger of what was issued for an operator, newest first.
+func (c *Core) OperatorCertificates(ctx context.Context, id string) ([]store.OperatorCert, error) {
+	if _, err := c.operatorInOrg(ctx, id); err != nil {
+		return nil, err
+	}
+	return c.Store.ListOperatorCerts(ctx, id)
 }

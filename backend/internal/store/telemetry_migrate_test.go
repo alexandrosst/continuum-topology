@@ -10,7 +10,7 @@ import (
 // TestSchemaLandsOnTheCurrentVersionAfterMigrations checks the migrations' own version bumps - a fresh
 // database (or one upgraded from any earlier version, which migrateWebAuthn's own sibling migrations
 // already exercise) ends up at the current SchemaVersion once OpenSQLite returns. (Named for 8 while
-// migrateTelemetry was the newest; migrateHeartbeat made it 9 and migrateReceiverAuth 10 and migrateOperatorCA 11, and so on up to migrateOperatorCerts 16 - see heartbeat_test.go, receiver_auth_test.go and operator_ca_test.go.)
+// migrateTelemetry was the newest; migrateHeartbeat made it 9 and migrateReceiverAuth 10 and migrateOperatorCA 11, and so on up to migrateOperatorLedger 17 - see heartbeat_test.go, receiver_auth_test.go and operator_ca_test.go.)
 func TestSchemaLandsOnTheCurrentVersionAfterMigrations(t *testing.T) {
 	st, err := OpenSQLite(filepath.Join(t.TempDir(), "s.db"))
 	if err != nil {
@@ -21,8 +21,8 @@ func TestSchemaLandsOnTheCurrentVersionAfterMigrations(t *testing.T) {
 	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != 16 || SchemaVersion != 16 {
-		t.Fatalf("user_version = %d, SchemaVersion = %d, want both 16", v, SchemaVersion)
+	if v != 17 || SchemaVersion != 17 {
+		t.Fatalf("user_version = %d, SchemaVersion = %d, want both 17", v, SchemaVersion)
 	}
 }
 

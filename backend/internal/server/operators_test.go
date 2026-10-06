@@ -52,7 +52,7 @@ func TestCreateOperatorHappyPathIsMTLSOnlyWithNoReceiverToken(t *testing.T) {
 	if secret != "" {
 		t.Fatalf("an mTLS operator must not be handed a receiver bearer token, got %q", secret)
 	}
-	if len(bundle.ReceiverCertPEM) == 0 || len(bundle.ClientCertPEM) == 0 {
+	if len(bundle.ReceiverCertPEM) == 0 || len(bundle.Senders) != 1 {
 		t.Fatal("the TLS material that IS the receiver's gate was not minted")
 	}
 	if op.Status != store.OperatorActive || len(op.SourceClusterIDs) != 1 || op.SourceClusterIDs[0] != cl || op.ReceiverAuth != store.ReceiverAuthMTLS {
@@ -249,7 +249,7 @@ func TestIssueOperatorClientCertReissuesOnDemand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	certPEM, keyPEM, caPEM, err := e.core.IssueOperatorClientCert(e.ctx, "alex", op.ID)
+	certPEM, keyPEM, caPEM, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestIssueOperatorClientCertReissuesOnDemand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invalid certificate: %v", err)
 	}
-	if cert.Subject.CommonName != op.ID+"-export" {
+	if cert.Subject.CommonName != op.ID+"-export-cl-test" {
 		t.Fatalf("client identity = %v", cert.Subject)
 	}
 	if kb, _ := pem.Decode(keyPEM); kb == nil || kb.Type != "EC PRIVATE KEY" {
@@ -273,7 +273,7 @@ func TestIssueOperatorClientCertReissuesOnDemand(t *testing.T) {
 
 	// "On demand" means on demand, not minted once and cached: a second call returns a second,
 	// independently valid certificate rather than replaying the first.
-	certPEM2, _, _, err := e.core.IssueOperatorClientCert(e.ctx, "alex", op.ID)
+	certPEM2, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,11 +284,11 @@ func TestIssueOperatorClientCertReissuesOnDemand(t *testing.T) {
 	if err := e.core.RevokeOperator(e.ctx, "alex", op.ID, "decommissioned"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := e.core.IssueOperatorClientCert(e.ctx, "alex", op.ID); kindOf(err) != KindConflict {
+	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", ""); kindOf(err) != KindConflict {
 		t.Fatalf("expected KindConflict reissuing for a revoked operator, got %v", err)
 	}
 
-	if _, _, _, err := e.core.IssueOperatorClientCert(e.ctx, "alex", "op-does-not-exist"); kindOf(err) != KindNotFound {
+	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", "op-does-not-exist", "cl-test", ""); kindOf(err) != KindNotFound {
 		t.Fatalf("expected KindNotFound reissuing for an unknown operator, got %v", err)
 	}
 
@@ -296,7 +296,7 @@ func TestIssueOperatorClientCertReissuesOnDemand(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := e.base.ForOrg("org-2")
-	if _, _, _, err := other.IssueOperatorClientCert(e.ctx, "alex", op.ID); kindOf(err) != KindNotFound {
+	if _, _, _, err := other.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", ""); kindOf(err) != KindNotFound {
 		t.Fatalf("expected KindNotFound reissuing for another organisation's operator, got %v", err)
 	}
 }

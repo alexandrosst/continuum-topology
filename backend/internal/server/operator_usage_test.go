@@ -110,3 +110,33 @@ func TestAnIntentWithSeveralRoutesToOneOperatorCountsOnce(t *testing.T) {
 		}
 	}
 }
+
+// Revoking an operator while something starts sending to it must not leave an active sender with nowhere to send: the
+// dependents check and the revoke are one step, so whichever of the two comes second sees the other.
+func TestRevokeAndANewSenderNeverBothSucceed(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleAdmin)
+	for i := 0; i < 12; i++ {
+		target := a.createOperatorDoc(t, cookie, extBody("upstream"))["operator"].(map[string]any)["id"].(string)
+		dest := map[string]any{"kind": "operator", "targetOperatorId": target}
+		var revoked, created int
+		done := make(chan struct{}, 2)
+		go func() {
+			defer func() { done <- struct{}{} }()
+			if r := a.do("POST", "/api/v1/operators/"+target+"/revoke", map[string]any{"reason": "x"}, withCookie(cookie)); r.Code == 200 {
+				revoked = 1
+			}
+		}()
+		go func() {
+			defer func() { done <- struct{}{} }()
+			if r := a.do("POST", "/api/v1/operators", map[string]any{"name": "down", "destination": dest}, withCookie(cookie)); r.Code == 201 {
+				created = 1
+			}
+		}()
+		<-done
+		<-done
+		if revoked+created == 2 {
+			t.Fatalf("round %d: the operator was revoked and an active operator now sends to it", i)
+		}
+	}
+}

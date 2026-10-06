@@ -131,6 +131,21 @@ export interface OperatorHeartbeatEnabled {
 
 /** What revoking or deleting an operator hands back: revoking does not stop the receiver (there is no channel to it), so the
  *  server returns the command that removes it. Absent when the server has none to give (and on an older server, which answers 204). */
+/** One certificate the server issued for an operator, as its ledger records it: who holds it and when it ends. Never the certificate or its key. */
+export interface IssuedCertificate {
+  serial: string
+  /** 'receiver' is the operator's own server certificate; 'client' is one a sender (a cluster, or another operator) presents. */
+  kind: 'receiver' | 'client'
+  subject: string
+  /** The cluster or operator that holds a client certificate; absent for a receiver certificate. */
+  sender?: string
+  issuedBy: string
+  issuedAt: string
+  notBefore: string
+  notAfter: string
+  state: 'ok' | 'expiring' | 'expired'
+}
+
 export interface OperatorRemoval {
   uninstall?: string
 }
@@ -691,6 +706,8 @@ export const api = {
     call<OperatorRemoval | undefined>(c, 'DELETE', `/api/v1/operators/${encodeURIComponent(id)}${force ? '?force=true' : ''}`),
   /** Install again, or renew the certificates: re-issues the receiver and client certificates from the operator's own CA and
    *  answers like createOperator. Operators that have a heartbeat secret or a receiver token get a new one (they are only kept hashed). */
+  /** What was issued for the operator, newest first. Records start with the ledger: certificates from before it are not listed. */
+  listOperatorCertificates: (c: Conn, id: string) => call<{ certificates: IssuedCertificate[] }>(c, 'GET', `/api/v1/operators/${encodeURIComponent(id)}/certificates`),
   reinstallOperator: (c: Conn, id: string) => call<CreatedOperator>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/install`),
 
   // telemetry intents: the server-side counterpart of one agent's bundled local-operator telemetry grant

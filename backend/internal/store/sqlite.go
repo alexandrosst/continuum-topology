@@ -344,6 +344,10 @@ func OpenSQLite(path string) (*SQLite, error) {
 		db.Close()
 		return nil, fmt.Errorf("upgrading to operator certificate expiry: %w", err)
 	}
+	if err := migrateOperatorLedger(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("upgrading to the operator certificate ledger: %w", err)
+	}
 	return &SQLite{db: db}, nil
 }
 
@@ -947,14 +951,53 @@ func (s *SQLite) RevokeOperator(ctx context.Context, id, reason string, now time
 }
 
 func (s *SQLite) DeleteOperator(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM operators WHERE id=?`, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `DELETE FROM operators WHERE id=?`, id)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	// The ledger describes certificates of an operator that no longer exists; nothing is left to ask it about.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM operator_certs WHERE operator_id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// AddOperatorCert records one issued certificate. The serial is the primary key, so recording the same one twice is an error.
+func (s *SQLite) AddOperatorCert(ctx context.Context, c OperatorCert) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO operator_certs(serial, org_id, operator_id, kind, subject, sender, issued_by, issued_at, not_before, not_after) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		c.Serial, c.OrgID, c.OperatorID, string(c.Kind), c.Subject, c.Sender, c.IssuedBy, ms(c.IssuedAt), ms(c.NotBefore), ms(c.NotAfter))
+	return err
+}
+
+// ListOperatorCerts returns what was issued for an operator, newest first.
+func (s *SQLite) ListOperatorCerts(ctx context.Context, operatorID string) ([]OperatorCert, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT serial, org_id, operator_id, kind, subject, sender, issued_by, issued_at, not_before, not_after FROM operator_certs WHERE operator_id=? ORDER BY issued_at DESC, serial`, operatorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []OperatorCert
+	for rows.Next() {
+		var c OperatorCert
+		var kind string
+		var issued, nb, na int64
+		if err := rows.Scan(&c.Serial, &c.OrgID, &c.OperatorID, &kind, &c.Subject, &c.Sender, &c.IssuedBy, &issued, &nb, &na); err != nil {
+			return nil, err
+		}
+		c.Kind, c.IssuedAt, c.NotBefore, c.NotAfter = OperatorCertKind(kind), fromMS(issued), fromMS(nb), fromMS(na)
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // ---- telemetry intents ----

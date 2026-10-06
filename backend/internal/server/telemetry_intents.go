@@ -205,6 +205,8 @@ func (c *Core) CreateTelemetryIntent(ctx context.Context, actor, agentID, name s
 // CreateTelemetryIntentWithRoutes is CreateTelemetryIntent for an intent that sends signal types to destinations of
 // their own: every granted signal is checked against where it goes (its route, or dest), not all against dest.
 func (c *Core) CreateTelemetryIntentWithRoutes(ctx context.Context, actor, agentID, name string, namespaces, exclude []string, signals []store.SignalGrant, dest store.Destination, routes map[store.Modality]store.Destination) (store.TelemetryIntent, error) {
+	c.depMu.RLock() // see Core.depMu
+	defer c.depMu.RUnlock()
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxTelemetryIntentName {
 		return store.TelemetryIntent{}, errf(KindInvalid, "name the telemetry intent (1-%d characters)", maxTelemetryIntentName)
@@ -296,6 +298,8 @@ func (c *Core) UpdateTelemetryIntentScope(ctx context.Context, actor, id string,
 // UpdateTelemetryIntentDestination replaces where a local operator exports to, revalidated the same way
 // CreateTelemetryIntent's own destination is.
 func (c *Core) UpdateTelemetryIntentDestination(ctx context.Context, actor, id string, dest store.Destination) error {
+	c.depMu.RLock() // see Core.depMu
+	defer c.depMu.RUnlock()
 	ti, err := c.telemetryIntentInOrg(ctx, id)
 	if err != nil {
 		return err
@@ -322,6 +326,8 @@ func (c *Core) UpdateTelemetryIntentDestination(ctx context.Context, actor, id s
 // each revalidated like a new intent's, and every granted signal re-checked against where it now goes. An empty
 // routes clears them: the intent sends everything to dest again.
 func (c *Core) UpdateTelemetryIntentDestinations(ctx context.Context, actor, id string, dest store.Destination, routes map[store.Modality]store.Destination) error {
+	c.depMu.RLock() // see Core.depMu
+	defer c.depMu.RUnlock()
 	ti, err := c.telemetryIntentInOrg(ctx, id)
 	if err != nil {
 		return err

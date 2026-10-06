@@ -33,7 +33,7 @@ func TestOperatorCAIsOpenedOnceNotOncePerCertificate(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 4; i++ {
-		if _, _, _, err := e.core.IssueOperatorClientCert(e.ctx, "alex", op.ID); err != nil {
+		if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -54,7 +54,7 @@ func TestRevokingOrDeletingAnOperatorDropsItsOpenedCA(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, _, _, err := e.core.IssueOperatorClientCert(e.ctx, "alex", op.ID); err != nil {
+		if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", ""); err != nil {
 			t.Fatal(err)
 		}
 		return op.ID

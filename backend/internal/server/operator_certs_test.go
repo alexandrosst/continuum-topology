@@ -39,9 +39,16 @@ func TestCreatedOperatorRecordsItsCertificateDates(t *testing.T) {
 	}
 	stored, _ := e.st.GetOperator(e.ctx, op.ID)
 	wantRecv, _ := pki.NotAfter(bundle.ReceiverCertPEM)
-	wantClient, _ := pki.NotAfter(bundle.ClientCertPEM)
-	if stored.ReceiverNotAfter == nil || !stored.ReceiverNotAfter.Equal(wantRecv.Truncate(time.Millisecond)) || stored.ClientNotAfter == nil || !stored.ClientNotAfter.Equal(wantClient.Truncate(time.Millisecond)) {
+	if len(bundle.Senders) != 1 {
+		t.Fatalf("senders = %d, want one certificate for the one source cluster", len(bundle.Senders))
+	}
+	wantClient, _ := pki.NotAfter(bundle.Senders[0].CertPEM)
+	if stored.ReceiverNotAfter == nil || !stored.ReceiverNotAfter.Equal(wantRecv.Truncate(time.Millisecond)) || stored.ClientNotAfter == nil {
 		t.Fatalf("recorded %v / %v, issued %v / %v", stored.ReceiverNotAfter, stored.ClientNotAfter, wantRecv, wantClient)
+	}
+	// The client end is the one recorded with the operator: minted moments after the receiver's, so within a minute of it.
+	if d := wantClient.Sub(*stored.ClientNotAfter); d > time.Minute || d < -time.Minute {
+		t.Fatalf("recorded client end %v, issued %v", stored.ClientNotAfter, wantClient)
 	}
 	d := toOperatorDoc(stored, *e.now)
 	caEnd, _ := pki.NotAfter(stored.ClientCACertPEM)

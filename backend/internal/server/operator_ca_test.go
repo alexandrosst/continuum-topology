@@ -92,7 +92,11 @@ func TestCreateOperatorMintsItsOwnCAAndStoresNoPlaintextKey(t *testing.T) {
 		t.Fatal("the bundle hands out the org CA for an operator-CA operator")
 	}
 	opPool := poolFrom(t, bundle.CACertPEM)
-	if !clientOK(certOf(t, bundle.ClientCertPEM), opPool) {
+	sc, ok := bundle.forSender(cl)
+	if !ok {
+		t.Fatal("no client certificate was minted for the source cluster")
+	}
+	if !clientOK(certOf(t, sc.CertPEM), opPool) {
 		t.Fatal("client certificate does not verify against the operator CA")
 	}
 	if _, err := certOf(t, bundle.ReceiverCertPEM).Verify(x509.VerifyOptions{Roots: opPool, DNSName: op.ID + ".continuum-system.svc", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
@@ -102,7 +106,7 @@ func TestCreateOperatorMintsItsOwnCAAndStoresNoPlaintextKey(t *testing.T) {
 	if _, err := certOf(t, bundle.ReceiverCertPEM).Verify(x509.VerifyOptions{Roots: opPool, DNSName: operatorServiceName(op.ID) + ".continuum-system.svc", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
 		t.Fatalf("receiver certificate does not carry the Service name: %v", err)
 	}
-	if clientOK(certOf(t, bundle.ClientCertPEM), e.core.CA.Pool()) {
+	if clientOK(certOf(t, sc.CertPEM), e.core.CA.Pool()) {
 		t.Fatal("client certificate verifies against the org CA")
 	}
 	// Stored: the certificate (public) as read back, and a sealed key - encrypted, no plaintext key block.
@@ -152,7 +156,7 @@ func TestReissueUsesTheOperatorCAAndRefusesToFallBackToTheOrgCA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	certPEM, keyPEM, caPEM, err := e.core.IssueOperatorClientCert(e.ctx, "alex", a.ID)
+	certPEM, keyPEM, caPEM, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", a.ID, "cl-test", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +174,7 @@ func TestReissueUsesTheOperatorCAAndRefusesToFallBackToTheOrgCA(t *testing.T) {
 	if clientOK(c, e.core.CA.Pool()) {
 		t.Fatal("A's reissued certificate verifies against the org CA")
 	}
-	if c.Subject.CommonName != a.ID+"-export" || c.Subject.Organization[0] != "org-1" {
+	if c.Subject.CommonName != a.ID+"-export-cl-test" || c.Subject.Organization[0] != "org-1" {
 		t.Fatalf("subject = %v", c.Subject)
 	}
 	// Audited, with which CA and no key material.
@@ -187,15 +191,16 @@ func TestReissueUsesTheOperatorCAAndRefusesToFallBackToTheOrgCA(t *testing.T) {
 	if _, err := rawDB(t, e).Exec(`UPDATE operators SET client_ca_key=NULL WHERE id=?`, a.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := e.core.IssueOperatorClientCert(e.ctx, "alex", a.ID); err == nil {
+	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", a.ID, "cl-test", ""); err == nil {
 		t.Fatal("reissue succeeded without the operator's CA key")
 	}
 	// A CA whose key was sealed under a different passphrase cannot be reopened either.
 	other := newEnv(t)
 	withPassphraseCA(t, other, "an entirely different passphrase")
 	e.base.CA = other.base.CA
+	e.base.opCAs = newOperatorCAs() // the opened CA of b is cached since it was created; a restart with the other passphrase starts empty
 	e.core = e.base.ForOrg("org-1")
-	if _, _, _, err := e.core.IssueOperatorClientCert(e.ctx, "alex", b.ID); !errors.Is(err, pki.ErrWrongPassphrase) {
+	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", b.ID, "cl-test", ""); !errors.Is(err, pki.ErrWrongPassphrase) {
 		t.Fatalf("a server with another CA passphrase issued from operator b's CA: %v", err)
 	}
 }
@@ -207,7 +212,7 @@ func TestLegacyMTLSOperatorKeepsIssuingFromTheOrgCA(t *testing.T) {
 	if got, _ := e.st.GetOperator(e.ctx, op.ID); got.ClientCAScope() != store.ClientCAScopeOrg {
 		t.Fatalf("scope = %q", got.ClientCAScope())
 	}
-	certPEM, _, caPEM, err := e.core.IssueOperatorClientCert(e.ctx, "alex", op.ID)
+	certPEM, _, caPEM, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +347,7 @@ func TestBearerOperatorStillUsesTheOrgCA(t *testing.T) {
 	if _, err := e.st.GetOperatorClientCAKey(e.ctx, op.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a bearer operator has a CA key: %v", err)
 	}
-	certPEM, _, caPEM, err := e.core.IssueOperatorClientCert(e.ctx, "alex", op.ID)
+	certPEM, _, caPEM, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", "")
 	if err != nil {
 		t.Fatal(err)
 	}

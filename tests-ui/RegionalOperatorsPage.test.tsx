@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import RegionalOperatorsPage from '@/pages/RegionalOperatorsPage'
-import type { CreatedOperator, FusionStatus, OperatorHeartbeatEnabled, OperatorRemoval } from '@/lib/api'
+import type { CreatedOperator, FusionStatus, IssuedCertificate, OperatorHeartbeatEnabled, OperatorRemoval } from '@/lib/api'
 import type { Agent, Cluster, OperatorDestinationEntry, RegionalOperator, TelemetryIntent } from '@/lib/types'
 
 function renderPage() {
@@ -64,6 +64,7 @@ const enableFusion = vi.fn(async () => (fusionStatus = fusionStarting()))
 const disableFusion = vi.fn(async () => (fusionStatus = fusionOff()))
 const revokeOperator = vi.fn(async (..._a: unknown[]): Promise<OperatorRemoval | undefined> => undefined)
 const deleteOperator = vi.fn(async (..._a: unknown[]): Promise<OperatorRemoval | undefined> => undefined)
+const listOperatorCertificates = vi.fn(async (_c: unknown, _id: string): Promise<{ certificates: IssuedCertificate[] }> => ({ certificates: [] }))
 const setOperatorAddress = vi.fn(async (_c: unknown, _id: string, _address: string): Promise<RegionalOperator> => ({} as RegionalOperator))
 
 vi.mock('@/store/topology', () => ({
@@ -98,6 +99,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
       disableFusion: () => disableFusion(),
       revokeOperator: (...a: Parameters<typeof revokeOperator>) => revokeOperator(...a),
       deleteOperator: (...a: Parameters<typeof deleteOperator>) => deleteOperator(...a),
+      listOperatorCertificates: (...a: Parameters<typeof listOperatorCertificates>) => listOperatorCertificates(...a),
       setOperatorAddress: (...a: Parameters<typeof setOperatorAddress>) => setOperatorAddress(...a),
     },
   }
@@ -120,6 +122,8 @@ beforeEach(() => {
   revokeOperator.mockResolvedValue(undefined)
   deleteOperator.mockReset()
   deleteOperator.mockResolvedValue(undefined)
+  listOperatorCertificates.mockReset()
+  listOperatorCertificates.mockResolvedValue({ certificates: [] })
   setOperatorAddress.mockReset()
   setOperatorAddress.mockResolvedValue({} as RegionalOperator)
   telemetryStart.mockClear()
@@ -143,7 +147,7 @@ const centralOp = (over: Partial<RegionalOperator> = {}) =>
 type User = ReturnType<typeof userEvent.setup>
 
 /** A row's action, through its menu: the menu is the only place the actions are. */
-async function rowAction(user: User, name: string, item: 'address-open' | 'health-open' | 'renew' | 'revoke' | 'delete') {
+async function rowAction(user: User, name: string, item: 'address-open' | 'health-open' | 'certs' | 'renew' | 'revoke' | 'delete') {
   await user.click(await screen.findByTestId(`operator-menu-${name}`))
   await user.click(await screen.findByTestId(`operator-${item}-${name}`))
 }
@@ -597,6 +601,29 @@ describe('RegionalOperatorsPage - FUSION on the page', () => {
     expect(within(screen.getByTestId('operator-waiting-op')).getByTestId('operator-health')).toHaveTextContent('Waiting for first heartbeat')
   })
 
+  test('the issued certificates are listed by who holds them, with the cluster named, and the empty case says why', async () => {
+    listOperators.mockResolvedValue([op()])
+    const cert = (over: Partial<IssuedCertificate>): IssuedCertificate => ({
+      serial: 'aa', kind: 'client', subject: 'op-1-export-c1', sender: 'c1', issuedBy: 'alex', issuedAt: '2026-01-02T10:00:00Z', notBefore: '2026-01-02T09:55:00Z', notAfter: '2027-01-02T10:00:00Z', state: 'ok', ...over,
+    })
+    listOperatorCertificates.mockResolvedValueOnce({ certificates: [cert({}), cert({ serial: 'bb', kind: 'receiver', sender: undefined, subject: 'op-1', state: 'expiring', notAfter: '2026-11-01T00:00:00Z' })] })
+    renderPage()
+    const user = userEvent.setup()
+    await rowAction(user, 'athens-regional', 'certs')
+    const table = await screen.findByTestId('operator-certs-table')
+    expect(listOperatorCertificates).toHaveBeenCalledWith(expect.anything(), 'op-1')
+    expect(within(screen.getByTestId('operator-cert-aa')).getByText('edge-1')).toBeInTheDocument()
+    expect(within(screen.getByTestId('operator-cert-aa')).getByText('Valid')).toBeInTheDocument()
+    expect(within(screen.getByTestId('operator-cert-bb')).getByText('The operator (its receiver)')).toBeInTheDocument()
+    expect(within(screen.getByTestId('operator-cert-bb')).getByText('Ends soon')).toBeInTheDocument()
+    expect(table.textContent).not.toMatch(/PRIVATE KEY|BEGIN CERTIFICATE/)
+    await user.click(screen.getByTestId('operator-certs-done'))
+    await waitFor(() => expect(screen.queryByTestId('operator-certs-table')).not.toBeInTheDocument())
+
+    await rowAction(user, 'athens-regional', 'certs')
+    expect(await screen.findByTestId('operator-certs-empty')).toHaveTextContent('Nothing recorded yet')
+  })
+
   test('the central operator is listed as managed by FUSION: one action, no revoke, no delete, and its state follows FUSION', async () => {
     fusionStatus = fusionRunning()
     listOperators.mockResolvedValue([centralOp()])
@@ -662,7 +689,7 @@ describe('RegionalOperatorsPage - the table', () => {
     await user.click(button)
     expect(button).toHaveAttribute('aria-expanded', 'true')
     const menu = screen.getByRole('menu', { name: 'Actions for two' })
-    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Reachable at…', 'Enable health reporting', 'Renew certificates', 'Revoke…', 'Delete…'])
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Reachable at…', 'Enable health reporting', 'Issued certificates', 'Renew certificates', 'Revoke…', 'Delete…'])
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     // Nothing but the menu button sits in the actions cell: the row is not a row of buttons.

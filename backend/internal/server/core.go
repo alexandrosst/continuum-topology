@@ -138,6 +138,10 @@ type Core struct {
 	heartbeats *heartbeatSeen
 	// opCAs keeps operators' opened CAs (see operatorCAs). Server-wide, shared by ForOrg's shallow copy.
 	opCAs *operatorCAs
+	// depMu orders what ADDS a dependent of an operator (a new operator, an intent or a route that sends to it) against what
+	// REMOVES it (revoke, delete): the dependents check and the removal are then one step, so nothing can start sending to an
+	// operator between "nothing depends on it" and "it is gone". A pointer, shared by ForOrg's copies; one server, one database.
+	depMu *sync.RWMutex
 }
 
 // ForOrg returns a view of the same server scoped to one organisation. It shares the database, the
@@ -157,7 +161,7 @@ func NewCore(st store.Store, ca *pki.CA, org string, log *slog.Logger) *Core {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, auth: newAuthState(), userMu: &sync.Mutex{}, RegMode: RegOpen, settings: &settingsHolder{}, trafficCache: &trafficCache{}, mailer: &mailHolder{}, heartbeats: newHeartbeatSeen(), opCAs: newOperatorCAs()}
+	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, auth: newAuthState(), userMu: &sync.Mutex{}, RegMode: RegOpen, settings: &settingsHolder{}, trafficCache: &trafficCache{}, mailer: &mailHolder{}, heartbeats: newHeartbeatSeen(), opCAs: newOperatorCAs(), depMu: &sync.RWMutex{}}
 }
 
 // audit records something that happened. It is best effort: a failure is logged and the caller carries on.

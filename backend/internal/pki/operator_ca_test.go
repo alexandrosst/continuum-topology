@@ -55,15 +55,15 @@ func TestOperatorCertificatesVerifyOnlyAgainstTheirOwnOperatorsCA(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	clientA, _, err := issA.IssueOperatorClientTLS("op-aaa", "org-1")
+	clientA, _, err := issA.IssueOperatorClientTLS("op-aaa", "org-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	clientB, _, err := issB.IssueOperatorClientTLS("op-bbb", "org-1")
+	clientB, _, err := issB.IssueOperatorClientTLS("op-bbb", "org-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	orgClient, _, err := org.IssueOperatorClientTLS("op-aaa", "org-1") // what a legacy operator is issued
+	orgClient, _, err := org.IssueOperatorClientTLS("op-aaa", "org-1", "") // what a legacy operator is issued
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestOperatorCAKeyIsSealedLikeTheOrgCAKey(t *testing.T) {
 		t.Fatalf("reopening with the org passphrase: %v", err)
 	}
 	// What the reopened CA signs verifies against the original certificate.
-	leaf, _, err := re.IssueOperatorClientTLS("op-aaa", "org-1")
+	leaf, _, err := re.IssueOperatorClientTLS("op-aaa", "org-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestOperatorCAClampsAndExpires(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaf, _, err := iss.IssueOperatorClientTLS("op-aaa", "org-1") // asks for OperatorTLSTTL (365d)
+	leaf, _, err := iss.IssueOperatorClientTLS("op-aaa", "org-1", "") // asks for OperatorTLSTTL (365d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestOperatorCAClampsAndExpires(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := exp.IssueOperatorClientTLS("op-old", "org-1"); err == nil || !strings.Contains(err.Error(), "expired") {
+	if _, _, err := exp.IssueOperatorClientTLS("op-old", "org-1", ""); err == nil || !strings.Contains(err.Error(), "expired") {
 		t.Fatalf("an expired CA issued a certificate: %v", err)
 	}
 }
@@ -269,7 +269,7 @@ func TestNotAfterReadsTheExpiryOfAnIssuedCertificate(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := time.Now()
-	certPEM, _, err := ca.IssueOperatorClientTLS("op-aaa", "org-1")
+	certPEM, _, err := ca.IssueOperatorClientTLS("op-aaa", "org-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,5 +282,39 @@ func TestNotAfterReadsTheExpiryOfAnIssuedCertificate(t *testing.T) {
 	}
 	if _, err := NotAfter([]byte("not a certificate")); err == nil {
 		t.Fatal("garbage was accepted")
+	}
+}
+
+// The sender is in the certificate's name, kept inside the CN limit, and two different senders never share one.
+func TestOperatorClientCertificateNamesItsSender(t *testing.T) {
+	cheapKDF(t)
+	org, err := LoadOrCreateWith(t.TempDir(), Options{Passphrase: pass})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iss, _, _, err := org.NewOperatorCA("op-aaa", "org-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cn := func(sender string) string {
+		certPEM, _, err := iss.IssueOperatorClientTLS("op-aaa", "org-1", sender)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return parseLeaf(t, certPEM).Subject.CommonName
+	}
+	if got := cn(""); got != "op-aaa-export" {
+		t.Errorf("no sender: %q", got)
+	}
+	if got := cn("cluster-eu-1"); got != "op-aaa-export-cluster-eu-1" {
+		t.Errorf("a plain sender: %q", got)
+	}
+	long := strings.Repeat("c", 200)
+	a, b := cn(long+"x"), cn(long+"y")
+	if len(a) > 64 || len(b) > 64 || a == b {
+		t.Errorf("long senders: %q %q", a, b)
+	}
+	if got := cn("a b/c"); strings.ContainsAny(got, " /") || got == cn("a-b-c") {
+		t.Errorf("an unsafe sender: %q", got)
 	}
 }

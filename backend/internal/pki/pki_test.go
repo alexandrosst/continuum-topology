@@ -172,7 +172,7 @@ func TestIssueOperatorReceiverAndClientTLS(t *testing.T) {
 		t.Fatalf("receiver cert does not verify: %v", err)
 	}
 
-	cCertPEM, cKeyPEM, err := ca.IssueOperatorClientTLS("op-1", "org-1")
+	cCertPEM, cKeyPEM, err := ca.IssueOperatorClientTLS("op-1", "org-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestIssueOperatorReceiverAndClientTLS(t *testing.T) {
 	if _, _, err := ca.IssueOperatorReceiverTLS("", "org-1", nil); err == nil {
 		t.Fatal("empty operator id must be rejected")
 	}
-	if _, _, err := ca.IssueOperatorClientTLS("", "org-1"); err == nil {
+	if _, _, err := ca.IssueOperatorClientTLS("", "org-1", ""); err == nil {
 		t.Fatal("empty operator id must be rejected")
 	}
 }

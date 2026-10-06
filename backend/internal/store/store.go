@@ -170,6 +170,33 @@ const (
 	ClientCAScopeOrg = "org"
 )
 
+// OperatorCertKind is what an issued certificate is for.
+type OperatorCertKind string
+
+const (
+	// OperatorCertReceiver is an operator's own server certificate, presented by its receiver.
+	OperatorCertReceiver OperatorCertKind = "receiver"
+	// OperatorCertClient is a certificate one sender (a cluster, or another operator) presents to the operator's receiver.
+	OperatorCertClient OperatorCertKind = "client"
+)
+
+// OperatorCert is the record of one certificate the server issued for an operator: which, to whom, by whom and until
+// when. Never the certificate or its key (those are shown once and not kept); this is what lets the server say which
+// of an operator's senders holds a certificate and when each stops working. Records start with the ledger; a
+// certificate issued before it has none.
+type OperatorCert struct {
+	Serial     string // hex, unique
+	OrgID      string
+	OperatorID string
+	Kind       OperatorCertKind
+	Subject    string // the certificate's CN
+	Sender     string // the cluster or operator that holds a client certificate; "" for a receiver certificate
+	IssuedBy   string // the actor
+	IssuedAt   time.Time
+	NotBefore  time.Time
+	NotAfter   time.Time
+}
+
 // Operator is a regional operator: a standalone OTel Collector that aggregates telemetry already
 // exported by a set of approved agents' clusters (SourceClusterIDs) and re-exports it to Destination.
 // Unlike Agent it does not connect back to the server by default - what it checks is on its inbound side
@@ -604,6 +631,10 @@ type Store interface {
 	// SetOperatorCerts records when the receiver and client certificates just issued expire and resets the
 	// expiry warning level; ErrBadState if the operator is not active.
 	SetOperatorCerts(ctx context.Context, id string, receiverNotAfter, clientNotAfter time.Time) error
+	// AddOperatorCert records a certificate the server issued for an operator (see OperatorCert); ListOperatorCerts reads
+	// them back, newest first. Deleting the operator deletes its records.
+	AddOperatorCert(ctx context.Context, c OperatorCert) error
+	ListOperatorCerts(ctx context.Context, operatorID string) ([]OperatorCert, error)
 	// SetOperatorCertAlertLevel records the highest expiry warning already raised (see Operator.CertAlertLevel).
 	SetOperatorCertAlertLevel(ctx context.Context, id string, level int) error
 	// SetOperatorReceiverToken replaces the hash of a bearer operator's receiver token; ErrBadState if it is not

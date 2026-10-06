@@ -242,6 +242,8 @@ func (a *Admin) Handler() http.Handler {
 	// Installs the operator again: fresh receiver and client certificates from its stored CA, and a new receiver
 	// token / heartbeat secret where it has one. Credential material, so adminRole and audited.
 	route("POST "+o+"/operators/{id}/install", adminRole, a.reissueOperatorInstall)
+	// What was issued for an operator (not the certificates: those are shown once): which sender holds which, and until when.
+	route("GET "+o+"/operators/{id}/certificates", adminRole, a.listOperatorCertificates)
 	route("POST "+o+"/operators/{id}/address", adminRole, a.setOperatorAddress)
 	// Mints (or rotates) the operator's heartbeat secret: credential material, so adminRole like the rest.
 	route("POST "+o+"/operators/{id}/heartbeat", adminRole, a.enableOperatorHeartbeat)
