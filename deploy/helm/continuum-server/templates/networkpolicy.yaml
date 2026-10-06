@@ -90,6 +90,21 @@ spec:
         {{- end }}
       {{- end }}
     {{- end }}
+    {{- if .Values.fusion.enabled }}
+    # The shared FUSION data API: the server reads the three stores (Prometheus 9090, Loki 3100, Tempo 3200) of the
+    # bundled FUSION. Never the central gateway - that one is for senders.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: continuum-fusion
+              app.kubernetes.io/instance: {{ .Release.Name }}
+            matchExpressions:
+              - {key: app.kubernetes.io/component, operator: In, values: [prometheus, loki, tempo]}
+      ports:
+        - {port: 9090, protocol: TCP}
+        - {port: 3100, protocol: TCP}
+        - {port: 3200, protocol: TCP}
+    {{- end }}
     {{- with $np.egress.extra }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

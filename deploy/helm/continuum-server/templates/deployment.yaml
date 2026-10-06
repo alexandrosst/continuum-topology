@@ -60,7 +60,8 @@ spec:
             - --agent-exposure={{ include "continuum.agentExposure" . }}
             - --release-name={{ .Release.Name }}
             - --release-namespace={{ .Release.Namespace }}
-            {{- if include "continuum.fusionControl" . }}
+            {{- if .Values.fusion.enabled }}
+            # The bundled FUSION's name: the shared data API reads its stores by it, and the switch (when allowed) scales it.
             - --fusion-name={{ include "continuum.fusionName" . }}
             {{- with .Values.fusionControl.centralAddress }}
             - --fusion-central-address={{ . }}

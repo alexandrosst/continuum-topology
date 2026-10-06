@@ -434,3 +434,19 @@ func TestFusionTokenCap(t *testing.T) {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
 	}
 }
+
+func TestTheFusionCardKnowsWhetherTheDataApiIsServed(t *testing.T) {
+	d := newDataRig(t)
+	if r := d.do("GET", "/api/v1/fusion", nil, withCookie(d.admin)); r.Code != 200 || r.json(t)["data"] != true {
+		t.Fatalf("%d %s", r.Code, r.Body.String())
+	}
+	d.a.Fusion.Org = "some-other-org"
+	if r := d.do("GET", "/api/v1/fusion", nil, withCookie(d.admin)); r.json(t)["data"] != false {
+		t.Fatalf("another organisation is told the data API is served: %s", r.Body.String())
+	}
+	// A server without the bundled FUSION cannot serve it.
+	d.a.Fusion = nil
+	if r := d.do("GET", "/api/v1/fusion", nil, withCookie(d.admin)); r.json(t)["data"] != false {
+		t.Fatalf("%s", r.Body.String())
+	}
+}

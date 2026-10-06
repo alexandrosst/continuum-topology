@@ -16,6 +16,9 @@ type fusionCentralDoc struct {
 type fusionResponse struct {
 	FusionStatus
 	Central *fusionCentralDoc `json:"central,omitempty"`
+	// Data says whether this server serves the shared data API (and its access tokens) for this organisation: it knows
+	// where the stores are, whatever the switch can or cannot do.
+	Data bool `json:"data"`
 }
 
 // fusionDoc is the switch's state for this request's organisation.
@@ -26,7 +29,7 @@ func (a *Admin) fusionDoc(r *http.Request) fusionResponse {
 	if f != nil && f.Org != "" && core.OrgID != f.Org {
 		st = FusionStatus{State: "off", Reason: "other-org", Message: "FUSION is shared by everything that sends to this server, so it is managed from the server's main organisation."}
 	}
-	out := fusionResponse{FusionStatus: st}
+	out := fusionResponse{FusionStatus: st, Data: f != nil && (f.Org == "" || core.OrgID == f.Org)}
 	if f != nil && st.Available {
 		_, err := core.GetOperator(r.Context(), CentralOperatorID)
 		out.Central = &fusionCentralDoc{OperatorID: CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil}

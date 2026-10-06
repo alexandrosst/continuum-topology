@@ -156,6 +156,38 @@ export interface FusionStatus {
   since?: string
   components?: FusionComponent[]
   central?: { operatorId: string; endpoint: string; exposed: boolean; exists: boolean }
+  /** Whether this server serves the shared data API (and its access tokens) for this organisation. */
+  data?: boolean
+}
+
+export type FusionSignal = 'metrics' | 'logs' | 'traces'
+
+/** A read-only credential for the shared data API over FUSION. The secret is never in this; see CreatedFusionAccessToken. */
+export interface FusionAccessToken {
+  id: string
+  name: string
+  signals: FusionSignal[]
+  /** Empty = every namespace (and every cluster, for `clusters`). */
+  namespaces: string[]
+  clusters: string[]
+  createdBy: string
+  createdAt: string
+  expiresAt: string
+  lastUsedAt?: string
+}
+
+export interface NewFusionAccessToken {
+  name: string
+  signals: FusionSignal[]
+  namespaces: string[]
+  clusters: string[]
+  expiresInDays: number
+}
+
+/** The one answer that carries the token's secret: shown once, then only the details are ever returned again. */
+export interface CreatedFusionAccessToken {
+  token: string
+  details: FusionAccessToken
 }
 
 /** What GET /telemetry-intents/{id}/command returns: the `--set` flags a person runs against the
@@ -618,6 +650,9 @@ export const api = {
   getFusion: (c: Conn) => call<FusionStatus>(c, 'GET', '/api/v1/fusion'),
   enableFusion: (c: Conn) => call<FusionStatus>(c, 'POST', '/api/v1/fusion/enable'),
   disableFusion: (c: Conn) => call<FusionStatus>(c, 'POST', '/api/v1/fusion/disable'),
+  listFusionTokens: (c: Conn) => call<FusionAccessToken[]>(c, 'GET', '/api/v1/fusion/tokens'),
+  createFusionToken: (c: Conn, req: NewFusionAccessToken) => call<CreatedFusionAccessToken>(c, 'POST', '/api/v1/fusion/tokens', req),
+  revokeFusionToken: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/fusion/tokens/${encodeURIComponent(id)}`),
   revokeOperator: (c: Conn, id: string, reason: string) => call<void>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/revoke`, { reason }),
   deleteOperator: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/operators/${encodeURIComponent(id)}`),
 

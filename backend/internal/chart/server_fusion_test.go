@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
@@ -45,6 +46,7 @@ type serverRender struct {
 	bindings    map[string]rbacv1.RoleBinding
 	deployments map[string]appsv1.Deployment
 	sets        map[string]appsv1.StatefulSet
+	policies    map[string]networkingv1.NetworkPolicy
 }
 
 // serverRenderWith renders deploy/helm/continuum-server with the FUSION subchart in place, as `helm package -u` would
@@ -64,7 +66,7 @@ func serverRenderWith(t *testing.T, release string, extra ...string) serverRende
 	if err != nil {
 		t.Fatalf("helm template %v: %v\n%s", extra, err, out)
 	}
-	r := serverRender{map[string]rbacv1.Role{}, map[string]rbacv1.RoleBinding{}, map[string]appsv1.Deployment{}, map[string]appsv1.StatefulSet{}}
+	r := serverRender{map[string]rbacv1.Role{}, map[string]rbacv1.RoleBinding{}, map[string]appsv1.Deployment{}, map[string]appsv1.StatefulSet{}, map[string]networkingv1.NetworkPolicy{}}
 	dec := yaml.NewYAMLOrJSONDecoder(strings.NewReader(string(out)), 4096)
 	for {
 		var raw json.RawMessage
@@ -100,6 +102,10 @@ func serverRenderWith(t *testing.T, release string, extra ...string) serverRende
 			var v appsv1.StatefulSet
 			json.Unmarshal(raw, &v)
 			r.sets[n] = v
+		case "NetworkPolicy":
+			var v networkingv1.NetworkPolicy
+			json.Unmarshal(raw, &v)
+			r.policies[n] = v
 		}
 	}
 	return r
@@ -221,10 +227,14 @@ func TestServerGetsATokenAndTheFusionNameOnlyWhenItControlsFusion(t *testing.T) 
 		if auto != nil && *auto {
 			t.Errorf("%v: the pod still gets an API token", off)
 		}
+		// The name is passed whenever FUSION is bundled: the shared data API reads the stores by it, with or without the
+		// switch. Only without the bundled FUSION is there nothing to name.
+		hasName := false
 		for _, a := range args {
-			if strings.HasPrefix(a, "--fusion-name") {
-				t.Errorf("%v: still passes %s", off, a)
-			}
+			hasName = hasName || strings.HasPrefix(a, "--fusion-name")
+		}
+		if want := off[1] == "fusionControl.enabled=false"; hasName != want {
+			t.Errorf("%v: --fusion-name passed = %v, want %v", off, hasName, want)
 		}
 		for n := range r.roles {
 			if strings.HasSuffix(n, "-fusion-switch") {
@@ -236,5 +246,45 @@ func TestServerGetsATokenAndTheFusionNameOnlyWhenItControlsFusion(t *testing.T) 
 	r = serverRenderWith(t, "continuum", "--set", "fusion.enabled=false")
 	if sets, deploys := fusionWorkloads(r, "continuum"); len(sets)+len(deploys) != 0 {
 		t.Errorf("FUSION workloads rendered though fusion.enabled=false: %v %v", sets, deploys)
+	}
+}
+
+// The shared data API reads the three stores from the server pod, so a server under its own egress policy must be
+// allowed to reach them - and only them, never the central gateway.
+func TestServerEgressPolicyReachesTheFusionStoresOnly(t *testing.T) {
+	r := serverRenderWith(t, "continuum", "--set", "networkPolicy.enabled=true", "--set", "networkPolicy.egress.enabled=true")
+	var found bool
+	for _, p := range r.policies {
+		if p.Labels["app.kubernetes.io/component"] != "server" {
+			continue
+		}
+		for _, e := range p.Spec.Egress {
+			if len(e.To) != 1 || e.To[0].PodSelector == nil || e.To[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "continuum-fusion" {
+				continue
+			}
+			found = true
+			var ports []int32
+			for _, pt := range e.Ports {
+				ports = append(ports, pt.Port.IntVal)
+			}
+			if len(ports) != 3 || ports[0] != 9090 || ports[1] != 3100 || ports[2] != 3200 {
+				t.Errorf("ports = %v, want the Prometheus, Loki and Tempo query ports", ports)
+			}
+			ex := e.To[0].PodSelector.MatchExpressions
+			if len(ex) != 1 || strings.Join(ex[0].Values, ",") != "prometheus,loki,tempo" {
+				t.Errorf("the rule is not limited to the stores: %+v", ex)
+			}
+		}
+	}
+	if !found {
+		t.Error("the server's egress policy has no rule to FUSION's stores")
+	}
+	r = serverRenderWith(t, "continuum", "--set", "networkPolicy.enabled=true", "--set", "networkPolicy.egress.enabled=true", "--set", "fusion.enabled=false")
+	for _, p := range r.policies {
+		for _, e := range p.Spec.Egress {
+			if len(e.To) == 1 && e.To[0].PodSelector != nil && e.To[0].PodSelector.MatchLabels["app.kubernetes.io/name"] == "continuum-fusion" {
+				t.Error("a rule to FUSION's stores without FUSION")
+			}
+		}
 	}
 }

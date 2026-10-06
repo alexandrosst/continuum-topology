@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { Layers } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ConfirmModal } from '@/components/forms'
+import { FusionAccess } from '@/components/operators/FusionAccess'
 import { Button, ErrorBanner, ICON_SM, PulseDot } from '@/components/ui/primitives'
 import { api, ApiError, type FusionComponent, type FusionStatus } from '@/lib/api'
 import { fusionSentence } from '@/lib/fusionStatus'
@@ -148,6 +149,8 @@ export function FusionPanel({ fusion, compact, enableLabel = 'Enable FUSION' }: 
         </p>
       )}
       {error && <ErrorBanner className="mt-3">{error}</ErrorBanner>}
+
+      {!compact && status?.data && <FusionAccess />}
 
       {confirmOff && (
         <ConfirmModal
