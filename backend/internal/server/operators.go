@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"continuum/internal/pki"
@@ -336,6 +338,78 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 		return nil
 	})
 }
+
+var dnsLabel = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// validOperatorAddress normalises the host:port an operator is reachable at from other clusters: a DNS name or
+// an IP address, and the port. An empty string is valid and clears it. Nothing that could never be reached
+// from another cluster (loopback, unspecified, link-local, "localhost") and no scheme, path or credentials.
+func validOperatorAddress(in string) (string, error) {
+	s := strings.TrimSpace(in)
+	if s == "" {
+		return "", nil
+	}
+	bad := errf(KindInvalid, "the address is a host and a port, such as otlp.example.com:4317 or 203.0.113.7:4317 (no scheme, no path)")
+	if len(s) > 261 || strings.ContainsAny(s, " \t/\\?#@,;\"'`$&|<>(){}") {
+		return "", bad
+	}
+	host, port, err := net.SplitHostPort(s)
+	if err != nil || host == "" {
+		return "", bad
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return "", errf(KindInvalid, "the port must be a number from 1 to 65535")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
+			return "", errf(KindInvalid, "%s cannot be reached from another cluster; give the address a LoadBalancer, NodePort or Ingress exposes", host)
+		}
+		return net.JoinHostPort(ip.String(), port), nil
+	}
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if len(host) > 253 || host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return "", errf(KindInvalid, "%s cannot be reached from another cluster", host)
+	}
+	for _, l := range strings.Split(host, ".") {
+		if !dnsLabel.MatchString(l) {
+			return "", bad
+		}
+	}
+	return net.JoinHostPort(host, port), nil
+}
+
+// SetOperatorAddress records where clusters other than the operator's own reach its receiver. Nothing about
+// the operator's certificates changes: callers verify it by its stable in-cluster name (operatorServerName),
+// so the address can be changed, or an IP can move, without reissuing anything. Empty clears it.
+func (c *Core) SetOperatorAddress(ctx context.Context, actor, id, address string) (string, error) {
+	if err := guardCentral(id); err != nil {
+		return "", err
+	}
+	if _, err := c.operatorInOrg(ctx, id); err != nil {
+		return "", err
+	}
+	addr, err := validOperatorAddress(address)
+	if err != nil {
+		return "", err
+	}
+	detail := addr
+	if detail == "" {
+		detail = "cleared"
+	}
+	return addr, c.audited(ctx, actor, "operator-address-changed", "operator", id, detail, func() error {
+		if err := c.Store.SetOperatorAddress(ctx, id, addr); err != nil {
+			if errors.Is(err, store.ErrBadState) {
+				return errf(KindConflict, "only an active operator's address can be changed")
+			}
+			return err
+		}
+		return nil
+	})
+}
+
+// operatorServerName is the name on an operator's receiver certificate that never changes (the SANs
+// CreateOperator asks for): callers that reach the operator at an advertised address verify against this.
+func operatorServerName(op store.Operator) string { return op.ID + ".continuum-system.svc" }
 
 func (c *Core) RevokeOperator(ctx context.Context, actor, id, reason string) error {
 	if err := guardCentral(id); err != nil {

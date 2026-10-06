@@ -199,6 +199,9 @@ bearertokenauth:
     {{- else if $c.tls.caFile }}
     ca_file: {{ $c.tls.caFile | quote }}
     {{- end }}
+    {{- if $c.tls.serverName }}
+    server_name_override: {{ $c.tls.serverName | quote }}
+    {{- end }}
 {{- end }}
 {{- if $c.auth.secretName }}
   headers:

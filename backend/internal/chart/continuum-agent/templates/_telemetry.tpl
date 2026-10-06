@@ -559,6 +559,9 @@ telemetry:
     {{- else if $c.tls.caFile }}
     ca_file: {{ $c.tls.caFile | quote }}
     {{- end }}
+    {{- if $c.tls.serverName }}
+    server_name_override: {{ $c.tls.serverName | quote }}
+    {{- end }}
 {{- else if or $c.tls.mtls.enabled $c.tls.caFile }}
   {{/* The http and zipkin exporters have no insecure toggle: the endpoint's scheme IS that choice, and the
        collector appends /v1/<signal> to an otlphttp endpoint itself. */}}

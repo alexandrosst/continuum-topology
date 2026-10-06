@@ -35,8 +35,8 @@ func TestTelemetryIntentFromSchemaTwelveHasNoRoutesAndKeepsWorking(t *testing.T)
 	}
 	defer up.Close()
 	var v int
-	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 13 {
-		t.Fatalf("user_version = %d (%v), want 13", v, err)
+	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
+		t.Fatalf("user_version = %d (%v), want SchemaVersion %d", v, err, SchemaVersion)
 	}
 	got, err := up.GetTelemetryIntent(ctx, "ti-old")
 	if err != nil {

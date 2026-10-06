@@ -87,7 +87,7 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 	ref, version := a.operatorChartArgs(img)
 	url := a.heartbeatURL(r)
 	resp := map[string]any{
-		"operator":                 toOperatorDoc(op, core.Now()),
+		"operator":                 a.opDoc(r, op),
 		"rotated":                  rotated,
 		"heartbeatToken":           secret,
 		"heartbeatSecretCommand":   operatorHeartbeatSecretCommand(op, secret, rotated),

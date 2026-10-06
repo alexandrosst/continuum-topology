@@ -221,7 +221,12 @@ type Operator struct {
 	// Labels are tags this operator stamps on everything it forwards (a region, an environment): set when it
 	// is created and fixed from then on, because they live in the operator's own install. Empty for every
 	// operator from before they existed. See OperatorLabel.
-	Labels    []OperatorLabel
+	Labels []OperatorLabel
+	// Address is the host:port (a DNS name or an IP, and the port) at which clusters OTHER than this operator's
+	// own reach its receiver: a LoadBalancer, a NodePort, or an Ingress/Gateway in front of its Service. Empty
+	// means nobody told the server, so the only address it can give out is the in-cluster name, which resolves
+	// in the operator's own cluster alone. Changing it never touches the operator's certificates.
+	Address   string
 	CreatedBy string
 	CreatedAt time.Time
 	RevokedAt *time.Time
@@ -566,6 +571,8 @@ type Store interface {
 	// together, atomically - there is no reason to leave them in an inconsistent combination between two
 	// separate calls.
 	UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination, acceptedModalities []Modality) error
+	// SetOperatorAddress records where other clusters reach the operator's receiver ("" clears it).
+	SetOperatorAddress(ctx context.Context, id, address string) error
 	RevokeOperator(ctx context.Context, id, reason string, now time.Time) error
 	DeleteOperator(ctx context.Context, id string) error
 	// GetOperatorClientCAKey returns the sealed private key of the operator's own CA; ErrNotFound when it has

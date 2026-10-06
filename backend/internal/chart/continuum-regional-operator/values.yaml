@@ -17,6 +17,14 @@
 
 replicaCount: 1
 
+# How the receiver's Service is reached. ClusterIP (the default) is this cluster only, which is all a regional operator
+# needs while every source cluster is this one. A cluster elsewhere needs LoadBalancer or NodePort, or your own
+# Ingress/Gateway in front of the Service (leave ClusterIP and expose it yourself); Ikhnos's install command sets
+# this when you pick an exposure for the operator. The address the Service ends up at is then recorded on the
+# operator in Ikhnos, and every command that points at it uses that address.
+service:
+  type: ClusterIP   # ClusterIP | LoadBalancer | NodePort
+
 # The upstream OpenTelemetry Collector Contrib distribution - the same image continuum-agent's telemetry
 # collectors run, for the same reason (this chart needs nothing beyond OTLP receive/process/export, which
 # the community "contrib" distribution already covers).
@@ -38,6 +46,7 @@ export:
     tls:
       insecure: false
       caFile: ""    # path to a CA bundle to mount and trust, if the destination's certificate isn't otherwise trusted
+      serverName: ""    # verify the destination's certificate against this name instead of the endpoint's host (see continuum-agent)
       # Present a client certificate to the destination - the shape of a regional operator (or FUSION's central
       # operator) whose receiver.tls.mtls is on. secretName is a Secret in this release's namespace, created
       # outside this chart, holding tls.crt, tls.key (this operator's client certificate) and ca.crt (to verify
@@ -65,6 +74,7 @@ export:
       tls:
         insecure: false
         caFile: ""
+        serverName: ""
         mtls:
           enabled: false
           secretName: ""

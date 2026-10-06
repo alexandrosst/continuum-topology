@@ -81,6 +81,12 @@ type operatorDoc struct {
 	// Health is always present; for an operator that never opted in to a heartbeat it is
 	// {state: "unknown", reporting: false}.
 	Health operatorHealthDoc `json:"health"`
+	// Address is the host:port other clusters reach this operator's receiver at; absent until it is set.
+	// ReachableFromOtherClusters says whether the server can hand that out: false means the only address it has
+	// is the in-cluster name, which resolves in the operator's own cluster alone. The central operator's comes
+	// from FUSION (see FusionControl.Exposed), so it is filled in by the caller that knows.
+	Address                    string `json:"address,omitempty"`
+	ReachableFromOtherClusters bool   `json:"reachableFromOtherClusters"`
 }
 
 func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
@@ -102,6 +108,19 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 	}
 	if op.RevokedAt != nil {
 		d.RevokedAt = rfc(*op.RevokedAt)
+	}
+	d.Address, d.ReachableFromOtherClusters = op.Address, op.Address != ""
+	return d
+}
+
+// opDoc is toOperatorDoc plus what only the server's own wiring knows: the central operator is reachable from
+// other clusters exactly when FUSION says it is exposed, at the address FUSION gives.
+func (a *Admin) opDoc(r *http.Request, op store.Operator) operatorDoc {
+	d := toOperatorDoc(op, a.core(r).Now())
+	if op.ID == CentralOperatorID && a.Fusion != nil {
+		if d.ReachableFromOtherClusters = a.Fusion.Exposed(); d.ReachableFromOtherClusters {
+			d.Address = a.Fusion.CentralEndpoint()
+		}
 	}
 	return d
 }
@@ -127,7 +146,7 @@ func (a *Admin) listOperators(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []operatorDoc{}
 	for _, op := range ops {
-		out = append(out, toOperatorDoc(op, a.core(r).Now()))
+		out = append(out, a.opDoc(r, op))
 	}
 	writeJSON(w, 200, out)
 }
@@ -138,7 +157,7 @@ func (a *Admin) getOperator(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, toOperatorDoc(op, a.core(r).Now()))
+	writeJSON(w, 200, a.opDoc(r, op))
 }
 
 func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
@@ -153,8 +172,17 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		// Absent means false: an older client that has never heard of the field must not quietly make an
 		// operator start calling this server. The UI sends true by default and says what it does.
 		Heartbeat bool `json:"heartbeat,omitempty"`
+		// Exposure is how the operator's Service is made reachable from other clusters: "" or "cluster" (it is
+		// not: in-cluster only), "loadbalancer" or "nodeport". It only sets the install command's service.type;
+		// the address that results is learned afterwards (POST .../address). Not stored.
+		Exposure string `json:"exposure,omitempty"`
 	}
 	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	svcType, err := serviceTypeFor(req.Exposure)
+	if err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -172,9 +200,18 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 	if hbSecret != "" {
 		hbURL = a.heartbeatURL(r)
 	}
-	install, secretCmd := a.operatorInstallCommand(img, secret, op, tlsBundle, hbURL)
+	var target *store.Operator
+	if op.Destination.Kind == store.DestinationOperator {
+		if t, err := a.core(r).GetOperator(r.Context(), op.Destination.TargetOperatorID); err == nil {
+			target = &t
+		}
+	}
+	install, secretCmd := a.operatorInstallCommandTo(img, secret, op, tlsBundle, hbURL, target)
+	if svcType != "" {
+		install += fmt.Sprintf(" \\\n  --set service.type=%s", svcType)
+	}
 	resp := map[string]any{
-		"operator":  toOperatorDoc(op, a.core(r).Now()),
+		"operator":  a.opDoc(r, op),
 		"install":   install,
 		"reminders": a.operatorSourceReminders(r, op, tlsBundle),
 	}
@@ -201,6 +238,42 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 	}
 	a.addOperatorTargetExport(r, resp, op)
 	writeJSON(w, 201, resp)
+}
+
+// serviceTypeFor maps the create request's exposure to the chart's service.type ("" keeps the chart's own
+// default, ClusterIP).
+func serviceTypeFor(exposure string) (string, error) {
+	switch exposure {
+	case "", "cluster":
+		return "", nil
+	case "loadbalancer":
+		return "LoadBalancer", nil
+	case "nodeport":
+		return "NodePort", nil
+	}
+	return "", errf(KindInvalid, "exposure must be cluster, loadbalancer or nodeport")
+}
+
+// setOperatorAddress records the host:port other clusters reach the operator at ({"address": ""} clears it).
+func (a *Admin) setOperatorAddress(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Address string `json:"address"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	id := r.PathValue("id")
+	if _, err := a.core(r).SetOperatorAddress(r.Context(), actor(r), id, req.Address); err != nil {
+		a.fail(w, err)
+		return
+	}
+	op, err := a.core(r).GetOperator(r.Context(), id)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, a.opDoc(r, op))
 }
 
 func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +307,7 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 	if clientCert, clientKey, caPEM, tlsErr := a.core(r).IssueOperatorClientCert(r.Context(), actor(r), op.ID); tlsErr == nil {
 		tlsBundle = OperatorTLSBundle{ClientCertPEM: clientCert, ClientKeyPEM: clientKey, CACertPEM: caPEM}
 	}
-	resp := map[string]any{"operator": toOperatorDoc(op, a.core(r).Now()), "reminders": a.operatorSourceReminders(r, op, tlsBundle)}
+	resp := map[string]any{"operator": a.opDoc(r, op), "reminders": a.operatorSourceReminders(r, op, tlsBundle)}
 	a.addOperatorTargetExport(r, resp, op)
 	writeJSON(w, 200, resp)
 }
@@ -300,6 +373,9 @@ func operatorDestinationCommand(op store.Operator, endpoint string, certPEM, key
 	// against the CA bundle in the same Secret - see pki.IssueOperatorClientTLS.
 	secretCmd = operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, namespace)
 	setFlags += fmt.Sprintf(" --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=%s", operatorClientTLSSecretName(op))
+	if op.Address != "" {
+		setFlags += fmt.Sprintf(" --set telemetry.export.otlp.tls.serverName=%s", operatorServerName(op))
+	}
 	return setFlags, secretCmd
 }
 
@@ -316,16 +392,24 @@ func operatorClientSecretCommand(op store.Operator, certPEM, keyPEM, caPEM []byt
 // operatorClientSecretCommand. Stated in full so the route does not depend on anything an earlier command set.
 func operatorRouteFlags(op store.Operator, endpoint string, m store.Modality) string {
 	base := fmt.Sprintf("telemetry.export.routes.%s", m)
-	return fmt.Sprintf("--set %s.endpoint=%s --set %s.protocol=grpc --set %s.tls.insecure=false --set %s.tls.mtls.enabled=true --set %s.tls.mtls.secretName=%s",
+	flags := fmt.Sprintf("--set %s.endpoint=%s --set %s.protocol=grpc --set %s.tls.insecure=false --set %s.tls.mtls.enabled=true --set %s.tls.mtls.secretName=%s",
 		base, endpoint, base, base, base, base, operatorClientTLSSecretName(op))
+	if op.Address != "" {
+		flags += fmt.Sprintf(" --set %s.tls.serverName=%s", base, operatorServerName(op))
+	}
+	return flags
 }
 
 // operatorEndpoint is where an exporter is pointed to reach op's receiver: the operator's own Service in the
 // namespace the install commands use, or - for the central operator, which lives with the server and may be
-// exposed - the address FusionControl says (see CentralEndpoint).
+// exposed - the address FusionControl says (see CentralEndpoint). Any other operator with an advertised address
+// (see store.Operator.Address) is reached there, so a cluster elsewhere can find it.
 func (a *Admin) operatorEndpoint(op store.Operator) string {
 	if op.ID == CentralOperatorID && a.Fusion != nil {
 		return a.Fusion.CentralEndpoint()
+	}
+	if op.Address != "" {
+		return op.Address
 	}
 	return fmt.Sprintf("%s.continuum-system.svc:4317", op.ID)
 }
@@ -347,7 +431,7 @@ func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op
 		return
 	}
 	resp["exportSecretCommand"] = operatorClientSecretCommand(target, certPEM, keyPEM, caPEM, "continuum-system")
-	resp["exportTarget"] = map[string]any{"operatorId": target.ID, "name": target.Name, "endpoint": a.operatorEndpoint(target), "reachableFromOtherClusters": target.ID != CentralOperatorID || (a.Fusion != nil && a.Fusion.Exposed())}
+	resp["exportTarget"] = map[string]any{"operatorId": target.ID, "name": target.Name, "endpoint": a.operatorEndpoint(target), "reachableFromOtherClusters": target.Address != "" || (target.ID == CentralOperatorID && a.Fusion != nil && a.Fusion.Exposed())}
 }
 
 // operatorChartArgs is the chart reference an operator `helm` command names, and the " --version ..." that
@@ -379,6 +463,14 @@ func (a *Admin) operatorChartArgs(img ImageConfig) (ref, version string) {
 // heartbeatURL is "" for an operator that did not opt in to a heartbeat (the command is then exactly what
 // it was before heartbeats existed).
 func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string) (install, secretCmd string) {
+	return a.operatorInstallCommandTo(img, secret, op, tlsBundle, heartbeatURL, nil)
+}
+
+// operatorInstallCommandTo is operatorInstallCommand when the operator's destination is another operator and the
+// caller has that operator's record: its advertised address (if any) is then what the exporter dials, and the
+// certificate is verified against the stable name on it. With target nil only the id is known, which fixes the
+// in-cluster name and nothing more.
+func (a *Admin) operatorInstallCommandTo(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string, target *store.Operator) (install, secretCmd string) {
 	ref, version := a.operatorChartArgs(img)
 	secretName := op.ID + "-receiver-auth"
 	var b strings.Builder
@@ -386,9 +478,15 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 	if op.Destination.Kind == store.DestinationOperator {
 		// Another regional operator (the central one in front of FUSION, usually): its receiver, over mutual TLS with
 		// a client certificate from the target's own CA (the Secret addOperatorTargetExport hands out).
-		target := store.Operator{ID: op.Destination.TargetOperatorID} // the id alone fixes the endpoint and the Secret name
+		tgt := store.Operator{ID: op.Destination.TargetOperatorID} // the id alone fixes the in-cluster endpoint and the Secret name
+		if target != nil {
+			tgt = *target
+		}
 		fmt.Fprintf(&b, " \\\n  --set export.otlp.endpoint=%s \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=%s",
-			a.operatorEndpoint(target), operatorClientTLSSecretName(target))
+			a.operatorEndpoint(tgt), operatorClientTLSSecretName(tgt))
+		if tgt.Address != "" {
+			fmt.Fprintf(&b, " \\\n  --set export.otlp.tls.serverName=%s", operatorServerName(tgt))
+		}
 	} else {
 		fmt.Fprintf(&b, " \\\n  --set export.otlp.endpoint=%s", op.Destination.Endpoint)
 		if op.Destination.Insecure {

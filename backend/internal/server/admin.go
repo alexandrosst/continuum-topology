@@ -227,6 +227,7 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/fusion/tokens", adminRole, a.createFusionToken)
 	route("DELETE "+o+"/fusion/tokens/{id}", adminRole, a.deleteFusionToken)
 	route("POST "+o+"/operators/{id}/scope", adminRole, a.updateOperatorScope)
+	route("POST "+o+"/operators/{id}/address", adminRole, a.setOperatorAddress)
 	// Mints (or rotates) the operator's heartbeat secret: credential material, so adminRole like the rest.
 	route("POST "+o+"/operators/{id}/heartbeat", adminRole, a.enableOperatorHeartbeat)
 	route("POST "+o+"/operators/{id}/revoke", adminRole, a.revokeOperator)

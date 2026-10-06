@@ -529,6 +529,9 @@
                     "caFile": {
                       "type": "string"
                     },
+                    "serverName": {
+                      "type": "string"
+                    },
                     "mtls": {
                       "type": "object",
                       "additionalProperties": false,
@@ -588,6 +591,9 @@
                         "caFile": {
                           "type": "string"
                         },
+                        "serverName": {
+                          "type": "string"
+                        },
                         "mtls": {
                           "type": "object",
                           "additionalProperties": false,
@@ -643,6 +649,9 @@
                         "caFile": {
                           "type": "string"
                         },
+                        "serverName": {
+                          "type": "string"
+                        },
                         "mtls": {
                           "type": "object",
                           "additionalProperties": false,
@@ -696,6 +705,9 @@
                           "type": "boolean"
                         },
                         "caFile": {
+                          "type": "string"
+                        },
+                        "serverName": {
                           "type": "string"
                         },
                         "mtls": {

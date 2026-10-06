@@ -5,6 +5,13 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["ClusterIP", "LoadBalancer", "NodePort"] }
+      }
+    },
     "replicaCount": { "type": "integer", "minimum": 1 },
     "image": {
       "type": "object",
@@ -40,6 +47,7 @@
               "properties": {
                 "insecure": { "type": "boolean" },
                 "caFile": { "type": "string" },
+                "serverName": { "type": "string" },
                 "mtls": {
                   "type": "object",
                   "additionalProperties": false,

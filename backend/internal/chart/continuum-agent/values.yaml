@@ -332,6 +332,9 @@ telemetry:
       tls:
         insecure: false
         caFile: ""    # path to a CA bundle to mount and trust, if your endpoint's certificate isn't otherwise trusted
+        serverName: ""    # verify the destination's certificate against THIS name instead of the endpoint's host - for reaching a
+                           # regional operator at a LoadBalancer/Ingress address while its certificate is for its in-cluster name.
+                           # Ikhnos's install command sets it when it points you at an operator's advertised address.
         # Present a client certificate on top of (or instead of) caFile above - e.g. when your destination
         # is an Ikhnos regional operator with receiver.tls.mtls on. Off by default in this file, but a
         # regional operator's own "point this cluster at me" reminder always sets this on with the
@@ -364,6 +367,7 @@ telemetry:
         tls:
           insecure: false
           caFile: ""
+          serverName: ""
           mtls:
             enabled: false
             secretName: ""
@@ -377,6 +381,7 @@ telemetry:
         tls:
           insecure: false
           caFile: ""
+          serverName: ""
           mtls:
             enabled: false
             secretName: ""
@@ -390,6 +395,7 @@ telemetry:
         tls:
           insecure: false
           caFile: ""
+          serverName: ""
           mtls:
             enabled: false
             secretName: ""

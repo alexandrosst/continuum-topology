@@ -7,6 +7,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels: {{- include "operator.labels" . | nindent 4 }}
 spec:
+  {{- if ne .Values.service.type "ClusterIP" }}
+  type: {{ .Values.service.type }}
+  {{- end }}
   selector: {app.kubernetes.io/name: continuum-regional-operator, app.kubernetes.io/instance: {{ .Release.Name }}}
   ports:
     - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
