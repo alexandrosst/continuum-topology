@@ -11,6 +11,7 @@ import { Button, CheckboxList, ChipList, ComboField, EmptyState, ErrorBanner, Fi
 import { api, ApiError, type CreatedOperator, type OperatorHeartbeatEnabled } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
+import { FUSION_DEFAULT_NAMESPACE, FUSION_DEFAULT_RELEASE, fusionProblems, fusionStores } from '@/lib/fusion'
 import { cleanTags, tagProblems, type TagEntry } from '@/lib/install'
 import { isReportingHealth, receiverAuthOf } from '@/lib/operatorHealth'
 import { buildOperatorInstallCommand, operatorProcessorProblems } from '@/lib/operatorInstall'
@@ -40,9 +41,19 @@ const emptyDestination: OperatorDestination = {
 /** What is wrong with the destination draft, in words a person can act on - deliberately not reusing
  *  install.ts's telemetryProblems (that one covers a whole TelemetryInput, this is just a destination). */
 function destinationProblems(d: OperatorDestination): string[] {
+  if (d.kind === 'fusion') return fusionProblems(d.fusionRelease ?? '', d.fusionNamespace ?? '')
   const out: string[] = []
   if (!d.endpoint.trim()) out.push('An export endpoint is required')
   return out
+}
+
+// Release and namespace start empty, shown as placeholders: empty means the default, here and on the server.
+const fusionDestination: OperatorDestination = { kind: 'fusion', endpoint: '', fusionRelease: '', fusionNamespace: '' }
+
+/** Where a regional operator exports to, in one short line for the table: the endpoint, or for FUSION the name
+ *  of the install (its stores are three, so one address would say too little). */
+function destinationLabel(d: OperatorDestination): string {
+  return d.kind === 'fusion' ? `FUSION (${d.fusionRelease || FUSION_DEFAULT_RELEASE})` : d.endpoint
 }
 
 /** Name + source clusters + destination + extra processors, the whole create form's shape in one place so
@@ -154,6 +165,15 @@ function OperatorCreated({ created, extraProcessors, onClose }: { created: Creat
             intervalSeconds={created.heartbeatIntervalSeconds ?? 60}
           />
           <p className="mt-1 text-xs text-nb-500">The install command below already turns health reporting on.</p>
+        </div>
+      )}
+      {created.fusionInstall && (
+        <div className="mt-3" data-testid="operator-created-fusion">
+          <div className="mb-1 text-xs text-nb-500">
+            Install FUSION first, in the cluster where the operator runs (skip this if it is already installed there). It is Prometheus, Loki and Tempo, each with its own volume;
+            none of them asks who is calling, so they are reachable inside the cluster only
+          </div>
+          <CopyCommand text={created.fusionInstall} testId="operator-fusion-install" />
         </div>
       )}
       <div className="mt-3">
@@ -361,7 +381,8 @@ export default function RegionalOperatorsPage() {
     .filter((cl) => agents.some((a) => a.status === 'approved' && a.clusterId === cl.id))
     .map((cl) => ({ value: cl.id, label: cl.name, hint: cl.region || undefined }))
 
-  const destinationNote = unsupportedDestinationNote(draft.destination.endpoint)
+  const fusionDest = draft.destination.kind === 'fusion'
+  const destinationNote = fusionDest ? undefined : unsupportedDestinationNote(draft.destination.endpoint)
   const problems = [
     draft.name.trim().length < 2 ? ['A name of at least two characters is required'] : [],
     draft.sourceClusterIds.length === 0 ? ['Pick at least one source cluster'] : [],
@@ -505,7 +526,7 @@ export default function RegionalOperatorsPage() {
                     {op.status === 'active' && <div className="mt-1"><OperatorHealth operator={op} /></div>}
                   </Td>
                   <Td className="text-nb-500">{op.sourceClusterIds.length} cluster{op.sourceClusterIds.length === 1 ? '' : 's'}</Td>
-                  <Td className="text-nb-500"><span className="font-mono text-xs">{op.destination.endpoint}</span></Td>
+                  <Td className="text-nb-500"><span className="font-mono text-xs" data-testid={`operator-destination-${op.name}`}>{destinationLabel(op.destination)}</span></Td>
                   <Td className="text-nb-500">{when(op.createdAt)}</Td>
                   <Td className="text-right">
                     {op.status === 'active' && (
@@ -552,51 +573,111 @@ export default function RegionalOperatorsPage() {
             />
           </Field>
 
-          <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
-            <Field label="Send aggregated telemetry to" hint="Pick a known backend to fill in its endpoint pattern and credential header, or type your own.">
-              <ComboField
-                value={draft.destination.endpoint}
-                onChange={(v) => {
-                  const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === v)
-                  setDraft({
-                    ...draft,
-                    destination: {
-                      ...draft.destination,
-                      endpoint: v,
-                      authHeaderName: preset && preset.headerName ? preset.headerName : draft.destination.authHeaderName,
-                    },
-                  })
-                }}
-                placeholder="otel-gateway.example.com:4317"
-                options={EXPORT_PRESETS.map((p) => ({ value: p.endpointPattern, label: p.label }))}
-              />
-            </Field>
-            {destinationNote && <p role="alert" className="text-xs text-warn sm:col-span-2">{destinationNote}</p>}
-            <label className="flex cursor-pointer items-center gap-2 text-sm sm:col-span-2">
-              <input
-                type="checkbox"
-                className="size-4 accent-[var(--color-accent)]"
-                checked={!!draft.destination.insecure}
-                onChange={(e) => setDraft({ ...draft, destination: { ...draft.destination, insecure: e.target.checked } })}
-                data-testid="operator-export-insecure"
-              />
-              <span className="text-nb-300">Skip TLS verification for this endpoint</span>
-            </label>
-            <Field label="Credential header" hint="Which header the destination expects its credential in.">
-              <Input
-                value={draft.destination.authHeaderName ?? ''}
-                onChange={(e) => setDraft({ ...draft, destination: { ...draft.destination, authHeaderName: e.target.value } })}
-                placeholder="Authorization"
-              />
-            </Field>
-            <Field label="Secret holding it" hint="A Secret you create in the release namespace, outside this chart - never the credential value itself.">
-              <Input
-                value={draft.destination.authSecretName ?? ''}
-                onChange={(e) => setDraft({ ...draft, destination: { ...draft.destination, authSecretName: e.target.value } })}
-                placeholder="telemetry-export-token"
-              />
-            </Field>
+          <div className="border-t border-nb-850 pt-3">
+            <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-nb-500">Where it saves what it receives</div>
+            <div className="flex w-fit overflow-hidden rounded-md border border-nb-850" role="radiogroup" aria-label="Destination type">
+              {([
+                ['external', 'Another backend', 'operator-dest-external'],
+                ['fusion', 'FUSION', 'operator-dest-fusion'],
+              ] as const).map(([kind, label, testId]) => (
+                <button
+                  key={kind}
+                  type="button"
+                  role="radio"
+                  aria-checked={(fusionDest ? 'fusion' : 'external') === kind}
+                  onClick={() => setDraft({ ...draft, destination: kind === 'fusion' ? fusionDestination : emptyDestination })}
+                  data-testid={testId}
+                  className={`px-3 py-1.5 text-sm ${(fusionDest ? 'fusion' : 'external') === kind ? 'bg-nb-850 text-nb-100' : 'text-nb-400 hover:bg-nb-900'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {fusionDest && (
+            <div className="space-y-3" data-testid="operator-fusion">
+              <p className="text-xs leading-relaxed text-nb-500">
+                FUSION keeps each signal type in a store of its own: metrics in Prometheus, logs in Loki, traces in Tempo, each on its own volume.
+                The operator sends each there over the cluster network. You install FUSION once, next to the operator; the install command is shown after you create it.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="FUSION release name" hint="The Helm release of the FUSION install. Its Services are named after it.">
+                  <Input
+                    value={draft.destination.fusionRelease ?? ''}
+                    onChange={(e) => setDraft({ ...draft, destination: { ...draft.destination, fusionRelease: e.target.value } })}
+                    placeholder={FUSION_DEFAULT_RELEASE}
+                    data-testid="operator-fusion-release"
+                  />
+                </Field>
+                <Field label="FUSION namespace" hint="Where that release is installed.">
+                  <Input
+                    value={draft.destination.fusionNamespace ?? ''}
+                    onChange={(e) => setDraft({ ...draft, destination: { ...draft.destination, fusionNamespace: e.target.value } })}
+                    placeholder={FUSION_DEFAULT_NAMESPACE}
+                    data-testid="operator-fusion-namespace"
+                  />
+                </Field>
+              </div>
+              <ul className="space-y-1 rounded-md border border-nb-850 bg-nb-930 px-3 py-2 text-xs text-nb-400" data-testid="operator-fusion-routes">
+                {fusionStores(draft.destination.fusionRelease ?? '', draft.destination.fusionNamespace ?? '').map((r) => (
+                  <li key={r.signal} className="flex flex-wrap gap-x-2">
+                    <span className="w-16 text-nb-500">{r.signal}</span>
+                    <span className="w-24 text-nb-300">{r.store}</span>
+                    <code className="font-mono">{r.endpoint}</code>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {!fusionDest && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Send aggregated telemetry to" hint="Pick a known backend to fill in its endpoint pattern and credential header, or type your own.">
+                <ComboField
+                  value={draft.destination.endpoint}
+                  onChange={(v) => {
+                    const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === v)
+                    setDraft({
+                      ...draft,
+                      destination: {
+                        ...draft.destination,
+                        endpoint: v,
+                        authHeaderName: preset && preset.headerName ? preset.headerName : draft.destination.authHeaderName,
+                      },
+                    })
+                  }}
+                  placeholder="otel-gateway.example.com:4317"
+                  options={EXPORT_PRESETS.map((p) => ({ value: p.endpointPattern, label: p.label }))}
+                />
+              </Field>
+              {destinationNote && <p role="alert" className="text-xs text-warn sm:col-span-2">{destinationNote}</p>}
+              <label className="flex cursor-pointer items-center gap-2 text-sm sm:col-span-2">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-[var(--color-accent)]"
+                  checked={!!draft.destination.insecure}
+                  onChange={(e) => setDraft({ ...draft, destination: { ...draft.destination, insecure: e.target.checked } })}
+                  data-testid="operator-export-insecure"
+                />
+                <span className="text-nb-300">Skip TLS verification for this endpoint</span>
+              </label>
+              <Field label="Credential header" hint="Which header the destination expects its credential in.">
+                <Input
+                  value={draft.destination.authHeaderName ?? ''}
+                  onChange={(e) => setDraft({ ...draft, destination: { ...draft.destination, authHeaderName: e.target.value } })}
+                  placeholder="Authorization"
+                />
+              </Field>
+              <Field label="Secret holding it" hint="A Secret you create in the release namespace, outside this chart - never the credential value itself.">
+                <Input
+                  value={draft.destination.authSecretName ?? ''}
+                  onChange={(e) => setDraft({ ...draft, destination: { ...draft.destination, authSecretName: e.target.value } })}
+                  placeholder="telemetry-export-token"
+                />
+              </Field>
+            </div>
+          )}
 
           <div className="border-t border-nb-850 pt-3">
             <label className="flex cursor-pointer items-start gap-2 text-sm">

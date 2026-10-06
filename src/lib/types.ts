@@ -1226,7 +1226,7 @@ export interface OperatorHealth {
  *  re-exports what it aggregates. 'operator' (chaining to another regional operator already active in
  *  this org) is now accepted by the server, alongside the original 'external' - see
  *  OperatorDestination.targetOperatorId. */
-export type DestinationKind = 'external' | 'operator'
+export type DestinationKind = 'external' | 'operator' | 'fusion'
 
 /** An OTLP export target, shaped like TelemetryInput's own export block (see lib/install.ts) so the same
  *  rendering logic applies to both a cluster's own telemetry export and a regional operator's. Also the
@@ -1242,6 +1242,12 @@ export interface OperatorDestination {
   /** Only meaningful for kind 'operator': the id of the active regional operator in this org this
    *  destination chains to. The server rejects a kind 'operator' destination that doesn't name one. */
   targetOperatorId?: string
+  /** Only meaningful for kind 'fusion': the Helm release and namespace of the FUSION install (continuum-fusion
+   *  chart) the operator saves into. Both default server-side (`fusion`, `continuum-system`); the stores'
+   *  addresses follow from them - see lib/fusion.ts. Only a regional operator takes this kind, never a
+   *  telemetry intent. */
+  fusionRelease?: string
+  fusionNamespace?: string
 }
 
 /**

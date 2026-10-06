@@ -243,6 +243,86 @@ describe('RegionalOperatorsPage', () => {
   })
 })
 
+describe('RegionalOperatorsPage - FUSION destination', () => {
+  test('choosing FUSION shows where each signal type goes, needs no endpoint, and sends a fusion destination', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByTestId('operator-open'))
+    await user.type(screen.getByTestId('operator-name'), 'athens-regional')
+    await user.click(screen.getByTestId('checkbox-c1'))
+    expect(screen.getByTestId('operator-create')).toBeDisabled()
+
+    await user.click(screen.getByTestId('operator-dest-fusion'))
+    expect(screen.queryByPlaceholderText('otel-gateway.example.com:4317')).not.toBeInTheDocument()
+    const routes = screen.getByTestId('operator-fusion-routes')
+    expect(routes).toHaveTextContent('fusion-prometheus.continuum-system.svc:9090/api/v1/otlp')
+    expect(routes).toHaveTextContent('fusion-loki.continuum-system.svc:3100/otlp')
+    expect(routes).toHaveTextContent('fusion-tempo.continuum-system.svc:4317')
+    expect(screen.getByTestId('operator-create')).toBeEnabled()
+
+    await user.type(screen.getByTestId('operator-fusion-release'), 'eu')
+    await user.clear(screen.getByTestId('operator-fusion-namespace'))
+    await user.type(screen.getByTestId('operator-fusion-namespace'), 'obs')
+    expect(screen.getByTestId('operator-fusion-routes')).toHaveTextContent('eu-fusion-loki.obs.svc:3100/otlp')
+
+    await user.click(screen.getByTestId('operator-create'))
+    await waitFor(() => expect(createOperator).toHaveBeenCalled())
+    const dest = createOperator.mock.calls[0][3] as { kind: string; fusionRelease?: string; fusionNamespace?: string }
+    expect(dest.kind).toBe('fusion')
+    expect(dest.fusionRelease).toBe('eu')
+    expect(dest.fusionNamespace).toBe('obs')
+  })
+
+  test('a release name Kubernetes would refuse blocks Create and says why', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByTestId('operator-open'))
+    await user.type(screen.getByTestId('operator-name'), 'athens-regional')
+    await user.click(screen.getByTestId('checkbox-c1'))
+    await user.click(screen.getByTestId('operator-dest-fusion'))
+    await user.type(screen.getByTestId('operator-fusion-release'), 'Not Valid')
+    expect(screen.getByTestId('operator-create')).toBeDisabled()
+    expect(screen.getByTestId('operator-problems')).toHaveTextContent('FUSION release name')
+  })
+
+  test('switching back to another backend restores the endpoint field', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByTestId('operator-open'))
+    await user.click(screen.getByTestId('operator-dest-fusion'))
+    await user.click(screen.getByTestId('operator-dest-external'))
+    expect(screen.queryByTestId('operator-fusion')).not.toBeInTheDocument()
+    expect(screen.getByText('otel-gateway.example.com:4317')).toBeInTheDocument()
+  })
+
+  test('the created screen leads with the FUSION install command, before the operator install', async () => {
+    createOperator.mockImplementationOnce(async (_c, name, sourceClusterIds, destination) => ({
+      operator: { id: 'op-1', orgId: 'o', name, status: 'active' as const, sourceClusterIds, destination, createdAt: '2026-01-01T00:00:00Z', createdBy: 'me' },
+      install: 'helm install op-1 ./op.tgz --set export.routes.metrics.endpoint=fusion-prometheus.continuum-system.svc:9090/api/v1/otlp',
+      reminders: [] as string[],
+      fusionInstall: 'helm upgrade --install fusion ./continuum-fusion-0.1.0.tgz --namespace continuum-system --create-namespace',
+    }) as never)
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByTestId('operator-open'))
+    await user.type(screen.getByTestId('operator-name'), 'athens-regional')
+    await user.click(screen.getByTestId('checkbox-c1'))
+    await user.click(screen.getByTestId('operator-dest-fusion'))
+    await user.click(screen.getByTestId('operator-create'))
+    const block = await screen.findByTestId('operator-created-fusion')
+    expect(block).toHaveTextContent('Install FUSION first')
+    expect(screen.getByTestId('operator-fusion-install')).toHaveTextContent('helm upgrade --install fusion')
+    expect(block.compareDocumentPosition(screen.getByText('Then install the operator')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  test('the table names a FUSION destination by its install, not by an empty endpoint', async () => {
+    listOperators.mockResolvedValue([op({ name: 'athens', destination: { kind: 'fusion', endpoint: '', fusionRelease: 'eu', fusionNamespace: 'obs' } })])
+    renderPage()
+    expect(await screen.findByTestId('operator-destination-athens')).toHaveTextContent('FUSION (eu)')
+    listOperators.mockResolvedValue([])
+  })
+})
+
 describe('RegionalOperatorsPage - Local tab', () => {
   test('with no approved agent reporting any telemetry signal, the Local tab shows its own empty state', async () => {
     const user = userEvent.setup()

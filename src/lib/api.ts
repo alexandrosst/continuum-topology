@@ -88,6 +88,9 @@ export interface CreatedOperator {
   heartbeatIntervalSeconds?: number
   /** Why the heartbeat address will not work as printed (plain HTTP) - show it next to the commands. */
   heartbeatWarning?: string
+  /** Present only for a FUSION destination: the `helm upgrade --install` that puts the Prometheus/Loki/Tempo stores
+   *  where the operator's routes point. Not secret, and safe to run again. */
+  fusionInstall?: string
 }
 
 /** What POST /operators/{id}/heartbeat returns: the heartbeat credential, minted now and never shown again,
@@ -118,6 +121,8 @@ export interface CreateOperatorOptions {
 export interface UpdatedOperatorScope {
   operator: RegionalOperator
   reminders: string[]
+  /** As CreatedOperator.fusionInstall: present only for a FUSION destination. */
+  fusionInstall?: string
 }
 
 /** What GET /telemetry-intents/{id}/command returns: the `--set` flags a person runs against the
