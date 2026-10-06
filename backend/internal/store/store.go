@@ -609,6 +609,16 @@ type Store interface {
 	// expires, for the UI's own status display.
 	LatestGatewayToken(ctx context.Context, org, backendID string) (GatewayToken, error)
 
+	// ---- FUSION access tokens ----
+
+	CreateFusionToken(ctx context.Context, t FusionToken, hash []byte) error
+	// LookupFusionToken resolves a secret's hash (ErrNotFound for an unknown one); expiry is the caller's to check.
+	LookupFusionToken(ctx context.Context, hash []byte) (FusionToken, error)
+	ListFusionTokens(ctx context.Context, org string) ([]FusionToken, error)
+	TouchFusionToken(ctx context.Context, hash []byte, now time.Time) error
+	DeleteFusionToken(ctx context.Context, org, id string) error
+	PurgeFusionTokens(ctx context.Context, olderThan time.Time) error
+
 	AddAudit(ctx context.Context, e AuditEvent) error
 	ListAudit(ctx context.Context, org string, limit int) ([]AuditEvent, error)
 	// AuditSince returns audit rows of every organisation with an id above afterID, oldest first

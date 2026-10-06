@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"continuum/internal/fusionapi"
 	"continuum/internal/store"
 )
 
@@ -39,12 +40,16 @@ type FusionControl struct {
 	Namespace     string
 	PublicAddress string // host:port other clusters dial to reach the gateway ("" = reachable inside this cluster only)
 	Kube          KubeAPI
+	// Data reads what FUSION saved (the shared API, fusion_data.go). Nil means the stores' in-cluster addresses by the
+	// chart's naming convention (see dataClient); tests point it at fakes.
+	Data *fusionapi.Client
 	// Org is the one organisation that may turn FUSION on: everything saved in it is shared by whoever sends to the
 	// gateway, so it belongs to a single organisation.
 	Org string
 	Now func() time.Time
 
 	mu    sync.Mutex
+	data  *fusionapi.Client
 	since time.Time // when the stores were last asked to start; zero when off or unknown
 }
 
@@ -90,6 +95,23 @@ func (f *FusionControl) certHosts() []string {
 		h = append(h, strings.Trim(host, "[]"))
 	}
 	return h
+}
+
+// dataClient is how the shared API reaches the three stores: their ClusterIP Services, plain HTTP, on the ports the
+// chart gives them (see fusionRoutes, which uses the same convention for the OTLP side).
+func (f *FusionControl) dataClient() *fusionapi.Client {
+	if f.Data != nil {
+		return f.Data
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.data == nil {
+		host := func(suffix string, port int) string {
+			return fmt.Sprintf("http://%s-%s.%s.svc:%d", f.Name, suffix, f.Namespace, port)
+		}
+		f.data = &fusionapi.Client{Prometheus: host("prometheus", 9090), Loki: host("loki", 3100), Tempo: host("tempo", 3200)}
+	}
+	return f.data
 }
 
 func (f *FusionControl) tlsSecretName() string { return f.Name + "-central-receiver-tls" }

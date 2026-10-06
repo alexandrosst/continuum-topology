@@ -32,6 +32,11 @@ const patPrefix = "cnk_"
 // nginx gateway the admin deploys alongside a quick-start backend, never by this server.
 const gatewayTokenPrefix = "cnq_"
 
+// fusionTokenPrefix marks a FUSION access token (see store.FusionToken): a read credential for FUSION's data API,
+// distinct from a personal access token so its own shape says which kind it is - and so one can never be pasted where
+// the other is expected and be taken for it.
+const fusionTokenPrefix = "cnf_"
+
 // newSecret returns 32 random bytes as URL-safe text.
 func newSecret() (string, error) {
 	b := make([]byte, 32)
@@ -98,6 +103,21 @@ func NewGatewayTokenSecret() (string, error) {
 	return gatewayTokenPrefix + s, err
 }
 
+// NewFusionTokenSecret returns a fresh FUSION access token. Only HashSecret(secret) is stored.
+func NewFusionTokenSecret() (string, error) {
+	s, err := newSecret()
+	return fusionTokenPrefix + s, err
+}
+
+// looksLikeFusionToken cheaply rejects malformed input before touching the database.
+func looksLikeFusionToken(s string) bool {
+	if !strings.HasPrefix(s, fusionTokenPrefix) || len(s) != len(fusionTokenPrefix)+43 {
+		return false
+	}
+	_, err := base64.RawURLEncoding.DecodeString(s[len(fusionTokenPrefix):])
+	return err == nil
+}
+
 // looksLikeAPIToken cheaply rejects malformed input before touching the database.
 func looksLikeAPIToken(s string) bool {
 	if !strings.HasPrefix(s, patPrefix) || len(s) != len(patPrefix)+43 {
@@ -118,6 +138,7 @@ func randHex(n int) string {
 func newAgentID() string           { return "ag-" + randHex(6) }
 func newTokenID() string           { return "tk-" + randHex(6) }
 func newAPITokenID() string        { return "pat-" + randHex(6) }
+func newFusionTokenID() string     { return "fk-" + randHex(6) }
 func newOperatorID() string        { return "op-" + randHex(6) }
 func newGatewayTokenID() string    { return "gwt-" + randHex(6) }
 func newTelemetryIntentID() string { return "ti-" + randHex(6) }

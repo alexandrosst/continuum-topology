@@ -81,6 +81,8 @@ type Admin struct {
 	authRL        *Limiter
 	// hbFailRL throttles failed regional-operator heartbeat authentications per address (see operatorHeartbeat).
 	hbFailRL *Limiter
+	// fusionRL limits how fast one FUSION data-API caller (a token or a person) may read.
+	fusionRL *Limiter
 	// Readiness says what /readyz checks besides the database; nil checks only the database.
 	Readiness *Readiness
 }
@@ -121,6 +123,7 @@ func (a *Admin) core(r *http.Request) *Core { return a.tn(r).C }
 func (a *Admin) Handler() http.Handler {
 	a.authRL = NewLimiter(30, 10)
 	a.hbFailRL = NewLimiter(30, 10)
+	a.fusionRL = NewLimiter(600, 60)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("GET /readyz", a.readyz)
@@ -219,6 +222,10 @@ func (a *Admin) Handler() http.Handler {
 	route("GET "+o+"/fusion", adminRole, a.getFusion)
 	route("POST "+o+"/fusion/enable", adminRole, a.enableFusion)
 	route("POST "+o+"/fusion/disable", adminRole, a.disableFusion)
+	// FUSION access tokens: read-only credentials for the shared data API below.
+	route("GET "+o+"/fusion/tokens", adminRole, a.listFusionTokens)
+	route("POST "+o+"/fusion/tokens", adminRole, a.createFusionToken)
+	route("DELETE "+o+"/fusion/tokens/{id}", adminRole, a.deleteFusionToken)
 	route("POST "+o+"/operators/{id}/scope", adminRole, a.updateOperatorScope)
 	// Mints (or rotates) the operator's heartbeat secret: credential material, so adminRole like the rest.
 	route("POST "+o+"/operators/{id}/heartbeat", adminRole, a.enableOperatorHeartbeat)
@@ -242,6 +249,10 @@ func (a *Admin) Handler() http.Handler {
 
 	route("POST "+o+"/quick-start/{id}/gateway-token", adminRole, a.mintGatewayToken)
 	route("GET "+o+"/quick-start/{id}/gateway-token", adminRole, a.getGatewayToken)
+
+	// The shared data API over FUSION. It authenticates for itself (a FUSION access token, or an administrator of the
+	// FUSION organisation) rather than through guard: the caller is not placed in an organisation by the path.
+	a.registerFusionData(api)
 
 	// A regional operator's collector reports that it is alive here. Authenticated by its own secret, with
 	// no session, so it sits beside - not inside - the browser-facing wrappers: no CORS, no CSRF.

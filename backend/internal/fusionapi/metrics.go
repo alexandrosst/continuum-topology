@@ -1,0 +1,351 @@
+package fusionapi
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"math"
+	"net/http"
+	"net/url"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Prometheus names a series' labels after the resource attributes the FUSION chart promotes, with dots turned into
+// underscores (OTLP's own translation): service.name is service_name, and so on.
+const (
+	lblName      = "__name__"
+	lblService   = "service_name"
+	lblNamespace = "k8s_namespace_name"
+	lblPod       = "k8s_pod_name"
+	lblNode      = "k8s_node_name"
+	lblCluster   = "continuum_cluster_id"
+)
+
+// Point is one sample, [unix seconds, value] in JSON.
+type Point [2]float64
+
+// MetricSeries is one series and what it did over the asked range.
+type MetricSeries struct {
+	Name   string            `json:"name"`
+	Labels map[string]string `json:"labels"`
+	Points []Point           `json:"points,omitempty"`
+	Min    float64           `json:"min"`
+	Max    float64           `json:"max"`
+	Avg    float64           `json:"avg"`
+	Last   float64           `json:"last"`
+}
+
+// MetricFilter picks series. Every field is an exact match except NameRegex, which is a regular expression over the
+// metric name; all of them are optional and combine with AND.
+type MetricFilter struct {
+	Name      string `json:"name,omitempty"`
+	NameRegex string `json:"nameRegex,omitempty"`
+	Service   string `json:"service,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+	Pod       string `json:"pod,omitempty"`
+	Node      string `json:"node,omitempty"`
+	Cluster   string `json:"cluster,omitempty"`
+}
+
+// matchers builds the label matchers of a selector: the filter's own, then the Scope's, each as its own matcher so a
+// filter that contradicts the Scope simply matches nothing.
+func (f MetricFilter) matchers(s Scope) ([]string, error) {
+	var m []string
+	switch {
+	case f.Name != "":
+		if err := checkValue("name", f.Name); err != nil {
+			return nil, err
+		}
+		m = append(m, lblName+"="+quote(f.Name))
+	case f.NameRegex != "":
+		if err := checkValue("metric", f.NameRegex); err != nil {
+			return nil, err
+		}
+		if _, err := regexp.Compile(f.NameRegex); err != nil {
+			return nil, badRequest("metric is not a valid regular expression")
+		}
+		m = append(m, lblName+"=~"+quote(f.NameRegex))
+	default:
+		m = append(m, lblName+`=~".+"`)
+	}
+	for _, p := range []struct{ name, label, val string }{
+		{"service", lblService, f.Service}, {"namespace", lblNamespace, f.Namespace}, {"pod", lblPod, f.Pod},
+		{"node", lblNode, f.Node}, {"cluster", lblCluster, f.Cluster},
+	} {
+		if p.val == "" {
+			continue
+		}
+		if err := checkValue(p.name, p.val); err != nil {
+			return nil, err
+		}
+		m = append(m, p.label+"="+quote(p.val))
+	}
+	if len(s.Namespaces) > 0 {
+		m = append(m, lblNamespace+"=~"+quote(regexAny(s.Namespaces)))
+	}
+	if len(s.Clusters) > 0 {
+		m = append(m, lblCluster+"=~"+quote(regexAny(s.Clusters)))
+	}
+	return m, nil
+}
+
+func (f MetricFilter) selector(s Scope) (string, error) {
+	m, err := f.matchers(s)
+	if err != nil {
+		return "", err
+	}
+	return "{" + strings.Join(m, ",") + "}", nil
+}
+
+// promEnvelope is Prometheus' answer shape.
+type promEnvelope struct {
+	Status string          `json:"status"`
+	Data   json.RawMessage `json:"data"`
+	Error  string          `json:"error"`
+}
+
+func (c *Client) prom(ctx context.Context, path string, q url.Values) (json.RawMessage, error) {
+	var env promEnvelope
+	if err := c.get(ctx, storeProm, c.Prometheus, path, q, nil, &env); err != nil {
+		return nil, err
+	}
+	if env.Status != "success" {
+		return nil, errf(http.StatusBadGateway, "%s: %s", storeProm, env.Error)
+	}
+	return env.Data, nil
+}
+
+// MetricNames lists the metric names that have a series matching the filter in the range.
+func (c *Client) MetricNames(ctx context.Context, s Scope, f MetricFilter, tr TimeRange, limit int) ([]string, error) {
+	if err := s.needSignal(SignalMetrics); err != nil {
+		return nil, err
+	}
+	sel, err := f.selector(s)
+	if err != nil {
+		return nil, err
+	}
+	data, err := c.prom(ctx, "/api/v1/label/__name__/values", url.Values{"match[]": {sel}, "start": {unixFloat(tr.From)}, "end": {unixFloat(tr.To)}, "limit": {strconv.Itoa(limit)}})
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	if err := json.Unmarshal(data, &names); err != nil {
+		return nil, errf(http.StatusBadGateway, "%s answered with something unexpected", storeProm)
+	}
+	sort.Strings(names)
+	if len(names) > limit {
+		names = names[:limit]
+	}
+	return names, nil
+}
+
+// Series lists the label sets of the series matching the filter in the range.
+func (c *Client) Series(ctx context.Context, s Scope, f MetricFilter, tr TimeRange, limit int) ([]map[string]string, error) {
+	if err := s.needSignal(SignalMetrics); err != nil {
+		return nil, err
+	}
+	sel, err := f.selector(s)
+	if err != nil {
+		return nil, err
+	}
+	data, err := c.prom(ctx, "/api/v1/series", url.Values{"match[]": {sel}, "start": {unixFloat(tr.From)}, "end": {unixFloat(tr.To)}, "limit": {strconv.Itoa(limit)}})
+	if err != nil {
+		return nil, err
+	}
+	var out []map[string]string
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, errf(http.StatusBadGateway, "%s answered with something unexpected", storeProm)
+	}
+	out = visibleSeries(s, out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// visibleSeries drops label sets the Scope may not see. The query already carried the Scope's matchers; this is the
+// second check, on what actually came back.
+func visibleSeries(s Scope, in []map[string]string) []map[string]string {
+	if s.Unrestricted() {
+		return in
+	}
+	out := in[:0]
+	for _, l := range in {
+		if s.NamespaceVisible(l[lblNamespace]) && s.ClusterVisible(l[lblCluster]) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// Step limits.
+const (
+	minStep   = 15 * time.Second
+	maxPoints = 5000
+)
+
+// ChooseStep picks the resolution of a range query: the requested step if it gives a sane number of points,
+// otherwise about target points across the range, never finer than minStep.
+func ChooseStep(tr TimeRange, requested time.Duration, target int) (time.Duration, error) {
+	span := tr.To.Sub(tr.From)
+	if requested > 0 {
+		if requested < time.Second || int(span/requested) > maxPoints {
+			return 0, badRequest("step gives more than %d points over this range; use a larger step or a shorter range", maxPoints)
+		}
+		return requested, nil
+	}
+	if target <= 0 {
+		target = 120
+	}
+	step := span / time.Duration(target)
+	if step < minStep {
+		step = minStep
+	}
+	return step.Round(time.Second), nil
+}
+
+// MetricRange returns the values of every series matching the filter over the range, at most maxSeries of them (the
+// answer says when it left some out).
+func (c *Client) MetricRange(ctx context.Context, s Scope, f MetricFilter, tr TimeRange, step time.Duration, maxSeries int) (series []MetricSeries, truncated bool, err error) {
+	if err := s.needSignal(SignalMetrics); err != nil {
+		return nil, false, err
+	}
+	sel, err := f.selector(s)
+	if err != nil {
+		return nil, false, err
+	}
+	data, err := c.prom(ctx, "/api/v1/query_range", url.Values{
+		"query": {sel}, "start": {unixFloat(tr.From)}, "end": {unixFloat(tr.To)}, "step": {strconv.FormatFloat(step.Seconds(), 'f', -1, 64)}, "limit": {strconv.Itoa(maxSeries + 1)},
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	var res struct {
+		ResultType string `json:"resultType"`
+		Result     []struct {
+			Metric map[string]string `json:"metric"`
+			Values [][2]any          `json:"values"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(data, &res); err != nil || res.ResultType != "matrix" {
+		return nil, false, errf(http.StatusBadGateway, "%s answered with something unexpected", storeProm)
+	}
+	for _, r := range res.Result {
+		if !s.NamespaceVisible(r.Metric[lblNamespace]) || !s.ClusterVisible(r.Metric[lblCluster]) {
+			continue
+		}
+		ms := MetricSeries{Name: r.Metric[lblName], Labels: map[string]string{}}
+		for k, v := range r.Metric {
+			if k != lblName {
+				ms.Labels[k] = v
+			}
+		}
+		for _, v := range r.Values {
+			t, ok1 := v[0].(float64)
+			str, ok2 := v[1].(string)
+			if !ok1 || !ok2 {
+				continue
+			}
+			val, perr := strconv.ParseFloat(str, 64)
+			if perr != nil || math.IsNaN(val) || math.IsInf(val, 0) {
+				continue // JSON has no NaN or Inf
+			}
+			ms.Points = append(ms.Points, Point{t, val})
+		}
+		ms.summarise()
+		series = append(series, ms)
+	}
+	sort.Slice(series, func(i, j int) bool {
+		if series[i].Name != series[j].Name {
+			return series[i].Name < series[j].Name
+		}
+		return labelKey(series[i].Labels) < labelKey(series[j].Labels)
+	})
+	if len(series) > maxSeries {
+		series, truncated = series[:maxSeries], true
+	}
+	return series, truncated, nil
+}
+
+func (m *MetricSeries) summarise() {
+	if len(m.Points) == 0 {
+		return
+	}
+	m.Min, m.Max = math.Inf(1), math.Inf(-1)
+	var sum float64
+	for _, p := range m.Points {
+		m.Min, m.Max = math.Min(m.Min, p[1]), math.Max(m.Max, p[1])
+		sum += p[1]
+	}
+	m.Avg = sum / float64(len(m.Points))
+	m.Last = m.Points[len(m.Points)-1][1]
+}
+
+func labelKey(l map[string]string) string {
+	keys := make([]string, 0, len(l))
+	for k := range l {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		fmt.Fprintf(&b, "%s=%s,", k, l[k])
+	}
+	return b.String()
+}
+
+// rawPromParams are the only parameters a raw Prometheus query forwards.
+var rawPromParams = map[string][]string{
+	"query":       {"query", "time"},
+	"query_range": {"query", "start", "end", "step"},
+}
+
+// RawMetricQuery runs a PromQL query exactly as written and returns Prometheus' own "data" object. endpoint is
+// "query" or "query_range". Only a Scope with no namespace or cluster limit may do this.
+func (c *Client) RawMetricQuery(ctx context.Context, s Scope, endpoint string, params url.Values) (json.RawMessage, error) {
+	if err := s.needSignal(SignalMetrics); err != nil {
+		return nil, err
+	}
+	if err := s.needUnrestricted("a PromQL query"); err != nil {
+		return nil, err
+	}
+	allowed, ok := rawPromParams[endpoint]
+	if !ok {
+		return nil, badRequest("unknown metrics endpoint")
+	}
+	q := url.Values{}
+	for _, k := range allowed {
+		if v := params.Get(k); v != "" {
+			q.Set(k, v)
+		}
+	}
+	if q.Get("query") == "" || len(q.Get("query")) > 4096 {
+		return nil, badRequest("query is required and at most 4096 characters")
+	}
+	if endpoint == "query_range" && (q.Get("start") == "" || q.Get("end") == "" || q.Get("step") == "") {
+		return nil, badRequest("query_range needs start, end and step")
+	}
+	return c.prom(ctx, "/api/v1/"+endpoint, q)
+}
+
+// DurationParam reads a duration parameter written as Go ("30s", "2m") or as plain seconds.
+func DurationParam(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		if f < 0 {
+			return 0, badRequest("a duration cannot be negative")
+		}
+		return time.Duration(f * float64(time.Second)), nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d < 0 {
+		return 0, badRequest("%q is not a duration (30s, 2m, or seconds)", s)
+	}
+	return d, nil
+}
