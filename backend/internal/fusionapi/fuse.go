@@ -163,11 +163,16 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 	switch {
 	case !opts.Metrics:
 	case !s.Allows(SignalMetrics):
+		mu.Lock() // the logs goroutine may already be writing Sources
 		f.Sources[SignalMetrics] = SourceNotAllowed
+		mu.Unlock()
 	default:
+		mu.Lock()
 		f.Sources[SignalMetrics] = SourceOK
+		mu.Unlock()
 		step, err := ChooseStep(window, 0, opts.Points)
 		if err != nil {
+			wg.Wait() // the logs read, if started, must not outlive this call
 			return nil, err
 		}
 		sem := make(chan struct{}, fuseConcurrency)

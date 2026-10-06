@@ -4,11 +4,18 @@ title: Reading FUSION (the shared API)
 description: One token-protected API over the metrics, logs and traces FUSION saved - each signal on its own, or joined around a trace into one object - and exactly what a token can and cannot see.
 ---
 
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
 # Reading FUSION
 
 [FUSION](./regional-operators.md#fusion-where-a-regional-operator-saves-what-it-receives) saves what the central operator receives: metrics in Prometheus, logs in Loki, traces in Tempo, three stores that authenticate nothing and are never exposed. The shared API is the one way another system reads them back: a decision engine that wants the spans and logs behind a slow request, a dashboard, a script. It lives in the Ikhnos server, under `/api/v1/fusion`, so there is nothing more to install and one credential model for everything.
 
 It does two jobs. It lets a caller read each signal **on its own**, with filters that are the same across the three stores (service, namespace, pod, cluster, a time range). And it **fuses** them around a trace: one call returns the trace's spans, each carrying the log lines written under its span id, and each resource (a service in a pod in a namespace) carrying the metric series saved for it around the trace's time.
+
+<figure className="diagram-figure">
+  <img src={useBaseUrl('/img/diagrams/fusion-stack.svg')} alt="Regional operators in other clusters send over mutual TLS to the central operator in the server's cluster, which writes to Prometheus, Loki and Tempo. The server reads those three stores over plain HTTP inside the cluster, scales the four FUSION workloads up and down on Enable and Disable, and answers a token-holding reader on its shared API." />
+  <figcaption className="diagram-caption">FUSION is part of the server's own release and switched off until enabled. Telemetry goes in through one mTLS door; the shared API reads it back from the three stores.</figcaption>
+</figure>
 
 ## Who can read
 
