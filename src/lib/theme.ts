@@ -20,7 +20,7 @@
  * preference here in JS (rather than through a media query) is kept anyway since it centralizes the
  * logic and is easier to test.
  *
- * index.html carries a tiny inline script that applies the stored (or OS-resolved) preference before
+ * index.html loads a tiny external script (public/theme-init.js; not inline, which the server's CSP blocks) that applies the stored (or OS-resolved) preference before
  * first paint, so switching pages or reloading never flashes the wrong theme. Keep it in sync with the
  * logic here (it's duplicated on purpose: that one has to run synchronously, before any module loads).
  */
@@ -74,6 +74,12 @@ export function setThemePreference(pref: ThemePreference): void {
   apply(pref)
 }
 
+/** Applies the stored (or OS) preference. public/theme-init.js does this before first paint; calling it again at startup is the
+ * safety net for when that file did not run (blocked, cached stale, or a host that serves the page differently). */
+export function initTheme(): void {
+  apply(getThemePreference())
+}
+
 let watching = false
 
 /**
@@ -90,6 +96,6 @@ export function watchSystemTheme(): void {
     })
   } catch {
     // matchMedia/addEventListener unavailable: the theme just won't live-update on OS changes; the
-    // resolved value from the last full load (see index.html's inline script) still applies.
+    // resolved value from the last full load (see public/theme-init.js) still applies.
   }
 }

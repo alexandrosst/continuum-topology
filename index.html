@@ -4,28 +4,15 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ikhnos Topology</title>
+    <title>Ikhnos</title>
     <!--
-      Applies a saved theme choice before anything renders, so a reload or navigation never flashes the
-      wrong theme while React's own JS is still loading. Mirrors src/lib/theme.ts's storage key/values
-      exactly (kept duplicated on purpose: this one has to run synchronously, inline, before first paint,
-      which rules out importing the module here) - update both together.
+      Applies a saved theme choice (or the OS preference) before anything renders, so a reload never flashes the
+      wrong theme. It is an external file, not an inline script: the server's Content-Security-Policy allows scripts
+      from its own origin only, so an inline one is blocked there and the page stayed on the dark default whatever
+      the OS said. Classic and synchronous on purpose (no type=module, no defer): it must run before first paint.
+      The logic lives in public/theme-init.js and mirrors src/lib/theme.ts - update both together.
     -->
-    <script>
-      (function () {
-        try {
-          var t = localStorage.getItem('continuum:theme')
-          if (t !== 'light' && t !== 'dark') {
-            // No pinned choice: resolve the OS preference now, in JS, rather than leaving data-theme
-            // absent for a `@media (prefers-color-scheme)` rule in index.css to pick up - see the long
-            // comment atop src/lib/theme.ts for the story behind that choice.
-            t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark'
-          }
-          document.documentElement.setAttribute('data-theme', t)
-          document.documentElement.style.colorScheme = t
-        } catch (e) {}
-      })()
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>
