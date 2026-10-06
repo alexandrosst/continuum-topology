@@ -18,7 +18,7 @@ There are two kinds of caller, and nothing else is accepted.
 
 **A signed-in administrator** of that organisation (a browser session or a personal access token) can read everything, which is what lets the UI explore the data without minting a token for itself. A viewer or an editor cannot: the stored telemetry is more than the topology they can already see.
 
-Making and revoking a token are audited, with the name and the scope and never the secret. Reads are not audited one by one (a dashboard would write thousands of rows); each token records when it was last used, and each caller is rate limited (600 requests a minute, bursts of 60).
+Making and revoking a token are audited, with the name and the scope and never the secret. Reads are not audited one by one (a dashboard would write thousands of rows); each token records when it was last used, and each caller is rate limited (600 requests a minute, bursts of 60). A token belongs to the organisation, not to the administrator who made it: it keeps working if that person leaves, and any administrator of the organisation can list and revoke it. A token whose stored scope cannot be read back is refused rather than treated as unlimited.
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" https://ikhnos.example/api/v1/fusion/status
@@ -35,7 +35,7 @@ The limit is enforced twice. Every query a limited token causes is built by the 
 Two consequences follow, and both are deliberate:
 
 - **A limited token cannot send a raw query.** PromQL, LogQL and TraceQL written by hand cannot be restricted safely without parsing them, so `metrics/query`, `metrics/query_range`, `logs?query=` and `traces?q=` need a token with no namespace and no cluster limit (or an administrator). Everything else works for every token.
-- **A limited token sees spans, not whole traces.** A trace that crosses namespaces comes back with only the spans of the namespaces the token may see; a span whose parent is hidden is shown as a root. A trace with no visible span reads as not found, which is also what a trace that does not exist reads as. In a search result the trace's root service and name are left blank for a limited token (the root may be in a namespace it cannot see); it gets the services of the spans that matched.
+- **A limited token sees spans, not whole traces.** A trace that crosses namespaces comes back with only the spans of the namespaces the token may see; a span whose parent is hidden is shown as a root, and the hidden parent's id is not given. A trace with no visible span reads as not found, which is also what a trace that does not exist reads as, with the same message. In a search result the trace's root service and name are left blank for a limited token (the root may be in a namespace it cannot see), and its start time and duration are those of the spans that matched, not of the whole trace; it gets the services of the spans that matched.
 
 What the server does with the data matters too: the stores are reached over plain HTTP inside the cluster (their ClusterIP Services), and the server chart's network policy, when you turn it on, lets the server pod reach exactly those three ports and nothing else of FUSION. The server never sees telemetry *in transit* (the central operator writes straight to the stores), but it now **reads stored telemetry and returns it to token holders**. That is what the feature is; it is why only administrators of the main organisation can make tokens, and why a token's scope is narrow by choice.
 
@@ -82,7 +82,7 @@ The join is only as good as the instrumentation behind it, and it is worth sayin
 
 ## Limits and errors
 
-A store answer larger than 16 MiB is refused (narrow the range or the filters). A request takes at most 30 seconds. Failures use the usual statuses:
+A store answer larger than 16 MiB is refused (narrow the range or the filters). A request takes at most 30 seconds. The server keeps at most 8 calls to the stores in flight at once, across all callers. A fused read looks metrics up for at most 20 resources of a trace, and clamps the window it searches to 31 days; either is reported in the read's `warnings`. When a store itself fails, the caller is told which store and the status, not the store's own error text. Failures use the usual statuses:
 
 | Status | Meaning |
 | --- | --- |
@@ -97,4 +97,4 @@ A store answer larger than 16 MiB is refused (narrow the range or the filters). 
 
 ## Not in this release
 
-There is no streaming or push: a caller polls. There is no write path of any kind through this API (FUSION is filled by the central operator and nothing else). Token scopes name namespaces and clusters, not individual services or label sets. And a cluster-limited token's application list is built from a sample of its most recent log lines, since Loki cannot filter a label-value call by structured metadata.
+There is no streaming or push: a caller polls. There is no write path of any kind through this API (FUSION is filled by the central operator and nothing else). Token scopes name namespaces and clusters, not individual services or label sets. A limited token's application list is a sample, not a census: for logs it comes from the most recent log lines (Loki cannot filter a label-value call by structured metadata), and for traces from the services of its 200 most recent traces (Tempo's tag-values call does not promise to honour a scope), so a quiet service can be missing from it.

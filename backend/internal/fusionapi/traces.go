@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -311,6 +312,10 @@ func buildTrace(id string, rss []otlpResourceSpans, s Scope) *Trace {
 		// A span whose parent is not here (or is hidden from this Scope) is a root of what is visible.
 		if p, ok := byID[sp.ParentSpanID]; !ok || sp.ParentSpanID == "" || p == sp {
 			tr.Roots = append(tr.Roots, sp.SpanID)
+			// A parent this Scope cannot see is not named: its id would confirm a span exists outside the Scope.
+			if !s.Unrestricted() {
+				sp.ParentSpanID = ""
+			}
 		}
 	}
 	for _, sp := range tr.Spans { // depth: walk up, bounded so a cycle in bad data cannot loop
@@ -340,6 +345,11 @@ func (c *Client) Trace(ctx context.Context, s Scope, id string) (*Trace, error) 
 	}
 	var body traceBody
 	if err := c.get(ctx, storeTempo, c.Tempo, "/api/v2/traces/"+id, nil, nil, &body); err != nil {
+		// A trace Tempo does not have reads exactly as one this Scope may not see, so the two cannot be told apart.
+		var e *Error
+		if errors.As(err, &e) && e.Status == http.StatusNotFound {
+			return nil, errf(http.StatusNotFound, "no trace %s", id)
+		}
 		return nil, err
 	}
 	tr := buildTrace(id, body.resourceSpans(), s)
@@ -435,7 +445,9 @@ type tempoSearch struct {
 type tempoSpanSet struct {
 	Matched int `json:"matched"`
 	Spans   []struct {
-		Attributes []otlpKV `json:"attributes"`
+		Start      json.Number `json:"startTimeUnixNano"`
+		Duration   json.Number `json:"durationNanos"`
+		Attributes []otlpKV    `json:"attributes"`
 	} `json:"spans"`
 }
 
@@ -481,9 +493,22 @@ func (c *Client) tempoSearch(ctx context.Context, s Scope, q string, tr TimeRang
 			sets = append(sets, *t.SpanSet)
 		}
 		seen := map[string]bool{}
+		var first, last time.Time
 		for _, ss := range sets {
 			sum.MatchedSpans += ss.Matched
 			for _, sp := range ss.Spans {
+				if st := nanos(sp.Start); !st.IsZero() {
+					en := st
+					if d, err := strconv.ParseInt(sp.Duration.String(), 10, 64); err == nil && d > 0 {
+						en = st.Add(time.Duration(d))
+					}
+					if first.IsZero() || st.Before(first) {
+						first = st
+					}
+					if en.After(last) {
+						last = en
+					}
+				}
 				if svc := strAttr(kvMap(sp.Attributes), attrService); svc != "" && !seen[svc] {
 					seen[svc] = true
 					sum.Services = append(sum.Services, svc)
@@ -494,25 +519,44 @@ func (c *Client) tempoSearch(ctx context.Context, s Scope, q string, tr TimeRang
 		// The root of a trace may belong to a namespace this Scope cannot see; only what matched is its to know.
 		if !restricted {
 			sum.RootService, sum.RootName = t.RootSvc, t.RootName
+		} else if !first.IsZero() {
+			// Likewise the trace's own start and length cover spans outside the Scope; give the matched spans' extent.
+			sum.Start = first
+			sum.DurationMs = float64(last.Sub(first)) / float64(time.Millisecond)
+		} else {
+			sum.Start, sum.DurationMs = time.Time{}, 0
 		}
 		out = append(out, sum)
 	}
 	return out, nil
 }
 
-// traceServices lists the service names with spans in the range (inside the Scope).
+// traceServices lists the service names with spans in the range (inside the Scope). A Scope with a limit cannot ask
+// Tempo for tag values restricted to it (the tag-values call does not promise to honour the query), so it reads the
+// services off a sample of the traces it may see instead: the list is then those of the newest traces, not all.
 func (c *Client) traceServices(ctx context.Context, s Scope, tr TimeRange) ([]string, error) {
 	if err := s.needSignal(SignalTraces); err != nil {
 		return nil, err
 	}
-	q := url.Values{"start": {unixSec(tr.From)}, "end": {unixSec(tr.To)}}
 	if !s.Unrestricted() {
-		cond, err := TraceFilter{}.traceQL(s)
+		hits, err := c.SearchTraces(ctx, s, TraceFilter{}, tr, scopedServiceSample)
 		if err != nil {
 			return nil, err
 		}
-		q.Set("q", cond)
+		seen := map[string]bool{}
+		var out []string
+		for _, h := range hits {
+			for _, svc := range h.Services {
+				if !seen[svc] {
+					seen[svc] = true
+					out = append(out, svc)
+				}
+			}
+		}
+		sort.Strings(out)
+		return out, nil
 	}
+	q := url.Values{"start": {unixSec(tr.From)}, "end": {unixSec(tr.To)}}
 	var res struct {
 		TagValues []struct {
 			Value string `json:"value"`
@@ -529,3 +573,6 @@ func (c *Client) traceServices(ctx context.Context, s Scope, tr TimeRange) ([]st
 	}
 	return out, nil
 }
+
+// scopedServiceSample is how many traces a limited Scope's service listing reads.
+const scopedServiceSample = 200

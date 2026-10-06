@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,7 +24,15 @@ type Client struct {
 	MaxBytes int64
 	// Now is the clock, for tests.
 	Now func() time.Time
+
+	// semOnce/sem cap how many store calls are in flight at once for this Client, so a few fused reads cannot
+	// crowd the stores out for everyone else.
+	semOnce sync.Once
+	sem     chan struct{}
 }
+
+// maxUpstream is the most store calls one Client has in flight at a time.
+const maxUpstream = 8
 
 const defaultMaxBytes = 16 << 20
 
@@ -59,6 +68,13 @@ const (
 func (c *Client) get(ctx context.Context, store, base, path string, q url.Values, hdr map[string]string, out any) error {
 	if base == "" {
 		return errf(http.StatusServiceUnavailable, "%s is not configured on this server", store)
+	}
+	c.semOnce.Do(func() { c.sem = make(chan struct{}, maxUpstream) })
+	select {
+	case c.sem <- struct{}{}:
+		defer func() { <-c.sem }()
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 	u := base + path
 	if len(q) > 0 {
@@ -107,7 +123,8 @@ func (c *Client) get(ctx context.Context, store, base, path string, q url.Values
 	case resp.StatusCode/100 == 4:
 		return errf(http.StatusBadRequest, "%s refused the query: %s", store, upstreamMessage(body))
 	default:
-		return errf(http.StatusBadGateway, "%s answered %d: %s", store, resp.StatusCode, upstreamMessage(body))
+		// A store's own error text can name hosts, paths and internals; the caller gets the fact, not the text.
+		return errf(http.StatusBadGateway, "%s had a problem answering (status %d)", store, resp.StatusCode)
 	}
 }
 

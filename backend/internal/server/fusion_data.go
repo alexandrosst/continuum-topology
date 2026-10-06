@@ -55,6 +55,8 @@ type FusionTokenSpec struct {
 
 func cleanScopeList(what string, in []string, re *regexp.Regexp) ([]string, error) {
 	var out []string
+	// (An empty list means "no limit", so one that was given but cleans down to nothing is refused below.)
+
 	for _, v := range in {
 		v = strings.TrimSpace(v)
 		if v == "" || slices.Contains(out, v) {
@@ -64,6 +66,9 @@ func cleanScopeList(what string, in []string, re *regexp.Regexp) ([]string, erro
 			return nil, errf(KindInvalid, "%q is not a valid %s", printable(v, 40), what)
 		}
 		out = append(out, v)
+	}
+	if len(in) > 0 && len(out) == 0 {
+		return nil, errf(KindInvalid, "name at least one %s, or leave the list out to allow every one", what)
 	}
 	if len(out) > maxScopeEntries {
 		return nil, errf(KindInvalid, "a token can name at most %d %ss", maxScopeEntries, what)
@@ -97,7 +102,7 @@ func (c *Core) CreateFusionToken(ctx context.Context, actor string, spec FusionT
 		return "", store.FusionToken{}, errf(KindInvalid, "a token lasts between an hour and %d days", int(maxFusionTokenTTL.Hours()/24))
 	}
 	now := c.Now()
-	_ = c.Store.PurgeFusionTokens(ctx, now.Add(-30*24*time.Hour))
+	_ = c.Store.PurgeFusionTokens(ctx, now) // a lapsed token is of no use to anyone and should not count against the cap
 	existing, err := c.Store.ListFusionTokens(ctx, c.OrgID)
 	if err != nil {
 		return "", store.FusionToken{}, err
@@ -404,7 +409,13 @@ func (a *Admin) fusionStatus(w http.ResponseWriter, r *http.Request, c *fusionap
 	if who.ExpiresAt != nil {
 		access["expiresAt"] = rfc(*who.ExpiresAt)
 	}
-	writeJSON(w, 200, map[string]any{"fusion": a.Fusion.Status(r.Context()), "access": access})
+	// A token holder learns whether the stores are up, not how the cluster is set up: the full status carries workload
+	// names, the namespace and Kubernetes API error text, which are for administrators.
+	st := a.Fusion.Status(r.Context())
+	if who.Kind == "token" {
+		st = FusionStatus{Available: st.Available, State: st.State}
+	}
+	writeJSON(w, 200, map[string]any{"fusion": st, "access": access})
 }
 
 // ---- parameters ----

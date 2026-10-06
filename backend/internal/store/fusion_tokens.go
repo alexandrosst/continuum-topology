@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -30,6 +31,9 @@ type FusionToken struct {
 	ExpiresAt  time.Time
 	LastUsed   *time.Time
 }
+
+// errUnreadableScope marks a stored token whose scope cannot be parsed.
+var errUnreadableScope = errors.New("a FUSION token's scope is unreadable")
 
 const fusionTokenSchema = `
 CREATE TABLE IF NOT EXISTS fusion_tokens (
@@ -58,12 +62,14 @@ func stringsJSON(v []string) string {
 	return string(b)
 }
 
-func jsonStrings(s string) []string {
+// jsonStrings reads a stored scope list. An unreadable one is an error, never "no limit": a token whose scope cannot be
+// read must not be honoured, since an empty list means unrestricted.
+func jsonStrings(s string) ([]string, error) {
 	var v []string
-	if s == "" || json.Unmarshal([]byte(s), &v) != nil {
-		return nil
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		return nil, err
 	}
-	return v
+	return v, nil
 }
 
 func scanFusionToken(r scanner) (FusionToken, error) {
@@ -78,7 +84,16 @@ func scanFusionToken(r scanner) (FusionToken, error) {
 		}
 		return FusionToken{}, err
 	}
-	t.Signals, t.Namespaces, t.Clusters = jsonStrings(signals), jsonStrings(namespaces), jsonStrings(clusters)
+	var e1, e2, e3 error
+	t.Signals, e1 = jsonStrings(signals)
+	t.Namespaces, e2 = jsonStrings(namespaces)
+	t.Clusters, e3 = jsonStrings(clusters)
+	if err := errors.Join(e1, e2, e3); err != nil {
+		// Identified, but allowed nothing: no signals. The caller decides whether to refuse it (lookup) or list it so it
+		// can be revoked (list).
+		t.Signals, t.Namespaces, t.Clusters = nil, nil, nil
+		return t, fmt.Errorf("%w: token %s: %v", errUnreadableScope, t.ID, err)
+	}
 	t.CreatedAt, t.ExpiresAt = fromMS(created), fromMS(expires)
 	if used.Valid {
 		lu := fromMS(used.Int64)
@@ -110,10 +125,10 @@ func (s *SQLite) ListFusionTokens(ctx context.Context, org string) ([]FusionToke
 	var out []FusionToken
 	for rows.Next() {
 		t, err := scanFusionToken(rows)
-		if err != nil {
+		if err != nil && !errors.Is(err, errUnreadableScope) {
 			return nil, err
 		}
-		out = append(out, t)
+		out = append(out, t) // an unreadable one is listed with no rights, so it can still be revoked
 	}
 	return out, rows.Err()
 }

@@ -44,6 +44,8 @@ const (
 	defaultMaxSeries = 15
 	hardMaxSeries    = 100
 	fuseConcurrency  = 4
+	// maxFusedResources is the most resources one fused read looks up metrics for; a trace with more says so.
+	maxFusedResources = 20
 )
 
 func (o *FuseOptions) defaults() error {
@@ -86,8 +88,11 @@ type FusedLogs struct {
 // not be read is named in Sources and Warnings; the trace itself always comes back or the whole read fails.
 type Fused struct {
 	*Trace
-	Logs     FusedLogs         `json:"logs"`
-	Sources  map[string]string `json:"sources"`
+	Logs    FusedLogs         `json:"logs"`
+	Sources map[string]string `json:"sources"`
+	// Joins says in words how each requested signal was tied to the trace, because the two are not alike: a log line
+	// carries the trace and span id, a metric sample carries neither.
+	Joins    map[string]string `json:"joins,omitempty"`
 	Warnings []string          `json:"warnings,omitempty"`
 }
 
@@ -106,9 +111,20 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 		return nil, err
 	}
 	f := &Fused{Trace: tr, Sources: map[string]string{SignalTraces: SourceOK, SignalLogs: SourceNotRequested, SignalMetrics: SourceNotRequested}}
+	f.Joins = map[string]string{}
+	if opts.Logs {
+		f.Joins[SignalLogs] = "exact: log records that carry this trace's id, each placed on the span whose id it carries"
+	}
+	if opts.Metrics {
+		f.Joins[SignalMetrics] = "associated, not proven: series saved for the same service, namespace and pod around the trace's time; a metric sample carries no trace id"
+	}
 	window := TimeRange{From: tr.Start.Add(-opts.Pad), To: tr.End.Add(opts.Pad)}
 	if !window.From.Before(window.To) {
 		window.To = window.From.Add(time.Second)
+	}
+	if window.To.Sub(window.From) > MaxWindow { // a trace that spans weeks must not turn into an unbounded store read
+		window.From = window.To.Add(-MaxWindow)
+		f.Warnings = append(f.Warnings, fmt.Sprintf("the trace is longer than %d days; logs and metrics cover its last %d days", int(MaxWindow.Hours()/24), int(MaxWindow.Hours()/24)))
 	}
 
 	var mu sync.Mutex
@@ -155,10 +171,17 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 			return nil, err
 		}
 		sem := make(chan struct{}, fuseConcurrency)
+		looked := 0
 		for _, r := range tr.Resources {
 			r := r
 			if r.Service == "" && r.Pod == "" {
 				continue
+			}
+			if looked++; looked > maxFusedResources {
+				mu.Lock()
+				f.Warnings = append(f.Warnings, fmt.Sprintf("metrics: the trace has more than %d resources; the rest have no metrics here", maxFusedResources))
+				mu.Unlock()
+				break
 			}
 			wg.Add(1)
 			go func() {

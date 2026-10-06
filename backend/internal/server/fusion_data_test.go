@@ -181,7 +181,14 @@ func TestFusionTokenLifecycle(t *testing.T) {
 	if r.Code != 200 {
 		t.Fatalf("status with the token: %d %s", r.Code, r.Body.String())
 	}
-	acc := r.json(t)["access"].(map[string]any)
+	whole := r.json(t)
+	// A token is not told how the deployment is doing, only whether the data is there.
+	for _, k := range []string{"message", "components", "reason", "since"} {
+		if _, ok := whole[k]; ok {
+			t.Fatalf("a token's status carries %q: %v", k, whole)
+		}
+	}
+	acc := whole["access"].(map[string]any)
 	if acc["kind"] != "token" || acc["name"] != "decision engine" || acc["rawQueries"] != false || acc["expiresAt"] == nil {
 		t.Fatalf("access = %v", acc)
 	}
@@ -217,6 +224,8 @@ func TestFusionTokenValidation(t *testing.T) {
 		"no name":           {"name": " "},
 		"unknown signal":    {"name": "x", "signals": []string{"events"}},
 		"bad namespace":     {"name": "x", "namespaces": []string{"shop;drop"}},
+		"blank namespaces":  {"name": "x", "namespaces": []string{" ", ""}},
+		"blank clusters":    {"name": "x", "clusters": []string{"  "}},
 		"bad cluster":       {"name": "x", "clusters": []string{"cl 1"}},
 		"too long lasting":  {"name": "x", "expiresInDays": 4000},
 		"negative lifetime": {"name": "x", "expiresInDays": -1},

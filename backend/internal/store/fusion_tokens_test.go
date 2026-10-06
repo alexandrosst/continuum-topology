@@ -78,3 +78,26 @@ func openFusionTokenStore(t *testing.T) *SQLite {
 	t.Cleanup(func() { st.Close() })
 	return st
 }
+
+func TestAnUnreadableScopeIsAnErrorNotAnUnrestrictedToken(t *testing.T) {
+	st := openFusionTokenStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	if err := st.CreateFusionToken(ctx, FusionToken{ID: "fk-1", OrgID: "o", Name: "n", Namespaces: []string{"shop"}, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, []byte("h")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`UPDATE fusion_tokens SET namespaces='not json' WHERE id='fk-1'`); err != nil {
+		t.Fatal(err)
+	}
+	if tok, err := st.LookupFusionToken(ctx, []byte("h")); err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatalf("an unreadable scope was returned as %+v (%v)", tok, err)
+	}
+	// It is still listed, with no rights, so an administrator can revoke it.
+	list, err := st.ListFusionTokens(ctx, "o")
+	if err != nil || len(list) != 1 || list[0].ID != "fk-1" || len(list[0].Signals) != 0 || len(list[0].Namespaces) != 0 {
+		t.Fatalf("list = %+v %v", list, err)
+	}
+	if err := st.DeleteFusionToken(ctx, "o", "fk-1"); err != nil {
+		t.Fatal(err)
+	}
+}

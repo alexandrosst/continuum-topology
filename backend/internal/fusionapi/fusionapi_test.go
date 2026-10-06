@@ -366,7 +366,9 @@ func TestTraceSearchBuildsScopedTraceQLAndHidesTheRoot(t *testing.T) {
 	f.tempo = func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"traces": []any{map[string]any{
 			"traceID": traceHex, "rootServiceName": "gateway", "rootTraceName": "GET /", "startTimeUnixNano": "1791200000000000000", "durationMs": 120,
-			"spanSet": map[string]any{"matched": 2, "spans": []any{map[string]any{"attributes": []any{kv("service.name", "cart")}}, map[string]any{"attributes": []any{kv("service.name", "cart")}}}},
+			"spanSet": map[string]any{"matched": 2, "spans": []any{
+				map[string]any{"startTimeUnixNano": "1791200000050000000", "durationNanos": "30000000", "attributes": []any{kv("service.name", "cart")}},
+				map[string]any{"startTimeUnixNano": "1791200000010000000", "durationNanos": "20000000", "attributes": []any{kv("service.name", "cart")}}}},
 		}}})
 	}
 	c := f.client()
@@ -385,8 +387,12 @@ func TestTraceSearchBuildsScopedTraceQLAndHidesTheRoot(t *testing.T) {
 	if len(got) != 1 || got[0].RootService != "" || got[0].RootName != "" || got[0].MatchedSpans != 2 || !reflect.DeepEqual(got[0].Services, []string{"cart"}) || got[0].TraceID != traceHex {
 		t.Fatalf("a limited scope's summary = %+v", got)
 	}
+	// Its start and length are those of the spans that matched, not of a trace that reaches outside the scope.
+	if !got[0].Start.Equal(time.Unix(0, 1791200000010000000)) || got[0].DurationMs != 70 {
+		t.Fatalf("a limited scope's extent = %v %v", got[0].Start, got[0].DurationMs)
+	}
 	full, err := c.SearchTraces(ctx, AllSignals(), TraceFilter{}, rangeAll, 20)
-	if err != nil || full[0].RootService != "gateway" || f.last("/api/search").Get("q") != "{ true }" {
+	if err != nil || full[0].RootService != "gateway" || full[0].DurationMs != 120 || f.last("/api/search").Get("q") != "{ true }" {
 		t.Fatalf("%+v %v %q", full, err, f.last("/api/search").Get("q"))
 	}
 	var e *Error
@@ -421,6 +427,9 @@ func TestFuseTraceJoinsLogsToSpansAndMetricsToResources(t *testing.T) {
 	}
 	if got.Sources[SignalLogs] != SourceOK || got.Sources[SignalMetrics] != SourceOK || got.Sources[SignalTraces] != SourceOK {
 		t.Fatalf("sources = %v", got.Sources)
+	}
+	if !strings.HasPrefix(got.Joins[SignalLogs], "exact") || !strings.HasPrefix(got.Joins[SignalMetrics], "associated, not proven") {
+		t.Fatalf("joins = %v", got.Joins)
 	}
 	var charge *Span
 	for _, sp := range got.Spans {
@@ -507,8 +516,12 @@ func TestApplicationsMergeTheThreeStores(t *testing.T) {
 	if q := f.last("/loki/api/v1/query_range").Get("query"); !strings.Contains(q, `continuum_cluster_id=~"cl-1"`) {
 		t.Fatalf("logs listing for a cluster-limited scope: %s", q)
 	}
-	if q := f.last("/api/v2/search/tag/resource.service.name/values").Get("q"); !strings.Contains(q, `resource.k8s.namespace.name = "shop"`) {
+	// A limited scope does not use tag-values (which need not honour the query); it samples the traces it may see.
+	if q := f.last("/api/search").Get("q"); !strings.Contains(q, `resource.k8s.namespace.name = "shop"`) {
 		t.Fatalf("traces listing was not scoped: %s", q)
+	}
+	if n := f.last("/api/search").Get("limit"); n != strconv.Itoa(scopedServiceSample) {
+		t.Fatalf("service sample size = %s", n)
 	}
 	// Everything down reports unavailable, not an empty list.
 	f.pSrv.Close()
@@ -582,5 +595,140 @@ func TestStoreErrorsKeepTheirMeaning(t *testing.T) {
 	// An unconfigured store is unavailable.
 	if _, err := (&Client{}).Trace(context.Background(), AllSignals(), traceHex); !IsUnavailable(err) {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestAnUpstreamServerErrorDoesNotLeakItsText(t *testing.T) {
+	f := newFake(t)
+	f.prom = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte("panic at /var/lib/internal/secret.go:42 host=10.2.3.4"))
+	}
+	_, err := f.client().RawMetricQuery(context.Background(), AllSignals(), "query", url.Values{"query": {"up"}})
+	var e *Error
+	if !errors.As(err, &e) || e.Status != http.StatusBadGateway || strings.Contains(e.Msg, "secret.go") || strings.Contains(e.Msg, "10.2.3.4") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestAMissingTraceAndAHiddenTraceReadTheSame(t *testing.T) {
+	f := newFake(t)
+	f.tempo = func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "trace not found in Tempo", http.StatusNotFound)
+	}
+	_, missing := f.client().Trace(context.Background(), limited, traceHex)
+	f.tempo = func(w http.ResponseWriter, r *http.Request) { writeJSON(w, tempoTrace()) }
+	_, hidden := f.client().Trace(context.Background(), Scope{Signals: Signals, Namespaces: []string{"other"}}, traceHex)
+	var a, b *Error
+	if !errors.As(missing, &a) || !errors.As(hidden, &b) || a.Status != b.Status || a.Msg != b.Msg {
+		t.Fatalf("missing %v / hidden %v", missing, hidden)
+	}
+}
+
+func TestALimitedScopeDoesNotLearnTheIdOfAParentItCannotSee(t *testing.T) {
+	f := newFake(t)
+	f.tempo = func(w http.ResponseWriter, r *http.Request) { writeJSON(w, tempoTrace()) }
+	// Only "pay" is visible: "charge" has a parent in "shop" that it must not name.
+	lim, err := f.client().Trace(context.Background(), Scope{Signals: Signals, Namespaces: []string{"pay"}}, traceHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lim.Spans) != 1 || lim.Spans[0].ParentSpanID != "" || len(lim.Roots) != 1 {
+		t.Fatalf("%+v", lim.Spans[0])
+	}
+	all, _ := f.client().Trace(context.Background(), AllSignals(), traceHex)
+	for _, sp := range all.Spans {
+		if sp.Name == "charge" && sp.ParentSpanID == "" {
+			t.Fatal("an unrestricted read lost the parent id")
+		}
+	}
+}
+
+func TestAFusedReadBoundsItsWindowAndItsFanOut(t *testing.T) {
+	f := newFake(t)
+	// A trace of 30 services, one of whose spans started 60 days before the others.
+	var rss []any
+	base := time.Date(2026, 10, 5, 11, 30, 0, 0, time.UTC).UnixNano()
+	for i := 0; i < 30; i++ {
+		start := base
+		if i == 0 {
+			start = base - int64(60*24*time.Hour)
+		}
+		rss = append(rss, map[string]any{
+			"resource": map[string]any{"attributes": []any{kv("service.name", "svc"+strconv.Itoa(i)), kv("k8s.namespace.name", "shop")}},
+			"scopeSpans": []any{map[string]any{"spans": []any{map[string]any{"traceId": traceHex, "spanId": "00000000000000" + strconv.Itoa(10+i),
+				"name": "x", "startTimeUnixNano": json.Number(itoa(start)), "endTimeUnixNano": json.Number(itoa(base + 1e6))}}}},
+		})
+	}
+	f.tempo = func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"trace": map[string]any{"resourceSpans": rss}})
+	}
+	f.loki = func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"status": "success", "data": map[string]any{"result": []any{}}})
+	}
+	f.prom = func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"status": "success", "data": map[string]any{"resultType": "matrix", "result": []any{}}})
+	}
+	got, err := f.client().FuseTrace(context.Background(), AllSignals(), traceHex, FuseOptions{Logs: true, Metrics: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var window, resources bool
+	for _, w := range got.Warnings {
+		window = window || strings.Contains(w, "31 days") || strings.Contains(w, "longer than")
+		resources = resources || strings.Contains(w, "more than 20 resources")
+	}
+	if !window || !resources {
+		t.Fatalf("warnings = %v", got.Warnings)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	metricCalls := 0
+	for _, r := range f.reqs {
+		if r.URL.Path == "/api/v1/query_range" {
+			metricCalls++
+		}
+		if r.URL.Path == "/loki/api/v1/query_range" {
+			from, _ := strconv.ParseInt(r.URL.Query().Get("start"), 10, 64)
+			to, _ := strconv.ParseInt(r.URL.Query().Get("end"), 10, 64)
+			if time.Duration(to-from) > MaxWindow {
+				t.Fatalf("log window %v exceeds the maximum", time.Duration(to-from))
+			}
+		}
+	}
+	if metricCalls == 0 || metricCalls > 20*2 {
+		t.Fatalf("metric range queries = %d", metricCalls)
+	}
+}
+
+func TestStoreCallsInFlightAreCapped(t *testing.T) {
+	f := newFake(t)
+	var mu sync.Mutex
+	cur, peak := 0, 0
+	f.prom = func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		cur++
+		if cur > peak {
+			peak = cur
+		}
+		mu.Unlock()
+		time.Sleep(20 * time.Millisecond)
+		mu.Lock()
+		cur--
+		mu.Unlock()
+		writeJSON(w, map[string]any{"status": "success", "data": []string{}})
+	}
+	c := f.client()
+	var wg sync.WaitGroup
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = c.MetricNames(context.Background(), AllSignals(), MetricFilter{}, rangeAll, 10)
+		}()
+	}
+	wg.Wait()
+	if peak > maxUpstream {
+		t.Fatalf("%d store calls at once, cap is %d", peak, maxUpstream)
 	}
 }
