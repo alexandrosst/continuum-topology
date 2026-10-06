@@ -374,7 +374,7 @@ export default function DestinationStep({
                   data-testid={`${p}-destination-endpoint`}
                 />
               ) : (
-                <div className="break-all font-mono text-xs text-nb-400" data-testid={`${p}-destination-endpoint`}>{value.exportEndpoint}</div>
+                <div className="break-all font-mono text-xs text-nb-400" data-testid={`${p}-destination-endpoint`}>{selected?.kind === 'operator' && selected.operator.endpoint ? selected.operator.endpoint : value.exportEndpoint}</div>
               )}
               {operatorLive && operatorLive.kind !== 'unreported' && selected?.kind === 'operator' && (
                 <div data-testid={`${p}-destination-health`}><OperatorHealth operator={selected.operator} testId={`${p}-destination-health-chip`} /></div>
@@ -422,7 +422,7 @@ export default function DestinationStep({
                       </p>
                     ) : (
                       <p className="text-xs text-nb-400" data-testid={`${p}-destination-operator-address`}>
-                        No address is recorded for this operator, so the commands use its in-cluster name, which only resolves in the cluster it runs in. If this cluster is a different one, record where it is reachable first: <Link to="/operators" className="underline">Regional operators</Link>, then Reachable at.
+                        No address is recorded for this operator, so the commands dial its in-cluster name{selected.operator.endpoint ? <> (<span className="font-mono">{selected.operator.endpoint}</span>)</> : ''}, which only resolves in the cluster it runs in. If this cluster is a different one, record where it is reachable first: <Link to="/operators" className="underline">Regional operators</Link>, then Reachable at.
                       </p>
                     )
                   )}

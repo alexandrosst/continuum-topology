@@ -260,6 +260,21 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('Reached at otlp.eu.example.com:4317')
   })
 
+  test('the destination and the review show the address the commands will really dial, not the placeholder name', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    listOperators.mockResolvedValue([operator({ id: 'op-central', name: 'Central (FUSION)', endpoint: 'continuum-fusion-central.continuum.svc:4317' })])
+    renderWizard()
+    await gotoDestination(user)
+    await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('Central (FUSION)'))
+    expect(screen.getByTestId('t-guided-destination-endpoint')).toHaveTextContent('continuum-fusion-central.continuum.svc:4317')
+    expect(screen.getByTestId('t-guided-destination-endpoint')).not.toHaveTextContent('op-central.continuum-system.svc')
+    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('(continuum-fusion-central.continuum.svc:4317)')
+    await user.click(screen.getByTestId('t-guided-continue'))
+    expect(screen.getByTestId('t-review-pipeline')).toHaveTextContent('continuum-fusion-central.continuum.svc:4317')
+    expect(screen.getByTestId('t-review-pipeline')).not.toHaveTextContent('op-central.continuum-system.svc')
+  })
+
   test('an operator pick records its id and describes the real flow; a custom endpoint afterwards clears it', async () => {
     const user = userEvent.setup()
     role = 'admin'

@@ -48,6 +48,8 @@ type FusionControl struct {
 	Org string
 	Now func() time.Time
 
+	addrMu sync.RWMutex // guards PublicAddress, which the admin can change while the server runs (SetPublicAddress)
+
 	mu    sync.Mutex
 	data  *fusionapi.Client
 	since time.Time // when the stores were last asked to start; zero when off or unknown
@@ -74,14 +76,32 @@ func (f *FusionControl) centralHost() string { return f.Name + "-central." + f.N
 // CentralEndpoint is what an exporting regional operator is pointed at: the public address when there is one, else
 // the gateway's in-cluster Service (OTLP gRPC).
 func (f *FusionControl) CentralEndpoint() string {
-	if f.PublicAddress != "" {
-		return f.PublicAddress
+	if a := f.publicAddress(); a != "" {
+		return a
 	}
 	return f.centralHost() + ":4317"
 }
 
 // Exposed is whether operators in other clusters can reach the gateway.
-func (f *FusionControl) Exposed() bool { return f.PublicAddress != "" }
+func (f *FusionControl) Exposed() bool { return f.publicAddress() != "" }
+
+func (f *FusionControl) publicAddress() string {
+	f.addrMu.RLock()
+	defer f.addrMu.RUnlock()
+	return f.PublicAddress
+}
+
+// SetPublicAddress records where other clusters reach the gateway ("" = this cluster only). It is what the admin
+// types under Reachable at on the central operator; the server's startup flag (--fusion-central-address) is only the
+// first value. Nothing is reissued: senders verify the gateway by its stable name (operatorServerName).
+func (f *FusionControl) SetPublicAddress(addr string) {
+	f.addrMu.Lock()
+	f.PublicAddress = addr
+	f.addrMu.Unlock()
+}
+
+// ServiceName is the gateway's Service (what `kubectl get svc` names to read its address).
+func (f *FusionControl) ServiceName() string { return f.Name + "-central" }
 
 // certHosts are the names the gateway's server certificate must carry: its Service in every spelling, the stable name
 // senders verify it by, and the public address's host.
@@ -90,8 +110,8 @@ func (f *FusionControl) certHosts() []string {
 	// address verify against it, so the address, or the IP behind it, can change without reissuing anything.
 	h := []string{f.Name + "-central", f.Name + "-central." + f.Namespace, f.centralHost(), f.centralHost() + ".cluster.local",
 		operatorServerName(store.Operator{ID: CentralOperatorID})}
-	if f.PublicAddress != "" {
-		host := f.PublicAddress
+	if pa := f.publicAddress(); pa != "" {
+		host := pa
 		if i := strings.LastIndex(host, ":"); i >= 0 && !strings.HasSuffix(host, "]") {
 			host = host[:i]
 		}

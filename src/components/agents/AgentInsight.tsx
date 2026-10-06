@@ -668,6 +668,11 @@ export function TelemetryPanel({
           })}
         </ul>
       )}
+      {installed.length > 0 && (
+        <p className="mt-1.5 text-xs text-nb-500" data-testid="telemetry-installed-note">
+          The settings below start from these. The command they create states every signal: the ones left ticked stay on (or turn on), every other one is turned off.
+        </p>
+      )}
 
       <ExportHealth installed={installed} diagnostics={d} />
 

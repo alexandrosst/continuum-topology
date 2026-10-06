@@ -392,13 +392,11 @@ func validOperatorAddress(in string) (string, error) {
 	return net.JoinHostPort(host, port), nil
 }
 
-// SetOperatorAddress records where clusters other than the operator's own reach its receiver. Nothing about
+// SetOperatorAddress records where clusters other than the operator's own reach its receiver. It is allowed for the
+// central operator too (the gateway in front of FUSION): that is where its public address is set from the UI. Nothing about
 // the operator's certificates changes: callers verify it by its stable in-cluster name (operatorServerName),
 // so the address can be changed, or an IP can move, without reissuing anything. Empty clears it.
 func (c *Core) SetOperatorAddress(ctx context.Context, actor, id, address string) (string, error) {
-	if err := guardCentral(id); err != nil {
-		return "", err
-	}
 	if _, err := c.operatorInOrg(ctx, id); err != nil {
 		return "", err
 	}

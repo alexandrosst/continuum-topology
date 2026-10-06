@@ -14,10 +14,12 @@ export const EXPOSURE_OPTIONS: { id: OperatorExposure; label: string; hint: stri
 ]
 
 /** The kubectl line that reads the address a Service ended up with. */
-export function addressCommands(id: string): { loadBalancer: string; nodePort: string } {
+export function addressCommands(id: string, svc?: { service: string; namespace: string }): { loadBalancer: string; nodePort: string } {
+  const name = svc?.service || id
+  const ns = svc?.namespace || 'continuum-system'
   return {
-    loadBalancer: `kubectl get svc ${id} --namespace continuum-system -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}{"\\n"}'`,
-    nodePort: `kubectl get svc ${id} --namespace continuum-system -o jsonpath='{.spec.ports[?(@.name=="otlp-grpc")].nodePort}{"\\n"}'`,
+    loadBalancer: `kubectl get svc ${name} --namespace ${ns} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}{"\\n"}'`,
+    nodePort: `kubectl get svc ${name} --namespace ${ns} -o jsonpath='{.spec.ports[?(@.name=="otlp-grpc")].nodePort}{"\\n"}'`,
   }
 }
 
@@ -38,8 +40,8 @@ export function connectionCheckCommand(address: string, id: string): string {
 
 /** How to find the address, in the order a person does it. Shown after creating an exposed operator and in the
  *  "Reachable at" dialog, so nobody has to know which Service field to read. */
-export function FindTheAddress({ id, exposure, testId }: { id: string; exposure?: OperatorExposure; testId: string }) {
-  const cmds = addressCommands(id)
+export function FindTheAddress({ id, exposure, service, testId }: { id: string; exposure?: OperatorExposure; /** Where the Service is, when it is not the operator's own (the central operator's, in the server's namespace). */ service?: { service: string; namespace: string }; testId: string }) {
+  const cmds = addressCommands(id, service)
   // 'cluster' means the Service is not exposed by the install: there is nothing for kubectl to read, only an Ingress, a
   // DNS name or a mesh address of the person's own. Unknown (an operator from before it was asked) shows both.
   const showLb = exposure !== 'nodeport' && exposure !== 'cluster'
@@ -68,7 +70,7 @@ export function FindTheAddress({ id, exposure, testId }: { id: string; exposure?
 
 /** Records where other clusters reach an operator. Nothing on the operator changes - no certificate is reissued and
  *  nothing is restarted: callers dial the address and verify the operator by its stable name. */
-export function OperatorAddressModal({ operator, onClose, onDone }: { operator: RegionalOperator; onClose: () => void; onDone: () => void }) {
+export function OperatorAddressModal({ operator, central, onClose, onDone }: { operator: RegionalOperator; /** Set for the central operator (FUSION's gateway): the Service its address is read from. */ central?: { service: string; namespace: string }; onClose: () => void; onDone: () => void }) {
   const conn = useServer((s) => s.conn)
   const [value, setValue] = useState(operator.address ?? '')
   const [busy, setBusy] = useState(false)
@@ -103,7 +105,12 @@ export function OperatorAddressModal({ operator, onClose, onDone }: { operator: 
         <Field label="Reachable at" hint="A DNS name or an IP address, with a port if it is not 4317: otlp.eu.example.com, otlp.eu.example.com:4317 or 203.0.113.7:4317.">
           <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder="otlp.eu.example.com:4317" spellCheck={false} data-testid="operator-address-input" />
         </Field>
-        <FindTheAddress id={operator.id} exposure={operator.exposure} testId="operator-address-find" />
+        {central && (
+          <p className="text-sm leading-relaxed text-nb-400" data-testid="operator-address-central">
+            FUSION&apos;s central operator is exposed by the server&apos;s own install: set <span className="font-mono">fusion.central.service.type</span> to LoadBalancer or NodePort in its Helm values (or put your own Ingress in front of the Service), then record the address it gets here. Nothing about the server needs to be restarted.
+          </p>
+        )}
+        <FindTheAddress id={operator.id} exposure={operator.exposure} service={central} testId="operator-address-find" />
         {withDefaultPort(value) && (
           <div data-testid="operator-address-check">
             <div className="mb-1 text-xs text-nb-500">

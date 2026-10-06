@@ -151,7 +151,68 @@ func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t
 	}
 }
 
-func TestTheCentralOperatorsAddressIsFusionsNotSetByHand(t *testing.T) {
+// The central operator's address is set the same way as any other's, from the UI, and from then on commands that point
+// at it dial that address and verify it by the stable name: no Helm value and no restart needed.
+func TestTheCentralOperatorsAddressIsSetFromTheUIAndUsedByEveryCommand(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, viewer := a.user(t, "vera", RoleViewer)
+	f, _ := newFusion(t, a)
+	a.a.Fusion = f
+	if r := a.do("POST", "/api/v1/fusion/enable", nil, withCookie(cookie)); r.Code != 200 {
+		t.Fatal(r.Body.String())
+	}
+	central := func() map[string]any {
+		r := a.do("GET", "/api/v1/operators/"+CentralOperatorID, nil, withCookie(cookie))
+		if r.Code != 200 {
+			t.Fatalf("get central: %d %s", r.Code, r.Body.String())
+		}
+		return r.json(t)
+	}
+	if d := central(); d["reachableFromOtherClusters"] != false || d["address"] != nil || d["endpoint"] != "continuum-fusion-central.continuum.svc:4317" {
+		t.Fatalf("before an address: %v", d)
+	}
+	path := "/api/v1/operators/" + CentralOperatorID + "/address"
+	if r := a.do("POST", path, map[string]any{"address": "fusion.example.com:4317"}, withCookie(viewer)); r.Code != 403 {
+		t.Fatalf("a viewer set it: %d", r.Code)
+	}
+	if r := a.do("POST", path, map[string]any{"address": "127.0.0.1:4317"}, withCookie(cookie)); r.Code != 400 {
+		t.Fatalf("a loopback address: %d", r.Code)
+	}
+	if r := a.do("POST", path, map[string]any{"address": "Fusion.Example.com"}, withCookie(cookie)); r.Code != 200 {
+		t.Fatalf("set: %d %s", r.Code, r.Body.String())
+	}
+	if d := central(); d["address"] != "fusion.example.com:4317" || d["reachableFromOtherClusters"] != true || d["endpoint"] != "fusion.example.com:4317" {
+		t.Fatalf("after setting it: %v", d)
+	}
+	if !f.Exposed() || f.CentralEndpoint() != "fusion.example.com:4317" {
+		t.Fatalf("the switch does not know: %v %q", f.Exposed(), f.CentralEndpoint())
+	}
+	if r := a.do("GET", "/api/v1/fusion", nil, withCookie(cookie)); !strings.Contains(r.Body.String(), `"service":"continuum-fusion-central"`) || !strings.Contains(r.Body.String(), `"exposed":true`) {
+		t.Fatalf("fusion status: %s", r.Body.String())
+	}
+	// A cluster's own telemetry pointed at it dials that address and verifies the stable name.
+	cl := a.approvedCluster(t, fp)
+	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "athens", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "operator", "targetOperatorId": CentralOperatorID}}, withCookie(cookie))
+	if r.Code != 201 {
+		t.Fatalf("create: %d %s", r.Code, r.Body.String())
+	}
+	install, _ := r.json(t)["install"].(string)
+	for _, w := range []string{"--set export.otlp.endpoint=fusion.example.com:4317", "--set export.otlp.tls.serverName=op-central.continuum-system.svc"} {
+		if !strings.Contains(install, w) {
+			t.Errorf("install lacks %q:\n%s", w, install)
+		}
+	}
+	// Clearing it returns to the in-cluster name.
+	if r := a.do("POST", path, map[string]any{"address": ""}, withCookie(cookie)); r.Code != 200 {
+		t.Fatalf("clear: %d %s", r.Code, r.Body.String())
+	}
+	if d := central(); d["address"] != nil || d["reachableFromOtherClusters"] != false || f.Exposed() {
+		t.Fatalf("after clearing it: %v", d)
+	}
+}
+
+func TestGuardCentralStillProtectsEverythingElse(t *testing.T) {
 	if err := guardCentral(CentralOperatorID); err == nil {
 		t.Fatal("the central operator can be edited by hand")
 	}

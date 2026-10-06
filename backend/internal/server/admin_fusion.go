@@ -11,6 +11,10 @@ type fusionCentralDoc struct {
 	Endpoint string `json:"endpoint"`
 	Exposed  bool   `json:"exposed"`
 	Exists   bool   `json:"exists"`
+	// Service and Namespace name the gateway's Service, which is what an administrator reads the address from
+	// once they have exposed it (kubectl get svc <service> --namespace <namespace>).
+	Service   string `json:"service"`
+	Namespace string `json:"namespace"`
 }
 
 type fusionResponse struct {
@@ -32,7 +36,7 @@ func (a *Admin) fusionDoc(r *http.Request) fusionResponse {
 	out := fusionResponse{FusionStatus: st, Data: f != nil && (f.Org == "" || core.OrgID == f.Org)}
 	if f != nil && st.Available {
 		_, err := core.GetOperator(r.Context(), CentralOperatorID)
-		out.Central = &fusionCentralDoc{OperatorID: CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil}
+		out.Central = &fusionCentralDoc{OperatorID: CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace}
 	}
 	return out
 }

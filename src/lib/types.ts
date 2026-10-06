@@ -1293,6 +1293,9 @@ export interface RegionalOperator {
   reachableFromOtherClusters?: boolean
   /** How its Service was exposed when it was created. Absent for an operator from before that was asked. */
   exposure?: 'cluster' | 'loadbalancer' | 'nodeport'
+  /** What a command that points something at this operator dials: its recorded address, otherwise the in-cluster name
+   *  (which only resolves in its own cluster). Absent on an older server. */
+  endpoint?: string
 }
 
 /** One extractor signal a TelemetryIntent grants, and where it is sourced from - `id` matches one of

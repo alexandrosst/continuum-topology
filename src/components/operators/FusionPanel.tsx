@@ -144,7 +144,7 @@ export function FusionPanel({ fusion, compact, enableLabel = 'Enable FUSION' }: 
           {status.central.exposed ? (
             <>The central operator is reachable from other clusters at <code className="font-mono text-nb-400">{status.central.endpoint}</code>. Anything that sends needs a client certificate from it; the three stores are never exposed.</>
           ) : (
-            <>The central operator is reachable inside this cluster only (<code className="font-mono text-nb-400">{status.central.endpoint}</code>), so a regional operator in another cluster cannot send to it yet. Set <code className="font-mono text-nb-400">fusionControl.centralAddress</code> on the server install, and expose the central operator, to allow that.</>
+            <>The central operator is reachable inside this cluster only (<code className="font-mono text-nb-400">{status.central.endpoint}</code>), so a regional operator in another cluster cannot send to it yet. To allow that, expose the central operator and record where it is reachable: <span className="text-nb-400">Reachable at</span> on its row in the list below.</>
           )}
         </p>
       )}

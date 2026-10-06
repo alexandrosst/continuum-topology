@@ -54,10 +54,14 @@ export default function TelemetryReviewPipeline({
   value,
   onSignals,
   testIdPrefix,
+  shownEndpoints,
 }: {
   value: TelemetryInput
   onSignals: SignalRec[]
   testIdPrefix: string
+  /** What to show for an endpoint the draft holds only as a stand-in: a regional operator's placeholder
+   *  (`<id>.continuum-system.svc:4317`) is shown as the address the commands will really dial. */
+  shownEndpoints?: Record<string, string>
 }) {
   const scopedOverrides = APP_SCOPE_FIELDS.map(({ key, label }) => ({ label, scope: value[key] })).filter(
     ({ scope }) => scope.namespaces.length > 0 || scope.exclude.length > 0,
@@ -83,7 +87,7 @@ export default function TelemetryReviewPipeline({
     const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === endpoint)
     return endpoint ? (
       <div className="space-y-1" key={label ?? 'one'}>
-        <p className="break-all text-xs text-nb-300">{label && <span className="mr-1.5 text-nb-500">{label}</span>}{preset?.label ?? endpoint}</p>
+        <p className="break-all text-xs text-nb-300">{label && <span className="mr-1.5 text-nb-500">{label}</span>}{preset?.label ?? shownEndpoints?.[endpoint] ?? endpoint}</p>
         <p className="text-xs text-nb-500">
           {exportProtocolLabel(t.exportProtocol)}
           {t.exportInsecure ? ' · TLS verification skipped' : ''}

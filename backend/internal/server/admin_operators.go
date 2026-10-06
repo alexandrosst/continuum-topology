@@ -90,6 +90,9 @@ type operatorDoc struct {
 	// Exposure is how its Service was exposed when it was created (cluster | loadbalancer | nodeport); absent for an
 	// operator from before it was asked.
 	Exposure string `json:"exposure,omitempty"`
+	// Endpoint is what a command that points something at this operator dials: its address once one is recorded, and
+	// otherwise the in-cluster name, which only resolves in the operator's own cluster.
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
@@ -120,6 +123,7 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 // other clusters exactly when FUSION says it is exposed, at the address FUSION gives.
 func (a *Admin) opDoc(r *http.Request, op store.Operator) operatorDoc {
 	d := toOperatorDoc(op, a.core(r).Now())
+	d.Endpoint = a.operatorEndpoint(op)
 	if op.ID == CentralOperatorID && a.Fusion != nil {
 		if d.ReachableFromOtherClusters = a.Fusion.Exposed(); d.ReachableFromOtherClusters {
 			d.Address = a.Fusion.CentralEndpoint()
@@ -269,9 +273,13 @@ func (a *Admin) setOperatorAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if _, err := a.core(r).SetOperatorAddress(r.Context(), actor(r), id, req.Address); err != nil {
+	addr, err := a.core(r).SetOperatorAddress(r.Context(), actor(r), id, req.Address)
+	if err != nil {
 		a.fail(w, err)
 		return
+	}
+	if id == CentralOperatorID && a.Fusion != nil {
+		a.Fusion.SetPublicAddress(addr) // from now on every command and the screens use it; no certificate changes
 	}
 	op, err := a.core(r).GetOperator(r.Context(), id)
 	if err != nil {

@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Button, ICON_MD, ICON_SM, WizardSteps } from '@/components/ui/primitives'
 import { api, atLeast } from '@/lib/api'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
-import { buildDestinationCatalog } from '@/lib/destinationCatalog'
+import { buildDestinationCatalog, operatorReceiverEndpoint } from '@/lib/destinationCatalog'
 import { activeLanes, destinationReady, emptyExportTarget, enabledModalities, ROUTE_MODALITIES, startLanes, type Modality, type TelemetryInput } from '@/lib/install'
 import { LAYER_META } from '@/lib/telemetryLayers'
 import type { RegionalOperator } from '@/lib/types'
@@ -330,7 +330,7 @@ export default function GuidedWizard({
             ) : (
               <>
                 <p className="text-xs text-nb-500">How this will flow, end to end:</p>
-                <TelemetryReviewPipeline value={value} onSignals={onSignals} testIdPrefix={testIdPrefix} />
+                <TelemetryReviewPipeline value={value} onSignals={onSignals} testIdPrefix={testIdPrefix} shownEndpoints={Object.fromEntries(operators.filter((o) => o.endpoint).map((o) => [operatorReceiverEndpoint(o), o.endpoint as string]))} />
                 {!destinationReady(value) && (
                   <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" role="status" data-testid={`${testIdPrefix}-guided-no-destination`}>
                     <span>{value.exportSplit ? `${activeLanes(value).filter((m) => value.exportLanes[m].exportEndpoint.trim() === '').join(' and ')} still need a destination, so no command is generated.` : 'No destination yet, so no command is generated.'}</span>

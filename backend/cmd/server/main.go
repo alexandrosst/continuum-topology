@@ -334,6 +334,11 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, Origins: origins, UIDir: uiDir, Version: version, AgentChartVersion: agentChartVersion, OperatorChartVersion: operatorChartVersion}
 	if fusionName != "" {
 		admin.Fusion = fusionControl(log, fusionName, releaseNamespace, fusionCentralAddress, core.OrgID)
+		// An address set from the screen (Reachable at on the central operator) outranks the startup flag, which is
+		// only the first value.
+		if op, err := core.Store.GetOperator(context.Background(), server.CentralOperatorID); err == nil && op.Address != "" {
+			admin.Fusion.SetPublicAddress(op.Address)
+		}
 		go renewFusionCertificate(log, admin.Fusion, core)
 	}
 	admin.Readiness = &server.Readiness{AgentsListening: grpcSrv.Serving}

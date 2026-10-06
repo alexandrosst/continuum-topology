@@ -343,7 +343,7 @@ describe('RegionalOperatorsPage - FUSION and the central operator', () => {
     const block = await screen.findByTestId('operator-created-export')
     expect(block).toHaveTextContent('nothing to install for it')
     expect(screen.getByTestId('operator-export-secret')).toHaveTextContent('op-central-export-mtls')
-    expect(screen.getByTestId('operator-created-export-unreachable')).toHaveTextContent('fusionControl.centralAddress')
+    expect(screen.getByTestId('operator-created-export-unreachable')).toHaveTextContent('Reachable at')
     expect(block.compareDocumentPosition(screen.getByText('Then install the operator')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.queryByText(/Install FUSION first/)).not.toBeInTheDocument()
   })
@@ -743,6 +743,21 @@ describe('RegionalOperatorsPage - where other clusters reach an operator', () =>
     const check = screen.getByTestId('operator-address-check-command')
     expect(check).toHaveTextContent('openssl s_client -connect otlp.eu.example.com:4317 -servername op-a.continuum-system.svc')
     expect(screen.getByTestId('operator-address-check')).toHaveTextContent('DNS:op-a.continuum-system.svc')
+  })
+
+  test('the central operator has its own Reachable at: it says how to expose the gateway and reads its address from the gateway Service', async () => {
+    fusionStatus = { ...fusionRunning(), central: { ...central, service: 'continuum-fusion-central', namespace: 'continuum' } }
+    listOperators.mockResolvedValue([op({ id: 'op-central', name: 'Central (FUSION)', sourceClusterIds: [], destination: { kind: 'fusion', endpoint: '', fusionRelease: 'continuum-fusion', fusionNamespace: 'continuum' } })])
+    const user = userEvent.setup()
+    renderPage()
+    expect(await screen.findByTestId('operator-address-Central (FUSION)')).toHaveTextContent('reachable inside this cluster only')
+    await user.click(screen.getByTestId('operator-address-open-Central (FUSION)'))
+    expect(screen.getByTestId('operator-address-central')).toHaveTextContent('fusion.central.service.type')
+    expect(screen.getByTestId('operator-address-find-lb')).toHaveTextContent('kubectl get svc continuum-fusion-central --namespace continuum')
+    await user.type(screen.getByTestId('operator-address-input'), 'fusion.example.com')
+    await user.click(screen.getByTestId('operator-address-save'))
+    await waitFor(() => expect(setOperatorAddress).toHaveBeenCalledWith({ url: '', org: 'o' }, 'op-central', 'fusion.example.com'))
+    listOperators.mockResolvedValue([])
   })
 
   test('the dialog records a trimmed address, shows how to find it, and reloads', async () => {

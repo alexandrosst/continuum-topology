@@ -415,10 +415,11 @@ fusion:
 # switch FUSION itself, and you scale the workloads (or `helm upgrade --set fusion.switch.initialReplicas=1`) by hand.
 fusionControl:
   enabled: true
-  # host:port that regional operators in OTHER clusters dial to reach FUSION's central operator (the one door into FUSION;
-  # the stores themselves are never exposed). Empty = reachable inside this cluster only, and the UI says so. You still
-  # have to expose it: set fusion.central.service.type to LoadBalancer or NodePort below, or put your own Ingress/Gateway
-  # TCP route in front of the Service "<release>-fusion-central" (port 4317, gRPC over mutual TLS), and put its address here.
+  # Optional starting value: host:port that regional operators in OTHER clusters dial to reach FUSION's central operator
+  # (the one door into FUSION; the stores themselves are never exposed). You do not need it: expose the Service
+  # ("<release>-fusion-central", port 4317, gRPC over mutual TLS) with fusion.central.service.type=LoadBalancer or
+  # NodePort, or your own Ingress/Gateway, and record its address in the UI (Regional operators > Central > Reachable at).
+  # An address recorded there outranks this one. Empty = reachable inside this cluster only, and the UI says so.
   centralAddress: ""
 
 # Requests suit a small install (a handful of agents). The limit is what the Go runtime is told to respect through GOMEMLIMIT.

@@ -183,7 +183,7 @@ function OperatorCreated({ created, extraProcessors, exposure, onClose }: { crea
           </p>
           {!created.exportTarget.reachableFromOtherClusters && (
             <p role="alert" className="mt-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs leading-relaxed text-warn" data-testid="operator-created-export-unreachable">
-              The central operator is reachable inside this server&apos;s cluster only. Install this operator there, or set <code className="font-mono">fusionControl.centralAddress</code> on the server install and expose the central operator, before one in another cluster can send to it.
+              The central operator is reachable inside this server&apos;s cluster only. Install this operator there, or expose the central operator and record where it is reachable (<span className="font-semibold">Reachable at</span> on its row) before one in another cluster can send to it.
             </p>
           )}
           {created.exportSecretCommand && (
@@ -556,7 +556,9 @@ export default function RegionalOperatorsPage() {
                       <div className="mt-0.5 font-mono text-xs text-nb-500" data-testid={`operator-address-${op.name}`}>
                         {op.reachableFromOtherClusters && op.address
                           ? `reachable at ${op.address}`
-                          : op.exposure === 'loadbalancer' || op.exposure === 'nodeport'
+                          : op.id === CENTRAL_OPERATOR_ID
+                            ? 'reachable inside this cluster only'
+                            : op.exposure === 'loadbalancer' || op.exposure === 'nodeport'
                             ? `exposed through a ${op.exposure === 'loadbalancer' ? 'load balancer' : 'node port'}, address not recorded yet`
                             : op.exposure === 'cluster' ? 'this cluster only' : 'no address recorded'}
                       </div>
@@ -580,7 +582,12 @@ export default function RegionalOperatorsPage() {
                   <Td className="text-nb-500">{when(op.createdAt)}</Td>
                   <Td className="text-right">
                     {op.id === CENTRAL_OPERATOR_ID ? (
-                      <span className="text-xs text-nb-500" data-testid="operator-central-managed">Managed by FUSION</span>
+                      <>
+                        <Button size="sm" onClick={() => setAddressFor(op)} data-testid={`operator-address-open-${op.name}`}>
+                          <Globe2 size={ICON_SM} aria-hidden /> Reachable at
+                        </Button>{' '}
+                        <span className="text-xs text-nb-500" data-testid="operator-central-managed">Managed by FUSION</span>
+                      </>
                     ) : (
                     <>
                     {op.status === 'active' && (
@@ -764,7 +771,7 @@ export default function RegionalOperatorsPage() {
       )}
 
       {addressFor && (
-        <OperatorAddressModal operator={addressFor} onClose={() => setAddressFor(null)} onDone={() => void load()} />
+        <OperatorAddressModal operator={addressFor} central={addressFor.id === CENTRAL_OPERATOR_ID ? { service: fusion.status?.central?.service ?? '', namespace: fusion.status?.central?.namespace ?? '' } : undefined} onClose={() => setAddressFor(null)} onDone={() => { void load(); void fusion.refresh() }} />
       )}
 
       {healthFor && (

@@ -161,7 +161,7 @@ export interface FusionStatus {
   message?: string
   since?: string
   components?: FusionComponent[]
-  central?: { operatorId: string; endpoint: string; exposed: boolean; exists: boolean }
+  central?: { operatorId: string; endpoint: string; exposed: boolean; exists: boolean; service?: string; namespace?: string }
   /** Whether this server serves the shared data API (and its access tokens) for this organisation. */
   data?: boolean
 }

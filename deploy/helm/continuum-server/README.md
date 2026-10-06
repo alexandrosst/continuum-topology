@@ -160,7 +160,7 @@ The chart carries [`continuum-fusion`](../../../backend/internal/chart/continuum
 | `fusion.enabled` | `true` | `false` leaves FUSION out of the release entirely |
 | `fusion.switch.managed` / `initialReplicas` | `true` / `0` | the server owns the replica count; a `helm upgrade` keeps its last decision. Under `helm template` (GitOps) there is nothing to read back: set `initialReplicas=1` to have it on |
 | `fusionControl.enabled` | `true` | a namespaced Role (get + patch `scale` on the four named workloads, patch one named Secret) and an API token for the server pod. `false` removes both: the server then cannot switch FUSION |
-| `fusionControl.centralAddress` | `""` | `host:port` other clusters dial for the central operator; empty = inside this cluster only |
+| `fusionControl.centralAddress` | `""` | optional starting `host:port` other clusters dial for the central operator; the address recorded in the UI (Reachable at) outranks it; empty = inside this cluster only |
 | `fusion.central.service.type` | `ClusterIP` | `LoadBalancer` / `NodePort` to expose the central operator (clients still need a certificate); the stores are always `ClusterIP` |
 | `fusion.*` | | everything else is the FUSION chart's own values: retention, storage, images, `persistence`, `networkPolicy` |
 | `networkPolicy.egress.kubeAPICIDRs` / `kubeAPIPorts` | `[]` / `[443, 6443]` | with the egress policy on, where the server may reach the Kubernetes API to scale FUSION |
