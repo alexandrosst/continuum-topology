@@ -17,11 +17,30 @@ export function BrandMark({ className }: { className?: string }) {
   return <img src="/brand/mark/ikhnos-mark.svg" alt="" aria-hidden className={clsx('h-8 w-auto shrink-0', className)} data-testid="brand-mark" />
 }
 
+/** The research lab the work comes from. Its logo is dark on transparent, so it is shown on a light chip. */
+const LAB = { name: 'NETMODE, NTUA', url: 'https://www.netmode.ntua.gr/', logo: '/brand/lab/netmode.svg' }
+
 export function Copyright({ className }: { className?: string }) {
   return (
-    <p className={clsx('text-[11px] leading-snug text-nb-600', className)} data-testid="copyright">
-      © {new Date().getFullYear()} {OWNER}. All rights reserved.
-    </p>
+    <div className={clsx('space-y-1.5 text-[11px] leading-snug text-nb-600', className)} data-testid="copyright">
+      <p>
+        © {new Date().getFullYear()} {OWNER}. All rights reserved.
+      </p>
+      <p className="flex items-center gap-2">
+        <span>Developed at</span>
+        <a
+          href={LAB.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={LAB.name}
+          aria-label={LAB.name}
+          className="inline-flex rounded-md bg-white px-1.5 py-0.5 opacity-90 outline-none transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-nb-400"
+          data-testid="lab-link"
+        >
+          <img src={LAB.logo} alt="" aria-hidden className="h-5 w-auto" />
+        </a>
+      </p>
+    </div>
   )
 }
 
