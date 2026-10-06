@@ -239,6 +239,27 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     expect(screen.getByTestId('t-review-pipeline')).toHaveTextContent('op-eu.continuum-system.svc:4317')
   })
 
+  test('an operator says whether other clusters can reach it: the recorded address, or only its in-cluster name', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    listOperators.mockResolvedValue([operator()])
+    renderWizard()
+    await gotoDestination(user)
+    await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('EU regional operator'))
+    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('No address is recorded')
+    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('only resolves in the cluster it runs in')
+  })
+
+  test('an operator with a recorded address shows it', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    listOperators.mockResolvedValue([operator({ address: 'otlp.eu.example.com:4317', reachableFromOtherClusters: true })])
+    renderWizard()
+    await gotoDestination(user)
+    await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('EU regional operator'))
+    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('Reached at otlp.eu.example.com:4317')
+  })
+
   test('an operator pick records its id and describes the real flow; a custom endpoint afterwards clears it', async () => {
     const user = userEvent.setup()
     role = 'admin'

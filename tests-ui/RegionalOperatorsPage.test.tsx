@@ -56,6 +56,7 @@ const enableFusion = vi.fn(async () => (fusionStatus = fusionStarting()))
 const disableFusion = vi.fn(async () => (fusionStatus = fusionOff()))
 const revokeOperator = vi.fn(async () => {})
 const deleteOperator = vi.fn(async () => {})
+const setOperatorAddress = vi.fn(async (_c: unknown, _id: string, _address: string): Promise<RegionalOperator> => ({} as RegionalOperator))
 
 vi.mock('@/store/topology', () => ({
   useTopology: () => topologyState,
@@ -84,6 +85,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
       disableFusion: () => disableFusion(),
       revokeOperator: (...a: Parameters<typeof revokeOperator>) => revokeOperator(...a),
       deleteOperator: (...a: Parameters<typeof deleteOperator>) => deleteOperator(...a),
+      setOperatorAddress: (...a: Parameters<typeof setOperatorAddress>) => setOperatorAddress(...a),
     },
   }
 })
@@ -96,6 +98,8 @@ beforeEach(() => {
   createOperator.mockClear()
   enableOperatorHeartbeat.mockClear()
   revokeOperator.mockClear()
+  setOperatorAddress.mockReset()
+  setOperatorAddress.mockResolvedValue({} as RegionalOperator)
   deleteOperator.mockClear()
   telemetryStart.mockClear()
   fusionStatus = fusionOff()
@@ -155,7 +159,7 @@ describe('RegionalOperatorsPage', () => {
     await user.click(screen.getByTestId('operator-label-tag-add'))
     await user.click(screen.getByTestId('operator-create'))
     await waitFor(() => expect(createOperator).toHaveBeenCalled())
-    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: true, labels: [{ key: 'region', value: 'eu-south' }] })
+    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: true, labels: [{ key: 'region', value: 'eu-south' }], exposure: 'cluster' })
   })
 
   test('a reserved or half-filled label blocks Create and says why', async () => {
@@ -191,7 +195,7 @@ describe('RegionalOperatorsPage', () => {
       'athens-regional',
       ['c1'],
       expect.objectContaining({ endpoint: 'backend.example.com:4317', kind: 'external' }),
-      { heartbeat: true, labels: [] },
+      { heartbeat: true, labels: [], exposure: 'cluster' },
     ))
     expect(screen.getByText(/kubectl create secret generic op-1-receiver-auth/)).toBeInTheDocument()
     expect(screen.getByText(/helm install op-1/)).toBeInTheDocument()
@@ -564,7 +568,7 @@ describe('RegionalOperatorsPage - creating with and without health reporting', (
     expect(screen.getByTestId('operator-heartbeat-explain')).toHaveTextContent('turn it on later')
     await user.click(screen.getByTestId('operator-create'))
     await waitFor(() => expect(createOperator).toHaveBeenCalledTimes(1))
-    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: true, labels: [] })
+    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: true, labels: [], exposure: 'cluster' })
   })
 
   test('unchecking it sends heartbeat: false and the created screen says the operator never contacts the server', async () => {
@@ -574,7 +578,7 @@ describe('RegionalOperatorsPage - creating with and without health reporting', (
     await user.click(screen.getByTestId('operator-heartbeat'))
     await user.click(screen.getByTestId('operator-create'))
     await waitFor(() => expect(createOperator).toHaveBeenCalledTimes(1))
-    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: false, labels: [] })
+    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: false, labels: [], exposure: 'cluster' })
     expect(await screen.findByTestId('operator-no-rbac-note')).toHaveTextContent('never contacts this server')
     expect(screen.queryByTestId('operator-created-heartbeat')).not.toBeInTheDocument()
   })
@@ -647,5 +651,95 @@ describe('RegionalOperatorsPage - explanatory notes', () => {
     expect(text).toContain('its own certificate authority')
     expect(text).toContain('older operator the bearer token')
     expect(text).not.toContain('a receiver bearer token (minted')
+  })
+})
+
+describe('RegionalOperatorsPage - where other clusters reach an operator', () => {
+  const fillCreate = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByTestId('operator-open'))
+    await user.type(screen.getByTestId('operator-name'), 'eu-hub')
+    await user.click(screen.getByTestId('checkbox-c1'))
+    await user.click(screen.getByText('otel-gateway.example.com:4317').closest('button')!)
+    await user.click(screen.getByRole('option', { name: 'Other…' }))
+    await user.type(screen.getByPlaceholderText('otel-gateway.example.com:4317'), 'backend.example.com:4317')
+  }
+
+  test('choosing a load balancer sends it, and the created screen says how to read the address and where to record it', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await fillCreate(user)
+    await user.click(screen.getByTestId('operator-exposure'))
+    await user.click(screen.getByRole('option', { name: /load balancer/ }))
+    await user.click(screen.getByTestId('operator-create'))
+    await waitFor(() => expect(createOperator).toHaveBeenCalledTimes(1))
+    expect(createOperator.mock.calls[0][4]).toMatchObject({ exposure: 'loadbalancer' })
+    const note = await screen.findByTestId('operator-created-address')
+    expect(note).toHaveTextContent('Reachable at')
+    // The load balancer line only, since that is what was chosen; it names the operator's own Service.
+    expect(screen.getByTestId('operator-created-find-lb')).toHaveTextContent('kubectl get svc op-1 --namespace continuum-system')
+    expect(screen.queryByTestId('operator-created-find-np')).not.toBeInTheDocument()
+  })
+
+  test('the default is this cluster only: nothing about addresses on the created screen', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await fillCreate(user)
+    expect(screen.getByTestId('operator-exposure')).toHaveTextContent('This cluster only')
+    await user.click(screen.getByTestId('operator-create'))
+    await screen.findByText(/helm install op-1/)
+    expect(screen.queryByTestId('operator-created-address')).not.toBeInTheDocument()
+  })
+
+  test('each row says whether other clusters can reach it', async () => {
+    listOperators.mockResolvedValue([
+      op({ id: 'op-a', name: 'local-op' }),
+      op({ id: 'op-b', name: 'hub-op', address: 'otlp.eu.example.com:4317', reachableFromOtherClusters: true }),
+      op({ id: 'op-c', name: 'gone-op', status: 'revoked' }),
+    ])
+    renderPage()
+    expect(await screen.findByTestId('operator-address-local-op')).toHaveTextContent('this cluster only')
+    expect(screen.getByTestId('operator-address-hub-op')).toHaveTextContent('reachable at otlp.eu.example.com:4317')
+    expect(screen.queryByTestId('operator-address-gone-op')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('operator-address-open-gone-op')).not.toBeInTheDocument()
+  })
+
+  test('the dialog records a trimmed address, shows how to find it, and reloads', async () => {
+    listOperators.mockResolvedValue([op({ id: 'op-a', name: 'local-op' })])
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByTestId('operator-address-open-local-op'))
+    expect(screen.getByTestId('operator-address-explain')).toHaveTextContent('no certificate is reissued')
+    expect(screen.getByTestId('operator-address-find-lb')).toHaveTextContent('kubectl get svc op-a')
+    expect(screen.getByTestId('operator-address-find-np')).toHaveTextContent('nodePort')
+    await user.type(screen.getByTestId('operator-address-input'), '  203.0.113.7:4317 ')
+    listOperators.mockClear()
+    await user.click(screen.getByTestId('operator-address-save'))
+    await waitFor(() => expect(setOperatorAddress).toHaveBeenCalledWith({ url: '', org: 'o' }, 'op-a', '203.0.113.7:4317'))
+    await waitFor(() => expect(listOperators).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByTestId('operator-address-input')).not.toBeInTheDocument())
+  })
+
+  test('a refused address stays open with the server\'s reason', async () => {
+    listOperators.mockResolvedValue([op({ id: 'op-a', name: 'local-op' })])
+    setOperatorAddress.mockRejectedValueOnce(new ApiError(400, 'the address is a host and a port, such as otlp.example.com:4317'))
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByTestId('operator-address-open-local-op'))
+    await user.type(screen.getByTestId('operator-address-input'), 'https://nope')
+    await user.click(screen.getByTestId('operator-address-save'))
+    expect(await screen.findByText('the address is a host and a port, such as otlp.example.com:4317')).toBeInTheDocument()
+    expect(screen.getByTestId('operator-address-input')).toBeInTheDocument()
+  })
+
+  test('an operator with an address starts the dialog on it, and clearing sends an empty address', async () => {
+    listOperators.mockResolvedValue([op({ id: 'op-b', name: 'hub-op', address: 'otlp.eu.example.com:4317', reachableFromOtherClusters: true })])
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByTestId('operator-address-open-hub-op'))
+    const input = screen.getByTestId('operator-address-input')
+    expect(input).toHaveValue('otlp.eu.example.com:4317')
+    await user.clear(input)
+    await user.click(screen.getByTestId('operator-address-save'))
+    await waitFor(() => expect(setOperatorAddress).toHaveBeenCalledWith({ url: '', org: 'o' }, 'op-b', ''))
   })
 })

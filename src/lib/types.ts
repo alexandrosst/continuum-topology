@@ -1285,6 +1285,12 @@ export interface RegionalOperator {
   clientCaScope?: 'operator' | 'org' | ''
   /** Its opt-in heartbeat's verdict. Absent reads as never reported. */
   health?: OperatorHealth
+  /** host:port other clusters reach its receiver at, once someone has told the server (or, for the central
+   *  operator, once FUSION is exposed). Absent until then. */
+  address?: string
+  /** False means the only address the server can hand out is the in-cluster name, which resolves in the
+   *  operator's own cluster alone. Absent (an older server) reads as false. */
+  reachableFromOtherClusters?: boolean
 }
 
 /** One extractor signal a TelemetryIntent grants, and where it is sourced from - `id` matches one of

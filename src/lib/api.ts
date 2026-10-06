@@ -128,7 +128,13 @@ export interface CreateOperatorOptions {
   /** Stamped on everything the operator forwards, next to continuum.operator.id/.name. Half-filled rows are
    *  the caller's to drop (cleanTags); the server validates the rest. */
   labels?: { key: string; value: string }[]
+  /** How the operator's Service is made reachable from other clusters. Only sets the install command's
+   *  service.type; the resulting address is recorded afterwards (setOperatorAddress). Default 'cluster'. */
+  exposure?: OperatorExposure
 }
+
+/** cluster: this cluster only. loadbalancer / nodeport: the install command makes the Service one. */
+export type OperatorExposure = 'cluster' | 'loadbalancer' | 'nodeport'
 
 export interface UpdatedOperatorScope {
   operator: RegionalOperator
@@ -639,7 +645,9 @@ export const api = {
   listOperators: (c: Conn) => call<RegionalOperator[]>(c, 'GET', '/api/v1/operators'),
   getOperator: (c: Conn, id: string) => call<RegionalOperator>(c, 'GET', `/api/v1/operators/${encodeURIComponent(id)}`),
   createOperator: (c: Conn, name: string, sourceClusterIds: string[], destination: OperatorDestination, options: CreateOperatorOptions = {}) =>
-    call<CreatedOperator>(c, 'POST', '/api/v1/operators', { name, sourceClusterIds, destination, heartbeat: options.heartbeat === true, labels: options.labels ?? [] }),
+    call<CreatedOperator>(c, 'POST', '/api/v1/operators', { name, sourceClusterIds, destination, heartbeat: options.heartbeat === true, labels: options.labels ?? [], exposure: options.exposure ?? 'cluster' }),
+  /** Records where other clusters reach the operator ('' clears it). The server checks it is a host:port. */
+  setOperatorAddress: (c: Conn, id: string, address: string) => call<RegionalOperator>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/address`, { address }),
   /** Mints (or rotates) the operator's heartbeat credential: adminRole, audited, and the credential is shown
    *  once in this response only. */
   enableOperatorHeartbeat: (c: Conn, id: string) => call<OperatorHeartbeatEnabled>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/heartbeat`),

@@ -4,12 +4,13 @@ import { useSearchParams } from 'react-router-dom'
 import { CopyCommand } from '@/components/agents/AgentInsight'
 import { ConfirmModal } from '@/components/forms'
 import { FusionDot, FusionPanel, useFusion } from '@/components/operators/FusionPanel'
+import { EXPOSURE_OPTIONS, FindTheAddress, OperatorAddressModal } from '@/components/operators/OperatorAddress'
 import { OperatorHealth } from '@/components/operators/OperatorHealth'
 import { TagRows } from '@/components/telemetry/ProcessStep'
 import ProcessorEditor from '@/components/telemetry/ProcessorEditor'
 import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
-import { Button, CheckboxList, ChipList, ComboField, EmptyState, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, PageHeader, Pill, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
-import { api, ApiError, type CreatedOperator, type OperatorHeartbeatEnabled } from '@/lib/api'
+import { Button, CheckboxList, ChipList, ComboField, EmptyState, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, PageHeader, Pill, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
+import { api, ApiError, type CreatedOperator, type OperatorExposure, type OperatorHeartbeatEnabled } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
 import { CENTRAL_OPERATOR_ID, fusionSentence } from '@/lib/fusionStatus'
@@ -74,8 +75,10 @@ interface Draft {
   /** Opt in to the heartbeat that lets this server say online/offline. On by default - it is the point of
    *  asking - but always stated next to the box, and sent explicitly either way. */
   heartbeat: boolean
+  /** Whether clusters other than the operator's own must reach it; decides the Service type in the install command. */
+  exposure: OperatorExposure
 }
-const emptyDraft: Draft = { name: '', sourceClusterIds: [], destination: emptyDestination, extraProcessors: [], labels: [], heartbeat: true }
+const emptyDraft: Draft = { name: '', sourceClusterIds: [], destination: emptyDestination, extraProcessors: [], labels: [], heartbeat: true, exposure: 'cluster' }
 
 /** What health reporting sends, in one sentence both the create form, the confirmation and the created
  *  screen can lean on: not a telemetry payload, only an availability check, and only when opted in. */
@@ -117,7 +120,7 @@ function HeartbeatCommands({ secretCommand, upgradeCommand, restartCommand, warn
 /** The commands for a new operator, shown once: the server keeps only a hash of any receiver token and of the
  *  health credential, so this is the only chance to copy them - same "shown once, gone forever" convention as
  *  TeamPage's InviteCreated. A certificate-gated operator (`token` absent) has no receiver token at all. */
-function OperatorCreated({ created, extraProcessors, onClose }: { created: CreatedOperator; extraProcessors: ProcessorEntry[]; onClose: () => void }) {
+function OperatorCreated({ created, extraProcessors, exposure, onClose }: { created: CreatedOperator; extraProcessors: ProcessorEntry[]; exposure: OperatorExposure; onClose: () => void }) {
   const install = buildOperatorInstallCommand(created.install, extraProcessors)
   const hasToken = !!created.token && !!created.secretCommand
   const mtls = !hasToken && receiverAuthOf(created.operator) === 'mtls'
@@ -201,6 +204,14 @@ function OperatorCreated({ created, extraProcessors, onClose }: { created: Creat
             And create the receiver&apos;s TLS certificate Secret (mTLS, on top of the token above - the install command already turns it on)
           </div>
           <CopyCommand text={created.tlsSecretCommand} />
+        </div>
+      )}
+      {exposure !== 'cluster' && (
+        <div className="mt-3" data-testid="operator-created-address">
+          <div className="mb-1 text-xs text-nb-500">
+            Once it is running, tell Ikhnos where other clusters reach it (the &quot;Reachable at&quot; button on this operator&apos;s row). After that, every command that points at it uses that address.
+          </div>
+          <FindTheAddress id={created.operator.id} exposure={exposure} testId="operator-created-find" />
         </div>
       )}
       {created.reminders.length > 0 && (
@@ -320,6 +331,8 @@ export default function RegionalOperatorsPage() {
   const [revoking, setRevoking] = useState<RegionalOperator | null>(null)
   const [deleting, setDeleting] = useState<RegionalOperator | null>(null)
   const [healthFor, setHealthFor] = useState<RegionalOperator | null>(null)
+  const [addressFor, setAddressFor] = useState<RegionalOperator | null>(null)
+  const [createdExposure, setCreatedExposure] = useState<OperatorExposure>('cluster')
   const admin = isAdmin()
   const canConsent = conn() != null && canEdit()
   const telemetry = useTelemetryFlow()
@@ -415,8 +428,9 @@ export default function RegionalOperatorsPage() {
       if (!c) return
       // Choosing the central operator while FUSION is off means "and turn it on": it is what that operator saves into.
       if (fusionOff) await fusion.enable()
-      const r = await api.createOperator(c, draft.name.trim(), draft.sourceClusterIds, draft.destination, { heartbeat: draft.heartbeat, labels: cleanTags(draft.labels) })
+      const r = await api.createOperator(c, draft.name.trim(), draft.sourceClusterIds, draft.destination, { heartbeat: draft.heartbeat, labels: cleanTags(draft.labels), exposure: draft.exposure })
       setCreating(false)
+      setCreatedExposure(draft.exposure)
       setCreatedProcessors(draft.extraProcessors)
       setDraft(emptyDraft)
       setCreated(r)
@@ -538,6 +552,11 @@ export default function RegionalOperatorsPage() {
                 <tr key={op.id} className="group hover:bg-nb-930/60" data-testid={`operator-${op.name}`}>
                   <Td className="text-nb-300">
                     {op.name}
+                    {op.status === 'active' && (
+                      <div className="mt-0.5 font-mono text-xs text-nb-500" data-testid={`operator-address-${op.name}`}>
+                        {op.reachableFromOtherClusters && op.address ? `reachable at ${op.address}` : 'this cluster only'}
+                      </div>
+                    )}
                     {(op.labels?.length ?? 0) > 0 && (
                       <div className="mt-1"><ChipList items={op.labels!.map((l) => `${l.key}=${l.value}`)} max={3} /></div>
                     )}
@@ -562,6 +581,9 @@ export default function RegionalOperatorsPage() {
                     <>
                     {op.status === 'active' && (
                       <>
+                        <Button size="sm" onClick={() => setAddressFor(op)} data-testid={`operator-address-open-${op.name}`}>
+                          <Globe2 size={ICON_SM} aria-hidden /> Reachable at
+                        </Button>{' '}
                         <Button size="sm" onClick={() => setHealthFor(op)} data-testid={`operator-health-open-${op.name}`}>
                           <HeartPulse size={ICON_SM} aria-hidden /> {isReportingHealth(op) ? 'Rotate health credential' : 'Enable health reporting'}
                         </Button>{' '}
@@ -690,6 +712,12 @@ export default function RegionalOperatorsPage() {
             </div>
           )}
 
+          <Field label="Reachable from other clusters" hint={EXPOSURE_OPTIONS.find((o) => o.id === draft.exposure)?.hint}>
+            <Select value={draft.exposure} onChange={(e) => setDraft({ ...draft, exposure: e.target.value as OperatorExposure })} data-testid="operator-exposure">
+              {EXPOSURE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </Select>
+          </Field>
+
           <div className="border-t border-nb-850 pt-3">
             <label className="flex cursor-pointer items-start gap-2 text-sm">
               <input
@@ -728,7 +756,11 @@ export default function RegionalOperatorsPage() {
       </Modal>
 
       {created && (
-        <OperatorCreated created={created} extraProcessors={createdProcessors} onClose={() => setCreated(null)} />
+        <OperatorCreated created={created} extraProcessors={createdProcessors} exposure={createdExposure} onClose={() => setCreated(null)} />
+      )}
+
+      {addressFor && (
+        <OperatorAddressModal operator={addressFor} onClose={() => setAddressFor(null)} onDone={() => void load()} />
       )}
 
       {healthFor && (

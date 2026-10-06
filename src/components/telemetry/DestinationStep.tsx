@@ -415,6 +415,17 @@ export default function DestinationStep({
                   <p className="text-xs text-nb-400" data-testid={`${p}-destination-operator-note`}>
                     A regional operator takes OTLP/gRPC over mutual TLS, so there is no protocol to set here. The commands that connect this cluster to it are generated on the wizard’s last step, once you have reviewed everything: administrators only, and each time it issues a fresh client certificate for this cluster (recorded in the audit log). The certificate, its key and the Secret that holds them are part of those commands.
                   </p>
+                  {selected?.kind === 'operator' && (
+                    selected.operator.reachableFromOtherClusters && selected.operator.address ? (
+                      <p className="text-xs text-nb-400" data-testid={`${p}-destination-operator-address`}>
+                        Reached at <span className="font-mono">{selected.operator.address}</span>, the address recorded for this operator, so this works from any cluster that can reach it.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-nb-400" data-testid={`${p}-destination-operator-address`}>
+                        No address is recorded for this operator, so the commands use its in-cluster name, which only resolves in the cluster it runs in. If this cluster is a different one, record where it is reachable first: <Link to="/operators" className="underline">Regional operators</Link>, then Reachable at.
+                      </p>
+                    )
+                  )}
                   {operatorBearer ? (
                     <Field label="Receiver token Secret (optional)" hint="This operator was created with a receiver bearer token, which it checks on top of the certificate. Name the Secret that will hold it; the generated commands create it from TELEMETRY_EXPORT_TOKEN, which you set to Bearer followed by the token. The token itself never goes through this page.">
                       <Input value={value.exportAuthSecretName} onChange={(e) => set('exportAuthSecretName', e.target.value)} placeholder="operator-receiver-token" className="font-mono" data-testid={`${testIdPrefix}-export-auth-secret`} />
