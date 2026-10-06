@@ -174,12 +174,7 @@ describe('buildDestinationCatalog: already quick-started backends', () => {
   })
 })
 
-describe('buildDestinationCatalog: deploy entry points', () => {
-  test('canDeployBackend is always true - TelemetryBackendWizard gates the actual setup form on admin itself', () => {
-    expect(buildDestinationCatalog({ operators: [], enabledModalities: new Set(), quickStartBackends: [], isAdmin: false }).canDeployBackend).toBe(true)
-    expect(buildDestinationCatalog({ operators: [], enabledModalities: new Set(), quickStartBackends: [], isAdmin: true }).canDeployBackend).toBe(true)
-  })
-
+describe('buildDestinationCatalog: the regional-operator entry point', () => {
   test('canDeployOperator mirrors isAdmin exactly - creating a regional operator is adminRole-gated server-side', () => {
     expect(buildDestinationCatalog({ operators: [], enabledModalities: new Set(), quickStartBackends: [], isAdmin: false }).canDeployOperator).toBe(false)
     expect(buildDestinationCatalog({ operators: [], enabledModalities: new Set(), quickStartBackends: [], isAdmin: true }).canDeployOperator).toBe(true)

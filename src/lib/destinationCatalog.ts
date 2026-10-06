@@ -55,10 +55,6 @@ export type DestinationCatalogEntry =
 
 export interface DestinationCatalog {
   entries: DestinationCatalogEntry[]
-  /** Always true: the "Deploy a new backend" entry point only ever opens TelemetryBackendWizard, which
-   *  already gates the actual setup form on being an administrator internally ("Only administrators can
-   *  set this up") - there is nothing here worth hiding the entry point itself over. */
-  canDeployBackend: boolean
   /** True only for an organisation administrator: creating a regional operator is adminRole-gated
    *  server-side (see backend/internal/server/admin.go), so offering the entry point to anyone else
    *  would just lead to a 403 once they got there. */
@@ -90,14 +86,16 @@ function cannotCarry(accepts: Modality[], enabled: Set<Modality>): string | unde
 export function buildDestinationCatalog(opts: {
   operators: RegionalOperator[]
   enabledModalities: Set<Modality>
-  quickStartBackends: QuickStartBackend[]
+  /** Backends set up through the quick-start wizard. The local operator's wizard no longer offers to set one up,
+   *  so it passes none; the code is kept for the FUSION work, which deploys stores the same way. */
+  quickStartBackends?: QuickStartBackend[]
   isAdmin: boolean
   /** Discovered workloads, and the cluster to look in - together they switch on the "found in your
    *  cluster" group. Without a cluster there is nowhere to look, so nothing is detected. */
   services?: Service[]
   clusterId?: string
 }): DestinationCatalog {
-  const { operators, enabledModalities, quickStartBackends, isAdmin, services, clusterId } = opts
+  const { operators, enabledModalities, quickStartBackends = [], isAdmin, services, clusterId } = opts
 
   const detectedEntries: DestinationCatalogEntry[] =
     clusterId && services
@@ -169,7 +167,6 @@ export function buildDestinationCatalog(opts: {
 
   return {
     entries: [...detectedEntries, ...operatorEntries, ...quickstartEntries, ...presetEntries],
-    canDeployBackend: true,
     canDeployOperator: isAdmin,
   }
 }

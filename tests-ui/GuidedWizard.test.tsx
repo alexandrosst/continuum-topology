@@ -158,26 +158,19 @@ describe('GuidedWizard destination step: reachability', () => {
 })
 
 describe('GuidedWizard destination step: the merged catalog', () => {
-  test('an organisation\'s own backend leads, and the built-in presets wait behind "show more"', async () => {
+  test('a backend quick-started earlier is not offered: this wizard no longer deploys backends, only picks a destination', async () => {
     const user = userEvent.setup()
     const backend: QuickStartBackend = { id: 'qsb-1', kind: 'jaeger', modality: 'traces', namespace: 'obs', retention: '72h', label: 'Jaeger (traces)' }
     settings = { ...DEFAULT_SETTINGS, quickStartBackends: [backend] }
     renderWizard()
-    // Traces is application-scoped, so Collect's Continue lands on Scope; its own Continue goes on from there.
     await user.click(screen.getByTestId('t-traces'))
     await user.click(screen.getByTestId('t-guided-continue')) // Collect -> Scope
     await user.click(screen.getByTestId('t-guided-continue')) // Scope -> Process
     await user.click(screen.getByTestId('t-guided-continue')) // Process -> Destination
     expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
-    // The one destination of the organisation's own that fits is picked for it, and the summary says so.
-    expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('Jaeger (traces)')
-    expect(screen.getByTestId('t-guided-destination-auto')).toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-destination-change'))
-    expect(screen.getByTestId('t-guided-destination-quickstart-qsb-1')).toBeInTheDocument()
-    expect(screen.queryByTestId('t-guided-destination-external-preset-honeycomb')).not.toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-destination-more'))
-    expect(screen.getByTestId('t-guided-destination-external-preset-honeycomb')).toBeInTheDocument()
-    // Jaeger (traces only) is also a compatible preset once only traces is on.
+    // Nothing of the organisation's own fits, so nothing is picked for the person: they choose from the list.
+    expect(screen.queryByTestId('t-guided-destination-summary')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('t-guided-destination-quickstart-qsb-1')).not.toBeInTheDocument()
     expect(screen.getByTestId('t-guided-destination-external-preset-jaeger')).toBeInTheDocument()
   })
 
@@ -455,36 +448,24 @@ describe('GuidedWizard destination step: the merged catalog', () => {
   })
 })
 
-describe('GuidedWizard destination step: setting up a new destination', () => {
-  test('"Set up a new destination" opens the panel, and "All destinations" returns to the list', async () => {
+describe('GuidedWizard destination step: no backend is deployed from here', () => {
+  test('the list offers a custom endpoint, and no way to set up or deploy a backend', async () => {
     const user = userEvent.setup()
     renderWizard()
     await gotoDestination(user)
-    await user.click(screen.getByTestId('t-guided-destination-new'))
-    expect(screen.getByTestId('t-guided-destination-new-panel')).toBeInTheDocument()
-    expect(screen.queryByTestId('t-guided-destination-list')).not.toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-destination-back-to-list'))
-    expect(screen.getByTestId('t-guided-destination-list')).toBeInTheDocument()
-  })
-
-  test('"A new backend" launches the existing TelemetryBackendWizard', async () => {
-    const user = userEvent.setup()
-    renderWizard()
-    await gotoDestination(user)
+    expect(screen.getByTestId('t-guided-destination-custom')).toBeInTheDocument()
+    expect(screen.queryByTestId('t-guided-destination-new')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('t-guided-deploy-backend')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('t-guided-allowed-kinds')).not.toBeInTheDocument()
     expect(screen.queryByTestId('backend-wizard-step-kind')).not.toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-destination-new'))
-    await user.click(screen.getByTestId('t-guided-deploy-backend'))
-    expect(screen.getByTestId('backend-wizard-step-kind')).toBeInTheDocument()
   })
 
-  test('a regional operator and the allowed-kinds control are offered to an administrator only', async () => {
+  test('the way to a new regional operator is offered to an administrator only', async () => {
     const user = userEvent.setup()
     role = 'editor'
     const { unmount } = renderWizard()
     await gotoDestination(user)
-    await user.click(screen.getByTestId('t-guided-destination-new'))
     expect(screen.queryByTestId('t-guided-deploy-operator')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('t-guided-allowed-kinds')).not.toBeInTheDocument()
     unmount()
 
     // A genuinely fresh mount, not a `rerender` in place - GuidedWizard keeps its own step state across a
@@ -493,25 +474,7 @@ describe('GuidedWizard destination step: setting up a new destination', () => {
     role = 'admin'
     renderWizard()
     await gotoDestination(user)
-    await user.click(screen.getByTestId('t-guided-destination-new'))
     await waitFor(() => expect(screen.getByTestId('t-guided-deploy-operator')).toBeInTheDocument())
     expect(screen.getByTestId('t-guided-deploy-operator')).toHaveAttribute('href', '/operators')
-    expect(screen.getByTestId('t-guided-allowed-kinds')).toBeInTheDocument()
-  })
-
-  test('after setting up a backend, the wizard lands back on the summary with it already picked', async () => {
-    const user = userEvent.setup()
-    role = 'admin'
-    renderWizard()
-    await gotoDestination(user) // metrics only, so a Prometheus backend can carry it
-    await user.click(screen.getByTestId('t-guided-destination-new'))
-    await user.click(screen.getByTestId('t-guided-deploy-backend'))
-    await user.click(screen.getByTestId('backend-wizard-kind-prometheus'))
-    await user.click(screen.getByTestId('backend-wizard-continue'))
-    await user.click(screen.getByTestId('backend-wizard-save'))
-    await waitFor(() => expect(save).toHaveBeenCalled())
-    const saved = (save.mock.calls[0] as unknown as [unknown, AppSettings])[1].quickStartBackends[0]
-    await waitFor(() => expect(screen.getByTestId('t-guided-destination-summary')).toBeInTheDocument())
-    expect(screen.getByTestId('t-guided-destination-endpoint')).toHaveValue(quickStartSpec('prometheus').exportEndpoint(saved.namespace))
   })
 })

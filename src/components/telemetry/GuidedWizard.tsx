@@ -5,22 +5,17 @@ import { Button, ICON_MD, ICON_SM, WizardSteps } from '@/components/ui/primitive
 import { api, atLeast } from '@/lib/api'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
 import { buildDestinationCatalog } from '@/lib/destinationCatalog'
-import { effectiveAllowedBackendKinds, type QuickStartBackend, type QuickStartKind } from '@/lib/history'
-import { activeLanes, destinationReady, emptyExportTarget, enabledModalities, laneView, ROUTE_MODALITIES, startLanes, withLane, type Modality, type TelemetryInput } from '@/lib/install'
-import { hasQuickStartSpec, quickStartSpec } from '@/lib/quickStartBackends'
+import { activeLanes, destinationReady, emptyExportTarget, enabledModalities, ROUTE_MODALITIES, startLanes, type Modality, type TelemetryInput } from '@/lib/install'
 import { LAYER_META } from '@/lib/telemetryLayers'
 import type { RegionalOperator } from '@/lib/types'
 import { useConn, useServer } from '@/store/server'
-import { useSettings } from '@/store/settings'
 import { useTopology } from '@/store/topology'
 import CollectStep from './CollectStep'
 import DestinationStep from './DestinationStep'
 import GuidedScope from './GuidedScope'
 import RoutesStep, { DestinationMode } from './RoutesStep'
 import ProcessStep from './ProcessStep'
-import { AllowedKindsControl } from './QuickStartBackends'
 import type { SignalId } from './TelemetryFields'
-import TelemetryBackendWizard from './TelemetryBackendWizard'
 import TelemetryReviewPipeline from './TelemetryReviewPipeline'
 
 /** "3 destinations, one per signal type" - or "one destination" when they all turned out to be the same. */
@@ -151,7 +146,6 @@ export default function GuidedWizard({
   // adminRole-gated server-side (admin.go), so a non-administrator never even tries.
   const conn = useConn()
   const isAdmin = useServer((s) => atLeast(s.role, 'admin'))
-  const { settings, save, error: settingsError } = useSettings()
   const [operators, setOperators] = useState<RegionalOperator[]>([])
   // Whether the operator list has settled (fetched, failed, or never needed) - the destination step waits
   // for it before auto-picking a lone match, see DestinationStep.
@@ -196,7 +190,6 @@ export default function GuidedWizard({
     clusterId,
     operators,
     enabledModalities: enabledModalitySet,
-    quickStartBackends: settings.quickStartBackends,
     isAdmin,
   })
   // Which catalog entry the person picked (DestinationStep's own destinationKey), or 'custom' - held here,
@@ -204,10 +197,8 @@ export default function GuidedWizard({
   const [destChoice, setDestChoice] = useState<string | null>(null)
   // The same, for each signal type while it has a destination of its own.
   const [laneChoices, setLaneChoices] = useState<Record<Modality, string | null>>({ metrics: null, logs: null, traces: null })
-  // Which signal type the backend setup opened from, so that what it set up becomes that one's destination.
-  const [deployLane, setDeployLane] = useState<Modality | null>(null)
   // What can carry just one signal type: a regional operator only if it takes that type, a backend only if it does.
-  const catalogFor = (m: Modality) => buildDestinationCatalog({ services, clusterId, operators, enabledModalities: new Set<Modality>([m]), quickStartBackends: settings.quickStartBackends, isAdmin })
+  const catalogFor = (m: Modality) => buildDestinationCatalog({ services, clusterId, operators, enabledModalities: new Set<Modality>([m]), isAdmin })
   // Splitting starts every lane from the one destination - except where that is a regional operator which does
   // not take the lane's signal type (a metrics-only operator for logs): that lane starts empty instead.
   const splitDestinations = (v: TelemetryInput): TelemetryInput => {
@@ -222,49 +213,6 @@ export default function GuidedWizard({
   // Only worth offering with two or more signal types on - one has nothing to split. A draft that already
   // sends them separately keeps the choice visible even if that is no longer so.
   const canSplit = enabledModalitySet.size > 1 || value.exportSplit
-
-  const [backendWizardOpen, setBackendWizardOpen] = useState(false)
-  const [backendBusy, setBackendBusy] = useState(false)
-  // Back from "set up a new backend" lands on the Destination summary with that backend already picked,
-  // not on a list the person has to find it in again. Same guard the catalog applies to a quick-started
-  // backend: it only ever carries one modality, so it can only be THE destination while that is the only
-  // modality turned on - otherwise it stays in the list, shown unavailable with its reason.
-  const chooseDeployedBackend = (rec: QuickStartBackend) => {
-    if (deployLane) {
-      // One signal type's own destination: it only has to carry that type.
-      if (!hasQuickStartSpec(rec.kind) || rec.modality !== deployLane) return
-      const spec = quickStartSpec(rec.kind)
-      const lane = deployLane
-      onChange(withLane(value, lane, { ...laneView(value, lane), exportEndpoint: spec.exportEndpoint(rec.namespace), exportProtocol: spec.exportProtocol, exportInsecure: true, exportAuthHeaderName: '', exportAuthSecretName: '', exportAuthSecretKey: '', exportOperatorId: '' }))
-      setLaneChoices((c) => ({ ...c, [lane]: `quickstart-${rec.id}` }))
-      return
-    }
-    if (!hasQuickStartSpec(rec.kind) || enabledModalitySet.size !== 1 || !enabledModalitySet.has(rec.modality)) return
-    const spec = quickStartSpec(rec.kind)
-    onChange({ ...value, exportEndpoint: spec.exportEndpoint(rec.namespace), exportProtocol: spec.exportProtocol, exportOperatorId: '' })
-    setDestChoice(`quickstart-${rec.id}`)
-  }
-  const [kindsBusy, setKindsBusy] = useState(false)
-  const saveAllowedKinds = async (kinds: QuickStartKind[]) => {
-    setKindsBusy(true)
-    try {
-      await save(conn, { ...settings, allowedBackendKinds: kinds })
-    } finally {
-      setKindsBusy(false)
-    }
-  }
-  const saveBackend = async (rec: QuickStartBackend) => {
-    setBackendBusy(true)
-    try {
-      const ok = await save(conn, { ...settings, quickStartBackends: [...settings.quickStartBackends, rec] })
-      if (ok) {
-        setBackendWizardOpen(false)
-        chooseDeployedBackend(rec)
-      }
-    } finally {
-      setBackendBusy(false)
-    }
-  }
 
   const removeSignal = (id: SignalId) => {
     const next = { ...value, [id]: false }
@@ -346,11 +294,6 @@ export default function GuidedWizard({
                   clusterId={clusterId}
                   choices={laneChoices}
                   onChoose={(m, key) => setLaneChoices((c) => ({ ...c, [m]: key }))}
-                  onDeployBackend={(m) => {
-                    setDeployLane(m)
-                    setBackendWizardOpen(true)
-                  }}
-                  adminKindsControl={isAdmin ? <AllowedKindsControl allowed={effectiveAllowedBackendKinds(settings.allowedBackendKinds)} busy={kindsBusy} onChange={(kinds) => void saveAllowedKinds(kinds)} /> : undefined}
                 />
                 {!destinationReady(value) && (
                   <p className="text-xs text-nb-500" data-testid={`${testIdPrefix}-guided-routes-incomplete`}>
@@ -372,11 +315,6 @@ export default function GuidedWizard({
                 clusterId={clusterId}
                 choice={destChoice}
                 onChoose={setDestChoice}
-                onDeployBackend={() => {
-                  setDeployLane(null)
-                  setBackendWizardOpen(true)
-                }}
-                adminKindsControl={isAdmin ? <AllowedKindsControl allowed={effectiveAllowedBackendKinds(settings.allowedBackendKinds)} busy={kindsBusy} onChange={(kinds) => void saveAllowedKinds(kinds)} /> : undefined}
                 onBack={() => setStep('process')}
                 onContinue={() => setStep('review')}
                 heading={!canSplit}
@@ -429,20 +367,6 @@ export default function GuidedWizard({
           </div>
         )}
       </div>
-      <TelemetryBackendWizard
-        open={backendWizardOpen}
-        onClose={() => setBackendWizardOpen(false)}
-        allowedKinds={effectiveAllowedBackendKinds(settings.allowedBackendKinds)}
-        enabledModalities={deployLane ? new Set<Modality>([deployLane]) : enabledModalitySet}
-        existingBackends={settings.quickStartBackends}
-        currentEndpoint={value.exportEndpoint}
-        currentProtocol={value.exportProtocol}
-        extraProcessors={value.extraProcessors}
-        admin={isAdmin}
-        busy={backendBusy}
-        error={settingsError}
-        onSave={(rec) => void saveBackend(rec)}
-      />
     </div>
   )
 }

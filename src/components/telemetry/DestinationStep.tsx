@@ -1,6 +1,6 @@
 import clsx from 'clsx'
-import { Activity, Check, ChevronDown, ChevronLeft, ExternalLink, FileText, Rocket, Search, Waypoints, type LucideIcon } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Activity, Check, ChevronDown, ChevronLeft, ExternalLink, FileText, Search, Waypoints, type LucideIcon } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { buttonClass } from '@/components/ui/buttonClass'
 import { OperatorHealth } from '@/components/operators/OperatorHealth'
@@ -10,7 +10,7 @@ import { imageRepository } from '@/lib/detectBackends'
 import { exportProtocolLabel, type Modality, type TelemetryInput } from '@/lib/install'
 import { operatorLiveness, receiverAuthOf } from '@/lib/operatorHealth'
 
-type Mode = 'list' | 'custom' | 'new'
+type Mode = 'list' | 'custom'
 
 const SIGNAL_ICON: Record<Modality, { icon: LucideIcon; label: string }> = {
   metrics: { icon: Activity, label: 'Metrics' },
@@ -123,8 +123,6 @@ export default function DestinationStep({
   clusterId,
   choice,
   onChoose,
-  onDeployBackend,
-  adminKindsControl,
   onBack,
   onContinue,
   bare = false,
@@ -141,11 +139,6 @@ export default function DestinationStep({
   clusterId?: string
   choice: string | null
   onChoose: (key: string | null) => void
-  onDeployBackend: () => void
-  /** The "which backend kinds this organisation allows" control - administrators only (the parent passes
-   *  nothing to anyone else). It lives under "set up a new destination" because it is a setting about what
-   *  can be deployed, not about where this telemetry goes. */
-  adminKindsControl?: ReactNode
   onBack: () => void
   onContinue: () => void
   /** One signal type's destination inside a card (see RoutesStep): no heading and no Back/Continue of its
@@ -312,7 +305,7 @@ export default function DestinationStep({
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-nb-800 p-4 text-sm text-nb-400" data-testid={`${p}-destination-empty`}>
-              Nothing in this organisation can carry these signals yet. Set up a destination below, or send straight to an endpoint you already run.
+              Nothing in this organisation can carry these signals yet. Set up a regional operator, or send straight to an endpoint you already run.
             </div>
           )}
 
@@ -335,7 +328,11 @@ export default function DestinationStep({
           <div className="flex flex-wrap items-center gap-2 border-t border-nb-850 pt-3">
             <span className="mr-1 text-xs text-nb-500">Not listed?</span>
             <Button type="button" size="sm" onClick={openCustom} data-testid={`${p}-destination-custom`}>Use a custom endpoint</Button>
-            <Button type="button" size="sm" onClick={() => setMode('new')} data-testid={`${p}-destination-new`}>Set up a new destination</Button>
+            {catalog.canDeployOperator && (
+              <Link to="/operators" className={buttonClass('secondary', 'sm')} data-testid={`${p}-deploy-operator`}>
+                <ExternalLink size={ICON_SM} /> Set up a regional operator
+              </Link>
+            )}
           </div>
         </div>
       )}
@@ -356,45 +353,6 @@ export default function DestinationStep({
             </Select>
           </Field>
           <Button variant="primary" onClick={useCustom} disabled={!customDraft.trim()} data-testid={`${p}-destination-custom-use`}>Use this endpoint</Button>
-        </div>
-      )}
-
-      {mode === 'new' && (
-        <div className="space-y-3" data-testid={`${p}-destination-new-panel`}>
-          <Button variant="ghost" size="sm" onClick={() => setMode('list')} data-testid={`${p}-destination-back-to-list`}>
-            <ChevronLeft size={ICON_SM} /> All destinations
-          </Button>
-          <div className={clsx('grid gap-3', catalog.canDeployOperator && 'sm:grid-cols-2')}>
-            <div className="flex flex-col gap-2 rounded-xl border border-nb-850 bg-nb-930 p-4">
-              <span className="text-sm font-medium text-nb-200">A new backend</span>
-              <span className="flex-1 text-xs text-nb-500">We set up Prometheus, Jaeger, Zipkin or Loki in a cluster you pick, then point this telemetry at it.</span>
-              <div>
-                <Button type="button" variant="primary" size="sm" onClick={onDeployBackend} data-testid={`${p}-deploy-backend`}>
-                  <Rocket size={ICON_SM} /> Choose a backend
-                </Button>
-              </div>
-            </div>
-            {catalog.canDeployOperator && (
-              <div className="flex flex-col gap-2 rounded-xl border border-nb-850 bg-nb-930 p-4">
-                <span className="text-sm font-medium text-nb-200">A new regional operator</span>
-                <span className="flex-1 text-xs text-nb-500">A collector that gathers telemetry from several clusters and forwards it on. Set up on the Operators page.</span>
-                <div>
-                  <Link to="/operators" className={buttonClass('secondary', 'sm')} data-testid={`${p}-deploy-operator`}>
-                    <ExternalLink size={ICON_SM} /> Open Operators
-                  </Link>
-                </div>
-              </div>
-            )}
-          </div>
-          {adminKindsControl && (
-            <details className="group rounded-lg border border-nb-850" data-testid={`${p}-allowed-kinds`}>
-              <summary className="flex cursor-pointer select-none items-center gap-1.5 px-3 py-2 text-xs font-medium text-nb-400 hover:text-nb-300 marker:content-none">
-                <ChevronDown size={ICON_SM} className="transition-transform group-open:rotate-180" aria-hidden />
-                Which backend kinds can be set up (administrators)
-              </summary>
-              <div className="border-t border-nb-850 px-3 pt-3">{adminKindsControl}</div>
-            </details>
-          )}
         </div>
       )}
 

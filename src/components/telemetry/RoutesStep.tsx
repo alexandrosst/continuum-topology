@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { Activity, FileText, Waypoints, type LucideIcon } from 'lucide-react'
-import type { ReactNode } from 'react'
 import type { DestinationCatalog } from '@/lib/destinationCatalog'
 import { activeLanes, laneView, TELEMETRY_SIGNALS, withLane, type Modality, type TelemetryInput } from '@/lib/install'
 import { Button, ICON_SM } from '@/components/ui/primitives'
@@ -61,8 +60,6 @@ export default function RoutesStep({
   clusterId,
   choices,
   onChoose,
-  onDeployBackend,
-  adminKindsControl,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
@@ -73,8 +70,6 @@ export default function RoutesStep({
   clusterId?: string
   choices: Record<Modality, string | null>
   onChoose: (m: Modality, key: string | null) => void
-  onDeployBackend: (m: Modality) => void
-  adminKindsControl?: ReactNode
 }) {
   const lanes = activeLanes(value)
   return (
@@ -115,8 +110,6 @@ export default function RoutesStep({
               clusterId={clusterId}
               choice={choices[m]}
               onChoose={(k) => onChoose(m, k)}
-              onDeployBackend={() => onDeployBackend(m)}
-              adminKindsControl={adminKindsControl}
               onBack={() => undefined}
               onContinue={() => undefined}
             />

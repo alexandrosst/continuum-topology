@@ -7,7 +7,6 @@ import { telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/i
 import GuidedWizard from './GuidedWizard'
 import ProcessorEditor from './ProcessorEditor'
 import { DebugChoice, TagEditor } from './ProcessStep'
-import QuickStartBackends from './QuickStartBackends'
 
 export type SignalId = 'resourceUsage' | 'energy' | 'kubernetesState' | 'nodeRuntime' | 'networkLatency' | 'applicationMetrics' | 'systemLogs' | 'kubernetesEvents' | 'applicationLogs' | 'traces' | 'accelerators'
 
@@ -449,12 +448,6 @@ export default function TelemetryFields({
           {!destinationNote && !modalityMismatch && exportPreset?.note && (
             <p className="text-xs text-nb-500 sm:col-span-2">{exportPreset.note}</p>
           )}
-          <QuickStartBackends
-            enabledModalities={enabledModalitySet}
-            onUseAsDestination={(endpoint, protocol) => onChange({ ...value, exportEndpoint: endpoint, exportProtocol: protocol, exportOperatorId: '' })}
-            currentDestination={{ endpoint: value.exportEndpoint, protocol: value.exportProtocol }}
-            extraProcessors={value.extraProcessors}
-          />
           <label className="flex cursor-pointer items-center gap-2 text-sm sm:col-span-2">
             <input
               type="checkbox"
