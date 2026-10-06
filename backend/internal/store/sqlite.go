@@ -336,6 +336,10 @@ func OpenSQLite(path string) (*SQLite, error) {
 		db.Close()
 		return nil, fmt.Errorf("upgrading to operator addresses: %w", err)
 	}
+	if err := migrateOperatorExposure(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("upgrading to operator exposure: %w", err)
+	}
 	return &SQLite{db: db}, nil
 }
 
@@ -721,14 +725,14 @@ func parseOperatorLabels(s string) []OperatorLabel {
 	return l
 }
 
-const operatorCols = `id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, revoked_at, reason, heartbeat_hash, heartbeat_enabled_at, last_seen_at, receiver_auth, client_ca_cert, labels, address`
+const operatorCols = `id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, revoked_at, reason, heartbeat_hash, heartbeat_enabled_at, last_seen_at, receiver_auth, client_ca_cert, labels, address, exposure`
 
 func scanOperator(r scanner) (Operator, error) {
 	var op Operator
 	var st, sourceIDs, dest, modalities, recvAuth, labels string
 	var created int64
 	var revoked, hbEnabled, lastSeen sql.NullInt64
-	err := r.Scan(&op.ID, &op.OrgID, &op.Name, &op.SiteID, &st, &sourceIDs, &dest, &modalities, &op.ReceiverAuthTokenHash, &op.CreatedBy, &created, &revoked, &op.Reason, &op.HeartbeatHash, &hbEnabled, &lastSeen, &recvAuth, &op.ClientCACertPEM, &labels, &op.Address)
+	err := r.Scan(&op.ID, &op.OrgID, &op.Name, &op.SiteID, &st, &sourceIDs, &dest, &modalities, &op.ReceiverAuthTokenHash, &op.CreatedBy, &created, &revoked, &op.Reason, &op.HeartbeatHash, &hbEnabled, &lastSeen, &recvAuth, &op.ClientCACertPEM, &labels, &op.Address, &op.Exposure)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Operator{}, ErrNotFound
@@ -787,9 +791,9 @@ func (s *SQLite) CreateOperator(ctx context.Context, op Operator, tokenHash []by
 		caKey = op.ClientCAKeyPEM
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO operators(id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, reason, heartbeat_hash, heartbeat_enabled_at, receiver_auth, client_ca_cert, client_ca_key, labels, address)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		op.ID, op.OrgID, op.Name, op.SiteID, string(op.Status), sourceClusterIDsJSON(op.SourceClusterIDs), destinationJSON(op.Destination), acceptedModalitiesJSON(op.AcceptedModalities), tokenHash, op.CreatedBy, ms(op.CreatedAt), op.Reason, hb, nullMS(op.HeartbeatEnabledAt), string(recv), caCert, caKey, operatorLabelsJSON(op.Labels), op.Address)
+		`INSERT INTO operators(id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, reason, heartbeat_hash, heartbeat_enabled_at, receiver_auth, client_ca_cert, client_ca_key, labels, address, exposure)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		op.ID, op.OrgID, op.Name, op.SiteID, string(op.Status), sourceClusterIDsJSON(op.SourceClusterIDs), destinationJSON(op.Destination), acceptedModalitiesJSON(op.AcceptedModalities), tokenHash, op.CreatedBy, ms(op.CreatedAt), op.Reason, hb, nullMS(op.HeartbeatEnabledAt), string(recv), caCert, caKey, operatorLabelsJSON(op.Labels), op.Address, op.Exposure)
 	return err
 }
 

@@ -1291,6 +1291,8 @@ export interface RegionalOperator {
   /** False means the only address the server can hand out is the in-cluster name, which resolves in the
    *  operator's own cluster alone. Absent (an older server) reads as false. */
   reachableFromOtherClusters?: boolean
+  /** How its Service was exposed when it was created. Absent for an operator from before that was asked. */
+  exposure?: 'cluster' | 'loadbalancer' | 'nodeport'
 }
 
 /** One extractor signal a TelemetryIntent grants, and where it is sourced from - `id` matches one of

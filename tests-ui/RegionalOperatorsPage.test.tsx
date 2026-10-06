@@ -703,6 +703,48 @@ describe('RegionalOperatorsPage - where other clusters reach an operator', () =>
     expect(screen.queryByTestId('operator-address-open-gone-op')).not.toBeInTheDocument()
   })
 
+  test('a row says what was installed when no address is recorded yet', async () => {
+    listOperators.mockResolvedValue([
+      op({ id: 'op-a', name: 'lb-op', exposure: 'loadbalancer' }),
+      op({ id: 'op-b', name: 'np-op', exposure: 'nodeport' }),
+      op({ id: 'op-c', name: 'own-op', exposure: 'cluster' }),
+      op({ id: 'op-d', name: 'done-op', exposure: 'loadbalancer', address: 'otlp.eu.example.com:4317', reachableFromOtherClusters: true }),
+    ])
+    renderPage()
+    expect(await screen.findByTestId('operator-address-lb-op')).toHaveTextContent('exposed through a load balancer, address not recorded yet')
+    expect(screen.getByTestId('operator-address-np-op')).toHaveTextContent('exposed through a node port, address not recorded yet')
+    expect(screen.getByTestId('operator-address-own-op')).toHaveTextContent('this cluster only')
+    expect(screen.getByTestId('operator-address-done-op')).toHaveTextContent('reachable at otlp.eu.example.com:4317')
+  })
+
+  test('the dialog shows only the lookup that fits how the operator was exposed', async () => {
+    listOperators.mockResolvedValue([
+      op({ id: 'op-a', name: 'lb-op', exposure: 'loadbalancer' }),
+      op({ id: 'op-c', name: 'own-op', exposure: 'cluster' }),
+    ])
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByTestId('operator-address-open-lb-op'))
+    expect(screen.getByTestId('operator-address-find-lb')).toBeInTheDocument()
+    expect(screen.queryByTestId('operator-address-find-np')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(await screen.findByTestId('operator-address-open-own-op'))
+    expect(screen.queryByTestId('operator-address-find-lb')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('operator-address-find-np')).not.toBeInTheDocument()
+  })
+
+  test('typing an address shows the connection check for it, with the default port', async () => {
+    listOperators.mockResolvedValue([op({ id: 'op-a', name: 'local-op' })])
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByTestId('operator-address-open-local-op'))
+    expect(screen.queryByTestId('operator-address-check')).not.toBeInTheDocument()
+    await user.type(screen.getByTestId('operator-address-input'), 'otlp.eu.example.com')
+    const check = screen.getByTestId('operator-address-check-command')
+    expect(check).toHaveTextContent('openssl s_client -connect otlp.eu.example.com:4317 -servername op-a.continuum-system.svc')
+    expect(screen.getByTestId('operator-address-check')).toHaveTextContent('DNS:op-a.continuum-system.svc')
+  })
+
   test('the dialog records a trimmed address, shows how to find it, and reloads', async () => {
     listOperators.mockResolvedValue([op({ id: 'op-a', name: 'local-op' })])
     const user = userEvent.setup()

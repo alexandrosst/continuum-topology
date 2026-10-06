@@ -554,7 +554,11 @@ export default function RegionalOperatorsPage() {
                     {op.name}
                     {op.status === 'active' && (
                       <div className="mt-0.5 font-mono text-xs text-nb-500" data-testid={`operator-address-${op.name}`}>
-                        {op.reachableFromOtherClusters && op.address ? `reachable at ${op.address}` : 'no address recorded'}
+                        {op.reachableFromOtherClusters && op.address
+                          ? `reachable at ${op.address}`
+                          : op.exposure === 'loadbalancer' || op.exposure === 'nodeport'
+                            ? `exposed through a ${op.exposure === 'loadbalancer' ? 'load balancer' : 'node port'}, address not recorded yet`
+                            : op.exposure === 'cluster' ? 'this cluster only' : 'no address recorded'}
                       </div>
                     )}
                     {(op.labels?.length ?? 0) > 0 && (

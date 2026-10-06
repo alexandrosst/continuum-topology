@@ -52,6 +52,14 @@ An operator's receiver is a Service, and a Service only resolves inside its own 
 
 **What an exposed Service publishes, and keeping it private.** A `LoadBalancer` or `NodePort` Service publishes only the OTLP/gRPC port (4317), the one clusters elsewhere use; the OTLP/HTTP and self-metrics ports stay on the in-cluster form only. The receiver still demands its client certificate (or token), but a public address is reachable by anyone, so for a private network set `service.annotations` (an internal load balancer is an annotation your cloud defines) and `service.loadBalancerSourceRanges`. If you turned on the receiver's NetworkPolicy, allow the callers' addresses in `receiver.networkPolicy.allowedIngress` as well. The port in "Reachable at" may be left out: it is 4317. Changing the address updates the commands Ikhnos hands out from then on; a cluster that already points at the operator keeps its old address until you run its command again.
 
+**Three ways to give it an address.** Ikhnos needs a `host:port` that other clusters can dial, and does not care how you got it:
+
+- *A load balancer or node port from the install.* Pick it when you create the operator; the row then says "exposed through a load balancer, address not recorded yet" until you paste the result of the `kubectl` line into **Reachable at**.
+- *Your own Ingress or DNS name.* Keep "This cluster only", put an Ingress or Gateway with TLS passthrough in front of the Service (the receiver does its own mutual TLS, so it must not be terminated in front), and record that name. Passthrough can route by the certificate name `<id>.continuum-system.svc`, which every caller already sends, so one entry point can serve many operators.
+- *A mesh or cluster-to-cluster network* such as Tailscale, Netbird, Submariner, Cilium ClusterMesh or Liqo. Use the name or IP the mesh gives the Service. Nothing here knows or needs to know the network is an overlay: the certificate is checked against the stable name, so the network is only the pipe.
+
+**Checking it.** Typing an address in **Reachable at** shows a one-line `openssl` check to run from a machine in the cluster that will send. It lists the names on the certificate found at that address, which must include `DNS:<id>.continuum-system.svc`. No output means that machine cannot reach the address; a different name means the address leads somewhere else. Ikhnos does not dial the address itself, because the server is usually not on the network the senders are on, and a server that connects to an address an administrator typed is a risk in its own right.
+
 Recording an address does not change a source cluster that is already configured: nothing is pushed to a cluster by Ikhnos, so clusters already pointed at the in-cluster name keep working exactly as before until their command is run again.
 
 ## What's rendered

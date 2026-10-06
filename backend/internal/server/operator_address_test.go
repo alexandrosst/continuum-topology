@@ -72,6 +72,9 @@ func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t
 	up := create("eu-hub", map[string]any{"kind": "external", "endpoint": "collector.example:4317"}, map[string]any{"exposure": "loadbalancer"})
 	upOp := up["operator"].(map[string]any)
 	upID := upOp["id"].(string)
+	if upOp["exposure"] != "loadbalancer" {
+		t.Fatalf("the exposure that was asked for is not kept: %v", upOp)
+	}
 	if upOp["reachableFromOtherClusters"] != false || upOp["address"] != nil {
 		t.Fatalf("a new operator already has an address: %v", upOp)
 	}

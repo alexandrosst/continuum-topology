@@ -87,6 +87,9 @@ type operatorDoc struct {
 	// from FUSION (see FusionControl.Exposed), so it is filled in by the caller that knows.
 	Address                    string `json:"address,omitempty"`
 	ReachableFromOtherClusters bool   `json:"reachableFromOtherClusters"`
+	// Exposure is how its Service was exposed when it was created (cluster | loadbalancer | nodeport); absent for an
+	// operator from before it was asked.
+	Exposure string `json:"exposure,omitempty"`
 }
 
 func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
@@ -109,7 +112,7 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 	if op.RevokedAt != nil {
 		d.RevokedAt = rfc(*op.RevokedAt)
 	}
-	d.Address, d.ReachableFromOtherClusters = op.Address, op.Address != ""
+	d.Address, d.ReachableFromOtherClusters, d.Exposure = op.Address, op.Address != "", op.Exposure
 	return d
 }
 
@@ -186,11 +189,12 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
+	exposure := req.Exposure // "" stays "": a client that was not asked has not said "this cluster only"
 	labels := make([]store.OperatorLabel, 0, len(req.Labels))
 	for _, l := range req.Labels {
 		labels = append(labels, store.OperatorLabel{Key: l.Key, Value: l.Value})
 	}
-	op, secret, tlsBundle, hbSecret, err := a.core(r).CreateOperatorWithOptions(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities), OperatorOptions{Heartbeat: req.Heartbeat, Labels: labels})
+	op, secret, tlsBundle, hbSecret, err := a.core(r).CreateOperatorWithOptions(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities), OperatorOptions{Heartbeat: req.Heartbeat, Labels: labels, Exposure: exposure})
 	if err != nil {
 		a.fail(w, err)
 		return

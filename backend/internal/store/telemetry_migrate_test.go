@@ -21,7 +21,7 @@ func TestSchemaLandsOnTheCurrentVersionAfterMigrations(t *testing.T) {
 	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != 14 || SchemaVersion != 14 {
+	if v != 15 || SchemaVersion != 15 {
 		t.Fatalf("user_version = %d, SchemaVersion = %d, want both 14", v, SchemaVersion)
 	}
 }

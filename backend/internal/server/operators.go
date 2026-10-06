@@ -209,6 +209,9 @@ type OperatorOptions struct {
 	Heartbeat bool
 	// Labels are stamped on everything the operator forwards (see store.OperatorLabel and validOperatorLabels).
 	Labels []store.OperatorLabel
+	// Exposure is how the Service is exposed ("cluster", "loadbalancer", "nodeport"; "" = not asked), kept so the
+	// page can say what is left to do. See store.Operator.Exposure.
+	Exposure string
 }
 
 // CreateOperatorWithOptions is CreateOperatorWithHeartbeat with the options named.
@@ -241,6 +244,7 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 		Destination:        dest,
 		AcceptedModalities: acceptedModalities,
 		Labels:             labels,
+		Exposure:           opts.Exposure,
 		CreatedBy:          actor,
 		CreatedAt:          c.Now(),
 	}

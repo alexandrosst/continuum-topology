@@ -21,12 +21,29 @@ export function addressCommands(id: string): { loadBalancer: string; nodePort: s
   }
 }
 
+/** The address with the receiver's port when none was given, as the server stores it. Display only: the server decides. */
+export function withDefaultPort(value: string): string {
+  const v = value.trim()
+  if (!v) return ''
+  const bracketed = v.startsWith('[')
+  if (bracketed ? v.endsWith(']') : !v.includes(':')) return `${v}:4317`
+  return v
+}
+
+/** Run from a machine in the cluster that will send: prints the names the certificate at that address carries, which
+ *  must include the operator's stable one. Nothing printed means the address is not reachable from there. */
+export function connectionCheckCommand(address: string, id: string): string {
+  return `openssl s_client -connect ${address} -servername ${id}.continuum-system.svc </dev/null 2>/dev/null | openssl x509 -noout -ext subjectAltName`
+}
+
 /** How to find the address, in the order a person does it. Shown after creating an exposed operator and in the
  *  "Reachable at" dialog, so nobody has to know which Service field to read. */
 export function FindTheAddress({ id, exposure, testId }: { id: string; exposure?: OperatorExposure; testId: string }) {
   const cmds = addressCommands(id)
-  const showLb = exposure !== 'nodeport'
-  const showNp = exposure !== 'loadbalancer'
+  // 'cluster' means the Service is not exposed by the install: there is nothing for kubectl to read, only an Ingress, a
+  // DNS name or a mesh address of the person's own. Unknown (an operator from before it was asked) shows both.
+  const showLb = exposure !== 'nodeport' && exposure !== 'cluster'
+  const showNp = exposure !== 'loadbalancer' && exposure !== 'cluster'
   return (
     <div className="space-y-2" data-testid={testId}>
       {showLb && (
@@ -42,7 +59,8 @@ export function FindTheAddress({ id, exposure, testId }: { id: string; exposure?
         </div>
       )}
       <p className="text-xs leading-relaxed text-nb-500">
-        Behind your own Ingress or a DNS name? Use that instead, as <span className="font-mono">host:port</span>.
+        {exposure === 'cluster' ? 'This operator was installed for its own cluster only. If you put your own Ingress, a DNS name or a mesh address in front of it, use that as ' : 'Behind your own Ingress or a DNS name? Use that instead, as '}
+        <span className="font-mono">host:port</span>.
       </p>
     </div>
   )
@@ -85,7 +103,15 @@ export function OperatorAddressModal({ operator, onClose, onDone }: { operator: 
         <Field label="Reachable at" hint="A DNS name or an IP address, with a port if it is not 4317: otlp.eu.example.com, otlp.eu.example.com:4317 or 203.0.113.7:4317.">
           <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder="otlp.eu.example.com:4317" spellCheck={false} data-testid="operator-address-input" />
         </Field>
-        <FindTheAddress id={operator.id} testId="operator-address-find" />
+        <FindTheAddress id={operator.id} exposure={operator.exposure} testId="operator-address-find" />
+        {withDefaultPort(value) && (
+          <div data-testid="operator-address-check">
+            <div className="mb-1 text-xs text-nb-500">
+              Check it before you save: run this from a machine in the cluster that will send. It should list <span className="font-mono">DNS:{operator.id}.continuum-system.svc</span>; no output means that machine cannot reach the address.
+            </div>
+            <CopyCommand text={connectionCheckCommand(withDefaultPort(value), operator.id)} testId="operator-address-check-command" />
+          </div>
+        )}
         {error && <ErrorBanner>{error}</ErrorBanner>}
       </form>
     </Modal>

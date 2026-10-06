@@ -226,7 +226,11 @@ type Operator struct {
 	// own reach its receiver: a LoadBalancer, a NodePort, or an Ingress/Gateway in front of its Service. Empty
 	// means nobody told the server, so the only address it can give out is the in-cluster name, which resolves
 	// in the operator's own cluster alone. Changing it never touches the operator's certificates.
-	Address   string
+	Address string
+	// Exposure is how its Service was exposed when it was created: "cluster", "loadbalancer" or "nodeport" (see the
+	// install command's service.type). "" for an operator from before it was asked. It says what was installed, not
+	// whether the address is known: that is Address.
+	Exposure  string
 	CreatedBy string
 	CreatedAt time.Time
 	RevokedAt *time.Time
