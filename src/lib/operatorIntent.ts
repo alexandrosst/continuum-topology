@@ -135,14 +135,18 @@ export function fragmentEndpoint(fragment: string): string | undefined {
  * The one block to paste: the server's Secret command(s) first (a failure there stops everything after it),
  * then the credential Secret if the draft names one (never for a certificate-only operator, see
  * operatorCommandDraft), then the normal upgrade command with the server's
- * fragment appended. The fragment repeats `telemetry.export.otlp.endpoint` with the same value the client
- * writes (both are `<operator id>.continuum-system.svc:4317`); helm takes the last, so if the two ever
- * differed the server's would win - the panel says so (see fragmentEndpoint).
+ * fragment appended. The endpoint the client writes is only a placeholder that says which operator this is
+ * (`<operator id>.continuum-system.svc:4317`, see operatorReceiverEndpoint); the real one is the server's, because
+ * only the server knows where the operator is reached from another cluster (its recorded address, or FUSION's public
+ * address). So when the fragment sets the endpoint, the placeholder is left out of the command altogether: the pasted
+ * command names the endpoint once.
  */
 export function operatorCommandBlock(opts: { install: InstallInfo | undefined; draft: TelemetryInput; measurementsOn?: boolean; result: TelemetryIntentCommand }): string {
   const d = operatorCommandDraft(opts.draft, opts.result.receiverAuth, (id) => opts.result.operators?.[id])
   const target = { namespace: opts.result.namespace, release: opts.result.release }
-  const upgrade = `${telemetryUpgradeCommand(opts.install, d, opts.measurementsOn, target).trimEnd()} \\\n  ${opts.result.installFragment}`
+  let client = telemetryUpgradeCommand(opts.install, d, opts.measurementsOn, target).trimEnd()
+  if (fragmentEndpoint(opts.result.installFragment)) client = client.replace(/ \\\n\s*--set(?:-string)? telemetry\.export\.otlp\.endpoint=\S+/, '')
+  const upgrade = `${client} \\\n  ${opts.result.installFragment}`
   const cred = telemetrySecretCommand(d, opts.measurementsOn, target)
   return [...opts.result.secretCommands, ...(cred ? [cred] : []), upgrade].join(' && \\\n')
 }

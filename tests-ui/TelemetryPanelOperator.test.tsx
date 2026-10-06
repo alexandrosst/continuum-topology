@@ -163,13 +163,36 @@ describe('TelemetryPanel with a regional operator destination', () => {
     expect(cmd).toContain('&&')
     expect(cmd.trimEnd().endsWith(FRAGMENT)).toBe(true)
     expect(cmd).toContain('--set telemetry.resourceUsage.metrics.enabled=true')
-    // The client-built half agrees with the server's: the same endpoint, gRPC (no protocol flag), no skip-verify.
-    expect(cmd).toContain('--set-string telemetry.export.otlp.endpoint=op-eu.continuum-system.svc:4317')
+    // The endpoint is the server's, named once (the client's placeholder is left out), gRPC (no protocol flag), no skip-verify.
+    expect(cmd.split('telemetry.export.otlp.endpoint=').length - 1).toBe(1)
+    expect(cmd).toContain('--set telemetry.export.otlp.endpoint=op-eu.continuum-system.svc:4317')
     expect(cmd).not.toContain('telemetry.export.otlp.protocol')
     expect(cmd).not.toContain('tls.insecure')
     expect(screen.queryByTestId('tp-operator-endpoint-note')).not.toBeInTheDocument()
     expect(screen.queryByTestId('tp-operator-stale')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Copy the command' })).toBeEnabled()
+  })
+
+  test('an operator reached at an address the server knows: the command names that endpoint once and the note says so, without a warning', async () => {
+    const real = 'otlp.eu.example.com:4317'
+    getTelemetryIntentCommand.mockResolvedValue({
+      installFragment: `${FRAGMENT.replace('op-eu.continuum-system.svc:4317', real)} --set telemetry.export.otlp.tls.serverName=op-eu.continuum-system.svc`,
+      secretCommands: [SECRET],
+    })
+    const user = userEvent.setup()
+    render(tree())
+    await pickOperator(user)
+    await toRun(user)
+    await user.click(await generateButton())
+    const cmd = (await screen.findByTestId('tp-operator-command')).textContent ?? ''
+    expect(cmd.split('telemetry.export.otlp.endpoint=').length - 1).toBe(1)
+    expect(cmd).toContain(`telemetry.export.otlp.endpoint=${real}`)
+    expect(cmd).not.toContain('op-eu.continuum-system.svc:4317')
+    expect(cmd).toContain('telemetry.export.otlp.tls.serverName=op-eu.continuum-system.svc')
+    const note = screen.getByTestId('tp-operator-endpoint-note')
+    expect(note).toHaveTextContent(`These commands send to ${real}`)
+    expect(note).not.toHaveClass('text-warn')
+    expect(note).not.toHaveTextContent(/not op-eu/)
   })
 
   test('with an intent already active for this agent: updates its scope and destination instead of creating a second', async () => {

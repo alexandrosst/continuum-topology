@@ -514,7 +514,7 @@ export function TelemetryPanel({
         snapshot: asked,
         text: operatorCommandBlock({ install, draft, measurementsOn, result }),
         action,
-        endpointNote: theirs && theirs !== draft.exportEndpoint.trim() ? `The server sets the export endpoint to ${theirs}, not ${draft.exportEndpoint.trim()}; the server's value comes last, so it is the one that applies.` : undefined,
+        endpointNote: theirs && theirs !== draft.exportEndpoint.trim() ? `These commands send to ${theirs}, the address Ikhnos has for ${operatorLabel}.` : undefined,
       })
     } catch (e) {
       setGenError({ snapshot: asked, message: explainIntentError(e) })
@@ -587,7 +587,7 @@ export function TelemetryPanel({
                     {generated.action === 'created' ? 'Recorded a telemetry intent for this agent.' : 'Updated this agent’s telemetry intent.'} The cluster&apos;s owner runs this in that cluster. It is safe to run more than once: the Secrets are replaced, not duplicated.
                   </p>
                 )}
-                {generated.endpointNote && <p className="mt-1 text-warn" data-testid={`${p}-operator-endpoint-note`}>{generated.endpointNote}</p>}
+                {generated.endpointNote && <p className="mt-1" data-testid={`${p}-operator-endpoint-note`}>{generated.endpointNote}</p>}
                 <CopyCommand text={generated.text} stale={staleGenerated} multiline testId={`${p}-operator-command`} />
               </div>
             ) : (
