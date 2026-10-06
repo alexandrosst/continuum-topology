@@ -271,16 +271,16 @@ func TestClientCaScopeAndCommandsCarryTheRightCA(t *testing.T) {
 	}
 	// Receiver Secret, and every agent-side Secret in the reminders, carry ca.crt = the operator CA.
 	tlsCmd := created["tlsSecretCommand"].(string)
-	if !strings.Contains(tlsCmd, `ca.crt="`+opCA+`"`) || strings.Contains(tlsCmd, orgCA) {
+	if !strings.Contains(tlsCmd, pemBlock("ca.crt", opCA)) || strings.Contains(tlsCmd, orgCA) {
 		t.Fatalf("receiver Secret command does not carry exactly the operator CA:\n%s", tlsCmd)
 	}
 	reminders := created["reminders"].([]any)
 	sawSecret := false
 	for _, x := range reminders {
 		s := x.(string)
-		if strings.Contains(s, "create secret") {
+		if strings.Contains(s, "kind: Secret") {
 			sawSecret = true
-			if !strings.Contains(s, `ca.crt="`+opCA+`"`) || strings.Contains(s, orgCA) {
+			if !strings.Contains(s, pemBlock("ca.crt", opCA)) || strings.Contains(s, orgCA) {
 				t.Fatalf("source reminder Secret does not carry exactly the operator CA:\n%s", s)
 			}
 		}
@@ -294,7 +294,7 @@ func TestClientCaScopeAndCommandsCarryTheRightCA(t *testing.T) {
 		t.Fatalf("scope update: %d %s", r.Code, r.Body.String())
 	}
 	for _, x := range r.json(t)["reminders"].([]any) {
-		if s := x.(string); strings.Contains(s, "create secret") && (!strings.Contains(s, `ca.crt="`+opCA+`"`) || strings.Contains(s, orgCA)) {
+		if s := x.(string); strings.Contains(s, "kind: Secret") && (!strings.Contains(s, pemBlock("ca.crt", opCA)) || strings.Contains(s, orgCA)) {
 			t.Fatalf("scope-update reminder does not carry exactly the operator CA:\n%s", s)
 		}
 	}
@@ -306,7 +306,7 @@ func TestClientCaScopeAndCommandsCarryTheRightCA(t *testing.T) {
 	}
 	cmd := a.do("POST", "/api/v1/telemetry-intents/"+ir.json(t)["id"].(string)+"/command", nil, withCookie(cookie)).json(t)
 	secrets, _ := cmd["secretCommands"].([]any)
-	if len(secrets) != 1 || !strings.Contains(secrets[0].(string), `ca.crt="`+opCA+`"`) || strings.Contains(secrets[0].(string), orgCA) {
+	if len(secrets) != 1 || !strings.Contains(secrets[0].(string), pemBlock("ca.crt", opCA)) || strings.Contains(secrets[0].(string), orgCA) {
 		t.Fatalf("/command Secret does not carry exactly the operator CA: %v", cmd)
 	}
 
@@ -349,4 +349,9 @@ func TestBearerOperatorStillUsesTheOrgCA(t *testing.T) {
 	if string(caPEM) != string(e.core.CA.CertPEM()) || !clientOK(certOf(t, certPEM), e.core.CA.Pool()) {
 		t.Fatal("a bearer operator's client certificate no longer comes from the org CA")
 	}
+}
+
+// pemBlock is a PEM value as the generated Secret manifest writes it: a literal block under its key.
+func pemBlock(key, pem string) string {
+	return "  " + key + ": |\n    " + strings.ReplaceAll(strings.TrimRight(pem, "\n"), "\n", "\n    ") + "\n"
 }

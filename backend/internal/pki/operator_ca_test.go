@@ -260,3 +260,27 @@ func TestOperatorCAClampsAndExpires(t *testing.T) {
 func pkixName(cn, org string) pkix.Name {
 	return pkix.Name{CommonName: cn, Organization: []string{org}}
 }
+
+// NotAfter reads the expiry off a certificate the server just issued, which is all it keeps of it.
+func TestNotAfterReadsTheExpiryOfAnIssuedCertificate(t *testing.T) {
+	dir := t.TempDir()
+	ca, err := LoadOrCreate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now()
+	certPEM, _, err := ca.IssueOperatorClientTLS("op-aaa", "org-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := NotAfter(certPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := before.Add(OperatorTLSTTL); got.Before(want.Add(-time.Minute)) || got.After(want.Add(time.Minute)) {
+		t.Fatalf("NotAfter = %v, want about %v", got, want)
+	}
+	if _, err := NotAfter([]byte("not a certificate")); err == nil {
+		t.Fatal("garbage was accepted")
+	}
+}

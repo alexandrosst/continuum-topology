@@ -58,7 +58,7 @@ func TestOperatorsHTTPCreateListGetRevokeDelete(t *testing.T) {
 	if len(reminders) != 2 {
 		t.Fatalf("expected two source-cluster reminder lines (client cert secret + helm upgrade), got %v", reminders)
 	}
-	if !strings.Contains(reminders[0].(string), "-----BEGIN CERTIFICATE-----") {
+	if !strings.Contains(reminders[0].(string), "-----BEGIN CERTIFICATE-----") || strings.Contains(reminders[0].(string), "--from-literal") {
 		t.Fatalf("first reminder should be the client certificate secret command, got %v", reminders[0])
 	}
 	if !strings.Contains(reminders[1].(string), "telemetry.export.otlp.tls.mtls.enabled=true") {
@@ -93,8 +93,11 @@ func TestOperatorsHTTPCreateListGetRevokeDelete(t *testing.T) {
 		}
 	}
 
-	if r := a.do("POST", "/api/v1/operators/"+id+"/revoke", map[string]string{"reason": "decommissioned"}, withCookie(cookie)); r.Code != 204 {
+	// Revoking does not stop the receiver: the response says how to remove it.
+	if r := a.do("POST", "/api/v1/operators/"+id+"/revoke", map[string]string{"reason": "decommissioned"}, withCookie(cookie)); r.Code != 200 {
 		t.Fatalf("revoke: %d %s", r.Code, r.Body.String())
+	} else if got := r.json(t)["uninstall"]; got != "helm uninstall "+id+" --namespace continuum-system" {
+		t.Fatalf("uninstall = %v", got)
 	}
 	if r := a.do("GET", "/api/v1/operators/"+id, nil, withCookie(cookie)); r.Code != 200 {
 		t.Fatalf("get after revoke: %d %s", r.Code, r.Body.String())
@@ -102,8 +105,10 @@ func TestOperatorsHTTPCreateListGetRevokeDelete(t *testing.T) {
 		t.Fatalf("status after revoke = %v", got)
 	}
 
-	if r := a.do("DELETE", "/api/v1/operators/"+id, nil, withCookie(cookie)); r.Code != 204 {
+	if r := a.do("DELETE", "/api/v1/operators/"+id, nil, withCookie(cookie)); r.Code != 200 {
 		t.Fatalf("delete: %d %s", r.Code, r.Body.String())
+	} else if r.json(t)["uninstall"] == nil {
+		t.Fatalf("delete says nothing about uninstalling: %s", r.Body.String())
 	}
 	if r := a.do("GET", "/api/v1/operators/"+id, nil, withCookie(cookie)); r.Code != 404 {
 		t.Fatalf("get after delete: %d %s", r.Code, r.Body.String())

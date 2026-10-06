@@ -52,6 +52,15 @@ type Admin struct {
 	// for a `--version` flag against an OCI/registry chart reference; a local ./file.tgz reference (no registry
 	// configured) always serves the exact chart this binary was built from and needs no version at all.
 	AgentChartVersion string
+	// PublicURL is the address operators and people outside the cluster reach this server at (scheme and host, and a
+	// path prefix if it has one), such as https://ikhnos.example.com. Empty means "whatever host the request came in
+	// on", which is wrong for anyone who reached the page through a port-forward or an internal name. Used for the
+	// heartbeat address in generated commands (see heartbeatURL).
+	PublicURL string
+	// HeartbeatCAPEM is the certificate of the private CA that signed the server's own HTTPS certificate, when it is
+	// not signed by a public one: regional operators verify the heartbeat endpoint with it (heartbeat.tls.caSecretName).
+	// Empty when the certificate chains to a root every image already trusts.
+	HeartbeatCAPEM []byte
 	// OperatorChartVersion is continuum-regional-operator's own equivalent of AgentChartVersion above - the
 	// version the release pipeline published this build's regional-operator chart under, when known.
 	OperatorChartVersion string
@@ -219,6 +228,9 @@ func (a *Admin) Handler() http.Handler {
 	route("GET "+o+"/operators", adminRole, a.listOperators)
 	route("POST "+o+"/operators", adminRole, a.createOperator)
 	route("GET "+o+"/operators/{id}", adminRole, a.getOperator)
+	// What a person choosing where telemetry goes may pick: active operators and their state, no secrets - so
+	// editorRole (the wizard's), where the list above stays an admin's.
+	route("GET "+o+"/operator-destinations", editorRole, a.listOperatorDestinations)
 	route("GET "+o+"/fusion", adminRole, a.getFusion)
 	route("POST "+o+"/fusion/enable", adminRole, a.enableFusion)
 	route("POST "+o+"/fusion/disable", adminRole, a.disableFusion)
@@ -227,6 +239,9 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/fusion/tokens", adminRole, a.createFusionToken)
 	route("DELETE "+o+"/fusion/tokens/{id}", adminRole, a.deleteFusionToken)
 	route("POST "+o+"/operators/{id}/scope", adminRole, a.updateOperatorScope)
+	// Installs the operator again: fresh receiver and client certificates from its stored CA, and a new receiver
+	// token / heartbeat secret where it has one. Credential material, so adminRole and audited.
+	route("POST "+o+"/operators/{id}/install", adminRole, a.reissueOperatorInstall)
 	route("POST "+o+"/operators/{id}/address", adminRole, a.setOperatorAddress)
 	// Mints (or rotates) the operator's heartbeat secret: credential material, so adminRole like the rest.
 	route("POST "+o+"/operators/{id}/heartbeat", adminRole, a.enableOperatorHeartbeat)
@@ -258,6 +273,9 @@ func (a *Admin) Handler() http.Handler {
 	// A regional operator's collector reports that it is alive here. Authenticated by its own secret, with
 	// no session, so it sits beside - not inside - the browser-facing wrappers: no CORS, no CSRF.
 	mux.HandleFunc("POST "+OperatorHeartbeatPath, a.operatorHeartbeat)
+	// Prometheus's and Grafana's own pages, opened through the server for an administrator (admin_fusion_proxy.go).
+	mux.Handle(fusionPromPath, a.fusionUI("metrics"))
+	mux.Handle(fusionGrafanaPath, a.fusionUI("grafana"))
 	mux.Handle("/api/", a.cors(a.csrf(api)))
 	if a.UIDir != "" {
 		mux.Handle("/", spa(a.UIDir))

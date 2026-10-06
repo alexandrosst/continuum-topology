@@ -331,7 +331,17 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 		}
 	}()
 
-	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, Origins: origins, UIDir: uiDir, Version: version, AgentChartVersion: agentChartVersion, OperatorChartVersion: operatorChartVersion}
+	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, PublicURL: os.Getenv("CONTINUUM_PUBLIC_URL"), Origins: origins, UIDir: uiDir, Version: version, AgentChartVersion: agentChartVersion, OperatorChartVersion: operatorChartVersion}
+	// The private CA that signed this server's own HTTPS certificate, when it has one: handed to a regional operator so its
+	// heartbeat can verify the server. A file the administrator mounts (extraVolumes); unreadable is a startup error, not a
+	// silent heartbeat that can never connect.
+	if f := os.Getenv("CONTINUUM_HEARTBEAT_CA_FILE"); f != "" {
+		pem, err := os.ReadFile(f)
+		if err != nil {
+			return fmt.Errorf("read CONTINUUM_HEARTBEAT_CA_FILE: %w", err)
+		}
+		admin.HeartbeatCAPEM = pem
+	}
 	if fusionName != "" {
 		admin.Fusion = fusionControl(log, fusionName, releaseNamespace, fusionCentralAddress, core.OrgID)
 		// An address set from the screen (Reachable at on the central operator) outranks the startup flag, which is

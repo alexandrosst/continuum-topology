@@ -1,8 +1,15 @@
 {{- if include "continuum.fusionControl" . }}
 {{- $n := include "continuum.fusionName" . }}
-# The only thing this server may do with the Kubernetes API: switch FUSION on and off. Namespaced, and every rule names
-# the objects it covers - the three stores, the central gateway and the gateway's certificate Secret - so it cannot see
-# or touch anything else in the namespace. There is no create, delete, list or watch, and no Secret can be read.
+{{- $grafana := ternary (printf ", %s-grafana" $n) "" (.Values.fusion.grafana.enabled | default false) }}
+{{- /* The stores' pods and claims: a StatefulSet's pod is <name>-0 and its claim <template>-<pod>, and the subchart's template is "data". internal/chart/server_fusion_test.go pins these names to what the subchart renders. */}}
+{{- $pods := list (printf "%s-prometheus-0" $n) (printf "%s-loki-0" $n) (printf "%s-tempo-0" $n) }}
+{{- if .Values.fusion.grafana.enabled | default false }}{{- $pods = append $pods (printf "%s-grafana-0" $n) }}{{- end }}
+{{- $claims := list }}
+{{- range $pods }}{{- $claims = append $claims (printf "data-%s" .) }}{{- end }}
+# The only thing this server may do with the Kubernetes API: switch FUSION on and off, and read what it needs to say
+# why it is not starting or where it can be reached. Namespaced, and every rule names the objects it covers - the stores
+# (and their pods and volume claims), the central gateway, its Service and its certificate Secret - so it cannot see or
+# touch anything else in the namespace. There is no create, delete, list or watch, and no Secret can be read.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -13,7 +20,7 @@ rules:
   # Read the workloads' state ("starting", "running") and their replica count.
   - apiGroups: ["apps"]
     resources: ["statefulsets"]
-    resourceNames: [{{ $n }}-prometheus, {{ $n }}-loki, {{ $n }}-tempo]
+    resourceNames: [{{ $n }}-prometheus, {{ $n }}-loki, {{ $n }}-tempo{{ $grafana }}]
     verbs: ["get"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
@@ -22,12 +29,27 @@ rules:
   # The switch itself: set the replica count to 0 or 1, through the scale subresource only.
   - apiGroups: ["apps"]
     resources: ["statefulsets/scale"]
-    resourceNames: [{{ $n }}-prometheus, {{ $n }}-loki, {{ $n }}-tempo]
+    resourceNames: [{{ $n }}-prometheus, {{ $n }}-loki, {{ $n }}-tempo{{ $grafana }}]
     verbs: ["get", "patch"]
   - apiGroups: ["apps"]
     resources: ["deployments/scale"]
     resourceNames: [{{ $n }}-central]
     verbs: ["get", "patch"]
+  # Why a store is not starting ("cannot download the image", "waiting for a volume"): its one pod and its one volume
+  # claim, read-only. The gateway's pod has a generated name and is not covered.
+  - apiGroups: [""]
+    resources: ["pods"]
+    resourceNames: [{{ join ", " $pods }}]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    resourceNames: [{{ join ", " $claims }}]
+    verbs: ["get"]
+  # Where the gateway can be reached: the address its LoadBalancer or NodePort Service was given.
+  - apiGroups: [""]
+    resources: ["services"]
+    resourceNames: [{{ $n }}-central]
+    verbs: ["get"]
   # Put the gateway's server and CA certificates in. Write-only: this role cannot read the Secret back.
   - apiGroups: [""]
     resources: ["secrets"]

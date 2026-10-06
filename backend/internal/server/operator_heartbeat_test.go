@@ -226,7 +226,7 @@ func TestOperatorHeartbeatWritesAreCoalesced(t *testing.T) {
 func TestOperatorHealthThresholds(t *testing.T) {
 	e := newEnv(t)
 	op, hb := e.hbOperator(t, "athens", fp)
-	if h := e.health(t, op.ID); h.State != HealthUnknown || h.Reporting || h.LastSeenAt != nil {
+	if h := e.health(t, op.ID); h.State != HealthWaiting || h.Reporting || h.LastSeenAt != nil || h.HeartbeatEnabledAt == nil {
 		t.Fatalf("credential but no heartbeat yet = %+v", h)
 	}
 	// Last-seen is stored to the millisecond, so start the clock on one.
@@ -509,7 +509,7 @@ func TestOperatorsHTTPHealthShapeAndHeartbeatEnableRoute(t *testing.T) {
 			t.Fatalf("install command lacks %q:\n%s", want, install)
 		}
 	}
-	if sc := on["heartbeatSecretCommand"].(string); !strings.Contains(sc, "--from-literal=token="+tok) || !strings.HasPrefix(sc, "kubectl create secret generic ") {
+	if sc := on["heartbeatSecretCommand"].(string); !strings.Contains(sc, "token: \""+tok+"\"") || !strings.Contains(sc, "kubectl apply -f - <<'CONTINUUM_SECRET'") || strings.Contains(sc, "--from-literal") {
 		t.Fatalf("heartbeat secret command = %q", sc)
 	}
 	if on["heartbeatIntervalSeconds"] != float64(60) || on["heartbeatUrl"] != "http://example.com"+OperatorHeartbeatPath {
@@ -553,7 +553,7 @@ func TestOperatorsHTTPHealthShapeAndHeartbeatEnableRoute(t *testing.T) {
 	}
 	// Now it has reported, and the read model says so in exactly the documented shape.
 	got := a.do("GET", "/api/v1/operators/"+id, nil, withCookie(cookie)).json(t)["health"].(map[string]any)
-	if got["state"] != "online" || got["reporting"] != true || got["lastSeenAt"] == nil || len(got) != 3 {
+	if got["state"] != "online" || got["reporting"] != true || got["lastSeenAt"] == nil || got["heartbeatEnabledAt"] == nil || len(got) != 4 {
 		t.Fatalf("health = %v", got)
 	}
 	if _, err := time.Parse(time.RFC3339, got["lastSeenAt"].(string)); err != nil {

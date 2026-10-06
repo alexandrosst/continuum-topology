@@ -27,7 +27,7 @@ import (
 //     read, which is what lets the UI explore the data without minting a token for itself.
 //
 // What a caller may read is a fusionapi.Scope; the queries and the answers are checked against it in internal/fusionapi.
-// The stores themselves authenticate nothing and are never exposed: everything goes through here.
+// The stores themselves authenticate nothing and are not exposed outside the cluster: everything goes through here.
 
 const (
 	maxFusionTokens       = 50
@@ -410,10 +410,14 @@ func (a *Admin) fusionStatus(w http.ResponseWriter, r *http.Request, c *fusionap
 		access["expiresAt"] = rfc(*who.ExpiresAt)
 	}
 	// A token holder learns whether the stores are up, not how the cluster is set up: the full status carries workload
-	// names, the namespace and Kubernetes API error text, which are for administrators.
-	st := a.Fusion.Status(r.Context())
+	// names, the namespace and Kubernetes API error text, which are for administrators. Nor does it read the cluster for
+	// them: a token can poll as fast as the rate limit lets it, so it is answered from the last read (TokenStatus).
+	var st FusionStatus
 	if who.Kind == "token" {
-		st = FusionStatus{Available: st.Available, State: st.State}
+		t := a.Fusion.TokenStatus(r.Context())
+		st = FusionStatus{Available: t.Available, State: t.State}
+	} else {
+		st = a.Fusion.Status(r.Context())
 	}
 	writeJSON(w, 200, map[string]any{"fusion": st, "access": access})
 }

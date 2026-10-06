@@ -574,3 +574,17 @@ func (s *ServerCerts) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, er
 	s.exp = tmpl.NotAfter
 	return s.cert, nil
 }
+
+// NotAfter is when the first certificate in a PEM block stops being valid: what the server records about a
+// certificate it issues and then forgets (the private key and the certificate itself are shown once, never kept).
+func NotAfter(certPEM []byte) (time.Time, error) {
+	b, _ := pem.Decode(certPEM)
+	if b == nil {
+		return time.Time{}, errors.New("pki: not a PEM certificate")
+	}
+	c, err := x509.ParseCertificate(b.Bytes)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return c.NotAfter, nil
+}

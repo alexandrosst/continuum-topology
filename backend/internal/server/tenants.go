@@ -55,6 +55,7 @@ func (p *Platform) Start(ctx context.Context) error {
 			return err
 		}
 	}
+	go p.WatchOperatorCerts(ctx) // says when an operator's certificates are about to expire (see CheckOperatorCerts)
 	return nil
 }
 

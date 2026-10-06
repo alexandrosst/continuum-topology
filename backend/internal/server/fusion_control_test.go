@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/fusionapi"
 	"continuum/internal/store"
 )
 
@@ -24,17 +25,40 @@ type fakeKube struct {
 	calls    []string
 	secret   map[string][]byte
 	secretIn string
+
+	reads                          int // Workload calls, to see how often the cluster is asked
+	pods                           map[string]KubePod
+	podErr                         error // what reading any pod fails with (nil = the pods in `pods`)
+	claims                         map[string]string
+	svcAddr                        string
+	svcErr                         error
+	slow                           time.Duration // how long a Workload read takes
+	onWorkload                     func()        // runs inside a Workload read, once its sleep is over
+	onService                      func()        // runs inside a Service read, before it answers: what happens while the server is waiting for the cluster
+	podReads, claimReads, svcReads int
 }
 
 func newFakeKube(names ...string) *fakeKube {
-	k := &fakeKube{replicas: map[string]int{}, ready: map[string]int{}}
+	k := &fakeKube{replicas: map[string]int{}, ready: map[string]int{}, pods: map[string]KubePod{}, claims: map[string]string{}}
 	for _, n := range names {
 		k.replicas[n] = 0
 	}
 	return k
 }
 
-func (k *fakeKube) Workload(_ context.Context, kind, name string) (KubeWorkload, error) {
+func (k *fakeKube) Workload(ctx context.Context, kind, name string) (KubeWorkload, error) {
+	k.mu.Lock()
+	k.reads++
+	slow := k.slow
+	k.mu.Unlock()
+	select {
+	case <-time.After(slow):
+	case <-ctx.Done():
+		return KubeWorkload{}, ctx.Err()
+	}
+	if k.onWorkload != nil {
+		k.onWorkload()
+	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.err != nil {
@@ -53,6 +77,9 @@ func (k *fakeKube) Scale(_ context.Context, kind, name string, replicas int) err
 	if k.err != nil {
 		return k.err
 	}
+	if _, ok := k.replicas[name]; !ok { // the real API has no such workload to scale
+		return ErrKubeNotFound
+	}
 	k.calls = append(k.calls, name)
 	k.replicas[name] = replicas
 	return nil
@@ -68,6 +95,44 @@ func (k *fakeKube) PatchSecret(_ context.Context, name string, data map[string][
 	return nil
 }
 
+func (k *fakeKube) Pod(_ context.Context, name string) (KubePod, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.podReads++
+	if k.podErr != nil {
+		return KubePod{}, k.podErr
+	}
+	p, ok := k.pods[name]
+	if !ok {
+		return KubePod{}, ErrKubeNotFound
+	}
+	return p, nil
+}
+
+func (k *fakeKube) ClaimPhase(_ context.Context, name string) (string, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.claimReads++
+	if k.podErr != nil {
+		return "", k.podErr
+	}
+	p, ok := k.claims[name]
+	if !ok {
+		return "", ErrKubeNotFound
+	}
+	return p, nil
+}
+
+func (k *fakeKube) ServiceAddress(_ context.Context, name string) (string, error) {
+	if k.onService != nil {
+		k.onService()
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.svcReads++
+	return k.svcAddr, k.svcErr
+}
+
 func (k *fakeKube) allReady() {
 	for n, r := range k.replicas {
 		k.ready[n] = r
@@ -79,7 +144,9 @@ var fusionNames = []string{"continuum-fusion-prometheus", "continuum-fusion-loki
 func newFusion(t *testing.T, a *adminRig) (*FusionControl, *fakeKube) {
 	t.Helper()
 	k := newFakeKube(fusionNames...)
-	f := &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: a.a.C.OrgID}
+	// No cache and no Prometheus to ask: a test changes the fake cluster between two calls and expects to see it. The
+	// cache has its own tests (TestStatusIsReadOnceForEveryoneAsking and friends).
+	f := &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: a.a.C.OrgID, StatusTTL: -1, Data: &fusionapi.Client{}}
 	return f, k
 }
 
@@ -379,7 +446,7 @@ func TestAnOperatorSendingToTheCentralOperator(t *testing.T) {
 			t.Errorf("the command should know nothing of the stores behind the gateway:\n%s", install)
 		}
 		sec, _ := created["exportSecretCommand"].(string)
-		if !strings.Contains(sec, "op-central-export-mtls") || !strings.Contains(sec, "--from-literal=tls.crt=") || !strings.Contains(sec, "--from-literal=ca.crt=") {
+		if !strings.Contains(sec, "op-central-export-mtls") || !strings.Contains(sec, "  tls.crt: |") || !strings.Contains(sec, "  ca.crt: |") || strings.Contains(sec, "--from-literal") {
 			t.Errorf("export secret command = %q", sec)
 		}
 		target, _ := created["exportTarget"].(map[string]any)

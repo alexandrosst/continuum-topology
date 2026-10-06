@@ -340,6 +340,10 @@ func OpenSQLite(path string) (*SQLite, error) {
 		db.Close()
 		return nil, fmt.Errorf("upgrading to operator exposure: %w", err)
 	}
+	if err := migrateOperatorCerts(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("upgrading to operator certificate expiry: %w", err)
+	}
 	return &SQLite{db: db}, nil
 }
 
@@ -725,14 +729,14 @@ func parseOperatorLabels(s string) []OperatorLabel {
 	return l
 }
 
-const operatorCols = `id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, revoked_at, reason, heartbeat_hash, heartbeat_enabled_at, last_seen_at, receiver_auth, client_ca_cert, labels, address, exposure`
+const operatorCols = `id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, revoked_at, reason, heartbeat_hash, heartbeat_enabled_at, last_seen_at, receiver_auth, client_ca_cert, labels, address, exposure, receiver_not_after, client_not_after, cert_alert_level`
 
 func scanOperator(r scanner) (Operator, error) {
 	var op Operator
 	var st, sourceIDs, dest, modalities, recvAuth, labels string
 	var created int64
-	var revoked, hbEnabled, lastSeen sql.NullInt64
-	err := r.Scan(&op.ID, &op.OrgID, &op.Name, &op.SiteID, &st, &sourceIDs, &dest, &modalities, &op.ReceiverAuthTokenHash, &op.CreatedBy, &created, &revoked, &op.Reason, &op.HeartbeatHash, &hbEnabled, &lastSeen, &recvAuth, &op.ClientCACertPEM, &labels, &op.Address, &op.Exposure)
+	var revoked, hbEnabled, lastSeen, recvNotAfter, clientNotAfter sql.NullInt64
+	err := r.Scan(&op.ID, &op.OrgID, &op.Name, &op.SiteID, &st, &sourceIDs, &dest, &modalities, &op.ReceiverAuthTokenHash, &op.CreatedBy, &created, &revoked, &op.Reason, &op.HeartbeatHash, &hbEnabled, &lastSeen, &recvAuth, &op.ClientCACertPEM, &labels, &op.Address, &op.Exposure, &recvNotAfter, &clientNotAfter, &op.CertAlertLevel)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Operator{}, ErrNotFound
@@ -755,6 +759,7 @@ func scanOperator(r scanner) (Operator, error) {
 	}
 	op.HeartbeatEnabledAt = fromNullMS(hbEnabled)
 	op.LastSeenAt = fromNullMS(lastSeen)
+	op.ReceiverNotAfter, op.ClientNotAfter = fromNullMS(recvNotAfter), fromNullMS(clientNotAfter)
 	if len(op.HeartbeatHash) == 0 {
 		op.HeartbeatHash = nil
 	}
@@ -791,9 +796,9 @@ func (s *SQLite) CreateOperator(ctx context.Context, op Operator, tokenHash []by
 		caKey = op.ClientCAKeyPEM
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO operators(id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, reason, heartbeat_hash, heartbeat_enabled_at, receiver_auth, client_ca_cert, client_ca_key, labels, address, exposure)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		op.ID, op.OrgID, op.Name, op.SiteID, string(op.Status), sourceClusterIDsJSON(op.SourceClusterIDs), destinationJSON(op.Destination), acceptedModalitiesJSON(op.AcceptedModalities), tokenHash, op.CreatedBy, ms(op.CreatedAt), op.Reason, hb, nullMS(op.HeartbeatEnabledAt), string(recv), caCert, caKey, operatorLabelsJSON(op.Labels), op.Address, op.Exposure)
+		`INSERT INTO operators(id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, reason, heartbeat_hash, heartbeat_enabled_at, receiver_auth, client_ca_cert, client_ca_key, labels, address, exposure, receiver_not_after, client_not_after)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		op.ID, op.OrgID, op.Name, op.SiteID, string(op.Status), sourceClusterIDsJSON(op.SourceClusterIDs), destinationJSON(op.Destination), acceptedModalitiesJSON(op.AcceptedModalities), tokenHash, op.CreatedBy, ms(op.CreatedAt), op.Reason, hb, nullMS(op.HeartbeatEnabledAt), string(recv), caCert, caKey, operatorLabelsJSON(op.Labels), op.Address, op.Exposure, nullMS(op.ReceiverNotAfter), nullMS(op.ClientNotAfter))
 	return err
 }
 
@@ -872,6 +877,59 @@ func (s *SQLite) UpdateOperatorScope(ctx context.Context, id string, sourceClust
 // SetOperatorAddress records the host:port other clusters reach the operator's receiver at ("" clears it).
 func (s *SQLite) SetOperatorAddress(ctx context.Context, id, address string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE operators SET address=? WHERE id=? AND status='active'`, address, id)
+	if err != nil {
+		return err
+	}
+	return needOne(res)
+}
+
+// SetOperatorAddressIfEmpty records address only while the operator has none, in one statement, so a value an
+// administrator typed in the meantime is never overwritten (the server learning an address by itself must lose to a
+// person). It reports whether it wrote; ErrNotFound / ErrBadState for an operator that is missing or not active.
+func (s *SQLite) SetOperatorAddressIfEmpty(ctx context.Context, id, address string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE operators SET address=? WHERE id=? AND status='active' AND address=''`, address, id)
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n == 1 {
+		return true, nil
+	}
+	op, err := s.GetOperator(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if op.Status != OperatorActive {
+		return false, ErrBadState
+	}
+	return false, nil
+}
+
+// SetOperatorCerts records when the receiver and client certificates just issued expire, and starts the expiry
+// warnings over: what was raised for the certificates they replace says nothing about these.
+func (s *SQLite) SetOperatorCerts(ctx context.Context, id string, receiverNotAfter, clientNotAfter time.Time) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE operators SET receiver_not_after=?, client_not_after=?, cert_alert_level=0 WHERE id=? AND status='active'`,
+		ms(receiverNotAfter), ms(clientNotAfter), id)
+	if err != nil {
+		return err
+	}
+	return needOne(res)
+}
+
+// SetOperatorCertAlertLevel records the expiry warning level already raised, so the daily check raises each only once.
+func (s *SQLite) SetOperatorCertAlertLevel(ctx context.Context, id string, level int) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE operators SET cert_alert_level=? WHERE id=? AND status='active'`, level, id)
+	if err != nil {
+		return err
+	}
+	return needOne(res)
+}
+
+// SetOperatorReceiverToken replaces the hash of a bearer operator's receiver token (the earlier token stops
+// working at once). ErrBadState for an operator that is not active or has no bearer gate.
+func (s *SQLite) SetOperatorReceiverToken(ctx context.Context, id string, hash []byte) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE operators SET receiver_auth_token_hash=? WHERE id=? AND status='active' AND receiver_auth='bearer'`, hash, id)
 	if err != nil {
 		return err
 	}

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"continuum/internal/pki"
 	"continuum/internal/store"
@@ -47,6 +48,24 @@ var mintOperatorTLS = func(c *Core, operatorID string, hosts []string) (bundle O
 	return bundle, caKeyPEM, nil
 }
 
+// operatorReceiverHosts are the names an operator's receiver certificate carries: its Service in every spelling,
+// and the stable name (the first group) that senders verify it by whatever address they actually dial.
+func operatorReceiverHosts(id string) []string {
+	svc := operatorServiceName(id)
+	return []string{id + ".continuum-system", id + ".continuum-system.svc", id + ".continuum-system.svc.cluster.local",
+		svc + ".continuum-system", svc + ".continuum-system.svc", svc + ".continuum-system.svc.cluster.local"}
+}
+
+// certNotAfter is the expiry of a certificate just issued, nil when it cannot be read (nothing is then recorded and
+// the server falls back to working the date out from the creation time).
+func certNotAfter(certPEM []byte) *time.Time {
+	t, err := pki.NotAfter(certPEM)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
 // maxOperatorName mirrors the enrollment token's own label limit (see CreateTokenFor) - both name the
 // same kind of thing (a cluster, or here a fleet of them) for a person to recognise later.
 const maxOperatorName = 80
@@ -61,6 +80,38 @@ func (c *Core) operatorInOrg(ctx context.Context, id string) (store.Operator, er
 	return op, err
 }
 
+// What an external destination may hold. Each value ends up in a shell command and a Helm value, so the
+// character sets are the ones those names can really have rather than "anything but a quote": an endpoint is a
+// host:port or an http(s) URL, a CA file is a path, the three auth fields are an HTTP header name and a Kubernetes
+// Secret name and key.
+var (
+	destEndpointRe   = regexp.MustCompile(`^[A-Za-z0-9\[][A-Za-z0-9._~:/\[\]%+=-]{0,510}$`)
+	destCAFileRe     = regexp.MustCompile(`^[A-Za-z0-9._~/+=:-]{1,255}$`)
+	destHeaderNameRe = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
+	destSecretNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$`)
+	destSecretKeyRe  = regexp.MustCompile(`^[A-Za-z0-9._-]{1,253}$`)
+)
+
+// validExternalDestination checks the parts of an external destination that reach a command line.
+func validExternalDestination(dest store.Destination) error {
+	if !destEndpointRe.MatchString(dest.Endpoint) {
+		return errf(KindInvalid, "destination.endpoint is a host and a port (otlp.example.com:4317) or an http(s) URL, without spaces, quotes or other shell characters")
+	}
+	if dest.CAFile != "" && !destCAFileRe.MatchString(dest.CAFile) {
+		return errf(KindInvalid, "destination.caFile is a file path made of letters, digits and . _ ~ / + = : -")
+	}
+	if dest.AuthHeaderName != "" && !destHeaderNameRe.MatchString(dest.AuthHeaderName) {
+		return errf(KindInvalid, "destination.authHeaderName is an HTTP header name (letters, digits and -)")
+	}
+	if dest.AuthSecretName != "" && !destSecretNameRe.MatchString(dest.AuthSecretName) {
+		return errf(KindInvalid, "destination.authSecretName is a Kubernetes Secret name (lowercase letters, digits, - and .)")
+	}
+	if dest.AuthSecretKey != "" && !destSecretKeyRe.MatchString(dest.AuthSecretKey) {
+		return errf(KindInvalid, "destination.authSecretKey is a Secret key (letters, digits, . _ and -)")
+	}
+	return nil
+}
+
 // validateDestination checks that a Destination is well-formed and, for DestinationOperator, that it
 // names a currently active regional operator in this organisation. Ikhnos's fleet is two tiers: an
 // agent's own telemetry intent, or a regional operator's own export, may point directly AT one regional
@@ -73,7 +124,7 @@ func (c *Core) validateDestination(ctx context.Context, dest store.Destination) 
 		if strings.TrimSpace(dest.Endpoint) == "" {
 			return errf(KindInvalid, "destination.endpoint is required")
 		}
-		return nil
+		return validExternalDestination(dest)
 	case store.DestinationOperator:
 		if strings.TrimSpace(dest.TargetOperatorID) == "" {
 			return errf(KindInvalid, "destination.targetOperatorId is required")
@@ -160,8 +211,10 @@ func validOperatorLabels(in []store.OperatorLabel) ([]store.OperatorLabel, error
 // organisation - the same source of truth the wizard itself reads from, re-checked here since the
 // client's own list can be stale by the time it submits.
 func (c *Core) validSourceClusters(ctx context.Context, ids []string) error {
+	// No source is a valid operator: it is a place to send to, and clusters are pointed at it later (a telemetry intent issues
+	// each one its own client certificate). Requiring one here forced a cluster to be named before anything could aggregate.
 	if len(ids) == 0 {
-		return errf(KindInvalid, "pick at least one source cluster")
+		return nil
 	}
 	agents, err := c.Store.ListAgents(ctx, c.OrgID)
 	if err != nil {
@@ -235,6 +288,9 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 	if err != nil {
 		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
+	if _, err := serviceTypeFor(opts.Exposure); err != nil {
+		return store.Operator{}, "", OperatorTLSBundle{}, "", err
+	}
 	op := store.Operator{
 		ID:                 newOperatorID(),
 		OrgID:              c.OrgID,
@@ -269,15 +325,13 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 	// failed, the operator falls back to ReceiverAuthBearer and a token IS minted, so the receiver is never
 	// left with no gate whatever happens here. The operator is still created either way - failing the
 	// request would report an operator that does not exist when it does.
-	svc := operatorServiceName(op.ID)
-	hosts := []string{op.ID + ".continuum-system", op.ID + ".continuum-system.svc", op.ID + ".continuum-system.svc.cluster.local",
-		svc + ".continuum-system", svc + ".continuum-system.svc", svc + ".continuum-system.svc.cluster.local"}
-	bundle, caKeyPEM, tlsErr := mintOperatorTLS(c, op.ID, hosts)
+	bundle, caKeyPEM, tlsErr := mintOperatorTLS(c, op.ID, operatorReceiverHosts(op.ID))
 	var secret string
 	var tokenHash []byte
 	if tlsErr == nil {
 		op.ReceiverAuth = store.ReceiverAuthMTLS
 		op.ClientCACertPEM, op.ClientCAKeyPEM = bundle.CACertPEM, caKeyPEM
+		op.ReceiverNotAfter, op.ClientNotAfter = certNotAfter(bundle.ReceiverCertPEM), certNotAfter(bundle.ClientCertPEM)
 	} else {
 		var err error
 		if secret, err = NewOperatorReceiverSecret(); err != nil {
@@ -350,6 +404,11 @@ const DefaultOperatorPort = 4317
 
 var dnsLabel = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
+// isClusterLocalName says whether host is a Kubernetes Service name that only resolves in its own cluster.
+func isClusterLocalName(host string) bool {
+	return host == "svc" || strings.HasSuffix(host, ".svc") || strings.HasSuffix(host, ".cluster.local")
+}
+
 // validOperatorAddress normalises the host:port an operator is reachable at from other clusters: a DNS name or
 // an IP address, and the port (4317 when left out). An empty string is valid and clears it. Nothing that could never be reached
 // from another cluster (loopback, unspecified, link-local, "localhost") and no scheme, path or credentials.
@@ -386,6 +445,12 @@ func validOperatorAddress(in string) (string, error) {
 	if len(host) > 253 || host == "localhost" || strings.HasSuffix(host, ".localhost") {
 		return "", errf(KindInvalid, "%s cannot be reached from another cluster", host)
 	}
+	if isClusterLocalName(host) {
+		// What `kubectl get svc` prints in its NAME column, or a Service's DNS name: it resolves inside one cluster only,
+		// so another cluster cannot use it however well it is spelled. (clusterset.local, the multi-cluster Services
+		// name, does resolve across clusters and is allowed.)
+		return "", errf(KindInvalid, "%s is a name that resolves only inside its own cluster; give the address a LoadBalancer, NodePort or Ingress exposes", host)
+	}
 	for _, l := range strings.Split(host, ".") {
 		if !dnsLabel.MatchString(l) {
 			return "", bad
@@ -419,6 +484,47 @@ func (c *Core) SetOperatorAddress(ctx context.Context, actor, id, address string
 		}
 		return nil
 	})
+}
+
+// errAddressRecorded is what RecordOperatorAddressIfUnset's write finds when a person recorded an address after it
+// had looked: they win, and the audit trail says the server's attempt did not take effect.
+var errAddressRecorded = errors.New("an address was recorded in the meantime and was kept")
+
+// RecordOperatorAddressIfUnset is SetOperatorAddress for the server's own discovery: it writes only while the operator
+// has no address, as one compare-and-set in the store, so what an administrator types between the server's look and its
+// write is never replaced. wrote is false (and err nil) when an address is already there; current is then what it is.
+func (c *Core) RecordOperatorAddressIfUnset(ctx context.Context, actor, id, address string) (current string, wrote bool, err error) {
+	op, err := c.operatorInOrg(ctx, id)
+	if err != nil {
+		return "", false, err
+	}
+	if op.Address != "" {
+		return op.Address, false, nil
+	}
+	addr, err := validOperatorAddress(address)
+	if err != nil || addr == "" {
+		return "", false, err
+	}
+	err = c.audited(ctx, actor, "operator-address-changed", "operator", id, addr, func() error {
+		ok, err := c.Store.SetOperatorAddressIfEmpty(ctx, id, addr)
+		switch {
+		case errors.Is(err, store.ErrBadState):
+			return errf(KindConflict, "only an active operator's address can be changed")
+		case err != nil:
+			return err
+		case !ok:
+			return errAddressRecorded
+		}
+		return nil
+	})
+	if errors.Is(err, errAddressRecorded) {
+		again, gerr := c.Store.GetOperator(ctx, id)
+		return again.Address, false, gerr
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return addr, true, nil
 }
 
 // operatorServerName is the name on an operator's receiver certificate that never changes (the SANs
@@ -455,7 +561,17 @@ func operatorNeedsServerName(op store.Operator) bool {
 	return op.ID != CentralOperatorID || op.Address != ""
 }
 
+// RevokeOperator revokes an operator nothing depends on; see RevokeOperatorForce.
 func (c *Core) RevokeOperator(ctx context.Context, actor, id, reason string) error {
+	return c.RevokeOperatorForce(ctx, actor, id, reason, false)
+}
+
+// RevokeOperatorForce revokes an operator. Revoking does not stop its data plane (the receiver keeps running and
+// trusting its CA until it is uninstalled), but it does orphan whatever is configured to send to it: another
+// operator exporting into it, a telemetry intent granting a cluster export to it. While anything does, this refuses
+// with KindConflict naming what depends on it, unless force is set; the audit entry then records the counts, so the
+// trail says what was knowingly left behind.
+func (c *Core) RevokeOperatorForce(ctx context.Context, actor, id, reason string, force bool) error {
 	if err := guardCentral(id); err != nil {
 		return err
 	}
@@ -463,31 +579,47 @@ func (c *Core) RevokeOperator(ctx context.Context, actor, id, reason string) err
 		return err
 	}
 	reason = printable(reason, maxReason)
-	return c.audited(ctx, actor, "operator-revoked", "operator", id, reason, func() error {
+	detail, err := c.dependentsDetail(ctx, id, force, reason)
+	if err != nil {
+		return err
+	}
+	return c.audited(ctx, actor, "operator-revoked", "operator", id, detail, func() error {
 		if err := c.Store.RevokeOperator(ctx, id, reason, c.Now()); err != nil {
 			if errors.Is(err, store.ErrBadState) {
 				return errf(KindConflict, "operator is not active")
 			}
 			return err
 		}
+		c.opCAs.forget(id) // the sealed key was erased with it; do not keep the opened one
 		return nil
 	})
 }
 
+// DeleteOperator deletes an operator nothing depends on; see DeleteOperatorForce.
 func (c *Core) DeleteOperator(ctx context.Context, actor, id string) error {
+	return c.DeleteOperatorForce(ctx, actor, id, false)
+}
+
+// DeleteOperatorForce deletes an operator, under the same dependents rule as RevokeOperatorForce.
+func (c *Core) DeleteOperatorForce(ctx context.Context, actor, id string, force bool) error {
 	if err := guardCentral(id); err != nil {
 		return err
 	}
 	if _, err := c.operatorInOrg(ctx, id); err != nil {
 		return err
 	}
-	return c.audited(ctx, actor, "operator-deleted", "operator", id, "", func() error {
+	detail, err := c.dependentsDetail(ctx, id, force, "")
+	if err != nil {
+		return err
+	}
+	return c.audited(ctx, actor, "operator-deleted", "operator", id, detail, func() error {
 		if err := c.Store.DeleteOperator(ctx, id); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				return errf(KindNotFound, "no such regional operator")
 			}
 			return err
 		}
+		c.opCAs.forget(id)
 		return nil
 	})
 }
@@ -505,7 +637,7 @@ func (c *Core) operatorIssuer(ctx context.Context, op store.Operator) (*pki.CA, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("the operator's CA key is not available: %w", err)
 	}
-	issuer, err := c.CA.OpenOperatorCA(op.ClientCACertPEM, keyPEM)
+	issuer, err := c.opCAs.open(ctx, c, op.ID, op.ClientCACertPEM, keyPEM)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -522,6 +654,12 @@ func (c *Core) operatorIssuer(ctx context.Context, op store.Operator) (*pki.CA, 
 // certificate/secret in this app follows - returned once, to be put directly into a Kubernetes Secret the
 // admin creates.
 func (c *Core) IssueOperatorClientCert(ctx context.Context, actor, operatorID string) (certPEM, keyPEM, caPEM []byte, err error) {
+	return c.IssueOperatorClientCertFor(ctx, actor, operatorID, "")
+}
+
+// IssueOperatorClientCertFor is IssueOperatorClientCert that also records in the audit entry what the certificate is
+// for ("cluster=cl-a", "intent=ti-1 cluster=cl-a"), so the trail says which of an operator's senders it went to.
+func (c *Core) IssueOperatorClientCertFor(ctx context.Context, actor, operatorID, forWhat string) (certPEM, keyPEM, caPEM []byte, err error) {
 	op, err := c.operatorInOrg(ctx, operatorID)
 	if err != nil {
 		return nil, nil, nil, err
@@ -546,6 +684,10 @@ func (c *Core) IssueOperatorClientCert(ctx context.Context, actor, operatorID st
 	if scope == "" {
 		scope = store.ClientCAScopeOrg // a bearer operator's optional client cert is signed by the org CA
 	}
-	c.audit(ctx, actor, "operator-client-cert-reissued", "operator", op.ID, "ca="+scope)
+	detail := "ca=" + scope
+	if forWhat != "" {
+		detail += " " + forWhat
+	}
+	c.audit(ctx, actor, "operator-client-cert-reissued", "operator", op.ID, detail)
 	return certPEM, keyPEM, caPEM, nil
 }

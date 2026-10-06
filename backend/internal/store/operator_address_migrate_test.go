@@ -117,3 +117,36 @@ func TestOperatorExposureIsStoredAndLegacyRowsHaveNone(t *testing.T) {
 		t.Fatalf("exposure = %+v, %v", got, err)
 	}
 }
+
+// The server learning an address by itself must lose to a person, even when they write between its read and its write:
+// the write is a compare-and-set, so it only happens while the address is still empty.
+func TestSetOperatorAddressIfEmptyNeverOverwritesAndNeedsAnActiveOperator(t *testing.T) {
+	st, err := OpenSQLite(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	op := Operator{ID: "op-1", OrgID: "o", Name: "eu", Status: OperatorActive, Destination: Destination{Kind: DestinationExternal, Endpoint: "c:4317"}, CreatedBy: "alex", CreatedAt: time.Now()}
+	if err := st.CreateOperator(ctx, op, []byte("h")); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := st.SetOperatorAddressIfEmpty(ctx, "op-1", "203.0.113.7:4317"); err != nil || !ok {
+		t.Fatalf("first write: %v %v", ok, err)
+	}
+	if ok, err := st.SetOperatorAddressIfEmpty(ctx, "op-1", "198.51.100.9:4317"); err != nil || ok {
+		t.Fatalf("second write replaced a recorded address: %v %v", ok, err)
+	}
+	if got, _ := st.GetOperator(ctx, "op-1"); got.Address != "203.0.113.7:4317" {
+		t.Fatalf("address = %q", got.Address)
+	}
+	if _, err := st.SetOperatorAddressIfEmpty(ctx, "op-nope", "x.example.com:1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown operator: %v", err)
+	}
+	if err := st.RevokeOperator(ctx, "op-1", "gone", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetOperatorAddressIfEmpty(ctx, "op-1", "x.example.com:1"); !errors.Is(err, ErrBadState) {
+		t.Fatalf("revoked operator: %v", err)
+	}
+}

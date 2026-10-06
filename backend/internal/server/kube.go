@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -10,17 +11,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // KubeAPI is the whole of what this server may do with the Kubernetes API, and it is deliberately tiny: read the
-// replica counts of the FUSION workloads, scale them, and put certificates into the central gateway's Secret. The
-// chart's Role (deploy/helm/continuum-server/templates/fusion-rbac.yaml) grants exactly these calls on exactly
-// these named objects and nothing more - there is no list, no create, no delete, no way to read a Secret back.
+// replica counts of the FUSION workloads, scale them, put certificates into the central gateway's Secret, and read
+// (never change) the few objects that explain why a store is not starting or where the gateway is reachable. The chart's
+// Role (deploy/helm/continuum-server/templates/fusion-rbac.yaml) grants exactly these calls on exactly these named
+// objects and nothing more - there is no list, no create, no delete, no way to read a Secret back.
 type KubeAPI interface {
 	// Workload reads a StatefulSet or Deployment ("statefulsets", "deployments") by name.
 	Workload(ctx context.Context, kind, name string) (KubeWorkload, error)
@@ -28,12 +32,33 @@ type KubeAPI interface {
 	Scale(ctx context.Context, kind, name string, replicas int) error
 	// PatchSecret merges the given keys into an existing Secret's data.
 	PatchSecret(ctx context.Context, name string, data map[string][]byte) error
+	// Pod reads one pod by name, for the reason it is not ready. An older Role has no such grant: the call is then
+	// ErrKubeForbidden and the switch simply goes without a reason.
+	Pod(ctx context.Context, name string) (KubePod, error)
+	// ClaimPhase reads a PersistentVolumeClaim's phase ("Bound", "Pending", ...).
+	ClaimPhase(ctx context.Context, name string) (string, error)
+	// ServiceAddress is the host:port other clusters can dial the named Service at, or "" while it has none (a
+	// ClusterIP Service, or a LoadBalancer the cloud has not given an address yet).
+	ServiceAddress(ctx context.Context, name string) (string, error)
 }
 
 // KubeWorkload is the part of a workload's state the switch shows.
 type KubeWorkload struct {
 	Desired int // spec.replicas
 	Ready   int // status.readyReplicas
+}
+
+// KubePod is the part of a pod's state that says why it is not ready.
+type KubePod struct {
+	Phase string // Pending, Running, ...
+	// WaitingReason is the Kubernetes reason a container is waiting ("ImagePullBackOff", "CrashLoopBackOff",
+	// "ContainerCreating", ...), init containers first; "" when none is.
+	WaitingReason string
+	// LastTerminatedReason is why that container's previous run ended ("OOMKilled", "Error", ...).
+	LastTerminatedReason string
+	// Unschedulable is PodScheduled=False: no node was found for it. ScheduleMessage is the scheduler's own sentence.
+	Unschedulable   bool
+	ScheduleMessage string
 }
 
 // Why a Kubernetes call failed, in the three ways the switch tells apart.
@@ -50,9 +75,8 @@ type kubeClient struct {
 	token     func() (string, error)
 }
 
-const (
-	saDir = "/var/run/secrets/kubernetes.io/serviceaccount"
-)
+// saDir is where the pod's service account is mounted (a variable only so a test can point it at a directory).
+var saDir = "/var/run/secrets/kubernetes.io/serviceaccount"
 
 // InClusterKube is a KubeAPI for the pod this server runs in, using the service account token the chart mounts
 // when fusionControl is on. It returns an error when there is none (no token mounted = FUSION cannot be switched
@@ -192,4 +216,121 @@ func (k *kubeClient) PatchSecret(ctx context.Context, name string, data map[stri
 	_, err := k.do(ctx, http.MethodPatch, "/api/v1/namespaces/"+url.PathEscape(k.namespace)+"/secrets/"+url.PathEscape(name),
 		"application/merge-patch+json", map[string]any{"data": enc})
 	return err
+}
+
+func (k *kubeClient) corePath(resource, name string) string {
+	return "/api/v1/namespaces/" + url.PathEscape(k.namespace) + "/" + resource + "/" + url.PathEscape(name)
+}
+
+func (k *kubeClient) Pod(ctx context.Context, name string) (KubePod, error) {
+	b, err := k.do(ctx, http.MethodGet, k.corePath("pods", name), "", nil)
+	if err != nil {
+		return KubePod{}, err
+	}
+	type containerStatus struct {
+		State struct {
+			Waiting struct{ Reason string } `json:"waiting"`
+		} `json:"state"`
+		LastState struct {
+			Terminated struct{ Reason string } `json:"terminated"`
+		} `json:"lastState"`
+	}
+	var p struct {
+		Status struct {
+			Phase      string `json:"phase"`
+			Conditions []struct {
+				Type, Status, Reason, Message string
+			} `json:"conditions"`
+			InitContainerStatuses []containerStatus `json:"initContainerStatuses"`
+			ContainerStatuses     []containerStatus `json:"containerStatuses"`
+		} `json:"status"`
+	}
+	if err := json.Unmarshal(b, &p); err != nil {
+		return KubePod{}, err
+	}
+	out := KubePod{Phase: p.Status.Phase}
+	for _, c := range p.Status.Conditions {
+		if c.Type == "PodScheduled" && c.Status == "False" {
+			out.Unschedulable, out.ScheduleMessage = true, c.Message
+		}
+	}
+	// The first container that is waiting for something other than its own start-up explains more than one that is
+	// merely being created; failing that, any waiting container.
+	var fallback *containerStatus
+	for _, list := range [][]containerStatus{p.Status.InitContainerStatuses, p.Status.ContainerStatuses} {
+		for i := range list {
+			c := &list[i]
+			switch r := c.State.Waiting.Reason; r {
+			case "":
+			case "ContainerCreating", "PodInitializing":
+				if fallback == nil {
+					fallback = c
+				}
+			default:
+				out.WaitingReason, out.LastTerminatedReason = r, c.LastState.Terminated.Reason
+				return out, nil
+			}
+		}
+	}
+	if fallback != nil {
+		out.WaitingReason, out.LastTerminatedReason = fallback.State.Waiting.Reason, fallback.LastState.Terminated.Reason
+	}
+	return out, nil
+}
+
+func (k *kubeClient) ClaimPhase(ctx context.Context, name string) (string, error) {
+	b, err := k.do(ctx, http.MethodGet, k.corePath("persistentvolumeclaims", name), "", nil)
+	if err != nil {
+		return "", err
+	}
+	var c struct {
+		Status struct{ Phase string } `json:"status"`
+	}
+	if err := json.Unmarshal(b, &c); err != nil {
+		return "", err
+	}
+	return c.Status.Phase, nil
+}
+
+// gatewayPort is the gateway's OTLP gRPC port, the one its Service publishes to other clusters.
+const gatewayPort = 4317
+
+func (k *kubeClient) ServiceAddress(ctx context.Context, name string) (string, error) {
+	b, err := k.do(ctx, http.MethodGet, k.corePath("services", name), "", nil)
+	if err != nil {
+		return "", err
+	}
+	var s struct {
+		Spec struct {
+			Type  string `json:"type"`
+			Ports []struct {
+				Port int `json:"port"`
+			} `json:"ports"`
+		} `json:"spec"`
+		Status struct {
+			LoadBalancer struct {
+				Ingress []struct{ IP, Hostname string } `json:"ingress"`
+			} `json:"loadBalancer"`
+		} `json:"status"`
+	}
+	if err := json.Unmarshal(b, &s); err != nil {
+		return "", err
+	}
+	port := 0
+	for _, p := range s.Spec.Ports {
+		if p.Port == gatewayPort || port == 0 {
+			port = p.Port
+		}
+	}
+	switch s.Spec.Type {
+	case "LoadBalancer":
+		for _, in := range s.Status.LoadBalancer.Ingress {
+			if h := cmp.Or(in.IP, in.Hostname); h != "" && port != 0 {
+				return net.JoinHostPort(h, strconv.Itoa(port)), nil
+			}
+		}
+	}
+	// A NodePort is deliberately not an answer: it is one node's address, and a node's address is often a private one, so
+	// recording it for the administrator would put a wrong "Reachable at" into every command. A person records it.
+	return "", nil
 }

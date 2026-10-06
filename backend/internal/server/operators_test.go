@@ -67,6 +67,18 @@ func TestCreateOperatorHappyPathIsMTLSOnlyWithNoReceiverToken(t *testing.T) {
 	}
 }
 
+// An operator is a place to send to; clusters are pointed at it afterwards, so it needs no source at creation.
+func TestCreateOperatorWithNoSourceClustersIsValid(t *testing.T) {
+	e := newEnv(t)
+	op, _, bundle, err := e.core.CreateOperator(e.ctx, "alex", "plant-7", nil, extDest("collector.example:4317"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(op.SourceClusterIDs) != 0 || len(bundle.ReceiverCertPEM) == 0 {
+		t.Fatalf("%+v", op)
+	}
+}
+
 func TestCreateOperatorRejectsAnUnapprovedOrForeignClusterID(t *testing.T) {
 	e := newEnv(t)
 	if _, _, _, err := e.core.CreateOperator(e.ctx, "alex", "x", []string{"cl-does-not-exist"}, extDest("c:4317"), nil); kindOf(err) != KindInvalid {
@@ -98,7 +110,11 @@ func TestCreateOperatorAcceptsChainingToAnActiveOperatorInOrg(t *testing.T) {
 		t.Fatalf("expected an active in-org operator destination to be accepted, got %v", err)
 	}
 
-	if err := e.core.RevokeOperator(e.ctx, "alex", target.ID, "decommissioned"); err != nil {
+	// An operator that something sends to is not revoked by accident; forced, it is.
+	if err := e.core.RevokeOperator(e.ctx, "alex", target.ID, "decommissioned"); kindOf(err) != KindConflict {
+		t.Fatalf("revoking an operator another one exports into: %v", err)
+	}
+	if err := e.core.RevokeOperatorForce(e.ctx, "alex", target.ID, "decommissioned", true); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := e.core.CreateOperator(e.ctx, "alex", "downstream-2", []string{clB}, dest, nil); kindOf(err) != KindInvalid {

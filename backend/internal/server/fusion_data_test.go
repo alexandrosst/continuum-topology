@@ -119,7 +119,7 @@ func newDataRig(t *testing.T) *dataRig {
 	a := newAdminRig(t)
 	st := newFusionStores(t)
 	k := newFakeKube(fusionNames...)
-	a.a.Fusion = &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: "org-1",
+	a.a.Fusion = &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: st.prom.URL, Loki: st.loki.URL, Tempo: st.tempo.URL}}
 	id, cookie := a.user(t, "root", RoleAdmin)
 	return &dataRig{adminRig: a, stores: st, admin: cookie, adminID: id}

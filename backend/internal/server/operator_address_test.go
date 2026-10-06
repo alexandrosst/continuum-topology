@@ -266,8 +266,10 @@ func TestAnOperatorRouteVerifiesTheStableNameWhenItHasAnAddress(t *testing.T) {
 		t.Fatal("a regional operator with no address must still be verified by its stable name")
 	}
 	// The central operator in its own cluster is dialled by a name its certificate carries.
-	if strings.Contains(operatorRouteFlags(store.Operator{ID: CentralOperatorID}, "x.continuum.svc:4317", store.ModalityTraces), "serverName") {
-		t.Fatal("the in-cluster central operator needs no server name override")
+	// The route states the name anyway, empty, so a server name left by an earlier destination cannot linger.
+	inCluster := operatorRouteFlags(store.Operator{ID: CentralOperatorID}, "x.continuum.svc:4317", store.ModalityTraces)
+	if !strings.Contains(inCluster, "--set telemetry.export.routes.traces.tls.serverName= --set") {
+		t.Fatalf("the in-cluster central operator needs no server name override, and must clear any earlier one: %s", inCluster)
 	}
 }
 

@@ -230,11 +230,18 @@ type Operator struct {
 	// Exposure is how its Service was exposed when it was created: "cluster", "loadbalancer" or "nodeport" (see the
 	// install command's service.type). "" for an operator from before it was asked. It says what was installed, not
 	// whether the address is known: that is Address.
-	Exposure  string
-	CreatedBy string
-	CreatedAt time.Time
-	RevokedAt *time.Time
-	Reason    string
+	Exposure string
+	// ReceiverNotAfter and ClientNotAfter are when the receiver certificate and the client certificate last issued
+	// for the whole operator (at creation, or by the install route) stop being valid; nil where the server never
+	// recorded them (an operator from before schema 16, which the server works out from its creation time instead).
+	// A client certificate minted later for one more cluster is not recorded here: the oldest one is what matters.
+	ReceiverNotAfter, ClientNotAfter *time.Time
+	// CertAlertLevel is the expiry warning already raised for these certificates (see Core.CheckOperatorCerts): 0 none.
+	CertAlertLevel int
+	CreatedBy      string
+	CreatedAt      time.Time
+	RevokedAt      *time.Time
+	Reason         string
 }
 
 // OperatorLabel is one tag a regional operator adds to the resource of every signal passing through it
@@ -577,6 +584,9 @@ type Store interface {
 	UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination, acceptedModalities []Modality) error
 	// SetOperatorAddress records where other clusters reach the operator's receiver ("" clears it).
 	SetOperatorAddress(ctx context.Context, id, address string) error
+	// SetOperatorAddressIfEmpty is SetOperatorAddress that writes only while no address is recorded (a compare-and-set:
+	// an address someone recorded meanwhile is kept) and reports whether it wrote.
+	SetOperatorAddressIfEmpty(ctx context.Context, id, address string) (bool, error)
 	RevokeOperator(ctx context.Context, id, reason string, now time.Time) error
 	DeleteOperator(ctx context.Context, id string) error
 	// GetOperatorClientCAKey returns the sealed private key of the operator's own CA; ErrNotFound when it has
@@ -591,6 +601,14 @@ type Store interface {
 	GetOperatorByHeartbeatHash(ctx context.Context, hash []byte) (Operator, error)
 	// TouchOperatorSeen records that a heartbeat arrived at the given time.
 	TouchOperatorSeen(ctx context.Context, id string, at time.Time) error
+	// SetOperatorCerts records when the receiver and client certificates just issued expire and resets the
+	// expiry warning level; ErrBadState if the operator is not active.
+	SetOperatorCerts(ctx context.Context, id string, receiverNotAfter, clientNotAfter time.Time) error
+	// SetOperatorCertAlertLevel records the highest expiry warning already raised (see Operator.CertAlertLevel).
+	SetOperatorCertAlertLevel(ctx context.Context, id string, level int) error
+	// SetOperatorReceiverToken replaces the hash of a bearer operator's receiver token; ErrBadState if it is not
+	// active or has no bearer gate.
+	SetOperatorReceiverToken(ctx context.Context, id string, hash []byte) error
 
 	// ---- telemetry intents ----
 

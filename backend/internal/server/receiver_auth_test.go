@@ -66,7 +66,8 @@ func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 	if got != want {
 		t.Fatalf("bearer install command changed:\n got: %q\nwant: %q", got, want)
 	}
-	if secretCmd != "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl create secret generic op-abc123-receiver-auth --namespace continuum-system \\\n  --from-literal=token=cno_SECRET \\\n  --dry-run=client -o yaml | kubectl apply -f -" {
+	wantSecret := "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: op-abc123-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+	if secretCmd != wantSecret {
 		t.Fatalf("secret command = %q", secretCmd)
 	}
 	// No certificates minted: bearer only, as before.
@@ -114,20 +115,22 @@ func TestCreateOperatorFallsBackToBearerWhenTheTLSMintFails(t *testing.T) {
 	}
 }
 
-// operatorDestinationCommand builds the same flags for both kinds - neither needs a bearer in the agent's
-// export flags - and the /command response says which kind it was talking to, so a caller knows whether a
+// operatorDestinationCommand builds the same flags for both kinds when a certificate is minted - neither needs a bearer in
+// the agent's export flags - and the /command response says which kind it was talking to, so a caller knows whether a
 // receiver token is its own business.
 func TestOperatorDestinationCommandIsTheSameForBothAuthModes(t *testing.T) {
 	for _, mode := range []store.ReceiverAuth{store.ReceiverAuthMTLS, store.ReceiverAuthBearer} {
 		op := store.Operator{ID: "op-abc123", ReceiverAuth: mode}
 		flags, secret := operatorDestinationCommand(op, "op-abc123-regional-operator.continuum-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
-		wantFlags := "--set telemetry.export.otlp.endpoint=op-abc123-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-abc123-export-mtls --set telemetry.export.otlp.tls.serverName=op-abc123.continuum-system.svc"
-		wantSecret := "kubectl create secret generic op-abc123-export-mtls --namespace ns1 \\\n  --from-literal=tls.crt=\"CERT\" \\\n  --from-literal=tls.key=\"KEY\" \\\n  --from-literal=ca.crt=\"CA\" \\\n  --dry-run=client -o yaml | kubectl apply -f -"
+		// The whole destination block, every field stated (the unused ones empty), so --reuse-values leaves nothing stale.
+		wantFlags := "--set telemetry.export.otlp.endpoint=op-abc123-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= " +
+			"--set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-abc123-export-mtls --set telemetry.export.otlp.tls.serverName=op-abc123.continuum-system.svc --set telemetry.export.otlp.auth.secretName="
+		wantSecret := "kubectl apply -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: op-abc123-export-mtls\n  namespace: ns1\ntype: Opaque\nstringData:\n  tls.crt: \"CERT\"\n  tls.key: \"KEY\"\n  ca.crt: \"CA\"\nCONTINUUM_SECRET"
 		if flags != wantFlags || secret != wantSecret {
 			t.Fatalf("%s: flags=%q secret=%q", mode, flags, secret)
 		}
-		if strings.Contains(flags, "auth") {
-			t.Fatalf("%s: the export flags mention auth: %q", mode, flags)
+		if strings.Contains(secret, "--from-literal") {
+			t.Fatalf("%s: a key on the command line: %q", mode, secret)
 		}
 	}
 }
@@ -217,7 +220,7 @@ func TestInstallCommandQuotesOperatorNameAndLabels(t *testing.T) {
 // the namespace is there; the Secrets that go to a source cluster's existing namespace do not.
 func TestOperatorOwnSecretsEnsureTheNamespaceFirst(t *testing.T) {
 	tls := operatorTLSSecretCommand(store.Operator{ID: "op-abc"}, OperatorTLSBundle{ReceiverCertPEM: []byte("C"), ReceiverKeyPEM: []byte("K"), CACertPEM: []byte("A")})
-	if !strings.HasPrefix(tls, "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\n") || !strings.Contains(tls, "kubectl create secret generic op-abc-receiver-tls") {
+	if !strings.HasPrefix(tls, "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\n") || !strings.Contains(tls, "name: op-abc-receiver-tls") {
 		t.Fatalf("receiver TLS secret command: %q", tls)
 	}
 	client := operatorClientSecretCommand(store.Operator{ID: "op-abc"}, []byte("C"), []byte("K"), []byte("A"), "continuum-system")

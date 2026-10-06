@@ -234,6 +234,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 		"--set telemetry.resource.orgId=%s --set telemetry.resource.clusterId=%s --set telemetry.resource.intentId=%s",
 		a.core(r).OrgID, agent.ClusterID, ti.ID)
 	secretCommands := []string{}
+	forWhat := fmt.Sprintf("intent=%s cluster=%s", ti.ID, agent.ClusterID) // what the audit entry of each certificate says it was for
 	// Where the agent really runs (or the chart's documented defaults when it never said): the Secret below
 	// and the caller's `helm upgrade` must name the same namespace, or the release cannot find its
 	// certificate. Always returned so the caller does not have to guess it.
@@ -264,7 +265,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			}
 			op = a.advertised(op)
 			if !issued[op.ID] {
-				certPEM, keyPEM, caPEM, err := a.core(r).IssueOperatorClientCert(r.Context(), actor(r), op.ID)
+				certPEM, keyPEM, caPEM, err := a.core(r).IssueOperatorClientCertFor(r.Context(), actor(r), op.ID, forWhat)
 				if err != nil {
 					a.fail(w, err)
 					return
@@ -287,7 +288,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		op = a.advertised(op)
-		certPEM, keyPEM, caPEM, err := a.core(r).IssueOperatorClientCert(r.Context(), actor(r), op.ID)
+		certPEM, keyPEM, caPEM, err := a.core(r).IssueOperatorClientCertFor(r.Context(), actor(r), op.ID, forWhat)
 		if err != nil {
 			a.fail(w, err)
 			return

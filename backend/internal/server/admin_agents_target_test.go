@@ -21,15 +21,41 @@ func TestReleaseTargetIgnoresNamesThatAreNotKubernetesNames(t *testing.T) {
 	}
 }
 
-// A generated Secret command can be run again: create-or-update, never a bare `create`.
-func TestApplySecretCommandIsCreateOrUpdate(t *testing.T) {
-	got := applySecretCommand("s", "ns1", "a=1", `b="2"`)
-	want := "kubectl create secret generic s --namespace ns1 \\\n  --from-literal=a=1 \\\n  --from-literal=b=\"2\" \\\n  --dry-run=client -o yaml | kubectl apply -f -"
+// A generated Secret command can be run again: create-or-update (`apply`), never a bare `create`, and its values are
+// on standard input, never in the arguments.
+func TestApplySecretCommandIsCreateOrUpdateFromStdin(t *testing.T) {
+	got := applySecretCommand("s", "ns1", secretKV("a", "1"), secretKV("b", `"2"`), secretKV("pem", "-----BEGIN X-----\nAAA\n-----END X-----\n"))
+	want := "kubectl apply -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns1\ntype: Opaque\nstringData:\n" +
+		"  a: \"1\"\n  b: \"\\\"2\\\"\"\n  pem: |\n    -----BEGIN X-----\n    AAA\n    -----END X-----\nCONTINUUM_SECRET"
 	if got != want {
-		t.Fatalf("got %q want %q", got, want)
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
-	if !strings.HasSuffix(got, "| kubectl apply -f -") {
-		t.Fatal("not an apply")
+	if strings.Contains(got, "--from-literal") || strings.Contains(got, "create secret") {
+		t.Fatal("a value on the command line, or a bare create")
+	}
+}
+
+// Nothing in the data can end the here-document early: its closing word moves out of the way.
+func TestApplySecretCommandPicksAClosingWordTheDataDoesNotUse(t *testing.T) {
+	got := applySecretCommand("s", "ns1", secretKV("a", "x\nCONTINUUM_SECRET\ny"))
+	if !strings.HasPrefix(got, "kubectl apply -f - <<'CONTINUUM_SECRET_X'\n") || !strings.HasSuffix(got, "\nCONTINUUM_SECRET_X") {
+		t.Fatalf("closing word did not change:\n%s", got)
+	}
+}
+
+// A value that is not a shell word is quoted whole, so an address or a chart reference from a setting can only ever be
+// one argument.
+func TestSetFlagQuotesWhatIsNotAShellWord(t *testing.T) {
+	for _, c := range []struct{ key, val, want string }{
+		{"a.b", "host:4317", "--set a.b=host:4317"},
+		{"a.b", "", "--set a.b="},
+		{"a.b", "x; rm -rf /", "--set 'a.b=x; rm -rf /'"},
+		{"a.b", "it's $(id)", `--set 'a.b=it'\''s $(id)'`},
+		{"a.b", "a\nb", "--set 'a.b=a\nb'"},
+	} {
+		if got := setFlag(c.key, c.val); got != c.want {
+			t.Errorf("setFlag(%q, %q) = %s, want %s", c.key, c.val, got, c.want)
+		}
 	}
 }
 

@@ -23,6 +23,9 @@ type fusionResponse struct {
 	// Data says whether this server serves the shared data API (and its access tokens) for this organisation: it knows
 	// where the stores are, whatever the switch can or cannot do.
 	Data bool `json:"data"`
+	// Links are the pages FUSION has of its own (Prometheus, Grafana), present only while that page is up. They are paths on
+	// this server, which proxies them for an administrator.
+	Links *fusionUILinks `json:"links,omitempty"`
 }
 
 // fusionDoc is the switch's state for this request's organisation.
@@ -34,9 +37,15 @@ func (a *Admin) fusionDoc(r *http.Request) fusionResponse {
 		st = FusionStatus{State: "off", Reason: "other-org", Message: "FUSION is shared by everything that sends to this server, so it is managed from the server's main organisation."}
 	}
 	out := fusionResponse{FusionStatus: st, Data: f != nil && (f.Org == "" || core.OrgID == f.Org)}
+	if out.Data {
+		out.Links = f.uiLinks(st)
+	}
 	if f != nil && st.Available {
 		_, err := core.GetOperator(r.Context(), CentralOperatorID)
 		out.Central = &fusionCentralDoc{OperatorID: CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace}
+		if out.Central.Exists && !out.Central.Exposed && st.State != "off" {
+			f.DiscoverAddressSoon(core) // the next read of this screen shows it
+		}
 	}
 	return out
 }

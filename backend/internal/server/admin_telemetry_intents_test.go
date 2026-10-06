@@ -232,7 +232,7 @@ func TestTelemetryIntentCommandOperatorDestinationReissuesEachTime(t *testing.T)
 	}
 	// The Secret goes where the caller's upgrade will run, and the response says where that is, so the
 	// caller never has to guess (this agent never reported its own: the chart's documented defaults).
-	if !strings.Contains(secret1, "--namespace continuum-system ") || !strings.HasSuffix(secret1, "| kubectl apply -f -") {
+	if !strings.Contains(secret1, "namespace: continuum-system\n") || !strings.HasPrefix(secret1, "kubectl apply -f - <<'CONTINUUM_SECRET'") || strings.Contains(secret1, "--from-literal") {
 		t.Fatalf("secret command is not a create-or-update in the release namespace: %q", secret1)
 	}
 	doc := a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(cookie)).json(t)

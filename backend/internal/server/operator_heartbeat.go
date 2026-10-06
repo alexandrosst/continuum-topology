@@ -32,11 +32,17 @@ const (
 	maxHeartbeatBody = 1 << 20
 )
 
-// Operator health states.
+// Operator health states. waiting is a heartbeat that is switched on but has not arrived yet (the operator is not
+// installed, or not yet running); starting, off and attention are only ever the central operator's, taken from
+// FUSION's own state (see centralHealth).
 const (
-	HealthUnknown = "unknown"
-	HealthOnline  = "online"
-	HealthOffline = "offline"
+	HealthUnknown   = "unknown"
+	HealthOnline    = "online"
+	HealthOffline   = "offline"
+	HealthWaiting   = "waiting"
+	HealthStarting  = "starting"
+	HealthOff       = "off"
+	HealthAttention = "attention"
 )
 
 // OperatorHealth is what the read model says about an operator's liveness, computed from its stored
@@ -46,20 +52,48 @@ type OperatorHealth struct {
 	LastSeenAt *time.Time
 	// Reporting is true once the operator has an active heartbeat credential AND a heartbeat has arrived.
 	Reporting bool
+	// HeartbeatEnabledAt is when the heartbeat credential was last minted; nil when the operator has none.
+	HeartbeatEnabledAt *time.Time
 }
 
-// operatorHealthAt computes an operator's health at time now. unknown: no heartbeat credential, or none
-// has ever arrived. online: the last heartbeat is within operatorOnlineWithin. offline otherwise - and for a
-// revoked operator that was ever seen, whose heartbeats are refused from the moment it is revoked.
+// operatorHealthAt computes an operator's health at time now. unknown: no heartbeat credential (or a revoked operator
+// that never reported). waiting: a credential exists and no heartbeat has arrived yet. online: the last heartbeat is
+// within operatorOnlineWithin. offline otherwise - and for a revoked operator that was ever seen, whose heartbeats are
+// refused from the moment it is revoked.
 func operatorHealthAt(op store.Operator, now time.Time) OperatorHealth {
-	if len(op.HeartbeatHash) == 0 || op.LastSeenAt == nil {
+	if len(op.HeartbeatHash) == 0 {
 		return OperatorHealth{State: HealthUnknown}
 	}
-	h := OperatorHealth{LastSeenAt: op.LastSeenAt, Reporting: true, State: HealthOffline}
+	h := OperatorHealth{HeartbeatEnabledAt: op.HeartbeatEnabledAt}
+	if op.LastSeenAt == nil {
+		h.State = HealthUnknown
+		if op.Status == store.OperatorActive {
+			h.State = HealthWaiting
+		}
+		return h
+	}
+	h.LastSeenAt, h.Reporting, h.State = op.LastSeenAt, true, HealthOffline
 	if op.Status == store.OperatorActive && now.Sub(*op.LastSeenAt) <= operatorOnlineWithin {
 		h.State = HealthOnline
 	}
 	return h
+}
+
+// centralHealth is the central operator's health, which has no heartbeat: it is FUSION's state. A FUSION that is
+// not available on this server has no health to report.
+func centralHealth(st FusionStatus) OperatorHealth {
+	if !st.Available {
+		return OperatorHealth{State: HealthUnknown}
+	}
+	switch st.State {
+	case "running":
+		return OperatorHealth{State: HealthOnline}
+	case "starting":
+		return OperatorHealth{State: HealthStarting}
+	case "attention":
+		return OperatorHealth{State: HealthAttention}
+	}
+	return OperatorHealth{State: HealthOff}
 }
 
 // heartbeatSeen remembers when a heartbeat was last written to the database per operator.
