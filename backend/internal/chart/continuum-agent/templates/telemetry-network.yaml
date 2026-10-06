@@ -80,4 +80,12 @@ spec:
       ports:
         - {port: 4317, protocol: TCP}
         - {port: 4318, protocol: TCP}
+    {{- if include "agent.telemetryHealthEnabled" . }}
+    # The agent reads this collector's own export counters (telemetry.health).
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: continuum-agent, app.kubernetes.io/instance: {{ .Release.Name }}}
+      ports:
+        - {port: {{ .Values.telemetry.health.port | int }}, protocol: TCP}
+    {{- end }}
 {{- end }}

@@ -44,6 +44,21 @@ spec:
         {{- end }}
       ports:
         - {port: {{ include "agent.serverPort" . }}, protocol: TCP}
+    {{- if include "agent.telemetryHealthEnabled" . }}
+    # The telemetry collectors' own export counters (telemetry.health), which the agent reads to report whether
+    # each destination is receiving data.
+    - to:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [continuum-telemetry-host, continuum-telemetry-cluster]
+              - key: app.kubernetes.io/instance
+                operator: In
+                values: [{{ .Release.Name | quote }}]
+      ports:
+        - {port: {{ .Values.telemetry.health.port | int }}, protocol: TCP}
+    {{- end }}
     {{- with $np.extraEgress }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

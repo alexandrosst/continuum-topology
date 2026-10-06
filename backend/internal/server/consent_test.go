@@ -408,6 +408,49 @@ func TestInstalledTelemetryConfigRoundTrips(t *testing.T) {
 	}
 }
 
+func TestExportHealthRelaysTheAgentsStatesAndBoundsThem(t *testing.T) {
+	at := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	v := newView()
+	h := &continuumv1.ExportHealth{
+		ScrapedAt: timestamppb.New(at), PodsReached: 3, PodsFailed: 1, LastError: "read 10.0.0.2:8888: connection reset",
+		Routes: []*continuumv1.ExportRouteHealth{
+			{Exporter: "otlphttp/logs", Signal: "logs", State: continuumv1.ExportRouteHealth_FAILING, Sent: 5, Failed: 9, LastSentAt: timestamppb.New(at.Add(-time.Hour)), LastFailedAt: timestamppb.New(at)},
+			{Exporter: "zipkin/traces", Signal: "traces", State: continuumv1.ExportRouteHealth_State(99)},
+		},
+	}
+	noteDiagnostics(v, &continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: h}, false, at)
+	got := v.diagDoc().ExportHealth
+	if got == nil || got.PodsReached != 3 || got.PodsFailed != 1 || got.ScrapedAt != "2026-10-06T12:00:00Z" || got.LastError == "" || len(got.Routes) != 2 {
+		t.Fatalf("ExportHealth = %+v", got)
+	}
+	r := got.Routes[0]
+	if r.Exporter != "otlphttp/logs" || r.Signal != "logs" || r.State != "failing" || r.Sent != 5 || r.Failed != 9 || r.LastSentAt != "2026-10-06T11:00:00Z" || r.LastFailedAt != "2026-10-06T12:00:00Z" {
+		t.Errorf("route = %+v", r)
+	}
+	// A state this server does not know claims nothing, rather than something the agent never said.
+	if got.Routes[1].State != "waiting" || got.Routes[1].LastSentAt != "" {
+		t.Errorf("unknown state route = %+v, want waiting", got.Routes[1])
+	}
+
+	// Nothing reported (health off, or an older agent): no field at all, not an empty one.
+	v2 := newView()
+	noteDiagnostics(v2, &continuumv1.Diagnostics{AgentVersion: "1"}, false, at)
+	if v2.diagDoc().ExportHealth != nil {
+		t.Error("ExportHealth must be nil when the agent reported none")
+	}
+
+	// An agent cannot make the server hold more routes than it should.
+	many := &continuumv1.ExportHealth{}
+	for i := 0; i < maxDiagExportRoutes+10; i++ {
+		many.Routes = append(many.Routes, &continuumv1.ExportRouteHealth{Exporter: "e", Signal: "logs"})
+	}
+	v3 := newView()
+	noteDiagnostics(v3, &continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: many}, false, at)
+	if n := len(v3.diagDoc().ExportHealth.Routes); n != maxDiagExportRoutes {
+		t.Errorf("%d routes kept, want %d", n, maxDiagExportRoutes)
+	}
+}
+
 // ---- chunked full sync ----
 
 func workloads(n int, prefix string) []*continuumv1.WorkloadFacts {

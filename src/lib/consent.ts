@@ -72,6 +72,38 @@ export interface AgentDiagnostics {
    *  installed, or an agent older than this field - see seedTelemetryFromInstalled below for where this
    *  actually gets used. */
   installedTelemetryConfig?: AgentTelemetryConfig
+  /** Whether each telemetry destination is actually receiving data, as the agent last read it from the
+   *  collectors' own export counters. Undefined: the agent is not reading them (telemetry not installed,
+   *  telemetry.health off in the chart, or an agent older than this field). See lib/exportHealth.ts. */
+  exportHealth?: AgentExportHealth
+}
+
+/** The agent's state for one route: waiting (nothing seen go out yet), exporting (data went out recently),
+ *  silent (it did before, but not recently - not an error by itself: an idle signal looks like this) or
+ *  failing (sends failed recently and none succeeded since). */
+export type ExportState = 'waiting' | 'exporting' | 'silent' | 'failing'
+
+/** The server's ExportHealthDoc, one-to-one. */
+export interface AgentExportHealth {
+  scrapedAt?: string
+  /** Collector pods whose counters were read on the last attempt, and how many attempts failed. Reached 0
+   *  with failures means the counters cannot be read at all - which says nothing about the data itself. */
+  podsReached: number
+  podsFailed: number
+  lastError?: string
+  routes: AgentExportRoute[]
+}
+
+export interface AgentExportRoute {
+  /** The exporter's id in the collector config: otlp, otlphttp/logs, zipkin/traces. */
+  exporter: string
+  signal: string
+  state: ExportState
+  /** Summed over the collector pods since each started, so they can go down when a pod restarts. */
+  sent: number
+  failed: number
+  lastSentAt?: string
+  lastFailedAt?: string
 }
 
 /**

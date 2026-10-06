@@ -1369,6 +1369,19 @@
             }
           }
         },
+        "health": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "networkPolicy": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {"enabled": {"type": "boolean"}}
+            }
+          }
+        },
         "opamp": {
           "type": "object",
           "additionalProperties": false,

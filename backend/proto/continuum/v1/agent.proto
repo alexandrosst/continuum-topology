@@ -1166,6 +1166,53 @@ message Diagnostics {
   // every sub-field at its zero value, the same "absent rather than present-and-empty" rule
   // installed_telemetry_signals already follows.
   InstalledTelemetryConfig installed_telemetry_config = 18;
+  // Whether each telemetry destination is actually receiving data, read by the agent from the collectors'
+  // own export counters (the chart's telemetry.health). Absent: the agent is not reading them (health is off,
+  // no telemetry is installed, or an agent older than this field).
+  ExportHealth export_health = 19;
+}
+
+// What the agent saw when it read the telemetry collectors' own export counters (otelcol_exporter_sent_* and
+// send_failed_*, per exporter and signal type): counters only, never telemetry content. The agent holds the
+// history it needs to turn counters into a state (it alone sees every reading in order, with its own clock), so
+// the state is computed here and only relayed by the server.
+message ExportHealth {
+  // When the counters were last read.
+  google.protobuf.Timestamp scraped_at = 1;
+  // Collector pods whose counters were read on the last attempt, and how many attempts (name lookups or
+  // requests) failed. Reached 0 with failures means the counters cannot be read at all (a NetworkPolicy, a
+  // collector that is down), not that nothing is being exported.
+  uint32 pods_reached = 2;
+  uint32 pods_failed = 3;
+  // The most recent reason a read failed, cut short; empty when none did.
+  string last_error = 4;
+  // One entry per (exporter, signal type) the collectors have reported on, in a stable order.
+  repeated ExportRouteHealth routes = 5;
+}
+
+message ExportRouteHealth {
+  // The exporter's id in the collector config: "otlp", "otlphttp/logs", "zipkin/traces".
+  string exporter = 1;
+  // "metrics", "logs" or "traces".
+  string signal = 2;
+  enum State {
+    // Nothing has been seen to go out, or not enough readings yet to say.
+    WAITING = 0;
+    // Data went out recently.
+    EXPORTING = 1;
+    // Data went out before but none recently (not an error: a signal that is idle looks like this).
+    SILENT = 2;
+    // The destination refused or could not be reached: sends failed recently and none succeeded since.
+    FAILING = 3;
+  }
+  State state = 3;
+  // Sent and failed, summed over the collector pods, since each started (a restarted pod's counter starts
+  // again from zero, so these can go down).
+  uint64 sent = 4;
+  uint64 failed = 5;
+  // When the agent last saw each count grow. Unset: it never has.
+  google.protobuf.Timestamp last_sent_at = 6;
+  google.protobuf.Timestamp last_failed_at = 7;
 }
 
 // The effective configuration behind Diagnostics.installed_telemetry_config - the destination, the

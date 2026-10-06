@@ -732,6 +732,21 @@ telemetry:
   clusterCollector:
     resources: {}   # falls back to telemetry.resources below when empty
 
+  # Export health: how the agent can tell whether each destination is actually receiving data. Each
+  # collector serves its own export counters (otelcol_exporter_sent_* / send_failed_*, per exporter and signal
+  # type) on this port, bound to the pod's own address, and the agent reads them from there every 30 s and
+  # reports a per-signal-type state (waiting / exporting / silent / failing) in its Diagnostics. Counters only:
+  # no telemetry content, and nothing here is sent anywhere but the agent. A headless Service per collector
+  # lets the agent find every pod, and a NetworkPolicy lets only the agent's pods reach the port on the host
+  # collector (which has no other ingress, so it is safe to isolate; the cluster collector's OTLP receiver
+  # is covered by telemetry.receiver.networkPolicy instead - see allowedIngress there). Turn off to leave
+  # the collectors' own metrics on their default, localhost-only address.
+  health:
+    enabled: true
+    port: 8888
+    networkPolicy:
+      enabled: true
+
   # Off by default. When enabled, adds the OpenTelemetry Collector Contrib "opamp" extension (ALPHA status
   # upstream as of this chart's pinned collectorImage - the schema may still change) to both collector
   # ConfigMaps: it reports this collector's health, effective config, and available components to an OpAMP

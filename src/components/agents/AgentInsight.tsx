@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { AlertCircle, AlertTriangle, Check, ChevronRight, Copy, Info, Loader2, ShieldCheck } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, Field, ICON_MD, ICON_SM, TagsInput } from '@/components/ui/primitives'
+import ExportHealth from '@/components/telemetry/ExportHealth'
 import TelemetryFields from '@/components/telemetry/TelemetryFields'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError, atLeast, type ServerInfo } from '@/lib/api'
@@ -658,6 +659,8 @@ export function TelemetryPanel({
           })}
         </ul>
       )}
+
+      <ExportHealth installed={installed} diagnostics={d} />
 
       {standalone ? (
         <div className="mt-3 rounded-lg border border-nb-850 bg-nb-925 p-3">{form}</div>

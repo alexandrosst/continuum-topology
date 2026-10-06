@@ -124,6 +124,9 @@ data:
       {{- if .Values.telemetry.opamp.enabled }}
       extensions: [opamp]
       {{- end }}
+      {{- if include "agent.telemetryHealthEnabled" . }}
+      {{- include "agent.telemetryHealthReaderYAML" . | nindent 6 }}
+      {{- end }}
       pipelines:
         {{- if $hMetrics }}
         metrics:

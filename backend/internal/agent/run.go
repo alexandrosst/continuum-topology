@@ -16,6 +16,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agent/collect"
+	"continuum/internal/agent/exporthealth"
 	"continuum/internal/flow"
 	"continuum/internal/measure"
 	"continuum/internal/pki"
@@ -83,6 +84,10 @@ type Config struct {
 	// TelemetrySignals already get. Nil outside the chart, when no telemetry signal is enabled, or when the
 	// chart predates this field (an older chart only sets the signals list above).
 	TelemetryConfig *TelemetryConfig
+	// ExportHealth, when set, reads the telemetry collectors' own export counters (the chart's telemetry.health)
+	// and is reported in Diagnostics as ExportHealth: whether each destination is actually receiving data. Run
+	// starts it. Nil outside the chart, when no telemetry signal is enabled, or when health is turned off.
+	ExportHealth *exporthealth.Monitor
 
 	// RBACSelfCheck, when true, periodically asks the cluster (SelfSubjectAccessReview, which every ServiceAccount
 	// may always ask about itself, needing no permission of its own) whether it still grants more than Tier
@@ -170,6 +175,9 @@ func Run(ctx context.Context, cfg Config) error {
 		cfg.FlowWindow = 60 * time.Second
 	}
 	a := &runner{cfg: cfg, log: cfg.Log, root: ctx, started: time.Now(), probs: newProblemSet(), dg: newDiagState()}
+	if cfg.ExportHealth != nil {
+		go cfg.ExportHealth.Run(ctx)
+	}
 	if cfg.RBACSelfCheck && cfg.Kube != nil {
 		go a.rbacCheckLoop(ctx)
 	}

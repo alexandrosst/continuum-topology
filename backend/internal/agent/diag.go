@@ -252,6 +252,9 @@ func (r *runner) diagnostics() *continuumv1.Diagnostics {
 			AcceleratorsSource:       tc.AcceleratorsSource,
 		}
 	}
+	if r.cfg.ExportHealth != nil {
+		d.ExportHealth = r.cfg.ExportHealth.Report()
+	}
 	if c != nil {
 		d.Scope = c.ScopeSummary()
 	} else {
@@ -553,6 +556,14 @@ func diagSignature(d *continuumv1.Diagnostics) []byte {
 	}
 	for _, p := range c.Problems {
 		p.Since = nil
+	}
+	// Export health: what changes the message is a route changing state, not the counters or times behind it
+	// (the counters move with every reading, and a message on every one would be a message every 30 seconds).
+	if h := c.ExportHealth; h != nil {
+		h.ScrapedAt = nil
+		for _, r := range h.Routes {
+			r.Sent, r.Failed, r.LastSentAt, r.LastFailedAt = 0, 0, nil, nil
+		}
 	}
 	b, _ := proto.MarshalOptions{Deterministic: true}.Marshal(c)
 	return b

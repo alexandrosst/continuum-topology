@@ -339,6 +339,9 @@ data:
       {{- if $clusterExtensions }}
       extensions: {{ $clusterExtensions | toJson }}
       {{- end }}
+      {{- if include "agent.telemetryHealthEnabled" . }}
+      {{- include "agent.telemetryHealthReaderYAML" . | nindent 6 }}
+      {{- end }}
       pipelines:
         {{- if $cMetricsInfra }}
         metrics/infra:

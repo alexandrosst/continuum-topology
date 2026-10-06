@@ -59,6 +59,10 @@ spec:
           env:
             - name: NODE_NAME
               valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            {{- if include "agent.telemetryHealthEnabled" . }}
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+            {{- end }}
             {{- include "agent.telemetryExporterEnv" (dict "root" . "scope" "host") | nindent 12 }}
             {{- $hostGml := include "agent.telemetryGomemlimit" (include "agent.telemetryHostCollectorResources" . | fromYaml) }}
             {{- if $hostGml }}
@@ -162,6 +166,10 @@ spec:
             readOnlyRootFilesystem: true
             capabilities: {drop: ["ALL"]}
           env:
+            {{- if include "agent.telemetryHealthEnabled" . }}
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+            {{- end }}
             {{- include "agent.telemetryExporterEnv" (dict "root" . "scope" "cluster") | nindent 12 }}
             {{- include "agent.telemetryReceiverAuthEnv" . | nindent 12 }}
             {{- $clusterGml := include "agent.telemetryGomemlimit" (include "agent.telemetryClusterCollectorResources" . | fromYaml) }}

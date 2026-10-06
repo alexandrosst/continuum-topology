@@ -467,6 +467,35 @@ opamp:
 {{- end -}}
 {{- end -}}
 
+{{/* Export health (telemetry.health): whether the collectors serve their own export counters for the agent
+     to read. True only while telemetry itself is on. */}}
+{{- define "agent.telemetryHealthEnabled" -}}
+{{- if and .Values.telemetry.health.enabled (include "agent.telemetryEnabled" .) -}}true{{- end -}}
+{{- end -}}
+
+{{/* The collector's own metrics, as a service.telemetry stanza (emits at column 0; the caller nindents it):
+     a pull reader serving Prometheus text on the pod's own address - not 0.0.0.0, and not the default
+     localhost the agent could not reach. POD_IP is the container's downward-API env var. */}}
+{{- define "agent.telemetryHealthReaderYAML" -}}
+telemetry:
+  metrics:
+    readers:
+      - pull:
+          exporter:
+            prometheus:
+              host: ${env:POD_IP}
+              port: {{ .Values.telemetry.health.port }}
+{{- end -}}
+
+{{/* The names the agent resolves to find every collector pod (a headless Service each), comma separated,
+     for CONTINUUM_TELEMETRY_HEALTH_TARGETS. Only collectors this install deploys. */}}
+{{- define "agent.telemetryHealthTargets" -}}
+{{- $t := list -}}
+{{- if include "agent.telemetryHostEnabled" . -}}{{- $t = append $t (printf "%s-host-metrics.%s.svc:%d" (include "agent.telemetryName" .) .Release.Namespace (.Values.telemetry.health.port | int)) -}}{{- end -}}
+{{- if include "agent.telemetryClusterEnabled" . -}}{{- $t = append $t (printf "%s-cluster-metrics.%s.svc:%d" (include "agent.telemetryName" .) .Release.Namespace (.Values.telemetry.health.port | int)) -}}{{- end -}}
+{{- join "," $t -}}
+{{- end -}}
+
 {{/* "otlp" (configgrpc), "otlphttp" (confighttp) or "zipkin" for a protocol value. */}}
 {{- define "agent.telemetryExporterType" -}}
 {{- if eq . "http" -}}otlphttp{{- else if eq . "zipkin" -}}zipkin{{- else -}}otlp{{- end -}}

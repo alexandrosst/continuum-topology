@@ -542,6 +542,44 @@ type DiagnosticsDoc struct {
 	// informational, never-pushed-by-this-server treatment as InstalledTier/InstalledTelemetry. Nil: no
 	// telemetry signal installed, or an agent older than this field.
 	InstalledTelemetryConfig *TelemetryConfigDoc `json:"installedTelemetryConfig,omitempty"`
+	// ExportHealth is whether each telemetry destination is actually receiving data, as the agent last read
+	// it from the collectors' own export counters. Nil: the agent is not reading them (telemetry not
+	// installed, health turned off in the chart, or an agent older than this field).
+	ExportHealth *ExportHealthDoc `json:"exportHealth,omitempty"`
+}
+
+// ExportHealthDoc is DiagnosticsDoc.ExportHealth: the state the agent worked out for each route, relayed
+// as it is. The agent decides because only it reads the counters in order against one clock (see the
+// exporthealth package); this server only bounds and labels what it is told. PodsReached 0 with PodsFailed
+// above 0 means the counters cannot be read at all, which says nothing about whether data is flowing.
+type ExportHealthDoc struct {
+	ScrapedAt   string                 `json:"scrapedAt,omitempty"`
+	PodsReached int                    `json:"podsReached"`
+	PodsFailed  int                    `json:"podsFailed"`
+	LastError   string                 `json:"lastError,omitempty"`
+	Routes      []ExportRouteHealthDoc `json:"routes"`
+}
+
+// ExportRouteHealthDoc is one exporter's state for one signal type. State is waiting, exporting, silent or
+// failing; Sent and Failed are summed over the collector pods since each started (so they can go down when a
+// pod restarts), and the times are when the agent last saw each grow.
+type ExportRouteHealthDoc struct {
+	Exporter     string `json:"exporter"`
+	Signal       string `json:"signal"`
+	State        string `json:"state"`
+	Sent         uint64 `json:"sent"`
+	Failed       uint64 `json:"failed"`
+	LastSentAt   string `json:"lastSentAt,omitempty"`
+	LastFailedAt string `json:"lastFailedAt,omitempty"`
+}
+
+// exportHealthStates names the agent's states; one this server does not know is shown as waiting, the one
+// that claims nothing.
+var exportHealthStates = map[continuumv1.ExportRouteHealth_State]string{
+	continuumv1.ExportRouteHealth_WAITING:   "waiting",
+	continuumv1.ExportRouteHealth_EXPORTING: "exporting",
+	continuumv1.ExportRouteHealth_SILENT:    "silent",
+	continuumv1.ExportRouteHealth_FAILING:   "failing",
 }
 
 // TelemetryConfigDoc is the effective configuration behind DiagnosticsDoc.InstalledTelemetryConfig - see
@@ -566,6 +604,7 @@ const (
 	maxDiagProblems         = 32
 	maxDiagBytes            = 128 << 10
 	maxDiagTelemetrySignals = 16 // ten known signal names today; generous headroom, not unbounded
+	maxDiagExportRoutes     = 32 // one per exporter and signal type: a handful in practice
 )
 
 func tierName(t int) string {
@@ -604,6 +643,9 @@ func noteDiagnostics(v *view, d *continuumv1.Diagnostics, partial bool, at time.
 	}
 	if len(d.InstalledTelemetrySignals) > maxDiagTelemetrySignals {
 		d.InstalledTelemetrySignals = d.InstalledTelemetrySignals[:maxDiagTelemetrySignals]
+	}
+	if h := d.ExportHealth; h != nil && len(h.Routes) > maxDiagExportRoutes {
+		h.Routes = h.Routes[:maxDiagExportRoutes]
 	}
 	v.ext.diag, v.ext.diagAt, v.ext.diagPartial = d, at, partial
 }
@@ -704,6 +746,27 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 			cfg.TracesSamplingPercent = &v
 		}
 		out.InstalledTelemetryConfig = cfg
+	}
+	if h := d.ExportHealth; h != nil {
+		doc := &ExportHealthDoc{PodsReached: int(h.PodsReached), PodsFailed: int(h.PodsFailed), LastError: printable(h.LastError, 300), Routes: []ExportRouteHealthDoc{}}
+		if h.ScrapedAt != nil {
+			doc.ScrapedAt = rfc(h.ScrapedAt.AsTime())
+		}
+		for _, r := range h.Routes {
+			state := exportHealthStates[r.State]
+			if state == "" {
+				state = "waiting"
+			}
+			rd := ExportRouteHealthDoc{Exporter: printable(r.Exporter, 80), Signal: printable(r.Signal, 20), State: state, Sent: r.Sent, Failed: r.Failed}
+			if r.LastSentAt != nil {
+				rd.LastSentAt = rfc(r.LastSentAt.AsTime())
+			}
+			if r.LastFailedAt != nil {
+				rd.LastFailedAt = rfc(r.LastFailedAt.AsTime())
+			}
+			doc.Routes = append(doc.Routes, rd)
+		}
+		out.ExportHealth = doc
 	}
 	for _, c := range d.Collectors {
 		cd := AgentCollectorDoc{Name: printable(c.Name, 20), Configured: c.Configured, Enabled: c.Enabled, PausedByServer: c.PausedByServer, Producing: c.Producing,

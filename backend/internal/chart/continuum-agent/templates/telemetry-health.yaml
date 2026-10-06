@@ -1,0 +1,57 @@
+{{- include "agent.telemetryValidate" . -}}
+{{/* Export health (telemetry.health): a headless Service per collector, so the agent can resolve every
+     pod's address (a DaemonSet has one per node), and a NetworkPolicy letting only the agent reach the
+     collectors' self-metrics port. See telemetry.health in values.yaml. */}}
+{{- if include "agent.telemetryHealthEnabled" . }}
+{{- $port := .Values.telemetry.health.port | int }}
+{{- $name := include "agent.telemetryName" . }}
+{{- if include "agent.telemetryHostEnabled" . }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-host-metrics
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-host
+spec:
+  clusterIP: None
+  selector: {app.kubernetes.io/name: continuum-telemetry-host, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    - {name: self-metrics, port: {{ $port }}, targetPort: {{ $port }}, protocol: TCP}
+{{- if .Values.telemetry.health.networkPolicy.enabled }}
+---
+# The host collector has no receiver, so nothing else needs to reach it: only the agent, for its counters.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: continuum-telemetry-host-health
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: continuum-telemetry-host, app.kubernetes.io/instance: {{ .Release.Name }}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: continuum-agent, app.kubernetes.io/instance: {{ .Release.Name }}}
+      ports:
+        - {port: {{ $port }}, protocol: TCP}
+{{- end }}
+{{- end }}
+{{- if include "agent.telemetryClusterEnabled" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-cluster-metrics
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-cluster
+spec:
+  clusterIP: None
+  selector: {app.kubernetes.io/name: continuum-telemetry-cluster, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    - {name: self-metrics, port: {{ $port }}, targetPort: {{ $port }}, protocol: TCP}
+{{- end }}
+{{- end }}

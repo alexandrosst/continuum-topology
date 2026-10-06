@@ -73,6 +73,11 @@ spec:
             # gated on telemetry being enabled at all, and the traces/energy/accelerators-specific entries
             # below are each further gated on that one signal actually being on.
             - {name: CONTINUUM_TELEMETRY_DESTINATION, value: {{ include "agent.telemetryEffectiveDestination" . | quote }}}
+            {{- if include "agent.telemetryHealthEnabled" . }}
+            # Where the agent reads each collector's own export counters (telemetry.health): one headless
+            # Service name per collector, resolved to every pod. Absent: the agent reports no export health.
+            - {name: CONTINUUM_TELEMETRY_HEALTH_TARGETS, value: {{ include "agent.telemetryHealthTargets" . | quote }}}
+            {{- end }}
             - {name: CONTINUUM_TELEMETRY_REDACTION, value: {{ include "agent.telemetryEffectiveRedactionEnabled" . | quote }}}
             - {name: CONTINUUM_TELEMETRY_RESOURCE_DETECTION, value: {{ include "agent.telemetryEffectiveResourceDetectionEnabled" . | quote }}}
             {{- if .Values.telemetry.traces.traces.enabled }}

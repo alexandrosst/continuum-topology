@@ -245,7 +245,7 @@ func TestTelemetryRouteValidation(t *testing.T) {
 	zip := func(signal string) []string { return routeFlags(signal, "z:9411", "zipkin") }
 	for name, args := range map[string][]string{
 		"a zipkin route for metrics":             append([]string{"--set", "telemetry.resourceUsage.metrics.enabled=true"}, zip("metrics")...),
-		"a route mtls with no secret":            append(append([]string{"--set", "telemetry.resourceUsage.metrics.enabled=true"}, routeFlags("metrics", "a:4317", "grpc", "tls.mtls.enabled=true")...)),
+		"a route mtls with no secret":            append([]string{"--set", "telemetry.resourceUsage.metrics.enabled=true"}, routeFlags("metrics", "a:4317", "grpc", "tls.mtls.enabled=true")...),
 		"no default and an unrouted signal type": append(append([]string{}, allSignals...), routeFlags("traces", "a:4317", "grpc")...),
 		"default zipkin with unrouted metrics":   {"--set", "telemetry.export.otlp.endpoint=z:9411", "--set", "telemetry.export.otlp.protocol=zipkin", "--set", "telemetry.traces.traces.enabled=true", "--set", "telemetry.resourceUsage.metrics.enabled=true"},
 	} {
