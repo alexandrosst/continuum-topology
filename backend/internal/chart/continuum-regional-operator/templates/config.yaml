@@ -103,15 +103,15 @@ data:
         metrics:
           receivers: [otlp]
           processors: {{ $procSignal | toJson }}
-          exporters: [otlp]
+          exporters: [{{ include "operator.exporterFor" (dict "root" . "m" "metrics") }}]
         logs:
           receivers: [otlp]
           processors: {{ $procSignal | toJson }}
-          exporters: [otlp]
+          exporters: [{{ include "operator.exporterFor" (dict "root" . "m" "logs") }}]
         traces:
           receivers: [otlp]
           processors: {{ $procTraces | toJson }}
-          exporters: [otlp]
+          exporters: [{{ include "operator.exporterFor" (dict "root" . "m" "traces") }}]
         {{- if .Values.heartbeat.enabled }}
         # The heartbeat: its own receiver, processor and exporter, shared with no other pipeline above.
         metrics/heartbeat:

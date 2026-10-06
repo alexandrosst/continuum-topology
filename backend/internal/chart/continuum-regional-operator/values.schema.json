@@ -52,6 +52,15 @@
               }
             }
           }
+        },
+        "routes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "metrics": { "$ref": "#/properties/export/properties/otlp" },
+            "logs": { "$ref": "#/properties/export/properties/otlp" },
+            "traces": { "$ref": "#/properties/export/properties/otlp" }
+          }
         }
       }
     },

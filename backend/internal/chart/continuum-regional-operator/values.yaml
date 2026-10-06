@@ -44,6 +44,25 @@ export:
       headerName: Authorization
       secretName: ""
       secretKey: token
+  # Per-signal-type destinations. A route with an endpoint sends that signal type there instead of to `otlp`
+  # above; a type with no endpoint keeps going to `otlp`. Each route is its own exporter with its own protocol
+  # (grpc | http) and its own credential, and takes exactly the fields `otlp` takes. With a route for every type,
+  # `otlp.endpoint` can stay empty. An http endpoint may omit the scheme (tls.insecure picks http or https); the
+  # collector appends /v1/metrics, /v1/logs or /v1/traces to it. Leave every endpoint empty (the default) and
+  # nothing changes: everything goes to `otlp`.
+  routes:
+    metrics: &route
+      endpoint: ""
+      protocol: grpc
+      tls:
+        insecure: false
+        caFile: ""
+      auth:
+        headerName: Authorization
+        secretName: ""
+        secretKey: token
+    logs: *route
+    traces: *route
 
 # The inbound side: what each source cluster's own telemetry.export.otlp.endpoint is pointed at. Both gates
 # are off in this file, which means an open receiver - this default only matters if you hand-edit these

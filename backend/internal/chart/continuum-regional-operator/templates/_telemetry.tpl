@@ -125,29 +125,110 @@ bearertokenauth:
 {{- end }}
 {{- end -}}
 
-{{/* The "exporters" stanza - same shape as agent.telemetryExporterYAML, reading from .Values.export.otlp
-     instead of .Values.telemetry.export.otlp. */}}
-{{- define "operator.exporterYAML" -}}
-otlp:
-  endpoint: {{ .Values.export.otlp.endpoint | quote }}
-  tls:
-    insecure: {{ .Values.export.otlp.tls.insecure }}
-    {{- if .Values.export.otlp.tls.caFile }}
-    ca_file: {{ .Values.export.otlp.tls.caFile | quote }}
-    {{- end }}
-  {{- if .Values.export.otlp.auth.secretName }}
-  headers:
-    {{ .Values.export.otlp.auth.headerName }}: "${env:CONTINUUM_OPERATOR_EXPORT_AUTH}"
-  {{- end }}
+{{/* Destinations. `export.otlp` is the default; `export.routes.<metrics|logs|traces>` sends one signal type
+     somewhere else instead (FUSION: metrics to Prometheus, logs to Loki, traces to Tempo). Each route is its own
+     exporter with its own protocol and credential, and nothing is shared between them. The same design as
+     continuum-agent's telemetry.export.routes; duplicated rather than shared because each chart must install on
+     its own (see chart.go). */}}
+{{- define "operator.modalities" -}}["metrics","logs","traces"]{{- end -}}
+
+{{/* The collector exporter type a protocol is spoken by. Before routes existed this chart rendered the gRPC
+     exporter whatever export.otlp.protocol said, so protocol=http pointed a gRPC client at an HTTP endpoint. */}}
+{{- define "operator.exporterType" -}}
+{{- if eq . "http" -}}otlphttp{{- else -}}otlp{{- end -}}
 {{- end -}}
-{{- define "operator.exporterEnv" -}}
-{{- if .Values.export.otlp.auth.secretName }}
-- name: CONTINUUM_OPERATOR_EXPORT_AUTH
-  valueFrom:
-    secretKeyRef:
-      name: {{ .Values.export.otlp.auth.secretName }}
-      key: {{ .Values.export.otlp.auth.secretKey }}
+
+{{/* Non-empty when signal type .m (.root is the chart context) has a destination of its own. */}}
+{{- define "operator.hasRoute" -}}
+{{- $r := get .root.Values.export.routes .m -}}
+{{- if $r.endpoint -}}true{{- end -}}
+{{- end -}}
+
+{{/* Non-empty when at least one signal type goes to the default destination. */}}
+{{- define "operator.defaultUsed" -}}
+{{- $root := . -}}
+{{- range (include "operator.modalities" . | fromJsonArray) -}}
+{{- if not (include "operator.hasRoute" (dict "root" $root "m" .)) -}}true{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "operator.exporterName" -}}
+{{- include "operator.exporterType" .Values.export.otlp.protocol -}}
+{{- end -}}
+
+{{/* The exporter signal type .m is sent through: its route's, named "<type>/<signal>" (otlphttp/metrics), or the
+     default's. */}}
+{{- define "operator.exporterFor" -}}
+{{- if include "operator.hasRoute" . -}}
+{{- $r := get .root.Values.export.routes .m -}}
+{{- printf "%s/%s" (include "operator.exporterType" $r.protocol) .m -}}
+{{- else -}}
+{{- include "operator.exporterName" .root -}}
+{{- end -}}
+{{- end -}}
+
+{{/* One exporter block: .key its name in the collector config, .c the destination (the export.otlp shape), .env
+     the variable its credential header is read from. Emits at column 0. The header's value is never written here,
+     only a reference to the environment variable the container fills from a Secret. An http endpoint takes the
+     scheme tls.insecure picks unless it already carries one; the collector appends /v1/<signal> to it. */}}
+{{- define "operator.exporterBlock" -}}
+{{- $c := .c -}}
+{{ .key }}:
+{{- if eq $c.protocol "http" }}
+{{- $e := $c.endpoint }}
+{{- if not (regexMatch "^https?://" $e) }}{{ $e = printf "%s://%s" (ternary "http" "https" $c.tls.insecure) $e }}{{ end }}
+  endpoint: {{ $e | quote }}
+  {{- if $c.tls.caFile }}
+  tls:
+    ca_file: {{ $c.tls.caFile | quote }}
+  {{- end }}
+{{- else }}
+  endpoint: {{ $c.endpoint | quote }}
+  tls:
+    insecure: {{ $c.tls.insecure }}
+    {{- if $c.tls.caFile }}
+    ca_file: {{ $c.tls.caFile | quote }}
+    {{- end }}
 {{- end }}
+{{- if $c.auth.secretName }}
+  headers:
+    {{ $c.auth.headerName }}: {{ printf "${env:%s}" .env | quote }}
+{{- end }}
+{{- end -}}
+
+{{/* The "exporters" stanza: the default destination when any signal type uses it, then one exporter per route. */}}
+{{- define "operator.exporterYAML" -}}
+{{- $root := . -}}
+{{- $blocks := list -}}
+{{- if include "operator.defaultUsed" . -}}
+{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "key" (include "operator.exporterName" $root) "c" $root.Values.export.otlp "env" "CONTINUUM_OPERATOR_EXPORT_AUTH")) -}}
+{{- end -}}
+{{- range (include "operator.modalities" . | fromJsonArray) -}}
+{{- if include "operator.hasRoute" (dict "root" $root "m" .) -}}
+{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "key" (include "operator.exporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.export.routes .) "env" (printf "CONTINUUM_OPERATOR_EXPORT_AUTH_%s" (upper .)))) -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $blocks -}}
+{{- end -}}
+
+{{/* One env entry per destination in use that has a credential: CONTINUUM_OPERATOR_EXPORT_AUTH for the default,
+     CONTINUUM_OPERATOR_EXPORT_AUTH_<SIGNAL> for each route. Empty when none does. */}}
+{{- define "operator.exporterEnv" -}}
+{{- $root := . -}}
+{{- $entries := list -}}
+{{- $a := .Values.export.otlp.auth -}}
+{{- if and (include "operator.defaultUsed" .) $a.secretName -}}
+{{- $entries = append $entries (printf "- name: CONTINUUM_OPERATOR_EXPORT_AUTH\n  valueFrom:\n    secretKeyRef:\n      name: %s\n      key: %s" $a.secretName $a.secretKey) -}}
+{{- end -}}
+{{- range (include "operator.modalities" . | fromJsonArray) -}}
+{{- if include "operator.hasRoute" (dict "root" $root "m" .) -}}
+{{- $ra := (get $root.Values.export.routes .).auth -}}
+{{- if $ra.secretName -}}
+{{- $entries = append $entries (printf "- name: CONTINUUM_OPERATOR_EXPORT_AUTH_%s\n  valueFrom:\n    secretKeyRef:\n      name: %s\n      key: %s" (upper .) $ra.secretName $ra.secretKey) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $entries -}}
 {{- end -}}
 
 {{/* Heartbeat (opt-in, see values.yaml's heartbeat block): ONE extra, self-contained metrics pipeline,

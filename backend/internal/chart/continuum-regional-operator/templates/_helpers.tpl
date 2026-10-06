@@ -45,9 +45,9 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- end }}
 {{- end -}}
 
-{{/* Required: an operator with no destination has nothing to do. */}}
+{{/* Required: an operator with no destination for a signal type has nothing to do with it. */}}
 {{- define "operator.validate" -}}
-{{- if not .Values.export.otlp.endpoint -}}{{- fail "export.otlp.endpoint is required" -}}{{- end -}}
+{{- if and (include "operator.defaultUsed" .) (not .Values.export.otlp.endpoint) -}}{{- fail "export.otlp.endpoint is required, unless every signal type (metrics, logs, traces) has a destination of its own under export.routes" -}}{{- end -}}
 {{- if and .Values.receiver.auth.enabled (not .Values.receiver.auth.secretName) -}}
 {{- fail "receiver.auth.enabled requires receiver.auth.secretName" -}}
 {{- end -}}
