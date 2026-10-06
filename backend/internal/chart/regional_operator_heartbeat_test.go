@@ -30,8 +30,10 @@ func TestRegionalOperatorDefaultRenderIsByteIdenticalToBeforeTheHeartbeat(t *tes
 		t.Fatal(err)
 	}
 	// testdata/regional_operator_default.golden.yaml is `helm template op <chart> --set
-	// export.otlp.endpoint=collector.example:4317` rendered from the chart as it was BEFORE the heartbeat
-	// existed. With the defaults, adding the heartbeat must not change a single byte of it.
+	// export.otlp.endpoint=collector.example:4317`. It was first rendered from the chart as it was BEFORE the
+	// heartbeat existed, and is regenerated (the same command) whenever the default pipeline itself changes on
+	// purpose - last for the explicit batch sizes and the exporter queue and retry settings. With the defaults,
+	// adding or setting the heartbeat must not change a single byte of it.
 	got, err := operatorHelmTemplate(t)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, got)

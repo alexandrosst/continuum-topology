@@ -9,5 +9,21 @@ logs     Loki         http://{{ include "fusion.name" . }}-loki.{{ .Release.Name
 traces   Tempo        {{ include "fusion.name" . }}-tempo.{{ .Release.Namespace }}.svc:4317   (OTLP/gRPC; HTTP on 4318)
 {{- end }}
 
+{{- if .Values.grafana.enabled }}
+grafana  Grafana      http://{{ include "fusion.name" . }}-grafana.{{ .Release.Namespace }}.svc:3000   (no login page: open it from the Ikhnos server, at /fusion/grafana/)
+{{- end }}
+
+{{- if .Values.prometheus.enabled }}
+{{- $rs := include "fusion.prometheusRetentionSize" . }}
+
+Prometheus keeps {{ .Values.prometheus.retention }} of samples{{ if and $rs (ne $rs "0") }}, or at most {{ $rs }}, whichever is reached first{{ else }} (no size limit){{ end }}.
+{{- end }}
+{{- if and .Values.central.enabled .Values.prometheus.enabled .Values.central.deltaToCumulative.enabled }}
+The gateway converts delta metrics to cumulative ones before they reach Prometheus (central.deltaToCumulative).
+{{- end }}
+
 None of the three stores asks who is calling. They are reachable inside the cluster only; do not expose them.
+{{- if not .Values.networkPolicy.enabled }}
+WARNING: networkPolicy.enabled is false, so any pod in the cluster can read and write them.
+{{- end }}
 Check that they are up:  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}

@@ -13,6 +13,12 @@ Ikhnos agent {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ 
 {{- end }}
 {{- if include "agent.telemetryEnabled" . }}
   ✓ Telemetry: {{ include "agent.telemetrySignalNames" . }}
+{{- if and (include "agent.telemetryHostEnabled" .) (or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled) }}
+  ✓ Kubelet metrics: from each node's IP, certificate {{ if .Values.telemetry.kubelet.insecureSkipVerify }}NOT verified (telemetry.kubelet.insecureSkipVerify) - the pod's service account token goes to whatever answers there{{ else }}verified against the cluster CA; if your kubelets serve a self-signed certificate no kubelet metrics arrive until telemetry.kubelet.insecureSkipVerify=true{{ end }}
+{{- end }}
+{{- if .Values.telemetry.systemLogs.logs.enabled }}
+  ✓ Container logs: follow telemetry.scope, never this release's own pods{{ if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}; the node journal is read too (needs a journal group 65532 can read){{ end }}
+{{- end }}
 {{- end }}
 {{- if .Release.IsInstall }}
 

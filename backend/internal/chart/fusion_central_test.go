@@ -97,8 +97,8 @@ func TestFusionReplicasFollowTheSwitch(t *testing.T) {
 		}
 	}
 	got := replicasOf(fusionRender(t, "f", "--set", "switch.managed=true", "--set", "switch.initialReplicas=0"))
-	if len(got) != 4 {
-		t.Fatalf("want the three stores and the gateway, got %v", got)
+	if len(got) != 5 {
+		t.Fatalf("want the three stores, Grafana and the gateway, got %v", got)
 	}
 	for n, v := range got {
 		if v != 0 {
@@ -108,16 +108,16 @@ func TestFusionReplicasFollowTheSwitch(t *testing.T) {
 }
 
 func TestFusionNetworkPolicyLeavesTheGatewayReachable(t *testing.T) {
-	r := fusionRender(t, "f", "--set", "networkPolicy.enabled=true")
+	r := fusionRender(t, "f")
 	p := r.policies["f-fusion"]
 	var found bool
 	for _, e := range p.Spec.PodSelector.MatchExpressions {
-		if e.Key == "app.kubernetes.io/component" && strings.Join(e.Values, ",") == "central" {
+		if e.Key == "app.kubernetes.io/component" && e.Operator == "In" && strings.Join(e.Values, ",") == "prometheus,loki,tempo" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("the store policy would also isolate the gateway: %+v", p.Spec.PodSelector)
+		t.Errorf("the store policy is not limited to the three stores (it would also isolate the gateway): %+v", p.Spec.PodSelector)
 	}
 }
 

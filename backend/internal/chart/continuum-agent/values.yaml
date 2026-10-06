@@ -322,6 +322,16 @@ telemetry:
     digest: ""
     pullPolicy: ""
 
+  # Restart the collectors when a client-certificate Secret they mount (export...tls.mtls.secretName) changes, so that
+  # renewing a certificate and running the install command again takes effect at once. It is a checksum annotation on
+  # the pods, computed with Helm's `lookup` at render time. Two limits, both harmless:
+  #   - `helm template`, and so Argo CD and Flux, cannot look at the cluster: no checksum is rendered and nothing
+  #     restarts. Every client-certificate exporter still re-reads the certificate and key each hour (reload_interval),
+  #     so a renewed certificate is in use within about an hour either way. A new CA (ca.crt) is not re-read: run
+  #     `kubectl rollout restart` after replacing one.
+  #   - Helm fails the render if the account running it may not `get` Secrets in this namespace. Set this to false then.
+  rolloutOnSecretChange: true
+
   # Where the collector sends everything it receives, regardless of signal. Required if any signal below
   # is enabled.
   export:
@@ -353,6 +363,21 @@ telemetry:
         headerName: Authorization   # e.g. Authorization, or X-Api-Key for a backend that expects that instead
         secretName: ""              # a Secret in this release's namespace, created outside this chart
         secretKey: token            # the key within that Secret holding the header's value, e.g. "Bearer ..."
+
+    # What every exporter (the default and each route) does while its destination is unreachable. Retrying for
+    # retryMaxElapsedTime and holding up to `size` batches meanwhile is what makes a short outage lossless; once the
+    # queue is full the exporter refuses and the backpressure reaches the receivers through memory_limiter, so
+    # nothing grows without bound. One entry is one batch (up to processors.batch.sendBatchMaxSize items), so the
+    # memory a full queue can hold is size times a batch: raise `size` together with the collectors' memory limit.
+    # `persistent` writes the queue to an emptyDir too, so it survives a container restart (not a rescheduled pod,
+    # and it counts against the node's ephemeral storage up to sizeLimit - on every node, for the host collector).
+    # Off by default: a memory queue is enough when the destination is close.
+    queue:
+      size: 256
+      retryMaxElapsedTime: 30m
+      persistent:
+        enabled: false
+        sizeLimit: 1Gi
 
     # Per-signal-type destinations. A route with an endpoint sends that signal type there instead of to
     # `otlp` above; a type with no endpoint here keeps going to `otlp`. Each route is its own exporter with
@@ -427,8 +452,9 @@ telemetry:
   # A debug exporter next to the real one, writing to this collector's own log - the quickest way to see
   # whether anything is flowing at all. "" is off; "basic" logs only how many records passed (no content);
   # "detailed" logs every record's content, which can include whatever the telemetry carries - for short,
-  # deliberate troubleshooting only, and never alongside anything that ships these logs somewhere that
-  # feeds back into this telemetry.
+  # deliberate troubleshooting only. systemLogs never reads this release's own pods, so what a collector writes
+  # here is not shipped back into the pipeline that wrote it; a collector log shipped by something else that
+  # feeds this telemetry would still loop.
   debug:
     verbosity: ""
 
@@ -469,6 +495,14 @@ telemetry:
         - ".*api[_-]?key.*"
         - ".*authorization.*"
         - ".*cookie.*"
+    # The last processor of every pipeline, with explicit sizes: the collector's default leaves a batch's maximum
+    # unbounded, and a batch past the destination's receive limit (4 MiB on a collector's OTLP/gRPC receiver) is
+    # rejected whole and retried until it is dropped. sendBatchSize is when a batch is sent, timeout how long a
+    # partly filled one waits, sendBatchMaxSize the most it may ever hold.
+    batch:
+      timeout: 5s
+      sendBatchSize: 2048
+      sendBatchMaxSize: 4096
     # Traces only. 100 (default) means no sampling - every span is kept, exactly today's behavior. Lower
     # it to cut trace volume/cost; the processor is omitted from the pipeline entirely at 100 rather than
     # rendering a no-op hop.
@@ -507,6 +541,17 @@ telemetry:
       # same shape Kubernetes' own NetworkPolicy spec.ingress[].from uses, and the same "give the chart raw
       # YAML for this one case" pattern as networkPolicy.egress.extraEgress above.
       allowedIngress: []
+
+  # How the host collector reaches each node's kubelet (resourceUsage and nodeRuntime read kubelet_stats from it). It
+  # dials the node's own IP (status.hostIP) on port 10250 with the pod's service account.
+  kubelet:
+    # false (the default): the kubelet's certificate is verified against the cluster CA, so a man in the middle
+    # between a pod and its node cannot read the pod's service account token. That works where kubelets serve
+    # certificates signed by the cluster CA and valid for the node's IP (most managed clusters). Where they serve a
+    # self-signed one (kubeadm and k3s defaults) kubelet_stats then fails with a certificate error in the collector's
+    # log and no kubelet metrics arrive: either enable serving-certificate rotation on the kubelets or set this to true.
+    # true skips verification for this one connection and sends the token to whatever answers on that address.
+    insecureSkipVerify: false
 
   # domain: infrastructure (node-level) + application (container/pod-level)
   resourceUsage:
@@ -639,18 +684,23 @@ telemetry:
         exclude: []
         workloads: []
 
-  # domain: infrastructure. "systemLogs" means the node's own operating system and container runtime, never
-  # application output (see applicationLogs below for that).
+  # domain: infrastructure. Reads every container's stdout/stderr from the kubelet's log directory, so it is
+  # application output as much as the system's own: it therefore follows telemetry.scope below (the namespaces to
+  # keep: telemetry.scope.infra's list when set, else the shared one; the namespaces to drop: both lists), and never
+  # reads this release's own pods (the collectors, so their own output is not shipped back into the pipeline that
+  # writes it). Workload names in the scope are not applied here. applicationLogs below is what applications push
+  # over OTLP.
   systemLogs:
     logs:
       enabled: false
       source: builtin
-      journaling: journald  # journald | none - how the node OS itself logs. Kubelet's own container log
-                             # directory (where every distro's container stdout/stderr actually lands) is
-                             # always read when this signal is enabled, regardless of this setting; this only
-                             # controls whether the systemd journal is additionally read, since not every
-                             # distribution runs one (journald fails closed with a clear error on a node that
-                             # has no journal, rather than silently reading nothing).
+      journaling: none  # none | journald - whether the node OS's own journal is read in addition to the container logs
+                         # (always read, whatever this says). None by default: the receiver runs the journalctl
+                         # binary, and the pinned collector image (otel/opentelemetry-collector-contrib, built FROM
+                         # scratch) does not contain one, so with that image journald makes the collector fail to
+                         # start. Set journald only with a telemetry.collectorImage that ships journalctl, on node
+                         # pools whose journal directory exists and is readable by group 65532; leave it off on
+                         # distributions with no systemd (GKE's COS, Bottlerocket, Talos).
 
   # domain: infrastructure
   kubernetesEvents:
@@ -685,8 +735,9 @@ telemetry:
   # Which namespaces application-scoped signals (applicationMetrics, applicationLogs, traces) are collected
   # from. Reuses the same shape as "scope" above rather than inventing new vocabulary; empty means every
   # namespace already covered by "scope" above. Has no effect on infrastructure-scoped signals (resourceUsage,
-  # energy, kubernetesState, nodeRuntime, systemLogs, kubernetesEvents), which are node- or cluster-wide by
-  # nature and always unfiltered by this.
+  # energy, kubernetesState, nodeRuntime, kubernetesEvents), which are node- or cluster-wide by nature and
+  # always unfiltered by this. systemLogs is the exception: it reads every container's output, so it follows
+  # namespaces and exclude here (and telemetry.scope.infra's own lists first, where set).
   #   - namespaces: keep only these (drop everything else app-scoped)
   #   - exclude: drop these specifically (keep everything else app-scoped)
   #   - selector is NOT implemented: filtering already-received telemetry by an arbitrary Kubernetes label
@@ -718,8 +769,8 @@ telemetry:
     # falls back to, this is only for signals that are not application data. Only records that carry a
     # namespace are narrowed - the pod and container parts of resourceUsage and nodeRuntime, the pod and
     # deployment parts of kubernetesState, and Kubernetes events (by namespace only; an event has no
-    # workload). Nodes, the host's own CPU and memory, energy, accelerators, network latency and system logs
-    # are never narrowed by this. Empty means not narrowed.
+    # workload). Container logs read by systemLogs are narrowed by namespace as well (see systemLogs above). Nodes, the host's own CPU and memory, energy, accelerators and
+    # network latency are never narrowed by this. Empty means not narrowed.
     infra:
       namespaces: []
       exclude: []
@@ -735,8 +786,19 @@ telemetry:
     nodeSelector:
       kubernetes.io/os: linux
     resources: {}   # falls back to telemetry.resources below when empty
+  # The cluster Deployment runs the OTLP receiver every application pushes to, the cluster-state and event watches
+  # and the Prometheus scrapes, and it holds the sending queue: it is the busiest of the collectors and the default is
+  # sized for that. Rough guide (memory limit; the request is a quarter of it; the cpu request is not a limit):
+  #   cluster size                              memory limit   cpu request
+  #   up to ~20 nodes, a few thousand series        512Mi          100m
+  #   ~20-100 nodes, applications pushing OTLP      1Gi            100m     (the default)
+  #   ~100-300 nodes, or heavy log/trace volume     2Gi            250m
+  # k8s_cluster and k8sobjects hold the whole object graph in memory, so the node and pod count drives it more than
+  # the data rate does. memory_limiter starts refusing data at 80% of the limit; GOMEMLIMIT is set to 80% too.
   clusterCollector:
-    resources: {}   # falls back to telemetry.resources below when empty
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {memory: 1Gi}
 
   # Export health: how the agent can tell whether each destination is actually receiving data. Each
   # collector serves its own export counters (otelcol_exporter_sent_* / send_failed_*, per exporter and signal

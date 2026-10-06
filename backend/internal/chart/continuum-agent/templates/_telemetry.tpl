@@ -34,6 +34,7 @@
 {{/* Validates the parts of telemetry that cross signals: an export endpoint is required once anything
      is enabled, and networkLatency has nothing to re-emit unless the underlying measurement is itself on. */}}
 {{- define "agent.telemetryValidate" -}}
+{{- if lt (int .Values.telemetry.processors.batch.sendBatchMaxSize) (int .Values.telemetry.processors.batch.sendBatchSize) -}}{{- fail "telemetry.processors.batch.sendBatchMaxSize must be at least telemetry.processors.batch.sendBatchSize" -}}{{- end -}}
 {{- if include "agent.telemetryEnabled" . -}}
 {{- if and (include "agent.telemetryDefaultUsed" (dict "root" . "scope" "all")) (not .Values.telemetry.export.otlp.endpoint) -}}{{- fail "telemetry.export.otlp.endpoint is required once any telemetry.* signal is enabled that has no route of its own (telemetry.export.routes.<metrics|logs|traces>.endpoint)" -}}{{- end -}}
 {{- end -}}
@@ -535,9 +536,11 @@ telemetry:
 
 {{/* One exporter block for a destination: .key is its name in the collector config, .c the destination
      (the telemetry.export.otlp shape), .env the variable its credential header is read from and .mtls the
-     directory its client certificate Secret is mounted at. Emits at column 0. The auth header's value is
-     never written here - only a reference to the environment variable the container injects it into from a
-     Secret at start (see agent.telemetryExporterEnv). */}}
+     directory its client certificate Secret is mounted at, .root the chart context. Emits at column 0. The auth
+     header's value is never written here - only a reference to the environment variable the container injects
+     it into from a Secret at start (see agent.telemetryExporterEnv). A client certificate carries
+     reload_interval: 1h, so a renewed certificate in the mounted Secret is picked up without a restart (the CA
+     in ca.crt is not re-read; see telemetry.rolloutOnSecretChange in values.yaml). */}}
 {{- define "agent.telemetryExporterBlock" -}}
 {{- $c := .c -}}
 {{ .key }}:
@@ -556,6 +559,7 @@ telemetry:
     ca_file: {{ .mtls }}/ca.crt
     cert_file: {{ .mtls }}/tls.crt
     key_file: {{ .mtls }}/tls.key
+    reload_interval: 1h
     {{- else if $c.tls.caFile }}
     ca_file: {{ $c.tls.caFile | quote }}
     {{- end }}
@@ -570,6 +574,7 @@ telemetry:
     ca_file: {{ .mtls }}/ca.crt
     cert_file: {{ .mtls }}/tls.crt
     key_file: {{ .mtls }}/tls.key
+    reload_interval: 1h
     {{- else }}
     ca_file: {{ $c.tls.caFile | quote }}
     {{- end }}
@@ -578,6 +583,95 @@ telemetry:
   headers:
     {{ $c.auth.headerName }}: {{ printf "${env:%s}" .env | quote }}
 {{- end }}
+{{- include "agent.telemetryExporterResilienceYAML" .root | nindent 2 }}
+{{- end -}}
+
+{{/* What every exporter does while its destination is unreachable, spelled out instead of left to the collector's
+     defaults (which retry for 5 minutes and then drop): retry for telemetry.export.queue.retryMaxElapsedTime and
+     hold at most telemetry.export.queue.size batches meanwhile. A full queue makes the exporter refuse, and
+     memory_limiter pushes back on the receivers, so memory stays bounded. With
+     telemetry.export.queue.persistent.enabled the queue is also written to an emptyDir (file_storage/queue) and
+     survives a container restart. Emits at column 0; callers nindent it. */}}
+{{- define "agent.telemetryExporterResilienceYAML" -}}
+{{- $q := .Values.telemetry.export.queue -}}
+retry_on_failure:
+  enabled: true
+  initial_interval: 5s
+  max_interval: 30s
+  max_elapsed_time: {{ $q.retryMaxElapsedTime | quote }}
+sending_queue:
+  enabled: true
+  queue_size: {{ $q.size }}
+  {{- if $q.persistent.enabled }}
+  storage: file_storage/queue
+  {{- end }}
+{{- end -}}
+
+{{/* The file_storage extension the exporter queues share when telemetry.export.queue.persistent.enabled: the
+     root filesystem is read-only, so it lives on the emptyDir telemetry.yaml mounts at /queue. */}}
+{{- define "agent.telemetryQueueExtensionYAML" -}}
+{{- if .Values.telemetry.export.queue.persistent.enabled }}
+file_storage/queue:
+  directory: /queue
+{{- end }}
+{{- end -}}
+
+{{/* The service.extensions list of one collector: opamp and the queue's file_storage, whichever are on, as a JSON
+     list (empty when neither is). The cluster collector adds bearertokenauth to it itself. */}}
+{{- define "agent.telemetryExtensionNames" -}}
+{{- $l := list -}}
+{{- if .Values.telemetry.opamp.enabled }}{{ $l = append $l "opamp" }}{{ end -}}
+{{- if .Values.telemetry.export.queue.persistent.enabled }}{{ $l = append $l "file_storage/queue" }}{{ end -}}
+{{- toJson $l -}}
+{{- end -}}
+
+{{/* Explicit batch sizes, the last processor of every pipeline. The collector's default leaves a batch's maximum
+     unbounded, and a batch past the next hop's receive limit (4 MiB on a collector's OTLP/gRPC receiver) is
+     rejected whole and retried until it is dropped. */}}
+{{- define "agent.telemetryBatchYAML" -}}
+batch:
+  timeout: {{ .Values.telemetry.processors.batch.timeout | quote }}
+  send_batch_size: {{ .Values.telemetry.processors.batch.sendBatchSize }}
+  send_batch_max_size: {{ .Values.telemetry.processors.batch.sendBatchMaxSize }}
+{{- end -}}
+
+{{/* The emptyDir behind the persistent sending queue (the root filesystem is read-only). It survives a container
+     restart but not a rescheduled pod, and counts against the node's ephemeral storage up to sizeLimit. */}}
+{{- define "agent.telemetryQueueVolume" -}}
+- name: queue
+  emptyDir: {sizeLimit: {{ .Values.telemetry.export.queue.persistent.sizeLimit | quote }}}
+{{- end -}}
+
+{{/* The Secrets one collector mounts for a client certificate (.scope is "host" or "cluster"), as a JSON list. */}}
+{{- define "agent.telemetryMtlsSecretNames" -}}
+{{- $root := .root -}}
+{{- $l := list -}}
+{{- if and (include "agent.telemetryDefaultUsed" .) $root.Values.telemetry.export.otlp.tls.mtls.enabled }}{{ $l = append $l $root.Values.telemetry.export.otlp.tls.mtls.secretName }}{{ end -}}
+{{- range (include "agent.telemetryModalities" . | fromJsonArray) -}}
+{{- if include "agent.telemetryHasRoute" (dict "root" $root "m" .) -}}
+{{- $r := get $root.Values.telemetry.export.routes . -}}
+{{- if $r.tls.mtls.enabled }}{{ $l = append $l $r.tls.mtls.secretName }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- toJson (uniq $l) -}}
+{{- end -}}
+
+{{/* A digest of what those Secrets hold right now, for a pod annotation: renewing a client certificate and running
+     the install command again then restarts the collector instead of leaving it on the old certificate until
+     reload_interval comes round. Read with `lookup`, which is empty under `helm template` (so also under Argo CD and
+     Flux) and for a Secret that does not exist; the annotation is then left out and nothing can fail the render.
+     An account that may not `get` Secrets in this namespace makes Helm itself fail the lookup: turn
+     telemetry.rolloutOnSecretChange off there. */}}
+{{- define "agent.telemetryMtlsChecksum" -}}
+{{- if .root.Values.telemetry.rolloutOnSecretChange -}}
+{{- $ns := .root.Release.Namespace -}}
+{{- $parts := list -}}
+{{- range (include "agent.telemetryMtlsSecretNames" . | fromJsonArray) -}}
+{{- $s := lookup "v1" "Secret" $ns . -}}
+{{- if and $s $s.data }}{{ $parts = append $parts (printf "%s=%s" . (toJson $s.data | sha256sum)) }}{{ end -}}
+{{- end -}}
+{{- if $parts }}{{ join "," $parts | sha256sum }}{{ end -}}
+{{- end -}}
 {{- end -}}
 
 {{/* The "exporters" stanza shared by both collector ConfigMaps: the default destination when any enabled
@@ -587,11 +681,11 @@ telemetry:
 {{- $root := .root -}}
 {{- $blocks := list -}}
 {{- if include "agent.telemetryDefaultUsed" . -}}
-{{- $blocks = append $blocks (include "agent.telemetryExporterBlock" (dict "key" (include "agent.telemetryExporterName" $root) "c" $root.Values.telemetry.export.otlp "env" "CONTINUUM_TELEMETRY_AUTH" "mtls" "/export-mtls")) -}}
+{{- $blocks = append $blocks (include "agent.telemetryExporterBlock" (dict "root" $root "key" (include "agent.telemetryExporterName" $root) "c" $root.Values.telemetry.export.otlp "env" "CONTINUUM_TELEMETRY_AUTH" "mtls" "/export-mtls")) -}}
 {{- end -}}
 {{- range (include "agent.telemetryModalities" . | fromJsonArray) -}}
 {{- if include "agent.telemetryHasRoute" (dict "root" $root "m" .) -}}
-{{- $blocks = append $blocks (include "agent.telemetryExporterBlock" (dict "key" (include "agent.telemetryExporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.telemetry.export.routes .) "env" (printf "CONTINUUM_TELEMETRY_AUTH_%s" (upper .)) "mtls" (printf "/export-mtls-%s" .))) -}}
+{{- $blocks = append $blocks (include "agent.telemetryExporterBlock" (dict "root" $root "key" (include "agent.telemetryExporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.telemetry.export.routes .) "env" (printf "CONTINUUM_TELEMETRY_AUTH_%s" (upper .)) "mtls" (printf "/export-mtls-%s" .))) -}}
 {{- end -}}
 {{- end -}}
 {{- join "\n" $blocks -}}

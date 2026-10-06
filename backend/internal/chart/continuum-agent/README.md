@@ -110,6 +110,24 @@ itself — it goes straight to whatever OTLP endpoint `telemetry.export.otlp.end
 collector (for signals that can only be observed per-node) mounts several host paths read-only (kubelet
 stats, container/journal logs).
 
+- **Container logs follow the scope.** `systemLogs` reads every container's output from the kubelet's log
+  directory, so it honours `telemetry.scope` (namespaces to keep, namespaces to drop; `telemetry.scope.infra` first)
+  and never reads this release's own pods. The node's journal is off by default (`journaling: none`): the collector
+  image has no `journalctl`, so `journald` needs a `telemetry.collectorImage` that ships one and nodes whose journal group 65532 can read.
+- **Kubelet metrics verify the kubelet.** `kubelet_stats` dials the node's IP (`status.hostIP`) and checks its certificate
+  against the cluster CA. Kubelets that serve a self-signed certificate (kubeadm and k3s defaults) fail that check, and
+  no kubelet metrics arrive until `telemetry.kubelet.insecureSkipVerify=true`, which sends the pod's service account
+  token to whatever answers on that address.
+- **Renewed certificates.** A client certificate (`telemetry.export...tls.mtls`) is re-read from its Secret every hour
+  without a restart; running the install command again after renewing it also restarts the collectors at once where
+  Helm can read the cluster (not under `helm template`, Argo CD or Flux; `telemetry.rolloutOnSecretChange=false` for an
+  account that may not read Secrets). A replaced `ca.crt` needs `kubectl rollout restart`.
+- **When the destination is down.** Each exporter retries for `telemetry.export.queue.retryMaxElapsedTime` (30m)
+  holding up to `telemetry.export.queue.size` batches in memory; `telemetry.export.queue.persistent.enabled` also keeps
+  them on an `emptyDir` across a container restart. `telemetry.processors.batch` bounds batch size to what the next hop
+  accepts. The cluster collector's default memory (`telemetry.clusterCollector.resources`) and a sizing guide are in
+  `values.yaml`.
+
 ## Pod Security / platform troubleshooting
 
 The node probe, traffic observer and host telemetry collector are each refused outright by Pod Security

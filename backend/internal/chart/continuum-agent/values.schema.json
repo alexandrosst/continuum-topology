@@ -501,10 +501,49 @@
             }
           }
         },
+        "rolloutOnSecretChange": {
+          "type": "boolean"
+        },
+        "kubelet": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "insecureSkipVerify": {
+              "type": "boolean"
+            }
+          }
+        },
         "export": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "queue": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "size": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "retryMaxElapsedTime": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(ms|s|m|h)$"
+                },
+                "persistent": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "sizeLimit": {
+                      "type": "string",
+                      "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|k|M|G|T)?$"
+                    }
+                  }
+                }
+              }
+            },
             "otlp": {
               "type": "object",
               "additionalProperties": false,
@@ -1434,6 +1473,24 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "batch": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "timeout": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(ms|s|m)$"
+                },
+                "sendBatchSize": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "sendBatchMaxSize": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
             "memoryLimiter": {
               "type": "object",
               "additionalProperties": false,

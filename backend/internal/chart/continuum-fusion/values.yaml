@@ -8,6 +8,22 @@
 # <name> is the release name, with "-fusion" added unless it already contains "fusion". A regional operator in the
 # same cluster reaches each store by that Service name; nothing here needs an Ingress.
 #
+# SIZING. Rough figures to start from, not promises; measure your own data and adjust `storage` (the volume) and
+# `resources.limits.memory` of each store. Prometheus is derived from them: its size limit is 85% of `storage`.
+#
+#   Prometheus  about 2 bytes per sample on disk, 3-4 KB of memory per active series. A series sampled every 30 s is
+#               2880 samples a day, so 15 days of one series is about 85 KB.
+#                 active series   disk for 15 days   prometheus.storage   memory limit
+#                 20 000          1.7 GB             5Gi                  1Gi
+#                 100 000         8.6 GB             10Gi (the default)   2Gi (the default)
+#                 500 000         43 GB              50Gi                 4Gi
+#   Loki        compresses logs about 8 to 1 on disk. 2 GB of raw logs a day is about 0.25 GB a day stored, so the 7 day
+#               default needs under 2 GB and the default 10Gi suits up to roughly 10 GB of raw logs a day.
+#   Tempo       about 400 bytes per span on disk. 100 spans a second is about 3.5 GB a day, so the 72 hour default needs
+#               about 10 GB: the default 10Gi suits up to roughly 80 spans a second.
+#   central     the gateway holds its sending queue and one batch per signal, nothing else: raise its memory limit
+#               together with central.queue.size.
+#
 # SECURITY: none of the three stores authenticates anything. They are ClusterIP only and meant to be reached from
 # inside the cluster. Turn on networkPolicy to limit who inside the cluster can write to or read from them.
 
@@ -47,6 +63,35 @@ central:
     type: ClusterIP
     annotations: {}
     loadBalancerSourceRanges: []   # LoadBalancer only
+  # What each exporter does while its store is unreachable (Prometheus, Loki or Tempo restarting, a volume not yet
+  # bound): retry for retryMaxElapsedTime, holding up to `size` batches meanwhile. A full queue makes the exporter
+  # refuse and the backpressure reaches the senders, whose own queues hold the data, so nothing here grows without
+  # bound. One entry is one batch (up to batch.sendBatchMaxSize items): raise `size` together with the memory limit.
+  # `persistent` also writes the queue to an emptyDir, so it survives a container restart (not a rescheduled pod; it
+  # counts against the node's ephemeral storage up to sizeLimit). Off by default, and only worth it once the gateway
+  # is the thing whose restart you cannot afford to lose a minute of data across.
+  queue:
+    size: 256
+    retryMaxElapsedTime: 30m
+    persistent:
+      enabled: false
+      sizeLimit: 1Gi
+  # Explicit batch sizes: the collector's default leaves the maximum unbounded, and a batch past a store's request
+  # limit (4 MiB on Loki and Tempo by default) is rejected whole and retried until it is dropped.
+  batch:
+    timeout: 5s
+    sendBatchSize: 2048
+    sendBatchMaxSize: 4096
+  # Senders that export DELTA metrics (some SDKs, statsd-style sources) lose them otherwise: Prometheus ingests
+  # cumulative series only and refuses or drops delta ones, depending on its version. This accumulates deltas into cumulative series in the gateway's memory,
+  # ahead of the batch processor. It is stateful, so it relies on the gateway being ONE replica (it is); after a restart
+  # the running totals start over. A series silent for maxStale is forgotten; series past maxStreams are dropped
+  # (the collector counts them in its own metrics). Cumulative metrics pass through untouched. Turn it off to
+  # skip the one extra in-memory hop if nothing sends deltas.
+  deltaToCumulative:
+    enabled: true
+    maxStale: 5m
+    maxStreams: 100000
   receiver:
     # A Secret in this release's namespace holding tls.crt, tls.key (the gateway's own server certificate) and
     # ca.crt (the CA every sender's client certificate must chain to). Empty = "<name>-central-receiver-tls",
@@ -71,6 +116,16 @@ prometheus:
     digest: ""        # sha256:..., pins the image and ignores tag
     pullPolicy: IfNotPresent
   retention: 15d      # how long samples are kept: a number and a unit (y, w, d, h, m, s)
+  # The most disk the stored blocks may use before the oldest are deleted, as Prometheus writes it: 0 (no limit) or a
+  # number and a unit (B, KB, MB, GB, TB, PB; powers of 1024) like 8GB. Empty (the default) takes 85% of `storage` when
+  # the volume is durable: the time limit alone lets a busy install fill the volume, and a full volume stops ingestion
+  # altogether. The 15% left is room for the write-ahead log, the head and compaction, which are written outside the
+  # blocks the limit counts. Whichever of retention and this is hit first wins.
+  retentionSize: ""
+  # The path the Ikhnos server serves Prometheus's own page under ("Open Prometheus" in the UI); the server strips it
+  # before the request arrives. Empty = Prometheus believes it lives at the root, which is right only when you reach it
+  # some other way.
+  webPrefix: /fusion/prometheus/
   storage: 10Gi
   # Resource attributes Prometheus turns into labels on every series. Everything else stays in target_info. The
   # first ones are what lets a metric be joined to a span or a log line later (same cluster, namespace, pod).
@@ -115,10 +170,36 @@ tempo:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
 
-# Isolates the stores' pods: only pods matching one of allowedIngress (and the other stores of this release) may reach
-# them. Off by default because the right answer depends on where the regional operator and, later, the fused API run.
+# Grafana, already connected to the stores: Prometheus, Loki and Tempo are its provisioned data sources (a log line links
+# to its trace, a trace to its logs) and one starter dashboard shows what is arriving. It has no login page and no
+# anonymous access: it is reached only through the Ikhnos server (an administrator, at /fusion/grafana/), which signs the
+# person in to it. Off here means no Grafana at all; the three stores are unaffected.
+grafana:
+  enabled: true
+  image:
+    repository: docker.io/grafana/grafana
+    tag: 12.2.0
+    digest: ""
+    pullPolicy: IfNotPresent
+  # What a person signed in through the server may do in Grafana: Viewer (look), Editor (also build dashboards and use
+  # Explore freely) or Admin. Data sources are provisioned read-only whatever the role.
+  role: Editor
+  storage: 2Gi        # Grafana's own database: dashboards a person saves, preferences
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+# Isolates the stores' pods. On by default: the stores authenticate nothing, so this is the only thing between them and
+# every other pod in the cluster. Allowed in: the other pods of this release (the central gateway, Grafana and, when
+# installed with the Ikhnos server, the server itself) and whatever allowedIngress names. The default lets the regional
+# operators through, matched by their chart's pod label, since one can be routed straight to a store. A cluster whose
+# network plugin does not enforce NetworkPolicy ignores this; nothing then restricts the stores but their being internal.
 networkPolicy:
-  enabled: false
+  enabled: true
   # [{namespaceSelector: {matchLabels: {...}}, podSelector: {matchLabels: {...}}}] - the same shape as a
-  # NetworkPolicy "from" entry.
-  allowedIngress: []
+  # NetworkPolicy "from" entry. Replace it to tighten the default (to one namespace, say); [] allows only this release.
+  allowedIngress:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: continuum-regional-operator

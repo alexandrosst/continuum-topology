@@ -27,8 +27,16 @@ replicaCount: 1
 # use: the OTLP/HTTP port and the self-metrics port stay on the ClusterIP form only, so exposing the receiver does
 # not also expose them. annotations and loadBalancerSourceRanges are how you keep it private (an internal load
 # balancer is an annotation your cloud defines; source ranges limit who may connect).
+#
+# nodePort pins the port a NodePort Service listens on, so the address recorded for this operator does not change
+# when the Service is recreated (Kubernetes otherwise picks a random one each time). 0 = let Kubernetes choose.
+# Only valid with type NodePort, and inside the range your cluster allows (30000-32767 unless it was started with another
+# --service-node-port-range; Kubernetes refuses the Service with a clear message when the port is outside it). A NodePort is reachable on
+# every node's address, but an address you hand to a sender is one node: if that node goes away so does the route,
+# and a node's address is often private. Put a load balancer or a DNS name over the nodes for anything lasting.
 service:
   type: ClusterIP   # ClusterIP | LoadBalancer | NodePort
+  nodePort: 0       # NodePort only, inside the cluster's node-port range; 0 = assigned by Kubernetes
   annotations: {}   # e.g. service.beta.kubernetes.io/aws-load-balancer-internal: "true"
   loadBalancerSourceRanges: []   # e.g. ["203.0.113.0/24"]; LoadBalancer only
 
@@ -43,6 +51,16 @@ image:
 
 # Secrets (in the release namespace) that let the cluster pull the image from a private registry.
 imagePullSecrets: []
+
+# Restart the pod when a TLS Secret it mounts changes (the receiver's certificate, a destination's client certificate,
+# the heartbeat CA), so that renewing a certificate and running the install command again takes effect at once. It is
+# a checksum annotation on the pod, computed with Helm's `lookup` at render time. Two limits, both harmless:
+#   - `helm template`, and so Argo CD and Flux, cannot look at the cluster: no checksum is rendered and nothing
+#     restarts. The collector still re-reads the certificate and key every hour (reload_interval) without a restart,
+#     so a renewed certificate is in use within about an hour either way. A new CA (ca.crt) is not re-read: restart the
+#     pod (`kubectl rollout restart`) after replacing one.
+#   - Helm fails the render if the account running it may not `get` Secrets in this namespace. Set this to false then.
+rolloutOnSecretChange: true
 
 # Where this operator sends whatever it aggregates: another regional operator's own receiver, or an
 # observability backend directly. Required.
@@ -68,6 +86,20 @@ export:
       headerName: Authorization
       secretName: ""
       secretKey: token
+  # What every exporter (the default and each route) does while its destination is unreachable. Retrying for
+  # retryMaxElapsedTime and holding up to `size` batches meanwhile is what makes a short outage of the next hop
+  # lossless; once the queue is full the exporter refuses and the backpressure reaches the senders through
+  # memory_limiter, so nothing grows without bound. One entry is one batch (up to processors.batch.sendBatchMaxSize
+  # items), so the memory a full queue can hold is size times a batch: raise `size` together with resources.limits.
+  # `persistent` writes the queue to an emptyDir as well, so it survives a container restart (not a rescheduled pod,
+  # and it counts against the node's ephemeral storage up to sizeLimit). Off by default: the volume is one more thing
+  # to size, and a memory queue is enough when the next hop is in the same network.
+  queue:
+    size: 256
+    retryMaxElapsedTime: 30m
+    persistent:
+      enabled: false
+      sizeLimit: 1Gi
   # Per-signal-type destinations. A route with an endpoint sends that signal type there instead of to `otlp`
   # above; a type with no endpoint keeps going to `otlp`. Each route is its own exporter with its own protocol
   # (grpc | http) and its own credential, and takes exactly the fields `otlp` takes. With a route for every type,
@@ -156,6 +188,14 @@ processors:
       - ".*api[_-]?key.*"
       - ".*authorization.*"
       - ".*cookie.*"
+  # The last processor of every pipeline. The sizes are explicit because the collector's default leaves a batch's
+  # maximum unbounded, and a batch past the next hop's receive limit (4 MiB on a collector's OTLP/gRPC receiver) is
+  # rejected whole and retried until it is dropped. sendBatchSize is when a batch is sent, timeout is how long a
+  # partly filled one waits, sendBatchMaxSize is the most it may ever hold.
+  batch:
+    timeout: 5s
+    sendBatchSize: 2048
+    sendBatchMaxSize: 4096
   # Traces only. 100 (default) means no sampling.
   tracesSampling:
     percentage: 100

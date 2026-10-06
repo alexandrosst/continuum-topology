@@ -11,11 +11,28 @@
 {{- if .Values.telemetry.processors.redaction.enabled }}{{ $hProcessors = append $hProcessors "redaction" }}{{ end }}
 {{- range .Values.telemetry.processors.extraProcessorNames }}{{ $hProcessors = append $hProcessors . }}{{ end }}
 {{- $hProcessors = concat $hProcessors (include "agent.telemetryTailProcessors" . | fromJsonArray) }}
-{{/* telemetry.scope.infra: the metrics pipeline only (system logs are not narrowed - see values.yaml). Goes
+{{/* telemetry.scope.infra, metrics pipeline (container logs have their own scope handling just below). Goes
      right after k8sattributes, which is what puts the workload name on a pod's metrics. */}}
 {{- $infraConditions := include "agent.telemetryInfraScopeConditions" . | fromJsonArray }}
 {{- $hMetricsProcessors := $hProcessors }}
 {{- if $infraConditions }}{{ $hMetricsProcessors = concat (list "memory_limiter" "k8sattributes" "filter/scope_infra") (slice $hProcessors 2) }}{{ end }}
+{{/* System logs and telemetry.scope. Container logs are the one signal here that is really application output, so
+     the scope applies to them even though the rest of this collector's signals are node-wide: the namespaces to
+     keep (infra's own list when set, else the shared one) become include globs, the ones to drop (both exclude
+     lists) become exclude globs, and the same two lists become a filter on k8s.namespace.name as well, which also
+     covers whatever the globs cannot express. Pod log directories are named <namespace>_<pod>_<uid>. Workload
+     names are not applied: the path says nothing about them. */}}
+{{- $logNamespaces := .Values.telemetry.scope.infra.namespaces | default .Values.telemetry.scope.namespaces }}
+{{- $logExclude := concat .Values.telemetry.scope.exclude .Values.telemetry.scope.infra.exclude | uniq }}
+{{- $logConditions := list }}
+{{- if .Values.telemetry.systemLogs.logs.enabled }}{{ $logConditions = include "agent.telemetryScopeConditions" (dict "namespaces" $logNamespaces "exclude" $logExclude "guard" true) | fromJsonArray }}{{ end }}
+{{- $podLogInclude := list "/var/log/pods/*/*/*.log" }}
+{{- if $logNamespaces }}{{ $podLogInclude = list }}{{ range $logNamespaces }}{{ $podLogInclude = append $podLogInclude (printf "/var/log/pods/%s_*/*/*.log" .) }}{{ end }}{{ end }}
+{{- $podLogExclude := list (printf "/var/log/pods/%s_continuum-*/*/*.log" .Release.Namespace) }}
+{{- range $logExclude }}{{ $podLogExclude = append $podLogExclude (printf "/var/log/pods/%s_*/*/*.log" .) }}{{ end }}
+{{- $hLogsProcessors := $hProcessors }}
+{{- if $logConditions }}{{ $hLogsProcessors = concat (list "memory_limiter" "k8sattributes" "filter/scope_system_logs") (slice $hProcessors 2) }}{{ end }}
+{{- $hExtensions := include "agent.telemetryExtensionNames" . | fromJsonArray }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -46,8 +63,11 @@ data:
       kubelet_stats:
         collection_interval: {{ if .Values.telemetry.resourceUsage.metrics.enabled }}{{ .Values.telemetry.resourceUsage.metrics.interval }}{{ else }}{{ .Values.telemetry.nodeRuntime.metrics.interval | default "30s" }}{{ end }}
         auth_type: serviceAccount
-        endpoint: "https://${env:NODE_NAME}:10250"
-        insecure_skip_verify: true
+        # The node's own IP (status.hostIP, the NODE_IP env var), not its name: a node name is not always resolvable
+        # from a pod, an IP always is. The kubelet's certificate is verified against the cluster CA unless
+        # telemetry.kubelet.insecureSkipVerify opts out (see values.yaml for when that is needed).
+        endpoint: "https://${env:NODE_IP}:10250"
+        insecure_skip_verify: {{ .Values.telemetry.kubelet.insecureSkipVerify }}
         metric_groups: {{ $metricGroups | toJson }}
       {{- end }}
       {{- if .Values.telemetry.systemLogs.logs.enabled }}
@@ -58,7 +78,11 @@ data:
         # runtime. This is deliberately NOT the reference implementation's approach of reading a specific
         # distribution's own log files (e.g. /var/log/k3s.log) - that only works on the one distribution it
         # was written for.
-        include: ["/var/log/pods/*/*/*.log"]
+        include: {{ $podLogInclude | toJson }}
+        # Never this release's own pods (the collectors included): reading them back would ship the collector's
+        # own output as telemetry, which a debug exporter then writes again. Nor any namespace the scope drops - the
+        # filter below enforces the scope on what is read, this keeps it from being read at all.
+        exclude: {{ $podLogExclude | toJson }}
         include_file_path: true
         start_at: end
         operators:
@@ -88,6 +112,12 @@ data:
       k8sattributes:
         auth_type: serviceAccount
         passthrough: false
+        # Only this node's pods: every record this collector sees comes from its own node, and without the
+        # filter each DaemonSet pod would hold a copy of every pod in the cluster in memory (and open its own
+        # watch on the API server). NODE_NAME is set from spec.nodeName on this DaemonSet; the cluster collector,
+        # which sees records from anywhere, has no such filter.
+        filter:
+          node_from_env_var: NODE_NAME
         pod_association:
           - sources:
               - from: resource_attribute
@@ -99,6 +129,14 @@ data:
         error_mode: ignore
         metric_conditions: {{ $infraConditions | toJson }}
       {{- end }}
+      {{- if $logConditions }}
+      # telemetry.scope applied to the container logs this collector reads: whatever the scope drops is dropped
+      # here too, by the namespace the filelog "container" operator took from the log file's path. A record with no
+      # namespace (the node's own journal) is never dropped.
+      filter/scope_system_logs:
+        error_mode: ignore
+        log_conditions: {{ $logConditions | toJson }}
+      {{- end }}
       resource/node:
         attributes:
           - {key: k8s.node.name, value: "${env:NODE_NAME}", action: upsert}
@@ -109,11 +147,12 @@ data:
       {{- end }}
       {{- include "agent.telemetryTagsYAML" . | nindent 6 }}
       {{- include "agent.telemetryContinuumProvenanceYAML" . | nindent 6 }}
-      batch: {}
+      {{- include "agent.telemetryBatchYAML" . | nindent 6 }}
 
-    {{- if .Values.telemetry.opamp.enabled }}
+    {{- if $hExtensions }}
     extensions:
       {{- include "agent.telemetryOpampExtensionYAML" . | nindent 6 }}
+      {{- include "agent.telemetryQueueExtensionYAML" . | nindent 6 }}
     {{- end }}
 
     exporters:
@@ -121,8 +160,8 @@ data:
       {{- include "agent.telemetryDebugExporterYAML" . | nindent 6 }}
 
     service:
-      {{- if .Values.telemetry.opamp.enabled }}
-      extensions: [opamp]
+      {{- if $hExtensions }}
+      extensions: {{ $hExtensions | toJson }}
       {{- end }}
       {{- if include "agent.telemetryHealthEnabled" . }}
       {{- include "agent.telemetryHealthReaderYAML" . | nindent 6 }}
@@ -137,7 +176,7 @@ data:
         {{- if $hLogs }}
         logs:
           receivers: {{ $hLogs | toJson }}
-          processors: {{ $hProcessors | toJson }}
+          processors: {{ $hLogsProcessors | toJson }}
           exporters: {{ include "agent.telemetryExporterList" (dict "root" . "m" "logs") }}
         {{- end }}
 {{- end }}

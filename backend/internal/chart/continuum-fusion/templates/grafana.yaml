@@ -1,0 +1,123 @@
+{{- if .Values.grafana.enabled }}
+{{- $g := .Values.grafana }}
+{{- $name := printf "%s-grafana" (include "fusion.name" .) }}
+{{- $sel := include "fusion.selector" (dict "root" . "component" "grafana") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  selector: {{- $sel | nindent 4 }}
+  ports:
+    - {name: http, port: 3000, targetPort: http, protocol: TCP}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  replicas: {{ include "fusion.replicas" (dict "root" . "kind" "StatefulSet" "name" $name) }}
+  serviceName: {{ $name }}
+  selector:
+    matchLabels: {{- $sel | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- $sel | nindent 8 }}
+        app.kubernetes.io/part-of: continuum
+        {{- include "fusion.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ printf "%s%s" (include (print $.Template.BasePath "/grafana-config.yaml") .) (include "fusion.arrivingDashboard" .) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "fusion.podCommon" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: grafana
+          image: {{ include "fusion.image" (dict "image" $g.image "component" "grafana") | quote }}
+          imagePullPolicy: {{ $g.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            # Reached only through the Ikhnos server, which has already signed the person in and says who they are in
+            # X-WEBAUTH-USER; there is no login page and no anonymous access. The NetworkPolicy keeps every other pod away.
+            - {name: GF_AUTH_PROXY_ENABLED, value: "true"}
+            - {name: GF_AUTH_PROXY_HEADER_NAME, value: X-WEBAUTH-USER}
+            - {name: GF_AUTH_PROXY_HEADER_PROPERTY, value: username}
+            - {name: GF_AUTH_PROXY_AUTO_SIGN_UP, value: "true"}
+            - {name: GF_AUTH_DISABLE_LOGIN_FORM, value: "true"}
+            - {name: GF_AUTH_ANONYMOUS_ENABLED, value: "false"}
+            - {name: GF_USERS_AUTO_ASSIGN_ORG_ROLE, value: {{ $g.role | quote }}}
+            # Served under the server's own address, at /fusion/grafana/.
+            - {name: GF_SERVER_ROOT_URL, value: "http://localhost:3000/fusion/grafana/"}
+            - {name: GF_SERVER_SERVE_FROM_SUB_PATH, value: "true"}
+            - {name: GF_SECURITY_CONTENT_SECURITY_POLICY, value: "true"}
+            - {name: GF_SECURITY_COOKIE_SAMESITE, value: lax}
+            - {name: GF_SECURITY_ALLOW_EMBEDDING, value: "false"}
+            - {name: GF_SECURITY_DISABLE_GRAVATAR, value: "true"}
+            # Nothing phones home, nothing is published, nothing is installed from the internet.
+            - {name: GF_ANALYTICS_REPORTING_ENABLED, value: "false"}
+            - {name: GF_ANALYTICS_CHECK_FOR_UPDATES, value: "false"}
+            - {name: GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES, value: "false"}
+            - {name: GF_NEWS_NEWS_FEED_ENABLED, value: "false"}
+            - {name: GF_PUBLIC_DASHBOARDS_ENABLED, value: "false"}
+            - {name: GF_SNAPSHOTS_EXTERNAL_ENABLED, value: "false"}
+            - {name: GF_PLUGINS_PLUGIN_ADMIN_ENABLED, value: "false"}
+            - {name: GF_LIVE_MAX_CONNECTIONS, value: "0"}
+            - {name: GF_LOG_MODE, value: console}
+            - {name: GF_PATHS_DATA, value: /var/lib/grafana}
+            - {name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH, value: /etc/grafana/dashboards/arriving.json}
+          ports:
+            - {name: http, containerPort: 3000, protocol: TCP}
+          readinessProbe:
+            httpGet: {path: /api/health, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /api/health, port: http}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources: {{- toYaml $g.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: provisioning, mountPath: /etc/grafana/provisioning/datasources/datasources.yaml, subPath: datasources.yaml, readOnly: true}
+            - {name: provisioning, mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml, subPath: dashboards.yaml, readOnly: true}
+            - {name: dashboards, mountPath: /etc/grafana/dashboards, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: data, mountPath: /var/lib/grafana}
+      volumes:
+        - name: provisioning
+          configMap: {name: {{ $name }}-provisioning}
+        - name: dashboards
+          configMap: {name: {{ $name }}-dashboards}
+        - name: tmp
+          emptyDir: {}
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests: {storage: {{ $g.storage | quote }}}
+  {{- end }}
+{{- end }}

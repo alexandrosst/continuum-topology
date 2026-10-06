@@ -51,11 +51,15 @@ data:
         blocked_key_patterns: [".*token.*",".*password.*",".*secret.*",".*api[_-]?key.*",".*authorization.*",".*cookie.*"]
         summary: info
       
-      batch: {}
+      batch:
+        timeout: "5s"
+        send_batch_size: 2048
+        send_batch_max_size: 4096
 
     extensions:
       health_check:
         endpoint: "0.0.0.0:13133"
+      
       
 
     exporters:
@@ -63,6 +67,14 @@ data:
         endpoint: "collector.example:4317"
         tls:
           insecure: false
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: "30m"
+        sending_queue:
+          enabled: true
+          queue_size: 256
 
     service:
       extensions: ["health_check"]
@@ -126,7 +138,7 @@ spec:
         app.kubernetes.io/part-of: continuum
         
       annotations:
-        checksum/config: a616c9be93518dd3478b36f99389ce8fc668b242beac8ef58b6789ab69a1789a
+        checksum/config: 5e15d98ffbcd00cb2e80d1e5689fd65906a04dc785889e3572504aee5afcbbba
     spec:
       serviceAccountName: op-regional-operator
       automountServiceAccountToken: false

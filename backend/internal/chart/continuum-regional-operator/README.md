@@ -70,6 +70,35 @@ permit an `http://` URL for a throwaway test and sends the secret unencrypted.
 **Egress.** If `networkPolicy.egress.enabled` is on, add the heartbeat URL's address and port to
 `networkPolicy.egress.allowedEgress`; nothing here does it for you.
 
+## Renewed certificates
+
+Run the install command again with the renewed Secrets and the new certificate is picked up in one of two ways:
+
+- **At once, when Helm can see the cluster.** The pod carries a `checksum/mtls` annotation over what the TLS Secrets
+  it mounts hold (the receiver certificate, each destination's client certificate, the heartbeat CA), computed with
+  Helm's `lookup`; a changed Secret changes the annotation and the pod restarts. Under `helm template` - which is
+  what Argo CD and Flux run - `lookup` sees nothing, so no annotation is rendered and nothing restarts. An account
+  that may not `get` Secrets in the namespace makes Helm fail the render: set `rolloutOnSecretChange=false`.
+- **Within the hour, without a restart.** Every receiver and every client-certificate exporter has
+  `reload_interval: 1h`, so the collector re-reads the certificate and key from the mounted Secret by itself
+  (Kubernetes refreshes the mount within about a minute). This covers a certificate and key, not a CA: after
+  replacing `ca.crt`, run `kubectl rollout restart`.
+
+## When the next hop is down
+
+Every exporter retries for `export.queue.retryMaxElapsedTime` (30m) and holds up to `export.queue.size` batches
+(256, each at most `processors.batch.sendBatchMaxSize` = 4096 items) in memory meanwhile. When the queue is full the
+exporter refuses, `memory_limiter` pushes back on the senders, and memory stays bounded. A restart empties a memory
+queue; `export.queue.persistent.enabled` also writes it to an `emptyDir` (`sizeLimit`, 1Gi), which survives a
+container restart but not a rescheduled pod. The container's `GOMEMLIMIT` is set to 80% of `resources.limits.memory`.
+
+## Exposing the receiver
+
+`service.type` is `ClusterIP` unless the install command asks for more. `LoadBalancer` and `NodePort` publish only the
+OTLP/gRPC port. A `NodePort` gets a random port from Kubernetes each time its Service is created; set
+`service.nodePort` to keep it (it must be inside your cluster's node-port range, 30000-32767 by default). Remember that a node address is one node, and often a private one. An
+Ingress in front must pass TLS through to the pod (the client certificate is checked here, not at the Ingress).
+
 ## Checking on it
 
 ```
@@ -102,7 +131,8 @@ a cluster later is the same `helm upgrade` against that cluster's own release, n
   network, and a wrong one silently cuts a pipeline off rather than failing loudly.
 - **`heartbeat`** — the opt-in liveness report described above: `enabled`, `url`, `intervalSeconds`, `auth`
   (the Secret holding the heartbeat secret), `tls` (an optional private CA) and `allowPlainHTTP`.
-- **`processors`** — `memory_limiter`, `resourceDetection`, `redaction`, trace sampling and the
+- **`export.queue`** — retry window, in-memory queue size and the opt-in persistent queue, described above.
+- **`processors`** — `memory_limiter`, `batch` sizes, `resourceDetection`, `redaction`, trace sampling and the
   `extraProcessors`/`extraProcessorNames` escape hatch, deliberately the same shape as
   `continuum-agent`'s `telemetry.processors` so the same processor-editing UI drives both charts unmodified.
 

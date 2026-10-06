@@ -2,6 +2,7 @@ package chart
 
 import (
 	"fmt"
+	"regexp"
 	"sigs.k8s.io/yaml"
 	"strings"
 	"testing"
@@ -1430,8 +1431,15 @@ func TestTelemetryInfraScopeNarrowsOnlyRecordsThatCarryANamespace(t *testing.T) 
 		t.Errorf("a record with no namespace must be kept, got %v", state)
 	}
 	events := conditionsOf(t, procs, "filter/scope_infra_events", "log_conditions")
-	if len(events) != 2 || !strings.Contains(events[1], `body["object"]["metadata"]["namespace"] != nil`) {
+	// OTTL wants every path to start with its context ("log.body", not "body"): the collector refuses to start on a bare
+	// "body[...]" ("path's first segment must be a valid context name").
+	if len(events) != 2 || !strings.Contains(events[1], `log.body["object"]["metadata"]["namespace"] != nil`) {
 		t.Errorf("events are narrowed by namespace, also from the event object: %v", events)
+	}
+	for _, c := range events {
+		if regexp.MustCompile(`(^|[^.\w"])body\[`).MatchString(c) {
+			t.Errorf("a bare body path without its log. context: %s", c)
+		}
 	}
 	for _, c := range events {
 		if strings.Contains(c, "deployment") {
@@ -1457,7 +1465,7 @@ func TestTelemetryInfraScopeNarrowsOnlyRecordsThatCarryANamespace(t *testing.T) 
 		t.Errorf("the filter goes right after k8sattributes, got %v", metricsProcs)
 	}
 	if containsAny(hpipes["logs"].(map[string]any)["processors"].([]any), "filter/scope_infra") {
-		t.Errorf("system logs are not narrowed by the infra scope")
+		t.Errorf("the infra metrics filter does not belong on system logs, which have their own (filter/scope_system_logs)")
 	}
 }
 

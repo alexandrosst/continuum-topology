@@ -25,6 +25,9 @@ spec:
         {{- include "agent.podLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/telemetry-host-config.yaml") . | sha256sum }}
+        {{- with include "agent.telemetryMtlsChecksum" (dict "root" . "scope" "host") }}
+        checksum/mtls: {{ . }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -59,6 +62,11 @@ spec:
           env:
             - name: NODE_NAME
               valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            {{- if or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled }}
+            # kubelet_stats dials the kubelet on this address (see telemetry-host-config.yaml).
+            - name: NODE_IP
+              valueFrom: {fieldRef: {fieldPath: status.hostIP}}
+            {{- end }}
             {{- if include "agent.telemetryHealthEnabled" . }}
             - name: POD_IP
               valueFrom: {fieldRef: {fieldPath: status.podIP}}
@@ -77,6 +85,9 @@ spec:
             {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
             - {name: host-fs, mountPath: /hostfs, readOnly: true}
             {{- end }}
+            {{- if .Values.telemetry.export.queue.persistent.enabled }}
+            - {name: queue, mountPath: /queue}
+            {{- end }}
             {{- if .Values.telemetry.systemLogs.logs.enabled }}
             - {name: var-log-pods, mountPath: /var/log/pods, readOnly: true}
             {{- if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}
@@ -89,6 +100,9 @@ spec:
           configMap: {name: {{ include "agent.telemetryName" . }}-host-config}
         {{- with include "agent.telemetryExportMtlsVolumes" (dict "root" . "scope" "host") }}
         {{- . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.telemetry.export.queue.persistent.enabled }}
+        {{- include "agent.telemetryQueueVolume" . | nindent 8 }}
         {{- end }}
         {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
         # Read-only, and only for the filesystem/network scrapers to see real host mounts and interfaces -
@@ -139,6 +153,9 @@ spec:
         {{- include "agent.podLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/telemetry-cluster-config.yaml") . | sha256sum }}
+        {{- with include "agent.telemetryMtlsChecksum" (dict "root" . "scope" "cluster") }}
+        checksum/mtls: {{ . }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -187,12 +204,18 @@ spec:
             {{- with include "agent.telemetryExportMtlsMounts" (dict "root" . "scope" "cluster") }}
             {{- . | nindent 12 }}
             {{- end }}
+            {{- if .Values.telemetry.export.queue.persistent.enabled }}
+            - {name: queue, mountPath: /queue}
+            {{- end }}
           resources: {{- include "agent.telemetryClusterCollectorResources" . | nindent 12 }}
       volumes:
         - name: config
           configMap: {name: {{ include "agent.telemetryName" . }}-cluster-config}
         {{- with include "agent.telemetryExportMtlsVolumes" (dict "root" . "scope" "cluster") }}
         {{- . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.telemetry.export.queue.persistent.enabled }}
+        {{- include "agent.telemetryQueueVolume" . | nindent 8 }}
         {{- end }}
       {{- with .Values.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}

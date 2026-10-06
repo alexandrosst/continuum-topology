@@ -25,6 +25,7 @@
 {{/* health_check is always on (see operator.healthCheckExtensionYAML) - livenessProbe/readinessProbe in
      deployment.yaml depend on it, unlike bearertokenauth which only applies when receiver.auth is on. */}}
 {{- $extensions := list "health_check" }}
+{{- if .Values.export.queue.persistent.enabled }}{{ $extensions = append $extensions "file_storage/queue" }}{{ end }}
 {{- if .Values.receiver.auth.enabled }}{{ $extensions = append $extensions "bearertokenauth" }}{{ end }}
 
 apiVersion: v1
@@ -47,6 +48,9 @@ data:
               {{- if .Values.receiver.tls.mtls }}
               client_ca_file: /receiver-tls/ca.crt
               {{- end }}
+              # Re-read the certificate and key from the mounted Secret, so a renewed certificate takes effect
+              # without a restart (Kubernetes refreshes the mount itself within about a minute).
+              reload_interval: 1h
             {{- end }}
             {{- if .Values.receiver.auth.enabled }}
             auth:
@@ -61,6 +65,9 @@ data:
               {{- if .Values.receiver.tls.mtls }}
               client_ca_file: /receiver-tls/ca.crt
               {{- end }}
+              # Re-read the certificate and key from the mounted Secret, so a renewed certificate takes effect
+              # without a restart (Kubernetes refreshes the mount itself within about a minute).
+              reload_interval: 1h
             {{- end }}
             {{- if .Values.receiver.auth.enabled }}
             auth:
@@ -81,7 +88,7 @@ data:
       {{- if $stamp }}
       {{- include "operator.resourceOperatorYAML" . | nindent 6 }}
       {{- end }}
-      batch: {}
+      {{- include "operator.batchYAML" . | nindent 6 }}
       {{- if .Values.heartbeat.enabled }}
       {{- include "operator.heartbeatProcessorYAML" . | nindent 6 }}
       {{- end }}
@@ -89,6 +96,7 @@ data:
     extensions:
       {{- include "operator.healthCheckExtensionYAML" . | nindent 6 }}
       {{- include "operator.receiverAuthExtensionYAML" . | nindent 6 }}
+      {{- include "operator.queueExtensionYAML" . | nindent 6 }}
 
     exporters:
       {{- include "operator.exporterYAML" . | nindent 6 }}

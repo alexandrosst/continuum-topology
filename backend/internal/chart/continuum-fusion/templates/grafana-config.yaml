@@ -1,0 +1,91 @@
+{{- if .Values.grafana.enabled }}
+{{- $name := printf "%s-grafana" (include "fusion.name" .) }}
+{{- $fn := include "fusion.name" . }}
+# Grafana comes up already knowing the stores: each enabled one is a provisioned (read-only) data source, linked to the
+# others the way an investigation moves - a log line to its trace, a trace to its logs. Nothing for a person to type.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-provisioning
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    prune: true
+    datasources:
+      {{- if .Values.prometheus.enabled }}
+      - name: FUSION metrics
+        uid: fusion-metrics
+        type: prometheus
+        access: proxy
+        url: http://{{ $fn }}-prometheus.{{ .Release.Namespace }}.svc:9090
+        isDefault: true
+        editable: false
+        jsonData:
+          httpMethod: POST
+          timeInterval: 60s
+          {{- if .Values.tempo.enabled }}
+          exemplarTraceIdDestinations:
+            - {name: trace_id, datasourceUid: fusion-traces}
+          {{- end }}
+      {{- end }}
+      {{- if .Values.loki.enabled }}
+      - name: FUSION logs
+        uid: fusion-logs
+        type: loki
+        access: proxy
+        url: http://{{ $fn }}-loki.{{ .Release.Namespace }}.svc:3100
+        editable: false
+        jsonData:
+          {{- if .Values.tempo.enabled }}
+          # A log line sent with a trace id carries it as structured metadata: one click to the trace.
+          derivedFields:
+            - {name: TraceID, matcherType: label, matcherRegex: trace_id, url: "$${__value.raw}", datasourceUid: fusion-traces}
+          {{- end }}
+      {{- end }}
+      {{- if .Values.tempo.enabled }}
+      - name: FUSION traces
+        uid: fusion-traces
+        type: tempo
+        access: proxy
+        url: http://{{ $fn }}-tempo.{{ .Release.Namespace }}.svc:3200
+        editable: false
+        jsonData:
+          {{- if .Values.loki.enabled }}
+          tracesToLogsV2:
+            datasourceUid: fusion-logs
+            spanStartTimeShift: -5m
+            spanEndTimeShift: 5m
+            tags:
+              - {key: service.name, value: service_name}
+              - {key: k8s.namespace.name, value: k8s_namespace_name}
+            filterByTraceID: true
+          {{- end }}
+          {{- if .Values.prometheus.enabled }}
+          serviceMap: {datasourceUid: fusion-metrics}
+          {{- end }}
+          nodeGraph: {enabled: true}
+      {{- end }}
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: fusion
+        orgId: 1
+        folder: Ikhnos
+        type: file
+        disableDeletion: true
+        allowUiUpdates: false
+        options:
+          path: /etc/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-dashboards
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+data:
+  arriving.json: |
+{{ include "fusion.arrivingDashboard" . | indent 4 }}
+{{- end }}

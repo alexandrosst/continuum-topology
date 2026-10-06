@@ -1,6 +1,13 @@
 {{- if .Values.central.enabled }}
 {{- $name := include "fusion.central" . }}
 {{- $base := include "fusion.name" . }}
+{{- $q := .Values.central.queue }}
+{{- $d2c := .Values.central.deltaToCumulative }}
+{{- /* Metrics only reach Prometheus, so without it there is no metrics pipeline for the processor to sit in. */ -}}
+{{- $d2cOn := and $d2c.enabled .Values.prometheus.enabled }}
+{{- $metricsProcessors := list "memory_limiter" }}
+{{- if $d2cOn }}{{ $metricsProcessors = append $metricsProcessors "delta_to_cumulative" }}{{ end }}
+{{- $metricsProcessors = append $metricsProcessors "batch" }}
 # The central gateway: mTLS in, three stores out. It is a plain OpenTelemetry Collector - no Kubernetes API
 # access, no state of its own - so turning it off loses nothing.
 apiVersion: v1
@@ -15,6 +22,10 @@ data:
     extensions:
       health_check:
         endpoint: "0.0.0.0:13133"
+      {{- if $q.persistent.enabled }}
+      file_storage/queue:
+        directory: /queue
+      {{- end }}
     receivers:
       otlp:
         protocols:
@@ -35,29 +46,49 @@ data:
         check_interval: 1s
         limit_percentage: 80
         spike_limit_percentage: 20
-      batch: {}
+      {{- if $d2cOn }}
+      # Prometheus ingests cumulative metrics only (a delta one is refused or dropped, depending on the version),
+      # and a sender that exports delta temporality (some SDKs and statsd-style sources do) would otherwise lose its
+      # metrics with nothing visible on the sending side. This adds the deltas up into cumulative series, in memory. It is stateful: every sample of a series
+      # must reach the same instance, which holds because this gateway runs as ONE replica (central.yaml). A series
+      # that stops arriving is forgotten after maxStale; a restart starts its running totals over. Cumulative metrics
+      # pass through untouched. delta_to_cumulative is this processor's name in the pinned collector (0.160.0);
+      # the older deltatocumulative is only a deprecated alias.
+      delta_to_cumulative:
+        max_stale: {{ $d2c.maxStale | quote }}
+        max_streams: {{ $d2c.maxStreams }}
+      {{- end }}
+      # Explicit sizes: the default leaves a batch's maximum unbounded, and a batch past a store's request limit
+      # (Loki and Tempo take 4 MiB by default) is rejected whole and retried until it is dropped.
+      batch:
+        timeout: {{ .Values.central.batch.timeout | quote }}
+        send_batch_size: {{ .Values.central.batch.sendBatchSize }}
+        send_batch_max_size: {{ .Values.central.batch.sendBatchMaxSize }}
     exporters:
       {{- if .Values.prometheus.enabled }}
       otlphttp/metrics:
         endpoint: {{ printf "http://%s-prometheus.%s.svc:9090/api/v1/otlp" $base .Release.Namespace | quote }}
+        {{- include "fusion.centralExporterResilience" . | nindent 8 }}
       {{- end }}
       {{- if .Values.loki.enabled }}
       otlphttp/logs:
         endpoint: {{ printf "http://%s-loki.%s.svc:3100/otlp" $base .Release.Namespace | quote }}
+        {{- include "fusion.centralExporterResilience" . | nindent 8 }}
       {{- end }}
       {{- if .Values.tempo.enabled }}
       otlp/traces:
         endpoint: {{ printf "%s-tempo.%s.svc:4317" $base .Release.Namespace | quote }}
         tls:
           insecure: true
+        {{- include "fusion.centralExporterResilience" . | nindent 8 }}
       {{- end }}
     service:
-      extensions: [health_check]
+      extensions: {{ ternary (list "health_check" "file_storage/queue") (list "health_check") $q.persistent.enabled | toJson }}
       pipelines:
         {{- if .Values.prometheus.enabled }}
         metrics:
           receivers: [otlp]
-          processors: [memory_limiter, batch]
+          processors: {{ $metricsProcessors | toJson }}
           exporters: [otlphttp/metrics]
         {{- end }}
         {{- if .Values.loki.enabled }}

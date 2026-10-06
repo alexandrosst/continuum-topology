@@ -3,6 +3,13 @@ Ikhnos regional operator {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}
   ✓ Receiver: {{ include "operator.name" . }}.{{ .Release.Namespace }}.svc:4317 / :4318 (grpc / http)
   ✓ Auth: {{ if .Values.receiver.auth.enabled }}bearer token (Secret {{ .Values.receiver.auth.secretName }}/{{ .Values.receiver.auth.secretKey }}){{ if and .Values.receiver.tls.enabled .Values.receiver.tls.mtls }} + required mTLS client certificate{{ end }}{{ else if and .Values.receiver.tls.enabled .Values.receiver.tls.mtls }}required mTLS client certificate signed by the CA (the operator's own private CA when Ikhnos made it) in Secret {{ .Values.receiver.tls.secretName }} (ca.crt) - the only gate, there is no bearer token{{ else }}none{{ end }}
   ✓ Re-exports to: {{ .Values.export.otlp.endpoint }}
+  ✓ If it is down: retries for {{ .Values.export.queue.retryMaxElapsedTime }}, holding up to {{ .Values.export.queue.size }} batches {{ if .Values.export.queue.persistent.enabled }}in memory and on an emptyDir (kept across a container restart, not a rescheduled pod){{ else }}in memory (lost if the pod restarts; export.queue.persistent.enabled keeps them across a container restart){{ end }}
+{{- if eq .Values.service.type "NodePort" }}
+  ✓ Exposure: NodePort {{ if .Values.service.nodePort }}{{ .Values.service.nodePort }}{{ else }}(assigned by Kubernetes, and a new one if the Service is recreated: set service.nodePort to pin it){{ end }}. That is one node's address; it may be private, and it stops working if that node goes away.
+{{- end }}
+{{- if or .Values.receiver.tls.enabled (include "operator.tlsSecretNames" . | fromJsonArray) }}
+  ✓ Certificates: re-read from their Secrets every hour without a restart (a new ca.crt needs `kubectl rollout restart`){{ if .Values.rolloutOnSecretChange }}; running this install again after renewing a Secret restarts the pod at once when Helm can read the cluster (not under helm template, Argo CD or Flux){{ end }}.
+{{- end }}
 {{- if .Values.heartbeat.enabled }}
   ✓ Heartbeat: ON - every {{ .Values.heartbeat.intervalSeconds }}s this operator tells {{ .Values.heartbeat.url }} that its own collector is up (Secret {{ .Values.heartbeat.auth.secretName }}/{{ .Values.heartbeat.auth.secretKey }}). It carries no telemetry and none of what you relay: only the collector's own health check result.{{ if .Values.networkPolicy.egress.enabled }} networkPolicy.egress is on: that address must be in networkPolicy.egress.allowedEgress too, or the heartbeat is silently blocked.{{ end }}
 {{- end }}

@@ -92,6 +92,21 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "webPrefix": {
+          "type": "string",
+          "pattern": "^(/[A-Za-z0-9._~-]+)*/?$"
+        },
+        "retentionSize": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(0|[0-9]+(B|KB|MB|GB|TB|PB))?$"
+            },
+            {
+              "const": 0
+            }
+          ]
         }
       }
     },
@@ -278,6 +293,122 @@
                 "type": "string"
               }
             }
+          }
+        },
+        "queue": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "retryMaxElapsedTime": {
+              "type": "string",
+              "pattern": "^[0-9]+(ms|s|m|h)$"
+            },
+            "persistent": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "sizeLimit": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|k|M|G|T)?$"
+                }
+              }
+            }
+          }
+        },
+        "batch": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "timeout": {
+              "type": "string",
+              "pattern": "^[0-9]+(ms|s|m)$"
+            },
+            "sendBatchSize": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sendBatchMaxSize": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "deltaToCumulative": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "maxStale": {
+              "type": "string",
+              "pattern": "^[0-9]+(ms|s|m|h)$"
+            },
+            "maxStreams": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "grafana": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^(sha256:[0-9a-f]{64})?$"
+            },
+            "pullPolicy": {
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ]
+            }
+          }
+        },
+        "storage": {
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|K|M|G|T)?$"
+        },
+        "resources": {
+          "type": "object"
+        },
+        "role": {
+          "enum": [
+            "Viewer",
+            "Editor",
+            "Admin"
+          ]
+        },
+        "allowedIngress": {
+          "type": "array",
+          "items": {
+            "type": "object"
           }
         }
       }

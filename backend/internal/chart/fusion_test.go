@@ -338,19 +338,39 @@ func TestFusionRefusesRetentionsTheStoresCannotApply(t *testing.T) {
 	}
 }
 
-func TestFusionNetworkPolicyIsOptInAndAdmitsTheOperator(t *testing.T) {
-	if r := fusionRender(t, "f"); len(r.policies) != 0 {
-		t.Errorf("a NetworkPolicy is rendered by default: %v", mapKeys(r.policies))
-	}
-	r := fusionRender(t, "f", "--set", "networkPolicy.enabled=true", "--set-string", "networkPolicy.allowedIngress[0].namespaceSelector.matchLabels.team=ops")
+// The stores authenticate nothing, so isolating them is on by default: the other pods of the release and the regional
+// operators may reach them, nobody else. Grafana, which trusts the server's say-so about who is signed in, gets a policy of
+// its own that only this release's pods pass - the regional operators do not.
+func TestFusionNetworkPolicyIsOnByDefaultAndAdmitsTheOperator(t *testing.T) {
+	r := fusionRender(t, "f")
 	p, ok := r.policies["f-fusion"]
+	if !ok {
+		t.Fatal("no NetworkPolicy by default")
+	}
+	from := p.Spec.Ingress[0].From
+	if len(from) != 2 || from[0].PodSelector == nil || from[1].PodSelector == nil || from[1].NamespaceSelector == nil ||
+		from[1].PodSelector.MatchLabels["app.kubernetes.io/name"] != "continuum-regional-operator" {
+		t.Errorf("default ingress sources = %+v, want the release's own pods and the regional operators", from)
+	}
+	g, ok := r.policies["f-fusion-grafana"]
+	if !ok {
+		t.Fatal("no NetworkPolicy for Grafana")
+	}
+	if len(g.Spec.Ingress[0].From) != 1 || g.Spec.PodSelector.MatchLabels["app.kubernetes.io/component"] != "grafana" {
+		t.Errorf("Grafana policy = %+v, want only this release's pods", g.Spec)
+	}
+	if r := fusionRender(t, "f", "--set", "networkPolicy.enabled=false"); len(r.policies) != 0 {
+		t.Errorf("networkPolicy.enabled=false still renders: %v", mapKeys(r.policies))
+	}
+	r = fusionRender(t, "f", "--set", "networkPolicy.enabled=true", "--set-json", `networkPolicy.allowedIngress=[{"namespaceSelector":{"matchLabels":{"team":"ops"}}}]`)
+	p, ok = r.policies["f-fusion"]
 	if !ok {
 		t.Fatal("no NetworkPolicy")
 	}
 	if len(p.Spec.PolicyTypes) != 1 || p.Spec.PolicyTypes[0] != networkingv1.PolicyTypeIngress {
 		t.Errorf("policy types = %v, want Ingress only", p.Spec.PolicyTypes)
 	}
-	from := p.Spec.Ingress[0].From
+	from = p.Spec.Ingress[0].From
 	if len(from) != 2 || from[0].PodSelector == nil || from[1].NamespaceSelector == nil {
 		t.Errorf("ingress sources = %+v, want the release's own pods and the allowed namespace", from)
 	}

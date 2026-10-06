@@ -10,11 +10,13 @@
       "additionalProperties": false,
       "properties": {
         "type": { "type": "string", "enum": ["ClusterIP", "LoadBalancer", "NodePort"] },
+        "nodePort": { "type": "integer", "minimum": 0, "maximum": 65535 },
         "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
         "loadBalancerSourceRanges": { "type": "array", "items": { "type": "string" } }
       }
     },
     "replicaCount": { "type": "integer", "minimum": 1 },
+    "rolloutOnSecretChange": { "type": "boolean" },
     "image": {
       "type": "object",
       "additionalProperties": false,
@@ -37,6 +39,22 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "queue": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": { "type": "integer", "minimum": 1 },
+            "retryMaxElapsedTime": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+            "persistent": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "sizeLimit": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|k|M|G|T)?$" }
+              }
+            }
+          }
+        },
         "otlp": {
           "type": "object",
           "additionalProperties": false,
@@ -119,6 +137,15 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "batch": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "timeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m)$" },
+            "sendBatchSize": { "type": "integer", "minimum": 1 },
+            "sendBatchMaxSize": { "type": "integer", "minimum": 1 }
+          }
+        },
         "memoryLimiter": {
           "type": "object",
           "additionalProperties": false,

@@ -184,6 +184,7 @@ bearertokenauth:
     ca_file: {{ .mtls }}/ca.crt
     cert_file: {{ .mtls }}/tls.crt
     key_file: {{ .mtls }}/tls.key
+    reload_interval: 1h
     {{- else }}
     ca_file: {{ $c.tls.caFile | quote }}
     {{- end }}
@@ -196,6 +197,7 @@ bearertokenauth:
     ca_file: {{ .mtls }}/ca.crt
     cert_file: {{ .mtls }}/tls.crt
     key_file: {{ .mtls }}/tls.key
+    reload_interval: 1h
     {{- else if $c.tls.caFile }}
     ca_file: {{ $c.tls.caFile | quote }}
     {{- end }}
@@ -207,6 +209,48 @@ bearertokenauth:
   headers:
     {{ $c.auth.headerName }}: {{ printf "${env:%s}" .env | quote }}
 {{- end }}
+{{- include "operator.exporterResilienceYAML" .root | nindent 2 }}
+{{- end -}}
+
+{{/* What every exporter does when its destination is down, spelled out instead of left to the collector's
+     defaults (which retry for 5 minutes and then drop): retry for export.queue.retryMaxElapsedTime, holding at
+     most export.queue.size batches in memory meanwhile. The queue is what keeps a short outage of the next hop from
+     losing data and a long one from filling the pod: when it is full the exporter refuses, memory_limiter and the
+     receiver push back on the senders, and nothing grows without bound. With export.queue.persistent.enabled the
+     queue is also written to an emptyDir (file_storage/queue), so it survives a container restart (not a
+     rescheduled pod). Emits at column 0; callers nindent it. */}}
+{{- define "operator.exporterResilienceYAML" -}}
+{{- $q := .Values.export.queue -}}
+retry_on_failure:
+  enabled: true
+  initial_interval: 5s
+  max_interval: 30s
+  max_elapsed_time: {{ $q.retryMaxElapsedTime | quote }}
+sending_queue:
+  enabled: true
+  queue_size: {{ $q.size }}
+  {{- if $q.persistent.enabled }}
+  storage: file_storage/queue
+  {{- end }}
+{{- end -}}
+
+{{/* The one file_storage extension every exporter queue shares when export.queue.persistent.enabled. The root
+     filesystem is read-only, so it lives on the emptyDir deployment.yaml mounts at /queue. */}}
+{{- define "operator.queueExtensionYAML" -}}
+{{- if .Values.export.queue.persistent.enabled }}
+file_storage/queue:
+  directory: /queue
+{{- end }}
+{{- end -}}
+
+{{/* Explicit batch sizes. The collector's own defaults leave the maximum unbounded, and a batch larger than the
+     next hop's receive limit (4 MiB on a collector's OTLP/gRPC receiver, which is what the next hop usually is)
+     is rejected as a whole and retried until it is dropped. */}}
+{{- define "operator.batchYAML" -}}
+batch:
+  timeout: {{ .Values.processors.batch.timeout | quote }}
+  send_batch_size: {{ .Values.processors.batch.sendBatchSize }}
+  send_batch_max_size: {{ .Values.processors.batch.sendBatchMaxSize }}
 {{- end -}}
 
 {{/* The "exporters" stanza: the default destination when any signal type uses it, then one exporter per route. */}}
@@ -214,11 +258,11 @@ bearertokenauth:
 {{- $root := . -}}
 {{- $blocks := list -}}
 {{- if include "operator.defaultUsed" . -}}
-{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "key" (include "operator.exporterName" $root) "c" $root.Values.export.otlp "env" "CONTINUUM_OPERATOR_EXPORT_AUTH" "mtls" "/export-mtls")) -}}
+{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "root" $root "key" (include "operator.exporterName" $root) "c" $root.Values.export.otlp "env" "CONTINUUM_OPERATOR_EXPORT_AUTH" "mtls" "/export-mtls")) -}}
 {{- end -}}
 {{- range (include "operator.modalities" . | fromJsonArray) -}}
 {{- if include "operator.hasRoute" (dict "root" $root "m" .) -}}
-{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "key" (include "operator.exporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.export.routes .) "env" (printf "CONTINUUM_OPERATOR_EXPORT_AUTH_%s" (upper .)) "mtls" (printf "/export-mtls-%s" .))) -}}
+{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "root" $root "key" (include "operator.exporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.export.routes .) "env" (printf "CONTINUUM_OPERATOR_EXPORT_AUTH_%s" (upper .)) "mtls" (printf "/export-mtls-%s" .))) -}}
 {{- end -}}
 {{- end -}}
 {{- join "\n" $blocks -}}

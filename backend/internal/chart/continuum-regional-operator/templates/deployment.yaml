@@ -19,6 +19,9 @@ spec:
         {{- include "operator.podLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+        {{- with include "operator.tlsChecksum" . }}
+        checksum/mtls: {{ . }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -90,6 +93,9 @@ spec:
             {{- if and .Values.heartbeat.enabled .Values.heartbeat.tls.caSecretName }}
             - {name: heartbeat-ca, mountPath: /heartbeat-ca, readOnly: true}
             {{- end }}
+            {{- if .Values.export.queue.persistent.enabled }}
+            - {name: queue, mountPath: /queue}
+            {{- end }}
           resources: {{- toYaml .Values.resources | nindent 12 }}
       volumes:
         - name: config
@@ -104,6 +110,12 @@ spec:
         {{- if and .Values.heartbeat.enabled .Values.heartbeat.tls.caSecretName }}
         - name: heartbeat-ca
           secret: {secretName: {{ .Values.heartbeat.tls.caSecretName }}}
+        {{- end }}
+        {{- if .Values.export.queue.persistent.enabled }}
+        # The root filesystem is read-only, so the persistent sending queue lives here. It survives a container
+        # restart but not a rescheduled pod, and counts against the node's ephemeral storage.
+        - name: queue
+          emptyDir: {sizeLimit: {{ .Values.export.queue.persistent.sizeLimit | quote }}}
         {{- end }}
       {{- with .Values.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}

@@ -20,7 +20,7 @@ spec:
   {{- end }}
   selector: {app.kubernetes.io/name: continuum-regional-operator, app.kubernetes.io/instance: {{ .Release.Name }}}
   ports:
-    - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
+    - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP{{ if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}, nodePort: {{ .Values.service.nodePort }}{{ end }}}
     {{- if eq .Values.service.type "ClusterIP" }}
     - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
     {{- end }}

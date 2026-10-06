@@ -52,7 +52,18 @@ spec:
             - --config.file=/etc/prometheus/prometheus.yml
             - --storage.tsdb.path=/prometheus
             - --storage.tsdb.retention.time={{ $p.retention }}
+            {{- with include "fusion.prometheusRetentionSize" . }}
+            # Whichever limit is reached first deletes the oldest blocks: the time above, or this size, which by
+            # default is 85% of the volume (see fusion.prometheusRetentionSize) so a busy install cannot fill it.
+            - --storage.tsdb.retention.size={{ . }}
+            {{- end }}
             - --web.listen-address=:9090
+            {{- with $p.webPrefix }}
+            # Opened from the Ikhnos server at <server>/fusion/prometheus/, which strips that prefix before it reaches here:
+            # the page must know the prefix to write its own links (external-url), and serve from the root (route-prefix).
+            - --web.external-url=http://localhost:9090{{ . }}
+            - --web.route-prefix=/
+            {{- end }}
             # The receiver a regional operator's OTLP/HTTP exporter writes to: /api/v1/otlp/v1/metrics.
             - --web.enable-otlp-receiver
           ports:

@@ -45,13 +45,53 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- end }}
 {{- end -}}
 
+{{/* The names of the Secrets this pod mounts for TLS, as a JSON list: the receiver's certificate, each destination's
+     client certificate, and the heartbeat's CA. Kubernetes refreshes a mounted Secret in place when it changes, but
+     a collector reads its certificate files only at start and then at every reload_interval (1h, see
+     operator.exporterBlock and config.yaml). */}}
+{{- define "operator.tlsSecretNames" -}}
+{{- $root := . -}}
+{{- $l := list -}}
+{{- if .Values.receiver.tls.enabled }}{{ $l = append $l .Values.receiver.tls.secretName }}{{ end -}}
+{{- if and (include "operator.defaultUsed" .) .Values.export.otlp.tls.mtls.enabled }}{{ $l = append $l .Values.export.otlp.tls.mtls.secretName }}{{ end -}}
+{{- range (include "operator.modalities" . | fromJsonArray) -}}
+{{- $r := get $root.Values.export.routes . -}}
+{{- if and (include "operator.hasRoute" (dict "root" $root "m" .)) $r.tls.mtls.enabled }}{{ $l = append $l $r.tls.mtls.secretName }}{{ end -}}
+{{- end -}}
+{{- if and .Values.heartbeat.enabled .Values.heartbeat.tls.caSecretName }}{{ $l = append $l .Values.heartbeat.tls.caSecretName }}{{ end -}}
+{{- toJson (uniq $l) -}}
+{{- end -}}
+
+{{/* A digest of what those Secrets hold right now, so that renewing a certificate and running `helm upgrade`
+     (the install command again) restarts the pod instead of leaving it on the old certificate until
+     reload_interval comes round. Read with `lookup`, which Helm answers with an empty map when the object does not
+     exist or when it renders offline (`helm template`, and therefore Argo CD and Flux): then this is empty, the
+     annotation is left out, and nothing here can fail the render. Two limits follow from that and are the
+     reason reload_interval exists as well: a GitOps render never sees the cluster, and an account that may not
+     `get` Secrets in this namespace makes Helm itself fail the lookup - set rolloutOnSecretChange=false there. */}}
+{{- define "operator.tlsChecksum" -}}
+{{- if .Values.rolloutOnSecretChange -}}
+{{- $ns := .Release.Namespace -}}
+{{- $parts := list -}}
+{{- range (include "operator.tlsSecretNames" . | fromJsonArray) -}}
+{{- $s := lookup "v1" "Secret" $ns . -}}
+{{- if and $s $s.data }}{{ $parts = append $parts (printf "%s=%s" . (toJson $s.data | sha256sum)) }}{{ end -}}
+{{- end -}}
+{{- if $parts }}{{ join "," $parts | sha256sum }}{{ end -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Required: an operator with no destination for a signal type has nothing to do with it. */}}
 {{- define "operator.validate" -}}
+{{- if lt (int .Values.processors.batch.sendBatchMaxSize) (int .Values.processors.batch.sendBatchSize) -}}{{- fail "processors.batch.sendBatchMaxSize must be at least processors.batch.sendBatchSize" -}}{{- end -}}
 {{- if and (include "operator.defaultUsed" .) (not .Values.export.otlp.endpoint) -}}{{- fail "export.otlp.endpoint is required, unless every signal type (metrics, logs, traces) has a destination of its own under export.routes" -}}{{- end -}}
 {{- if and .Values.export.otlp.tls.mtls.enabled (not .Values.export.otlp.tls.mtls.secretName) -}}{{- fail "export.otlp.tls.mtls.enabled requires export.otlp.tls.mtls.secretName (a Secret holding tls.crt, tls.key and ca.crt)" -}}{{- end -}}
 {{- range (include "operator.modalities" . | fromJsonArray) -}}
 {{- $r := get $.Values.export.routes . -}}
 {{- if and $r.tls.mtls.enabled (not $r.tls.mtls.secretName) -}}{{- fail (printf "export.routes.%s.tls.mtls.enabled requires export.routes.%s.tls.mtls.secretName (a Secret holding tls.crt, tls.key and ca.crt)" . .) -}}{{- end -}}
+{{- end -}}
+{{- if .Values.service.nodePort -}}
+{{- if ne .Values.service.type "NodePort" -}}{{- fail "service.nodePort only applies to service.type=NodePort" -}}{{- end -}}
 {{- end -}}
 {{- if and .Values.receiver.auth.enabled (not .Values.receiver.auth.secretName) -}}
 {{- fail "receiver.auth.enabled requires receiver.auth.secretName" -}}

@@ -75,6 +75,14 @@ spec:
           image: {{ include "fusion.image" (dict "image" $c.image "component" "central") | quote }}
           imagePullPolicy: {{ $c.image.pullPolicy | default "IfNotPresent" }}
           args: ["--config=/conf/otel-collector-config.yaml"]
+          {{- $gml := include "fusion.gomemlimit" $c.resources }}
+          {{- if $gml }}
+          # 80% of the memory limit, so the Go runtime collects harder before the container is killed
+          # (memory_limiter in the config is the other half of that).
+          env:
+            - name: GOMEMLIMIT
+              value: {{ $gml | quote }}
+          {{- end }}
           ports:
             - {name: otlp-grpc, containerPort: 4317, protocol: TCP}
             - {name: otlp-http, containerPort: 4318, protocol: TCP}
@@ -96,9 +104,18 @@ spec:
           volumeMounts:
             - {name: config, mountPath: /conf, readOnly: true}
             - {name: receiver-tls, mountPath: /receiver-tls, readOnly: true}
+            {{- if $c.queue.persistent.enabled }}
+            - {name: queue, mountPath: /queue}
+            {{- end }}
       volumes:
         - name: config
           configMap: {name: {{ $name }}}
         - name: receiver-tls
           secret: {secretName: {{ $tls }}}
+        {{- if $c.queue.persistent.enabled }}
+        # The root filesystem is read-only, so the persistent sending queue lives here: it survives a container
+        # restart, not a rescheduled pod, and counts against the node's ephemeral storage.
+        - name: queue
+          emptyDir: {sizeLimit: {{ $c.queue.persistent.sizeLimit | quote }}}
+        {{- end }}
 {{- end }}

@@ -15,6 +15,8 @@
 {{- $cMetricsApp := list }}
 {{- if and .Values.telemetry.applicationMetrics.metrics.enabled .Values.telemetry.applicationMetrics.metrics.scrapeTargets }}{{ $cMetricsApp = append $cMetricsApp "prometheus/app" }}{{ end }}
 {{- if or .Values.telemetry.networkLatency.metrics.enabled .Values.telemetry.applicationMetrics.metrics.enabled }}{{ $cMetricsApp = append $cMetricsApp "otlp" }}{{ end }}
+{{- /* A Prometheus scrape carries none of the scraped pod's identity as resource attributes. With scrape targets set it is promoted from labels the relabel_configs below keep, by transform/scrape_k8s, ahead of k8sattributes. */ -}}
+{{- $scrapeK8s := and .Values.telemetry.applicationMetrics.metrics.enabled .Values.telemetry.applicationMetrics.metrics.scrapeTargets }}
 {{- $cLogsApp := list }}
 {{- if .Values.telemetry.applicationLogs.logs.enabled }}{{ $cLogsApp = append $cLogsApp "otlp" }}{{ end }}
 
@@ -76,7 +78,7 @@
      the object's own namespace. Nodes, and anything else with no namespace, pass. Events have no workload,
      so for them only the namespace halves apply. */}}
 {{- $infraConditions := include "agent.telemetryInfraScopeConditions" . | fromJsonArray }}
-{{- $infraEventConditions := include "agent.telemetryScopeConditions" (dict "namespaces" .Values.telemetry.scope.infra.namespaces "exclude" .Values.telemetry.scope.infra.exclude "guard" true "nsExprs" (list "resource.attributes[\"k8s.namespace.name\"]" "body[\"object\"][\"metadata\"][\"namespace\"]")) | fromJsonArray }}
+{{- $infraEventConditions := include "agent.telemetryScopeConditions" (dict "namespaces" .Values.telemetry.scope.infra.namespaces "exclude" .Values.telemetry.scope.infra.exclude "guard" true "nsExprs" (list "resource.attributes[\"k8s.namespace.name\"]" "log.body[\"object\"][\"metadata\"][\"namespace\"]")) | fromJsonArray }}
 
 {{/* Accelerators scope (telemetry.accelerators.metrics.applyScope, off by default): unlike the app-domain
      kinds above, accelerators has no scope override of its own - it either respects the shared
@@ -108,7 +110,7 @@
 {{- if and $infraConditions .Values.telemetry.kubernetesState.metrics.enabled }}{{ $procInfra = append $procInfra "filter/scope_infra" }}{{ end }}
 {{- $procInfra = concat $procInfra $commonMid $extraNames $tail }}
 
-{{- $procApp := concat (list "memory_limiter" "k8sattributes") $commonMid }}
+{{- $procApp := concat (list "memory_limiter") (ternary (list "transform/scrape_k8s") (list) (not (empty $scrapeK8s))) (list "k8sattributes") $commonMid }}
 {{- if $amConditions }}{{ $procApp = append $procApp $amProcessor }}{{ end }}
 {{- $procApp = concat $procApp $extraNames $tail }}
 
@@ -125,8 +127,7 @@
 {{- if lt (int .Values.telemetry.processors.tracesSampling.percentage) 100 }}{{ $procTraces = append $procTraces "probabilistic_sampler" }}{{ end }}
 {{- $procTraces = concat $procTraces $extraNames .Values.telemetry.processors.extraTracesProcessorNames $tail }}
 
-{{- $clusterExtensions := list }}
-{{- if .Values.telemetry.opamp.enabled }}{{ $clusterExtensions = append $clusterExtensions "opamp" }}{{ end }}
+{{- $clusterExtensions := include "agent.telemetryExtensionNames" . | fromJsonArray }}
 {{- if .Values.telemetry.receiver.auth.enabled }}{{ $clusterExtensions = append $clusterExtensions "bearertokenauth" }}{{ end }}
 
 apiVersion: v1
@@ -218,6 +219,12 @@ data:
                     - {role: pod, label: {{ $t.podLabelSelector | quote }}}
               relabel_configs:
                 - {source_labels: ["__address__"], target_label: "__address__", replacement: "$${1}:{{ $t.port }}", regex: "([^:]+)(?::\\d+)?"}
+                # The pod's identity, kept as labels for transform/scrape_k8s to promote. Without it k8sattributes
+                # has nothing to look the pod up by, and the namespace scope would see no namespace on this data.
+                - {source_labels: ["__meta_kubernetes_namespace"], target_label: k8s_namespace_name}
+                - {source_labels: ["__meta_kubernetes_pod_name"], target_label: k8s_pod_name}
+                - {source_labels: ["__meta_kubernetes_pod_uid"], target_label: k8s_pod_uid}
+                - {source_labels: ["__meta_kubernetes_pod_node_name"], target_label: k8s_node_name}
               metrics_path: {{ $t.path | default "/metrics" | quote }}
             {{- end }}
       {{- end }}
@@ -263,6 +270,25 @@ data:
               - set(resource.attributes["k8s.namespace.name"], datapoint.attributes["namespace"]) where datapoint.attributes["namespace"] != nil
               - set(resource.attributes["k8s.pod.name"], datapoint.attributes["pod"]) where datapoint.attributes["pod"] != nil
               - set(resource.attributes["k8s.container.name"], datapoint.attributes["container"]) where datapoint.attributes["container"] != nil
+      {{- end }}
+      {{- if $scrapeK8s }}
+      # Only with scrapeTargets set. Turns the labels prometheus/app's relabel_configs keep into the semconv
+      # k8s.* resource attributes, then removes them from the datapoint (they would only duplicate the resource).
+      # k8s.pod.uid is what k8sattributes' first pod_association rule matches, so the rest of the pod's metadata
+      # (deployment, ...) follows; k8s.namespace.name is what the scope filter reads.
+      transform/scrape_k8s:
+        error_mode: ignore
+        metric_statements:
+          - context: datapoint
+            statements:
+              - set(resource.attributes["k8s.namespace.name"], datapoint.attributes["k8s_namespace_name"]) where datapoint.attributes["k8s_namespace_name"] != nil
+              - set(resource.attributes["k8s.pod.name"], datapoint.attributes["k8s_pod_name"]) where datapoint.attributes["k8s_pod_name"] != nil
+              - set(resource.attributes["k8s.pod.uid"], datapoint.attributes["k8s_pod_uid"]) where datapoint.attributes["k8s_pod_uid"] != nil
+              - set(resource.attributes["k8s.node.name"], datapoint.attributes["k8s_node_name"]) where datapoint.attributes["k8s_node_name"] != nil
+              - delete_key(datapoint.attributes, "k8s_namespace_name")
+              - delete_key(datapoint.attributes, "k8s_pod_name")
+              - delete_key(datapoint.attributes, "k8s_pod_uid")
+              - delete_key(datapoint.attributes, "k8s_node_name")
       {{- end }}
       {{- if $scopeConditions }}
       # The shared scope filter: applied to whichever of the app pipelines below (metrics/app, logs/app,
@@ -324,12 +350,13 @@ data:
       {{- end }}
       {{- include "agent.telemetryTagsYAML" . | nindent 6 }}
       {{- include "agent.telemetryContinuumProvenanceYAML" . | nindent 6 }}
-      batch: {}
+      {{- include "agent.telemetryBatchYAML" . | nindent 6 }}
 
     {{- if $clusterExtensions }}
     extensions:
       {{- include "agent.telemetryOpampExtensionYAML" . | nindent 6 }}
       {{- include "agent.telemetryReceiverAuthExtensionYAML" . | nindent 6 }}
+      {{- include "agent.telemetryQueueExtensionYAML" . | nindent 6 }}
     {{- end }}
 
     exporters:
