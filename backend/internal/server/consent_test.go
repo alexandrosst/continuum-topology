@@ -149,6 +149,74 @@ func TestNarrowingATierDropsWhatTheServerHoldsAboveIt(t *testing.T) {
 	}
 }
 
+// Narrowing the overrides drops what the server already holds, the same as narrowing a tier does: a stuck,
+// disconnected or out-of-date agent would otherwise leave the old picture here until it next sent a full one.
+func TestNarrowingConsentDropsWhatTheServerAlreadyHolds(t *testing.T) {
+	a := newAdminRig(t)
+	_, editor := a.user(t, "edith", RoleEditor)
+	id, _, _ := a.approvedAgent(t, fp)
+	v := liveView(*a.now, "n1")
+	v.state.Nodes["n1"].MachineId, v.state.Nodes["n1"].KernelVersion = "mid-1", "6.1"
+	v.state.Apply(&continuumv1.Sync{
+		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}},
+		Workloads:  []*continuumv1.WorkloadFacts{{Key: "shop/Deployment/web", Name: "web", Namespace: "shop"}, {Key: "batch/Job/etl", Name: "etl", Namespace: "batch"}},
+	})
+	a.hub().mu.Lock()
+	a.hub().views[id] = v
+	a.hub().mu.Unlock()
+	held := func() (ns, wl []string, machineID string) {
+		a.hub().mu.Lock()
+		defer a.hub().mu.Unlock()
+		for _, n := range v.state.Namespaces {
+			ns = append(ns, n.Name)
+		}
+		for _, w := range v.state.Workloads {
+			wl = append(wl, w.Name)
+		}
+		return ns, wl, v.state.Nodes["n1"].MachineId
+	}
+	save := func(body map[string]any) {
+		t.Helper()
+		if r := a.do("POST", "/api/v1/agents/"+id+"/consent", body, withCookie(editor)); r.Code != 200 {
+			t.Fatalf("%d %s", r.Code, r.Body.String())
+		}
+	}
+
+	save(map[string]any{"excludedNamespaces": []string{"shop"}, "pausedCollectors": []string{"probes"}})
+	ns, wl, mid := held()
+	if strings.Join(ns, ",") != "batch" || strings.Join(wl, ",") != "etl" {
+		t.Fatalf("after excluding shop the server still holds namespaces %v and workloads %v", ns, wl)
+	}
+	if mid != "" {
+		t.Fatalf("after pausing the node probe the server still holds the machine id %q", mid)
+	}
+
+	// Widening again has nothing to drop, and does not bring back what was dropped: only the agent can say it again.
+	save(map[string]any{})
+	if ns, _, _ := held(); strings.Join(ns, ",") != "batch" {
+		t.Fatalf("widening changed what is held: %v", ns)
+	}
+}
+
+func TestConsentNarrowsOnlyWhenSomethingIsTakenAway(t *testing.T) {
+	for name, c := range map[string]struct {
+		cur, next Consent
+		want      bool
+	}{
+		"nothing to something paused": {Consent{}, Consent{Paused: []string{"flow"}}, true},
+		"something excluded":          {Consent{}, Consent{Excluded: []string{"shop"}}, true},
+		"swapping one for another":    {Consent{Excluded: []string{"shop"}}, Consent{Excluded: []string{"batch"}}, true},
+		"adding to what was there":    {Consent{Paused: []string{"flow"}}, Consent{Paused: []string{"flow", "probes"}}, true},
+		"unchanged":                   {Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}, Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}, false},
+		"only widening":               {Consent{Paused: []string{"flow", "probes"}, Excluded: []string{"shop", "batch"}}, Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}, false},
+		"clearing everything":         {Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}, Consent{}, false},
+	} {
+		if got := consentNarrows(c.cur, c.next); got != c.want {
+			t.Errorf("%s: consentNarrows = %v, want %v", name, got, c.want)
+		}
+	}
+}
+
 // ---- consent overrides ----
 
 func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {

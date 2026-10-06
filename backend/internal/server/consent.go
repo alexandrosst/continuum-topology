@@ -315,6 +315,9 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 	v := h.viewFor(a.ID)
 	v.ext.consent, v.ext.consentAt, v.ext.consentLoad = next, now, true
 	h.mu.Unlock()
+	if consentNarrows(cur, next) {
+		h.narrowConsent(a.ID, next)
+	}
 	h.C.recordAgentGraph(ctx, a, "agent-consent-changed", detail)
 	h.pushOne(a.ID)
 	return next, nil
@@ -333,7 +336,12 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 // tightening later if that residual is ever a problem in practice; not attempted here because it would mean
 // parsing a flow key's namespace reliably enough to trust filtering by it.
 func (h *Hub) dropConsentOverrides(id string, s *continuumv1.Sync) {
-	c := h.consentOf(id)
+	applyConsent(h.consentOf(id), s)
+}
+
+// applyConsent cuts a picture down to what an agent's overrides leave it: the node probe's machine-identifying
+// fields when that collector is paused, and every namespace (and workload in one) on the excluded list.
+func applyConsent(c Consent, s *continuumv1.Sync) {
 	if c.has("probes") {
 		for _, n := range s.Nodes {
 			n.MachineId, n.SystemUuid, n.ProviderId = "", "", ""
@@ -408,6 +416,55 @@ func (h *Hub) narrowState(id string, tier int) {
 	dropAboveTier(tier, s)
 	st.Apply(s)
 	v.dirtyAt = h.C.Now()
+}
+
+// narrowConsent is narrowState for the overrides: what the server already holds for an agent that has just had a
+// collector paused or a namespace left out goes now, not whenever the agent next sends a full picture (which a stuck,
+// disconnected or out-of-date agent never would). The picture is replaced by itself cut down to the new overrides.
+func (h *Hub) narrowConsent(id string, c Consent) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	v := h.views[id]
+	if v == nil || v.state == nil || v.lastSync.IsZero() {
+		return
+	}
+	st := v.state
+	s := &continuumv1.Sync{Full: true, Seq: st.Seq}
+	if st.Cluster != nil {
+		s.Cluster = proto.Clone(st.Cluster).(*continuumv1.ClusterFacts)
+	}
+	for _, n := range st.Nodes {
+		s.Nodes = append(s.Nodes, proto.Clone(n).(*continuumv1.NodeFacts)) // cloned: applyConsent blanks fields in place
+	}
+	for _, n := range st.Namespaces {
+		s.Namespaces = append(s.Namespaces, n)
+	}
+	for _, w := range st.Workloads {
+		s.Workloads = append(s.Workloads, w)
+	}
+	applyConsent(c, s)
+	st.Apply(s)
+	v.dirtyAt = h.C.Now()
+}
+
+// consentNarrows is whether next takes anything away that cur still allowed: a collector newly paused, or a
+// namespace newly left out. Widening needs no purge (there is nothing held to drop).
+func consentNarrows(cur, next Consent) bool {
+	for _, p := range next.Paused {
+		if !cur.has(p) {
+			return true
+		}
+	}
+	had := make(map[string]bool, len(cur.Excluded))
+	for _, n := range cur.Excluded {
+		had[n] = true
+	}
+	for _, n := range next.Excluded {
+		if !had[n] {
+			return true
+		}
+	}
+	return false
 }
 
 // noteCeiling records the ceiling an agent's install says it has (the Hello carries it every time, so a `helm upgrade` shows up at
