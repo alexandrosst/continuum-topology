@@ -16,10 +16,10 @@ name: Release
 #   - pushing a tag like v0.3.0 publishes that exact version (and moves "latest" to it) - this is a real release.
 #   - workflow_dispatch, for a manual re-run without needing a new commit or tag.
 #
-# One-time setup this workflow cannot do for you: the first time this runs, GHCR creates the five packages
-# (continuum, server, continuum-agent, continuum-regional-operator, continuum-server) as PRIVATE by default, even in a public repo. Nothing
+# One-time setup this workflow cannot do for you: the first time this runs, GHCR creates the six packages
+# (continuum, server, continuum-agent, continuum-regional-operator, continuum-fusion, continuum-server) as PRIVATE by default, even in a public repo. Nothing
 # using the published install command will work until you flip that: on GitHub, the repo's right sidebar has a
-# "Packages" section once this has run once - open each of the five, "Package settings" at the bottom, "Change
+# "Packages" section once this has run once - open each of the six, "Package settings" at the bottom, "Change
 # visibility" to Public (and confirm "Link to this repository" is checked, so they show up on the repo's page).
 # You only need to do this once; every later push publishes new versions into the same, already-public packages.
 on:
@@ -153,6 +153,11 @@ jobs:
           # the server prints for a regional operator names oci://ghcr.io/<owner>/continuum-regional-operator.
           - dir: backend/internal/chart/continuum-regional-operator
             name: continuum-regional-operator
+          # FUSION: Prometheus, Loki and Tempo, from their upstream images (named in its values.yaml), so the
+          # "Bake" step has no case for it either. The install command the server prints for FUSION names
+          # oci://ghcr.io/<owner>/continuum-fusion.
+          - dir: backend/internal/chart/continuum-fusion
+            name: continuum-fusion
           - dir: deploy/helm/continuum-server
             name: continuum-server
     steps:

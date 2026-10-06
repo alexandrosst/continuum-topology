@@ -1,0 +1,26 @@
+{{- if .Values.prometheus.enabled }}
+{{- $p := .Values.prometheus }}
+{{- $name := printf "%s-prometheus" (include "fusion.name" .) }}
+{{- $sel := include "fusion.selector" (dict "root" . "component" "prometheus") }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+data:
+  prometheus.yml: |
+    # Nothing is scraped: every sample arrives pushed, over OTLP, from a regional operator.
+    global:
+      scrape_interval: 60s
+    otlp:
+      # Resource attributes that become labels (the rest stay in target_info).
+      promote_resource_attributes:
+        {{- range $p.promoteResourceAttributes }}
+        - {{ . }}
+        {{- end }}
+    storage:
+      tsdb:
+        # A batching collector delivers samples slightly out of order.
+        out_of_order_time_window: 30m
+{{- end }}

@@ -1,0 +1,25 @@
+{{- if .Values.networkPolicy.enabled }}
+# One policy over every store of this release. Ingress only: a store's own egress needs nothing but its volume.
+# Allowed in: the stores themselves (a future fused API reads them as a peer, so it must carry the same
+# app.kubernetes.io/instance label) and whatever allowedIngress names - normally the regional operator's pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "fusion.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: continuum-fusion
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with .Values.networkPolicy.allowedIngress }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

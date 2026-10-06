@@ -1,0 +1,6 @@
+apiVersion: v2
+name: continuum-fusion
+description: The FUSION backend set for Ikhnos regional operators - Prometheus for metrics, Loki for logs and Tempo for traces, each a single durable pod behind its own Service, so a regional operator can save every signal type it receives. In-cluster only by default and unauthenticated (the stores themselves have no login); reach it from outside only through the fused API, which is a separate component.
+type: application
+version: 0.1.0
+appVersion: "0.1.0-dev"

@@ -1,0 +1,86 @@
+# FUSION: the default place a regional operator saves what it receives. One pod per signal type, each with its
+# own durable volume and its own Service:
+#
+#   metrics -> Prometheus   (its native OTLP receiver; <name>-prometheus:9090, path /api/v1/otlp)
+#   logs    -> Loki         (its native OTLP endpoint;  <name>-loki:3100,       path /otlp)
+#   traces  -> Tempo        (OTLP gRPC 4317 / HTTP 4318; <name>-tempo)
+#
+# <name> is the release name, with "-fusion" added unless it already contains "fusion". A regional operator in the
+# same cluster reaches each store by that Service name; nothing here needs an Ingress.
+#
+# SECURITY: none of the three stores authenticates anything. They are ClusterIP only and meant to be reached from
+# inside the cluster. Turn on networkPolicy to limit who inside the cluster can write to or read from them.
+
+imagePullSecrets: []
+podAnnotations: {}
+podLabels: {}
+priorityClassName: ""
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Durable volumes. Off means each store keeps its data in an emptyDir: everything is lost when its pod is
+# rescheduled, which is only right for a demo.
+persistence:
+  enabled: true
+  storageClass: ""    # "" = the cluster's default StorageClass
+
+prometheus:
+  enabled: true
+  image:
+    repository: quay.io/prometheus/prometheus
+    tag: v3.5.0
+    digest: ""        # sha256:..., pins the image and ignores tag
+    pullPolicy: IfNotPresent
+  retention: 15d      # how long samples are kept: a number and a unit (y, w, d, h, m, s)
+  storage: 10Gi
+  # Resource attributes Prometheus turns into labels on every series. Everything else stays in target_info. The
+  # first ones are what lets a metric be joined to a span or a log line later (same cluster, namespace, pod).
+  promoteResourceAttributes:
+    - service.name
+    - service.namespace
+    - k8s.cluster.name
+    - k8s.namespace.name
+    - k8s.pod.name
+    - k8s.node.name
+    - k8s.deployment.name
+    - continuum.org.id
+    - continuum.cluster.id
+    - continuum.operator.id
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 2Gi}
+
+loki:
+  enabled: true
+  image:
+    repository: docker.io/grafana/loki
+    tag: 3.5.0
+    digest: ""
+    pullPolicy: IfNotPresent
+  retention: 168h     # whole days, in hours (24h, 48h, ...): Loki deletes by day
+  storage: 10Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+
+tempo:
+  enabled: true
+  image:
+    repository: docker.io/grafana/tempo
+    tag: 2.8.0
+    digest: ""
+    pullPolicy: IfNotPresent
+  retention: 72h      # hours
+  storage: 10Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+
+# Isolates the stores' pods: only pods matching one of allowedIngress (and the other stores of this release) may reach
+# them. Off by default because the right answer depends on where the regional operator and, later, the fused API run.
+networkPolicy:
+  enabled: false
+  # [{namespaceSelector: {matchLabels: {...}}, podSelector: {matchLabels: {...}}}] - the same shape as a
+  # NetworkPolicy "from" entry.
+  allowedIngress: []

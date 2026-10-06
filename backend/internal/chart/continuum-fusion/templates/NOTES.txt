@@ -1,0 +1,13 @@
+FUSION ({{ include "fusion.name" . }}) is installed in {{ .Release.Namespace }}.
+{{ if .Values.prometheus.enabled }}
+metrics  Prometheus   http://{{ include "fusion.name" . }}-prometheus.{{ .Release.Namespace }}.svc:9090/api/v1/otlp   (OTLP/HTTP)
+{{- end }}
+{{- if .Values.loki.enabled }}
+logs     Loki         http://{{ include "fusion.name" . }}-loki.{{ .Release.Namespace }}.svc:3100/otlp   (OTLP/HTTP)
+{{- end }}
+{{- if .Values.tempo.enabled }}
+traces   Tempo        {{ include "fusion.name" . }}-tempo.{{ .Release.Namespace }}.svc:4317   (OTLP/gRPC; HTTP on 4318)
+{{- end }}
+
+None of the three stores asks who is calling. They are reachable inside the cluster only; do not expose them.
+Check that they are up:  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}

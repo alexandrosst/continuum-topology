@@ -1,0 +1,96 @@
+{{- if .Values.loki.enabled }}
+{{- $l := .Values.loki }}
+{{- $name := printf "%s-loki" (include "fusion.name" .) }}
+{{- $sel := include "fusion.selector" (dict "root" . "component" "loki") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+    app.kubernetes.io/component: loki
+spec:
+  selector: {{- $sel | nindent 4 }}
+  ports:
+    - {name: http, port: 3100, targetPort: http, protocol: TCP}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+    app.kubernetes.io/component: loki
+spec:
+  replicas: 1
+  serviceName: {{ $name }}
+  selector:
+    matchLabels: {{- $sel | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- $sel | nindent 8 }}
+        app.kubernetes.io/part-of: continuum
+        {{- include "fusion.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/loki-config.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "fusion.podCommon" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: loki
+          image: {{ include "fusion.image" (dict "image" $l.image "component" "loki") | quote }}
+          imagePullPolicy: {{ $l.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - -config.file=/etc/loki/loki.yaml
+            - -target=all
+          ports:
+            - {name: http, containerPort: 3100, protocol: TCP}
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          # /ready goes red while the ingester starts or replays its log, which is not a reason to kill the pod.
+          livenessProbe:
+            tcpSocket: {port: http}
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
+          resources: {{- toYaml $l.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: config, mountPath: /etc/loki, readOnly: true}
+            - {name: data, mountPath: /loki}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: config
+          configMap: {name: {{ $name }}}
+        - name: tmp
+          emptyDir: {}
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests: {storage: {{ $l.storage | quote }}}
+  {{- end }}
+{{- end }}

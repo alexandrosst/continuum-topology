@@ -1,0 +1,94 @@
+{{- if .Values.prometheus.enabled }}
+{{- $p := .Values.prometheus }}
+{{- $name := printf "%s-prometheus" (include "fusion.name" .) }}
+{{- $sel := include "fusion.selector" (dict "root" . "component" "prometheus") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  selector: {{- $sel | nindent 4 }}
+  ports:
+    - {name: http, port: 9090, targetPort: http, protocol: TCP}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  replicas: 1
+  serviceName: {{ $name }}
+  selector:
+    matchLabels: {{- $sel | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- $sel | nindent 8 }}
+        app.kubernetes.io/part-of: continuum
+        {{- include "fusion.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/prometheus-config.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "fusion.podCommon" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: prometheus
+          image: {{ include "fusion.image" (dict "image" $p.image "component" "prometheus") | quote }}
+          imagePullPolicy: {{ $p.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time={{ $p.retention }}
+            - --web.listen-address=:9090
+            # The receiver a regional operator's OTLP/HTTP exporter writes to: /api/v1/otlp/v1/metrics.
+            - --web.enable-otlp-receiver
+          ports:
+            - {name: http, containerPort: 9090, protocol: TCP}
+          readinessProbe:
+            httpGet: {path: /-/ready, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /-/healthy, port: http}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources: {{- toYaml $p.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: config, mountPath: /etc/prometheus, readOnly: true}
+            - {name: data, mountPath: /prometheus}
+      volumes:
+        - name: config
+          configMap: {name: {{ $name }}}
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests: {storage: {{ $p.storage | quote }}}
+  {{- end }}
+{{- end }}
