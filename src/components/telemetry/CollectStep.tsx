@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { Activity, FileText, Waypoints, type LucideIcon } from 'lucide-react'
 import { Button, ICON_SM } from '@/components/ui/primitives'
-import { applyIntentPreset, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS } from '@/lib/consent'
+import { applyIntentPreset, PICKABLE_SIGNALS, TELEMETRY_INTENT_PRESETS } from '@/lib/consent'
 import type { TelemetryInput } from '@/lib/install'
 import { LAYER_CARDS, LAYER_META, type Layer } from '@/lib/telemetryLayers'
 import { AcceleratorsFields, EnergyFields, SignalRow } from './TelemetryFields'
@@ -40,7 +40,7 @@ export default function CollectStep({
   onContinue: () => void
 }) {
   const rec = value as unknown as Record<string, boolean>
-  const on = TELEMETRY_SIGNALS.filter((s) => rec[s.id])
+  const on = PICKABLE_SIGNALS.filter((s) => rec[s.id])
   const onIds = on.map((s) => s.id)
   const setMany = (ids: string[], v: boolean) => {
     const next = { ...value } as unknown as Record<string, unknown>
@@ -89,7 +89,7 @@ export default function CollectStep({
             </header>
             <div className="divide-y divide-nb-850">
               {MODALITY_ORDER.map((m) => {
-                const signals = TELEMETRY_SIGNALS.filter((s) => s.layer === layer && s.modality === m)
+                const signals = PICKABLE_SIGNALS.filter((s) => s.layer === layer && s.modality === m)
                 if (signals.length === 0) return null
                 const MIcon = MODALITY_META[m].icon
                 const ids = signals.map((s) => s.id)
@@ -133,7 +133,7 @@ export default function CollectStep({
         <p className="text-xs text-nb-500" role="status" data-testid={`${testIdPrefix}-collect-count`}>
           {on.length === 0
             ? 'Nothing picked yet.'
-            : `${on.length} of ${TELEMETRY_SIGNALS.length} signals picked${appCount > 0 ? ' - the next step narrows which namespaces your applications are collected from.' : '.'}`}
+            : `${on.length} of ${PICKABLE_SIGNALS.length} signals picked${appCount > 0 ? ' - the next step narrows which namespaces your applications are collected from.' : '.'}`}
         </p>
         <Button variant="primary" className="ml-auto" disabled={on.length === 0} onClick={onContinue} data-testid={`${testIdPrefix}-guided-continue`}>
           Continue

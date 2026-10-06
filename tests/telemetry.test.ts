@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { activeLanes, cleanTags, combinedScope, destinationReady, emptyExportTarget, startLanes, withLane, laneView, emptyScopeOverride, emptyTelemetry, scopeOverlap, scopeTag, tagProblems, TAG_LIMIT, telemetryActive, telemetryProblems, withTelemetry, workloadProblems, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
+import { activeLanes, cleanTags, isKept, keepAsInstalled, combinedScope, destinationReady, emptyExportTarget, startLanes, withLane, laneView, emptyScopeOverride, emptyTelemetry, scopeOverlap, scopeTag, tagProblems, TAG_LIMIT, telemetryActive, telemetryProblems, withTelemetry, workloadProblems, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
 import { newProcessorEntry } from '../src/lib/processorCatalog'
-import { applyIntentPreset, parseRoutedDestination, seedTelemetryFromInstalled, telemetrySecrets, TELEMETRY_CREDENTIAL_VAR, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetrySecretCommand, telemetryUpgradeCommand } from '../src/lib/consent'
+import { PICKABLE_SIGNALS, applyIntentPreset, describeTelemetryChanges, parseRoutedDestination, seedTelemetryFromInstalled, telemetrySecrets, TELEMETRY_CREDENTIAL_VAR, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetrySecretCommand, telemetryUpgradeCommand } from '../src/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '../src/lib/exportPresets'
 
 const base = 'helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace'
@@ -53,9 +53,26 @@ test('a full signal turns into one --set per signal, every one stated explicitly
   assert.match(cmd, /--set telemetry\.systemLogs\.logs\.enabled=false/)
   assert.match(cmd, /--set telemetry\.kubernetesEvents\.logs\.enabled=false/)
   assert.match(cmd, /--set telemetry\.applicationLogs\.logs\.enabled=false/)
-  // protocol defaults to grpc and is not restated; insecure defaults to false and is not restated either
-  assert.ok(!cmd.includes('telemetry.export.otlp.protocol'))
-  assert.ok(!cmd.includes('telemetry.export.otlp.tls.insecure'))
+  // The whole destination block is stated every time, defaults included: under --reuse-values a value that is only left out keeps
+  // whatever the release had, so a switch away from an http/insecure/mTLS destination would otherwise quietly keep half of it.
+  assert.match(cmd, /--set telemetry\.export\.otlp\.protocol=grpc/)
+  assert.match(cmd, /--set telemetry\.export\.otlp\.tls\.insecure=false/)
+  assert.match(cmd, /--set telemetry\.export\.otlp\.tls\.mtls\.enabled=false/)
+  assert.match(cmd, /--set-string telemetry\.export\.otlp\.tls\.mtls\.secretName= /)
+  assert.match(cmd, /--set-string telemetry\.export\.otlp\.tls\.serverName= /)
+  assert.match(cmd, /--set-string telemetry\.export\.otlp\.tls\.caFile= /)
+  assert.match(cmd, /--set-string telemetry\.export\.otlp\.auth\.secretName= /)
+})
+
+test('a destination left as installed is not restated, and an edit to it states the whole block again', () => {
+  const kept = keepAsInstalled({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'otel.example.com:4317' }, ['destination'])
+  const cmd = withTelemetry(base, kept)
+  // The endpoint is always stated; what the agent did not report about it (protocol, TLS, credential) is left alone while it is untouched.
+  assert.match(cmd, /telemetry\.export\.otlp\.endpoint=otel\.example\.com:4317/)
+  assert.ok(!/otlp\.(protocol|tls|auth)/.test(cmd), 'nothing the agent did not report is stated')
+  const edited = withTelemetry(base, { ...kept, exportProtocol: 'http' })
+  assert.match(edited, /--set telemetry\.export\.otlp\.protocol=http/)
+  assert.match(edited, /--set telemetry\.export\.otlp\.tls\.mtls\.enabled=false/)
 })
 
 test('non-default export protocol and insecure are carried', () => {
@@ -207,7 +224,10 @@ test('accelerators pointed at an existing source needs its endpoint, and carries
 
 test('an auth secret name carries the header and secret key, only when actually set', () => {
   const noAuth: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317' }
-  assert.ok(!withTelemetry(base, noAuth).includes('telemetry.export.otlp.auth'))
+  // No credential: the Secret name is still stated, empty, so one the release used to name stops being sent.
+  const noAuthCmd = withTelemetry(base, noAuth)
+  assert.match(noAuthCmd, /--set-string telemetry\.export\.otlp\.auth\.secretName= /)
+  assert.ok(!noAuthCmd.includes('auth.secretKey') && !noAuthCmd.includes('auth.headerName'))
 
   const withAuth: TelemetryInput = { ...noAuth, exportAuthSecretName: 'telemetry-token', exportAuthHeaderName: 'x-honeycomb-team' }
   const cmd = withTelemetry(base, withAuth)
@@ -215,9 +235,9 @@ test('an auth secret name carries the header and secret key, only when actually 
   assert.match(cmd, /--set-string telemetry\.export\.otlp\.auth\.secretKey=token/)
   assert.match(cmd, /--set-string telemetry\.export\.otlp\.auth\.headerName=x-honeycomb-team/)
 
-  // the default header (Authorization) is never restated, matching protocol/insecure's own precedent
+  // the default header (Authorization) is stated too: a release that used another one would keep it otherwise
   const defaultHeader: TelemetryInput = { ...noAuth, exportAuthSecretName: 'telemetry-token' }
-  assert.ok(!withTelemetry(base, defaultHeader).includes('telemetry.export.otlp.auth.headerName'))
+  assert.match(withTelemetry(base, defaultHeader), /--set-string telemetry\.export\.otlp\.auth\.headerName=Authorization/)
 })
 
 test('intent presets set every signal to exactly their combination, and leave everything else alone', () => {
@@ -230,7 +250,10 @@ test('intent presets set every signal to exactly their combination, and leave ev
 
   const debugAll = TELEMETRY_INTENT_PRESETS.find((p) => p.id === 'debug-everything')!
   const everything = applyIntentPreset(emptyTelemetry, debugAll)
-  for (const s of TELEMETRY_SIGNALS) assert.equal((everything as unknown as Record<string, boolean>)[s.id], true, `${s.id} should be on for debug-everything`)
+  for (const s of PICKABLE_SIGNALS) assert.equal((everything as unknown as Record<string, boolean>)[s.id], true, `${s.id} should be on for debug-everything`)
+  // The network-latency signal has no emitter behind it yet: no preset turns it on, and nothing offers it.
+  assert.equal(everything.networkLatency, false)
+  assert.ok(!PICKABLE_SIGNALS.some((s) => s.id === 'networkLatency'))
 })
 
 test('every export preset resolves to the existing generic export.otlp shape (no destination-specific export mode)', () => {
@@ -661,3 +684,57 @@ test('a kept route whose signal type is turned off is still cleared', () => {
   assert.match(cmd, /--set-string telemetry\.export\.routes\.traces\.endpoint=( |$|\\)/m)
 })
 
+
+const CFG = { exportEndpoint: 'gw.example.com:4317', redactionEnabled: true, resourceDetectionEnabled: false }
+const grant = (over: Record<string, unknown> = {}) => ({ id: 'i', agentId: 'a', name: 'n', status: 'active', namespaces: [], exclude: [], signals: [], destination: { kind: 'external', endpoint: 'granted.example.com:4317' }, createdAt: '', createdBy: '', ...over }) as never
+
+test('seeding: what the agent does not report is kept as installed, so the command leaves it out instead of stating a default', () => {
+  const seeded = seedTelemetryFromInstalled(['resourceUsage'], CFG)
+  assert.ok(isKept(seeded, 'tags'), 'an agent that sends no tags says nothing about them')
+  assert.ok(isKept(seeded, 'debug'))
+  assert.ok(isKept(seeded, 'scopeShared'))
+  assert.ok(!isKept(seeded, 'processors'), 'reported, so it is known')
+  // Everything reported: nothing is left unknown.
+  const full = seedTelemetryFromInstalled(['resourceUsage'], { ...CFG, tags: [], debugVerbosity: '', scope: {} } as never)
+  assert.ok(!isKept(full, 'tags') && !isKept(full, 'debug') && !isKept(full, 'scopeShared'))
+  // Nothing installed and nothing reported: a fresh draft that states everything.
+  assert.deepEqual(seedTelemetryFromInstalled([]).keptAsInstalled, {})
+})
+
+test('seeding: the reported tags, debug verbosity and scope come through', () => {
+  const seeded = seedTelemetryFromInstalled(['resourceUsage', 'traces'], {
+    ...CFG,
+    tags: [{ key: 'team', value: 'core' }],
+    debugVerbosity: 'basic',
+    scope: { traces: { namespaces: ['shop'], exclude: ['kube-system'] }, infra: { namespaces: [], exclude: [] } },
+  } as never)
+  assert.deepEqual(seeded.tags, [{ key: 'team', value: 'core' }])
+  assert.equal(seeded.debugVerbosity, 'basic')
+  assert.deepEqual(seeded.tracesScope.namespaces, ['shop'])
+  assert.equal(seeded.scopeInfrastructure, true)
+})
+
+test('seeding: a recorded grant fills in what the agent does not report, and stays out of the command until edited', () => {
+  const seeded = seedTelemetryFromInstalled(['resourceUsage'], undefined, grant())
+  assert.equal(seeded.exportEndpoint, 'granted.example.com:4317')
+  assert.ok(isKept(seeded, 'destination'))
+  assert.ok(!isKept({ ...seeded, exportEndpoint: 'other:4317' }, 'destination'), 'editing it ends the keeping')
+  const toOperator = seedTelemetryFromInstalled(['resourceUsage'], undefined, grant({ destination: { kind: 'operator', endpoint: '', targetOperatorId: 'op-eu' } }))
+  assert.equal(toOperator.exportOperatorId, 'op-eu')
+  // What the agent reports wins over what was once asked for; a revoked grant is not a grant at all.
+  assert.equal(seedTelemetryFromInstalled(['resourceUsage'], CFG, grant()).exportEndpoint, 'gw.example.com:4317')
+  assert.equal(seedTelemetryFromInstalled(['resourceUsage'], undefined, grant({ status: 'revoked' })).exportEndpoint, '')
+})
+
+test('describeTelemetryChanges: says what running the command changes, and nothing when it changes nothing', () => {
+  const seeded = seedTelemetryFromInstalled(['resourceUsage'], CFG)
+  assert.deepEqual(describeTelemetryChanges(['resourceUsage'], CFG, seeded), [])
+  assert.deepEqual(describeTelemetryChanges(['resourceUsage'], CFG, { ...seeded, traces: true }), ['Turns on Traces', 'Collects traces from all namespaces'])
+  assert.deepEqual(describeTelemetryChanges(['resourceUsage'], CFG, { ...seeded, resourceUsage: false }), ['Turns off Resource usage'])
+  // Changing a kept setting ends the keeping, and then it is worth saying.
+  assert.deepEqual(describeTelemetryChanges(['resourceUsage'], CFG, { ...seeded, exportEndpoint: 'new.example.com:4317' }), ['Sends to new.example.com:4317 instead of gw.example.com:4317'])
+  assert.deepEqual(describeTelemetryChanges(['resourceUsage'], CFG, { ...seeded, redaction: false }), ['Changes the redaction or resource-detection processors'])
+  // A destination the agent does not report is "set", not "changed".
+  const unknown = seedTelemetryFromInstalled(['resourceUsage'], { ...CFG, exportEndpoint: '' })
+  assert.deepEqual(describeTelemetryChanges(['resourceUsage'], { ...CFG, exportEndpoint: '' }, { ...unknown, exportEndpoint: 'x.example.com:4317' }), ['Sets the destination to x.example.com:4317, with its protocol, TLS and credential'])
+})

@@ -16,8 +16,10 @@ vi.mock('@/store/topology', () => ({
   useTopology: () => topologyState,
 }))
 vi.mock('@/store/server', () => ({
-  useServer: (selector?: (s: { state?: { agents: Agent[] }; info?: { install?: undefined }; role?: undefined }) => unknown) =>
-    selector ? selector({ state: { agents: [] }, info: {}, role: undefined }) : { state: { agents: [] }, info: {} },
+  useServer: (selector?: (s: { state?: { agents: Agent[] }; info?: { install?: undefined }; role?: undefined; conn: () => null; orgId?: string }) => unknown) =>
+    // conn() is null: the operator and FUSION hooks the Destination step mounts have no server to ask here,
+    // so they stay idle instead of rejecting after the test has finished.
+    selector ? selector({ state: { agents: [] }, info: {}, role: undefined, conn: () => null, orgId: undefined }) : { state: { agents: [] }, info: {} },
   useConn: () => ({ url: '', org: '' }),
 }))
 

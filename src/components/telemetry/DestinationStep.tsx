@@ -1,104 +1,16 @@
-import clsx from 'clsx'
-import { Activity, Check, ChevronDown, ChevronLeft, ExternalLink, FileText, Search, Waypoints, type LucideIcon } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, Layers } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { buttonClass } from '@/components/ui/buttonClass'
+import { FusionDot } from '@/components/operators/FusionPanel'
 import { OperatorHealth } from '@/components/operators/OperatorHealth'
-import { Button, Field, ICON_MD, ICON_SM, InfoTip, Input, Select } from '@/components/ui/primitives'
-import { applyDestination, destinationEndpoint, destinationIsPlain, destinationKey, destinationNeedsCredential, layoutDestinations, searchDestinations, type DestinationCatalog, type DestinationCatalogEntry } from '@/lib/destinationCatalog'
-import { imageRepository } from '@/lib/detectBackends'
-import { exportProtocolLabel, type Modality, type TelemetryInput } from '@/lib/install'
+import { Button, Field, ICON_MD, ICON_SM, InfoTip, Input, Select, Waiting } from '@/components/ui/primitives'
+import { applyDestination, destinationEndpoint, destinationIsPlain, destinationKey, destinationNeedsCredential, layoutDestinations, type DestinationCatalog, type DestinationCatalogEntry } from '@/lib/destinationCatalog'
+import { fusionLabel } from '@/lib/fusionStatus'
+import { exportProtocolLabel, type TelemetryInput } from '@/lib/install'
 import { operatorLiveness, receiverAuthOf } from '@/lib/operatorHealth'
+import type { RegionalOperator } from '@/lib/types'
+import DestinationPicker, { type FusionControls, useEnableAndUse } from './DestinationPicker'
 
 type Mode = 'list' | 'custom'
-
-const SIGNAL_ICON: Record<Modality, { icon: LucideIcon; label: string }> = {
-  metrics: { icon: Activity, label: 'Metrics' },
-  logs: { icon: FileText, label: 'Logs' },
-  traces: { icon: Waypoints, label: 'Traces' },
-}
-const MODALITIES: Modality[] = ['metrics', 'logs', 'traces']
-
-/** The small tag at the right of a row: what sort of destination it is. */
-function kindLabel(e: DestinationCatalogEntry): string {
-  if (e.kind === 'operator') return 'Regional operator'
-  if (e.kind === 'quickstart') return 'Quick-started'
-  if (e.kind === 'detected') return 'Detected'
-  return e.preset.group === 'self-hosted' ? 'Self-hosted' : 'Cloud'
-}
-
-/** A destination's initials in a tile - no logos, which would need licensing and keeping up to date, and
- *  would make the one custom-built row look less finished than the rest. */
-function monogram(label: string): string {
-  const words = label.replace(/[()·-]/g, ' ').split(/\s+/).filter(Boolean)
-  const first = words[0] ?? '?'
-  return (words.length > 1 ? first[0] + words[1][0] : first.slice(0, 2)).toUpperCase()
-}
-
-/** Which of the three signals a destination takes: lit for what it carries, dimmed for what it does not. */
-function SignalChips({ accepts, testId }: { accepts: Modality[]; testId: string }) {
-  return (
-    <span className="flex shrink-0 items-center gap-1" data-testid={testId} aria-label={`Takes ${accepts.join(', ')}`}>
-      {MODALITIES.map((m) => {
-        const { icon: Icon, label } = SIGNAL_ICON[m]
-        const on = accepts.includes(m)
-        return (
-          <span key={m} title={on ? `Takes ${label.toLowerCase()}` : `Doesn’t take ${label.toLowerCase()}`} data-on={on} className={clsx('flex size-5 items-center justify-center rounded', on ? 'bg-nb-930 text-nb-300' : 'text-nb-700 opacity-60')}>
-            <Icon size={ICON_SM} aria-hidden />
-          </span>
-        )
-      })}
-    </span>
-  )
-}
-
-/** The second line of a destination row - what a person needs to tell it apart from the others without
- *  opening anything. A regional operator's line also says what its opt-in heartbeat last told this server
- *  (Online, or Offline with when it was last seen); one that does not report says nothing about health at
- *  all - never a guessed state. Other destinations carry no health claim: nothing here knows it. */
-function entryMeta(e: DestinationCatalogEntry): string {
-  if (e.kind === 'operator') {
-    const m = e.operator.acceptedModalities
-    const base = m && m.length > 0 ? `Accepts ${m.join(', ')}` : 'Accepts any signal'
-    const live = operatorLiveness(e.operator)
-    return live.kind === 'unreported' ? base : `${base} · ${live.text}`
-  }
-  if (e.kind === 'quickstart') return `Quick-started here · ${e.backend.modality}`
-  if (e.kind === 'detected') return `${e.exportEndpoint} · ${imageRepository(e.detected.service.image)}`
-  const proto = e.preset.httpOnly ? 'OTLP/HTTP only' : e.preset.protocol === 'http' ? 'OTLP/HTTP' : 'OTLP/gRPC'
-  if (e.preset.group === 'self-hosted') return `${proto} · ${e.preset.endpointPattern}`
-  return e.preset.headerName ? `${proto} · needs a credential` : proto
-}
-
-/** A destination row: the same bordered-box language as GuidedWizard's PickCard, laid out as a compact list
- *  row, since this step shows more than a handful of them and a grid of tall cards pushes everything else
- *  below the fold. */
-function DestinationRow({ entry, selected, badge, onPick, testId }: { entry: DestinationCatalogEntry; selected: boolean; /** Why this one is recommended, when it is. */ badge?: string; onPick: () => void; testId: string }) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onPick}
-      data-testid={testId}
-      className={clsx(
-        'flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors',
-        selected ? 'border-accent bg-accent-soft ring-1 ring-accent/40' : 'border-nb-850 bg-nb-925 hover:border-nb-800 hover:bg-nb-930',
-      )}
-    >
-      <span className={clsx('flex size-8 shrink-0 items-center justify-center rounded-lg', selected ? 'bg-accent/15 text-accent' : 'bg-nb-930 text-nb-500')} aria-hidden>
-        <span className="text-[11px] font-semibold tracking-tight">{monogram(entry.label)}</span>
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-nb-200">{entry.label}</span>
-        <span className="block truncate text-xs text-nb-500">{entryMeta(entry)}</span>
-      </span>
-      {badge && <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent" data-testid={`${testId}-recommended`}>{badge}</span>}
-      <SignalChips accepts={entry.accepts} testId={`${testId}-signals`} />
-      <span className={clsx('w-24 shrink-0 text-right text-xs', entry.kind === 'detected' ? 'font-medium text-accent' : 'text-nb-500')}>{kindLabel(entry)}</span>
-    </button>
-  )
-}
 
 /**
  * The guided wizard's Destination step: one decision up front, everything else behind a disclosure.
@@ -125,6 +37,9 @@ export default function DestinationStep({
   onChoose,
   onBack,
   onContinue,
+  fusion,
+  onSetUpOperator,
+  onRecordAddress,
   bare = false,
   heading = true,
 }: {
@@ -141,6 +56,12 @@ export default function DestinationStep({
   onChoose: (key: string | null) => void
   onBack: () => void
   onContinue: () => void
+  /** What an administrator can do about FUSION from here: switch it on and use it in one step. */
+  fusion?: FusionControls
+  /** Opens "new regional operator" over this wizard (administrators): the draft is not lost, and the new operator is picked afterwards. */
+  onSetUpOperator?: () => void
+  /** Opens "where other clusters reach it" for the picked operator, over this wizard. */
+  onRecordAddress?: (operator: RegionalOperator) => void
   /** One signal type's destination inside a card (see RoutesStep): no heading and no Back/Continue of its
    *  own, and no word about what happens next - the step around it has those. */
   bare?: boolean
@@ -150,10 +71,7 @@ export default function DestinationStep({
   const p = `${testIdPrefix}-guided`
   const [mode, setMode] = useState<Mode>('list')
   const [picking, setPicking] = useState(false)
-  const [more, setMore] = useState(false)
-  const [unavailableOpen, setUnavailableOpen] = useState(false)
   const [connOpen, setConnOpen] = useState(false)
-  const [query, setQuery] = useState('')
   const [customDraft, setCustomDraft] = useState('')
   const [autoPicked, setAutoPicked] = useState(false)
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
@@ -166,6 +84,7 @@ export default function DestinationStep({
 
   // Exactly one destination of this organisation's own fits the signals and nothing is picked yet: pick it,
   // once, and say so on the summary. Only ever on a draft with no endpoint of its own - never over a choice.
+  // FUSION counts only once it can be sent to (see layoutDestinations): an off one is never picked on anyone's behalf.
   const autoDone = useRef(false)
   useEffect(() => {
     if (autoDone.current || !catalogReady) return
@@ -199,6 +118,16 @@ export default function DestinationStep({
     // that can't be skipped - and every other one leaves them closed.
     setConnOpen(destinationNeedsCredential(e))
   }
+
+  // "Enable and use": FUSION is switched on, and picked as soon as it can be sent to (starting counts).
+  const fusionControls = useEnableAndUse(catalog.entries, fusion, (entry) => {
+    onChange(applyDestination(value, entry))
+    onChoose(destinationKey(entry))
+    setPicking(false)
+    setMode('list')
+    setAutoPicked(false)
+  })
+
   const openCustom = () => {
     setCustomDraft(activeKey === 'custom' ? value.exportEndpoint : '')
     setMode('custom')
@@ -216,24 +145,9 @@ export default function DestinationStep({
   // Driven by the choice, not by the endpoint text: clearing the endpoint field to retype it must not
   // collapse the summary the person is editing back into the list.
   const showSummary = mode === 'list' && activeKey !== null && !picking
-  const moreCount = layout.all.length - layout.primary.length
-  const searching = query.trim() !== ''
-  const found = searching ? searchDestinations(catalog, query) : undefined
-  const rowFor = (entry: DestinationCatalogEntry) => (
-    <DestinationRow key={destinationKey(entry)} entry={entry} selected={destinationKey(entry) === activeKey} badge={layout.recommended.has(destinationKey(entry)) ? 'Already receives this cluster' : undefined} onPick={() => choose(entry)} testId={`${p}-destination-${destinationKey(entry)}`} />
-  )
-  const unavailableRows = (entries: DestinationCatalogEntry[]) => (
-    <ul className="space-y-1.5" data-testid={searching ? `${p}-destination-search-unavailable` : `${p}-destination-unavailable`}>
-      {entries.map((e) => (
-        <li key={destinationKey(e)} className="flex items-center gap-3 rounded-xl border border-dashed border-nb-850 px-3.5 py-2 text-xs text-nb-500" data-testid={`${p}-destination-${destinationKey(e)}`}>
-          <span className="min-w-0 flex-1 truncate text-nb-400">{e.label}</span>
-          <span className="text-right">{e.reason}</span>
-          <SignalChips accepts={e.accepts} testId={`${p}-destination-${destinationKey(e)}-signals`} />
-        </li>
-      ))}
-    </ul>
-  )
-  const isOperator = selected?.kind === 'operator'
+  const isFusion = selected?.kind === 'fusion'
+  const isOperator = selected?.kind === 'operator' || isFusion
+  const operator = selected?.kind === 'operator' || selected?.kind === 'fusion' ? selected.operator : undefined
   const preset = selected?.kind === 'external-preset' ? selected.preset : undefined
   // A preset's pattern and a detected workload's guessed address are both starting points to correct.
   const endpointEditable = !selected || selected.kind === 'external-preset' || selected.kind === 'detected'
@@ -243,10 +157,16 @@ export default function DestinationStep({
   // How the chosen operator's receiver authenticates this agent. Only a bearer one (every operator from before
   // certificate-only receivers, and any whose receiver auth is not known) takes a token on top of the
   // certificate; a certificate-only one asks for none, so the field is not offered and a leftover name is ignored.
-  const operatorAuth = selected?.kind === 'operator' ? receiverAuthOf(selected.operator) : undefined
-  const operatorBearer = isOperator && operatorAuth === 'bearer'
+  const operatorAuth = operator ? receiverAuthOf(operator) : undefined
+  const operatorBearer = isOperator && operatorAuth === 'bearer' && !isFusion
   const secretNamed = value.exportAuthSecretName.trim() !== '' && (!isOperator || operatorBearer)
-  const operatorLive = selected?.kind === 'operator' ? operatorLiveness(selected.operator) : undefined
+  const operatorLive = operator && !isFusion ? operatorLiveness(operator) : undefined
+  const fusionOffer = selected?.kind === 'fusion' ? selected.fusion : undefined
+  // Reachable from other clusters only with a recorded address (the central operator: once exposed). Otherwise the commands dial the
+  // in-cluster name, which resolves in the operator's own cluster alone - said on the card, not behind a disclosure, since it decides
+  // whether this works at all.
+  const reachable = !!operator && operator.reachableFromOtherClusters === true && !!operator.address
+  const dialled = operator?.endpoint
 
   const connSummary = isOperator
     ? operatorBearer
@@ -264,74 +184,19 @@ export default function DestinationStep({
       )}
 
       {mode === 'list' && !showSummary && (
-        <div className="space-y-3" data-testid={`${p}-destination-list`}>
+        <div className="space-y-3">
           {picking && endpointSet && (
             <button type="button" className="text-xs text-accent hover:underline" onClick={() => setPicking(false)} data-testid={`${p}-destination-keep`}>
               Keep {name}
             </button>
           )}
-          <div className="relative">
-            <Search size={ICON_SM} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-nb-500" aria-hidden />
-            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search - a name, a signal, “loki”, “logs”…" aria-label="Search destinations" className="pl-9" data-testid={`${p}-destination-search`} />
-          </div>
-
-          {found ? (
-            <div className="space-y-2" data-testid={`${p}-destination-results`}>
-              {found.usable.length > 0 && (
-                <div className="space-y-2" role="radiogroup" aria-label="Destination">
-                  {found.usable.map(rowFor)}
-                </div>
-              )}
-              {found.unavailable.length > 0 && unavailableRows(found.unavailable)}
-              {found.usable.length === 0 && found.unavailable.length === 0 && (
-                <div className="rounded-xl border border-dashed border-nb-800 p-4 text-sm text-nb-400" data-testid={`${p}-destination-no-match`}>
-                  Nothing matches “{query.trim()}”. Use a custom endpoint below if yours isn’t listed.
-                </div>
-              )}
-            </div>
-          ) : layout.all.length > 0 ? (
-            <div className="space-y-4" role="radiogroup" aria-label="Destination">
-              {layout.sections.map((section) => {
-                const rows = more ? section.entries : section.shown
-                if (rows.length === 0) return null
-                return (
-                  <section key={section.group} className="space-y-2" data-testid={`${p}-destination-group-${section.group}`}>
-                    <h4 className="text-[11px] font-medium uppercase tracking-wide text-nb-500">{section.title}</h4>
-                    {section.group === 'cluster' && <p className="-mt-1 text-xs text-nb-500">Receivers discovery already sees running here. The address is worked out from the workload’s name - check it before you rely on it.</p>}
-                    {rows.map(rowFor)}
-                  </section>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-nb-800 p-4 text-sm text-nb-400" data-testid={`${p}-destination-empty`}>
-              Nothing in this organisation can carry these signals yet. Set up a regional operator, or send straight to an endpoint you already run.
-            </div>
-          )}
-
-          {!searching && (moreCount > 0 || layout.unavailable.length > 0) && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-              {moreCount > 0 && (
-                <button type="button" className="text-accent hover:underline" onClick={() => setMore((m) => !m)} data-testid={`${p}-destination-more`}>
-                  {more ? 'Show fewer' : `Show ${moreCount} more`}
-                </button>
-              )}
-              {layout.unavailable.length > 0 && (
-                <button type="button" className="text-nb-500 underline underline-offset-2 hover:text-nb-300" aria-expanded={unavailableOpen} onClick={() => setUnavailableOpen((o) => !o)} data-testid={`${p}-destination-unavailable-toggle`}>
-                  {unavailableOpen ? 'Hide the ones that don’t fit' : `${layout.unavailable.length} can’t carry these signals`}
-                </button>
-              )}
-            </div>
-          )}
-          {!searching && unavailableOpen && unavailableRows(layout.unavailable)}
+          <DestinationPicker catalog={catalog} layout={layout} activeKey={activeKey} onPick={choose} testIdPrefix={p} fusion={fusionControls} />
 
           <div className="flex flex-wrap items-center gap-2 border-t border-nb-850 pt-3">
             <span className="mr-1 text-xs text-nb-500">Not listed?</span>
             <Button type="button" size="sm" onClick={openCustom} data-testid={`${p}-destination-custom`}>Use a custom endpoint</Button>
-            {catalog.canDeployOperator && (
-              <Link to="/operators" className={buttonClass('secondary', 'sm')} data-testid={`${p}-deploy-operator`}>
-                <ExternalLink size={ICON_SM} /> Set up a regional operator
-              </Link>
+            {catalog.canDeployOperator && onSetUpOperator && (
+              <Button type="button" size="sm" onClick={onSetUpOperator} data-testid={`${p}-deploy-operator`}>Set up a regional operator</Button>
             )}
           </div>
         </div>
@@ -358,13 +223,13 @@ export default function DestinationStep({
 
       {showSummary && (
         <div className="space-y-3" data-testid={`${p}-destination-summary`}>
-          <div className="flex items-start gap-3 rounded-xl border border-accent bg-accent-soft p-4 ring-1 ring-accent/40">
+          <div className="flex flex-wrap items-start gap-3 rounded-xl border border-accent bg-accent-soft p-4 ring-1 ring-accent/40 sm:flex-nowrap">
             <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-nb-950" aria-hidden>
               <Check size={ICON_MD} strokeWidth={3} />
             </span>
-            <div className="min-w-0 flex-1 space-y-1">
+            <div className="min-w-0 flex-1 basis-44 space-y-1">
               <div className="text-[11px] font-medium uppercase tracking-wide text-nb-400">Sending to</div>
-              <div className="text-sm font-medium text-nb-200" data-testid={`${p}-destination-name`}>{name}</div>
+              <div className="flex items-center gap-1.5 text-sm font-medium text-nb-200" data-testid={`${p}-destination-name`}>{isFusion && <Layers size={ICON_SM} className="text-nb-500" aria-hidden />}{name}</div>
               {endpointEditable ? (
                 <Input
                   value={value.exportEndpoint}
@@ -374,14 +239,53 @@ export default function DestinationStep({
                   data-testid={`${p}-destination-endpoint`}
                 />
               ) : (
-                <div className="break-all font-mono text-xs text-nb-400" data-testid={`${p}-destination-endpoint`}>{selected?.kind === 'operator' && selected.operator.endpoint ? selected.operator.endpoint : value.exportEndpoint}</div>
+                <div className="break-all font-mono text-xs text-nb-400" data-testid={`${p}-destination-endpoint`}>{dialled ? dialled : value.exportEndpoint}</div>
               )}
-              {operatorLive && operatorLive.kind !== 'unreported' && selected?.kind === 'operator' && (
-                <div data-testid={`${p}-destination-health`}><OperatorHealth operator={selected.operator} testId={`${p}-destination-health-chip`} /></div>
+              {fusionOffer && (
+                <div className="text-xs text-nb-400" data-testid={`${p}-destination-fusion`} data-fusion={fusionOffer.kind}>
+                  {fusionOffer.kind === 'starting' ? (
+                    <>
+                      <Waiting testId={`${p}-destination-fusion-waiting`}>
+                        Starting{fusionOffer.parts ? ` - ${fusionOffer.parts.up} of ${fusionOffer.parts.wanted} parts are up` : ''}.
+                      </Waiting>
+                      <span className="mt-1 block" data-testid={`${p}-destination-fusion-safe`}>The commands are safe to run now: collectors keep what they cannot deliver yet and send it once FUSION is up.</span>
+                    </>
+                  ) : fusionOffer.usable ? (
+                    <span className="inline-flex items-center gap-1.5"><FusionDot kind={fusionOffer.kind} /> {fusionLabel(fusionOffer.kind)}</span>
+                  ) : (
+                    <div role="alert" className="rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-warn" data-testid={`${p}-destination-fusion-blocked`}>
+                      <p>
+                        {fusionOffer.kind === 'off' ? 'FUSION is off, so nothing receives this yet.' : fusionOffer.kind === 'attention' ? 'FUSION needs attention, so nothing can be sent to it yet.' : fusionOffer.message ?? 'FUSION cannot be used from here.'}
+                        {fusionOffer.canEnable ? '' : fusionOffer.kind === 'off' ? ' An administrator can turn it on.' : ''}
+                      </p>
+                      {fusionOffer.canEnable && fusionControls?.enable && (
+                        <Button size="sm" className="mt-2" onClick={() => void fusionControls.enable?.()} disabled={fusionControls.busy} data-testid={`${p}-destination-fusion-enable`}>{fusionControls.busy ? 'Starting…' : 'Enable FUSION'}</Button>
+                      )}
+                    </div>
+                  )}
+                  {fusion?.error && <p role="alert" className="mt-1 text-bad">{fusion.error}</p>}
+                </div>
+              )}
+              {operatorLive && operatorLive.kind !== 'unreported' && operator && (
+                <div data-testid={`${p}-destination-health`}><OperatorHealth operator={operator} testId={`${p}-destination-health-chip`} /></div>
               )}
               {operatorLive?.kind === 'offline' && (
                 <p className="text-xs text-nb-400" data-testid={`${p}-destination-offline-note`}>
                   This operator has not reported recently, so agents may not be able to deliver to it until it does. You can still choose it.
+                </p>
+              )}
+              {/* Not while FUSION cannot be sent to at all: the box above already says that, and a second amber box about where it lives only buries it. */}
+              {operator && !reachable && !(fusionOffer && !fusionOffer.usable) && (
+                <p role="note" className="rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" data-testid={`${p}-destination-operator-address`}>
+                  {isFusion ? 'FUSION' : 'This operator'} is reachable inside its own cluster only{dialled ? <> (<span className="font-mono">{dialled}</span>)</> : ''}. If this cluster is a different one, record where it is reachable first, and the commands will use that address.
+                  {onRecordAddress && !isFusion && catalog.canDeployOperator && (
+                    <Button size="sm" className="ml-2 align-middle" onClick={() => onRecordAddress(operator)} data-testid={`${p}-destination-record-address`}>Record an address</Button>
+                  )}
+                </p>
+              )}
+              {operator && reachable && (
+                <p className="text-xs text-nb-400" data-testid={`${p}-destination-operator-address`}>
+                  Reached at <span className="font-mono">{operator.address}</span>, the address recorded for this operator, so this works from any cluster that can reach it.
                 </p>
               )}
               {unresolved && (
@@ -398,7 +302,7 @@ export default function DestinationStep({
               )}
               {autoPicked && <p className="text-xs text-nb-400" data-testid={`${p}-destination-auto`}>The only destination in your organisation that fits these signals, so it was picked for you.</p>}
             </div>
-            <Button size="sm" onClick={() => { setPicking(true); setMore(false) }} data-testid={`${p}-destination-change`}>Change</Button>
+            <Button size="sm" onClick={() => setPicking(true)} data-testid={`${p}-destination-change`}>Change</Button>
           </div>
 
           <details className="group rounded-lg border border-nb-850" open={connOpen} onToggle={(e) => setConnOpen(e.currentTarget.open)} data-testid={`${p}-destination-connection`}>
@@ -415,17 +319,6 @@ export default function DestinationStep({
                   <p className="text-xs text-nb-400" data-testid={`${p}-destination-operator-note`}>
                     A regional operator takes OTLP/gRPC over mutual TLS, so there is no protocol to set here. The commands that connect this cluster to it are generated on the wizard’s last step, once you have reviewed everything: administrators only, and each time it issues a fresh client certificate for this cluster (recorded in the audit log). The certificate, its key and the Secret that holds them are part of those commands.
                   </p>
-                  {selected?.kind === 'operator' && (
-                    selected.operator.reachableFromOtherClusters && selected.operator.address ? (
-                      <p className="text-xs text-nb-400" data-testid={`${p}-destination-operator-address`}>
-                        Reached at <span className="font-mono">{selected.operator.address}</span>, the address recorded for this operator, so this works from any cluster that can reach it.
-                      </p>
-                    ) : (
-                      <p className="text-xs text-nb-400" data-testid={`${p}-destination-operator-address`}>
-                        No address is recorded for this operator, so the commands dial its in-cluster name{selected.operator.endpoint ? <> (<span className="font-mono">{selected.operator.endpoint}</span>)</> : ''}, which only resolves in the cluster it runs in. If this cluster is a different one, record where it is reachable first: <Link to="/operators" className="underline">Regional operators</Link>, then Reachable at.
-                      </p>
-                    )
-                  )}
                   {operatorBearer ? (
                     <Field label="Receiver token Secret (optional)" hint="This operator was created with a receiver bearer token, which it checks on top of the certificate. Name the Secret that will hold it; the generated commands create it from TELEMETRY_EXPORT_TOKEN, which you set to Bearer followed by the token. The token itself never goes through this page.">
                       <Input value={value.exportAuthSecretName} onChange={(e) => set('exportAuthSecretName', e.target.value)} placeholder="operator-receiver-token" className="font-mono" data-testid={`${testIdPrefix}-export-auth-secret`} />
@@ -492,7 +385,7 @@ export default function DestinationStep({
           <Button variant="ghost" size="sm" onClick={onBack} data-testid={`${testIdPrefix}-guided-back`}>
             <ChevronLeft size={ICON_SM} /> Back
           </Button>
-          <Button variant="primary" className="ml-auto" onClick={onContinue} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
+          <Button variant="primary" className="ml-auto" onClick={onContinue} disabled={!!fusionOffer && !fusionOffer.usable} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
         </div>
       )}
     </div>

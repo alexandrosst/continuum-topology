@@ -13,10 +13,17 @@ vi.mock('@/store/settings', () => ({
   useSettings: () => ({ settings: DEFAULT_SETTINGS, loaded: true, error: undefined, save: vi.fn(async () => true) }),
 }))
 const CONN = { url: 'https://example.test', org: 'org-1' }
+// The store's conn is one stable function; a fresh one per render would make every polled list read again on every render.
+const connFn = () => CONN
 vi.mock('@/store/server', () => ({
-  useServer: (selector?: (s: { role?: string }) => unknown) => (selector ? selector({ role: 'editor' }) : { role: 'editor' }),
+  useServer: (selector?: (s: { role?: string; conn: () => typeof CONN }) => unknown) => (selector ? selector({ role: 'editor', conn: connFn }) : { role: 'editor', conn: connFn }),
   useConn: () => CONN,
 }))
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>()
+  // An editor reads the destinations as a read model; here there are none, and nothing reaches a server.
+  return { ...actual, api: { ...actual.api, listOperatorDestinations: async () => [], listTelemetryIntents: async () => [] } }
+})
 
 async function pickHoneycomb(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByTestId('tp-mode-guided'))
@@ -76,5 +83,43 @@ describe('TelemetryPanel command: what every install is stamped with', () => {
     expect(cmd).toContain('telemetry.resource.clusterId=cl-9')
     expect(cmd).toContain('telemetry.debug.verbosity=basic')
     expect(cmd).toContain("telemetry.resource.attributes='[]'")
+  })
+})
+
+describe('TelemetryPanel: an unfinished draft survives leaving the page', () => {
+  const panel = (agentId = 'agent-1') => (
+    <MemoryRouter>
+      <TelemetryPanel standalone testIdPrefix="tp" agentId={agentId} clusterId="cl-1" />
+    </MemoryRouter>
+  )
+
+  test('what was chosen comes back on the same agent with a way to start over, and not on another agent or when nothing was chosen', async () => {
+    const user = userEvent.setup()
+    const first = render(panel())
+    expect(screen.queryByTestId('tp-restored')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('tp-mode-guided'))
+    await user.click(screen.getByTestId('tp-resourceUsage'))
+    first.unmount()
+
+    const again = render(panel())
+    expect(screen.getByTestId('tp-restored')).toHaveTextContent('unfinished changes')
+    again.unmount()
+
+    render(panel('agent-2'))
+    expect(screen.queryByTestId('tp-restored')).not.toBeInTheDocument()
+  })
+
+  test('"Start over" drops it, and the next visit starts clean', async () => {
+    const user = userEvent.setup()
+    const first = render(panel())
+    await user.click(screen.getByTestId('tp-mode-guided'))
+    await user.click(screen.getByTestId('tp-resourceUsage'))
+    first.unmount()
+    const again = render(panel())
+    await user.click(screen.getByTestId('tp-start-over'))
+    expect(screen.queryByTestId('tp-restored')).not.toBeInTheDocument()
+    again.unmount()
+    render(panel())
+    expect(screen.queryByTestId('tp-restored')).not.toBeInTheDocument()
   })
 })

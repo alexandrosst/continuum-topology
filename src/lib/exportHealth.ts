@@ -57,3 +57,27 @@ export function exportReach(d: AgentDiagnostics | undefined): ExportReach {
 }
 
 export type { AgentExportRoute }
+
+/** One dot's worth of a whole agent's export health, for a table row: the worst state of any signal type it sends, in words. */
+export type ExportSummary = { kind: 'online' | 'offline' | 'starting' | 'idle'; text: string }
+
+/** `exportRows`' worst row as one dot and one short phrase. Nothing reported (an older agent, or counters it cannot read) is
+ *  the neutral hollow dot, never a fault: it says nothing about the data itself. */
+export function exportSummary(installed: string[], d: AgentDiagnostics | undefined): ExportSummary {
+  if (installed.length === 0) return { kind: 'idle', text: 'Nothing installed' }
+  const reach = exportReach(d)
+  if (reach === 'not-reported') return { kind: 'idle', text: 'Not reported' }
+  if (reach === 'unreadable') return { kind: 'idle', text: 'Cannot read counters' }
+  const rows = exportRows(installed, d!.exportHealth!)
+  const worst = rows.reduce<ExportState | undefined>((w, r) => (w === undefined || RANK[r.state] > RANK[w] ? r.state : w), undefined)
+  switch (worst) {
+    case 'failing':
+      return { kind: 'offline', text: 'Failing' }
+    case 'exporting':
+      return { kind: 'online', text: 'Sending' }
+    case 'silent':
+      return { kind: 'idle', text: 'Quiet' }
+    default:
+      return { kind: 'starting', text: 'Waiting for data' }
+  }
+}

@@ -7,7 +7,8 @@ import GuidedWizard from '@/components/telemetry/GuidedWizard'
 import { DEFAULT_SETTINGS, type AppSettings } from '@/lib/history'
 import { emptyTelemetry, type TelemetryInput } from '@/lib/install'
 import { telemetrySecrets } from '@/lib/consent'
-import type { RegionalOperator } from '@/lib/types'
+import type { FusionStatus } from '@/lib/api'
+import type { OperatorDestinationEntry, RegionalOperator } from '@/lib/types'
 
 // The Destination step's second shape: each signal type (metrics, logs, traces) to a destination of its own.
 // What matters here is what the step offers per type, what it writes into the draft, and that the draft is
@@ -16,17 +17,30 @@ import type { RegionalOperator } from '@/lib/types'
 let settings: AppSettings
 let role: 'admin' | undefined
 const listOperators = vi.fn(async (): Promise<RegionalOperator[]> => [])
+const listOperatorDestinations = vi.fn(async (): Promise<OperatorDestinationEntry[]> => [])
+// A server that does not run FUSION: no row for it, so what these tests count and pick is only the operators.
+const getFusion = vi.fn(async (): Promise<FusionStatus> => ({ available: false, reason: 'not-configured', state: 'off' }))
 const save = vi.fn(async () => true)
 
 vi.mock('@/store/settings', () => ({ useSettings: () => ({ settings, loaded: true, error: undefined, save }) }))
 const CONN = { url: 'https://example.test', org: 'org-1' }
+// The store's conn is one stable function; a fresh one per render would make every polled list read again on every render.
+const connFn = () => CONN
 vi.mock('@/store/server', () => ({
-  useServer: (selector?: (s: { role?: string }) => unknown) => (selector ? selector({ role }) : { role }),
+  useServer: (selector?: (s: { role?: string; conn: () => typeof CONN }) => unknown) => (selector ? selector({ role, conn: connFn }) : { role, conn: connFn }),
   useConn: () => CONN,
 }))
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
-  return { ...actual, api: { ...actual.api, listOperators: (...a: Parameters<typeof listOperators>) => listOperators(...a) } }
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      listOperators: (...a: Parameters<typeof listOperators>) => listOperators(...a),
+      listOperatorDestinations: (...a: Parameters<typeof listOperatorDestinations>) => listOperatorDestinations(...a),
+      getFusion: (...a: Parameters<typeof getFusion>) => getFusion(...a),
+    },
+  }
 })
 
 let latest: TelemetryInput = emptyTelemetry

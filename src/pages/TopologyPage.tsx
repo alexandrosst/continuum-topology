@@ -43,7 +43,6 @@ import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
 import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock } from '@/components/ui/primitives'
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu from '@/components/topology/FilterMenu'
-import { api } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { applyFilter, encodeList, filterActive, hopNeighborhood, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
 import { applyGraphUpdate, buildGraph, cardId, groupId, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
@@ -52,7 +51,8 @@ import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
 import { usePlan } from '@/lib/placement/usePlacement'
 import { parseSel } from '@/lib/search'
-import { TIER_COLOR, TIERS, type ClusterLink, type GroupBy, type RegionalOperator, type ViewKind } from '@/lib/types'
+import { TIER_COLOR, TIERS, type ClusterLink, type GroupBy, type ViewKind } from '@/lib/types'
+import { useOperators } from '@/lib/useOperators'
 import { useServer } from '@/store/server'
 import { useHistoryView } from '@/store/history'
 import { useClusterLinks, useDiscoveryAgents, usePaths, useTopology } from '@/store/topology'
@@ -126,23 +126,11 @@ function Canvas() {
   // a missing one silently (see Layout.tsx's comment for why this no longer runs on every route).
   useAutoPlaceClusters()
 
-  // Regional operators aren't part of the central topology store (see RegionalOperatorsPage's own note) -
-  // a plain fetch-on-mount, same admin-gated pattern that page already uses, is all the canvas needs; no
-  // continuous polling, since a missed edit here just means "refresh to see a brand new operator's arrow".
-  const conn = useServer((s) => s.conn)
+  // Regional operators aren't part of the central topology store (see RegionalOperatorsPage's own note): read through the shared, polled
+  // hook, so an operator made (or revoked) while the canvas is open gets its arrow without a refresh. An unchanged answer keeps the
+  // same array, so a poll that found nothing new does not lay the canvas out again.
   const isAdmin = useServer((s) => s.isAdmin)
-  const admin = isAdmin()
-  const [operators, setOperators] = useState<RegionalOperator[]>([])
-  useEffect(() => {
-    const c = conn()
-    if (!c || !admin) return
-    let cancelled = false
-    void api.listOperators(c).then(
-      (ops) => { if (!cancelled) setOperators(ops) },
-      () => { /* silently skipped - operator arrows are a bonus, not core to the canvas */ },
-    )
-    return () => { cancelled = true }
-  }, [conn, admin])
+  const { operators } = useOperators(isAdmin())
 
   const mode: Mode = sp.get('view') === 'infrastructure' ? 'infrastructure' : sp.get('view') === 'map' ? 'map' : 'application'
   const isMap = mode === 'map'

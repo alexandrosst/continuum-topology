@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { AlertCircle, AlertTriangle, Check, ChevronRight, Copy, Info, Loader2, ShieldCheck } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Button, Field, ICON_MD, ICON_SM, TagsInput } from '@/components/ui/primitives'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Field, ICON_MD, ICON_SM, RunStep, TagsInput } from '@/components/ui/primitives'
+import ChangeSummary from '@/components/telemetry/ChangeSummary'
 import ExportHealth from '@/components/telemetry/ExportHealth'
 import TelemetryFields from '@/components/telemetry/TelemetryFields'
 import TierLevels from '@/components/TierLevels'
@@ -10,6 +11,7 @@ import {
   COLLECTORS,
   collectorState,
   consentChange,
+  describeTelemetryChanges,
   discoveryStatus,
   effectiveNote,
   measurementsRunning,
@@ -34,11 +36,13 @@ import {
   type InstallInfo,
   type Severity,
 } from '@/lib/consent'
+import { clearDraft, loadDraft, saveDraft } from '@/lib/draftStore'
 import { telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
 import { receiverAuthOf } from '@/lib/operatorHealth'
 import { explainIntentError, fragmentEndpoint, generateOperatorCommands, operatorCommandBlock, operatorCommandDraft, operatorTargets } from '@/lib/operatorIntent'
 import { TONE_CLASS } from '@/lib/provenance'
 import type { Agent, AccessTier, ReceiverAuth } from '@/lib/types'
+import { useOperators } from '@/lib/useOperators'
 import { useConn, useServer } from '@/store/server'
 
 const SEVERITY_STYLE: Record<Severity, { chip: string; icon: typeof Info; label: string }> = {
@@ -172,15 +176,17 @@ export function CanSee({ agent, diagnostics: d }: { agent: Agent; diagnostics: A
 
 /** A one-line command with a copy button. Shared wherever the app hands someone an exact command to run: the
  *  widen hint here, the harden and teardown commands on the Agents page. */
-export function CopyCommand({ text, stale = false, multiline = false, testId = 'helm-command' }: { text: string; /** Out of date: shown dimmed and not copyable, rather than hand out a command that is wrong now. */ stale?: boolean; /** Keep the command's own line breaks on screen (a certificate's PEM would otherwise run together). */ multiline?: boolean; testId?: string }) {
+export function CopyCommand({ text, stale = false, multiline = false, testId = 'helm-command', label = 'Copy the command' }: { text: string; /** What the copy button is called for assistive technology: say which command, where several sit together. */ label?: string; /** Out of date: shown dimmed and not copyable, rather than hand out a command that is wrong now. */ stale?: boolean; /** Keep the command's own line breaks on screen (a certificate's PEM would otherwise run together). */ multiline?: boolean; testId?: string }) {
   const [done, setDone] = useState(false)
+  // A command with line breaks of its own (a Secret applied from a here-document, a helm command continued with backslashes) keeps them:
+  // run together they are not something a person can read before pasting. A long one scrolls inside its box instead of stretching the dialog.
   return (
     <div className={clsx('mt-1 flex items-start gap-2 rounded border border-nb-850 bg-nb-950 px-2 py-1.5', stale && 'opacity-50')} data-stale={stale || undefined}>
-      <code className={clsx('min-w-0 flex-1 break-words font-mono text-[11px] text-nb-300', multiline && 'whitespace-pre-wrap')} data-testid={testId}>{text}</code>
+      <code className={clsx('min-w-0 flex-1 break-words font-mono text-[11px] text-nb-300', (multiline || text.includes('\n')) && 'max-h-72 overflow-y-auto whitespace-pre-wrap')} data-testid={testId}>{text}</code>
       <button
         type="button"
         className="shrink-0 rounded p-1 text-nb-500 hover:bg-nb-930 hover:text-nb-300 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-nb-500"
-        aria-label="Copy the command"
+        aria-label={label}
         disabled={stale}
         onClick={() => {
           void navigator.clipboard?.writeText(text).then(() => {
@@ -378,19 +384,6 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
   )
 }
 
-/** One numbered step of the "run this" screen: the number in a ring, a title, then whatever the step needs. */
-function RunStep({ n, title, children, testId }: { n: number; title: string; children?: ReactNode; testId?: string }) {
-  return (
-    <li className="flex gap-3" data-testid={testId}>
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-nb-800 bg-nb-930 text-xs font-medium text-nb-300" aria-hidden>{n}</span>
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-nb-200">{title}</div>
-        <div className="text-xs text-nb-500">{children}</div>
-      </div>
-    </li>
-  )
-}
-
 /**
  * What telemetry this agent's chart install actually has enabled right now (self-reported by the agent,
  * the same pattern `installedTier` above already uses), plus a "change telemetry" form that builds the
@@ -404,6 +397,7 @@ export function TelemetryPanel({
   agentId,
   clusterId,
   initialScope,
+  initialDestination,
   standalone = false,
   testIdPrefix = 'telemetry-panel',
 }: {
@@ -417,6 +411,8 @@ export function TelemetryPanel({
    * standalone telemetry wizard's own picker - pre-fills TelemetryFields' guided wizard and, in inline mode,
    * starts this panel's own disclosure open, so the person doesn't also have to notice and expand it by hand. */
   initialScope?: { name: string; namespaces: string[] }
+  /** The operator (or FUSION) to send to, chosen before this opened ("Connect <cluster>"): the destination step starts on it. */
+  initialDestination?: string
   /** Skip the "Change telemetry" disclosure chrome and render the form section directly, always open. A
    * modal whose entire purpose is configuring telemetry (the standalone TelemetryWizard) shouldn't hide its
    * own form behind a second disclosure - the inline usage on an already-expanded agent row keeps it. */
@@ -427,21 +423,56 @@ export function TelemetryPanel({
   testIdPrefix?: string
 }) {
   const installed = d?.installedTelemetry ?? []
-  const [open, setOpen] = useState(() => !!initialScope)
+  // What the draft was started from: a saved draft is only offered back against the same install (see draftStore).
+  const basis = installed.join(',')
+  const [restored, setRestored] = useState<TelemetryInput | null>(() => (agentId ? loadDraft(agentId, basis) : null))
+  const [open, setOpen] = useState(() => !!initialScope || !!initialDestination || restored !== null)
   // Seeded from what the agent actually reports running, not a blank form: withTelemetry states every
   // signal explicitly on every call, so a blank draft would silently turn off everything the operator
   // didn't happen to re-check the moment they ran the generated command for an unrelated change. The
   // agent's installedTelemetryConfig (destination, redaction/resourcedetection/traces-sampling, energy/
   // accelerators source) seeds those same fields too, when the agent is new enough to report it - see
   // seedTelemetryFromInstalled's own doc comment for exactly which fields that covers.
-  const [draft, setDraft] = useState<TelemetryInput>(() => seedTelemetryFromInstalled(installed, d?.installedTelemetryConfig))
+  const [draft, setDraft] = useState<TelemetryInput>(() => restored ?? seedTelemetryFromInstalled(installed, d?.installedTelemetryConfig))
+  // The agent's active telemetry intent fills in what its self-report leaves out (the scope and destination it was granted), so that
+  // reopening does not start from a draft that reads as "everything, nowhere". It arrives after the first paint and only replaces a draft
+  // nobody has touched yet.
+  const touched = useRef(restored !== null)
+  const edit = (v: TelemetryInput) => {
+    touched.current = true
+    setDraft(v)
+    if (agentId) saveDraft(agentId, basis, v)
+  }
+  const startOver = () => {
+    if (agentId) clearDraft(agentId)
+    touched.current = false
+    setRestored(null)
+    setDraft(seedTelemetryFromInstalled(installed, d?.installedTelemetryConfig))
+  }
   const measurementsOn = measurementsRunning(d)
+  const changes = useMemo(() => describeTelemetryChanges(installed, d?.installedTelemetryConfig, draft), [installed, d?.installedTelemetryConfig, draft])
   // Without measurementsOn, withTelemetry's own telemetryProblems check (see its doc comment) can never see
   // the one validation rule that depends on it - a network-latency signal with measurements off - so the
   // generated command used to build as if that problem didn't exist, silently disagreeing with the
   // role="alert" warning TelemetryFields (right above, given the same measurementsOn) already shows for
   // exactly that case.
   const conn = useConn()
+  useEffect(() => {
+    if (!agentId) return
+    let cancelled = false
+    void api
+      .listTelemetryIntents(conn, agentId)
+      .then((intents) => {
+        const active = intents.find((i) => i.status === 'active')
+        if (!cancelled && active && !touched.current) setDraft(seedTelemetryFromInstalled(installed, d?.installedTelemetryConfig, active))
+      })
+      .catch(() => undefined) // a seed, not a requirement: without it the draft is what the agent reports
+    return () => {
+      cancelled = true
+    }
+    // conn's identifying fields, not the object: see GuidedWizard's own operator fetch. The seed is read once per agent, not on every report.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conn.url, conn.org, agentId])
   const command = useMemo(() => {
     // Who this belongs to is stamped on everything it emits, whatever the destination: the signed-in
     // organisation and this agent's cluster, added here rather than asked for in the wizard.
@@ -462,28 +493,17 @@ export function TelemetryPanel({
   const targets = useMemo(() => operatorTargets(draft), [draft])
   const operatorId = targets[0]?.id ?? ''
   const targetKey = targets.map((t) => t.id).join(',')
-  const [operatorInfo, setOperatorInfo] = useState<Record<string, { name: string; auth?: ReceiverAuth }>>({})
-  useEffect(() => {
-    if (!targetKey || !isAdmin) return
-    let cancelled = false
-    void api
-      .listOperators(conn)
-      .then((ops) => {
-        if (cancelled) return
-        const info: Record<string, { name: string; auth?: ReceiverAuth }> = {}
-        for (const id of targetKey.split(',')) {
-          const op = ops.find((o) => o.id === id)
-          info[id] = { name: op?.name ?? '', auth: op ? receiverAuthOf(op) : undefined }
-        }
-        setOperatorInfo(info)
-      })
-      .catch(() => undefined) // only the labels; the ids stand in for the names
-    return () => {
-      cancelled = true
+  // Only the names and how each receiver authenticates, for the labels and the credential step; read (and kept current) only while a
+  // destination is a regional operator.
+  const { operators } = useOperators(isAdmin && targetKey !== '')
+  const operatorInfo = useMemo(() => {
+    const info: Record<string, { name: string; auth?: ReceiverAuth }> = {}
+    for (const id of targetKey ? targetKey.split(',') : []) {
+      const op = operators.find((o) => o.id === id)
+      if (op) info[id] = { name: op.name, auth: receiverAuthOf(op) }
     }
-    // conn's identifying fields, not the object: see GuidedWizard's own operator fetch.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conn.url, conn.org, targetKey, isAdmin])
+    return info
+  }, [operators, targetKey])
   const operatorLabel = targets.map((t) => operatorInfo[t.id]?.name || t.id).join(' and ')
   const authOf = (id: string): ReceiverAuth | undefined => operatorInfo[id]?.auth
   const operatorAuth = authOf(operatorId)
@@ -632,17 +652,19 @@ export function TelemetryPanel({
   const form = (
     <TelemetryFields
       value={draft}
-      onChange={setDraft}
+      onChange={edit}
       testIdPrefix={testIdPrefix}
       initialScope={initialScope}
+      initialDestination={initialDestination}
       measurementsOn={measurementsOn}
       agentId={agentId}
       clusterId={clusterId}
       runSection={
         telemetryActive(draft) ? (
-          <div className="mt-3" data-testid={`${p}-run`}>
+          <div className="mt-3 space-y-3" data-testid={`${p}-run`}>
+            <ChangeSummary changes={changes} installed={installed.length > 0} testId={`${p}-changes`} />
             {targets.length > 0 ? operatorSection : commandSection}
-            <p className="mt-3 text-xs text-nb-500" data-testid={`${p}-run-watch`}>
+            <p className="text-xs text-nb-500" data-testid={`${p}-run-watch`}>
               Once it is applied, watch <span className="text-nb-300">Is data arriving?</span> above: each signal type starts at Waiting for data and changes to Sending when the first data goes out, usually within a minute or two.
             </p>
           </div>
@@ -675,6 +697,13 @@ export function TelemetryPanel({
       )}
 
       <ExportHealth installed={installed} diagnostics={d} />
+
+      {restored && (
+        <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-nb-500" data-testid={`${testIdPrefix}-restored`}>
+          Your unfinished changes from earlier in this session are back.
+          <button type="button" className="text-accent hover:underline" onClick={startOver} data-testid={`${testIdPrefix}-start-over`}>Start over</button>
+        </p>
+      )}
 
       {standalone ? (
         <div className="mt-3 rounded-lg border border-nb-850 bg-nb-925 p-3">{form}</div>

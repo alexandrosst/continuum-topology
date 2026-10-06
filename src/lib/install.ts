@@ -264,7 +264,43 @@ export interface TelemetryInput {
    *  so the wizard never holds or shows them. Empty (a test, a standalone use) means not stamped. */
   resourceOrgId: string
   resourceClusterId: string
+  /** Groups of settings this draft shows but does not KNOW the installed value of (an agent that does not report them, or a value only
+   *  recorded as a grant), each with what it showed when seeded. While a group still reads as it was seeded the command leaves
+   *  it out - `--reuse-values` keeps what is installed - instead of stating a default that may widen collection or drop a credential.
+   *  Editing any field of a group makes it the draft's own, and it is then stated in full. See `isKept`. */
+  keptAsInstalled: Partial<Record<KeptGroup, string>>
 }
+
+/** The settings that are kept or stated together: the destination's connection details, the scope (each application signal's own, and
+ *  what the infrastructure signals and the scope tag follow), the tags, the debug exporter and the three processor knobs. */
+export type KeptGroup = 'destination' | 'scopeShared' | 'scope:applicationMetrics' | 'scope:applicationLogs' | 'scope:traces' | 'tags' | 'debug' | 'processors'
+
+function groupValue(t: TelemetryInput, g: KeptGroup): string {
+  switch (g) {
+    case 'destination':
+      return JSON.stringify([t.exportSplit, t.exportEndpoint.trim(), t.exportProtocol, t.exportInsecure, t.exportAuthHeaderName.trim(), t.exportAuthSecretName.trim(), t.exportAuthSecretKey.trim(), t.exportOperatorId])
+    case 'scopeShared':
+      return JSON.stringify([t.scopeInfrastructure, t.applicationMetricsScope, t.applicationLogsScope, t.tracesScope])
+    case 'scope:applicationMetrics':
+      return JSON.stringify(t.applicationMetricsScope)
+    case 'scope:applicationLogs':
+      return JSON.stringify(t.applicationLogsScope)
+    case 'scope:traces':
+      return JSON.stringify(t.tracesScope)
+    case 'tags':
+      return JSON.stringify(cleanTags(t.tags))
+    case 'debug':
+      return t.debugVerbosity
+    case 'processors':
+      return JSON.stringify([t.resourceDetection, t.redaction, t.tracesSamplingPercent])
+  }
+}
+
+/** Marks these groups as shown-but-unknown, as they read right now. */
+export const keepAsInstalled = (t: TelemetryInput, groups: KeptGroup[]): TelemetryInput => ({ ...t, keptAsInstalled: Object.fromEntries(groups.map((g) => [g, groupValue(t, g)])) })
+
+/** Whether the command leaves this group out: it was seeded as unknown and nothing in it has been edited since. */
+export const isKept = (t: TelemetryInput, g: KeptGroup): boolean => t.keptAsInstalled[g] !== undefined && t.keptAsInstalled[g] === groupValue(t, g)
 
 /** How the one export destination is spoken to. 'zipkin' posts spans to a Zipkin-compatible /api/v2/spans
  *  endpoint with the collector's own zipkin exporter: it carries traces only (see telemetryProblems). */
@@ -338,6 +374,7 @@ export const emptyTelemetry: TelemetryInput = {
   debugVerbosity: 'basic',
   resourceOrgId: '',
   resourceClusterId: '',
+  keptAsInstalled: {},
 }
 
 /** What is wrong with a tag list, in words a person can act on. */
@@ -399,12 +436,12 @@ export type Modality = 'metrics' | 'logs' | 'traces'
  * belongs to. The UI (consent.ts's re-export, used by TelemetryFields.tsx) reads this for its checkboxes
  * and permission copy; telemetryProblems below reads it to work out which modalities are actually on.
  */
-export const TELEMETRY_SIGNALS: { id: string; label: string; layer: 'infrastructure' | 'application'; modality: Modality; scope: 'cluster' | 'node' | 'application'; namespaceScopable?: boolean; what: string; permissions: string }[] = [
-  { id: 'resourceUsage', label: 'Resource usage', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Node and per-container CPU, memory, filesystem and network, from the kubelet and the host.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
+export const TELEMETRY_SIGNALS: { id: string; label: string; layer: 'infrastructure' | 'application'; modality: Modality; scope: 'cluster' | 'node' | 'application'; namespaceScopable?: boolean; /** The chart has nothing that emits it yet: kept in the model (a command still states it off), never offered. */ noEmitter?: boolean; what: string; permissions: string }[] = [
+  { id: 'resourceUsage', label: 'Resource usage', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Node and per-container CPU, memory, filesystem and network, from the kubelet and the host. The kubelet\'s certificate is verified: where it is self-signed (kubeadm, k3s) add --set telemetry.kubelet.insecureSkipVerify=true to the command.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
   { id: 'energy', label: 'Energy', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Power draw per node/pod, from Kepler (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - Kepler reads host energy counters directly, never the Kubernetes API.' },
   { id: 'kubernetesState', label: 'Kubernetes state', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', what: 'Pod, deployment and replica status and counts, cluster-wide.', permissions: 'Read-only, cluster-wide access to pods, deployments, replica sets, stateful/daemon sets, jobs, cronjobs and autoscalers.' },
-  { id: 'nodeRuntime', label: 'Node runtime', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Pod lifecycle and volume metrics from the kubelet.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
-  { id: 'networkLatency', label: 'Network latency', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', what: "This agent's own path measurements, re-emitted as OTel metrics.", permissions: 'None beyond identity enrichment below - reuses this agent\'s existing measurement capability.' },
+  { id: 'nodeRuntime', label: 'Node runtime', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Pod lifecycle and volume metrics from the kubelet (the same kubelet certificate note as Resource usage applies).', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
+  { id: 'networkLatency', label: 'Network latency', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', noEmitter: true, what: "This agent's own path measurements, re-emitted as OTel metrics.", permissions: 'None beyond identity enrichment below - reuses this agent\'s existing measurement capability.' },
   { id: 'applicationMetrics', label: 'Application metrics', layer: 'application', modality: 'metrics', scope: 'application', what: 'Metrics your applications push (OTLP) or that this collector scrapes (Prometheus).', permissions: 'None beyond identity enrichment below.' },
   { id: 'systemLogs', label: 'System logs', layer: 'infrastructure', modality: 'logs', scope: 'node', what: "Each node's own OS/container runtime logs, never application output.", permissions: 'None beyond identity enrichment below - reads local log files only.' },
   { id: 'kubernetesEvents', label: 'Kubernetes events', layer: 'infrastructure', modality: 'logs', scope: 'cluster', what: 'Cluster Events, watched cluster-wide.', permissions: 'Read-only, cluster-wide access to Events only.' },
@@ -412,6 +449,10 @@ export const TELEMETRY_SIGNALS: { id: string; label: string; layer: 'infrastruct
   { id: 'traces', label: 'Traces', layer: 'application', modality: 'traces', scope: 'application', what: 'Distributed traces your applications push directly (OTLP).', permissions: 'None beyond identity enrichment below.' },
   { id: 'accelerators', label: 'Accelerators (GPU)', layer: 'infrastructure', modality: 'metrics', scope: 'node', namespaceScopable: true, what: 'GPU utilization, memory, temperature and power per node/pod, from NVIDIA DCGM (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - dcgm-exporter reads GPU hardware and the kubelet\'s pod-resources socket directly, never the Kubernetes API.' },
 ]
+
+/** The signals a person can turn on: every one that something actually emits. Network latency has a setting but no emitter in the chart yet,
+ *  so offering it would only produce a command that reports nothing. */
+export const PICKABLE_SIGNALS = TELEMETRY_SIGNALS.filter((s) => !s.noEmitter)
 
 /** Which modalities are actually turned on in a telemetry draft, derived from TELEMETRY_SIGNALS instead of
  *  listed by hand a second time. Used to steer a person away from picking a single destination (there is
@@ -555,10 +596,29 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   // the --reuse-values reason below: clearing them has to actually clear them.
   if (t.resourceOrgId) addString('telemetry.resource.orgId', t.resourceOrgId)
   if (t.resourceClusterId) addString('telemetry.resource.clusterId', t.resourceClusterId)
-  addString('telemetry.resource.scope', scopeTag(t))
-  if (!t.exportSplit) {
-    if (t.exportProtocol !== 'grpc') add(`telemetry.export.otlp.protocol=${t.exportProtocol}`)
-    if (t.exportInsecure) add('telemetry.export.otlp.tls.insecure=true')
+  if (!isKept(t, 'scopeShared')) addString('telemetry.resource.scope', scopeTag(t))
+  // The single destination is stated IN FULL every time (protocol, TLS, mutual TLS, CA, credential): under --reuse-values anything left
+  // unmentioned keeps its earlier value, so moving from a destination with a client certificate, plain HTTP or a credential to one without
+  // would carry those over. Only a destination seeded from an install whose connection details are not known, and not edited since, is
+  // stated by its endpoint alone.
+  if (!t.exportSplit && !isKept(t, 'destination')) {
+    const base = 'telemetry.export.otlp'
+    add(`${base}.protocol=${t.exportProtocol}`)
+    add(`${base}.tls.insecure=${t.exportInsecure}`)
+    // A regional operator's receiver is mutual TLS, which only the server's own fragment (it holds the Secret and the name to verify) can
+    // state; everything else states it off, so a certificate an earlier command installed does not linger.
+    if (!t.exportOperatorId) {
+      add(`${base}.tls.mtls.enabled=false`)
+      addString(`${base}.tls.mtls.secretName`, '')
+      addString(`${base}.tls.serverName`, '')
+      addString(`${base}.tls.caFile`, '')
+    }
+    const secret = t.exportAuthSecretName.trim()
+    addString(`${base}.auth.secretName`, secret)
+    if (secret) {
+      addString(`${base}.auth.secretKey`, t.exportAuthSecretKey.trim() || 'token')
+      addString(`${base}.auth.headerName`, t.exportAuthHeaderName.trim() || 'Authorization')
+    }
   }
   // The routes. Every route is stated on every command (an unmentioned one would keep sending under
   // `--reuse-values`): a route in use in full - protocol, TLS and credential too, so that what an earlier
@@ -579,7 +639,12 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
       add(`${base}.tls.insecure=${lane.exportInsecure}`)
       // A regional operator's route is mutual TLS, which only the server's own fragment can state (it holds the
       // Secret); every other route states it off, so one an earlier command turned on does not linger.
-      if (!lane.exportOperatorId) add(`${base}.tls.mtls.enabled=false`)
+      if (!lane.exportOperatorId) {
+        add(`${base}.tls.mtls.enabled=false`)
+        addString(`${base}.tls.mtls.secretName`, '')
+        addString(`${base}.tls.serverName`, '')
+        addString(`${base}.tls.caFile`, '')
+      }
       const secret = lane.exportAuthSecretName.trim()
       addString(`${base}.auth.secretName`, secret)
       if (secret) {
@@ -604,7 +669,7 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   // leaving it unstated whenever empty would let a stale prior override survive. Omitted entirely while the
   // kind itself is off, matching the existing energy/accelerators-existing-endpoint precedent - the chart's
   // own gating (parent .enabled check) makes a stale value harmless there.
-  if (t.applicationMetrics) {
+  if (t.applicationMetrics && !isKept(t, 'scope:applicationMetrics')) {
     add(`telemetry.applicationMetrics.metrics.scope.namespaces=${helmList(t.applicationMetricsScope.namespaces)}`)
     add(`telemetry.applicationMetrics.metrics.scope.exclude=${helmList(t.applicationMetricsScope.exclude)}`)
     addJson('telemetry.applicationMetrics.metrics.scope.workloads', t.applicationMetricsScope.workloads)
@@ -612,23 +677,25 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   add(`telemetry.systemLogs.logs.enabled=${t.systemLogs}`)
   add(`telemetry.kubernetesEvents.logs.enabled=${t.kubernetesEvents}`)
   add(`telemetry.applicationLogs.logs.enabled=${t.applicationLogs}`)
-  if (t.applicationLogs) {
+  if (t.applicationLogs && !isKept(t, 'scope:applicationLogs')) {
     add(`telemetry.applicationLogs.logs.scope.namespaces=${helmList(t.applicationLogsScope.namespaces)}`)
     add(`telemetry.applicationLogs.logs.scope.exclude=${helmList(t.applicationLogsScope.exclude)}`)
     addJson('telemetry.applicationLogs.logs.scope.workloads', t.applicationLogsScope.workloads)
   }
   add(`telemetry.traces.traces.enabled=${t.traces}`)
-  if (t.traces) {
+  if (t.traces && !isKept(t, 'scope:traces')) {
     add(`telemetry.traces.traces.scope.namespaces=${helmList(t.tracesScope.namespaces)}`)
     add(`telemetry.traces.traces.scope.exclude=${helmList(t.tracesScope.exclude)}`)
     addJson('telemetry.traces.traces.scope.workloads', t.tracesScope.workloads)
   }
   // What the infrastructure signals follow: the application signals' combined scope when that is switched on,
   // otherwise nothing - stated either way (lists replace under --reuse-values, so an old one is cleared).
-  const infra = t.scopeInfrastructure ? combinedScope(t) : emptyScopeOverride
-  add(`telemetry.scope.infra.namespaces=${helmList(infra.namespaces)}`)
-  add(`telemetry.scope.infra.exclude=${helmList(infra.exclude)}`)
-  addJson('telemetry.scope.infra.workloads', infra.workloads)
+  if (!isKept(t, 'scopeShared')) {
+    const infra = t.scopeInfrastructure ? combinedScope(t) : emptyScopeOverride
+    add(`telemetry.scope.infra.namespaces=${helmList(infra.namespaces)}`)
+    add(`telemetry.scope.infra.exclude=${helmList(infra.exclude)}`)
+    addJson('telemetry.scope.infra.workloads', infra.workloads)
+  }
   add(`telemetry.accelerators.metrics.enabled=${t.accelerators}`)
   if (t.accelerators && t.acceleratorsSource === 'existing') {
     add('telemetry.accelerators.metrics.source=existing')
@@ -638,23 +705,19 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   // the same --reuse-values staleness reasoning: a previous applyScope=true left unmentioned would survive
   // a later edit that turns accelerators off and back on without re-checking this box.
   add(`telemetry.accelerators.metrics.applyScope=${t.acceleratorsApplyScope}`)
-  if (!t.exportSplit && t.exportAuthSecretName.trim()) {
-    addString('telemetry.export.otlp.auth.secretName', t.exportAuthSecretName.trim())
-    addString('telemetry.export.otlp.auth.secretKey', t.exportAuthSecretKey.trim() || 'token')
-    if (t.exportAuthHeaderName.trim() && t.exportAuthHeaderName.trim() !== 'Authorization') {
-      addString('telemetry.export.otlp.auth.headerName', t.exportAuthHeaderName.trim())
-    }
+  // Processors, debug and tags: stated explicitly like the signals above (not conditionally, like the routes), for the same
+  // --reuse-values reason - a sampling percentage or a redaction toggle left unmentioned because it was reset back to its default in
+  // this panel would otherwise keep its old value. A group seeded as unknown and not edited is the one exception: stating a default
+  // there would silently replace what the install really has.
+  if (!isKept(t, 'processors')) {
+    add(`telemetry.processors.resourceDetection.enabled=${t.resourceDetection}`)
+    add(`telemetry.processors.redaction.enabled=${t.redaction}`)
+    add(`telemetry.processors.tracesSampling.percentage=${t.tracesSamplingPercent}`)
   }
-  // Processors: stated explicitly like the signals above (not conditionally, like protocol/insecure),
-  // for the same --reuse-values reason - a sampling percentage or a redaction toggle left unmentioned
-  // because it was reset back to its default in this panel would otherwise keep its old value.
-  add(`telemetry.processors.resourceDetection.enabled=${t.resourceDetection}`)
-  add(`telemetry.processors.redaction.enabled=${t.redaction}`)
-  add(`telemetry.processors.tracesSampling.percentage=${t.tracesSamplingPercent}`)
-  addString('telemetry.debug.verbosity', t.debugVerbosity)
+  if (!isKept(t, 'debug')) addString('telemetry.debug.verbosity', t.debugVerbosity)
   // The tags are one JSON list (not a --set per key) because a list REPLACES what an earlier command set,
   // where a map would keep every key since removed - the chart's field is a list for exactly this reason.
-  cmd += ` \\\n  --set-json telemetry.resource.attributes='${JSON.stringify(cleanTags(t.tags)).replace(/'/g, `'\\''`)}'`
+  if (!isKept(t, 'tags')) cmd += ` \\\n  --set-json telemetry.resource.attributes='${JSON.stringify(cleanTags(t.tags)).replace(/'/g, `'\\''`)}'`
   // Extra processors: the raw bodies all go in one --set-json (a map keyed by processorKey()), single-quoted
   // for the shell like any other multi-character value pasted into a terminal (unlike the simple tokens
   // addString/helmList above handle, a processor's JSON body can contain arbitrary characters, including a

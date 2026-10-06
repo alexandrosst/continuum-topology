@@ -6,10 +6,12 @@
  * namespaces left out). Widening is done by the cluster's owner with `helm upgrade`, and this file builds the exact command.
  * Everything here is pure so that it can be tested without a browser.
  */
-import { activeLanes, emptyExportTarget, emptyTelemetry, enabledModalities, ROUTE_MODALITIES, scopeProblems, splitNames, telemetryActive, telemetryProblems, withTelemetry, type Modality, type TelemetryInput, TELEMETRY_SIGNALS } from './install'
+import { activeLanes, emptyExportTarget, cleanTags, emptyScopeOverride, emptyTelemetry, enabledModalities, isKept, keepAsInstalled, ROUTE_MODALITIES, scopeProblems, splitNames, telemetryActive, telemetryProblems, withTelemetry, type KeptGroup, type Modality, type TelemetryInput, PICKABLE_SIGNALS, TELEMETRY_SIGNALS } from './install'
 // Re-exported for every existing `from '@/lib/consent'` import site - Modality/TELEMETRY_SIGNALS/
 // enabledModalities now live in install.ts (see its own comment on why), consent.ts just re-exports them.
-export { enabledModalities, type Modality, TELEMETRY_SIGNALS }
+import { operatorReceiverEndpoint } from './destinationCatalog'
+import type { TelemetryIntent } from './types'
+export { enabledModalities, type Modality, PICKABLE_SIGNALS, TELEMETRY_SIGNALS }
 
 export type Severity = 'info' | 'warn' | 'error'
 
@@ -119,6 +121,14 @@ export interface AgentTelemetryConfig {
   tracesSamplingPercent?: number
   energySource?: 'bundle-kepler' | 'existing'
   acceleratorsSource?: 'bundle-dcgm' | 'existing'
+  /** What a newer agent also reports, so that reopening the panel never has to guess: each of these is absent from an agent that does
+   *  not, and an absent one is then LEFT OUT of the next command rather than stated as a default (see TelemetryInput.keptAsInstalled). */
+  /** The tags stamped on everything it emits (`telemetry.resource.attributes`). */
+  tags?: { key: string; value: string }[]
+  /** The debug exporter: '' off, 'basic' counts what passed, 'detailed' logs content. */
+  debugVerbosity?: '' | 'basic' | 'detailed'
+  /** The scope of each application signal that is on, and what the infrastructure signals follow (`telemetry.scope.infra`). */
+  scope?: Partial<Record<'applicationMetrics' | 'applicationLogs' | 'traces' | 'infra', { namespaces: string[]; exclude: string[]; workloads?: { namespace: string; names: string[] }[] }>>
 }
 
 /** What an administrator has asked one agent to leave out, and whether the agent has caught up with it. */
@@ -332,7 +342,7 @@ export const TELEMETRY_INTENT_PRESETS: TelemetryIntentPreset[] = [
   { id: 'minimal', label: 'Minimal / cost-aware', description: 'Resource usage and Kubernetes state only - the cheapest useful baseline.', signals: ['resourceUsage', 'kubernetesState'] },
   { id: 'full-infra', label: 'Full infrastructure', description: 'Every infrastructure-scoped signal: resource usage, energy, cluster state, node runtime, events, system logs.', signals: ['resourceUsage', 'energy', 'kubernetesState', 'nodeRuntime', 'kubernetesEvents', 'systemLogs'] },
   { id: 'full-infra-app', label: 'Full infrastructure + app tracing', description: 'Everything in "Full infrastructure" plus application metrics, logs and traces.', signals: ['resourceUsage', 'energy', 'kubernetesState', 'nodeRuntime', 'kubernetesEvents', 'systemLogs', 'applicationMetrics', 'applicationLogs', 'traces'] },
-  { id: 'debug-everything', label: 'Debug everything', description: 'Every signal on - for a short-lived, deep-dive investigation, not a steady state.', signals: TELEMETRY_SIGNALS.map((s) => s.id) },
+  { id: 'debug-everything', label: 'Debug everything', description: 'Every signal on - for a short-lived, deep-dive investigation, not a steady state.', signals: PICKABLE_SIGNALS.map((s) => s.id) },
 ]
 
 /** Sets every signal to exactly the preset's combination; everything else on the form (export
@@ -344,19 +354,6 @@ export function applyIntentPreset(current: TelemetryInput, preset: TelemetryInte
   return next
 }
 
-/**
- * Seeds a fresh TelemetryInput from the agent's own self-report: which signals are actually on
- * (`installedTelemetry`), mirroring applyIntentPreset's shape, and - when the agent is new enough to send
- * it - the effective configuration behind them (`installedTelemetryConfig`): the export destination, the
- * redaction/resourcedetection/traces-sampling processor settings, and which source backs energy/
- * accelerators. Without `config`, every one of those starts at its install default, same as a fresh
- * install - the only thing seeded is still which signals are on, matching an agent too old to report the
- * rest. Without this function at all, the "change telemetry" panel starts blank on every open - and because
- * withTelemetry always states every signal explicitly (see its own comment on why), running the generated
- * command from a blank draft would silently turn off every signal the operator didn't happen to re-check;
- * the same is true field-by-field for `config`, which is why a real self-reported value always takes over
- * from the respective default rather than only filling in what a blank form left empty.
- */
 /**
  * What the agent reports as its destination when signals go to more than one place: `traces=zipkin:9411,default=gw:4317`
  * (a route per signal type that has its own, then the default for the rest). A plain `host:port` is the one
@@ -377,10 +374,27 @@ export function parseRoutedDestination(s: string): { routes: Partial<Record<Moda
   return { routes, fallback }
 }
 
-export function seedTelemetryFromInstalled(installed: string[], config?: AgentTelemetryConfig): TelemetryInput {
-  const next: TelemetryInput = { ...emptyTelemetry }
+const APP_SCOPE_KEYS = ['applicationMetrics', 'applicationLogs', 'traces'] as const
+
+/**
+ * Seeds a TelemetryInput for reopening an install: which signals are actually on (`installedTelemetry`), and - when the agent is new
+ * enough to send it - the effective configuration behind them (`installedTelemetryConfig`): the export destination, the processor
+ * settings, which source backs energy/accelerators and (newer agents) the scope, tags and debug exporter. A real self-reported value
+ * always takes over from the default. `intent` is the agent's active TelemetryIntent: a recorded grant, used only to show what the
+ * agent does not report (the destination, the scope).
+ *
+ * Without this seed the panel would start blank, and because withTelemetry states every signal explicitly, the command from a blank
+ * draft would turn off whatever the person did not re-check. The same holds for every setting the draft does not KNOW: the ones
+ * the agent does not report, and everything that came only from the intent, are marked `keptAsInstalled`, so the command leaves
+ * them out (and `--reuse-values` keeps the installed value) until they are edited - stating a default there would silently
+ * widen the scope, drop the tags, or lose a credential. Nothing installed and nothing reported is a fresh draft: all of it is stated.
+ */
+export function seedTelemetryFromInstalled(installed: string[], config?: AgentTelemetryConfig, intent?: TelemetryIntent): TelemetryInput {
+  let next: TelemetryInput = { ...emptyTelemetry }
   const rec = next as unknown as Record<string, boolean>
-  for (const s of TELEMETRY_SIGNALS) rec[s.id] = installed.includes(s.id)
+  // A signal nothing emits yet is never seeded on, even when an older install has it: it would sit in the draft unseen and block the
+  // command (it needs path measurements), and turning it off is what the command then states.
+  for (const s of TELEMETRY_SIGNALS) rec[s.id] = !s.noEmitter && installed.includes(s.id)
   if (config) {
     const routed = parseRoutedDestination(config.exportEndpoint)
     if (routed) {
@@ -404,8 +418,92 @@ export function seedTelemetryFromInstalled(installed: string[], config?: AgentTe
     if (config.tracesSamplingPercent !== undefined) next.tracesSamplingPercent = config.tracesSamplingPercent
     if (config.energySource) next.energySource = config.energySource
     if (config.acceleratorsSource) next.acceleratorsSource = config.acceleratorsSource
+    if (config.tags) next.tags = config.tags.map((t) => ({ ...t }))
+    if (config.debugVerbosity !== undefined) next.debugVerbosity = config.debugVerbosity
+    const scope = config.scope
+    if (scope) {
+      const own = (k: 'applicationMetrics' | 'applicationLogs' | 'traces' | 'infra') => (scope[k] ? { namespaces: [...scope[k]!.namespaces], exclude: [...scope[k]!.exclude], workloads: (scope[k]!.workloads ?? []).map((w) => ({ namespace: w.namespace, names: [...w.names] })) } : undefined)
+      next.applicationMetricsScope = own('applicationMetrics') ?? emptyScopeOverride
+      next.applicationLogsScope = own('applicationLogs') ?? emptyScopeOverride
+      next.tracesScope = own('traces') ?? emptyScopeOverride
+      next.scopeInfrastructure = scope.infra !== undefined
+    }
   }
+  // Only a recorded grant, never a fact about the cluster: it can say what was meant without the command ever having been run. It
+  // fills in what the agent does not report - as something to SHOW. Anything that came from here is still not known to be installed,
+  // so it stays out of the command until it is edited (see keptAsInstalled below).
+  if (intent && intent.status === 'active') {
+    if (!config || config.exportEndpoint.trim() === '') {
+      const d = intent.destination
+      if (d.kind === 'operator' && d.targetOperatorId) {
+        next.exportEndpoint = operatorReceiverEndpoint({ id: d.targetOperatorId })
+        next.exportOperatorId = d.targetOperatorId
+      } else if (d.endpoint) {
+        next.exportEndpoint = d.endpoint
+        next.exportInsecure = !!d.insecure
+        next.exportAuthHeaderName = d.authHeaderName ?? ''
+        next.exportAuthSecretName = d.authSecretName ?? ''
+        next.exportAuthSecretKey = d.authSecretKey ?? ''
+      }
+    }
+    if (!config?.scope && (intent.namespaces.length > 0 || intent.exclude.length > 0)) {
+      const granted = { namespaces: [...intent.namespaces], exclude: [...intent.exclude], workloads: [] }
+      for (const k of APP_SCOPE_KEYS) {
+        const key = `${k}Scope` as 'applicationMetricsScope' | 'applicationLogsScope' | 'tracesScope'
+        if (rec[k]) next[key] = granted
+      }
+    }
+  }
+  // Nothing installed and nothing reported: a fresh draft, whose defaults are exactly what is stated.
+  if (installed.length === 0 && !config) return next
+  const kept: KeptGroup[] = []
+  // A destination sent per signal type keeps its routes as installed lane by lane (exportLanesKept), so only the single one is a group.
+  if (!next.exportSplit) kept.push('destination')
+  if (!config?.scope) kept.push('scopeShared', ...APP_SCOPE_KEYS.filter((k) => rec[k]).map((k) => `scope:${k}` as const))
+  if (!config || config.tags === undefined) kept.push('tags')
+  if (!config || config.debugVerbosity === undefined) kept.push('debug')
+  if (!config) kept.push('processors')
+  next = keepAsInstalled(next, kept)
   return next
+}
+
+const SCOPE_LABEL: Record<(typeof APP_SCOPE_KEYS)[number], string> = { applicationMetrics: 'application metrics', applicationLogs: 'application logs', traces: 'traces' }
+const scopeWords1 = (s: { namespaces: string[]; exclude: string[] }) => `${s.namespaces.length ? s.namespaces.join(', ') : 'all namespaces'}${s.exclude.length ? `, without ${s.exclude.join(', ')}` : ''}`
+
+/**
+ * What running the command will change, one short line each, for the summary shown before it is copied. It compares the draft with
+ * what the install reports, and says plainly where it cannot: a setting the agent does not report is described as "set" rather than
+ * "changed", and one that is still kept as installed is not mentioned, because the command leaves it alone. Empty when the command
+ * changes nothing the install is known to have.
+ */
+export function describeTelemetryChanges(installed: string[], config: AgentTelemetryConfig | undefined, draft: TelemetryInput): string[] {
+  const out: string[] = []
+  const label = (ids: string[]) => ids.map((id) => TELEMETRY_SIGNALS.find((s) => s.id === id)?.label ?? id).join(', ')
+  const on = PICKABLE_SIGNALS.filter((s) => (draft as unknown as Record<string, boolean>)[s.id]).map((s) => s.id)
+  const added = on.filter((id) => !installed.includes(id))
+  const removed = installed.filter((id) => !on.includes(id) && PICKABLE_SIGNALS.some((s) => s.id === id))
+  if (added.length) out.push(`Turns on ${label(added)}`)
+  if (removed.length) out.push(`Turns off ${label(removed)}`)
+  if (!draft.exportSplit && !isKept(draft, 'destination')) {
+    const from = config && !config.exportEndpoint.includes('=') ? config.exportEndpoint.trim() : ''
+    const to = draft.exportEndpoint.trim()
+    if (from && from !== to) out.push(`Sends to ${to} instead of ${from}`)
+    else if (from) out.push(`States how it connects to ${to} again: protocol, TLS and credential`)
+    else out.push(`Sets the destination to ${to}, with its protocol, TLS and credential`)
+  }
+  for (const k of APP_SCOPE_KEYS) {
+    if (!(draft as unknown as Record<string, boolean>)[k] || isKept(draft, `scope:${k}`)) continue
+    const mine = draft[`${k}Scope` as 'applicationMetricsScope']
+    const theirs = config?.scope?.[k]
+    if (theirs && scopeWords1(theirs) === scopeWords1(mine)) continue
+    if (theirs) out.push(`Changes where ${SCOPE_LABEL[k]} are collected from ${scopeWords1(theirs)} to ${scopeWords1(mine)}`)
+    else out.push(`Collects ${SCOPE_LABEL[k]} from ${scopeWords1(mine)}`)
+  }
+  if (!isKept(draft, 'tags') && config?.tags !== undefined && JSON.stringify(cleanTags(draft.tags)) !== JSON.stringify(cleanTags(config.tags))) out.push('Changes the tags stamped on everything it sends')
+  if (!isKept(draft, 'tags') && config?.tags === undefined && draft.tags.length > 0) out.push('Sets the tags stamped on everything it sends')
+  if (!isKept(draft, 'debug') && config?.debugVerbosity !== undefined && draft.debugVerbosity !== config.debugVerbosity) out.push(`Changes the debug exporter to ${draft.debugVerbosity || 'off'}`)
+  if (!isKept(draft, 'processors') && config && (draft.redaction !== config.redactionEnabled || draft.resourceDetection !== config.resourceDetectionEnabled)) out.push('Changes the redaction or resource-detection processors')
+  return out
 }
 
 /** Where an agent's Helm release actually lives, when the server knows (it is what the agent reported). */

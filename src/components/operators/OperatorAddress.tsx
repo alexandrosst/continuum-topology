@@ -70,7 +70,8 @@ export function FindTheAddress({ id, exposure, service, testId }: { id: string; 
       )}
       <p className="text-xs leading-relaxed text-nb-500">
         {exposure === 'cluster' ? 'This operator was installed for its own cluster only. If you put your own Ingress, a DNS name or a mesh address in front of it, use that as ' : 'Behind your own Ingress or a DNS name? Use that instead, as '}
-        <span className="font-mono">host:port</span>.
+        <span className="font-mono">host:port</span>.{' '}
+        <span data-testid={`${testId}-passthrough`}>TCP/TLS passthrough only: the receiver checks each client certificate itself, so an Ingress that ends TLS or speaks plain HTTP cannot sit in front of it.</span>
       </p>
     </div>
   )

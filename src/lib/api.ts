@@ -1,5 +1,5 @@
 import { normalizeServerState, type ServerState } from './discovered'
-import type { OperatorDestination, ReceiverAuth, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
+import type { OperatorDestination, OperatorDestinationEntry, ReceiverAuth, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
 import type { DecisionLogEntry } from './placement/deciders'
 import type { SelfTelemetryEntity } from './selfHealth'
@@ -88,6 +88,12 @@ export interface CreatedOperator {
   heartbeatIntervalSeconds?: number
   /** Why the heartbeat address will not work as printed (plain HTTP) - show it next to the commands. */
   heartbeatWarning?: string
+  /** The `kubectl` that stores this server's certificate authority, when the heartbeat address is served with a private one (the install
+   *  command's heartbeat flags name that Secret): run it before the install. Absent when the server's certificate is publicly trusted. */
+  heartbeatCaSecretCommand?: string
+  /** Only on "install again / renew": restarts the operator's pods. Its certificates reload on their own; a new receiver token or health
+   *  credential is read once at start. */
+  restartCommand?: string
   /** Present only when the operator exports to ANOTHER operator (the central one in front of FUSION, usually): the
    *  `kubectl create secret` holding the client certificate that operator's receiver requires, issued just now from
    *  its own CA. Run it before the install command, which already points the exporter at it. */
@@ -119,6 +125,14 @@ export interface OperatorHeartbeatEnabled {
   heartbeatIntervalSeconds: number
   heartbeatRestartCommand?: string
   heartbeatWarning?: string
+  /** As CreatedOperator.heartbeatCaSecretCommand. */
+  heartbeatCaSecretCommand?: string
+}
+
+/** What revoking or deleting an operator hands back: revoking does not stop the receiver (there is no channel to it), so the
+ *  server returns the command that removes it. Absent when the server has none to give (and on an older server, which answers 204). */
+export interface OperatorRemoval {
+  uninstall?: string
 }
 
 /** Options for creating a regional operator. `heartbeat` opts it in to reporting its health to this server;
@@ -146,10 +160,12 @@ export interface UpdatedOperatorScope {
 
 /** One workload FUSION runs: the three stores and the central operator in front of them. */
 export interface FusionComponent {
-  component: 'metrics' | 'logs' | 'traces' | 'central'
+  component: 'metrics' | 'logs' | 'traces' | 'central' | 'grafana'
   label: string
   desired: number
   ready: number
+  /** Why this part is not ready, in a few plain words ("Pulling the image", "Waiting for a volume", "No node has room"). Absent when ready or unknown. */
+  reason?: string
 }
 
 /** GET /fusion: the bundled FUSION's switch. `available` is false when this server cannot switch it (the reason says
@@ -160,10 +176,14 @@ export interface FusionStatus {
   state: 'off' | 'starting' | 'running' | 'attention'
   message?: string
   since?: string
+  /** When FUSION last received data (RFC 3339); absent while unknown or before the first. */
+  lastDataAt?: string
   components?: FusionComponent[]
   central?: { operatorId: string; endpoint: string; exposed: boolean; exists: boolean; service?: string; namespace?: string }
   /** Whether this server serves the shared data API (and its access tokens) for this organisation. */
   data?: boolean
+  /** Same-origin paths of the web pages FUSION serves through this server, present only for a page that is up right now. */
+  links?: { prometheus?: string; grafana?: string }
 }
 
 export type FusionSignal = 'metrics' | 'logs' | 'traces'
@@ -643,6 +663,9 @@ export const api = {
   // model above - see lib/types.ts's own RegionalOperator doc comment. CRUD only, like tokens/invites/
   // members: no live status to poll, so these are ordinary one-shot calls, not part of `state`.
   listOperators: (c: Conn) => call<RegionalOperator[]>(c, 'GET', '/api/v1/operators'),
+  /** The destination picker's read model: active operators (and the central one, even before FUSION was switched on),
+   *  no secrets, readable by editors. See OperatorDestinationEntry. */
+  listOperatorDestinations: (c: Conn) => call<OperatorDestinationEntry[]>(c, 'GET', '/api/v1/operator-destinations'),
   getOperator: (c: Conn, id: string) => call<RegionalOperator>(c, 'GET', `/api/v1/operators/${encodeURIComponent(id)}`),
   createOperator: (c: Conn, name: string, sourceClusterIds: string[], destination: OperatorDestination, options: CreateOperatorOptions = {}) =>
     call<CreatedOperator>(c, 'POST', '/api/v1/operators', { name, sourceClusterIds, destination, heartbeat: options.heartbeat === true, labels: options.labels ?? [], exposure: options.exposure ?? 'cluster' }),
@@ -661,8 +684,14 @@ export const api = {
   listFusionTokens: (c: Conn) => call<FusionAccessToken[]>(c, 'GET', '/api/v1/fusion/tokens'),
   createFusionToken: (c: Conn, req: NewFusionAccessToken) => call<CreatedFusionAccessToken>(c, 'POST', '/api/v1/fusion/tokens', req),
   revokeFusionToken: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/fusion/tokens/${encodeURIComponent(id)}`),
-  revokeOperator: (c: Conn, id: string, reason: string) => call<void>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/revoke`, { reason }),
-  deleteOperator: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/operators/${encodeURIComponent(id)}`),
+  /** `force` is the explicit "yes, what depends on it breaks": without it the server answers 409 while anything does (see RegionalOperator.usedBy). */
+  revokeOperator: (c: Conn, id: string, reason: string, force = false) =>
+    call<OperatorRemoval | undefined>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/revoke`, force ? { reason, force: true } : { reason }),
+  deleteOperator: (c: Conn, id: string, force = false) =>
+    call<OperatorRemoval | undefined>(c, 'DELETE', `/api/v1/operators/${encodeURIComponent(id)}${force ? '?force=true' : ''}`),
+  /** Install again, or renew the certificates: re-issues the receiver and client certificates from the operator's own CA and
+   *  answers like createOperator. Operators that have a heartbeat secret or a receiver token get a new one (they are only kept hashed). */
+  reinstallOperator: (c: Conn, id: string) => call<CreatedOperator>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/install`),
 
   // telemetry intents: the server-side counterpart of one agent's bundled local-operator telemetry grant
   // (scope + signals + destination) - see lib/types.ts's own TelemetryIntent doc comment. CRUD like

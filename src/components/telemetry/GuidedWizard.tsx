@@ -1,14 +1,19 @@
 import clsx from 'clsx'
 import { ChevronLeft, Pencil, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
+import CreateOperatorModal from '@/components/operators/CreateOperatorModal'
+import { useFusion } from '@/components/operators/FusionPanel'
+import { OperatorAddressModal } from '@/components/operators/OperatorAddress'
 import { Button, ICON_MD, ICON_SM, WizardSteps } from '@/components/ui/primitives'
-import { api, atLeast } from '@/lib/api'
+import { atLeast, type CreatedOperator } from '@/lib/api'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
-import { buildDestinationCatalog, operatorReceiverEndpoint } from '@/lib/destinationCatalog'
-import { activeLanes, destinationReady, emptyExportTarget, enabledModalities, ROUTE_MODALITIES, startLanes, type Modality, type TelemetryInput } from '@/lib/install'
+import { applyDestination, buildDestinationCatalog, catalogOperators, destinationKey, fusionForCatalog, operatorReceiverEndpoint, type DestinationCatalog } from '@/lib/destinationCatalog'
+import { CENTRAL_OPERATOR_ID, fusionLabel } from '@/lib/fusionStatus'
+import { activeLanes, destinationReady, emptyExportTarget, enabledModalities, laneView, ROUTE_MODALITIES, startLanes, withLane, type Modality, type TelemetryInput } from '@/lib/install'
 import { LAYER_META } from '@/lib/telemetryLayers'
 import type { RegionalOperator } from '@/lib/types'
-import { useConn, useServer } from '@/store/server'
+import { useOperatorDestinations, useOperators } from '@/lib/useOperators'
+import { useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
 import CollectStep from './CollectStep'
 import DestinationStep from './DestinationStep'
@@ -79,6 +84,7 @@ export default function GuidedWizard({
   onChange,
   testIdPrefix,
   initialScope,
+  initialDestination,
   clusterId,
   runSection,
 }: {
@@ -93,6 +99,9 @@ export default function GuidedWizard({
   clusterId?: string
   /** A scope pre-filled from outside the wizard (see GuidedScope.tsx's own doc on this same prop). */
   initialScope?: { name: string; namespaces: string[] }
+  /** The id of the operator (or FUSION) to send to, when whoever opened the wizard already knows it ("Connect <cluster>"): the destination
+   *  step opens with it chosen, once the list it is in has arrived. */
+  initialDestination?: string
 }) {
   const needsScope = APP_SCOPED.some((k) => value[k])
   // A scope handed off from outside (the topology canvas's "Define scope from selection") only means
@@ -127,9 +136,6 @@ export default function GuidedWizard({
 
   const onSignals = TELEMETRY_SIGNALS.filter((s) => value[s.id as SignalId])
 
-  // Review's "Create the command" needs something to put in it: at least one signal, and somewhere to send it.
-  const canCreate = onSignals.length > 0 && destinationReady(value)
-
   // Where Back from Process lands: Scope when this session actually needed one, otherwise Collect.
   const beforeProcess: Step = scopeStepNeeded ? 'scope' : 'collect'
 
@@ -140,65 +146,71 @@ export default function GuidedWizard({
     setStep(willNeedScope ? 'scope' : 'process')
   }
 
-  // Destination step: a modality-filtered merge of regional operators, external-backend presets and
-  // already-quick-started backends (see destinationCatalog.ts) - operators are fetched here, not read
-  // from some wider store, since nothing else in this wizard already holds them and GET /operators is
-  // adminRole-gated server-side (admin.go), so a non-administrator never even tries.
-  const conn = useConn()
+  // Destination step: a modality-filtered merge of FUSION, the regional operators, external-backend presets and already-quick-started
+  // backends (see destinationCatalog.ts). An administrator reads the operators and FUSION's own state; an editor reads the same
+  // thing as a read model (GET /operator-destinations). Both are polled, so a health dot that changes while this is open changes on it.
   const isAdmin = useServer((s) => atLeast(s.role, 'admin'))
-  const [operators, setOperators] = useState<RegionalOperator[]>([])
-  // Whether the operator list has settled (fetched, failed, or never needed) - the destination step waits
-  // for it before auto-picking a lone match, see DestinationStep.
-  const [operatorsReady, setOperatorsReady] = useState(!isAdmin)
-  useEffect(() => {
-    if (!isAdmin) {
-      setOperators([])
-      setOperatorsReady(true)
-      return
-    }
-    let cancelled = false
-    void api
-      .listOperators(conn)
-      .then((ops) => {
-        if (!cancelled) {
-          setOperators(ops)
-          setOperatorsReady(true)
-        }
-      })
-      .catch(() => {
-        // Not fatal - the destination step simply offers no regional operators; the presets, the
-        // already-quick-started backends and the custom endpoint all still work.
-        if (!cancelled) setOperatorsReady(true)
-      })
-    return () => {
-      cancelled = true
-    }
-    // Deliberately depend on conn's own identifying fields rather than the conn object itself: useConn's
-    // real implementation (store/server.ts) memoizes it by url/org, but a test double or any other caller
-    // that hands back a fresh object every render would otherwise re-fire this effect (and, via
-    // setOperators, re-render) on every single render - an infinite loop no caller should have to avoid by
-    // memoizing just right.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conn.url, conn.org, isAdmin])
+  const operatorList = useOperators(isAdmin)
+  const destinationList = useOperatorDestinations(!isAdmin)
+  const { operators } = operatorList
+  const { destinations } = destinationList
+  const reloadLists = () => void (isAdmin ? operatorList.reload() : destinationList.reload())
+  const fusionState = useFusion(isAdmin, reloadLists)
+  // Whether what the destination step lists has settled (fetched, failed, or never needed) - it waits for it before auto-picking a lone
+  // match, see DestinationStep. FUSION counts for an administrator: its state arrives separately.
+  const operatorsReady = isAdmin ? operatorList.loaded && (fusionState.status !== null || fusionState.error !== '') : destinationList.loaded
 
   const enabledModalitySet = enabledModalities(value)
   // Receivers discovery already sees running in this cluster ("Found in your cluster").
   const { services, clusters } = useTopology()
   const clusterName = clusterId ? clusters?.find((c) => c.id === clusterId)?.name : undefined
-  const catalog = buildDestinationCatalog({
-    services,
-    clusterId,
-    operators,
-    enabledModalities: enabledModalitySet,
-    isAdmin,
-  })
+  const fusionEntry = fusionForCatalog({ status: fusionState.status, operators, destinations, isAdmin })
+  const catalogOf = (modalities: Set<Modality>): DestinationCatalog =>
+    buildDestinationCatalog({ services, clusterId, operators: catalogOperators({ operators, destinations, isAdmin }), enabledModalities: modalities, isAdmin, fusion: fusionEntry })
+  const catalog = catalogOf(enabledModalitySet)
+
+  // Sending to FUSION while it cannot receive: nothing would be there to take it, so no command is offered until that is fixed.
+  const sendsToFusion = value.exportSplit ? activeLanes(value).some((m) => value.exportLanes[m].exportOperatorId === CENTRAL_OPERATOR_ID) : value.exportOperatorId === CENTRAL_OPERATOR_ID
+  const fusionBlocked = sendsToFusion && !!fusionEntry && !fusionEntry.offer.usable
+  // Review's "Create the command" needs something to put in it: at least one signal, and somewhere to send it that can receive.
+  const canCreate = onSignals.length > 0 && destinationReady(value) && !fusionBlocked
+
+  const fusionControls = {
+    busy: fusionState.busy,
+    error: fusionState.error || undefined,
+    // Only an administrator can switch it, and only when this server can.
+    enable: isAdmin && fusionState.status?.available ? async () => void (await fusionState.enable()) : undefined,
+  }
+  // The new-operator and "reachable at" dialogs open over this wizard, never instead of it: nothing chosen so far is lost, and the operator
+  // that was just made is picked afterwards (`pendingPick`), in the lane it was made for when the destinations are split.
+  const [creatingFor, setCreatingFor] = useState<{ lane?: Modality } | null>(null)
+  const [addressFor, setAddressFor] = useState<RegionalOperator | null>(null)
+  const [pendingPick, setPendingPick] = useState<{ id: string; lane?: Modality; /** Dropped, not waited for, when the list turns out not to have it. */ optional?: boolean } | null>(() => (initialDestination ? { id: initialDestination, optional: true } : null))
+
   // Which catalog entry the person picked (DestinationStep's own destinationKey), or 'custom' - held here,
   // not in the step, so it survives leaving Destination for Review and coming back.
   const [destChoice, setDestChoice] = useState<string | null>(null)
   // The same, for each signal type while it has a destination of its own.
   const [laneChoices, setLaneChoices] = useState<Record<Modality, string | null>>({ metrics: null, logs: null, traces: null })
   // What can carry just one signal type: a regional operator only if it takes that type, a backend only if it does.
-  const catalogFor = (m: Modality) => buildDestinationCatalog({ services, clusterId, operators, enabledModalities: new Set<Modality>([m]), isAdmin })
+  const catalogFor = (m: Modality) => catalogOf(new Set<Modality>([m]))
+  // Picks the operator that was asked for (a new one, or the one "Connect <cluster>" came from) as soon as the list has it. FUSION is only
+  // ever picked while it can receive: an off one is left to the picker's "Enable and use".
+  useEffect(() => {
+    if (!pendingPick || !operatorsReady) return
+    const entry = (pendingPick.lane ? catalogFor(pendingPick.lane) : catalog).entries.find((e) => (e.kind === 'operator' || e.kind === 'fusion') && e.id === pendingPick.id)
+    if (!entry && !pendingPick.optional) return
+    setPendingPick(null)
+    if (!entry || !entry.compatible || (entry.kind === 'fusion' && !entry.fusion.usable)) return
+    const lane = pendingPick.lane
+    if (lane && value.exportSplit) {
+      onChange(withLane(value, lane, applyDestination(laneView(value, lane), entry)))
+      setLaneChoices((c) => ({ ...c, [lane]: destinationKey(entry) }))
+    } else {
+      onChange(applyDestination(value, entry))
+      setDestChoice(destinationKey(entry))
+    }
+  })
   // Splitting starts every lane from the one destination - except where that is a regional operator which does
   // not take the lane's signal type (a metrics-only operator for logs): that lane starts empty instead.
   const splitDestinations = (v: TelemetryInput): TelemetryInput => {
@@ -206,7 +218,7 @@ export default function GuidedWizard({
     const lanes = { ...started.exportLanes }
     for (const m of ROUTE_MODALITIES) {
       const id = lanes[m].exportOperatorId
-      if (id && !catalogFor(m).entries.some((e) => e.kind === 'operator' && e.id === id && e.compatible)) lanes[m] = emptyExportTarget
+      if (id && !catalogFor(m).entries.some((e) => (e.kind === 'operator' || e.kind === 'fusion') && e.id === id && e.compatible)) lanes[m] = emptyExportTarget
     }
     return { ...started, exportLanes: lanes }
   }
@@ -294,6 +306,7 @@ export default function GuidedWizard({
                   clusterId={clusterId}
                   choices={laneChoices}
                   onChoose={(m, key) => setLaneChoices((c) => ({ ...c, [m]: key }))}
+                  shared={{ fusion: fusionControls, onSetUpOperator: isAdmin ? (lane) => setCreatingFor({ lane }) : undefined, onRecordAddress: setAddressFor }}
                 />
                 {!destinationReady(value) && (
                   <p className="text-xs text-nb-500" data-testid={`${testIdPrefix}-guided-routes-incomplete`}>
@@ -318,6 +331,9 @@ export default function GuidedWizard({
                 onBack={() => setStep('process')}
                 onContinue={() => setStep('review')}
                 heading={!canSplit}
+                fusion={fusionControls}
+                onSetUpOperator={isAdmin ? () => setCreatingFor({}) : undefined}
+                onRecordAddress={setAddressFor}
               />
             )}
           </div>
@@ -330,7 +346,17 @@ export default function GuidedWizard({
             ) : (
               <>
                 <p className="text-xs text-nb-500">How this will flow, end to end:</p>
-                <TelemetryReviewPipeline value={value} onSignals={onSignals} testIdPrefix={testIdPrefix} shownEndpoints={Object.fromEntries(operators.filter((o) => o.endpoint).map((o) => [operatorReceiverEndpoint(o), o.endpoint as string]))} />
+                <TelemetryReviewPipeline value={value} onSignals={onSignals} testIdPrefix={testIdPrefix} shownEndpoints={Object.fromEntries([...catalogOperators({ operators, destinations, isAdmin }), ...(fusionEntry ? [fusionEntry.central] : [])].filter((o) => o.endpoint).map((o) => [operatorReceiverEndpoint(o), o.endpoint as string]))} />
+                {fusionBlocked && fusionEntry && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" role="alert" data-testid={`${testIdPrefix}-guided-fusion-blocked`}>
+                    <span>FUSION is {fusionLabel(fusionEntry.offer.kind).toLowerCase()}, so nothing would receive this and no command is generated.</span>
+                    {fusionEntry.offer.canEnable && fusionControls.enable ? (
+                      <Button size="sm" onClick={() => void fusionControls.enable?.()} disabled={fusionControls.busy} data-testid={`${testIdPrefix}-guided-fusion-enable`}>{fusionControls.busy ? 'Starting…' : 'Enable FUSION'}</Button>
+                    ) : (
+                      <span>{isAdmin ? 'Choose another destination.' : 'An administrator can turn it on.'}</span>
+                    )}
+                  </div>
+                )}
                 {!destinationReady(value) && (
                   <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" role="status" data-testid={`${testIdPrefix}-guided-no-destination`}>
                     <span>{value.exportSplit ? `${activeLanes(value).filter((m) => value.exportLanes[m].exportEndpoint.trim() === '').join(' and ')} still need a destination, so no command is generated.` : 'No destination yet, so no command is generated.'}</span>
@@ -367,6 +393,20 @@ export default function GuidedWizard({
           </div>
         )}
       </div>
+
+      {creatingFor && (
+        <CreateOperatorModal
+          operators={operators}
+          fusion={fusionState}
+          initialSourceClusterIds={clusterId ? [clusterId] : []}
+          onCreated={(created: CreatedOperator) => {
+            reloadLists()
+            setPendingPick({ id: created.operator.id, lane: creatingFor.lane })
+          }}
+          onClose={() => setCreatingFor(null)}
+        />
+      )}
+      {addressFor && <OperatorAddressModal operator={addressFor} onClose={() => setAddressFor(null)} onDone={reloadLists} />}
     </div>
   )
 }

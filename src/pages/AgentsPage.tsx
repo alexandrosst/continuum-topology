@@ -10,7 +10,7 @@ import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
 import EntityHistory from '@/components/EntityHistory'
 import { ConfirmModal } from '@/components/forms'
 import { DistroIcon, Flag, WithIcon } from '@/components/ui/brand'
-import { Button, EmptyState, ErrorBanner, ICON_SM, PageHeader, PulseDot, StatTile, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
+import { Button, EmptyState, ErrorBanner, ICON_SM, LiveDot, type LiveKind, PageHeader, StatTile, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
 import { api, ApiError } from '@/lib/api'
 import { skewLabel, skewWarning } from '@/lib/clock'
 import { extrasOf, type AgentExtras } from '@/lib/consent'
@@ -24,14 +24,14 @@ import { useTopology } from '@/store/topology'
 
 /** How an agent is doing right now, from what the server can tell. */
 type Health = 'ok' | 'late' | 'offline' | 'waiting' | 'expired' | 'gone' | 'unknown'
-const HEALTH: Record<Health, { label: string; dot: string; text: string }> = {
-  ok: { label: 'Connected', dot: 'bg-ok', text: 'text-ok' },
-  late: { label: 'Heartbeat late', dot: 'bg-warn', text: 'text-warn' },
-  offline: { label: 'Disconnected', dot: 'bg-bad', text: 'text-bad' },
-  waiting: { label: 'Waiting for approval', dot: 'bg-warn', text: 'text-warn' },
-  expired: { label: 'Request expired', dot: 'bg-nb-600', text: 'text-nb-400' },
-  gone: { label: 'Revoked', dot: 'bg-nb-600', text: 'text-nb-500' },
-  unknown: { label: 'Not live', dot: 'bg-nb-600', text: 'text-nb-400' },
+const HEALTH: Record<Health, { label: string; dot: LiveKind; text: string }> = {
+  ok: { label: 'Connected', dot: 'online', text: 'text-ok' },
+  late: { label: 'Heartbeat late', dot: 'late', text: 'text-warn' },
+  offline: { label: 'Disconnected', dot: 'offline', text: 'text-bad' },
+  waiting: { label: 'Waiting for approval', dot: 'starting', text: 'text-warn' },
+  expired: { label: 'Request expired', dot: 'idle', text: 'text-nb-400' },
+  gone: { label: 'Revoked', dot: 'idle', text: 'text-nb-500' },
+  unknown: { label: 'Not live', dot: 'idle', text: 'text-nb-400' },
 }
 /** Agents send a heartbeat every 30 seconds; two missed is "late". */
 const LATE_AFTER_MS = 75_000
@@ -269,7 +269,7 @@ export default function AgentsPage() {
                         </Td>
                         <Td valign="top">
                           <div className="flex items-center gap-2 whitespace-nowrap">
-                            <PulseDot color={st.dot} pulse={h === 'ok'} />
+                            <LiveDot kind={st.dot} />
                             <span className={st.text}>{st.label}</span>
                           </div>
                           <div className="text-xs text-nb-500" title={a.lastHeartbeat ? when(a.lastHeartbeat) : undefined}>
@@ -607,7 +607,7 @@ function AgentMap({ rows, clusterOf, selected, onSelect }: { rows: { a: Agent; h
                 data-testid="agent-node"
               >
                 <span className="flex items-center gap-2 text-sm font-medium text-nb-300">
-                  <PulseDot color={st.dot} pulse={p.h === 'ok'} />
+                  <LiveDot kind={st.dot} />
                   <span className="truncate">{p.a.name}</span>
                 </span>
                 <span className="mt-0.5 truncate text-xs text-nb-500">{c ? c.name : 'no cluster yet'} · {p.a.lastHeartbeat ? shortAge(p.a.lastHeartbeat) : st.label.toLowerCase()}</span>

@@ -24,8 +24,10 @@ vi.mock('@/store/settings', () => ({
   useSettings: () => ({ settings: DEFAULT_SETTINGS, loaded: true, error: undefined, save: vi.fn(async () => true) }),
 }))
 const CONN = { url: 'https://example.test', org: 'org-1' }
+// The store's conn is one stable function; a fresh one per render would make every polled list read again on every render.
+const connFn = () => CONN
 vi.mock('@/store/server', () => ({
-  useServer: (selector?: (s: { role?: string }) => unknown) => (selector ? selector({ role }) : { role }),
+  useServer: (selector?: (s: { role?: string; conn: () => typeof CONN }) => unknown) => (selector ? selector({ role, conn: connFn }) : { role, conn: connFn }),
   useConn: () => CONN,
 }))
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -35,6 +37,9 @@ vi.mock('@/lib/api', async (importOriginal) => {
     api: {
       ...actual.api,
       listOperators: (...a: unknown[]) => listOperators(...a),
+      // A server without FUSION, and no read model: the destination step lists only what each test puts in listOperators.
+      getFusion: async () => ({ available: false, reason: 'not-configured', state: 'off' }),
+      listOperatorDestinations: async () => [],
       listTelemetryIntents: (...a: unknown[]) => listTelemetryIntents(...a),
       createTelemetryIntent: (...a: unknown[]) => createTelemetryIntent(...a),
       updateTelemetryIntentScope: (...a: unknown[]) => updateTelemetryIntentScope(...a),
@@ -110,7 +115,8 @@ async function backTo(user: ReturnType<typeof userEvent.setup>, times: number) {
 
 const generateButton = () => screen.findByTestId('tp-operator-generate')
 const noApiCalls = () => {
-  expect(listTelemetryIntents).not.toHaveBeenCalled()
+  // The one read that seeds the draft from the agent's active request is the only call allowed before the click: nothing is written or generated.
+  expect(listTelemetryIntents.mock.calls.length).toBeLessThanOrEqual(1)
   expect(createTelemetryIntent).not.toHaveBeenCalled()
   expect(updateTelemetryIntentScope).not.toHaveBeenCalled()
   expect(updateTelemetryIntentDestination).not.toHaveBeenCalled()
@@ -163,11 +169,13 @@ describe('TelemetryPanel with a regional operator destination', () => {
     expect(cmd).toContain('&&')
     expect(cmd.trimEnd().endsWith(FRAGMENT)).toBe(true)
     expect(cmd).toContain('--set telemetry.resourceUsage.metrics.enabled=true')
-    // The endpoint is the server's, named once (the client's placeholder is left out), gRPC (no protocol flag), no skip-verify.
+    // The endpoint is the server's, named once (the client's placeholder is left out). The connection is stated as gRPC and verified, so
+    // an http or skip-verify an earlier destination had cannot linger; the client-certificate lines are the server fragment's alone.
     expect(cmd.split('telemetry.export.otlp.endpoint=').length - 1).toBe(1)
     expect(cmd).toContain('--set telemetry.export.otlp.endpoint=op-eu.continuum-system.svc:4317')
-    expect(cmd).not.toContain('telemetry.export.otlp.protocol')
-    expect(cmd).not.toContain('tls.insecure')
+    expect(cmd).toContain('telemetry.export.otlp.protocol=grpc')
+    expect(cmd).toContain('tls.insecure=false')
+    expect(cmd).not.toContain('tls.mtls.enabled=false')
     expect(screen.queryByTestId('tp-operator-endpoint-note')).not.toBeInTheDocument()
     expect(screen.queryByTestId('tp-operator-stale')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Copy the command' })).toBeEnabled()
@@ -202,7 +210,15 @@ describe('TelemetryPanel with a regional operator destination', () => {
     ])
     const user = userEvent.setup()
     render(tree())
-    await pickOperator(user)
+    await waitFor(() => expect(listTelemetryIntents).toHaveBeenCalled())
+    await user.click(screen.getByTestId('tp-mode-guided'))
+    await user.click(screen.getByTestId('tp-resourceUsage'))
+    await user.click(screen.getByTestId('tp-guided-continue')) // Collect -> Process
+    await user.click(screen.getByTestId('tp-guided-continue')) // Process -> Destination
+    // The destination the active request already names is where the step opens, not an empty one; the operator is a change from it.
+    expect(await screen.findByTestId('tp-guided-destination-endpoint')).toHaveValue('otel.example.com:4317')
+    await user.click(screen.getByTestId('tp-guided-destination-change'))
+    await user.click(await screen.findByTestId('tp-guided-destination-operator-op-eu'))
     await toRun(user)
     await user.click(await generateButton())
     await screen.findByTestId('tp-operator-command')
@@ -267,7 +283,9 @@ describe('TelemetryPanel with a regional operator destination', () => {
     expect(screen.queryByTestId('tp-credential-hint')).not.toBeInTheDocument()
     const cmd = (await screen.findByTestId('tp-operator-command')).textContent ?? ''
     expect(cmd.startsWith('kubectl create secret generic op-eu-export-mtls')).toBe(true)
-    expect(cmd).not.toContain('auth.secretName')
+    // No credential Secret is named, and the name is stated empty so a receiver token an earlier command set stops being sent.
+    expect(cmd).toMatch(/auth\.secretName= /)
+    expect(cmd).not.toContain('auth.secretKey')
     expect(cmd).not.toContain('TELEMETRY_EXPORT_TOKEN')
   })
 

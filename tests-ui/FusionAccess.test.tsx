@@ -142,15 +142,13 @@ describe('FusionAccess', () => {
 describe('the FUSION card', () => {
   const fusion = (status: FusionStatus) => ({ status, busy: false, error: '', refresh: vi.fn(), enable: vi.fn(), disable: vi.fn() }) as never
 
-  test('offers access only where the server serves the data API, and never inside the wizard', async () => {
+  test('offers access only where the server serves the data API', async () => {
     listFusionTokens.mockResolvedValue([])
     const off: FusionStatus = { available: true, state: 'off', data: false }
     const { rerender } = render(<FusionPanel fusion={fusion(off)} />)
     expect(screen.queryByTestId('fusion-access')).not.toBeInTheDocument()
     rerender(<FusionPanel fusion={fusion({ ...off, data: true })} />)
     expect(await screen.findByTestId('fusion-access')).toBeInTheDocument()
-    rerender(<FusionPanel fusion={fusion({ ...off, data: true })} compact />)
-    expect(screen.queryByTestId('fusion-access')).not.toBeInTheDocument()
   })
 
   test('is there even when the switch is not available to this server', async () => {

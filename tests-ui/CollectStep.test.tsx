@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 import CollectStep from '@/components/telemetry/CollectStep'
 import { TELEMETRY_INTENT_PRESETS } from '@/lib/consent'
-import { emptyTelemetry, TELEMETRY_SIGNALS, type TelemetryInput } from '@/lib/install'
+import { emptyTelemetry, PICKABLE_SIGNALS, type TelemetryInput } from '@/lib/install'
 
 let latest: TelemetryInput = emptyTelemetry
 const onContinue = vi.fn()
@@ -29,12 +29,14 @@ const checked = (id: string) => (screen.getByTestId(`c-${id}`) as HTMLInputEleme
 describe('CollectStep', () => {
   test('shows every signal once, grouped by layer and then modality, with n-of-m counts', () => {
     render(<Wrapper initial={{ ...emptyTelemetry, resourceUsage: true, energy: true }} />)
-    for (const s of TELEMETRY_SIGNALS) expect(screen.getByTestId(`c-${s.id}`)).toBeInTheDocument()
+    for (const s of PICKABLE_SIGNALS) expect(screen.getByTestId(`c-${s.id}`)).toBeInTheDocument()
+    // The network-latency signal has no emitter yet, so it is not offered at all.
+    expect(screen.queryByTestId('c-networkLatency')).not.toBeInTheDocument()
     const infra = screen.getByTestId('c-collect-layer-infrastructure')
     expect(within(infra).getByTestId('c-resourceUsage')).toBeInTheDocument()
     expect(within(infra).queryByTestId('c-traces')).not.toBeInTheDocument()
     expect(screen.getByTestId('c-collect-layer-application')).toContainElement(screen.getByTestId('c-traces'))
-    const metricsTotal = TELEMETRY_SIGNALS.filter((s) => s.layer === 'infrastructure' && s.modality === 'metrics').length
+    const metricsTotal = PICKABLE_SIGNALS.filter((s) => s.layer === 'infrastructure' && s.modality === 'metrics').length
     expect(screen.getByTestId('c-collect-infrastructure-metrics-count')).toHaveTextContent(`2 of ${metricsTotal}`)
     expect(screen.getByTestId('c-collect-infrastructure-logs-count')).toHaveTextContent(/0 of 2/)
   })
@@ -47,7 +49,7 @@ describe('CollectStep', () => {
     expect(screen.getByTestId('c-guided-continue')).toBeDisabled()
     await user.click(screen.getByTestId('c-resourceUsage'))
     expect(screen.getByTestId('c-guided-continue')).toBeEnabled()
-    expect(screen.getByTestId('c-collect-count')).toHaveTextContent(`1 of ${TELEMETRY_SIGNALS.length} signals picked.`)
+    expect(screen.getByTestId('c-collect-count')).toHaveTextContent(`1 of ${PICKABLE_SIGNALS.length} signals picked.`)
     await user.click(screen.getByTestId('c-guided-continue'))
     expect(onContinue).toHaveBeenCalledTimes(1)
   })
@@ -82,7 +84,7 @@ describe('CollectStep', () => {
     render(<Wrapper initial={{ ...emptyTelemetry, traces: true }} />)
     const minimal = TELEMETRY_INTENT_PRESETS.find((p) => p.id === 'minimal')!
     await user.click(screen.getByTestId('c-collect-preset-minimal'))
-    for (const s of TELEMETRY_SIGNALS) expect(checked(s.id)).toBe(minimal.signals.includes(s.id))
+    for (const s of PICKABLE_SIGNALS) expect(checked(s.id)).toBe(minimal.signals.includes(s.id))
     expect(screen.getByTestId('c-collect-preset-minimal')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('c-collect-preset-full-infra')).toHaveAttribute('aria-pressed', 'false')
     // Adjusting a row afterwards no longer matches the preset exactly.

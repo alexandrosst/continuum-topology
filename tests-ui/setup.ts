@@ -13,4 +13,10 @@ if (!Element.prototype.scrollIntoView) {
 // and queries like getByRole start matching the wrong test's elements.
 afterEach(() => {
   cleanup()
+  // An unfinished telemetry draft is kept for the browser session (lib/draftStore.ts): one test's must not come back in the next.
+  try {
+    sessionStorage.clear()
+  } catch {
+    // no storage in this environment
+  }
 })

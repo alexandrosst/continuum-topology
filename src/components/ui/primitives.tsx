@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Check, ChevronDown, Cloud, Copy, Cpu, Eye, EyeOff, Minus, Plus, Server, X, type LucideIcon } from 'lucide-react'
+import { Check, ChevronDown, Cloud, Copy, Cpu, Eye, EyeOff, Loader2, Minus, Plus, Server, X, type LucideIcon } from 'lucide-react'
 import {
   Children, isValidElement, useEffect, useId, useRef, useState,
   type ButtonHTMLAttributes, type ChangeEvent, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type SelectHTMLAttributes,
@@ -665,6 +665,45 @@ export function SourceBadge({ source, overridden, stacked }: { source: Source; o
 }
 
 /**
+ * How an agent, an operator or FUSION is doing, as one dot: the ONE vocabulary for "is it alive" across the product. Green
+ * and pulsing = online (the only thing that moves while everything is fine), red = offline, amber = late or needs a look,
+ * hollow amber with a slow fade = coming up, hollow grey = not reporting / switched off. Shape repeats what colour says
+ * (filled and pulsing, filled, hollow), so none of it rests on telling green from red. The words beside a dot carry the
+ * meaning; the dot only repeats it. Use this, not a hand-picked colour, wherever an entity has a liveness.
+ */
+export type LiveKind = 'online' | 'offline' | 'late' | 'starting' | 'idle'
+export function LiveDot({ kind, size = 'size-1.5', className }: { kind: LiveKind; size?: string; className?: string }) {
+  // A change of state rings the dot once (the same cue StatusDot gives), so a status that flips while someone is looking is noticed.
+  const flash = useFlash(kind)
+  const cls = clsx(className, flash && 'flash-ring rounded-full')
+  switch (kind) {
+    case 'online':
+      return <PulseDot color="bg-ok" pulse size={size} className={cls} />
+    case 'offline':
+      return <PulseDot color="bg-bad" size={size} className={cls} />
+    case 'late':
+      return <PulseDot color="bg-warn" size={size} className={cls} />
+    case 'starting':
+      return <span className={clsx('inline-block shrink-0 rounded-full border border-warn animate-pulse', size, cls)} aria-hidden />
+    default:
+      return <span className={clsx('inline-block shrink-0 rounded-full border border-nb-500', size, cls)} aria-hidden />
+  }
+}
+
+/**
+ * Something is being waited for: the same accent spinner the discovery wizard shows while an agent connects, with the
+ * words beside it. One spinner per view - elsewhere on the page the same wait is a LiveDot, which does not spin.
+ */
+export function Waiting({ children, className, testId }: { children: ReactNode; className?: string; testId?: string }) {
+  return (
+    <span className={clsx('inline-flex items-center gap-2', className)} role="status" data-testid={testId}>
+      <Loader2 size={ICON_SM} className="shrink-0 animate-spin text-accent" aria-hidden />
+      <span>{children}</span>
+    </span>
+  )
+}
+
+/**
  * A small round dot in an arbitrary color, with an optional pulsing "ping" ring around it — the same animation
  * LiveStatus uses for "this is current right now". Pass `pulse` only for the one state that means actively
  * live/connected, not for idle, error or neutral dots, so the blink stays a meaningful signal rather than
@@ -1114,6 +1153,10 @@ export function MenuPanel({
 }
 
 /* ---------- Modal ---------- */
+/** The open modals, oldest first. A dialog opened over another one (the new-operator form over the telemetry wizard) is the only one
+ *  that answers Escape and Tab: otherwise one Escape would close both and take the work underneath with it. */
+const modalStack: object[] = []
+
 export function Modal({
   open,
   onClose,
@@ -1141,7 +1184,11 @@ export function Modal({
 }) {
   const box = useRef<HTMLDivElement>(null)
   const closeRef = useRef(onClose)
-  useEffect(() => { closeRef.current = onClose })
+  const dismissibleRef = useRef(dismissible)
+  useEffect(() => {
+    closeRef.current = onClose
+    dismissibleRef.current = dismissible
+  })
   useEffect(() => {
     if (!open) return
     // Keyboard users must not fall out of a modal: Tab cycles inside it, Escape closes it, and focus goes back to
@@ -1150,10 +1197,13 @@ export function Modal({
     const focusable = () =>
       Array.from(box.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? []).filter((el) => el.offsetParent !== null)
     if (!box.current?.contains(document.activeElement)) (focusable()[0] ?? box.current)?.focus()
+    const me = {}
+    modalStack.push(me)
     const onKey = (e: KeyboardEvent) => {
+      if (modalStack[modalStack.length - 1] !== me) return
       if (e.key === 'Escape') {
         e.stopPropagation()
-        if (dismissible) closeRef.current()
+        if (dismissibleRef.current) closeRef.current()
         return
       }
       if (e.key !== 'Tab') return
@@ -1174,9 +1224,10 @@ export function Modal({
     window.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('keydown', onKey)
+      modalStack.splice(modalStack.indexOf(me), 1)
       opener?.focus?.()
     }
-  }, [open, dismissible]) // onClose is read through a ref: a new function each render must not re-run this and steal focus
+  }, [open]) // onClose and dismissible are read through refs: a change in either must not re-run this - it would steal focus, and put this dialog back on top of the stack over one opened above it
 
   if (!open) return null
   // Portaled to the document body: some callers (the sidebar's account menu) render this from inside an
@@ -1431,12 +1482,26 @@ export function WizardSteps({ steps, currentIndex, failedIndex, testId = 'wizard
                 {failed ? <X size={ICON_MD} /> : done ? <Check size={ICON_MD} /> : i + 1}
               </span>
             </span>
-            <span className={clsx('ml-1.5 whitespace-nowrap text-[11px]', failed ? 'text-bad' : done ? 'text-nb-400' : current ? 'text-nb-200' : 'text-nb-600')}>{label}</span>
+            {/* On a phone only the current step keeps its words on screen (the others stay for a screen reader): three labels do not fit in a row. */}
+            <span aria-current={current ? 'step' : undefined} className={clsx('ml-1.5 whitespace-nowrap text-[11px]', !current && 'max-sm:sr-only', failed ? 'text-bad' : done ? 'text-nb-400' : current ? 'text-nb-200' : 'text-nb-600')}>{label}</span>
             {i < steps.length - 1 && <span className={clsx('mx-2 h-px flex-1', done ? 'bg-ok/30' : 'bg-nb-850')} />}
           </div>
         )
       })}
     </div>
+  )
+}
+
+/** One numbered step of the "run this" screen: the number in a ring, a title, then whatever the step needs. */
+export function RunStep({ n, title, children, testId }: { n: number; title: string; children?: ReactNode; testId?: string }) {
+  return (
+    <li className="flex gap-3" data-testid={testId}>
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-nb-800 bg-nb-930 text-xs font-medium text-nb-300" aria-hidden>{n}</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium text-nb-200">{title}</div>
+        <div className="text-xs text-nb-500">{children}</div>
+      </div>
+    </li>
   )
 }
 

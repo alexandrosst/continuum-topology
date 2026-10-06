@@ -27,6 +27,7 @@ export default function TelemetryWizard({
   onClose,
   agentId,
   initialScope,
+  initialDestination,
 }: {
   open: boolean
   onClose: () => void
@@ -34,6 +35,8 @@ export default function TelemetryWizard({
   agentId?: string
   /** A scope draft handed off from the topology's "Define scope from selection" quick action. */
   initialScope?: { name: string; namespaces: string[] }
+  /** The id of the operator (or FUSION) to send to, already chosen by whoever opened this - see GuidedWizard. */
+  initialDestination?: string
 }) {
   const navigate = useNavigate()
   const { agents, clusters } = useTopology()
@@ -134,6 +137,7 @@ export default function TelemetryWizard({
             agentId={target?.id}
             clusterId={target?.clusterId}
             initialScope={initialScope}
+            initialDestination={initialDestination}
             standalone
             testIdPrefix="telemetry-wizard"
           />

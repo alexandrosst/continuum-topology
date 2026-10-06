@@ -404,7 +404,6 @@ const INFRA_EFFECT: { id: keyof TelemetryInput; label: string; follows: boolean;
   { id: 'kubernetesEvents', label: 'Kubernetes events', follows: true, note: 'Events in your namespaces only; workloads do not apply to events. Node events stay.' },
   { id: 'energy', label: 'Energy', follows: false, note: 'Not narrowed: power is reported per node.' },
   { id: 'accelerators', label: 'Accelerators (GPU)', follows: false, note: 'Not narrowed by this - GPU metrics have their own scope switch under Collect.' },
-  { id: 'networkLatency', label: 'Network latency', follows: false, note: 'Measured between nodes, not between workloads.' },
   { id: 'systemLogs', label: 'System logs', follows: false, note: 'Not narrowed: read per node.' },
 ]
 

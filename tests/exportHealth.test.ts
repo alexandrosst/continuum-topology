@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AgentDiagnostics, AgentExportHealth, AgentExportRoute } from '../src/lib/consent'
-import { exportReach, exportRows } from '../src/lib/exportHealth'
+import { exportReach, exportRows, exportSummary } from '../src/lib/exportHealth'
 
 const route = (over: Partial<AgentExportRoute>): AgentExportRoute => ({
   exporter: 'otlp',
@@ -116,4 +116,15 @@ test('exportReach: not reported without the field, unreadable only when nothing 
   assert.equal(exportReach(diag(health([], { podsReached: 1, podsFailed: 1 }))), 'ok')
   // Nothing found and nothing failed: no collectors to read, which is not a failure to read them.
   assert.equal(exportReach(diag(health([], { podsReached: 0, podsFailed: 0 }))), 'ok')
+})
+
+test('exportSummary: one dot for the worst signal type, and "not reported" is never a fault', () => {
+  const d = (routes: AgentExportRoute[], over: Partial<AgentExportHealth> = {}) => diag(health(routes, over))
+  assert.deepEqual(exportSummary([], d([])), { kind: 'idle', text: 'Nothing installed' })
+  assert.deepEqual(exportSummary(['resourceUsage'], undefined), { kind: 'idle', text: 'Not reported' })
+  assert.deepEqual(exportSummary(['resourceUsage'], d([], { podsReached: 0, podsFailed: 2 })), { kind: 'idle', text: 'Cannot read counters' })
+  assert.deepEqual(exportSummary(['resourceUsage'], d([])), { kind: 'starting', text: 'Waiting for data' })
+  assert.deepEqual(exportSummary(['resourceUsage'], d([route({})])), { kind: 'online', text: 'Sending' })
+  // Metrics are sending but logs are failing: the row says the worse of the two.
+  assert.deepEqual(exportSummary(['resourceUsage', 'systemLogs'], d([route({}), route({ signal: 'logs', state: 'failing', failed: 3 })])), { kind: 'offline', text: 'Failing' })
 })

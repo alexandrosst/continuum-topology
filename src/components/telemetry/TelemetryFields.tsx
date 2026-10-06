@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useState, type ReactNode } from 'react'
 import { ComboField, Field, InfoTip, Input, Select, TagsInput } from '@/components/ui/primitives'
 import { EXPORT_PRESETS, presetSupportsModalities, unsupportedDestinationNote } from '@/lib/exportPresets'
-import { applyIntentPreset, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, TELEMETRY_UNIVERSAL_PERMISSION } from '@/lib/consent'
+import { applyIntentPreset, PICKABLE_SIGNALS, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, TELEMETRY_UNIVERSAL_PERMISSION } from '@/lib/consent'
 import { telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
 import GuidedWizard from './GuidedWizard'
 import ProcessorEditor from './ProcessorEditor'
@@ -148,6 +148,7 @@ export default function TelemetryFields({
   measurementsOn,
   testIdPrefix = 'telemetry',
   initialScope,
+  initialDestination,
   agentId,
   clusterId,
   runSection,
@@ -168,6 +169,8 @@ export default function TelemetryFields({
    * in guided mode, so the person lands directly on their pre-filled draft instead of needing to notice
    * and click into guided mode themselves first. */
   initialScope?: { name: string; namespaces: string[] }
+  /** The operator (or FUSION) to send to, chosen from outside this form: also starts it guided, where the destination step picks it up. */
+  initialDestination?: string
 }) {
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
   const problems = telemetryProblems(value, measurementsOn)
@@ -188,14 +191,14 @@ export default function TelemetryFields({
   // into guided mode for renders exactly as it always has (see the plan note on TelemetryFields.tsx) -
   // unless a pre-filled scope was just handed to this form from outside, in which case guided is the only
   // mode that has anywhere to show it.
-  const [guided, setGuided] = useState(() => !!initialScope)
+  const [guided, setGuided] = useState(() => !!initialScope || !!initialDestination)
 
   // A browsing aid only - local state, never written into TelemetryInput - so leaving every facet at
   // its "All" default reproduces byte-identical infra/app lists to before facets existed.
   const [scopeFacet, setScopeFacet] = useState<'all' | 'cluster' | 'node' | 'application'>('all')
   const [layerFacet, setLayerFacet] = useState<'all' | 'infrastructure' | 'application'>('all')
   const [modalityFacet, setModalityFacet] = useState<'all' | 'metrics' | 'logs' | 'traces'>('all')
-  const visible = TELEMETRY_SIGNALS.filter(
+  const visible = PICKABLE_SIGNALS.filter(
     (s) =>
       (scopeFacet === 'all' || s.scope === scopeFacet) &&
       (layerFacet === 'all' || s.layer === layerFacet) &&
@@ -271,7 +274,7 @@ export default function TelemetryFields({
       </div>
 
       {guided ? (
-        <GuidedWizard value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialScope={initialScope} agentId={agentId} clusterId={clusterId} runSection={runSection} />
+        <GuidedWizard value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialScope={initialScope} initialDestination={initialDestination} agentId={agentId} clusterId={clusterId} runSection={runSection} />
       ) : (
       <>
       <div className="space-y-1.5">

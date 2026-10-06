@@ -7,7 +7,8 @@ import GuidedWizard from '@/components/telemetry/GuidedWizard'
 import { DEFAULT_SETTINGS, type AppSettings, type QuickStartBackend } from '@/lib/history'
 import { emptyTelemetry, type TelemetryInput } from '@/lib/install'
 import { quickStartSpec } from '@/lib/quickStartBackends'
-import type { RegionalOperator } from '@/lib/types'
+import type { FusionStatus } from '@/lib/api'
+import type { OperatorDestinationEntry, RegionalOperator } from '@/lib/types'
 
 // GuidedWizard's destination step (between Scope and Review) merges regional operators, the built-in
 // export presets and this org's own already-quick-started backends into one pickable catalog
@@ -18,7 +19,12 @@ import type { RegionalOperator } from '@/lib/types'
 let settings: AppSettings
 let role: 'viewer' | 'editor' | 'admin' | 'owner' | undefined
 const listOperators = vi.fn(async (): Promise<RegionalOperator[]> => [])
+const listOperatorDestinations = vi.fn(async (): Promise<OperatorDestinationEntry[]> => [])
+// A server that does not run FUSION: no row for it, so what these tests count and pick is only the operators.
+const getFusion = vi.fn(async (): Promise<FusionStatus> => ({ available: false, reason: 'not-configured', state: 'off' }))
+const enableFusion = vi.fn(async (): Promise<FusionStatus> => ({ available: true, state: 'starting', components: [{ component: 'central', label: 'Central', desired: 1, ready: 0 }] }))
 const save = vi.fn(async () => true)
+const RUNNING: FusionStatus = { available: true, state: 'running', components: [{ component: 'central', label: 'Central', desired: 1, ready: 1 }] }
 
 vi.mock('@/store/settings', () => ({
   useSettings: () => ({ settings, loaded: true, error: undefined, save }),
@@ -28,13 +34,41 @@ vi.mock('@/store/settings', () => ({
 // per call would make GuidedWizard's own operator-fetching effect (deps: [conn, isAdmin]) re-fire on every
 // render it itself causes via setOperators, looping forever.
 const CONN = { url: 'https://example.test', org: 'org-1' }
+// The store's conn is one stable function; a fresh one per render would make every polled list read again on every render.
+const connFn = () => CONN
 vi.mock('@/store/server', () => ({
-  useServer: (selector?: (s: { role?: string }) => unknown) => (selector ? selector({ role }) : { role }),
+  useServer: (selector?: (s: { role?: string; conn: () => typeof CONN }) => unknown) => (selector ? selector({ role, conn: connFn }) : { role, conn: connFn }),
   useConn: () => CONN,
 }))
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
-  return { ...actual, api: { ...actual.api, listOperators: (...a: Parameters<typeof listOperators>) => listOperators(...a) } }
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      listOperators: (...a: Parameters<typeof listOperators>) => listOperators(...a),
+      listOperatorDestinations: (...a: Parameters<typeof listOperatorDestinations>) => listOperatorDestinations(...a),
+      getFusion: (...a: Parameters<typeof getFusion>) => getFusion(...a),
+      enableFusion: (...a: Parameters<typeof enableFusion>) => enableFusion(...a),
+    },
+  }
+})
+
+// The create dialog itself is covered by RegionalOperatorsPage's tests. Here it is the real one unless a test asks for a stand-in that
+// reports one creation at once, which is all this wizard has to react to.
+let fakeCreated: RegionalOperator | undefined
+vi.mock('@/components/operators/CreateOperatorModal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/operators/CreateOperatorModal')>()
+  const Real = actual.default
+  return {
+    ...actual,
+    default: (props: React.ComponentProps<typeof Real>) =>
+      fakeCreated ? (
+        <button type="button" data-testid="fake-create" onClick={() => props.onCreated?.({ operator: fakeCreated!, reminders: [], install: {} } as never)}>create</button>
+      ) : (
+        <Real {...props} />
+      ),
+  }
 })
 
 const operator = (overrides: Partial<RegionalOperator> = {}): RegionalOperator => ({
@@ -52,15 +86,15 @@ const operator = (overrides: Partial<RegionalOperator> = {}): RegionalOperator =
 /** The draft as of the last change - lets a test read what the wizard wrote into it. */
 let latest: TelemetryInput = emptyTelemetry
 
-function Wrapper({ initial = emptyTelemetry, clusterId }: { initial?: TelemetryInput; clusterId?: string }) {
+function Wrapper({ initial = emptyTelemetry, clusterId, initialDestination }: { initial?: TelemetryInput; clusterId?: string; initialDestination?: string }) {
   const [value, setValue] = useState<TelemetryInput>(initial)
-  return <GuidedWizard value={value} onChange={(v) => { latest = v; setValue(v) }} testIdPrefix="t" clusterId={clusterId} runSection={<div data-testid="t-run-section">the command</div>} />
+  return <GuidedWizard value={value} onChange={(v) => { latest = v; setValue(v) }} testIdPrefix="t" clusterId={clusterId} initialDestination={initialDestination} runSection={<div data-testid="t-run-section">the command</div>} />
 }
 
-function renderWizard(initial?: TelemetryInput, clusterId?: string) {
+function renderWizard(initial?: TelemetryInput, clusterId?: string, initialDestination?: string) {
   return render(
     <MemoryRouter>
-      <Wrapper initial={initial} clusterId={clusterId} />
+      <Wrapper initial={initial} clusterId={clusterId} initialDestination={initialDestination} />
     </MemoryRouter>,
   )
 }
@@ -78,6 +112,10 @@ beforeEach(() => {
   role = undefined
   listOperators.mockClear()
   listOperators.mockResolvedValue([])
+  listOperatorDestinations.mockResolvedValue([])
+  getFusion.mockResolvedValue({ available: false, reason: 'not-configured', state: 'off' })
+  enableFusion.mockClear()
+  fakeCreated = undefined
   save.mockClear()
 })
 
@@ -246,8 +284,9 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     renderWizard()
     await gotoDestination(user)
     await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('EU regional operator'))
-    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('No address is recorded')
-    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('only resolves in the cluster it runs in')
+    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('reachable inside its own cluster only')
+    // An administrator can record where it is reachable without leaving the wizard.
+    expect(screen.getByTestId('t-guided-destination-record-address')).toBeInTheDocument()
   })
 
   test('an operator with a recorded address shows it', async () => {
@@ -263,13 +302,14 @@ describe('GuidedWizard destination step: the merged catalog', () => {
   test('the destination and the review show the address the commands will really dial, not the placeholder name', async () => {
     const user = userEvent.setup()
     role = 'admin'
+    getFusion.mockResolvedValue(RUNNING)
     listOperators.mockResolvedValue([operator({ id: 'op-central', name: 'Central (FUSION)', endpoint: 'continuum-fusion-central.continuum.svc:4317' })])
     renderWizard()
     await gotoDestination(user)
-    await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('Central (FUSION)'))
+    await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('FUSION - this server'))
     expect(screen.getByTestId('t-guided-destination-endpoint')).toHaveTextContent('continuum-fusion-central.continuum.svc:4317')
     expect(screen.getByTestId('t-guided-destination-endpoint')).not.toHaveTextContent('op-central.continuum-system.svc')
-    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('(continuum-fusion-central.continuum.svc:4317)')
+    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('FUSION is reachable inside its own cluster only (continuum-fusion-central.continuum.svc:4317')
     await user.click(screen.getByTestId('t-guided-continue'))
     expect(screen.getByTestId('t-review-pipeline')).toHaveTextContent('continuum-fusion-central.continuum.svc:4317')
     expect(screen.getByTestId('t-review-pipeline')).not.toHaveTextContent('op-central.continuum-system.svc')
@@ -511,6 +551,152 @@ describe('GuidedWizard destination step: no backend is deployed from here', () =
     renderWizard()
     await gotoDestination(user)
     await waitFor(() => expect(screen.getByTestId('t-guided-deploy-operator')).toBeInTheDocument())
-    expect(screen.getByTestId('t-guided-deploy-operator')).toHaveAttribute('href', '/operators')
+    // It opens the create dialog in place: the wizard is still there behind it, so nothing typed so far is lost.
+    await user.click(screen.getByTestId('t-guided-deploy-operator'))
+    expect(await screen.findByRole('dialog', { name: 'New operator' })).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
+  })
+})
+
+const OFF: FusionStatus = { available: true, state: 'off', components: [{ component: 'central', label: 'Central', desired: 0, ready: 0 }] }
+const CENTRAL = { id: 'op-central', name: 'Central', endpoint: 'continuum-fusion-central.continuum.svc:4317' } as const
+const centralEntry = (health: OperatorDestinationEntry['health']['state']): OperatorDestinationEntry => ({
+  id: 'op-central',
+  kind: 'central',
+  name: 'FUSION',
+  endpoint: CENTRAL.endpoint,
+  acceptedModalities: ['metrics', 'logs', 'traces'],
+  reachableFromOtherClusters: false,
+  health: { state: health },
+}) as OperatorDestinationEntry
+
+describe('GuidedWizard destination step: FUSION', () => {
+  test('a running FUSION is picked for the administrator without a click, and its endpoint reaches the draft', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    getFusion.mockResolvedValue(RUNNING)
+    listOperators.mockResolvedValue([operator({ id: 'op-central', name: 'Central', endpoint: CENTRAL.endpoint })])
+    renderWizard()
+    await gotoDestination(user)
+    await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('FUSION - this server'))
+    expect(latest.exportOperatorId).toBe('op-central')
+  })
+
+  test('an off FUSION is a row of its own with "Enable and use": switching it on picks it, says it is starting and that the commands are safe to run', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    getFusion.mockResolvedValue(OFF)
+    listOperators.mockResolvedValue([operator({ id: 'op-central', name: 'Central', endpoint: CENTRAL.endpoint })])
+    renderWizard()
+    await gotoDestination(user)
+    // Off is not a radio: nothing is picked for the person, and picking is what the button is for.
+    const enable = await screen.findByTestId('t-guided-destination-fusion-op-central-enable')
+    expect(enable).toHaveTextContent('Enable and use')
+    expect(latest.exportOperatorId).toBe('')
+    await user.click(enable)
+    expect(enableFusion).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(latest.exportOperatorId).toBe('op-central'))
+    expect(screen.getByTestId('t-guided-destination-fusion-waiting')).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-destination-fusion-safe')).toHaveTextContent('safe to run now')
+  })
+
+  test('when switching FUSION on fails, nothing is picked and the reason is shown', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    getFusion.mockResolvedValue(OFF)
+    enableFusion.mockRejectedValueOnce(new Error('boom'))
+    renderWizard()
+    await gotoDestination(user)
+    await user.click(await screen.findByTestId('t-guided-destination-fusion-op-central-enable'))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not turn FUSION on.'))
+    expect(latest.exportOperatorId).toBe('')
+  })
+
+  test('an editor sees an off FUSION from the read model, with who can turn it on and no button', async () => {
+    const user = userEvent.setup()
+    role = 'editor'
+    listOperatorDestinations.mockResolvedValue([centralEntry('off')])
+    renderWizard()
+    await gotoDestination(user)
+    expect(await screen.findByTestId('t-guided-destination-fusion-op-central-ask')).toHaveTextContent('An administrator can turn it on.')
+    expect(screen.queryByTestId('t-guided-destination-fusion-op-central-enable')).not.toBeInTheDocument()
+    expect(getFusion).not.toHaveBeenCalled()
+  })
+
+  test('a draft that sends to a FUSION that is off cannot make a command: Review says so and Create the command is disabled until it is on', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    getFusion.mockResolvedValue(OFF)
+    listOperators.mockResolvedValue([operator({ id: 'op-central', name: 'Central', endpoint: CENTRAL.endpoint })])
+    renderWizard({ ...emptyTelemetry, exportOperatorId: 'op-central', exportEndpoint: CENTRAL.endpoint })
+    await user.click(screen.getByTestId('t-resourceUsage'))
+    await user.click(screen.getByTestId('t-guided-continue'))
+    await user.click(screen.getByTestId('t-guided-continue'))
+    await waitFor(() => expect(screen.getByTestId('t-guided-continue')).toBeInTheDocument())
+    await user.click(screen.getByTestId('t-guided-continue'))
+    expect(screen.getByTestId('t-guided-step-review')).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-create-command')).toBeDisabled()
+    expect(screen.getByTestId('t-guided-fusion-blocked')).toHaveTextContent('FUSION is off')
+    await user.click(screen.getByTestId('t-guided-fusion-enable'))
+    await waitFor(() => expect(screen.getByTestId('t-guided-create-command')).toBeEnabled())
+    expect(screen.queryByTestId('t-guided-fusion-blocked')).not.toBeInTheDocument()
+  })
+
+  test('a FUSION in another organisation is named as that, not offered', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    getFusion.mockResolvedValue({ available: false, reason: 'other-org', state: 'off', message: 'FUSION belongs to another organisation.' })
+    renderWizard()
+    await gotoDestination(user)
+    expect(await screen.findByTestId('t-guided-destination-fusion-op-central')).toHaveTextContent('FUSION belongs to another organisation.')
+    expect(screen.queryByTestId('t-guided-destination-fusion-op-central-enable')).not.toBeInTheDocument()
+  })
+
+  test('opened from an operator ("Connect <cluster>"), that operator is already the destination', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    listOperators.mockResolvedValue([operator(), operator({ id: 'op-us', name: 'US regional operator' })])
+    // The signals are already on, as when the wizard is started for an agent.
+    renderWizard({ ...emptyTelemetry, resourceUsage: true }, undefined, 'op-us')
+    await user.click(screen.getByTestId('t-guided-continue'))
+    await user.click(screen.getByTestId('t-guided-continue'))
+    await waitFor(() => expect(latest.exportOperatorId).toBe('op-us'))
+    expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('US regional operator')
+  })
+
+  test('opened for FUSION while it is running, FUSION is the destination; one that is not listed is simply dropped', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    getFusion.mockResolvedValue(RUNNING)
+    listOperators.mockResolvedValue([operator({ id: 'op-central', name: 'Central', endpoint: CENTRAL.endpoint }), operator()])
+    const preset = { ...emptyTelemetry, resourceUsage: true }
+    const toDestination = async () => {
+      await user.click(screen.getByTestId('t-guided-continue'))
+      await user.click(screen.getByTestId('t-guided-continue'))
+    }
+    const { unmount } = renderWizard(preset, undefined, 'op-central')
+    await toDestination()
+    await waitFor(() => expect(latest.exportOperatorId).toBe('op-central'))
+    unmount()
+    latest = preset
+    renderWizard(preset, undefined, 'op-gone')
+    await toDestination()
+    await screen.findByTestId('t-guided-destination-fusion-op-central')
+    expect(latest.exportOperatorId).toBe('')
+  })
+
+  test('"Set up a regional operator" opens the create dialog over the wizard; the operator it makes is the destination afterwards', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    fakeCreated = operator({ id: 'op-new', name: 'New one' })
+    renderWizard()
+    await gotoDestination(user)
+    await user.click(await screen.findByTestId('t-guided-deploy-operator'))
+    expect(latest.exportOperatorId).toBe('')
+    // The list now has it, as the reload after a creation would give.
+    listOperators.mockResolvedValue([fakeCreated])
+    await user.click(screen.getByTestId('fake-create'))
+    await waitFor(() => expect(latest.exportOperatorId).toBe('op-new'))
+    expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('New one')
   })
 })

@@ -1210,16 +1210,39 @@ export type OperatorStatus = 'active' | 'revoked'
  *  operator created before that, which keeps it). Absent reads as 'bearer', the conservative reading. */
 export type ReceiverAuth = 'mtls' | 'bearer'
 
-/** Whether an operator has said it is alive. 'unknown' covers both "never opted in to the heartbeat" and
- *  "opted in, nothing has arrived yet" - the server does not tell those apart, and neither does the UI. */
-export type OperatorHealthState = 'unknown' | 'online' | 'offline'
+/** What the UI knows of an operator's liveness. 'online' / 'offline' / 'unknown' come from its opt-in heartbeat
+ *  (online = one within the last 180 s). 'waiting' = the heartbeat is enabled and nothing has arrived yet.
+ *  'starting' / 'off' / 'attention' only ever describe the central operator: they are derived from FUSION's own state. */
+export type OperatorHealthState = 'unknown' | 'online' | 'offline' | 'waiting' | 'starting' | 'off' | 'attention'
 
-/** An operator's liveness, computed by the server at read time from its opt-in heartbeat (online = one within
- *  the last 180 s). `reporting` is true only once at least one heartbeat has arrived. */
+/** An operator's liveness, computed by the server at read time. `reporting` is true only once at least one heartbeat
+ *  has arrived. `heartbeatEnabledAt` says since when a first one has been expected (for the wait to be honest about its length). */
 export interface OperatorHealth {
   state: OperatorHealthState
   lastSeenAt?: string
   reporting: boolean
+  heartbeatEnabledAt?: string
+}
+
+/** Whether other clusters can be told where to find an operator: 'none' = it only serves its own cluster, nothing to record;
+ *  'pending' = it is exposed through a load balancer or node port and no address is recorded yet; 'set' = recorded. */
+export type AddressState = 'none' | 'pending' | 'set'
+
+/** When the certificates behind an operator's mutual TLS run out (RFC 3339), per certificate. */
+export interface OperatorCerts {
+  receiverNotAfter?: string
+  clientNotAfter?: string
+  caNotAfter?: string
+}
+
+/** 'expiring' = any of them within 60 days, 'expired' = one is past. Absent for an operator with no certificate information. */
+export type CertState = 'ok' | 'expiring' | 'expired'
+
+/** What still depends on an operator: revoking or deleting it breaks these, so the server asks for `force`. Absent when nothing does. */
+export interface OperatorUsedBy {
+  operators: { id: string; name: string }[]
+  intents: number
+  clusters: number
 }
 
 /** Where a regional operator (or, via TelemetryIntent below, one agent's own bundled local operator)
@@ -1257,7 +1280,8 @@ export interface OperatorDestination {
  */
 export interface RegionalOperator {
   id: string
-  orgId: string
+  /** The server's operator document carries no organisation (the request's own is the organisation); only fixtures set it. */
+  orgId?: string
   name: string
   /** Optional: where this operator conceptually lives, for UI grouping only. */
   siteId?: string
@@ -1296,6 +1320,36 @@ export interface RegionalOperator {
   /** What a command that points something at this operator dials: its recorded address, otherwise the in-cluster name
    *  (which only resolves in its own cluster). Absent on an older server. */
   endpoint?: string
+  /** The certificates behind its mutual TLS, with their expiry. Absent for a bearer or older operator. */
+  certs?: OperatorCerts
+  certState?: CertState
+  /** Whether other clusters have an address to dial - see AddressState. Absent on an older server (read as unknown). */
+  addressState?: AddressState
+  usedBy?: OperatorUsedBy
+}
+
+/**
+ * One entry of GET /operator-destinations: the read model the destination picker uses, readable by editors (the full
+ * operator list is administrators only) and free of anything secret. The central operator (op-central) is always in it
+ * once FUSION is available on this server, even before FUSION was ever switched on, with its health taken from FUSION's state.
+ */
+export interface OperatorDestinationEntry {
+  id: string
+  name: string
+  kind: 'central' | 'regional'
+  status: 'active'
+  health: { state: OperatorHealthState; lastSeenAt?: string }
+  addressState: AddressState
+  /** What a command dials; absent for the central operator until it is known. */
+  endpoint?: string
+  reachableFromOtherClusters: boolean
+  /** Absent or empty: takes any signal. */
+  acceptedModalities?: string[]
+  /** The server's pick: only ever the central operator, and only while it runs or is starting. Whether another operator already receives
+   *  a given cluster is not something it can say about a cluster it was not told about. */
+  recommended: boolean
+  /** How many other operators and telemetry requests already send to it (not clusters: those are counted in `usedBy` of the full document). */
+  usedBy: number
 }
 
 /** One extractor signal a TelemetryIntent grants, and where it is sourced from - `id` matches one of

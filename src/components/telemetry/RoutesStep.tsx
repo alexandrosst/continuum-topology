@@ -3,6 +3,7 @@ import { Activity, FileText, Waypoints, type LucideIcon } from 'lucide-react'
 import type { DestinationCatalog } from '@/lib/destinationCatalog'
 import { activeLanes, laneView, TELEMETRY_SIGNALS, withLane, type Modality, type TelemetryInput } from '@/lib/install'
 import { Button, ICON_SM } from '@/components/ui/primitives'
+import type { ComponentProps } from 'react'
 import DestinationStep from './DestinationStep'
 
 const LANE_META: Record<Modality, { icon: LucideIcon; label: string; plural: string }> = {
@@ -60,6 +61,7 @@ export default function RoutesStep({
   clusterId,
   choices,
   onChoose,
+  shared,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
@@ -70,6 +72,8 @@ export default function RoutesStep({
   clusterId?: string
   choices: Record<Modality, string | null>
   onChoose: (m: Modality, key: string | null) => void
+  /** What every lane's picker does about FUSION and about setting up or addressing an operator: one wizard, so one answer. */
+  shared?: Pick<ComponentProps<typeof DestinationStep>, 'fusion' | 'onRecordAddress'> & { onSetUpOperator?: (lane: Modality) => void }
 }) {
   const lanes = activeLanes(value)
   return (
@@ -112,6 +116,9 @@ export default function RoutesStep({
               onChoose={(k) => onChoose(m, k)}
               onBack={() => undefined}
               onContinue={() => undefined}
+              fusion={shared?.fusion}
+              onRecordAddress={shared?.onRecordAddress}
+              onSetUpOperator={shared?.onSetUpOperator && (() => shared.onSetUpOperator!(m))}
             />
             {reusable && lane.exportEndpoint.trim() !== '' && (
               <div className="flex flex-wrap items-center gap-2 text-xs text-nb-500">
