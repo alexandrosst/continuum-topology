@@ -9,7 +9,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "type": { "type": "string", "enum": ["ClusterIP", "LoadBalancer", "NodePort"] }
+        "type": { "type": "string", "enum": ["ClusterIP", "LoadBalancer", "NodePort"] },
+        "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+        "loadBalancerSourceRanges": { "type": "array", "items": { "type": "string" } }
       }
     },
     "replicaCount": { "type": "integer", "minimum": 1 },

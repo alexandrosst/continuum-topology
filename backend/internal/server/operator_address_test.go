@@ -15,6 +15,10 @@ func TestValidOperatorAddress(t *testing.T) {
 		"  OTLP.Example.COM.:4317":     "otlp.example.com:4317",
 		"203.0.113.7:4317":             "203.0.113.7:4317",
 		"[2001:db8::1]:4317":           "[2001:db8::1]:4317",
+		"otlp.example.com":             "otlp.example.com:4317", // a bare host gets the receiver's own port
+		"203.0.113.7":                  "203.0.113.7:4317",
+		"Otlp.Example.com:+4317":       "otlp.example.com:4317", // the port is stored as the number it is
+		"otlp.example.com:04317":       "otlp.example.com:4317",
 		"op-1.svc.clusterset.local:80": "op-1.svc.clusterset.local:80",
 	} {
 		got, err := validOperatorAddress(in)
@@ -23,13 +27,14 @@ func TestValidOperatorAddress(t *testing.T) {
 		}
 	}
 	for _, in := range []string{
-		"otlp.example.com",              // no port
 		"https://otlp.example.com:4317", // a scheme
 		"otlp.example.com:4317/x",       // a path
 		"u:p@otlp.example.com:4317",     // credentials
 		"otlp.example.com:0",
 		"otlp.example.com:70000",
 		"otlp.example.com:abc",
+		"2001:db8::1", // an IPv6 address needs its brackets
+		"otlp.example.com:",
 		"127.0.0.1:4317",
 		"[::1]:4317",
 		"0.0.0.0:4317",
@@ -97,7 +102,7 @@ func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t
 	if r := a.do("POST", path, map[string]any{"address": "otlp.eu.example.com:4317"}, withCookie(viewer)); r.Code != 403 {
 		t.Fatalf("a viewer set an address: %d", r.Code)
 	}
-	for _, bad := range []string{"otlp.eu.example.com", "https://x:1", "127.0.0.1:4317"} {
+	for _, bad := range []string{"otlp.eu.example.com:99999", "https://x:1", "127.0.0.1:4317"} {
 		if r := a.do("POST", path, map[string]any{"address": bad}, withCookie(cookie)); r.Code != 400 {
 			t.Fatalf("%q: %d %s", bad, r.Code, r.Body.String())
 		}

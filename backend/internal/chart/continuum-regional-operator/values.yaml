@@ -22,8 +22,15 @@ replicaCount: 1
 # Ingress/Gateway in front of the Service (leave ClusterIP and expose it yourself); Ikhnos's install command sets
 # this when you pick an exposure for the operator. The address the Service ends up at is then recorded on the
 # operator in Ikhnos, and every command that points at it uses that address.
+#
+# A LoadBalancer or NodePort Service publishes only the OTLP/gRPC port (4317), which is the one clusters elsewhere
+# use: the OTLP/HTTP port and the self-metrics port stay on the ClusterIP form only, so exposing the receiver does
+# not also expose them. annotations and loadBalancerSourceRanges are how you keep it private (an internal load
+# balancer is an annotation your cloud defines; source ranges limit who may connect).
 service:
   type: ClusterIP   # ClusterIP | LoadBalancer | NodePort
+  annotations: {}   # e.g. service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+  loadBalancerSourceRanges: []   # e.g. ["203.0.113.0/24"]; LoadBalancer only
 
 # The upstream OpenTelemetry Collector Contrib distribution - the same image continuum-agent's telemetry
 # collectors run, for the same reason (this chart needs nothing beyond OTLP receive/process/export, which

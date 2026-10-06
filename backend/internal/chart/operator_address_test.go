@@ -1,6 +1,9 @@
 package chart
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The receiver's Service is ClusterIP unless an exposure is asked for, and only the three known types are accepted.
 func TestOperatorServiceTypeFollowsTheExposureAndDefaultsToClusterIP(t *testing.T) {
@@ -62,5 +65,39 @@ func TestAgentExportersCanVerifyAStableServerName(t *testing.T) {
 	pe, _ := plain["exporters"].(map[string]any)["otlp"].(map[string]any)
 	if tls, _ := pe["tls"].(map[string]any); tls["server_name_override"] != nil {
 		t.Fatalf("a server name rendered by default: %v", tls)
+	}
+}
+
+// An exposed Service publishes only the gRPC port clusters elsewhere use, never the HTTP or self-metrics ports, and
+// the keep-it-private settings reach it; the default stays exactly what it was.
+func TestAnExposedOperatorServicePublishesOnlyTheGRPCPort(t *testing.T) {
+	ports := func(r operatorRendered) []string {
+		var out []string
+		for _, s := range r.services {
+			for _, p := range s.Spec.Ports {
+				out = append(out, p.Name)
+			}
+		}
+		return out
+	}
+	if got := strings.Join(ports(operatorRender(t, "--set", "selfMetrics.enabled=true")), ","); got != "otlp-grpc,otlp-http,metrics" {
+		t.Fatalf("default ports = %s", got)
+	}
+	r := operatorRender(t, "--set", "selfMetrics.enabled=true", "--set", "service.type=LoadBalancer",
+		"--set", "service.loadBalancerSourceRanges={203.0.113.0/24}",
+		"--set-string", `service.annotations.service\.beta\.kubernetes\.io/aws-load-balancer-internal=true`)
+	if got := strings.Join(ports(r), ","); got != "otlp-grpc" {
+		t.Fatalf("exposed ports = %s", got)
+	}
+	for _, s := range r.services {
+		if len(s.Spec.LoadBalancerSourceRanges) != 1 || s.Annotations["service.beta.kubernetes.io/aws-load-balancer-internal"] != "true" {
+			t.Fatalf("source ranges / annotations missing: %+v", s)
+		}
+	}
+	// Source ranges mean nothing to a NodePort Service and are not rendered there.
+	for _, s := range operatorRender(t, "--set", "service.type=NodePort", "--set", "service.loadBalancerSourceRanges={203.0.113.0/24}").services {
+		if len(s.Spec.LoadBalancerSourceRanges) != 0 {
+			t.Fatalf("a NodePort Service got source ranges: %+v", s)
+		}
 	}
 }

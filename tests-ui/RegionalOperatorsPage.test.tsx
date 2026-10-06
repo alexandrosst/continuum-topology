@@ -697,7 +697,7 @@ describe('RegionalOperatorsPage - where other clusters reach an operator', () =>
       op({ id: 'op-c', name: 'gone-op', status: 'revoked' }),
     ])
     renderPage()
-    expect(await screen.findByTestId('operator-address-local-op')).toHaveTextContent('this cluster only')
+    expect(await screen.findByTestId('operator-address-local-op')).toHaveTextContent('no address recorded')
     expect(screen.getByTestId('operator-address-hub-op')).toHaveTextContent('reachable at otlp.eu.example.com:4317')
     expect(screen.queryByTestId('operator-address-gone-op')).not.toBeInTheDocument()
     expect(screen.queryByTestId('operator-address-open-gone-op')).not.toBeInTheDocument()

@@ -31,7 +31,7 @@ export function FindTheAddress({ id, exposure, testId }: { id: string; exposure?
     <div className="space-y-2" data-testid={testId}>
       {showLb && (
         <div>
-          <div className="mb-1 text-xs text-nb-500">Load balancer: once the cloud has given it an address (this prints nothing until it has), read it, then add <span className="font-mono">:4317</span></div>
+          <div className="mb-1 text-xs text-nb-500">Load balancer: once the cloud has given it an address (this prints nothing until it has), read it. The port is 4317 unless you say otherwise</div>
           <CopyCommand text={cmds.loadBalancer} testId={`${testId}-lb`} />
         </div>
       )}
@@ -80,9 +80,9 @@ export function OperatorAddressModal({ operator, onClose, onDone }: { operator: 
     >
       <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void save() }}>
         <p className="text-sm leading-relaxed text-nb-400" data-testid="operator-address-explain">
-          Once this is set, every command that points a cluster or another operator at this one uses it, so nobody has to work the address out. It changes nothing on the operator itself: no certificate is reissued and nothing restarts. Leave it empty if only this operator&apos;s own cluster sends to it.
+          Once this is set, every command that points a cluster or another operator at this one uses it, so nobody has to work the address out. It changes nothing on the operator itself: no certificate is reissued and nothing restarts. A cluster that already points at this operator keeps the address it was given until you run its command again. Leave it empty if only this operator&apos;s own cluster sends to it.
         </p>
-        <Field label="Reachable at" hint="A host and a port: a DNS name or an IP address, for example otlp.eu.example.com:4317 or 203.0.113.7:4317.">
+        <Field label="Reachable at" hint="A DNS name or an IP address, with a port if it is not 4317: otlp.eu.example.com, otlp.eu.example.com:4317 or 203.0.113.7:4317.">
           <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder="otlp.eu.example.com:4317" spellCheck={false} data-testid="operator-address-input" />
         </Field>
         <FindTheAddress id={operator.id} testId="operator-address-find" />

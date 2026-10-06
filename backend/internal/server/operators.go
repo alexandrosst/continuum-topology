@@ -339,10 +339,13 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 	})
 }
 
+// DefaultOperatorPort is the OTLP/gRPC port a regional operator receives on.
+const DefaultOperatorPort = 4317
+
 var dnsLabel = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 // validOperatorAddress normalises the host:port an operator is reachable at from other clusters: a DNS name or
-// an IP address, and the port. An empty string is valid and clears it. Nothing that could never be reached
+// an IP address, and the port (4317 when left out). An empty string is valid and clears it. Nothing that could never be reached
 // from another cluster (loopback, unspecified, link-local, "localhost") and no scheme, path or credentials.
 func validOperatorAddress(in string) (string, error) {
 	s := strings.TrimSpace(in)
@@ -354,12 +357,19 @@ func validOperatorAddress(in string) (string, error) {
 		return "", bad
 	}
 	host, port, err := net.SplitHostPort(s)
+	var ae *net.AddrError
+	if errors.As(err, &ae) && strings.Contains(ae.Err, "missing port") {
+		// A bare host, such as the name a load balancer reports: the receiver's own port is the only one it has.
+		host, port, err = net.SplitHostPort(net.JoinHostPort(strings.Trim(s, "[]"), strconv.Itoa(DefaultOperatorPort)))
+	}
 	if err != nil || host == "" {
 		return "", bad
 	}
-	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
 		return "", errf(KindInvalid, "the port must be a number from 1 to 65535")
 	}
+	port = strconv.Itoa(n) // "+4317" and "04317" parse as 4317 and are stored as 4317
 	if ip := net.ParseIP(host); ip != nil {
 		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
 			return "", errf(KindInvalid, "%s cannot be reached from another cluster; give the address a LoadBalancer, NodePort or Ingress exposes", host)
