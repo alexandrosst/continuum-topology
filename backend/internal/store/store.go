@@ -106,6 +106,10 @@ type DestinationKind string
 const (
 	DestinationExternal DestinationKind = "external"
 	DestinationOperator DestinationKind = "operator"
+	// DestinationFusion is a FUSION install (the continuum-fusion chart: Prometheus, Loki and Tempo) that a
+	// regional operator saves what it receives into. Only a regional operator takes one: a local operator's
+	// TelemetryIntent points at an operator or an external endpoint, never straight at the stores.
+	DestinationFusion DestinationKind = "fusion"
 )
 
 // Destination is an OTLP export target, shaped like the agent chart's own telemetry.export.otlp block
@@ -122,6 +126,11 @@ type Destination struct {
 	// this organisation to export into, checked by Core.validateDestination the same way an external
 	// destination's Endpoint is.
 	TargetOperatorID string
+	// FusionRelease and FusionNamespace are only meaningful for DestinationFusion: the Helm release name and
+	// the namespace of the continuum-fusion install the operator exports into. The stores' Service names
+	// follow from them (see the chart's fusion.name helper and server.fusionName), so nothing else is stored.
+	FusionRelease   string
+	FusionNamespace string
 }
 
 // Modality is a telemetry signal category: what an operator (regional or local) actually moves. Used

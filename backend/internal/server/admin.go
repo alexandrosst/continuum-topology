@@ -655,12 +655,14 @@ func OCIBase(registry string) string {
 	return "registry-1.docker.io/" + r
 }
 
-// serveChart hands out the packaged agent chart. It holds no secrets (the enrollment token and the CA pin are
+// serveChart hands out the packaged agent chart (or the regional-operator or FUSION chart, by file name). It holds no secrets (the enrollment token and the CA pin are
 // passed on the command line), so it needs no sign-in; that lets `helm install` take the URL directly.
 func (a *Admin) serveChart(w http.ResponseWriter, r *http.Request) {
 	c := chart.Agent
 	if r.PathValue("file") == chart.RegionalOperator.Filename() {
 		c = chart.RegionalOperator
+	} else if r.PathValue("file") == chart.Fusion.Filename() {
+		c = chart.Fusion
 	} else if r.PathValue("file") != chart.Agent.Filename() {
 		http.NotFound(w, r)
 		return

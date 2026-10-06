@@ -22,14 +22,18 @@ type destinationDoc struct {
 	// TargetOperatorID is only meaningful for destination kind "operator" - see store.Destination's own
 	// field.
 	TargetOperatorID string `json:"targetOperatorId,omitempty"`
+	// FusionRelease and FusionNamespace are only meaningful for destination kind "fusion" - see
+	// store.Destination's own fields. Both default (to "fusion" and "continuum-system") when left empty.
+	FusionRelease   string `json:"fusionRelease,omitempty"`
+	FusionNamespace string `json:"fusionNamespace,omitempty"`
 }
 
 func toDestinationDoc(d store.Destination) destinationDoc {
-	return destinationDoc{Kind: string(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID}
+	return destinationDoc{Kind: string(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID, FusionRelease: d.FusionRelease, FusionNamespace: d.FusionNamespace}
 }
 
 func (d destinationDoc) toStore() store.Destination {
-	return store.Destination{Kind: store.DestinationKind(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID}
+	return store.Destination{Kind: store.DestinationKind(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID, FusionRelease: d.FusionRelease, FusionNamespace: d.FusionNamespace}
 }
 
 // operatorHealthDoc is an operator's liveness as the UI reads it: computed at read time from the stored
@@ -195,6 +199,9 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 	if tlsCmd := operatorTLSSecretCommand(op, tlsBundle); tlsCmd != "" {
 		resp["tlsSecretCommand"] = tlsCmd
 	}
+	if op.Destination.Kind == store.DestinationFusion {
+		resp["fusionInstall"] = a.fusionInstallCommand(img, op.Destination)
+	}
 	writeJSON(w, 201, resp)
 }
 
@@ -229,7 +236,11 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 	if clientCert, clientKey, caPEM, tlsErr := a.core(r).IssueOperatorClientCert(r.Context(), actor(r), op.ID); tlsErr == nil {
 		tlsBundle = OperatorTLSBundle{ClientCertPEM: clientCert, ClientKeyPEM: clientKey, CACertPEM: caPEM}
 	}
-	writeJSON(w, 200, map[string]any{"operator": toOperatorDoc(op, a.core(r).Now()), "reminders": a.operatorSourceReminders(r, op, tlsBundle)})
+	resp := map[string]any{"operator": toOperatorDoc(op, a.core(r).Now()), "reminders": a.operatorSourceReminders(r, op, tlsBundle)}
+	if op.Destination.Kind == store.DestinationFusion {
+		resp["fusionInstall"] = a.fusionInstallCommand(a.images(a.core(r)), op.Destination)
+	}
+	writeJSON(w, 200, resp)
 }
 
 func (a *Admin) revokeOperator(w http.ResponseWriter, r *http.Request) {
@@ -346,17 +357,22 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 	ref, version := a.operatorChartArgs(img)
 	secretName := op.ID + "-receiver-auth"
 	var b strings.Builder
-	fmt.Fprintf(&b, "helm install %s %s%s \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=%s",
-		op.ID, ref, version, op.Destination.Endpoint)
-	if op.Destination.Insecure {
-		fmt.Fprintf(&b, " \\\n  --set export.otlp.tls.insecure=true")
-	}
-	if op.Destination.CAFile != "" {
-		fmt.Fprintf(&b, " \\\n  --set export.otlp.tls.caFile=%s", op.Destination.CAFile)
-	}
-	if op.Destination.AuthSecretName != "" {
-		fmt.Fprintf(&b, " \\\n  --set export.otlp.auth.headerName=%s \\\n  --set export.otlp.auth.secretName=%s \\\n  --set export.otlp.auth.secretKey=%s",
-			op.Destination.AuthHeaderName, op.Destination.AuthSecretName, op.Destination.AuthSecretKey)
+	fmt.Fprintf(&b, "helm install %s %s%s \\\n  --namespace continuum-system --create-namespace", op.ID, ref, version)
+	if op.Destination.Kind == store.DestinationFusion {
+		// A FUSION destination is three stores, one per signal type: a route each, and no default endpoint.
+		fmt.Fprintf(&b, " \\\n  %s", fusionRouteFlags(op.Destination, " \\\n  "))
+	} else {
+		fmt.Fprintf(&b, " \\\n  --set export.otlp.endpoint=%s", op.Destination.Endpoint)
+		if op.Destination.Insecure {
+			fmt.Fprintf(&b, " \\\n  --set export.otlp.tls.insecure=true")
+		}
+		if op.Destination.CAFile != "" {
+			fmt.Fprintf(&b, " \\\n  --set export.otlp.tls.caFile=%s", op.Destination.CAFile)
+		}
+		if op.Destination.AuthSecretName != "" {
+			fmt.Fprintf(&b, " \\\n  --set export.otlp.auth.headerName=%s \\\n  --set export.otlp.auth.secretName=%s \\\n  --set export.otlp.auth.secretKey=%s",
+				op.Destination.AuthHeaderName, op.Destination.AuthSecretName, op.Destination.AuthSecretKey)
+		}
 	}
 	mtlsOnly := op.ReceiverAuth == store.ReceiverAuthMTLS
 	if mtlsOnly {

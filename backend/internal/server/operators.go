@@ -89,6 +89,17 @@ func (c *Core) validateDestination(ctx context.Context, dest store.Destination) 
 	}
 }
 
+// operatorDestination validates the destination of a regional operator, which may also be a FUSION install
+// (a local operator's TelemetryIntent may not: it goes through validateDestination alone), and returns it
+// normalized - for a fusion destination, with its defaults filled and only its own fields kept.
+func (c *Core) operatorDestination(ctx context.Context, dest store.Destination) (store.Destination, error) {
+	if dest.Kind != store.DestinationFusion {
+		return dest, c.validateDestination(ctx, dest)
+	}
+	dest = normalizeFusion(dest)
+	return dest, validateFusion(dest)
+}
+
 // validModalities checks every value is a known telemetry modality. An empty list is always valid - see
 // Operator.AcceptedModalities's own doc comment for what that means.
 func validModalities(ms []store.Modality) error {
@@ -205,7 +216,8 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 	if name == "" || len(name) > maxOperatorName {
 		return store.Operator{}, "", OperatorTLSBundle{}, "", errf(KindInvalid, "name the regional operator (1-%d characters)", maxOperatorName)
 	}
-	if err := c.validateDestination(ctx, dest); err != nil {
+	dest, err := c.operatorDestination(ctx, dest)
+	if err != nil {
 		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
 	if err := c.validSourceClusters(ctx, sourceClusterIDs); err != nil {
@@ -301,7 +313,8 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 	if _, err := c.operatorInOrg(ctx, id); err != nil {
 		return err
 	}
-	if err := c.validateDestination(ctx, dest); err != nil {
+	dest, err := c.operatorDestination(ctx, dest)
+	if err != nil {
 		return err
 	}
 	if err := c.validSourceClusters(ctx, sourceClusterIDs); err != nil {
