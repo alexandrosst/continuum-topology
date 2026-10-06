@@ -1,0 +1,94 @@
+{{- if .Values.central.enabled }}
+{{- $c := .Values.central }}
+{{- $name := include "fusion.central" . }}
+{{- $sel := include "fusion.selector" (dict "root" . "component" "central") }}
+{{- $tls := include "fusion.centralTLSSecret" . }}
+# Created empty and kept as it is found: the Ikhnos server puts the certificates in (see central.receiver.
+# tlsSecretName), and a later `helm upgrade` carries what is there forward instead of wiping it.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $tls }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+    app.kubernetes.io/component: central
+type: Opaque
+{{- $live := lookup "v1" "Secret" .Release.Namespace $tls }}
+{{- if and $live $live.data }}
+data: {{- toYaml $live.data | nindent 2 }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+    app.kubernetes.io/component: central
+spec:
+  selector: {{- $sel | nindent 4 }}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc, protocol: TCP}
+    - {name: otlp-http, port: 4318, targetPort: otlp-http, protocol: TCP}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+    app.kubernetes.io/component: central
+spec:
+  replicas: {{ include "fusion.replicas" (dict "root" . "kind" "Deployment" "name" $name) }}
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {{- $sel | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- $sel | nindent 8 }}
+        app.kubernetes.io/part-of: continuum
+        {{- include "fusion.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/central-config.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "fusion.podCommon" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: otel-collector
+          image: {{ include "fusion.image" (dict "image" $c.image "component" "central") | quote }}
+          imagePullPolicy: {{ $c.image.pullPolicy | default "IfNotPresent" }}
+          args: ["--config=/conf/otel-collector-config.yaml"]
+          ports:
+            - {name: otlp-grpc, containerPort: 4317, protocol: TCP}
+            - {name: otlp-http, containerPort: 4318, protocol: TCP}
+            - {name: health, containerPort: 13133, protocol: TCP}
+          readinessProbe:
+            httpGet: {path: /, port: health}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            httpGet: {path: /, port: health}
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 4
+          resources: {{- toYaml $c.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: config, mountPath: /conf, readOnly: true}
+            - {name: receiver-tls, mountPath: /receiver-tls, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: {{ $name }}}
+        - name: receiver-tls
+          secret: {secretName: {{ $tls }}}
+{{- end }}

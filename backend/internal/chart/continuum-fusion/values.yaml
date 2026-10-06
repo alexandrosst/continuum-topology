@@ -19,6 +19,35 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
+# Who turns FUSION on and off. Off (the default) is a plain install: everything runs. With managed on, the
+# Ikhnos server owns the switch - it scales the stores and the central gateway between 0 and 1 itself - so a
+# `helm upgrade` keeps whatever the server last decided (the live replica count) instead of resetting it, and
+# initialReplicas (0 = standing by, nothing running, volumes kept) only applies to the very first install.
+switch:
+  managed: false
+  initialReplicas: 1
+
+# The central gateway: one OpenTelemetry Collector that is the ONLY way into FUSION. It requires a client
+# certificate (mTLS) from whatever sends to it - regional operators, which the server issues one to - and
+# fans each signal type out to its store. The stores themselves stay ClusterIP-only and unauthenticated; the
+# gateway is the thing that may be exposed (an Ingress or LoadBalancer is outside this chart).
+central:
+  enabled: true
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.160.0"
+    digest: ""
+    pullPolicy: IfNotPresent
+  receiver:
+    # A Secret in this release's namespace holding tls.crt, tls.key (the gateway's own server certificate) and
+    # ca.crt (the CA every sender's client certificate must chain to). Empty = "<name>-central-receiver-tls",
+    # which this chart creates empty and the Ikhnos server fills in - a gateway with no certificate in it does
+    # not start, which is why a fresh managed install stands by at 0 replicas.
+    tlsSecretName: ""
+  resources:
+    requests: {cpu: 50m, memory: 96Mi}
+    limits: {memory: 384Mi}
+
 # Durable volumes. Off means each store keeps its data in an emptyDir: everything is lost when its pod is
 # rescheduled, which is only right for a demo.
 persistence:

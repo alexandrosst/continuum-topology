@@ -83,3 +83,20 @@ tolerations: {{- toYaml . | nindent 2 }}
 affinity: {{- toYaml . | nindent 2 }}
 {{- end }}
 {{- end -}}
+
+{{/* How many replicas a workload starts with. With switch.managed off it is always 1 - a plain install. With it
+     on, the server owns the switch (it scales these workloads between 0 and 1 itself), so a `helm upgrade` must
+     not undo its last decision: the live replica count is kept when the workload already exists, and
+     switch.initialReplicas (0 = off until the server turns it on) only applies the first time. Called with
+     (dict "root" . "kind" "StatefulSet" "name" ...). `lookup` is empty under `helm template`, which is
+     exactly the first-install case. */}}
+{{- define "fusion.replicas" -}}
+{{- if .root.Values.switch.managed -}}
+{{- $o := lookup "apps/v1" .kind .root.Release.Namespace .name -}}
+{{- if and $o $o.spec -}}{{- $o.spec.replicas | int -}}{{- else -}}{{- .root.Values.switch.initialReplicas | int -}}{{- end -}}
+{{- else -}}1{{- end -}}
+{{- end -}}
+
+{{/* The central gateway: the one door into FUSION. Named <name>-central like the stores are <name>-<store>. */}}
+{{- define "fusion.central" -}}{{- printf "%s-central" (include "fusion.name" .) -}}{{- end -}}
+{{- define "fusion.centralTLSSecret" -}}{{- .Values.central.receiver.tlsSecretName | default (printf "%s-receiver-tls" (include "fusion.central" .)) -}}{{- end -}}

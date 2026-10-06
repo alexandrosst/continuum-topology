@@ -22,7 +22,7 @@ metadata:
   labels: {{- include "fusion.labels" . | nindent 4 }}
     app.kubernetes.io/component: loki
 spec:
-  replicas: 1
+  replicas: {{ include "fusion.replicas" (dict "root" . "kind" "StatefulSet" "name" $name) }}
   serviceName: {{ $name }}
   selector:
     matchLabels: {{- $sel | nindent 6 }}

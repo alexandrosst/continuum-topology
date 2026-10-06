@@ -13,6 +13,9 @@ spec:
     matchLabels:
       app.kubernetes.io/name: continuum-fusion
       app.kubernetes.io/instance: {{ .Release.Name }}
+    # The stores only: the central gateway is the door in, so it takes its callers from outside this release.
+    matchExpressions:
+      - {key: app.kubernetes.io/component, operator: NotIn, values: [central]}
   policyTypes: [Ingress]
   ingress:
     - from:

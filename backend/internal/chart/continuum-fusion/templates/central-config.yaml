@@ -1,0 +1,72 @@
+{{- if .Values.central.enabled }}
+{{- $name := include "fusion.central" . }}
+{{- $base := include "fusion.name" . }}
+# The central gateway: mTLS in, three stores out. It is a plain OpenTelemetry Collector - no Kubernetes API
+# access, no state of its own - so turning it off loses nothing.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+    app.kubernetes.io/component: central
+data:
+  otel-collector-config.yaml: |
+    extensions:
+      health_check:
+        endpoint: "0.0.0.0:13133"
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:4317"
+            tls: &tls
+              cert_file: /receiver-tls/tls.crt
+              key_file: /receiver-tls/tls.key
+              client_ca_file: /receiver-tls/ca.crt
+          http:
+            endpoint: "0.0.0.0:4318"
+            tls: *tls
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 20
+      batch: {}
+    exporters:
+      {{- if .Values.prometheus.enabled }}
+      otlphttp/metrics:
+        endpoint: {{ printf "http://%s-prometheus.%s.svc:9090/api/v1/otlp" $base .Release.Namespace | quote }}
+      {{- end }}
+      {{- if .Values.loki.enabled }}
+      otlphttp/logs:
+        endpoint: {{ printf "http://%s-loki.%s.svc:3100/otlp" $base .Release.Namespace | quote }}
+      {{- end }}
+      {{- if .Values.tempo.enabled }}
+      otlp/traces:
+        endpoint: {{ printf "%s-tempo.%s.svc:4317" $base .Release.Namespace | quote }}
+        tls:
+          insecure: true
+      {{- end }}
+    service:
+      extensions: [health_check]
+      pipelines:
+        {{- if .Values.prometheus.enabled }}
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlphttp/metrics]
+        {{- end }}
+        {{- if .Values.loki.enabled }}
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlphttp/logs]
+        {{- end }}
+        {{- if .Values.tempo.enabled }}
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/traces]
+        {{- end }}
+{{- end }}

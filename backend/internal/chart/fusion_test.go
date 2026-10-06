@@ -25,6 +25,8 @@ type fusionRendered struct {
 	configs  map[string]corev1.ConfigMap
 	policies map[string]networkingv1.NetworkPolicy
 	accounts map[string]corev1.ServiceAccount
+	deploys  map[string]appsv1.Deployment
+	secrets  map[string]corev1.Secret
 }
 
 func fusionTemplate(t *testing.T, release string, extra ...string) (string, error) {
@@ -51,7 +53,7 @@ func fusionRender(t *testing.T, release string, extra ...string) fusionRendered 
 	if err != nil {
 		t.Fatalf("helm template %v: %v\n%s", extra, err, out)
 	}
-	r := fusionRendered{map[string]appsv1.StatefulSet{}, map[string]corev1.Service{}, map[string]corev1.ConfigMap{}, map[string]networkingv1.NetworkPolicy{}, map[string]corev1.ServiceAccount{}}
+	r := fusionRendered{map[string]appsv1.StatefulSet{}, map[string]corev1.Service{}, map[string]corev1.ConfigMap{}, map[string]networkingv1.NetworkPolicy{}, map[string]corev1.ServiceAccount{}, map[string]appsv1.Deployment{}, map[string]corev1.Secret{}}
 	dec := yaml.NewYAMLOrJSONDecoder(strings.NewReader(out), 4096)
 	for {
 		var raw json.RawMessage
@@ -92,6 +94,14 @@ func fusionRender(t *testing.T, release string, extra ...string) fusionRendered 
 			var p networkingv1.NetworkPolicy
 			into(&p)
 			r.policies[n] = p
+		case "Deployment":
+			var d appsv1.Deployment
+			into(&d)
+			r.deploys[n] = d
+		case "Secret":
+			var sec corev1.Secret
+			into(&sec)
+			r.secrets[n] = sec
 		case "ServiceAccount":
 			var a corev1.ServiceAccount
 			into(&a)
