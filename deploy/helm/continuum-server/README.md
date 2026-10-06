@@ -165,6 +165,8 @@ The chart carries [`continuum-fusion`](../../../backend/internal/chart/continuum
 | `fusion.*` | | everything else is the FUSION chart's own values: retention, storage, images, `persistence`, `networkPolicy` |
 | `networkPolicy.egress.kubeAPICIDRs` / `kubeAPIPorts` | `[]` / `[443, 6443]` | with the egress policy on, where the server may reach the Kubernetes API to scale FUSION |
 
+**Reading it back.** With FUSION bundled the server also serves the [shared data API](../../../docs-site/docs/architecture/fusion-api.md) (`/api/v1/fusion/...`), reading the three stores by their in-cluster Services: it is passed the FUSION name whenever `fusion.enabled` is on, whether or not `fusionControl` lets it switch the workloads. It needs no value of its own. With `networkPolicy.egress.enabled`, the chart adds the one rule it needs: the server pod may reach the Prometheus, Loki and Tempo query ports (9090, 3100, 3200) of this release's FUSION, and not the central operator.
+
 Building the chart from source needs the dependency in place: `helm dependency update deploy/helm/continuum-server` (or `helm package -u`).
 
 ## Verifying a change to the chart

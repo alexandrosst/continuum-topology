@@ -34,6 +34,7 @@ const sidebars: SidebarsConfig = {
         'architecture/observability-intent',
         'architecture/telemetry-intent',
         'architecture/regional-operators',
+        'architecture/fusion-api',
         'architecture/system-memory',
         'architecture/exposure-options',
       ],
