@@ -38,7 +38,7 @@ export function Copyright({ className }: { className?: string }) {
           data-testid="lab-link"
         >
           {/* An external <use>, not an <img>: only then does the lettering (fill="currentColor" in the file) take this link's colour, which is the logo's own navy in light mode. */}
-          <svg viewBox={LAB.viewBox} aria-hidden className="h-[34px] w-auto">
+          <svg viewBox={LAB.viewBox} aria-hidden className="h-7 w-auto">
             <use href={LAB.logo} />
           </svg>
         </a>
