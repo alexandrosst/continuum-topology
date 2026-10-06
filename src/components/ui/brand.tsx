@@ -17,8 +17,8 @@ export function BrandMark({ className }: { className?: string }) {
   return <img src="/brand/mark/ikhnos-mark.svg" alt="" aria-hidden className={clsx('h-8 w-auto shrink-0', className)} data-testid="brand-mark" />
 }
 
-/** The research lab the work comes from. The logo has no background; its gold mark is fixed and its lettering takes the link's colour (--color-lab-ink, which index.css sets per theme). */
-const LAB = { name: 'NETMODE, NTUA', url: 'https://www.netmode.ntua.gr/', logo: '/brand/lab/netmode.svg#netmode', viewBox: '145 422 710 156' }
+/** The research lab the work comes from. The logo has no background; its gold mark is fixed and its lettering takes the link's colour (--color-lab-ink, which index.css sets per theme). The file holds the mark and the NETMODE lettering with the lettering centred on the mark; the lab's subtitle is left out, as it cannot be read at this size. */
+const LAB = { name: 'NETMODE, NTUA', url: 'https://www.netmode.ntua.gr/', logo: '/brand/lab/netmode.svg#netmode', viewBox: '148 424 687 151.5' }
 
 export function Copyright({ className }: { className?: string }) {
   return (
@@ -26,8 +26,8 @@ export function Copyright({ className }: { className?: string }) {
       <p>
         © {new Date().getFullYear()} {OWNER}. All rights reserved.
       </p>
-      <p className="flex items-center gap-2">
-        <span>Developed at</span>
+      <div>
+        <div className="mb-1.5">Developed at</div>
         <a
           href={LAB.url}
           target="_blank"
@@ -38,11 +38,11 @@ export function Copyright({ className }: { className?: string }) {
           data-testid="lab-link"
         >
           {/* An external <use>, not an <img>: only then does the lettering (fill="currentColor" in the file) take this link's colour, which is the logo's own navy in light mode. */}
-          <svg viewBox={LAB.viewBox} aria-hidden className="h-5 w-auto">
+          <svg viewBox={LAB.viewBox} aria-hidden className="h-[34px] w-auto">
             <use href={LAB.logo} />
           </svg>
         </a>
-      </p>
+      </div>
     </div>
   )
 }
