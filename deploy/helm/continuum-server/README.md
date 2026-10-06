@@ -151,9 +151,26 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 | `backup.volumeSnapshot.schedule` / `timeZone` / `className` / `retain` / `readyTimeout` / `includeNeo4j` | `17 3 * * *` / `""` / `""` / `7` / `300s` / `false` | |
 | `backup.volumeSnapshot.image.repository` / `tag` | `alpine/k8s` / `1.34.11` | any image with `/bin/sh`, `kubectl`, `awk`, `xargs` |
 
+## FUSION (bundled, off until switched on in the UI)
+
+The chart carries [`continuum-fusion`](../../../backend/internal/chart/continuum-fusion) as a dependency: Prometheus, Loki and Tempo, and a central operator in front of them. They are created standing by (zero replicas) and the server's Operators page turns them on and off. See [FUSION in the architecture docs](../../../docs-site/docs/architecture/regional-operators.md#fusion-where-a-regional-operator-saves-what-it-receives).
+
+| Value | Default | Notes |
+| --- | --- | --- |
+| `fusion.enabled` | `true` | `false` leaves FUSION out of the release entirely |
+| `fusion.switch.managed` / `initialReplicas` | `true` / `0` | the server owns the replica count; a `helm upgrade` keeps its last decision. Under `helm template` (GitOps) there is nothing to read back: set `initialReplicas=1` to have it on |
+| `fusionControl.enabled` | `true` | a namespaced Role (get + patch `scale` on the four named workloads, patch one named Secret) and an API token for the server pod. `false` removes both: the server then cannot switch FUSION |
+| `fusionControl.centralAddress` | `""` | `host:port` other clusters dial for the central operator; empty = inside this cluster only |
+| `fusion.central.service.type` | `ClusterIP` | `LoadBalancer` / `NodePort` to expose the central operator (clients still need a certificate); the stores are always `ClusterIP` |
+| `fusion.*` | | everything else is the FUSION chart's own values: retention, storage, images, `persistence`, `networkPolicy` |
+| `networkPolicy.egress.kubeAPICIDRs` / `kubeAPIPorts` | `[]` / `[443, 6443]` | with the egress policy on, where the server may reach the Kubernetes API to scale FUSION |
+
+Building the chart from source needs the dependency in place: `helm dependency update deploy/helm/continuum-server` (or `helm package -u`).
+
 ## Verifying a change to the chart
 
 ```console
+helm dependency update .
 for f in ci/*.yaml; do helm lint . -f $f; helm template rel . -n scratch -f $f | kubectl apply --dry-run=server -f -; done
 ```
 

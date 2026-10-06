@@ -169,7 +169,7 @@ func main() {
 		}
 		mail = server.MailConfig{Host: *smtpHost, Port: *smtpPort, Username: *smtpUser, Password: pw, From: *smtpFrom}
 	}
-	if err := run(log, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *ssoHeader, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AutoPassphrase: *caAutoPass, AllowLoose: *looseOK}, origins); err != nil {
+	if err := run(log, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *fusionName, *fusionCentralAddress, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *ssoHeader, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AutoPassphrase: *caAutoPass, AllowLoose: *looseOK}, origins); err != nil {
 		fatal(log, err)
 	}
 }
@@ -209,7 +209,7 @@ func fatal(log *slog.Logger, err error) {
 	os.Exit(1)
 }
 
-func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, ssoHeader, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *server.DeciderPolicy, neo *graph.Config, mail server.MailConfig, keys keyOpts, origins []string) error {
+func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, fusionName, fusionCentralAddress, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, ssoHeader, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *server.DeciderPolicy, neo *graph.Config, mail server.MailConfig, keys keyOpts, origins []string) error {
 	if err := checkSSOHeader(ssoHeader, behindProxy); err != nil {
 		return err
 	}
@@ -332,8 +332,8 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 	}()
 
 	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, Origins: origins, UIDir: uiDir, Version: version, AgentChartVersion: agentChartVersion, OperatorChartVersion: operatorChartVersion}
-	if *fusionName != "" {
-		admin.Fusion = fusionControl(log, *fusionName, *releaseNamespace, *fusionCentralAddress, core.OrgID)
+	if fusionName != "" {
+		admin.Fusion = fusionControl(log, fusionName, releaseNamespace, fusionCentralAddress, core.OrgID)
 	}
 	admin.Readiness = &server.Readiness{AgentsListening: grpcSrv.Serving}
 	if graphStore != nil {
