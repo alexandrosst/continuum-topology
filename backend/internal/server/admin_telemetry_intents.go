@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"sort"
 
 	"continuum/internal/store"
 )
@@ -28,10 +29,13 @@ type telemetryIntentDoc struct {
 	Exclude     []string         `json:"exclude"`
 	Signals     []signalGrantDoc `json:"signals"`
 	Destination destinationDoc   `json:"destination"`
-	CreatedAt   string           `json:"createdAt"`
-	CreatedBy   string           `json:"createdBy"`
-	RevokedAt   string           `json:"revokedAt,omitempty"`
-	Reason      string           `json:"reason,omitempty"`
+	// Routes is a destination per signal type (metrics, logs, traces) that has one of its own; absent when
+	// every signal goes to Destination.
+	Routes    map[string]destinationDoc `json:"routes,omitempty"`
+	CreatedAt string                    `json:"createdAt"`
+	CreatedBy string                    `json:"createdBy"`
+	RevokedAt string                    `json:"revokedAt,omitempty"`
+	Reason    string                    `json:"reason,omitempty"`
 }
 
 func toTelemetryIntentDoc(ti store.TelemetryIntent) telemetryIntentDoc {
@@ -39,6 +43,12 @@ func toTelemetryIntentDoc(ti store.TelemetryIntent) telemetryIntentDoc {
 		ID: ti.ID, AgentID: ti.AgentID, Name: ti.Name, Status: string(ti.Status),
 		Namespaces: ti.Namespaces, Exclude: ti.Exclude, Destination: toDestinationDoc(ti.Destination),
 		CreatedAt: rfc(ti.CreatedAt), CreatedBy: ti.CreatedBy, Reason: ti.Reason,
+	}
+	if len(ti.Routes) > 0 {
+		d.Routes = map[string]destinationDoc{}
+		for m, r := range ti.Routes {
+			d.Routes[string(m)] = toDestinationDoc(r)
+		}
 	}
 	if d.Namespaces == nil {
 		d.Namespaces = []string{}
@@ -102,12 +112,21 @@ func (a *Admin) createTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 		Exclude     []string         `json:"exclude"`
 		Signals     []signalGrantDoc `json:"signals"`
 		Destination destinationDoc   `json:"destination"`
+		// Routes: a destination per signal type that has one of its own - see store.TelemetryIntent.Routes.
+		Routes map[string]destinationDoc `json:"routes"`
 	}
 	if err := decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	ti, err := a.core(r).CreateTelemetryIntent(r.Context(), actor(r), req.AgentID, req.Name, req.Namespaces, req.Exclude, signalGrantsFromDoc(req.Signals), req.Destination.toStore())
+	var routes map[store.Modality]store.Destination
+	if len(req.Routes) > 0 {
+		routes = make(map[store.Modality]store.Destination, len(req.Routes))
+		for m, d := range req.Routes {
+			routes[store.Modality(m)] = d.toStore()
+		}
+	}
+	ti, err := a.core(r).CreateTelemetryIntentWithRoutes(r.Context(), actor(r), req.AgentID, req.Name, req.Namespaces, req.Exclude, signalGrantsFromDoc(req.Signals), req.Destination.toStore(), routes)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -141,13 +160,26 @@ func (a *Admin) updateTelemetryIntentScope(w http.ResponseWriter, r *http.Reques
 func (a *Admin) updateTelemetryIntentDestination(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Destination destinationDoc `json:"destination"`
+		// Routes, when present (even empty), replaces the per-signal-type destinations together with the
+		// default; absent leaves them as they are.
+		Routes map[string]destinationDoc `json:"routes"`
 	}
 	if err := decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
 	id := r.PathValue("id")
-	if err := a.core(r).UpdateTelemetryIntentDestination(r.Context(), actor(r), id, req.Destination.toStore()); err != nil {
+	var err error
+	if req.Routes != nil {
+		routes := make(map[store.Modality]store.Destination, len(req.Routes))
+		for m, d := range req.Routes {
+			routes[store.Modality(m)] = d.toStore()
+		}
+		err = a.core(r).UpdateTelemetryIntentDestinations(r.Context(), actor(r), id, req.Destination.toStore(), routes)
+	} else {
+		err = a.core(r).UpdateTelemetryIntentDestination(r.Context(), actor(r), id, req.Destination.toStore())
+	}
+	if err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -202,7 +234,46 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	hub := a.tn(r).Hub
 	rns, rname, _ := releaseTarget(hub.NamespaceOf(agent.ID), hub.ReleaseNameOf(agent.ID))
 	resp := map[string]any{"namespace": rns, "release": rname}
-	if ti.Destination.Kind == store.DestinationOperator {
+	if len(ti.Routes) > 0 {
+		// Each signal type with its own destination. Only the routes to a regional operator need anything from
+		// the server (a client certificate); the others are built by the caller from what it holds. An operator
+		// that several signal types export to is issued ONE certificate, in ONE Secret, however many routes
+		// name it - the Secret every one of those routes reads.
+		lanes := make([]string, 0, len(ti.Routes))
+		for m := range ti.Routes {
+			lanes = append(lanes, string(m))
+		}
+		sort.Strings(lanes)
+		issued := map[string]bool{}
+		auth := map[string]string{}
+		for _, lane := range lanes {
+			d := ti.Routes[store.Modality(lane)]
+			if d.Kind != store.DestinationOperator {
+				continue
+			}
+			op, err := a.core(r).GetOperator(r.Context(), d.TargetOperatorID)
+			if err != nil {
+				a.fail(w, err)
+				return
+			}
+			if !issued[op.ID] {
+				certPEM, keyPEM, caPEM, err := a.core(r).IssueOperatorClientCert(r.Context(), actor(r), op.ID)
+				if err != nil {
+					a.fail(w, err)
+					return
+				}
+				issued[op.ID] = true
+				auth[op.ID] = string(op.ReceiverAuth)
+				if len(certPEM) > 0 {
+					secretCommands = append(secretCommands, operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, rns))
+				}
+			}
+			installFragment += " " + operatorRouteFlags(op, store.Modality(lane))
+		}
+		if len(auth) > 0 {
+			resp["operators"] = auth
+		}
+	} else if ti.Destination.Kind == store.DestinationOperator {
 		op, err := a.core(r).GetOperator(r.Context(), ti.Destination.TargetOperatorID)
 		if err != nil {
 			a.fail(w, err)
@@ -219,6 +290,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 		// only gate is the client certificate in the Secret above; for a "bearer" one the flags are exactly
 		// what they always were and the caller still supplies the token itself.
 		resp["receiverAuth"] = string(op.ReceiverAuth)
+		resp["operators"] = map[string]string{op.ID: string(op.ReceiverAuth)}
 		if secretCmd != "" {
 			secretCommands = append(secretCommands, secretCmd)
 		}

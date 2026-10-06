@@ -270,10 +270,15 @@ type TelemetryIntent struct {
 	Signals    []SignalGrant
 	// Destination reuses store.Destination as-is; see Operator's own field for the shape it follows.
 	Destination Destination
-	CreatedBy   string
-	CreatedAt   time.Time
-	RevokedAt   *time.Time
-	Reason      string
+	// Routes sends a signal type somewhere of its own: modality -> Destination, each as valid as Destination is.
+	// A signal of a modality with a route goes there; every other signal goes to Destination, which is what an
+	// empty map means. A wizard that sends each signal type separately records every one of them, so the
+	// default is then only the first of them and never what a signal is checked against.
+	Routes    map[Modality]Destination
+	CreatedBy string
+	CreatedAt time.Time
+	RevokedAt *time.Time
+	Reason    string
 }
 
 // GatewayToken is a short-lived bearer secret scoped to one quick-start backend instance (see
@@ -581,6 +586,8 @@ type Store interface {
 	// UpdateTelemetryIntentDestination replaces where an intent exports to, kept separate from its scope
 	// since the two change independently (a destination rotates far less often than namespaces/signals do).
 	UpdateTelemetryIntentDestination(ctx context.Context, id string, dest Destination) error
+	// UpdateTelemetryIntentDestinations replaces the default destination and the per-signal-type routes together.
+	UpdateTelemetryIntentDestinations(ctx context.Context, id string, dest Destination, routes map[Modality]Destination) error
 	RevokeTelemetryIntent(ctx context.Context, id, reason string, now time.Time) error
 	DeleteTelemetryIntent(ctx context.Context, id string) error
 

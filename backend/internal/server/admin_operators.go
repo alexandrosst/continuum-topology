@@ -292,10 +292,26 @@ func operatorDestinationCommand(op store.Operator, certPEM, keyPEM, caPEM []byte
 	}
 	// mTLS is additive: every source cluster of this operator presents a client certificate verified
 	// against the CA bundle in the same Secret - see pki.IssueOperatorClientTLS.
-	secretCmd = applySecretCommand(operatorClientTLSSecretName(op), namespace,
-		fmt.Sprintf("tls.crt=\"%s\"", certPEM), fmt.Sprintf("tls.key=\"%s\"", keyPEM), fmt.Sprintf("ca.crt=\"%s\"", caPEM))
+	secretCmd = operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, namespace)
 	setFlags += fmt.Sprintf(" --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=%s", operatorClientTLSSecretName(op))
 	return setFlags, secretCmd
+}
+
+// operatorClientSecretCommand is the `kubectl create secret` holding the client certificate an agent
+// presents to this operator. One Secret per operator, whatever number of the agent's signal types export to
+// it: every route to the same operator names this same Secret.
+func operatorClientSecretCommand(op store.Operator, certPEM, keyPEM, caPEM []byte, namespace string) string {
+	return applySecretCommand(operatorClientTLSSecretName(op), namespace,
+		fmt.Sprintf("tls.crt=\"%s\"", certPEM), fmt.Sprintf("tls.key=\"%s\"", keyPEM), fmt.Sprintf("ca.crt=\"%s\"", caPEM))
+}
+
+// operatorRouteFlags are the --set flags that make one signal type's own route (telemetry.export.routes.<m>)
+// export to this operator over mutual TLS: its receiver, gRPC, certificate verified, and the Secret from
+// operatorClientSecretCommand. Stated in full so the route does not depend on anything an earlier command set.
+func operatorRouteFlags(op store.Operator, m store.Modality) string {
+	base := fmt.Sprintf("telemetry.export.routes.%s", m)
+	return fmt.Sprintf("--set %s.endpoint=%s.continuum-system.svc:4317 --set %s.protocol=grpc --set %s.tls.insecure=false --set %s.tls.mtls.enabled=true --set %s.tls.mtls.secretName=%s",
+		base, op.ID, base, base, base, base, operatorClientTLSSecretName(op))
 }
 
 // operatorChartArgs is the chart reference an operator `helm` command names, and the " --version ..." that

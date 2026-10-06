@@ -324,6 +324,10 @@ func OpenSQLite(path string) (*SQLite, error) {
 		db.Close()
 		return nil, fmt.Errorf("upgrading to operator labels: %w", err)
 	}
+	if err := migrateTelemetryRoutes(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("upgrading to per-signal telemetry destinations: %w", err)
+	}
 	return &SQLite{db: db}, nil
 }
 
@@ -907,14 +911,31 @@ func parseSignalGrants(s string) []SignalGrant {
 	return sg
 }
 
-const telemetryIntentCols = `id, org_id, agent_id, name, status, namespaces, exclude, signals, destination, created_by, created_at, revoked_at, reason`
+// routesJSON/parseRoutes encode/decode TelemetryIntent.Routes the way destinationJSON does Destination: one
+// small nested object, read whole. A blank or unparsable column reads back as no routes.
+func routesJSON(r map[Modality]Destination) string {
+	if len(r) == 0 {
+		return "{}"
+	}
+	b, _ := json.Marshal(r)
+	return string(b)
+}
+func parseRoutes(s string) map[Modality]Destination {
+	var r map[Modality]Destination
+	if err := json.Unmarshal([]byte(s), &r); err != nil || len(r) == 0 {
+		return nil
+	}
+	return r
+}
+
+const telemetryIntentCols = `id, org_id, agent_id, name, status, namespaces, exclude, signals, destination, routes, created_by, created_at, revoked_at, reason`
 
 func scanTelemetryIntent(r scanner) (TelemetryIntent, error) {
 	var ti TelemetryIntent
-	var st, ns, exc, sig, dest string
+	var st, ns, exc, sig, dest, routes string
 	var created int64
 	var revoked sql.NullInt64
-	err := r.Scan(&ti.ID, &ti.OrgID, &ti.AgentID, &ti.Name, &st, &ns, &exc, &sig, &dest, &ti.CreatedBy, &created, &revoked, &ti.Reason)
+	err := r.Scan(&ti.ID, &ti.OrgID, &ti.AgentID, &ti.Name, &st, &ns, &exc, &sig, &dest, &routes, &ti.CreatedBy, &created, &revoked, &ti.Reason)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return TelemetryIntent{}, ErrNotFound
@@ -926,6 +947,7 @@ func scanTelemetryIntent(r scanner) (TelemetryIntent, error) {
 	ti.Exclude = parseNamespaces(exc)
 	ti.Signals = parseSignalGrants(sig)
 	ti.Destination = parseDestination(dest)
+	ti.Routes = parseRoutes(routes)
 	ti.CreatedAt = fromMS(created)
 	ti.RevokedAt = fromNullMS(revoked)
 	return ti, nil
@@ -933,9 +955,9 @@ func scanTelemetryIntent(r scanner) (TelemetryIntent, error) {
 
 func (s *SQLite) CreateTelemetryIntent(ctx context.Context, ti TelemetryIntent) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO telemetry_intents(id, org_id, agent_id, name, status, namespaces, exclude, signals, destination, created_by, created_at, reason)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-		ti.ID, ti.OrgID, ti.AgentID, ti.Name, string(ti.Status), namespacesJSON(ti.Namespaces), namespacesJSON(ti.Exclude), signalGrantsJSON(ti.Signals), destinationJSON(ti.Destination), ti.CreatedBy, ms(ti.CreatedAt), ti.Reason)
+		`INSERT INTO telemetry_intents(id, org_id, agent_id, name, status, namespaces, exclude, signals, destination, routes, created_by, created_at, reason)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		ti.ID, ti.OrgID, ti.AgentID, ti.Name, string(ti.Status), namespacesJSON(ti.Namespaces), namespacesJSON(ti.Exclude), signalGrantsJSON(ti.Signals), destinationJSON(ti.Destination), routesJSON(ti.Routes), ti.CreatedBy, ms(ti.CreatedAt), ti.Reason)
 	return err
 }
 
@@ -989,6 +1011,14 @@ func (s *SQLite) UpdateTelemetryIntentScope(ctx context.Context, id string, name
 
 func (s *SQLite) UpdateTelemetryIntentDestination(ctx context.Context, id string, dest Destination) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE telemetry_intents SET destination=? WHERE id=? AND status='active'`, destinationJSON(dest), id)
+	if err != nil {
+		return err
+	}
+	return needOne(res)
+}
+
+func (s *SQLite) UpdateTelemetryIntentDestinations(ctx context.Context, id string, dest Destination, routes map[Modality]Destination) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE telemetry_intents SET destination=?, routes=? WHERE id=? AND status='active'`, destinationJSON(dest), routesJSON(routes), id)
 	if err != nil {
 		return err
 	}

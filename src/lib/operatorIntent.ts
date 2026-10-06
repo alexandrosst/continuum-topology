@@ -1,6 +1,6 @@
 import { api, ApiError, type Conn, type TelemetryIntentCommand } from './api'
 import { operatorReceiverEndpoint } from './destinationCatalog'
-import { TELEMETRY_SIGNALS, type ScopeOverrideInput, type TelemetryInput } from './install'
+import { activeLanes, TELEMETRY_SIGNALS, type ExportTarget, type Modality, type ScopeOverrideInput, type TelemetryInput } from './install'
 import { telemetrySecretCommand, telemetryUpgradeCommand, type InstallInfo } from './consent'
 import type { OperatorDestination, ReceiverAuth, SignalGrant, TelemetryIntent } from './types'
 
@@ -20,6 +20,29 @@ export function exportOperatorId(t: TelemetryInput): string {
   // Each signal type with its own destination is handled lane by lane, never as the one operator.
   if (!id || t.exportSplit) return ''
   return t.exportEndpoint.trim() === operatorReceiverEndpoint({ id }) ? id : ''
+}
+
+/** The regional operator one signal type's own destination names, or '' - under the same rule as above: only while
+ *  the lane's endpoint still IS that operator's receiver. */
+export function laneOperatorId(t: TelemetryInput, m: Modality): string {
+  const lane = t.exportLanes[m]
+  return lane.exportOperatorId && lane.exportEndpoint.trim() === operatorReceiverEndpoint({ id: lane.exportOperatorId }) ? lane.exportOperatorId : ''
+}
+
+/** Every regional operator the draft sends to, once each: the one destination's, or - sending each signal type
+ *  separately - those of the lanes, with which signal types go to each. An operator several signal types go to
+ *  is one entry (and gets one certificate, in one Secret). Empty when nothing goes to an operator. */
+export function operatorTargets(t: TelemetryInput): { id: string; lanes: Modality[] }[] {
+  if (!t.exportSplit) {
+    const id = exportOperatorId(t)
+    return id ? [{ id, lanes: [] }] : []
+  }
+  const byId = new Map<string, Modality[]>()
+  for (const m of activeLanes(t)) {
+    const id = laneOperatorId(t, m)
+    if (id) byId.set(id, [...(byId.get(id) ?? []), m])
+  }
+  return [...byId].map(([id, lanes]) => ({ id, lanes }))
 }
 
 /** The signals the draft turns on, as the grants a TelemetryIntent records. `source` follows
@@ -79,12 +102,29 @@ export function intentScope(t: TelemetryInput): { namespaces: string[]; exclude:
  *  (`receiverAuth` 'mtls') the credential header and Secret are dropped as well: there is no receiver token to
  *  present, so a Secret name left in the draft (from before the operator was chosen, say) must not produce a
  *  Secret command or `auth.*` flags for one. Any other value keeps them - the bearer token is still expected. */
-export const operatorCommandDraft = (t: TelemetryInput, receiverAuth?: ReceiverAuth): TelemetryInput => ({
-  ...t,
-  exportProtocol: 'grpc',
-  exportInsecure: false,
-  ...(receiverAuth === 'mtls' ? { exportAuthHeaderName: '', exportAuthSecretName: '', exportAuthSecretKey: '' } : {}),
-})
+export const operatorCommandDraft = (t: TelemetryInput, receiverAuth?: ReceiverAuth, authOf?: (operatorId: string) => ReceiverAuth | undefined): TelemetryInput => {
+  if (t.exportSplit) {
+    // The same, lane by lane: only the lanes that go to an operator, each by its own operator's receiver auth.
+    const lanes = { ...t.exportLanes }
+    for (const m of activeLanes(t)) {
+      const id = laneOperatorId(t, m)
+      if (!id) continue
+      lanes[m] = {
+        ...lanes[m],
+        exportProtocol: 'grpc',
+        exportInsecure: false,
+        ...(authOf?.(id) === 'mtls' ? { exportAuthHeaderName: '', exportAuthSecretName: '', exportAuthSecretKey: '' } : {}),
+      }
+    }
+    return { ...t, exportLanes: lanes }
+  }
+  return {
+    ...t,
+    exportProtocol: 'grpc',
+    exportInsecure: false,
+    ...(receiverAuth === 'mtls' ? { exportAuthHeaderName: '', exportAuthSecretName: '', exportAuthSecretKey: '' } : {}),
+  }
+}
 
 /** The endpoint the server's fragment sets, when it sets one - compared with the draft's by the panel. */
 export function fragmentEndpoint(fragment: string): string | undefined {
@@ -100,11 +140,48 @@ export function fragmentEndpoint(fragment: string): string | undefined {
  * differed the server's would win - the panel says so (see fragmentEndpoint).
  */
 export function operatorCommandBlock(opts: { install: InstallInfo | undefined; draft: TelemetryInput; measurementsOn?: boolean; result: TelemetryIntentCommand }): string {
-  const d = operatorCommandDraft(opts.draft, opts.result.receiverAuth)
+  const d = operatorCommandDraft(opts.draft, opts.result.receiverAuth, (id) => opts.result.operators?.[id])
   const target = { namespace: opts.result.namespace, release: opts.result.release }
   const upgrade = `${telemetryUpgradeCommand(opts.install, d, opts.measurementsOn, target).trimEnd()} \\\n  ${opts.result.installFragment}`
   const cred = telemetrySecretCommand(d, opts.measurementsOn, target)
   return [...opts.result.secretCommands, ...(cred ? [cred] : []), upgrade].join(' && \\\n')
+}
+
+/** One signal type's destination as the intent records it: the regional operator, or the external endpoint with the
+ *  names (never the values) of its credential. */
+function laneDestination(t: TelemetryInput, m: Modality): OperatorDestination {
+  const id = laneOperatorId(t, m)
+  const lane: ExportTarget = t.exportLanes[m]
+  if (id) return { kind: 'operator', endpoint: operatorReceiverEndpoint({ id }), targetOperatorId: id }
+  const secret = lane.exportAuthSecretName.trim()
+  return {
+    kind: 'external',
+    endpoint: lane.exportEndpoint.trim(),
+    ...(lane.exportInsecure ? { insecure: true } : {}),
+    ...(secret ? { authHeaderName: lane.exportAuthHeaderName.trim() || 'Authorization', authSecretName: secret, authSecretKey: lane.exportAuthSecretKey.trim() || 'token' } : {}),
+  }
+}
+
+/** What the intent records as the destination(s): for one destination, that operator, and no routes; sending each
+ *  signal type separately, one route per active signal type - every one, the external ones too, so the intent says
+ *  where all of it goes - and the first of them as the default, which no signal is then checked against. */
+export function intentDestinations(t: TelemetryInput, operatorId: string): { destination: OperatorDestination; routes?: NonNullable<TelemetryIntent['routes']> } {
+  if (!t.exportSplit) return { destination: { kind: 'operator', endpoint: operatorReceiverEndpoint({ id: operatorId }), targetOperatorId: operatorId } }
+  const lanes = activeLanes(t)
+  const routes: NonNullable<TelemetryIntent['routes']> = {}
+  for (const m of lanes) routes[m] = laneDestination(t, m)
+  return { destination: routes[lanes[0]] ?? { kind: 'operator', endpoint: operatorReceiverEndpoint({ id: operatorId }), targetOperatorId: operatorId }, routes }
+}
+
+const sameDestination1 = (a: OperatorDestination | undefined, b: OperatorDestination | undefined) =>
+  !!a && !!b && a.kind === b.kind && a.endpoint === b.endpoint && (a.targetOperatorId ?? '') === (b.targetOperatorId ?? '') && !!a.insecure === !!b.insecure && (a.authSecretName ?? '') === (b.authSecretName ?? '')
+
+function sameDestinations(existing: TelemetryIntent, destination: OperatorDestination, routes?: NonNullable<TelemetryIntent['routes']>): boolean {
+  const have = existing.routes ?? {}
+  const want = routes ?? {}
+  const keys = new Set([...Object.keys(have), ...Object.keys(want)])
+  for (const k of keys) if (!sameDestination1(have[k as Modality], want[k as Modality])) return false
+  return routes ? true : existing.destination.kind === 'operator' && existing.destination.targetOperatorId === destination.targetOperatorId
 }
 
 const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i])
@@ -124,18 +201,24 @@ const grantKeys = (gs: SignalGrant[]) => gs.map((s) => `${s.id}:${s.source}`).so
 export async function ensureOperatorIntent(conn: Conn, o: { agentId: string; operatorId: string; name: string; draft: TelemetryInput }): Promise<{ intent: TelemetryIntent; action: 'created' | 'updated' }> {
   const signals = intentSignals(o.draft)
   const { namespaces, exclude } = intentScope(o.draft)
-  const destination: OperatorDestination = { kind: 'operator', endpoint: operatorReceiverEndpoint({ id: o.operatorId }), targetOperatorId: o.operatorId }
+  const { destination, routes } = intentDestinations(o.draft, o.operatorId)
   const existing = (await api.listTelemetryIntents(conn, o.agentId)).find((i) => i.status === 'active')
   if (!existing) {
-    return { intent: await api.createTelemetryIntent(conn, o.agentId, o.name.slice(0, 80), namespaces, exclude, signals, destination), action: 'created' }
+    const name = o.name.slice(0, 80)
+    const created = routes ? await api.createTelemetryIntent(conn, o.agentId, name, namespaces, exclude, signals, destination, routes) : await api.createTelemetryIntent(conn, o.agentId, name, namespaces, exclude, signals, destination)
+    return { intent: created, action: 'created' }
   }
-  const sameDestination = existing.destination.kind === 'operator' && existing.destination.targetOperatorId === o.operatorId
+  const sameDestination = sameDestinations(existing, destination, routes)
   const sameScope = sameList(existing.namespaces, namespaces) && sameList(existing.exclude, exclude) && sameList(grantKeys(existing.signals), grantKeys(signals))
   const setScope = async () => {
     if (!sameScope) await api.updateTelemetryIntentScope(conn, existing.id, namespaces, exclude, signals)
   }
   const setDestination = async () => {
-    await api.updateTelemetryIntentDestination(conn, existing.id, destination)
+    // Routes are always stated when there are some, and cleared (stated empty) when the intent has some and the
+    // draft does not - a draft that never had any leaves them out.
+    const send = routes ?? (existing.routes && Object.keys(existing.routes).length > 0 ? {} : undefined)
+    if (send) await api.updateTelemetryIntentDestination(conn, existing.id, destination, send)
+    else await api.updateTelemetryIntentDestination(conn, existing.id, destination)
   }
   if (sameDestination) await setScope()
   else {

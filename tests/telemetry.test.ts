@@ -582,8 +582,9 @@ test('lanes start from the single destination where it fits, and keep what they 
   const zip = startLanes({ ...single, exportEndpoint: 'z:9411/api/v2/spans', exportProtocol: 'zipkin' })
   assert.equal(zip.exportLanes.traces.exportEndpoint, 'z:9411/api/v2/spans')
   assert.equal(zip.exportLanes.metrics.exportEndpoint, '')
-  // A regional operator needs a certificate a lane cannot ask for yet.
-  assert.equal(startLanes({ ...single, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu' }).exportLanes.metrics.exportEndpoint, '')
+  // A regional operator is carried into the lanes too: each lane then states its own mutual-TLS route.
+  const op = startLanes({ ...single, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu' })
+  assert.equal(op.exportLanes.metrics.exportOperatorId, 'op-eu')
 })
 
 test('editing a lane through its view changes only that lane\'s destination', () => {

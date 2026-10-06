@@ -255,3 +255,95 @@ func TestTelemetryIntentCommandRequiresAdminRole(t *testing.T) {
 		t.Fatalf("editor calling /command: %d %s", r.Code, r.Body.String())
 	}
 }
+
+// Two signal types exporting to the same operator are issued one certificate in one Secret, and each route
+// names that Secret; a third going to an external endpoint needs nothing from the server.
+func TestTelemetryIntentCommandRoutesShareOneCertificatePerOperator(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleAdmin)
+	opCluster := a.approvedCluster(t, fp)
+	r := a.do("POST", "/api/v1/operators", map[string]any{
+		"name": "athens-regional", "sourceClusterIds": []string{opCluster},
+		"destination": map[string]any{"kind": "external", "endpoint": "collector.example:4317"},
+	}, withCookie(cookie))
+	if r.Code != 201 {
+		t.Fatalf("create operator: %d %s", r.Code, r.Body.String())
+	}
+	opID, _ := r.json(t)["operator"].(map[string]any)["id"].(string)
+
+	agentID := a.approvedAgentID(t, fp2)
+	opDest := map[string]any{"kind": "operator", "targetOperatorId": opID}
+	r = a.do("POST", "/api/v1/telemetry-intents", map[string]any{
+		"agentId": agentID, "name": "patras-edge", "destination": opDest,
+		"signals": []map[string]any{{"id": "resourceUsage", "source": "builtin"}, {"id": "systemLogs", "source": "builtin"}, {"id": "traces", "source": "existing"}},
+	}, withCookie(cookie))
+	if r.Code != 201 {
+		t.Fatalf("create intent: %d %s", r.Code, r.Body.String())
+	}
+	id, _ := r.json(t)["id"].(string)
+
+	r = a.do("POST", "/api/v1/telemetry-intents/"+id+"/destination", map[string]any{
+		"destination": opDest,
+		"routes": map[string]any{
+			"metrics": opDest,
+			"logs":    opDest,
+			"traces":  map[string]any{"kind": "external", "endpoint": "zipkin.tracing.svc:9411/api/v2/spans", "insecure": true},
+		},
+	}, withCookie(cookie))
+	if r.Code != 200 {
+		t.Fatalf("set routes: %d %s", r.Code, r.Body.String())
+	}
+	routes, _ := r.json(t)["routes"].(map[string]any)
+	if len(routes) != 3 {
+		t.Fatalf("routes in the response = %v", routes)
+	}
+
+	r = a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(cookie))
+	if r.Code != 200 {
+		t.Fatalf("command: %d %s", r.Code, r.Body.String())
+	}
+	doc := r.json(t)
+	frag, _ := doc["installFragment"].(string)
+	cmds, _ := doc["secretCommands"].([]any)
+	if len(cmds) != 1 {
+		t.Fatalf("one operator, so one Secret command; got %d: %v", len(cmds), cmds)
+	}
+	if !strings.Contains(cmds[0].(string), "-----BEGIN CERTIFICATE-----") {
+		t.Fatalf("the Secret command has no certificate: %q", cmds[0])
+	}
+	secret := opID + "-export-mtls"
+	for _, m := range []string{"metrics", "logs"} {
+		for _, want := range []string{
+			"--set telemetry.export.routes." + m + ".endpoint=" + opID + ".continuum-system.svc:4317",
+			"--set telemetry.export.routes." + m + ".tls.mtls.enabled=true",
+			"--set telemetry.export.routes." + m + ".tls.mtls.secretName=" + secret,
+		} {
+			if !strings.Contains(frag, want) {
+				t.Fatalf("fragment is missing %q: %q", want, frag)
+			}
+		}
+	}
+	// The external route is the caller's to build, and the default's own flags are not stated: every signal has a route.
+	if strings.Contains(frag, "routes.traces") || strings.Contains(frag, "telemetry.export.otlp.") {
+		t.Fatalf("fragment states more than the operator routes: %q", frag)
+	}
+	ops, _ := doc["operators"].(map[string]any)
+	if ops[opID] == nil {
+		t.Fatalf("response does not say how %s authenticates: %v", opID, doc["operators"])
+	}
+
+	// Each call reissues, once per operator.
+	r = a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(cookie))
+	if again, _ := r.json(t)["secretCommands"].([]any); len(again) != 1 || again[0] == cmds[0] {
+		t.Fatalf("expected a freshly minted certificate on the second call")
+	}
+
+	// An empty routes puts it back to one destination.
+	if r := a.do("POST", "/api/v1/telemetry-intents/"+id+"/destination", map[string]any{"destination": opDest, "routes": map[string]any{}}, withCookie(cookie)); r.Code != 200 {
+		t.Fatalf("clear routes: %d %s", r.Code, r.Body.String())
+	}
+	doc = a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(cookie)).json(t)
+	if f, _ := doc["installFragment"].(string); !strings.Contains(f, "telemetry.export.otlp.endpoint="+opID) || strings.Contains(f, "export.routes") {
+		t.Fatalf("after clearing the routes the fragment is %q", f)
+	}
+}

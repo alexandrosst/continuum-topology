@@ -14,13 +14,14 @@ import type { RegionalOperator } from '@/lib/types'
 // not "ready" until every type that has a signal on has somewhere to go.
 
 let settings: AppSettings
+let role: 'admin' | undefined
 const listOperators = vi.fn(async (): Promise<RegionalOperator[]> => [])
 const save = vi.fn(async () => true)
 
 vi.mock('@/store/settings', () => ({ useSettings: () => ({ settings, loaded: true, error: undefined, save }) }))
 const CONN = { url: 'https://example.test', org: 'org-1' }
 vi.mock('@/store/server', () => ({
-  useServer: (selector?: (s: { role?: string }) => unknown) => (selector ? selector({ role: undefined }) : { role: undefined }),
+  useServer: (selector?: (s: { role?: string }) => unknown) => (selector ? selector({ role }) : { role }),
   useConn: () => CONN,
 }))
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -51,6 +52,7 @@ async function pickInLane(user: ReturnType<typeof userEvent.setup>, lane: string
 
 beforeEach(() => {
   settings = DEFAULT_SETTINGS
+  role = undefined
   latest = emptyTelemetry
   listOperators.mockClear()
   listOperators.mockResolvedValue([])
@@ -172,4 +174,22 @@ describe('GuidedWizard: one destination per signal type', () => {
     expect(screen.getByTestId('t-lane-metrics-guided-destination-endpoint')).toHaveValue('mimir.example:4317')
     expect(screen.getByTestId('t-lane-logs-guided-destination-endpoint')).toHaveValue('loki.example:3100')
   })
+
+  test('a regional operator is a destination for the signal types it takes, and splitting leaves a lane it cannot carry empty', async () => {
+    const user = userEvent.setup()
+    listOperators.mockResolvedValue([
+      { id: 'op-m', orgId: 'org-1', name: 'Metrics operator', status: 'active', sourceClusterIds: [], acceptedModalities: ['metrics'], destination: { kind: 'external', endpoint: 'c:4317' }, createdAt: '2026-01-01T00:00:00Z', createdBy: 'a' },
+    ] as RegionalOperator[])
+    role = 'admin'
+    renderWizard()
+    await gotoDestination(user)
+    // Picked for everything, it cannot carry logs, so it is not offered as the one destination...
+    expect(screen.queryByTestId('t-guided-destination-operator-op-m')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('t-guided-mode-split'))
+    // ...but is the lone, auto-picked destination for the metrics lane, and is shown unavailable for logs.
+    await waitFor(() => expect(screen.getByTestId('t-lane-metrics-guided-destination-name')).toHaveTextContent('Metrics operator'))
+    expect(latest.exportLanes.metrics.exportOperatorId).toBe('op-m')
+    expect(latest.exportLanes.logs.exportOperatorId).toBe('')
+  })
 })
+

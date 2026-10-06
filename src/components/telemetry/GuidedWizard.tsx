@@ -6,7 +6,7 @@ import { api, atLeast } from '@/lib/api'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
 import { buildDestinationCatalog } from '@/lib/destinationCatalog'
 import { effectiveAllowedBackendKinds, type QuickStartBackend, type QuickStartKind } from '@/lib/history'
-import { activeLanes, destinationReady, enabledModalities, startLanes, withLane, laneView, type Modality, type TelemetryInput } from '@/lib/install'
+import { activeLanes, destinationReady, emptyExportTarget, enabledModalities, laneView, ROUTE_MODALITIES, startLanes, withLane, type Modality, type TelemetryInput } from '@/lib/install'
 import { hasQuickStartSpec, quickStartSpec } from '@/lib/quickStartBackends'
 import { LAYER_META } from '@/lib/telemetryLayers'
 import type { RegionalOperator } from '@/lib/types'
@@ -206,11 +206,18 @@ export default function GuidedWizard({
   const [laneChoices, setLaneChoices] = useState<Record<Modality, string | null>>({ metrics: null, logs: null, traces: null })
   // Which signal type the backend setup opened from, so that what it set up becomes that one's destination.
   const [deployLane, setDeployLane] = useState<Modality | null>(null)
-  // What can carry just one signal type. A regional operator is not offered: it needs a client certificate the
-  // server issues for the whole agent, which one signal type's own destination cannot ask for.
-  const catalogFor = (m: Modality) => {
-    const c = buildDestinationCatalog({ services, clusterId, operators, enabledModalities: new Set<Modality>([m]), quickStartBackends: settings.quickStartBackends, isAdmin })
-    return { ...c, entries: c.entries.filter((e) => e.kind !== 'operator'), canDeployOperator: false }
+  // What can carry just one signal type: a regional operator only if it takes that type, a backend only if it does.
+  const catalogFor = (m: Modality) => buildDestinationCatalog({ services, clusterId, operators, enabledModalities: new Set<Modality>([m]), quickStartBackends: settings.quickStartBackends, isAdmin })
+  // Splitting starts every lane from the one destination - except where that is a regional operator which does
+  // not take the lane's signal type (a metrics-only operator for logs): that lane starts empty instead.
+  const splitDestinations = (v: TelemetryInput): TelemetryInput => {
+    const started = startLanes(v)
+    const lanes = { ...started.exportLanes }
+    for (const m of ROUTE_MODALITIES) {
+      const id = lanes[m].exportOperatorId
+      if (id && !catalogFor(m).entries.some((e) => e.kind === 'operator' && e.id === id && e.compatible)) lanes[m] = emptyExportTarget
+    }
+    return { ...started, exportLanes: lanes }
   }
   // Only worth offering with two or more signal types on - one has nothing to split. A draft that already
   // sends them separately keeps the choice visible even if that is no longer so.
@@ -325,7 +332,7 @@ export default function GuidedWizard({
                       : 'Everything to one place, unless the place you pick cannot take every signal you turned on.'}
                   </p>
                 </div>
-                <DestinationMode split={value.exportSplit} onChange={(split) => onChange(split ? startLanes(value) : { ...value, exportSplit: false })} testIdPrefix={`${testIdPrefix}-guided`} />
+                <DestinationMode split={value.exportSplit} onChange={(split) => onChange(split ? splitDestinations(value) : { ...value, exportSplit: false })} testIdPrefix={`${testIdPrefix}-guided`} />
               </div>
             )}
             {value.exportSplit ? (

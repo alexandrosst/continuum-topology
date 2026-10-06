@@ -35,7 +35,7 @@ import {
 } from '@/lib/consent'
 import { telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
 import { receiverAuthOf } from '@/lib/operatorHealth'
-import { exportOperatorId, explainIntentError, fragmentEndpoint, generateOperatorCommands, operatorCommandBlock, operatorCommandDraft } from '@/lib/operatorIntent'
+import { explainIntentError, fragmentEndpoint, generateOperatorCommands, operatorCommandBlock, operatorCommandDraft, operatorTargets } from '@/lib/operatorIntent'
 import { TONE_CLASS } from '@/lib/provenance'
 import type { Agent, AccessTier, ReceiverAuth } from '@/lib/types'
 import { useConn, useServer } from '@/store/server'
@@ -456,37 +456,48 @@ export function TelemetryPanel({
   // there is no ready command - only an explicit "Generate" that asks the server for one (and issues a new
   // certificate every time it runs, which is why it never fires on render or on an edit).
   const isAdmin = useServer((s) => atLeast(s.role, 'admin'))
-  const operatorId = exportOperatorId(draft)
-  const [operatorName, setOperatorName] = useState('')
-  const [operatorAuth, setOperatorAuth] = useState<ReceiverAuth | undefined>(undefined)
+  // The regional operators this draft sends to: the one destination's, or - sending each signal type separately -
+  // those of the signal types that go to one. Each is asked for its name and how its receiver authenticates.
+  const targets = useMemo(() => operatorTargets(draft), [draft])
+  const operatorId = targets[0]?.id ?? ''
+  const targetKey = targets.map((t) => t.id).join(',')
+  const [operatorInfo, setOperatorInfo] = useState<Record<string, { name: string; auth?: ReceiverAuth }>>({})
   useEffect(() => {
-    if (!operatorId || !isAdmin) return
+    if (!targetKey || !isAdmin) return
     let cancelled = false
     void api
       .listOperators(conn)
       .then((ops) => {
         if (cancelled) return
-        const op = ops.find((o) => o.id === operatorId)
-        setOperatorName(op?.name ?? '')
-        setOperatorAuth(op ? receiverAuthOf(op) : undefined)
+        const info: Record<string, { name: string; auth?: ReceiverAuth }> = {}
+        for (const id of targetKey.split(',')) {
+          const op = ops.find((o) => o.id === id)
+          info[id] = { name: op?.name ?? '', auth: op ? receiverAuthOf(op) : undefined }
+        }
+        setOperatorInfo(info)
       })
-      .catch(() => undefined) // only the label; the id stands in for the name
+      .catch(() => undefined) // only the labels; the ids stand in for the names
     return () => {
       cancelled = true
     }
     // conn's identifying fields, not the object: see GuidedWizard's own operator fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conn.url, conn.org, operatorId, isAdmin])
-  const operatorLabel = operatorName || operatorId
+  }, [conn.url, conn.org, targetKey, isAdmin])
+  const operatorLabel = targets.map((t) => operatorInfo[t.id]?.name || t.id).join(' and ')
+  const authOf = (id: string): ReceiverAuth | undefined => operatorInfo[id]?.auth
+  const operatorAuth = authOf(operatorId)
   // A receiver gated by the client certificate alone has no token to present: a Secret named in the draft is
   // ignored for it (the command builder drops it too, see operatorCommandDraft).
-  const operatorMtls = !!operatorId && operatorAuth === 'mtls'
+  const operatorMtls = !!operatorId && !draft.exportSplit && operatorAuth === 'mtls'
+  const split = draft.exportSplit
+  const commandDraft = split ? operatorCommandDraft(draft, undefined, authOf) : operatorMtls ? operatorCommandDraft(draft, 'mtls') : draft
+  const operatorSecrets = telemetrySecrets(commandDraft, measurementsOn)
   const secrets = telemetrySecrets(draft, measurementsOn)
-  const needsCredential = !operatorMtls && secrets.length > 0
-  const operatorProblems = telemetryActive(draft) ? telemetryProblems(operatorMtls ? operatorCommandDraft(draft, 'mtls') : draft, measurementsOn) : []
+  const needsCredential = split ? operatorSecrets.length > 0 : !operatorMtls && secrets.length > 0
+  const operatorProblems = telemetryActive(draft) ? telemetryProblems(commandDraft, measurementsOn) : []
   // Everything the generated block depends on. It is stale the moment any of it differs from what it was
   // generated from, and then shows dimmed and uncopyable rather than a command that is wrong now.
-  const snapshot = useMemo(() => JSON.stringify({ draft, install, measurementsOn, agentId, operatorId }), [draft, install, measurementsOn, agentId, operatorId])
+  const snapshot = useMemo(() => JSON.stringify({ draft, install, measurementsOn, agentId, operatorId, targetKey }), [draft, install, measurementsOn, agentId, operatorId, targetKey])
   const [generated, setGenerated] = useState<{ snapshot: string; text: string; action: 'created' | 'updated'; endpointNote?: string } | null>(null)
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState<{ snapshot: string; message: string } | null>(null)
@@ -497,7 +508,7 @@ export function TelemetryPanel({
     setGenError(null)
     try {
       const { result, action } = await generateOperatorCommands(conn, { agentId, operatorId, name: `Telemetry to ${operatorLabel}`, draft })
-      const theirs = fragmentEndpoint(result.installFragment)
+      const theirs = split ? undefined : fragmentEndpoint(result.installFragment)
       setGenerated({
         snapshot: asked,
         text: operatorCommandBlock({ install, draft, measurementsOn, result }),
@@ -524,12 +535,29 @@ export function TelemetryPanel({
             <p>
               <span className="text-nb-300">{operatorLabel}</span> only accepts clients holding a certificate from your organisation&apos;s CA, so its commands are generated by the server, not built on this page. Generating issues a <span className="text-nb-300">fresh client certificate for this cluster</span> and is recorded in the audit log. The commands include a Secret holding that certificate and its private key; like the operator&apos;s own install output, it is shown once, here, so copy it when you generate it.
             </p>
+            {targets.length > 1 && (
+              <p className="mt-1" data-testid={`${p}-operator-several`}>
+                {targets.length} operators are involved: it issues one certificate for each, shared by every signal type that goes to it ({targets.map((t) => `${operatorInfo[t.id]?.name || t.id}: ${t.lanes.join(' and ')}`).join('; ')}).
+              </p>
+            )}
             {operatorMtls && (
               <p className="mt-1" data-testid={`${p}-operator-mtls-note`}>
                 This operator&apos;s receiver authenticates this cluster by that client certificate alone: no receiver token is needed or asked for.
               </p>
             )}
-            {needsCredential && (
+            {needsCredential && split && (
+              <div className="mt-1 space-y-1" data-testid={`${p}-credential-hint`}>
+                <p>Each Secret you named is created from a variable in the shell you run the command in - it never passes through this page. For an operator&apos;s receiver token, set it to <code className="font-mono text-nb-400">Bearer</code> followed by the token.</p>
+                <ul className="space-y-0.5">
+                  {operatorSecrets.map((s) => (
+                    <li key={s.name}>
+                      Set <code className="font-mono text-nb-400">{s.variable}</code> for {s.lanes.join(' and ')} (Secret <code className="font-mono text-nb-400">{s.name}</code>)
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {needsCredential && !split && (
               <p className="mt-1" data-testid={`${p}-credential-hint`}>
                 The receiver token Secret you named is created from <code className="font-mono text-nb-400">{TELEMETRY_CREDENTIAL_VAR}</code>: set it in that shell to <code className="font-mono text-nb-400">Bearer</code> followed by the operator&apos;s token first - it is read from there, so it never passes through this page.
               </p>
@@ -609,7 +637,7 @@ export function TelemetryPanel({
       measurementsOn={measurementsOn}
       agentId={agentId}
       clusterId={clusterId}
-      runSection={telemetryActive(draft) ? <div className="mt-3" data-testid={`${p}-run`}>{operatorId ? operatorSection : commandSection}</div> : undefined}
+      runSection={telemetryActive(draft) ? <div className="mt-3" data-testid={`${p}-run`}>{targets.length > 0 ? operatorSection : commandSection}</div> : undefined}
     />
   )
 

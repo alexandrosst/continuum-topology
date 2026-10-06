@@ -133,6 +133,9 @@ export interface TelemetryIntentCommand {
    *  client certificate in `secretCommands` is the only credential; anything else (including absent) means a
    *  bearer token is also expected, supplied by the person. */
   receiverAuth?: ReceiverAuth
+  /** For every regional operator the command involves, how its receiver authenticates this agent - the same as
+   *  `receiverAuth`, but per operator, for an install that sends signal types to different ones. */
+  operators?: Record<string, ReceiverAuth>
   /** Where the agent's Helm release runs, as the server knows it (or the chart's defaults). Both the Secrets
    *  above and the upgrade command must use it, so the release finds what was created for it. */
   namespace?: string
@@ -582,12 +585,14 @@ export const api = {
   listTelemetryIntents: (c: Conn, agentId?: string) =>
     call<TelemetryIntent[]>(c, 'GET', `/api/v1/telemetry-intents${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`),
   getTelemetryIntent: (c: Conn, id: string) => call<TelemetryIntent>(c, 'GET', `/api/v1/telemetry-intents/${encodeURIComponent(id)}`),
-  createTelemetryIntent: (c: Conn, agentId: string, name: string, namespaces: string[], exclude: string[], signals: SignalGrant[], destination: OperatorDestination) =>
-    call<TelemetryIntent>(c, 'POST', '/api/v1/telemetry-intents', { agentId, name, namespaces, exclude, signals, destination }),
+  createTelemetryIntent: (c: Conn, agentId: string, name: string, namespaces: string[], exclude: string[], signals: SignalGrant[], destination: OperatorDestination, routes?: NonNullable<TelemetryIntent['routes']>) =>
+    call<TelemetryIntent>(c, 'POST', '/api/v1/telemetry-intents', routes ? { agentId, name, namespaces, exclude, signals, destination, routes } : { agentId, name, namespaces, exclude, signals, destination }),
   updateTelemetryIntentScope: (c: Conn, id: string, namespaces: string[], exclude: string[], signals: SignalGrant[]) =>
     call<TelemetryIntent>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/scope`, { namespaces, exclude, signals }),
-  updateTelemetryIntentDestination: (c: Conn, id: string, destination: OperatorDestination) =>
-    call<TelemetryIntent>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/destination`, { destination }),
+  /** `routes` replaces the per-signal-type destinations together with the default (an empty object clears them);
+   *  left out, they are untouched. */
+  updateTelemetryIntentDestination: (c: Conn, id: string, destination: OperatorDestination, routes?: NonNullable<TelemetryIntent['routes']>) =>
+    call<TelemetryIntent>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/destination`, routes ? { destination, routes } : { destination }),
   revokeTelemetryIntent: (c: Conn, id: string, reason: string) => call<void>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/revoke`, { reason }),
   deleteTelemetryIntent: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/telemetry-intents/${encodeURIComponent(id)}`),
   getTelemetryIntentCommand: (c: Conn, id: string) => call<TelemetryIntentCommand>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/command`),

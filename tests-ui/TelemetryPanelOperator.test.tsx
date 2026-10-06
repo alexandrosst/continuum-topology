@@ -295,3 +295,93 @@ describe('TelemetryPanel with a regional operator destination', () => {
     noApiCalls()
   })
 })
+
+describe('TelemetryPanel with signal types going to different destinations', () => {
+  const ROUTE_FRAGMENT =
+    '--set telemetry.resource.orgId=org-1 --set telemetry.resource.clusterId=cl-1 --set telemetry.resource.intentId=ti-1' +
+    ' --set telemetry.export.routes.logs.endpoint=op-eu.continuum-system.svc:4317 --set telemetry.export.routes.logs.tls.mtls.enabled=true --set telemetry.export.routes.logs.tls.mtls.secretName=op-eu-export-mtls' +
+    ' --set telemetry.export.routes.metrics.endpoint=op-eu.continuum-system.svc:4317 --set telemetry.export.routes.metrics.tls.mtls.enabled=true --set telemetry.export.routes.metrics.tls.mtls.secretName=op-eu-export-mtls'
+  const OP_DEST = { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' }
+
+  /** Metrics and logs on, split into one destination each: the lone operator is picked for both on arrival. */
+  async function splitToRun(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByTestId('tp-mode-guided'))
+    await user.click(screen.getByTestId('tp-resourceUsage'))
+    await user.click(screen.getByTestId('tp-systemLogs'))
+    await user.click(screen.getByTestId('tp-guided-continue')) // Collect -> Process
+    await user.click(screen.getByTestId('tp-guided-continue')) // Process -> Destination
+    await user.click(screen.getByTestId('tp-guided-mode-split'))
+    await waitFor(() => expect(screen.getByTestId('tp-lane-metrics-guided-destination-name')).toHaveTextContent('EU regional operator'))
+    await waitFor(() => expect(screen.getByTestId('tp-lane-logs-guided-destination-name')).toHaveTextContent('EU regional operator'))
+  }
+
+  beforeEach(() => {
+    getTelemetryIntentCommand.mockResolvedValue({ installFragment: ROUTE_FRAGMENT, secretCommands: [SECRET], operators: { 'op-eu': 'mtls' } })
+  })
+
+  test('two signal types to one operator: one intent with a route each, one certificate, and the routes in the command', async () => {
+    const user = userEvent.setup()
+    render(tree())
+    await splitToRun(user)
+    await toRun(user)
+    expect(await screen.findByTestId('tp-operator-generate')).toHaveTextContent('Generate commands for EU regional operator')
+    noApiCalls()
+    await user.click(screen.getByTestId('tp-operator-generate'))
+    const cmd = (await screen.findByTestId('tp-operator-command')).textContent ?? ''
+
+    expect(createTelemetryIntent).toHaveBeenCalledTimes(1)
+    expect(createTelemetryIntent).toHaveBeenCalledWith(
+      CONN,
+      'agent-1',
+      'Telemetry to EU regional operator',
+      [],
+      [],
+      [{ id: 'resourceUsage', source: 'builtin' }, { id: 'systemLogs', source: 'builtin' }],
+      OP_DEST,
+      { metrics: OP_DEST, logs: OP_DEST },
+    )
+    // One certificate Secret, however many signal types go to the operator; then the upgrade with the server's routes last.
+    expect(cmd.match(/kubectl create secret generic op-eu-export-mtls/g)).toHaveLength(1)
+    expect(cmd.startsWith('kubectl create secret generic op-eu-export-mtls')).toBe(true)
+    expect(cmd.trimEnd().endsWith(ROUTE_FRAGMENT)).toBe(true)
+    expect(cmd).toContain('--set-string telemetry.export.routes.metrics.endpoint=op-eu.continuum-system.svc:4317')
+    expect(cmd).toContain('--set-string telemetry.export.routes.logs.endpoint=op-eu.continuum-system.svc:4317')
+    // The default is left alone, and an operator route is not stated off by the client half.
+    expect(cmd).not.toContain('telemetry.export.otlp.endpoint')
+    expect(cmd).not.toContain('routes.metrics.tls.mtls.enabled=false')
+    expect(screen.getByTestId('tp-operator-fresh')).toHaveTextContent('Recorded a telemetry intent')
+  })
+
+  test('one signal type to the operator and the other to an endpoint: both are recorded, and only the operator needs a certificate', async () => {
+    const user = userEvent.setup()
+    render(tree())
+    await splitToRun(user)
+    await user.click(screen.getByTestId('tp-lane-logs-guided-destination-change'))
+    await user.type(screen.getByTestId('tp-lane-logs-guided-destination-search'), 'loki')
+    await user.click(screen.getByTestId('tp-lane-logs-guided-destination-external-preset-loki'))
+    await toRun(user)
+    await user.click(await screen.findByTestId('tp-operator-generate'))
+    const cmd = (await screen.findByTestId('tp-operator-command')).textContent ?? ''
+    const args = createTelemetryIntent.mock.calls[0]
+    expect(args[6]).toEqual(OP_DEST)
+    expect(args[7].metrics).toEqual(OP_DEST)
+    expect(args[7].logs).toMatchObject({ kind: 'external' })
+    expect(args[7].logs.endpoint).toContain('loki')
+    // The external route is built by the page, and states mutual TLS off for itself.
+    expect(cmd).toContain('--set telemetry.export.routes.logs.tls.mtls.enabled=false')
+    expect(cmd.match(/kubectl create secret generic op-eu-export-mtls/g)).toHaveLength(1)
+  })
+
+  test('an intent that already has routes is told to clear them when the draft goes back to one destination', async () => {
+    listTelemetryIntents.mockResolvedValue([intent({ id: 'ti-9', routes: { metrics: OP_DEST, logs: OP_DEST } })])
+    getTelemetryIntentCommand.mockResolvedValue({ installFragment: FRAGMENT, secretCommands: [SECRET] })
+    const user = userEvent.setup()
+    render(tree())
+    await pickOperator(user)
+    await toRun(user)
+    await user.click(await generateButton())
+    await screen.findByTestId('tp-operator-command')
+    expect(updateTelemetryIntentDestination).toHaveBeenCalledWith(CONN, 'ti-9', OP_DEST, {})
+  })
+})
+

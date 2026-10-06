@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { emptyTelemetry, withTelemetry, type TelemetryInput } from '../src/lib/install'
+import { emptyExportTarget, emptyTelemetry, withTelemetry, type TelemetryInput } from '../src/lib/install'
 import { telemetrySecretCommand, telemetryUpgradeCommand } from '../src/lib/consent'
 import { operatorReceiverEndpoint } from '../src/lib/destinationCatalog'
-import { exportOperatorId, fragmentEndpoint, intentScope, intentSignals, operatorCommandBlock, operatorCommandDraft } from '../src/lib/operatorIntent'
+import { exportOperatorId, fragmentEndpoint, intentDestinations, intentScope, intentSignals, laneOperatorId, operatorCommandBlock, operatorCommandDraft, operatorTargets } from '../src/lib/operatorIntent'
 
 const base = 'helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace'
 const operatorDraft = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu', ...over })
@@ -114,4 +114,73 @@ test('a namespace or release that is not a plain Kubernetes name is never pasted
   const cmd = operatorCommandBlock({ install: undefined, draft, result: { installFragment: '--set a=b', secretCommands: [], namespace: 'x; rm -rf /', release: '$(id)' } })
   assert.ok(!cmd.includes('rm -rf') && !cmd.includes('$(id)'))
   assert.ok(cmd.includes('helm upgrade continuum-agent ') && cmd.includes('--namespace continuum-system '))
+})
+
+/* ---------- signal types going to different destinations ---------- */
+
+const opLane = (id: string, over: Partial<typeof emptyExportTarget> = {}) => ({ ...emptyExportTarget, exportEndpoint: `${id}.continuum-system.svc:4317`, exportOperatorId: id, ...over })
+const splitDraft = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({
+  ...emptyTelemetry,
+  resourceUsage: true,
+  systemLogs: true,
+  traces: true,
+  exportSplit: true,
+  exportLanes: { metrics: opLane('op-eu'), logs: opLane('op-eu'), traces: { ...emptyExportTarget, exportEndpoint: 'z:9411/api/v2/spans', exportProtocol: 'zipkin', exportInsecure: true } },
+  ...over,
+})
+
+test('operatorTargets lists each operator once, with the signal types that go to it', () => {
+  assert.deepEqual(operatorTargets(splitDraft()), [{ id: 'op-eu', lanes: ['metrics', 'logs'] }])
+  const two = splitDraft({ exportLanes: { ...splitDraft().exportLanes, logs: opLane('op-us') } })
+  assert.deepEqual(operatorTargets(two), [{ id: 'op-eu', lanes: ['metrics'] }, { id: 'op-us', lanes: ['logs'] }])
+  assert.deepEqual(operatorTargets(operatorDraft()), [{ id: 'op-eu', lanes: [] }])
+  assert.deepEqual(operatorTargets({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317' }), [])
+  // Only the lanes that have a signal on count, and an id that no longer matches its endpoint is not an operator.
+  assert.deepEqual(operatorTargets(splitDraft({ traces: false, systemLogs: false })), [{ id: 'op-eu', lanes: ['metrics'] }])
+  const stale = splitDraft({ exportLanes: { ...splitDraft().exportLanes, metrics: { ...opLane('op-eu'), exportEndpoint: 'edited:4317' } } })
+  assert.equal(laneOperatorId(stale, 'metrics'), '')
+  // One destination's operator id is not read while sending each signal type separately.
+  assert.equal(exportOperatorId(splitDraft({ exportOperatorId: 'op-eu', exportEndpoint: 'op-eu.continuum-system.svc:4317' })), '')
+})
+
+test('the intent records every signal type\'s destination, the first as the default, and one destination as no routes', () => {
+  const d = intentDestinations(splitDraft(), 'op-eu')
+  assert.deepEqual(d.routes?.metrics, { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' })
+  assert.deepEqual(d.routes?.logs, d.routes?.metrics)
+  assert.deepEqual(d.routes?.traces, { kind: 'external', endpoint: 'z:9411/api/v2/spans', insecure: true })
+  assert.deepEqual(d.destination, d.routes?.metrics)
+  const single = intentDestinations(operatorDraft(), 'op-eu')
+  assert.equal(single.routes, undefined)
+  assert.deepEqual(single.destination, { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' })
+  // A credential is recorded by the names of its Secret and header, never by a value.
+  const named = splitDraft({ exportLanes: { ...splitDraft().exportLanes, traces: { ...emptyExportTarget, exportEndpoint: 't:4317', exportAuthSecretName: 'tempo-token' } } })
+  assert.deepEqual(intentDestinations(named, 'op-eu').routes?.traces, { kind: 'external', endpoint: 't:4317', authHeaderName: 'Authorization', authSecretName: 'tempo-token', authSecretKey: 'token' })
+})
+
+test('each operator lane drops a credential its operator does not take; the others keep theirs', () => {
+  const d = splitDraft({
+    exportLanes: {
+      metrics: opLane('op-eu', { exportAuthSecretName: 'eu-token' }),
+      logs: opLane('op-us', { exportAuthSecretName: 'us-token' }),
+      traces: { ...emptyExportTarget, exportEndpoint: 't:4317', exportAuthSecretName: 'tempo-token' },
+    },
+  })
+  const out = operatorCommandDraft(d, undefined, (id) => (id === 'op-eu' ? 'mtls' : 'bearer'))
+  assert.equal(out.exportLanes.metrics.exportAuthSecretName, '')
+  assert.equal(out.exportLanes.logs.exportAuthSecretName, 'us-token')
+  assert.equal(out.exportLanes.traces.exportAuthSecretName, 'tempo-token')
+  // Never HTTP or skip-verify for an operator lane.
+  assert.equal(operatorCommandDraft(splitDraft({ exportLanes: { ...splitDraft().exportLanes, metrics: opLane('op-eu', { exportInsecure: true, exportProtocol: 'http' }) } })).exportLanes.metrics.exportProtocol, 'grpc')
+})
+
+test('operatorCommandBlock for routed signal types: one certificate Secret, the routes, and the server fragment last', () => {
+  const draft = splitDraft({ traces: false })
+  const fragment = '--set telemetry.export.routes.metrics.tls.mtls.enabled=true --set telemetry.export.routes.logs.tls.mtls.enabled=true'
+  const cmd = operatorCommandBlock({ install: undefined, draft, result: { installFragment: fragment, secretCommands: ['kubectl create secret generic op-eu-export-mtls'], operators: { 'op-eu': 'mtls' } } })
+  assert.equal(cmd.match(/kubectl create secret/g)?.length, 1)
+  assert.ok(cmd.trimEnd().endsWith(fragment))
+  assert.match(cmd, /--set-string telemetry\.export\.routes\.metrics\.endpoint=op-eu\.continuum-system\.svc:4317/)
+  assert.doesNotMatch(cmd, /telemetry\.export\.otlp\.endpoint/)
+  // A client half never turns an operator route's mutual TLS off; the server's fragment turns it on.
+  assert.doesNotMatch(cmd, /routes\.(metrics|logs)\.tls\.mtls\.enabled=false/)
 })

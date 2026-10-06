@@ -1312,6 +1312,9 @@ export interface TelemetryIntent {
   exclude: string[]
   signals: SignalGrant[]
   destination: OperatorDestination
+  /** A destination per signal type that has one of its own (metrics, logs, traces); absent when every signal goes
+   *  to `destination`. */
+  routes?: Partial<Record<'metrics' | 'logs' | 'traces', OperatorDestination>>
   createdAt: string
   createdBy: string
   revokedAt?: string

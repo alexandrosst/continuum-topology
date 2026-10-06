@@ -310,3 +310,86 @@ func TestCreateTelemetryIntentDoesNotBlockAnUnrecognisedSignalID(t *testing.T) {
 		t.Fatalf("expected an unrecognised signal id to be let through unchecked, got %v", err)
 	}
 }
+
+// An intent that sends each signal type somewhere of its own is checked per signal: a metrics-only operator is
+// a fine home for the metrics route of an intent that also grants logs, as long as logs go elsewhere.
+func TestIntentRoutesAreCheckedPerSignalAgainstWhereEachGoes(t *testing.T) {
+	e := newEnv(t)
+	opCluster := e.approvedCluster(t, fp)
+	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens-regional", []string{opCluster}, extDest("collector.example:4317"), []store.Modality{store.ModalityMetrics})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := e.approvedAgentID(t, fp2)
+	signals := []store.SignalGrant{{ID: "resourceUsage", Source: "builtin"}, {ID: "systemLogs", Source: "builtin"}}
+	ti, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil, signals, extDest("gw:4317"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opDest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
+	// Everything to the metrics-only operator: refused, logs cannot go there.
+	if err := e.core.UpdateTelemetryIntentDestination(e.ctx, "alex", ti.ID, opDest); kindOf(err) != KindInvalid {
+		t.Fatalf("expected KindInvalid sending logs to a metrics-only operator, got %v", err)
+	}
+	// Metrics to it and logs to an endpoint: fine.
+	routes := map[store.Modality]store.Destination{store.ModalityMetrics: opDest, store.ModalityLogs: extDest("loki:3100")}
+	if err := e.core.UpdateTelemetryIntentDestinations(e.ctx, "alex", ti.ID, extDest("gw:4317"), routes); err != nil {
+		t.Fatalf("routing metrics to the operator and logs elsewhere: %v", err)
+	}
+	got, _ := e.core.GetTelemetryIntent(e.ctx, ti.ID)
+	if len(got.Routes) != 2 || got.Routes[store.ModalityMetrics].TargetOperatorID != op.ID {
+		t.Fatalf("routes = %+v", got.Routes)
+	}
+	// Routing LOGS to it is the one that is not allowed.
+	bad := map[store.Modality]store.Destination{store.ModalityLogs: opDest}
+	if err := e.core.UpdateTelemetryIntentDestinations(e.ctx, "alex", ti.ID, extDest("gw:4317"), bad); kindOf(err) != KindInvalid {
+		t.Fatalf("expected KindInvalid routing logs to a metrics-only operator, got %v", err)
+	}
+	// Widening the scope is checked against the routes too: traces have no route, so they follow the default.
+	if err := e.core.UpdateTelemetryIntentScope(e.ctx, "alex", ti.ID, nil, nil, append(signals, store.SignalGrant{ID: "traces", Source: "existing"})); err != nil {
+		t.Fatalf("traces follow the external default and should be fine: %v", err)
+	}
+	// ...and a route that is not one of the three signal types, or names an operator that is not there, is refused.
+	if err := e.core.UpdateTelemetryIntentDestinations(e.ctx, "alex", ti.ID, extDest("gw:4317"), map[store.Modality]store.Destination{"events": extDest("x:1")}); kindOf(err) != KindInvalid {
+		t.Fatalf("expected KindInvalid for an unknown signal type, got %v", err)
+	}
+	ghost := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: "op-nope"}
+	if err := e.core.UpdateTelemetryIntentDestinations(e.ctx, "alex", ti.ID, extDest("gw:4317"), map[store.Modality]store.Destination{store.ModalityMetrics: ghost}); err == nil {
+		t.Fatal("routed metrics to an operator that does not exist")
+	}
+	// An empty routes clears them.
+	if err := e.core.UpdateTelemetryIntentDestinations(e.ctx, "alex", ti.ID, extDest("gw:4317"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := e.core.GetTelemetryIntent(e.ctx, ti.ID); len(got.Routes) != 0 {
+		t.Fatalf("routes not cleared: %+v", got.Routes)
+	}
+}
+
+// Creating an intent with routes checks each signal against where it goes: a first lane that is a metrics-only
+// operator does not make the whole intent refuse the logs that go to an endpoint.
+func TestCreateTelemetryIntentWithRoutesChecksEachSignalWhereItGoes(t *testing.T) {
+	e := newEnv(t)
+	opCluster := e.approvedCluster(t, fp)
+	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens-regional", []string{opCluster}, extDest("collector.example:4317"), []store.Modality{store.ModalityMetrics})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opDest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
+	signals := []store.SignalGrant{{ID: "resourceUsage", Source: "builtin"}, {ID: "systemLogs", Source: "builtin"}}
+	routes := map[store.Modality]store.Destination{store.ModalityMetrics: opDest, store.ModalityLogs: extDest("loki:3100")}
+
+	agentID := e.approvedAgentID(t, fp2)
+	// Without routes, the same grant is refused: the default would have to carry the logs.
+	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil, signals, opDest); kindOf(err) != KindInvalid {
+		t.Fatalf("expected KindInvalid without routes, got %v", err)
+	}
+	ti, err := e.core.CreateTelemetryIntentWithRoutes(e.ctx, "alex", agentID, "patras-edge", nil, nil, signals, opDest, routes)
+	if err != nil {
+		t.Fatalf("with routes: %v", err)
+	}
+	got, _ := e.core.GetTelemetryIntent(e.ctx, ti.ID)
+	if len(got.Routes) != 2 || got.Routes[store.ModalityLogs].Endpoint != "loki:3100" {
+		t.Fatalf("routes after create = %+v", got.Routes)
+	}
+}

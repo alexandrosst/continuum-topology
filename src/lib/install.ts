@@ -449,8 +449,6 @@ export function startLanes(t: TelemetryInput): TelemetryInput {
     if (lanes[m].exportEndpoint.trim() !== '' || !single) continue
     const preset = EXPORT_PRESETS.find((x) => x.endpointPattern === t.exportEndpoint.trim())
     if (t.exportProtocol === 'zipkin' && m !== 'traces') continue
-    // A regional operator needs a client certificate the server issues for it, which a lane cannot ask for yet.
-    if (t.exportOperatorId) continue
     if (preset && !presetSupportsModalities(preset, new Set([m]))) continue
     lanes[m] = {
       exportEndpoint: t.exportEndpoint,
@@ -567,6 +565,9 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
       addString(`${base}.endpoint`, lane.exportEndpoint.trim())
       add(`${base}.protocol=${lane.exportProtocol}`)
       add(`${base}.tls.insecure=${lane.exportInsecure}`)
+      // A regional operator's route is mutual TLS, which only the server's own fragment can state (it holds the
+      // Secret); every other route states it off, so one an earlier command turned on does not linger.
+      if (!lane.exportOperatorId) add(`${base}.tls.mtls.enabled=false`)
       const secret = lane.exportAuthSecretName.trim()
       addString(`${base}.auth.secretName`, secret)
       if (secret) {

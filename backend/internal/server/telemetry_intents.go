@@ -74,6 +74,48 @@ func (c *Core) checkOperatorAcceptsSignals(ctx context.Context, dest store.Desti
 	return nil
 }
 
+// checkDestinationsAcceptSignals is checkOperatorAcceptsSignals for an intent that may send signal types to
+// destinations of their own: each signal is checked against where it actually goes - the route for its
+// modality when there is one, the default destination otherwise.
+func (c *Core) checkDestinationsAcceptSignals(ctx context.Context, dest store.Destination, routes map[store.Modality]store.Destination, signals []store.SignalGrant) error {
+	for _, sg := range signals {
+		m, known := signalModality[sg.ID]
+		if !known {
+			continue
+		}
+		target := dest
+		if r, ok := routes[m]; ok {
+			target = r
+		}
+		if err := c.checkOperatorAcceptsSignals(ctx, target, []store.SignalGrant{sg}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// cleanRoutes validates the per-signal-type destinations an intent is given: only the three signal types can
+// have one, and each destination is as valid as the intent's own (an operator route must name an active
+// operator of this organisation). Nil in, nil out - no routes is the ordinary case.
+func (c *Core) cleanRoutes(ctx context.Context, routes map[store.Modality]store.Destination) (map[store.Modality]store.Destination, error) {
+	if len(routes) == 0 {
+		return nil, nil
+	}
+	out := make(map[store.Modality]store.Destination, len(routes))
+	for m, d := range routes {
+		switch m {
+		case store.ModalityMetrics, store.ModalityLogs, store.ModalityTraces:
+		default:
+			return nil, errf(KindInvalid, "%q is not a signal type with a destination of its own (metrics, logs or traces)", printable(string(m), 32))
+		}
+		if err := c.validateDestination(ctx, d); err != nil {
+			return nil, err
+		}
+		out[m] = d
+	}
+	return out, nil
+}
+
 // telemetryIntentInOrg finds a telemetry intent of this organisation. One belonging to another
 // organisation is reported as not existing, the same convention operatorInOrg uses.
 func (c *Core) telemetryIntentInOrg(ctx context.Context, id string) (store.TelemetryIntent, error) {
@@ -157,6 +199,12 @@ func cleanTelemetryScope(namespaces, exclude []string, signals []store.SignalGra
 // first, since the resulting pair would otherwise have to be merged by whoever reads them later - the
 // caller updates the existing intent's scope/destination instead.
 func (c *Core) CreateTelemetryIntent(ctx context.Context, actor, agentID, name string, namespaces, exclude []string, signals []store.SignalGrant, dest store.Destination) (store.TelemetryIntent, error) {
+	return c.CreateTelemetryIntentWithRoutes(ctx, actor, agentID, name, namespaces, exclude, signals, dest, nil)
+}
+
+// CreateTelemetryIntentWithRoutes is CreateTelemetryIntent for an intent that sends signal types to destinations of
+// their own: every granted signal is checked against where it goes (its route, or dest), not all against dest.
+func (c *Core) CreateTelemetryIntentWithRoutes(ctx context.Context, actor, agentID, name string, namespaces, exclude []string, signals []store.SignalGrant, dest store.Destination, routes map[store.Modality]store.Destination) (store.TelemetryIntent, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxTelemetryIntentName {
 		return store.TelemetryIntent{}, errf(KindInvalid, "name the telemetry intent (1-%d characters)", maxTelemetryIntentName)
@@ -168,11 +216,15 @@ func (c *Core) CreateTelemetryIntent(ctx context.Context, actor, agentID, name s
 	if err := c.validateDestination(ctx, dest); err != nil {
 		return store.TelemetryIntent{}, err
 	}
+	routes, err = c.cleanRoutes(ctx, routes)
+	if err != nil {
+		return store.TelemetryIntent{}, err
+	}
 	ns, exc, sig, err := cleanTelemetryScope(namespaces, exclude, signals)
 	if err != nil {
 		return store.TelemetryIntent{}, err
 	}
-	if err := c.checkOperatorAcceptsSignals(ctx, dest, sig); err != nil {
+	if err := c.checkDestinationsAcceptSignals(ctx, dest, routes, sig); err != nil {
 		return store.TelemetryIntent{}, err
 	}
 	existing, err := c.Store.ListTelemetryIntentsByAgent(ctx, agent.ID)
@@ -186,7 +238,7 @@ func (c *Core) CreateTelemetryIntent(ctx context.Context, actor, agentID, name s
 	}
 	ti := store.TelemetryIntent{
 		ID: newTelemetryIntentID(), OrgID: c.OrgID, AgentID: agent.ID, Name: name, Status: store.TelemetryIntentActive,
-		Namespaces: ns, Exclude: exc, Signals: sig, Destination: dest, CreatedBy: actor, CreatedAt: c.Now(),
+		Namespaces: ns, Exclude: exc, Signals: sig, Destination: dest, Routes: routes, CreatedBy: actor, CreatedAt: c.Now(),
 	}
 	detail := fmt.Sprintf("%q for agent %q", name, agent.Name)
 	if err := c.audited(ctx, actor, "telemetry-intent-created", "telemetry-intent", ti.ID, detail, func() error {
@@ -226,7 +278,7 @@ func (c *Core) UpdateTelemetryIntentScope(ctx context.Context, actor, id string,
 	if err != nil {
 		return err
 	}
-	if err := c.checkOperatorAcceptsSignals(ctx, ti.Destination, sig); err != nil {
+	if err := c.checkDestinationsAcceptSignals(ctx, ti.Destination, ti.Routes, sig); err != nil {
 		return err
 	}
 	detail := fmt.Sprintf("%q: scope changed", ti.Name)
@@ -251,12 +303,45 @@ func (c *Core) UpdateTelemetryIntentDestination(ctx context.Context, actor, id s
 	if err := c.validateDestination(ctx, dest); err != nil {
 		return err
 	}
-	if err := c.checkOperatorAcceptsSignals(ctx, dest, ti.Signals); err != nil {
+	if err := c.checkDestinationsAcceptSignals(ctx, dest, ti.Routes, ti.Signals); err != nil {
 		return err
 	}
 	detail := fmt.Sprintf("%q: destination changed", ti.Name)
 	return c.audited(ctx, actor, "telemetry-intent-destination-changed", "telemetry-intent", id, detail, func() error {
 		if err := c.Store.UpdateTelemetryIntentDestination(ctx, id, dest); err != nil {
+			if errors.Is(err, store.ErrBadState) {
+				return errf(KindConflict, "only an active telemetry intent's destination can be changed")
+			}
+			return err
+		}
+		return nil
+	})
+}
+
+// UpdateTelemetryIntentDestinations replaces the default destination and the per-signal-type routes together,
+// each revalidated like a new intent's, and every granted signal re-checked against where it now goes. An empty
+// routes clears them: the intent sends everything to dest again.
+func (c *Core) UpdateTelemetryIntentDestinations(ctx context.Context, actor, id string, dest store.Destination, routes map[store.Modality]store.Destination) error {
+	ti, err := c.telemetryIntentInOrg(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := c.validateDestination(ctx, dest); err != nil {
+		return err
+	}
+	routes, err = c.cleanRoutes(ctx, routes)
+	if err != nil {
+		return err
+	}
+	if err := c.checkDestinationsAcceptSignals(ctx, dest, routes, ti.Signals); err != nil {
+		return err
+	}
+	detail := fmt.Sprintf("%q: destination changed", ti.Name)
+	if len(routes) > 0 {
+		detail = fmt.Sprintf("%q: destinations changed (%d signal types routed separately)", ti.Name, len(routes))
+	}
+	return c.audited(ctx, actor, "telemetry-intent-destination-changed", "telemetry-intent", id, detail, func() error {
+		if err := c.Store.UpdateTelemetryIntentDestinations(ctx, id, dest, routes); err != nil {
 			if errors.Is(err, store.ErrBadState) {
 				return errf(KindConflict, "only an active telemetry intent's destination can be changed")
 			}
