@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-# Ikhnos Topology Studio
+# Ikhnos
 
 [![CI](https://github.com/alexandrosst/continuum-topology/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandrosst/continuum-topology/actions/workflows/ci.yml)
 [![Docs](https://github.com/alexandrosst/continuum-topology/actions/workflows/docs.yml/badge.svg)](https://github.com/alexandrosst/continuum-topology/blob/main/docs-site)
@@ -94,7 +94,7 @@ cd backend && go vet ./... && go test -race ./...   # frontend: npm run test:uni
 
 ## Data and attribution
 
-The footer text in the app (`OWNER` in `src/components/ui/brand.tsx`) reads "© \<year\> Ikhnos Topology Studio. All rights reserved." — replace it with the name of the actual rights holder. That string is just UI copy; the code itself is licensed under Apache 2.0 regardless of what it says.
+The footer text in the app (`OWNER` in `src/components/ui/brand.tsx`) reads "© \<year\> Ikhnos. All rights reserved." — replace it with the name of the actual rights holder. That string is just UI copy; the code itself is licensed under Apache 2.0 regardless of what it says.
 
 - City names and coordinates: [GeoNames](https://www.geonames.org/) `cities15000`, CC BY 4.0. Rebuild with `scripts/build-geodata.py`.
 - Country outlines: Natural Earth via `world-atlas` (public domain).

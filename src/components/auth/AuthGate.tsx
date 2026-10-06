@@ -12,10 +12,7 @@ function Shell({ title, description, children }: { title: string; description: s
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center gap-2.5">
           <BrandMark className="h-9" />
-          <div className="leading-tight">
-            <div className="text-sm font-semibold text-nb-300">Ikhnos</div>
-            <div className="text-[11px] text-nb-500">Topology Studio</div>
-          </div>
+          <div className="text-base font-semibold tracking-tight text-nb-300">Ikhnos</div>
         </div>
         <div className="rounded-xl border border-nb-850 bg-nb-920 p-6 shadow-2xl">
           <h1 className="text-lg font-medium text-nb-300">{title}</h1>

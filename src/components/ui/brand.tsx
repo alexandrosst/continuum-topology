@@ -10,15 +10,15 @@ import type { Site } from '@/lib/types'
 /* ---------- ownership ---------- */
 
 /** Who the product belongs to, shown in the footer of the menu and of the sign-in page. Change it here. */
-export const OWNER = 'Ikhnos Topology Studio'
+export const OWNER = 'Ikhnos'
 
 /** The product's mark: a path being traced, with its nodes. Orange reads on both themes, so there is one file. */
 export function BrandMark({ className }: { className?: string }) {
   return <img src="/brand/mark/ikhnos-mark.svg" alt="" aria-hidden className={clsx('h-8 w-auto shrink-0', className)} data-testid="brand-mark" />
 }
 
-/** The research lab the work comes from. Its logo is dark on transparent, so it is shown on a light chip. */
-const LAB = { name: 'NETMODE, NTUA', url: 'https://www.netmode.ntua.gr/', logo: '/brand/lab/netmode.svg' }
+/** The research lab the work comes from. The logo has no background and its lettering takes the surrounding text colour, so it follows the theme. */
+const LAB = { name: 'NETMODE, NTUA', url: 'https://www.netmode.ntua.gr/', logo: '/brand/lab/netmode.svg#netmode', viewBox: '145 422 710 156' }
 
 export function Copyright({ className }: { className?: string }) {
   return (
@@ -34,10 +34,13 @@ export function Copyright({ className }: { className?: string }) {
           rel="noopener noreferrer"
           title={LAB.name}
           aria-label={LAB.name}
-          className="inline-flex rounded-md bg-white px-1.5 py-0.5 opacity-90 outline-none transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-nb-400"
+          className="inline-flex rounded-sm text-nb-500 opacity-90 outline-none transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-nb-400"
           data-testid="lab-link"
         >
-          <img src={LAB.logo} alt="" aria-hidden className="h-5 w-auto" />
+          {/* An external <use>, not an <img>: only then does the lettering (fill="currentColor" in the file) take this link's colour. */}
+          <svg viewBox={LAB.viewBox} aria-hidden className="h-5 w-auto">
+            <use href={LAB.logo} />
+          </svg>
         </a>
       </p>
     </div>

@@ -219,10 +219,7 @@ function SidebarNav({
       >
         <div className="mb-6 flex items-center gap-2.5 px-3">
           <BrandMark />
-          <div className="leading-tight">
-            <div className="text-sm font-semibold text-nb-300">Ikhnos</div>
-            <div className="text-[11px] text-nb-500">Topology Studio</div>
-          </div>
+          <div className="text-base font-semibold tracking-tight text-nb-300">Ikhnos</div>
         </div>
         <button
           onClick={onSearch}

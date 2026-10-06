@@ -9,6 +9,9 @@ describe('Copyright', () => {
     const link = screen.getByTestId('lab-link')
     expect(link.getAttribute('href')).toBe('https://www.netmode.ntua.gr/')
     expect(link.getAttribute('aria-label')).toBe('NETMODE, NTUA')
+    // The logo is drawn through <use> so its lettering follows the theme's text colour; an <img> could not.
+    expect(link.querySelector('use')?.getAttribute('href')).toBe('/brand/lab/netmode.svg#netmode')
+    expect(link.querySelector('img')).toBeNull()
     // It leaves the app, so it must not hand the new page a handle back to this one.
     expect(link.getAttribute('rel')).toContain('noopener')
     expect(link.getAttribute('target')).toBe('_blank')

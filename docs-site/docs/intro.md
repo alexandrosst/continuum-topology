@@ -1,15 +1,15 @@
 ---
 id: intro
 slug: /
-title: Ikhnos Topology Studio
+title: Ikhnos
 description: A read-only, agent-observed model of your infrastructure across the cloud-to-far-edge continuum, with placement advice you choose whether to act on.
 ---
 
 import useBaseUrl from '@docusaurus/useBaseUrl';
 
-# Ikhnos Topology Studio
+# Ikhnos
 
-Ikhnos Topology Studio models your Kubernetes clusters across the cloud-to-far-edge continuum and shows them to you as two connected views: an **Application view** (your services, grouped by cluster, with the dependencies between them) and an **Infrastructure view** (the nodes underneath, grouped the same way). Both are projections of one model, kept up to date by a small read-only agent you install in each cluster.
+Ikhnos models your Kubernetes clusters across the cloud-to-far-edge continuum and shows them to you as two connected views: an **Application view** (your services, grouped by cluster, with the dependencies between them) and an **Infrastructure view** (the nodes underneath, grouped the same way). Both are projections of one model, kept up to date by a small read-only agent you install in each cluster.
 
 :::note The name
 Ikhnos (ἴχνος, "footprint, trace") was called Continuum until recently. Names that existing installs depend on keep the old spelling on purpose: the `continuum-agent` chart and release, the `continuum-system` namespace, `CONTINUUM_*` environment variables, `continuum.*` telemetry attributes, `X-Continuum-*` headers, certificate names and the `continuum` binary. Where a command or value in these pages says `continuum`, that is why.
