@@ -17,7 +17,7 @@ export function BrandMark({ className }: { className?: string }) {
   return <img src="/brand/mark/ikhnos-mark.svg" alt="" aria-hidden className={clsx('h-8 w-auto shrink-0', className)} data-testid="brand-mark" />
 }
 
-/** The research lab the work comes from. The logo has no background and its lettering takes the surrounding text colour, so it follows the theme. */
+/** The research lab the work comes from. The logo has no background; its gold mark is fixed and its lettering takes the link's colour (--color-lab-ink, which index.css sets per theme). */
 const LAB = { name: 'NETMODE, NTUA', url: 'https://www.netmode.ntua.gr/', logo: '/brand/lab/netmode.svg#netmode', viewBox: '145 422 710 156' }
 
 export function Copyright({ className }: { className?: string }) {
@@ -34,10 +34,10 @@ export function Copyright({ className }: { className?: string }) {
           rel="noopener noreferrer"
           title={LAB.name}
           aria-label={LAB.name}
-          className="inline-flex rounded-sm text-nb-500 opacity-90 outline-none transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-nb-400"
+          className="inline-flex rounded-sm text-lab-ink outline-none focus-visible:ring-2 focus-visible:ring-nb-400"
           data-testid="lab-link"
         >
-          {/* An external <use>, not an <img>: only then does the lettering (fill="currentColor" in the file) take this link's colour. */}
+          {/* An external <use>, not an <img>: only then does the lettering (fill="currentColor" in the file) take this link's colour, which is the logo's own navy in light mode. */}
           <svg viewBox={LAB.viewBox} aria-hidden className="h-5 w-auto">
             <use href={LAB.logo} />
           </svg>

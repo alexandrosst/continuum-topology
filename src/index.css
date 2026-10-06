@@ -11,6 +11,9 @@
   --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
+  /* The NETMODE lab logo's lettering. Its brand navy (#323660) is 1.5:1 on the dark surface, so dark mode uses a lifted tint of the same blue (6.3:1);
+   light mode uses the brand navy itself (11.5:1). The gold of the mark is the same in both. */
+  --color-lab-ink: #8d96e0;
   --color-nb-900: #181a1d;
   --color-nb-920: #1b1d20;
   --color-nb-925: #1c1e22;
@@ -59,6 +62,7 @@
  * resolved once in JS instead (see theme.ts) and data-theme is always set explicitly from then on.
  */
 :root[data-theme='light'] {
+  --color-lab-ink: #323660;
   --color-nb-900: #ffffff;
   --color-nb-910: #f7f8f9;
   --color-nb-920: #f7f7f8;
