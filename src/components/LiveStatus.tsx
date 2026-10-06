@@ -16,7 +16,7 @@ export default function LiveStatus() {
   const stale = trouble || age > 30
   const text = trouble ? 'Connection trouble' : age < 15 ? 'Live' : age < 90 ? `Updated ${age} s ago` : `Updated ${Math.round(age / 60)} min ago`
   return (
-    <span className="hidden items-center gap-1.5 whitespace-nowrap text-xs text-nb-500 sm:inline-flex" title={`Data from your Continuum server, as of ${new Date(at).toLocaleTimeString()}`} data-testid="live-status">
+    <span className="hidden items-center gap-1.5 whitespace-nowrap text-xs text-nb-500 sm:inline-flex" title={`Data from your Ikhnos server, as of ${new Date(at).toLocaleTimeString()}`} data-testid="live-status">
       <span className="relative inline-flex size-1.5">
         {!stale && <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-75" />}
         <span className={`relative inline-flex size-1.5 rounded-full ${stale ? 'bg-warn' : 'bg-ok'}`} />

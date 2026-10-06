@@ -3,7 +3,7 @@ import { EXPORT_PRESETS, presetSupportsModalities } from './exportPresets'
 
 /**
  * The install command the server prints, with optional in-cluster parts switched on.
- * They are separate opt-ins because they are the only parts of Continuum that run on every node.
+ * They are separate opt-ins because they are the only parts of Ikhnos that run on every node.
  */
 function withFlag(install: string, on: boolean, key: string): string {
   if (!on || install.includes(`${key}=true`)) return install
@@ -353,7 +353,7 @@ export function tagProblems(tags: TagEntry[]): string[] {
       out.push('Every tag needs a name')
       continue
     }
-    if (key.toLowerCase().startsWith(RESERVED_TAG_PREFIX)) out.push(`“${key}” starts with ${RESERVED_TAG_PREFIX}, which is reserved for what Continuum adds itself`)
+    if (key.toLowerCase().startsWith(RESERVED_TAG_PREFIX)) out.push(`“${key}” starts with ${RESERVED_TAG_PREFIX}, which is reserved for what Ikhnos adds itself`)
     if (/\s/.test(key)) out.push(`“${key}”: a tag name cannot contain spaces`)
     if (seen.has(key)) out.push(`“${key}” is listed twice`)
     seen.add(key)

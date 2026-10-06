@@ -12,7 +12,7 @@ import (
 // signDeciderRequest signs a decision request the way Stripe and GitHub sign outgoing webhooks: HMAC-SHA256 over
 // "<unix timestamp>.<body>", keyed by the organisation's own decider secret (Settings.DeciderSecret). The decider
 // can then refuse anything that does not carry a valid signature under its copy of the secret, or whose
-// timestamp is too old to be the request it was sent - i.e. it can tell "this came from a Continuum server that
+// timestamp is too old to be the request it was sent - i.e. it can tell "this came from an Ikhnos server that
 // knows the secret, moments ago" from a guess at the address, a network path that can read the body, or a
 // captured request being replayed later. The timestamp is folded into what is signed (not left as an
 // unauthenticated header) specifically so it cannot be changed without also invalidating the signature.

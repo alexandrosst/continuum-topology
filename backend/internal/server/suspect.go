@@ -208,7 +208,7 @@ func suspicions(org string, observed, located []observedCluster, now time.Time) 
 		if len(addrs) > 4 {
 			shown = strings.Join(addrs[:4], ", ") + fmt.Sprintf(" and %d more", len(addrs)-4)
 		}
-		detail := fmt.Sprintf("%s reach%s %s, which looks like %s, %d connections seen. No onboarded cluster owns %s. If it is a Kubernetes cluster, connect it so Continuum can see what runs there; otherwise dismiss this.",
+		detail := fmt.Sprintf("%s reach%s %s, which looks like %s, %d connections seen. No onboarded cluster owns %s. If it is a Kubernetes cluster, connect it so Ikhnos can see what runs there; otherwise dismiss this.",
 			joinSet(g.callers, 3), plural1(len(g.callers)), shown, joinKeys(g.signals), g.conns, thisThese(len(addrs)))
 		out = append(out, model.Suggestion{
 			ID: "sg-unk-" + interpret.Hash("cluster", g.key), OrgID: org, Kind: "infrastructure", Title: title, Detail: detail, CreatedAt: stamp, Status: "open",

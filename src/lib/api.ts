@@ -636,7 +636,7 @@ export const api = {
   // DependencySeriesPoint for why each field can be missing on a given point.
   dependencySeries: (c: Conn, dependencyId: string, hours: number) =>
     call<{ points?: DependencySeriesPoint[] }>(c, 'GET', `/api/v1/history/dependency/${encodeURIComponent(dependencyId)}/series?hours=${hours}`).then((r) => r.points ?? []),
-  // What running Continuum itself costs, per entity (the server, and every connected agent) - see
+  // What running Ikhnos itself costs, per entity (the server, and every connected agent) - see
   // admin_telemetry.go's own doc comment for the exact response shape. Entities with no self-telemetry
   // history yet are left out server-side, not returned with an empty samples array.
   selfTelemetry: (c: Conn) => call<SelfTelemetryEntity[]>(c, 'GET', '/api/v1/telemetry/self'),
@@ -677,14 +677,14 @@ export const api = {
     call<{ decisions?: DecisionLogRow[] }>(c, 'GET', `/api/v1/decisions${limit ? `?limit=${limit}` : ''}`).then((r) => r.decisions ?? []),
 }
 
-/** What probe() above learns from its one request: whether a Continuum server is even there, and - when
+/** What probe() above learns from its one request: whether an Ikhnos server is even there, and - when
  *  someone is already signed in - the session it would otherwise take a second /api/v1/auth/me round trip
  *  to fetch. See probe()'s own doc comment for why that body is worth carrying along instead of discarding
  *  it. */
 export type ProbeResult = { status: 'session'; session: Session } | { status: 'signin' } | { status: 'none' }
 
 /**
- * Is there a Continuum server at this address? The answer is 'session' when the answer is JSON with a
+ * Is there an Ikhnos server at this address? The answer is 'session' when the answer is JSON with a
  * signed-in session (200), 'signin' for a JSON "not signed in" (401), and 'none' for anything else, such as
  * a static host returning the app's HTML.
  *

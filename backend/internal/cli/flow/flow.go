@@ -21,7 +21,7 @@ import (
 )
 
 // Main is the optional node flow collector. It counts TCP connections and, where the kernel allows, the bytes they
-// carried, and reports the counts to the Continuum agent, which turns addresses into workloads. By default it never reads
+// carried, and reports the counts to the Ikhnos agent, which turns addresses into workloads. By default it never reads
 // packets or payloads and keeps nothing but counters; --names is a separate, off-by-default opt-in that additionally reads
 // just enough of a DNS query or a TLS ClientHello to pull out the one hostname each carries in the clear (see names.go),
 // discarding the rest of the packet immediately - nothing else about the traffic's content is ever inspected either way.

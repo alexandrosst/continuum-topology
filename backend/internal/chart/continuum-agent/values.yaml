@@ -99,7 +99,7 @@ resources:
   limits: {memory: 192Mi}
 
 # Where the agent's pod may run. It is a single ordinary pod; these are the usual Kubernetes scheduling knobs.
-# The default keeps Continuum's pods off Windows nodes (the image is Linux only). Your own entries are merged with it;
+# The default keeps Ikhnos's pods off Windows nodes (the image is Linux only). Your own entries are merged with it;
 # to drop it, set `--set 'nodeSelector.kubernetes\.io/os=null'`.
 nodeSelector:
   kubernetes.io/os: linux
@@ -117,7 +117,7 @@ priorityClassName: ""
 #     - {name: GODEBUG, value: "madvdontneed=1"}
 extraEnv: []
 
-# Outbound proxy for the AGENT, for clusters that reach the Internet (or your Continuum server) only through one.
+# Outbound proxy for the AGENT, for clusters that reach the Internet (or your Ikhnos server) only through one.
 # The agent's connection to the server is gRPC over mutual TLS. grpc-go honours the standard proxy variables: it asks the
 # proxy for an HTTP CONNECT tunnel to the server and speaks TLS through it, so the proxy sees only the server's address,
 # never the content, and never terminates TLS (a proxy that tries to would be refused: the agent trusts only the server's
@@ -149,7 +149,7 @@ networkPolicy:
   # your network, and a wrong egress policy silently cuts the agent off. When enabled the agent may reach ONLY:
   #   - DNS: the cluster DNS pods in kube-system (k8s-app=kube-dns), plus dnsCIDRs if you use a node-local DNS cache
   #   - the Kubernetes API server: apiServerCIDRs on apiServerPorts
-  #   - the Continuum server: serverCIDRs on the port of server.address
+  #   - the Ikhnos server: serverCIDRs on the port of server.address
   #   - anything you list in extraEgress (raw NetworkPolicy egress rules; e.g. the addresses connection timing
   #     may reach, if measurements.enabled)
   # apiServerCIDRs and serverCIDRs are required (a NetworkPolicy cannot match a host name). For the API server list the
@@ -175,8 +175,8 @@ networkPolicy:
 
 # Optional node probe: a tiny read-only DaemonSet that tells the agent what kind of machine each node
 # really is (virtual machine or bare metal, the hypervisor, the board model, how it connects). The
-# Kubernetes API cannot say this; without the probe Continuum can only guess and marks the guess as
-# low confidence. Off by default: it is the only part of Continuum that runs on every node.
+# Kubernetes API cannot say this; without the probe Ikhnos can only guess and marks the guess as
+# low confidence. Off by default: it is the only part of Ikhnos that runs on every node.
 #
 # What it reads: CPU flags, DMI vendor/product strings, the device-tree model, which kinds of network
 # interface are up, whether a battery exists. Never serial numbers, MAC addresses, disks or processes.
@@ -269,7 +269,7 @@ flowObserver:
     enabled: false
   # Leave empty to generate one on first install and keep it across upgrades. Separate from the probe's.
   secret: ""
-  # Runs the same image as the agent, with the argument `flow` (see `image` above). It is the one part of Continuum that runs
+  # Runs the same image as the agent, with the argument `flow` (see `image` above). It is the one part of Ikhnos that runs
   # as root (runAsUser: 0, set in the pod spec, not in the image): loading the eBPF program needs it.
   #
   # Receiver policy. Collectors run in the host network, so the agent sees them arriving from an address of the NODE
@@ -294,7 +294,7 @@ flowObserver:
 # discovery above. Off by default, signal by signal. Every enabled signal is normalized to OpenTelemetry
 # the moment it is collected: one embedded OpenTelemetry Collector (the Contrib distribution) receives
 # from whichever sources are turned on below and forwards them, as OTLP, to telemetry.export - your own
-# backend, not this server. Continuum does not ingest or store telemetry itself yet; this chart only
+# backend, not this server. Ikhnos does not ingest or store telemetry itself yet; this chart only
 # collects it and hands it off in a standard, vendor-neutral shape.
 #
 # Each signal below names:
@@ -313,7 +313,7 @@ flowObserver:
 #               that has no OpenTelemetry-native receiver at all. Only energy needs this today (bundle-kepler).
 telemetry:
   # The collector this chart deploys is the upstream OpenTelemetry Collector Contrib distribution, not the
-  # Continuum image - it needs the community's receivers (hostmetrics, kubeletstats, k8scluster, k8sobjects,
+  # Ikhnos image - it needs the community's receivers (hostmetrics, kubeletstats, k8scluster, k8sobjects,
   # filelog) that only that distribution ships. Pin collectorImage.digest the same way image.digest works
   # above, once you have picked a version to trust.
   collectorImage:
@@ -333,7 +333,7 @@ telemetry:
         insecure: false
         caFile: ""    # path to a CA bundle to mount and trust, if your endpoint's certificate isn't otherwise trusted
         # Present a client certificate on top of (or instead of) caFile above - e.g. when your destination
-        # is a Continuum regional operator with receiver.tls.mtls on. Off by default in this file, but a
+        # is an Ikhnos regional operator with receiver.tls.mtls on. Off by default in this file, but a
         # regional operator's own "point this cluster at me" reminder always sets this on with the
         # certificate it minted for exactly this purpose (see CreateOperator/IssueOperatorClientTLS) - this
         # default only matters if you hand-edit these values or mint your own certificate some other way.
@@ -751,7 +751,7 @@ telemetry:
   # upstream as of this chart's pinned collectorImage - the schema may still change) to both collector
   # ConfigMaps: it reports this collector's health, effective config, and available components to an OpAMP
   # server, if one is actually listening at server.endpoint. This is report-only and forward-compatible with
-  # a future Continuum-side OpAMP server / control-plane component - it does NOT accept remote config push
+  # a future Ikhnos-side OpAMP server / control-plane component - it does NOT accept remote config push
   # itself (that needs the separate OpAMP "Supervisor" process pattern wrapping the collector, which this
   # chart does not implement). Safe to leave off; nothing here works without a server to report to.
   opamp:

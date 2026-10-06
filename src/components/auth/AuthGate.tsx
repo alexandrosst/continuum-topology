@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { Check, Cpu, KeyRound, Minus, X } from 'lucide-react'
+import { Check, KeyRound, Minus, X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { Copyright } from '@/components/ui/brand'
+import { BrandMark, Copyright } from '@/components/ui/brand'
 import { Button, ErrorBanner, Field, ICON_SM, Input, PasswordInput } from '@/components/ui/primitives'
 import { ROLE_LABEL } from '@/lib/api'
 import { useServer } from '@/store/server'
@@ -11,11 +11,9 @@ function Shell({ title, description, children }: { title: string; description: s
     <div className="grid min-h-full place-items-center bg-nb-900 px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center gap-2.5">
-          <div className="grid size-9 place-items-center rounded-lg bg-accent-soft text-accent">
-            <Cpu size={20} />
-          </div>
+          <BrandMark className="h-9" />
           <div className="leading-tight">
-            <div className="text-sm font-semibold text-nb-300">Continuum</div>
+            <div className="text-sm font-semibold text-nb-300">Ikhnos</div>
             <div className="text-[11px] text-nb-500">Topology Studio</div>
           </div>
         </div>
@@ -398,7 +396,7 @@ function ChangePasswordScreen() {
 }
 
 /**
- * Stands in front of the app when a Continuum server is in use: sign-in first, then (when required)
+ * Stands in front of the app when an Ikhnos server is in use: sign-in first, then (when required)
  * a forced password change. Without a server the app opens directly and works on the browser's own copy.
  */
 export default function AuthGate({ children }: { children: ReactNode }) {

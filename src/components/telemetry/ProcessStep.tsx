@@ -38,7 +38,7 @@ const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1)
 /**
  * The tags a person puts on everything this install emits. Written to the chart as one list, inserted rather
  * than overwritten (a name an application already sets on its own telemetry keeps the application's value),
- * and the `continuum.` names are refused because those are what Continuum adds itself. `suggestion` is a
+ * and the `continuum.` names are refused because those are what Ikhnos adds itself. `suggestion` is a
  * name and value worth offering in one click (the cluster's own name), left out once it is already there.
  */
 export function TagEditor({ value, onChange, testIdPrefix, suggestion }: { value: TelemetryInput; onChange: (v: TelemetryInput) => void; testIdPrefix: string; suggestion?: TagEntry }) {
@@ -122,7 +122,7 @@ export function DebugChoice({ value, onChange, testIdPrefix }: { value: Telemetr
 
 /**
  * The guided wizard's Process step: what happens to telemetry between being collected and leaving the cluster.
- * Everything has a sensible default, so most people read it and press Continue. First comes what Continuum
+ * Everything has a sensible default, so most people read it and press Continue. First comes what Ikhnos
  * adds on its own (and why it can be trusted), then what you add, then masking and cost, then a way to check
  * it works. Extra processors - filters, tail sampling - stay behind a disclosure: rarely needed.
  */

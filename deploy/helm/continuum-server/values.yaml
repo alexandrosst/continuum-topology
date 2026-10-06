@@ -1,4 +1,4 @@
-# Continuum server: control plane + web UI (+ optional Neo4j). Every value is documented here; values.schema.json checks
+# Ikhnos server: control plane + web UI (+ optional Neo4j). Every value is documented here; values.schema.json checks
 # types and enums, and templates/_helpers.tpl fails fast (with the value to set) on combinations that cannot work.
 #
 # Two things must be understood before choosing values (deploy/README.md explains both at length):
@@ -161,7 +161,7 @@ admin:
   existingPasswordSecretKey: password
 
   # Trusted-header SSO (--admin-sso-header): let a reverse proxy that already verified who someone is (an OAuth2
-  # proxy, an Envoy/Istio ext_authz filter, an IdP-integrated gateway) sign that identity straight into Continuum,
+  # proxy, an Envoy/Istio ext_authz filter, an IdP-integrated gateway) sign that identity straight into Ikhnos,
   # with no separate password or second factor here. It never creates or changes an account - the header's value
   # must already match an existing username exactly. Requires behindTlsProxy=true (enforced at startup): trusting
   # a header for WHO someone is is a much bigger step than trusting one for their address, and is only safe when
@@ -219,7 +219,7 @@ pki:
 # absent, so a deployment made from this chart always has one:
 #   bundled   this chart runs the official neo4j Community image as a StatefulSet next to the server (default)
 #   external  you run Neo4j elsewhere: give a URL and a Secret
-# Neo4j Community is GPLv3 and single-instance. It runs as a separate process; the Continuum server only talks to it over HTTP.
+# Neo4j Community is GPLv3 and single-instance. It runs as a separate process; the Ikhnos server only talks to it over HTTP.
 # ---------------------------------------------------------------------------------------------------------------------
 neo4j:
   mode: bundled

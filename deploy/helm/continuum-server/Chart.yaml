@@ -1,6 +1,6 @@
 apiVersion: v2
 name: continuum-server
-description: The Continuum server (control plane and web UI) with its databases. One SQLite-backed replica, an optional bundled Neo4j, and the two listeners it needs exposed (agent mTLS gRPC and the admin API / UI).
+description: The Ikhnos server (control plane and web UI) with its databases. One SQLite-backed replica, an optional bundled Neo4j, and the two listeners it needs exposed (agent mTLS gRPC and the admin API / UI).
 type: application
 version: 0.1.0
 appVersion: "0.1.0-dev"

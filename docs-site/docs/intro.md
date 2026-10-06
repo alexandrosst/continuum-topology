@@ -1,20 +1,24 @@
 ---
 id: intro
 slug: /
-title: Continuum Topology Studio
+title: Ikhnos Topology Studio
 description: A read-only, agent-observed model of your infrastructure across the cloud-to-far-edge continuum, with placement advice you choose whether to act on.
 ---
 
 import useBaseUrl from '@docusaurus/useBaseUrl';
 
-# Continuum Topology Studio
+# Ikhnos Topology Studio
 
-Continuum Topology Studio models your Kubernetes clusters across the cloud-to-far-edge continuum and shows them to you as two connected views: an **Application view** (your services, grouped by cluster, with the dependencies between them) and an **Infrastructure view** (the nodes underneath, grouped the same way). Both are projections of one model, kept up to date by a small read-only agent you install in each cluster.
+Ikhnos Topology Studio models your Kubernetes clusters across the cloud-to-far-edge continuum and shows them to you as two connected views: an **Application view** (your services, grouped by cluster, with the dependencies between them) and an **Infrastructure view** (the nodes underneath, grouped the same way). Both are projections of one model, kept up to date by a small read-only agent you install in each cluster.
+
+:::note The name
+Ikhnos (ἴχνος, "footprint, trace") was called Continuum until recently. Names that existing installs depend on keep the old spelling on purpose: the `continuum-agent` chart and release, the `continuum-system` namespace, `CONTINUUM_*` environment variables, `continuum.*` telemetry attributes, `X-Continuum-*` headers, certificate names and the `continuum` binary. Where a command or value in these pages says `continuum`, that is why.
+:::
 
 It does not deploy anything, and it does not move anything on its own. What it gives you is the picture — where things run, how healthy each cluster is, what talks to what, how far apart your sites really are — plus a **Placement** page that recommends where a service would run better and explains exactly why, with every recommendation showing its evidence and its confidence. Nothing moves until a person with the right role approves it.
 
 <figure className="diagram-figure">
-  <img src={useBaseUrl('/img/diagrams/architecture-overview.svg')} alt="Continuum Server, agents in cloud/edge/far-edge clusters, GHCR, and your browser" />
+  <img src={useBaseUrl('/img/diagrams/architecture-overview.svg')} alt="Ikhnos Server, agents in cloud/edge/far-edge clusters, GHCR, and your browser" />
   <figcaption className="diagram-caption">One server, one agent per cluster, three tiers. The agent always dials out — nothing needs to open a hole in your firewall for the server to reach in.</figcaption>
 </figure>
 

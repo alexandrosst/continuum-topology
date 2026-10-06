@@ -1,4 +1,4 @@
-Continuum server {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} as "{{ .Release.Name }}" in {{ .Release.Namespace }}.
+Ikhnos server {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} as "{{ .Release.Name }}" in {{ .Release.Namespace }}.
 {{- $fn := include "continuum.fullname" . }}
 {{- $ns := .Release.Namespace }}
 

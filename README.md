@@ -1,4 +1,11 @@
-# Continuum Topology Studio
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/brand/primary/ikhnos-dark.svg">
+    <img alt="Ikhnos" src="public/brand/primary/ikhnos.svg" height="56">
+  </picture>
+</p>
+
+# Ikhnos Topology Studio
 
 [![CI](https://github.com/alexandrosst/continuum-topology/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandrosst/continuum-topology/actions/workflows/ci.yml)
 [![Docs](https://github.com/alexandrosst/continuum-topology/actions/workflows/docs.yml/badge.svg)](https://github.com/alexandrosst/continuum-topology/blob/main/docs-site)
@@ -10,6 +17,8 @@ Model Kubernetes clusters across the cloud → edge → far-edge continuum and s
 A Go server and an in-cluster Go agent discover the estate for you: nothing ever calls out from a cluster, the agent dials the server, and the server never holds a kubeconfig. On top of discovery sits history (what changed, when, and why), and a read-only **placement advisor** that scores every recommendation for confidence and shows the evidence behind it — through a pluggable `Decider` interface built for plugging in your own AI-driven placement policy, not just the two built-in ones (see *Where this could go next* below).
 
 Stack: Vite · React 19 · TypeScript · Tailwind 4 · React Flow (`@xyflow/react`) · Zustand · React Router on the frontend, Go 1.25 on the backend. Styling follows the NetBird dashboard (dark neutrals, orange accent, sidebar + tables + modals).
+
+> **A note on the name.** Ikhnos (ἴχνος, "footprint, trace") was called Continuum until recently. Names that existing installs depend on keep the old spelling, on purpose: the `continuum-agent` chart and release, the `continuum-system` namespace, `CONTINUUM_*` environment variables, `continuum.*` telemetry attributes, `X-Continuum-*` headers, certificate names, the `continuum` binary and the GitHub repository. Only what people read has changed.
 
 ## Documentation
 
@@ -85,7 +94,7 @@ cd backend && go vet ./... && go test -race ./...   # frontend: npm run test:uni
 
 ## Data and attribution
 
-The footer text in the app (`OWNER` in `src/components/ui/brand.tsx`) reads "© \<year\> Continuum Topology Studio. All rights reserved." — replace it with the name of the actual rights holder. That string is just UI copy; the code itself is licensed under Apache 2.0 regardless of what it says.
+The footer text in the app (`OWNER` in `src/components/ui/brand.tsx`) reads "© \<year\> Ikhnos Topology Studio. All rights reserved." — replace it with the name of the actual rights holder. That string is just UI copy; the code itself is licensed under Apache 2.0 regardless of what it says.
 
 - City names and coordinates: [GeoNames](https://www.geonames.org/) `cities15000`, CC BY 4.0. Rebuild with `scripts/build-geodata.py`.
 - Country outlines: Natural Earth via `world-atlas` (public domain).

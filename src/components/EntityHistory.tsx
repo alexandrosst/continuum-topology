@@ -92,7 +92,7 @@ export default function EntityHistory({ kind, id }: { kind: string; id: string }
           </ol>
           {tl.events.length > 0 && (
             <div>
-              <div className="mb-1 text-xs text-nb-500">What Continuum noticed</div>
+              <div className="mb-1 text-xs text-nb-500">What Ikhnos noticed</div>
               <ul className="space-y-1 text-xs text-nb-400">
                 {tl.events.map((e) => (
                   <li key={e.id}>

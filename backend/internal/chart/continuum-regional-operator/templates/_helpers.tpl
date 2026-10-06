@@ -58,12 +58,12 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- fail "receiver.requireAuth is set, but nothing would authenticate the receiver: enable receiver.auth (a bearer token) or receiver.tls with receiver.tls.mtls (a required client certificate). Refusing to render an open receiver." -}}
 {{- end -}}
 {{- if .Values.heartbeat.enabled -}}
-{{- if not .Values.heartbeat.url -}}{{- fail "heartbeat.enabled requires heartbeat.url (the Continuum server's heartbeat address, https://<server>/api/v1/operator-heartbeat)" -}}{{- end -}}
+{{- if not .Values.heartbeat.url -}}{{- fail "heartbeat.enabled requires heartbeat.url (the Ikhnos server's heartbeat address, https://<server>/api/v1/operator-heartbeat)" -}}{{- end -}}
 {{- if not (regexMatch "^https?://[^\\s/]+" (toString .Values.heartbeat.url)) -}}{{- fail (printf "heartbeat.url must be an http(s) URL, got %q" (toString .Values.heartbeat.url)) -}}{{- end -}}
 {{- if and (not (hasPrefix "https://" (toString .Values.heartbeat.url))) (not .Values.heartbeat.allowPlainHTTP) -}}
 {{- fail "heartbeat.url must be https:// - the heartbeat secret is sent with every request. Set heartbeat.allowPlainHTTP=true only for a throwaway test server on a trusted network." -}}
 {{- end -}}
-{{- if not .Values.heartbeat.auth.secretName -}}{{- fail "heartbeat.enabled requires heartbeat.auth.secretName (a Secret holding the heartbeat secret Continuum minted for this operator - not the receiver token)" -}}{{- end -}}
+{{- if not .Values.heartbeat.auth.secretName -}}{{- fail "heartbeat.enabled requires heartbeat.auth.secretName (a Secret holding the heartbeat secret Ikhnos minted for this operator - not the receiver token)" -}}{{- end -}}
 {{- if and .Values.heartbeat.tls.caSecretName (not (hasPrefix "https://" (toString .Values.heartbeat.url))) -}}
 {{- fail "heartbeat.tls.caSecretName only applies to an https:// heartbeat.url" -}}
 {{- end -}}

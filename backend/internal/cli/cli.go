@@ -1,4 +1,4 @@
-// Package cli is what the three Continuum roles share: the in-cluster agent (cli/agent), the node probe (cli/probe) and the
+// Package cli is what the three Ikhnos roles share: the in-cluster agent (cli/agent), the node probe (cli/probe) and the
 // node flow collector (cli/flow). They ship as ONE binary, `continuum`, that picks its role from its first argument
 // (`continuum agent ...`, `continuum probe ...`, `continuum flow ...`), so a cluster pulls a single image. cmd/agent,
 // cmd/probe and cmd/flow are thin wrappers over the same Main functions, for development and for anything that still runs
@@ -22,7 +22,7 @@ var Version = "0.1.0-dev"
 
 // Roles names the subcommands `continuum` accepts, in the order help lists them.
 var Roles = []struct{ Name, Summary string }{
-	{"agent", "the in-cluster agent: discovers the cluster and reports to the Continuum server (read-only)"},
+	{"agent", "the in-cluster agent: discovers the cluster and reports to the Ikhnos server (read-only)"},
 	{"probe", "the optional node probe: tells the agent what kind of machine a node is (read-only)"},
 	{"flow", "the optional node flow collector: counts connections between workloads (needs root and BPF)"},
 }

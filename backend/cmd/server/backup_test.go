@@ -204,7 +204,7 @@ func TestRestoreRefusesWhatItCannotTrust(t *testing.T) {
 		}
 	})
 	try("tampered", tampered, "checksum")
-	try("newer archive format", pack(t, files, func(m *backupManifest) { m.Format = 99 }), "newer Continuum")
+	try("newer archive format", pack(t, files, func(m *backupManifest) { m.Format = 99 }), "newer Ikhnos")
 	try("stray entry", pack(t, map[string][]byte{"continuum.db": files["continuum.db"], "pki/ca.crt": files["pki/ca.crt"], "pki/ca.key": files["pki/ca.key"], "../evil": []byte("x")}, nil), "unexpected entry")
 	try("no CA", pack(t, map[string][]byte{"continuum.db": files["continuum.db"]}, nil), "lacks")
 
@@ -220,7 +220,7 @@ func TestRestoreRefusesWhatItCannotTrust(t *testing.T) {
 	db.Close()
 	nb, _ := os.ReadFile(newer)
 	nf := map[string][]byte{"continuum.db": nb, "pki/ca.crt": files["pki/ca.crt"], "pki/ca.key": files["pki/ca.key"]}
-	try("newer database", pack(t, nf, nil), "newer Continuum")
+	try("newer database", pack(t, nf, nil), "newer Ikhnos")
 	try("not a backup", filepath.Join(t.TempDir(), "missing"), "no such file")
 }
 
@@ -232,7 +232,7 @@ func TestBackupOfANewerDatabaseIsRefused(t *testing.T) {
 	db.Close()
 	file := filepath.Join(t.TempDir(), "b.tar.gz")
 	var out, errw bytes.Buffer
-	if code := backupCmd([]string{"--data-dir", dir, "--out", file}, &out, &errw); code == 0 || !strings.Contains(errw.String(), "newer Continuum") {
+	if code := backupCmd([]string{"--data-dir", dir, "--out", file}, &out, &errw); code == 0 || !strings.Contains(errw.String(), "newer Ikhnos") {
 		t.Fatalf("%d %s", code, errw.String())
 	}
 	if _, err := os.Stat(file); err == nil {

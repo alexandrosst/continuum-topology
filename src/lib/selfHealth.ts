@@ -21,7 +21,7 @@ export interface SelfTelemetrySample {
   /** Agent entities only. Omitted when no node in the cluster exposes Intel RAPL - the common case on
    *  most real hardware. */
   watts?: number
-  /** Always omitted in this pass of the backend (Continuum's own estimated share of watts is deferred -
+  /** Always omitted in this pass of the backend (Ikhnos's own estimated share of watts is deferred -
    *  see admin_telemetry.go's own "Deferred" paragraph). Kept in the type so a client written against it
    *  today needs no change once a later backend pass fills it in. */
   continuumWattsEstimate?: number
@@ -68,7 +68,7 @@ export type OptionalSampleKey =
 
 /** The name an entity's card should show. */
 export function entityLabel(entity: SelfTelemetryEntity): string {
-  return entity.kind === 'server' ? 'Continuum server' : entity.clusterName || entity.id
+  return entity.kind === 'server' ? 'Ikhnos server' : entity.clusterName || entity.id
 }
 
 /** An agent reports on its own heartbeat cadence, the server on selfStatsSampleEvery - both 30s (see

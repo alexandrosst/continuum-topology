@@ -1,7 +1,7 @@
 ---
 id: quickstart
 title: Quickstart
-description: Get the Continuum server running on any Kubernetes cluster in about five minutes.
+description: Get the Ikhnos server running on any Kubernetes cluster in about five minutes.
 ---
 
 # Quickstart

@@ -51,7 +51,7 @@ export default function PlacementPage() {
     <>
       <PageHeader
         title="Placement"
-        description="Where each service would be better off running, and what that would change. This is advice with its evidence: Continuum never moves anything."
+        description="Where each service would be better off running, and what that would change. This is advice with its evidence: Ikhnos never moves anything."
       />
 
       {shownAt && (

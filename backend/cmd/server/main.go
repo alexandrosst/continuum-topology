@@ -1,4 +1,4 @@
-// Command server is the Continuum control plane: it enrolls agents, receives what they
+// Command server is the Ikhnos control plane: it enrolls agents, receives what they
 // discover, and serves the JSON API and UI.
 package main
 

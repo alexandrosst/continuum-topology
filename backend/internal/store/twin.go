@@ -27,13 +27,13 @@ import (
 const SchemaVersion = 13
 
 // ErrSchemaNewer is returned when the database was written by a newer version of the software.
-var ErrSchemaNewer = errors.New("the database was written by a newer version of Continuum")
+var ErrSchemaNewer = errors.New("the database was written by a newer version of Ikhnos")
 
 // SchemaNewerError carries the versions for the message.
 type SchemaNewerError struct{ Have, Know int }
 
 func (e SchemaNewerError) Error() string {
-	return fmt.Sprintf("the database uses schema version %d, but this server only understands up to version %d. It was written by a newer Continuum, and opening it with an older one could damage it, so nothing was touched. Start the newer server, or restore a backup taken with this version (server restore)", e.Have, e.Know)
+	return fmt.Sprintf("the database uses schema version %d, but this server only understands up to version %d. It was written by a newer Ikhnos, and opening it with an older one could damage it, so nothing was touched. Start the newer server, or restore a backup taken with this version (server restore)", e.Have, e.Know)
 }
 func (e SchemaNewerError) Unwrap() error { return ErrSchemaNewer }
 

@@ -1,8 +1,8 @@
 import clsx from 'clsx'
-import { Antenna, BookOpen, Boxes, Cable, Cpu, Folders, HeartPulse, History, Keyboard, Layers, MapPin, Menu, Network, Package, Radar, Radio, Route, Search, Server, Settings2 } from 'lucide-react'
+import { Antenna, BookOpen, Boxes, Cable, Folders, HeartPulse, History, Keyboard, Layers, MapPin, Menu, Network, Package, Radar, Radio, Route, Search, Server, Settings2 } from 'lucide-react'
 import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Copyright } from '@/components/ui/brand'
+import { BrandMark, Copyright } from '@/components/ui/brand'
 import { ICON_MD, ICON_SM, PageSkeleton, SkeletonBlock } from '@/components/ui/primitives'
 import AccountMenu from '@/components/auth/AccountMenu'
 import AuthGate from '@/components/auth/AuthGate'
@@ -218,11 +218,9 @@ function SidebarNav({
         )}
       >
         <div className="mb-6 flex items-center gap-2.5 px-3">
-          <div className="grid size-8 place-items-center rounded-lg bg-accent-soft text-accent">
-            <Cpu size={18} />
-          </div>
+          <BrandMark />
           <div className="leading-tight">
-            <div className="text-sm font-semibold text-nb-300">Continuum</div>
+            <div className="text-sm font-semibold text-nb-300">Ikhnos</div>
             <div className="text-[11px] text-nb-500">Topology Studio</div>
           </div>
         </div>
@@ -357,7 +355,7 @@ function Shell() {
           <button onClick={() => setMenu(true)} aria-label="Open menu" aria-controls="main-menu" aria-expanded={menu} className="grid size-9 place-items-center rounded-md text-nb-400 hover:bg-nb-930 hover:text-nb-300">
             <Menu size={ICON_MD} />
           </button>
-          <span className="text-sm font-semibold text-nb-300">Continuum</span>
+          <span className="text-sm font-semibold text-nb-300">Ikhnos</span>
           <button onClick={() => setSearching(true)} aria-label="Search" className="ml-auto grid size-9 place-items-center rounded-md text-nb-400 hover:bg-nb-930 hover:text-nb-300">
             <Search size={ICON_MD} />
           </button>

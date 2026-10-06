@@ -1,16 +1,16 @@
-Continuum regional operator {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} as "{{ .Release.Name }}" in {{ .Release.Namespace }}.
+Ikhnos regional operator {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} as "{{ .Release.Name }}" in {{ .Release.Namespace }}.
 
   ✓ Receiver: {{ include "operator.name" . }}.{{ .Release.Namespace }}.svc:4317 / :4318 (grpc / http)
-  ✓ Auth: {{ if .Values.receiver.auth.enabled }}bearer token (Secret {{ .Values.receiver.auth.secretName }}/{{ .Values.receiver.auth.secretKey }}){{ if and .Values.receiver.tls.enabled .Values.receiver.tls.mtls }} + required mTLS client certificate{{ end }}{{ else if and .Values.receiver.tls.enabled .Values.receiver.tls.mtls }}required mTLS client certificate signed by the CA (the operator's own private CA when Continuum made it) in Secret {{ .Values.receiver.tls.secretName }} (ca.crt) - the only gate, there is no bearer token{{ else }}none{{ end }}
+  ✓ Auth: {{ if .Values.receiver.auth.enabled }}bearer token (Secret {{ .Values.receiver.auth.secretName }}/{{ .Values.receiver.auth.secretKey }}){{ if and .Values.receiver.tls.enabled .Values.receiver.tls.mtls }} + required mTLS client certificate{{ end }}{{ else if and .Values.receiver.tls.enabled .Values.receiver.tls.mtls }}required mTLS client certificate signed by the CA (the operator's own private CA when Ikhnos made it) in Secret {{ .Values.receiver.tls.secretName }} (ca.crt) - the only gate, there is no bearer token{{ else }}none{{ end }}
   ✓ Re-exports to: {{ .Values.export.otlp.endpoint }}
 {{- if .Values.heartbeat.enabled }}
   ✓ Heartbeat: ON - every {{ .Values.heartbeat.intervalSeconds }}s this operator tells {{ .Values.heartbeat.url }} that its own collector is up (Secret {{ .Values.heartbeat.auth.secretName }}/{{ .Values.heartbeat.auth.secretKey }}). It carries no telemetry and none of what you relay: only the collector's own health check result.{{ if .Values.networkPolicy.egress.enabled }} networkPolicy.egress is on: that address must be in networkPolicy.egress.allowedEgress too, or the heartbeat is silently blocked.{{ end }}
 {{- end }}
 
 › NEXT STEP — point a source cluster at it
-  This operator {{ if .Values.heartbeat.enabled }}calls the Continuum server only for its heartbeat (above) and{{ else }}never dials the Continuum server and{{ end }} applies nothing to another cluster by itself. Each
+  This operator {{ if .Values.heartbeat.enabled }}calls the Ikhnos server only for its heartbeat (above) and{{ else }}never dials the Ikhnos server and{{ end }} applies nothing to another cluster by itself. Each
   source cluster's own agent release needs a separate `helm upgrade` pointing its
-  telemetry.export.otlp.endpoint here - Continuum prints the exact command for every source cluster named
+  telemetry.export.otlp.endpoint here - Ikhnos prints the exact command for every source cluster named
   when the operator was created.
 {{- $warnings := list }}
 {{- if and (not .Values.receiver.auth.enabled) (not (and .Values.receiver.tls.enabled .Values.receiver.tls.mtls)) }}{{- $warnings = append $warnings "Nothing authenticates this receiver (receiver.auth.enabled is false and no required mTLS client certificate): anything that can reach this Service on the cluster network can push telemetry into it. Set receiver.auth.enabled, or receiver.tls.enabled with receiver.tls.mtls, and receiver.networkPolicy for a shared or multi-tenant cluster." }}{{- end }}

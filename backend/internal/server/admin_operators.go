@@ -327,7 +327,7 @@ func (a *Admin) operatorChartArgs(img ImageConfig) (ref, version string) {
 }
 
 // operatorInstallCommand is installCommand's own twin for the regional-operator chart: simpler, since this
-// chart does not dial the Continuum server unless its opt-in heartbeat is on (see store.Operator's own
+// chart does not dial the Ikhnos server unless its opt-in heartbeat is on (see store.Operator's own
 // comment) - there is no server.address or enrollment.key here, only where the operator exports to and how
 // its receiver authenticates what exports into it. Returns the `helm install` command and, for a bearer
 // operator only, a companion `kubectl create secret` line for the receiver token, shown once.

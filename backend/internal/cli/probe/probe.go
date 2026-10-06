@@ -17,7 +17,7 @@ import (
 )
 
 // Main is the optional node probe: a tiny read-only program that runs on every node (as a DaemonSet) and tells the
-// Continuum agent what kind of machine it is. Run it with --print to see exactly what it reads; there is nothing else.
+// Ikhnos agent what kind of machine it is. Run it with --print to see exactly what it reads; there is nothing else.
 func Main(args []string) int {
 	fs := cli.NewFlagSet("continuum probe", os.Stderr)
 	agentURL := fs.String("agent", cli.Env("CONTINUUM_PROBE_URL", ""), "URL of the agent's probe receiver, e.g. http://continuum-agent-probe.continuum-system.svc:8081")

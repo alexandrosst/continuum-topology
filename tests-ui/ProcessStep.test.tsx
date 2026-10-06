@@ -5,7 +5,7 @@ import { describe, expect, test, vi } from 'vitest'
 import ProcessStep from '@/components/telemetry/ProcessStep'
 import { emptyTelemetry, TAG_LIMIT, type TelemetryInput } from '@/lib/install'
 
-// The guided wizard's Process step: what Continuum adds on its own, the tags a person adds, masking and
+// The guided wizard's Process step: what Ikhnos adds on its own, the tags a person adds, masking and
 // cost, and the debug exporter. All of it is plain state on the telemetry draft; nothing here fetches.
 
 let latest: TelemetryInput = emptyTelemetry

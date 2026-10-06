@@ -10,7 +10,7 @@ const GITHUB_OWNER = 'alexandrosst';
 const GITHUB_REPO = 'continuum-topology';
 
 const config: Config = {
-  title: 'Continuum Topology Studio',
+  title: 'Ikhnos Topology Studio',
   tagline: 'A read-only, agent-observed view of your clusters — from cloud to edge.',
   favicon: 'img/favicon.svg',
 
@@ -69,9 +69,9 @@ const config: Config = {
       respectPrefersColorScheme: false,
     },
     navbar: {
-      title: 'Continuum Topology Studio',
+      title: 'Ikhnos Topology Studio',
       logo: {
-        alt: 'Continuum Topology Studio',
+        alt: 'Ikhnos Topology Studio',
         src: 'img/logo.svg',
       },
       items: [
@@ -108,7 +108,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} ${GITHUB_OWNER}. Continuum Topology Studio is licensed under Apache-2.0.`,
+      copyright: `Copyright © ${new Date().getFullYear()} ${GITHUB_OWNER}. Ikhnos Topology Studio is licensed under Apache-2.0.`,
     },
     prism: {
       theme: prismThemes.oneLight,
@@ -116,7 +116,7 @@ const config: Config = {
       additionalLanguages: ['bash', 'go', 'yaml', 'diff'],
     },
     metadata: [
-      {name: 'description', content: 'Documentation for Continuum Topology Studio: a read-only, agent-observed control plane for orchestration across the cloud-to-edge continuum.'},
+      {name: 'description', content: 'Documentation for Ikhnos Topology Studio: a read-only, agent-observed control plane for orchestration across the cloud-to-edge continuum.'},
     ],
   } satisfies Preset.ThemeConfig,
 };

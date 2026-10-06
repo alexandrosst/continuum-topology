@@ -250,7 +250,7 @@ function ExternalConfig({ admin, connected, conn }: { admin: boolean; connected:
   return (
     <Card title="Plug in your own decider">
       {!connected ? (
-        <p className="text-sm text-nb-400">An external decider is reached through a Continuum server, which holds its address. Connect to a server to configure one.</p>
+        <p className="text-sm text-nb-400">An external decider is reached through an Ikhnos server, which holds its address. Connect to a server to configure one.</p>
       ) : !admin ? (
         <p className="text-sm text-nb-400">
           {settings.deciderConfigured ? `“${settings.deciderName || 'An external decider'}” is configured and is included in the comparison.` : 'No external decider is configured.'} Only administrators can change this.

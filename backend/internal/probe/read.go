@@ -1,5 +1,5 @@
 // Package probe reads a few hardware facts from the machine it runs on and carries them, signed, to
-// the Continuum agent in the same cluster. It exists because the Kubernetes API cannot tell a VM
+// the Ikhnos agent in the same cluster. It exists because the Kubernetes API cannot tell a VM
 // from a bare-metal server; the machine itself can.
 //
 // The probe only reads. It never reads serial numbers, MAC addresses, UUIDs or processes, and never a

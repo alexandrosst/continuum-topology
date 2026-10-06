@@ -36,7 +36,7 @@ export default function HistoryPage() {
       <>
         <PageHeader title="History" description="What changed, when, and what it looked like." />
         <EmptyState
-          title="History is recorded by a Continuum server"
+          title="History is recorded by an Ikhnos server"
           description="Connect to a server and it records the estate as it changes: every scaling, migration, node joining or leaving and image change, with a snapshot you can scrub back through. This browser alone cannot see what happened while it was closed."
         />
       </>
@@ -79,7 +79,7 @@ function Connected({ conn, admin }: { conn: Conn; admin: boolean }) {
     <>
       <PageHeader
         title="History"
-        description="Every change Continuum noticed, with its likely cause, and a recording of the estate you can go back to. For who made a change, see Activity; for changes still waiting on a decision, see Discovery."
+        description="Every change Ikhnos noticed, with its likely cause, and a recording of the estate you can go back to. For who made a change, see Activity; for changes still waiting on a decision, see Discovery."
         actions={admin ? <RecordNow onDone={() => setTick((t) => t + 1)} conn={conn} /> : undefined}
       />
       {error && <ErrorBanner className="mb-4">{error}</ErrorBanner>}
@@ -749,7 +749,7 @@ function StorageCard({ conn, admin, tick }: { conn: Conn; admin: boolean; tick: 
               {info.buffering && <Pill>catching up: some recordings are waiting to be moved across</Pill>}
             </div>
             <p className="mt-2 text-xs leading-5 text-nb-500">
-              Every recording, change, workspace save and action people took is kept as a graph you can ask about any moment. If the database is away, Continuum keeps recording locally and moves everything across when it is back, so nothing is lost.
+              Every recording, change, workspace save and action people took is kept as a graph you can ask about any moment. If the database is away, Ikhnos keeps recording locally and moves everything across when it is back, so nothing is lost.
             </p>
             {admin && info.error && !info.connected && <p className="mt-2 text-xs text-warn/90" role="status">{info.error}</p>}
             {admin && st && (

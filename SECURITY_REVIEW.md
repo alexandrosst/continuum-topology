@@ -1,4 +1,4 @@
-# Continuum security review — September 2026
+# Ikhnos security review — September 2026
 
 This is the deep review requested as Task #187, run after Task #188 (two-factor authentication: TOTP,
 email-OTP, and passkeys/WebAuthn) and Task #189 (application regroup) were both implemented, so it covers

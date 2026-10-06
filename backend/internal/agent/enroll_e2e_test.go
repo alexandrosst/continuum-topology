@@ -550,7 +550,7 @@ func TestAClockThatIsOffIsWarnedAboutAndReported(t *testing.T) {
 		a := r.agents()
 		return len(a) == 1 && a[0].ClockSkewMs > 590_000 && a[0].ClockSkewMs < 620_000
 	})
-	if got := strings.Count(buf.String(), "clock is 10m"); got != 1 || !strings.Contains(buf.String(), "ahead of the Continuum server") {
+	if got := strings.Count(buf.String(), "clock is 10m"); got != 1 || !strings.Contains(buf.String(), "ahead of the Ikhnos server") {
 		t.Fatalf("exactly one warning is expected (got %d):\n%s", got, buf.String())
 	}
 }

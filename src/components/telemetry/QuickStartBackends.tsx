@@ -362,7 +362,7 @@ function GatewayTokenCreated({ minted, onClose }: { minted: { backend: QuickStar
         <CopyCommand text={token.token} />
       </div>
       <div className="mt-3">
-        <div className="mb-1 text-xs text-nb-500">Apply the gateway (gates {backend.label} behind the token above - checked entirely by this, never by Continuum)</div>
+        <div className="mb-1 text-xs text-nb-500">Apply the gateway (gates {backend.label} behind the token above - checked entirely by this, never by Ikhnos)</div>
         <CopyCommand text={manifest} />
       </div>
       <div className="mt-3">

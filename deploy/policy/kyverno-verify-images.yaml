@@ -1,4 +1,4 @@
-# Refuse to run a Continuum image that was not signed by scripts/publish.sh, using Kyverno's built-in cosign
+# Refuse to run an Ikhnos image that was not signed by scripts/publish.sh, using Kyverno's built-in cosign
 # verification (verifyImages) rather than a separate Sigstore policy-controller install. See "Signing and
 # verifying releases" in ../README.md for how publish.sh signs, and how to check what the last release was signed
 # with before you fill in the two placeholders below.
@@ -14,7 +14,7 @@
 # Deployment.
 #
 # START IN AUDIT MODE. `validationFailureAction: Audit` (the default below) never blocks anything: it only
-# records a failing PolicyReport, so you can point this at a live cluster, deploy a Continuum agent as usual, and
+# records a failing PolicyReport, so you can point this at a live cluster, deploy an Ikhnos agent as usual, and
 # check `kubectl get policyreport -A` shows a PASS for it before you flip a word below to `Enforce` and mean it.
 # Deploying an *unsigned* build in Audit mode (e.g. one you built locally without SIGN=1) is exactly what should
 # show up as a FAIL in the report - if it doesn't, the identity/issuer below don't match what you actually signed
@@ -24,7 +24,7 @@ kind: ClusterPolicy
 metadata:
   name: verify-continuum-images
   annotations:
-    policies.kyverno.io/title: Verify Continuum image signatures
+    policies.kyverno.io/title: Verify Ikhnos image signatures
     policies.kyverno.io/description: >-
       Requires every continuum-agent and continuum-server image to carry a valid cosign signature from the
       identity/issuer that scripts/publish.sh signs releases with, before Kubernetes admits the pod.

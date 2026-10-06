@@ -19,7 +19,7 @@ const agent = (over: Partial<SelfTelemetryEntity> = {}): SelfTelemetryEntity => 
 
 describe('entityLabel', () => {
   test('names the server entity plainly, since it has no clusterName of its own', () => {
-    expect(entityLabel({ id: 'server', kind: 'server', samples: [] })).toBe('Continuum server')
+    expect(entityLabel({ id: 'server', kind: 'server', samples: [] })).toBe('Ikhnos server')
   })
   test('uses the agent\'s own clusterName when it has one', () => {
     expect(entityLabel(agent({ clusterName: 'prod-east' }))).toBe('prod-east')

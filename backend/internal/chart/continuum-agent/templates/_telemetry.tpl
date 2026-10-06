@@ -226,7 +226,7 @@ redaction:
 {{- end }}
 {{- end -}}
 
-{{/* Continuum provenance: stamps this release's org/cluster/telemetry-grant identity onto every signal
+{{/* Ikhnos provenance: stamps this release's org/cluster/telemetry-grant identity onto every signal
      this agent emits, as plain resource attributes - continuum.org.id, continuum.cluster.id,
      continuum.intent.id. Unlike every other processor above, this one is never a user on/off toggle and
      is not meant to be hand-edited in values.yaml: telemetry.resource.* is filled in by the server's own

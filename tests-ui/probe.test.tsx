@@ -34,7 +34,7 @@ describe('probe (learns whether a server is there, and - on a session - carries 
     expect(result).toEqual({ status: 'signin' })
   })
 
-  test('a non-JSON response (a static host serving the app\'s own HTML, not a Continuum server): status "none"', async () => {
+  test('a non-JSON response (a static host serving the app\'s own HTML, not an Ikhnos server): status "none"', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<!doctype html>', { status: 200, headers: { 'content-type': 'text/html' } })))
     const result = await probe({ url: 'http://test' })
     expect(result).toEqual({ status: 'none' })

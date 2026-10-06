@@ -56,8 +56,8 @@ trust model](./agent-trust-model.md).
 A regional operator is a second, explicit fan-in tier above per-cluster telemetry — a standalone
 `otel-contrib` collector that receives what a set of already-approved clusters already export, and
 re-exports it as one stream. The important property, worth stating precisely rather than loosely: **it
-never dials the Continuum server, because it has nothing that could — not because a firewall stops it.**
-The chart ships zero Continuum client code; nothing in it knows the control-plane API exists, holds a
+never dials the Ikhnos server, because it has nothing that could — not because a firewall stops it.**
+The chart ships zero Ikhnos client code; nothing in it knows the control-plane API exists, holds a
 client certificate, or has any credential the server would accept over the agent port. That's a barrier
 made of an absent capability, not a network boundary.
 
@@ -109,14 +109,14 @@ receiver tokens).
 in `store.Store` to revoke one — the interface has exactly `CreateGatewayToken` and `LatestGatewayToken`
 (`store/store.go:372-377`) and nothing else.
 
-**What checks it:** nothing on the Continuum server. The plaintext token is templated directly into a
+**What checks it:** nothing on the Ikhnos server. The plaintext token is templated directly into a
 static nginx `ConfigMap` at generation time, as a literal string an `if ($http_authorization = "Bearer
-<token>")` block compares against. Continuum's own role ends the moment that manifest is generated; from
+<token>")` block compares against. Ikhnos's own role ends the moment that manifest is generated; from
 then on, the admin's own gateway pod is the entire enforcement mechanism, and the server never sees that
 traffic or dials the fronted backend itself.
 
 **What its blast radius actually is, precisely:** whatever single backend Service the gateway was generated
-for — never more than one, and never anything Continuum itself holds. For Jaeger (port `16686`, the
+for — never more than one, and never anything Ikhnos itself holds. For Jaeger (port `16686`, the
 http-query service) and Prometheus (port `80`→`9090`, the query/web API), that's read/query access to that
 one tool. For Loki, it's worth being exact rather than assuming "read-only" across the board: Loki serves
 both its query API *and* OTLP log ingestion (`/otlp`) on the same port `3100`, and the gateway fronts that
@@ -125,7 +125,7 @@ every case the ceiling is still just that one backend, bounded by the token's TT
 days.
 
 **The accepted tradeoff:** a leaked quick-start gateway token is valid until it expires, and there is
-currently nothing Continuum itself can do to shorten that — the only way to invalidate it early is for the
+currently nothing Ikhnos itself can do to shorten that — the only way to invalidate it early is for the
 admin to manually redeploy the gateway (re-mint a token in the UI, re-apply the generated manifest, which
 overwrites the `ConfigMap`'s literal comparison string). This is named here as a conscious decision for this
 project's current stage — a single operator fronting their own deployment, not a multi-tenant SaaS handing

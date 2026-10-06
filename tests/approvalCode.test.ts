@@ -44,7 +44,7 @@ test('clock skew reads as a short phrase and only warns beyond two minutes', () 
 })
 
 test('pasting a whole log line finds the code in it', () => {
-  assert.equal(fromPaste('time=2026 level=INFO msg="APPROVAL CODE: K7QM-4TXD (enter it in Continuum to approve this cluster)" code=K7QM-4TXD why=x'), 'K7QM-4TXD')
+  assert.equal(fromPaste('time=2026 level=INFO msg="APPROVAL CODE: K7QM-4TXD (enter it in Ikhnos to approve this cluster)" code=K7QM-4TXD why=x'), 'K7QM-4TXD')
   assert.equal(fromPaste('k7qm-4txd'), 'K7QM-4TXD')
   assert.equal(fromPaste('  K7QM 4TXD '), 'K7QM-4TXD')
   assert.equal(fromPaste('K7QM4TXD'), 'K7QM-4TXD')

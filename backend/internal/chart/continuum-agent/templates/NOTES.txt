@@ -1,4 +1,4 @@
-Continuum agent {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} as "{{ .Release.Name }}" in {{ .Release.Namespace }}.
+Ikhnos agent {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} as "{{ .Release.Name }}" in {{ .Release.Namespace }}.
 
   ✓ Access tier {{ include "agent.tier" . }} ({{ include "agent.tierName" . }})
   ✓ Scope: {{ if .Values.scope.namespaces }}{{ join ", " .Values.scope.namespaces }}{{ else if .Values.scope.selector }}namespaces labelled {{ .Values.scope.selector }}{{ else }}all namespaces{{ end }}{{ if .Values.scope.exclude }} (except {{ join ", " .Values.scope.exclude }}){{ end }}
@@ -22,7 +22,7 @@ Continuum agent {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed
 
     kubectl -n {{ .Release.Namespace }} logs deploy/continuum-agent | grep -i "approval code"
 
-  Open Discovery in the Continuum UI, enter that code, and choose the access tier it may have. Nothing is
+  Open Discovery in the Ikhnos UI, enter that code, and choose the access tier it may have. Nothing is
   reported before you do.
 {{- end }}
 

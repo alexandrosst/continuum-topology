@@ -425,7 +425,7 @@ export default function RegionalOperatorsPage() {
               <span className="font-medium text-nb-200">No Kubernetes API access of any kind.</span> This chart renders no
               ClusterRole, Role or RoleBinding, and its ServiceAccount is created with{' '}
               <code className="font-mono">automountServiceAccountToken: false</code> - it cannot present a token to the API
-              server even if it tried. It never dials the Continuum server either, unless you turn on health reporting
+              server even if it tried. It never dials the Ikhnos server either, unless you turn on health reporting
               for it - and then the only thing it sends is {HEARTBEAT_WHAT} It never watches this cluster&apos;s own
               objects the way a discovery agent&apos;s RBAC lets it (see the chart&apos;s own README for the full architecture).
             </p>

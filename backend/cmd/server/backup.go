@@ -262,7 +262,7 @@ func restoreBackup(ctx context.Context, from, dataDir string, force bool) (backu
 		return m, fmt.Errorf("the manifest is unreadable: %w", err)
 	}
 	if m.Format > backupFormat {
-		return m, fmt.Errorf("this backup has format %d, but this server only reads up to format %d: it was made by a newer Continuum. Restore it with that version", m.Format, backupFormat)
+		return m, fmt.Errorf("this backup has format %d, but this server only reads up to format %d: it was made by a newer Ikhnos. Restore it with that version", m.Format, backupFormat)
 	}
 	// Every listed file is present and unchanged; nothing unlisted is present.
 	listed := map[string]bool{}

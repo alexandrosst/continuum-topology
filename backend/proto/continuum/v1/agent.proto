@@ -387,8 +387,8 @@ message HostProbe {
   // Average power draw of the whole host, in watts, over a brief sampling window taken during this one
   // probe read (see probe.rapl's own doc comment) - from intel-rapl's package-0 energy counter
   // (/sys/class/powercap/intel-rapl:0/energy_uj, the kernel's RAPL/powercap sysfs interface). This is
-  // host-wide power, when the hardware exposes it - never Continuum's own share of it; a caller wanting
-  // that separate, estimated figure derives it (hostWatts * Continuum's own cgroup CPU share) rather
+  // host-wide power, when the hardware exposes it - never Ikhnos's own share of it; a caller wanting
+  // that separate, estimated figure derives it (hostWatts * Ikhnos's own cgroup CPU share) rather
   // than reading it from here. optional because RAPL is the overwhelmingly uncommon case across this
   // product's actual target hardware: absent on essentially every ARM/edge board, on most VMs (the
   // counter is not virtualized by any hypervisor this probe has seen), and on any amd64 host whose
@@ -1287,7 +1287,7 @@ message Problem {
   google.protobuf.Timestamp since = 4;
 }
 
-// SelfStats is what Continuum's own agent process costs, right now, on the machine it runs on - sent
+// SelfStats is what Ikhnos's own agent process costs, right now, on the machine it runs on - sent
 // with every Heartbeat so a person (or the server's own self-telemetry endpoint, see
 // internal/server/hub.go's per-agent ring buffer) can tell "the platform that watches everything else"
 // apart from the workloads it watches, instead of that cost disappearing into the cluster's general

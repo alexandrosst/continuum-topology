@@ -1,6 +1,6 @@
 # The effective model API
 
-`GET /api/v1/orgs/{org}/model` returns what Continuum currently believes about an organisation's estate: what
+`GET /api/v1/orgs/{org}/model` returns what Ikhnos currently believes about an organisation's estate: what
 agents observe and what people declared, combined by explicit rules, with the provenance of every value. It is
 the one place a consumer (an external decider, a script, a dashboard) can read "what is true, and how sure are
 we" without re-implementing discovery.

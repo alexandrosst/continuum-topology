@@ -24,7 +24,7 @@ import (
 
 // How the agent gets in: it makes a key and a random approval code, saves both, and only then asks the
 // server to enroll it (sending a hash of the code, never the code). It prints the code in its own log.
-// An administrator who can read that log types the code in Continuum to approve the cluster.
+// An administrator who can read that log types the code in Ikhnos to approve the cluster.
 //
 // Everything before the certificate arrives can be repeated safely: the server recognises the same token
 // with the same key as the same enrollment. So the agent may crash or lose a response at any point and
@@ -68,7 +68,7 @@ func (r *runner) logCode(id *Identity, why string) {
 	// greps for it (grep -i "approval code" returns a line where the code visibly appears twice). A fixed
 	// label in the message plus the single value in "code" still leads the line and is still its own
 	// field for anything that searches logs by field, without the duplication.
-	r.log.Info("APPROVAL CODE (enter it in Continuum to approve this cluster)",
+	r.log.Info("APPROVAL CODE (enter it in Ikhnos to approve this cluster)",
 		"code", id.ApprovalCode, "why", why, "kubectl", "kubectl -n continuum-system logs deploy/continuum-agent | grep -i 'approval code'")
 }
 
@@ -322,7 +322,7 @@ func (r *runner) logEnded(reason string) {
 	}
 	r.ex.endedLogged = time.Now()
 	r.log.Error("this agent was revoked or rejected and will not connect again: "+reason+". "+
-		"Revocation is permanent. To connect this cluster again, create a new enrollment token in Continuum and run `helm upgrade` with it "+
+		"Revocation is permanent. To connect this cluster again, create a new enrollment token in Ikhnos and run `helm upgrade` with it "+
 		"(--set enrollment.token=...). This agent does not contact the server any more.", "reason", reason)
 }
 
@@ -396,7 +396,7 @@ func (r *runner) noteServerTime(serverUnix int64) {
 			dir = "behind"
 			skew = -skew
 		}
-		r.log.Warn(fmt.Sprintf("this machine's clock is %s %s the Continuum server's. Certificates are checked against the clock, so this can show up as "+
+		r.log.Warn(fmt.Sprintf("this machine's clock is %s %s the Ikhnos server's. Certificates are checked against the clock, so this can show up as "+
 			"\"certificate expired\" or \"not yet valid\" errors. Fix time synchronisation (NTP, chrony) on the cluster's nodes", skew.Round(time.Second), dir))
 	}
 }

@@ -42,7 +42,7 @@ export default function MeasuredPaths() {
       {ordered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-nb-850 px-5 py-8 text-center text-sm text-nb-400" data-testid="no-paths">
           Nothing has been measured yet.{' '}
-          {status !== 'connected' ? 'Paths are measured by agents reporting to a Continuum server.' : measuring.length === 0 ? 'Enable measurements on an agent to start.' : 'Results appear within a couple of minutes.'}
+          {status !== 'connected' ? 'Paths are measured by agents reporting to an Ikhnos server.' : measuring.length === 0 ? 'Enable measurements on an agent to start.' : 'Results appear within a couple of minutes.'}
         </div>
       ) : (
         <Table>

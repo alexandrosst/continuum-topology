@@ -65,7 +65,7 @@ What it does, in this order, and stops at the first thing that is wrong:
 
 1. Unpacks into a staging directory. Only the expected names are accepted (`manifest.json`, `continuum.db`,
    `pki/<file>`); anything else, or a path that leads elsewhere, is refused.
-2. Checks the format: an archive written by a **newer** Continuum is refused ("Restore it with that version").
+2. Checks the format: an archive written by a **newer** Ikhnos is refused ("Restore it with that version").
 3. Checks every file against the manifest's SHA-256, so a truncated or edited archive is refused.
 4. Checks the database: SQLite's integrity check must pass, and its schema version must be one this server
    understands. A database from a **newer** server is refused, untouched.
@@ -115,7 +115,7 @@ Three things are versioned, and none of them is allowed to go backwards.
 |---|---|
 | **Database schema** (`PRAGMA user_version`, now 4) | On start the server migrates an older database forward, once, in a transaction. A database written by a **newer** server is refused at start-up with a message that names both versions; nothing is touched. Migrations are forward-only. |
 | **Workspace document** (`schemaVersion`, now 4) | An older document is rewritten into the current declared-only form, and the next person to open it is told what changed. A document from a **newer** version is refused on save and on import, and nothing is changed. Format 4 holds no discovered records; an older file that does is stripped on load (with a note), and the overrides you made on discovered records are kept. |
-| **Backup archive** (`manifest.json` `format`, now 1) | An archive from a newer Continuum is refused by `restore`. |
+| **Backup archive** (`manifest.json` `format`, now 1) | An archive from a newer Ikhnos is refused by `restore`. |
 
 The consequence for upgrades:
 

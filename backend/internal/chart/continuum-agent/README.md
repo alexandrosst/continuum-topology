@@ -1,6 +1,6 @@
 # continuum-agent
 
-Read-only discovery agent for Continuum. One Deployment, one image, three optional roles (`agent` always
+Read-only discovery agent for Ikhnos. One Deployment, one image, three optional roles (`agent` always
 runs; `probe` and `flow` are opt-in DaemonSets). Dials out to the server named in `server.address` — nothing
 in the cluster it watches needs to be reachable from outside.
 
@@ -11,7 +11,7 @@ the commands you'd only need occasionally, not at every install.
 
 ## What it can see, by access tier
 
-- **Tier 0, "registered only"**: the UID of the `kube-system` namespace, which is how Continuum tells
+- **Tier 0, "registered only"**: the UID of the `kube-system` namespace, which is how Ikhnos tells
   clusters apart. Nothing else.
 - **Tier 1, "infrastructure"**: the cluster's identity, plus nodes, storage classes and ingress classes. No
   namespaces, workloads or pods.
@@ -65,7 +65,7 @@ helm upgrade <release> <chart> -n <namespace> --reuse-values --set access.tier=1
 ```
 
 The cluster owner decides this; the server can approve up to whatever tier is installed and never beyond
-it. **Narrowing the approved tier in the Continuum UI does not shrink what is granted in the cluster** — that
+it. **Narrowing the approved tier in the Ikhnos UI does not shrink what is granted in the cluster** — that
 is a reporting control on the agent, not an RBAC control. The agent's detail page in the UI prints the exact
 `helm upgrade ... --set access.tier=N` that actually removes the wider `ClusterRole`/`ClusterRoleBinding`
 once you're ready to do that.
@@ -88,7 +88,7 @@ name and namespace finds its identity again. To remove that too:
 kubectl -n <namespace> delete secret continuum-agent-identity
 ```
 
-Continuum's server keeps its record of this cluster until you remove it on the Discovery page — uninstalling
+Ikhnos's server keeps its record of this cluster until you remove it on the Discovery page — uninstalling
 the chart does not do that for you.
 
 ## Node probe (`nodeProbe.enabled`)
@@ -105,7 +105,7 @@ seccomp profile because loading a tracing program needs them, and in the host PI
 
 ## Telemetry (`telemetry.*`)
 
-Independent of the access tier above, on its own ServiceAccount, and never reported to the Continuum server
+Independent of the access tier above, on its own ServiceAccount, and never reported to the Ikhnos server
 itself — it goes straight to whatever OTLP endpoint `telemetry.export.otlp.endpoint` names. The host
 collector (for signals that can only be observed per-node) mounts several host paths read-only (kubelet
 stats, container/journal logs).

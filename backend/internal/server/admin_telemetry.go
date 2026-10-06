@@ -84,13 +84,13 @@ func rateBetween(prevCumulative, curCumulative float64, elapsed time.Duration) (
 	return d / secs, true
 }
 
-// bandwidthSharePct is "Continuum's share of observed throughput" for one agent's cluster - bytesPerSec
+// bandwidthSharePct is "Ikhnos's share of observed throughput" for one agent's cluster - bytesPerSec
 // (this agent's own AgentMessage traffic, derived from consecutive SelfStatsSample.LinkBytesCumulative
 // readings via rateBetween) divided by clusterThroughputBps (that cluster's total observed throughput,
 // every node's own LinkSaturation entries summed - see clusterTotals' own doc comment for why this sums
 // across the cluster rather than matching one specific node). Always labeled a *share of* observed
 // throughput, never "overhead on top of" it: LinkSaturation already counts every byte on the wire,
-// Continuum's own included (see model.Node.LinkSaturation's own doc comment), so this never double-
+// Ikhnos's own included (see model.Node.LinkSaturation's own doc comment), so this never double-
 // counts. nil whenever the denominator is zero/unavailable (no flow collector has ever reported
 // LinkSaturation for this cluster) - never a divide-by-zero, never a fabricated 100%.
 func bandwidthSharePct(bytesPerSec float64, clusterThroughputBps uint64) *float64 {
@@ -106,7 +106,7 @@ func bandwidthSharePct(bytesPerSec float64, clusterThroughputBps uint64) *float6
 // wide power (every node's own HostWatts, when RAPL exposes one) - see bandwidthSharePct/
 // SelfTelemetrySample.Watts' own doc comments for what these are used for. Both are cluster-wide sums
 // rather than one specific node's own reading because nothing in this product's facts says which node a
-// cluster's own Continuum agent pod happens to be scheduled on (no NODE_NAME-equivalent fact is reported
+// cluster's own Ikhnos agent pod happens to be scheduled on (no NODE_NAME-equivalent fact is reported
 // anywhere for the agent itself, unlike the node probe's own --node flag) - the cluster-wide total is
 // the honest, defensible figure, rather than an unsupported single-node guess. wattsKnown is false only
 // when not one node in the cluster has ever reported host_watts (RAPL absent everywhere in it, the
@@ -197,7 +197,7 @@ func serverTelemetrySamples(history []ServerSelfStatsSample) []SelfTelemetrySamp
 	return out
 }
 
-// selfTelemetry serves GET /api/v1/orgs/{org}/telemetry/self: what running Continuum itself costs in
+// selfTelemetry serves GET /api/v1/orgs/{org}/telemetry/self: what running Ikhnos itself costs in
 // this organisation, over the last hour (selfStatsWindow) at whatever cadence samples actually arrived -
 // a heartbeat's own cadence for each agent, selfStatsSampleEvery for the server itself. Meant to be
 // genuinely useful read directly, programmatically, not only as a UI data source.
@@ -214,9 +214,9 @@ func serverTelemetrySamples(history []ServerSelfStatsSample) []SelfTelemetrySamp
 //	    "goroutines": <uint32>,
 //	    "cpuPct": <float64, omitted on an entity's very first sample>,
 //	    "bandwidthSharePct": <float64, agent entities only, omitted when the cluster's own observed
-//	       throughput is zero/unknown or there is no previous sample yet - "Continuum's share of
+//	       throughput is zero/unknown or there is no previous sample yet - "Ikhnos's share of
 //	       observed throughput", never "overhead on top of" it: LinkSaturation already counts every
-//	       byte on the wire, Continuum's own included, so this is a share of the whole, not an addition>,
+//	       byte on the wire, Ikhnos's own included, so this is a share of the whole, not an addition>,
 //	    "watts": <float64, agent entities only, omitted when no node in the cluster exposes RAPL (the
 //	       common case on this product's actual target hardware) - that cluster's current total host-
 //	       wide power draw, summed across every node that does; a live snapshot attached to every
@@ -239,8 +239,8 @@ func serverTelemetrySamples(history []ServerSelfStatsSample) []SelfTelemetrySamp
 // than included with an empty list.
 //
 // Deferred, both left out of this pass on purpose:
-//   - continuumWattsEstimate (Continuum's own estimated share of watts: hostWatts times Continuum's own
-//     cgroup CPU share of the node) needs Continuum's own cgroup CPU time summed across the agent, flow-
+//   - continuumWattsEstimate (Ikhnos's own estimated share of watts: hostWatts times Ikhnos's own
+//     cgroup CPU share of the node) needs Ikhnos's own cgroup CPU time summed across the agent, flow-
 //     observer and node-probe's own pods - today only the agent's own process CPU time
 //     (SelfStats.cpu_seconds) is reported anywhere; the other two have no self-telemetry channel in this
 //     pass. Adding one for each, correctly, is a separate piece of work, not a small addition here -

@@ -1003,7 +1003,7 @@ function Canvas() {
                 <div className="flex w-full flex-col items-center gap-5 py-4" data-testid="empty-topology">
                   <div className="text-center">
                     <h2 className="text-base font-medium text-nb-300">Your topology is empty</h2>
-                    <p className="mx-auto mt-1 max-w-md text-sm text-nb-500">Nothing is connected yet. These steps take a cluster from nothing to live; Continuum then discovers its nodes, services and traffic itself.</p>
+                    <p className="mx-auto mt-1 max-w-md text-sm text-nb-500">Nothing is connected yet. These steps take a cluster from nothing to live; Ikhnos then discovers its nodes, services and traffic itself.</p>
                   </div>
                   <GettingStarted variant="hero" checklist={started.checklist} onConnect={connect.start} />
                   <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-nb-500">
@@ -1014,7 +1014,7 @@ function Canvas() {
               ) : (
                 <EmptyState
                   title="Your topology is empty"
-                  description="Connect a cluster and let Continuum discover its nodes, services and traffic, or describe one by hand. You can also load the sample under Settings → Import / Export."
+                  description="Connect a cluster and let Ikhnos discover its nodes, services and traffic, or describe one by hand. You can also load the sample under Settings → Import / Export."
                   action={
                     <div className="flex flex-wrap justify-center gap-2">
                       <Button variant="primary" onClick={connect.start} data-testid="empty-connect">

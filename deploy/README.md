@@ -1,4 +1,4 @@
-# Deploying the Continuum server on Kubernetes
+# Deploying the Ikhnos server on Kubernetes
 
 This guide covers the **server** (control plane and web UI) and its databases. The chart is [`deploy/helm/continuum-server`](helm/continuum-server) (its [README](helm/continuum-server/README.md) documents every value and which server flags each one needs). Agents run in the clusters you observe and are installed with the command the server prints; see [Connect the first cluster](#connect-the-first-cluster).
 
@@ -363,7 +363,7 @@ Neo4j holds topology history, events, the audit trail and workspace revisions. T
 | `bundled` (default) | you want history and have no Neo4j | StatefulSet with the official `neo4j` Community image, its own PVC, a generated or supplied password Secret, a headless Service, probes on HTTP 7474, resource requests and limits, optional NetworkPolicy |
 | `external` | you already run Neo4j (Aura, an operator, your own) | `neo4j.external.url` and `neo4j.external.existingSecret`; https, or an in-cluster/loopback http address |
 
-**Licence and shape.** Neo4j Community edition is GPLv3 and single-instance (no clustering, no online backup). The chart runs it as a separate process; the Continuum server only talks to it over HTTP. Use `external` with your own licensed or managed Neo4j if you need HA or Enterprise features, or want to keep the GPL software out of your deployment.
+**Licence and shape.** Neo4j Community edition is GPLv3 and single-instance (no clustering, no online backup). The chart runs it as a separate process; the Ikhnos server only talks to it over HTTP. Use `external` with your own licensed or managed Neo4j if you need HA or Enterprise features, or want to keep the GPL software out of your deployment.
 
 **Passwords.** The server reads the password from a file (`--neo4j-password-file`), never from a command-line argument. Bundled: the chart generates a 32-character secret on first install and reuses it on every upgrade (`lookup`); it stays if you uninstall, so a reinstall over the same volume still matches. Supply your own with `neo4j.auth.existingSecret`. In GitOps flows that render with `helm template` (no `lookup`) always supply your own Secret.
 

@@ -1,7 +1,7 @@
 // Package netid resolves a public IP address against a small, hand-curated table of ranges the
 // provider itself has published (Cloudflare's own edge ranges, GitHub's own AS, GitLab's own webhook
 // range, Google Public DNS's two resolver addresses), never from a live network call. This runs only on
-// the server - the Continuum control plane already reasons about every cluster's flows in one place, so
+// the server - the Ikhnos control plane already reasons about every cluster's flows in one place, so
 // identifying an address once there costs nothing extra in permissions, unlike granting every per-cluster
 // agent its own outbound DNS/lookup capability just to do the same thing redundantly, once per cluster. A
 // miss here means "not in this small table," not "unknown to the internet" - most of what a real

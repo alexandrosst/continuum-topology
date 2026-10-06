@@ -10,7 +10,7 @@ import { useRawTopology } from './topology'
 import { forgetPending, useWorkspace } from './workspace'
 
 /**
- * Connection to a Continuum server. Only the server's address and the last organisation used are remembered (in localStorage).
+ * Connection to an Ikhnos server. Only the server's address and the last organisation used are remembered (in localStorage).
  * The sign-in itself is an HttpOnly cookie the browser holds; this code never sees the session
  * secret or the password after submitting it. Once signed in, the server's workspace replaces the
  * browser's copy and every poll merges what agents discovered into it, keeping human overrides.
@@ -224,7 +224,7 @@ export const useServer = create<ServerStore>((set, get) => {
       const infoPromise = api.serverInfo(c).catch(() => undefined)
       const found = await probe(c)
       if (found.status === 'none') {
-        set({ status: 'error', error: `No Continuum server answered at ${c.url || 'this address'}. Check the address and that it is running.`, checked: true })
+        set({ status: 'error', error: `No Ikhnos server answered at ${c.url || 'this address'}. Check the address and that it is running.`, checked: true })
         return false
       }
       write(URL_KEY, c.url)
@@ -623,7 +623,7 @@ export const useServer = create<ServerStore>((set, get) => {
 
 /**
  * On page load: reconnect to the remembered server, or notice that this page was itself served by
- * a Continuum server (the usual production setup) and go straight to its sign-in.
+ * an Ikhnos server (the usual production setup) and go straight to its sign-in.
  */
 export async function resumeServer() {
   // A link like https://server/?invite=cni_… carries an invitation. Keep the code, and take it out of the address bar.

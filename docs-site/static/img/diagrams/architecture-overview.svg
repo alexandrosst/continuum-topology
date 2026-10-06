@@ -39,7 +39,7 @@
 <g transform="translate(338.0,190.5) scale(1.5)" fill="none" stroke="#f68330" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
       <rect x="1" y="1" width="14" height="6" rx="1.3"/><rect x="1" y="11" width="14" height="6" rx="1.3"/>
       <circle cx="4.2" cy="4" r="0.9" fill="#f68330" stroke="none"/><circle cx="4.2" cy="14" r="0.9" fill="#f68330" stroke="none"/></g>
-<text x="376" y="200" font-size="15.5" font-weight="700" fill="#e4e7e9" text-anchor="start">Continuum Server</text>
+<text x="376" y="200" font-size="15.5" font-weight="700" fill="#e4e7e9" text-anchor="start">Ikhnos Server</text>
 <text x="376" y="217" font-size="11" font-weight="400" fill="#8a97a2" text-anchor="start">control plane · one replica</text>
 <rect x="340" y="242" width="150" height="26" rx="13.0" fill="none" stroke="#8a97a2" stroke-width="1.2"/>
 <text x="415.0" y="258.85" font-size="11" font-weight="700" fill="#8a97a2" text-anchor="middle">Admin + UI  :8080</text>
@@ -66,7 +66,7 @@
 <g transform="translate(746.5,152.5) scale(1.0)" fill="none" stroke="#60a5fa" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
       <path d="M7.5,1 13.5,3.2 V8 C13.5,12 10.7,14.7 7.5,16 C4.3,14.7 1.5,12 1.5,8 V3.2 Z"/>
       <path d="M4.8,8.2 6.6,10 10.2,6"/></g>
-<text x="772" y="158" font-size="11.5" font-weight="700" fill="#e4e7e9" text-anchor="start">Continuum agent</text>
+<text x="772" y="158" font-size="11.5" font-weight="700" fill="#e4e7e9" text-anchor="start">Ikhnos agent</text>
 <text x="772" y="173" font-size="9.5" font-weight="400" fill="#59636c" text-anchor="start">reads only what it's scoped to</text>
 <rect x="732" y="198" width="198" height="46" rx="10" fill="#1f2124" stroke="#3f444b" stroke-width="1.3"/>
 <g transform="translate(754,221.0) scale(1.0)" fill="none" stroke="#8a97a2" stroke-width="1.5" stroke-linejoin="round">
@@ -87,7 +87,7 @@
 <g transform="translate(746.5,332.5) scale(1.0)" fill="none" stroke="#34d399" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
       <path d="M7.5,1 13.5,3.2 V8 C13.5,12 10.7,14.7 7.5,16 C4.3,14.7 1.5,12 1.5,8 V3.2 Z"/>
       <path d="M4.8,8.2 6.6,10 10.2,6"/></g>
-<text x="772" y="338" font-size="11.5" font-weight="700" fill="#e4e7e9" text-anchor="start">Continuum agent</text>
+<text x="772" y="338" font-size="11.5" font-weight="700" fill="#e4e7e9" text-anchor="start">Ikhnos agent</text>
 <text x="772" y="353" font-size="9.5" font-weight="400" fill="#59636c" text-anchor="start">reads only what it's scoped to</text>
 <rect x="732" y="378" width="198" height="46" rx="10" fill="#1f2124" stroke="#3f444b" stroke-width="1.3"/>
 <g transform="translate(754,401.0) scale(1.0)" fill="none" stroke="#8a97a2" stroke-width="1.5" stroke-linejoin="round">
@@ -106,7 +106,7 @@
 <g transform="translate(746.5,512.5) scale(1.0)" fill="none" stroke="#c084fc" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
       <path d="M7.5,1 13.5,3.2 V8 C13.5,12 10.7,14.7 7.5,16 C4.3,14.7 1.5,12 1.5,8 V3.2 Z"/>
       <path d="M4.8,8.2 6.6,10 10.2,6"/></g>
-<text x="772" y="518" font-size="11.5" font-weight="700" fill="#e4e7e9" text-anchor="start">Continuum agent</text>
+<text x="772" y="518" font-size="11.5" font-weight="700" fill="#e4e7e9" text-anchor="start">Ikhnos agent</text>
 <text x="772" y="533" font-size="9.5" font-weight="400" fill="#59636c" text-anchor="start">reads only what it's scoped to</text>
 <rect x="732" y="558" width="198" height="46" rx="10" fill="#1f2124" stroke="#3f444b" stroke-width="1.3"/>
 <g transform="translate(754,581.0) scale(1.0)" fill="none" stroke="#8a97a2" stroke-width="1.5" stroke-linejoin="round">

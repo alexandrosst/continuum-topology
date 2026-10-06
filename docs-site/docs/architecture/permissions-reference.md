@@ -1,13 +1,13 @@
 ---
 id: permissions-reference
 title: Permissions reference
-description: Exactly what Kubernetes RBAC, Linux capabilities and host access each Continuum workload asks for, scope by scope — the agent's access tiers, its optional telemetry extractors, and the regional operator (which needs none of this).
+description: Exactly what Kubernetes RBAC, Linux capabilities and host access each Ikhnos workload asks for, scope by scope — the agent's access tiers, its optional telemetry extractors, and the regional operator (which needs none of this).
 ---
 
 # Permissions reference
 
 This page answers one question precisely, with citations into the chart templates themselves so it can't
-quietly drift from what actually gets applied: *what does each thing Continuum deploys actually ask the
+quietly drift from what actually gets applied: *what does each thing Ikhnos deploys actually ask the
 cluster for, and when.* [Trust model](./trust-model.md) is the narrative version of "should I trust this
 with my infrastructure"; this page is the itemized receipt. Re-render with `helm template` after changing
 any `values.yaml` flag named below to see the exact permission set a given configuration holds — the same
@@ -90,7 +90,7 @@ an RBAC-only, capability-dropped container:
 - **Kepler** (`telemetry.energy.metrics.enabled` + `source: bundle-kepler`, energy/power attribution): the
   upstream image's own documented requirement is `privileged: true` and `hostPID: true`, with no
   capability-based alternative — the chart's own comment is explicit that this is a third-party
-  requirement, not a Continuum design choice. It reads `/proc` and `/sys` read-only to attribute RAPL
+  requirement, not an Ikhnos design choice. It reads `/proc` and `/sys` read-only to attribute RAPL
   energy readings to the processes/pods actually using it. RAPL is not, however, a hard
   requirement for Kepler to produce that attribution at all — its eBPF-sampled, model-based estimator is
   the documented upstream fallback once `/sys/class/powercap/intel-rapl` isn't present, and this chart

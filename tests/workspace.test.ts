@@ -403,7 +403,7 @@ await test('an account that must change its password is held before the app load
   assert.equal(useWorkspace.getState().status, 'off', 'the workspace is not loaded yet')
 })
 
-await test('a static host that is not a Continuum server is ignored', async () => {
+await test('a static host that is not an Ikhnos server is ignored', async () => {
   const real = (globalThis as any).fetch
   ;(globalThis as any).fetch = async () => new Response('<html></html>', { status: 200, headers: { 'content-type': 'text/html' } })
   useServer.setState({ status: 'disconnected', url: '' })

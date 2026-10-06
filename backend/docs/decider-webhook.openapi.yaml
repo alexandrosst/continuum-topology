@@ -1,13 +1,13 @@
 openapi: 3.1.0
 info:
-  title: Continuum decider webhook
+  title: Ikhnos decider webhook
   version: "1"
   description: |
-    The contract between a Continuum server and an external placement **decider**: an HTTP service an
+    The contract between an Ikhnos server and an external placement **decider**: an HTTP service an
     administrator points the server at (Settings → Deciders → Address), which the server calls with the
     estate's current shape and which answers with where services should move.
 
-    Continuum makes this call outward; a decider never calls in. That is why it is documented as a
+    Ikhnos makes this call outward; a decider never calls in. That is why it is documented as a
     **webhook** rather than an ordinary path: the one operation below (`decide`) is something *this API's
     implementer* (a decider author) must serve, not something a decider calls on the server. If your
     tooling reads `webhooks` as just another set of paths, that is fine too — the request and response
@@ -40,7 +40,7 @@ webhooks:
       operationId: decide
       summary: A placement decision request (implement this)
       description: |
-        Sent by the Continuum server whenever a person on the Deciders tab runs a comparison, or an
+        Sent by the Ikhnos server whenever a person on the Deciders tab runs a comparison, or an
         automated caller does the same through the browser API. One request per decider per run; the
         server does not batch several organisations' requests together, and it never retries on your
         behalf (a timeout or a non-`2xx` status is simply shown to the person as "the external decider
@@ -57,7 +57,7 @@ webhooks:
         Recompute it over the exact bytes you received (not a re-serialisation — whitespace and key
         order must not be assumed) and compare in constant time; reject anything where it does not
         match, or where the timestamp is further from your own clock than you are willing to accept
-        (a few minutes is reasonable). This is what lets you tell "a Continuum server that knows the
+        (a few minutes is reasonable). This is what lets you tell "an Ikhnos server that knows the
         secret, moments ago" apart from a guess at your address, a network path that can read the body,
         or a captured request replayed later. A reference implementation
         (`signDeciderRequest`/`verifyDeciderSignature`, deliberately small enough to port line for line

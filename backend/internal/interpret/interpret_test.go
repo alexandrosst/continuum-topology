@@ -471,7 +471,7 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 	}
 	// HostWatts is a plain pass-through too, the same pointer treatment as the PSI/OomKillCount fields
 	// right above it - host-wide power from RAPL, when the hardware exposes it, honestly documented as
-	// such (never Continuum's own share of it - see model.Node.HostWatts' own doc comment).
+	// such (never Ikhnos's own share of it - see model.Node.HostWatts' own doc comment).
 	if n.HostWatts == nil || *n.HostWatts != 185.5 {
 		t.Errorf("hostWatts = %v, want 185.5", n.HostWatts)
 	}

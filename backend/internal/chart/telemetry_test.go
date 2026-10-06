@@ -1000,7 +1000,7 @@ func TestTelemetryExportProtocolHTTPUsesOtlphttpExporter(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------------------------------
-// resource/continuum: Continuum's own org/cluster/intent provenance, stamped last before batch so it
+// resource/continuum: Ikhnos's own org/cluster/intent provenance, stamped last before batch so it
 // always wins over a user's own telemetry.processors.extraProcessors (action: upsert, last in the list).
 // -----------------------------------------------------------------------------------------------------
 

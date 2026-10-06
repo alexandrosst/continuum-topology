@@ -11,7 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// The operator heartbeat is OPT-IN: this chart's other promise - it never dials the Continuum server - holds
+// The operator heartbeat is OPT-IN: this chart's other promise - it never dials the Ikhnos server - holds
 // for every release that does not turn heartbeat.enabled on, and these tests pin that, then pin exactly what
 // turning it on adds.
 
@@ -296,12 +296,12 @@ func TestRegionalOperatorChartYamlSaysWhatTheHeartbeatIsAndIsNot(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(b)
-	for _, want := range []string{"By default it never dials the Continuum server", "opt-in heartbeat.enabled", "no telemetry", "separate heartbeat secret"} {
+	for _, want := range []string{"By default it never dials the Ikhnos server", "opt-in heartbeat.enabled", "no telemetry", "separate heartbeat secret"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("Chart.yaml description lacks %q:\n%s", want, s)
 		}
 	}
-	if strings.Contains(s, "Never dials the Continuum server - its only credential") {
+	if strings.Contains(s, "Never dials the Ikhnos server - its only credential") {
 		t.Error("Chart.yaml still makes the unconditional 'never dials' claim")
 	}
 }

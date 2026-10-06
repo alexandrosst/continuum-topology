@@ -2,7 +2,7 @@ import type { AccessTier, Agent, Cluster, Dependency, ExternalEndpoint, MachineN
 
 /* ---------- what the server sends ---------- */
 
-/** The knobs an administrator can turn. Everything else in Continuum works without them. */
+/** The knobs an administrator can turn. Everything else in Ikhnos works without them. */
 export interface AppSettings {
   snapshotMinutes: number
   retentionDays: number

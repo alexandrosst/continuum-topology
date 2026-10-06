@@ -1,4 +1,4 @@
-// Command continuum is the one binary (and one container image) behind every part of Continuum that runs in a cluster.
+// Command continuum is the one binary (and one container image) behind every part of Ikhnos that runs in a cluster.
 // Its first argument picks the role:
 //
 //	continuum agent   the in-cluster agent (Deployment)

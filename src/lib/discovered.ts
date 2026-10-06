@@ -2,7 +2,7 @@ import { ipScope } from './present'
 import { applyRef } from './declared'
 import type { AccessTier, Agent, AgentLink, AgentScope, AuditEvent, ClusterLink, ClusterPairConnectivity, ConsistencyStatus, DeclaredRef, DiscoveryAgent, ObserverStatus, Path, Cluster, Dependency, ExternalEndpoint, GeoHint, GeoUnlocatableReason, MachineNode, Model, Namespace, Service, Suggestion, Tombstone } from './types'
 
-/** What the Continuum server returns from GET /api/v1/state. */
+/** What the Ikhnos server returns from GET /api/v1/state. */
 export interface ServerAgent {
   id: string
   orgId: string

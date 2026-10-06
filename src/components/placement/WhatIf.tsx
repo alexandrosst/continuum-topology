@@ -24,7 +24,7 @@ const Delta = ({ before, after, unit, fmt }: { before: number; after: number; un
 
 /**
  * Build a scenario, see what it does. Moves are judged in order, so a later move sees the capacity and the
- * neighbours the earlier ones left. Nothing is applied: this is arithmetic on the picture Continuum already has.
+ * neighbours the earlier ones left. Nothing is applied: this is arithmetic on the picture Ikhnos already has.
  */
 export default function WhatIf({ world, policy, initial }: { world: World; policy: Policy; initial?: Move[] }) {
   const [moves, setMoves] = useState<Move[]>(initial ?? [])

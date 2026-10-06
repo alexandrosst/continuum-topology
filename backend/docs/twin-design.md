@@ -1,6 +1,6 @@
 # The twin: declared and observed, kept apart
 
-Continuum's model of an estate has two authors. **People** say what should be true: sites, devices, links they
+Ikhnos's model of an estate has two authors. **People** say what should be true: sites, devices, links they
 know about, policies, the applications they accepted, values they corrected. **Agents** report what is true
 right now: clusters, nodes, namespaces, workloads. The twin is the rule that keeps these apart, combines them
 on request, and never lets one pass for the other.

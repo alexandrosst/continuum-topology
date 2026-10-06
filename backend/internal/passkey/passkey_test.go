@@ -18,7 +18,7 @@ import (
 // is the entire reason WebAuthnProvider exists as a seam.
 
 func testRP() server.RelyingParty {
-	return server.RelyingParty{ID: "localhost", Origin: "https://localhost", Name: "Continuum Test"}
+	return server.RelyingParty{ID: "localhost", Origin: "https://localhost", Name: "Ikhnos Test"}
 }
 
 func testUser() server.WebAuthnUser {

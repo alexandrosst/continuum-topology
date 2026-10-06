@@ -22,7 +22,7 @@
 <g transform="translate(271.65,108.8) scale(1.15)" fill="none" stroke="#f68330" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
       <rect x="1" y="1" width="16" height="11" rx="1.5"/><path d="M6 16h6M9 12v4"/></g>
 <text x="60" y="152" font-size="13" font-weight="700" fill="#e4e7e9" text-anchor="start">You click “Connect a cluster”</text>
-<text x="60" y="174" font-size="11" font-weight="400" fill="#8a97a2" text-anchor="start">In the Continuum UI. Nothing</text>
+<text x="60" y="174" font-size="11" font-weight="400" fill="#8a97a2" text-anchor="start">In the Ikhnos UI. Nothing</text>
 <text x="60" y="191" font-size="11" font-weight="400" fill="#8a97a2" text-anchor="start">on the cluster side exists yet.</text>
 <rect x="354" y="90" width="272" height="178" rx="14" fill="#1f2124" stroke="#f68330" stroke-width="1.6" filter="url(#soft-shadow)"/>
 <circle cx="380" cy="116" r="15" fill="#25282c" stroke="#f68330" stroke-width="1.6"/>

@@ -292,7 +292,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
     >
       {phase === 'form' && (
         <div className="space-y-5">
-          <Field label="Cluster name" hint="How it appears in Continuum. You can rename it later.">
+          <Field label="Cluster name" hint="How it appears in Ikhnos. You can rename it later.">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="edge-patras" autoFocus />
           </Field>
           <p className="text-xs text-nb-500">Installs read-only at the recommended access level. It can never read Secrets or ConfigMaps, or change anything in the cluster — change what it may see under More options.</p>
@@ -323,7 +323,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                     onChange={setProbe}
                     title="Also tell virtual machines from bare metal"
                     summary="Reads CPU flags and firmware info on every node, read-only, reporting only inside the cluster."
-                    why="Kubernetes cannot say whether a node is a VM or a physical server, so Continuum otherwise guesses and marks the guess as uncertain. This is a small pod on every node that reads CPU flags, firmware vendor/product name, ARM board model, and which network interface kinds are up - never serial numbers, MAC addresses, disks or processes."
+                    why="Kubernetes cannot say whether a node is a VM or a physical server, so Ikhnos otherwise guesses and marks the guess as uncertain. This is a small pod on every node that reads CPU flags, firmware vendor/product name, ARM board model, and which network interface kinds are up - never serial numbers, MAC addresses, disks or processes."
                   />
                   {max >= 2 && (
                     <OptionToggle
@@ -456,7 +456,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                   <details className="mt-1.5">
                     <summary className="cursor-pointer text-nb-300">If helm says not found or unauthorized</summary>
                     <p className="mt-1">
-                      They have not been published yet, or the registry is private. Ask whoever manages this Continuum server to publish them (see the deployment guide) or grant the cluster's registry credentials access.
+                      They have not been published yet, or the registry is private. Ask whoever manages this Ikhnos server to publish them (see the deployment guide) or grant the cluster's registry credentials access.
                       {info?.install?.chartFile && (
                         <> To skip the registry for just the chart, use the copy this server already serves: <code className="font-mono">curl -fLO {`${baseUrl || window.location.origin}/charts/${info.install.chartFile}`}</code>, then change the start of the command to <code className="font-mono">helm install continuum-agent ./{info.install.chartFile}</code> and drop <code className="font-mono">--version</code>.</>
                       )}

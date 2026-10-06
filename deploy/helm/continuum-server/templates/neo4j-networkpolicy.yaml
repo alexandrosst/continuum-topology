@@ -1,5 +1,5 @@
 {{- if and (eq .Values.neo4j.mode "bundled") .Values.neo4j.networkPolicy.enabled }}
-# Only the Continuum server pod may reach the bundled Neo4j, and only on its HTTP port. (Reach it yourself with kubectl port-forward,
+# Only the Ikhnos server pod may reach the bundled Neo4j, and only on its HTTP port. (Reach it yourself with kubectl port-forward,
 # which does not pass through the pod network policy.)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

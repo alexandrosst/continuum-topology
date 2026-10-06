@@ -60,7 +60,7 @@ func (c *Core) operatorInOrg(ctx context.Context, id string) (store.Operator, er
 }
 
 // validateDestination checks that a Destination is well-formed and, for DestinationOperator, that it
-// names a currently active regional operator in this organisation. Continuum's fleet is two tiers: an
+// names a currently active regional operator in this organisation. Ikhnos's fleet is two tiers: an
 // agent's own telemetry intent, or a regional operator's own export, may point directly AT one regional
 // operator, but nothing here builds live reparenting or operator-to-operator chaining beyond that single
 // hop - the target operator's own Destination (if it is itself "operator") is not walked or re-validated

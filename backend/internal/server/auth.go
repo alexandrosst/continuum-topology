@@ -515,7 +515,7 @@ func (c *Core) RequestLoginEmailCode(ctx context.Context, ip, pending string) er
 	if err != nil {
 		return err
 	}
-	if err := c.Mailer().send(u.Email, "Your Continuum sign-in code", emailCodeBody(code, "sign in")); err != nil {
+	if err := c.Mailer().send(u.Email, "Your Ikhnos sign-in code", emailCodeBody(code, "sign in")); err != nil {
 		return errf(KindInternal, "could not send the sign-in email: %v", err)
 	}
 	return nil
@@ -706,7 +706,7 @@ func (c *Core) ChangePassword(ctx context.Context, p Principal, current, next st
 
 // totpIssuer is the "issuer" every otpauth:// URI carries, and what shows above the account name in an
 // authenticator app.
-const totpIssuer = "Continuum"
+const totpIssuer = "Ikhnos"
 
 // RecoveryCodeCount is how many one-time recovery codes Enable2FA hands out.
 const RecoveryCodeCount = 8
@@ -804,7 +804,7 @@ func (c *Core) RequestEmailVerification(ctx context.Context, p Principal, email 
 	if err != nil {
 		return err
 	}
-	if err := c.Mailer().send(addr, "Your Continuum verification code", emailCodeBody(code, "confirm this email address")); err != nil {
+	if err := c.Mailer().send(addr, "Your Ikhnos verification code", emailCodeBody(code, "confirm this email address")); err != nil {
 		return errf(KindInternal, "could not send the verification email: %v", err)
 	}
 	return c.Store.SetEmail(ctx, p.User.ID, addr, nil)

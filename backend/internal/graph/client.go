@@ -1,4 +1,4 @@
-// Package graph keeps Continuum's memory in a Neo4j graph: what the estate looked like at any moment
+// Package graph keeps Ikhnos's memory in a Neo4j graph: what the estate looked like at any moment
 // (a temporal graph of versioned entities), what changed, and who did what.
 //
 // Neo4j Community has one database, so tenants are separated by the queries and nothing else. Every

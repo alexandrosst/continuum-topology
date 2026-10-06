@@ -73,7 +73,7 @@ export default function DiscoveryPage() {
         <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-nb-850 bg-nb-925 px-5 py-3" data-testid="server-status">
           <div className="flex items-center gap-3 text-sm text-nb-400">
             <PlugZap size={ICON_SM} className="shrink-0 text-nb-500" />
-            {server.status === 'error' ? server.error : 'Not connected to a Continuum server. Without one you can still model topologies by hand.'}
+            {server.status === 'error' ? server.error : 'Not connected to an Ikhnos server. Without one you can still model topologies by hand.'}
           </div>
           <Button size="sm" onClick={connect.start}>Connect to server</Button>
         </div>

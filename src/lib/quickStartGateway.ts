@@ -2,7 +2,7 @@ import type { QuickStartBackend, QuickStartKind } from './history'
 import { hasQuickStartSpec } from './quickStartBackends'
 
 /**
- * Part C of the quick-start gateway: a plain Kubernetes manifest (not a new Continuum-maintained Helm
+ * Part C of the quick-start gateway: a plain Kubernetes manifest (not a new Ikhnos-maintained Helm
  * chart - just YAML, the same "mechanism only" shape quickStartBackends.ts already uses for the `helm
  * install` commands) for a minimal nginx:alpine reverse-proxy Deployment/Service/ConfigMap, in the same
  * namespace as the quick-start install, that gates access to the already-installed tool: it checks
@@ -96,7 +96,7 @@ export function gatewayManifest(backend: QuickStartBackend, token: string): stri
 }
 `
 
-  const yaml = `# Gates ${target.service}.${ns} behind a bearer token this nginx checks itself - Continuum never sees
+  const yaml = `# Gates ${target.service}.${ns} behind a bearer token this nginx checks itself - Ikhnos never sees
 # this traffic and never dials ${target.service} directly. Run the install command above first (it
 # creates the Service this proxies to), then this one.
 apiVersion: v1

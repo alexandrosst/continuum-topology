@@ -10,7 +10,12 @@ import type { Site } from '@/lib/types'
 /* ---------- ownership ---------- */
 
 /** Who the product belongs to, shown in the footer of the menu and of the sign-in page. Change it here. */
-export const OWNER = 'Continuum Topology Studio'
+export const OWNER = 'Ikhnos Topology Studio'
+
+/** The product's mark: a path being traced, with its nodes. Orange reads on both themes, so there is one file. */
+export function BrandMark({ className }: { className?: string }) {
+  return <img src="/brand/mark/ikhnos-mark.svg" alt="" aria-hidden className={clsx('h-8 w-auto shrink-0', className)} data-testid="brand-mark" />
+}
 
 export function Copyright({ className }: { className?: string }) {
   return (

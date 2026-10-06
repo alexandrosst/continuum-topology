@@ -11,7 +11,7 @@ import { useConn, useServer } from '@/store/server'
 const POLL_MS = 15_000
 
 /**
- * What running Continuum itself costs, broken out per entity (the server process, and every connected
+ * What running Ikhnos itself costs, broken out per entity (the server process, and every connected
  * agent/cluster) - see backend/internal/server/admin_telemetry.go's own doc comment for exactly what the
  * API behind this returns and why. Read-only and diagnostic: nothing here is editable, and polling stays
  * coarse on purpose (see POLL_MS above).
@@ -22,7 +22,7 @@ export default function SystemHealthPage() {
   if (status !== 'connected') {
     return (
       <>
-        <PageHeader title="System Health" description="What running Continuum itself costs, in your own clusters." />
+        <PageHeader title="System Health" description="What running Ikhnos itself costs, in your own clusters." />
         <EmptyState
           title="System Health needs a server"
           description="Connect to a server to see what its own process, and every connected agent's, is actually costing - memory, goroutines, CPU, and (when the hardware exposes them) network and power share."
@@ -65,7 +65,7 @@ function Connected({ conn }: { conn: Conn }) {
     <>
       <PageHeader
         title="System Health"
-        description="What running Continuum itself costs, in your own clusters: each agent's and the server's own memory, goroutines and CPU, plus network and power share where the hardware exposes them. Nothing here is synthetic - a metric this hardware can't report stays visibly unavailable rather than showing a guess."
+        description="What running Ikhnos itself costs, in your own clusters: each agent's and the server's own memory, goroutines and CPU, plus network and power share where the hardware exposes them. Nothing here is synthetic - a metric this hardware can't report stays visibly unavailable rather than showing a guess."
       />
       {error && <ErrorBanner className="mb-4">{error}</ErrorBanner>}
       {entities === null ? (
