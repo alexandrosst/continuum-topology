@@ -269,7 +269,9 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 	// failed, the operator falls back to ReceiverAuthBearer and a token IS minted, so the receiver is never
 	// left with no gate whatever happens here. The operator is still created either way - failing the
 	// request would report an operator that does not exist when it does.
-	hosts := []string{op.ID + ".continuum-system", op.ID + ".continuum-system.svc", op.ID + ".continuum-system.svc.cluster.local"}
+	svc := operatorServiceName(op.ID)
+	hosts := []string{op.ID + ".continuum-system", op.ID + ".continuum-system.svc", op.ID + ".continuum-system.svc.cluster.local",
+		svc + ".continuum-system", svc + ".continuum-system.svc", svc + ".continuum-system.svc.cluster.local"}
 	bundle, caKeyPEM, tlsErr := mintOperatorTLS(c, op.ID, hosts)
 	var secret string
 	var tokenHash []byte
@@ -422,6 +424,36 @@ func (c *Core) SetOperatorAddress(ctx context.Context, actor, id, address string
 // operatorServerName is the name on an operator's receiver certificate that never changes (the SANs
 // CreateOperator asks for): callers that reach the operator at an advertised address verify against this.
 func operatorServerName(op store.Operator) string { return op.ID + ".continuum-system.svc" }
+
+// operatorServiceName is the name of the Kubernetes Service the regional-operator chart creates for a release named
+// after the operator (what the install command does): the chart's own "operator.name" rule, which appends
+// "-regional-operator" unless the release name already contains it, cut to 63 characters. This is the DNS name a
+// sender in the same cluster dials; it is NOT the operator's id, and it is not what the certificate is verified by
+// (operatorServerName is).
+func operatorServiceName(id string) string {
+	name := id
+	if !strings.Contains(id, "regional-operator") {
+		name = id + "-regional-operator"
+	}
+	if len(name) > 63 {
+		name = name[:63]
+	}
+	return strings.TrimRight(name, "-")
+}
+
+// operatorInClusterEndpoint is where a sender inside the same cluster dials a regional operator: its Service in the
+// namespace the install commands use.
+func operatorInClusterEndpoint(op store.Operator) string {
+	return fmt.Sprintf("%s.continuum-system.svc:%d", operatorServiceName(op.ID), DefaultOperatorPort)
+}
+
+// operatorNeedsServerName says whether a sender must verify op's certificate by its stable name instead of the name it
+// dials. That is every regional operator (its Service name is not on the certificate, its stable name is) and the
+// central operator once it is reached at a public address; the central operator inside its own cluster is dialled by
+// a name its certificate carries.
+func operatorNeedsServerName(op store.Operator) bool {
+	return op.ID != CentralOperatorID || op.Address != ""
+}
 
 func (c *Core) RevokeOperator(ctx context.Context, actor, id, reason string) error {
 	if err := guardCentral(id); err != nil {

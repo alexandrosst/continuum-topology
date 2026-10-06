@@ -28,7 +28,9 @@ export function Button({
   className,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: 'sm' | 'md' }) {
-  return <button {...props} className={buttonClass(variant, size, className)} />
+  // type="button" unless the caller says otherwise: a button inside a <form> submits it by default, and most of ours (a switch, a copy, a
+  // dialog's Cancel) are not the form's submit.
+  return <button type="button" {...props} className={buttonClass(variant, size, className)} />
 }
 
 /* ---------- Copy to clipboard ---------- */

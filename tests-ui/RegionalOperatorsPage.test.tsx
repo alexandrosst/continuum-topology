@@ -294,6 +294,15 @@ describe('RegionalOperatorsPage - FUSION and the central operator', () => {
     expect(createOperator.mock.calls[0][3]).toMatchObject({ kind: 'operator', targetOperatorId: 'op-central' })
   })
 
+  test('the Enable FUSION switch inside the create dialog turns FUSION on without also submitting the form', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await chooseCentral(user)
+    await user.click(within(screen.getByRole('dialog')).getByTestId('fusion-enable'))
+    await waitFor(() => expect(enableFusion).toHaveBeenCalledTimes(1))
+    expect(createOperator).not.toHaveBeenCalled()
+  })
+
   test('with FUSION already running the button just creates, and FUSION is not touched', async () => {
     fusionStatus = fusionRunning()
     const user = userEvent.setup()
@@ -676,7 +685,7 @@ describe('RegionalOperatorsPage - where other clusters reach an operator', () =>
     const note = await screen.findByTestId('operator-created-address')
     expect(note).toHaveTextContent('Reachable at')
     // The load balancer line only, since that is what was chosen; it names the operator's own Service.
-    expect(screen.getByTestId('operator-created-find-lb')).toHaveTextContent('kubectl get svc op-1 --namespace continuum-system')
+    expect(screen.getByTestId('operator-created-find-lb')).toHaveTextContent('kubectl get svc op-1-regional-operator --namespace continuum-system')
     expect(screen.queryByTestId('operator-created-find-np')).not.toBeInTheDocument()
   })
 
@@ -766,7 +775,7 @@ describe('RegionalOperatorsPage - where other clusters reach an operator', () =>
     renderPage()
     await user.click(await screen.findByTestId('operator-address-open-local-op'))
     expect(screen.getByTestId('operator-address-explain')).toHaveTextContent('no certificate is reissued')
-    expect(screen.getByTestId('operator-address-find-lb')).toHaveTextContent('kubectl get svc op-a')
+    expect(screen.getByTestId('operator-address-find-lb')).toHaveTextContent('kubectl get svc op-a-regional-operator')
     expect(screen.getByTestId('operator-address-find-np')).toHaveTextContent('nodePort')
     await user.type(screen.getByTestId('operator-address-input'), '  203.0.113.7:4317 ')
     listOperators.mockClear()
@@ -798,5 +807,14 @@ describe('RegionalOperatorsPage - where other clusters reach an operator', () =>
     await user.clear(input)
     await user.click(screen.getByTestId('operator-address-save'))
     await waitFor(() => expect(setOperatorAddress).toHaveBeenCalledWith({ url: '', org: 'o' }, 'op-b', ''))
+  })
+})
+
+describe('operatorServiceName', () => {
+  test('follows the chart: the release name plus -regional-operator, unless it already says so', async () => {
+    const { operatorServiceName } = await import('@/components/operators/OperatorAddress')
+    expect(operatorServiceName('op-abc')).toBe('op-abc-regional-operator')
+    expect(operatorServiceName('eu-regional-operator')).toBe('eu-regional-operator')
+    expect(operatorServiceName('x'.repeat(70))).toHaveLength(63)
   })
 })

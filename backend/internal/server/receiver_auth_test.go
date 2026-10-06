@@ -66,7 +66,7 @@ func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 	if got != want {
 		t.Fatalf("bearer install command changed:\n got: %q\nwant: %q", got, want)
 	}
-	if secretCmd != "kubectl create secret generic op-abc123-receiver-auth --namespace continuum-system \\\n  --from-literal=token=cno_SECRET \\\n  --dry-run=client -o yaml | kubectl apply -f -" {
+	if secretCmd != "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl create secret generic op-abc123-receiver-auth --namespace continuum-system \\\n  --from-literal=token=cno_SECRET \\\n  --dry-run=client -o yaml | kubectl apply -f -" {
 		t.Fatalf("secret command = %q", secretCmd)
 	}
 	// No certificates minted: bearer only, as before.
@@ -120,8 +120,8 @@ func TestCreateOperatorFallsBackToBearerWhenTheTLSMintFails(t *testing.T) {
 func TestOperatorDestinationCommandIsTheSameForBothAuthModes(t *testing.T) {
 	for _, mode := range []store.ReceiverAuth{store.ReceiverAuthMTLS, store.ReceiverAuthBearer} {
 		op := store.Operator{ID: "op-abc123", ReceiverAuth: mode}
-		flags, secret := operatorDestinationCommand(op, "op-abc123.continuum-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
-		wantFlags := "--set telemetry.export.otlp.endpoint=op-abc123.continuum-system.svc:4317 --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-abc123-export-mtls"
+		flags, secret := operatorDestinationCommand(op, "op-abc123-regional-operator.continuum-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
+		wantFlags := "--set telemetry.export.otlp.endpoint=op-abc123-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-abc123-export-mtls --set telemetry.export.otlp.tls.serverName=op-abc123.continuum-system.svc"
 		wantSecret := "kubectl create secret generic op-abc123-export-mtls --namespace ns1 \\\n  --from-literal=tls.crt=\"CERT\" \\\n  --from-literal=tls.key=\"KEY\" \\\n  --from-literal=ca.crt=\"CA\" \\\n  --dry-run=client -o yaml | kubectl apply -f -"
 		if flags != wantFlags || secret != wantSecret {
 			t.Fatalf("%s: flags=%q secret=%q", mode, flags, secret)
@@ -160,7 +160,7 @@ func TestIntentCommandReportsTheOperatorsReceiverAuth(t *testing.T) {
 		if r.Code != 200 || doc["receiverAuth"] != c.want {
 			t.Fatalf("%s: %d %v", c.want, r.Code, doc)
 		}
-		if frag := doc["installFragment"].(string); !strings.Contains(frag, "--set telemetry.export.otlp.endpoint="+c.id+".continuum-system.svc:4317") {
+		if frag := doc["installFragment"].(string); !strings.Contains(frag, "--set telemetry.export.otlp.endpoint="+operatorServiceName(c.id)+".continuum-system.svc:4317") {
 			t.Fatalf("%s: %s", c.want, frag)
 		}
 		// Retire the intent so the next operator can be targeted (one active intent per agent).
@@ -210,5 +210,18 @@ func TestInstallCommandQuotesOperatorNameAndLabels(t *testing.T) {
 	want := `--set-json operator='{"id":"op-q","name":"O'\''Brien; rm -rf /","labels":[{"key":"region","value":"eu '\''south'\''"}]}'`
 	if !strings.Contains(got, want) {
 		t.Fatalf("install command lacks %s:\n%s", want, got)
+	}
+}
+
+// The operator's own Secrets are applied before its install creates the namespace, so each starts by making sure
+// the namespace is there; the Secrets that go to a source cluster's existing namespace do not.
+func TestOperatorOwnSecretsEnsureTheNamespaceFirst(t *testing.T) {
+	tls := operatorTLSSecretCommand(store.Operator{ID: "op-abc"}, OperatorTLSBundle{ReceiverCertPEM: []byte("C"), ReceiverKeyPEM: []byte("K"), CACertPEM: []byte("A")})
+	if !strings.HasPrefix(tls, "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\n") || !strings.Contains(tls, "kubectl create secret generic op-abc-receiver-tls") {
+		t.Fatalf("receiver TLS secret command: %q", tls)
+	}
+	client := operatorClientSecretCommand(store.Operator{ID: "op-abc"}, []byte("C"), []byte("K"), []byte("A"), "continuum-system")
+	if strings.Contains(client, "create namespace") {
+		t.Fatalf("a client Secret goes into an existing namespace: %q", client)
 	}
 }

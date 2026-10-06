@@ -1,9 +1,13 @@
 package server
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"continuum/internal/chart"
 	"continuum/internal/store"
 )
 
@@ -94,9 +98,10 @@ func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t
 		t.Fatalf("a made-up exposure: %d", r.Code)
 	}
 
-	// While there is no address, an operator pointing at it gets the in-cluster name and no server-name override.
+	// While there is no address, an operator pointing at it gets its Service name in the cluster, and verifies the
+	// certificate by the stable name (the Service name is not on it).
 	down := create("edge", map[string]any{"kind": "operator", "targetOperatorId": upID}, nil)
-	if !strings.Contains(down["install"].(string), "--set export.otlp.endpoint="+upID+".continuum-system.svc:4317") || strings.Contains(down["install"].(string), "serverName") {
+	if !strings.Contains(down["install"].(string), "--set export.otlp.endpoint="+operatorServiceName(upID)+".continuum-system.svc:4317") || !strings.Contains(down["install"].(string), "--set export.otlp.tls.serverName="+upID+".continuum-system.svc") {
 		t.Fatalf("before an address is set: %v", down["install"])
 	}
 
@@ -256,7 +261,75 @@ func TestAnOperatorRouteVerifiesTheStableNameWhenItHasAnAddress(t *testing.T) {
 	if !strings.Contains(got, "--set telemetry.export.routes.traces.tls.serverName=op-abc.continuum-system.svc") {
 		t.Fatalf("%s", got)
 	}
-	if strings.Contains(operatorRouteFlags(store.Operator{ID: "op-abc"}, "op-abc.continuum-system.svc:4317", store.ModalityTraces), "serverName") {
-		t.Fatal("an operator with no address gets a server name override")
+	// With no address it is dialled by its Service name, which is not on the certificate: the stable name still is.
+	if !strings.Contains(operatorRouteFlags(store.Operator{ID: "op-abc"}, "op-abc-regional-operator.continuum-system.svc:4317", store.ModalityTraces), "--set telemetry.export.routes.traces.tls.serverName=op-abc.continuum-system.svc") {
+		t.Fatal("a regional operator with no address must still be verified by its stable name")
+	}
+	// The central operator in its own cluster is dialled by a name its certificate carries.
+	if strings.Contains(operatorRouteFlags(store.Operator{ID: CentralOperatorID}, "x.continuum.svc:4317", store.ModalityTraces), "serverName") {
+		t.Fatal("the in-cluster central operator needs no server name override")
+	}
+}
+
+// The Service the chart creates, and the name a sender in the same cluster dials, are one and the same: the chart's
+// own naming rule (release name, plus "-regional-operator" unless it already says so), and the receiver certificate
+// carries both that name and the stable one.
+func TestOperatorServiceNameFollowsTheChartAndIsOnTheCertificate(t *testing.T) {
+	for _, c := range []struct{ id, want string }{
+		{"op-abc", "op-abc-regional-operator"},
+		{"my-regional-operator", "my-regional-operator"},
+		{"op-" + strings.Repeat("x", 70), ("op-" + strings.Repeat("x", 70) + "-regional-operator")[:63]},
+	} {
+		if got := operatorServiceName(c.id); got != c.want {
+			t.Fatalf("operatorServiceName(%q) = %q, want %q", c.id, got, c.want)
+		}
+	}
+	op := store.Operator{ID: "op-abc"}
+	if got := operatorInClusterEndpoint(op); got != "op-abc-regional-operator.continuum-system.svc:4317" {
+		t.Fatalf("in-cluster endpoint: %s", got)
+	}
+	if !operatorNeedsServerName(op) || operatorNeedsServerName(store.Operator{ID: CentralOperatorID}) || !operatorNeedsServerName(store.Operator{ID: CentralOperatorID, Address: "a:1"}) {
+		t.Fatal("which operators need a server name override")
+	}
+}
+
+// What the server tells a sender to dial is the Service the chart really creates for that release: rendered here
+// for the exact release name the install command uses (the operator's id), for plain and "regional-operator" names.
+func TestTheDialledServiceNameIsTheOneTheChartRenders(t *testing.T) {
+	h, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm is not installed")
+	}
+	pkg, err := chart.RegionalOperator.Package()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tgz := filepath.Join(t.TempDir(), chart.RegionalOperator.Filename())
+	if err := os.WriteFile(tgz, pkg, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"op-52c91de1fa99", "eu-regional-operator"} {
+		out, err := exec.Command(h, "template", id, tgz, "--set", "export.otlp.endpoint=c:4317").CombinedOutput()
+		if err != nil {
+			t.Fatalf("helm template %s: %v\n%s", id, err, out)
+		}
+		var svc string
+		for _, doc := range strings.Split(string(out), "\n---") {
+			if !strings.Contains(doc, "\nkind: Service\n") {
+				continue
+			}
+			for _, line := range strings.Split(doc, "\n") {
+				if strings.HasPrefix(line, "  name: ") {
+					svc = strings.TrimSpace(strings.TrimPrefix(line, "  name: "))
+					break
+				}
+			}
+		}
+		if svc == "" || svc != operatorServiceName(id) {
+			t.Fatalf("release %s renders Service %q, the server dials %q", id, svc, operatorServiceName(id))
+		}
+		if want := svc + ".continuum-system.svc:4317"; operatorInClusterEndpoint(store.Operator{ID: id}) != want {
+			t.Fatalf("endpoint %s, want %s", operatorInClusterEndpoint(store.Operator{ID: id}), want)
+		}
 	}
 }

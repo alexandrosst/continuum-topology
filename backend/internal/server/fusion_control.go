@@ -53,6 +53,10 @@ type FusionControl struct {
 	mu    sync.Mutex
 	data  *fusionapi.Client
 	since time.Time // when the stores were last asked to start; zero when off or unknown
+	// notReady is when the stores were first seen not all ready, zero while they are (or FUSION is off). The grace
+	// period counts from here, not from `since`: a pod that restarts a month into a healthy run is "starting"
+	// again, not "attention after 43,200 minutes".
+	notReady time.Time
 }
 
 func (f *FusionControl) now() time.Time {
@@ -195,16 +199,20 @@ func (f *FusionControl) Status(ctx context.Context) FusionStatus {
 	switch {
 	case desired == 0:
 		st.State = "off"
-		f.since = time.Time{}
+		f.since, f.notReady = time.Time{}, time.Time{}
 	case ready >= desired:
 		st.State = "running"
+		f.notReady = time.Time{}
 	default:
 		st.State = "starting"
 		if f.since.IsZero() { // the server restarted while FUSION was starting: count from now
 			f.since = f.now()
 		}
-		if f.now().Sub(f.since) > fusionStartGrace {
-			st.State, st.Message = "attention", fmt.Sprintf("%d of %d parts are up after %d minutes. Check the pods (kubectl -n %s get pods) - most often an image that cannot be pulled or a volume that cannot be bound.", ready, desired, int(f.now().Sub(f.since).Minutes()), f.Namespace)
+		if f.notReady.IsZero() { // first seen not ready (a fresh start, a restart of the server, or a pod that fell over)
+			f.notReady = f.now()
+		}
+		if f.now().Sub(f.notReady) > fusionStartGrace {
+			st.State, st.Message = "attention", fmt.Sprintf("%d of %d parts are up after %d minutes. Check the pods (kubectl -n %s get pods) - most often an image that cannot be pulled or a volume that cannot be bound.", ready, desired, int(f.now().Sub(f.notReady).Minutes()), f.Namespace)
 		}
 	}
 	if !f.since.IsZero() {
@@ -232,7 +240,7 @@ func (f *FusionControl) Enable(ctx context.Context, c *Core, actor string) (Fusi
 		return FusionStatus{}, kubeFail("put the gateway's certificate in place", err)
 	}
 	f.mu.Lock()
-	f.since = f.now()
+	f.since, f.notReady = f.now(), f.now()
 	f.mu.Unlock()
 	if err := f.scaleAll(ctx, 1); err != nil {
 		return FusionStatus{}, err
@@ -278,7 +286,7 @@ func (f *FusionControl) Disable(ctx context.Context, c *Core, actor string) (Fus
 		return FusionStatus{}, err
 	}
 	f.mu.Lock()
-	f.since = time.Time{}
+	f.since, f.notReady = time.Time{}, time.Time{}
 	f.mu.Unlock()
 	c.audit(ctx, actor, "fusion-disabled", "fusion", f.Name, "")
 	return f.Status(ctx), nil

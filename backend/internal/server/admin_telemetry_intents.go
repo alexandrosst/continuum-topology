@@ -219,6 +219,12 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
+	// A revoked intent grants nothing: handing out a command (and a freshly issued client certificate) for it would
+	// quietly restore what was taken away.
+	if ti.Status != store.TelemetryIntentActive {
+		a.fail(w, errf(KindConflict, "this telemetry intent is %s; create a new one to get a command", ti.Status))
+		return
+	}
 	agent, err := a.core(r).agentInOrg(r.Context(), ti.AgentID)
 	if err != nil {
 		a.fail(w, err)

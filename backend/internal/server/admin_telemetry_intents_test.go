@@ -213,7 +213,7 @@ func TestTelemetryIntentCommandOperatorDestinationReissuesEachTime(t *testing.T)
 	}
 
 	frag1, secret1 := command()
-	if !strings.Contains(frag1, "--set telemetry.export.otlp.endpoint="+opID+".continuum-system.svc:4317") {
+	if !strings.Contains(frag1, "--set telemetry.export.otlp.endpoint="+operatorServiceName(opID)+".continuum-system.svc:4317") {
 		t.Fatalf("installFragment missing the resolved operator endpoint: %q", frag1)
 	}
 	if !strings.Contains(frag1, "telemetry.export.otlp.tls.mtls.enabled=true") {
@@ -314,7 +314,7 @@ func TestTelemetryIntentCommandRoutesShareOneCertificatePerOperator(t *testing.T
 	secret := opID + "-export-mtls"
 	for _, m := range []string{"metrics", "logs"} {
 		for _, want := range []string{
-			"--set telemetry.export.routes." + m + ".endpoint=" + opID + ".continuum-system.svc:4317",
+			"--set telemetry.export.routes." + m + ".endpoint=" + operatorServiceName(opID) + ".continuum-system.svc:4317",
 			"--set telemetry.export.routes." + m + ".tls.mtls.enabled=true",
 			"--set telemetry.export.routes." + m + ".tls.mtls.secretName=" + secret,
 		} {
@@ -345,5 +345,29 @@ func TestTelemetryIntentCommandRoutesShareOneCertificatePerOperator(t *testing.T
 	doc = a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(cookie)).json(t)
 	if f, _ := doc["installFragment"].(string); !strings.Contains(f, "telemetry.export.otlp.endpoint="+opID) || strings.Contains(f, "export.routes") {
 		t.Fatalf("after clearing the routes the fragment is %q", f)
+	}
+}
+
+// A revoked intent grants nothing, so it hands out no command - and so issues no client certificate.
+func TestTelemetryIntentCommandRefusesARevokedIntent(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleAdmin)
+	agentID := a.approvedAgentID(t, fp2)
+	r := a.do("POST", "/api/v1/telemetry-intents", map[string]any{
+		"agentId": agentID, "name": "patras-edge",
+		"destination": map[string]any{"kind": "external", "endpoint": "collector.example:4317"},
+	}, withCookie(cookie))
+	if r.Code != 201 {
+		t.Fatalf("create intent: %d %s", r.Code, r.Body.String())
+	}
+	id, _ := r.json(t)["id"].(string)
+	if r := a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(cookie)); r.Code != 200 {
+		t.Fatalf("command while active: %d %s", r.Code, r.Body.String())
+	}
+	if r := a.do("POST", "/api/v1/telemetry-intents/"+id+"/revoke", map[string]any{"reason": "done"}, withCookie(cookie)); r.Code != 204 {
+		t.Fatalf("revoke: %d %s", r.Code, r.Body.String())
+	}
+	if r := a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(cookie)); r.Code != 409 {
+		t.Fatalf("command for a revoked intent: %d %s", r.Code, r.Body.String())
 	}
 }

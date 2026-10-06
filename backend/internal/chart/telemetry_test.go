@@ -1460,3 +1460,45 @@ func TestTelemetryInfraScopeNarrowsOnlyRecordsThatCarryANamespace(t *testing.T) 
 		t.Errorf("system logs are not narrowed by the infra scope")
 	}
 }
+
+// Application metrics with no scrape targets must not render the Prometheus receiver at all: the upstream receiver
+// refuses to load with an empty scrape_configs, which would take the whole cluster collector down with it. The app's
+// own OTLP receiver keeps working. With targets the receiver is there, and the relabel's capture group is escaped
+// ($$) so the collector's own ${...} expansion does not eat it.
+func TestApplicationMetricsWithoutScrapeTargetsRendersNoPrometheusReceiver(t *testing.T) {
+	base := []string{"--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.applicationMetrics.metrics.enabled=true"}
+	cfg := func(args ...string) map[string]any {
+		r := render(t, append(append([]string{}, base...), args...)...)
+		return otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	}
+	c := cfg()
+	receivers, _ := c["receivers"].(map[string]any)
+	if _, ok := receivers["prometheus/app"]; ok {
+		t.Fatalf("prometheus/app rendered with no scrape targets: %v", keys(receivers))
+	}
+	pipes, _ := c["service"].(map[string]any)["pipelines"].(map[string]any)
+	app, _ := pipes["metrics/app"].(map[string]any)
+	for _, r := range app["receivers"].([]any) {
+		if r == "prometheus/app" {
+			t.Fatalf("metrics/app still names prometheus/app: %v", app["receivers"])
+		}
+	}
+	found := false
+	for _, r := range app["receivers"].([]any) {
+		found = found || r == "otlp"
+	}
+	if !found {
+		t.Fatalf("metrics/app lost its OTLP receiver: %v", app["receivers"])
+	}
+
+	c = cfg("--set", "telemetry.applicationMetrics.metrics.scrapeTargets[0].jobName=shop", "--set", "telemetry.applicationMetrics.metrics.scrapeTargets[0].namespace=shop",
+		"--set", "telemetry.applicationMetrics.metrics.scrapeTargets[0].podLabelSelector=app=shop", "--set", "telemetry.applicationMetrics.metrics.scrapeTargets[0].port=9102")
+	receivers, _ = c["receivers"].(map[string]any)
+	prom, ok := receivers["prometheus/app"].(map[string]any)
+	if !ok {
+		t.Fatalf("prometheus/app missing with a scrape target: %v", keys(receivers))
+	}
+	if raw := fmt.Sprint(prom); !strings.Contains(raw, "$${1}:9102") {
+		t.Fatalf("the relabel replacement is not escaped: %s", raw)
+	}
+}

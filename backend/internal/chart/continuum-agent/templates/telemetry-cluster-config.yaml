@@ -13,7 +13,7 @@
      own re-emitted metrics also flow through metrics/app's otlp receiver but are structurally exempt from
      every scope filter below - see the $nlExempt comment further down. */}}
 {{- $cMetricsApp := list }}
-{{- if .Values.telemetry.applicationMetrics.metrics.enabled }}{{ $cMetricsApp = append $cMetricsApp "prometheus/app" }}{{ end }}
+{{- if and .Values.telemetry.applicationMetrics.metrics.enabled .Values.telemetry.applicationMetrics.metrics.scrapeTargets }}{{ $cMetricsApp = append $cMetricsApp "prometheus/app" }}{{ end }}
 {{- if or .Values.telemetry.networkLatency.metrics.enabled .Values.telemetry.applicationMetrics.metrics.enabled }}{{ $cMetricsApp = append $cMetricsApp "otlp" }}{{ end }}
 {{- $cLogsApp := list }}
 {{- if .Values.telemetry.applicationLogs.logs.enabled }}{{ $cLogsApp = append $cLogsApp "otlp" }}{{ end }}
@@ -198,7 +198,8 @@ data:
               static_configs: [{targets: [{{ .Values.telemetry.accelerators.metrics.existing.prometheusEndpoint | quote }}]}]
             {{- end }}
       {{- end }}
-      {{- if .Values.telemetry.applicationMetrics.metrics.enabled }}
+      {{- /* No scrape targets, no receiver: the upstream prometheus receiver refuses to load with an empty scrape_configs, which would take the whole collector down. */ -}}
+      {{- if and .Values.telemetry.applicationMetrics.metrics.enabled .Values.telemetry.applicationMetrics.metrics.scrapeTargets }}
       # App-scoped: only the operator's own explicit scrapeTargets, never Kepler or an energy endpoint -
       # this is the one telemetry.scope's namespace filter is allowed to reach.
       prometheus/app:
@@ -216,7 +217,7 @@ data:
                   selectors:
                     - {role: pod, label: {{ $t.podLabelSelector | quote }}}
               relabel_configs:
-                - {source_labels: ["__address__"], target_label: "__address__", replacement: "${1}:{{ $t.port }}", regex: "([^:]+)(?::\\d+)?"}
+                - {source_labels: ["__address__"], target_label: "__address__", replacement: "$${1}:{{ $t.port }}", regex: "([^:]+)(?::\\d+)?"}
               metrics_path: {{ $t.path | default "/metrics" | quote }}
             {{- end }}
       {{- end }}

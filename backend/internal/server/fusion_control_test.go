@@ -428,3 +428,40 @@ func TestRenewReissuesTheGatewayCertificateOnlyWhileFusionIsOn(t *testing.T) {
 		t.Fatalf("renewed while off: %v (secret %q)", err, k.secretIn)
 	}
 }
+
+// A pod that falls over long after a healthy start is "starting" again for the grace period, not "attention after
+// weeks": the clock counts from when the stores were last seen not ready, not from when FUSION was switched on.
+func TestARestartLongAfterAHealthyStartIsStartingNotAttention(t *testing.T) {
+	a := newAdminRig(t)
+	f, k := newFusion(t, a)
+	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	f.Now = func() time.Time { return now }
+	ctx := context.Background()
+	for n := range k.replicas {
+		k.replicas[n] = 1
+	}
+	f.Status(ctx)
+	k.allReady()
+	if st := f.Status(ctx); st.State != "running" {
+		t.Fatalf("healthy: %+v", st)
+	}
+	now = now.Add(30 * 24 * time.Hour)
+	k.ready["continuum-fusion-loki"] = 0 // one pod restarts a month later
+	if st := f.Status(ctx); st.State != "starting" || st.Message != "" {
+		t.Fatalf("a month after a healthy start, one pod not ready: %+v", st)
+	}
+	now = now.Add(2 * time.Minute)
+	if st := f.Status(ctx); st.State != "starting" {
+		t.Fatalf("two minutes into the restart: %+v", st)
+	}
+	now = now.Add(6 * time.Minute)
+	if st := f.Status(ctx); st.State != "attention" || !strings.Contains(st.Message, "after 8 minutes") {
+		t.Fatalf("stuck for 8 minutes: %+v", st)
+	}
+	k.allReady()
+	f.Status(ctx)
+	k.ready["continuum-fusion-loki"] = 0
+	if st := f.Status(ctx); st.State != "starting" {
+		t.Fatalf("a second restart starts a fresh grace period: %+v", st)
+	}
+}

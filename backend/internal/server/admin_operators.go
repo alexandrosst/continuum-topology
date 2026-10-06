@@ -354,8 +354,15 @@ func operatorTLSSecretCommand(op store.Operator, b OperatorTLSBundle) string {
 	if len(b.ReceiverCertPEM) == 0 {
 		return ""
 	}
-	return applySecretCommand(operatorReceiverTLSSecretName(op), "continuum-system",
-		fmt.Sprintf("tls.crt=\"%s\"", b.ReceiverCertPEM), fmt.Sprintf("tls.key=\"%s\"", b.ReceiverKeyPEM), fmt.Sprintf("ca.crt=\"%s\"", b.CACertPEM))
+	return withNamespace("continuum-system", applySecretCommand(operatorReceiverTLSSecretName(op), "continuum-system",
+		fmt.Sprintf("tls.crt=\"%s\"", b.ReceiverCertPEM), fmt.Sprintf("tls.key=\"%s\"", b.ReceiverKeyPEM), fmt.Sprintf("ca.crt=\"%s\"", b.CACertPEM)))
+}
+
+// withNamespace puts "make sure the namespace exists" in front of a Secret command that runs before the operator's own
+// install does: `helm install --create-namespace` comes last, so on a fresh cluster the first Secret would otherwise
+// fail with "namespace not found". Create-or-update, so it is harmless where the namespace already exists.
+func withNamespace(namespace, cmd string) string {
+	return fmt.Sprintf("kubectl create namespace %s --dry-run=client -o yaml | kubectl apply -f - && \\\n%s", namespace, cmd)
 }
 
 // applySecretCommand is every Secret line this file hands out: a create-or-update, so running a generated
@@ -386,7 +393,7 @@ func operatorDestinationCommand(op store.Operator, endpoint string, certPEM, key
 	// against the CA bundle in the same Secret - see pki.IssueOperatorClientTLS.
 	secretCmd = operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, namespace)
 	setFlags += fmt.Sprintf(" --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=%s", operatorClientTLSSecretName(op))
-	if op.Address != "" {
+	if operatorNeedsServerName(op) {
 		setFlags += fmt.Sprintf(" --set telemetry.export.otlp.tls.serverName=%s", operatorServerName(op))
 	}
 	return setFlags, secretCmd
@@ -407,7 +414,7 @@ func operatorRouteFlags(op store.Operator, endpoint string, m store.Modality) st
 	base := fmt.Sprintf("telemetry.export.routes.%s", m)
 	flags := fmt.Sprintf("--set %s.endpoint=%s --set %s.protocol=grpc --set %s.tls.insecure=false --set %s.tls.mtls.enabled=true --set %s.tls.mtls.secretName=%s",
 		base, endpoint, base, base, base, base, operatorClientTLSSecretName(op))
-	if op.Address != "" {
+	if operatorNeedsServerName(op) {
 		flags += fmt.Sprintf(" --set %s.tls.serverName=%s", base, operatorServerName(op))
 	}
 	return flags
@@ -434,7 +441,7 @@ func (a *Admin) operatorEndpoint(op store.Operator) string {
 	if op.Address != "" {
 		return op.Address
 	}
-	return fmt.Sprintf("%s.continuum-system.svc:4317", op.ID)
+	return operatorInClusterEndpoint(op)
 }
 
 // addOperatorTargetExport adds, for a regional operator that exports to ANOTHER operator (the central one, usually),
@@ -508,7 +515,7 @@ func (a *Admin) operatorInstallCommandTo(img ImageConfig, secret string, op stor
 		}
 		fmt.Fprintf(&b, " \\\n  --set export.otlp.endpoint=%s \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=%s",
 			a.operatorEndpoint(tgt), operatorClientTLSSecretName(tgt))
-		if tgt.Address != "" {
+		if operatorNeedsServerName(tgt) {
 			fmt.Fprintf(&b, " \\\n  --set export.otlp.tls.serverName=%s", operatorServerName(tgt))
 		}
 	} else {
@@ -546,7 +553,7 @@ func (a *Admin) operatorInstallCommandTo(img ImageConfig, secret string, op stor
 	// fail with ImagePullBackOff. A cluster that must pull from its own registry sets image.repository
 	// and image.tag itself (see the chart's values.yaml).
 	if !mtlsOnly {
-		secretCmd = applySecretCommand(secretName, "continuum-system", "token="+secret)
+		secretCmd = withNamespace("continuum-system", applySecretCommand(secretName, "continuum-system", "token="+secret))
 	}
 	return b.String(), secretCmd
 }

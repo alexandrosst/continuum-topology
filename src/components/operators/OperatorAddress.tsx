@@ -13,9 +13,17 @@ export const EXPOSURE_OPTIONS: { id: OperatorExposure; label: string; hint: stri
   { id: 'nodeport', label: 'Other clusters, through a node port', hint: 'The install command makes its Service a NodePort; other clusters dial any node on that port.' },
 ]
 
+/** The Service the regional-operator chart creates for a release named after the operator (what the install command
+ *  does): the chart's own naming rule - the release name plus "-regional-operator", unless it already says so, cut to 63
+ *  characters. The server applies the same rule (operatorServiceName), so the two agree on what to dial and to read. */
+export function operatorServiceName(id: string): string {
+  const name = id.includes('regional-operator') ? id : `${id}-regional-operator`
+  return name.slice(0, 63).replace(/-+$/, '')
+}
+
 /** The kubectl line that reads the address a Service ended up with. */
 export function addressCommands(id: string, svc?: { service: string; namespace: string }): { loadBalancer: string; nodePort: string } {
-  const name = svc?.service || id
+  const name = svc?.service || operatorServiceName(id)
   const ns = svc?.namespace || 'continuum-system'
   return {
     loadBalancer: `kubectl get svc ${name} --namespace ${ns} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}{"\\n"}'`,
