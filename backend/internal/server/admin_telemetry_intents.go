@@ -268,7 +268,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 					secretCommands = append(secretCommands, operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, rns))
 				}
 			}
-			installFragment += " " + operatorRouteFlags(op, store.Modality(lane))
+			installFragment += " " + operatorRouteFlags(op, a.operatorEndpoint(op), store.Modality(lane))
 		}
 		if len(auth) > 0 {
 			resp["operators"] = auth
@@ -284,7 +284,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			a.fail(w, err)
 			return
 		}
-		setFlags, secretCmd := operatorDestinationCommand(op, certPEM, keyPEM, caPEM, rns)
+		setFlags, secretCmd := operatorDestinationCommand(op, a.operatorEndpoint(op), certPEM, keyPEM, caPEM, rns)
 		installFragment += " " + setFlags
 		// Whether the person must also supply a receiver bearer token: not for an "mtls" operator, whose
 		// only gate is the client certificate in the Secret above; for a "bearer" one the flags are exactly

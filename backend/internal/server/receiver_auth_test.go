@@ -120,7 +120,7 @@ func TestCreateOperatorFallsBackToBearerWhenTheTLSMintFails(t *testing.T) {
 func TestOperatorDestinationCommandIsTheSameForBothAuthModes(t *testing.T) {
 	for _, mode := range []store.ReceiverAuth{store.ReceiverAuthMTLS, store.ReceiverAuthBearer} {
 		op := store.Operator{ID: "op-abc123", ReceiverAuth: mode}
-		flags, secret := operatorDestinationCommand(op, []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
+		flags, secret := operatorDestinationCommand(op, "op-abc123.continuum-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
 		wantFlags := "--set telemetry.export.otlp.endpoint=op-abc123.continuum-system.svc:4317 --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-abc123-export-mtls"
 		wantSecret := "kubectl create secret generic op-abc123-export-mtls --namespace ns1 \\\n  --from-literal=tls.crt=\"CERT\" \\\n  --from-literal=tls.key=\"KEY\" \\\n  --from-literal=ca.crt=\"CA\" \\\n  --dry-run=client -o yaml | kubectl apply -f -"
 		if flags != wantFlags || secret != wantSecret {

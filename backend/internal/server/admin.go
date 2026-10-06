@@ -55,6 +55,9 @@ type Admin struct {
 	// OperatorChartVersion is continuum-regional-operator's own equivalent of AgentChartVersion above - the
 	// version the release pipeline published this build's regional-operator chart under, when known.
 	OperatorChartVersion string
+	// Fusion switches the FUSION bundled with the server's chart on and off. Nil when the server was installed without
+	// it or without the permission to scale it; the endpoints then report it as unavailable and say why.
+	Fusion *FusionControl
 	// TrustProxy is set when a TLS-terminating proxy sits in front: the client address is read from
 	// the last entry of X-Forwarded-For (what the proxy itself saw), and the request counts as HTTPS
 	// when the proxy says so in X-Forwarded-Proto. Only correct when the proxy is the sole way in and
@@ -213,6 +216,9 @@ func (a *Admin) Handler() http.Handler {
 	route("GET "+o+"/operators", adminRole, a.listOperators)
 	route("POST "+o+"/operators", adminRole, a.createOperator)
 	route("GET "+o+"/operators/{id}", adminRole, a.getOperator)
+	route("GET "+o+"/fusion", adminRole, a.getFusion)
+	route("POST "+o+"/fusion/enable", adminRole, a.enableFusion)
+	route("POST "+o+"/fusion/disable", adminRole, a.disableFusion)
 	route("POST "+o+"/operators/{id}/scope", adminRole, a.updateOperatorScope)
 	// Mints (or rotates) the operator's heartbeat secret: credential material, so adminRole like the rest.
 	route("POST "+o+"/operators/{id}/heartbeat", adminRole, a.enableOperatorHeartbeat)

@@ -38,6 +38,12 @@ central:
     tag: "0.160.0"
     digest: ""
     pullPolicy: IfNotPresent
+  # How the gateway's Service is exposed. ClusterIP (default) = inside this cluster only. LoadBalancer or NodePort lets
+  # regional operators in other clusters reach it; every sender still needs a client certificate from this server. The
+  # stores' own Services are always ClusterIP.
+  service:
+    type: ClusterIP
+    annotations: {}
   receiver:
     # A Secret in this release's namespace holding tls.crt, tls.key (the gateway's own server certificate) and
     # ca.crt (the CA every sender's client certificate must chain to). Empty = "<name>-central-receiver-tls",

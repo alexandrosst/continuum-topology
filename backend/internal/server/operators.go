@@ -89,15 +89,15 @@ func (c *Core) validateDestination(ctx context.Context, dest store.Destination) 
 	}
 }
 
-// operatorDestination validates the destination of a regional operator, which may also be a FUSION install
-// (a local operator's TelemetryIntent may not: it goes through validateDestination alone), and returns it
-// normalized - for a fusion destination, with its defaults filled and only its own fields kept.
+// operatorDestination validates the destination of a regional operator: another operator (the central one, or
+// any other) or an external backend. A "fusion" destination is the central operator's own, set by the server when
+// FUSION is turned on (see EnsureCentralOperator) - nobody creates one by hand, because FUSION is part of the server
+// and reached through its central operator.
 func (c *Core) operatorDestination(ctx context.Context, dest store.Destination) (store.Destination, error) {
-	if dest.Kind != store.DestinationFusion {
-		return dest, c.validateDestination(ctx, dest)
+	if dest.Kind == store.DestinationFusion {
+		return dest, errf(KindInvalid, "FUSION is reached through the central operator: choose it as the destination (kind %q), or turn FUSION on in the server's Settings", store.DestinationOperator)
 	}
-	dest = normalizeFusion(dest)
-	return dest, validateFusion(dest)
+	return dest, c.validateDestination(ctx, dest)
 }
 
 // validModalities checks every value is a known telemetry modality. An empty list is always valid - see
@@ -310,6 +310,9 @@ func (c *Core) ListOperators(ctx context.Context) ([]store.Operator, error) {
 // live reparenting here (see the plan): applying the corresponding change to each source cluster's own
 // agent release remains a manual step, printed as a reminder by operatorInstallCommand.
 func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality) error {
+	if err := guardCentral(id); err != nil {
+		return err
+	}
 	if _, err := c.operatorInOrg(ctx, id); err != nil {
 		return err
 	}
@@ -335,6 +338,9 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 }
 
 func (c *Core) RevokeOperator(ctx context.Context, actor, id, reason string) error {
+	if err := guardCentral(id); err != nil {
+		return err
+	}
 	if _, err := c.operatorInOrg(ctx, id); err != nil {
 		return err
 	}
@@ -351,6 +357,9 @@ func (c *Core) RevokeOperator(ctx context.Context, actor, id, reason string) err
 }
 
 func (c *Core) DeleteOperator(ctx context.Context, actor, id string) error {
+	if err := guardCentral(id); err != nil {
+		return err
+	}
 	if _, err := c.operatorInOrg(ctx, id); err != nil {
 		return err
 	}

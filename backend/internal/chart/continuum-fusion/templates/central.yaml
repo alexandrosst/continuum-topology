@@ -25,7 +25,11 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels: {{- include "fusion.labels" . | nindent 4 }}
     app.kubernetes.io/component: central
+  {{- with $c.service.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
+  type: {{ $c.service.type }}
   selector: {{- $sel | nindent 4 }}
   ports:
     - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc, protocol: TCP}

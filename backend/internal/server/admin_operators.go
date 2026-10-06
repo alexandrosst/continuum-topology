@@ -199,9 +199,7 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 	if tlsCmd := operatorTLSSecretCommand(op, tlsBundle); tlsCmd != "" {
 		resp["tlsSecretCommand"] = tlsCmd
 	}
-	if op.Destination.Kind == store.DestinationFusion {
-		resp["fusionInstall"] = a.fusionInstallCommand(img, op.Destination)
-	}
+	a.addOperatorTargetExport(r, resp, op)
 	writeJSON(w, 201, resp)
 }
 
@@ -237,9 +235,7 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 		tlsBundle = OperatorTLSBundle{ClientCertPEM: clientCert, ClientKeyPEM: clientKey, CACertPEM: caPEM}
 	}
 	resp := map[string]any{"operator": toOperatorDoc(op, a.core(r).Now()), "reminders": a.operatorSourceReminders(r, op, tlsBundle)}
-	if op.Destination.Kind == store.DestinationFusion {
-		resp["fusionInstall"] = a.fusionInstallCommand(a.images(a.core(r)), op.Destination)
-	}
+	a.addOperatorTargetExport(r, resp, op)
 	writeJSON(w, 200, resp)
 }
 
@@ -295,8 +291,7 @@ func applySecretCommand(name, namespace string, literals ...string) string {
 // the same shape operatorSourceReminders already builds per source cluster at creation/scope-update time,
 // factored out so TelemetryIntent's own /command endpoint (admin_telemetry_intents.go) can call it for a
 // single agent on demand, reusing a freshly reissued client cert rather than requiring one from creation time.
-func operatorDestinationCommand(op store.Operator, certPEM, keyPEM, caPEM []byte, namespace string) (setFlags string, secretCmd string) {
-	endpoint := fmt.Sprintf("%s.continuum-system.svc:4317", op.ID)
+func operatorDestinationCommand(op store.Operator, endpoint string, certPEM, keyPEM, caPEM []byte, namespace string) (setFlags string, secretCmd string) {
 	setFlags = fmt.Sprintf("--set telemetry.export.otlp.endpoint=%s", endpoint)
 	if len(certPEM) == 0 {
 		return setFlags, ""
@@ -319,10 +314,40 @@ func operatorClientSecretCommand(op store.Operator, certPEM, keyPEM, caPEM []byt
 // operatorRouteFlags are the --set flags that make one signal type's own route (telemetry.export.routes.<m>)
 // export to this operator over mutual TLS: its receiver, gRPC, certificate verified, and the Secret from
 // operatorClientSecretCommand. Stated in full so the route does not depend on anything an earlier command set.
-func operatorRouteFlags(op store.Operator, m store.Modality) string {
+func operatorRouteFlags(op store.Operator, endpoint string, m store.Modality) string {
 	base := fmt.Sprintf("telemetry.export.routes.%s", m)
-	return fmt.Sprintf("--set %s.endpoint=%s.continuum-system.svc:4317 --set %s.protocol=grpc --set %s.tls.insecure=false --set %s.tls.mtls.enabled=true --set %s.tls.mtls.secretName=%s",
-		base, op.ID, base, base, base, base, operatorClientTLSSecretName(op))
+	return fmt.Sprintf("--set %s.endpoint=%s --set %s.protocol=grpc --set %s.tls.insecure=false --set %s.tls.mtls.enabled=true --set %s.tls.mtls.secretName=%s",
+		base, endpoint, base, base, base, base, operatorClientTLSSecretName(op))
+}
+
+// operatorEndpoint is where an exporter is pointed to reach op's receiver: the operator's own Service in the
+// namespace the install commands use, or - for the central operator, which lives with the server and may be
+// exposed - the address FusionControl says (see CentralEndpoint).
+func (a *Admin) operatorEndpoint(op store.Operator) string {
+	if op.ID == CentralOperatorID && a.Fusion != nil {
+		return a.Fusion.CentralEndpoint()
+	}
+	return fmt.Sprintf("%s.continuum-system.svc:4317", op.ID)
+}
+
+// addOperatorTargetExport adds, for a regional operator that exports to ANOTHER operator (the central one, usually),
+// the one Secret its install command depends on: the client certificate the target's receiver requires, issued now
+// from the target's own CA. The install command itself already points the exporter at it (operatorInstallCommand).
+func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op store.Operator) {
+	if op.Destination.Kind != store.DestinationOperator {
+		return
+	}
+	core := a.core(r)
+	target, err := core.GetOperator(r.Context(), op.Destination.TargetOperatorID)
+	if err != nil {
+		return
+	}
+	certPEM, keyPEM, caPEM, err := core.IssueOperatorClientCert(r.Context(), actor(r), target.ID)
+	if err != nil || len(certPEM) == 0 {
+		return
+	}
+	resp["exportSecretCommand"] = operatorClientSecretCommand(target, certPEM, keyPEM, caPEM, "continuum-system")
+	resp["exportTarget"] = map[string]any{"operatorId": target.ID, "name": target.Name, "endpoint": a.operatorEndpoint(target), "reachableFromOtherClusters": target.ID != CentralOperatorID || (a.Fusion != nil && a.Fusion.Exposed())}
 }
 
 // operatorChartArgs is the chart reference an operator `helm` command names, and the " --version ..." that
@@ -358,9 +383,12 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 	secretName := op.ID + "-receiver-auth"
 	var b strings.Builder
 	fmt.Fprintf(&b, "helm install %s %s%s \\\n  --namespace continuum-system --create-namespace", op.ID, ref, version)
-	if op.Destination.Kind == store.DestinationFusion {
-		// A FUSION destination is three stores, one per signal type: a route each, and no default endpoint.
-		fmt.Fprintf(&b, " \\\n  %s", fusionRouteFlags(op.Destination, " \\\n  "))
+	if op.Destination.Kind == store.DestinationOperator {
+		// Another regional operator (the central one in front of FUSION, usually): its receiver, over mutual TLS with
+		// a client certificate from the target's own CA (the Secret addOperatorTargetExport hands out).
+		target := store.Operator{ID: op.Destination.TargetOperatorID} // the id alone fixes the endpoint and the Secret name
+		fmt.Fprintf(&b, " \\\n  --set export.otlp.endpoint=%s \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=%s",
+			a.operatorEndpoint(target), operatorClientTLSSecretName(target))
 	} else {
 		fmt.Fprintf(&b, " \\\n  --set export.otlp.endpoint=%s", op.Destination.Endpoint)
 		if op.Destination.Insecure {
@@ -463,7 +491,7 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 		// Only wired in here when CreateOperator actually minted the client certificate (see its own
 		// comment on why that mint can fail without failing operator creation itself) - this is additive,
 		// the bearer token alone still works without it.
-		setFlags, secretCmd := operatorDestinationCommand(op, tlsBundle.ClientCertPEM, tlsBundle.ClientKeyPEM, tlsBundle.CACertPEM, rns)
+		setFlags, secretCmd := operatorDestinationCommand(op, a.operatorEndpoint(op), tlsBundle.ClientCertPEM, tlsBundle.ClientKeyPEM, tlsBundle.CACertPEM, rns)
 		if secretCmd != "" {
 			out = append(out, fmt.Sprintf("%s  # cluster %s: create the client certificate Secret first", secretCmd, cl))
 		}

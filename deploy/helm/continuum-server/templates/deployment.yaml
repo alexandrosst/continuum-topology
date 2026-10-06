@@ -62,6 +62,9 @@ spec:
             - --release-namespace={{ .Release.Namespace }}
             {{- if include "continuum.fusionControl" . }}
             - --fusion-name={{ include "continuum.fusionName" . }}
+            {{- with .Values.fusionControl.centralAddress }}
+            - --fusion-central-address={{ . }}
+            {{- end }}
             {{- end }}
             {{- with .Values.agent.extraHosts }}
             - --agent-hosts={{ join "," . }}
