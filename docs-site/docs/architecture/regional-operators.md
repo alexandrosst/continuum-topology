@@ -64,6 +64,31 @@ By default the server cannot tell whether a regional operator is alive: the oper
 
 **What the UI reads.** Each operator in the admin API carries `health: {state, lastSeenAt?, reporting}`, computed when it is read, never stored. `state` is `unknown` when there is no heartbeat credential or none has ever arrived, `online` when the last heartbeat is within three intervals (180 seconds), and `offline` after that — and for a revoked operator that had been seen, since it can no longer report. `reporting` is true once a heartbeat credential exists and at least one heartbeat has arrived.
 
+## FUSION: where a regional operator saves what it receives
+
+A regional operator normally re-exports to one OTLP endpoint you already run. **FUSION** is the other choice: a ready-made place to *save* it, installed from the `continuum-fusion` chart, with one store per signal type, each on its own volume and behind its own Service:
+
+| Signal | Store | Where the operator sends it (inside the cluster) |
+| --- | --- | --- |
+| metrics | Prometheus, through its native OTLP receiver | `<name>-prometheus.<namespace>.svc:9090/api/v1/otlp`, OTLP/HTTP |
+| logs | Loki, through its native OTLP endpoint | `<name>-loki.<namespace>.svc:3100/otlp`, OTLP/HTTP |
+| traces | Tempo | `<name>-tempo.<namespace>.svc:4317`, OTLP/gRPC |
+
+`<name>` is the Helm release name of the FUSION install with `-fusion` added unless it already contains it (release `fusion` gives `fusion-prometheus`, release `eu` gives `eu-fusion-prometheus`). That one rule is all the server stores: a fusion destination is `{kind: "fusion", fusionRelease, fusionNamespace}` (both default, to `fusion` and `continuum-system`), and the three addresses are derived from it. The derivation lives in the chart's `fusion.name` helper and is mirrored in the server (`fusionName`) and the UI (`lib/fusion.ts`), each pinned to the same cases by a test, so the three cannot drift apart without a test failing.
+
+**Choosing it.** In the New operator form, "Where it saves what it receives" has two choices: another backend (an endpoint, as before) or FUSION. For FUSION the form shows the three addresses before anything is created. Creating the operator then prints two commands in order: the FUSION install (`helm upgrade --install <release> <chart> --namespace <ns> --create-namespace`, safe to run again, and skipped when FUSION is already installed there), and the operator's own install, which carries a route per signal type instead of one default endpoint. Only a regional operator can have this destination; a cluster's own telemetry intent still points at an operator or an endpoint, never straight at the stores.
+
+**Routes.** The operator chart's `export.routes.<metrics|logs|traces>` give each signal type its own destination, protocol and credential, next to the default `export.otlp`. A FUSION operator sets all three and leaves the default empty (the chart only insists on a default when some signal has no route of its own). The exporters are separate, so the operator chart now also speaks OTLP/HTTP (`export.otlp.protocol=http`, with the collector appending `/v1/metrics`, `/v1/logs` or `/v1/traces` to the endpoint), which Prometheus and Loki need.
+
+**What it is not.** Be clear about these before relying on it:
+
+- **The stores do not authenticate.** All three are `ClusterIP` only, and nothing in the chart asks who is calling. Turn on `networkPolicy` in the FUSION chart to limit who inside the cluster can reach them. The access path meant for people and tools is the API described under the next heading, not the stores directly.
+- **One cluster's network, for now.** The operator reaches the stores by their in-cluster Service names, so the operator and FUSION are expected to share a cluster (or at least a cluster network that resolves those names).
+- **Retention is per store and local to its volume.** Defaults are 15 days for metrics, 7 for logs, 72 hours for traces; Loki's must be whole days.
+- **It needs the chart published.** Like the operator chart, FUSION is pulled from the registry under the same version as the server (`oci://<registry>/continuum-fusion`), or served by the server itself as `continuum-fusion-<version>.tgz` when no registry is configured.
+
+**The next step: one API in front of the three stores.** Not built yet. The plan is a backend, a separate Deployment in the same chart, that exposes one token-protected API: each signal on its own, or a *fused object*, a trace with its spans, and for each span the metrics and logs that belong to it. The join keys are already preserved on the way in. Loki keeps `trace_id` and `span_id` as structured metadata, so logs attach to a span exactly. Prometheus keeps `service.name`, namespace, pod, node and the `continuum.*` identity as series labels, so a span's metrics are found by those resource attributes over the span's time window; a metric sample does not carry a trace id, so metrics are *associated with* a span, not provably caused by it, and the API will say so.
+
 ## What's not automatic, and why
 
 Creating a regional operator hands back a `helm install` command and companion `kubectl create secret` lines for the receiver's TLS certificate (and, for a bearer operator only, its token) — nothing is applied on anyone's behalf, following the same declarative-only commitment [Telemetry intent's four commitments](./telemetry-intent.md#four-commitments) already states for a single cluster. Alongside those, the server prints one more informational line per source cluster: the exact `helm upgrade --reuse-values` a person would run against that cluster's own `continuum-agent` release to actually point its `telemetry.export.otlp.endpoint` at this operator. That line is a reminder, never executed — there is no live reparenting, no auto-discovery of new children, and nothing pushed to any cluster the moment a regional operator's scope changes. Each of those `helm upgrade` commands is a separate, deliberate step a person runs themselves, on their own schedule.
@@ -73,6 +98,7 @@ Creating a regional operator hands back a `helm install` command and companion `
 Two things worth naming here on purpose, the same way [Telemetry intent's own gap section](./telemetry-intent.md#where-this-doesnt-reach-yet) does, rather than letting them quietly disappear into a values file comment:
 
 - **No chaining between regional operators.** Modeled in the data shape, rejected by validation — see [How one is created](#how-one-is-created) above.
+- **No fused API yet.** FUSION saves each signal in its own store; the token-protected API that returns them separately or fused is the next step — see [FUSION](#fusion-where-a-regional-operator-saves-what-it-receives).
 - **No dynamic or automatic assignment.** Nothing decides which regional operator a cluster's traffic should feed, and nothing moves that assignment once it's made — a person names the source clusters by hand, once, and changes them by hand later. This is exactly where a future decision-making or reinforcement-learning layer would plug in, once one exists: reassigning a cluster's export target based on load, latency or cost is a real capability this mechanism makes possible, not one it provides today.
 
 Neither gap is urgent, and neither is an oversight — both are the same kind of "decide this on purpose later" the rest of this project's telemetry documentation is honest about elsewhere.
