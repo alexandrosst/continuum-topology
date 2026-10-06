@@ -83,10 +83,13 @@ func (f *FusionControl) CentralEndpoint() string {
 // Exposed is whether operators in other clusters can reach the gateway.
 func (f *FusionControl) Exposed() bool { return f.PublicAddress != "" }
 
-// certHosts are the names the gateway's server certificate must carry: its Service in every spelling, and the public
-// address's host.
+// certHosts are the names the gateway's server certificate must carry: its Service in every spelling, the stable name
+// senders verify it by, and the public address's host.
 func (f *FusionControl) certHosts() []string {
-	h := []string{f.Name + "-central", f.Name + "-central." + f.Namespace, f.centralHost(), f.centralHost() + ".cluster.local"}
+	// The last name is the one that never changes (operatorServerName): senders that reach the gateway at its public
+	// address verify against it, so the address, or the IP behind it, can change without reissuing anything.
+	h := []string{f.Name + "-central", f.Name + "-central." + f.Namespace, f.centralHost(), f.centralHost() + ".cluster.local",
+		operatorServerName(store.Operator{ID: CentralOperatorID})}
 	if f.PublicAddress != "" {
 		host := f.PublicAddress
 		if i := strings.LastIndex(host, ":"); i >= 0 && !strings.HasSuffix(host, "]") {
@@ -216,6 +219,31 @@ func (f *FusionControl) Enable(ctx context.Context, c *Core, actor string) (Fusi
 	}
 	c.audit(ctx, actor, "fusion-enabled", "fusion", f.Name, "")
 	return f.Status(ctx), nil
+}
+
+// Renew reissues the gateway's server certificate and puts it in its Secret, if FUSION is on and has been set up (the
+// central operator exists). The certificate is good for a year and a gateway that is running keeps the one it started
+// with, so without this FUSION would stop accepting senders once it expired; with it, the certificate is replaced well
+// before that and, because the gateway reloads its certificate files, the running gateway takes it up on its own. It
+// also gives the certificate the names the server now knows (a public address set after FUSION was first enabled).
+// Nothing is audited: it changes no one's access, and it runs daily.
+func (f *FusionControl) Renew(ctx context.Context, c *Core) error {
+	if f == nil || f.Kube == nil || (f.Org != "" && c.OrgID != f.Org) {
+		return nil
+	}
+	if st := f.Status(ctx); !st.Available || st.State == "off" {
+		return nil
+	}
+	if _, err := c.Store.GetOperator(ctx, CentralOperatorID); err != nil {
+		return nil // never enabled from here: nothing to renew
+	}
+	_, bundle, err := c.EnsureCentralOperator(ctx, "system", f.destination(), f.certHosts())
+	if err != nil {
+		return err
+	}
+	return f.Kube.PatchSecret(ctx, f.tlsSecretName(), map[string][]byte{
+		"tls.crt": bundle.ReceiverCertPEM, "tls.key": bundle.ReceiverKeyPEM, "ca.crt": bundle.CACertPEM,
+	})
 }
 
 // Disable stops the four workloads. Their volumes stay, so turning FUSION on again brings the data back.

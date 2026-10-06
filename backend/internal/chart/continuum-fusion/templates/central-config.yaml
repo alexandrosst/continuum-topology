@@ -24,6 +24,9 @@ data:
               cert_file: /receiver-tls/tls.crt
               key_file: /receiver-tls/tls.key
               client_ca_file: /receiver-tls/ca.crt
+              # The server renews the gateway's certificate in place (see FusionControl.Renew); this is how a running
+              # gateway picks the new one up without a restart.
+              reload_interval: 1h
           http:
             endpoint: "0.0.0.0:4318"
             tls: *tls

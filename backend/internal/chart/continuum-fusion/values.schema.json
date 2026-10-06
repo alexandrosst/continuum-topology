@@ -271,6 +271,12 @@
             },
             "annotations": {
               "type": "object"
+            },
+            "loadBalancerSourceRanges": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         }

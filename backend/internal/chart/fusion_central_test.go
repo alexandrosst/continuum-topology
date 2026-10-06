@@ -120,3 +120,30 @@ func TestFusionNetworkPolicyLeavesTheGatewayReachable(t *testing.T) {
 		t.Errorf("the store policy would also isolate the gateway: %+v", p.Spec.PodSelector)
 	}
 }
+
+// The gateway reloads its certificate files (the server renews them in place), and an exposed gateway publishes only
+// the gRPC port other clusters use, keeping the keep-it-private settings.
+func TestFusionCentralReloadsItsCertificateAndPublishesOnlyGRPCWhenExposed(t *testing.T) {
+	cfg := centralConfig(t)
+	grpc := cfg["receivers"].(map[string]any)["otlp"].(map[string]any)["protocols"].(map[string]any)["grpc"].(map[string]any)
+	if tls, _ := grpc["tls"].(map[string]any); tls["reload_interval"] != "1h" {
+		t.Errorf("the gateway does not reload its certificate: %v", tls)
+	}
+	ports := func(r fusionRendered) string {
+		var out []string
+		for _, p := range r.services["f-fusion-central"].Spec.Ports {
+			out = append(out, p.Name)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := ports(fusionRender(t, "f")); got != "otlp-grpc,otlp-http" {
+		t.Errorf("in-cluster ports = %s", got)
+	}
+	r := fusionRender(t, "f", "--set", "central.service.type=LoadBalancer", "--set", "central.service.loadBalancerSourceRanges={203.0.113.0/24}")
+	if got := ports(r); got != "otlp-grpc" {
+		t.Errorf("exposed ports = %s", got)
+	}
+	if rs := r.services["f-fusion-central"].Spec.LoadBalancerSourceRanges; len(rs) != 1 || rs[0] != "203.0.113.0/24" {
+		t.Errorf("source ranges = %v", rs)
+	}
+}

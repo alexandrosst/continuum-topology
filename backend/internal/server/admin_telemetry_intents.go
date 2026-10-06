@@ -256,6 +256,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 				a.fail(w, err)
 				return
 			}
+			op = a.advertised(op)
 			if !issued[op.ID] {
 				certPEM, keyPEM, caPEM, err := a.core(r).IssueOperatorClientCert(r.Context(), actor(r), op.ID)
 				if err != nil {
@@ -279,6 +280,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			a.fail(w, err)
 			return
 		}
+		op = a.advertised(op)
 		certPEM, keyPEM, caPEM, err := a.core(r).IssueOperatorClientCert(r.Context(), actor(r), op.ID)
 		if err != nil {
 			a.fail(w, err)

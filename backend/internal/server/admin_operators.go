@@ -207,6 +207,7 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 	var target *store.Operator
 	if op.Destination.Kind == store.DestinationOperator {
 		if t, err := a.core(r).GetOperator(r.Context(), op.Destination.TargetOperatorID); err == nil {
+			t = a.advertised(t)
 			target = &t
 		}
 	}
@@ -404,6 +405,16 @@ func operatorRouteFlags(op store.Operator, endpoint string, m store.Modality) st
 	return flags
 }
 
+// advertised is op as a caller elsewhere sees it: the central operator is reached at the address FUSION is exposed at
+// (empty when it is not, which leaves its in-cluster name), so from here on it is handled like any operator that has an
+// advertised address - dialled there, and verified by its stable name.
+func (a *Admin) advertised(op store.Operator) store.Operator {
+	if op.ID == CentralOperatorID && a.Fusion != nil && a.Fusion.Exposed() {
+		op.Address = a.Fusion.CentralEndpoint()
+	}
+	return op
+}
+
 // operatorEndpoint is where an exporter is pointed to reach op's receiver: the operator's own Service in the
 // namespace the install commands use, or - for the central operator, which lives with the server and may be
 // exposed - the address FusionControl says (see CentralEndpoint). Any other operator with an advertised address
@@ -430,12 +441,13 @@ func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op
 	if err != nil {
 		return
 	}
+	target = a.advertised(target)
 	certPEM, keyPEM, caPEM, err := core.IssueOperatorClientCert(r.Context(), actor(r), target.ID)
 	if err != nil || len(certPEM) == 0 {
 		return
 	}
 	resp["exportSecretCommand"] = operatorClientSecretCommand(target, certPEM, keyPEM, caPEM, "continuum-system")
-	resp["exportTarget"] = map[string]any{"operatorId": target.ID, "name": target.Name, "endpoint": a.operatorEndpoint(target), "reachableFromOtherClusters": target.Address != "" || (target.ID == CentralOperatorID && a.Fusion != nil && a.Fusion.Exposed())}
+	resp["exportTarget"] = map[string]any{"operatorId": target.ID, "name": target.Name, "endpoint": a.operatorEndpoint(target), "reachableFromOtherClusters": target.Address != ""}
 }
 
 // operatorChartArgs is the chart reference an operator `helm` command names, and the " --version ..." that

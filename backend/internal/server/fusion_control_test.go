@@ -183,7 +183,7 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 	}
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(k.secret["ca.crt"])
-	for _, host := range []string{"continuum-fusion-central.continuum.svc", "fusion.example.com"} {
+	for _, host := range []string{"continuum-fusion-central.continuum.svc", "fusion.example.com", "op-central.continuum-system.svc"} {
 		if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, DNSName: host}); err != nil {
 			t.Errorf("certificate not valid for %s: %v", host, err)
 		}
@@ -357,11 +357,20 @@ func TestAnOperatorSendingToTheCentralOperator(t *testing.T) {
 		}
 		created := r.json(t)
 		install, _ := created["install"].(string)
-		for _, w := range []string{
+		want := []string{
 			"--set export.otlp.endpoint=" + tc.endpoint,
 			"--set export.otlp.tls.mtls.enabled=true",
 			"--set export.otlp.tls.mtls.secretName=op-central-export-mtls",
-		} {
+		}
+		// Dialled at a public address, the gateway is verified by the name that never changes, so the address (or the IP
+		// behind it) can move without reissuing its certificate; in-cluster the name is the one dialled.
+		const stable = "--set export.otlp.tls.serverName=op-central.continuum-system.svc"
+		if tc.public != "" {
+			want = append(want, stable)
+		} else if strings.Contains(install, "serverName") {
+			t.Errorf("an in-cluster gateway needs no server name:\n%s", install)
+		}
+		for _, w := range want {
 			if !strings.Contains(install, w) {
 				t.Errorf("public=%q: install lacks %q:\n%s", tc.public, w, install)
 			}
@@ -377,5 +386,45 @@ func TestAnOperatorSendingToTheCentralOperator(t *testing.T) {
 		if target["endpoint"] != tc.endpoint || target["reachableFromOtherClusters"] != (tc.public != "") {
 			t.Errorf("exportTarget = %v", target)
 		}
+	}
+}
+
+// Renew replaces the gateway's certificate while FUSION is on and leaves everything alone while it is off or was never
+// set up, so a daily call is harmless.
+func TestRenewReissuesTheGatewayCertificateOnlyWhileFusionIsOn(t *testing.T) {
+	a := newAdminRig(t)
+	f, k := newFusion(t, a)
+	ctx := context.Background()
+	if err := f.Renew(ctx, a.a.C); err != nil || k.secretIn != "" {
+		t.Fatalf("renewed while it was never enabled: %v (secret %q)", err, k.secretIn)
+	}
+	if _, err := f.Enable(ctx, a.a.C, "alex"); err != nil {
+		t.Fatal(err)
+	}
+	first := string(k.secret["tls.crt"])
+	// The address is set after FUSION was first enabled: the next renewal gives the certificate its name.
+	f.PublicAddress = "fusion.example.com:4317"
+	if err := f.Renew(ctx, a.a.C); err != nil {
+		t.Fatal(err)
+	}
+	if string(k.secret["tls.crt"]) == first {
+		t.Fatal("the certificate was not replaced")
+	}
+	block, _ := pem.Decode(k.secret["tls.crt"])
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(k.secret["ca.crt"])
+	if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, DNSName: "fusion.example.com"}); err != nil {
+		t.Errorf("the renewed certificate lacks the new address: %v", err)
+	}
+	if _, err := f.Disable(ctx, a.a.C, "alex"); err != nil {
+		t.Fatal(err)
+	}
+	k.secret, k.secretIn = nil, ""
+	if err := f.Renew(ctx, a.a.C); err != nil || k.secretIn != "" {
+		t.Fatalf("renewed while off: %v (secret %q)", err, k.secretIn)
 	}
 }

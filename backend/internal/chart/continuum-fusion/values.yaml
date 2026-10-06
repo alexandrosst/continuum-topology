@@ -41,9 +41,12 @@ central:
   # How the gateway's Service is exposed. ClusterIP (default) = inside this cluster only. LoadBalancer or NodePort lets
   # regional operators in other clusters reach it; every sender still needs a client certificate from this server. The
   # stores' own Services are always ClusterIP.
+  # Exposed (LoadBalancer or NodePort), only the OTLP/gRPC port (4317) is published. annotations and
+  # loadBalancerSourceRanges keep it private (an internal load balancer is an annotation your cloud defines).
   service:
     type: ClusterIP
     annotations: {}
+    loadBalancerSourceRanges: []   # LoadBalancer only
   receiver:
     # A Secret in this release's namespace holding tls.crt, tls.key (the gateway's own server certificate) and
     # ca.crt (the CA every sender's client certificate must chain to). Empty = "<name>-central-receiver-tls",

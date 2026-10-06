@@ -30,10 +30,16 @@ metadata:
   {{- end }}
 spec:
   type: {{ $c.service.type }}
+  {{- if and (eq $c.service.type "LoadBalancer") $c.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges: {{- toYaml $c.service.loadBalancerSourceRanges | nindent 4 }}
+  {{- end }}
   selector: {{- $sel | nindent 4 }}
   ports:
     - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc, protocol: TCP}
+    {{- if eq $c.service.type "ClusterIP" }}
+    # Exposed, only the gRPC port is published: it is the one other clusters' operators use.
     - {name: otlp-http, port: 4318, targetPort: otlp-http, protocol: TCP}
+    {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment

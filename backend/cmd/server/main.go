@@ -334,6 +334,7 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, Origins: origins, UIDir: uiDir, Version: version, AgentChartVersion: agentChartVersion, OperatorChartVersion: operatorChartVersion}
 	if fusionName != "" {
 		admin.Fusion = fusionControl(log, fusionName, releaseNamespace, fusionCentralAddress, core.OrgID)
+		go renewFusionCertificate(log, admin.Fusion, core)
 	}
 	admin.Readiness = &server.Readiness{AgentsListening: grpcSrv.Serving}
 	if graphStore != nil {
@@ -534,6 +535,19 @@ func createOrg(args []string) {
 		fatal(log, err)
 	}
 	fmt.Printf("Created organization %q (%s), owned by %s.\n", o.Name, o.ID, *owner)
+}
+
+// renewFusionCertificate keeps the central gateway's certificate fresh: shortly after start (so a changed public
+// address is picked up as soon as the server is redeployed) and then daily. Failures are logged, never fatal.
+func renewFusionCertificate(log *slog.Logger, f *server.FusionControl, core *server.Core) {
+	for wait := time.Minute; ; wait = 24 * time.Hour {
+		time.Sleep(wait)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		if err := f.Renew(ctx, core); err != nil {
+			log.Warn("could not renew FUSION's gateway certificate", "err", err)
+		}
+		cancel()
+	}
 }
 
 // fusionControl builds the FUSION switch for a server whose chart bundles it. Without a usable Kubernetes token (the
