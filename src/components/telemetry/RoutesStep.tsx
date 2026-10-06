@@ -100,6 +100,11 @@ export default function RoutesStep({
               <h4 className="text-sm font-medium text-nb-200">{label}</h4>
               <span className="text-xs text-nb-500" data-testid={`${testIdPrefix}-lane-${m}-signals`}>{picked.map((s) => s.label).join(', ')}</span>
             </header>
+            {value.exportLanesKept.includes(m) && (
+              <p className="text-xs text-nb-500" data-testid={`${testIdPrefix}-lane-${m}-kept`}>
+                Kept as installed. The agent reports where this goes but not its protocol or credential, so the command leaves them alone unless you change this destination here.
+              </p>
+            )}
             <DestinationStep
               bare
               value={laneView(value, m)}

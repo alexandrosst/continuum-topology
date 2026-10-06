@@ -233,6 +233,12 @@ export interface TelemetryInput {
    *  Only used to decide whether a single-destination command must state the routes empty so that they are
    *  cleared: under `helm upgrade --reuse-values` an unmentioned route would keep sending. */
   exportRoutesInstalled: boolean
+  /** The signal types whose route the install already has, and that nothing here has edited. The agent says where
+   *  each goes but not how (protocol, TLS, credential), so the draft cannot state them truthfully: such a route is
+   *  left out of the command - `--reuse-values` keeps it as installed - until it is edited here, when it is stated
+   *  in full like any other. Without this, changing anything at all would restate every seeded route with a
+   *  default protocol and no credential, quietly breaking the ones that differ. */
+  exportLanesKept: Modality[]
   /* ---------- Pipeline processors (telemetry.processors.*): independent of which signals above are on,
      applied whenever any of them is. See the chart's own values.yaml for exactly what each one does. ---------- */
   /** Off by default: enriches every signal with resource attributes about the collector's own environment. */
@@ -321,6 +327,7 @@ export const emptyTelemetry: TelemetryInput = {
   exportSplit: false,
   exportLanes: { metrics: emptyExportTarget, logs: emptyExportTarget, traces: emptyExportTarget },
   exportRoutesInstalled: false,
+  exportLanesKept: [],
   resourceDetection: false,
   redaction: true,
   tracesSamplingPercent: 100,
@@ -431,7 +438,11 @@ export const laneView = (t: TelemetryInput, m: Modality): TelemetryInput => ({ .
 /** Write back what was edited on a `laneView`: only the destination fields, never anything else of the draft. */
 export function withLane(t: TelemetryInput, m: Modality, edited: TelemetryInput): TelemetryInput {
   const { exportEndpoint, exportProtocol, exportInsecure, exportAuthHeaderName, exportAuthSecretName, exportAuthSecretKey, exportOperatorId } = edited
-  return { ...t, exportLanes: { ...t.exportLanes, [m]: { exportEndpoint, exportProtocol, exportInsecure, exportAuthHeaderName, exportAuthSecretName, exportAuthSecretKey, exportOperatorId } } }
+  const next: ExportTarget = { exportEndpoint, exportProtocol, exportInsecure, exportAuthHeaderName, exportAuthSecretName, exportAuthSecretKey, exportOperatorId }
+  const prev = t.exportLanes[m]
+  // Touching a route that was kept as installed makes it this draft's to state, in full.
+  const changed = (Object.keys(next) as (keyof ExportTarget)[]).some((k) => next[k] !== prev[k])
+  return { ...t, exportLanes: { ...t.exportLanes, [m]: next }, exportLanesKept: changed ? t.exportLanesKept.filter((x) => x !== m) : t.exportLanesKept }
 }
 
 /** Whether every destination the draft needs is named: the one, or - sending each signal type separately -
@@ -561,6 +572,7 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
         addString(`${base}.endpoint`, '')
         continue
       }
+      if (t.exportLanesKept.includes(m)) continue // as installed: unmentioned, so --reuse-values keeps it
       const lane = t.exportLanes[m]
       addString(`${base}.endpoint`, lane.exportEndpoint.trim())
       add(`${base}.protocol=${lane.exportProtocol}`)

@@ -385,10 +385,11 @@ export function seedTelemetryFromInstalled(installed: string[], config?: AgentTe
     const routed = parseRoutedDestination(config.exportEndpoint)
     if (routed) {
       // Signals go to more than one place: the draft keeps that shape, so that running its command does not
-      // quietly send everything to one of them. The protocol and TLS of each are not reported, so they start
-      // at their defaults, like the single destination's always have.
+      // quietly send everything to one of them. How each is spoken to (protocol, TLS, credential) is not
+      // reported, so none is restated until it is edited: see TelemetryInput.exportLanesKept.
       next.exportSplit = true
       next.exportRoutesInstalled = true
+      next.exportLanesKept = [...ROUTE_MODALITIES]
       next.exportEndpoint = routed.fallback
       next.exportLanes = {
         metrics: { ...emptyExportTarget, exportEndpoint: routed.routes.metrics ?? routed.fallback },

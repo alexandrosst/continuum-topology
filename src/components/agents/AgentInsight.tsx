@@ -638,7 +638,16 @@ export function TelemetryPanel({
       measurementsOn={measurementsOn}
       agentId={agentId}
       clusterId={clusterId}
-      runSection={telemetryActive(draft) ? <div className="mt-3" data-testid={`${p}-run`}>{targets.length > 0 ? operatorSection : commandSection}</div> : undefined}
+      runSection={
+        telemetryActive(draft) ? (
+          <div className="mt-3" data-testid={`${p}-run`}>
+            {targets.length > 0 ? operatorSection : commandSection}
+            <p className="mt-3 text-xs text-nb-500" data-testid={`${p}-run-watch`}>
+              Once it is applied, watch <span className="text-nb-300">Is data arriving?</span> above: each signal type starts at Waiting for data and changes to Sending when the first data goes out, usually within a minute or two.
+            </p>
+          </div>
+        ) : undefined
+      }
     />
   )
 

@@ -631,3 +631,33 @@ test('an install that sends signals to several places is seeded as routes, not a
   assert.equal(plain.exportSplit, false)
   assert.equal(plain.exportEndpoint, 'gw:4317')
 })
+
+test('a seeded routed install is not restated: changing something else leaves its routes as installed', () => {
+  const seeded = seedTelemetryFromInstalled(['resourceUsage', 'traces'], { exportEndpoint: 'traces=z:9411,default=gw:4317', redactionEnabled: true, resourceDetectionEnabled: false })
+  const cmd = telemetryUpgradeCommand(undefined, { ...seeded, kubernetesState: true })
+  // The agent does not say how a route is spoken to (protocol, TLS, credential), so stating the route would
+  // reset those to defaults: it is left out, and --reuse-values keeps what is installed.
+  assert.doesNotMatch(cmd, /telemetry\.export\.routes\.(metrics|traces)\./)
+  assert.doesNotMatch(cmd, /routes\.\w+\.(protocol|tls|auth)/)
+  assert.match(cmd, /telemetry\.kubernetesState\.metrics\.enabled=true/)
+})
+
+test('editing a seeded route makes it this draft\'s to state, in full, and only that route', () => {
+  const seeded = seedTelemetryFromInstalled(['resourceUsage', 'traces'], { exportEndpoint: 'traces=z:9411,default=gw:4317', redactionEnabled: true, resourceDetectionEnabled: false })
+  const edited = withLane(seeded, 'traces', { ...laneView(seeded, 'traces'), exportEndpoint: 'zipkin.obs.svc:9411', exportProtocol: 'zipkin', exportInsecure: true })
+  assert.deepEqual(edited.exportLanesKept, ['metrics', 'logs'])
+  const cmd = telemetryUpgradeCommand(undefined, edited)
+  assert.match(cmd, /--set-string telemetry\.export\.routes\.traces\.endpoint=zipkin\.obs\.svc:9411/)
+  assert.match(cmd, /telemetry\.export\.routes\.traces\.protocol=zipkin/)
+  assert.match(cmd, /telemetry\.export\.routes\.traces\.tls\.insecure=true/)
+  assert.doesNotMatch(cmd, /telemetry\.export\.routes\.metrics\./)
+  // Writing a lane back unchanged (what the picker does on every render of it) does not take it over.
+  assert.deepEqual(withLane(seeded, 'metrics', laneView(seeded, 'metrics')).exportLanesKept, ['metrics', 'logs', 'traces'])
+})
+
+test('a kept route whose signal type is turned off is still cleared', () => {
+  const seeded = seedTelemetryFromInstalled(['resourceUsage', 'traces'], { exportEndpoint: 'traces=z:9411,default=gw:4317', redactionEnabled: true, resourceDetectionEnabled: false })
+  const cmd = telemetryUpgradeCommand(undefined, { ...seeded, traces: false })
+  assert.match(cmd, /--set-string telemetry\.export\.routes\.traces\.endpoint=( |$|\\)/m)
+})
+
