@@ -84,6 +84,9 @@ spec:
             {{- if .Values.receiver.tls.enabled }}
             - {name: receiver-tls, mountPath: /receiver-tls, readOnly: true}
             {{- end }}
+            {{- with include "operator.exporterMtlsMounts" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
             {{- if and .Values.heartbeat.enabled .Values.heartbeat.tls.caSecretName }}
             - {name: heartbeat-ca, mountPath: /heartbeat-ca, readOnly: true}
             {{- end }}
@@ -94,6 +97,9 @@ spec:
         {{- if .Values.receiver.tls.enabled }}
         - name: receiver-tls
           secret: {secretName: {{ .Values.receiver.tls.secretName }}}
+        {{- end }}
+        {{- with include "operator.exporterMtlsVolumes" . }}
+        {{- . | nindent 8 }}
         {{- end }}
         {{- if and .Values.heartbeat.enabled .Values.heartbeat.tls.caSecretName }}
         - name: heartbeat-ca

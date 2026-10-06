@@ -197,3 +197,45 @@ func TestOperatorRoutesAreSchemaChecked(t *testing.T) {
 		}
 	}
 }
+
+// A regional operator can present a client certificate to its destination (another operator, or FUSION's central
+// operator, whose receiver requires one): the Secret is mounted per destination and the exporter points at it.
+func TestOperatorExportMTLSMountsClientCertificate(t *testing.T) {
+	r := operatorRender(t,
+		"--set", "export.otlp.endpoint=central.obs.svc:4317",
+		"--set", "export.otlp.tls.mtls.enabled=true", "--set", "export.otlp.tls.mtls.secretName=to-central")
+	c := operatorCollectorConfig(t,
+		"--set", "export.otlp.endpoint=central.obs.svc:4317",
+		"--set", "export.otlp.tls.mtls.enabled=true", "--set", "export.otlp.tls.mtls.secretName=to-central")
+	tls, _ := c.exporters["otlp"]["tls"].(map[string]any)
+	if tls["cert_file"] != "/export-mtls/tls.crt" || tls["key_file"] != "/export-mtls/tls.key" || tls["ca_file"] != "/export-mtls/ca.crt" {
+		t.Errorf("exporter tls = %v, want the mounted client certificate", tls)
+	}
+	var dep string
+	for _, d := range r.deployments {
+		b, _ := sigsyaml.Marshal(d)
+		dep = string(b)
+	}
+	if !strings.Contains(dep, "mountPath: /export-mtls") || !strings.Contains(dep, "secretName: to-central") {
+		t.Errorf("deployment does not mount the client certificate Secret:\n%s", dep)
+	}
+}
+
+func TestOperatorExportMTLSWorksPerRouteOverHTTP(t *testing.T) {
+	c := operatorCollectorConfig(t, append(append([]string{}, fusionRoutes...),
+		"--set", "export.routes.metrics.tls.mtls.enabled=true", "--set", "export.routes.metrics.tls.mtls.secretName=m")...)
+	tls, _ := c.exporters["otlphttp/metrics"]["tls"].(map[string]any)
+	if tls["cert_file"] != "/export-mtls-metrics/tls.crt" {
+		t.Errorf("metrics route tls = %v", tls)
+	}
+	if tls, ok := c.exporters["otlphttp/logs"]["tls"]; ok {
+		t.Errorf("the logs route has no client certificate but renders tls %v", tls)
+	}
+}
+
+func TestOperatorExportMTLSRequiresASecret(t *testing.T) {
+	out, err := operatorHelmTemplateNoDefault(t, "--set", "export.otlp.endpoint=x:4317", "--set", "export.otlp.tls.mtls.enabled=true")
+	if err == nil || !strings.Contains(out, "export.otlp.tls.mtls.secretName") {
+		t.Errorf("want a refusal naming the missing secretName, got err=%v out=%s", err, out)
+	}
+}

@@ -39,7 +39,15 @@
               "additionalProperties": false,
               "properties": {
                 "insecure": { "type": "boolean" },
-                "caFile": { "type": "string" }
+                "caFile": { "type": "string" },
+                "mtls": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean" },
+                    "secretName": { "type": "string" }
+                  }
+                }
               }
             },
             "auth": {

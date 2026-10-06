@@ -38,6 +38,14 @@ export:
     tls:
       insecure: false
       caFile: ""    # path to a CA bundle to mount and trust, if the destination's certificate isn't otherwise trusted
+      # Present a client certificate to the destination - the shape of a regional operator (or FUSION's central
+      # operator) whose receiver.tls.mtls is on. secretName is a Secret in this release's namespace, created
+      # outside this chart, holding tls.crt, tls.key (this operator's client certificate) and ca.crt (to verify
+      # the destination's own server certificate - takes priority over caFile). Ikhnos's install command
+      # always fills it in; this default only matters if you hand-edit these values.
+      mtls:
+        enabled: false
+        secretName: ""
     # Same "point at a Secret you create yourself" convention as continuum-agent's telemetry.export.otlp.auth -
     # never put the header's value directly in values.yaml.
     auth:
@@ -57,6 +65,9 @@ export:
       tls:
         insecure: false
         caFile: ""
+        mtls:
+          enabled: false
+          secretName: ""
       auth:
         headerName: Authorization
         secretName: ""

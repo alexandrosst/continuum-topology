@@ -178,15 +178,25 @@ bearertokenauth:
 {{- $e := $c.endpoint }}
 {{- if not (regexMatch "^https?://" $e) }}{{ $e = printf "%s://%s" (ternary "http" "https" $c.tls.insecure) $e }}{{ end }}
   endpoint: {{ $e | quote }}
-  {{- if $c.tls.caFile }}
+  {{- if or $c.tls.mtls.enabled $c.tls.caFile }}
   tls:
+    {{- if $c.tls.mtls.enabled }}
+    ca_file: {{ .mtls }}/ca.crt
+    cert_file: {{ .mtls }}/tls.crt
+    key_file: {{ .mtls }}/tls.key
+    {{- else }}
     ca_file: {{ $c.tls.caFile | quote }}
+    {{- end }}
   {{- end }}
 {{- else }}
   endpoint: {{ $c.endpoint | quote }}
   tls:
     insecure: {{ $c.tls.insecure }}
-    {{- if $c.tls.caFile }}
+    {{- if $c.tls.mtls.enabled }}
+    ca_file: {{ .mtls }}/ca.crt
+    cert_file: {{ .mtls }}/tls.crt
+    key_file: {{ .mtls }}/tls.key
+    {{- else if $c.tls.caFile }}
     ca_file: {{ $c.tls.caFile | quote }}
     {{- end }}
 {{- end }}
@@ -201,11 +211,11 @@ bearertokenauth:
 {{- $root := . -}}
 {{- $blocks := list -}}
 {{- if include "operator.defaultUsed" . -}}
-{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "key" (include "operator.exporterName" $root) "c" $root.Values.export.otlp "env" "CONTINUUM_OPERATOR_EXPORT_AUTH")) -}}
+{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "key" (include "operator.exporterName" $root) "c" $root.Values.export.otlp "env" "CONTINUUM_OPERATOR_EXPORT_AUTH" "mtls" "/export-mtls")) -}}
 {{- end -}}
 {{- range (include "operator.modalities" . | fromJsonArray) -}}
 {{- if include "operator.hasRoute" (dict "root" $root "m" .) -}}
-{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "key" (include "operator.exporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.export.routes .) "env" (printf "CONTINUUM_OPERATOR_EXPORT_AUTH_%s" (upper .)))) -}}
+{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "key" (include "operator.exporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.export.routes .) "env" (printf "CONTINUUM_OPERATOR_EXPORT_AUTH_%s" (upper .)) "mtls" (printf "/export-mtls-%s" .))) -}}
 {{- end -}}
 {{- end -}}
 {{- join "\n" $blocks -}}
@@ -229,6 +239,35 @@ bearertokenauth:
 {{- end -}}
 {{- end -}}
 {{- join "\n" $entries -}}
+{{- end -}}
+
+{{/* Client-certificate Secrets for destinations in use with ...tls.mtls.enabled: the default at /export-mtls,
+     each route at /export-mtls-<signal>. Two lists of entries (mounts, volumes), empty when none is on. */}}
+{{- define "operator.exporterMtlsMounts" -}}
+{{- $root := . -}}
+{{- $l := list -}}
+{{- if and (include "operator.defaultUsed" .) $root.Values.export.otlp.tls.mtls.enabled -}}
+{{- $l = append $l "- {name: export-mtls, mountPath: /export-mtls, readOnly: true}" -}}
+{{- end -}}
+{{- range (include "operator.modalities" . | fromJsonArray) -}}
+{{- if and (include "operator.hasRoute" (dict "root" $root "m" .)) (get $root.Values.export.routes .).tls.mtls.enabled -}}
+{{- $l = append $l (printf "- {name: export-mtls-%s, mountPath: /export-mtls-%s, readOnly: true}" . .) -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $l -}}
+{{- end -}}
+{{- define "operator.exporterMtlsVolumes" -}}
+{{- $root := . -}}
+{{- $l := list -}}
+{{- if and (include "operator.defaultUsed" .) $root.Values.export.otlp.tls.mtls.enabled -}}
+{{- $l = append $l (printf "- name: export-mtls\n  secret: {secretName: %s}" $root.Values.export.otlp.tls.mtls.secretName) -}}
+{{- end -}}
+{{- range (include "operator.modalities" . | fromJsonArray) -}}
+{{- if and (include "operator.hasRoute" (dict "root" $root "m" .)) (get $root.Values.export.routes .).tls.mtls.enabled -}}
+{{- $l = append $l (printf "- name: export-mtls-%s\n  secret: {secretName: %s}" . (get $root.Values.export.routes .).tls.mtls.secretName) -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $l -}}
 {{- end -}}
 
 {{/* Heartbeat (opt-in, see values.yaml's heartbeat block): ONE extra, self-contained metrics pipeline,

@@ -48,6 +48,11 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{/* Required: an operator with no destination for a signal type has nothing to do with it. */}}
 {{- define "operator.validate" -}}
 {{- if and (include "operator.defaultUsed" .) (not .Values.export.otlp.endpoint) -}}{{- fail "export.otlp.endpoint is required, unless every signal type (metrics, logs, traces) has a destination of its own under export.routes" -}}{{- end -}}
+{{- if and .Values.export.otlp.tls.mtls.enabled (not .Values.export.otlp.tls.mtls.secretName) -}}{{- fail "export.otlp.tls.mtls.enabled requires export.otlp.tls.mtls.secretName (a Secret holding tls.crt, tls.key and ca.crt)" -}}{{- end -}}
+{{- range (include "operator.modalities" . | fromJsonArray) -}}
+{{- $r := get $.Values.export.routes . -}}
+{{- if and $r.tls.mtls.enabled (not $r.tls.mtls.secretName) -}}{{- fail (printf "export.routes.%s.tls.mtls.enabled requires export.routes.%s.tls.mtls.secretName (a Secret holding tls.crt, tls.key and ca.crt)" . .) -}}{{- end -}}
+{{- end -}}
 {{- if and .Values.receiver.auth.enabled (not .Values.receiver.auth.secretName) -}}
 {{- fail "receiver.auth.enabled requires receiver.auth.secretName" -}}
 {{- end -}}
