@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { CopyCommand } from '@/components/agents/AgentInsight'
 import { ConfirmModal } from '@/components/forms'
+import { FusionDot, FusionPanel, useFusion } from '@/components/operators/FusionPanel'
 import { OperatorHealth } from '@/components/operators/OperatorHealth'
 import { TagRows } from '@/components/telemetry/ProcessStep'
 import ProcessorEditor from '@/components/telemetry/ProcessorEditor'
@@ -11,7 +12,7 @@ import { Button, CheckboxList, ChipList, ComboField, EmptyState, ErrorBanner, Fi
 import { api, ApiError, type CreatedOperator, type OperatorHeartbeatEnabled } from '@/lib/api'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
-import { FUSION_DEFAULT_NAMESPACE, FUSION_DEFAULT_RELEASE, fusionProblems, fusionStores } from '@/lib/fusion'
+import { CENTRAL_OPERATOR_ID, fusionSentence } from '@/lib/fusionStatus'
 import { cleanTags, tagProblems, type TagEntry } from '@/lib/install'
 import { isReportingHealth, receiverAuthOf } from '@/lib/operatorHealth'
 import { buildOperatorInstallCommand, operatorProcessorProblems } from '@/lib/operatorInstall'
@@ -41,19 +42,23 @@ const emptyDestination: OperatorDestination = {
 /** What is wrong with the destination draft, in words a person can act on - deliberately not reusing
  *  install.ts's telemetryProblems (that one covers a whole TelemetryInput, this is just a destination). */
 function destinationProblems(d: OperatorDestination): string[] {
-  if (d.kind === 'fusion') return fusionProblems(d.fusionRelease ?? '', d.fusionNamespace ?? '')
+  if (d.kind === 'operator') return d.targetOperatorId ? [] : ['Choose the operator to send to']
   const out: string[] = []
   if (!d.endpoint.trim()) out.push('An export endpoint is required')
   return out
 }
 
-// Release and namespace start empty, shown as placeholders: empty means the default, here and on the server.
-const fusionDestination: OperatorDestination = { kind: 'fusion', endpoint: '', fusionRelease: '', fusionNamespace: '' }
+/** Sending to the server's own central operator, the one door into the bundled FUSION. */
+const centralDestination: OperatorDestination = { kind: 'operator', endpoint: '', targetOperatorId: CENTRAL_OPERATOR_ID }
+const isCentral = (d: OperatorDestination) => d.kind === 'operator' && d.targetOperatorId === CENTRAL_OPERATOR_ID
 
-/** Where a regional operator exports to, in one short line for the table: the endpoint, or for FUSION the name
- *  of the install (its stores are three, so one address would say too little). */
+/** Where a regional operator exports to, in one short line for the table: the endpoint, the central operator by
+ *  name, or (the central operator's own, which is how it is described) its three stores. */
 function destinationLabel(d: OperatorDestination): string {
-  return d.kind === 'fusion' ? `FUSION (${d.fusionRelease || FUSION_DEFAULT_RELEASE})` : d.endpoint
+  if (isCentral(d)) return 'Central operator (FUSION)'
+  if (d.kind === 'operator') return `Operator ${d.targetOperatorId ?? ''}`.trim()
+  if (d.kind === 'fusion') return 'Prometheus, Loki and Tempo'
+  return d.endpoint
 }
 
 /** Name + source clusters + destination + extra processors, the whole create form's shape in one place so
@@ -167,13 +172,23 @@ function OperatorCreated({ created, extraProcessors, onClose }: { created: Creat
           <p className="mt-1 text-xs text-nb-500">The install command below already turns health reporting on.</p>
         </div>
       )}
-      {created.fusionInstall && (
-        <div className="mt-3" data-testid="operator-created-fusion">
-          <div className="mb-1 text-xs text-nb-500">
-            Install FUSION first, in the cluster where the operator runs (skip this if it is already installed there). It is Prometheus, Loki and Tempo, each with its own volume;
-            none of them asks who is calling, so they are reachable inside the cluster only
-          </div>
-          <CopyCommand text={created.fusionInstall} testId="operator-fusion-install" />
+      {created.exportTarget && (
+        <div className="mt-3" data-testid="operator-created-export">
+          <p className="text-xs leading-relaxed text-nb-400">
+            This operator sends to <span className="text-nb-200">{created.exportTarget.name}</span>
+            {created.exportTarget.operatorId === CENTRAL_OPERATOR_ID ? ', which saves metrics, logs and traces in FUSION. FUSION is part of this server, so there is nothing to install for it' : ''}.
+          </p>
+          {!created.exportTarget.reachableFromOtherClusters && (
+            <p role="alert" className="mt-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs leading-relaxed text-warn" data-testid="operator-created-export-unreachable">
+              The central operator is reachable inside this server&apos;s cluster only. Install this operator there, or set <code className="font-mono">fusionControl.centralAddress</code> on the server install and expose the central operator, before one in another cluster can send to it.
+            </p>
+          )}
+          {created.exportSecretCommand && (
+            <div className="mt-2">
+              <div className="mb-1 text-xs text-nb-500">Create the client certificate Secret first. It is what {created.exportTarget.name} checks, and it was issued just now for this operator</div>
+              <CopyCommand text={created.exportSecretCommand} testId="operator-export-secret" />
+            </div>
+          )}
         </div>
       )}
       <div className="mt-3">
@@ -308,6 +323,7 @@ export default function RegionalOperatorsPage() {
   const admin = isAdmin()
   const canConsent = conn() != null && canEdit()
   const telemetry = useTelemetryFlow()
+  const fusion = useFusion(admin)
 
   const [operatorsLoaded, setOperatorsLoaded] = useState(false)
   const load = useCallback(async () => {
@@ -381,9 +397,11 @@ export default function RegionalOperatorsPage() {
     .filter((cl) => agents.some((a) => a.status === 'approved' && a.clusterId === cl.id))
     .map((cl) => ({ value: cl.id, label: cl.name, hint: cl.region || undefined }))
 
-  const fusionDest = draft.destination.kind === 'fusion'
-  const destinationNote = fusionDest ? undefined : unsupportedDestinationNote(draft.destination.endpoint)
+  const centralDest = isCentral(draft.destination)
+  const fusionOff = centralDest && fusion.status?.state === 'off'
+  const destinationNote = centralDest ? undefined : unsupportedDestinationNote(draft.destination.endpoint)
   const problems = [
+    centralDest && fusion.status && !fusion.status.available ? [`FUSION cannot be switched from this server. ${fusion.status.message ?? ''}`.trim()] : [],
     draft.name.trim().length < 2 ? ['A name of at least two characters is required'] : [],
     draft.sourceClusterIds.length === 0 ? ['Pick at least one source cluster'] : [],
     destinationProblems(draft.destination),
@@ -395,6 +413,8 @@ export default function RegionalOperatorsPage() {
     act(async () => {
       const c = conn()
       if (!c) return
+      // Choosing the central operator while FUSION is off means "and turn it on": it is what that operator saves into.
+      if (fusionOff) await fusion.enable()
       const r = await api.createOperator(c, draft.name.trim(), draft.sourceClusterIds, draft.destination, { heartbeat: draft.heartbeat, labels: cleanTags(draft.labels) })
       setCreating(false)
       setCreatedProcessors(draft.extraProcessors)
@@ -497,6 +517,7 @@ export default function RegionalOperatorsPage() {
       ) : (
         <>
           <ErrorLine text={error} />
+          <div className="mb-4"><FusionPanel fusion={fusion} /></div>
           {!operatorsLoaded ? (
             // Without this, the fetch that op.listOperators fires on every mount (task #383: this data is
             // live and org-scoped, so unlike every other tab here it can't just read the already-synced
@@ -523,12 +544,22 @@ export default function RegionalOperatorsPage() {
                   </Td>
                   <Td>
                     <Pill>{op.status === 'active' ? 'Active' : `Revoked${op.reason ? `: ${op.reason}` : ''}`}</Pill>
-                    {op.status === 'active' && <div className="mt-1"><OperatorHealth operator={op} /></div>}
+                    {op.status === 'active' && op.id === CENTRAL_OPERATOR_ID ? (
+                      <div className="mt-1 inline-flex items-center gap-1.5 text-xs text-nb-400" data-testid="operator-central-state">
+                        <FusionDot kind={fusionSentence(fusion.status).kind} /> {fusionSentence(fusion.status).kind === 'running' ? 'Running' : fusionSentence(fusion.status).kind === 'off' ? 'Off' : fusionSentence(fusion.status).kind === 'starting' ? 'Starting' : 'Needs attention'}
+                      </div>
+                    ) : (
+                      op.status === 'active' && <div className="mt-1"><OperatorHealth operator={op} /></div>
+                    )}
                   </Td>
                   <Td className="text-nb-500">{op.sourceClusterIds.length} cluster{op.sourceClusterIds.length === 1 ? '' : 's'}</Td>
                   <Td className="text-nb-500"><span className="font-mono text-xs" data-testid={`operator-destination-${op.name}`}>{destinationLabel(op.destination)}</span></Td>
                   <Td className="text-nb-500">{when(op.createdAt)}</Td>
                   <Td className="text-right">
+                    {op.id === CENTRAL_OPERATOR_ID ? (
+                      <span className="text-xs text-nb-500" data-testid="operator-central-managed">Managed by FUSION</span>
+                    ) : (
+                    <>
                     {op.status === 'active' && (
                       <>
                         <Button size="sm" onClick={() => setHealthFor(op)} data-testid={`operator-health-open-${op.name}`}>
@@ -538,6 +569,8 @@ export default function RegionalOperatorsPage() {
                       </>
                     )}
                     <Button size="sm" variant="danger" aria-label={`Delete ${op.name}`} onClick={() => setDeleting(op)}><Trash2 size={ICON_MD} /></Button>
+                    </>
+                    )}
                   </Td>
                 </tr>
               ))}
@@ -553,7 +586,7 @@ export default function RegionalOperatorsPage() {
         title="New regional operator"
         description="Mechanism only: this declares the operator, its scope and its destination, and gives you an install command. It does not touch any cluster's own export settings for you."
         width="max-w-2xl"
-        footer={<><Button onClick={() => setCreating(false)}>Cancel</Button><Button variant="primary" onClick={create} disabled={problems.length > 0} data-testid="operator-create">Create operator</Button></>}
+        footer={<><Button onClick={() => setCreating(false)}>Cancel</Button><Button variant="primary" onClick={create} disabled={problems.length > 0 || fusion.busy} data-testid="operator-create">{fusionOff ? 'Enable FUSION and create' : 'Create operator'}</Button></>}
       >
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (problems.length === 0) void create() }}>
           <Field label="Name"><Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} maxLength={80} data-testid="operator-name" /></Field>
@@ -578,60 +611,38 @@ export default function RegionalOperatorsPage() {
             <div className="flex w-fit overflow-hidden rounded-md border border-nb-850" role="radiogroup" aria-label="Destination type">
               {([
                 ['external', 'Another backend', 'operator-dest-external'],
-                ['fusion', 'FUSION', 'operator-dest-fusion'],
+                ['central', 'Central operator (FUSION)', 'operator-dest-central'],
               ] as const).map(([kind, label, testId]) => (
                 <button
                   key={kind}
                   type="button"
                   role="radio"
-                  aria-checked={(fusionDest ? 'fusion' : 'external') === kind}
-                  onClick={() => setDraft({ ...draft, destination: kind === 'fusion' ? fusionDestination : emptyDestination })}
+                  aria-checked={(centralDest ? 'central' : 'external') === kind}
+                  onClick={() => setDraft({ ...draft, destination: kind === 'central' ? centralDestination : emptyDestination })}
                   data-testid={testId}
-                  className={`px-3 py-1.5 text-sm ${(fusionDest ? 'fusion' : 'external') === kind ? 'bg-nb-850 text-nb-100' : 'text-nb-400 hover:bg-nb-900'}`}
+                  className={`px-3 py-1.5 text-sm ${(centralDest ? 'central' : 'external') === kind ? 'bg-nb-850 text-nb-100' : 'text-nb-400 hover:bg-nb-900'}`}
                 >
                   {label}
                 </button>
               ))}
             </div>
+            <p className="mt-1.5 text-xs leading-relaxed text-nb-500">
+              An OTLP endpoint you already run (Honeycomb, Grafana Cloud, your own gateway) - or the central operator, which saves into this server&apos;s own FUSION stores.
+            </p>
           </div>
 
-          {fusionDest && (
-            <div className="space-y-3" data-testid="operator-fusion">
+          {centralDest && (
+            <div className="space-y-3" data-testid="operator-central">
+              <FusionPanel fusion={fusion} compact />
               <p className="text-xs leading-relaxed text-nb-500">
-                FUSION keeps each signal type in a store of its own: metrics in Prometheus, logs in Loki, traces in Tempo, each on its own volume.
-                The operator sends each there over the cluster network. You install FUSION once, next to the operator; the install command is shown after you create it.
+                The central operator is the one door into FUSION: Prometheus for metrics, Loki for logs, Tempo for traces, each on its own volume, and never exposed themselves.
+                This operator sends to it over mutual TLS; the client certificate is issued when you create the operator, and shown with its install command.
+                {fusionOff && ' Creating it turns FUSION on first - it starts four pods next to this server, which the server already carries but keeps switched off.'}
               </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="FUSION release name" hint="The Helm release of the FUSION install. Its Services are named after it.">
-                  <Input
-                    value={draft.destination.fusionRelease ?? ''}
-                    onChange={(e) => setDraft({ ...draft, destination: { ...draft.destination, fusionRelease: e.target.value } })}
-                    placeholder={FUSION_DEFAULT_RELEASE}
-                    data-testid="operator-fusion-release"
-                  />
-                </Field>
-                <Field label="FUSION namespace" hint="Where that release is installed.">
-                  <Input
-                    value={draft.destination.fusionNamespace ?? ''}
-                    onChange={(e) => setDraft({ ...draft, destination: { ...draft.destination, fusionNamespace: e.target.value } })}
-                    placeholder={FUSION_DEFAULT_NAMESPACE}
-                    data-testid="operator-fusion-namespace"
-                  />
-                </Field>
-              </div>
-              <ul className="space-y-1 rounded-md border border-nb-850 bg-nb-930 px-3 py-2 text-xs text-nb-400" data-testid="operator-fusion-routes">
-                {fusionStores(draft.destination.fusionRelease ?? '', draft.destination.fusionNamespace ?? '').map((r) => (
-                  <li key={r.signal} className="flex flex-wrap gap-x-2">
-                    <span className="w-16 text-nb-500">{r.signal}</span>
-                    <span className="w-24 text-nb-300">{r.store}</span>
-                    <code className="font-mono">{r.endpoint}</code>
-                  </li>
-                ))}
-              </ul>
             </div>
           )}
 
-          {!fusionDest && (
+          {!centralDest && (
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Send aggregated telemetry to" hint="Pick a known backend to fill in its endpoint pattern and credential header, or type your own.">
                 <ComboField

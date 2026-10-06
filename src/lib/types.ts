@@ -1242,10 +1242,9 @@ export interface OperatorDestination {
   /** Only meaningful for kind 'operator': the id of the active regional operator in this org this
    *  destination chains to. The server rejects a kind 'operator' destination that doesn't name one. */
   targetOperatorId?: string
-  /** Only meaningful for kind 'fusion': the Helm release and namespace of the FUSION install (continuum-fusion
-   *  chart) the operator saves into. Both default server-side (`fusion`, `continuum-system`); the stores'
-   *  addresses follow from them - see lib/fusion.ts. Only a regional operator takes this kind, never a
-   *  telemetry intent. */
+  /** Only meaningful for kind 'fusion', which only the server's own central operator carries (it is how that
+   *  operator is described, never something to create): the release and namespace of the FUSION bundled with the
+   *  server, whose three stores it saves into. */
   fusionRelease?: string
   fusionNamespace?: string
 }

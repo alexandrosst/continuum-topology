@@ -88,9 +88,21 @@ export interface CreatedOperator {
   heartbeatIntervalSeconds?: number
   /** Why the heartbeat address will not work as printed (plain HTTP) - show it next to the commands. */
   heartbeatWarning?: string
-  /** Present only for a FUSION destination: the `helm upgrade --install` that puts the Prometheus/Loki/Tempo stores
-   *  where the operator's routes point. Not secret, and safe to run again. */
-  fusionInstall?: string
+  /** Present only when the operator exports to ANOTHER operator (the central one in front of FUSION, usually): the
+   *  `kubectl create secret` holding the client certificate that operator's receiver requires, issued just now from
+   *  its own CA. Run it before the install command, which already points the exporter at it. */
+  exportSecretCommand?: string
+  exportTarget?: ExportTarget
+}
+
+/** Where an operator that exports to another operator sends, and whether that works from another cluster. */
+export interface ExportTarget {
+  operatorId: string
+  name: string
+  endpoint: string
+  /** False when the target is only addressable inside the server's own cluster (the central operator, until the
+   *  server is installed with a public address for it): an operator in another cluster cannot reach it. */
+  reachableFromOtherClusters: boolean
 }
 
 /** What POST /operators/{id}/heartbeat returns: the heartbeat credential, minted now and never shown again,
@@ -121,8 +133,29 @@ export interface CreateOperatorOptions {
 export interface UpdatedOperatorScope {
   operator: RegionalOperator
   reminders: string[]
-  /** As CreatedOperator.fusionInstall: present only for a FUSION destination. */
-  fusionInstall?: string
+  /** As CreatedOperator.exportSecretCommand / exportTarget: present only for an operator-to-operator destination. */
+  exportSecretCommand?: string
+  exportTarget?: ExportTarget
+}
+
+/** One workload FUSION runs: the three stores and the central operator in front of them. */
+export interface FusionComponent {
+  component: 'metrics' | 'logs' | 'traces' | 'central'
+  label: string
+  desired: number
+  ready: number
+}
+
+/** GET /fusion: the bundled FUSION's switch. `available` is false when this server cannot switch it (the reason says
+ *  why, in `message`); `state` is then 'off'. */
+export interface FusionStatus {
+  available: boolean
+  reason?: 'not-configured' | 'not-installed' | 'no-access' | 'other-org'
+  state: 'off' | 'starting' | 'running' | 'attention'
+  message?: string
+  since?: string
+  components?: FusionComponent[]
+  central?: { operatorId: string; endpoint: string; exposed: boolean; exists: boolean }
 }
 
 /** What GET /telemetry-intents/{id}/command returns: the `--set` flags a person runs against the
@@ -580,6 +613,11 @@ export const api = {
   enableOperatorHeartbeat: (c: Conn, id: string) => call<OperatorHeartbeatEnabled>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/heartbeat`),
   updateOperatorScope: (c: Conn, id: string, sourceClusterIds: string[], destination: OperatorDestination) =>
     call<UpdatedOperatorScope>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/scope`, { sourceClusterIds, destination }),
+  // FUSION: part of the server, switched on and off here. enable also prepares the central operator (its CA and
+  // certificates) and starts everything; disable stops it and keeps the data.
+  getFusion: (c: Conn) => call<FusionStatus>(c, 'GET', '/api/v1/fusion'),
+  enableFusion: (c: Conn) => call<FusionStatus>(c, 'POST', '/api/v1/fusion/enable'),
+  disableFusion: (c: Conn) => call<FusionStatus>(c, 'POST', '/api/v1/fusion/disable'),
   revokeOperator: (c: Conn, id: string, reason: string) => call<void>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/revoke`, { reason }),
   deleteOperator: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/operators/${encodeURIComponent(id)}`),
 

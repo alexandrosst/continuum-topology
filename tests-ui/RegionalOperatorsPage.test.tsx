@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import RegionalOperatorsPage from '@/pages/RegionalOperatorsPage'
-import type { OperatorHeartbeatEnabled } from '@/lib/api'
+import type { FusionStatus, OperatorHeartbeatEnabled } from '@/lib/api'
 import type { Agent, Cluster, RegionalOperator } from '@/lib/types'
 
 function renderPage() {
@@ -44,6 +44,16 @@ const enableOperatorHeartbeat = vi.fn(async (_c: unknown, _id: string): Promise<
   heartbeatUrl: 'https://continuum.example.com/api/v1/operator-heartbeat',
   heartbeatIntervalSeconds: 60,
 }))
+const parts = (desired: number, ready: number) =>
+  (['metrics', 'logs', 'traces', 'central'] as const).map((component) => ({ component, label: { metrics: 'Prometheus', logs: 'Loki', traces: 'Tempo', central: 'Central operator' }[component], desired, ready }))
+const central = { operatorId: 'op-central', endpoint: 'continuum-fusion-central.continuum.svc:4317', exposed: false, exists: true }
+const fusionOff = (): FusionStatus => ({ available: true, state: 'off', components: parts(0, 0), central })
+const fusionStarting = (): FusionStatus => ({ available: true, state: 'starting', components: parts(1, 1).map((c, i) => (i < 2 ? c : { ...c, ready: 0 })), central })
+const fusionRunning = (): FusionStatus => ({ available: true, state: 'running', components: parts(1, 1), central })
+let fusionStatus: FusionStatus = fusionOff()
+const getFusion = vi.fn(async () => fusionStatus)
+const enableFusion = vi.fn(async () => (fusionStatus = fusionStarting()))
+const disableFusion = vi.fn(async () => (fusionStatus = fusionOff()))
 const revokeOperator = vi.fn(async () => {})
 const deleteOperator = vi.fn(async () => {})
 
@@ -69,6 +79,9 @@ vi.mock('@/lib/api', async (importOriginal) => {
       listOperators: (...a: Parameters<typeof listOperators>) => listOperators(...a),
       createOperator: (...a: Parameters<typeof createOperator>) => createOperator(...a),
       enableOperatorHeartbeat: (...a: Parameters<typeof enableOperatorHeartbeat>) => enableOperatorHeartbeat(...a),
+      getFusion: () => getFusion(),
+      enableFusion: () => enableFusion(),
+      disableFusion: () => disableFusion(),
       revokeOperator: (...a: Parameters<typeof revokeOperator>) => revokeOperator(...a),
       deleteOperator: (...a: Parameters<typeof deleteOperator>) => deleteOperator(...a),
     },
@@ -85,6 +98,10 @@ beforeEach(() => {
   revokeOperator.mockClear()
   deleteOperator.mockClear()
   telemetryStart.mockClear()
+  fusionStatus = fusionOff()
+  getFusion.mockClear()
+  enableFusion.mockClear()
+  disableFusion.mockClear()
 })
 
 describe('RegionalOperatorsPage', () => {
@@ -243,82 +260,130 @@ describe('RegionalOperatorsPage', () => {
   })
 })
 
-describe('RegionalOperatorsPage - FUSION destination', () => {
-  test('choosing FUSION shows where each signal type goes, needs no endpoint, and sends a fusion destination', async () => {
-    const user = userEvent.setup()
-    renderPage()
+describe('RegionalOperatorsPage - FUSION and the central operator', () => {
+  async function chooseCentral(user: ReturnType<typeof userEvent.setup>) {
     await user.click(screen.getByTestId('operator-open'))
     await user.type(screen.getByTestId('operator-name'), 'athens-regional')
     await user.click(screen.getByTestId('checkbox-c1'))
-    expect(screen.getByTestId('operator-create')).toBeDisabled()
+    await user.click(screen.getByTestId('operator-dest-central'))
+  }
+  const inWizard = () => within(screen.getByTestId('operator-central'))
 
-    await user.click(screen.getByTestId('operator-dest-fusion'))
+  test('the central operator needs no endpoint, and with FUSION off the button says it will turn FUSION on', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await chooseCentral(user)
     expect(screen.queryByPlaceholderText('otel-gateway.example.com:4317')).not.toBeInTheDocument()
-    const routes = screen.getByTestId('operator-fusion-routes')
-    expect(routes).toHaveTextContent('fusion-prometheus.continuum-system.svc:9090/api/v1/otlp')
-    expect(routes).toHaveTextContent('fusion-loki.continuum-system.svc:3100/otlp')
-    expect(routes).toHaveTextContent('fusion-tempo.continuum-system.svc:4317')
+    expect(await inWizard().findByText(/Off - nothing is running/)).toBeInTheDocument()
+    expect(screen.getByTestId('operator-create')).toHaveTextContent('Enable FUSION and create')
     expect(screen.getByTestId('operator-create')).toBeEnabled()
-
-    await user.type(screen.getByTestId('operator-fusion-release'), 'eu')
-    await user.clear(screen.getByTestId('operator-fusion-namespace'))
-    await user.type(screen.getByTestId('operator-fusion-namespace'), 'obs')
-    expect(screen.getByTestId('operator-fusion-routes')).toHaveTextContent('eu-fusion-loki.obs.svc:3100/otlp')
-
-    await user.click(screen.getByTestId('operator-create'))
-    await waitFor(() => expect(createOperator).toHaveBeenCalled())
-    const dest = createOperator.mock.calls[0][3] as { kind: string; fusionRelease?: string; fusionNamespace?: string }
-    expect(dest.kind).toBe('fusion')
-    expect(dest.fusionRelease).toBe('eu')
-    expect(dest.fusionNamespace).toBe('obs')
   })
 
-  test('a release name Kubernetes would refuse blocks Create and says why', async () => {
+  test('Enable FUSION and create turns it on first, then creates an operator that sends to the central operator', async () => {
     const user = userEvent.setup()
     renderPage()
-    await user.click(screen.getByTestId('operator-open'))
-    await user.type(screen.getByTestId('operator-name'), 'athens-regional')
-    await user.click(screen.getByTestId('checkbox-c1'))
-    await user.click(screen.getByTestId('operator-dest-fusion'))
-    await user.type(screen.getByTestId('operator-fusion-release'), 'Not Valid')
+    await chooseCentral(user)
+    await user.click(await screen.findByText('Enable FUSION and create'))
+    await waitFor(() => expect(createOperator).toHaveBeenCalled())
+    expect(enableFusion).toHaveBeenCalledTimes(1)
+    expect(enableFusion.mock.invocationCallOrder[0]).toBeLessThan(createOperator.mock.invocationCallOrder[0])
+    expect(createOperator.mock.calls[0][3]).toMatchObject({ kind: 'operator', targetOperatorId: 'op-central' })
+  })
+
+  test('with FUSION already running the button just creates, and FUSION is not touched', async () => {
+    fusionStatus = fusionRunning()
+    const user = userEvent.setup()
+    renderPage()
+    await chooseCentral(user)
+    expect(await inWizard().findByText(/Running - the central operator and the three stores are up/)).toBeInTheDocument()
+    expect(screen.getByTestId('operator-create')).not.toHaveTextContent('Enable FUSION')
+    await user.click(screen.getByTestId('operator-create'))
+    await waitFor(() => expect(createOperator).toHaveBeenCalled())
+    expect(enableFusion).not.toHaveBeenCalled()
+  })
+
+  test('a server that cannot switch FUSION says why, and does not let the central operator be chosen for nothing', async () => {
+    fusionStatus = { available: false, reason: 'not-installed', state: 'off', message: "FUSION's workloads are not in this release." }
+    const user = userEvent.setup()
+    renderPage()
+    await chooseCentral(user)
+    expect(await inWizard().findByText(/workloads are not in this release/)).toBeInTheDocument()
+    expect(screen.queryByTestId('fusion-enable')).not.toBeInTheDocument()
     expect(screen.getByTestId('operator-create')).toBeDisabled()
-    expect(screen.getByTestId('operator-problems')).toHaveTextContent('FUSION release name')
+    expect(screen.getByTestId('operator-problems')).toHaveTextContent('FUSION cannot be switched')
   })
 
   test('switching back to another backend restores the endpoint field', async () => {
     const user = userEvent.setup()
     renderPage()
     await user.click(screen.getByTestId('operator-open'))
-    await user.click(screen.getByTestId('operator-dest-fusion'))
+    await user.click(screen.getByTestId('operator-dest-central'))
     await user.click(screen.getByTestId('operator-dest-external'))
-    expect(screen.queryByTestId('operator-fusion')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('operator-central')).not.toBeInTheDocument()
     expect(screen.getByText('otel-gateway.example.com:4317')).toBeInTheDocument()
   })
 
-  test('the created screen leads with the FUSION install command, before the operator install', async () => {
+  test('the created screen shows the client certificate Secret before the install, and warns when the central operator is not reachable from elsewhere', async () => {
     createOperator.mockImplementationOnce(async (_c, name, sourceClusterIds, destination) => ({
       operator: { id: 'op-1', orgId: 'o', name, status: 'active' as const, sourceClusterIds, destination, createdAt: '2026-01-01T00:00:00Z', createdBy: 'me' },
-      install: 'helm install op-1 ./op.tgz --set export.routes.metrics.endpoint=fusion-prometheus.continuum-system.svc:9090/api/v1/otlp',
+      install: 'helm install op-1 ./op.tgz --set export.otlp.endpoint=continuum-fusion-central.continuum.svc:4317',
       reminders: [] as string[],
-      fusionInstall: 'helm upgrade --install fusion ./continuum-fusion-0.1.0.tgz --namespace continuum-system --create-namespace',
+      exportSecretCommand: 'kubectl create secret generic op-central-export-mtls --namespace continuum-system',
+      exportTarget: { operatorId: 'op-central', name: 'Central (FUSION)', endpoint: 'continuum-fusion-central.continuum.svc:4317', reachableFromOtherClusters: false },
     }) as never)
+    fusionStatus = fusionRunning()
     const user = userEvent.setup()
     renderPage()
-    await user.click(screen.getByTestId('operator-open'))
-    await user.type(screen.getByTestId('operator-name'), 'athens-regional')
-    await user.click(screen.getByTestId('checkbox-c1'))
-    await user.click(screen.getByTestId('operator-dest-fusion'))
+    await chooseCentral(user)
     await user.click(screen.getByTestId('operator-create'))
-    const block = await screen.findByTestId('operator-created-fusion')
-    expect(block).toHaveTextContent('Install FUSION first')
-    expect(screen.getByTestId('operator-fusion-install')).toHaveTextContent('helm upgrade --install fusion')
+    const block = await screen.findByTestId('operator-created-export')
+    expect(block).toHaveTextContent('nothing to install for it')
+    expect(screen.getByTestId('operator-export-secret')).toHaveTextContent('op-central-export-mtls')
+    expect(screen.getByTestId('operator-created-export-unreachable')).toHaveTextContent('fusionControl.centralAddress')
     expect(block.compareDocumentPosition(screen.getByText('Then install the operator')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByText(/Install FUSION first/)).not.toBeInTheDocument()
   })
 
-  test('the table names a FUSION destination by its install, not by an empty endpoint', async () => {
-    listOperators.mockResolvedValue([op({ name: 'athens', destination: { kind: 'fusion', endpoint: '', fusionRelease: 'eu', fusionNamespace: 'obs' } })])
+  test('the Regional tab shows FUSION with its four parts, and the switch', async () => {
+    fusionStatus = fusionStarting()
+    const user = userEvent.setup()
     renderPage()
-    expect(await screen.findByTestId('operator-destination-athens')).toHaveTextContent('FUSION (eu)')
+    const panel = await screen.findByTestId('fusion-parts')
+    expect(within(panel).getByTestId('fusion-part-metrics')).toHaveTextContent('Up')
+    expect(within(panel).getByTestId('fusion-part-central')).toHaveTextContent('Starting')
+    expect(screen.getByTestId('fusion-status')).toHaveTextContent('Starting - 2 of 4 parts are up.')
+    expect(screen.getByTestId('fusion-exposure')).toHaveTextContent('inside this cluster only')
+
+    // Turning it off asks first.
+    await user.click(screen.getByTestId('fusion-disable'))
+    expect(disableFusion).not.toHaveBeenCalled()
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Turn off' }))
+    await waitFor(() => expect(disableFusion).toHaveBeenCalled())
+    expect(await screen.findByTestId('fusion-enable')).toBeInTheDocument()
+  })
+
+  test('an exposed central operator says where other clusters reach it', async () => {
+    fusionStatus = { ...fusionRunning(), central: { ...central, exposed: true, endpoint: 'fusion.example.com:4317' } }
+    renderPage()
+    expect(await screen.findByTestId('fusion-exposure')).toHaveTextContent('reachable from other clusters at fusion.example.com:4317')
+  })
+
+  test('the central operator is listed as managed by FUSION: no revoke, no delete, and its state follows FUSION', async () => {
+    fusionStatus = fusionRunning()
+    listOperators.mockResolvedValue([op({ id: 'op-central', name: 'Central (FUSION)', sourceClusterIds: [], destination: { kind: 'fusion', endpoint: '', fusionRelease: 'continuum-fusion', fusionNamespace: 'continuum' } })])
+    renderPage()
+    expect(await screen.findByTestId('operator-central-managed')).toHaveTextContent('Managed by FUSION')
+    const row = screen.getByTestId('operator-Central (FUSION)')
+    expect(within(row).queryByText('Revoke')).not.toBeInTheDocument()
+    expect(within(row).queryByLabelText('Delete Central (FUSION)')).not.toBeInTheDocument()
+    expect(within(row).getByTestId('operator-central-state')).toHaveTextContent('Running')
+    listOperators.mockResolvedValue([])
+  })
+
+  test('the table names an operator that sends to the central operator by it, not by an empty endpoint', async () => {
+    listOperators.mockResolvedValue([op({ name: 'athens', destination: { kind: 'operator', endpoint: '', targetOperatorId: 'op-central' } })])
+    renderPage()
+    expect(await screen.findByTestId('operator-destination-athens')).toHaveTextContent('Central operator (FUSION)')
     listOperators.mockResolvedValue([])
   })
 })
