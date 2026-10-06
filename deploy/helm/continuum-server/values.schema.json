@@ -727,6 +727,18 @@
               "items": {
                 "type": "object"
               }
+            },
+            "kubeAPICIDRs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "kubeAPIPorts": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
             }
           }
         }
@@ -808,6 +820,37 @@
     "allowLoosePermissions": {
       "type": "boolean",
       "description": "start the server with --allow-loose-permissions (fsGroup volumes are group-accessible)"
+    },
+    "fusion": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "switch": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "managed": {
+              "type": "boolean"
+            },
+            "initialReplicas": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        }
+      }
+    },
+    "fusionControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
     }
   }
 }

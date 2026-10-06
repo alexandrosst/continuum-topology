@@ -1,0 +1,51 @@
+{{- if include "continuum.fusionControl" . }}
+{{- $n := include "continuum.fusionName" . }}
+# The only thing this server may do with the Kubernetes API: switch FUSION on and off. Namespaced, and every rule names
+# the objects it covers - the three stores, the central gateway and the gateway's certificate Secret - so it cannot see
+# or touch anything else in the namespace. There is no create, delete, list or watch, and no Secret can be read.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "continuum.fullname" . }}-fusion-switch
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "continuum.labels" . | nindent 4 }}
+rules:
+  # Read the workloads' state ("starting", "running") and their replica count.
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    resourceNames: [{{ $n }}-prometheus, {{ $n }}-loki, {{ $n }}-tempo]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: [{{ $n }}-central]
+    verbs: ["get"]
+  # The switch itself: set the replica count to 0 or 1, through the scale subresource only.
+  - apiGroups: ["apps"]
+    resources: ["statefulsets/scale"]
+    resourceNames: [{{ $n }}-prometheus, {{ $n }}-loki, {{ $n }}-tempo]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: [{{ $n }}-central]
+    verbs: ["get", "patch"]
+  # Put the gateway's server and CA certificates in. Write-only: this role cannot read the Secret back.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ $n }}-central-receiver-tls]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "continuum.fullname" . }}-fusion-switch
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "continuum.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "continuum.fullname" . }}-fusion-switch
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "continuum.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

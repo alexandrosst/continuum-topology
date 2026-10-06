@@ -77,6 +77,19 @@ spec:
         - {port: {{ . }}, protocol: TCP}
         {{- end }}
     {{- end }}
+    {{- if include "continuum.fusionControl" . }}
+    # fusionControl: the Kubernetes API, to scale FUSION
+    - ports:
+        {{- range $np.egress.kubeAPIPorts }}
+        - {port: {{ . }}, protocol: TCP}
+        {{- end }}
+      {{- with $np.egress.kubeAPICIDRs }}
+      to:
+        {{- range . }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      {{- end }}
+    {{- end }}
     {{- with $np.egress.extra }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

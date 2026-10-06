@@ -106,7 +106,7 @@ fi
 chart_push() {
   local dir="$1" base="$2" name="$3" out digest
   out="$(mktemp -d)"
-  run helm package "$dir" -d "$out"
+  run helm package "$dir" --dependency-update -d "$out"
   if [[ -n "${DRY_RUN:-}" ]]; then
     run helm push "$out"/"$name"-*.tgz "oci://$base"
     return 0

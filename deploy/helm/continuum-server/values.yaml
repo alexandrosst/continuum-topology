@@ -394,8 +394,27 @@ serviceAccount:
   create: true
   name: ""
   annotations: {}
-# The server never talks to the Kubernetes API, so the pod gets no token. Leave it false.
+# Whether the pod gets a Kubernetes API token. Off unless fusionControl (below) needs one, which turns it on by itself;
+# set it true only if you add your own use of the API through extraObjects.
 automountServiceAccountToken: false
+
+# FUSION: Prometheus (metrics), Loki (logs), Tempo (traces) and a central gateway that is the one way in, bundled so
+# it is a switch in the UI instead of a second install. The workloads are created standing by - zero replicas, nothing
+# running, nothing to pay for - and the server turns them on when someone enables FUSION and off again on request
+# (the volumes are kept). Anything under `fusion:` is the continuum-fusion chart's own values (retention, storage,
+# images, networkPolicy, ...); see backend/internal/chart/continuum-fusion/values.yaml.
+fusion:
+  enabled: true
+  switch:
+    managed: true          # the server owns the replica count: a `helm upgrade` leaves its last decision alone
+    initialReplicas: 0     # standing by until the UI turns it on
+
+# What lets the server do that, and all it can do: a namespaced Role that reads and scales the four FUSION workloads and
+# writes the central gateway's certificate Secret. No other object, no cluster-wide rule, no delete, no create, no
+# exec. Needs fusion.enabled. Set enabled to false to remove the permission and the API token: the server then cannot
+# switch FUSION itself, and you scale the workloads (or `helm upgrade --set fusion.switch.initialReplicas=1`) by hand.
+fusionControl:
+  enabled: true
 
 # Requests suit a small install (a handful of agents). The limit is what the Go runtime is told to respect through GOMEMLIMIT.
 resources:
@@ -464,6 +483,10 @@ networkPolicy:
     # range; check what it actually resolves to for you, or self-host a trivial echo endpoint if you'd rather pin one.
     geoipPublicIpCIDRs: []
     geoipPublicIpPorts: [443]
+    # fusionControl: where the Kubernetes API answers (the `kubernetes` Service's endpoint). Empty = these ports to
+    # anywhere. Only rendered while the server may switch FUSION.
+    kubeAPICIDRs: []
+    kubeAPIPorts: [443, 6443]
     extra: []                  # raw NetworkPolicyEgressRule objects appended as they are
 
 # ---------------------------------------------------------------------------------------------------------------------

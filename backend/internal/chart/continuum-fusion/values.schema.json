@@ -3,6 +3,13 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "enabled": {
+      "type": "boolean",
+      "description": "read by a parent chart's dependency condition (the Ikhnos server chart's fusion.enabled); unused when installed on its own"
+    },
+    "global": {
+      "type": "object"
+    },
     "imagePullSecrets": {
       "type": "array"
     },

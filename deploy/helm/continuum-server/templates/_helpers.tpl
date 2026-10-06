@@ -261,3 +261,19 @@ is non-empty. */}}
 {{- fail "backup.volumeSnapshot.schedule must be a 5-field cron expression" -}}
 {{- end -}}
 {{- end -}}
+
+{{/* FUSION. These names mirror the continuum-fusion subchart's own (its "fusion.name" and "fusion.central"
+     helpers) and the server's Go fusionName: the Role below grants exactly these objects, and a test renders both
+     charts together to catch drift. */}}
+{{- define "continuum.fusionName" -}}
+{{- if contains "fusion" .Release.Name -}}
+{{- .Release.Name | trunc 50 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-fusion" .Release.Name | trunc 50 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Non-empty when the server is allowed to switch FUSION on and off, i.e. it needs a Kubernetes API token. */}}
+{{- define "continuum.fusionControl" -}}
+{{- if and .Values.fusion.enabled .Values.fusionControl.enabled -}}true{{- end -}}
+{{- end -}}

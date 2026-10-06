@@ -10,3 +10,12 @@ keywords: [continuum, topology, kubernetes, control-plane]
 annotations:
   # Documentation for humans; nothing reads these.
   continuum.io/agent-chart: "the agent is a separate chart (continuum-agent); the server's Connect a cluster screen prints its install command"
+# FUSION (Prometheus, Loki, Tempo and the central gateway) ships inside this chart, switched off until the UI turns it
+# on: its workloads exist but stand at zero replicas, so a server that never uses FUSION runs nothing extra. The
+# dependency is the chart that is also published on its own (continuum-fusion). `helm package -u` fetches it.
+dependencies:
+  - name: continuum-fusion
+    alias: fusion
+    version: ">=0.0.0-0"
+    repository: file://../../../backend/internal/chart/continuum-fusion
+    condition: fusion.enabled

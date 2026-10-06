@@ -36,7 +36,7 @@ spec:
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "continuum.serviceAccountName" . }}
-      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
+      automountServiceAccountToken: {{ or .Values.automountServiceAccountToken (include "continuum.fusionControl" . | ne "") }}
       {{- with .Values.priorityClassName }}
       priorityClassName: {{ . | quote }}
       {{- end }}
@@ -60,6 +60,9 @@ spec:
             - --agent-exposure={{ include "continuum.agentExposure" . }}
             - --release-name={{ .Release.Name }}
             - --release-namespace={{ .Release.Namespace }}
+            {{- if include "continuum.fusionControl" . }}
+            - --fusion-name={{ include "continuum.fusionName" . }}
+            {{- end }}
             {{- with .Values.agent.extraHosts }}
             - --agent-hosts={{ join "," . }}
             {{- end }}
