@@ -293,7 +293,8 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "logLevel": { "enum": ["debug", "info", "warn", "error"] }
       }
     },
     "heartbeat": {

@@ -345,6 +345,11 @@ health:
 selfMetrics:
   enabled: true
   port: 8888
+  # The collector's own log level: info, or debug to see why a sender is refused. A refused TLS handshake (no client
+  # certificate, a certificate from another operator's CA, an expired one) is logged only at debug, as
+  # `Server.Serve failed to create ServerTransport ... tls: <reason>`; at info the receiver refuses silently and the
+  # only trace is on the sender's side. Debug is verbose: turn it on to find a problem, off again after.
+  logLevel: info
 
 # Heartbeat: OPT-IN, off by default. Everything above and below this block is unchanged by it - with
 # heartbeat.enabled false this chart never contacts the Ikhnos server at all, exactly as before.

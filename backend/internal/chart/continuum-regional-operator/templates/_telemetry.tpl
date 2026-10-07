@@ -102,8 +102,14 @@ health_check:
      shape continuum-agent's telemetry.health uses. On by default (see selfMetrics.enabled in values.yaml): it is the
      only place a destination that cannot be reached shows up as a number, because the health check cannot see it. */}}
 {{- define "operator.selfMetricsYAML" -}}
-{{- if .Values.selfMetrics.enabled }}
+{{- $level := .Values.selfMetrics.logLevel | default "info" }}
+{{- if or .Values.selfMetrics.enabled (ne $level "info") }}
 telemetry:
+  {{- if ne $level "info" }}
+  logs:
+    level: {{ $level }}
+  {{- end }}
+  {{- if .Values.selfMetrics.enabled }}
   metrics:
     readers:
       - pull:
@@ -111,6 +117,7 @@ telemetry:
             prometheus:
               host: ${env:POD_IP}
               port: {{ .Values.selfMetrics.port }}
+  {{- end }}
 {{- end }}
 {{- end -}}
 

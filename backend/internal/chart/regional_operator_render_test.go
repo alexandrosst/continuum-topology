@@ -512,3 +512,28 @@ func TestRegionalOperatorLongNameMountsTheConfigMapItRenders(t *testing.T) {
 		}
 	}
 }
+
+// A refused TLS handshake (no client certificate, another operator's CA, an expired certificate) is logged by the receiver
+// only at debug level, so the log level is a value: nothing is rendered at the default, and the level reaches the collector
+// whether or not its self-metrics are on.
+func TestRegionalOperatorLogLevelIsOptIn(t *testing.T) {
+	logs := func(args ...string) any {
+		t.Helper()
+		cfg := otelConfig(t, operatorRender(t, args...).configmaps["op-regional-operator-config"].Data)
+		svc, _ := cfg["service"].(map[string]any)
+		tel, _ := svc["telemetry"].(map[string]any)
+		return tel["logs"]
+	}
+	if got := logs(); got != nil {
+		t.Errorf("the default renders a log setting: %v", got)
+	}
+	for _, args := range [][]string{{"--set", "selfMetrics.logLevel=debug"}, {"--set", "selfMetrics.logLevel=debug", "--set", "selfMetrics.enabled=false"}} {
+		l, _ := logs(args...).(map[string]any)
+		if l["level"] != "debug" {
+			t.Errorf("%v: service.telemetry.logs = %v", args, l)
+		}
+	}
+	if _, err := operatorHelmTemplate(t, "--set", "selfMetrics.logLevel=verbose"); err == nil {
+		t.Error("an unknown log level was accepted")
+	}
+}
