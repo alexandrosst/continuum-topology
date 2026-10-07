@@ -185,6 +185,10 @@ tempo:
     pullPolicy: IfNotPresent
   retention: 72h      # hours
   storage: 10Gi
+  # Charts of traces over time (request rate, errors, duration, per service) in Grafana's Drilldown > Traces: they are TraceQL
+  # metrics queries, which Tempo only answers with its metrics-generator "local-blocks" processor on. A little more memory and
+  # disk on the same volume. Off: searching and opening a trace still work, the Drilldown charts show an error.
+  traceqlMetrics: true
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}

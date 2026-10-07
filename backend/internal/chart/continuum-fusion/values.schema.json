@@ -197,6 +197,9 @@
         },
         "resources": {
           "type": "object"
+        },
+        "traceqlMetrics": {
+          "type": "boolean"
         }
       }
     },

@@ -27,6 +27,25 @@ data:
     compactor:
       compaction:
         block_retention: {{ $t.retention }}
+{{- if $t.traceqlMetrics }}
+    # What Grafana's Drilldown > Traces needs: rate, error and duration charts are TraceQL metrics queries, and Tempo answers
+    # those from the metrics-generator's "local-blocks" processor. Without it every one of them fails with
+    # "error finding generators in Querier.queryRangeRecent: empty ring". It keeps recent traces in a second, small store on
+    # the same volume (flushed to the normal blocks, so older ranges are answered from there). Nothing is sent anywhere.
+    metrics_generator:
+      storage:
+        path: /var/tempo/generator/wal
+      traces_storage:
+        path: /var/tempo/generator/traces
+      processor:
+        local_blocks:
+          filter_server_spans: false
+          flush_to_storage: true
+    overrides:
+      defaults:
+        metrics_generator:
+          processors: [local-blocks]
+{{- end }}
     storage:
       trace:
         backend: local

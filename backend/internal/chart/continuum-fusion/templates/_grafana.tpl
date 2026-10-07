@@ -20,3 +20,27 @@
 {{- end -}}
 {{- dict "uid" "fusion-arriving" "title" "What is arriving" "tags" (list "ikhnos") "schemaVersion" 39 "version" 1 "editable" false "time" (dict "from" "now-3h" "to" "now") "refresh" "1m" "panels" $panels | toPrettyJson -}}
 {{- end -}}
+
+{{/* The Ikhnos dashboards (files/dashboards/*.json: clusters and nodes, namespaces and workloads with logs, delivery health). They
+     are written against the three provisioned data sources, so a panel whose store is off is dropped here and a dashboard
+     never points at a data source that does not exist. Every query in them was run against series that really arrive from the
+     collectors' own output; nothing depends on a signal a sender may have left out beyond the metrics named in the query. */}}
+{{- define "fusion.dashboardFile" -}}
+{{- $root := .root -}}
+{{- $d := $root.Files.Get .file | fromJson -}}
+{{- $keep := list -}}
+{{- range $d.panels -}}
+{{- $uid := dig "datasource" "uid" "" . -}}
+{{- if or (and (eq $uid "fusion-metrics") $root.Values.prometheus.enabled) (and (eq $uid "fusion-logs") $root.Values.loki.enabled) (and (eq $uid "fusion-traces") $root.Values.tempo.enabled) -}}
+{{- $keep = append $keep . -}}
+{{- end -}}
+{{- end -}}
+{{- $_ := set $d "panels" $keep -}}
+{{- $d | toPrettyJson -}}
+{{- end -}}
+
+{{/* Which dashboard files there are, for the ConfigMap and its checksum. They all read metrics (their variables do), so none
+     is rendered without Prometheus. */}}
+{{- define "fusion.dashboardNames" -}}
+{{- if .Values.prometheus.enabled -}}clusters workloads delivery{{- end -}}
+{{- end -}}

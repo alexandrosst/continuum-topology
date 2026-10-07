@@ -239,6 +239,40 @@ func TestFusionLokiAndTempoConfigs(t *testing.T) {
 	}
 }
 
+// Grafana's Drilldown > Traces draws rate, error and duration charts with TraceQL metrics queries, which Tempo answers only
+// from the metrics-generator's local-blocks processor: without it each one fails with "empty ring". The generator keeps its
+// files on the volume Tempo already has, and the switch turns it off again.
+func TestFusionTempoAnswersTraceQLMetricsQueries(t *testing.T) {
+	dig := func(m map[string]any, path ...string) any {
+		var cur any = m
+		for _, k := range path {
+			next, ok := cur.(map[string]any)
+			if !ok {
+				return nil
+			}
+			cur = next[k]
+		}
+		return cur
+	}
+	tempo := yamlInto(t, fusionRender(t, "f").configs["f-fusion-tempo"].Data["tempo.yaml"])
+	if dig(tempo, "metrics_generator", "processor", "local_blocks") == nil {
+		t.Fatal("tempo has no local-blocks processor configured: TraceQL metrics queries fail with an empty ring")
+	}
+	procs, _ := dig(tempo, "overrides", "defaults", "metrics_generator", "processors").([]any)
+	if len(procs) != 1 || procs[0] != "local-blocks" {
+		t.Errorf("the default tenant does not run local-blocks: %v", procs)
+	}
+	for _, k := range []string{"storage", "traces_storage"} {
+		if p, _ := dig(tempo, "metrics_generator", k, "path").(string); !strings.HasPrefix(p, "/var/tempo/") {
+			t.Errorf("metrics_generator.%s.path = %q, want it on the /var/tempo volume", k, p)
+		}
+	}
+	off := yamlInto(t, fusionRender(t, "f", "--set", "tempo.traceqlMetrics=false").configs["f-fusion-tempo"].Data["tempo.yaml"])
+	if off["metrics_generator"] != nil || off["overrides"] != nil {
+		t.Errorf("traceqlMetrics=false still configures the generator: %v %v", off["metrics_generator"], off["overrides"])
+	}
+}
+
 func TestFusionPodsAreHardened(t *testing.T) {
 	r := fusionRender(t, "f")
 	for name, s := range r.sets {

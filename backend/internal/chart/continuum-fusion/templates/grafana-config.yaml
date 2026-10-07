@@ -88,4 +88,10 @@ metadata:
 data:
   arriving.json: |
 {{ include "fusion.arrivingDashboard" . | indent 4 }}
+  {{- range $n := splitList " " (include "fusion.dashboardNames" .) }}
+  {{- if $n }}
+  {{ $n }}.json: |
+{{ include "fusion.dashboardFile" (dict "root" $ "file" (printf "files/dashboards/%s.json" $n)) | indent 4 }}
+  {{- end }}
+  {{- end }}
 {{- end }}

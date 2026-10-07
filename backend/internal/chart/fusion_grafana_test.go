@@ -224,3 +224,108 @@ func TestStarterDashboardDoesNotDependOnTargetInfo(t *testing.T) {
 		t.Fatal("the starter dashboard no longer counts clusters")
 	}
 }
+
+// The Ikhnos dashboards (clusters and nodes, namespaces and workloads with logs, delivery health) are JSON Grafana can load,
+// carry the tag the navigation menu is built from, and only point at data sources that are provisioned. With the log and
+// trace stores off their panels are dropped rather than left broken.
+func TestFusionIkhnosDashboards(t *testing.T) {
+	type dashboard struct {
+		UID    string   `json:"uid"`
+		Title  string   `json:"title"`
+		Tags   []string `json:"tags"`
+		Panels []struct {
+			Title      string `json:"title"`
+			Datasource struct {
+				UID string `json:"uid"`
+			} `json:"datasource"`
+			Targets []struct {
+				Expr  string `json:"expr"`
+				Query string `json:"query"`
+			} `json:"targets"`
+		} `json:"panels"`
+		Templating struct {
+			List []struct {
+				Name, AllValue string
+			} `json:"list"`
+		} `json:"templating"`
+	}
+	load := func(r fusionRendered, name string) dashboard {
+		t.Helper()
+		raw, ok := r.configs["f-fusion-grafana-dashboards"].Data[name+".json"]
+		if !ok {
+			t.Fatalf("no %s.json dashboard: %v", name, mapKeys(r.configs["f-fusion-grafana-dashboards"].Data))
+		}
+		var d dashboard
+		if err := json.Unmarshal([]byte(raw), &d); err != nil {
+			t.Fatalf("%s.json is not JSON: %v", name, err)
+		}
+		return d
+	}
+	full := fusionRender(t, "f")
+	provisioned := map[string]bool{}
+	for _, d := range grafanaDatasources(t, full) {
+		provisioned[d.UID] = true
+	}
+	uids := map[string]bool{}
+	for name, want := range map[string]string{"clusters": "ikhnos-clusters", "workloads": "ikhnos-workloads", "delivery": "ikhnos-delivery"} {
+		d := load(full, name)
+		if d.UID != want || d.Title == "" || len(d.Panels) < 8 {
+			t.Errorf("%s: uid %q title %q with %d panels", name, d.UID, d.Title, len(d.Panels))
+		}
+		if uids[d.UID] {
+			t.Errorf("two dashboards share the uid %q", d.UID)
+		}
+		uids[d.UID] = true
+		if !strings.Contains(strings.Join(d.Tags, ","), "ikhnos") {
+			t.Errorf("%s is not tagged ikhnos, so it is missing from the navigation menu: %v", name, d.Tags)
+		}
+		for _, p := range d.Panels {
+			if !provisioned[p.Datasource.UID] {
+				t.Errorf("%s: panel %q uses data source %q, which is not provisioned", name, p.Title, p.Datasource.UID)
+			}
+			for _, q := range p.Targets {
+				if strings.Contains(q.Expr+q.Query, "target_info") {
+					t.Errorf("%s: panel %q reads target_info, which is only written for some resources", name, p.Title)
+				}
+			}
+		}
+		// "All" must match a series that has no such label at all (an install that never set a cluster id), and must be
+		// usable in a Loki stream selector, which refuses a matcher that can match the empty string on its own.
+		for _, v := range d.Templating.List {
+			if v.AllValue == "" {
+				t.Errorf("%s: variable %q has no All value", name, v.Name)
+			}
+		}
+	}
+	for _, v := range load(full, "workloads").Templating.List {
+		if v.Name == "namespace" && v.AllValue != ".+" {
+			t.Errorf("the namespace variable's All is %q; a Loki selector needs one that cannot be empty", v.AllValue)
+		}
+	}
+	for _, e := range full.sets["f-fusion-grafana"].Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH" && e.Value != "/etc/grafana/dashboards/clusters.json" {
+			t.Errorf("home dashboard = %q", e.Value)
+		}
+	}
+
+	only := fusionRender(t, "f", "--set", "loki.enabled=false", "--set", "tempo.enabled=false")
+	for _, name := range []string{"clusters", "workloads", "delivery"} {
+		for _, p := range load(only, name).Panels {
+			if p.Datasource.UID != "fusion-metrics" {
+				t.Errorf("%s with only Prometheus on still has panel %q on %q", name, p.Title, p.Datasource.UID)
+			}
+		}
+	}
+	// Without Prometheus there is nothing for their variables to read: only the starter dashboard remains, and it is the home.
+	noProm := fusionRender(t, "f", "--set", "prometheus.enabled=false")
+	for _, name := range []string{"clusters.json", "workloads.json", "delivery.json"} {
+		if _, ok := noProm.configs["f-fusion-grafana-dashboards"].Data[name]; ok {
+			t.Errorf("%s rendered with Prometheus off", name)
+		}
+	}
+	for _, e := range noProm.sets["f-fusion-grafana"].Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH" && e.Value != "/etc/grafana/dashboards/arriving.json" {
+			t.Errorf("home dashboard with Prometheus off = %q", e.Value)
+		}
+	}
+}
