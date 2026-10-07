@@ -99,11 +99,22 @@ spec:
               app.kubernetes.io/name: continuum-fusion
               app.kubernetes.io/instance: {{ .Release.Name }}
             matchExpressions:
-              - {key: app.kubernetes.io/component, operator: In, values: [prometheus, loki, tempo]}
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - prometheus
+                  - loki
+                  - tempo
+                  {{- if .Values.fusion.grafana.enabled }}
+                  - grafana
+                  {{- end }}
       ports:
         - {port: 9090, protocol: TCP}
         - {port: 3100, protocol: TCP}
         - {port: 3200, protocol: TCP}
+        {{- if .Values.fusion.grafana.enabled }}
+        - {port: 3000, protocol: TCP}
+        {{- end }}
     {{- end }}
     {{- with $np.egress.extra }}
     {{- toYaml . | nindent 4 }}

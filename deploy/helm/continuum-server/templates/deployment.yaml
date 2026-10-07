@@ -140,6 +140,14 @@ spec:
                   name: {{ .Values.admin.existingPasswordSecret }}
                   key: {{ .Values.admin.existingPasswordSecretKey }}
             {{- end }}
+            {{- with .Values.admin.publicURL }}
+            - name: CONTINUUM_PUBLIC_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.admin.heartbeatCAFile }}
+            - name: CONTINUUM_HEARTBEAT_CA_FILE
+              value: {{ . | quote }}
+            {{- end }}
             {{- if eq .Values.neo4j.mode "bundled" }}
             - {name: CONTINUUM_NEO4J_USER, value: neo4j}
             {{- else if eq .Values.neo4j.mode "external" }}
