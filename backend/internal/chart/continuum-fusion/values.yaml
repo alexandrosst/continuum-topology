@@ -61,6 +61,12 @@ central:
   # loadBalancerSourceRanges keep it private (an internal load balancer is an annotation your cloud defines).
   service:
     type: ClusterIP
+    # NodePort only: pins the port the Service listens on, inside the cluster's node-port range (30000-32767 unless it was
+    # started with another), so the address recorded as "Reachable at" does not change when the Service is recreated.
+    # 0 = Kubernetes picks one (see it with `kubectl get svc <name>-central`). A NodePort never listens on 4317: the
+    # address operators dial is <node address>:<this port>. A node's address is often a private one; put a load balancer
+    # or a DNS name over the nodes for anything lasting.
+    nodePort: 0
     annotations: {}
     loadBalancerSourceRanges: []   # LoadBalancer only
   # What each exporter does while its store is unreachable (Prometheus, Loki or Tempo restarting, a volume not yet

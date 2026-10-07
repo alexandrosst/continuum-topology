@@ -436,9 +436,11 @@ fusionControl:
   # (the one door into FUSION; the stores themselves are not exposed outside the cluster). You do not need it: expose the
   # Service ("<release>-fusion-central", port 4317, gRPC over mutual TLS) with fusion.central.service.type=LoadBalancer or
   # NodePort, or your own Ingress/Gateway, and record its address in the UI (Regional operators > Central > Reachable at).
-  # An address recorded there outranks this one. Empty = the server records the address the gateway's Service is given (a
-  # LoadBalancer's, or - for a NodePort - this node's address with that port), and until it has one the gateway is
-  # reachable inside this cluster only, and the UI says so.
+  # An address recorded there outranks this one. Empty = the server records the address a LoadBalancer Service is given;
+  # a NodePort is never recorded for you (it is one node's address, often a private one), so record it yourself:
+  # <node address>:<node port>, and pin the port with fusion.central.service.nodePort so it survives the Service being
+  # recreated. Until there is an address the gateway is reachable inside this cluster only, and the UI says so. Recording
+  # an address does not expose anything: the Service has to be exposed as above, or the operators' connections are refused.
   centralAddress: ""
 
 # Requests suit a small install (a handful of agents). The limit is what the Go runtime is told to respect through GOMEMLIMIT.

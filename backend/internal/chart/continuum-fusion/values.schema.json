@@ -287,6 +287,11 @@
                 "LoadBalancer"
               ]
             },
+            "nodePort": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535
+            },
             "annotations": {
               "type": "object"
             },

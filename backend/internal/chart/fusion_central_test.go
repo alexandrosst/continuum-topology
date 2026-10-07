@@ -173,3 +173,28 @@ func TestFusionCentralTLSSecretNameIsNotConfigurable(t *testing.T) {
 		t.Errorf("the empty value an earlier release stored is refused: %v\n%s", err, out)
 	}
 }
+
+// A NodePort Service listens on a port Kubernetes picks at random each time it is created, and never on 4317, so the
+// address recorded as the gateway's "Reachable at" (<node address>:<node port>) breaks whenever the Service is
+// recreated unless the port can be pinned - as the regional operator chart already allows.
+func TestFusionCentralNodePortCanBePinned(t *testing.T) {
+	port := func(extra ...string) int32 {
+		r := fusionRender(t, "f", extra...)
+		for _, p := range r.services["f-fusion-central"].Spec.Ports {
+			if p.Name == "otlp-grpc" {
+				return p.NodePort
+			}
+		}
+		t.Fatal("no otlp-grpc port on the gateway Service")
+		return 0
+	}
+	if got := port("--set", "central.service.type=NodePort", "--set", "central.service.nodePort=30317"); got != 30317 {
+		t.Errorf("pinned NodePort = %d, want 30317", got)
+	}
+	if got := port("--set", "central.service.type=NodePort"); got != 0 {
+		t.Errorf("an unpinned NodePort must be left to Kubernetes, got %d", got)
+	}
+	if got := port("--set", "central.service.type=LoadBalancer", "--set", "central.service.nodePort=30317"); got != 0 {
+		t.Errorf("a LoadBalancer Service got nodePort %d", got)
+	}
+}
