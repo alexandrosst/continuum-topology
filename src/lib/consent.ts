@@ -11,6 +11,7 @@ import { activeLanes, emptyExportTarget, cleanTags, emptyScopeOverride, emptyTel
 // enabledModalities now live in install.ts (see its own comment on why), consent.ts just re-exports them.
 import { operatorReceiverEndpoint } from './destinationCatalog'
 import type { TelemetryIntent } from './types'
+import { chainCommands } from './shellChain'
 export { enabledModalities, type Modality, PICKABLE_SIGNALS, TELEMETRY_SIGNALS }
 
 export type Severity = 'info' | 'warn' | 'error'
@@ -557,7 +558,7 @@ export const TELEMETRY_CREDENTIAL_VAR = 'TELEMETRY_EXPORT_TOKEN'
 export function telemetrySecretCommand(t: TelemetryInput, measurementsOn?: boolean, target?: ReleaseTarget): string | undefined {
   const cmds = telemetrySecrets(t, measurementsOn, target).map((s) => s.command)
   // Joined so that one failing (a credential variable unset) stops the rest, and the upgrade after them.
-  return cmds.length ? cmds.join(' && \\\n') : undefined
+  return cmds.length ? chainCommands(cmds) : undefined
 }
 
 export interface TelemetrySecret {

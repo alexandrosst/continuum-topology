@@ -3,6 +3,7 @@ import { operatorReceiverEndpoint } from './destinationCatalog'
 import { activeLanes, TELEMETRY_SIGNALS, type ExportTarget, type Modality, type ScopeOverrideInput, type TelemetryInput } from './install'
 import { telemetrySecretCommand, telemetryUpgradeCommand, type InstallInfo } from './consent'
 import type { OperatorDestination, ReceiverAuth, SignalGrant, TelemetryIntent } from './types'
+import { chainCommands } from './shellChain'
 
 /*
  * The client half of "point this agent at a regional operator". The operator's receiver is mutual TLS, so
@@ -148,7 +149,7 @@ export function operatorCommandBlock(opts: { install: InstallInfo | undefined; d
   if (fragmentEndpoint(opts.result.installFragment)) client = client.replace(/ \\\n\s*--set(?:-string)? telemetry\.export\.otlp\.endpoint=\S+/, '')
   const upgrade = `${client} \\\n  ${opts.result.installFragment}`
   const cred = telemetrySecretCommand(d, opts.measurementsOn, target)
-  return [...opts.result.secretCommands, ...(cred ? [cred] : []), upgrade].join(' && \\\n')
+  return chainCommands([...opts.result.secretCommands, ...(cred ? [cred] : []), upgrade])
 }
 
 /** One signal type's destination as the intent records it: the regional operator, or the external endpoint with the

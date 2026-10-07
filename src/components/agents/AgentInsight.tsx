@@ -44,6 +44,7 @@ import { TONE_CLASS } from '@/lib/provenance'
 import type { Agent, AccessTier, ReceiverAuth } from '@/lib/types'
 import { useOperators } from '@/lib/useOperators'
 import { useConn, useServer } from '@/store/server'
+import { chainCommands } from '@/lib/shellChain'
 
 const SEVERITY_STYLE: Record<Severity, { chip: string; icon: typeof Info; label: string }> = {
   error: { chip: TONE_CLASS.bad, icon: AlertCircle, label: 'Error' },
@@ -481,7 +482,7 @@ export function TelemetryPanel({
     // One block to paste, not two: the Secret the credential flags name is created first, and a failure
     // there (credential variable unset) stops everything before anything is upgraded.
     const secret = telemetrySecretCommand(stamped, measurementsOn)
-    return secret ? `${secret} && \\\n${upgrade}` : upgrade
+    return secret ? chainCommands([secret, upgrade]) : upgrade
   }, [install, draft, measurementsOn, conn.org, clusterId])
 
   // A regional operator destination: its receiver wants a client certificate only the server can issue, so
