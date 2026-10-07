@@ -111,13 +111,26 @@ func (c *Core) CheckOperatorCerts(ctx context.Context) (int, error) {
 	}
 	now := c.Now()
 	raised := 0
+	senders, err := c.operatorSenders(ctx)
+	if err != nil {
+		return 0, err
+	}
 	for _, op := range ops {
 		if op.Status != store.OperatorActive {
 			continue
 		}
+		// The dates the operator document shows are brought in line with the ledger first, so a certificate issued
+		// for one sender on its own is watched, and one for a sender that is gone no longer is.
+		op, holder, err := c.refreshCertEnds(ctx, op, senders[op.ID])
+		if err != nil {
+			c.Log.Error("operator certificate dates not refreshed", "operator", op.ID, "err", err)
+		}
 		at, which, ok := operatorCertDates(op).soonest()
 		if !ok {
 			continue
+		}
+		if which == "client certificate" && holder != "" {
+			which += " held by " + holder
 		}
 		level := certLevel(at, now)
 		if level <= op.CertAlertLevel {
@@ -138,6 +151,147 @@ func (c *Core) CheckOperatorCerts(ctx context.Context) (int, error) {
 		raised++
 	}
 	return raised, nil
+}
+
+// operatorSenders is, for every operator of the organisation, who is configured to send to it right now: its own source
+// clusters, the clusters of active telemetry intents that name it as a destination, and the operators that export
+// into it. These are the holders of client certificates that matter: a certificate issued to a sender that no longer
+// sends is not worth a warning. The sender names are the ones the ledger records (a cluster id, or an operator id).
+func (c *Core) operatorSenders(ctx context.Context) (map[string]map[string]bool, error) {
+	ops, err := c.Store.ListOperators(ctx, c.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	intents, err := c.Store.ListTelemetryIntents(ctx, c.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	agents, err := c.Store.ListAgents(ctx, c.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	clusterOf := make(map[string]string, len(agents))
+	for _, a := range agents {
+		clusterOf[a.ID] = a.ClusterID
+	}
+	out := map[string]map[string]bool{}
+	add := func(operator, sender string) {
+		if operator == "" || sender == "" {
+			return
+		}
+		if out[operator] == nil {
+			out[operator] = map[string]bool{}
+		}
+		out[operator][sender] = true
+	}
+	for _, op := range ops {
+		if op.Status != store.OperatorActive {
+			continue
+		}
+		for _, cl := range op.SourceClusterIDs {
+			add(op.ID, cl)
+		}
+		if op.Destination.Kind == store.DestinationOperator {
+			add(op.Destination.TargetOperatorID, op.ID)
+		}
+	}
+	for _, ti := range intents {
+		if ti.Status != store.TelemetryIntentActive {
+			continue
+		}
+		cl := clusterOf[ti.AgentID]
+		if ti.Destination.Kind == store.DestinationOperator {
+			add(ti.Destination.TargetOperatorID, cl)
+		}
+		for _, d := range ti.Routes {
+			if d.Kind == store.DestinationOperator {
+				add(d.TargetOperatorID, cl)
+			}
+		}
+	}
+	return out, nil
+}
+
+// refreshCertEnds brings the stored receiver and client certificate dates of an mTLS operator in line with the ledger
+// of what was actually issued, and returns the operator as it now stands, plus which sender's client certificate is the
+// one ending first (when that is known).
+//
+// Why: the dates were written only when an operator was created or installed again, so a client certificate issued to one
+// sender on its own (a cluster added later, a telemetry intent pointed at the operator) never moved them, and an old
+// date kept warning about a certificate that had since been replaced, while a new one that was about to end was not
+// watched at all. Now the client date is the soonest of the NEWEST certificate of each current sender. It is only
+// replaced when every current sender has a ledger entry; with a sender that predates the ledger, or none at all, the date
+// already stored is the best known and stays. Replacing a date starts the expiry warnings over for the new generation.
+func (c *Core) refreshCertEnds(ctx context.Context, op store.Operator, senders map[string]bool) (store.Operator, string, error) {
+	if op.ReceiverAuth != store.ReceiverAuthMTLS || op.ID == CentralOperatorID {
+		return op, "", nil
+	}
+	dates := operatorCertDates(op)
+	if dates.Receiver == nil || dates.Client == nil {
+		return op, "", nil
+	}
+	ledger, err := c.Store.ListOperatorCerts(ctx, op.ID) // newest first
+	if err != nil {
+		return op, "", err
+	}
+	// The newest certificate of each kind and sender: the latest issued, and of two issued at the same instant the one
+	// that was made later, then the one that lasts longer, so the answer never depends on the order rows come back in.
+	later := func(a, b store.OperatorCert) bool {
+		switch {
+		case !a.IssuedAt.Equal(b.IssuedAt):
+			return a.IssuedAt.After(b.IssuedAt)
+		case !a.NotBefore.Equal(b.NotBefore):
+			return a.NotBefore.After(b.NotBefore)
+		}
+		return a.NotAfter.After(b.NotAfter)
+	}
+	var recvCert *store.OperatorCert
+	newestBy := map[string]store.OperatorCert{}
+	for i, e := range ledger {
+		switch e.Kind {
+		case store.OperatorCertReceiver:
+			if recvCert == nil || later(e, *recvCert) {
+				recvCert = &ledger[i]
+			}
+		case store.OperatorCertClient:
+			if cur, ok := newestBy[e.Sender]; !ok || later(e, cur) {
+				newestBy[e.Sender] = e
+			}
+		}
+	}
+	recv := *dates.Receiver
+	if recvCert != nil {
+		recv = recvCert.NotAfter
+	}
+	client, holder := *dates.Client, ""
+	newest := map[string]time.Time{}
+	for s, e := range newestBy {
+		newest[s] = e.NotAfter
+	}
+	if len(senders) > 0 {
+		covered, first, who := true, time.Time{}, ""
+		for s := range senders {
+			end, ok := newest[s]
+			if !ok {
+				covered = false
+				break
+			}
+			if first.IsZero() || end.Before(first) || (end.Equal(first) && s < who) {
+				first, who = end, s
+			}
+		}
+		if covered {
+			client, holder = first, who
+		}
+	}
+	if recv.Equal(*dates.Receiver) && client.Equal(*dates.Client) {
+		return op, holder, nil
+	}
+	if err := c.Store.SetOperatorCerts(ctx, op.ID, recv, client); err != nil {
+		return op, holder, stateErr(err)
+	}
+	op.ReceiverNotAfter, op.ClientNotAfter, op.CertAlertLevel = &recv, &client, 0
+	return op, holder, nil
 }
 
 // operatorCertCheckEvery is how often WatchOperatorCerts runs: the thresholds are days apart.

@@ -213,3 +213,79 @@ func TestPlatformChecksEveryOrganisationsOperators(t *testing.T) {
 		t.Fatalf("the second run warned again: %d", n)
 	}
 }
+
+// A client certificate issued to one sender on its own (here: the cluster again, later) is the one the operator is
+// watched by from then on; it used to leave the stored date at the creation one, so the operator went on warning about a
+// certificate that had been replaced.
+func TestClientCertDateFollowsTheNewestCertificateOfEachSender(t *testing.T) {
+	e := newEnv(t)
+	cl := e.approvedCluster(t, fp)
+	short := 30 * day
+	old := pki.OperatorTLSTTL
+	pki.OperatorTLSTTL = short
+	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
+	pki.OperatorTLSTTL = old
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := e.st.GetOperator(e.ctx, op.ID)
+	if before.ClientNotAfter == nil || before.ClientNotAfter.After(time.Now().Add(31*day)) {
+		t.Fatalf("setup: client certificate ends %v, want about 30 days out", before.ClientNotAfter)
+	}
+	*e.now = e.now.Add(time.Minute) // issued later than the first: the ledger orders by issue time
+	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, cl, "again"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := e.st.GetOperator(e.ctx, op.ID)
+	if after.ClientNotAfter == nil || after.ClientNotAfter.Before(time.Now().Add(300*day)) {
+		t.Fatalf("client certificate end after issuing a new one = %v, want about a year out", after.ClientNotAfter)
+	}
+	if !after.ReceiverNotAfter.Equal(*before.ReceiverNotAfter) {
+		t.Fatalf("the receiver certificate date moved: %v -> %v", before.ReceiverNotAfter, after.ReceiverNotAfter)
+	}
+}
+
+// With several senders the operator is watched by the one whose newest certificate ends first, and the warning says
+// which: "client certificate held by <cluster>". A sender that is no longer configured does not count.
+func TestExpiryWarningNamesTheSenderWhoseCertificateEndsFirst(t *testing.T) {
+	e := newEnv(t)
+	c1 := e.approvedCluster(t, fp)
+	c2 := e.approvedCluster(t, "9a3c2a9e-1111-4222-8333-944455556677")
+	oldTTL := pki.OperatorTLSTTL
+	t.Cleanup(func() { pki.OperatorTLSTTL = oldTTL })
+	pki.OperatorTLSTTL = 365 * day
+	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens", []string{c1, c2}, extDest("c:4317"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// c2 gets a certificate that ends in 20 days; c1 keeps its year.
+	pki.OperatorTLSTTL = 20 * day
+	*e.now = e.now.Add(time.Minute) // issued later than the first: the ledger orders by issue time
+	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, c2, "short"); err != nil {
+		t.Fatal(err)
+	}
+	pki.OperatorTLSTTL = 365 * day
+	// c2's newest is now the short one: it is what the operator is watched by.
+	st, _ := e.st.GetOperator(e.ctx, op.ID)
+	if st.ClientNotAfter == nil || st.ClientNotAfter.After(time.Now().Add(21*day)) {
+		t.Fatalf("client date = %v, want about 20 days out", st.ClientNotAfter)
+	}
+	*e.now = time.Now() // the certificates were really issued now, so their ends are measured from now
+	if n, err := e.core.CheckOperatorCerts(e.ctx); err != nil || n != 1 {
+		t.Fatalf("raised %d (%v), want the one 30-day warning", n, err)
+	}
+	if _, detail := e.countAudit(t, "operator-cert-expiring"); !strings.Contains(detail, "client certificate held by "+c2) {
+		t.Fatalf("warning = %q, want it to name %s", detail, c2)
+	}
+	// c2 leaves the operator: the other sender's year is what counts, and the warnings start over.
+	if err := e.core.UpdateOperatorScope(e.ctx, "alex", op.ID, []string{c1}, extDest("c:4317"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := e.core.CheckOperatorCerts(e.ctx); err != nil || n != 0 {
+		t.Fatalf("after the short sender left: raised %d (%v)", n, err)
+	}
+	st, _ = e.st.GetOperator(e.ctx, op.ID)
+	if st.ClientNotAfter.Before(time.Now().Add(300*day)) || st.CertAlertLevel != 0 {
+		t.Fatalf("after the short sender left: client date %v, level %d", st.ClientNotAfter, st.CertAlertLevel)
+	}
+}

@@ -854,6 +854,13 @@ func (c *Core) issueOperatorClientCertHeld(ctx context.Context, actor, operatorI
 	if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertClient, sender, certPEM); err != nil {
 		return nil, nil, nil, err
 	}
+	// The new certificate is now the one its sender is watched by, so the dates shown for the operator follow it at once
+	// rather than at the next daily check. Best effort: the certificate is already recorded and the check repeats this.
+	if senders, err := c.operatorSenders(ctx); err != nil {
+		c.Log.Warn("operator certificate dates not refreshed", "operator", op.ID, "err", err)
+	} else if _, _, err := c.refreshCertEnds(ctx, op, senders[op.ID]); err != nil {
+		c.Log.Warn("operator certificate dates not refreshed", "operator", op.ID, "err", err)
+	}
 	// Only which CA signed it is audited ("operator" or the legacy "org"), never any key material.
 	scope := op.ClientCAScope()
 	if scope == "" {
