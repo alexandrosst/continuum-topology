@@ -171,12 +171,14 @@ export default function CreateOperatorModal({
     <Modal
       open
       onClose={onClose}
+      // While the request is out the credentials are being minted: closing now would lose them (the server shows them once, to this very call).
+      dismissible={!busy}
       title="New operator"
       description="It gathers what its source clusters already export and passes it on to one destination. It does not change any cluster's own settings for you."
       width="max-w-2xl"
       footer={
         <>
-          {step === 0 ? <Button onClick={onClose}>Cancel</Button> : <Button onClick={() => setStep(step - 1)} data-testid="operator-back">Back</Button>}
+          {step === 0 ? <Button onClick={onClose} disabled={busy}>Cancel</Button> : <Button onClick={() => setStep(step - 1)} disabled={busy} data-testid="operator-back">Back</Button>}
           {last ? (
             <Button variant="primary" onClick={() => void create()} disabled={!canCreate} data-testid="operator-create">{busy ? 'Creating…' : 'Create operator'}</Button>
           ) : (
@@ -186,7 +188,18 @@ export default function CreateOperatorModal({
       }
     >
       <WizardSteps steps={STEPS} currentIndex={step} testId="operator-steps" />
-      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (last ? canCreate : problems.length === 0) { if (last) void create(); else setStep(step + 1) } }}>
+      {/* No implicit submission. Enter in a field of this form (a label, a processor setting) used to submit all of it through the hidden button
+          below, creating the operator and minting its credentials from a stray keypress; the only way to create is the Create button. Enter in the name
+          field still moves on to the next step, the one place a person types a single value and expects it to. */}
+      <form
+        className="space-y-4"
+        onSubmit={(e) => e.preventDefault()}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || !(e.target instanceof HTMLInputElement)) return // a text area keeps its new line; a button its click
+          e.preventDefault()
+          if (step === 0 && problems.length === 0 && e.target.dataset.testid === 'operator-name') setStep(1)
+        }}
+      >
         {step === 0 && (
           <div className="space-y-4" data-testid="operator-step-sources">
             <Field label="Name"><Input value={draft.name} onChange={(e) => set({ name: e.target.value })} maxLength={80} autoFocus data-testid="operator-name" /></Field>
@@ -221,6 +234,7 @@ export default function CreateOperatorModal({
                     onChange={(v) => {
                       const preset = EXPORT_PRESETS.find((p) => p.endpointPattern === v)
                       const base = draft.destination.kind === 'external' ? draft.destination : emptyDestination
+                      fusionControls?.cancel?.() // typed by hand: a pending "Enable and use" must not replace it later
                       set({ destination: { ...base, endpoint: v, authHeaderName: preset?.headerName ? preset.headerName : base.authHeaderName } })
                     }}
                     placeholder="otel-gateway.example.com:4317"
@@ -298,7 +312,6 @@ export default function CreateOperatorModal({
         {/* What is still missing, said quietly: it is the state of an empty form, not an error, so it is neither red nor announced as an alert. */}
         {problems.length > 0 && <p className="text-xs text-nb-500" data-testid="operator-problems">{problems.join('. ')}.</p>}
         {error && <ErrorBanner>{error}</ErrorBanner>}
-        <button type="submit" className="hidden" tabIndex={-1} aria-hidden />
       </form>
     </Modal>
   )

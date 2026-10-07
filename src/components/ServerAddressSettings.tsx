@@ -43,6 +43,11 @@ export default function ServerAddressSettings() {
               />
             </Field>
             <CopyCommand text={serverAddressUpgradeCommand(info, next.trim())} />
+            {/* Helm cannot recall the chart an install used, so <chart> is always the person's to fill in; the release and namespace only when this server could not say. */}
+            <p className="mt-1.5 text-xs text-nb-500">
+              Replace every word in <span className="font-mono">&lt;angle brackets&gt;</span> before running it: <span className="font-mono">&lt;chart&gt;</span> is the chart you installed this server from
+              {!info?.releaseName || !info?.releaseNamespace ? ', and the release and namespace are the ones it was installed under' : ''}. Needs Helm 3.14 or later.
+            </p>
           </div>
         )}
       </div>

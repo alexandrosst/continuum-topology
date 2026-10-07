@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { AlertCircle, AlertTriangle, Check, ChevronRight, Copy, Info, Loader2, ShieldCheck } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Field, ICON_MD, ICON_SM, RunStep, TagsInput } from '@/components/ui/primitives'
+import { Button, Field, ICON_MD, ICON_SM, MANUAL_COPY_HINT, RunStep, TagsInput, useCopy } from '@/components/ui/primitives'
 import ChangeSummary from '@/components/telemetry/ChangeSummary'
 import ExportHealth from '@/components/telemetry/ExportHealth'
 import TelemetryFields from '@/components/telemetry/TelemetryFields'
@@ -34,6 +34,7 @@ import {
   type AgentProblem,
   type HealthSummary,
   type InstallInfo,
+  type ReleaseTarget,
   type Severity,
 } from '@/lib/consent'
 import { clearDraft, loadDraft, saveDraft } from '@/lib/draftStore'
@@ -178,26 +179,24 @@ export function CanSee({ agent, diagnostics: d }: { agent: Agent; diagnostics: A
 /** A one-line command with a copy button. Shared wherever the app hands someone an exact command to run: the
  *  widen hint here, the harden and teardown commands on the Agents page. */
 export function CopyCommand({ text, stale = false, multiline = false, testId = 'helm-command', label = 'Copy the command' }: { text: string; /** What the copy button is called for assistive technology: say which command, where several sit together. */ label?: string; /** Out of date: shown dimmed and not copyable, rather than hand out a command that is wrong now. */ stale?: boolean; /** Keep the command's own line breaks on screen (a certificate's PEM would otherwise run together). */ multiline?: boolean; testId?: string }) {
-  const [done, setDone] = useState(false)
+  const { state, copy } = useCopy()
+  const code = useRef<HTMLElement>(null)
   // A command with line breaks of its own (a Secret applied from a here-document, a helm command continued with backslashes) keeps them:
   // run together they are not something a person can read before pasting. A long one scrolls inside its box instead of stretching the dialog.
   return (
     <div className={clsx('mt-1 flex items-start gap-2 rounded border border-nb-850 bg-nb-950 px-2 py-1.5', stale && 'opacity-50')} data-stale={stale || undefined}>
-      <code className={clsx('min-w-0 flex-1 break-words font-mono text-[11px] text-nb-300', (multiline || text.includes('\n')) && 'max-h-72 overflow-y-auto whitespace-pre-wrap')} data-testid={testId}>{text}</code>
+      <code ref={code} className={clsx('min-w-0 flex-1 break-words font-mono text-[11px] text-nb-300', (multiline || text.includes('\n')) && 'max-h-72 overflow-y-auto whitespace-pre-wrap')} data-testid={testId}>{text}</code>
       <button
         type="button"
         className="shrink-0 rounded p-1 text-nb-500 hover:bg-nb-930 hover:text-nb-300 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-nb-500"
         aria-label={label}
         disabled={stale}
-        onClick={() => {
-          void navigator.clipboard?.writeText(text).then(() => {
-            setDone(true)
-            window.setTimeout(() => setDone(false), 1500)
-          })
-        }}
+        // Where the browser will not copy (no Clipboard API on a plain-http page), the command is left selected and the person told to press Ctrl+C.
+        onClick={() => void copy(text, code.current)}
       >
-        {done ? <Check size={ICON_MD} aria-hidden /> : <Copy size={ICON_MD} aria-hidden />}
+        {state === 'copied' ? <Check size={ICON_MD} aria-hidden /> : <Copy size={ICON_MD} aria-hidden />}
       </button>
+      {state === 'manual' && <span role="status" className="max-w-[7rem] shrink-0 text-[11px] leading-tight text-warn" data-testid="copy-manual-hint">{MANUAL_COPY_HINT}</span>}
     </div>
   )
 }
@@ -209,6 +208,11 @@ export function CopyCommand({ text, stale = false, multiline = false, testId = '
 export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent; diagnostics?: AgentDiagnostics; consent?: AgentConsent }) {
   const server = useServer()
   const info: ServerInfo | undefined = server.info
+  // The widen command names the chart this server currently resolves: read it again now, so a long-lived tab does not print an old version.
+  const reloadInfo = server.reloadInfo
+  useEffect(() => {
+    void reloadInfo()
+  }, [reloadInfo])
   const installed = (agent.installedTier ?? d?.installedTier ?? agent.accessTier) as AccessTier
   const implemented = Math.min(info?.implementedTier ?? 2, 2) as AccessTier
   const tierLadder = useMemo(() => Array.from({ length: implemented + 1 }, (_, i) => i as AccessTier), [implemented])
@@ -300,7 +304,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
       {toShow !== undefined && (
         <div className="mt-2 text-xs text-nb-500" data-testid="widen-hint">
           This install allows up to <span className="text-nb-300">{tierName(installed).toLowerCase()}</span>. To allow <span className="text-nb-300">{tierName(toShow).toLowerCase()}</span>, the cluster's owner runs this in that cluster, and then you can select it here:
-          <CopyCommand text={helmUpgradeCommand(info?.install, toShow)} />
+          <CopyCommand text={helmUpgradeCommand(info?.install, toShow, { namespace: agent.namespace, release: agent.releaseName })} />
         </div>
       )}
       {agent.hardenHelm && (
@@ -388,7 +392,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
 /**
  * What telemetry this agent's chart install actually has enabled right now (self-reported by the agent,
  * the same pattern `installedTier` above already uses), plus a "change telemetry" form that builds the
- * `helm upgrade --reuse-values` command for it. Like ConsentPanel's widen-hint, this only ever writes a
+ * `helm upgrade --reset-then-reuse-values` command for it. Like ConsentPanel's widen-hint, this only ever writes a
  * command - nothing here is pushed live, because telemetry is Helm-values-only in this chart, exactly like
  * the access-tier ceiling. There is no save button: the cluster's owner runs the command themselves.
  */
@@ -397,6 +401,7 @@ export function TelemetryPanel({
   install,
   agentId,
   clusterId,
+  target,
   initialScope,
   initialDestination,
   standalone = false,
@@ -408,6 +413,9 @@ export function TelemetryPanel({
    *  destination step uses the cluster to say which regional operator already receives it. */
   agentId?: string
   clusterId?: string
+  /** Where this agent's Helm release lives (its own namespace and release name, as it reported them): the commands target it. The chart's
+   *  documented defaults when absent, which is only right for an install that kept them. */
+  target?: ReleaseTarget
   /** A scope draft handed off from the topology's "Define scope from selection" quick action, or from the
    * standalone telemetry wizard's own picker - pre-fills TelemetryFields' guided wizard and, in inline mode,
    * starts this panel's own disclosure open, so the person doesn't also have to notice and expand it by hand. */
@@ -424,6 +432,12 @@ export function TelemetryPanel({
   testIdPrefix?: string
 }) {
   const installed = d?.installedTelemetry ?? []
+  // The commands below name the chart version and registry this server currently resolves: read them again now, so a tab that has been open
+  // since before the install settings changed does not print an old one.
+  const reloadInfo = useServer((s) => s.reloadInfo)
+  useEffect(() => {
+    void reloadInfo()
+  }, [reloadInfo])
   // What the draft was started from: a saved draft is only offered back against the same install (see draftStore).
   const basis = installed.join(',')
   const [restored, setRestored] = useState<TelemetryInput | null>(() => (agentId ? loadDraft(agentId, basis) : null))
@@ -478,12 +492,12 @@ export function TelemetryPanel({
     // Who this belongs to is stamped on everything it emits, whatever the destination: the signed-in
     // organisation and this agent's cluster, added here rather than asked for in the wizard.
     const stamped = { ...draft, resourceOrgId: conn.org ?? '', resourceClusterId: clusterId ?? '' }
-    const upgrade = telemetryUpgradeCommand(install, stamped, measurementsOn)
+    const upgrade = telemetryUpgradeCommand(install, stamped, measurementsOn, { namespace: target?.namespace, release: target?.release })
     // One block to paste, not two: the Secret the credential flags name is created first, and a failure
     // there (credential variable unset) stops everything before anything is upgraded.
-    const secret = telemetrySecretCommand(stamped, measurementsOn)
+    const secret = telemetrySecretCommand(stamped, measurementsOn, { namespace: target?.namespace, release: target?.release })
     return secret ? chainCommands([secret, upgrade]) : upgrade
-  }, [install, draft, measurementsOn, conn.org, clusterId])
+  }, [install, draft, measurementsOn, conn.org, clusterId, target?.namespace, target?.release])
 
   // A regional operator destination: its receiver wants a client certificate only the server can issue, so
   // there is no ready command - only an explicit "Generate" that asks the server for one (and issues a new
@@ -513,13 +527,13 @@ export function TelemetryPanel({
   const operatorMtls = !!operatorId && !draft.exportSplit && operatorAuth === 'mtls'
   const split = draft.exportSplit
   const commandDraft = split ? operatorCommandDraft(draft, undefined, authOf) : operatorMtls ? operatorCommandDraft(draft, 'mtls') : draft
-  const operatorSecrets = telemetrySecrets(commandDraft, measurementsOn)
-  const secrets = telemetrySecrets(draft, measurementsOn)
+  const operatorSecrets = telemetrySecrets(commandDraft, measurementsOn, target)
+  const secrets = telemetrySecrets(draft, measurementsOn, target)
   const needsCredential = split ? operatorSecrets.length > 0 : !operatorMtls && secrets.length > 0
   const operatorProblems = telemetryActive(draft) ? telemetryProblems(commandDraft, measurementsOn) : []
   // Everything the generated block depends on. It is stale the moment any of it differs from what it was
   // generated from, and then shows dimmed and uncopyable rather than a command that is wrong now.
-  const snapshot = useMemo(() => JSON.stringify({ draft, install, measurementsOn, agentId, operatorId, targetKey }), [draft, install, measurementsOn, agentId, operatorId, targetKey])
+  const snapshot = useMemo(() => JSON.stringify({ draft, install, measurementsOn, agentId, operatorId, targetKey, namespace: target?.namespace, release: target?.release }), [draft, install, measurementsOn, agentId, operatorId, targetKey, target?.namespace, target?.release])
   const [generated, setGenerated] = useState<{ snapshot: string; text: string; action: 'created' | 'updated'; endpointNote?: string } | null>(null)
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState<{ snapshot: string; message: string } | null>(null)
@@ -533,7 +547,7 @@ export function TelemetryPanel({
       const theirs = split ? undefined : fragmentEndpoint(result.installFragment)
       setGenerated({
         snapshot: asked,
-        text: operatorCommandBlock({ install, draft, measurementsOn, result }),
+        text: operatorCommandBlock({ install, draft, measurementsOn, result, target }),
         action,
         endpointNote: theirs && theirs !== draft.exportEndpoint.trim() ? `These commands send to ${theirs}, the address Ikhnos has for ${operatorLabel}.` : undefined,
       })

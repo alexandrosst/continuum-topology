@@ -26,8 +26,9 @@ vi.mock('@/store/settings', () => ({
 const CONN = { url: 'https://example.test', org: 'org-1' }
 // The store's conn is one stable function; a fresh one per render would make every polled list read again on every render.
 const connFn = () => CONN
+const reloadInfo = vi.fn(async () => undefined)
 vi.mock('@/store/server', () => ({
-  useServer: (selector?: (s: { role?: string; conn: () => typeof CONN }) => unknown) => (selector ? selector({ role, conn: connFn }) : { role, conn: connFn }),
+  useServer: (selector?: (s: { role?: string; conn: () => typeof CONN; reloadInfo: () => Promise<void> }) => unknown) => (selector ? selector({ role, conn: connFn, reloadInfo }) : { role, conn: connFn, reloadInfo }),
   useConn: () => CONN,
 }))
 vi.mock('@/lib/api', async (importOriginal) => {

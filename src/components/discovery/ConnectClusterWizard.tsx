@@ -8,7 +8,7 @@ import { api, ApiError, type CreatedToken } from '@/lib/api'
 import { discoveryStatus, extrasOf } from '@/lib/consent'
 import { effective } from '@/lib/effective'
 import { previewImage } from '@/lib/image'
-import { emptyScope, scopeActive, scopeProblems, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '@/lib/install'
+import { emptyScope, scopeActive, scopeProblems, shArg, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '@/lib/install'
 import { findCities, nearestCity, suggestionFromCity, type City } from '@/lib/places'
 import { usePlaceIndex } from '@/lib/places-data'
 import { countryName } from '@/lib/present'
@@ -421,7 +421,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                     {chartFile && (
                       <li>
                         Get the chart: <a className="text-accent hover:underline" href={`${baseUrl}/charts/${chartFile}`} download data-testid="chart-download">download {chartFile}</a> and put it in the folder you run the command from (the command refers to <code className="font-mono">./{chartFile}</code>). From a shell that can reach this server:
-                        <code className="mt-1 block break-all rounded border border-nb-850 bg-nb-950 px-2 py-1 font-mono text-[11px] text-nb-300">curl -fLO {`${baseUrl || window.location.origin}/charts/${chartFile}`}</code>
+                        <code className="mt-1 block break-all rounded border border-nb-850 bg-nb-950 px-2 py-1 font-mono text-[11px] text-nb-300">curl -fLO {shArg(`${baseUrl || window.location.origin}/charts/${chartFile}`)}</code>
                       </li>
                     )}
                     {!imagesConfigured && (
@@ -458,7 +458,7 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
                     <p className="mt-1">
                       They have not been published yet, or the registry is private. Ask whoever manages this Ikhnos server to publish them (see the deployment guide) or grant the cluster's registry credentials access.
                       {info?.install?.chartFile && (
-                        <> To skip the registry for just the chart, use the copy this server already serves: <code className="font-mono">curl -fLO {`${baseUrl || window.location.origin}/charts/${info.install.chartFile}`}</code>, then change the start of the command to <code className="font-mono">helm install continuum-agent ./{info.install.chartFile}</code> and drop <code className="font-mono">--version</code>.</>
+                        <> To skip the registry for just the chart, use the copy this server already serves: <code className="font-mono">curl -fLO {shArg(`${baseUrl || window.location.origin}/charts/${info.install.chartFile}`)}</code>, then change the start of the command to <code className="font-mono">helm install continuum-agent ./{info.install.chartFile}</code> and drop <code className="font-mono">--version</code>.</>
                       )}
                     </p>
                   </details>

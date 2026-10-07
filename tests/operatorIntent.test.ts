@@ -88,7 +88,7 @@ test('operatorCommandBlock: server secrets first, then the upgrade with the serv
   const cmd = operatorCommandBlock({ install: undefined, draft, result: { installFragment: fragment, secretCommands: [secret] } })
   assert.ok(cmd.startsWith(secret + ' && \\\nhelm upgrade continuum-agent'))
   assert.ok(cmd.endsWith(' \\\n  ' + fragment))
-  // Stated as gRPC and verified, not left out: a release that used http or skip-verify before would keep them under --reuse-values.
+  // Stated as gRPC and verified, not left out: a release that used http or skip-verify before would keep them under --reset-then-reuse-values.
   assert.ok(cmd.includes('otlp.protocol=grpc') && cmd.includes('tls.insecure=false'))
   assert.ok(!cmd.includes('otlp.protocol=http') && !cmd.includes('tls.insecure=true'))
   assert.ok(!cmd.includes('tls.mtls.enabled=false'), 'the server fragment owns the client-certificate lines of an operator destination')

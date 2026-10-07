@@ -1,3 +1,4 @@
+import { shArg, shQuote } from './install'
 import { buildExtraProcessors, processorKey, processorProblems, processorTarget, type ProcessorEntry } from './processorCatalog'
 
 /**
@@ -22,13 +23,12 @@ export const operatorProcessorProblems = (entries: ProcessorEntry[]): string[] =
 export function buildOperatorInstallCommand(install: string, extraProcessors: ProcessorEntry[]): string {
   if (!install || extraProcessors.length === 0 || operatorProcessorProblems(extraProcessors).length > 0) return install
   let cmd = install.trimEnd()
-  const shQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
   cmd += ` \\\n  --set-json processors.extraProcessors=${shQuote(JSON.stringify(buildExtraProcessors(extraProcessors)))}`
   const byTarget = { extraProcessorNames: [] as string[], extraTracesProcessorNames: [] as string[] }
   for (const e of extraProcessors) byTarget[processorTarget(e)].push(processorKey(e))
   for (const [target, keys] of Object.entries(byTarget)) {
     keys.forEach((key, i) => {
-      cmd += ` \\\n  --set-string processors.${target}[${i}]=${key}`
+      cmd += ` \\\n  --set-string processors.${target}[${i}]=${shArg(key)}`
     })
   }
   return cmd

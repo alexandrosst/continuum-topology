@@ -1,3 +1,5 @@
+import { shArg } from './install'
+
 /** How the agent port (`server.address`, what every agent dials) is currently reached, as the server chart passes it
  *  down (`--agent-exposure`, from `agent.service.type` / `agent.tlsRoute.enabled`). Purely descriptive: the server
  *  never checks this against how the port is actually reachable, it only decides what Settings → Server address
@@ -39,7 +41,8 @@ export const exposureIsAddressSwap = (kind: string): boolean => kind === 'loadba
  * recall the chart reference an install used.
  */
 export function serverAddressUpgradeCommand(info: { releaseName?: string; releaseNamespace?: string } | undefined, newAddress: string): string {
-  const release = info?.releaseName || '<release>'
-  const ns = info?.releaseNamespace || '<namespace>'
-  return `helm upgrade ${release} <chart> -n ${ns} --reuse-values --set agent.publicAddress=${newAddress || '<address>'}`
+  const release = info?.releaseName ? shArg(info.releaseName) : '<release>'
+  const ns = info?.releaseNamespace ? shArg(info.releaseNamespace) : '<namespace>'
+  // The address is typed by a person, so it is quoted for the shell where it needs it; the <angle> words are placeholders to replace, not shell.
+  return `helm upgrade ${release} <chart> -n ${ns} --reset-then-reuse-values --set agent.publicAddress=${newAddress ? shArg(newAddress) : '<address>'}`
 }

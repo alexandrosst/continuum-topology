@@ -34,7 +34,7 @@ export const emptyScope: ScopeInput = { namespaces: [], exclude: [], selector: '
 /** "shop, payments  ops" → ["shop","payments","ops"]: split on commas, spaces and newlines, dropping empties and repeats. */
 export const splitNames = (text: string): string[] => [...new Set(text.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean))]
 
-const DNS_LABEL = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/
+export const DNS_LABEL = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/
 /** A Kubernetes label key: optional DNS-subdomain prefix, then a name of at most 63 characters. */
 const LABEL_KEY = /^([a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?\/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/
 /** The agent only reads labels on its allow-list, so it refuses a selector on any other key rather than silently matching nothing. */
@@ -63,6 +63,17 @@ export function scopeProblems(s: ScopeInput): string[] {
 
 export const scopeActive = (s: ScopeInput) => s.namespaces.length > 0 || s.exclude.length > 0 || !!s.selector.trim()
 
+/** One shell word that is exactly `s`: single-quoted, with any single quote inside it closed, escaped and reopened. */
+export const shQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
+
+/**
+ * `s` as one shell word, left bare when every character is one the shell passes through untouched (so
+ * `otel.example.com:4317` stays readable, and an empty one is left as `flag=` in the printed command) and quoted with `shQuote` otherwise. A value
+ * a person or an agent typed goes through this, never straight into a template: a `;`, `&`, `$`, space or
+ * newline in it would otherwise end the command, or run another one, when the command is pasted.
+ */
+export const shArg = (s: string) => (/^[A-Za-z0-9_@%+=:./-]*$/.test(s) ? s : shQuote(s))
+
 /** Helm treats commas in a --set value as list separators: escape them. */
 const helmList = (xs: string[]) => `'{${xs.join(',')}}'`
 
@@ -72,7 +83,7 @@ export function withScope(install: string, s: ScopeInput): string {
   let cmd = install.trimEnd()
   if (s.namespaces.length) cmd += ` \\\n  --set scope.namespaces=${helmList(s.namespaces)}`
   if (s.exclude.length) cmd += ` \\\n  --set scope.exclude=${helmList(s.exclude)}`
-  if (s.selector.trim()) cmd += ` \\\n  --set-string scope.selector='${s.selector.trim()}'`
+  if (s.selector.trim()) cmd += ` \\\n  --set-string scope.selector=${shQuote(s.selector.trim())}`
   return cmd
 }
 
@@ -99,7 +110,7 @@ export interface ScopeOverrideInput {
   exclude: string[]
   /** Inside a namespace, only these workloads: a namespace listed with no names keeps nothing of it. A
    *  namespace that is not listed stays whole. A list (not a map) because the chart takes it as one, so a
-   *  `helm upgrade --reuse-values` replaces it instead of merging into an earlier command's. */
+   *  `helm upgrade --reset-then-reuse-values` replaces it instead of merging into an earlier command's. */
   workloads: WorkloadScope[]
 }
 
@@ -231,11 +242,11 @@ export interface TelemetryInput {
   exportLanes: Record<Modality, ExportTarget>
   /** Whether the install already has routes (the agent reported a `metrics=...,default=...` destination).
    *  Only used to decide whether a single-destination command must state the routes empty so that they are
-   *  cleared: under `helm upgrade --reuse-values` an unmentioned route would keep sending. */
+   *  cleared: under `helm upgrade --reset-then-reuse-values` an unmentioned route would keep sending. */
   exportRoutesInstalled: boolean
   /** The signal types whose route the install already has, and that nothing here has edited. The agent says where
    *  each goes but not how (protocol, TLS, credential), so the draft cannot state them truthfully: such a route is
-   *  left out of the command - `--reuse-values` keeps it as installed - until it is edited here, when it is stated
+   *  left out of the command - `--reset-then-reuse-values` keeps it as installed - until it is edited here, when it is stated
    *  in full like any other. Without this, changing anything at all would restate every seeded route with a
    *  default protocol and no credential, quietly breaking the ones that differ. */
   exportLanesKept: Modality[]
@@ -266,7 +277,7 @@ export interface TelemetryInput {
   resourceClusterId: string
   /** Groups of settings this draft shows but does not KNOW the installed value of (an agent that does not report them, or a value only
    *  recorded as a grant), each with what it showed when seeded. While a group still reads as it was seeded the command leaves
-   *  it out - `--reuse-values` keeps what is installed - instead of stating a default that may widen collection or drop a credential.
+   *  it out - `--reset-then-reuse-values` keeps what is installed - instead of stating a default that may widen collection or drop a credential.
    *  Editing any field of a group makes it the draft's own, and it is then stated in full. See `isKept`. */
   keptAsInstalled: Partial<Record<KeptGroup, string>>
 }
@@ -521,6 +532,39 @@ export const telemetryActive = (t: TelemetryInput): boolean =>
   t.applicationMetrics || t.systemLogs || t.kubernetesEvents || t.applicationLogs || t.traces || t.accelerators
 
 /**
+ * What a destination's typed parts may hold. Each one reaches a shell line and a `helm --set`, which splits a value on every comma and
+ * reads a backslash as an escape, so those can never be part of one (quoting cannot help: it is Helm, after the shell, that splits). The
+ * server holds an operator's destination to the same family of patterns (internal/server/operators.go), tighter for an endpoint because it
+ * stores one: a host and a port, or a URL. Here an endpoint is a host or URL as a person pastes it, so a query string with `&` or a bracketed
+ * IPv6 host is fine (the command quotes it), and so is a preset's `<tenant>` placeholder opening it (quoted, it is text, not a redirect);
+ * whitespace, quotes, backticks, commas, backslashes and control characters are not.
+ */
+export const EXPORT_ENDPOINT = /^[A-Za-z0-9[<][^\s'"`,\\\u0000-\u001f\u007f]{0,510}$/
+export const EXPORT_HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/
+/** A Kubernetes Secret name and key, as `kubectl create secret` and the chart accept them. */
+export const SECRET_NAME = /^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/
+export const SECRET_KEY = /^[-._a-zA-Z0-9]{1,253}$/
+
+const endpointProblem = (value: string, what: string): string[] =>
+  value.trim() && !EXPORT_ENDPOINT.test(value.trim()) ? [`${what} is a host and port or a URL, without spaces, quotes, commas or backslashes`] : []
+
+/** What is wrong with the typed parts of one destination (the single one, or one signal type's), worded for the field they are in. */
+function destinationProblems(d: ExportTarget, label: string, credential: boolean): string[] {
+  const out: string[] = []
+  const endpoint = d.exportEndpoint.trim()
+  if (endpoint && !EXPORT_ENDPOINT.test(endpoint)) out.push(`${label}: the endpoint is a host and port (otlp.example.com:4317) or a URL, without spaces, quotes, commas or backslashes`)
+  const secret = d.exportAuthSecretName.trim()
+  if (credential && secret) {
+    if (!SECRET_NAME.test(secret)) out.push(`${label}: the credential Secret name uses lowercase letters, digits, - and . only`)
+    const key = d.exportAuthSecretKey.trim()
+    if (key && !SECRET_KEY.test(key)) out.push(`${label}: the credential Secret key uses letters, digits, . _ and - only`)
+    const header = d.exportAuthHeaderName.trim()
+    if (header && !EXPORT_HEADER_NAME.test(header)) out.push(`${label}: the credential header name uses letters, digits and - only`)
+  }
+  return out
+}
+
+/**
  * What is wrong with the telemetry selection, in words a person can act on; empty when it is fine.
  * `measurementsOn` is whether the wizard's own "Path measurements" extra is (or will be) enabled - pass it
  * whenever the caller also controls that toggle, so turning on networkLatency without it is caught here
@@ -532,8 +576,12 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   if (!t.exportSplit && !t.exportEndpoint.trim()) out.push('An export endpoint is required once any telemetry signal is on')
   if (t.energy && t.energySource === 'existing' && !t.energyExistingEndpoint.trim()) out.push('The existing Prometheus endpoint is required when energy points at an existing source')
   if (t.accelerators && t.acceleratorsSource === 'existing' && !t.acceleratorsExistingEndpoint.trim()) out.push('The existing Prometheus endpoint is required when accelerators points at an existing source')
+  // Typed text that ends up in the printed command (see destinationProblems). A destination as installed (kept) still has its endpoint stated.
+  if (!t.exportSplit) out.push(...destinationProblems(t, 'Destination', !isKept(t, 'destination')))
+  if (t.energy && t.energySource === 'existing') out.push(...endpointProblem(t.energyExistingEndpoint, 'Energy: the existing Prometheus endpoint'))
+  if (t.accelerators && t.acceleratorsSource === 'existing') out.push(...endpointProblem(t.acceleratorsExistingEndpoint, 'Accelerators: the existing Prometheus endpoint'))
   if (t.networkLatency && measurementsOn === false) out.push('Network latency re-emits the path measurements extra, so turn that on too, or it will report nothing')
-  if (t.tracesSamplingPercent < 0 || t.tracesSamplingPercent > 100) out.push('Traces sampling must be between 0 and 100')
+  if (!(t.tracesSamplingPercent >= 0 && t.tracesSamplingPercent <= 100)) out.push('Traces sampling must be between 0 and 100')
   out.push(...processorProblems(t.extraProcessors))
   out.push(...tagProblems(t.tags))
   if (t.applicationMetrics) out.push(...namespaceListProblems([...t.applicationMetricsScope.namespaces, ...t.applicationMetricsScope.exclude]), ...workloadProblems(t.applicationMetricsScope.workloads))
@@ -552,6 +600,8 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
         out.push(`${m[0].toUpperCase()}${m.slice(1)} needs a destination`)
         continue
       }
+      // A route kept as installed is left out of the command, so what it holds is not typed text going into one.
+      if (!t.exportLanesKept.includes(m)) out.push(...destinationProblems(lane, `${m[0].toUpperCase()}${m.slice(1)}`, true))
       if (lane.exportProtocol === 'zipkin' && m !== 'traces') out.push(`Zipkin only carries traces, so it cannot be where ${m} go`)
       const lp = EXPORT_PRESETS.find((p) => p.endpointPattern === endpoint)
       if (lp && !presetSupportsModalities(lp, new Set([m]))) out.push(`${lp.label} only carries ${lp.modalities!.join('/')}, so it cannot be where ${m} go`)
@@ -570,13 +620,11 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   return out
 }
 
-const shQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
-
 /**
  * Adds telemetry to the install command: the export target, then every signal's enabled flag, explicitly
  * true or false - not just the ones turned on. This is deliberate, not just belt-and-braces: the same
  * function also builds the post-install "change telemetry" command (telemetryUpgradeCommand in consent.ts),
- * which runs as `helm upgrade --reuse-values` - Helm only changes what a --set actually names, so a signal
+ * which runs as `helm upgrade --reset-then-reuse-values` - Helm only changes what a --set actually names, so a signal
  * left unmentioned because it was merely unchecked would keep running. Stating every signal explicitly makes
  * unchecking one in that panel actually turn it off, and costs nothing on a fresh install (an explicit
  * `=false` for a signal that was already going to default to false is a no-op). Without any signal on at
@@ -586,24 +634,26 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   if (!telemetryActive(t) || telemetryProblems(t, measurementsOn).length) return install
   let cmd = install.trimEnd()
   const add = (flag: string) => { cmd += ` \\\n  --set ${flag}` }
-  const addString = (flag: string, value: string) => { cmd += ` \\\n  --set-string ${flag}=${value}` }
+  // Every value goes through shArg: it is typed by a person (an endpoint, a Secret name) or reported by the agent (the scope tag is built
+  // from namespace names and holds `; : -` and spaces), and a bare `;` in a printed command ends it there.
+  const addString = (flag: string, value: string) => { cmd += ` \\\n  --set-string ${flag}=${shArg(value)}` }
   const addJson = (flag: string, value: unknown) => { cmd += ` \\\n  --set-json ${flag}=${shQuote(JSON.stringify(value))}` }
   // Sending each signal type to its own destination: the routes below say where everything goes, so the
   // default is left alone (it is only used by a signal without a route, and there is none here).
   if (!t.exportSplit) addString('telemetry.export.otlp.endpoint', t.exportEndpoint.trim())
   // Who this belongs to, for every destination (an operator's server-built fragment states the same two, and
   // the intent id, after this; helm takes the last). The scope and the tags are stated even when empty, for
-  // the --reuse-values reason below: clearing them has to actually clear them.
+  // the --reset-then-reuse-values reason below: clearing them has to actually clear them.
   if (t.resourceOrgId) addString('telemetry.resource.orgId', t.resourceOrgId)
   if (t.resourceClusterId) addString('telemetry.resource.clusterId', t.resourceClusterId)
   if (!isKept(t, 'scopeShared')) addString('telemetry.resource.scope', scopeTag(t))
-  // The single destination is stated IN FULL every time (protocol, TLS, mutual TLS, CA, credential): under --reuse-values anything left
+  // The single destination is stated IN FULL every time (protocol, TLS, mutual TLS, CA, credential): under --reset-then-reuse-values anything left
   // unmentioned keeps its earlier value, so moving from a destination with a client certificate, plain HTTP or a credential to one without
   // would carry those over. Only a destination seeded from an install whose connection details are not known, and not edited since, is
   // stated by its endpoint alone.
   if (!t.exportSplit && !isKept(t, 'destination')) {
     const base = 'telemetry.export.otlp'
-    add(`${base}.protocol=${t.exportProtocol}`)
+    add(`${base}.protocol=${shArg(t.exportProtocol)}`)
     add(`${base}.tls.insecure=${t.exportInsecure}`)
     // A regional operator's receiver is mutual TLS, which only the server's own fragment (it holds the Secret and the name to verify) can
     // state; everything else states it off, so a certificate an earlier command installed does not linger.
@@ -621,7 +671,7 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
     }
   }
   // The routes. Every route is stated on every command (an unmentioned one would keep sending under
-  // `--reuse-values`): a route in use in full - protocol, TLS and credential too, so that what an earlier
+  // `--reset-then-reuse-values`): a route in use in full - protocol, TLS and credential too, so that what an earlier
   // command set cannot linger - and one not in use as an empty endpoint, which is how the chart reads "no route".
   // A single destination states them empty only when the install is known to have some to clear.
   const lanes = new Set(activeLanes(t))
@@ -632,10 +682,10 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
         addString(`${base}.endpoint`, '')
         continue
       }
-      if (t.exportLanesKept.includes(m)) continue // as installed: unmentioned, so --reuse-values keeps it
+      if (t.exportLanesKept.includes(m)) continue // as installed: unmentioned, so --reset-then-reuse-values keeps it
       const lane = t.exportLanes[m]
       addString(`${base}.endpoint`, lane.exportEndpoint.trim())
-      add(`${base}.protocol=${lane.exportProtocol}`)
+      add(`${base}.protocol=${shArg(lane.exportProtocol)}`)
       add(`${base}.tls.insecure=${lane.exportInsecure}`)
       // A regional operator's route is mutual TLS, which only the server's own fragment can state (it holds the
       // Secret); every other route states it off, so one an earlier command turned on does not linger.
@@ -665,7 +715,7 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   add(`telemetry.applicationMetrics.metrics.enabled=${t.applicationMetrics}`)
   // Stated unconditionally while the kind itself is on (even when both lists are empty) - an empty
   // helmList still renders to a valid '{}' the chart accepts as "no override, fall back to global scope",
-  // and stating it is what lets clearing an override back to empty actually take effect on --reuse-values;
+  // and stating it is what lets clearing an override back to empty actually take effect on --reset-then-reuse-values;
   // leaving it unstated whenever empty would let a stale prior override survive. Omitted entirely while the
   // kind itself is off, matching the existing energy/accelerators-existing-endpoint precedent - the chart's
   // own gating (parent .enabled check) makes a stale value harmless there.
@@ -689,7 +739,7 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
     addJson('telemetry.traces.traces.scope.workloads', t.tracesScope.workloads)
   }
   // What the infrastructure signals follow: the application signals' combined scope when that is switched on,
-  // otherwise nothing - stated either way (lists replace under --reuse-values, so an old one is cleared).
+  // otherwise nothing - stated either way (lists replace under --reset-then-reuse-values, so an old one is cleared).
   if (!isKept(t, 'scopeShared')) {
     const infra = t.scopeInfrastructure ? combinedScope(t) : emptyScopeOverride
     add(`telemetry.scope.infra.namespaces=${helmList(infra.namespaces)}`)
@@ -702,22 +752,22 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
     addString('telemetry.accelerators.metrics.existing.prometheusEndpoint', t.acceleratorsExistingEndpoint.trim())
   }
   // Stated explicitly and unconditionally, like the 11 signal flags above (not gated on t.accelerators) -
-  // the same --reuse-values staleness reasoning: a previous applyScope=true left unmentioned would survive
+  // the same --reset-then-reuse-values staleness reasoning: a previous applyScope=true left unmentioned would survive
   // a later edit that turns accelerators off and back on without re-checking this box.
   add(`telemetry.accelerators.metrics.applyScope=${t.acceleratorsApplyScope}`)
   // Processors, debug and tags: stated explicitly like the signals above (not conditionally, like the routes), for the same
-  // --reuse-values reason - a sampling percentage or a redaction toggle left unmentioned because it was reset back to its default in
+  // --reset-then-reuse-values reason - a sampling percentage or a redaction toggle left unmentioned because it was reset back to its default in
   // this panel would otherwise keep its old value. A group seeded as unknown and not edited is the one exception: stating a default
   // there would silently replace what the install really has.
   if (!isKept(t, 'processors')) {
     add(`telemetry.processors.resourceDetection.enabled=${t.resourceDetection}`)
     add(`telemetry.processors.redaction.enabled=${t.redaction}`)
-    add(`telemetry.processors.tracesSampling.percentage=${t.tracesSamplingPercent}`)
+    add(`telemetry.processors.tracesSampling.percentage=${Number(t.tracesSamplingPercent)}`)
   }
   if (!isKept(t, 'debug')) addString('telemetry.debug.verbosity', t.debugVerbosity)
   // The tags are one JSON list (not a --set per key) because a list REPLACES what an earlier command set,
   // where a map would keep every key since removed - the chart's field is a list for exactly this reason.
-  if (!isKept(t, 'tags')) cmd += ` \\\n  --set-json telemetry.resource.attributes='${JSON.stringify(cleanTags(t.tags)).replace(/'/g, `'\\''`)}'`
+  if (!isKept(t, 'tags')) addJson('telemetry.resource.attributes', cleanTags(t.tags))
   // Extra processors: the raw bodies all go in one --set-json (a map keyed by processorKey()), single-quoted
   // for the shell like any other multi-character value pasted into a terminal (unlike the simple tokens
   // addString/helmList above handle, a processor's JSON body can contain arbitrary characters, including a

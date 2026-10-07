@@ -6,6 +6,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { buttonClass, type ButtonVariant } from '@/components/ui/buttonClass'
+import { copyToClipboard } from '@/lib/clipboard'
 import type { Completeness as CompletenessInfo } from '@/lib/completeness'
 import { IP_SCOPE_HELP, ipScope, ipScopeLabel, loadBand } from '@/lib/present'
 import { rttLabel } from '@/lib/metrics'
@@ -34,28 +35,60 @@ export function Button({
 }
 
 /* ---------- Copy to clipboard ---------- */
-export async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    return false
+/**
+ * What a copy button knows about its last press: 'copied' (the browser took the text), 'manual' (it could not - no Clipboard API on a plain-http
+ * page, or it refused - so the person has to press Ctrl+C themselves) or 'idle'. See lib/clipboard.ts for the routes tried.
+ * 'copied' fades after a moment; 'manual' stays until the next press or until `dismiss`, because a person needs time to act on it.
+ */
+export function useCopy(): { state: 'idle' | 'copied' | 'manual'; copy: (text: string, select?: Element | null) => Promise<void>; dismiss: () => void } {
+  const [state, setState] = useState<'idle' | 'copied' | 'manual'>('idle')
+  const timer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+  const copy = async (text: string, select?: Element | null) => {
+    window.clearTimeout(timer.current)
+    const outcome = await copyToClipboard(text, select)
+    setState(outcome)
+    if (outcome === 'copied') timer.current = window.setTimeout(() => setState('idle'), 1500)
   }
+  return { state, copy, dismiss: () => setState('idle') }
+}
+
+/** The words that stand in for "Copied" when copying failed: said where the person is looking, not only in a console. */
+export const MANUAL_COPY_HINT = 'Press Ctrl+C to copy'
+
+/**
+ * Where there is no visible text to leave selected (a copy button beside a block, or in a table cell), the failed copy shows the text here,
+ * already selected, with the instruction: a small read-only box under the button. Leaving it (blur, Escape) dismisses it.
+ */
+function ManualCopy({ text, onDone }: { text: string; onDone: () => void }) {
+  const area = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => { area.current?.focus(); area.current?.select() }, [])
+  return (
+    <span className="absolute right-0 top-full z-30 mt-1 block w-64 rounded-md border border-nb-800 bg-nb-920 p-2 shadow-xl" data-testid="manual-copy">
+      <span role="status" className="mb-1 block text-xs text-warn">{MANUAL_COPY_HINT}</span>
+      <textarea
+        ref={area}
+        readOnly
+        rows={3}
+        value={text}
+        aria-label="Text to copy"
+        onBlur={onDone}
+        onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onDone() } }}
+        className="block w-full resize-none rounded border border-nb-800 bg-nb-950 p-1 font-mono text-[11px] text-nb-300"
+      />
+    </span>
+  )
 }
 
 export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
-  const [done, setDone] = useState(false)
+  const { state, copy, dismiss } = useCopy()
   return (
-    <Button
-      size="sm"
-      className="whitespace-nowrap"
-      onClick={async () => {
-        setDone(await copyText(text))
-        setTimeout(() => setDone(false), 1500)
-      }}
-    >
-      {done ? <Check size={ICON_SM} className="fade-in text-ok" /> : <Copy size={ICON_SM} />} {done ? 'Copied' : label}
-    </Button>
+    <span className="relative inline-flex">
+      <Button size="sm" className="whitespace-nowrap" onClick={() => void copy(text)}>
+        {state === 'copied' ? <Check size={ICON_SM} className="fade-in text-ok" /> : <Copy size={ICON_SM} />} {state === 'copied' ? 'Copied' : state === 'manual' ? 'Not copied' : label}
+      </Button>
+      {state === 'manual' && <ManualCopy text={text} onDone={dismiss} />}
+    </span>
   )
 }
 
@@ -64,20 +97,40 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
  *  than needing a separate, wider control. Same copy-then-checkmark feedback, `stopPropagation`'d so it never
  *  also triggers whatever the row itself does on click (selecting it, opening a detail view). */
 export function CopyIconButton({ text, title = 'Copy' }: { text: string; title?: string }) {
-  const [done, setDone] = useState(false)
+  const { state, copy, dismiss } = useCopy()
   return (
-    <button
-      type="button"
-      title={done ? 'Copied' : title}
-      onClick={async (e) => {
-        e.stopPropagation()
-        setDone(await copyText(text))
-        setTimeout(() => setDone(false), 1200)
-      }}
-      className="shrink-0 rounded p-0.5 text-nb-600 transition-colors hover:bg-nb-850 hover:text-nb-300"
-    >
-      {done ? <Check size={ICON_MD} className="fade-in text-ok" /> : <Copy size={ICON_MD} />}
-    </button>
+    <span className="relative inline-flex shrink-0" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        title={state === 'copied' ? 'Copied' : state === 'manual' ? MANUAL_COPY_HINT : title}
+        onClick={(e) => {
+          e.stopPropagation()
+          void copy(text)
+        }}
+        className="rounded p-0.5 text-nb-600 transition-colors hover:bg-nb-850 hover:text-nb-300"
+      >
+        {state === 'copied' ? <Check size={ICON_MD} className="fade-in text-ok" /> : <Copy size={ICON_MD} className={state === 'manual' ? 'text-warn' : undefined} />}
+      </button>
+      {state === 'manual' && <ManualCopy text={text} onDone={dismiss} />}
+    </span>
+  )
+}
+
+/**
+ * A value shown on screen with its own Copy button: a token, an invitation link. Where the browser will not copy (no Clipboard API on a
+ * plain-http page), the value is left selected and the hint says so, so a secret that is shown once is never lost to a button that did nothing.
+ */
+export function CopyValue({ value, testId, icon }: { value: string; testId?: string; icon?: ReactNode }) {
+  const { state, copy } = useCopy()
+  const text = useRef<HTMLElement>(null)
+  return (
+    <div>
+      <div className="flex items-center gap-2 rounded-md border border-nb-800 bg-nb-950 px-3 py-2">
+        <code ref={text} className="flex-1 select-all break-all font-mono text-xs text-nb-300" data-testid={testId}>{value}</code>
+        <Button size="sm" onClick={() => void copy(value, text.current)}>{icon} {state === 'copied' ? 'Copied' : 'Copy'}</Button>
+      </div>
+      {state === 'manual' && <p role="status" className="mt-1 text-xs text-warn" data-testid={testId ? `${testId}-manual` : undefined}>{MANUAL_COPY_HINT}: it is selected above.</p>}
+    </div>
   )
 }
 
@@ -562,10 +615,15 @@ export function SavedNote({ children, tone = 'ok', className, ...p }: ComponentP
 /** A form/page-level error message: this is the shape most of the app already uses for "something went wrong,
  * here's why" (as opposed to `role="alert"` text inlined next to whatever it explains). Prefer this over
  * hand-writing the same border/background/text classes again. */
-export function ErrorBanner({ children, className, ...p }: ComponentProps<'p'>) {
+export function ErrorBanner({ children, className, onDismiss, ...p }: ComponentProps<'p'> & { /** Adds a Dismiss button, for an error about something that already happened (a failed action) and would otherwise stay until the page is left. */ onDismiss?: () => void }) {
   return (
-    <p role="alert" {...p} className={clsx('rounded-md border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad', className)}>
-      {children}
+    <p role="alert" {...p} className={clsx('rounded-md border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad', onDismiss && 'flex items-start gap-3', className)}>
+      {onDismiss ? <span className="min-w-0 flex-1">{children}</span> : children}
+      {onDismiss && (
+        <button type="button" onClick={onDismiss} aria-label="Dismiss" className="shrink-0 rounded p-0.5 text-bad/80 hover:bg-bad/10 hover:text-bad">
+          <X size={ICON_SM} aria-hidden />
+        </button>
+      )}
     </p>
   )
 }

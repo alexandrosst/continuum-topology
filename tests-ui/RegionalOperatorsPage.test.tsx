@@ -1,8 +1,9 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
+import { isReloadHeld } from '@/lib/staleBuild'
 import RegionalOperatorsPage from '@/pages/RegionalOperatorsPage'
 import type { CreatedOperator, FusionStatus, IssuedCertificate, OperatorHeartbeatEnabled, OperatorRemoval } from '@/lib/api'
 import type { Agent, Cluster, OperatorDestinationEntry, RegionalOperator, TelemetryIntent } from '@/lib/types'
@@ -48,7 +49,7 @@ const enableOperatorHeartbeat = vi.fn(async (_c: unknown, _id: string): Promise<
   rotated: false,
   heartbeatToken: 'cnh_secret',
   heartbeatSecretCommand: 'kubectl create secret generic op-1-heartbeat-auth --namespace continuum-system --from-literal=token=cnh_secret',
-  heartbeatUpgradeCommand: 'helm upgrade op-1 ./chart.tgz --namespace continuum-system --reuse-values --set heartbeat.enabled=true',
+  heartbeatUpgradeCommand: 'helm upgrade op-1 ./chart.tgz --namespace continuum-system --reset-then-reuse-values --set heartbeat.enabled=true',
   heartbeatUrl: 'https://continuum.example.com/api/v1/operator-heartbeat',
   heartbeatIntervalSeconds: 60,
 }))
@@ -153,6 +154,12 @@ type User = ReturnType<typeof userEvent.setup>
 async function rowAction(user: User, name: string, item: 'address-open' | 'health-open' | 'certs' | 'renew' | 'revoke' | 'delete') {
   await user.click(await screen.findByTestId(`operator-menu-${name}`))
   await user.click(await screen.findByTestId(`operator-${item}-${name}`))
+}
+
+/** Renewing asks first: the confirmation's own button. */
+async function confirmRenew(user: User) {
+  const dialog = await screen.findByRole('dialog', { name: /^Renew certificates for / })
+  await user.click(within(dialog).getByRole('button', { name: 'Renew' }))
 }
 
 /** The create dialog, step by step. */
@@ -719,7 +726,7 @@ describe('RegionalOperatorsPage - the table', () => {
     await user.click(button)
     expect(button).toHaveAttribute('aria-expanded', 'true')
     const menu = screen.getByRole('menu', { name: 'Actions for two' })
-    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Reachable at…', 'Enable health reporting', 'Issued certificates', 'Renew certificates', 'Revoke…', 'Delete…'])
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Reachable at…', 'Enable health reporting', 'Issued certificates', 'Renew certificates…', 'Revoke…', 'Delete…'])
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     // Nothing but the menu button sits in the actions cell: the row is not a row of buttons.
@@ -791,6 +798,7 @@ describe('RegionalOperatorsPage - the table', () => {
     const user = userEvent.setup()
     renderPage()
     await user.click(await screen.findByTestId('operator-cert-renew-athens-regional'))
+    await confirmRenew(user)
     await waitFor(() => expect(reinstallOperator).toHaveBeenCalledWith({ url: '', org: 'o' }, 'op-1'))
     const dialog = await screen.findByRole('dialog', { name: 'Renew certificates for athens-regional' })
     const text = within(dialog).getByTestId('operator-created-steps').textContent ?? ''
@@ -816,6 +824,7 @@ describe('RegionalOperatorsPage - the table', () => {
     const user = userEvent.setup()
     renderPage()
     await user.click(await screen.findByTestId('operator-cert-renew-athens-regional'))
+    await confirmRenew(user)
     const dialog = await screen.findByRole('dialog', { name: 'Renew certificates for athens-regional' })
     const text = within(dialog).getByTestId('operator-created-steps').textContent ?? ''
     expect(text.indexOf('HB-CA-SECRET-CMD')).toBeGreaterThan(-1)
@@ -829,6 +838,7 @@ describe('RegionalOperatorsPage - the table', () => {
     const user = userEvent.setup()
     renderPage()
     await rowAction(user, 'athens-regional', 'renew')
+    await confirmRenew(user)
     expect(await screen.findByText('this operator is revoked')).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
@@ -1413,5 +1423,208 @@ describe('operatorServiceName', () => {
     expect(operatorServiceName('op-abc')).toBe('op-abc-regional-operator')
     expect(operatorServiceName('eu-regional-operator')).toBe('eu-regional-operator')
     expect(operatorServiceName('x'.repeat(70))).toHaveLength(63)
+  })
+})
+
+/** The dialog's own backdrop: the element a click outside the box lands on. */
+const backdropOf = (dialog: HTMLElement) => dialog.parentElement!
+
+describe('RegionalOperatorsPage - renewing certificates asks first', () => {
+  test('nothing is renewed until it is confirmed; the question names what is replaced and that the operator must be updated', async () => {
+    listOperators.mockResolvedValue([op({ receiverAuth: 'bearer', health: { state: 'online', lastSeenAt: minutesAgo(1), reporting: true } })])
+    const user = userEvent.setup()
+    renderPage()
+    await rowAction(user, 'athens-regional', 'renew')
+    const dialog = await screen.findByRole('dialog', { name: 'Renew certificates for athens-regional?' })
+    expect(reinstallOperator).not.toHaveBeenCalled()
+    expect(dialog).toHaveTextContent('its certificates, its receiver token and its health credential')
+    expect(dialog).toHaveTextContent('must be updated with the new commands')
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(reinstallOperator).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  test('a certificate-only operator that does not report health names only its certificates', async () => {
+    listOperators.mockResolvedValue([op()])
+    const user = userEvent.setup()
+    renderPage()
+    await rowAction(user, 'athens-regional', 'renew')
+    const dialog = await screen.findByRole('dialog', { name: /^Renew certificates/ })
+    expect(dialog).toHaveTextContent('This replaces its certificates.')
+    expect(dialog).not.toHaveTextContent('receiver token')
+    expect(dialog).not.toHaveTextContent('health credential')
+  })
+
+  test('while one renewal runs, every other renew control is disabled and says why, instead of ignoring the click', async () => {
+    let finish: (c: CreatedOperator) => void = () => undefined
+    reinstallOperator.mockImplementationOnce(() => new Promise<CreatedOperator>((r) => { finish = r }))
+    listOperators.mockResolvedValue([
+      op({ id: 'op-a', name: 'one', certState: 'expiring', certs: { receiverNotAfter: daysFromNow(10) } }),
+      op({ id: 'op-b', name: 'two', certState: 'expiring', certs: { receiverNotAfter: daysFromNow(10) } }),
+    ])
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByTestId('operator-cert-renew-one'))
+    await confirmRenew(user)
+    await waitFor(() => expect(reinstallOperator).toHaveBeenCalledTimes(1))
+    expect(screen.getByTestId('operator-cert-renew-two')).toBeDisabled()
+    expect(screen.getByTestId('operator-cert-renew-one')).toBeDisabled()
+    await user.click(screen.getByTestId('operator-menu-two'))
+    const item = await screen.findByTestId('operator-renew-two')
+    expect(item).toBeDisabled()
+    expect(item).toHaveAttribute('title', 'Another renewal is in progress')
+    finish({ operator: { id: 'op-a', name: 'one', status: 'active', sourceClusterIds: [], receiverAuth: 'mtls' } as CreatedOperator['operator'], install: 'X', reminders: [] })
+    await screen.findByRole('dialog', { name: 'Renew certificates for one' })
+  })
+})
+
+describe('RegionalOperatorsPage - a secret shown once cannot be lost to a stray click', () => {
+  test('the created screen ignores Escape and a click outside, holds the page from reloading, and Done is the way out', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await fillCreateForm(user)
+    await user.click(screen.getByTestId('operator-create'))
+    const dialog = await screen.findByRole('dialog', { name: 'athens-regional created' })
+    expect(isReloadHeld()).toBe(true)
+    await user.keyboard('{Escape}')
+    fireEvent.mouseDown(backdropOf(dialog))
+    expect(screen.getByRole('dialog', { name: 'athens-regional created' })).toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: 'Close' })).not.toBeInTheDocument() // no header X either
+    await user.click(within(dialog).getByRole('button', { name: 'Done' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(isReloadHeld()).toBe(false)
+  })
+
+  test('the renewed credentials screen is held the same way', async () => {
+    listOperators.mockResolvedValue([op()])
+    const user = userEvent.setup()
+    renderPage()
+    await rowAction(user, 'athens-regional', 'renew')
+    await confirmRenew(user)
+    const dialog = await screen.findByRole('dialog', { name: 'Renew certificates for athens-regional' })
+    await user.keyboard('{Escape}')
+    fireEvent.mouseDown(backdropOf(dialog))
+    expect(screen.getByRole('dialog', { name: 'Renew certificates for athens-regional' })).toBeInTheDocument()
+  })
+
+  test('the health credential, once minted, is held; before it, and not while it is being minted, the dialog closes as usual', async () => {
+    listOperators.mockResolvedValue([op()])
+    let finish: (r: OperatorHeartbeatEnabled) => void = () => undefined
+    enableOperatorHeartbeat.mockImplementationOnce(() => new Promise<OperatorHeartbeatEnabled>((r) => { finish = r }))
+    const user = userEvent.setup()
+    renderPage()
+    await rowAction(user, 'athens-regional', 'health-open')
+    await user.click(screen.getByTestId('operator-health-confirm'))
+    // In flight: the credential is on its way to this dialog, so no way out - Escape, a click outside, Cancel.
+    const asking = await screen.findByRole('dialog', { name: /Enable health reporting for/ })
+    await user.keyboard('{Escape}')
+    fireEvent.mouseDown(backdropOf(asking))
+    expect(screen.getByRole('dialog', { name: /Enable health reporting for/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    finish({ operator: op(), rotated: false, heartbeatToken: 'cnh_secret', heartbeatSecretCommand: 'SECRET-CMD', heartbeatUpgradeCommand: 'UPGRADE-CMD', heartbeatUrl: 'https://x/api/v1/operator-heartbeat', heartbeatIntervalSeconds: 60 })
+    const shown = await screen.findByRole('dialog', { name: 'Health reporting enabled for athens-regional' })
+    expect(isReloadHeld()).toBe(true)
+    await user.keyboard('{Escape}')
+    fireEvent.mouseDown(backdropOf(shown))
+    expect(screen.getByRole('dialog', { name: 'Health reporting enabled for athens-regional' })).toBeInTheDocument()
+    await user.click(screen.getByTestId('operator-health-done'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(isReloadHeld()).toBe(false)
+  })
+
+  test('while the operator is being created there is no way out of the dialog', async () => {
+    let finish: (c: CreatedOperator) => void = () => undefined
+    createOperator.mockImplementationOnce(() => new Promise<CreatedOperator>((r) => { finish = r }))
+    const user = userEvent.setup()
+    renderPage()
+    await fillCreateForm(user)
+    await user.click(screen.getByTestId('operator-create'))
+    const dialog = screen.getByRole('dialog', { name: 'New operator' })
+    await user.keyboard('{Escape}')
+    fireEvent.mouseDown(backdropOf(dialog))
+    expect(screen.getByRole('dialog', { name: 'New operator' })).toBeInTheDocument()
+    expect(screen.getByTestId('operator-back')).toBeDisabled()
+    finish(await createOperator.getMockImplementation()!(undefined, 'athens-regional', ['c1'], { endpoint: 'backend.example.com:4317' }))
+    await screen.findByRole('dialog', { name: 'athens-regional created' })
+  })
+})
+
+describe('RegionalOperatorsPage - Enter in the create form', () => {
+  test('Enter in a label or a processor field creates nothing; Enter in the name field still moves to the next step', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByTestId('operator-open'))
+    await user.type(screen.getByTestId('operator-name'), 'athens-regional{Enter}')
+    expect(screen.getByTestId('operator-step-destination')).toBeInTheDocument()
+    await chooseBackend(user)
+    await user.click(screen.getByTestId('operator-next'))
+    await user.click(within(screen.getByTestId('operator-advanced')).getByText('Advanced'))
+    await user.click(screen.getByTestId('operator-label-tag-add'))
+    await user.type(screen.getByTestId('operator-label-tag-key-0'), 'region{Enter}')
+    await user.type(screen.getByTestId('operator-label-tag-value-0'), 'eu{Enter}')
+    await user.click(screen.getByTestId('operator-processor-add-filter'))
+    await user.keyboard('{Enter}')
+    expect(createOperator).not.toHaveBeenCalled()
+    expect(screen.getByTestId('operator-step-create')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'New operator' })).toBeInTheDocument()
+  })
+
+  test('the Create button is still the way to create', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await fillCreateForm(user)
+    await user.click(screen.getByTestId('operator-create'))
+    await waitFor(() => expect(createOperator).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe('RegionalOperatorsPage - a list that did not load, and an action that failed', () => {
+  test('a first load that fails shows the error and not "No regional operators yet"', async () => {
+    listOperators.mockRejectedValue(new ApiError(500, 'the server could not read operators'))
+    renderPage()
+    expect(await screen.findByText('the server could not read operators')).toBeInTheDocument()
+    expect(screen.queryByText('No regional operators yet')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('operators-table')).not.toBeInTheDocument()
+  })
+
+  test('a failed action is dismissable and goes away with the next one that works', async () => {
+    reinstallOperator.mockRejectedValueOnce(new ApiError(409, 'this operator is revoked'))
+    listOperators.mockResolvedValue([op()])
+    const user = userEvent.setup()
+    renderPage()
+    await rowAction(user, 'athens-regional', 'renew')
+    await confirmRenew(user)
+    const error = await screen.findByText('this operator is revoked')
+    await user.click(within(error.closest('[role="alert"]') as HTMLElement).getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByText('this operator is revoked')).not.toBeInTheDocument()
+
+    reinstallOperator.mockRejectedValueOnce(new ApiError(409, 'this operator is revoked'))
+    await rowAction(user, 'athens-regional', 'renew')
+    await confirmRenew(user)
+    await screen.findByText('this operator is revoked')
+    await rowAction(user, 'athens-regional', 'renew')
+    await confirmRenew(user)
+    await screen.findByRole('dialog', { name: 'Renew certificates for athens-regional' })
+    expect(screen.queryByText('this operator is revoked')).not.toBeInTheDocument()
+  })
+})
+
+describe('RegionalOperatorsPage - opening a FUSION page', () => {
+  test('a double click mints one ticket and opens one tab', async () => {
+    fusionStatus = { ...fusionRunning(), links: { prometheus: '/fusion/prometheus/', grafana: '/fusion/grafana/' } }
+    let finish: (r: { path: string }) => void = () => undefined
+    openFusionPage.mockImplementationOnce(() => new Promise<{ path: string }>((r) => { finish = r }))
+    const tab = { location: { href: '' }, close: vi.fn(), opener: {} as unknown }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+    renderPage()
+    const user = userEvent.setup()
+    await user.dblClick(await screen.findByTestId('fusion-open-grafana'))
+    expect(openSpy).toHaveBeenCalledTimes(1)
+    expect(openFusionPage).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('fusion-open-prometheus')).toBeDisabled() // the other page waits for it too
+    finish({ path: '/fusion/grafana/?ikhnos_ticket=t1' })
+    await waitFor(() => expect(tab.location.href).toBe('/fusion/grafana/?ikhnos_ticket=t1'))
+    await waitFor(() => expect(screen.getByTestId('fusion-open-grafana')).toBeEnabled())
+    openSpy.mockRestore()
   })
 })

@@ -1,25 +1,41 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { isStaleChunkError, reloadForNewVersion } from '@/lib/staleBuild'
+import { Button } from '@/components/ui/primitives'
+import { isReloadHeld, isStaleChunkError, reloadForNewVersion } from '@/lib/staleBuild'
 
 /**
  * Keeps one broken feature from taking the whole page down. A route (or a section of one) that throws while
  * rendering shows this instead of a blank screen; the rest of the app is unaffected, and switching pages recovers.
  */
-export default class ErrorBoundary extends Component<{ children: ReactNode; label?: string }, { error?: Error; reloading?: boolean }> {
-  state: { error?: Error; reloading?: boolean } = {}
+export default class ErrorBoundary extends Component<{ children: ReactNode; label?: string }, { error?: Error; reloading?: boolean; held?: boolean }> {
+  state: { error?: Error; reloading?: boolean; held?: boolean } = {}
   static getDerivedStateFromError(error: Error) {
     return { error }
   }
   componentDidCatch(error: Error, info: ErrorInfo) {
     // A page's code that cannot be fetched means this tab is older than the server: load the new version (once).
-    if (isStaleChunkError(error) && reloadForNewVersion()) {
-      this.setState({ reloading: true })
-      return
+    if (isStaleChunkError(error)) {
+      if (reloadForNewVersion()) {
+        this.setState({ reloading: true })
+        return
+      }
+      // A dialog is showing something that is shown only once: do not reload under it, say so and let the person do it when ready.
+      if (isReloadHeld()) {
+        this.setState({ held: true })
+        return
+      }
     }
     // eslint-disable-next-line no-console
     console.error(`[${this.props.label ?? 'page'}] crashed while rendering:`, error, info.componentStack)
   }
   render() {
+    if (this.state.held) {
+      return (
+        <div className="flex h-full min-h-40 flex-col items-center justify-center gap-3 p-8 text-center text-sm text-nb-400" role="status" data-testid="updating">
+          <p>Ikhnos was updated, and this page needs to load the new version. It has not reloaded by itself because a dialog is showing something that cannot be shown again.</p>
+          <Button variant="primary" onClick={() => window.location.reload()} data-testid="reload-now">Reload now</Button>
+        </div>
+      )
+    }
     if (this.state.reloading) {
       return (
         <div className="flex h-full min-h-40 items-center justify-center p-8 text-sm text-nb-400" role="status" data-testid="updating">

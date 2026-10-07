@@ -1,8 +1,9 @@
 import { ChevronsUpDown, Fingerprint, KeyRound, LogOut, Mail, Monitor, Moon, Plus, ScrollText, ShieldCheck, Sun, Terminal, Ticket, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Button, CopyButton, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, PasswordInput, Select } from '@/components/ui/primitives'
+import { Button, CopyButton, CopyValue, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, PasswordInput, Select } from '@/components/ui/primitives'
 import { PasswordRequirements, passwordRules } from '@/components/auth/AuthGate'
+import { useHoldReload } from '@/lib/useHoldReload'
 import { api, ApiError, atLeast, ROLE_LABEL, type ApiToken, type CreatedApiToken, type Passkey } from '@/lib/api'
 import { bareIpHost, passkeysSupported } from '@/lib/webauthn'
 import { getThemePreference, setThemePreference, type ThemePreference } from '@/lib/theme'
@@ -578,7 +579,9 @@ function ApiTokensModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [created, setCreated] = useState<CreatedApiToken | null>(null)
-  const [copied, setCopied] = useState(false)
+  // While a token is on screen (shown once) or being made, Escape and a backdrop click leave it alone and the page does not reload itself
+  // for a new version; Done is the way out.
+  useHoldReload(created !== null)
 
   const load = useCallback(async () => {
     const c = conn()
@@ -598,12 +601,11 @@ function ApiTokensModal({ onClose }: { onClose: () => void }) {
 
   const create = async () => {
     const c = conn()
-    if (!c) return
+    if (!c || busy) return
     setBusy(true)
     try {
       const tok = await api.createApiToken(c, name.trim())
       setCreated(tok)
-      setCopied(false)
       setAdding(false)
       setName('')
       await load()
@@ -614,20 +616,11 @@ function ApiTokensModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const copy = async () => {
-    if (!created) return
-    try {
-      await navigator.clipboard.writeText(created.token)
-      setCopied(true)
-    } catch {
-      /* clipboard unavailable: the text is selectable */
-    }
-  }
-
   return (
     <Modal
       open
       onClose={onClose}
+      dismissible={created === null && !busy}
       title="Personal API tokens"
       description="A long-lived secret for calling the API from a script or CI job, without a signed-in browser."
       width="max-w-md"
@@ -639,10 +632,7 @@ function ApiTokensModal({ onClose }: { onClose: () => void }) {
             <p className="text-xs text-nb-300">
               Copy <strong className="text-nb-200">{created.name}</strong> now - for your own safety, it won&apos;t be shown again.
             </p>
-            <div className="flex items-center gap-2 rounded-md border border-nb-800 bg-nb-950 px-3 py-2">
-              <code className="flex-1 select-all break-all font-mono text-xs text-nb-300">{created.token}</code>
-              <Button size="sm" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</Button>
-            </div>
+            <CopyValue value={created.token} testId="api-token-value" />
           </div>
         )}
         {error && <ErrorBanner>{error}</ErrorBanner>}

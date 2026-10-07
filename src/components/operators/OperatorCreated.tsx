@@ -7,6 +7,7 @@ import { FindTheAddress } from '@/components/operators/OperatorAddress'
 import { Button, ICON_SM, Modal, RunStep } from '@/components/ui/primitives'
 import type { CreatedOperator, OperatorExposure } from '@/lib/api'
 import { CENTRAL_OPERATOR_ID, type FusionKind } from '@/lib/fusionStatus'
+import { useHoldReload } from '@/lib/useHoldReload'
 import { receiverAuthOf } from '@/lib/operatorHealth'
 import { buildOperatorInstallCommand } from '@/lib/operatorInstall'
 import type { ProcessorEntry } from '@/lib/processorCatalog'
@@ -38,6 +39,9 @@ export default function OperatorCreated({
   onClose: () => void
 }) {
   const { agents, clusters } = useTopology()
+  // Shown once: the server keeps only a hash. A backdrop click or Escape must not throw it away, and neither may the page reloading itself for a
+  // new version underneath it; the footer's Done is the one way out, and it asks nothing.
+  useHoldReload()
   const install = buildOperatorInstallCommand(created.install, extraProcessors)
   const hasToken = !!created.token && !!created.secretCommand
   const mtls = !hasToken && receiverAuthOf(created.operator) === 'mtls'
@@ -139,7 +143,7 @@ export default function OperatorCreated({
   }))
 
   return (
-    <Modal open onClose={onClose} title={renewed ? `Renew certificates for ${created.operator.name}` : `${created.operator.name} created`} width="max-w-2xl" footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+    <Modal open onClose={onClose} dismissible={false} title={renewed ? `Renew certificates for ${created.operator.name}` : `${created.operator.name} created`} width="max-w-2xl" footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
       <p className="text-sm text-nb-400" data-testid="operator-created-intro">
         {renewed ? 'Run these again where the operator lives: new certificates were issued just now, and the old ones stop being the current ones once its release restarts. ' : 'Run these where the operator itself should live, in this order. '}
         {shownOnce

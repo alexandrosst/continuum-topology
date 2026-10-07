@@ -16,7 +16,7 @@ stringData:
     abc
     -----END EC PRIVATE KEY-----
 CONTINUUM_SECRET`
-const upgrade = 'helm upgrade rel chart --reuse-values \\\n  --set a=b'
+const upgrade = 'helm upgrade rel chart --reset-then-reuse-values \\\n  --set a=b'
 
 describe('chainCommands', () => {
   test('a command that ends in a here-document is closed before the && that follows it', () => {
@@ -41,7 +41,7 @@ describe('chainCommands', () => {
     }
     const ok = run(true)
     expect(ok.status).toBe(0)
-    expect(ok.stdout).toBe('SECRET-APPLIED\nHELM-RAN upgrade rel chart --reuse-values --set a=b\n')
+    expect(ok.stdout).toBe('SECRET-APPLIED\nHELM-RAN upgrade rel chart --reset-then-reuse-values --set a=b\n')
     const failed = run(false)
     expect(failed.stdout).not.toContain('HELM-RAN')
     expect(failed.status).not.toBe(0)

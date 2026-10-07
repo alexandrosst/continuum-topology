@@ -15,11 +15,12 @@ let topologyState: { agents: Agent[]; clusters: Cluster[] }
 vi.mock('@/store/topology', () => ({
   useTopology: () => topologyState,
 }))
+const reloadInfo = vi.fn(async () => undefined)
 vi.mock('@/store/server', () => ({
-  useServer: (selector?: (s: { state?: { agents: Agent[] }; info?: { install?: undefined }; role?: undefined; conn: () => null; orgId?: string }) => unknown) =>
+  useServer: (selector?: (s: { state?: { agents: Agent[] }; info?: { install?: undefined }; role?: undefined; conn: () => null; orgId?: string; reloadInfo: () => Promise<void> }) => unknown) =>
     // conn() is null: the operator and FUSION hooks the Destination step mounts have no server to ask here,
     // so they stay idle instead of rejecting after the test has finished.
-    selector ? selector({ state: { agents: [] }, info: {}, role: undefined, conn: () => null, orgId: undefined }) : { state: { agents: [] }, info: {} },
+    selector ? selector({ state: { agents: [] }, info: {}, role: undefined, conn: () => null, orgId: undefined, reloadInfo }) : { state: { agents: [] }, info: {}, reloadInfo },
   useConn: () => ({ url: '', org: '' }),
 }))
 

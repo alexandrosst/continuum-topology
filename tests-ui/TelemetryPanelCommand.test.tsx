@@ -15,8 +15,9 @@ vi.mock('@/store/settings', () => ({
 const CONN = { url: 'https://example.test', org: 'org-1' }
 // The store's conn is one stable function; a fresh one per render would make every polled list read again on every render.
 const connFn = () => CONN
+const reloadInfo = vi.fn(async () => undefined)
 vi.mock('@/store/server', () => ({
-  useServer: (selector?: (s: { role?: string; conn: () => typeof CONN }) => unknown) => (selector ? selector({ role: 'editor', conn: connFn }) : { role: 'editor', conn: connFn }),
+  useServer: (selector?: (s: { role?: string; conn: () => typeof CONN; reloadInfo: () => Promise<void> }) => unknown) => (selector ? selector({ role: 'editor', conn: connFn, reloadInfo }) : { role: 'editor', conn: connFn, reloadInfo }),
   useConn: () => CONN,
 }))
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -121,5 +122,42 @@ describe('TelemetryPanel: an unfinished draft survives leaving the page', () => 
     again.unmount()
     render(panel())
     expect(screen.queryByTestId('tp-restored')).not.toBeInTheDocument()
+  })
+})
+
+describe('TelemetryPanel: where the agent is installed', () => {
+  test('the command targets the agent\'s own release and namespace, not the defaults, and the install info is read again on open', async () => {
+    reloadInfo.mockClear()
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <TelemetryPanel standalone testIdPrefix="tp" target={{ namespace: 'observability', release: 'agent-eu' }} />
+      </MemoryRouter>,
+    )
+    expect(reloadInfo).toHaveBeenCalledTimes(1)
+    await pickHoneycomb(user)
+    await toRun(user)
+    await user.click(screen.getByTestId('tp-guided-back'))
+    await user.click(screen.getByTestId('tp-guided-back'))
+    await user.type(screen.getByTestId('tp-export-auth-secret'), 'honeycomb-token')
+    await toRun(user)
+    const cmd = screen.getByTestId('helm-command').textContent ?? ''
+    expect(cmd).toContain('helm upgrade agent-eu ')
+    expect(cmd).toContain('--namespace observability --reset-then-reuse-values')
+    expect(cmd).toContain('kubectl create secret generic honeycomb-token --namespace observability')
+    expect(cmd).not.toContain('helm upgrade continuum-agent ')
+    expect(cmd).not.toContain('continuum-system')
+  })
+
+  test('an agent that has not reported its release gets the chart\'s documented defaults', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <TelemetryPanel standalone testIdPrefix="tp" target={{ namespace: undefined, release: undefined }} />
+      </MemoryRouter>,
+    )
+    await pickHoneycomb(user)
+    await toRun(user)
+    expect(screen.getByTestId('helm-command').textContent).toContain('helm upgrade continuum-agent ')
   })
 })

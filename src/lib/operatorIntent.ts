@@ -1,7 +1,7 @@
 import { api, ApiError, type Conn, type TelemetryIntentCommand } from './api'
 import { operatorReceiverEndpoint } from './destinationCatalog'
 import { activeLanes, TELEMETRY_SIGNALS, type ExportTarget, type Modality, type ScopeOverrideInput, type TelemetryInput } from './install'
-import { telemetrySecretCommand, telemetryUpgradeCommand, type InstallInfo } from './consent'
+import { telemetrySecretCommand, telemetryUpgradeCommand, type InstallInfo, type ReleaseTarget } from './consent'
 import type { OperatorDestination, ReceiverAuth, SignalGrant, TelemetryIntent } from './types'
 import { chainCommands } from './shellChain'
 
@@ -142,9 +142,9 @@ export function fragmentEndpoint(fragment: string): string | undefined {
  * address). So when the fragment sets the endpoint, the placeholder is left out of the command altogether: the pasted
  * command names the endpoint once.
  */
-export function operatorCommandBlock(opts: { install: InstallInfo | undefined; draft: TelemetryInput; measurementsOn?: boolean; result: TelemetryIntentCommand }): string {
+export function operatorCommandBlock(opts: { install: InstallInfo | undefined; draft: TelemetryInput; measurementsOn?: boolean; result: TelemetryIntentCommand; /** Where the agent's release lives, for what the server's own answer does not say. */ target?: ReleaseTarget }): string {
   const d = operatorCommandDraft(opts.draft, opts.result.receiverAuth, (id) => opts.result.operators?.[id])
-  const target = { namespace: opts.result.namespace, release: opts.result.release }
+  const target = { namespace: opts.result.namespace || opts.target?.namespace, release: opts.result.release || opts.target?.release }
   let client = telemetryUpgradeCommand(opts.install, d, opts.measurementsOn, target).trimEnd()
   if (fragmentEndpoint(opts.result.installFragment)) client = client.replace(/ \\\n\s*--set(?:-string)? telemetry\.export\.otlp\.endpoint=\S+/, '')
   const upgrade = `${client} \\\n  ${opts.result.installFragment}`

@@ -136,6 +136,7 @@ export default function TelemetryWizard({
             install={install}
             agentId={target?.id}
             clusterId={target?.clusterId}
+            target={{ namespace: target?.namespace, release: target?.releaseName }}
             initialScope={initialScope}
             initialDestination={initialDestination}
             standalone

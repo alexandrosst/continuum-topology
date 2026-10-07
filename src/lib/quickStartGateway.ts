@@ -1,4 +1,5 @@
 import type { QuickStartBackend, QuickStartKind } from './history'
+import { shArg } from './install'
 import { hasQuickStartSpec } from './quickStartBackends'
 
 /**
@@ -161,5 +162,5 @@ spec:
  * quickStartSpec(kind).portForward) - once a token is set, this is what "reach it locally" means. */
 export function gatewayPortForward(backend: QuickStartBackend, localPort = 8080): string {
   const name = gatewayName(backend.kind)
-  return `kubectl -n ${backend.namespace} port-forward svc/${name} ${localPort}:8080`
+  return `kubectl -n ${shArg(backend.namespace)} port-forward svc/${name} ${localPort}:8080`
 }

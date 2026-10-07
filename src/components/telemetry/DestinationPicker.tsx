@@ -93,10 +93,13 @@ export interface FusionControls {
   enable?: () => Promise<void>
   busy: boolean
   error?: string
+  /** Forgets a pending "Enable and use": whoever chose something else by hand in the meantime must not have it replaced when FUSION comes up. */
+  cancel?: () => void
 }
 
 /** "Enable and use": switches FUSION on and, as soon as it is something that can be sent to (starting counts), hands its entry to `onUsable` -
- *  never before, and never when switching it on failed. Returns the controls the rows and the Sending-to card draw their button from. */
+ *  never before, and never when switching it on failed, and never once the person has chosen something else by hand (`cancel`, which every
+ *  manual pick calls: a FUSION that comes up a minute later - or recovers from a failure - must not overwrite a later choice). Returns the controls the rows and the Sending-to card draw their button from. */
 export function useEnableAndUse(entries: DestinationCatalogEntry[], controls: FusionControls | undefined, onUsable: (e: Extract<DestinationCatalogEntry, { kind: 'fusion' }>) => void): FusionControls | undefined {
   const [want, setWant] = useState(false)
   const entry = entries.find((e): e is Extract<DestinationCatalogEntry, { kind: 'fusion' }> => e.kind === 'fusion')
@@ -116,6 +119,7 @@ export function useEnableAndUse(entries: DestinationCatalogEntry[], controls: Fu
   if (!controls) return undefined
   return {
     ...controls,
+    cancel: () => setWant(false),
     enable: controls.enable
       ? async () => {
           setWant(true)
@@ -233,7 +237,10 @@ export default function DestinationPicker({
       entry={entry}
       selected={destinationKey(entry) === activeKey}
       badge={layout.recommended.has(destinationKey(entry)) ? badgeFor(entry) : undefined}
-      onPick={() => onPick(entry)}
+      onPick={() => {
+        fusion?.cancel?.()
+        onPick(entry)
+      }}
       testId={`${p}-destination-${destinationKey(entry)}`}
       fusion={fusion}
     />

@@ -105,7 +105,9 @@ export default function DestinationStep({
     if (choice !== null) {
       setMode('list')
       setPicking(false)
+      fusionControls?.cancel?.() // a choice made by hand: a pending "Enable and use" must not replace it
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [choice])
 
   const choose = (e: DestinationCatalogEntry) => {
@@ -134,6 +136,7 @@ export default function DestinationStep({
   }
   const useCustom = () => {
     if (!customDraft.trim()) return
+    fusionControls?.cancel?.()
     onChange({ ...value, exportEndpoint: customDraft.trim(), exportOperatorId: '' })
     onChoose('custom')
     setPicking(false)
@@ -186,7 +189,7 @@ export default function DestinationStep({
       {mode === 'list' && !showSummary && (
         <div className="space-y-3">
           {picking && endpointSet && (
-            <button type="button" className="text-xs text-accent hover:underline" onClick={() => setPicking(false)} data-testid={`${p}-destination-keep`}>
+            <button type="button" className="text-xs text-accent hover:underline" onClick={() => { fusionControls?.cancel?.(); setPicking(false) }} data-testid={`${p}-destination-keep`}>
               Keep {name}
             </button>
           )}

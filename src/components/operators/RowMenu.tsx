@@ -10,6 +10,9 @@ export interface RowMenuItem {
   label: ReactNode
   onSelect: () => void
   danger?: boolean
+  /** Shown but not choosable (a renewal is already running); `title` says why. */
+  disabled?: boolean
+  title?: string
   testId?: string
 }
 
@@ -61,7 +64,9 @@ export default function RowMenu({ ariaLabel, items, children, testId }: { ariaLa
                 key={it.key}
                 type="button"
                 role="menuitem"
-                className={clsx('block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-nb-940 focus-visible:bg-nb-940', it.danger ? 'text-bad' : 'text-nb-300')}
+                disabled={it.disabled}
+                title={it.title}
+                className={clsx('block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-nb-940 focus-visible:bg-nb-940 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent', it.danger ? 'text-bad' : 'text-nb-300')}
                 data-testid={it.testId}
                 onClick={() => {
                   close()

@@ -6,10 +6,11 @@ import { Button, CopyButton, Field, ICON_MD, ICON_SM, Input, Modal, Select } fro
 import { api, atLeast, ApiError, type GatewayTokenStatus, type MintedGatewayToken } from '@/lib/api'
 import { effectiveAllowedBackendKinds, KNOWN_BACKEND_KINDS, type AppSettings, type QuickStartBackend, type QuickStartKind } from '@/lib/history'
 import type { ProcessorEntry } from '@/lib/processorCatalog'
-import { QUICK_START_BACKENDS, quickStartSpec } from '@/lib/quickStartBackends'
+import { QUICK_START_BACKENDS, quickStartProblems, quickStartSpec } from '@/lib/quickStartBackends'
 import { gatewayManifest, gatewayPortForward, hasGatewayManifest } from '@/lib/quickStartGateway'
 import type { Modality } from '@/lib/consent'
 import type { ExportProtocol } from '@/lib/install'
+import { useHoldReload } from '@/lib/useHoldReload'
 import { useConn, useServer } from '@/store/server'
 import { useSettings } from '@/store/settings'
 import TelemetryBackendWizard from './TelemetryBackendWizard'
@@ -352,8 +353,10 @@ function SavedBackend({ backend, admin, busy, canUse, gatewayStatus, minting, on
 function GatewayTokenCreated({ minted, onClose }: { minted: { backend: QuickStartBackend; token: MintedGatewayToken }; onClose: () => void }) {
   const { backend, token } = minted
   const manifest = gatewayManifest(backend, token.token)
+  // Shown once (the server keeps only a hash): not closable by a backdrop click or Escape, and the page does not reload itself under it.
+  useHoldReload()
   return (
-    <Modal open onClose={onClose} title={`${backend.label} access token created`} width="max-w-2xl" footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+    <Modal open onClose={onClose} dismissible={false} title={`${backend.label} access token created`} width="max-w-2xl" footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
       <p className="text-sm text-nb-400">
         This token is shown only now - the server keeps only its hash. It expires {new Date(token.expiresAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}; generate a new one any time (it replaces this one once applied below).
       </p>
@@ -387,6 +390,9 @@ function SetupBackend({ kind, admin, busy, expanded, onToggle, onSave }: {
   const spec = quickStartSpec(kind)
   const [namespace, setNamespace] = useState(spec.defaultNamespace)
   const [retention, setRetention] = useState(spec.defaultRetention)
+  // Both fields end up in the commands below: a value that is not a namespace name or a duration is refused, not pasted.
+  const problems = quickStartProblems(kind, namespace, retention)
+  const valid = !problems.namespace && !problems.retention
 
   return (
     <div>
@@ -411,31 +417,33 @@ function SetupBackend({ kind, admin, busy, expanded, onToggle, onSave }: {
             <>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Namespace">
-                  <Input value={namespace} onChange={(e) => setNamespace(e.target.value)} data-testid={`quickstart-namespace-${kind}`} />
+                  <Input value={namespace} onChange={(e) => setNamespace(e.target.value)} data-testid={`quickstart-namespace-${kind}`} aria-invalid={!!problems.namespace} />
+                  {problems.namespace && <span role="alert" className="mt-1 block text-xs text-bad" data-testid={`quickstart-namespace-${kind}-problem`}>{problems.namespace}</span>}
                 </Field>
                 <Field label="Retention" hint={spec.retentionHint}>
-                  <Input value={retention} onChange={(e) => setRetention(e.target.value)} data-testid={`quickstart-retention-${kind}`} />
+                  <Input value={retention} onChange={(e) => setRetention(e.target.value)} data-testid={`quickstart-retention-${kind}`} aria-invalid={!!problems.retention} />
+                  {problems.retention && <span role="alert" className="mt-1 block text-xs text-bad" data-testid={`quickstart-retention-${kind}-problem`}>{problems.retention}</span>}
                 </Field>
               </div>
               <div className="rounded-md border border-nb-850 bg-nb-950 p-3">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-xs font-medium uppercase tracking-wide text-nb-500">Install command</span>
-                  <CopyButton text={spec.command(namespace || spec.defaultNamespace, retention || spec.defaultRetention)} />
+                  {valid && <CopyButton text={spec.command(namespace.trim(), retention.trim())} />}
                 </div>
-                <pre className="overflow-x-auto whitespace-pre font-mono text-xs text-nb-300">{spec.command(namespace || spec.defaultNamespace, retention || spec.defaultRetention)}</pre>
+                <pre className="overflow-x-auto whitespace-pre font-mono text-xs text-nb-300">{valid ? spec.command(namespace.trim(), retention.trim()) : 'Fix the fields above to see the command.'}</pre>
               </div>
               <div className="rounded-md border border-nb-850 bg-nb-950 p-3">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-xs font-medium uppercase tracking-wide text-nb-500">Then, to reach {spec.openHint.toLowerCase()}</span>
-                  <CopyButton text={spec.portForward(namespace || spec.defaultNamespace)} />
+                  {valid && <CopyButton text={spec.portForward(namespace.trim())} />}
                 </div>
-                <pre className="overflow-x-auto whitespace-pre font-mono text-xs text-nb-300">{spec.portForward(namespace || spec.defaultNamespace)}</pre>
+                <pre className="overflow-x-auto whitespace-pre font-mono text-xs text-nb-300">{valid ? spec.portForward(namespace.trim()) : 'Fix the fields above to see the command.'}</pre>
               </div>
               <Button
                 type="button"
                 variant="primary"
                 size="sm"
-                disabled={busy || !namespace.trim() || !retention.trim()}
+                disabled={busy || !valid}
                 onClick={() => onSave(namespace.trim(), retention.trim())}
                 data-testid={`quickstart-save-${kind}`}
               >

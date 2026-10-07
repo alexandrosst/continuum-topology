@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import ErrorBoundary from '@/components/ErrorBoundary'
+import { holdReload } from '@/lib/staleBuild'
 
 const reloadSpy = vi.fn()
 vi.mock('@/lib/staleBuild', async (orig) => ({ ...(await orig<typeof import('@/lib/staleBuild')>()), reloadForNewVersion: () => reloadSpy() }))
@@ -32,5 +34,26 @@ describe('ErrorBoundary and a new deploy', () => {
     render(<ErrorBoundary><Broken message="boom" /></ErrorBoundary>)
     expect(screen.getByRole('alert')).toHaveTextContent('boom')
     expect(reloadSpy).not.toHaveBeenCalled()
+  })
+
+  test('while a dialog holds the reload (a secret shown once), it does not reload: it says why and offers Reload now', async () => {
+    // The real reloadForNewVersion refuses while held; the mock here stands for that.
+    reloadSpy.mockReturnValue(false)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const release = holdReload()
+    const reload = vi.fn()
+    const location = window.location
+    Object.defineProperty(window, 'location', { value: { ...location, reload }, configurable: true })
+    try {
+      render(<ErrorBoundary><Broken message="Failed to fetch dynamically imported module: https://x/assets/Wizard-1.js" /></ErrorBoundary>)
+      const notice = screen.getByTestId('updating')
+      expect(notice).toHaveTextContent('has not reloaded by itself')
+      expect(reload).not.toHaveBeenCalled()
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Reload now' }))
+      expect(reload).toHaveBeenCalledTimes(1)
+    } finally {
+      Object.defineProperty(window, 'location', { value: location, configurable: true })
+      release()
+    }
   })
 })

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { CopyCommand } from '@/components/agents/AgentInsight'
 import { Button, ErrorBanner, Field, Input, Modal } from '@/components/ui/primitives'
 import { api, ApiError, type OperatorExposure } from '@/lib/api'
+import { shArg } from '@/lib/install'
 import type { RegionalOperator } from '@/lib/types'
 import { useServer } from '@/store/server'
 
@@ -23,8 +24,9 @@ export function operatorServiceName(id: string): string {
 
 /** The kubectl line that reads the address a Service ended up with. */
 export function addressCommands(id: string, svc?: { service: string; namespace: string }): { loadBalancer: string; nodePort: string } {
-  const name = svc?.service || operatorServiceName(id)
-  const ns = svc?.namespace || 'continuum-system'
+  // Names the server reported (or built from an operator's id): quoted all the same, since each lands in a line a person pastes.
+  const name = shArg(svc?.service || operatorServiceName(id))
+  const ns = shArg(svc?.namespace || 'continuum-system')
   return {
     loadBalancer: `kubectl get svc ${name} --namespace ${ns} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}{"\\n"}'`,
     nodePort: `kubectl get svc ${name} --namespace ${ns} -o jsonpath='{.spec.ports[?(@.name=="otlp-grpc")].nodePort}{"\\n"}'`,
@@ -43,7 +45,8 @@ export function withDefaultPort(value: string): string {
 /** Run from a machine in the cluster that will send: prints the names the certificate at that address carries, which
  *  must include the operator's stable one. Nothing printed means the address is not reachable from there. */
 export function connectionCheckCommand(address: string, id: string): string {
-  return `openssl s_client -connect ${address} -servername ${id}.continuum-system.svc </dev/null 2>/dev/null | openssl x509 -noout -ext subjectAltName`
+  // The address is typed text: quoted, so a `;` or `$(...)` in it is part of the address and not a second command.
+  return `openssl s_client -connect ${shArg(address)} -servername ${shArg(`${id}.continuum-system.svc`)} </dev/null 2>/dev/null | openssl x509 -noout -ext subjectAltName`
 }
 
 /** How to find the address, in the order a person does it. Shown after creating an exposed operator and in the

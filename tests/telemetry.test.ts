@@ -43,7 +43,7 @@ test('a full signal turns into one --set per signal, every one stated explicitly
   assert.match(cmd, /--set telemetry\.resourceUsage\.metrics\.enabled=true/)
   assert.match(cmd, /--set telemetry\.traces\.traces\.enabled=true/)
   // every OTHER signal is stated explicitly false, not just omitted - this is what makes the same
-  // function usable for the post-install "change telemetry" upgrade command (see below): --reuse-values
+  // function usable for the post-install "change telemetry" upgrade command (see below): --reset-then-reuse-values
   // only changes what is actually named.
   assert.match(cmd, /--set telemetry\.energy\.metrics\.enabled=false/)
   assert.match(cmd, /--set telemetry\.kubernetesState\.metrics\.enabled=false/)
@@ -53,7 +53,7 @@ test('a full signal turns into one --set per signal, every one stated explicitly
   assert.match(cmd, /--set telemetry\.systemLogs\.logs\.enabled=false/)
   assert.match(cmd, /--set telemetry\.kubernetesEvents\.logs\.enabled=false/)
   assert.match(cmd, /--set telemetry\.applicationLogs\.logs\.enabled=false/)
-  // The whole destination block is stated every time, defaults included: under --reuse-values a value that is only left out keeps
+  // The whole destination block is stated every time, defaults included: under --reset-then-reuse-values a value that is only left out keeps
   // whatever the release had, so a switch away from an http/insecure/mTLS destination would otherwise quietly keep half of it.
   assert.match(cmd, /--set telemetry\.export\.otlp\.protocol=grpc/)
   assert.match(cmd, /--set telemetry\.export\.otlp\.tls\.insecure=false/)
@@ -125,10 +125,10 @@ test('network latency without path measurements is flagged, but only when the ca
 test('telemetryUpgradeCommand mirrors helmUpgradeCommand\'s shape exactly', () => {
   const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'otel.example.com:4317' }
   const cmd = telemetryUpgradeCommand({ chartFile: 'continuum-agent-0.4.0.tgz', chartRef: '', chartVersion: '0.4.0' }, t)
-  assert.ok(cmd.startsWith('helm upgrade continuum-agent ./continuum-agent-0.4.0.tgz --namespace continuum-system --reuse-values'))
+  assert.ok(cmd.startsWith('helm upgrade continuum-agent ./continuum-agent-0.4.0.tgz --namespace continuum-system --reset-then-reuse-values'))
   assert.match(cmd, /--set telemetry\.traces\.traces\.enabled=true/)
   // nothing turned on: the command is the bare upgrade line, matching withTelemetry's own "untouched" case
-  assert.equal(telemetryUpgradeCommand(undefined, emptyTelemetry), 'helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reuse-values')
+  assert.equal(telemetryUpgradeCommand(undefined, emptyTelemetry), 'helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values')
 })
 
 test('processors are stated explicitly, matching the chart defaults, once any signal is on', () => {
@@ -330,7 +330,7 @@ test('acceleratorsApplyScope is stated explicitly, like the signal booleans, whe
   assert.match(withTelemetry(base, on), /--set telemetry\.accelerators\.metrics\.applyScope=true/)
 
   // off by default, but still restated as false so a previous true left over from an earlier install
-  // doesn't survive a --reuse-values upgrade that merely unchecks accelerators without touching this box
+  // doesn't survive a --reset-then-reuse-values upgrade that merely unchecks accelerators without touching this box
   const off: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317' }
   assert.match(withTelemetry(base, off), /--set telemetry\.accelerators\.metrics\.applyScope=false/)
 })
@@ -339,7 +339,7 @@ test('per-kind application scope override: stated only while its own kind is on,
   const on: TelemetryInput = { ...emptyTelemetry, applicationMetrics: true, applicationLogs: true, traces: true, exportEndpoint: 'x:4317' }
   const cmd = withTelemetry(base, on)
   // nothing set on any override here, but each kind is on - so all six flags are still stated, to '{}',
-  // not omitted; omitting them would let a stale prior override survive a --reuse-values upgrade.
+  // not omitted; omitting them would let a stale prior override survive a --reset-then-reuse-values upgrade.
   assert.match(cmd, /--set telemetry\.applicationMetrics\.metrics\.scope\.namespaces='\{\}'/)
   assert.match(cmd, /--set telemetry\.applicationMetrics\.metrics\.scope\.exclude='\{\}'/)
   assert.match(cmd, /--set telemetry\.applicationLogs\.logs\.scope\.namespaces='\{\}'/)
@@ -433,7 +433,7 @@ test('provenance: org and cluster are stamped for any destination, only when kno
   assert.doesNotMatch(bare, /telemetry\.resource\.clusterId/)
 })
 
-test('tags travel as one JSON list, stated even when empty, so a reuse-values upgrade replaces the set', () => {
+test('tags travel as one JSON list, stated even when empty, so a reset-then-reuse-values upgrade replaces the set', () => {
   assert.match(withTelemetry(base, on), /--set-json telemetry\.resource\.attributes='\[\]'/)
   const cmd = withTelemetry(base, { ...on, tags: [{ key: ' team ', value: "pay'ments" }, { key: '', value: '' }] })
   assert.match(cmd, /--set-json telemetry\.resource\.attributes='\[\{"key":"team","value":"pay'\\''ments"\}\]'/)
@@ -460,7 +460,8 @@ test('the scope tag names the namespaces of the narrowed application signals, wi
   assert.doesNotMatch(scopeTag(t), /,/)
   // A scope on a signal that is off says nothing.
   assert.equal(scopeTag({ ...on, tracesScope: { namespaces: ['shop'], exclude: [], workloads: [] } }), '')
-  assert.match(withTelemetry(base, t), /--set-string telemetry\.resource\.scope=payments; shop - excluding legacy\+tmp/)
+  // The tag has a ; and spaces in it, so it is quoted: bare, the shell would end the command at the ;.
+  assert.match(withTelemetry(base, t), /--set-string telemetry\.resource\.scope='payments; shop - excluding legacy\+tmp'/)
   assert.match(withTelemetry(base, on), /--set-string telemetry\.resource\.scope=(\s|$)/)
 })
 
@@ -659,7 +660,7 @@ test('a seeded routed install is not restated: changing something else leaves it
   const seeded = seedTelemetryFromInstalled(['resourceUsage', 'traces'], { exportEndpoint: 'traces=z:9411,default=gw:4317', redactionEnabled: true, resourceDetectionEnabled: false })
   const cmd = telemetryUpgradeCommand(undefined, { ...seeded, kubernetesState: true })
   // The agent does not say how a route is spoken to (protocol, TLS, credential), so stating the route would
-  // reset those to defaults: it is left out, and --reuse-values keeps what is installed.
+  // reset those to defaults: it is left out, and --reset-then-reuse-values keeps what is installed.
   assert.doesNotMatch(cmd, /telemetry\.export\.routes\.(metrics|traces)\./)
   assert.doesNotMatch(cmd, /routes\.\w+\.(protocol|tls|auth)/)
   assert.match(cmd, /telemetry\.kubernetesState\.metrics\.enabled=true/)
@@ -737,4 +738,21 @@ test('describeTelemetryChanges: says what running the command changes, and nothi
   // A destination the agent does not report is "set", not "changed".
   const unknown = seedTelemetryFromInstalled(['resourceUsage'], { ...CFG, exportEndpoint: '' })
   assert.deepEqual(describeTelemetryChanges(['resourceUsage'], { ...CFG, exportEndpoint: '' }, { ...unknown, exportEndpoint: 'x.example.com:4317' }), ['Sets the destination to x.example.com:4317, with its protocol, TLS and credential'])
+})
+
+test('typed text that reaches the command is validated: endpoints, the credential Secret name, key and header', () => {
+  const t: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'otel.example.com:4317' }
+  assert.deepEqual(telemetryProblems(t), [])
+  // A query string, brackets and braces are fine (the command quotes them); a comma is not (helm --set splits on it).
+  assert.deepEqual(telemetryProblems({ ...t, exportEndpoint: 'https://o.example.com/v1?a=1&b=[2]&c={3}' }), [])
+  for (const bad of ['a:1,b:2', 'a b', 'a:1/"x"', "a:1/'x'", 'a:1/`x`', 'a:1\\x', 'a:1\nb', ';a']) assert.match(telemetryProblems({ ...t, exportEndpoint: bad }).join(' '), /endpoint/, JSON.stringify(bad))
+  assert.equal(withTelemetry(base, { ...t, exportEndpoint: 'a:1,b:2' }), base, 'a command with a bad endpoint is not printed')
+  assert.match(telemetryProblems({ ...t, exportAuthSecretName: 'my secret' }).join(' '), /Secret name/)
+  assert.match(telemetryProblems({ ...t, exportAuthSecretName: 'ok', exportAuthSecretKey: 'a b' }).join(' '), /Secret key/)
+  assert.match(telemetryProblems({ ...t, exportAuthSecretName: 'ok', exportAuthHeaderName: 'X Key' }).join(' '), /header name/)
+  assert.deepEqual(telemetryProblems({ ...t, exportAuthSecretName: 'ok', exportAuthSecretKey: 'api_key', exportAuthHeaderName: 'X-Key' }), [])
+  // The credential fields of a destination kept as installed are not emitted, so they are not held to anything.
+  assert.deepEqual(telemetryProblems(keepAsInstalled({ ...t, exportAuthSecretName: 'my secret' }, ['destination'])), [])
+  // A sampling percentage that is not a number cannot be printed as one.
+  assert.match(telemetryProblems({ ...t, tracesSamplingPercent: NaN }).join(' '), /between 0 and 100/)
 })

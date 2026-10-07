@@ -86,16 +86,16 @@ test('the helm command matches what the server prints', () => {
   // the chart file the server serves
   assert.equal(
     helmUpgradeCommand({ chartFile: 'continuum-agent-0.4.0.tgz', chartRef: '', chartVersion: '0.4.0' }, 2),
-    'helm upgrade continuum-agent ./continuum-agent-0.4.0.tgz --namespace continuum-system --reuse-values --set access.tier=2',
+    'helm upgrade continuum-agent ./continuum-agent-0.4.0.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=2',
   )
   // a registry chart names its version
   assert.equal(
     helmUpgradeCommand({ chartFile: 'x.tgz', chartRef: 'oci://registry.example.com/team/continuum-agent', chartVersion: '0.4.0' }, 1),
-    'helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.4.0 --namespace continuum-system --reuse-values --set access.tier=1',
+    'helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.4.0 --namespace continuum-system --reset-then-reuse-values --set access.tier=1',
   )
   // a chart reference that is itself a file has no version
   assert.ok(!helmUpgradeCommand({ chartRef: 'https://x.example/agent.tgz', chartVersion: '0.4.0' }, 2).includes('--version'))
-  assert.ok(helmUpgradeCommand(undefined, 2).endsWith('--reuse-values --set access.tier=2'))
+  assert.ok(helmUpgradeCommand(undefined, 2).endsWith('--reset-then-reuse-values --set access.tier=2'))
 })
 
 test('the note on a lower effective tier says why', () => {
@@ -178,4 +178,12 @@ test('an excluded namespace the agent has never reported is carried through as a
   const agents = [{ id: 'a', consent: { pausedCollectors: [], excludedNamespaces: ['batch'], confirmed: true, unknownNamespaces: ['batch'] } }]
   const a = extrasOf(agents, 'a')
   assert.deepEqual(a.consent?.unknownNamespaces, ['batch'])
+})
+
+test('helmUpgradeCommand names the agent\'s own release and namespace, and never uses --reuse-values', () => {
+  assert.equal(
+    helmUpgradeCommand({ chartFile: 'continuum-agent-0.4.0.tgz' }, 2, { namespace: 'obs', release: 'agent-eu' }),
+    'helm upgrade agent-eu ./continuum-agent-0.4.0.tgz --namespace obs --reset-then-reuse-values --set access.tier=2',
+  )
+  assert.ok(!/--reuse-values/.test(helmUpgradeCommand(undefined, 1)))
 })

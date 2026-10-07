@@ -191,7 +191,7 @@ function ObserverRow({ agent, nodeNames }: { agent: Agent; nodeNames: string[] }
   if (!o) {
     return (
       <Row label="Traffic" wrap>
-        <span className="text-nb-500" title="Turn it on with the install command's “traffic observer” option, or: helm upgrade … --reuse-values --set flowObserver.enabled=true">
+        <span className="text-nb-500" title="Turn it on with the install command's “traffic observer” option, or: helm upgrade … --reset-then-reuse-values --set flowObserver.enabled=true">
           Observer not installed
         </span>
       </Row>

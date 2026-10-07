@@ -160,11 +160,15 @@ export function FusionPanel({ fusion }: { fusion: ReturnType<typeof useFusion> }
   const conn = useServer((st) => st.conn)
   const links = status?.links
   const [openError, setOpenError] = useState('')
+  // A page is being opened: a second click in the meantime would mint a second ticket and open a second tab. The ref is the guard (it changes
+  // at once, where state changes on the next render, after a quick double click has already run twice); the state only dims the buttons.
+  const openingRef = useRef(false)
+  const [opening, setOpening] = useState(false)
   /** Opens one of FUSION's pages in a new tab. The tab is opened inside the click, which is what lets a pop-up blocker allow it; the
    *  address arrives with the server's answer (a link into a new tab carries no session cookie, so the server gives it a ticket). */
   const openPage = async (page: 'grafana' | 'prometheus') => {
     const c = conn()
-    if (!c) return
+    if (!c || openingRef.current) return
     setOpenError('')
     const tab = window.open('', '_blank')
     if (!tab) {
@@ -172,12 +176,17 @@ export function FusionPanel({ fusion }: { fusion: ReturnType<typeof useFusion> }
       return
     }
     tab.opener = null
+    openingRef.current = true
+    setOpening(true)
     try {
       const r = await api.openFusionPage(c, page)
       tab.location.href = `${c.url.replace(/\/$/, '')}${r.path}`
     } catch (e) {
       tab.close()
       setOpenError(e instanceof ApiError ? e.message : 'Could not open the page.')
+    } finally {
+      openingRef.current = false
+      setOpening(false)
     }
   }
   const starting = sentence.kind === 'starting'
@@ -212,8 +221,8 @@ export function FusionPanel({ fusion }: { fusion: ReturnType<typeof useFusion> }
           <span className="ml-auto flex flex-wrap items-center gap-2">
             {on && (
               <>
-                <OpenLink ready={!!links?.grafana} onOpen={() => void openPage('grafana')} testId="fusion-open-grafana">Open Grafana</OpenLink>
-                <OpenLink ready={!!links?.prometheus} onOpen={() => void openPage('prometheus')} testId="fusion-open-prometheus">Open Prometheus</OpenLink>
+                <OpenLink ready={!!links?.grafana} busy={opening} onOpen={() => void openPage('grafana')} testId="fusion-open-grafana">Open Grafana</OpenLink>
+                <OpenLink ready={!!links?.prometheus} busy={opening} onOpen={() => void openPage('prometheus')} testId="fusion-open-prometheus">Open Prometheus</OpenLink>
               </>
             )}
             {on ? (
@@ -283,7 +292,7 @@ export function FusionPanel({ fusion }: { fusion: ReturnType<typeof useFusion> }
 
 /** A page FUSION serves, opened in a new tab. Before it is up (the part is still starting) it is shown, disabled, so the person
  *  knows it is coming rather than wondering where it is. */
-function OpenLink({ ready, onOpen, children, testId }: { ready: boolean; onOpen: () => void; children: string; testId: string }) {
+function OpenLink({ ready, busy = false, onOpen, children, testId }: { ready: boolean; /** A page is being opened: dimmed, so a second click cannot start a second tab. */ busy?: boolean; onOpen: () => void; children: string; testId: string }) {
   const cls = buttonClass('secondary', 'sm')
   if (!ready) {
     return (
@@ -293,7 +302,7 @@ function OpenLink({ ready, onOpen, children, testId }: { ready: boolean; onOpen:
     )
   }
   return (
-    <button type="button" className={cls} onClick={onOpen} data-testid={testId}>
+    <button type="button" className={cls} onClick={onOpen} disabled={busy} data-testid={testId}>
       <ExternalLink size={ICON_SM} aria-hidden /> {children}
     </button>
   )

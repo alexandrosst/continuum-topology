@@ -16,10 +16,28 @@ export function isStaleChunkError(e: unknown): boolean {
 }
 
 /**
+ * Who has asked for the page not to reload by itself right now: each dialog that shows a secret once (a token, a credential that
+ * the server keeps only a hash of). A reload would throw the secret away with the page before it was copied.
+ */
+const holds = new Set<symbol>()
+
+/** Asks the page not to reload itself for a new version until the returned function is called. Hold while mounted, release on unmount. */
+export function holdReload(): () => void {
+  const h = Symbol('reload hold')
+  holds.add(h)
+  return () => void holds.delete(h)
+}
+
+/** Whether something is holding the automatic reload (see `holdReload`). */
+export const isReloadHeld = (): boolean => holds.size > 0
+
+/**
  * Reloads the page once for a new version. Says whether it did: false when it already did a moment ago (the files are really
- * missing, so the person is told instead of being looped), or when the browser would not let it remember that.
+ * missing, so the person is told instead of being looped), when the browser would not let it remember that, or while a dialog holds
+ * the reload (`holdReload`) - then nothing is recorded, so the person's own "Reload now" later is not counted as the one automatic try.
  */
 export function reloadForNewVersion(opts: { now?: () => number; storage?: Pick<Storage, 'getItem' | 'setItem'>; reload?: () => void } = {}): boolean {
+  if (isReloadHeld()) return false
   const now = (opts.now ?? Date.now)()
   try {
     const store = opts.storage ?? window.sessionStorage

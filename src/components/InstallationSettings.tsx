@@ -136,7 +136,7 @@ export default function InstallationSettings({ conn }: { conn: Conn }) {
                 )}
               </dd>
               <dt className="text-nb-500">Chart</dt>
-              <dd className="break-all font-mono text-nb-300" data-testid="preview-chart">{preview.chartRef}{chartVersion && <span className="font-sans text-nb-500"> version {chartVersion}</span>}</dd>
+              <dd className="break-all font-mono text-nb-300" data-testid="preview-chart">{preview.chartRef}{chartVersion && !dirty && <span className="font-sans text-nb-500"> version {chartVersion}</span>}{dirty && <span className="font-sans text-nb-500"> (its version is shown once this is saved)</span>}</dd>
             </dl>
           ) : (
             <p className="text-nb-400" data-testid="preview-none">

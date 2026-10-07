@@ -1,8 +1,10 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { StrictMode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { expiryText, FusionAccess } from '@/components/operators/FusionAccess'
+import { expiryText, FusionAccess, fusionStatusCurl } from '@/components/operators/FusionAccess'
 import { FusionPanel } from '@/components/operators/FusionPanel'
+import { isReloadHeld } from '@/lib/staleBuild'
 import type { CreatedFusionAccessToken, FusionAccessToken, FusionStatus } from '@/lib/api'
 
 const listFusionTokens = vi.fn()
@@ -155,5 +157,73 @@ describe('the FUSION card', () => {
     listFusionTokens.mockResolvedValue([])
     render(<FusionPanel fusion={fusion({ available: false, state: 'off', reason: 'not-configured', message: 'No switch.', data: true })} />)
     expect(await screen.findByTestId('fusion-access')).toBeInTheDocument()
+  })
+})
+
+describe('FusionAccess under React StrictMode (main.tsx renders the app inside it)', () => {
+  test('the token list still fills in: the flag that stops a late answer is set back on the second mount', async () => {
+    listFusionTokens.mockResolvedValue([token()])
+    render(<StrictMode><FusionAccess /></StrictMode>)
+    expect(await screen.findByTestId('fusion-token-fk-1')).toBeInTheDocument()
+  })
+})
+
+describe('a token that is shown once', () => {
+  const created: CreatedFusionAccessToken = { token: 'cnf_SECRETSECRETSECRET', details: token({ id: 'fk-9', name: 'Shop dashboard' }) }
+
+  test('the created view ignores Escape and a click outside, holds the page from reloading, and Done is the way out', async () => {
+    const user = userEvent.setup()
+    listFusionTokens.mockResolvedValue([])
+    createFusionToken.mockResolvedValue(created)
+    render(<FusionAccess />)
+    await user.click(await screen.findByTestId('fusion-token-new'))
+    await user.type(screen.getByTestId('fusion-token-name'), 'Shop dashboard')
+    await user.click(screen.getByTestId('fusion-token-create'))
+    const dialog = await screen.findByRole('dialog', { name: 'Access token created' })
+    expect(isReloadHeld()).toBe(true)
+    await user.keyboard('{Escape}')
+    fireEvent.mouseDown(dialog.parentElement!)
+    expect(screen.getByRole('dialog', { name: 'Access token created' })).toBeInTheDocument()
+    expect(screen.getByText('cnf_SECRETSECRETSECRET')).toBeInTheDocument()
+    await user.click(screen.getByTestId('fusion-token-done'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(isReloadHeld()).toBe(false)
+  })
+
+  test('while the token is being made there is no way out of the form: Escape, a click outside and Cancel do nothing', async () => {
+    const user = userEvent.setup()
+    listFusionTokens.mockResolvedValue([])
+    let finish: (c: CreatedFusionAccessToken) => void = () => undefined
+    createFusionToken.mockImplementation(() => new Promise<CreatedFusionAccessToken>((r) => { finish = r }))
+    render(<FusionAccess />)
+    await user.click(await screen.findByTestId('fusion-token-new'))
+    await user.type(screen.getByTestId('fusion-token-name'), 'Shop dashboard')
+    await user.click(screen.getByTestId('fusion-token-create'))
+    const dialog = screen.getByRole('dialog', { name: 'New access token' })
+    await user.keyboard('{Escape}')
+    fireEvent.mouseDown(dialog.parentElement!)
+    expect(screen.getByRole('dialog', { name: 'New access token' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    await user.click(screen.getByTestId('fusion-token-create')) // a second press while it runs
+    expect(createFusionToken).toHaveBeenCalledTimes(1)
+    finish(created)
+    expect(await screen.findByRole('dialog', { name: 'Access token created' })).toBeInTheDocument()
+  })
+
+  test('before anything is sent the form closes the ordinary ways', async () => {
+    const user = userEvent.setup()
+    listFusionTokens.mockResolvedValue([])
+    render(<FusionAccess />)
+    await user.click(await screen.findByTestId('fusion-token-new'))
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+describe('fusionStatusCurl', () => {
+  test('keeps the familiar double-quoted header for a plain token, and quotes anything else for the shell', () => {
+    expect(fusionStatusCurl('cnf_abc', 'https://ikhnos.example')).toBe('curl -H "Authorization: Bearer cnf_abc" https://ikhnos.example/api/v1/fusion/status')
+    expect(fusionStatusCurl('a"; rm -rf ~ #', 'https://x')).toBe(`curl -H 'Authorization: Bearer a"; rm -rf ~ #' https://x/api/v1/fusion/status`)
+    expect(fusionStatusCurl('t', 'https://x/a b')).toBe(`curl -H "Authorization: Bearer t" 'https://x/a b/api/v1/fusion/status'`)
   })
 })

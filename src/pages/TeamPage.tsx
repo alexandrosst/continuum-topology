@@ -1,6 +1,7 @@
 import { ChevronRight, Copy, Link2, Trash2, UserPlus } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { Button, ErrorBanner, Field, ICON_SM, Input, Modal, PageHeader, Pill, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
+import { useHoldReload } from '@/lib/useHoldReload'
+import { Button, CopyValue, ErrorBanner, Field, ICON_SM, Input, Modal, PageHeader, Pill, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, ApiError, grantable, ROLE_HELP, ROLE_LABEL, type Invite, type Member, type Role } from '@/lib/api'
 import { useServer } from '@/store/server'
 
@@ -13,18 +14,11 @@ function ErrorLine({ text }: { text: string }) {
 
 /** The invitation, shown once: the server keeps only a hash, so this is the only chance to copy it. */
 function InviteCreated({ token, invite, url, org, onClose }: { token: string; invite: Invite; url: string; org: string; onClose: () => void }) {
-  const [copied, setCopied] = useState('')
   const link = `${url || window.location.origin}/?invite=${token}`
-  const copy = async (what: string, text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(what)
-    } catch {
-      /* clipboard unavailable: the text is selectable */
-    }
-  }
+  // Shown once: not closable by a backdrop click or Escape, and the page does not reload itself under it.
+  useHoldReload()
   return (
-    <Modal open onClose={onClose} title="Invitation created" width="max-w-lg" footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+    <Modal open onClose={onClose} dismissible={false} title="Invitation created" width="max-w-lg" footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
       <p className="text-sm text-nb-400">
         Send this to {invite.label ? <strong className="text-nb-300">{invite.label}</strong> : 'the person you are inviting'}. It lets one person join <strong className="text-nb-300">{org}</strong> as {ROLE_LABEL[invite.role].toLowerCase()}, once, until {when(invite.expiresAt)}.
         It is shown only now; if it is lost, make another.
@@ -32,17 +26,11 @@ function InviteCreated({ token, invite, url, org, onClose }: { token: string; in
       <div className="mt-4 space-y-3">
         <div>
           <div className="mb-1 text-xs text-nb-500">Link</div>
-          <div className="flex items-center gap-2 rounded-md border border-nb-800 bg-nb-925 px-3 py-2">
-            <code className="flex-1 select-all break-all font-mono text-xs text-nb-300" data-testid="invite-link">{link}</code>
-            <Button size="sm" onClick={() => void copy('link', link)}><Link2 size={ICON_SM} /> {copied === 'link' ? 'Copied' : 'Copy'}</Button>
-          </div>
+          <CopyValue value={link} testId="invite-link" icon={<Link2 size={ICON_SM} />} />
         </div>
         <div>
           <div className="mb-1 text-xs text-nb-500">Or just the code, for someone who already has an account</div>
-          <div className="flex items-center gap-2 rounded-md border border-nb-800 bg-nb-925 px-3 py-2">
-            <code className="flex-1 select-all break-all font-mono text-xs text-nb-300" data-testid="invite-code">{token}</code>
-            <Button size="sm" onClick={() => void copy('code', token)}><Copy size={ICON_SM} /> {copied === 'code' ? 'Copied' : 'Copy'}</Button>
-          </div>
+          <CopyValue value={token} testId="invite-code" icon={<Copy size={ICON_SM} />} />
         </div>
       </div>
     </Modal>

@@ -1,5 +1,5 @@
 import type { QuickStartKind } from './history'
-import type { ExportProtocol } from './install'
+import { DNS_LABEL, shArg, shQuote, type ExportProtocol } from './install'
 
 /**
  * Specs for the "don't have a backend yet?" quick-start option next to the telemetry destination field
@@ -31,6 +31,21 @@ export interface QuickStartSpec {
   openHint: string
   portForward: (namespace: string) => string
   docsUrl: string
+}
+
+/** A retention as the three upstream tools read one: a Go-style duration (72h, 15d, 1h30m); Zipkin's is a plain span count. */
+const DURATION = /^(\d+(ms|s|m|h|d|w|y))+$/
+
+/**
+ * What is wrong with the two typed fields, in words for the field they are in; empty when both are fine. Both end up in a command (and,
+ * for the namespace, in a manifest), so anything that is not a namespace name or a duration is refused rather than pasted.
+ */
+export function quickStartProblems(kind: QuickStartKind, namespace: string, retention: string): { namespace?: string; retention?: string } {
+  const out: { namespace?: string; retention?: string } = {}
+  if (!DNS_LABEL.test(namespace.trim())) out.namespace = 'A namespace name: lowercase letters, digits and hyphens'
+  const r = retention.trim()
+  if (kind === 'zipkin' ? !/^\d+$/.test(r) : !DURATION.test(r)) out.retention = kind === 'zipkin' ? 'A number of spans, digits only' : 'A duration such as 24h, 72h or 15d'
+  return out
 }
 
 export const QUICK_START_BACKENDS: QuickStartSpec[] = [
@@ -70,12 +85,12 @@ export const QUICK_START_BACKENDS: QuickStartSpec[] = [
       return (
         `helm repo add jaegertracing https://jaegertracing.github.io/helm-charts\n` +
         `helm repo update jaegertracing\n` +
-        `helm upgrade --install jaeger-quickstart jaegertracing/jaeger --namespace ${ns} --create-namespace \\\n` +
-        `  --set-json 'userconfig=${userconfig}'`
+        `helm upgrade --install jaeger-quickstart jaegertracing/jaeger --namespace ${shArg(ns)} --create-namespace \\\n` +
+        `  --set-json ${shQuote(`userconfig=${userconfig}`)}`
       )
     },
     openHint: 'The Jaeger UI (query service), once reachable.',
-    portForward: (ns) => `kubectl -n ${ns} port-forward svc/jaeger-quickstart 16686:16686`,
+    portForward: (ns) => `kubectl -n ${shArg(ns)} port-forward svc/jaeger-quickstart 16686:16686`,
     docsUrl: 'https://www.jaegertracing.io/docs/latest/getting-started/',
   },
   {
@@ -138,7 +153,7 @@ export const QUICK_START_BACKENDS: QuickStartSpec[] = [
       )
     },
     openHint: 'The Zipkin UI, once reachable.',
-    portForward: (ns) => `kubectl -n ${ns} port-forward svc/zipkin-quickstart 9411:9411`,
+    portForward: (ns) => `kubectl -n ${shArg(ns)} port-forward svc/zipkin-quickstart 9411:9411`,
     docsUrl: 'https://zipkin.io/pages/quickstart.html',
   },
   {
@@ -157,12 +172,12 @@ export const QUICK_START_BACKENDS: QuickStartSpec[] = [
     command: (ns, retention) =>
       `helm repo add prometheus-community https://prometheus-community.github.io/helm-charts\n` +
       `helm repo update prometheus-community\n` +
-      `helm upgrade --install prometheus-quickstart prometheus-community/prometheus --namespace ${ns} --create-namespace \\\n` +
-      `  --set server.retention=${retention} \\\n` +
+      `helm upgrade --install prometheus-quickstart prometheus-community/prometheus --namespace ${shArg(ns)} --create-namespace \\\n` +
+      `  --set server.retention=${shArg(retention)} \\\n` +
       `  --set-json 'server.extraFlags=["web.enable-lifecycle","web.enable-otlp-receiver"]' \\\n` +
       `  --set alertmanager.enabled=false --set prometheus-pushgateway.enabled=false --set prometheus-node-exporter.enabled=false`,
     openHint: 'The Prometheus web UI, once reachable.',
-    portForward: (ns) => `kubectl -n ${ns} port-forward svc/prometheus-quickstart-server 9090:80`,
+    portForward: (ns) => `kubectl -n ${shArg(ns)} port-forward svc/prometheus-quickstart-server 9090:80`,
     docsUrl: 'https://prometheus.io/docs/prometheus/latest/feature_flags/#otlp-receiver',
   },
   {
@@ -188,7 +203,7 @@ export const QUICK_START_BACKENDS: QuickStartSpec[] = [
 ` +
       `helm repo update grafana
 ` +
-      `helm upgrade --install loki-quickstart grafana/loki --namespace ${ns} --create-namespace \
+      `helm upgrade --install loki-quickstart grafana/loki --namespace ${shArg(ns)} --create-namespace \
 ` +
       `  --set deploymentMode=SingleBinary --set singleBinary.replicas=1 \
 ` +
@@ -202,11 +217,11 @@ export const QUICK_START_BACKENDS: QuickStartSpec[] = [
 ` +
       `  --set loki.useTestSchema=true --set loki.storage.type=filesystem \
 ` +
-      `  --set loki.limits_config.retention_period=${retention} \
+      `  --set loki.limits_config.retention_period=${shArg(retention)} \
 ` +
       `  --set loki.compactor.retention_enabled=true --set loki.compactor.delete_request_store=filesystem`,
     openHint: 'Grafana, pointed at this Loki as a data source, once reachable (Loki itself has no UI).',
-    portForward: (ns) => `kubectl -n ${ns} port-forward svc/loki-quickstart 3100:3100`,
+    portForward: (ns) => `kubectl -n ${shArg(ns)} port-forward svc/loki-quickstart 3100:3100`,
     docsUrl: 'https://grafana.com/docs/loki/latest/send-data/otel/',
   },
 ]

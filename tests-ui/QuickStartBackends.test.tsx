@@ -1,7 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import QuickStartBackends from '@/components/telemetry/QuickStartBackends'
+import { isReloadHeld } from '@/lib/staleBuild'
 import { DEFAULT_SETTINGS, type AppSettings, type QuickStartBackend } from '@/lib/history'
 
 // QuickStartBackends is a small, store-connected disclosure that sits under the telemetry destination
@@ -61,6 +62,33 @@ describe('QuickStartBackends', () => {
     await user.click(screen.getByTestId('quickstart-toggle-loki'))
     expect(screen.getByTestId('quickstart-namespace-loki')).toHaveValue('observability')
     expect(screen.getByTestId('quickstart-retention-loki')).toHaveValue('168h')
+    expect(screen.getByText(/grafana\/loki/)).toBeInTheDocument()
+  })
+
+  test('a namespace or retention that is not one is said so, and neither the commands nor "I\'ve installed it" are offered', async () => {
+    const user = userEvent.setup()
+    settings = DEFAULT_SETTINGS
+    save = vi.fn().mockResolvedValue(true)
+    role = 'admin'
+    render(<QuickStartBackends enabledModalities={new Set(['logs'])} onUseAsDestination={vi.fn()} />)
+    await user.click(screen.getByTestId('quickstart-toggle-loki'))
+    const ns = screen.getByTestId('quickstart-namespace-loki')
+    await user.clear(ns)
+    await user.type(ns, 'obs; rm -rf /')
+    expect(screen.getByTestId('quickstart-namespace-loki-problem')).toBeInTheDocument()
+    expect(screen.queryByText(/grafana\/loki/)).not.toBeInTheDocument()
+    expect(screen.getByTestId('quickstart-save-loki')).toBeDisabled()
+    await user.clear(ns)
+    await user.type(ns, 'obs')
+    const retention = screen.getByTestId('quickstart-retention-loki')
+    await user.clear(retention)
+    await user.type(retention, "1h' x")
+    expect(screen.getByTestId('quickstart-retention-loki-problem')).toBeInTheDocument()
+    expect(screen.getByTestId('quickstart-save-loki')).toBeDisabled()
+    await user.clear(retention)
+    await user.type(retention, '24h')
+    expect(screen.queryByTestId('quickstart-retention-loki-problem')).not.toBeInTheDocument()
+    expect(screen.getByTestId('quickstart-save-loki')).toBeEnabled()
     expect(screen.getByText(/grafana\/loki/)).toBeInTheDocument()
   })
 
@@ -239,6 +267,24 @@ describe('QuickStartBackends', () => {
     expect(screen.getByText('cnq_shown-once')).toBeInTheDocument()
     // The manifest for this backend's own Service/port is shown alongside the token.
     expect(screen.getByText(/jaeger-quickstart\.obs\.svc\.cluster\.local:16686/)).toBeInTheDocument()
+  })
+
+  test('the token is shown once: Escape and a click outside leave the dialog, and Done closes it', async () => {
+    const user = userEvent.setup()
+    const saved: QuickStartBackend = { id: 'qsb-1', kind: 'jaeger', modality: 'traces', namespace: 'obs', retention: '48h', label: 'Jaeger (traces)', toolUrl: 'http://localhost:16686' }
+    settings = { ...DEFAULT_SETTINGS, quickStartBackends: [saved] }
+    save = vi.fn()
+    role = 'admin'
+    render(<QuickStartBackends enabledModalities={new Set(['traces'])} onUseAsDestination={vi.fn()} />)
+    await user.click(screen.getByTestId('quickstart-gateway-token-jaeger'))
+    const dialog = await screen.findByRole('dialog', { name: /access token created/ })
+    expect(isReloadHeld()).toBe(true)
+    await user.keyboard('{Escape}')
+    fireEvent.mouseDown(dialog.parentElement!)
+    expect(screen.getByText('cnq_shown-once')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.queryByText('cnq_shown-once')).not.toBeInTheDocument()
+    expect(isReloadHeld()).toBe(false)
   })
 
   test('a non-administrator never sees "Generate access token"', async () => {

@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { Antenna, ChevronRight, Globe2, Plug, Plus } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { ConfirmModal } from '@/components/forms'
 import CreateOperatorModal from '@/components/operators/CreateOperatorModal'
 import { FusionDot, FusionPanel, useFusion } from '@/components/operators/FusionPanel'
 import { HEARTBEAT_WHAT, HeartbeatCommands } from '@/components/operators/HeartbeatCommands'
@@ -17,15 +18,26 @@ import { Button, ChipList, CopyIconButton, EmptyState, ErrorBanner, ICON_SM, Liv
 import { api, ApiError, type CreatedOperator, type OperatorHeartbeatEnabled } from '@/lib/api'
 import { CENTRAL_OPERATOR_ID, fusionLabel, fusionSentence } from '@/lib/fusionStatus'
 import { ageOf } from '@/lib/history'
-import { isReportingHealth } from '@/lib/operatorHealth'
+import { isReportingHealth, receiverAuthOf } from '@/lib/operatorHealth'
 import { addressCell, certChip, joinLocal } from '@/lib/operatorsView'
 import type { OperatorDestination, RegionalOperator } from '@/lib/types'
 import { operatorFromDestination } from '@/lib/destinationCatalog'
+import { useHoldReload } from '@/lib/useHoldReload'
 import { useOperatorDestinations, useOperators, useTelemetryIntents } from '@/lib/useOperators'
 import { useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
 
 const problem = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback)
+
+/** What "Renew certificates" replaces, said before it is done: the server issues new certificates and, for an operator that has them, a new
+ *  receiver token and health credential, and none of it reaches the running operator by itself. */
+function renewWarning(op: RegionalOperator): string {
+  const replaced = ['its certificates']
+  if (receiverAuthOf(op) === 'bearer') replaced.push('its receiver token')
+  if (isReportingHealth(op)) replaced.push('its health credential (the heartbeat secret)')
+  const list = replaced.length > 1 ? `${replaced.slice(0, -1).join(', ')} and ${replaced[replaced.length - 1]}` : replaced[0]
+  return `This replaces ${list}. Nothing reaches the running operator by itself: the current ones stop being the current ones once its release restarts, so ${op.name} must be updated with the new commands that follow, run where it is installed${isReportingHealth(op) ? ' (until then it shows as offline)' : ''}. They are shown once.`
+}
 
 type Category = 'local' | 'regional'
 
@@ -50,6 +62,8 @@ function HealthModal({ operator, onClose, onDone }: { operator: RegionalOperator
   const [error, setError] = useState('')
   const [result, setResult] = useState<OperatorHeartbeatEnabled | null>(null)
   const rotating = isReportingHealth(operator)
+  // The credential is shown once, in the result below: hold the page's own reload while it is on screen (see the Modal's `dismissible`).
+  useHoldReload(result !== null)
   const verb = rotating ? 'Rotate health credential' : 'Enable health reporting'
   const confirm = async () => {
     const c = conn()
@@ -67,7 +81,7 @@ function HealthModal({ operator, onClose, onDone }: { operator: RegionalOperator
   }
   if (result) {
     return (
-      <Modal open onClose={onClose} title={result.rotated ? `Health credential rotated for ${operator.name}` : `Health reporting enabled for ${operator.name}`} width="max-w-2xl" footer={<Button variant="primary" onClick={onClose} data-testid="operator-health-done">Done</Button>}>
+      <Modal open onClose={onClose} dismissible={false} title={result.rotated ? `Health credential rotated for ${operator.name}` : `Health reporting enabled for ${operator.name}`} width="max-w-2xl" footer={<Button variant="primary" onClick={onClose} data-testid="operator-health-done">Done</Button>}>
         {result.rotated && (
           <p className="mb-3 text-xs leading-relaxed text-nb-400" data-testid="operator-health-rotated">
             The previous credential stopped working at once. The operator shows as offline until its Secret is replaced and the collector restarted.
@@ -91,9 +105,11 @@ function HealthModal({ operator, onClose, onDone }: { operator: RegionalOperator
     <Modal
       open
       onClose={onClose}
+      // Once the request is out the credential exists and is on its way to this dialog: closing now would lose it.
+      dismissible={!busy}
       title={`${verb} for ${operator.name}?`}
       width="max-w-lg"
-      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" onClick={() => void confirm()} disabled={busy} data-testid="operator-health-confirm">{busy ? 'Working…' : verb}</Button></>}
+      footer={<><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="primary" onClick={() => void confirm()} disabled={busy} data-testid="operator-health-confirm">{busy ? 'Working…' : verb}</Button></>}
     >
       <div className="space-y-2 text-sm text-nb-400" data-testid="operator-health-explain">
         <p>This mints a credential for the operator&apos;s heartbeat and shows it once. What the operator then sends is {HEARTBEAT_WHAT}</p>
@@ -152,6 +168,8 @@ export default function RegionalOperatorsPage() {
   const [creating, setCreating] = useState(false)
   const [renewed, setRenewed] = useState<{ result: CreatedOperator; operator: RegionalOperator } | null>(null)
   const [renewing, setRenewing] = useState<string | null>(null)
+  // Renewing issues new credentials: it is asked about first, with what it replaces, and never started from a stray click.
+  const [confirmRenew, setConfirmRenew] = useState<RegionalOperator | null>(null)
   const [removing, setRemoving] = useState<{ operator: RegionalOperator; mode: 'revoke' | 'delete' } | null>(null)
   const [healthFor, setHealthFor] = useState<RegionalOperator | null>(null)
   const [addressFor, setAddressFor] = useState<RegionalOperator | null>(null)
@@ -181,7 +199,7 @@ export default function RegionalOperatorsPage() {
     setActionError('')
     try {
       setRenewed({ result: await api.reinstallOperator(c, op.id), operator: op })
-      void reload()
+      actionDone()
     } catch (e) {
       setActionError(problem(e, 'Could not renew the certificates.'))
     } finally {
@@ -194,7 +212,13 @@ export default function RegionalOperatorsPage() {
   const connect = (agentId: string, operatorId: string) => telemetry.start(agentId, undefined, operatorId)
 
   const fusionKind = fusionSentence(fusion.status).kind
-  const empty = admin && operatorsLoaded && operators.length === 0
+  // `loaded` is true once a read has finished, answered or failed: with nothing to show and an error, the list is unknown, not empty.
+  const empty = admin && operatorsLoaded && operators.length === 0 && !loadError
+  // Something done to an operator went through: whatever the last failed action said is no longer the state of the page.
+  const actionDone = () => {
+    setActionError('')
+    void reload()
+  }
 
   const rowItems = (op: RegionalOperator): RowMenuItem[] => {
     if (op.status !== 'active') return [{ key: 'delete', label: 'Delete…', danger: true, onSelect: () => setRemoving({ operator: op, mode: 'delete' }), testId: `operator-delete-${op.name}` }]
@@ -204,7 +228,8 @@ export default function RegionalOperatorsPage() {
       address,
       { key: 'health', label: isReportingHealth(op) ? 'Rotate health credential' : 'Enable health reporting', onSelect: () => setHealthFor(op), testId: `operator-health-open-${op.name}` },
       { key: 'certs', label: 'Issued certificates', onSelect: () => setCertsFor(op), testId: `operator-certs-${op.name}` },
-      { key: 'renew', label: 'Renew certificates', onSelect: () => void renew(op), testId: `operator-renew-${op.name}` },
+      // Dimmed while any renewal runs (not only this row's): one at a time, and the reason is visible rather than a click that does nothing.
+      { key: 'renew', label: 'Renew certificates…', onSelect: () => setConfirmRenew(op), testId: `operator-renew-${op.name}`, disabled: renewing !== null, title: renewing !== null ? 'Another renewal is in progress' : undefined },
       { key: 'revoke', label: 'Revoke…', danger: true, onSelect: () => setRemoving({ operator: op, mode: 'revoke' }), testId: `operator-revoke-${op.name}` },
       { key: 'delete', label: 'Delete…', danger: true, onSelect: () => setRemoving({ operator: op, mode: 'delete' }), testId: `operator-delete-${op.name}` },
     ]
@@ -262,12 +287,13 @@ export default function RegionalOperatorsPage() {
         <EmptyState title="Administrators only" description="Only organisation administrators can see and manage regional operators." />
       ) : (
         <>
-          {(loadError || actionError) && <ErrorBanner className="mb-4">{actionError || loadError}</ErrorBanner>}
+          {loadError && <ErrorBanner className="mb-4">{loadError}</ErrorBanner>}
+          {actionError && <ErrorBanner className="mb-4" onDismiss={() => setActionError('')}>{actionError}</ErrorBanner>}
           <div className="mb-4"><FusionPanel fusion={fusion} /></div>
           {!operatorsLoaded ? (
             // The list is live and org-scoped, so it cannot be read from the already-synced store: until it answers, "none" would be a lie.
             <TableSkeleton cols={OP_COLS} />
-          ) : empty ? (
+          ) : operators.length === 0 && loadError ? null : empty ? (
             <EmptyState title="No regional operators yet" description="Create one to gather telemetry from a set of clusters before it leaves your infrastructure." action={<Button onClick={() => setCreating(true)} data-testid="operator-open-empty"><Plus size={ICON_SM} /> New operator</Button>} />
           ) : (
             <Table cols={OP_COLS} data-testid="operators-table">
@@ -288,7 +314,7 @@ export default function RegionalOperatorsPage() {
                         {chip && (
                           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span className={clsx('inline-flex items-center rounded-md border px-2 py-0.5 text-xs', chip.tone === 'bad' ? 'border-bad/30 bg-bad/10 text-bad' : 'border-warn/30 bg-warn/10 text-warn')} data-testid={`operator-cert-${op.name}`}>{chip.text}</span>
-                            {!central && <button type="button" className="text-xs text-accent hover:underline" onClick={() => void renew(op)} disabled={renewing === op.id} data-testid={`operator-cert-renew-${op.name}`}>Renew certificates</button>}
+                            {!central && <button type="button" className="text-xs text-accent hover:underline" onClick={() => setConfirmRenew(op)} disabled={renewing !== null} title={renewing !== null ? 'Another renewal is in progress' : undefined} data-testid={`operator-cert-renew-${op.name}`}>Renew certificates</button>}
                           </div>
                         )}
                         {(op.labels?.length ?? 0) > 0 && <div className="mt-1"><ChipList items={op.labels!.map((l) => `${l.key}=${l.value}`)} max={3} /></div>}
@@ -364,6 +390,16 @@ export default function RegionalOperatorsPage() {
         />
       )}
 
+      {confirmRenew && (
+        <ConfirmModal
+          title={`Renew certificates for ${confirmRenew.name}?`}
+          message={renewWarning(confirmRenew)}
+          confirmLabel="Renew"
+          onConfirm={() => void renew(confirmRenew)}
+          onClose={() => setConfirmRenew(null)}
+        />
+      )}
+
       {renewed && (
         <OperatorCreated
           created={renewed.result}
@@ -377,10 +413,10 @@ export default function RegionalOperatorsPage() {
 
       {certsFor && <OperatorCertificatesModal operator={certsFor} clusterName={(id) => clusters.find((c) => c.id === id)?.name ?? ''} onClose={() => setCertsFor(null)} />}
       {addressFor && (
-        <OperatorAddressModal operator={addressFor} central={addressFor.id === CENTRAL_OPERATOR_ID ? { service: fusion.status?.central?.service ?? '', namespace: fusion.status?.central?.namespace ?? '' } : undefined} onClose={() => setAddressFor(null)} onDone={() => { void reload(); void fusion.refresh() }} />
+        <OperatorAddressModal operator={addressFor} central={addressFor.id === CENTRAL_OPERATOR_ID ? { service: fusion.status?.central?.service ?? '', namespace: fusion.status?.central?.namespace ?? '' } : undefined} onClose={() => setAddressFor(null)} onDone={() => { actionDone(); void fusion.refresh() }} />
       )}
-      {healthFor && <HealthModal operator={healthFor} onClose={() => setHealthFor(null)} onDone={() => void reload()} />}
-      {removing && <RemoveOperatorModal operator={removing.operator} mode={removing.mode} onClose={() => setRemoving(null)} onDone={() => void reload()} />}
+      {healthFor && <HealthModal operator={healthFor} onClose={() => setHealthFor(null)} onDone={actionDone} />}
+      {removing && <RemoveOperatorModal operator={removing.operator} mode={removing.mode} onClose={() => setRemoving(null)} onDone={actionDone} />}
 
       {telemetry.dialogs}
     </>

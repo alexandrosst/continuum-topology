@@ -2,7 +2,9 @@ import { KeyRound, Plus } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CopyCommand } from '@/components/agents/AgentInsight'
 import { ConfirmModal } from '@/components/forms'
-import { Button, CheckboxList, ErrorBanner, Field, ICON_SM, Input, Modal, Select, TagsInput } from '@/components/ui/primitives'
+import { Button, CheckboxList, CopyValue, ErrorBanner, Field, ICON_SM, Input, Modal, Select, TagsInput } from '@/components/ui/primitives'
+import { shArg, shQuote } from '@/lib/install'
+import { useHoldReload } from '@/lib/useHoldReload'
 import { api, ApiError, type CreatedFusionAccessToken, type FusionAccessToken, type FusionSignal } from '@/lib/api'
 import { ago } from '@/lib/observed'
 import { useServer } from '@/store/server'
@@ -14,6 +16,13 @@ const SIGNALS: { value: FusionSignal; label: string; hint: string }[] = [
 ]
 
 const EXPIRY_DAYS = [30, 90, 180, 365]
+
+/** The curl line that tries a freshly minted token. The header keeps its double quotes while the token is plain (the usual case); anything
+ *  else in it is single-quoted, so what the server hands out can never end the line early. */
+export function fusionStatusCurl(token: string, base: string): string {
+  const header = `Authorization: Bearer ${token}`
+  return `curl -H ${/^[A-Za-z0-9_.~+/=: -]+$/.test(header) ? `"${header}"` : shQuote(header)} ${shArg(`${base}/api/v1/fusion/status`)}`
+}
 
 /** "expires in 12 days", "expires today", "expired", from the token's own expiry time. */
 export function expiryText(iso: string, now = Date.now()): string {
@@ -43,7 +52,12 @@ export function FusionAccess() {
   const [creating, setCreating] = useState(false)
   const [revoking, setRevoking] = useState<FusionAccessToken | null>(null)
   const alive = useRef(true)
-  useEffect(() => () => { alive.current = false }, [])
+  // Set back to true on every mount, not only cleared on unmount: React's StrictMode (main.tsx) mounts, unmounts and mounts again, and a flag only
+  // ever cleared would stay false for the real mount, so the token list would never be filled in.
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false }
+  }, [])
 
   const load = useCallback(async () => {
     const c = conn()
@@ -133,11 +147,12 @@ function NewTokenModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [created, setCreated] = useState<CreatedFusionAccessToken | null>(null)
-  const [copied, setCopied] = useState(false)
+  // The token is shown once: while it is on screen nothing may reload the page under it (see the created view's Modal).
+  useHoldReload(created !== null)
 
   const create = async () => {
     const c = conn()
-    if (!c) return
+    if (!c || busy) return
     setBusy(true)
     setError('')
     try {
@@ -150,33 +165,20 @@ function NewTokenModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     }
   }
 
-  const copy = async () => {
-    if (!created) return
-    try {
-      await navigator.clipboard.writeText(created.token)
-      setCopied(true)
-    } catch {
-      /* clipboard unavailable: the text is selectable */
-    }
-  }
-
   if (created) {
     const base = conn()?.url || window.location.origin
     return (
-      <Modal open onClose={onClose} title="Access token created" width="max-w-lg" footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+      <Modal open onClose={onClose} dismissible={false} title="Access token created" width="max-w-lg" footer={<Button variant="primary" onClick={onClose} data-testid="fusion-token-done">Done</Button>}>
         <div className="space-y-3">
           <div className="space-y-2 rounded-md border border-accent/30 bg-accent-soft p-3" data-testid="fusion-token-secret">
             <p className="text-xs text-nb-300">
               Copy <strong className="text-nb-200">{created.details.name}</strong> now - for your own safety, it won&apos;t be shown again.
             </p>
-            <div className="flex items-center gap-2 rounded-md border border-nb-800 bg-nb-950 px-3 py-2">
-              <code className="flex-1 select-all break-all font-mono text-xs text-nb-300">{created.token}</code>
-              <Button size="sm" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</Button>
-            </div>
+            <CopyValue value={created.token} testId="fusion-token-value" />
           </div>
           <div>
             <p className="text-xs text-nb-500">Try it:</p>
-            <CopyCommand text={`curl -H "Authorization: Bearer ${created.token}" ${base}/api/v1/fusion/status`} testId="fusion-token-curl" />
+            <CopyCommand text={fusionStatusCurl(created.token, base)} testId="fusion-token-curl" />
           </div>
           <p className="text-xs leading-relaxed text-nb-500">
             {expiryText(created.details.expiresAt)}. Read a trace with its logs and metrics joined:{' '}
@@ -191,6 +193,8 @@ function NewTokenModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     <Modal
       open
       onClose={onClose}
+      // Once the request is out the token exists and is on its way to this dialog: closing now would lose it.
+      dismissible={!busy}
       title="New access token"
       description="A read-only credential for another system. It sees only what you allow here."
       width="max-w-lg"

@@ -6,7 +6,7 @@
  * namespaces left out). Widening is done by the cluster's owner with `helm upgrade`, and this file builds the exact command.
  * Everything here is pure so that it can be tested without a browser.
  */
-import { activeLanes, emptyExportTarget, cleanTags, emptyScopeOverride, emptyTelemetry, enabledModalities, isKept, keepAsInstalled, ROUTE_MODALITIES, scopeProblems, splitNames, telemetryActive, telemetryProblems, withTelemetry, type KeptGroup, type Modality, type TelemetryInput, PICKABLE_SIGNALS, TELEMETRY_SIGNALS } from './install'
+import { activeLanes, emptyExportTarget, cleanTags, emptyScopeOverride, emptyTelemetry, enabledModalities, isKept, keepAsInstalled, ROUTE_MODALITIES, SECRET_KEY, SECRET_NAME, scopeProblems, splitNames, telemetryActive, telemetryProblems, withTelemetry, shArg, type KeptGroup, type Modality, type TelemetryInput, PICKABLE_SIGNALS, TELEMETRY_SIGNALS } from './install'
 // Re-exported for every existing `from '@/lib/consent'` import site - Modality/TELEMETRY_SIGNALS/
 // enabledModalities now live in install.ts (see its own comment on why), consent.ts just re-exports them.
 import { operatorReceiverEndpoint } from './destinationCatalog'
@@ -253,12 +253,22 @@ export interface InstallInfo {
 
 /**
  * The command the cluster's owner runs to raise the ceiling of an agent's install. It mirrors what the server prints in its
- * own refusal, so what a person reads here and there is the same. `--reuse-values` keeps everything else about the install.
+ * own refusal, so what a person reads here and there is the same. `--reset-then-reuse-values` keeps everything the person set on the
+ * install and takes every other value from the new chart: plain `--reuse-values` would carry the OLD release's whole values over, so a
+ * value block a later chart added would be missing and its templates fail. (Helm 3.14 or later.)
+ *
+ * `target` is where the agent's release actually lives (what the agent reported); the chart's documented defaults when it is not known.
  */
-export function helmUpgradeCommand(install: InstallInfo | undefined, tier: number): string {
+export function helmUpgradeCommand(install: InstallInfo | undefined, tier: number, target?: ReleaseTarget): string {
+  const { namespace, release } = releaseTarget(target)
+  return `helm upgrade ${release} ${chartArgs(install)} --namespace ${namespace} --reset-then-reuse-values --set access.tier=${tier}`
+}
+
+/** The chart reference (and its version, for a registry chart) an upgrade command installs from. Typed text, so quoted for the shell. */
+function chartArgs(install: InstallInfo | undefined): string {
   const ref = install?.chartRef || `./${install?.chartFile || 'continuum-agent.tgz'}`
-  const version = install?.chartRef && !install.chartRef.endsWith('.tgz') && install.chartVersion ? ` --version ${install.chartVersion}` : ''
-  return `helm upgrade continuum-agent ${ref}${version} --namespace continuum-system --reuse-values --set access.tier=${tier}`
+  const version = install?.chartRef && !install.chartRef.endsWith('.tgz') && install.chartVersion ? ` --version ${shArg(install.chartVersion)}` : ''
+  return `${shArg(ref)}${version}`
 }
 
 /** What the agent is doing at a tier, against what was approved: the reason it may be lower is worth saying. */
@@ -387,7 +397,7 @@ const APP_SCOPE_KEYS = ['applicationMetrics', 'applicationLogs', 'traces'] as co
  * Without this seed the panel would start blank, and because withTelemetry states every signal explicitly, the command from a blank
  * draft would turn off whatever the person did not re-check. The same holds for every setting the draft does not KNOW: the ones
  * the agent does not report, and everything that came only from the intent, are marked `keptAsInstalled`, so the command leaves
- * them out (and `--reuse-values` keeps the installed value) until they are edited - stating a default there would silently
+ * them out (and `--reset-then-reuse-values` keeps the installed value) until they are edited - stating a default there would silently
  * widen the scope, drop the tags, or lose a credential. Nothing installed and nothing reported is a fresh draft: all of it is stated.
  */
 export function seedTelemetryFromInstalled(installed: string[], config?: AgentTelemetryConfig, intent?: TelemetryIntent): TelemetryInput {
@@ -528,15 +538,13 @@ export function releaseTarget(t?: ReleaseTarget): { namespace: string; release: 
 }
 
 /**
- * The command to change an agent's telemetry after install - `--reuse-values` keeps everything else,
+ * The command to change an agent's telemetry after install - `--reset-then-reuse-values` keeps everything else the person set,
  * mirroring `helmUpgradeCommand`'s tier-widening shape exactly. Command-generation only, like that one:
  * nothing here is ever pushed live (see the panel that uses this).
  */
 export function telemetryUpgradeCommand(install: InstallInfo | undefined, t: TelemetryInput, measurementsOn?: boolean, target?: ReleaseTarget): string {
   const { namespace, release } = releaseTarget(target)
-  const ref = install?.chartRef || `./${install?.chartFile || 'continuum-agent.tgz'}`
-  const version = install?.chartRef && !install.chartRef.endsWith('.tgz') && install.chartVersion ? ` --version ${install.chartVersion}` : ''
-  const base = `helm upgrade ${release} ${ref}${version} --namespace ${namespace} --reuse-values`
+  const base = `helm upgrade ${release} ${chartArgs(install)} --namespace ${namespace} --reset-then-reuse-values`
   return withTelemetry(base, t, measurementsOn)
 }
 
@@ -570,9 +578,6 @@ export interface TelemetrySecret {
   lanes: Modality[]
   command: string
 }
-
-const SECRET_NAME = /^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/
-const SECRET_KEY = /^[-._a-zA-Z0-9]+$/
 
 /**
  * Every Secret the command's credential flags point at, each with the command that creates it: one for the
