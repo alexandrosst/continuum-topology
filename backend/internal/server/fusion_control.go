@@ -2,11 +2,8 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -324,13 +321,6 @@ const (
 	fusionReadTimeout = 10 * time.Second
 	// Prometheus is asked for the time of its newest sample no more often than this.
 	fusionLastDataEvery = 15 * time.Second
-	// fusionLastDataQuery is the time of the newest sample of target_info, which Prometheus's OTLP receiver writes once per
-	// sending resource (with the batch's newest timestamp) whenever the resource carries attributes beyond service.name
-	// / instance - and every regional operator stamps continuum.operator.id and .name on what it forwards. Nothing is
-	// scraped here (everything is pushed over OTLP), so `up` and prometheus_tsdb_head_max_time do not exist; the obvious
-	// "newest sample of anything", max(timestamp({__name__=~".+"})), reads every series the lookback window touches on
-	// each ask, which is the whole store on a busy install. target_info is one series per sender.
-	fusionLastDataQuery = `max(timestamp(target_info))`
 )
 
 // statusCache is the last read of the workloads and the read in progress, if any.
@@ -633,12 +623,14 @@ func (f *FusionControl) lastDataAt(ctx context.Context) *time.Time {
 	if now := f.now(); f.lastDataTried.IsZero() || now.Sub(f.lastDataTried) >= fusionLastDataEvery {
 		f.lastDataTried = now
 		qctx, cancel := context.WithTimeout(ctx, fusionKubeTimeout)
-		data, err := f.dataClient().RawMetricQuery(qctx, fusionapi.AllSignals(), "query", url.Values{"query": {fusionLastDataQuery}})
+		// Prometheus's own TSDB status, not a query over series: nothing is scraped here (everything is pushed over OTLP), so
+		// `up` does not exist, and target_info - once the obvious choice - is written only for a resource that has a
+		// service.name or service.instance.id, which the infrastructure metrics (hostmetrics, kubelet, cluster state) do not
+		// have; a store full of data then read as "waiting for the first". See Client.HeadMaxTime.
+		t, ok, err := f.dataClient().HeadMaxTime(qctx, fusionapi.AllSignals())
 		cancel()
-		if err == nil {
-			if t, ok := newestSample(data); ok {
-				f.lastDataSeen = t
-			}
+		if err == nil && ok {
+			f.lastDataSeen = t
 		}
 	}
 	if f.lastDataSeen.IsZero() {
@@ -646,27 +638,6 @@ func (f *FusionControl) lastDataAt(ctx context.Context) *time.Time {
 	}
 	t := f.lastDataSeen
 	return &t
-}
-
-// newestSample reads the one value of an instant query's vector: the sample time Prometheus computed.
-func newestSample(data json.RawMessage) (time.Time, bool) {
-	var d struct {
-		Result []struct {
-			Value [2]json.RawMessage `json:"value"`
-		} `json:"result"`
-	}
-	if json.Unmarshal(data, &d) != nil || len(d.Result) == 0 {
-		return time.Time{}, false
-	}
-	var v string
-	if json.Unmarshal(d.Result[0].Value[1], &v) != nil {
-		return time.Time{}, false
-	}
-	secs, err := strconv.ParseFloat(v, 64)
-	if err != nil || !(secs > 0) || math.IsInf(secs, 0) { // (a NaN fails the comparison)
-		return time.Time{}, false
-	}
-	return time.Unix(0, int64(secs*float64(time.Second))).UTC(), true
 }
 
 // rememberedLastData is what lastDataAt last found, without asking again.

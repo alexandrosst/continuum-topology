@@ -125,8 +125,13 @@ prometheus:
   # some other way.
   webPrefix: /fusion/prometheus/
   storage: 10Gi
-  # Resource attributes Prometheus turns into labels on every series. Everything else stays in target_info. The
-  # first ones are what lets a metric be joined to a span or a log line later (same cluster, namespace, pod).
+  # Resource attributes Prometheus turns into labels on every series. The first ones are what lets a metric be joined to a
+  # span or a log line later (same cluster, namespace, pod). The rest are what tells apart the things one sender reports on:
+  # a series is identified by its labels alone, so two resources that differ only in an attribute that is not listed here
+  # become ONE series, and their samples overwrite each other (the container, the volume, the StatefulSet, DaemonSet, Job and
+  # ReplicaSet that kubelet and cluster-state metrics are about). An attribute not listed is not kept in target_info
+  # either: Prometheus writes that series only for a resource that has a service.name or service.instance.id, and the
+  # infrastructure metrics have neither. Add an attribute here before relying on it to separate or find anything.
   promoteResourceAttributes:
     - service.name
     - service.namespace
@@ -135,6 +140,16 @@ prometheus:
     - k8s.pod.name
     - k8s.node.name
     - k8s.deployment.name
+    - k8s.replicaset.name
+    - k8s.statefulset.name
+    - k8s.daemonset.name
+    - k8s.job.name
+    - k8s.cronjob.name
+    - k8s.hpa.name
+    - k8s.resourcequota.name
+    - k8s.container.name
+    - k8s.volume.name
+    - k8s.persistentvolumeclaim.name
     - continuum.org.id
     - continuum.cluster.id
     - continuum.operator.id

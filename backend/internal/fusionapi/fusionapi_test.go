@@ -732,3 +732,32 @@ func TestStoreCallsInFlightAreCapped(t *testing.T) {
 		t.Fatalf("%d store calls at once, cap is %d", peak, maxUpstream)
 	}
 }
+
+// "Has anything arrived" is Prometheus's own TSDB status, so it holds for any kind of series - target_info, the
+// obvious earlier choice, is written only for a resource with a service.name or service.instance.id and so missed
+// every infrastructure metric - and an empty store, which reports the extreme int64 values, is "nothing yet".
+func TestHeadMaxTimeIsTheNewestStoredSampleAndEmptyMeansNone(t *testing.T) {
+	f := newFake(t)
+	head := map[string]any{"numSeries": 0, "minTime": int64(1<<63 - 1), "maxTime": int64(-1 << 63)}
+	f.prom = func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/status/tsdb" {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSON(w, map[string]any{"status": "success", "data": map[string]any{"headStats": head}})
+	}
+	c := f.client()
+	ctx := context.Background()
+	if _, ok, err := c.HeadMaxTime(ctx, AllSignals()); err != nil || ok {
+		t.Fatalf("an empty store: ok=%v err=%v", ok, err)
+	}
+	head = map[string]any{"numSeries": 89, "minTime": int64(1790000000000), "maxTime": int64(1790000123456)}
+	got, ok, err := c.HeadMaxTime(ctx, AllSignals())
+	if err != nil || !ok || !got.Equal(time.UnixMilli(1790000123456).UTC()) {
+		t.Fatalf("a store with data: %v %v %v", got, ok, err)
+	}
+	var e *Error
+	if _, _, err := c.HeadMaxTime(ctx, limited); !errors.As(err, &e) || e.Status != http.StatusForbidden {
+		t.Fatalf("a limited scope must not read it: %v", err)
+	}
+}

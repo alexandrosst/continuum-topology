@@ -119,6 +119,38 @@ func (c *Client) prom(ctx context.Context, path string, q url.Values) (json.RawM
 	return env.Data, nil
 }
 
+// HeadMaxTime is the timestamp of the newest sample Prometheus holds, from its TSDB status (GET /api/v1/status/tsdb:
+// headStats.maxTime, in milliseconds). ok is false when nothing has been stored yet (an empty head reports the minimum
+// int64). It is the cheapest honest "has anything arrived": one number Prometheus already keeps, so it does not depend on which
+// series a sender produces and costs the same however much is stored. Only a Scope with no namespace or cluster limit may ask,
+// since it says something about every sender.
+func (c *Client) HeadMaxTime(ctx context.Context, s Scope) (t time.Time, ok bool, err error) {
+	if err := s.needSignal(SignalMetrics); err != nil {
+		return time.Time{}, false, err
+	}
+	if err := s.needUnrestricted("the newest stored sample"); err != nil {
+		return time.Time{}, false, err
+	}
+	data, err := c.prom(ctx, "/api/v1/status/tsdb", nil)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	var d struct {
+		HeadStats struct {
+			NumSeries int64 `json:"numSeries"`
+			MaxTime   int64 `json:"maxTime"`
+		} `json:"headStats"`
+	}
+	if err := json.Unmarshal(data, &d); err != nil {
+		return time.Time{}, false, errf(http.StatusBadGateway, "%s: unreadable TSDB status", storeProm)
+	}
+	// An empty head has minTime = MaxInt64 and maxTime = MinInt64; anything not after 2001 is not a sample time.
+	if d.HeadStats.NumSeries <= 0 || d.HeadStats.MaxTime < 1e12 {
+		return time.Time{}, false, nil
+	}
+	return time.UnixMilli(d.HeadStats.MaxTime).UTC(), true, nil
+}
+
 // MetricNames lists the metric names that have a series matching the filter in the range.
 func (c *Client) MetricNames(ctx context.Context, s Scope, f MetricFilter, tr TimeRange, limit int) ([]string, error) {
 	if err := s.needSignal(SignalMetrics); err != nil {

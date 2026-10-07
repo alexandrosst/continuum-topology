@@ -201,6 +201,13 @@ func TestFusionPrometheusTakesOTLPAndKeepsTheJoinLabels(t *testing.T) {
 			t.Errorf("resource attribute %s is not promoted to a label", k)
 		}
 	}
+	// What tells apart the things one sender reports on: resources that differ only in an unlisted attribute become one
+	// series and overwrite each other (found by sending two containers' metrics through a real Prometheus).
+	for _, k := range []string{"k8s.container.name", "k8s.statefulset.name", "k8s.daemonset.name", "k8s.job.name", "k8s.replicaset.name", "k8s.volume.name"} {
+		if !have[k] {
+			t.Errorf("resource attribute %s is not promoted, so series that differ only in it would merge", k)
+		}
+	}
 	if _, scraping := cfg["scrape_configs"]; scraping {
 		t.Error("nothing is scraped: every sample is pushed over OTLP")
 	}

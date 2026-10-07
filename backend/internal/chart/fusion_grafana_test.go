@@ -210,3 +210,17 @@ func TestFusionGrafanaAdminPasswordIsPreservedAcrossUpgrades(t *testing.T) {
 		t.Errorf("the existing admin password was not carried forward (lookups: %v):\n%s", k.lookups(), out)
 	}
 }
+
+// The starter dashboard's metric panels may not read target_info: Prometheus writes it only for a resource that has a
+// service.name or service.instance.id, which the infrastructure metrics (hostmetrics, kubelet, cluster state, Kepler) do
+// not have, so "Clusters reporting" showed 0 next to a store full of data (checked against a real Prometheus).
+func TestStarterDashboardDoesNotDependOnTargetInfo(t *testing.T) {
+	r := fusionRender(t, "f")
+	body := r.configs["f-fusion-grafana-dashboards"].Data["arriving.json"]
+	if strings.Contains(body, "target_info") {
+		t.Fatalf("the starter dashboard reads target_info:\n%s", body)
+	}
+	if !strings.Contains(body, "continuum_cluster_id") {
+		t.Fatal("the starter dashboard no longer counts clusters")
+	}
+}

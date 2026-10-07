@@ -14,7 +14,7 @@ data:
     global:
       scrape_interval: 60s
     otlp:
-      # Resource attributes that become labels (the rest stay in target_info).
+      # Resource attributes that become labels (the rest are dropped: target_info is written only for a resource with a service.name or service.instance.id).
       promote_resource_attributes:
         {{- range $p.promoteResourceAttributes }}
         - {{ . }}

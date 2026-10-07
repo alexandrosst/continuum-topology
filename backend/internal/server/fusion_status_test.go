@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -443,23 +445,26 @@ func newFakeProm(t *testing.T) *fakeProm {
 	p := &fakeProm{}
 	p.value.Store("")
 	p.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/query" {
+		// FUSION asks Prometheus for its TSDB status, not for a query over series (see HeadMaxTime).
+		if r.URL.Path != "/api/v1/status/tsdb" {
 			http.NotFound(w, r)
 			return
 		}
 		p.queries.Add(1)
-		if got := r.URL.Query().Get("query"); got != fusionLastDataQuery {
-			t.Errorf("query = %q", got)
-		}
+		head := map[string]any{"numSeries": 0, "minTime": int64(math.MaxInt64), "maxTime": int64(math.MinInt64)} // an empty head
 		switch v := p.value.Load().(string); v {
 		case "fail":
 			http.Error(w, "boom", 500)
+			return
 		case "":
-			jsonOut(w, map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": []any{}}})
 		default:
-			jsonOut(w, map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": []any{
-				map[string]any{"metric": map[string]any{}, "value": []any{1.0, v}}}}})
+			secs, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				t.Errorf("bad fake value %q", v)
+			}
+			head = map[string]any{"numSeries": 89, "minTime": int64(1), "maxTime": int64(secs * 1000)}
 		}
+		jsonOut(w, map[string]any{"status": "success", "data": map[string]any{"headStats": head}})
 	}))
 	t.Cleanup(p.Close)
 	return p
@@ -516,29 +521,6 @@ func TestStatusCarriesTheTimeOfTheLastData(t *testing.T) {
 	f2.Data = &fusionapi.Client{Prometheus: prom.URL}
 	if st := f2.Status(ctx); st.State != "running" || st.LastDataAt != nil {
 		t.Errorf("failing Prometheus, nothing known: %+v", st)
-	}
-}
-
-// The question put to Prometheus every fifteen seconds must stay cheap however much is stored: it may not select every
-// series by name, which is what the first version did.
-func TestTheLastDataQueryDoesNotScanEverySeries(t *testing.T) {
-	if strings.Contains(fusionLastDataQuery, "__name__") || strings.Contains(fusionLastDataQuery, `=~".`) || !strings.Contains(fusionLastDataQuery, "target_info") {
-		t.Fatalf("query %q selects more than the one series per sender that OTLP writes", fusionLastDataQuery)
-	}
-}
-
-func TestNewestSample(t *testing.T) {
-	for in, want := range map[string]int64{
-		`{"resultType":"vector","result":[{"metric":{},"value":[1,"1790000000"]}]}`: 1790000000,
-		`{"resultType":"vector","result":[]}`:                                       0,
-		`{"resultType":"vector","result":[{"metric":{},"value":[1,"NaN"]}]}`:        0,
-		`{"resultType":"vector","result":[{"metric":{},"value":[1,"-3"]}]}`:         0,
-		`not json`: 0,
-	} {
-		got, ok := newestSample(json.RawMessage(in))
-		if (want != 0) != ok || (ok && got.Unix() != want) {
-			t.Errorf("%s: %v %v", in, got, ok)
-		}
 	}
 }
 

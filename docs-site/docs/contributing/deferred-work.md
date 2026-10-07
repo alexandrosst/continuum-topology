@@ -30,7 +30,6 @@ Things that were found, designed or discussed and left for later on purpose. Eac
 - Upstream and Kubernetes error text is returned to API clients; return a generic message and log the detail.
 - **Components enabled after first install stay at 0 replicas** under `switch.managed` until FUSION is toggled.
 - **Storage cannot be resized with `helm upgrade`** (`volumeClaimTemplates` are immutable) although the values comments say to adjust `storage`.
-- The "Clusters reporting" panels count `target_info`, which Prometheus emits only when the resource has `service.name` or `service.instance.id`; infrastructure-only clusters show 0.
 - The batch size limit counts items, not bytes; large items can exceed the 4 MiB receive limit and be dropped.
 - Agent telemetry collectors have no liveness or readiness probe, and the host `filelog` uses `start_at: end` without a storage extension, so every restart leaves a gap in container logs.
 - The central TLS private key is copied into Helm release history by the `lookup` idiom.
@@ -53,3 +52,11 @@ Things that were found, designed or discussed and left for later on purpose. Eac
 ## Not yet verified on a live cluster
 
 Grafana proxy authentication end to end; NetworkPolicy behaviour on a real CNI; hot reload of a renewed mounted Secret; a real two-cluster mTLS handshake; live status dots; Renew certificates reaching a running operator; revoke with dependents.
+
+## Found while testing the telemetry path end to end (real collector and Prometheus binaries)
+
+- **Failures are quiet.** A wrong CA, wrong client certificate, wrong server name or a down Prometheus produce only an `info` line "Exporting failed. Will retry" (the cause is in its `error` field); `otelcol_exporter_send_failed_metric_points` stays absent for the 30 minute retry window; the gateway logs nothing for a rejected client certificate; the health check is a plain `GET /`, so readiness stays green with a dead exporter. The collectors' own `:8888` metrics are on loopback unless the chart sets them (central has no `service.telemetry`; the operator has `selfMetrics.enabled: false`). Add a pull reader to the central config, enable self metrics by default, and show "export failing" in the UI from the operator health.
+- **The command that points a cluster at an operator states only the destination.** Rendered with just those flags the agent chart deploys no telemetry workload; nothing is sent until signals are enabled. The screen should say so where the command is shown.
+- **An operator address ending in `:4318`** (the OTLP/HTTP port) can never work with the product's gRPC exporters unless a load balancer maps it; warn when one is saved.
+- Collector 0.160 logs deprecation warnings for the `otlp`, `otlphttp` and `hostmetrics` component aliases (`otlp_grpc`, `otlp_http`, `host_metrics`); switch the templates before the aliases are removed.
+- Fixed in the same pass: FUSION's "waiting for first data" and the starter dashboard read `target_info`, which Prometheus does not write for infrastructure metrics; and series that differed only in an unpromoted resource attribute (container, StatefulSet, DaemonSet, Job, volume) were merged.
