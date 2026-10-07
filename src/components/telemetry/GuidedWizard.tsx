@@ -135,6 +135,8 @@ export default function GuidedWizard({
   const currentIndex = Math.max(0, stepKeys.indexOf(step))
 
   const onSignals = TELEMETRY_SIGNALS.filter((s) => value[s.id as SignalId])
+  // Nothing picked on an install that has telemetry: the one thing left to do is turn it all off (see CollectStep's onTurnOff).
+  const turningOff = onSignals.length === 0 && value.hadTelemetry
 
   // Where Back from Process lands: Scope when this session actually needed one, otherwise Collect.
   const beforeProcess: Step = scopeStepNeeded ? 'scope' : 'collect'
@@ -173,7 +175,7 @@ export default function GuidedWizard({
   const sendsToFusion = value.exportSplit ? activeLanes(value).some((m) => value.exportLanes[m].exportOperatorId === CENTRAL_OPERATOR_ID) : value.exportOperatorId === CENTRAL_OPERATOR_ID
   const fusionBlocked = sendsToFusion && !!fusionEntry && !fusionEntry.offer.usable
   // Review's "Create the command" needs something to put in it: at least one signal, and somewhere to send it that can receive.
-  const canCreate = onSignals.length > 0 && destinationReady(value) && !fusionBlocked
+  const canCreate = turningOff || (onSignals.length > 0 && destinationReady(value) && !fusionBlocked)
 
   const fusionControls = {
     busy: fusionState.busy,
@@ -264,7 +266,7 @@ export default function GuidedWizard({
       )}
 
       <div key={step} className={clsx('wizard-step-in', direction === 'back' && 'wizard-step-in-back')}>
-        {step === 'collect' && <CollectStep value={value} onChange={onChange} testIdPrefix={testIdPrefix} onContinue={finishCollect} />}
+        {step === 'collect' && <CollectStep value={value} onChange={onChange} testIdPrefix={testIdPrefix} onContinue={finishCollect} onTurnOff={turningOff ? () => setStep('review') : undefined} />}
 
         {step === 'scope' && (
           <div className="space-y-3" data-testid={`${testIdPrefix}-guided-step-scope`}>
@@ -342,7 +344,11 @@ export default function GuidedWizard({
         {step === 'review' && (
           <div className="space-y-3" data-testid={`${testIdPrefix}-guided-step-review`}>
             {onSignals.length === 0 ? (
-              <p className="text-xs text-nb-500">Nothing is turned on yet - go back and pick at least one signal.</p>
+              turningOff ? (
+                <p className="text-xs text-nb-300" data-testid={`${testIdPrefix}-guided-review-off`}>Every telemetry signal of this install will be turned off, and its routes and extra processors cleared. Nothing is sent from the cluster any more once the command has run.</p>
+              ) : (
+                <p className="text-xs text-nb-500">Nothing is turned on yet - go back and pick at least one signal.</p>
+              )
             ) : (
               <>
                 <p className="text-xs text-nb-500">How this will flow, end to end:</p>
@@ -367,7 +373,7 @@ export default function GuidedWizard({
             )}
             <div className="flex flex-wrap items-center gap-2 pt-1">
               {/* Destination always sits directly before Review now, whatever scopeStepNeeded is. */}
-              <BackLink onClick={() => setStep('destination')} testId={`${testIdPrefix}-guided-back`} />
+              <BackLink onClick={() => setStep(turningOff ? 'collect' : 'destination')} testId={`${testIdPrefix}-guided-back`} />
               <Button onClick={() => setStep('collect')} data-testid={`${testIdPrefix}-guided-edit-signals`}><Pencil size={ICON_SM} /> Change what is collected</Button>
               {/* The command is the last thing, not something drawn under every step: it is only worth
                   reading once everything it contains has been decided. */}
@@ -383,7 +389,9 @@ export default function GuidedWizard({
             <div>
               <h3 className="text-sm font-medium text-nb-200">Apply it to the cluster</h3>
               <p className="mt-0.5 text-xs text-nb-500" data-testid={`${testIdPrefix}-guided-run-summary`}>
-                {onSignals.length} {onSignals.length === 1 ? 'signal' : 'signals'} to {value.exportSplit ? sentTo(value) : value.exportEndpoint.trim() || 'no destination yet'}. Nothing changes until the command is run.
+                {turningOff
+                  ? 'Every signal turned off. Nothing changes until the command is run.'
+                  : `${onSignals.length} ${onSignals.length === 1 ? 'signal' : 'signals'} to ${value.exportSplit ? sentTo(value) : value.exportEndpoint.trim() || 'no destination yet'}. Nothing changes until the command is run.`}
               </p>
             </div>
             {runSection}

@@ -357,6 +357,24 @@ describe('TelemetryFields extra processors', () => {
     expect(screen.queryByTestId('telemetry-processor-problems')).not.toBeInTheDocument()
   })
 
+  test('a filter condition says whether its attribute is the record\'s or the resource\'s, and an empty attribute name is flagged', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper />)
+    await openProcessing(user)
+    await user.click(screen.getByTestId('telemetry-processor-add-filter'))
+    await user.type(screen.getByPlaceholderText('drop_debug_logs'), 'drop_ns')
+    await user.click(screen.getByRole('button', { name: 'Condition' }))
+    expect(screen.getByTestId('telemetry-processor-problems')).toHaveTextContent('no attribute name')
+    const level = screen.getByLabelText('Where the attribute is')
+    expect(level).toHaveTextContent('Data point')
+    await user.click(level)
+    await user.click(screen.getByRole('option', { name: 'Resource' }))
+    expect(level).toHaveTextContent('Resource')
+    await user.type(screen.getByPlaceholderText('attribute'), 'k8s.namespace.name')
+    await user.type(screen.getByPlaceholderText('value'), 'kube-system')
+    expect(screen.queryByTestId('telemetry-processor-problems')).not.toBeInTheDocument()
+  })
+
   test('a raw JSON override hides the typed form and marks the row "raw"', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
@@ -399,5 +417,14 @@ describe('TelemetryFields extra processors', () => {
     await user.click(screen.getByLabelText('Remove Filter'))
     expect(screen.queryAllByTestId('telemetry-processor-row')).toHaveLength(0)
     expect(screen.getByText('No extra processors.')).toBeInTheDocument()
+  })
+})
+
+describe('TelemetryFields TLS wording', () => {
+  test('the connection checkbox says it sends WITHOUT TLS: it is not a "skip certificate verification" option', async () => {
+    render(<Wrapper />)
+    await userEvent.setup().click(screen.getByText('Credentials & processing'))
+    expect(screen.getByText('Send without TLS (plain connection)')).toBeInTheDocument()
+    expect(screen.queryByText(/Skip TLS verification/)).not.toBeInTheDocument()
   })
 })

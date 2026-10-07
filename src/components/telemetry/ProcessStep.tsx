@@ -185,7 +185,7 @@ export default function ProcessStep({
           </label>
           {value.traces && (
             <Field label="Traces sampling %" hint="100 keeps every span (the default). Lower it to cut trace volume and cost.">
-              <Input type="number" min={0} max={100} value={value.tracesSamplingPercent} onChange={(e) => set('tracesSamplingPercent', e.target.valueAsNumber || 0)} className="w-28" data-testid={`${testIdPrefix}-traces-sampling`} />
+              <Input type="number" min={0} max={100} value={Number.isFinite(value.tracesSamplingPercent) ? value.tracesSamplingPercent : ''} onChange={(e) => set('tracesSamplingPercent', e.target.valueAsNumber)} className="w-28" data-testid={`${testIdPrefix}-traces-sampling`} />
             </Field>
           )}
         </div>

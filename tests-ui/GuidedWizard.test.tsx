@@ -296,7 +296,7 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     renderWizard()
     await gotoDestination(user)
     await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('EU regional operator'))
-    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('Reached at otlp.eu.example.com:4317')
+    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('Sends to otlp.eu.example.com:4317')
   })
 
   test('the destination and the review show the address the commands will really dial, not the placeholder name', async () => {
@@ -698,5 +698,29 @@ describe('GuidedWizard destination step: FUSION', () => {
     await user.click(screen.getByTestId('fake-create'))
     await waitFor(() => expect(latest.exportOperatorId).toBe('op-new'))
     expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('New one')
+  })
+})
+
+describe('GuidedWizard: an install that has telemetry can be emptied', () => {
+  test('nothing picked: Continue stays off on a fresh draft; on an installed one, "turn it all off" goes to Review and on to the Run step', async () => {
+    const user = userEvent.setup()
+    renderWizard({ ...emptyTelemetry, hadTelemetry: true, resourceUsage: true })
+    await user.click(screen.getByTestId('t-resourceUsage')) // untick the only signal
+    expect(screen.queryByTestId('t-guided-continue')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('t-guided-turn-off'))
+    expect(screen.getByTestId('t-guided-step-review')).toHaveTextContent('will be turned off')
+    expect(screen.getByTestId('t-guided-create-command')).toBeEnabled()
+    await user.click(screen.getByTestId('t-guided-create-command'))
+    expect(screen.getByTestId('t-guided-run-summary')).toHaveTextContent('Every signal turned off')
+    expect(screen.getByTestId('t-run-section')).toBeInTheDocument()
+    await user.click(screen.getByTestId('t-guided-back'))
+    await user.click(screen.getByTestId('t-guided-back'))
+    expect(screen.getByTestId('t-guided-step-collect')).toBeInTheDocument()
+  })
+
+  test('a fresh draft with nothing picked has no way forward, as before', () => {
+    renderWizard()
+    expect(screen.getByTestId('t-guided-continue')).toBeDisabled()
+    expect(screen.queryByTestId('t-guided-turn-off')).not.toBeInTheDocument()
   })
 })

@@ -48,11 +48,11 @@ describe.skipIf(!hasBash)('the printed telemetry command, run in bash', () => {
     expect(lane.stderr).toBe('')
     expect(arg(lane.args, 'telemetry.export.routes.logs.endpoint')).toBe(odd)
 
-    const existing: TelemetryInput = { ...on, energy: true, energySource: 'existing', energyExistingEndpoint: 'http://kepler:9102/metrics?x=1&y=2', accelerators: true, acceleratorsSource: 'existing', acceleratorsExistingEndpoint: 'dcgm:9400/m?a&b' }
+    const existing: TelemetryInput = { ...on, energy: true, energySource: 'existing', energyExistingEndpoint: 'kepler.monitoring:9102', accelerators: true, acceleratorsSource: 'existing', acceleratorsExistingEndpoint: '[fd00::1]:9400' }
     const prom = run(telemetryUpgradeCommand(undefined, existing))
     expect(prom.stderr).toBe('')
-    expect(arg(prom.args, 'telemetry.energy.metrics.existing.prometheusEndpoint')).toBe('http://kepler:9102/metrics?x=1&y=2')
-    expect(arg(prom.args, 'telemetry.accelerators.metrics.existing.prometheusEndpoint')).toBe('dcgm:9400/m?a&b')
+    expect(arg(prom.args, 'telemetry.energy.metrics.existing.prometheusEndpoint')).toBe('kepler.monitoring:9102')
+    expect(arg(prom.args, 'telemetry.accelerators.metrics.existing.prometheusEndpoint')).toBe('[fd00::1]:9400')
   })
 
   test('a comma in an endpoint is refused (helm --set would split it), so no command is printed', () => {

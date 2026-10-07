@@ -205,7 +205,7 @@ function ProcessorRow({
               value={entry.raw}
               onChange={(e) => onChange({ raw: e.target.value })}
               rows={4}
-              placeholder={'{"error_mode":"ignore","log_conditions":["attributes[\\"level\\"] == \\"debug\\""]}'}
+              placeholder={'{"error_mode":"ignore","log_conditions":["log.attributes[\\"level\\"] == \\"debug\\""]}'}
               aria-label="Raw processor JSON body"
               className="mt-1.5 w-full rounded-md border border-nb-800 bg-nb-925 p-2 font-mono text-xs text-nb-300 placeholder:text-nb-600 focus:border-accent/60 focus:outline-none focus:ring-2 focus:ring-accent/20"
               data-testid={`${testIdPrefix}-processor-raw-${entry.id}`}
@@ -251,6 +251,17 @@ function FilterForm({
       <div className="space-y-1.5">
         {config.conditions.map((c, i) => (
           <div key={i} className="fade-in flex items-center gap-1.5">
+            <Select
+              value={c.level ?? 'record'}
+              onChange={(e) => updateCondition(i, { level: e.target.value as 'record' | 'resource' })}
+              className="w-28 shrink-0"
+              aria-label="Where the attribute is"
+              title="A resource attribute describes where the data came from (k8s.namespace.name, service.name); the others belong to the data point, log line or span itself."
+              data-testid={`${testIdPrefix}-processor-filter-level-${entryId}-${i}`}
+            >
+              <option value="record">{config.signal === 'metric' ? 'Data point' : config.signal === 'log' ? 'Log line' : 'Span'}</option>
+              <option value="resource">Resource</option>
+            </Select>
             <Input
               value={c.field}
               onChange={(e) => updateCondition(i, { field: e.target.value })}

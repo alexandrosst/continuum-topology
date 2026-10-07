@@ -15,4 +15,11 @@ describe('ChangeSummary', () => {
     rerender(<ChangeSummary changes={[]} installed={false} testId="cs" />)
     expect(screen.queryByTestId('cs')).not.toBeInTheDocument()
   })
+
+  test('says what is left exactly as installed because the install does not report it', () => {
+    const { rerender } = render(<ChangeSummary changes={[]} installed kept={['the tags', 'the debug exporter']} testId="cs" />)
+    expect(screen.getByTestId('cs-kept')).toHaveTextContent('the tags; the debug exporter')
+    rerender(<ChangeSummary changes={[]} installed kept={[]} testId="cs" />)
+    expect(screen.queryByTestId('cs-kept')).not.toBeInTheDocument()
+  })
 })

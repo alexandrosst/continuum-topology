@@ -1064,7 +1064,7 @@ describe('RegionalOperatorsPage - Local tab', () => {
     renderPage()
     await user.click(await screen.findByTestId('operators-local'))
     const row = await screen.findByTestId('local-operator-edge-agent')
-    expect(within(row).getByTestId('local-data-edge-agent')).toHaveTextContent('Waiting for first report')
+    expect(within(row).getByTestId('local-data-edge-agent')).toHaveTextContent('Nothing reported running yet')
     expect(within(row).getByTestId('local-data-edge-agent')).toHaveAttribute('data-state', 'starting')
     expect(within(row).getByText('Resource usage')).toBeInTheDocument()
     expect(screen.getByTestId('local-waiting')).toHaveTextContent('Waiting for 1 cluster to report')

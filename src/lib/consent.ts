@@ -12,6 +12,7 @@ import { activeLanes, emptyExportTarget, cleanTags, emptyScopeOverride, emptyTel
 import { operatorReceiverEndpoint } from './destinationCatalog'
 import type { TelemetryIntent } from './types'
 import { chainCommands } from './shellChain'
+import { processorKey } from './processorCatalog'
 export { enabledModalities, type Modality, PICKABLE_SIGNALS, TELEMETRY_SIGNALS }
 
 export type Severity = 'info' | 'warn' | 'error'
@@ -467,6 +468,8 @@ export function seedTelemetryFromInstalled(installed: string[], config?: AgentTe
   }
   // Nothing installed and nothing reported: a fresh draft, whose defaults are exactly what is stated.
   if (installed.length === 0 && !config) return next
+  // There IS something installed: what the command does not state it leaves as it is, so what it means to remove it has to be stated too.
+  next.hadTelemetry = true
   const kept: KeptGroup[] = []
   // A destination sent per signal type keeps its routes as installed lane by lane (exportLanesKept), so only the single one is a group.
   if (!next.exportSplit) kept.push('destination')
@@ -474,6 +477,12 @@ export function seedTelemetryFromInstalled(installed: string[], config?: AgentTe
   if (!config || config.tags === undefined) kept.push('tags')
   if (!config || config.debugVerbosity === undefined) kept.push('debug')
   if (!config) kept.push('processors')
+  // No agent reports which extra processors it runs, so the draft starts with none and cannot say whether the install has any: its list is
+  // left alone until a processor is added or removed here. The same for which source energy and accelerators read, on an agent that does
+  // not report it (a newer one does, for each signal that is on).
+  kept.push('extraProcessors')
+  if (rec.energy && !config?.energySource) kept.push('energySource')
+  if (rec.accelerators && !config?.acceleratorsSource) kept.push('acceleratorsSource')
   next = keepAsInstalled(next, kept)
   return next
 }
@@ -495,6 +504,8 @@ export function describeTelemetryChanges(installed: string[], config: AgentTelem
   const removed = installed.filter((id) => !on.includes(id) && PICKABLE_SIGNALS.some((s) => s.id === id))
   if (added.length) out.push(`Turns on ${label(added)}`)
   if (removed.length) out.push(`Turns off ${label(removed)}`)
+  // Nothing on: the command only turns the signals off (and clears the routes and extra processors), there is no destination to describe.
+  if (on.length === 0) return out
   if (!draft.exportSplit && !isKept(draft, 'destination')) {
     const from = config && !config.exportEndpoint.includes('=') ? config.exportEndpoint.trim() : ''
     const to = draft.exportEndpoint.trim()
@@ -513,6 +524,12 @@ export function describeTelemetryChanges(installed: string[], config: AgentTelem
   if (!isKept(draft, 'tags') && config?.tags !== undefined && JSON.stringify(cleanTags(draft.tags)) !== JSON.stringify(cleanTags(config.tags))) out.push('Changes the tags stamped on everything it sends')
   if (!isKept(draft, 'tags') && config?.tags === undefined && draft.tags.length > 0) out.push('Sets the tags stamped on everything it sends')
   if (!isKept(draft, 'debug') && config?.debugVerbosity !== undefined && draft.debugVerbosity !== config.debugVerbosity) out.push(`Changes the debug exporter to ${draft.debugVerbosity || 'off'}`)
+  const srcWord = (v: string, endpoint: string) => (v === 'existing' ? `the existing one at ${endpoint.trim() || 'an endpoint'}` : 'the bundled one')
+  if (draft.energy && !isKept(draft, 'energySource') && config?.energySource && config.energySource !== draft.energySource) out.push(`Reads energy from ${srcWord(draft.energySource, draft.energyExistingEndpoint)} instead of ${srcWord(config.energySource, '')}`)
+  if (draft.accelerators && !isKept(draft, 'acceleratorsSource') && config?.acceleratorsSource && config.acceleratorsSource !== draft.acceleratorsSource) out.push(`Reads GPU metrics from ${srcWord(draft.acceleratorsSource, draft.acceleratorsExistingEndpoint)} instead of ${srcWord(config.acceleratorsSource, '')}`)
+  if (!isKept(draft, 'extraProcessors')) {
+    out.push(draft.extraProcessors.length ? `Sets the extra processors to ${draft.extraProcessors.map((e) => processorKey(e)).join(', ')}, replacing any the install has` : 'Removes every extra processor the install has')
+  }
   if (!isKept(draft, 'processors') && config && (draft.redaction !== config.redactionEnabled || draft.resourceDetection !== config.resourceDetectionEnabled)) out.push('Changes the redaction or resource-detection processors')
   return out
 }

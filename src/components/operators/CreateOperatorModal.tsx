@@ -244,7 +244,7 @@ export default function CreateOperatorModal({
                 {note && <p role="alert" className="text-xs text-warn sm:col-span-2">{note}</p>}
                 <label className="flex cursor-pointer items-center gap-2 text-sm sm:col-span-2">
                   <input type="checkbox" className="size-4 accent-[var(--color-accent)]" checked={!!draft.destination.insecure} onChange={(e) => set({ destination: { ...draft.destination, kind: 'external', insecure: e.target.checked } })} data-testid="operator-export-insecure" />
-                  <span className="text-nb-300">Skip TLS verification for this endpoint</span>
+                  <span className="text-nb-300">Send without TLS (plain connection)</span>
                 </label>
                 <Field label="Credential header" hint="Which header the destination expects its credential in.">
                   <Input value={draft.destination.authHeaderName ?? ''} onChange={(e) => set({ destination: { ...draft.destination, kind: 'external', authHeaderName: e.target.value } })} placeholder="Authorization" />

@@ -12,7 +12,7 @@ import type { RegionalOperator } from '@/lib/types'
 const COLS = ['w-40', 'w-48', 'w-44', 'w-36', 'w-32', 'w-24']
 
 /** What the table says about an agent that was asked for telemetry and has not reported it running. */
-const PENDING_TEXT = 'Waiting for first report'
+const PENDING_TEXT = 'Nothing reported running yet'
 
 /** What an agent runs, as chips that wrap inside their cell (a nowrap list overflows into the next column at this width); the first few,
  *  then "+N" with the rest in its title. */

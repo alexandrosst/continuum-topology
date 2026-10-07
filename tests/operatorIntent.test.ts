@@ -15,7 +15,7 @@ test('exportOperatorId only decides whether the client-certificate lines are cle
     { ...emptyTelemetry },
     { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'otel.example.com:4317' },
     { ...emptyTelemetry, traces: true, tracesScope: { namespaces: ['shop'], exclude: ['kube-system'], workloads: [] }, applicationLogs: true, exportEndpoint: 'x.example.com:4318', exportProtocol: 'http', exportInsecure: true },
-    { ...emptyTelemetry, energy: true, energySource: 'existing', energyExistingEndpoint: 'kepler:9102/metrics', accelerators: true, exportEndpoint: 'o:4317', exportAuthHeaderName: 'x-api-key', exportAuthSecretName: 'tok', exportAuthSecretKey: 'k' },
+    { ...emptyTelemetry, energy: true, energySource: 'existing', energyExistingEndpoint: 'kepler:9102', accelerators: true, exportEndpoint: 'o:4317', exportAuthHeaderName: 'x-api-key', exportAuthSecretName: 'tok', exportAuthSecretKey: 'k' },
   ]
   // An ordinary destination states "no client certificate"; an operator's is stated by the server's own fragment, which these lines must
   // not contradict - so they are the only lines the id may remove.
@@ -194,4 +194,21 @@ test('operatorCommandBlock for routed signal types: one certificate Secret, the 
   assert.doesNotMatch(cmd, /telemetry\.export\.otlp\.endpoint/)
   // A client half never turns an operator route's mutual TLS off; the server's fragment turns it on.
   assert.doesNotMatch(cmd, /routes\.(metrics|logs)\.tls\.mtls\.enabled=false/)
+})
+
+// Helm applies --set-json, then --set, then --set-string, whatever their order on the line. The client writes its endpoints with
+// --set-string; the server's fragment states the real address with --set. If the client's placeholder stays, it WINS - the pasted command
+// sends that signal to `op-eu.continuum-system.svc:4317`, which nothing answers to from another cluster.
+test('operatorCommandBlock drops the client placeholder of every route the server fragment states the real endpoint for', () => {
+  const draft = splitDraft({ traces: false })
+  const fragment = '--set telemetry.export.routes.metrics.endpoint=op-eu.example.net:443 --set telemetry.export.routes.metrics.tls.mtls.enabled=true --set telemetry.export.routes.logs.endpoint=op-eu.example.net:443'
+  const cmd = operatorCommandBlock({ install: undefined, draft, result: { installFragment: fragment, secretCommands: [], operators: { 'op-eu': 'mtls' } } })
+  assert.doesNotMatch(cmd, /--set-string telemetry\.export\.routes\.(metrics|logs)\.endpoint=/)
+  assert.equal(cmd.match(/telemetry\.export\.routes\.metrics\.endpoint=/g)?.length, 1)
+  assert.equal(cmd.match(/telemetry\.export\.routes\.logs\.endpoint=/g)?.length, 1)
+  // The route the fragment says nothing about keeps its own (here: the traces lane is off, so its endpoint is the empty "no route").
+  assert.match(cmd, /--set-string telemetry\.export\.routes\.traces\.endpoint=( |$)/)
+  // And the single destination, as before.
+  const single = operatorCommandBlock({ install: undefined, draft: operatorDraft(), result: { installFragment: '--set telemetry.export.otlp.endpoint=op-eu.example.net:443', secretCommands: [] } })
+  assert.doesNotMatch(single, /--set-string telemetry\.export\.otlp\.endpoint=/)
 })

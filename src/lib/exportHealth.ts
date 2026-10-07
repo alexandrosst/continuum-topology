@@ -74,6 +74,8 @@ export function exportSummary(installed: string[], d: AgentDiagnostics | undefin
     case 'failing':
       return { kind: 'offline', text: 'Failing' }
     case 'exporting':
+      // One signal type going out says nothing for another that has not started: "Sending" for the whole install would overclaim.
+      if (rows.some((r) => r.state === 'waiting')) return { kind: 'starting', text: 'Partly sending' }
       return { kind: 'online', text: 'Sending' }
     case 'silent':
       return { kind: 'idle', text: 'Quiet' }

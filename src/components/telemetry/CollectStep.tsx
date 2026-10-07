@@ -33,11 +33,15 @@ export default function CollectStep({
   onChange,
   testIdPrefix,
   onContinue,
+  onTurnOff,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
   testIdPrefix: string
   onContinue: () => void
+  /** Offered while nothing is picked on an install that has telemetry: the way to turn all of it off (there is no destination or
+   *  processing to decide, so it goes straight to Review). Without it, Continue stays disabled and an install could never be emptied here. */
+  onTurnOff?: () => void
 }) {
   const rec = value as unknown as Record<string, boolean>
   const on = PICKABLE_SIGNALS.filter((s) => rec[s.id])
@@ -132,12 +136,20 @@ export default function CollectStep({
       <div className="flex flex-wrap items-center gap-3 pt-1">
         <p className="text-xs text-nb-500" role="status" data-testid={`${testIdPrefix}-collect-count`}>
           {on.length === 0
-            ? 'Nothing picked yet.'
+            ? onTurnOff
+              ? 'Nothing picked: the command will turn all of this install’s telemetry off.'
+              : 'Nothing picked yet.'
             : `${on.length} of ${PICKABLE_SIGNALS.length} signals picked${appCount > 0 ? ' - the next step narrows which namespaces your applications are collected from.' : '.'}`}
         </p>
-        <Button variant="primary" className="ml-auto" disabled={on.length === 0} onClick={onContinue} data-testid={`${testIdPrefix}-guided-continue`}>
-          Continue
-        </Button>
+        {on.length === 0 && onTurnOff ? (
+          <Button variant="primary" className="ml-auto" onClick={onTurnOff} data-testid={`${testIdPrefix}-guided-turn-off`}>
+            Review turning it all off
+          </Button>
+        ) : (
+          <Button variant="primary" className="ml-auto" disabled={on.length === 0} onClick={onContinue} data-testid={`${testIdPrefix}-guided-continue`}>
+            Continue
+          </Button>
+        )}
       </div>
     </div>
   )

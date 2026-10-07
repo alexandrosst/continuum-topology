@@ -1,6 +1,6 @@
 import { api, ApiError, type Conn, type TelemetryIntentCommand } from './api'
 import { operatorReceiverEndpoint } from './destinationCatalog'
-import { activeLanes, TELEMETRY_SIGNALS, type ExportTarget, type Modality, type ScopeOverrideInput, type TelemetryInput } from './install'
+import { activeLanes, ROUTE_MODALITIES, TELEMETRY_SIGNALS, type ExportTarget, type Modality, type ScopeOverrideInput, type TelemetryInput } from './install'
 import { telemetrySecretCommand, telemetryUpgradeCommand, type InstallInfo, type ReleaseTarget } from './consent'
 import type { OperatorDestination, ReceiverAuth, SignalGrant, TelemetryIntent } from './types'
 import { chainCommands } from './shellChain'
@@ -146,7 +146,14 @@ export function operatorCommandBlock(opts: { install: InstallInfo | undefined; d
   const d = operatorCommandDraft(opts.draft, opts.result.receiverAuth, (id) => opts.result.operators?.[id])
   const target = { namespace: opts.result.namespace || opts.target?.namespace, release: opts.result.release || opts.target?.release }
   let client = telemetryUpgradeCommand(opts.install, d, opts.measurementsOn, target).trimEnd()
-  if (fragmentEndpoint(opts.result.installFragment)) client = client.replace(/ \\\n\s*--set(?:-string)? telemetry\.export\.otlp\.endpoint=\S+/, '')
+  const dropped = (key: string) => {
+    client = client.replace(new RegExp(` \\\\\\n\\s*--set(?:-string)? ${key.replace(/\./g, '\\.')}=\\S*`), '')
+  }
+  if (fragmentEndpoint(opts.result.installFragment)) dropped('telemetry.export.otlp.endpoint')
+  // The same for every route the fragment states: Helm applies --set-string AFTER --set whatever their order on the line, so a placeholder
+  // the client writes with --set-string would beat the real address the server's fragment gives with --set - the pasted command would send
+  // that signal to `<operator id>.continuum-system.svc:4317`, a name nothing answers to.
+  for (const m of ROUTE_MODALITIES) if (opts.result.installFragment.includes(`telemetry.export.routes.${m}.endpoint=`)) dropped(`telemetry.export.routes.${m}.endpoint`)
   const upgrade = `${client} \\\n  ${opts.result.installFragment}`
   const cred = telemetrySecretCommand(d, opts.measurementsOn, target)
   return chainCommands([...opts.result.secretCommands, ...(cred ? [cred] : []), upgrade])

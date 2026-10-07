@@ -111,4 +111,18 @@ describe('CollectStep', () => {
     await user.click(screen.getByTestId('c-energy'))
     expect(screen.queryByTestId('c-energy-source')).not.toBeInTheDocument()
   })
+
+  test('with nothing picked, Continue is off - and on an install that has telemetry the way forward is to turn it all off', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(<Wrapper />)
+    expect(screen.getByTestId('c-guided-continue')).toBeDisabled()
+    expect(screen.queryByTestId('c-guided-turn-off')).not.toBeInTheDocument()
+    unmount()
+    const turnOff = vi.fn()
+    render(<CollectStep value={{ ...emptyTelemetry, hadTelemetry: true }} onChange={() => undefined} testIdPrefix="c" onContinue={onContinue} onTurnOff={turnOff} />)
+    expect(screen.queryByTestId('c-guided-continue')).not.toBeInTheDocument()
+    expect(screen.getByTestId('c-collect-count')).toHaveTextContent('turn all of this install')
+    await user.click(screen.getByTestId('c-guided-turn-off'))
+    expect(turnOff).toHaveBeenCalled()
+  })
 })

@@ -175,7 +175,7 @@ export default function DestinationStep({
     ? operatorBearer
       ? `OTLP/gRPC · mTLS${secretNamed ? ` · receiver token from Secret ${value.exportAuthSecretName.trim()}` : ''}`
       : 'OTLP/gRPC · mTLS · client certificate only'
-    : `${exportProtocolLabel(value.exportProtocol)} · ${secretNamed ? `credential from Secret ${value.exportAuthSecretName.trim()}` : 'no credential'} · ${value.exportInsecure ? (plain ? 'plain in-cluster connection (no TLS)' : 'TLS not verified') : 'TLS verified'}`
+    : `${exportProtocolLabel(value.exportProtocol)} · ${secretNamed ? `credential from Secret ${value.exportAuthSecretName.trim()}` : 'no credential'} · ${value.exportInsecure ? (plain ? 'plain in-cluster connection (no TLS)' : 'no TLS (plain connection)') : /^http:\/\//i.test(value.exportEndpoint.trim()) ? 'no TLS (the address is http://)' : 'TLS verified'}`
 
   return (
     <div className="space-y-3" data-testid={`${p}-step-destination`}>
@@ -288,12 +288,12 @@ export default function DestinationStep({
               )}
               {operator && reachable && (
                 <p className="text-xs text-nb-400" data-testid={`${p}-destination-operator-address`}>
-                  Reached at <span className="font-mono">{operator.address}</span>, the address recorded for this operator, so this works from any cluster that can reach it.
+                  Sends to <span className="font-mono">{operator.address}</span>, the address an administrator recorded for this operator. This page cannot tell that anything answers there: it works only from a cluster that can reach that address, and <span className="text-nb-300">Is data arriving?</span> is where that shows.
                 </p>
               )}
               {unresolved && (
                 <p role="alert" className="text-xs text-warn" data-testid={`${p}-destination-placeholder`}>
-                  Replace the &lt;…&gt; parts with your own account’s values.
+                  Replace the &lt;…&gt; parts with your own account’s values: no command is printed while one is left.
                 </p>
               )}
               {preset?.group === 'self-hosted' && preset.note && <p className="text-xs text-nb-400" data-testid={`${p}-destination-selfhosted-note`}>{preset.note}</p>}
@@ -356,8 +356,8 @@ export default function DestinationStep({
                   {preset?.note && <p className="text-xs text-nb-500" data-testid={`${p}-destination-preset-note`}>{preset.note}</p>}
                   <label className="flex cursor-pointer items-center gap-2 text-sm">
                     <input type="checkbox" className="size-4 accent-[var(--color-accent)]" checked={value.exportInsecure} onChange={(e) => set('exportInsecure', e.target.checked)} data-testid={`${testIdPrefix}-export-insecure`} />
-                    <span className="text-nb-300">Skip TLS verification for this endpoint</span>
-                    <InfoTip>Only for a self-signed or internal endpoint you already trust by other means - the connection is still encrypted, its certificate is just not checked.</InfoTip>
+                    <span className="text-nb-300">Send without TLS (plain connection)</span>
+                    <InfoTip>Only for an endpoint inside your own cluster or network. Nothing is encrypted: gRPC goes in plain text and HTTP uses http://, so anything on the path can read the data and any credential header. It does not mean &apos;trust a self-signed certificate&apos; - for that, the endpoint&apos;s CA has to be trusted by the collector.</InfoTip>
                   </label>
                 </>
               )}

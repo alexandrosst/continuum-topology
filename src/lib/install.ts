@@ -1,4 +1,4 @@
-import { buildExtraProcessors, processorProblems, processorTarget, processorKey, type ProcessorEntry } from './processorCatalog'
+import { buildUpgradeExtraProcessors, processorBody, processorProblems, processorTarget, processorKey, type ProcessorEntry } from './processorCatalog'
 import { EXPORT_PRESETS, presetSupportsModalities } from './exportPresets'
 
 /**
@@ -74,7 +74,8 @@ export const shQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
  */
 export const shArg = (s: string) => (/^[A-Za-z0-9_@%+=:./-]*$/.test(s) ? s : shQuote(s))
 
-/** Helm treats commas in a --set value as list separators: escape them. */
+/** Helm treats commas in a --set value as list separators: escape them. Only for a list WITH something in it: `--set key='{}'` is NOT an
+ *  empty list but a list holding one empty string (`[""]`, checked against Helm 3.22) - see `listFlag`. */
 const helmList = (xs: string[]) => `'{${xs.join(',')}}'`
 
 /** Adds the scope to the install command. Without one the agent reports every namespace, as before. */
@@ -280,11 +281,17 @@ export interface TelemetryInput {
    *  it out - `--reset-then-reuse-values` keeps what is installed - instead of stating a default that may widen collection or drop a credential.
    *  Editing any field of a group makes it the draft's own, and it is then stated in full. See `isKept`. */
   keptAsInstalled: Partial<Record<KeptGroup, string>>
+  /** Whether this draft stands for an install that already has telemetry configured (it was seeded from one: see
+   *  seedTelemetryFromInstalled). Only then does the command have something to CLEAR: under `helm upgrade
+   *  --reset-then-reuse-values` a setting the command does not name keeps its old value, so a draft with every signal
+   *  unchecked must still state them off, a single destination must state the routes empty, and an emptied processor
+   *  list must be stated empty. A fresh install has nothing to clear, so none of that is printed there. */
+  hadTelemetry: boolean
 }
 
 /** The settings that are kept or stated together: the destination's connection details, the scope (each application signal's own, and
  *  what the infrastructure signals and the scope tag follow), the tags, the debug exporter and the three processor knobs. */
-export type KeptGroup = 'destination' | 'scopeShared' | 'scope:applicationMetrics' | 'scope:applicationLogs' | 'scope:traces' | 'tags' | 'debug' | 'processors'
+export type KeptGroup = 'destination' | 'scopeShared' | 'scope:applicationMetrics' | 'scope:applicationLogs' | 'scope:traces' | 'tags' | 'debug' | 'processors' | 'extraProcessors' | 'energySource' | 'acceleratorsSource'
 
 function groupValue(t: TelemetryInput, g: KeptGroup): string {
   switch (g) {
@@ -304,10 +311,37 @@ function groupValue(t: TelemetryInput, g: KeptGroup): string {
       return t.debugVerbosity
     case 'processors':
       return JSON.stringify([t.resourceDetection, t.redaction, t.tracesSamplingPercent])
+    case 'extraProcessors':
+      return JSON.stringify(t.extraProcessors.map((e) => [processorKey(e), processorBody(e)]))
+    case 'energySource':
+      return JSON.stringify([t.energySource, t.energyExistingEndpoint.trim()])
+    case 'acceleratorsSource':
+      return JSON.stringify([t.acceleratorsSource, t.acceleratorsExistingEndpoint.trim()])
   }
 }
 
 /** Marks these groups as shown-but-unknown, as they read right now. */
+const KEPT_WORDS: Record<KeptGroup, string> = {
+  destination: 'how it connects to the destination (protocol, TLS, credential)',
+  scopeShared: 'what the infrastructure signals follow and the scope tag',
+  'scope:applicationMetrics': 'where application metrics are collected from',
+  'scope:applicationLogs': 'where application logs are collected from',
+  'scope:traces': 'where traces are collected from',
+  tags: 'the tags',
+  debug: 'the debug exporter',
+  processors: 'masking, environment enrichment and trace sampling',
+  extraProcessors: 'the extra processors (this page cannot see which there are)',
+  energySource: 'which Kepler energy reads from',
+  acceleratorsSource: 'which DCGM the GPU metrics read from',
+}
+
+/** What this draft shows but does not know the installed value of, in words: the settings the command leaves as they are (see `isKept`). */
+export function keptSummary(t: TelemetryInput): string[] {
+  const groups = (Object.keys(KEPT_WORDS) as KeptGroup[]).filter((g) => isKept(t, g))
+  const routes = t.exportSplit ? t.exportLanesKept.filter((m) => activeLanes(t).includes(m)).map((m) => `how ${m} reach their destination (protocol, TLS, credential)`) : []
+  return [...groups.map((g) => KEPT_WORDS[g]), ...routes]
+}
+
 export const keepAsInstalled = (t: TelemetryInput, groups: KeptGroup[]): TelemetryInput => ({ ...t, keptAsInstalled: Object.fromEntries(groups.map((g) => [g, groupValue(t, g)])) })
 
 /** Whether the command leaves this group out: it was seeded as unknown and nothing in it has been edited since. */
@@ -380,12 +414,14 @@ export const emptyTelemetry: TelemetryInput = {
   tracesSamplingPercent: 100,
   extraProcessors: [],
   tags: [],
-  // Count-only is on from the start: it is how someone sees that anything is flowing at all, and it
-  // records no content. Full-content logging is a deliberate choice, never a default.
-  debugVerbosity: 'basic',
+  // Off from the start. A debug exporter is an extra exporter on every pipeline that nobody asked for (someone who ticks only
+  // Kepler would otherwise get a pipeline with two exporters and a collector logging every batch); it is a deliberate choice,
+  // made in the Process step, never a default.
+  debugVerbosity: '',
   resourceOrgId: '',
   resourceClusterId: '',
   keptAsInstalled: {},
+  hadTelemetry: false,
 }
 
 /** What is wrong with a tag list, in words a person can act on. */
@@ -420,21 +456,20 @@ export const cleanTags = (tags: TagEntry[]): TagEntry[] => tags.map((t) => ({ ke
  * is narrowed (everything the agent can see).
  */
 export function scopeTag(t: TelemetryInput): string {
-  const scopes = [t.applicationMetrics && t.applicationMetricsScope, t.applicationLogs && t.applicationLogsScope, t.traces && t.tracesScope].filter((s): s is ScopeOverrideInput => !!s)
-  const only = [...new Set(scopes.flatMap((s) => s.namespaces))].sort()
-  const not = [...new Set(scopes.flatMap((s) => s.exclude))].sort()
-  // The widest view of each namespace's workloads: whole when any signal does not narrow it.
-  const workloadNs = [...new Set(scopes.flatMap((s) => s.workloads.map((w) => w.namespace)))]
-  const narrowedTo = new Map<string, string[]>()
-  for (const ns of workloadNs) {
-    const collecting = scopes.filter((s) => s.namespaces.length === 0 || s.namespaces.includes(ns))
-    const w = collecting.map((s) => s.workloads.find((x) => x.namespace === ns))
-    if (w.every((x) => x)) narrowedTo.set(ns, [...new Set(w.flatMap((x) => x!.names))].sort())
+  // What the application signals together collect, by the same rule the infrastructure signals follow (combinedScope): a namespace is
+  // listed if ANY of them collects it, and left out only if EVERY one leaves it out. A union of each signal's own exclusions would say
+  // "excluding tmp" while another signal still collects tmp, and a signal that collects everywhere would not show at all.
+  const c = combinedScope(t)
+  if (c.namespaces.length === 0 && c.exclude.length === 0 && c.workloads.length === 0) return ''
+  const narrowed = new Map(c.workloads.map((w) => [w.namespace, w.names]))
+  const wl = (ns: string) => `${ns}: ${narrowed.get(ns)!.length ? narrowed.get(ns)!.join('+') : 'nothing'}`
+  const not = c.exclude.length ? ` - excluding ${c.exclude.join('+')}` : ''
+  if (c.namespaces.length === 0) {
+    const only = [...narrowed.keys()].map((ns) => `${wl(ns)} only`)
+    return `all namespaces${only.length ? ` (${only.join('; ')})` : ''}${not}`
   }
-  const names = [...new Set([...only, ...narrowedTo.keys()])].sort()
-  if (names.length === 0 && not.length === 0) return ''
-  const listed = names.map((n) => (narrowedTo.has(n) ? `${n}: ${narrowedTo.get(n)!.length ? narrowedTo.get(n)!.join('+') : 'nothing'}` : n))
-  return `${listed.length ? listed.join('; ') : 'all namespaces'}${not.length ? ` - excluding ${not.join('+')}` : ''}`
+  const names = [...new Set([...c.namespaces, ...narrowed.keys()])].sort()
+  return `${names.map((n) => (narrowed.has(n) ? wl(n) : n)).join('; ')}${not}`
 }
 
 /** The kind of signal a telemetry field carries - metrics, logs, or distributed traces. Lives here (not
@@ -448,7 +483,7 @@ export type Modality = 'metrics' | 'logs' | 'traces'
  * and permission copy; telemetryProblems below reads it to work out which modalities are actually on.
  */
 export const TELEMETRY_SIGNALS: { id: string; label: string; layer: 'infrastructure' | 'application'; modality: Modality; scope: 'cluster' | 'node' | 'application'; namespaceScopable?: boolean; /** The chart has nothing that emits it yet: kept in the model (a command still states it off), never offered. */ noEmitter?: boolean; what: string; permissions: string }[] = [
-  { id: 'resourceUsage', label: 'Resource usage', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Node and per-container CPU, memory, filesystem and network, from the kubelet and the host. The kubelet\'s certificate is verified: where it is self-signed (kubeadm, k3s) add --set telemetry.kubelet.insecureSkipVerify=true to the command.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
+  { id: 'resourceUsage', label: 'Resource usage', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Node and per-container CPU, memory, filesystem and network, from the kubelet and the host. The kubelet\'s certificate is verified: where it serves a certificate of its own (kubeadm\'s default, AKS) add --set telemetry.kubelet.insecureSkipVerify=true to the command.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
   { id: 'energy', label: 'Energy', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Power draw per node/pod, from Kepler (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - Kepler reads host energy counters directly, never the Kubernetes API.' },
   { id: 'kubernetesState', label: 'Kubernetes state', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', what: 'Pod, deployment and replica status and counts, cluster-wide.', permissions: 'Read-only, cluster-wide access to pods, deployments, replica sets, stateful/daemon sets, jobs, cronjobs and autoscalers.' },
   { id: 'nodeRuntime', label: 'Node runtime', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Pod lifecycle and volume metrics from the kubelet (the same kubelet certificate note as Resource usage applies).', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
@@ -545,14 +580,26 @@ export const EXPORT_HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/
 export const SECRET_NAME = /^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/
 export const SECRET_KEY = /^[-._a-zA-Z0-9]{1,253}$/
 
-const endpointProblem = (value: string, what: string): string[] =>
-  value.trim() && !EXPORT_ENDPOINT.test(value.trim()) ? [`${what} is a host and port or a URL, without spaces, quotes, commas or backslashes`] : []
+/** A preset's `<tenant>`-style placeholder left in an endpoint: it is text to the shell, so the command would print and run, and send
+ *  everything to a host that does not exist. */
+export const PLACEHOLDER = /<[^<>]*>/
+
+/** The address of a Prometheus endpoint that already exists: a host and a port, nothing else. The chart puts it, verbatim, in the
+ *  collector's scrape `targets`, where a scheme or a path is not a valid hostname and stops the collector from starting; the collector
+ *  always scrapes /metrics. */
+export const SCRAPE_TARGET = /^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$/
+const scrapeTargetProblem = (value: string, what: string): string[] => {
+  const v = value.trim()
+  if (!v) return []
+  return SCRAPE_TARGET.test(v) ? [] : [`${what} is a host and port only (kepler.monitoring:9102): no http://, no path - the collector scrapes /metrics itself`]
+}
 
 /** What is wrong with the typed parts of one destination (the single one, or one signal type's), worded for the field they are in. */
 function destinationProblems(d: ExportTarget, label: string, credential: boolean): string[] {
   const out: string[] = []
   const endpoint = d.exportEndpoint.trim()
   if (endpoint && !EXPORT_ENDPOINT.test(endpoint)) out.push(`${label}: the endpoint is a host and port (otlp.example.com:4317) or a URL, without spaces, quotes, commas or backslashes`)
+  else if (PLACEHOLDER.test(endpoint)) out.push(`${label}: replace ${endpoint.match(PLACEHOLDER)![0]} in the endpoint with the real value`)
   const secret = d.exportAuthSecretName.trim()
   if (credential && secret) {
     if (!SECRET_NAME.test(secret)) out.push(`${label}: the credential Secret name uses lowercase letters, digits, - and . only`)
@@ -578,10 +625,11 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   if (t.accelerators && t.acceleratorsSource === 'existing' && !t.acceleratorsExistingEndpoint.trim()) out.push('The existing Prometheus endpoint is required when accelerators points at an existing source')
   // Typed text that ends up in the printed command (see destinationProblems). A destination as installed (kept) still has its endpoint stated.
   if (!t.exportSplit) out.push(...destinationProblems(t, 'Destination', !isKept(t, 'destination')))
-  if (t.energy && t.energySource === 'existing') out.push(...endpointProblem(t.energyExistingEndpoint, 'Energy: the existing Prometheus endpoint'))
-  if (t.accelerators && t.acceleratorsSource === 'existing') out.push(...endpointProblem(t.acceleratorsExistingEndpoint, 'Accelerators: the existing Prometheus endpoint'))
+  if (t.energy && t.energySource === 'existing') out.push(...scrapeTargetProblem(t.energyExistingEndpoint, 'Energy: the existing Prometheus endpoint'))
+  if (t.accelerators && t.acceleratorsSource === 'existing') out.push(...scrapeTargetProblem(t.acceleratorsExistingEndpoint, 'Accelerators: the existing Prometheus endpoint'))
   if (t.networkLatency && measurementsOn === false) out.push('Network latency re-emits the path measurements extra, so turn that on too, or it will report nothing')
-  if (!(t.tracesSamplingPercent >= 0 && t.tracesSamplingPercent <= 100)) out.push('Traces sampling must be between 0 and 100')
+  // An emptied field is NaN (kept as such, not turned into 0: that would silently mean "drop every trace").
+  if (!(typeof t.tracesSamplingPercent === 'number' && t.tracesSamplingPercent >= 0 && t.tracesSamplingPercent <= 100)) out.push('Traces sampling must be between 0 and 100')
   out.push(...processorProblems(t.extraProcessors))
   out.push(...tagProblems(t.tags))
   if (t.applicationMetrics) out.push(...namespaceListProblems([...t.applicationMetricsScope.namespaces, ...t.applicationMetricsScope.exclude]), ...workloadProblems(t.applicationMetricsScope.workloads))
@@ -620,6 +668,30 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   return out
 }
 
+/** Every signal's switch, by its chart value: what `withTelemetryOff` states off. */
+const SIGNAL_FLAGS = [
+  'telemetry.resourceUsage.metrics.enabled',
+  'telemetry.energy.metrics.enabled',
+  'telemetry.kubernetesState.metrics.enabled',
+  'telemetry.nodeRuntime.metrics.enabled',
+  'telemetry.networkLatency.metrics.enabled',
+  'telemetry.applicationMetrics.metrics.enabled',
+  'telemetry.systemLogs.logs.enabled',
+  'telemetry.kubernetesEvents.logs.enabled',
+  'telemetry.applicationLogs.logs.enabled',
+  'telemetry.traces.traces.enabled',
+  'telemetry.accelerators.metrics.enabled',
+]
+
+/** The command that turns all telemetry off: every signal stated false, and the routes and extra-processor lists stated empty so that a
+ *  destination or processor chain an earlier command set does not come back, unseen, the next time telemetry is turned on. */
+export const withTelemetryOff = (install: string): string => {
+  let cmd = SIGNAL_FLAGS.reduce((c, f) => `${c} \\\n  --set ${f}=false`, install.trimEnd())
+  for (const m of ROUTE_MODALITIES) cmd += ` \\\n  --set-string telemetry.export.routes.${m}.endpoint=`
+  cmd += ` \\\n  --set-json telemetry.processors.extraProcessorNames='[]' \\\n  --set-json telemetry.processors.extraTracesProcessorNames='[]'`
+  return cmd
+}
+
 /**
  * Adds telemetry to the install command: the export target, then every signal's enabled flag, explicitly
  * true or false - not just the ones turned on. This is deliberate, not just belt-and-braces: the same
@@ -631,13 +703,19 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
  * all, this returns the command unchanged, exactly as before.
  */
 export function withTelemetry(install: string, t: TelemetryInput, measurementsOn?: boolean): string {
-  if (!telemetryActive(t) || telemetryProblems(t, measurementsOn).length) return install
+  // Every signal unchecked on an install that has telemetry: nothing to export any more, so only the switches are stated - all off. Left
+  // as the bare upgrade it would change nothing, and the collectors would keep running as they were.
+  if (!telemetryActive(t)) return t.hadTelemetry ? withTelemetryOff(install) : install
+  if (telemetryProblems(t, measurementsOn).length) return install
   let cmd = install.trimEnd()
   const add = (flag: string) => { cmd += ` \\\n  --set ${flag}` }
   // Every value goes through shArg: it is typed by a person (an endpoint, a Secret name) or reported by the agent (the scope tag is built
   // from namespace names and holds `; : -` and spaces), and a bare `;` in a printed command ends it there.
   const addString = (flag: string, value: string) => { cmd += ` \\\n  --set-string ${flag}=${shArg(value)}` }
   const addJson = (flag: string, value: unknown) => { cmd += ` \\\n  --set-json ${flag}=${shQuote(JSON.stringify(value))}` }
+  // A list of names. An empty one must be `--set-json flag='[]'`: `--set flag='{}'` gives Helm a list holding one EMPTY STRING, which the chart
+  // reads as "keep only the namespace named ''" (every record dropped) and as a processor with no name (a collector that will not start).
+  const addList = (flag: string, xs: string[]) => (xs.length ? add(`${flag}=${helmList(xs)}`) : addJson(flag, []))
   // Sending each signal type to its own destination: the routes below say where everything goes, so the
   // default is left alone (it is only used by a signal without a route, and there is none here).
   if (!t.exportSplit) addString('telemetry.export.otlp.endpoint', t.exportEndpoint.trim())
@@ -673,9 +751,10 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   // The routes. Every route is stated on every command (an unmentioned one would keep sending under
   // `--reset-then-reuse-values`): a route in use in full - protocol, TLS and credential too, so that what an earlier
   // command set cannot linger - and one not in use as an empty endpoint, which is how the chart reads "no route".
-  // A single destination states them empty only when the install is known to have some to clear.
+  // A single destination states them empty whenever the install has telemetry (it may have routes the agent did not report, or that an
+  // earlier command here set): a fresh install has none to clear. One kept as installed is left as it is, routes included.
   const lanes = new Set(activeLanes(t))
-  if (t.exportSplit || t.exportRoutesInstalled) {
+  if (t.exportSplit || (!isKept(t, 'destination') && (t.exportRoutesInstalled || t.hadTelemetry))) {
     for (const m of ROUTE_MODALITIES) {
       const base = `telemetry.export.routes.${m}`
       if (!lanes.has(m)) {
@@ -705,51 +784,54 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   }
   add(`telemetry.resourceUsage.metrics.enabled=${t.resourceUsage}`)
   add(`telemetry.energy.metrics.enabled=${t.energy}`)
-  if (t.energy && t.energySource === 'existing') {
-    add('telemetry.energy.metrics.source=existing')
-    addString('telemetry.energy.metrics.existing.prometheusEndpoint', t.energyExistingEndpoint.trim())
+  // The source is stated whenever the signal is on, 'bundle-kepler' too: leaving it out when it is the default would keep an earlier
+  // 'existing' under --reset-then-reuse-values, and the cluster would go on scraping the old endpoint while the draft says Kepler is bundled.
+  // Only a source the install did not report (an older agent) is left as it is, until edited.
+  if (t.energy && !isKept(t, 'energySource')) {
+    add(`telemetry.energy.metrics.source=${t.energySource}`)
+    if (t.energySource === 'existing') addString('telemetry.energy.metrics.existing.prometheusEndpoint', t.energyExistingEndpoint.trim())
   }
   add(`telemetry.kubernetesState.metrics.enabled=${t.kubernetesState}`)
   add(`telemetry.nodeRuntime.metrics.enabled=${t.nodeRuntime}`)
   add(`telemetry.networkLatency.metrics.enabled=${t.networkLatency}`)
   add(`telemetry.applicationMetrics.metrics.enabled=${t.applicationMetrics}`)
   // Stated unconditionally while the kind itself is on (even when both lists are empty) - an empty
-  // helmList still renders to a valid '{}' the chart accepts as "no override, fall back to global scope",
+  // an empty list is stated as `--set-json ...='[]'`, which the chart accepts as "no override, fall back to global scope",
   // and stating it is what lets clearing an override back to empty actually take effect on --reset-then-reuse-values;
   // leaving it unstated whenever empty would let a stale prior override survive. Omitted entirely while the
   // kind itself is off, matching the existing energy/accelerators-existing-endpoint precedent - the chart's
   // own gating (parent .enabled check) makes a stale value harmless there.
   if (t.applicationMetrics && !isKept(t, 'scope:applicationMetrics')) {
-    add(`telemetry.applicationMetrics.metrics.scope.namespaces=${helmList(t.applicationMetricsScope.namespaces)}`)
-    add(`telemetry.applicationMetrics.metrics.scope.exclude=${helmList(t.applicationMetricsScope.exclude)}`)
+    addList('telemetry.applicationMetrics.metrics.scope.namespaces', t.applicationMetricsScope.namespaces)
+    addList('telemetry.applicationMetrics.metrics.scope.exclude', t.applicationMetricsScope.exclude)
     addJson('telemetry.applicationMetrics.metrics.scope.workloads', t.applicationMetricsScope.workloads)
   }
   add(`telemetry.systemLogs.logs.enabled=${t.systemLogs}`)
   add(`telemetry.kubernetesEvents.logs.enabled=${t.kubernetesEvents}`)
   add(`telemetry.applicationLogs.logs.enabled=${t.applicationLogs}`)
   if (t.applicationLogs && !isKept(t, 'scope:applicationLogs')) {
-    add(`telemetry.applicationLogs.logs.scope.namespaces=${helmList(t.applicationLogsScope.namespaces)}`)
-    add(`telemetry.applicationLogs.logs.scope.exclude=${helmList(t.applicationLogsScope.exclude)}`)
+    addList('telemetry.applicationLogs.logs.scope.namespaces', t.applicationLogsScope.namespaces)
+    addList('telemetry.applicationLogs.logs.scope.exclude', t.applicationLogsScope.exclude)
     addJson('telemetry.applicationLogs.logs.scope.workloads', t.applicationLogsScope.workloads)
   }
   add(`telemetry.traces.traces.enabled=${t.traces}`)
   if (t.traces && !isKept(t, 'scope:traces')) {
-    add(`telemetry.traces.traces.scope.namespaces=${helmList(t.tracesScope.namespaces)}`)
-    add(`telemetry.traces.traces.scope.exclude=${helmList(t.tracesScope.exclude)}`)
+    addList('telemetry.traces.traces.scope.namespaces', t.tracesScope.namespaces)
+    addList('telemetry.traces.traces.scope.exclude', t.tracesScope.exclude)
     addJson('telemetry.traces.traces.scope.workloads', t.tracesScope.workloads)
   }
   // What the infrastructure signals follow: the application signals' combined scope when that is switched on,
   // otherwise nothing - stated either way (lists replace under --reset-then-reuse-values, so an old one is cleared).
   if (!isKept(t, 'scopeShared')) {
     const infra = t.scopeInfrastructure ? combinedScope(t) : emptyScopeOverride
-    add(`telemetry.scope.infra.namespaces=${helmList(infra.namespaces)}`)
-    add(`telemetry.scope.infra.exclude=${helmList(infra.exclude)}`)
+    addList('telemetry.scope.infra.namespaces', infra.namespaces)
+    addList('telemetry.scope.infra.exclude', infra.exclude)
     addJson('telemetry.scope.infra.workloads', infra.workloads)
   }
   add(`telemetry.accelerators.metrics.enabled=${t.accelerators}`)
-  if (t.accelerators && t.acceleratorsSource === 'existing') {
-    add('telemetry.accelerators.metrics.source=existing')
-    addString('telemetry.accelerators.metrics.existing.prometheusEndpoint', t.acceleratorsExistingEndpoint.trim())
+  if (t.accelerators && !isKept(t, 'acceleratorsSource')) {
+    add(`telemetry.accelerators.metrics.source=${t.acceleratorsSource}`)
+    if (t.acceleratorsSource === 'existing') addString('telemetry.accelerators.metrics.existing.prometheusEndpoint', t.acceleratorsExistingEndpoint.trim())
   }
   // Stated explicitly and unconditionally, like the 11 signal flags above (not gated on t.accelerators) -
   // the same --reset-then-reuse-values staleness reasoning: a previous applyScope=true left unmentioned would survive
@@ -768,21 +850,20 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   // The tags are one JSON list (not a --set per key) because a list REPLACES what an earlier command set,
   // where a map would keep every key since removed - the chart's field is a list for exactly this reason.
   if (!isKept(t, 'tags')) addJson('telemetry.resource.attributes', cleanTags(t.tags))
-  // Extra processors: the raw bodies all go in one --set-json (a map keyed by processorKey()), single-quoted
-  // for the shell like any other multi-character value pasted into a terminal (unlike the simple tokens
-  // addString/helmList above handle, a processor's JSON body can contain arbitrary characters, including a
-  // single quote, so it gets the one place in this function that actually escapes for the shell). Each
-  // entry's key is then separately referenced, in order, in whichever pipeline list it belongs in -
-  // tailSampling only ever the traces-only list, filter/transform the shared every-pipeline one (see
-  // processorTarget() in processorCatalog.ts for why they can't share one list). Omitted entirely when
-  // there are none, same as the chart's own default - an empty --set-json '{}' is harmless but adds
-  // nothing worth stating.
-  if (t.extraProcessors.length) {
-    cmd += ` \
-  --set-json telemetry.processors.extraProcessors=${shQuote(JSON.stringify(buildExtraProcessors(t.extraProcessors)))}`
+  // Extra processors: the bodies all go in one --set-json (a map keyed by processorKey()), single-quoted for the shell like any other
+  // multi-character value (a body can hold any character, a single quote included). Each key is then referenced in whichever pipeline list it
+  // belongs in - tailSampling only ever the traces-only list, filter/transform the shared every-pipeline one (see processorTarget() in
+  // processorCatalog.ts). Both LISTS are stated whole, empty when need be (`--set name={a,b}` replaces a list, where an indexed `name[0]=`
+  // would leave the tail of a longer one): under --reset-then-reuse-values a processor taken out here would otherwise stay in the pipelines.
+  // A body is merged with the earlier one by key, so the fields a body does not use are stated null (see buildUpgradeExtraProcessors).
+  // Left out entirely while the processors are kept as installed (the agent does not report them, and this page cannot show them), and on
+  // a fresh install with none.
+  if (!isKept(t, 'extraProcessors') && (t.extraProcessors.length || t.hadTelemetry)) {
+    if (t.extraProcessors.length) addJson('telemetry.processors.extraProcessors', buildUpgradeExtraProcessors(t.extraProcessors))
     const byTarget = { extraProcessorNames: [] as string[], extraTracesProcessorNames: [] as string[] }
     for (const e of t.extraProcessors) byTarget[processorTarget(e)].push(processorKey(e))
-    for (const [target, keys] of Object.entries(byTarget)) keys.forEach((key, i) => addString(`telemetry.processors.${target}[${i}]`, key))
+    // A fresh install states only the lists that have something in them; one with telemetry already states both, so that emptying a list works.
+    for (const [target, keys] of Object.entries(byTarget)) if (keys.length || t.hadTelemetry) addList(`telemetry.processors.${target}`, keys)
   }
   return cmd
 }

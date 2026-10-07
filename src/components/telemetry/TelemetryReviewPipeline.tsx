@@ -90,7 +90,7 @@ export default function TelemetryReviewPipeline({
         <p className="break-all text-xs text-nb-300">{label && <span className="mr-1.5 text-nb-500">{label}</span>}{preset?.label ?? shownEndpoints?.[endpoint] ?? endpoint}</p>
         <p className="text-xs text-nb-500">
           {exportProtocolLabel(t.exportProtocol)}
-          {t.exportInsecure ? ' · TLS verification skipped' : ''}
+          {t.exportInsecure ? ' · no TLS (plain connection)' : ''}
         </p>
         {t.exportAuthSecretName.trim() && <p className="text-xs text-nb-600">Authenticated via {t.exportAuthHeaderName || 'Authorization'}</p>}
       </div>

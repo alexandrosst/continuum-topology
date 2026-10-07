@@ -37,11 +37,11 @@ export function EnergyFields({ value, onChange, testIdPrefix }: { value: Telemet
         </Select>
       </Field>
       {value.energySource === 'existing' && (
-        <Field label="Its Prometheus endpoint">
+        <Field label="Its Prometheus endpoint" hint="Host and port only. The collector adds /metrics itself; a scheme or a path stops it from starting.">
           <Input
             value={value.energyExistingEndpoint}
             onChange={(e) => set('energyExistingEndpoint', e.target.value)}
-            placeholder="kepler.monitoring:9102/metrics"
+            placeholder="kepler.monitoring:9102"
             data-testid={`${testIdPrefix}-energy-endpoint`}
           />
         </Field>
@@ -68,11 +68,11 @@ export function AcceleratorsFields({ value, onChange, testIdPrefix }: { value: T
         </Select>
       </Field>
       {value.acceleratorsSource === 'existing' && (
-        <Field label="Its Prometheus endpoint">
+        <Field label="Its Prometheus endpoint" hint="Host and port only. The collector adds /metrics itself; a scheme or a path stops it from starting.">
           <Input
             value={value.acceleratorsExistingEndpoint}
             onChange={(e) => set('acceleratorsExistingEndpoint', e.target.value)}
-            placeholder="dcgm-exporter.monitoring:9400/metrics"
+            placeholder="dcgm-exporter.monitoring:9400"
             data-testid={`${testIdPrefix}-accelerators-endpoint`}
           />
         </Field>
@@ -459,8 +459,8 @@ export default function TelemetryFields({
               onChange={(e) => set('exportInsecure', e.target.checked)}
               data-testid={`${testIdPrefix}-export-insecure`}
             />
-            <span className="text-nb-300">Skip TLS verification for this endpoint</span>
-            <InfoTip>Only for a self-signed or internal endpoint you already trust by other means - the connection is still encrypted, its certificate is just not checked.</InfoTip>
+            <span className="text-nb-300">Send without TLS (plain connection)</span>
+            <InfoTip>Only for an endpoint inside your own cluster or network. Nothing is encrypted: gRPC goes in plain text and HTTP uses http://, so anything on the path can read the data and any credential header. It does not mean &apos;trust a self-signed certificate&apos; - for that, the endpoint&apos;s CA has to be trusted by the collector.</InfoTip>
           </label>
         </div>
       )}
@@ -530,8 +530,8 @@ export default function TelemetryFields({
               type="number"
               min={0}
               max={100}
-              value={value.tracesSamplingPercent}
-              onChange={(e) => set('tracesSamplingPercent', e.target.valueAsNumber || 0)}
+              value={Number.isFinite(value.tracesSamplingPercent) ? value.tracesSamplingPercent : ''}
+              onChange={(e) => set('tracesSamplingPercent', e.target.valueAsNumber)}
               data-testid={`${testIdPrefix}-traces-sampling`}
             />
           </Field>

@@ -70,7 +70,7 @@ describe('TelemetryPanel command', () => {
 })
 
 describe('TelemetryPanel command: what every install is stamped with', () => {
-  test('the organisation and cluster, the debug default and the (empty) tags are in the command for any destination', async () => {
+  test('the organisation and cluster, the (off) debug exporter and the (empty) tags are in the command for any destination', async () => {
     const user = userEvent.setup()
     render(
       <MemoryRouter>
@@ -82,7 +82,7 @@ describe('TelemetryPanel command: what every install is stamped with', () => {
     const cmd = screen.getByTestId('helm-command').textContent ?? ''
     expect(cmd).toContain('telemetry.resource.orgId=org-1')
     expect(cmd).toContain('telemetry.resource.clusterId=cl-9')
-    expect(cmd).toContain('telemetry.debug.verbosity=basic')
+    expect(cmd).toMatch(/--set-string telemetry\.debug\.verbosity=( |$)/)
     expect(cmd).toContain("telemetry.resource.attributes='[]'")
   })
 })

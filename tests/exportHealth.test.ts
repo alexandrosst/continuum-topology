@@ -125,6 +125,8 @@ test('exportSummary: one dot for the worst signal type, and "not reported" is ne
   assert.deepEqual(exportSummary(['resourceUsage'], d([], { podsReached: 0, podsFailed: 2 })), { kind: 'idle', text: 'Cannot read counters' })
   assert.deepEqual(exportSummary(['resourceUsage'], d([])), { kind: 'starting', text: 'Waiting for data' })
   assert.deepEqual(exportSummary(['resourceUsage'], d([route({})])), { kind: 'online', text: 'Sending' })
+  // Metrics are sending and logs have not started: not "Sending" for the install as a whole.
+  assert.deepEqual(exportSummary(['resourceUsage', 'systemLogs'], d([route({})])), { kind: 'starting', text: 'Partly sending' })
   // Metrics are sending but logs are failing: the row says the worse of the two.
   assert.deepEqual(exportSummary(['resourceUsage', 'systemLogs'], d([route({}), route({ signal: 'logs', state: 'failing', failed: 3 })])), { kind: 'offline', text: 'Failing' })
 })

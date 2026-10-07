@@ -73,11 +73,13 @@ describe('ProcessStep', () => {
     expect(screen.getByTestId('t-tag-count')).toHaveTextContent('8 of 8')
   })
 
-  test('debug output starts as count-only; full content warns about secrets and the feedback loop; off switches it off', async () => {
+  test('debug output starts off (nobody asked for it); count-only is a choice, full content warns about secrets and the feedback loop', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
-    expect(screen.getByTestId('t-debug-basic')).toBeChecked()
+    expect(screen.getByTestId('t-debug-off')).toBeChecked()
     expect(screen.queryByTestId('t-debug-warning')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('t-debug-basic'))
+    expect(latest.debugVerbosity).toBe('basic')
     await user.click(screen.getByTestId('t-debug-detailed'))
     expect(latest.debugVerbosity).toBe('detailed')
     expect(screen.getByTestId('t-debug-warning')).toHaveTextContent('feed straight back')
@@ -96,5 +98,16 @@ describe('ProcessStep', () => {
     unmount()
     render(<Wrapper initial={{ ...emptyTelemetry, traces: true }} />)
     expect(screen.getByTestId('t-traces-sampling')).toBeInTheDocument()
+  })
+
+  test('emptying the sampling field does not silently become 0 (every trace dropped): it is a problem until a number is typed', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper initial={{ ...emptyTelemetry, traces: true }} />)
+    const input = screen.getByTestId('t-traces-sampling') as HTMLInputElement
+    await user.clear(input)
+    expect(input.value).toBe('')
+    expect(Number.isNaN(latest.tracesSamplingPercent)).toBe(true)
+    await user.type(input, '25')
+    expect(latest.tracesSamplingPercent).toBe(25)
   })
 })

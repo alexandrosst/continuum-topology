@@ -38,11 +38,11 @@ import {
   type Severity,
 } from '@/lib/consent'
 import { clearDraft, loadDraft, saveDraft } from '@/lib/draftStore'
-import { telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
+import { keptSummary, telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
 import { receiverAuthOf } from '@/lib/operatorHealth'
 import { explainIntentError, fragmentEndpoint, generateOperatorCommands, operatorCommandBlock, operatorCommandDraft, operatorTargets } from '@/lib/operatorIntent'
 import { TONE_CLASS } from '@/lib/provenance'
-import type { Agent, AccessTier, ReceiverAuth } from '@/lib/types'
+import type { Agent, AccessTier, ReceiverAuth, TelemetryIntent } from '@/lib/types'
 import { useOperators } from '@/lib/useOperators'
 import { useConn, useServer } from '@/store/server'
 import { chainCommands } from '@/lib/shellChain'
@@ -396,7 +396,17 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
  * command - nothing here is pushed live, because telemetry is Helm-values-only in this chart, exactly like
  * the access-tier ceiling. There is no save button: the cluster's owner runs the command themselves.
  */
-export function TelemetryPanel({
+export function TelemetryPanel(props: TelemetryPanelProps) {
+  // Everything below is state of ONE agent's draft, in ONE organisation: a panel that is handed another agent (the standalone wizard
+  // picks one, a row re-renders for a different one) or whose organisation was switched must start over, not carry the draft, the
+  // generated operator command and the "touched" flag of the last.
+  const org = useConn().org
+  return <TelemetryPanelBody key={`${props.agentId ?? ''}|${org ?? ''}`} {...props} />
+}
+
+type TelemetryPanelProps = Parameters<typeof TelemetryPanelBody>[0]
+
+function TelemetryPanelBody({
   diagnostics: d,
   install,
   agentId,
@@ -438,8 +448,12 @@ export function TelemetryPanel({
   useEffect(() => {
     void reloadInfo()
   }, [reloadInfo])
-  // What the draft was started from: a saved draft is only offered back against the same install (see draftStore).
-  const basis = installed.join(',')
+  // What the draft was started from: a saved draft is only offered back against the same install (see draftStore). The reported
+  // configuration is part of it - a draft restored against a destination or source that has since changed would "keep as installed" what
+  // is no longer there.
+  const config = d?.installedTelemetryConfig
+  const configKey = JSON.stringify(config ?? null)
+  const basis = `${installed.join(',')}|${configKey}`
   const [restored, setRestored] = useState<TelemetryInput | null>(() => (agentId ? loadDraft(agentId, basis) : null))
   const [open, setOpen] = useState(() => !!initialScope || !!initialDestination || restored !== null)
   // Seeded from what the agent actually reports running, not a blank form: withTelemetry states every
@@ -448,11 +462,23 @@ export function TelemetryPanel({
   // agent's installedTelemetryConfig (destination, redaction/resourcedetection/traces-sampling, energy/
   // accelerators source) seeds those same fields too, when the agent is new enough to report it - see
   // seedTelemetryFromInstalled's own doc comment for exactly which fields that covers.
-  const [draft, setDraft] = useState<TelemetryInput>(() => restored ?? seedTelemetryFromInstalled(installed, d?.installedTelemetryConfig))
   // The agent's active telemetry intent fills in what its self-report leaves out (the scope and destination it was granted), so that
   // reopening does not start from a draft that reads as "everything, nowhere". It arrives after the first paint and only replaces a draft
   // nobody has touched yet.
+  const [intent, setIntent] = useState<TelemetryIntent | undefined>(undefined)
+  const [draft, setDraft] = useState<TelemetryInput>(() => restored ?? seedTelemetryFromInstalled(installed, config))
   const touched = useRef(restored !== null)
+  // What the install reports can arrive after this mounted (the first poll has not answered yet, or a newer report follows an applied
+  // command): a draft nobody has edited follows it. Without this a panel opened before the report shows "Installed now: Kepler" above a blank
+  // draft whose command would turn Kepler off, and one left open after a command was applied keeps stating the old install's kept values.
+  const seedKey = basis + '|' + (intent?.id ?? '')
+  const seededKey = useRef(seedKey)
+  useEffect(() => {
+    if (seededKey.current === seedKey) return
+    seededKey.current = seedKey
+    if (!touched.current) setDraft(seedTelemetryFromInstalled(installed, config, intent))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedKey])
   const edit = (v: TelemetryInput) => {
     touched.current = true
     setDraft(v)
@@ -462,7 +488,7 @@ export function TelemetryPanel({
     if (agentId) clearDraft(agentId)
     touched.current = false
     setRestored(null)
-    setDraft(seedTelemetryFromInstalled(installed, d?.installedTelemetryConfig))
+    setDraft(seedTelemetryFromInstalled(installed, config, intent))
   }
   const measurementsOn = measurementsRunning(d)
   const changes = useMemo(() => describeTelemetryChanges(installed, d?.installedTelemetryConfig, draft), [installed, d?.installedTelemetryConfig, draft])
@@ -479,7 +505,8 @@ export function TelemetryPanel({
       .listTelemetryIntents(conn, agentId)
       .then((intents) => {
         const active = intents.find((i) => i.status === 'active')
-        if (!cancelled && active && !touched.current) setDraft(seedTelemetryFromInstalled(installed, d?.installedTelemetryConfig, active))
+        if (!cancelled) setIntent(active) // the effect above re-seeds a draft nobody has touched
+
       })
       .catch(() => undefined) // a seed, not a requirement: without it the draft is what the agent reports
     return () => {
@@ -488,16 +515,20 @@ export function TelemetryPanel({
     // conn's identifying fields, not the object: see GuidedWizard's own operator fetch. The seed is read once per agent, not on every report.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conn.url, conn.org, agentId])
+  // Whether the install has telemetry for the command to clear (a restored draft from before this was recorded has no such field).
+  const hadTelemetry = draft.hadTelemetry || installed.length > 0 || !!config
+  const turningOff = !telemetryActive(draft) && hadTelemetry
+  const problems = telemetryActive(draft) ? telemetryProblems(draft, measurementsOn) : []
   const command = useMemo(() => {
     // Who this belongs to is stamped on everything it emits, whatever the destination: the signed-in
     // organisation and this agent's cluster, added here rather than asked for in the wizard.
-    const stamped = { ...draft, resourceOrgId: conn.org ?? '', resourceClusterId: clusterId ?? '' }
+    const stamped = { ...draft, hadTelemetry: hadTelemetry, resourceOrgId: conn.org ?? '', resourceClusterId: clusterId ?? '' }
     const upgrade = telemetryUpgradeCommand(install, stamped, measurementsOn, { namespace: target?.namespace, release: target?.release })
     // One block to paste, not two: the Secret the credential flags name is created first, and a failure
     // there (credential variable unset) stops everything before anything is upgraded.
     const secret = telemetrySecretCommand(stamped, measurementsOn, { namespace: target?.namespace, release: target?.release })
     return secret ? chainCommands([secret, upgrade]) : upgrade
-  }, [install, draft, measurementsOn, conn.org, clusterId, target?.namespace, target?.release])
+  }, [install, draft, hadTelemetry, measurementsOn, conn.org, clusterId, target?.namespace, target?.release])
 
   // A regional operator destination: its receiver wants a client certificate only the server can issue, so
   // there is no ready command - only an explicit "Generate" that asks the server for one (and issues a new
@@ -657,9 +688,17 @@ export function TelemetryPanel({
           )}
         </RunStep>
       )}
-      <RunStep n={needsCredential ? 2 : 1} title="Run the command in that cluster">
+      <RunStep n={needsCredential ? 2 : 1} title={turningOff ? 'Run the command in that cluster to turn all telemetry off' : 'Run the command in that cluster'}>
         <p>The cluster&apos;s owner runs this. It changes only the telemetry settings and keeps everything else in the release as it is.</p>
-        <CopyCommand text={command} />
+        {problems.length > 0 ? (
+          // Without a complete draft the builder returns the bare upgrade, which changes nothing: showing it as "the command" would let it be copied and run.
+          <p role="status" className="mt-1 text-warn" data-testid={`${p}-command-blocked`}>
+            There is no command yet: {problems[0]}
+            {problems.length > 1 ? ` (and ${problems.length - 1} more)` : ''}.
+          </p>
+        ) : (
+          <CopyCommand text={command} />
+        )}
       </RunStep>
     </ol>
   )
@@ -675,13 +714,15 @@ export function TelemetryPanel({
       agentId={agentId}
       clusterId={clusterId}
       runSection={
-        telemetryActive(draft) ? (
+        telemetryActive(draft) || turningOff ? (
           <div className="mt-3 space-y-3" data-testid={`${p}-run`}>
-            <ChangeSummary changes={changes} installed={installed.length > 0} testId={`${p}-changes`} />
-            {targets.length > 0 ? operatorSection : commandSection}
-            <p className="text-xs text-nb-500" data-testid={`${p}-run-watch`}>
-              Once it is applied, watch <span className="text-nb-300">Is data arriving?</span> above: each signal type starts at Waiting for data and changes to Sending when the first data goes out, usually within a minute or two.
-            </p>
+            <ChangeSummary changes={changes} installed={installed.length > 0} kept={hadTelemetry ? keptSummary(draft) : []} testId={`${p}-changes`} />
+            {targets.length > 0 && !turningOff ? operatorSection : commandSection}
+            {!turningOff && (
+              <p className="text-xs text-nb-500" data-testid={`${p}-run-watch`}>
+                Once it is applied, watch <span className="text-nb-300">Is data arriving?</span> above: each signal type starts at Waiting for data and changes to Sending when the first data goes out, usually within a minute or two.
+              </p>
+            )}
           </div>
         ) : undefined
       }
