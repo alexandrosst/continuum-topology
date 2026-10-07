@@ -55,12 +55,7 @@ spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       {{- end }}
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        runAsGroup: 65532
-        fsGroup: 65532   # lets the non-root probe read the mounted secret
-        seccompProfile: {type: RuntimeDefault}
+      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" true) | nindent 8 }}   # fsGroup lets the non-root probe read the mounted secret
       containers:
         - name: probe
           image: {{ include "agent.image" . | quote }}

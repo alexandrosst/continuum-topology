@@ -25,18 +25,34 @@ metadata:
   labels: {{- include "agent.labels" . | nindent 4 }}
 rules:
   {{- if include "agent.telemetryK8sAttrsEnabled" . }}
-  # k8sattributes processor: tags every collected signal with the pod/namespace/node it came from.
+  # k8sattributes processor: tags every collected signal with the pod's namespace, name, uid, node and workload. As
+  # configured here (metadata only, no labels or annotations, no *.uid) it keeps one informer, on Pods, filtered to the
+  # node on the host collector: the namespace and the node name come from the pod object itself and the workload names
+  # from its owner references, so it needs no permission on namespaces, nodes or replicasets (the processor's README
+  # lists those only for k8s.deployment.uid, k8s.node.uid and label/annotation extraction). The cluster-state rule below
+  # grants namespaces and nodes on its own, for the k8sclusterreceiver that does read them.
   - apiGroups: [""]
-    resources: ["pods", "namespaces", "nodes"]
+    resources: ["pods"]
     verbs: ["get", "list", "watch"]
   {{- end }}
   {{- if or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled }}
+  {{- if .Values.telemetry.kubelet.viaAPIServer }}
+  # kubeletstatsreceiver, telemetry.kubelet.viaAPIServer: each host collector asks the API server to reach its node's
+  # kubelet (GET /api/v1/nodes/<node>/proxy/stats/summary), and the API server authorizes that as nodes/proxy. Kubernetes
+  # documents this permission as NOT read-only: it reaches every kubelet API, including websocket endpoints that run
+  # commands in any container on the node (kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/). It is
+  # what this opt-in costs; the default below does not need it.
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]
+    verbs: ["get"]
+  {{- else }}
   # kubeletstatsreceiver: per-container/pod resource usage and pod lifecycle/volume metrics, read from each
-  # node's own kubelet (:10250/stats, :10250/pods), one node at a time via the DaemonSet below - never
+  # node's own kubelet (:10250/stats/summary), one node at a time via the DaemonSet below - never
   # proxied through the API server, so this needs no nodes/proxy permission, only nodes/stats.
   - apiGroups: [""]
     resources: ["nodes/stats"]
     verbs: ["get"]
+  {{- end }}
   {{- end }}
   {{- if .Values.telemetry.kubernetesState.metrics.enabled }}
   # k8sclusterreceiver: pod/deployment/replica status and counts, cluster-wide. Read-only, the same
@@ -68,4 +84,56 @@ metadata:
   labels: {{- include "agent.labels" . | nindent 4 }}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ include "agent.name" . }}-telemetry}
 subjects: [{kind: ServiceAccount, name: {{ include "agent.name" . }}-telemetry, namespace: {{ .Release.Namespace }}}]
+{{- end }}
+{{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
+---
+# Kepler's own identity, and nothing else's: it is a privileged, hostPID third-party pod, so it must not share a
+# token with the collectors (which hold more than it needs), and the collectors must not get anything from it.
+# Kepler watches the pods on its own node to turn a container ID into pod/container/namespace names - without this,
+# every container is reported as "system_processes" - so the only permission it holds is read access to pods
+# (upstream's own release-0.7 manifest also grants nodes/metrics, nodes/proxy and nodes/stats, which only its optional
+# kubelet mode, -apiserver=false, uses; v0.10+'s own manifest grants nodes get/list/watch and nodes/proxy get for its
+# DEFAULT kubelet pod informer. This chart runs neither that way: Kubernetes documents get on nodes/proxy as not
+# read-only - it authorizes running commands in any container of the node - and v0.10+ is configured for its
+# apiserver pod informer, which needs pods only.) Like the collectors' ServiceAccount above, the
+# token is mounted only into the pod that needs it, explicitly.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "agent.name" . }}-kepler
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "agent.name" . }}-kepler
+  labels: {{- include "agent.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "agent.name" . }}-kepler-{{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ include "agent.name" . }}-kepler}
+subjects: [{kind: ServiceAccount, name: {{ include "agent.name" . }}-kepler, namespace: {{ .Release.Namespace }}}]
+{{- end }}
+{{- if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
+---
+# dcgm-exporter's own identity, with no token and no permission at all (no Role, no ClusterRole): it reads GPU hardware and the
+# kubelet's pod-resources socket, never the Kubernetes API. It exists so that a policy that gates privileged pods per
+# ServiceAccount can name this one pod instead of the namespace's "default" account, which every other pod without a
+# ServiceAccount would then share.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "agent.name" . }}-dcgm
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+automountServiceAccountToken: false
 {{- end }}

@@ -65,12 +65,13 @@ func TestTelemetryOpampOffByDefaultOnWhenEnabled(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true")
 	cm := r.configmaps["continuum-telemetry-host-config"]
 	cfg := otelConfig(t, cm.Data)
-	if _, ok := cfg["extensions"]; ok {
-		t.Errorf("extensions present when telemetry.opamp.enabled is false (default): %v", cfg["extensions"])
+	// health_check is always there (the pod's probes ask it); opamp is not.
+	if ext, _ := cfg["extensions"].(map[string]any); len(ext) != 1 || ext["health_check"] == nil {
+		t.Errorf("extensions = %v when telemetry.opamp.enabled is false (default), want only health_check", cfg["extensions"])
 	}
 	if svc, ok := cfg["service"].(map[string]any); ok {
-		if _, ok := svc["extensions"]; ok {
-			t.Errorf("service.extensions present when telemetry.opamp.enabled is false (default): %v", svc["extensions"])
+		if exts, _ := svc["extensions"].([]any); len(exts) != 1 || exts[0] != "health_check" {
+			t.Errorf("service.extensions = %v when telemetry.opamp.enabled is false (default), want [health_check]", svc["extensions"])
 		}
 	}
 
@@ -93,8 +94,8 @@ func TestTelemetryOpampOffByDefaultOnWhenEnabled(t *testing.T) {
 	}
 	svc, _ := cfg["service"].(map[string]any)
 	exts, _ := svc["extensions"].([]any)
-	if len(exts) != 1 || exts[0] != "opamp" {
-		t.Errorf("service.extensions = %v, want [opamp]", svc["extensions"])
+	if len(exts) != 2 || exts[0] != "health_check" || exts[1] != "opamp" {
+		t.Errorf("service.extensions = %v, want [health_check opamp]", svc["extensions"])
 	}
 }
 
@@ -166,8 +167,16 @@ func TestTelemetryPerWorkloadResourcesOverrideAndFallBack(t *testing.T) {
 	if hostReq.Cpu().String() != "20m" {
 		t.Errorf("host collector should fall back to telemetry.resources (20m), got %v", hostReq)
 	}
-	if keplerReq.Cpu().String() != "20m" {
-		t.Errorf("kepler should fall back to telemetry.resources (20m), got %v", keplerReq)
+	// Kepler has a profile of its own (upstream's manifest asks for 400Mi / 100m; the collectors' shared 64Mi / 20m is far
+	// below what it needs) - it falls back to the shared default only when its own is emptied.
+	if keplerReq.Cpu().String() != "100m" || keplerReq.Memory().String() != "400Mi" {
+		t.Errorf("kepler default requests = %v, want its own 100m / 400Mi", keplerReq)
+	}
+	r = render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.energy.metrics.enabled=true",
+		"--set", "telemetry.energy.metrics.source=bundle-kepler", "--set", "telemetry.energy.metrics.resources=null")
+	if got := r.daemonsets["continuum-telemetry-kepler"].Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().String(); got != "100m" {
+		// null removes the key in Helm; agent.telemetryDefaults then restores the chart's own default for it.
+		t.Errorf("kepler with its own resources unset should get the chart default (100m), got %v", got)
 	}
 
 	// Override: each workload gets its own, and they don't leak into each other.
@@ -320,7 +329,9 @@ func TestTelemetryProcessorOrderMatchesSpec(t *testing.T) {
 		t.Fatal("traces pipeline missing")
 	}
 	got, _ := traces["processors"].([]any)
-	want := []any{"memory_limiter", "k8sattributes", "resourcedetection", "redaction", "filter/scope", "probabilistic_sampler", "resource/continuum", "batch"}
+	// The scope filter right after k8sattributes: redaction and detection then only ever work on what is kept, and no
+	// redaction pattern can alter the namespace the scope reads.
+	want := []any{"memory_limiter", "k8sattributes", "filter/scope", "resourcedetection", "redaction", "probabilistic_sampler", "resource/continuum", "batch"}
 	if len(got) != len(want) {
 		t.Fatalf("traces processors = %v, want %v", got, want)
 	}
@@ -393,8 +404,8 @@ func TestTelemetryReceiverAuthWiresExtensionAndOtlpAuth(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.applicationMetrics.metrics.enabled=true")
 	cm := r.configmaps["continuum-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
-	if _, ok := cfg["extensions"]; ok {
-		t.Errorf("extensions present when telemetry.receiver.auth.enabled is false (default): %v", cfg["extensions"])
+	if ext, _ := cfg["extensions"].(map[string]any); ext["bearertokenauth"] != nil {
+		t.Errorf("bearertokenauth present when telemetry.receiver.auth.enabled is false (default): %v", cfg["extensions"])
 	}
 
 	r = render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.applicationMetrics.metrics.enabled=true",
@@ -778,7 +789,7 @@ func TestTelemetryAcceleratorsApplyScopeOffByDefaultRendersIdenticalConfig(t *te
 	// exactly as it did before this feature existed - no transform, no new filter, no new env vars.
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm",
-		"--set", "telemetry.scope.namespaces[0]=shop")
+		"--set", "telemetry.scope.namespaces[0]=shop", "--set", "telemetry.accelerators.metrics.applyScope=false")
 	cm := r.configmaps["continuum-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
@@ -787,12 +798,18 @@ func TestTelemetryAcceleratorsApplyScopeOffByDefaultRendersIdenticalConfig(t *te
 			t.Errorf("%s should not render when applyScope is off (default)", unwanted)
 		}
 	}
+	if _, ok := procs["transform/dcgm_node"]; !ok {
+		t.Error("transform/dcgm_node (takes the exporter pod's own identity off the GPU data) renders whenever dcgm is bundled")
+	}
 	ds, ok := r.daemonsets["continuum-telemetry-dcgm"]
 	if !ok {
 		t.Fatal("no continuum-telemetry-dcgm DaemonSet rendered")
 	}
-	if env := ds.Spec.Template.Spec.Containers[0].Env; len(env) != 0 {
-		t.Errorf("dcgm-exporter should have no env vars when applyScope is off, got %+v", env)
+	// DCGM_EXPORTER_LISTEN and NODE_NAME are always set (rv2 D); only the pod-attribution switch belongs to applyScope.
+	for _, e := range ds.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "DCGM_EXPORTER_KUBERNETES" {
+			t.Errorf("dcgm-exporter must not enable pod attribution when applyScope is off, got %+v", e)
+		}
 	}
 }
 
@@ -806,12 +823,15 @@ func TestTelemetryAcceleratorsApplyScopeAddsTransformAndScopedFilter(t *testing.
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
 
-	if _, ok := procs["transform/dcgm_pod"]; !ok {
-		t.Fatalf("transform/dcgm_pod missing when applyScope is on: %v", procs)
+	if _, ok := procs["transform/dcgm_pod"]; ok {
+		t.Errorf("transform/dcgm_pod promoted a data point's namespace to the node's one shared resource (last pod wins); it must be gone: %v", procs)
+	}
+	if _, ok := procs["transform/dcgm_node"]; !ok {
+		t.Fatalf("transform/dcgm_node missing: %v", procs)
 	}
 	// Kepler's own transform must be untouched - accelerators' scoping must not interfere with it.
 	if _, ok := procs["transform/kepler_node"]; !ok {
-		t.Errorf("transform/kepler_node should still render alongside transform/dcgm_pod")
+		t.Errorf("transform/kepler_node should still render alongside transform/dcgm_node")
 	}
 
 	accFilter, ok := procs["filter/scope_accelerators"].(map[string]any)
@@ -826,6 +846,9 @@ func TestTelemetryAcceleratorsApplyScopeAddsTransformAndScopedFilter(t *testing.
 	if !strings.Contains(cond, `"^(shop)$"`) {
 		t.Errorf("filter/scope_accelerators should use the global scope (shop), got %q", cond)
 	}
+	if !strings.Contains(cond, `datapoint.attributes["namespace"]`) || strings.Contains(cond, `resource.attributes["k8s.namespace.name"]`) {
+		t.Errorf("filter/scope_accelerators must read each data point's own namespace label, not the shared resource's, got %q", cond)
+	}
 	if !strings.Contains(cond, `service.name"] == "dcgm-exporter"`) {
 		t.Errorf("filter/scope_accelerators must gate on service.name == dcgm-exporter so it never touches Kepler's records, got %q", cond)
 	}
@@ -834,8 +857,8 @@ func TestTelemetryAcceleratorsApplyScopeAddsTransformAndScopedFilter(t *testing.
 	pipelines, _ := svc["pipelines"].(map[string]any)
 	infra, _ := pipelines["metrics/infra"].(map[string]any)
 	infraProcs, _ := infra["processors"].([]any)
-	if !containsAny(infraProcs, "transform/dcgm_pod") || !containsAny(infraProcs, "filter/scope_accelerators") {
-		t.Errorf("metrics/infra must carry both transform/dcgm_pod and filter/scope_accelerators, got %v", infraProcs)
+	if !containsAny(infraProcs, "transform/dcgm_node") || !containsAny(infraProcs, "filter/scope_accelerators") {
+		t.Errorf("metrics/infra must carry both transform/dcgm_node and filter/scope_accelerators, got %v", infraProcs)
 	}
 }
 
@@ -854,8 +877,10 @@ func TestTelemetryAcceleratorsApplyScopeSetsDcgmEnvVars(t *testing.T) {
 	if env["DCGM_EXPORTER_KUBERNETES"] != "true" {
 		t.Errorf("DCGM_EXPORTER_KUBERNETES = %q, want true", env["DCGM_EXPORTER_KUBERNETES"])
 	}
-	if env["DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS"] != "true" {
-		t.Errorf("DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS = %q, want true", env["DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS"])
+	// namespace/pod/container come from the kubelet pod-resources mapping (DCGM_EXPORTER_KUBERNETES) alone; this one adds the
+	// pod's own labels as extra metric labels and reads the Kubernetes API, which this pod has no token for.
+	if v, ok := env["DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS"]; ok {
+		t.Errorf("DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS = %q, must not be set", v)
 	}
 }
 
@@ -871,8 +896,8 @@ func TestTelemetryAcceleratorsApplyScopeNoopWithoutGlobalScope(t *testing.T) {
 	if _, ok := procs["filter/scope_accelerators"]; ok {
 		t.Error("filter/scope_accelerators should not render when telemetry.scope is empty")
 	}
-	if _, ok := procs["transform/dcgm_pod"]; !ok {
-		t.Error("transform/dcgm_pod should still render (pod-identity enrichment doesn't depend on scope being set)")
+	if _, ok := procs["transform/dcgm_node"]; !ok {
+		t.Error("transform/dcgm_node should still render (it does not depend on a scope being set)")
 	}
 }
 
@@ -1532,7 +1557,9 @@ func TestKeplerListensOnThePortItDeclaresAndIsNotReadyUntilItDoes(t *testing.T) 
 			bind = e.Value
 		}
 	}
-	if want := fmt.Sprintf("0.0.0.0:%d", port); bind != want {
+	// ":port", not "0.0.0.0:port": Kepler hands it to net/http unchanged, and a 0.0.0.0 bind is IPv4-only (see
+	// telemetry_rv2_K_test.go).
+	if want := fmt.Sprintf(":%d", port); bind != want {
 		t.Errorf("BIND_ADDRESS = %q, want %q (the declared metrics port, which is what gets scraped)", bind, want)
 	}
 	if c.ReadinessProbe == nil || c.ReadinessProbe.TCPSocket == nil {

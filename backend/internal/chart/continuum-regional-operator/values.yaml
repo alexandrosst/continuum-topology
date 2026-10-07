@@ -17,6 +17,13 @@
 
 replicaCount: 1
 
+# With more than one replica a PodDisruptionBudget keeps a node drain from taking them all at once, and an upgrade
+# replaces them one at a time (a single replica is recreated). Not rendered for one replica: a budget of 1
+# available would stop its node from ever being drained.
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
 # How the receiver's Service is reached. ClusterIP (the default) is this cluster only, which is all a regional operator
 # needs while every source cluster is this one. A cluster elsewhere needs LoadBalancer or NodePort, or your own
 # Ingress/Gateway in front of the Service (leave ClusterIP and expose it yourself); Ikhnos's install command sets
@@ -52,22 +59,94 @@ image:
 # Secrets (in the release namespace) that let the cluster pull the image from a private registry.
 imagePullSecrets: []
 
-# Restart the pod when a TLS Secret it mounts changes (the receiver's certificate, a destination's client certificate,
-# the heartbeat CA), so that renewing a certificate and running the install command again takes effect at once. It is
+# One registry for the image: replaces the registry HOST of image.repository and keeps the rest of its path
+# (otel/opentelemetry-collector-contrib -> <registry>/otel/opentelemetry-collector-contrib), the layout an air-gapped mirror or a
+# pull-through cache has. Same meaning as continuum-agent's global.imageRegistry. Empty: image.repository is used as written.
+global:
+  imageRegistry: ""
+
+# Who the pod runs as (runAsNonRoot: true; runAsUser/runAsGroup = runAsUser below).
+podSecurity:
+  runAsUser: 65532
+
+# Service mesh sidecar injection into the pod. disabled (default) labels it sidecar.istio.io/inject="false" and annotates it
+# linkerd.io/inject: disabled, so that a namespace which injects everything does not put a proxy in front of the receiver
+# (which terminates TLS/mTLS itself, receiver.tls) or refuse the pod under Pod Security restricted (the init container needs
+# NET_ADMIN). inherit changes nothing; a key set in podLabels/podAnnotations is never overridden.
+mesh:
+  injection: disabled   # disabled | inherit
+
+# Restart the pod when a Secret it reads changes - a TLS Secret it mounts (the receiver's certificate, a destination's
+# client certificate, the heartbeat CA) or one it reads into an environment variable at start (the receiver's bearer
+# token, a destination's credential header, the heartbeat secret; a running container never sees those change) - so
+# that renewing a certificate or rotating a token and running the install command again takes effect at once. It is
 # a checksum annotation on the pod, computed with Helm's `lookup` at render time. Two limits, both harmless:
 #   - `helm template`, and so Argo CD and Flux, cannot look at the cluster: no checksum is rendered and nothing
-#     restarts. The collector still re-reads the certificate and key every hour (reload_interval) without a restart,
-#     so a renewed certificate is in use within about an hour either way. A new CA (ca.crt) is not re-read: restart the
-#     pod (`kubectl rollout restart`) after replacing one.
+#     restarts. The collector still re-reads the certificate and key at the first new connection after each hour (reload_interval) without a restart,
+#     so a renewed certificate is in use from the first new connection after that, which a long-lived connection delays. A new CA (ca.crt) is not re-read, and neither
+#     is a token: restart the pod (`kubectl rollout restart`) after replacing one.
 #   - Helm fails the render if the account running it may not `get` Secrets in this namespace. Set this to false then.
 rolloutOnSecretChange: true
+
+# Extra environment variables for the collector container, in the usual Kubernetes form, e.g.
+# [{name: SSL_CERT_FILE, value: /etc/ssl/corp-ca.pem}]. They come last, so one named like a variable this chart sets
+# (HTTPS_PROXY, NO_PROXY, GOMEMLIMIT, ...) replaces it - the container runtime keeps the last of two entries with the same name.
+extraEnv: []
+
+# dnsConfig of the pod (Kubernetes PodDNSConfig). A name with fewer dots than `ndots` (5 by default, so "otlp.example.com"
+# is one) is tried against every search domain first (otlp.example.com.<ns>.svc.cluster.local, ...), which costs lookups
+# and, when a search domain has a wildcard record, answers with the wrong host. Either write the destination with a
+# trailing dot (otlp.example.com.:4317; not for a certificate that names the host without it) or lower ndots here:
+# {options: [{name: ndots, value: "2"}]}. Empty (the default): the cluster's own setting.
+# https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-dns-config
+dnsConfig: {}
 
 # Where this operator sends whatever it aggregates: another regional operator's own receiver, or an
 # observability backend directly. Required.
 export:
+  # Reach the destinations (and the heartbeat's Ikhnos server) through an HTTP(S) proxy, for a cluster that gets out only
+  # through one. The exporters read the standard variables: OTLP/HTTP uses HTTPS_PROXY for an https:// URL and HTTP_PROXY for
+  # an http:// one; OTLP/gRPC asks the proxy for a CONNECT tunnel and uses HTTPS_PROXY for every destination, TLS or not
+  # (HTTP_PROXY is never used for gRPC) - so set `httpsProxy` whenever a gRPC destination is behind the proxy, and both
+  # when unsure. The proxy sees the destination's address only: TLS stays end to end (a proxy that terminates TLS makes the
+  # certificate check fail; trust its CA with caSecretName then). NO_PROXY always holds localhost, 127.0.0.1, ::1, .svc and
+  # .cluster.local (a next hop written <name>.<ns>.svc is reached directly, which is how a source cluster's agent reaches
+  # this operator too); `noProxy` is added to that: a destination reached directly, an internal gateway by short name or IP,
+  # a cluster domain other than cluster.local. This pod never talks to the Kubernetes API.
+  # Not in the URL: user:password@ would sit in clear text in the pod spec and in `helm get values`. Put the URL, credentials
+  # included, in a Secret you create under the key HTTPS_PROXY and/or HTTP_PROXY and name it in secretName (HTTPS_PROXY must
+  # be in it; HTTP_PROXY is optional; a plain value here wins over it). Empty (the default): no proxy.
+  # With networkPolicy.egress on, the proxy's address and port belong in allowedEgress instead of the destinations'.
+  proxy:
+    httpProxy: ""
+    httpsProxy: ""
+    noProxy: ""
+    secretName: ""
+  # How long one attempt to send may take before it counts as failed and is retried. Empty: the collector's own default (5s
+  # for gRPC, 30s for HTTP). Raise it on a slow link, where a 3 MiB request (queue.maxRequestBytes) cannot be sent in 5s and
+  # is retried until it is dropped. Applies to every destination.
+  timeout: ""
+  # gRPC only: pings while the connection is idle, so that a NAT gateway, load balancer or proxy that silently drops an idle
+  # connection is noticed within time + timeout, instead of after the operating system gives up on it (about 15 minutes).
+  # Empty `time` (the default) sends none. A server accepts pings no more often than its own policy allows - a stock OTLP/gRPC
+  # receiver, like grpc-go in general, one per 5 minutes - and answers a more frequent client with GOAWAY "too_many_pings"
+  # (an error level line in the log, the connection re-opened, the data still delivered). This chart's own receiver
+  # accepts a ping every 30s; for any other destination check its policy before setting this. At least 10s.
+  keepalive:
+    time: ""
+    timeout: 10s
+  # An endpoint that cannot work is refused when the chart is rendered, whatever this says: the wrong shape for its protocol
+  # (a path, or no port, on a gRPC endpoint), a scheme that contradicts tls.insecure, a client certificate with TLS off.
+  # This one is a guess, so it can be turned off: the other protocol's conventional port (:4318 with grpc, :4317 with http)
+  # - the collector answers a gRPC client on the HTTP port with an error that is dropped for good. Set it to false for a
+  # destination that really serves gRPC on 4318 or HTTP on 4317, e.g. behind a port mapping.
+  checkPorts: true
   otlp:
-    endpoint: ""    # host:port of the next hop, e.g. an observability backend's OTLP endpoint
-    protocol: grpc  # grpc | http
+    endpoint: ""    # grpc: host:port, no path (api.example.com:443, [fd00::5]:4317; a leading https:// or dns:/// is accepted).
+                    # http: host[:port] or a base URL (https://otlp.example.com:4318, https://gw.example.net/otlp): the collector
+                    # appends /v1/metrics, /v1/logs or /v1/traces itself, so do not write them (a route can: see fullUrl below).
+                    # The next hop, e.g. an observability backend's OTLP endpoint.
+    protocol: grpc  # grpc | http. The conventional ports are 4317 for grpc and 4318 for http; a backend on 443 says which.
     tls:
       insecure: false
       # To trust a CA the image does not already know (a private one), name a Secret in this release's namespace,
@@ -95,16 +174,28 @@ export:
       secretName: ""
       secretKey: token
   # What every exporter (the default and each route) does while its destination is unreachable. Retrying for
-  # retryMaxElapsedTime and holding up to `size` batches meanwhile is what makes a short outage of the next hop
-  # lossless; once the queue is full the exporter refuses and the backpressure reaches the senders through
-  # memory_limiter, so nothing grows without bound. One entry is one batch (up to processors.batch.sendBatchMaxSize
-  # items), so the memory a full queue can hold is size times a batch: raise `size` together with resources.limits.
-  # `persistent` writes the queue to an emptyDir as well, so it survives a container restart (not a rescheduled pod,
-  # and it counts against the node's ephemeral storage up to sizeLimit). Off by default: the volume is one more thing
-  # to size, and a memory queue is enough when the next hop is in the same network.
+  # retryMaxElapsedTime and holding up to `size` requests meanwhile is what makes a short outage of the next hop
+  # lossless. Once the queue is full the exporter makes the batch processor wait (block_on_overflow), so the
+  # receiver stops answering and the senders keep their data in their own queues and see the failure themselves; the
+  # collector's default would instead throw the batch away while the sender had already been told 200. After
+  # retryMaxElapsedTime a request is dropped, and so is one the destination refuses for good (a wrong CA, a bad
+  # token, an http exporter on a gRPC port: logged at error level, counted in otelcol_exporter_send_failed_*).
+  # retryMaxElapsedTime is at least 30s (the retry backoff's longest wait) or 0s for "until it answers".
+  # maxRequestBytes cuts a request into pieces of at most that many serialized bytes before it is sent, because the
+  # batch processor only counts items (processors.batch.sendBatchMaxSize) and 4096 log records of 2 KiB are 8 MiB, past
+  # the 4 MiB a collector's OTLP receiver (and Loki, Tempo) accepts: such a batch is refused whole and dropped. Keep it
+  # under the smallest limit on the way (3 MiB leaves room for the headers of every piece); 0 turns the cut off. One
+  # record bigger than this cannot be cut and is refused by a destination with a smaller limit.
+  # A request is held in memory (so a full queue can hold size times maxRequestBytes per signal type: raise `size`
+  # together with resources.limits.memory, memory_limiter refuses data before the container is killed) or, with
+  # `persistent`, on an emptyDir as well, which survives a container restart (not a rescheduled pod) and counts against
+  # the node's ephemeral storage up to sizeLimit: a full queue of all three signal types is 3 x size x maxRequestBytes,
+  # so keep sizeLimit above what you expect to back up. Off by default: the volume is one more thing to size, and a
+  # memory queue is enough when the next hop is in the same network.
   queue:
     size: 256
     retryMaxElapsedTime: 30m
+    maxRequestBytes: 3145728
     persistent:
       enabled: false
       sizeLimit: 1Gi
@@ -114,10 +205,15 @@ export:
   # `otlp.endpoint` can stay empty. An http endpoint may omit the scheme (tls.insecure picks http or https); the
   # collector appends /v1/metrics, /v1/logs or /v1/traces to it. Leave every endpoint empty (the default) and
   # nothing changes: everything goes to `otlp`.
+  # fullUrl (protocol http only): the endpoint is the whole URL this signal is posted to, nothing is appended - for a
+  # backend whose path is not <base>/v1/<signal> (Splunk Observability: https://ingest.<realm>.observability.splunkcloud.com/v2/trace/otlp
+  # for traces). An endpoint that already ends in /v1/<this signal> is read that way without it, since appending the path a
+  # second time (…/v1/traces/v1/traces) is a 404 that drops everything.
   routes:
     metrics: &route
       endpoint: ""
       protocol: grpc
+      fullUrl: false
       tls:
         insecure: false
         caSecretName: ""
@@ -234,12 +330,20 @@ health:
     timeoutSeconds: 5
     failureThreshold: 2
 
-# The collector's own metrics about itself (queue depth, dropped items, process memory) - separate from
-# whatever telemetry this operator relays. A standard OTel Collector service.telemetry.metrics Prometheus
-# reader. Off by default: it is one more open port on every operator pod, worth turning on once something
-# is actually set up to scrape it.
+# The collector's own metrics about itself (queue depth, failed and refused exports, process memory) - separate
+# from whatever telemetry this operator relays. A standard OTel Collector service.telemetry.metrics Prometheus
+# reader on the pod's own address. ON by default, because it is the only way to see that this operator cannot
+# deliver: the health check above reports the process, and in the pinned collector no health setting reports a
+# failing exporter (measured), so a destination that is down, a CA that does not match or a token that is refused
+# leaves the pod Ready. Look at:
+#   otelcol_exporter_queue_size           above 0 and staying there: it cannot send (it is retrying)
+#   otelcol_exporter_send_failed_*        increasing: data was given up on (retry window over, or refused for good)
+#   otelcol_exporter_enqueue_failed_*     increasing: the queue was full
+#   otelcol_receiver_refused_*            increasing: it is pushing back on its senders
+# e.g. `kubectl -n <ns> port-forward deploy/<release>-regional-operator 8888` and open http://127.0.0.1:8888/metrics.
+# The port is also on the ClusterIP Service (not on a LoadBalancer or NodePort one). Turn off only if you must close the port.
 selfMetrics:
-  enabled: false
+  enabled: true
   port: 8888
 
 # Heartbeat: OPT-IN, off by default. Everything above and below this block is unchanged by it - with
@@ -313,5 +417,8 @@ networkPolicy:
   egress:
     enabled: false
     allowedEgress: []   # [{cidr, ports}] matching where export.otlp.endpoint actually resolves to
+    # DNS is always allowed to kube-dns/CoreDNS (kube-system), NodeLocal DNSCache
+    # (169.254.20.10). Add other resolver addresses here (e.g. the kube-dns ClusterIP when kube-proxy is in iptables mode with
+    # NodeLocal DNSCache, which then answers for it on the node).
     dnsCIDRs: []
     extraEgress: []

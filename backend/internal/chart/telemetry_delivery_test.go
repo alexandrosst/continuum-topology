@@ -110,8 +110,8 @@ func TestAgentPersistentQueueIsOptInAndUsesAnEmptyDirOnBothCollectors(t *testing
 			t.Fatalf("a queue volume by default")
 		}
 	}
-	if ext := stringsOf(t, sub(t, otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data), "service")["extensions"]); len(ext) != 1 || ext[0] != "opamp" {
-		t.Errorf("default service.extensions = %v, want only opamp", ext)
+	if ext := stringsOf(t, sub(t, otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data), "service")["extensions"]); len(ext) != 2 || ext[0] != "health_check" || ext[1] != "opamp" {
+		t.Errorf("default service.extensions = %v, want health_check (the readiness probe) and opamp, no queue storage", ext)
 	}
 
 	r = render(t, append(append([]string{}, base...), "--set", "telemetry.export.queue.persistent.enabled=true", "--set", "telemetry.export.queue.persistent.sizeLimit=2Gi")...)
@@ -383,7 +383,7 @@ func TestAgentScrapedMetricsCarryTheirPodIdentity(t *testing.T) {
 }
 
 // The cluster collector holds every object in the cluster in memory and terminates every application's OTLP: its
-// default is sized for that, and GOMEMLIMIT follows it. The host collector keeps the shared default.
+// default is sized for that, and GOMEMLIMIT follows it. The host collector keeps the shared default (512Mi).
 func TestAgentClusterCollectorDefaultsAreSizedForTheClusterAndGOMEMLIMITFollows(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.kubernetesState.metrics.enabled=true")...)
 	cl := r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0]
@@ -400,8 +400,8 @@ func TestAgentClusterCollectorDefaultsAreSizedForTheClusterAndGOMEMLIMITFollows(
 		t.Errorf("cluster GOMEMLIMIT = %+v, want 858993459 (80%% of 1Gi)", g)
 	}
 	host := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0]
-	if got := host.Resources.Limits.Memory().String(); got != "256Mi" {
-		t.Errorf("host collector memory limit = %s, want the shared 256Mi", got)
+	if got := host.Resources.Limits.Memory().String(); got != "512Mi" {
+		t.Errorf("host collector memory limit = %s, want the shared 512Mi (sized by measurement: see telemetry.resources in values.yaml)", got)
 	}
 	o := render(t, withTel("--set", "telemetry.kubernetesState.metrics.enabled=true", "--set", "telemetry.clusterCollector.resources.limits.memory=2Gi")...)
 	if got := o.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0].Resources.Limits.Memory().String(); got != "2Gi" {

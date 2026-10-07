@@ -16,18 +16,8 @@ spec:
     matchLabels: {app.kubernetes.io/name: continuum-agent, app.kubernetes.io/instance: {{ .Release.Name }}}
   policyTypes: [Egress]
   egress:
-    # DNS
-    - to:
-        - namespaceSelector:
-            matchLabels: {kubernetes.io/metadata.name: kube-system}
-          podSelector:
-            matchLabels: {k8s-app: kube-dns}
-        {{- range $np.dnsCIDRs }}
-        - ipBlock: {cidr: {{ . | quote }}}
-        {{- end }}
-      ports:
-        - {port: 53, protocol: UDP}
-        - {port: 53, protocol: TCP}
+    # DNS: kube-dns/CoreDNS and NodeLocal DNSCache (169.254.20.10), see agent.dnsEgressRule
+    {{- include "agent.dnsEgressRule" (dict "dnsCIDRs" $np.dnsCIDRs) | nindent 4 }}
     # The Kubernetes API server
     - to:
         {{- range $np.apiServerCIDRs }}

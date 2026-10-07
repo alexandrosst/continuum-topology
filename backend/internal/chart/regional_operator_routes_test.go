@@ -223,7 +223,9 @@ func TestOperatorExportMTLSMountsClientCertificate(t *testing.T) {
 
 func TestOperatorExportMTLSWorksPerRouteOverHTTP(t *testing.T) {
 	c := operatorCollectorConfig(t, append(append([]string{}, fusionRoutes...),
-		"--set", "export.routes.metrics.tls.mtls.enabled=true", "--set", "export.routes.metrics.tls.mtls.secretName=m")...)
+		"--set", "export.routes.metrics.tls.mtls.enabled=true", "--set", "export.routes.metrics.tls.mtls.secretName=m",
+		// A client certificate with TLS off is refused at render time (it would never be used): this route is TLS here.
+		"--set", "export.routes.metrics.tls.insecure=false")...)
 	tls, _ := c.exporters["otlphttp/metrics"]["tls"].(map[string]any)
 	if tls["cert_file"] != "/export-mtls-metrics/tls.crt" {
 		t.Errorf("metrics route tls = %v", tls)

@@ -17,6 +17,43 @@
     },
     "replicaCount": { "type": "integer", "minimum": 1 },
     "rolloutOnSecretChange": { "type": "boolean" },
+    "extraEnv": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "value": { "type": "string" },
+          "valueFrom": { "type": "object" }
+        }
+      }
+    },
+    "dnsConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nameservers": { "type": "array", "items": { "type": "string" } },
+        "searches": { "type": "array", "items": { "type": "string" } },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": { "name": { "type": "string" }, "value": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "maxUnavailable": { "type": "integer", "minimum": 1 }
+      }
+    },
     "image": {
       "type": "object",
       "additionalProperties": false,
@@ -35,16 +72,54 @@
         "properties": { "name": { "type": "string" } }
       }
     },
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "imageRegistry": { "type": "string", "pattern": "^[^\\s]*$" } }
+    },
+    "podSecurity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runAsUser": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+      }
+    },
+    "mesh": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "injection": { "enum": ["disabled", "inherit"] } }
+    },
     "export": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "proxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "httpProxy": { "type": "string", "pattern": "^[^\\s]*$" },
+            "httpsProxy": { "type": "string", "pattern": "^[^\\s]*$" },
+            "noProxy": { "type": "string", "pattern": "^[^\\s]*$" },
+            "secretName": { "type": "string" }
+          }
+        },
+        "timeout": { "type": "string", "pattern": "^([0-9]+(ms|s|m|h))?$" },
+        "keepalive": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "time": { "type": "string", "pattern": "^([0-9]+(ms|s|m|h))?$" },
+            "timeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" }
+          }
+        },
+        "checkPorts": { "type": "boolean" },
         "queue": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "size": { "type": "integer", "minimum": 1 },
             "retryMaxElapsedTime": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+            "maxRequestBytes": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
             "persistent": {
               "type": "object",
               "additionalProperties": false,
@@ -61,6 +136,7 @@
           "properties": {
             "endpoint": { "type": "string" },
             "protocol": { "type": "string", "enum": ["grpc", "http"] },
+            "fullUrl": { "type": "boolean" },
             "tls": {
               "type": "object",
               "additionalProperties": false,

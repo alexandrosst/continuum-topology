@@ -1,0 +1,331 @@
+# The defaults of every value the telemetry templates read, in values.yaml, comments removed. Helm hands a template only the
+# values of the release (and, with `helm upgrade --reuse-values`, the OLD chart's defaults instead of this chart's, so a
+# value added since the install is simply absent); agent.telemetryDefaults (templates/_telemetry.tpl) fills what is absent
+# from here, so a missing block can never reach a template as nil. It must stay equal to the same keys of values.yaml: a
+# test (TestTelemetryDefaultsFileMatchesValues) fails when they differ, and prints the file to commit.
+measurements:
+  enabled: false
+networkPolicy:
+  telemetryEgress:
+    allowedEgress: []
+    apiServerCIDRs: []
+    apiServerPorts: []
+    dnsCIDRs: []
+    enabled: false
+    extraEgress: []
+    kubeletCIDRs: []
+telemetry:
+  accelerators:
+    metrics:
+      affinity: {}
+      applyScope: auto
+      dcgmImage:
+        digest: ''
+        pullPolicy: ''
+        repository: nvcr.io/nvidia/k8s/dcgm-exporter
+        tag: 4.6.0-4.8.3-distroless
+      enabled: false
+      existing:
+        pods:
+          labelSelector: ''
+          namespace: ''
+          port: 9400
+        prometheusEndpoint: ''
+      extraEnv: []
+      hostMounts: []
+      interval: 30s
+      nodeSelector: {}
+      privileged: false
+      resources:
+        limits:
+          memory: 512Mi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+      runtimeClassName: ''
+      source: bundle-dcgm
+      tolerations:
+      - operator: Exists
+  applicationLogs:
+    logs:
+      enabled: false
+      scope:
+        exclude: []
+        namespaces: []
+        workloads: []
+      source: builtin
+  applicationMetrics:
+    metrics:
+      enabled: false
+      scope:
+        exclude: []
+        namespaces: []
+        workloads: []
+      scrapeTargets: []
+      source: builtin
+  clusterCollector:
+    autoSize:
+      enabled: true
+      nodes: 0
+    resources:
+      limits:
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    shareWatches: true
+  collectorImage:
+    digest: ''
+    pullPolicy: ''
+    repository: otel/opentelemetry-collector-contrib
+    tag: 0.160.0
+  debug:
+    verbosity: ''
+  dnsConfig: {}
+  energy:
+    metrics:
+      applyScope: auto
+      enabled: false
+      engine: ebpf
+      existing:
+        prometheusEndpoint: ''
+      keplerImage:
+        digest: ''
+        pullPolicy: ''
+        repository: quay.io/sustainable_computing_io/kepler
+        tag: release-0.7.12
+      nodeChecks: true
+      nodeSelector:
+        kubernetes.io/os: linux
+      powercap:
+        metricLevels:
+        - node
+        - pod
+      powercapImage:
+        digest: ''
+        pullPolicy: ''
+        repository: quay.io/sustainable_computing_io/kepler
+        tag: v0.12.0
+      resources:
+        limits:
+          memory: 1Gi
+        requests:
+          cpu: 100m
+          memory: 400Mi
+      source: bundle-kepler
+      tolerations:
+      - operator: Exists
+  export:
+    checkPorts: true
+    keepalive:
+      time: ''
+      timeout: 10s
+    otlp:
+      auth:
+        headerName: Authorization
+        secretKey: token
+        secretName: ''
+      endpoint: ''
+      protocol: grpc
+      tls:
+        caFile: ''
+        caSecretName: ''
+        insecure: false
+        mtls:
+          enabled: false
+          secretName: ''
+        serverName: ''
+    proxy:
+      httpProxy: ''
+      httpsProxy: ''
+      noProxy: ''
+      secretName: ''
+    queue:
+      maxRequestBytes: 3145728
+      persistent:
+        enabled: false
+        sizeLimit: 1Gi
+      retryMaxElapsedTime: 30m
+      size: 256
+    routes:
+      logs:
+        auth:
+          headerName: Authorization
+          secretKey: token
+          secretName: ''
+        endpoint: ''
+        fullUrl: false
+        protocol: grpc
+        tls:
+          caFile: ''
+          caSecretName: ''
+          insecure: false
+          mtls:
+            enabled: false
+            secretName: ''
+          serverName: ''
+      metrics:
+        auth:
+          headerName: Authorization
+          secretKey: token
+          secretName: ''
+        endpoint: ''
+        fullUrl: false
+        protocol: grpc
+        tls:
+          caFile: ''
+          caSecretName: ''
+          insecure: false
+          mtls:
+            enabled: false
+            secretName: ''
+          serverName: ''
+      traces:
+        auth:
+          headerName: Authorization
+          secretKey: token
+          secretName: ''
+        endpoint: ''
+        fullUrl: false
+        protocol: grpc
+        tls:
+          caFile: ''
+          caSecretName: ''
+          insecure: false
+          mtls:
+            enabled: false
+            secretName: ''
+          serverName: ''
+    timeout: ''
+  extraEnv: []
+  health:
+    enabled: true
+    networkPolicy:
+      enabled: true
+    port: 8888
+  hostCollector:
+    affinity: {}
+    nodeSelector:
+      kubernetes.io/os: linux
+    resources: {}
+    rootMountPropagation: ''
+    tolerations:
+    - operator: Exists
+  kubelet:
+    address: ip
+    ca:
+      configMap: ''
+      key: ca.crt
+      secret: ''
+    insecureSkipVerify: false
+    viaAPIServer: false
+  kubernetesEvents:
+    logs:
+      enabled: false
+      source: builtin
+  kubernetesState:
+    metrics:
+      enabled: false
+      interval: 30s
+      source: builtin
+  networkLatency:
+    metrics:
+      enabled: false
+      source: builtin
+  nodeRuntime:
+    metrics:
+      enabled: false
+      interval: 30s
+      source: builtin
+  opamp:
+    enabled: false
+    server:
+      endpoint: ''
+      headers: {}
+      tls:
+        caFile: ''
+        insecure: false
+  processors:
+    batch:
+      sendBatchMaxSize: 4096
+      sendBatchSize: 2048
+      timeout: 5s
+    extraProcessorNames: []
+    extraProcessors: {}
+    extraTracesProcessorNames: []
+    memoryLimiter:
+      checkInterval: 1s
+      limitPercentage: 80
+      spikeLimitPercentage: 20
+    redaction:
+      blockedKeyPatterns:
+      - .*token.*
+      - .*password.*
+      - .*secret.*
+      - .*api[_-]?key.*
+      - .*authorization.*
+      - .*cookie.*
+      enabled: true
+    resourceDetection:
+      detectors:
+      - env
+      - system
+      enabled: false
+      timeout: 5s
+    tracesSampling:
+      percentage: 100
+  receiver:
+    auth:
+      enabled: false
+      secretKey: token
+      secretName: ''
+    networkPolicy:
+      allowedIngress: []
+      enabled: false
+    tls:
+      clientCAKey: ''
+      secretName: ''
+  resource:
+    attributes: []
+    clusterId: ''
+    intentId: ''
+    orgId: ''
+    scope: ''
+  resourceUsage:
+    metrics:
+      enabled: false
+      hostFilesystem: false
+      interval: 30s
+      source: builtin
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 20m
+      memory: 128Mi
+  rolloutOnSecretChange: true
+  scope:
+    exclude: []
+    infra:
+      exclude: []
+      namespaces: []
+      workloads: []
+    namespaces: []
+    selector: ''
+    workloads: []
+  systemLogs:
+    logs:
+      enabled: false
+      extraHostPaths: []
+      journalctlPath: /usr/bin/journalctl
+      journaling: none
+      podLogsDir: /var/log/pods
+      source: builtin
+  traces:
+    traces:
+      enabled: false
+      scope:
+        exclude: []
+        namespaces: []
+        workloads: []
+      source: builtin

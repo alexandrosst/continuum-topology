@@ -4,7 +4,7 @@
      networkPolicy.telemetryEgress. */}}
 {{- $ne := .Values.networkPolicy.egress }}
 {{- if $ne.enabled }}
-{{- if not $ne.allowedEgress }}{{ fail "networkPolicy.egress.enabled needs networkPolicy.egress.allowedEgress: at least one {cidr, ports} entry matching where your configured export.otlp.endpoint actually resolves to - an empty list would cut this operator's egress off entirely (a NetworkPolicy that selects a pod denies everything it does not list)." }}{{ end }}
+{{- if and (not $ne.allowedEgress) (not $ne.extraEgress) }}{{ fail "networkPolicy.egress.enabled needs networkPolicy.egress.allowedEgress: at least one {cidr, ports} entry matching where your configured export.otlp.endpoint actually resolves to (or, for a next hop that is a pod in this cluster, a rule in extraEgress: a CIDR does not select pods on every CNI) - with neither this operator's egress would be cut off entirely (a NetworkPolicy that selects a pod denies everything it does not list)." }}{{ end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -16,18 +16,8 @@ spec:
     matchLabels: {app.kubernetes.io/name: continuum-regional-operator, app.kubernetes.io/instance: {{ .Release.Name }}}
   policyTypes: [Egress]
   egress:
-    # DNS
-    - to:
-        - namespaceSelector:
-            matchLabels: {kubernetes.io/metadata.name: kube-system}
-          podSelector:
-            matchLabels: {k8s-app: kube-dns}
-        {{- range $ne.dnsCIDRs }}
-        - ipBlock: {cidr: {{ . | quote }}}
-        {{- end }}
-      ports:
-        - {port: 53, protocol: UDP}
-        - {port: 53, protocol: TCP}
+    # DNS: kube-dns/CoreDNS and NodeLocal DNSCache (169.254.20.10)
+    {{- include "operator.dnsEgressRule" (dict "dnsCIDRs" $ne.dnsCIDRs) | nindent 4 }}
     # Your configured export destination(s).
     {{- range $ne.allowedEgress }}
     - to:

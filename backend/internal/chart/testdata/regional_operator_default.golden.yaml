@@ -36,6 +36,13 @@ data:
         protocols:
           grpc:
             endpoint: "0.0.0.0:4317"
+            # A sender with exporter keepalive pings an idle connection (telemetry.export.keepalive.time on the agent). The
+            # server's default is one ping per 5 minutes and anything faster is answered with GOAWAY "too_many_pings"; this
+            # accepts one every 30s, also with no call in flight, so keepalive set to 30s or more is never refused here.
+            keepalive:
+              enforcement_policy:
+                min_time: 30s
+                permit_without_stream: true
           http:
             endpoint: "0.0.0.0:4318"
 
@@ -75,10 +82,24 @@ data:
         sending_queue:
           enabled: true
           queue_size: 256
+          block_on_overflow: true
+          batch:
+            sizer: bytes
+            min_size: 1
+            max_size: 3145728
+            flush_timeout: 1s
 
     service:
       extensions: ["health_check"]
       
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: ${env:POD_IP}
+                    port: 8888
       pipelines:
         metrics:
           receivers: [otlp]
@@ -112,6 +133,7 @@ spec:
   ports:
     - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
     - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
+    - {name: metrics, port: 8888, targetPort: 8888, protocol: TCP}
 ---
 # Source: continuum-regional-operator/templates/deployment.yaml
 apiVersion: apps/v1
@@ -136,12 +158,17 @@ spec:
         app.kubernetes.io/name: continuum-regional-operator
         app.kubernetes.io/instance: op
         app.kubernetes.io/part-of: continuum
+        app.kubernetes.io/component: receiver
+        sidecar.istio.io/inject: "false"
         
       annotations:
-        checksum/config: 5e15d98ffbcd00cb2e80d1e5689fd65906a04dc785889e3572504aee5afcbbba
+        linkerd.io/inject: disabled
+        checksum/config: 61d856018e1585804d8b6e3afd55b411fcf42e5e03ff64333510092d97cbe5b4
     spec:
       serviceAccountName: op-regional-operator
       automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Nothing here needs a fsGroup: every volume is a ConfigMap, a Secret (mode 0644) or an emptyDir (0777).
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -159,16 +186,22 @@ spec:
           env:
             
             
+            # The pod's own address, which the self-metrics reader binds to (see operator.selfMetricsYAML).
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
             - name: GOMEMLIMIT
               value: "322122547"
           ports:
             - {name: otlp-grpc, containerPort: 4317, protocol: TCP}
             - {name: otlp-http, containerPort: 4318, protocol: TCP}
             - {name: health, containerPort: 13133, protocol: TCP}
+            - {name: metrics, containerPort: 8888, protocol: TCP}
           # health_check always on (see config.yaml); liveness fails only once the collector itself has
           # stopped answering, readiness the same but checked more eagerly and recovers faster - neither
           # knows whether the export destination is reachable, only that this process is alive and its
-          # pipelines started.
+          # pipelines started. The collector cannot tell the probe more (see operator.healthCheckExtensionYAML);
+          # whether it is delivering is in its self metrics (port `metrics`): otelcol_exporter_queue_size,
+          # otelcol_exporter_send_failed_* and otelcol_exporter_enqueue_failed_*.
           livenessProbe:
             httpGet: {path: /, port: health}
             initialDelaySeconds: 15

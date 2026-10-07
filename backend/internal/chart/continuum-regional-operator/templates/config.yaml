@@ -41,12 +41,22 @@ data:
         protocols:
           grpc:
             endpoint: "0.0.0.0:4317"
+            # A sender with exporter keepalive pings an idle connection (telemetry.export.keepalive.time on the agent). The
+            # server's default is one ping per 5 minutes and anything faster is answered with GOAWAY "too_many_pings"; this
+            # accepts one every 30s, also with no call in flight, so keepalive set to 30s or more is never refused here.
+            keepalive:
+              enforcement_policy:
+                min_time: 30s
+                permit_without_stream: true
             {{- if .Values.receiver.tls.enabled }}
             tls:
               cert_file: /receiver-tls/tls.crt
               key_file: /receiver-tls/tls.key
               {{- if .Values.receiver.tls.mtls }}
               client_ca_file: /receiver-tls/ca.crt
+              # Without this the CA that signs the clients is read once, at start: a renewed or added CA in the Secret is
+              # not trusted until the pod restarts, and every client signed by it is refused ("bad certificate").
+              client_ca_file_reload: true
               {{- end }}
               # Re-read the certificate and key from the mounted Secret, so a renewed certificate takes effect
               # without a restart (Kubernetes refreshes the mount itself within about a minute).
@@ -64,6 +74,9 @@ data:
               key_file: /receiver-tls/tls.key
               {{- if .Values.receiver.tls.mtls }}
               client_ca_file: /receiver-tls/ca.crt
+              # Without this the CA that signs the clients is read once, at start: a renewed or added CA in the Secret is
+              # not trusted until the pod restarts, and every client signed by it is refused ("bad certificate").
+              client_ca_file_reload: true
               {{- end }}
               # Re-read the certificate and key from the mounted Secret, so a renewed certificate takes effect
               # without a restart (Kubernetes refreshes the mount itself within about a minute).

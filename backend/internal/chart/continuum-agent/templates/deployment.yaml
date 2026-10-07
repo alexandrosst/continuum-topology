@@ -1,3 +1,4 @@
+{{- include "agent.preflightPodSecurity" . -}}
 {{- if not .Values.server.address }}{{- fail "server.address is required (host:port)" }}{{- end }}
 {{- if not (include "agent.caPin" .) }}{{- fail "server.caPin is required (or enrollment.key, which carries it together with the enrollment token)" }}{{- end }}
 apiVersion: apps/v1
@@ -39,12 +40,8 @@ spec:
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "agent.name" . }}
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        runAsGroup: 65532
-        fsGroup: 65532   # lets the non-root agent read the mounted probe secret
-        seccompProfile: {type: RuntimeDefault}
+      # fsGroup lets the non-root agent read the mounted probe/flow secrets.
+      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" true) | nindent 8 }}
       containers:
         - name: agent
           image: {{ include "agent.image" . | quote }}

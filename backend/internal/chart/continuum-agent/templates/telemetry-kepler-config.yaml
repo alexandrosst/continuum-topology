@@ -1,0 +1,16 @@
+{{- include "agent.telemetryValidate" . -}}
+{{/* Kepler's config file for engine=powercap (a ConfigMap of its own, like the collectors', so the DaemonSet can checksum it
+     through $.Template.BasePath). The settings and why: the "agent.telemetryKeplerPowercapConfig" define. engine=ebpf
+     (release-0.7) is configured by environment variables in the DaemonSet and renders no ConfigMap. */}}
+{{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") (eq (include "agent.telemetryKeplerEngine" .) "powercap") }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-kepler-config" (include "agent.telemetryName" .) }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-kepler
+data:
+  config.yaml: |
+    {{- include "agent.telemetryKeplerPowercapConfig" . | nindent 4 }}
+{{- end }}

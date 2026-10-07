@@ -39,7 +39,7 @@ rbac:
 
 enrollment:
   # One-time token, valid for one hour. Only used on first start; afterwards it does nothing,
-  # so you may remove it with `helm upgrade --reuse-values --set enrollment.token=`.
+  # so you may remove it with `helm upgrade --reset-then-reuse-values --set enrollment.token=`.
   # Ignored where enrollment.key below is set (its second half is the token).
   token: ""
   # The install command's one convenience flag: server.caPin and enrollment.token above, joined as "<caPin>.<token>".
@@ -68,6 +68,53 @@ scope:
 # also read PeerAuthentication objects, to say whether mutual TLS is required; that is one extra read-only permission.
 mesh:
   readPolicy: true
+  # Sidecar injection into the TELEMETRY pods (host collector, cluster collector, Kepler, dcgm-exporter). disabled (the default)
+  # labels them sidecar.istio.io/inject="false" and annotates them linkerd.io/inject: disabled, so a namespace that injects
+  # everything (istio-injection=enabled, linkerd.io/inject: enabled) does not put a proxy beside them: Istio's init
+  # container needs NET_ADMIN, which a namespace enforcing Pod Security baseline/restricted refuses (the pod is never
+  # created); a collector that starts before its proxy fails its first exports; and a mesh whose outbound policy is
+  # REGISTRY_ONLY would block an OTLP destination that has no ServiceEntry. inherit changes nothing (set your own
+  # podLabels/podAnnotations; a key you set there is never overridden). The agent's own pod is not touched by this.
+  telemetryInjection: disabled   # disabled | inherit
+
+# One registry for every image this chart pulls: the agent image, the OpenTelemetry collector, Kepler and dcgm-exporter. It
+# replaces the registry HOST of each repository and keeps the rest of its path, which is the layout an air-gapped mirror or a
+# pull-through cache has:
+#   global.imageRegistry=registry.corp.example      ->  registry.corp.example/continuum/continuum
+#                                                       registry.corp.example/otel/opentelemetry-collector-contrib
+#                                                       registry.corp.example/sustainable_computing_io/kepler
+#                                                       registry.corp.example/nvidia/k8s/dcgm-exporter
+# A path is fine (registry.corp.example/mirror). Mirror the four images under those paths (tags/digests are unchanged), and add
+# imagePullSecrets above if the mirror needs a login. Empty (the default): every image comes from the repository named in its
+# own block (image.repository, telemetry.collectorImage.repository, ...), which you can also set one by one.
+global:
+  imageRegistry: ""
+
+# Who the non-root pods run as.
+podSecurity:
+  # The agent, node probe and cluster collector (and the host collector when it does not read container logs) run as this uid,
+  # with it as group and fsGroup.
+  runAsUser: 65532
+
+# Checked when the chart is installed or upgraded, so that a refusal by the cluster is explained now and not discovered later
+# as a DaemonSet with 0 pods. Pod Security enforces on the pods a DaemonSet creates, not on the DaemonSet, so `helm install`
+# itself always succeeds.
+preflight:
+  # What to do when a workload that needs host access (hostPath, hostNetwork, hostPID, privileged, SYS_ADMIN) would go into a
+  # namespace that enforces the Pod Security "baseline" or "restricted" profile (label pod-security.kubernetes.io/enforce):
+  #   fail  stop the install and print the kubectl label command that fixes it (default)
+  #   warn  install anyway and print the same in NOTES
+  #   off   say nothing
+  # Only a namespace LABEL can be seen. A cluster-wide default set in the API server's admission configuration (Talos: baseline,
+  # RKE2 with a cis profile: restricted) is invisible here: label the namespace privileged before installing.
+  podSecurity: fail
+  # Read the namespace's labels with Helm's `lookup`. It sees nothing under `helm template` and GitOps tools, and nothing for a
+  # namespace that does not exist yet; none of that fails a render. An account that is not allowed to get the Namespace makes
+  # Helm itself fail the render ("namespaces ... is forbidden"): set this false then (and declare assumeEnforce if you want the check).
+  namespaceLookup: true
+  # Tell the check what the namespace enforces (privileged | baseline | restricted) when it cannot be looked up, e.g. under
+  # Argo CD: the render then fails, or warns, exactly as it would have with the label read from the cluster.
+  assumeEnforce: ""
 
 # Secrets (in the release namespace) that let the cluster pull the image from a private registry, e.g.
 #   kubectl -n continuum-system create secret docker-registry regcred --docker-server=ghcr.io --docker-username=... --docker-password=...
@@ -160,7 +207,7 @@ networkPolicy:
     apiServerCIDRs: []      # e.g. ["10.43.0.1/32", "192.168.1.10/32"]
     apiServerPorts: [443, 6443]
     serverCIDRs: []         # e.g. ["203.0.113.7/32"]: where server.address resolves to
-    dnsCIDRs: []            # e.g. ["169.254.20.10/32"] for NodeLocal DNSCache
+    dnsCIDRs: []            # extra resolver addresses. kube-dns/CoreDNS and NodeLocal DNSCache at 169.254.20.10 are always allowed
     extraEgress: []
   # Egress lockdown for the telemetry workloads (host/cluster collectors, Kepler, and the accelerators
   # DaemonSet when enabled) - separate from egress above, which only ever covers the agent pod (different
@@ -173,6 +220,8 @@ networkPolicy:
   #     is): the collectors read it for pod metadata and cluster state. Leave both empty and they cannot reach it.
   #   - the node's kubelet on port 10250, when the host collector reads resource usage or node runtime metrics
   #     (kubeletCIDRs, the nodes' addresses; empty = any address on that port, since a NetworkPolicy cannot say "my own node")
+  #   - this release's own Kepler (9103) and dcgm-exporter (9400) pods, when bundled: the cluster collector scrapes them
+  #     (an existing endpoint you point energy/accelerators at is not covered: allow it in extraEgress)
   #   - anything you list in extraEgress
   telemetryEgress:
     enabled: false
@@ -180,6 +229,10 @@ networkPolicy:
     apiServerCIDRs: []  # e.g. ["10.43.0.1/32", "192.168.1.10/32"], as for egress above; empty = take networkPolicy.egress.apiServerCIDRs
     apiServerPorts: []  # empty = networkPolicy.egress.apiServerPorts, else [443, 6443]
     kubeletCIDRs: []    # e.g. ["192.168.1.0/24"]: the nodes' addresses; empty = any address, on port 10250 only
+    # DNS is always allowed to kube-dns/CoreDNS (kube-system) and to NodeLocal
+    # DNSCache at 169.254.20.10. Add other resolver addresses here, e.g. NodeLocal DNSCache on another address, or the kube-dns
+    # ClusterIP (kubectl -n kube-system get svc kube-dns) when kube-proxy runs in iptables mode with NodeLocal DNSCache, which then
+    # answers for it on the node.
     dnsCIDRs: []
     extraEgress: []
 
@@ -336,19 +389,84 @@ telemetry:
   # renewing a certificate and running the install command again takes effect at once. It is a checksum annotation on
   # the pods, computed with Helm's `lookup` at render time. Two limits, both harmless:
   #   - `helm template`, and so Argo CD and Flux, cannot look at the cluster: no checksum is rendered and nothing
-  #     restarts. Every client-certificate exporter still re-reads the certificate and key each hour (reload_interval),
-  #     so a renewed certificate is in use within about an hour either way. A new CA (ca.crt) is not re-read: run
+  #     restarts. Every client-certificate exporter still re-reads the certificate and key at the first new connection after each hour (reload_interval),
+  #     so a renewed certificate is in use from the first new connection after that, which a long-lived connection delays. A new CA (ca.crt) is not re-read: run
   #     `kubectl rollout restart` after replacing one.
   #   - Helm fails the render if the account running it may not `get` Secrets in this namespace. Set this to false then.
   rolloutOnSecretChange: true
 
+  # Extra environment variables for BOTH collectors (the host DaemonSet and the cluster Deployment), in the usual
+  # Kubernetes form, e.g. [{name: SSL_CERT_FILE, value: /etc/ssl/corp-ca.pem}]. They come last, so one named like a variable
+  # this chart sets (HTTPS_PROXY, NO_PROXY, GOMEMLIMIT, ...) replaces it - the container runtime keeps the last of two
+  # entries with the same name. The agent's own container has its own extraEnv at the top of this file.
+  extraEnv: []
+
+  # dnsConfig of the collector pods (Kubernetes PodDNSConfig). A name with fewer dots than `ndots` (5 by default, so
+  # "otlp.example.com" is one) is tried against every search domain first (otlp.example.com.<ns>.svc.cluster.local, ...),
+  # which costs lookups and, when a search domain has a wildcard record, answers with the wrong host. Either write the
+  # destination with a trailing dot (otlp.example.com.:4317; not for a certificate that names the host without it) or
+  # lower ndots here: {options: [{name: ndots, value: "2"}]}. Empty (the default): the cluster's own setting.
+  # https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-dns-config
+  dnsConfig: {}
+
   # Where the collector sends everything it receives, regardless of signal. Required if any signal below
   # is enabled.
   export:
+    # Reach the destinations below through an HTTP(S) proxy, for a cluster that gets out only through one. The exporters read
+    # the standard variables: OTLP/HTTP and Zipkin use HTTPS_PROXY for an https:// URL and HTTP_PROXY for an http:// one;
+    # OTLP/gRPC asks the proxy for a CONNECT tunnel and uses HTTPS_PROXY for every destination, TLS or not (HTTP_PROXY is
+    # never used for gRPC) - so set `httpsProxy` whenever a gRPC destination is behind the proxy, and both when unsure. The proxy
+    # sees the destination's address only: TLS stays end to end (a proxy that terminates TLS makes the certificate check
+    # fail; trust its CA with caSecretName then).
+    # The Kubernetes API client of k8sattributes, k8s_cluster and k8sobjects, the Prometheus receiver's pod discovery and
+    # kubelet_stats read the SAME variables, so this chart always puts what must never be proxied in NO_PROXY: localhost,
+    # 127.0.0.1, ::1, .svc and .cluster.local (a destination written regional-operator.<ns>.svc), the API server's cluster IP
+    # ($KUBERNETES_SERVICE_HOST, which the kubelet puts in every pod; an address, so no domain suffix covers it), the pod's
+    # own IP and, on the host collector, the node's IP (the kubelet, at NODE_IP:10250). `noProxy` is added to that: a destination
+    # reached directly, an internal gateway by short name or IP, a cluster domain other than cluster.local. Scraping Kepler,
+    # dcgm-exporter or a scrape target never goes through the proxy, whatever is set here.
+    # Not in the URL: user:password@ would sit in clear text in the pod spec and in `helm get values`. Put the URL, credentials
+    # included, in a Secret you create under the key HTTPS_PROXY and/or HTTP_PROXY and name it in secretName (a key that is
+    # absent is skipped; a plain value here wins over it). Empty (the default): no proxy.
+    # Not inherited from the top-level `proxy`, which is for the agent container only. With
+    # networkPolicy.telemetryEgress on, the proxy's address and port belong in its allowedEgress instead of the destinations'.
+    proxy:
+      httpProxy: ""
+      httpsProxy: ""
+      noProxy: ""
+      secretName: ""
+
+    # How long one attempt to send may take before it counts as failed and is retried. Empty: the collector's own default (5s
+    # for gRPC, 30s for HTTP). Raise it on a slow link, where a 3 MiB request (maxRequestBytes below) cannot be sent in 5s
+    # and is retried until it is dropped. Applies to every destination.
+    timeout: ""
+
+    # gRPC only: pings while the connection is idle, so that a NAT gateway, load balancer or proxy that silently drops an idle
+    # connection is noticed within time + timeout, instead of after the operating system gives up on it (about 15 minutes).
+    # Empty `time` (the default) sends none. A server accepts pings no more often than its own policy allows - a stock
+    # OTLP/gRPC receiver, like grpc-go in general, one per 5 minutes - and answers a more frequent client with GOAWAY
+    # "too_many_pings" (an error level line in the log, the connection re-opened, the data still delivered). The Ikhnos
+    # regional operator accepts a ping every 30s; for any other destination check its policy before setting this. At least
+    # 10s (gRPC raises a smaller value to it).
+    keepalive:
+      time: ""
+      timeout: 10s
+
+    # An endpoint that cannot work is refused when the chart is rendered, whatever this says: the wrong shape for its protocol
+    # (a path, or no port, on a gRPC endpoint), a scheme that contradicts tls.insecure, a client certificate with TLS off.
+    # This one is a guess, so it can be turned off: the other protocol's conventional port (:4318 with grpc, :4317 with http)
+    # - the collector answers a gRPC client on the HTTP port with an error that is dropped for good. Set it to false for a
+    # destination that really serves gRPC on 4318 or HTTP on 4317, e.g. behind a port mapping.
+    checkPorts: true
+
     otlp:
-      endpoint: ""    # host:port of your OTLP receiver, e.g. an existing collector gateway or observability backend
+      endpoint: ""    # grpc: host:port, no path (api.example.com:443, [fd00::5]:4317; a leading https:// or dns:/// is accepted).
+                      # http: host[:port] or a base URL (https://otlp.example.com:4318, https://gw.example.net/otlp): the collector
+                      # appends /v1/metrics, /v1/logs or /v1/traces itself, so do not write them (a route can: see fullUrl below).
+                      # Your OTLP receiver, e.g. an existing collector gateway or an observability backend.
       protocol: grpc  # grpc | http | zipkin. zipkin posts spans to a Zipkin-compatible /api/v2/spans endpoint and
                       # carries traces only: enabling any other signal with it is refused at render time.
+                      # The conventional ports are 4317 for grpc and 4318 for http; a backend on 443 says in its documentation which.
       tls:
         insecure: false
         # To trust a CA the collector image does not already know (a private one), name a Secret in this release's
@@ -383,16 +501,28 @@ telemetry:
         secretKey: token            # the key within that Secret holding the header's value, e.g. "Bearer ..."
 
     # What every exporter (the default and each route) does while its destination is unreachable. Retrying for
-    # retryMaxElapsedTime and holding up to `size` batches meanwhile is what makes a short outage lossless; once the
-    # queue is full the exporter refuses and the backpressure reaches the receivers through memory_limiter, so
-    # nothing grows without bound. One entry is one batch (up to processors.batch.sendBatchMaxSize items), so the
-    # memory a full queue can hold is size times a batch: raise `size` together with the collectors' memory limit.
+    # retryMaxElapsedTime and holding up to `size` requests meanwhile is what makes a short outage lossless. Once the
+    # queue is full the exporter makes the batch processor wait (block_on_overflow) and the receivers wait with it, so
+    # what cannot be handed over stays with its source (an application's SDK, a log file) and nothing grows without
+    # bound; the collector's default would instead throw the batch away, the receiver having already said "200".
+    # After retryMaxElapsedTime a request is dropped, and so is one the destination refuses for good (a wrong CA is
+    # retried until then; a token it rejects, or the wrong protocol for the port, is not): logged at error level and
+    # counted in otelcol_exporter_send_failed_*. retryMaxElapsedTime is at least 30s (the retry backoff's longest wait)
+    # or 0s for "until it answers".
+    # maxRequestBytes cuts a request into pieces of at most that many serialized bytes before it is sent, because the
+    # batch processor only counts items (processors.batch.sendBatchMaxSize) and 4096 log records of 2 KiB are 8 MiB, past
+    # the 4 MiB a collector's OTLP receiver (and Loki, Tempo) accepts: such a batch is refused whole and dropped. Keep it
+    # under the smallest limit on the way (3 MiB leaves room for the headers of every piece); 0 turns the cut off. One
+    # record bigger than this cannot be cut.
+    # A full queue can hold size times maxRequestBytes per signal type: raise `size` together with the collectors'
+    # memory limit (memory_limiter refuses data before a container is killed).
     # `persistent` writes the queue to an emptyDir too, so it survives a container restart (not a rescheduled pod,
     # and it counts against the node's ephemeral storage up to sizeLimit - on every node, for the host collector).
     # Off by default: a memory queue is enough when the destination is close.
     queue:
       size: 256
       retryMaxElapsedTime: 30m
+      maxRequestBytes: 3145728
       persistent:
         enabled: false
         sizeLimit: 1Gi
@@ -400,13 +530,18 @@ telemetry:
     # Per-signal-type destinations. A route with an endpoint sends that signal type there instead of to
     # `otlp` above; a type with no endpoint here keeps going to `otlp`. Each route is its own exporter with
     # its own credential, certificate and protocol (grpc | http | zipkin - zipkin for traces only), takes
-    # exactly the fields `otlp` takes, and is the only place its credential and certificate are used: routes
+    # exactly the fields `otlp` takes (plus fullUrl), and is the only place its credential and certificate are used: routes
     # never share an exporter, a Secret mount or an auth variable. Leave every endpoint empty (the default)
     # and nothing changes: everything goes to `otlp`.
+    # fullUrl (protocol http only): the endpoint is the whole URL this signal is posted to, nothing is appended - for a
+    # backend whose path is not <base>/v1/<signal> (Splunk Observability: https://ingest.<realm>.observability.splunkcloud.com/v2/trace/otlp
+    # for traces). An endpoint that already ends in /v1/<this signal> is read that way without it, since appending the path a
+    # second time (…/v1/traces/v1/traces) is a 404 that drops everything.
     routes:
       metrics:
         endpoint: ""
         protocol: grpc
+        fullUrl: false
         tls:
           insecure: false
           caSecretName: ""
@@ -422,6 +557,7 @@ telemetry:
       logs:
         endpoint: ""
         protocol: grpc
+        fullUrl: false
         tls:
           insecure: false
           caSecretName: ""
@@ -437,6 +573,7 @@ telemetry:
       traces:
         endpoint: ""
         protocol: grpc
+        fullUrl: false
         tls:
           insecure: false
           caSecretName: ""
@@ -464,7 +601,7 @@ telemetry:
     scope: ""
     # Tags put on everything this release emits, as resource attributes:
     #   [{key: k8s.cluster.name, value: prod-eu}, {key: team, value: payments}]
-    # At most 10, each key once. A list, not a map, so setting it in a `helm upgrade --reuse-values` replaces
+    # At most 10, each key once. A list, not a map, so setting it in a `helm upgrade --reset-then-reuse-values` replaces
     # the whole set rather than leaving behind keys an earlier command added. Inserted, never upserted - a key
     # an application already set on its own telemetry keeps the application's value - and the continuum.
     # prefix is reserved for the provenance above.
@@ -556,6 +693,17 @@ telemetry:
       secretName: ""   # a Secret in this release's namespace, created outside this chart, holding a
                         # shared bearer token every OTLP client must present in its Authorization header
       secretKey: token
+    # TLS on both OTLP ports (4317 gRPC, 4318 HTTP). Off while secretName is empty: the receiver then speaks plain text, as
+    # before, and the bearer token above (if any) crosses the pod network in clear. secretName names a Secret in this release's
+    # namespace, created outside this chart, in the kubernetes.io/tls layout (tls.crt, tls.key) - what a cert-manager Certificate
+    # writes. The certificate must be valid for the Service name clients dial (continuum-telemetry-cluster.<namespace>.svc).
+    # It is re-read every hour, so a renewed certificate needs no restart. Clients then connect with TLS (an https:// endpoint
+    # for OTLP/HTTP) and trust the CA that issued it.
+    tls:
+      secretName: ""
+      # A key of the same Secret holding a CA bundle (cert-manager writes ca.crt). Set, every client must present a certificate
+      # that CA signed (mutual TLS); empty, any client may connect and the bearer token / NetworkPolicy decide who may send.
+      clientCAKey: ""
     networkPolicy:
       enabled: false
       # Raw NetworkPolicy ingress "from" peer entries (namespaceSelector / podSelector / ipBlock) - the
@@ -568,19 +716,49 @@ telemetry:
   kubelet:
     # false (the default): the kubelet's certificate is verified against the cluster CA, so a man in the middle
     # between a pod and its node cannot read the pod's service account token. That works where kubelets serve
-    # certificates signed by the cluster CA and valid for the node's IP (most managed clusters). Where they serve a
-    # self-signed one (kubeadm and k3s defaults) kubelet_stats then fails with a certificate error in the collector's
-    # log and no kubelet metrics arrive: either enable serving-certificate rotation on the kubelets or set this to true.
+    # certificates signed by the cluster CA and valid for the node's IP: k3s does (it signs each kubelet's certificate with
+    # its server CA, the same CA a pod gets as ca.crt, with the node's IP as a SAN), and so do most managed clusters.
+    # Where they serve a certificate of their own (kubeadm's and kind's default, Talos's default) kubelet_stats then fails
+    # with "x509: certificate signed by unknown authority" in the collector's log and no kubelet metrics arrive. Ways out,
+    # best first: enable serving-certificate rotation on the kubelets (kubelet serverTLSBootstrap, with the CSRs approved);
+    # name the CA that signed them (ca, below); let the API server make the call (viaAPIServer, below); or set this to true.
     # true skips verification for this one connection and sends the token to whatever answers on that address.
     insecureSkipVerify: false
+    # How the kubelet is addressed. ip (default): the node's status.hostIP, which always resolves and which every
+    # certificate issued for a kubelet carries as a SAN. nodeName: the node's name, for a kubelet whose certificate only carries DNS names on a cluster where pods can
+    # resolve node names.
+    address: ip   # ip | nodeName
+    # Trust anchor for a kubelet serving certificate that is NOT signed by the cluster CA a pod gets as ca.crt: an
+    # existing ConfigMap or Secret in this release's namespace holding a PEM bundle under "key". It REPLACES the pod's
+    # cluster CA for this one connection (the receiver's ca_file), so include the cluster CA in the bundle when some
+    # kubelets use it. A replaced bundle needs a rollout restart.
+    # Set at most one of configMap and secret.
+    ca:
+      configMap: ""
+      secret: ""
+      key: ca.crt
+    # false (the default): the collector connects to the kubelet of its own node. true: it asks the API server to reach
+    # the kubelet (GET /api/v1/nodes/<node>/proxy/stats/summary), so no kubelet certificate has to be trusted by the
+    # collector at all - the way out where kubelets serve self-signed certificates and no CA bundle can be had. The price is
+    # the permission: nodes/proxy "get" replaces nodes/stats, and Kubernetes documents it as NOT read-only - it authorizes
+    # executing commands in any container on a node (kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/).
+    # Every host collector pod's token then holds it, and every node's stats pass through the API server. Not
+    # combinable with insecureSkipVerify or ca.
+    viaAPIServer: false
 
   # domain: infrastructure (node-level) + application (container/pod-level)
   resourceUsage:
     metrics:
       enabled: false
-      source: builtin   # builtin -> hostmetricsreceiver (node CPU/memory/filesystem/network) plus
-                         #            kubeletstatsreceiver (per-container/pod CPU/memory from the kubelet)
+      source: builtin   # builtin -> hostmetricsreceiver (node CPU, memory and filesystem usage) plus
+                         #            kubeletstatsreceiver (per-container/pod/node CPU, memory, filesystem and network
+                         #            from the kubelet; the node's network totals come from here, not from the host)
       interval: 30s
+      # false (default): the host collector sees only the node's /proc (read-only), which is all node CPU and memory need.
+      # Per-pod and node filesystem usage still comes from the kubelet. true: it also mounts the node's whole root read-only
+      # and reports the usage of every mounted filesystem (system.filesystem.*), a much wider view of the node for data the
+      # kubelet's summary mostly already holds.
+      hostFilesystem: false
 
   # domain: infrastructure
   energy:
@@ -588,91 +766,207 @@ telemetry:
       enabled: false
       source: bundle-kepler   # bundle-kepler (deploy Kepler, scoped read-only, scraped by this collector) | existing
       existing:
-        prometheusEndpoint: ""   # required when source=existing: host:port/path already serving kepler-shaped metrics
-      # Only used when source=bundle-kepler. Kepler needs to read RAPL energy counters and, on most
-      # kernels, load an eBPF program to attribute power to individual pods - real host access this chart
-      # cannot avoid by construction, the same trade-off flowObserver documents above for its own eBPF use.
-      # It runs privileged, one pod per node, and only Prometheus-scrapes to this collector; nothing else in
-      # this chart runs privileged. Left disabled unless bundle-kepler is actually selected.
+        # Required when source=existing: where the Kepler you already run serves its metrics, as host:port, host:port/path
+        # or http(s)://host:port/path (the path defaults to /metrics; http unless https://, whose certificate is verified).
+        # The cluster collector scrapes it every minute. With networkPolicy.telemetryEgress on, allow it in extraEgress.
+        prometheusEndpoint: ""
+      # Only used when source=bundle-kepler. Which Kepler to run (both are upstream's, both privileged with hostPID, one pod
+      # per node, scraped by this chart's cluster collector, reading pod names through their own ServiceAccount that can
+      # read pods and nothing else; nothing else in this chart runs privileged):
+      #   ebpf      Kepler release-0.7.x (keplerImage). Attributes power to pods with eBPF programs and perf counters, and on
+      #             a node without RAPL (any cloud VM) estimates it from CPU data and pre-trained weights bundled in the image
+      #             (an estimate, not a reading), so it produces data on VMs too.
+      #             Needs a kernel that lets a privileged container load eBPF *tracing* programs (BTF, no lockdown/seccomp/
+      #             sandbox blocking it), else it dies at start with a nil-pointer panic that hides the real error: the
+      #             preflight below (nodeChecks) turns that into a readable "not supported on this node". Upstream froze this
+      #             line (no fixes any more) when it rewrote Kepler in 0.10. Metrics: kepler_container_joules_total{pod_name,
+      #             container_namespace,...}, kepler_node_*_joules_total. Multi-arch (amd64, arm64). The default.
+      #   powercap  Kepler v0.10 and later (powercapImage), the maintained line. Reads RAPL (/sys/class/powercap) or, experimental,
+      #             hwmon power sensors; no eBPF, no perf, only read access to /proc and /sys. There is no estimation: a node
+      #             without RAPL/hwmon (nearly every cloud VM, many Arm servers) has nothing to read, and Kepler exits with
+      #             "failed to create CPU power meter" - the preflight holds such a pod in Init:0/1 with the reason instead of
+      #             crash-looping. Metrics: kepler_node_cpu_watts/_joules_total, kepler_pod_cpu_*{pod_name,pod_namespace},
+      #             optionally per container. Upstream publishes this image for amd64 only, so it is kept off other
+      #             architectures (kubernetes.io/arch: amd64 is added to nodeSelector unless you set that key yourself).
+      # Switching engine changes the metric names this signal emits.
+      engine: ebpf
       keplerImage:
         repository: quay.io/sustainable_computing_io/kepler
         tag: "release-0.7.12"
         digest: ""
         pullPolicy: ""
+      # The image of engine=powercap (v0.12.0 is the latest release as of this chart; its digest is
+      # sha256:7681d8b453e4e10ac67c183e0b68238c3d19d3a8af80743354ef57b8511553b0, single amd64 manifest).
+      powercapImage:
+        repository: quay.io/sustainable_computing_io/kepler
+        tag: "v0.12.0"
+        digest: ""
+        pullPolicy: ""
+      # engine=powercap only: which levels Kepler exports (any of node, pod, container, process, vm). pod carries
+      # pod_name/pod_namespace; container carries only a pod_id (no names, so it cannot be told apart in a backend and
+      # applyScope cannot narrow it); process is one series per host process (hundreds per node). Default: node and pod.
+      powercap:
+        metricLevels: [node, pod]
+      # Check each node before starting Kepler and after it started. An init container (privileged, same image) asks the
+      # node whether Kepler can work here at all - ebpf: can the kernel load eBPF tracing programs; powercap: is there a
+      # RAPL or hwmon power sensor - and when it cannot, says why in its log and waits (the pod shows Init:0/1, no restarts;
+      # `kubectl logs <pod> -c preflight`) instead of letting Kepler crash-loop. A startup probe then requires /metrics to
+      # serve Kepler's node series before the pod is Ready. Both need sh, curl and grep in the image (upstream's has them);
+      # turn this off for a custom image without them, or to let Kepler try on a node the preflight refused.
+      nodeChecks: true
+      # Whether telemetry.scope's namespaces/exclude narrow the energy data too. auto (default): yes when the intent defines
+      # a scope, nothing when it does not - energy of pods in namespaces the user left out is not reported. true / false force it.
+      # Kepler's records carry the namespace of the pod they measure on each data point (container_namespace for ebpf,
+      # pod_namespace for powercap), never on the resource, so the filter reads it there. Node-level series have no namespace and
+      # always pass. telemetry.scope.workloads cannot be applied (Kepler names the pod, not its Deployment): a namespace listed
+      # there reports no energy data at all.
+      applyScope: auto
       # Scheduling overrides for the Kepler DaemonSet specifically (it needs its own: privileged and
       # hostPID, most clusters want it kept off tainted/GPU pools deliberately, unlike the host collector
-      # below which usually should run everywhere). Defaults reproduce this chart's original hardcoded
-      # behavior (every Linux node) plus one addition: kubernetes.io/arch=amd64, because the upstream
-      # Kepler image (quay.io/sustainable_computing_io/kepler) publishes no arm64 build as of the tag
-      # pinned above - without this, Kepler pods on an arm64 node (Graviton, Ampere, most edge/Arm SBCs)
-      # would crash-loop on ImagePullBackOff forever instead of simply not being scheduled there. Remove
-      # this line if you build or source your own arm64-capable Kepler image.
+      # below which usually should run everywhere). Defaults: every Linux node. engine=ebpf runs on arm64 as well (its
+      # image is multi-arch); engine=powercap adds kubernetes.io/arch: amd64 (see above). Kepler only reports what a node's
+      # hardware or kernel lets it read, so on a mixed cluster select the pools you want here (for example a label you put
+      # on bare-metal nodes for powercap); a node it cannot work on is held by the preflight, not crash-looped.
       tolerations:
         - operator: Exists
       nodeSelector:
         kubernetes.io/os: linux
-        kubernetes.io/arch: amd64
-      # Falls back to telemetry.resources below when left empty - override only if Kepler's actual profile
-      # (one small privileged pod per node) needs something different from the shared default.
-      resources: {}
+      # Kepler's own profile, not the collectors' small shared default (telemetry.resources below, which is what an
+      # empty value here falls back to): it keeps per-container and per-process statistics for the whole node plus its
+      # eBPF maps, and the upstream manifest asks for 400Mi / 100m. A 256Mi limit is below that request. The limit here
+      # is headroom over it, not a measurement - check `kubectl top pod -l app.kubernetes.io/component=telemetry-kepler`
+      # on your busiest node and adjust.
+      resources:
+        requests: {cpu: 100m, memory: 400Mi}
+        limits: {memory: 1Gi}
 
   # domain: infrastructure. GPU/accelerator metrics (utilization, memory, temperature, power) via
   # NVIDIA's DCGM exporter - the standard, and currently the only practical, path into an OTel Collector
   # pipeline for this data (no purpose-built OTel-native GPU receiver exists upstream as of this chart's
-  # pinned collectorImage). Scraped by the cluster collector exactly like energy/Kepler above, not RBAC-
-  # gated: like Kepler, dcgm-exporter reads GPU hardware directly and needs zero Kubernetes API access.
+  # pinned collectorImage). Scraped by the cluster collector exactly like energy/Kepler above. Unlike Kepler,
+  # dcgm-exporter reads GPU hardware (and, with applyScope, the kubelet's pod-resources socket) directly and
+  # needs zero Kubernetes API access.
+  #
+  # Which source to pick (README, "GPU metrics (accelerators)", has the per-platform recipes):
+  #   - an NVIDIA GPU Operator cluster already runs a dcgm-exporter on every GPU node (DaemonSet nvidia-dcgm-exporter,
+  #     label app=nvidia-dcgm-exporter): use source=existing with existing.pods.labelSelector=app=nvidia-dcgm-exporter;
+  #   - a cluster whose GPU nodes have the NVIDIA driver and container toolkit but no exporter: source=bundle-dcgm;
+  #   - GKE / AKS managed GPU monitoring, or any exporter of your own: source=existing.
   accelerators:
     metrics:
       enabled: false
       source: bundle-dcgm   # bundle-dcgm (deploy dcgm-exporter, scraped by this collector) | existing
       existing:
-        prometheusEndpoint: ""   # required when source=existing: host:port/path already serving dcgm-shaped metrics
+        # source=existing needs exactly one of the two ways of finding the exporter below.
+        #
+        # 1. One address. Required unless existing.pods is used: where the dcgm-exporter you already run serves its
+        # metrics, as host:port, host:port/path or http(s)://host:port/path (the path defaults to /metrics; http unless
+        # https://, whose certificate is verified). With networkPolicy.telemetryEgress on, allow it in extraEgress.
+        # Do NOT point this at the ClusterIP Service of a per-node exporter (the GPU Operator's nvidia-dcgm-exporter): a
+        # Service hands each connection to some one node's pod, so a scrape sees one node's GPUs and the next one another's,
+        # all under the same target: no node's series is complete. Use pods (below) for per-node exporters.
+        prometheusEndpoint: ""
+        # 2. Every exporter pod, one scrape target each (the right way to reach a DaemonSet of exporters). Set labelSelector
+        # to the pods' label selector, e.g. app=nvidia-dcgm-exporter for the NVIDIA GPU Operator (its pods are labelled
+        # app=nvidia-dcgm-exporter and declare 9400; operator namespace gpu-operator). namespace
+        # narrows the search to one namespace; empty searches all of them (the collector may list pods cluster-wide
+        # already: its k8sattributes processor does). port is the exporter's metrics port in the pod.
+        pods:
+          labelSelector: ""
+          namespace: ""
+          port: 9400
+      # How often the cluster collector scrapes dcgm-exporter (bundled or existing), as a Prometheus duration. 30s is
+      # also how often dcgm-exporter itself refreshes its readings, so scraping faster only repeats values.
       interval: 30s
-      # Off by default, preserving every existing install's behavior exactly. When true (and source is still
-      # bundle-dcgm), enables dcgm-exporter's own Kubernetes pod-label enrichment (DCGM_EXPORTER_KUBERNETES +
-      # DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS - no new mount needed, the pod-resources socket below is
-      # already there) and lets the shared telemetry.scope below actually reach GPU metrics: without this,
-      # accelerators is domain: infrastructure for RBAC/deployment-shape reasons but its data can carry
-      # namespace/workload identity, and today that identity is invisible to this collector - turning this on
-      # is the opt-in fix, not a default, because it's new capability (and a small resource-label overhead on
-      # dcgm-exporter itself), not a correction to existing behavior.
-      applyScope: false
+      # Off by default, preserving every existing install's behavior exactly. When true, lets the shared
+      # telemetry.scope's namespaces/exclude reach GPU metrics, by the namespace label dcgm-exporter puts on each data
+      # point (its GPU-to-pod mapping): with source=bundle-dcgm it also turns that mapping on (DCGM_EXPORTER_KUBERNETES,
+      # which reads the kubelet's pod-resources socket - mounted into the pod only when this is on); with source=existing
+      # the exporter you point at must already run with that mapping (the GPU Operator's does), and when it does not
+      # every data point lacks a namespace, which a namespaces allow-list drops. auto (default): on exactly when the intent
+      # defines a scope, so GPU data of namespaces outside it is not reported and, with no scope, nothing is filtered and no
+      # extra mount exists; true / false force it. Two limits: a GPU no pod holds has no namespace and so is not reported
+      # while a namespaces allow-list applies; and telemetry.scope.workloads cannot be applied (the data names a pod,
+      # not its Deployment), so a namespace listed there reports no GPU data at all.
+      applyScope: auto
       # Only used when source=bundle-dcgm. Needs an NVIDIA driver and the NVIDIA Container Toolkit on the
       # node already (a prerequisite this chart cannot install), runAsUser: 0 plus the SYS_ADMIN capability
-      # (narrower than Kepler's full privileged: true above - dcgm-exporter's own documented requirement),
-      # and a read-only mount of the kubelet's pod-resources socket to map GPUs to the pods using them.
-      # Left disabled unless bundle-dcgm is actually selected, and only worth enabling on GPU node pools -
+      # (narrower than Kepler's full privileged: true above - what NVIDIA's own chart runs it with),
+      # and, with applyScope, a read-only mount of the kubelet's pod-resources socket to map GPUs to the pods using
+      # them. Left disabled unless bundle-dcgm is actually selected, and only worth enabling on GPU node pools -
       # see tolerations/nodeSelector below.
+      # NVIDIA publishes this image per variant: the tag needs its suffix (4.6.0-4.8.3 alone does not exist; 4.6.0-4.8.3-
+      # distroless is the one NVIDIA's own chart pinned at the time, for amd64 and arm64; 4.6.1-4.8.4-distroless is the
+      # newer one in NVIDIA's chart today). The registry is public (no pull secret).
       dcgmImage:
         repository: nvcr.io/nvidia/k8s/dcgm-exporter
-        tag: "4.6.0-4.8.3"
+        tag: "4.6.0-4.8.3-distroless"
         digest: ""
         pullPolicy: ""
-      # Scheduling overrides for the dcgm-exporter DaemonSet specifically, mirroring energy.metrics above:
-      # defaults keep it off every node (nvidia.com/gpu.present is the standard label GPU device plugins
-      # set), since running it on non-GPU nodes would just fail to find a GPU. Point this at however your
-      # cluster actually labels/taints GPU nodes if that differs.
+      # Run the container privileged (instead of root with SYS_ADMIN only), as the NVIDIA GPU Operator's own dcgm-exporter
+      # pod does (privileged: true; assets/state-dcgm-exporter in github.com/NVIDIA/gpu-operator). Off by default, because
+      # it is the wider grant. Turn it on only when the narrower pod cannot see the GPUs or the kubelet socket: a NVIDIA Container Toolkit set not to honour NVIDIA_VISIBLE_DEVICES for unprivileged containers
+      # (ACCEPT_NVIDIA_VISIBLE_DEVICES_ENVVAR_WHEN_UNPRIVILEGED=false, which docs.rke2.io/add-ons/gpu_operators sets for the GPU Operator's
+      # toolkit), or GKE (Google's own manifest runs it privileged). Needs a namespace that allows privileged pods.
+      privileged: false
+      # The NVIDIA container runtime is what injects the driver's libraries and the GPU devices into the container. Where it
+      # is the node's default runtime (what the GPU Operator's toolkit sets up) leave this empty; k3s registers it but keeps
+      # runc as the default, so there set it to nvidia (the RuntimeClass must exist: `kubectl get runtimeclass`, otherwise the
+      # DaemonSet's pods are refused at admission). GKE has no such runtime at all (see hostMounts).
+      runtimeClassName: ""
+      # Environment variables for dcgm-exporter beyond the ones this chart sets (DCGM_EXPORTER_KUBERNETES with applyScope,
+      # DCGM_EXPORTER_LISTEN, NODE_NAME), as ordinary container env entries ({name, value} or {name, valueFrom}).
+      # NVIDIA's reference: docs.nvidia.com/datacenter/dcgm/latest/reference/command-line-reference/dcgm-exporter.html.
+      # Typical: KUBERNETES_VIRTUAL_GPUS=true (GPU time-slicing / MPS, to name the pods sharing a GPU),
+      # DCGM_EXPORTER_KUBERNETES_GPU_ID_TYPE=device-name (GKE), DCGM_EXPORTER_COLLECTORS=<csv path in the image>.
+      extraEnv: []
+      # Read-only host directories to mount into the pod, as [{hostPath, mountPath}] (absolute paths). The one case this
+      # exists for is a driver that is not injected by a container runtime: GKE keeps its driver libraries in
+      # /home/kubernetes/bin/nvidia (mount it at /usr/local/nvidia and set LD_LIBRARY_PATH=/usr/local/nvidia/lib64 in
+      # extraEnv). Like every hostPath volume, refused by a namespace enforcing Pod Security baseline/restricted.
+      hostMounts: []
+      # Where the DaemonSet runs. Left empty (both of them), the pods go to every node that announces an NVIDIA GPU by any of
+      # the labels the common installers leave: nvidia.com/gpu.present=true (set by the NVIDIA GPU Operator),
+      # nvidia.com/gpu.count (GPU Feature Discovery, the NVIDIA device plugin's gfd.enabled=true),
+      # feature.node.kubernetes.io/pci-10de.present, pci-0302_10de.present or pci-0300_10de.present (Node Feature Discovery's
+      # NVIDIA PCI vendor labels; the three the GPU Operator itself treats as "has a GPU") and cloud.google.com/gke-accelerator
+      # (GKE). A cluster with none of these (k3s or kubeadm with just the toolkit and device plugin, AKS, EKS GPU AMIs) gets
+      # a DaemonSet with 0 desired pods, which kubectl shows as DESIRED 0: label your GPU nodes
+      # (kubectl label node <node> nvidia.com/gpu.present=true) or set nodeSelector/affinity below to whatever you do label
+      # them with. Setting nodeSelector or affinity REPLACES that built-in list (affinity wins when both are set; a
+      # nodeSelector is ANDed with an affinity you give).
+      nodeSelector: {}
+      affinity: {}
+      # Tolerates every taint by default: this pod is already confined to GPU nodes above, and the usual GPU-pool taints differ
+      # per platform (GKE nvidia.com/gpu=present:NoSchedule, AKS sku=gpu:NoSchedule - the examples in each platform's own
+      # docs - or whatever a Karpenter/NodePool adds), so a list of known keys would leave pods Pending on the first
+      # unknown one. Narrow it to a specific list if you do not want the exporter on, say, cordoned or spot nodes.
       tolerations:
-        - key: nvidia.com/gpu
-          operator: Exists
-          effect: NoSchedule
-      nodeSelector:
-        nvidia.com/gpu.present: "true"
-      # Falls back to telemetry.resources below when left empty - override only if dcgm-exporter's actual
-      # profile needs something different from the shared default.
-      resources: {}
+        - operator: Exists
+      # dcgm-exporter's own profile, not the collectors' small shared default (telemetry.resources below, which is what
+      # an empty value here falls back to): these are the requests and memory limit of NVIDIA's own chart (which also
+      # caps cpu at 200m; left uncapped here, like every other limit in this chart).
+      resources:
+        requests: {cpu: 100m, memory: 128Mi}
+        limits: {memory: 512Mi}
 
   # domain: infrastructure
   kubernetesState:
     metrics:
       enabled: false
       source: builtin   # builtin -> k8sclusterreceiver (pod/deployment/replica status and counts, cluster-wide)
+      # How often the whole cluster's state is emitted. The receiver watches the API continuously; this only sets how often
+      # it writes what it holds. It is the biggest single lever on the data volume of a large cluster: every container of
+      # every pod is several data points per interval (measured on a synthetic 500-node / 15,000-pod / 45,000-container
+      # cluster: ~245,000 data points per collection, ~8,000 per second at 30s). 60s halves that.
+      interval: 30s
 
   # domain: infrastructure
   nodeRuntime:
     metrics:
       enabled: false
-      source: builtin   # builtin -> kubeletstatsreceiver (pod lifecycle and volume metrics from the kubelet)
+      source: builtin   # builtin -> kubeletstatsreceiver (pod, node and volume metrics from the kubelet; the
+                         #            per-container series belong to resourceUsage and are only collected with it)
       # Its own cadence, independent of resourceUsage.metrics.interval above: nodeRuntime can be enabled on
       # its own (resourceUsage off), and previously silently inherited resourceUsage's interval even then -
       # now it always has one. When resourceUsage is also on, both signals still share one kubeletstats
@@ -695,7 +989,15 @@ telemetry:
       enabled: false
       source: builtin   # builtin -> an OTLP receiver (apps push to it directly, the standard OpenTelemetry SDK
                          # pattern) plus a Prometheus receiver scraping the targets listed below
-      scrapeTargets: []  # [{jobName: "", namespace: "", podLabelSelector: "", port: 0, path: /metrics}]
+      # The pods of one namespace this collector scrapes for Prometheus-format metrics, one entry per workload:
+      #   [{jobName: "", namespace: "", podLabelSelector: "", port: 0, path: /metrics, scheme: http, tlsInsecureSkipVerify: false}]
+      # jobName must be unique (it becomes service.name). podLabelSelector is a Kubernetes label selector evaluated by the API
+      # server ("app=web,tier=frontend", "app in (a,b)"); empty means every pod of the namespace. Every pod of the namespace
+      # that matches is scraped on port, whichever ports the pod declares; pods that have finished (Succeeded,
+      # Failed) or have no address yet are not. scheme https scrapes over TLS and verifies the pod's certificate against the
+      # system roots; tlsInsecureSkipVerify: true skips that verification for the entry (off by default - the response is
+      # then accepted from whatever answers on the pod address; there is no way to give a private CA here).
+      scrapeTargets: []
       # Per-signal override of the shared telemetry.scope below. Each field falls back to telemetry.scope's
       # own field independently when left empty here - same fallback idiom as hostCollector.resources below
       # falling back to telemetry.resources. Set this only if application metrics need a different namespace
@@ -715,13 +1017,29 @@ telemetry:
     logs:
       enabled: false
       source: builtin
-      journaling: none  # none | journald - whether the node OS's own journal is read in addition to the container logs
-                         # (always read, whatever this says). None by default: the receiver runs the journalctl
-                         # binary, and the pinned collector image (otel/opentelemetry-collector-contrib, built FROM
-                         # scratch) does not contain one, so with that image journald makes the collector fail to
-                         # start. Set journald only with a telemetry.collectorImage that ships journalctl, on node
-                         # pools whose journal directory exists and is readable by group 65532; leave it off on
-                         # distributions with no systemd (GKE's COS, Bottlerocket, Talos).
+      # Where kubelet writes container logs on the node. /var/log/pods unless the kubelet runs with podLogsDir set
+      # (kubernetes.io/docs/concepts/cluster-administration/logging/). Mounted read-only at the same path.
+      podLogsDir: /var/log/pods
+      # Extra host directories mounted read-only at the SAME path, for log files that podLogsDir only links to. With
+      # Docker through cri-dockerd every file under /var/log/pods is a symlink into /var/lib/docker/containers, which a pod does
+      # not see unless it is mounted: set ["/var/lib/docker/containers"] there (the "container" operator reads Docker's
+      # json-file format as well as the CRI format). containerd and CRI-O write the files in podLogsDir itself: leave empty.
+      extraHostPaths: []
+      journaling: none  # none | host | journald - whether the node OS's own journal is read in addition to the container logs
+                         # (always read, whatever this says). none: not read. host: the collector runs the node's OWN
+                         # journalctl, chrooted into the node's root filesystem (/hostfs, mounted read-only), so it
+                         # needs no special image and reads the journal in whatever format and location that node's systemd
+                         # uses (volatile /run/log/journal and persistent /var/log/journal alike). It needs CAP_SYS_CHROOT
+                         # (added to the container; it is in the Pod Security "baseline" allow-list), systemd on the node
+                         # with journalctl at journalctlPath, and a node OS that is not Talos (no systemd, no journal) or
+                         # a distroless/immutable image without journalctl: where it is missing the collector fails to
+                         # start ("fork/exec ... no such file"), metrics included, so scope it with
+                         # hostCollector.nodeSelector. journald: runs a journalctl found INSIDE the collector image, which
+                         # the pinned image (built FROM scratch) does not contain: set it only with a telemetry.collectorImage
+                         # that ships journalctl, and note it reads /var/log/journal only (a node that keeps its journal
+                         # in memory has none, and the pod does not start: the hostPath must exist). The collector runs as root
+                         # while systemLogs is on, which is what lets it read the journal and the container log files.
+      journalctlPath: /usr/bin/journalctl   # journaling: host - absolute path of journalctl INSIDE the node's root filesystem
 
   # domain: infrastructure
   kubernetesEvents:
@@ -772,14 +1090,14 @@ telemetry:
   #     agent's own path-measurement OTLP output must set once it exists (it doesn't yet - see
   #     telemetry-intent.md) - documented here so the contract is visible before the emitter is built, not
   #     discovered by a namespace scope silently dropping data later.
-  #   - accelerators (GPU metrics) ignores this block entirely unless telemetry.accelerators.metrics.applyScope
-  #     is also turned on - see that field's own comment above for why it's opt-in rather than automatic.
+  #   - accelerators (GPU metrics) and energy (bundled Kepler) follow this block whenever it is set (applyScope: auto);
+  #     their node-level series, which name no namespace, always pass.
   scope:
     namespaces: []
     exclude: []
     selector: ""
     # Narrow by workload inside a namespace: [{namespace: checkout, names: [cart, payment-api]}] keeps only
-    # those workloads' records from checkout (a list, not a map, so a `helm upgrade --reuse-values` replaces
+    # those workloads' records from checkout (a list, not a map, so a `helm upgrade --reset-then-reuse-values` replaces
     # it rather than merging into what an earlier command set) (matched on the deployment, statefulset, daemonset, job or cronjob name; a
     # record with none of those, such as a bare pod, does not match). A namespace listed with no names keeps
     # nothing of it (names: []). Names are lowercase letters, digits and hyphens. Applies where namespaces/exclude do,
@@ -806,20 +1124,47 @@ telemetry:
       - operator: Exists
     nodeSelector:
       kubernetes.io/os: linux
-    resources: {}   # falls back to telemetry.resources below when empty
+    resources: {}   # falls back to telemetry.resources below when empty (sized there for the host collector)
+    # Where the DaemonSet must not run, beyond nodeSelector.
+    affinity: {}
+    # Mount propagation of the node's root filesystem (/hostfs, read-only), which resourceUsage and journaling: host read.
+    # "" (default): none, always works; a filesystem the node mounts after the pod started stays invisible until the pod is
+    # replaced. HostToContainer: it appears (what node-exporter's chart does), but the container runtime refuses to create the
+    # container on a node whose root mount is not shared or slave ("path / is mounted on / but it is not a shared or slave
+    # mount": micro-VM and some container-hosted nodes), so set it only where the node's mount propagation is known.
+    rootMountPropagation: ""
   # The cluster Deployment runs the OTLP receiver every application pushes to, the cluster-state and event watches
   # and the Prometheus scrapes, and it holds the sending queue: it is the busiest of the collectors and the default is
   # sized for that. Rough guide (memory limit; the request is a quarter of it; the cpu request is not a limit):
   #   cluster size                              memory limit   cpu request
   #   up to ~20 nodes, a few thousand series        512Mi          100m
-  #   ~20-100 nodes, applications pushing OTLP      1Gi            100m     (the default)
-  #   ~100-300 nodes, or heavy log/trace volume     2Gi            250m
+  #   ~20-300 nodes, applications pushing OTLP      1Gi            100m     (the default)
+  #   ~300-600 nodes, or heavy log/trace volume     2Gi            250m
+  #   ~600-1000 nodes                               3Gi            500m
   # k8s_cluster and k8sobjects hold the whole object graph in memory, so the node and pod count drives it more than
-  # the data rate does. memory_limiter starts refusing data at 80% of the limit; GOMEMLIMIT is set to 80% too.
+  # the data rate does. Measured with the real collector against a synthetic 500-node / 15,200-pod cluster (3 containers
+  # per pod, every signal on): ~0.7 GiB of heap with one k8sattributes pod cache per pipeline, ~0.47 GiB with them shared
+  # (shareWatches below), against memory_limiter's refusal point of 60% of the limit (its soft limit: limitPercentage 80
+  # minus spikeLimitPercentage 20; GOMEMLIMIT is set to 80% too). At 1Gi that cluster sat at the refusal point, so the
+  # collector discarded data in a loop while looking healthy. Rows assume ~30 pods per node: go one row up above ~60.
   clusterCollector:
     resources:
       requests: {cpu: 100m, memory: 256Mi}
       limits: {memory: 1Gi}
+    # Raises the memory limit (never lowers it) to the row above for the cluster being installed into, so a large cluster
+    # does not start on a limit it cannot work within. Helm can only count nodes while installing or upgrading against a live
+    # cluster: `helm template`, Argo CD and Flux cannot, and then nodes below is the count to use (0 = look it up). Set
+    # enabled to false to pin exactly what resources says (for example 512Mi on a small cluster that is large on paper).
+    autoSize:
+      enabled: true
+      nodes: 0
+    # The k8sattributes processor keeps its own copy of every pod in the cluster, and the collector builds one processor per
+    # pipeline (up to five here): five LIST/WATCH streams against the API server and five copies in memory. true runs one
+    # shared copy through the collector's processor.k8sattributes.ShareProcessorBetweenPipelines feature gate (alpha upstream
+    # since 0.150.0; measured on the 15,200-pod cluster: 0.29 GiB -> 0.085 GiB of heap for the three app pipelines, and the
+    # whole collector from ~0.7 to ~0.47 GiB). It is only passed to a collectorImage.tag of 0.150.0 or later; a tag this chart
+    # cannot read as such a version, or false here, keeps one copy per pipeline.
+    shareWatches: true
 
   # Export health: how the agent can tell whether each destination is actually receiving data. Each
   # collector serves its own export counters (otelcol_exporter_sent_* / send_failed_*, per exporter and signal
@@ -852,8 +1197,18 @@ telemetry:
         caFile: ""
       headers: {}    # extra headers sent on the WebSocket handshake, e.g. for a bearer token - map[string]string
 
-  # Shared default for every telemetry workload's resource requests/limits (host collector, cluster
-  # collector, Kepler); override per-workload above when one of them needs something different.
+  # Shared default for the collectors' resource requests/limits (host collector; the cluster collector has its own
+  # above); Kepler and dcgm-exporter have their own under telemetry.energy / telemetry.accelerators, and fall back
+  # to this only if you empty them.
+  #
+  # The default is what the HOST collector needs on a node at the Kubernetes default of 110 pods; Kepler, dcgm-exporter and the
+  # cluster collector have profiles of their own. Measured with the real collector (0.160.0) over 200 pods' log files and a
+  # fake kubelet of 110 pods: ~50 MiB of anonymous memory idle, ~95 MiB at 19,000 log lines/s, and ~195 MiB (peak) when the
+  # destination is down and the same load keeps arriving, the sending queue and memory_limiter holding the backlog. That
+  # last case does not fit 256Mi (memory_limiter acts at 60% of the limit, the Go runtime and the file cache sit on top).
+  # A node that routinely logs far more than that, or runs far more pods, wants a larger limit. Keep a limit: memory_limiter's
+  # percentages are of the container's cgroup limit and without one they are of the node's memory. No CPU limit, which
+  # would throttle a log reader exactly when the node is busy.
   resources:
-    requests: {cpu: 20m, memory: 64Mi}
-    limits: {memory: 256Mi}
+    requests: {cpu: 20m, memory: 128Mi}
+    limits: {memory: 512Mi}

@@ -82,17 +82,25 @@ probabilistic_sampler:
 {{/* health_check extension: always on, unlike bearertokenauth above - this is what
      livenessProbe/readinessProbe in deployment.yaml point at (see operator.healthPort below), and the
      upstream otel/opentelemetry-collector-contrib image ships it for free. Serves plain GET / on its own
-     port, 200 once the collector's pipelines have started. */}}
+     port, 200 once the collector's pipelines have started.
+     It says the PROCESS is up and nothing about whether it can deliver. That is not a choice made here: in the
+     pinned collector (0.160.0) check_collector_pipeline is accepted and ignored, and the component-status mode
+     (use_v2 with the extension.healthcheck.useComponentStatus feature gate) stays StatusOK while the otlp and
+     otlphttp exporters fail for every reason (destination down, wrong CA, bad token, 415): they never report a
+     status. Measured, so neither is wired - a probe that claims to know and does not is worse than one that does not
+     claim. Delivery is visible in the self metrics (selfMetrics, on by default): otelcol_exporter_queue_size above 0
+     and otelcol_exporter_send_failed_* / enqueue_failed_* increasing. */}}
 {{- define "operator.healthPort" -}}{{- .Values.health.port | default 13133 | int -}}{{- end -}}
 {{- define "operator.healthCheckExtensionYAML" -}}
 health_check:
   endpoint: "0.0.0.0:{{ include "operator.healthPort" . }}"
 {{- end -}}
 
-{{/* Self-metrics: the collector's own standard service.telemetry.metrics stanza (queue depth, dropped
-     items, process memory - about the collector itself, not whatever it is relaying). A plain Prometheus
-     pull reader, same shape the OTel Collector docs show. Off by default (see selfMetrics.enabled in
-     values.yaml) - callers turn it on once they actually have something to scrape it. */}}
+{{/* Self-metrics: the collector's own standard service.telemetry.metrics stanza (queue depth, send_failed and
+     enqueue_failed counts, process memory - about the collector itself, not whatever it is relaying). A plain
+     Prometheus pull reader on the pod's own address (POD_IP, the downward-API variable deployment.yaml sets), the same
+     shape continuum-agent's telemetry.health uses. On by default (see selfMetrics.enabled in values.yaml): it is the
+     only place a destination that cannot be reached shows up as a number, because the health check cannot see it. */}}
 {{- define "operator.selfMetricsYAML" -}}
 {{- if .Values.selfMetrics.enabled }}
 telemetry:
@@ -101,7 +109,7 @@ telemetry:
       - pull:
           exporter:
             prometheus:
-              host: "0.0.0.0"
+              host: ${env:POD_IP}
               port: {{ .Values.selfMetrics.port }}
 {{- end }}
 {{- end -}}
@@ -196,7 +204,12 @@ ca_file: {{ $c.tls.caFile | quote }}
 {{- if eq $c.protocol "http" }}
 {{- $e := $c.endpoint }}
 {{- if not (regexMatch "^https?://" $e) }}{{ $e = printf "%s://%s" (ternary "http" "https" $c.tls.insecure) $e }}{{ end }}
+  {{- if and .m (or $c.fullUrl (regexMatch (printf "/v1/%s/?$" .m) $e)) }}
+  {{- /* A route whose URL is already the whole address of its signal: posted to as written, the collector appends nothing. */}}
+  {{ .m }}_endpoint: {{ $e | quote }}
+  {{- else }}
   endpoint: {{ $e | quote }}
+  {{- end }}
   {{- if or $trust $c.tls.serverName }}
   tls:
     {{- if $trust }}
@@ -217,6 +230,15 @@ ca_file: {{ $c.tls.caFile | quote }}
     server_name_override: {{ $c.tls.serverName | quote }}
     {{- end }}
 {{- end }}
+{{- with .root.Values.export.timeout }}
+  timeout: {{ . | quote }}
+{{- end }}
+{{- if and (eq $c.protocol "grpc") .root.Values.export.keepalive.time }}
+  keepalive:
+    time: {{ .root.Values.export.keepalive.time | quote }}
+    timeout: {{ .root.Values.export.keepalive.timeout | quote }}
+    permit_without_stream: true
+{{- end }}
 {{- if $c.auth.secretName }}
   headers:
     {{ $c.auth.headerName }}: {{ printf "${env:%s}" .env | quote }}
@@ -226,11 +248,19 @@ ca_file: {{ $c.tls.caFile | quote }}
 
 {{/* What every exporter does when its destination is down, spelled out instead of left to the collector's
      defaults (which retry for 5 minutes and then drop): retry for export.queue.retryMaxElapsedTime, holding at
-     most export.queue.size batches in memory meanwhile. The queue is what keeps a short outage of the next hop from
-     losing data and a long one from filling the pod: when it is full the exporter refuses, memory_limiter and the
-     receiver push back on the senders, and nothing grows without bound. With export.queue.persistent.enabled the
-     queue is also written to an emptyDir (file_storage/queue), so it survives a container restart (not a
-     rescheduled pod). Emits at column 0; callers nindent it. */}}
+     most export.queue.size requests in memory meanwhile.
+     block_on_overflow is what makes a full queue push back. Without it (the collector's default) a full queue REJECTS
+     the batch and the batch processor in front of the exporter only logs "sending queue is full": the receiver has
+     already answered 200 to the sender, so the data is lost and nobody upstream knows (measured: 15 requests of 3000
+     records into a queue of 3, destination down: all 15 answered 200, 36000 records dropped, receiver refused 0).
+     With it, the batch processor waits for room, the receiver stops answering, and the senders see timeouts and keep
+     the data in their own queues.
+     sending_queue.batch cuts a request into pieces of at most export.queue.maxRequestBytes serialized bytes (min_size
+     1: nothing is held back to fill a batch, that is the batch processor's job). processors.batch caps a batch in ITEMS,
+     and 4096 log records of 2 KiB are 8 MiB: past the 4 MiB the next hop accepts, so the whole batch was rejected with
+     a permanent error and dropped, while its sender had been told 200. 0 turns the cut off.
+     With export.queue.persistent.enabled the queue is also written to an emptyDir (file_storage/queue), so it
+     survives a container restart (not a rescheduled pod). Emits at column 0; callers nindent it. */}}
 {{- define "operator.exporterResilienceYAML" -}}
 {{- $q := .Values.export.queue -}}
 retry_on_failure:
@@ -241,6 +271,14 @@ retry_on_failure:
 sending_queue:
   enabled: true
   queue_size: {{ $q.size }}
+  block_on_overflow: true
+  {{- if $q.maxRequestBytes }}
+  batch:
+    sizer: bytes
+    min_size: 1
+    max_size: {{ int $q.maxRequestBytes }}
+    flush_timeout: 1s
+  {{- end }}
   {{- if $q.persistent.enabled }}
   storage: file_storage/queue
   {{- end }}
@@ -274,7 +312,7 @@ batch:
 {{- end -}}
 {{- range (include "operator.modalities" . | fromJsonArray) -}}
 {{- if include "operator.hasRoute" (dict "root" $root "m" .) -}}
-{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "root" $root "key" (include "operator.exporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.export.routes .) "env" (printf "CONTINUUM_OPERATOR_EXPORT_AUTH_%s" (upper .)) "mtls" (printf "/export-mtls-%s" .) "ca" (printf "/export-ca-%s" .))) -}}
+{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "root" $root "key" (include "operator.exporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.export.routes .) "m" . "env" (printf "CONTINUUM_OPERATOR_EXPORT_AUTH_%s" (upper .)) "mtls" (printf "/export-mtls-%s" .) "ca" (printf "/export-ca-%s" .))) -}}
 {{- end -}}
 {{- end -}}
 {{- join "\n" $blocks -}}
@@ -416,4 +454,185 @@ otlphttp/heartbeat:
     secretKeyRef:
       name: {{ .Values.heartbeat.auth.secretName }}
       key: {{ .Values.heartbeat.auth.secretKey | default "token" }}
+{{- end -}}
+
+{{/* Fails the render for a destination that cannot work, with the values key to change. .c is the destination (the
+     export.otlp shape), .what its values path, .m the signal type of a route ("" for the default destination),
+     .root the chart context. Everything here is something the collector either refuses to start with (a gRPC endpoint with a
+     path or without a port: "invalid configuration ... missing port in address", a crash loop) or accepts and then cannot
+     deliver through (https:// with insecure: true is TLS, with a verification error for every batch; http:// with
+     insecure: false is a TLS handshake against a plaintext port), measured with the collector this chart pins. Only the
+     port-number guess is optional (export.checkPorts). */}}
+{{- define "operator.destinationCheck" -}}
+{{- $c := .c -}}
+{{- $what := .what -}}
+{{- $m := .m | default "" -}}
+{{- $e := toString $c.endpoint -}}
+{{- $insecure := $c.tls.insecure -}}
+{{- $plain := false -}}
+{{- if regexMatch "[\\s\"'\\\\<>]" $e -}}{{- fail (printf "%s.endpoint %q has whitespace, a quote, a backslash or an angle bracket in it" $what $e) -}}{{- end -}}
+{{- if eq $c.protocol "grpc" -}}
+{{- $rest := regexReplaceAll "^(https?://|dns:///|dns:|passthrough:///)" $e "" -}}
+{{- if hasPrefix "unix:" $e -}}
+{{- $plain = $insecure -}}
+{{- else -}}
+{{- if contains "/" $rest -}}{{- fail (printf "%s.endpoint %q has a path, but a gRPC endpoint is host:port only (the collector refuses to start with it). For a URL such as https://host/otlp use %s.protocol=http" $what $e $what) -}}{{- end -}}
+{{- if not (regexMatch "^(\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9_][A-Za-z0-9._-]*):[0-9]{1,5}$" $rest) -}}{{- fail (printf "%s.endpoint %q is not host:port (the collector refuses to start without the port; an IPv6 address goes in brackets, [fd00::5]:4317)" $what $e) -}}{{- end -}}
+{{- if and (hasPrefix "https://" $e) $insecure -}}{{- fail (printf "%s.endpoint %q says https:// but %s.tls.insecure is true: the scheme wins, TLS is used and the certificate check fails. Set tls.insecure=false, or use a plaintext destination (no scheme or http://)" $what $e $what) -}}{{- end -}}
+{{- if and (hasPrefix "http://" $e) (not $insecure) -}}{{- fail (printf "%s.endpoint %q says http:// (plaintext) but %s.tls.insecure is false, so the collector would start a TLS handshake against a plaintext port. Set tls.insecure=true to send without TLS, or use https://" $what $e $what) -}}{{- end -}}
+{{- $plain = or $insecure (hasPrefix "http://" $e) -}}
+{{- $port := regexFind "[0-9]+$" $rest -}}
+{{- if and .root.Values.export.checkPorts (eq $port "4318") -}}{{- fail (printf "%s.endpoint %q is the conventional OTLP/HTTP port but %s.protocol is grpc: a gRPC client on an HTTP port is refused for good and everything sent is dropped. Set %s.protocol=http, or use port 4317. (A destination that really serves gRPC on 4318: set export.checkPorts=false.)" $what $e $what $what) -}}{{- end -}}
+{{- end -}}
+{{- else if eq $c.protocol "http" -}}
+{{- $url := $e -}}
+{{- if not (contains "://" $e) -}}{{- $url = printf "%s://%s" (ternary "http" "https" $insecure) $e -}}{{- end -}}
+{{- if not (regexMatch "^https?://" $url) -}}{{- fail (printf "%s.endpoint %q: an OTLP/HTTP endpoint is http(s)://host[:port][/base]; for gRPC (host:port, dns:///host:port) set %s.protocol=grpc" $what $e $what) -}}{{- end -}}
+{{- $hostpart := regexFind "^https?://[^/?#]*" $url -}}
+{{- if not (regexMatch "^https?://(\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9_][A-Za-z0-9._-]*)(:[0-9]{1,5})?$" $hostpart) -}}{{- fail (printf "%s.endpoint %q has no valid host (an IPv6 address goes in brackets: https://[fd00::5]:4318)" $what $e) -}}{{- end -}}
+{{- $path := trimPrefix $hostpart $url -}}
+{{- if regexMatch "[?#]" $path -}}{{- fail (printf "%s.endpoint %q has a query or fragment: the collector appends /v1/<signal> to the URL, which would land after it" $what $e) -}}{{- end -}}
+{{- $plain = hasPrefix "http://" $url -}}
+{{- if regexMatch "/v1/(metrics|logs|traces)/?$" $path -}}
+{{- $sig := regexReplaceAll "^.*/v1/(metrics|logs|traces)/?$" $path "${1}" -}}
+{{- if not $m -}}{{- fail (printf "%s.endpoint %q ends in /v1/%s, but this destination carries several signals and the collector appends /v1/<signal> itself (…/v1/%s/v1/metrics is a 404 and drops everything). Drop the suffix, or give each signal its own destination under telemetry.export.routes.<signal> (an endpoint ending in its own signal's /v1/<signal> is posted to as written there)" $what $e $sig $sig) -}}
+{{- else if ne $sig $m -}}{{- fail (printf "%s.endpoint %q ends in /v1/%s but this route carries %s" $what $e $sig $m) -}}{{- end -}}
+{{- end -}}
+{{- if and .root.Values.export.checkPorts (eq (regexFind ":[0-9]+$" $hostpart) ":4317") -}}{{- fail (printf "%s.endpoint %q is the conventional OTLP/gRPC port but %s.protocol is http: an HTTP client on a gRPC port is refused for good and everything sent is dropped. Set %s.protocol=grpc, or use port 4318. (A destination that really serves HTTP on 4317: set export.checkPorts=false.)" $what $e $what $what) -}}{{- end -}}
+{{- end -}}
+{{- if and $c.fullUrl (ne $c.protocol "http") -}}{{- fail (printf "%s.fullUrl only applies to protocol=http" $what) -}}{{- end -}}
+{{- if and $plain $c.tls.mtls.enabled -}}
+{{- fail (printf "%s: TLS is off (%s) but a client certificate (tls.mtls) is configured; it would never be used, the destination would never see who is sending, and the data would go in plaintext. Either turn TLS on (tls.insecure=false and, for HTTP, an https:// endpoint) or turn tls.mtls off" $what (ternary "tls.insecure is true or the endpoint is http://" "the endpoint is http://, or has no scheme while tls.insecure is true" (eq $c.protocol "grpc"))) -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Runs the check above for every destination in use (see operator.destinationsInUse), then the proxy settings. Called
+     from operator.validate. fullUrl means "this URL is the whole address of its signal", which a default destination
+     (several signals) cannot have: refused here because the shared schema allows the key there. */}}
+{{- define "operator.exportValidate" -}}
+{{- $root := . -}}
+{{- if and .Values.export.otlp.endpoint .Values.export.otlp.fullUrl -}}{{- fail "export.otlp.fullUrl does not apply to the default destination, which carries several signals: give the signal its own destination under export.routes.<signal> and set fullUrl there" -}}{{- end -}}
+{{- /* Only destinations that something is sent to: a default destination every signal type has a route around is never
+       rendered, and a stale value in it must not fail the install. */ -}}
+{{- range (include "operator.destinationsInUse" . | fromJsonArray) -}}
+{{- if .c.endpoint -}}
+{{- include "operator.destinationCheck" (dict "root" $root "c" .c "what" .name "m" .m) -}}
+{{- end -}}
+{{- end -}}
+{{- range $k, $v := .Values.export.proxy -}}
+{{- if and (has $k (list "httpProxy" "httpsProxy")) $v (not (regexMatch "^((https?|socks5h?)://)?[^/@\\s]+@?[^/\\s]*/?$" $v)) -}}
+{{- fail (printf "export.proxy.%s %q is not a proxy URL (http://host:3128, https://host:3129 or socks5://host:1080)" $k $v) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Whether a destination (.c, the export.otlp shape) is reached without TLS: a gRPC endpoint with tls.insecure
+     (or http://), an HTTP endpoint that says http:// or says nothing while tls.insecure is true. "true" or empty. */}}
+{{- define "operator.destinationPlain" -}}
+{{- $c := .c -}}
+{{- $e := toString $c.endpoint -}}
+{{- if eq $c.protocol "http" -}}{{- if or (hasPrefix "http://" $e) (and (not (hasPrefix "https://" $e)) $c.tls.insecure) -}}true{{- end -}}
+{{- else -}}{{- if or (hasPrefix "http://" $e) (and (not (hasPrefix "https://" $e)) $c.tls.insecure) -}}true{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The destinations in use (the default one when any signal type goes there, each route that has an endpoint), as a JSON
+     list of {name, c}: .name is the values path for messages. */}}
+{{- define "operator.destinationsInUse" -}}
+{{- $root := . -}}
+{{- $l := list -}}
+{{- if include "operator.defaultUsed" . -}}{{- $l = append $l (dict "name" "export.otlp" "m" "" "c" .Values.export.otlp) -}}{{- end -}}
+{{- range (include "operator.modalities" . | fromJsonArray) -}}
+{{- if include "operator.hasRoute" (dict "root" $root "m" .) -}}{{- $l = append $l (dict "name" (printf "export.routes.%s" .) "m" . "c" (get $root.Values.export.routes .)) -}}{{- end -}}
+{{- end -}}
+{{- toJson $l -}}
+{{- end -}}
+
+{{/* One line per destination in use for NOTES: where, how, and whether TLS and a credential are involved. */}}
+{{- define "operator.destinationLines" -}}
+{{- $out := list -}}
+{{- range (include "operator.destinationsInUse" . | fromJsonArray) -}}
+{{- $c := .c -}}
+{{- $tls := "TLS" -}}
+{{- if include "operator.destinationPlain" (dict "c" $c) }}{{ $tls = "PLAINTEXT" }}{{ else if $c.tls.mtls.enabled }}{{ $tls = "mutual TLS" }}{{ end -}}
+{{- $out = append $out (printf "%s -> %s (%s, %s%s)" (trimPrefix "export." .name) $c.endpoint $c.protocol $tls (ternary (printf ", header %s from Secret %s" $c.auth.headerName $c.auth.secretName) "" (ne (toString $c.auth.secretName) ""))) -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end -}}
+
+{{/* The Secrets (with the keys read from each) the pod cannot start without, as a JSON list of strings. A missing Secret
+     leaves the pod in ContainerCreating ("FailedMount": a volume) or CreateContainerConfigError (an environment variable):
+     visible in `kubectl describe pod`, but only if someone looks, so NOTES names them. */}}
+{{- define "operator.exportSecrets" -}}
+{{- $l := list -}}
+{{- if .Values.receiver.tls.enabled }}{{ $l = append $l (printf "%s (tls.crt, tls.key%s)" .Values.receiver.tls.secretName (ternary ", ca.crt" "" (default false .Values.receiver.tls.mtls))) }}{{ end -}}
+{{- if .Values.receiver.auth.enabled }}{{ $l = append $l (printf "%s (%s)" .Values.receiver.auth.secretName .Values.receiver.auth.secretKey) }}{{ end -}}
+{{- range (include "operator.destinationsInUse" . | fromJsonArray) -}}
+{{- $c := .c -}}
+{{- if $c.tls.mtls.enabled }}{{ $l = append $l (printf "%s (tls.crt, tls.key, ca.crt)" $c.tls.mtls.secretName) }}{{ else if $c.tls.caSecretName }}{{ $l = append $l (printf "%s (ca.crt)" $c.tls.caSecretName) }}{{ end -}}
+{{- if $c.auth.secretName }}{{ $l = append $l (printf "%s (%s)" $c.auth.secretName $c.auth.secretKey) }}{{ end -}}
+{{- end -}}
+{{- if .Values.export.proxy.secretName }}{{ $l = append $l (printf "%s (HTTPS_PROXY%s)" .Values.export.proxy.secretName (ternary "" ", HTTP_PROXY optional" (ne (toString .Values.export.proxy.httpProxy) ""))) }}{{ end -}}
+{{- if .Values.heartbeat.enabled }}{{ $l = append $l (printf "%s (%s)" .Values.heartbeat.auth.secretName (.Values.heartbeat.auth.secretKey | default "token")) }}{{ end -}}
+{{- toJson (uniq $l) -}}
+{{- end -}}
+
+{{/* What NOTES warns about on the export path, as a JSON list of strings: settings that are accepted but will not do what
+     the person most likely meant, or a limit hit later that then fails quietly. Not render failures: each has a legitimate use. */}}
+{{- define "operator.exportWarnings" -}}
+{{- $w := list -}}
+{{- $p := .Values.export.proxy -}}
+{{- $proxied := or $p.httpProxy $p.httpsProxy $p.secretName -}}
+{{- $anyGrpc := false -}}
+{{- range (include "operator.destinationsInUse" . | fromJsonArray) -}}
+{{- if eq .c.protocol "grpc" }}{{ $anyGrpc = true }}{{ end -}}
+{{- if and .c.auth.secretName (include "operator.destinationPlain" (dict "c" .c)) -}}
+{{- $w = append $w (printf "%s sends its credential header (%s) over a connection without TLS: anyone on the path can read it. Use TLS (tls.insecure=false and, for HTTP, an https:// endpoint) or send it only inside a trusted network." .name .c.auth.headerName) -}}
+{{- end -}}
+{{- if and (or .c.tls.caSecretName .c.tls.caFile) (include "operator.destinationPlain" (dict "c" .c)) -}}
+{{- $w = append $w (printf "%s names a CA (tls.caSecretName / tls.caFile) but TLS is off (tls.insecure=true or an http:// endpoint): the CA is never used and the data goes in plaintext. If you meant TLS, set tls.insecure=false (and use an https:// endpoint for HTTP)." .name) -}}
+{{- end -}}
+{{- end -}}
+{{- if $proxied -}}
+{{- if and $anyGrpc (not $p.httpsProxy) (not $p.secretName) -}}
+{{- $w = append $w "export.proxy.httpProxy is set but a destination is gRPC, which only ever uses httpsProxy (a CONNECT tunnel): it goes direct, not through the proxy. Set export.proxy.httpsProxy." -}}
+{{- end -}}
+{{- if or (contains "@" (toString $p.httpProxy)) (contains "@" (toString $p.httpsProxy)) -}}
+{{- $w = append $w "export.proxy carries credentials (user:password@) in clear text in the pod spec and in `helm get values`. Put the URL in a Secret under the key HTTPS_PROXY (and HTTP_PROXY) and name it in export.proxy.secretName." -}}
+{{- end -}}
+{{- if .Values.networkPolicy.egress.enabled -}}
+{{- $w = append $w "networkPolicy.egress is on and a proxy is configured: the pod connects only to the proxy, so networkPolicy.egress.allowedEgress must allow the proxy's address and port (the destinations behind it need no rule)." -}}
+{{- end -}}
+{{- end -}}
+{{- $q := .Values.export.queue -}}
+{{- $mrb := int $q.maxRequestBytes -}}
+{{- if and $anyGrpc (gt $mrb 4194304) -}}
+{{- $w = append $w (printf "export.queue.maxRequestBytes is %d, above the 4194304 (4 MiB) a gRPC receiver accepts by default: a larger request is refused for good (\"received message larger than max\") and dropped. Keep it at 3145728 unless every gRPC destination was raised." $mrb) -}}
+{{- end -}}
+{{- toJson $w -}}
+{{- end -}}
+
+{{/* The proxy variables of the collector container: HTTPS_PROXY / HTTP_PROXY from the values or from the Secret named in
+     export.proxy.secretName, and a NO_PROXY that always keeps in-cluster names and the pod's own loopback direct (a next
+     hop written <name>.<ns>.svc is a cluster Service, which a corporate proxy cannot reach and a source cluster's agent
+     uses to reach this very operator). Nothing at all when no proxy is configured. */}}
+{{- define "operator.proxyEnv" -}}
+{{- $p := .Values.export.proxy -}}
+{{- if or $p.httpProxy $p.httpsProxy $p.secretName -}}
+{{- if $p.httpsProxy }}
+- {name: HTTPS_PROXY, value: {{ $p.httpsProxy | quote }}}
+{{- else if $p.secretName }}
+- name: HTTPS_PROXY
+  valueFrom: {secretKeyRef: {name: {{ $p.secretName | quote }}, key: HTTPS_PROXY}}
+{{- end }}
+{{- if $p.httpProxy }}
+- {name: HTTP_PROXY, value: {{ $p.httpProxy | quote }}}
+{{- else if $p.secretName }}
+- name: HTTP_PROXY
+  valueFrom: {secretKeyRef: {name: {{ $p.secretName | quote }}, key: HTTP_PROXY, optional: true}}
+{{- end }}
+{{- $no := list "localhost" "127.0.0.1" "::1" ".svc" ".cluster.local" }}
+{{- if $p.noProxy }}{{ $no = append $no $p.noProxy }}{{ end }}
+- {name: NO_PROXY, value: {{ join "," $no | quote }}}
+{{- end }}
 {{- end -}}

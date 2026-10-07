@@ -168,8 +168,13 @@ func TestRegionalOperatorReceiverAndExporterRender(t *testing.T) {
 	if !ok {
 		t.Fatal("no Service rendered")
 	}
-	if len(svc.Spec.Ports) != 2 {
-		t.Fatalf("expected two ports (grpc+http), got %+v", svc.Spec.Ports)
+	var ports []string
+	for _, p := range svc.Spec.Ports {
+		ports = append(ports, p.Name)
+	}
+	// grpc and http, and the collector's own metrics (on by default: see TestRegionalOperatorSelfMetricsAreOnByDefaultOnThePodAddress).
+	if strings.Join(ports, ",") != "otlp-grpc,otlp-http,metrics" {
+		t.Fatalf("expected the grpc, http and metrics ports, got %+v", svc.Spec.Ports)
 	}
 }
 
@@ -407,16 +412,22 @@ func TestRegionalOperatorHealthCheckWiredToLivenessReadiness(t *testing.T) {
 	}
 }
 
-// TestRegionalOperatorSelfMetricsOptIn confirms the optional self-metrics reader renders only when turned
-// on, lands in service.telemetry (not a pipeline), and gets its own container/Service port.
+// TestRegionalOperatorSelfMetricsOptIn confirms the self-metrics reader is on by default (it is the only way to see a
+// destination that cannot be reached), goes away with selfMetrics.enabled=false, lands in service.telemetry (not a
+// pipeline), and gets its own container/Service port, wherever selfMetrics.port puts it.
 func TestRegionalOperatorSelfMetricsOptIn(t *testing.T) {
-	off := operatorRender(t)
+	off := operatorRender(t, "--set", "selfMetrics.enabled=false")
 	cfgOff := otelConfig(t, off.configmaps["op-regional-operator-config"].Data)
 	if svc, _ := cfgOff["service"].(map[string]any); svc["telemetry"] != nil {
-		t.Fatalf("selfMetrics defaults to off, but service.telemetry was rendered: %+v", svc["telemetry"])
+		t.Fatalf("selfMetrics.enabled=false, but service.telemetry was rendered: %+v", svc["telemetry"])
+	}
+	for _, p := range off.deployments["op-regional-operator"].Spec.Template.Spec.Containers[0].Ports {
+		if p.Name == "metrics" {
+			t.Fatalf("a metrics port with selfMetrics off: %+v", p)
+		}
 	}
 
-	on := operatorRender(t, "--set", "selfMetrics.enabled=true", "--set", "selfMetrics.port=9999")
+	on := operatorRender(t, "--set", "selfMetrics.port=9999")
 	cfgOn := otelConfig(t, on.configmaps["op-regional-operator-config"].Data)
 	svcOn, _ := cfgOn["service"].(map[string]any)
 	telemetry, _ := svcOn["telemetry"].(map[string]any)

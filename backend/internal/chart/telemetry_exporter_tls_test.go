@@ -30,7 +30,7 @@ func TestAgentHTTPExporterKeepsSchemeAndServerName(t *testing.T) {
 		t.Errorf("route server_name_override = %v, want logs.internal", got)
 	}
 	// With no server name and no certificate there is still no tls block to set.
-	plain := render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.export.otlp.protocol=http")...)
+	plain := render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.export.otlp.protocol=http", "--set", "telemetry.export.otlp.endpoint=x:4318")...)
 	if o := sub(t, otelConfig(t, plain.configmaps["continuum-telemetry-host-config"].Data), "exporters", "otlphttp"); o["tls"] != nil {
 		t.Errorf("an http exporter with nothing to say about TLS has a tls block: %v", o["tls"])
 	}

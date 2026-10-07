@@ -3,8 +3,15 @@
 {{- if .Values.telemetry.resourceUsage.metrics.enabled }}{{ $hMetrics = append $hMetrics "hostmetrics" }}{{ end }}
 {{- if or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled }}{{ $hMetrics = append $hMetrics "kubelet_stats" }}{{ end }}
 {{- $hLogs := list }}
-{{- if .Values.telemetry.systemLogs.logs.enabled }}{{ $hLogs = append $hLogs "filelog/containers" }}{{ if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}{{ $hLogs = append $hLogs "journald" }}{{ end }}{{ end }}
-{{- $metricGroups := list "container" "pod" "node" }}
+{{- if .Values.telemetry.systemLogs.logs.enabled }}{{ $hLogs = append $hLogs "filelog/containers" }}{{ if has .Values.telemetry.systemLogs.logs.journaling (list "journald" "host") }}{{ $hLogs = append $hLogs "journald" }}{{ end }}{{ end }}
+{{/* What kubelet_stats asks the kubelet for follows the signal that wants it: resourceUsage is the per-container, per-pod
+     and node CPU/memory/filesystem/network series; nodeRuntime is the pods and the volumes they mount, plus the node
+     they run on (the front end's wording is "pod and volume metrics follow the scope, node stats stay"). With only
+     nodeRuntime on, the per-container series are left out - they are resourceUsage's data, the highest-cardinality
+     group, and not something that signal's consent covers. */}}
+{{- $metricGroups := list }}
+{{- if .Values.telemetry.resourceUsage.metrics.enabled }}{{ $metricGroups = append $metricGroups "container" }}{{ end }}
+{{- $metricGroups = concat $metricGroups (list "pod" "node") }}
 {{- if .Values.telemetry.nodeRuntime.metrics.enabled }}{{ $metricGroups = append $metricGroups "volume" }}{{ end }}
 {{- $hProcessors := list "memory_limiter" "k8sattributes" "resource/node" }}
 {{- if .Values.telemetry.processors.resourceDetection.enabled }}{{ $hProcessors = append $hProcessors "resourcedetection" }}{{ end }}
@@ -26,13 +33,15 @@
 {{- $logExclude := concat .Values.telemetry.scope.exclude .Values.telemetry.scope.infra.exclude | uniq }}
 {{- $logConditions := list }}
 {{- if .Values.telemetry.systemLogs.logs.enabled }}{{ $logConditions = include "agent.telemetryScopeConditions" (dict "namespaces" $logNamespaces "exclude" $logExclude "guard" true) | fromJsonArray }}{{ end }}
-{{- $podLogInclude := list "/var/log/pods/*/*/*.log" }}
-{{- if $logNamespaces }}{{ $podLogInclude = list }}{{ range $logNamespaces }}{{ $podLogInclude = append $podLogInclude (printf "/var/log/pods/%s_*/*/*.log" .) }}{{ end }}{{ end }}
-{{- $podLogExclude := list (printf "/var/log/pods/%s_continuum-*/*/*.log" .Release.Namespace) }}
-{{- range $logExclude }}{{ $podLogExclude = append $podLogExclude (printf "/var/log/pods/%s_*/*/*.log" .) }}{{ end }}
+{{- $podLogsDir := .Values.telemetry.systemLogs.logs.podLogsDir | trimSuffix "/" }}
+{{- $podLogInclude := list (printf "%s/*/*/*.log" $podLogsDir) }}
+{{- if $logNamespaces }}{{ $podLogInclude = list }}{{ range $logNamespaces }}{{ $podLogInclude = append $podLogInclude (printf "%s/%s_*/*/*.log" $podLogsDir .) }}{{ end }}{{ end }}
+{{- $podLogExclude := list (printf "%s/%s_continuum-*/*/*.log" $podLogsDir .Release.Namespace) }}
+{{- range $logExclude }}{{ $podLogExclude = append $podLogExclude (printf "%s/%s_*/*/*.log" $podLogsDir .) }}{{ end }}
 {{- $hLogsProcessors := $hProcessors }}
 {{- if $logConditions }}{{ $hLogsProcessors = concat (list "memory_limiter" "k8sattributes" "filter/scope_system_logs") (slice $hProcessors 2) }}{{ end }}
 {{- $hExtensions := include "agent.telemetryExtensionNames" . | fromJsonArray }}
+{{- if .Values.telemetry.systemLogs.logs.enabled }}{{ $hExtensions = append $hExtensions "file_storage/logs" }}{{ end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -49,11 +58,29 @@ data:
         scrapers:
           cpu: {}
           memory: {}
+          {{- if .Values.telemetry.resourceUsage.metrics.hostFilesystem }}
           filesystem:
+            # Mount points are matched as the HOST sees them, not with the /hostfs prefix: with root_path set the
+            # scraper reads /hostfs/proc/1/mountinfo, which lists them without it (it only falls back to the
+            # collector's own mountinfo, which has the prefix, when that file cannot be read), so a pattern that
+            # starts with /hostfs never matches anything. The optional prefix below covers the fallback. What is
+            # left out is what a node always has an unbounded number of and that nobody reads usage of: the kubelet's
+            # per-pod mounts (CSI volumes, subPaths) and the container runtimes' own state - directories only root
+            # may enter, so a collector that is not root would log a permission error for each of them every interval.
+            # The runtimes' state lives in different places: containerd (/var/lib/containerd, k3s and RKE2 under
+            # /var/lib/rancher/<k3s|rke2>/agent/containerd, /run/k3s/containerd), Docker (/var/lib/docker), CRI-O and Podman
+            # (/var/lib/containers/storage, /run/containers/storage). The last two
+            # alternatives catch the same state and the kubelet's pods wherever a distribution relocates them (MicroK8s keeps
+            # both under /var/snap/microk8s/common). Mounts without a device of their own - overlay, tmpfs, shm, nsfs -
+            # are skipped by the scraper itself (include_virtual_filesystems is false).
             exclude_mount_points:
               match_type: regexp
-              mount_points: ["/hostfs/dev/.*", "/hostfs/proc/.*", "/hostfs/sys/.*", "/hostfs/var/lib/kubelet/.*"]
-          network: {}
+              mount_points: ['^(/hostfs)?/(dev|proc|sys|run/(k3s/)?containerd|run/containers/storage|var/lib/(kubelet|docker|containerd|containers/storage|rancher/(k3s|rke2)/agent/containerd))(/|$)|/kubelet/(pods|plugins)(/|$)|/containerd/io\.containerd\.']
+          {{- end }}
+          # No "network" scraper: it reads /proc/net/dev of the process that asks, and this pod has its own network
+          # namespace, so it would report the pod's eth0 and lo as if they were the node's interfaces (hostNetwork
+          # would fix that and also take this pod out of every NetworkPolicy). The node's own network totals come
+          # from kubelet_stats, below, whose "node" group is the kubelet's view of the host.
       {{- end }}
       {{- if or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled }}
       # "kubelet_stats" is this receiver's current canonical name (collector-contrib >= v0.152.0); the old
@@ -62,18 +89,32 @@ data:
       # nodeRuntime's - so this receiver always has an interval that reflects why it's actually running.
       kubelet_stats:
         collection_interval: {{ if .Values.telemetry.resourceUsage.metrics.enabled }}{{ .Values.telemetry.resourceUsage.metrics.interval }}{{ else }}{{ .Values.telemetry.nodeRuntime.metrics.interval | default "30s" }}{{ end }}
+        {{- if .Values.telemetry.kubelet.viaAPIServer }}
+        # Through the API server: with auth_type kubeConfig and no kubeconfig file the receiver falls back to the pod's
+        # in-cluster credentials (verified by running it) and asks GET /api/v1/nodes/<endpoint>/proxy/stats/summary, so the
+        # endpoint is the node's NAME and the kubelet's own certificate is never seen by this pod. insecure_skip_verify
+        # is deliberately absent: in this mode it would switch off verification of the API server instead.
+        auth_type: kubeConfig
+        endpoint: {{ include "agent.telemetryKubeletEndpoint" . | quote }}
+        {{- else }}
         auth_type: serviceAccount
-        # The node's own IP (status.hostIP, the NODE_IP env var), not its name: a node name is not always resolvable
-        # from a pod, an IP always is. The kubelet's certificate is verified against the cluster CA unless
-        # telemetry.kubelet.insecureSkipVerify opts out (see values.yaml for when that is needed).
-        endpoint: "https://${env:NODE_IP}:10250"
+        # The node's own IP (status.hostIP, the NODE_IP env var) unless telemetry.kubelet.address says otherwise: a node
+        # name is not always resolvable from a pod, an IP always is. The kubelet's certificate is verified against the
+        # cluster CA (or telemetry.kubelet.ca) unless telemetry.kubelet.insecureSkipVerify opts out (see values.yaml
+        # for when that is needed).
+        endpoint: {{ include "agent.telemetryKubeletEndpoint" . | quote }}
         insecure_skip_verify: {{ .Values.telemetry.kubelet.insecureSkipVerify }}
+        {{- if include "agent.telemetryKubeletCA" . }}
+        ca_file: /etc/continuum/kubelet-ca/ca.crt
+        {{- end }}
+        {{- end }}
         metric_groups: {{ $metricGroups | toJson }}
       {{- end }}
       {{- if .Values.telemetry.systemLogs.logs.enabled }}
       filelog/containers:
-        # Kubelet owns this path on every distribution this chart supports (k3s, kubeadm, RKE2, EKS, GKE,
-        # AKS): unlike a node's own OS logs, where a distribution actually does control the location,
+        # Kubelet owns this path (telemetry.systemLogs.logs.podLogsDir, /var/log/pods unless its podLogsDir setting moved
+        # it) on every distribution this chart supports (k3s, kubeadm, kind, minikube; the managed
+        # EKS, GKE and AKS clusters with ordinary nodes): unlike a node's own OS logs, where a distribution actually does control the location,
         # kubelet always writes container stdout/stderr here regardless of the underlying OS or container
         # runtime. This is deliberately NOT the reference implementation's approach of reading a specific
         # distribution's own log files (e.g. /var/log/k3s.log) - that only works on the one distribution it
@@ -84,17 +125,44 @@ data:
         # filter below enforces the scope on what is read, this keeps it from being read at all.
         exclude: {{ $podLogExclude | toJson }}
         include_file_path: true
+        # Files are found by polling (this receiver uses no inotify, so inotify limits cannot hurt it), and every poll
+        # stats every matching file: measured with the real collector, 1000 idle log files cost ~10% of a core at the
+        # default 200ms and ~1% at 1s. A node holds a file per container including finished pods' until they are
+        # garbage-collected, so this is the setting that keeps an idle node idle; the price is up to a second of delay.
+        poll_interval: 1s
+        # When the collector is under memory pressure (memory_limiter refuses data) or the destination is down and
+        # the sending queue is full, pause reading and try again instead of discarding what was read: the lines stay in the
+        # files the kubelet keeps (up to its rotation limit, 5 files of 10Mi per container by default) and are read when
+        # the pipeline drains. Without this the receiver advances past a refused batch and the lines are lost - measured
+        # at 20,000 lines/s with the destination down: 85% of the lines dropped and ten times the CPU spent dropping
+        # them. 0s: never give up (a permanent error is not retried).
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 30s
+          max_elapsed_time: 0s
+        # start_at only decides where a file this collector has never seen is first read. The checkpoints below
+        # are what keep a restart (an OOM kill, a rollout) from skipping what was written meanwhile and from
+        # reading it twice.
         start_at: end
+        storage: file_storage/logs
         operators:
           - type: container
       {{- if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}
-      # The node OS's own logs, where journald.enabled and the node actually runs one. Distributions
-      # without systemd (most container-optimized OSes - GKE's COS, Bottlerocket, Talos) have no journal to
-      # read; set telemetry.systemLogs.logs.journaling: none on a node pool built from one of those; this
-      # receiver would otherwise sit idle rather than silently reading nothing, since journald fails its own
-      # health check when /var/log/journal does not exist.
+      # The node OS's own logs through a journalctl inside the collector image, which the pinned image does not have
+      # (see values.yaml); hence this mode needs telemetry.collectorImage. Reads /var/log/journal only.
       journald:
         directory: /var/log/journal
+      {{- else if eq .Values.telemetry.systemLogs.logs.journaling "host" }}
+      # The node OS's own logs through the NODE's journalctl, run chrooted into the read-only mount of the node's root
+      # filesystem (the receiver's root_path/journalctl_path; the chroot needs CAP_SYS_CHROOT, which telemetry.yaml adds).
+      # That binary reads the journal in the node's own format, wherever that node keeps it (volatile /run/log/journal
+      # or persistent /var/log/journal): no "directory" is set so journalctl looks in both, by the node's machine-id. The
+      # collector refuses to start when journalctl_path does not exist in the chroot, hence the nodeSelector advice in
+      # values.yaml for nodes without systemd.
+      journald:
+        root_path: /hostfs
+        journalctl_path: {{ .Values.telemetry.systemLogs.logs.journalctlPath | quote }}
       {{- end }}
       {{- end }}
 
@@ -149,20 +217,23 @@ data:
       {{- include "agent.telemetryContinuumProvenanceYAML" . | nindent 6 }}
       {{- include "agent.telemetryBatchYAML" . | nindent 6 }}
 
-    {{- if $hExtensions }}
     extensions:
+      {{- include "agent.telemetryHealthCheckExtensionYAML" . | nindent 6 }}
       {{- include "agent.telemetryOpampExtensionYAML" . | nindent 6 }}
       {{- include "agent.telemetryQueueExtensionYAML" . | nindent 6 }}
-    {{- end }}
+      {{- if .Values.telemetry.systemLogs.logs.enabled }}
+      # Where filelog/containers remembers how far it has read each log file. The root filesystem is read-only, so
+      # it is the emptyDir telemetry.yaml mounts here: it survives a container restart, not a replaced pod.
+      file_storage/logs:
+        directory: /var/lib/otelcol/checkpoints
+      {{- end }}
 
     exporters:
       {{- include "agent.telemetryExporterYAML" (dict "root" . "scope" "host") | nindent 6 }}
       {{- include "agent.telemetryDebugExporterYAML" . | nindent 6 }}
 
     service:
-      {{- if $hExtensions }}
       extensions: {{ $hExtensions | toJson }}
-      {{- end }}
       {{- if include "agent.telemetryHealthEnabled" . }}
       {{- include "agent.telemetryHealthReaderYAML" . | nindent 6 }}
       {{- end }}

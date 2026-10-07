@@ -78,25 +78,64 @@
      the object's own namespace. Nodes, and anything else with no namespace, pass. Events have no workload,
      so for them only the namespace halves apply. */}}
 {{- $infraConditions := include "agent.telemetryInfraScopeConditions" . | fromJsonArray }}
-{{- $infraEventConditions := include "agent.telemetryScopeConditions" (dict "namespaces" .Values.telemetry.scope.infra.namespaces "exclude" .Values.telemetry.scope.infra.exclude "guard" true "nsExprs" (list "resource.attributes[\"k8s.namespace.name\"]" "log.body[\"object\"][\"metadata\"][\"namespace\"]")) | fromJsonArray }}
+{{- /* An Event about a Node (NodeNotReady, Rebooted, ...) is stored by Kubernetes in the "default" namespace, because a Node has none
+       (client-go tools/record makeEvent: an empty ref.Namespace becomes metav1.NamespaceDefault). Without the exemption below a
+       namespace scope that does not list "default" would drop every node event, though nodes are meant to stay. */ -}}
+{{- $infraEventConditions := include "agent.telemetryScopeConditions" (dict "namespaces" .Values.telemetry.scope.infra.namespaces "exclude" .Values.telemetry.scope.infra.exclude "guard" true "nsExprs" (list "resource.attributes[\"k8s.namespace.name\"]" "log.body[\"object\"][\"metadata\"][\"namespace\"]") "exempt" " and log.body[\"object\"][\"involvedObject\"][\"kind\"] != \"Node\"") | fromJsonArray }}
 
-{{/* Accelerators scope (telemetry.accelerators.metrics.applyScope, off by default): unlike the app-domain
-     kinds above, accelerators has no scope override of its own - it either respects the shared
-     telemetry.scope as-is, or (default) is left alone entirely. Each shared condition is re-used verbatim
-     and additionally gated to resource.attributes["service.name"] == "dcgm-exporter" (the literal job_name
-     dcgm-exporter is scraped under, below) so this can only ever touch dcgm's own records within the
-     shared metrics/infra pipeline - never Kepler's, never kubernetesState's. */}}
+{{/* Accelerators scope (telemetry.accelerators.metrics.applyScope, auto: on when a scope is set): unlike the app-domain
+     kinds above, accelerators has no scope override of its own - it respects the shared
+     telemetry.scope's namespaces/exclude whenever one is set (applyScope auto, or true), and is left alone otherwise.
+
+     The namespace is read from each DATA POINT (dcgm-exporter's own "namespace" label), never from the resource: the
+     Prometheus receiver makes ONE resource per scraped node, and one node's GPUs serve many namespaces, so a
+     resource-level namespace is whichever pod's data point was written last - which kept out-of-scope GPU data (and
+     dropped in-scope data) depending on scrape order. A GPU no pod holds has no namespace and, like any application
+     record with none, does not pass a namespaces allow-list. telemetry.scope.workloads cannot be applied to GPU data
+     (dcgm-exporter names the pod, not its Deployment): a namespace listed there is treated as "names: []", i.e. its GPU
+     data is not reported. Gated to service.name == "dcgm-exporter" (the literal job_name it is scraped under, below) so
+     this only ever touches dcgm's own records within the shared metrics/infra pipeline - never Kepler's, never
+     kubernetesState's - and spares the scrape's own up/scrape_* series, which say whether the exporter is reachable
+     and carry no pod data. */}}
+{{- /* $dcgmPods: the exporter is reached pod by pod (the bundled DaemonSet, or an existing one found by existing.pods), as
+       opposed to one address. $accJob is the job_name - the service.name of every GPU record - of whichever scrape job is
+       in use; both pod-by-pod cases use "dcgm-exporter", so a GPU series carries the same service.name whoever deployed the exporter. */ -}}
+{{- $acc := .Values.telemetry.accelerators.metrics }}
+{{- $dcgmPods := and $acc.enabled (or (eq $acc.source "bundle-dcgm") $acc.existing.pods.labelSelector) }}
+{{- $accJob := ternary "dcgm-exporter" "accelerators-existing" (or (eq $acc.source "bundle-dcgm") (not (empty $acc.existing.pods.labelSelector))) }}
 {{- $accConditions := list }}
-{{- if and .Values.telemetry.accelerators.metrics.enabled .Values.telemetry.accelerators.metrics.applyScope (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
-{{- range $c := $scopeConditions }}{{ $accConditions = append $accConditions (printf "(%s) and resource.attributes[\"service.name\"] == \"dcgm-exporter\"" $c) }}{{ end }}
+{{- if and $acc.enabled (include "agent.telemetryAccApplyScope" .) }}
+{{- $accNs := "datapoint.attributes[\"namespace\"]" }}
+{{- $accExempt := printf " and resource.attributes[\"service.name\"] == \"%s\" and metric.name != \"up\" and not IsMatch(metric.name, \"^scrape_\")" $accJob }}
+{{- $accWorkloads := list }}
+{{- range $w := .Values.telemetry.scope.workloads }}{{ $accWorkloads = append $accWorkloads (dict "namespace" $w.namespace "names" (list)) }}{{ end }}
+{{- $accConditions = include "agent.telemetryScopeConditions" (dict "namespaces" .Values.telemetry.scope.namespaces "exclude" .Values.telemetry.scope.exclude "workloads" $accWorkloads "nsExprs" (list $accNs) "nsAttr" $accNs "exempt" $accExempt) | fromJsonArray }}
 {{- end }}
 
-{{/* Processor chains per pipeline: memory_limiter and k8sattributes always first, then the shared
-     resourcedetection/redaction pair (if enabled), then whatever is pipeline-specific (Kepler's node-
-     identity transform for metrics/infra only; the scope filter - shared or per-kind - and, for traces,
-     sampling for the *_app pipelines and traces only), then the extraProcessorNames escape hatch (every
-     pipeline), then - traces only - extraTracesProcessorNames as well (tail_sampling and anything else
-     that isn't a valid metrics/logs processor, see the values.yaml comment on it), then batch always last. */}}
+{{/* Energy scope (telemetry.energy.metrics.applyScope, auto: on when a scope is set), bundled Kepler only: the same as the accelerators scope
+     above, with the same reasons. The namespace is read from each DATA POINT - the label Kepler puts on the series of a
+     pod's energy (container_namespace for the ebpf engine, pod_namespace for powercap) - because the resource is the
+     exporter pod's (transform/kepler_node removes that identity) and one Kepler reports every namespace of its node. A
+     series without it (node totals, a powercap container-level series, which names only a pod_id) passes: the guard
+     argument of the helper. Gated to service.name == "kepler" (the job_name) and sparing the scrape's own up/scrape_* series. */}}
+{{- $enConditions := list }}
+{{- if and .Values.telemetry.energy.metrics.enabled (include "agent.telemetryEnergyApplyScope" .) (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
+{{- $enNs := printf "datapoint.attributes[\"%s\"]" (ternary "pod_namespace" "container_namespace" (eq (include "agent.telemetryKeplerEngine" .) "powercap")) }}
+{{- $enExempt := " and resource.attributes[\"service.name\"] == \"kepler\" and metric.name != \"up\" and not IsMatch(metric.name, \"^scrape_\")" }}
+{{- $enWorkloads := list }}
+{{- range $w := .Values.telemetry.scope.workloads }}{{ $enWorkloads = append $enWorkloads (dict "namespace" $w.namespace "names" (list)) }}{{ end }}
+{{- $enConditions = include "agent.telemetryScopeConditions" (dict "namespaces" .Values.telemetry.scope.namespaces "exclude" .Values.telemetry.scope.exclude "workloads" $enWorkloads "nsExprs" (list $enNs) "nsAttr" $enNs "exempt" $enExempt "guard" true) | fromJsonArray }}
+{{- end }}
+
+{{/* Processor chains per pipeline: memory_limiter and k8sattributes always first, then what is pipeline-specific
+     and decides what stays at all (Kepler's node-identity transform for metrics/infra only; the scope filter -
+     shared or per-kind), so that everything after it only ever works on data that is kept (replaying 60k records
+     of which 98% are out of scope took 2.7 s of CPU with redaction ahead of the filter, 0.9 s with the filter first)
+     and so that no redaction pattern can ever change the namespace the scope reads; then the shared
+     resourcedetection/redaction pair (if
+     enabled), then sampling (traces only), then the extraProcessorNames escape hatch (every pipeline), then -
+     traces only - extraTracesProcessorNames as well (tail_sampling and anything else that isn't a valid
+     metrics/logs processor, see the values.yaml comment on it), then batch always last. */}}
 {{- $commonMid := list }}
 {{- if .Values.telemetry.processors.resourceDetection.enabled }}{{ $commonMid = append $commonMid "resourcedetection" }}{{ end }}
 {{- if .Values.telemetry.processors.redaction.enabled }}{{ $commonMid = append $commonMid "redaction" }}{{ end }}
@@ -105,28 +144,43 @@
 
 {{- $procInfra := list "memory_limiter" "k8sattributes" }}
 {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}{{ $procInfra = append $procInfra "transform/kepler_node" }}{{ end }}
-{{- if and .Values.telemetry.accelerators.metrics.enabled .Values.telemetry.accelerators.metrics.applyScope (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}{{ $procInfra = append $procInfra "transform/dcgm_pod" }}{{ end }}
+{{- if $dcgmPods }}{{ $procInfra = append $procInfra "transform/dcgm_node" }}{{ end }}
 {{- if $accConditions }}{{ $procInfra = append $procInfra "filter/scope_accelerators" }}{{ end }}
+{{- if $enConditions }}{{ $procInfra = append $procInfra "filter/scope_energy" }}{{ end }}
 {{- if and $infraConditions .Values.telemetry.kubernetesState.metrics.enabled }}{{ $procInfra = append $procInfra "filter/scope_infra" }}{{ end }}
 {{- $procInfra = concat $procInfra $commonMid $extraNames $tail }}
 
-{{- $procApp := concat (list "memory_limiter") (ternary (list "transform/scrape_k8s") (list) (not (empty $scrapeK8s))) (list "k8sattributes") $commonMid }}
+{{- $procApp := concat (list "memory_limiter") (ternary (list "transform/scrape_k8s") (list) (not (empty $scrapeK8s))) (list "k8sattributes") }}
 {{- if $amConditions }}{{ $procApp = append $procApp $amProcessor }}{{ end }}
-{{- $procApp = concat $procApp $extraNames $tail }}
+{{- $procApp = concat $procApp $commonMid $extraNames $tail }}
 
-{{- $procLogsInfra := list "memory_limiter" "k8sattributes" }}
+{{- /* No k8sattributes here: an Event record carries no pod uid, name or IP for it to look up (its involved object is in the body), so
+       it would add nothing - yet every k8sattributes instance in the config holds its own full pod informer. */ -}}
+{{- $procLogsInfra := list "memory_limiter" }}
 {{- if $infraEventConditions }}{{ $procLogsInfra = append $procLogsInfra "filter/scope_infra_events" }}{{ end }}
 {{- $procLogsInfra = concat $procLogsInfra $commonMid $extraNames $tail }}
 
-{{- $procLogsApp := concat (list "memory_limiter" "k8sattributes") $commonMid }}
+{{- $procLogsApp := list "memory_limiter" "k8sattributes" }}
 {{- if $alConditions }}{{ $procLogsApp = append $procLogsApp $alProcessor }}{{ end }}
-{{- $procLogsApp = concat $procLogsApp $extraNames $tail }}
+{{- $procLogsApp = concat $procLogsApp $commonMid $extraNames $tail }}
 
-{{- $procTraces := concat (list "memory_limiter" "k8sattributes") $commonMid }}
+{{- $procTraces := list "memory_limiter" "k8sattributes" }}
 {{- if $trConditions }}{{ $procTraces = append $procTraces $trProcessor }}{{ end }}
+{{- $procTraces = concat $procTraces $commonMid }}
 {{- if lt (int .Values.telemetry.processors.tracesSampling.percentage) 100 }}{{ $procTraces = append $procTraces "probabilistic_sampler" }}{{ end }}
 {{- $procTraces = concat $procTraces $extraNames .Values.telemetry.processors.extraTracesProcessorNames $tail }}
 
+{{/* Only the processors a rendered pipeline actually names are defined below: a scope filter for a signal that is
+     off, or a sampler with no traces pipeline, would otherwise sit in the ConfigMap doing nothing. */}}
+{{- $usedProcs := list }}
+{{- if $cMetricsInfra }}{{ $usedProcs = concat $usedProcs $procInfra }}{{ end }}
+{{- if $cMetricsApp }}{{ $usedProcs = concat $usedProcs $procApp }}{{ end }}
+{{- if $cLogsInfra }}{{ $usedProcs = concat $usedProcs $procLogsInfra }}{{ end }}
+{{- if $cLogsApp }}{{ $usedProcs = concat $usedProcs $procLogsApp }}{{ end }}
+{{- if .Values.telemetry.traces.traces.enabled }}{{ $usedProcs = concat $usedProcs $procTraces }}{{ end }}
+
+{{/* The collector's own readiness endpoint (health_check, in agent.telemetryExtensionNames): the kubelet's readiness probe
+     asks it, so the pod is not in the Service's endpoints (where applications push OTLP) before its receivers are listening. */}}
 {{- $clusterExtensions := include "agent.telemetryExtensionNames" . | fromJsonArray }}
 {{- if .Values.telemetry.receiver.auth.enabled }}{{ $clusterExtensions = append $clusterExtensions "bearertokenauth" }}{{ end }}
 
@@ -141,7 +195,7 @@ data:
     receivers:
       {{- if .Values.telemetry.kubernetesState.metrics.enabled }}
       k8s_cluster:
-        collection_interval: 30s
+        collection_interval: {{ .Values.telemetry.kubernetesState.metrics.interval | quote }}
         auth_type: serviceAccount
         allocatable_types_to_report: [cpu, memory]
       {{- end }}
@@ -151,18 +205,38 @@ data:
         objects:
           - name: events
             mode: watch
+            # An Event object is deleted by the API server an hour after it was last updated, and the watch reports that
+            # as one more record per Event whose body is the old Event again: every event would be delivered twice, the
+            # second time an hour late. The creation and every update (the "count" of a repeating Event) are kept.
+            exclude_watch_type: [DELETED]
       {{- end }}
       {{- if include "agent.telemetryOtlpReceiverEnabled" . }}
+      {{- $recvTLS := .Values.telemetry.receiver.tls }}
       otlp:
         protocols:
           grpc:
-            endpoint: "0.0.0.0:4317"
+            endpoint: ":4317"
+            # grpc-go closes a connection whose client pings it more often than every 5 minutes, or at all while no call is
+            # running (EnforcementPolicy: MinTime 5m, PermitWithoutStream false). SDKs and sidecar proxies that keep a
+            # connection alive do exactly that, and are then cut off with GOAWAY "too_many_pings" and drop data.
+            keepalive:
+              enforcement_policy:
+                min_time: 10s
+                permit_without_stream: true
+            {{- if $recvTLS.secretName }}
+            tls:
+              {{- include "agent.telemetryReceiverTLSYAML" . | nindent 14 }}
+            {{- end }}
             {{- if .Values.telemetry.receiver.auth.enabled }}
             auth:
               authenticator: bearertokenauth
             {{- end }}
           http:
-            endpoint: "0.0.0.0:4318"
+            endpoint: ":4318"
+            {{- if $recvTLS.secretName }}
+            tls:
+              {{- include "agent.telemetryReceiverTLSYAML" . | nindent 14 }}
+            {{- end }}
             {{- if .Values.telemetry.receiver.auth.enabled }}
             auth:
               authenticator: bearertokenauth
@@ -177,26 +251,83 @@ data:
         config:
           scrape_configs:
             {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
+            # Pod discovery, narrowed on the API server to this release's own Kepler pods (a label selector in this
+            # release's namespace) instead of every pod in the cluster: the receiver otherwise holds a cache of the whole
+            # cluster's pods for this one job, and would also scrape another release's Kepler (same app label) a second time.
+            # One target per pod: the pod declares a single port (metrics), which is the one Kepler listens on.
             - job_name: kepler
-              kubernetes_sd_configs: [{role: pod}]
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces: {names: [{{ .Release.Namespace | quote }}]}
+                  selectors:
+                    - {role: pod, label: {{ printf "app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s" $keplerName .Release.Name | quote }}}
               relabel_configs:
                 - {source_labels: ["__meta_kubernetes_pod_label_app_kubernetes_io_name"], regex: {{ $keplerName | quote }}, action: keep}
+                - {source_labels: ["__meta_kubernetes_pod_label_app_kubernetes_io_instance"], regex: {{ regexQuoteMeta .Release.Name | quote }}, action: keep}
+                # Only a pod whose containers have started: a node Kepler's preflight init container holds (it cannot work
+                # there - see telemetry.energy.metrics.nodeChecks) is Pending, and must not turn into a permanently failing
+                # target. A Kepler that is running but broken keeps its target, so it still shows as up=0.
+                - {source_labels: ["__meta_kubernetes_pod_phase"], regex: "Running", action: keep}
                 - {source_labels: ["__meta_kubernetes_pod_node_name"], target_label: node}
             {{- end }}
             {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "existing") }}
+            {{- $e := include "agent.telemetryScrapeEndpoint" (dict "endpoint" .Values.telemetry.energy.metrics.existing.prometheusEndpoint "what" "telemetry.energy.metrics.existing.prometheusEndpoint") | fromJson }}
             - job_name: energy-existing
-              static_configs: [{targets: [{{ .Values.telemetry.energy.metrics.existing.prometheusEndpoint | quote }}]}]
+              {{- if eq $e.scheme "https" }}
+              scheme: https
+              {{- end }}
+              metrics_path: {{ $e.path | quote }}
+              static_configs: [{targets: [{{ $e.target | quote }}]}]
             {{- end }}
             {{- if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
             - job_name: dcgm-exporter
-              kubernetes_sd_configs: [{role: pod}]
+              {{- with .Values.telemetry.accelerators.metrics.interval }}
+              scrape_interval: {{ . | quote }}
+              {{- end }}
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces: {names: [{{ .Release.Namespace | quote }}]}
+                  selectors:
+                    - {role: pod, label: {{ printf "app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s" $dcgmName .Release.Name | quote }}}
               relabel_configs:
                 - {source_labels: ["__meta_kubernetes_pod_label_app_kubernetes_io_name"], regex: {{ $dcgmName | quote }}, action: keep}
+                - {source_labels: ["__meta_kubernetes_pod_label_app_kubernetes_io_instance"], regex: {{ regexQuoteMeta .Release.Name | quote }}, action: keep}
                 - {source_labels: ["__meta_kubernetes_pod_node_name"], target_label: node}
             {{- end }}
-            {{- if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "existing") }}
+            {{- if and $acc.enabled (eq $acc.source "existing") $acc.existing.pods.labelSelector }}
+            {{- /* An exporter you already run as a DaemonSet (the NVIDIA GPU Operator's nvidia-dcgm-exporter), scraped pod by pod. Its
+                   Service is a single ClusterIP in front of every node's pod, so a scrape of the Service reaches one of them at
+                   random and never the whole fleet; discovery by label gives each node's exporter its own target. The address is
+                   rewritten to pod IP and the configured port, so a pod that declares several ports (or none) still yields exactly
+                   one target. Same job_name as the bundled one, so GPU records have one service.name, and so
+                   transform/dcgm_node (below) treats the exporter's own pod identity the same way. */}}
+            - job_name: dcgm-exporter
+              {{- with $acc.interval }}
+              scrape_interval: {{ . | quote }}
+              {{- end }}
+              kubernetes_sd_configs:
+                - role: pod
+                  {{- with $acc.existing.pods.namespace }}
+                  namespaces: {names: [{{ . | quote }}]}
+                  {{- end }}
+                  selectors:
+                    - {role: pod, label: {{ $acc.existing.pods.labelSelector | quote }}}
+              relabel_configs:
+                # A pod that is not running has no address to scrape (Pending) or nothing to scrape (Succeeded/Failed).
+                - {source_labels: ["__meta_kubernetes_pod_phase"], regex: "Running", action: keep}
+                - {source_labels: ["__meta_kubernetes_pod_ip"], regex: "([0-9.]+)", target_label: "__address__", replacement: "$${1}:{{ $acc.existing.pods.port | int }}"}
+                - {source_labels: ["__meta_kubernetes_pod_node_name"], target_label: node}
+            {{- else if and $acc.enabled (eq $acc.source "existing") }}
+            {{- $e := include "agent.telemetryScrapeEndpoint" (dict "endpoint" $acc.existing.prometheusEndpoint "what" "telemetry.accelerators.metrics.existing.prometheusEndpoint") | fromJson }}
             - job_name: accelerators-existing
-              static_configs: [{targets: [{{ .Values.telemetry.accelerators.metrics.existing.prometheusEndpoint | quote }}]}]
+              {{- with $acc.interval }}
+              scrape_interval: {{ . | quote }}
+              {{- end }}
+              {{- if eq $e.scheme "https" }}
+              scheme: https
+              {{- end }}
+              metrics_path: {{ $e.path | quote }}
+              static_configs: [{targets: [{{ $e.target | quote }}]}]
             {{- end }}
       {{- end }}
       {{- /* No scrape targets, no receiver: the upstream prometheus receiver refuses to load with an empty scrape_configs, which would take the whole collector down. */ -}}
@@ -218,14 +349,28 @@ data:
                   selectors:
                     - {role: pod, label: {{ $t.podLabelSelector | quote }}}
               relabel_configs:
-                - {source_labels: ["__address__"], target_label: "__address__", replacement: "$${1}:{{ $t.port }}", regex: "([^:]+)(?::\\d+)?"}
+                # A pod that has finished (Job/CronJob pods, evicted pods) keeps its IP in the API for as long as the object
+                # exists, so the pod discovery keeps offering it: scraping it is a refused connection every interval, an
+                # "up 0" series that looks like an outage of something that merely completed.
+                - {source_labels: ["__meta_kubernetes_pod_phase"], regex: "Succeeded|Failed", action: drop}
+                # The port to scrape is the entry's, on the pod's IP. Starting from the discovered address would give one
+                # target per declared container port (the same pod scraped on every port, duplicate series).
+                - {source_labels: ["__meta_kubernetes_pod_ip"], target_label: "__address__", regex: "([^:]+)", replacement: "$${1}:{{ $t.port }}"}
                 # The pod's identity, kept as labels for transform/scrape_k8s to promote. Without it k8sattributes
                 # has nothing to look the pod up by, and the namespace scope would see no namespace on this data.
                 - {source_labels: ["__meta_kubernetes_namespace"], target_label: k8s_namespace_name}
                 - {source_labels: ["__meta_kubernetes_pod_name"], target_label: k8s_pod_name}
                 - {source_labels: ["__meta_kubernetes_pod_uid"], target_label: k8s_pod_uid}
                 - {source_labels: ["__meta_kubernetes_pod_node_name"], target_label: k8s_node_name}
-              metrics_path: {{ $t.path | default "/metrics" | quote }}
+              {{- $path := $t.path | default "/metrics" }}
+              metrics_path: {{ ternary $path (printf "/%s" $path) (hasPrefix "/" $path) | quote }}
+              {{- if eq ($t.scheme | default "http") "https" }}
+              scheme: https
+              {{- if $t.tlsInsecureSkipVerify }}
+              # Opt-in per target: pod certificates are rarely valid for a pod IP.
+              tls_config: {insecure_skip_verify: true}
+              {{- end }}
+              {{- end }}
             {{- end }}
       {{- end }}
 
@@ -238,38 +383,81 @@ data:
       k8sattributes:
         auth_type: serviceAccount
         passthrough: false
+        # Started before anything is let through. Without it the processor is "ready" at once with an empty pod cache, so
+        # the first seconds of data (a restart's worth of what applications push) go out with no namespace - and a
+        # namespace allow-list then drops them - and a processor that can never list pods (no permission, API server
+        # unreachable) leaves a pod that is Ready and attributes nothing. With it, start-up does not complete: the collector
+        # keeps answering 503 on its health endpoint, so the pod stays NotReady, and the startup probe restarts it after its
+        # 5 minutes, with the API server's own "forbidden" or connection error in the log. (Observed with 0.160.0: when the
+        # timeout runs out the collector reports its fatal error from inside Start and then hangs instead of exiting; the
+        # probe is what ends it.) The timeout stays under those 5 minutes.
+        wait_for_metadata: true
+        wait_for_metadata_timeout: 4m
+        # Informers re-deliver every cached object to their handlers each watch_sync_period (default 5m). Every change already
+        # arrives through the watch, so on a large cluster the resync is only CPU and allocation spikes (the processor's
+        # README recommends 0s for large clusters).
+        watch_sync_period: 0s
+        # In this order, the first that matches wins: the pod uid an exporter or the Prometheus scrape stamped on the data;
+        # the pod name and namespace an SDK reports about itself; its pod IP; and last the source address of the connection,
+        # which names the pod only where the address the collector sees is the pod's own: not behind a sidecar proxy (the
+        # connection then comes from the proxy), a NAT or a NodePort/LoadBalancer path (the node's or balancer's address), nor
+        # for a pod on the host network (the processor skips those on purpose, see "Host networking mode" in its README).
+        # Such data stays unattributed, and a namespace allow-list drops it (README: applications behind a service mesh).
         pod_association:
           - sources:
               - from: resource_attribute
                 name: k8s.pod.uid
           - sources:
+              - from: resource_attribute
+                name: k8s.pod.name
+              - from: resource_attribute
+                name: k8s.namespace.name
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.ip
+          - sources:
               - from: connection
         extract:
           metadata: {{ include "agent.telemetryK8sAttrsMetadata" . }}
       {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
-      # Kepler's own Prometheus scrape only carries a raw "node" metric label (see the relabel_configs
-      # above) - promote it to the semconv k8s.node.name resource attribute so per-node energy data can
-      # actually be correlated with the host collector's per-node metrics on node identity, the way OTel's
-      # own conventions intend. Without this, Kepler's data has no resource-level node identity at all.
+      # What the Prometheus receiver attaches to a pod it discovered is the SCRAPED pod's identity (k8s.namespace.name,
+      # k8s.pod.name, k8s.pod.uid, k8s.container.name, k8s.node.name), here the Kepler exporter pod's own - not the
+      # workloads Kepler reports on, which are the container_namespace/pod_name/container_name labels on each data
+      # point. Left in place they would label every pod's energy with this release's namespace and the exporter's name,
+      # and make telemetry.scope.infra drop the whole energy signal (it narrows anything carrying a namespace). So the
+      # exporter pod's identity is removed - only from this job's resources (service.name is the job_name; the shared
+      # metrics/infra pipeline also carries cluster-state records that need theirs) - keeping k8s.node.name, which is
+      # right: the exporter and the node it measures are the same node. The node is also set from the "node" label the
+      # relabel_configs above add, in case a collector version does not attach it itself.
       transform/kepler_node:
         metric_statements:
+          - context: resource
+            statements:
+              - delete_key(attributes, "k8s.namespace.name") where attributes["service.name"] == "kepler"
+              - delete_key(attributes, "k8s.pod.name") where attributes["service.name"] == "kepler"
+              - delete_key(attributes, "k8s.pod.uid") where attributes["service.name"] == "kepler"
+              - delete_key(attributes, "k8s.container.name") where attributes["service.name"] == "kepler"
           - context: datapoint
             statements:
-              - set(resource.attributes["k8s.node.name"], datapoint.attributes["node"]) where datapoint.attributes["node"] != nil
+              - set(resource.attributes["k8s.node.name"], datapoint.attributes["node"]) where resource.attributes["service.name"] == "kepler" and datapoint.attributes["node"] != nil
       {{- end }}
-      {{- if and .Values.telemetry.accelerators.metrics.enabled .Values.telemetry.accelerators.metrics.applyScope (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
-      # Only when telemetry.accelerators.metrics.applyScope is on: dcgm-exporter's own Kubernetes pod-label
-      # enrichment (enabled via the DCGM_EXPORTER_KUBERNETES* env vars on its container, see telemetry.yaml)
-      # adds namespace/pod/container as plain Prometheus labels, not OTel resource attributes - promote them
-      # to the semconv k8s.namespace.name/k8s.pod.name/k8s.container.name resource attributes so the scope
-      # filter below (and k8sattributes-style correlation generally) can actually see them.
-      transform/dcgm_pod:
+      {{- if $dcgmPods }}
+      # The same as transform/kepler_node, for dcgm-exporter: the receiver stamps each node's GPU data with the exporter
+      # pod's own k8s.namespace.name/pod/container (and the DaemonSet that owns it, k8s.daemonset.name, which k8sattributes
+      # may add to alongside k8s.deployment.name and the other workload names). The pod a GPU is allocated to is the
+      # namespace/pod/container label on the data point (dcgm-exporter's DCGM_EXPORTER_KUBERNETES mapping), so it is kept
+      # there, not on the resource (one resource covers every pod on the node - see $accConditions above). The exporter's own
+      # workload names would tell a reader that a training job runs in "continuum-telemetry-dcgm" or "nvidia-dcgm-exporter".
+      transform/dcgm_node:
         metric_statements:
+          - context: resource
+            statements:
+              {{- range $a := list "k8s.namespace.name" "k8s.pod.name" "k8s.pod.uid" "k8s.container.name" "k8s.daemonset.name" "k8s.deployment.name" "k8s.replicaset.name" "k8s.statefulset.name" "k8s.job.name" "k8s.cronjob.name" }}
+              - delete_key(attributes, {{ $a | quote }}) where attributes["service.name"] == "dcgm-exporter"
+              {{- end }}
           - context: datapoint
             statements:
-              - set(resource.attributes["k8s.namespace.name"], datapoint.attributes["namespace"]) where datapoint.attributes["namespace"] != nil
-              - set(resource.attributes["k8s.pod.name"], datapoint.attributes["pod"]) where datapoint.attributes["pod"] != nil
-              - set(resource.attributes["k8s.container.name"], datapoint.attributes["container"]) where datapoint.attributes["container"] != nil
+              - set(resource.attributes["k8s.node.name"], datapoint.attributes["node"]) where resource.attributes["service.name"] == "dcgm-exporter" and datapoint.attributes["node"] != nil
       {{- end }}
       {{- if $scrapeK8s }}
       # Only with scrapeTargets set. Turns the labels prometheus/app's relabel_configs keep into the semconv
@@ -290,7 +478,7 @@ data:
               - delete_key(datapoint.attributes, "k8s_pod_uid")
               - delete_key(datapoint.attributes, "k8s_node_name")
       {{- end }}
-      {{- if $scopeConditions }}
+      {{- if and $scopeConditions (has "filter/scope" $usedProcs) }}
       # The shared scope filter: applied to whichever of the app pipelines below (metrics/app, logs/app,
       # traces) hasn't been given its own per-kind override (see applicationMetrics/applicationLogs/traces
       # .scope in values.yaml) - never to the infra pipelines, which have no k8s.namespace.name to begin
@@ -302,20 +490,20 @@ data:
         log_conditions: {{ $scopeConditions | toJson }}
         trace_conditions: {{ $scopeConditions | toJson }}
       {{- end }}
-      {{- if and (eq $amProcessor "filter/scope_applicationMetrics") $amConditions }}
+      {{- if and (eq $amProcessor "filter/scope_applicationMetrics") $amConditions (has "filter/scope_applicationMetrics" $usedProcs) }}
       # applicationMetrics' own scope override - governs metrics/app in place of the shared filter/scope
       # above, including networkLatency's re-emitted metrics that share the same pipeline (see $nlExempt).
       filter/scope_applicationMetrics:
         error_mode: ignore
         metric_conditions: {{ $amConditions | toJson }}
       {{- end }}
-      {{- if and (eq $alProcessor "filter/scope_applicationLogs") $alConditions }}
+      {{- if and (eq $alProcessor "filter/scope_applicationLogs") $alConditions (has "filter/scope_applicationLogs" $usedProcs) }}
       # applicationLogs' own scope override - governs logs/app in place of the shared filter/scope above.
       filter/scope_applicationLogs:
         error_mode: ignore
         log_conditions: {{ $alConditions | toJson }}
       {{- end }}
-      {{- if and (eq $trProcessor "filter/scope_traces") $trConditions }}
+      {{- if and (eq $trProcessor "filter/scope_traces") $trConditions (has "filter/scope_traces" $usedProcs) }}
       # traces' own scope override - governs the traces pipeline in place of the shared filter/scope above.
       filter/scope_traces:
         error_mode: ignore
@@ -324,12 +512,13 @@ data:
       {{- if and $infraConditions .Values.telemetry.kubernetesState.metrics.enabled }}
       # telemetry.scope.infra: narrows the pod/deployment/namespace parts of cluster-state metrics to the
       # scope; a record with no namespace (a node) is never dropped. Lives in metrics/infra, so it also sees
-      # Kepler's and dcgm-exporter's records - those carry no resource-level namespace here and pass.
+      # Kepler's and dcgm-exporter's records - transform/kepler_node and transform/dcgm_node take the exporter pod's
+      # namespace off them, so they carry none and pass.
       filter/scope_infra:
         error_mode: ignore
         metric_conditions: {{ $infraConditions | toJson }}
       {{- end }}
-      {{- if $infraEventConditions }}
+      {{- if and $infraEventConditions (has "filter/scope_infra_events" $usedProcs) }}
       filter/scope_infra_events:
         error_mode: ignore
         log_conditions: {{ $infraEventConditions | toJson }}
@@ -337,14 +526,24 @@ data:
       {{- if $accConditions }}
       # accelerators' opt-in scope filter (telemetry.accelerators.metrics.applyScope) - lives inside
       # metrics/infra alongside Kepler and kubernetesState, but its own service.name gate (see the
-      # $accConditions comment above) means it only ever touches dcgm-exporter's own records.
+      # $accConditions comment above) means it only ever touches dcgm-exporter's own records, and it
+      # reads each GPU data point's own namespace label.
       filter/scope_accelerators:
         error_mode: ignore
         metric_conditions: {{ $accConditions | toJson }}
       {{- end }}
+      {{- if $enConditions }}
+      # energy's opt-in scope filter (telemetry.energy.metrics.applyScope): see $enConditions above. Gated on
+      # service.name == kepler, so it never touches the other records of metrics/infra.
+      filter/scope_energy:
+        error_mode: ignore
+        metric_conditions: {{ $enConditions | toJson }}
+      {{- end }}
       {{- include "agent.telemetryResourceDetectionYAML" . | nindent 6 }}
       {{- include "agent.telemetryRedactionYAML" . | nindent 6 }}
+      {{- if has "probabilistic_sampler" $usedProcs }}
       {{- include "agent.telemetryProbabilisticSamplerYAML" . | nindent 6 }}
+      {{- end }}
       {{- with .Values.telemetry.processors.extraProcessors }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
@@ -352,21 +551,18 @@ data:
       {{- include "agent.telemetryContinuumProvenanceYAML" . | nindent 6 }}
       {{- include "agent.telemetryBatchYAML" . | nindent 6 }}
 
-    {{- if $clusterExtensions }}
     extensions:
+      {{- include "agent.telemetryHealthCheckExtensionYAML" . | nindent 6 }}
       {{- include "agent.telemetryOpampExtensionYAML" . | nindent 6 }}
       {{- include "agent.telemetryReceiverAuthExtensionYAML" . | nindent 6 }}
       {{- include "agent.telemetryQueueExtensionYAML" . | nindent 6 }}
-    {{- end }}
 
     exporters:
       {{- include "agent.telemetryExporterYAML" (dict "root" . "scope" "cluster") | nindent 6 }}
       {{- include "agent.telemetryDebugExporterYAML" . | nindent 6 }}
 
     service:
-      {{- if $clusterExtensions }}
       extensions: {{ $clusterExtensions | toJson }}
-      {{- end }}
       {{- if include "agent.telemetryHealthEnabled" . }}
       {{- include "agent.telemetryHealthReaderYAML" . | nindent 6 }}
       {{- end }}

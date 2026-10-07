@@ -1,6 +1,6 @@
 {{- include "agent.telemetryValidate" . -}}
-{{/* Egress lockdown for the telemetry workloads (host/cluster collectors, Kepler, and the accelerators
-     DaemonSet when enabled) - separate from networkPolicy.egress in egress.yaml, which only ever covers
+{{/* Egress lockdown for the telemetry workloads (host/cluster collectors and Kepler; the accelerators
+     DaemonSet has a policy of its own below) - separate from networkPolicy.egress in egress.yaml, which only ever covers
      the agent pod itself (different labels, and its egress targets - the API server, the Ikhnos server
      - are fixed CIDR lists set once for the whole cluster, unlike a telemetry export destination, which is
      whatever the operator configured under telemetry.export.otlp.endpoint). Off by default, same
@@ -8,7 +8,7 @@
      policy silently cuts telemetry export off. */}}
 {{- $te := .Values.networkPolicy.telemetryEgress }}
 {{- if $te.enabled }}
-{{- if not $te.allowedEgress }}{{ fail "networkPolicy.telemetryEgress.enabled needs networkPolicy.telemetryEgress.allowedEgress: at least one {cidr, ports} entry matching where your configured telemetry.export.otlp.endpoint actually resolves to. The Kubernetes API server (apiServerCIDRs) and the node's kubelet (kubeletCIDRs) are separate settings; an empty allowedEgress would leave the collectors no export destination at all (a NetworkPolicy that selects a pod denies everything it does not list)." }}{{ end }}
+{{- if and (not $te.allowedEgress) (not $te.extraEgress) }}{{ fail "networkPolicy.telemetryEgress.enabled needs networkPolicy.telemetryEgress.allowedEgress: at least one {cidr, ports} entry matching where your configured telemetry.export.otlp.endpoint actually resolves to (or, for a destination inside the cluster, a rule in extraEgress: a CIDR does not select pods on every CNI). The Kubernetes API server (apiServerCIDRs) and the node's kubelet (kubeletCIDRs) are separate settings; with neither list the collectors would have no export destination at all (a NetworkPolicy that selects a pod denies everything it does not list)." }}{{ end }}
 {{- /* What the collectors read from the cluster itself: the API server (k8sattributes on both collectors, and the
        cluster collector's state and events), taken from this policy's own apiServerCIDRs or else from
        networkPolicy.egress, the same addresses egress.yaml allows the agent; and the node's kubelet, which the host
@@ -17,7 +17,8 @@
 {{- $np := dig "networkPolicy" "egress" (dict) .Values.AsMap }}
 {{- $apiCIDRs := $te.apiServerCIDRs | default $np.apiServerCIDRs }}
 {{- $apiPorts := $te.apiServerPorts | default $np.apiServerPorts | default (list 443 6443) }}
-{{- $kubelet := or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled }}
+{{- /* With telemetry.kubelet.viaAPIServer the collector never connects to a kubelet: the API server rule above is all it needs. */}}
+{{- $kubelet := and (or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled) (not .Values.telemetry.kubelet.viaAPIServer) }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -33,24 +34,13 @@ spec:
           - continuum-telemetry-host
           - continuum-telemetry-cluster
           - {{ printf "%s-kepler" (include "agent.telemetryName" .) | quote }}
-          - {{ printf "%s-dcgm" (include "agent.telemetryName" .) | quote }}
       - key: app.kubernetes.io/instance
         operator: In
         values: [{{ .Release.Name | quote }}]
   policyTypes: [Egress]
   egress:
-    # DNS
-    - to:
-        - namespaceSelector:
-            matchLabels: {kubernetes.io/metadata.name: kube-system}
-          podSelector:
-            matchLabels: {k8s-app: kube-dns}
-        {{- range $te.dnsCIDRs }}
-        - ipBlock: {cidr: {{ . | quote }}}
-        {{- end }}
-      ports:
-        - {port: 53, protocol: UDP}
-        - {port: 53, protocol: TCP}
+    # DNS: kube-dns/CoreDNS and NodeLocal DNSCache (169.254.20.10), see agent.dnsEgressRule
+    {{- include "agent.dnsEgressRule" (dict "dnsCIDRs" $te.dnsCIDRs) | nindent 4 }}
     {{- if $apiCIDRs }}
     # The Kubernetes API server, which the collectors read to attach pod metadata and (cluster collector) cluster state.
     - to:
@@ -71,7 +61,8 @@ spec:
       ports:
         - {port: 10250, protocol: TCP}
     {{- end }}
-    # Your configured telemetry export destination(s).
+    # Your configured telemetry export destination(s). An existing energy/accelerators endpoint the cluster collector
+    # scrapes (source: existing) is not covered by anything above: allow it with allowedEgress or extraEgress.
     {{- range $te.allowedEgress }}
     - to:
         - ipBlock: {cidr: {{ .cidr | quote }}}
@@ -83,6 +74,76 @@ spec:
     {{- with $te.extraEgress }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+{{- end }}
+{{- /* The cluster collector also scrapes pods inside the cluster: the bundled Kepler and dcgm-exporter, and the pods of
+       applicationMetrics.metrics.scrapeTargets. The policy above denies every address it does not list, so each of those
+       scrapes needs its own rule or it is refused ("connection refused"/timeout in the collector's log) while the collector
+       reports itself healthy. Kept in a policy of its own, selecting the cluster collector only (policies add up), so the
+       other workloads the first one covers are not opened to them. An existing endpoint you point
+       energy/accelerators.metrics.existing.prometheusEndpoint at is named by DNS and cannot be listed here: add it to
+       allowedEgress or extraEgress. */ -}}
+{{- $scrapes := list }}
+{{- if include "agent.telemetryClusterEnabled" . }}
+{{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
+{{- $scrapes = append $scrapes (dict "to" (list (dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" (printf "%s-kepler" (include "agent.telemetryName" .)) "app.kubernetes.io/instance" .Release.Name)))) "port" 9103) }}
+{{- end }}
+{{- if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
+{{- $scrapes = append $scrapes (dict "to" (list (dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" (printf "%s-dcgm" (include "agent.telemetryName" .)) "app.kubernetes.io/instance" .Release.Name)))) "port" 9400) }}
+{{- end }}
+{{- /* An existing exporter found by the label of its pods (the NVIDIA GPU Operator's): in whatever namespace it was given, or in
+       any when none was. The pods' own labels are not copied here (a selector such as "app in (a,b)" is not a matchLabels): the
+       namespace and the port are what the rule limits. */ -}}
+{{- with .Values.telemetry.accelerators.metrics }}
+{{- if and .enabled (eq .source "existing") .existing.pods.labelSelector }}
+{{- $ns := dict }}
+{{- if .existing.pods.namespace }}{{ $ns = dict "matchLabels" (dict "kubernetes.io/metadata.name" .existing.pods.namespace) }}{{ end }}
+{{- $scrapes = append $scrapes (dict "to" (list (dict "namespaceSelector" $ns)) "port" (int .existing.pods.port)) }}
+{{- end }}
+{{- end }}
+{{- if and .Values.telemetry.applicationMetrics.metrics.enabled .Values.telemetry.applicationMetrics.metrics.scrapeTargets }}
+{{- range .Values.telemetry.applicationMetrics.metrics.scrapeTargets }}
+{{- $scrapes = append $scrapes (dict "to" (list (dict "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" .namespace)))) "port" (int .port)) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and $te.enabled $scrapes }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: continuum-telemetry-scrape-egress
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: continuum-telemetry-cluster, app.kubernetes.io/instance: {{ .Release.Name | quote }}}
+  policyTypes: [Egress]
+  egress:
+    {{- range $scrapes }}
+    - to: {{- toYaml .to | nindent 8 }}
+      ports:
+        - {port: {{ .port }}, protocol: TCP}
+    {{- end }}
+{{- end }}
+
+{{- /* dcgm-exporter needs no network at all: it serves /metrics, reads the GPUs through the driver and the kubelet's pod-resources
+       through a unix socket on the node. So it is not in the shared policy above (which would hand it DNS, the API server and the
+       export destination for nothing) but gets a policy of its own that allows nothing - a policy that selects a pod and lists no
+       egress rule denies all of it. (A remote DCGM host engine, DCGM_REMOTE_HOSTENGINE_INFO in extraEnv, is the one thing that would
+       need a rule: add your own NetworkPolicy for it.) */ -}}
+{{- if and $te.enabled .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: continuum-telemetry-dcgm-egress
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: {{ printf "%s-dcgm" (include "agent.telemetryName" .) | quote }}, app.kubernetes.io/instance: {{ .Release.Name | quote }}}
+  policyTypes: [Egress]
+  egress: []
 {{- end }}
 
 {{/* Ingress lockdown for the cluster collector's OTLP receiver - independent of telemetry.receiver.auth

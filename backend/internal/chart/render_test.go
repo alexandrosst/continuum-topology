@@ -336,7 +336,8 @@ func TestEgressPolicy(t *testing.T) {
 		t.Fatalf("policy = %+v", p.Spec)
 	}
 	dns, api, srv := p.Spec.Egress[0], p.Spec.Egress[1], p.Spec.Egress[2]
-	if len(dns.Ports) != 2 || dns.Ports[0].Port.IntValue() != 53 {
+	// 53, over UDP and TCP: see agent.dnsEgressRule
+	if len(dns.Ports) != 2 || dns.Ports[0].Port.IntValue() != 53 || dns.Ports[1].Port.IntValue() != 53 {
 		t.Errorf("DNS rule: %+v", dns)
 	}
 	if len(api.To) != 2 || api.To[1].IPBlock.CIDR != "192.168.1.10/32" || len(api.Ports) != 2 {

@@ -27,9 +27,9 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- $i := .Values.image -}}
 {{- if $i.digest -}}
 {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (toString $i.digest)) -}}{{- fail (printf "image.digest must look like sha256:<64 hex characters>, got %q" (toString $i.digest)) -}}{{- end -}}
-{{- printf "%s@%s" $i.repository $i.digest -}}
+{{- printf "%s@%s" (include "agent.imageRepo" (dict "root" . "repo" $i.repository)) $i.digest -}}
 {{- else -}}
-{{- printf "%s:%s" $i.repository (toString ($i.tag | default .Chart.AppVersion)) -}}
+{{- printf "%s:%s" (include "agent.imageRepo" (dict "root" . "repo" $i.repository)) (toString ($i.tag | default .Chart.AppVersion)) -}}
 {{- end -}}
 {{- end -}}
 
@@ -103,7 +103,8 @@ IfNotPresent
 {{- end -}}
 
 {{/* Values that were added after 0.1.0 may be missing when `helm upgrade --reuse-values` carries the old release's values
-     over an older chart. These read them without failing. */}}
+     over an older chart (the documented upgrade is --reset-then-reuse-values, which keeps the new chart's defaults; see
+     agent.telemetryDefaults for the telemetry values). These read them without failing. */}}
 {{- define "agent.healthEnabled" -}}{{- if (dig "health" "enabled" true .Values.AsMap) -}}true{{- end -}}{{- end -}}
 {{- define "agent.healthPort" -}}{{- dig "health" "port" 8082 .Values.AsMap | int -}}{{- end -}}
 

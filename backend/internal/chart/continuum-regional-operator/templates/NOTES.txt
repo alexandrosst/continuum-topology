@@ -2,13 +2,19 @@ Ikhnos regional operator {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}
 
   ✓ Receiver: {{ include "operator.name" . }}.{{ .Release.Namespace }}.svc:4317 / :4318 (grpc / http)
   ✓ Auth: {{ if .Values.receiver.auth.enabled }}bearer token (Secret {{ .Values.receiver.auth.secretName }}/{{ .Values.receiver.auth.secretKey }}){{ if and .Values.receiver.tls.enabled .Values.receiver.tls.mtls }} + required mTLS client certificate{{ end }}{{ else if and .Values.receiver.tls.enabled .Values.receiver.tls.mtls }}required mTLS client certificate signed by the CA (the operator's own private CA when Ikhnos made it) in Secret {{ .Values.receiver.tls.secretName }} (ca.crt) - the only gate, there is no bearer token{{ else }}none{{ end }}
-  ✓ Re-exports to: {{ .Values.export.otlp.endpoint }}
-  ✓ If it is down: retries for {{ .Values.export.queue.retryMaxElapsedTime }}, holding up to {{ .Values.export.queue.size }} batches {{ if .Values.export.queue.persistent.enabled }}in memory and on an emptyDir (kept across a container restart, not a rescheduled pod){{ else }}in memory (lost if the pod restarts; export.queue.persistent.enabled keeps them across a container restart){{ end }}
+{{- range (include "operator.destinationLines" . | fromJsonArray) }}
+  ✓ Sends {{ . }}
+{{- end }}
+{{- with include "operator.exportSecrets" . | fromJsonArray }}
+  ! Secrets in namespace {{ $.Release.Namespace }} that must exist before the pod can start: {{ join "; " . }}. A pod whose Secret is missing stays in ContainerCreating (event FailedMount) or CreateContainerConfigError, not Ready - `kubectl -n {{ $.Release.Namespace }} describe pod -l app.kubernetes.io/instance={{ $.Release.Name }}`.
+{{- end }}
+  ✓ If it is down: retries for {{ .Values.export.queue.retryMaxElapsedTime }}, holding up to {{ .Values.export.queue.size }} requests {{ if .Values.export.queue.persistent.enabled }}in memory and on an emptyDir (kept across a container restart, not a rescheduled pod){{ else }}in memory (lost if the pod restarts; export.queue.persistent.enabled keeps them across a container restart){{ end }}; once the queue is full it stops answering its senders, who keep their data and see the failure. What the destination refuses for good (a CA or token that does not match, the wrong protocol for the port) is dropped at once, logged at error level.
+  ✓ Is it delivering? A Ready pod only means the collector process is up - no collector health setting can say more. {{ if .Values.selfMetrics.enabled }}The collector's own metrics can: `kubectl -n {{ .Release.Namespace }} port-forward deploy/{{ include "operator.name" . }} {{ .Values.selfMetrics.port }}` and read http://127.0.0.1:{{ .Values.selfMetrics.port }}/metrics - otelcol_exporter_queue_size above 0 and staying there means it cannot send, otelcol_exporter_send_failed_* or _enqueue_failed_* increasing means data was lost. The cause is in the log: `kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "operator.name" . }} | grep "Exporting failed"`.{{ else }}selfMetrics.enabled is false, so nothing but the log shows it: `kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "operator.name" . }} | grep "Exporting failed"`.{{ end }}
 {{- if eq .Values.service.type "NodePort" }}
   ✓ Exposure: NodePort {{ if .Values.service.nodePort }}{{ .Values.service.nodePort }}{{ else }}(assigned by Kubernetes, and a new one if the Service is recreated: set service.nodePort to pin it){{ end }}. That is one node's address; it may be private, and it stops working if that node goes away.
 {{- end }}
 {{- if or .Values.receiver.tls.enabled (include "operator.tlsSecretNames" . | fromJsonArray) }}
-  ✓ Certificates: re-read from their Secrets every hour without a restart (a new ca.crt needs `kubectl rollout restart`){{ if .Values.rolloutOnSecretChange }}; running this install again after renewing a Secret restarts the pod at once when Helm can read the cluster (not under helm template, Argo CD or Flux){{ end }}.
+  ✓ Certificates: re-read from their Secrets without a restart, at the first new connection after each hour (a destination's CA bundle, ca.crt, is read at start only and needs `kubectl rollout restart`; the receiver's mTLS client CA is re-read on its own){{ if .Values.rolloutOnSecretChange }}; running this install again after renewing a Secret restarts the pod at once when Helm can read the cluster (not under helm template, Argo CD or Flux){{ end }}.
 {{- end }}
 {{- if .Values.heartbeat.enabled }}
   ✓ Heartbeat: ON - every {{ .Values.heartbeat.intervalSeconds }}s this operator tells {{ .Values.heartbeat.url }} that its own collector is up (Secret {{ .Values.heartbeat.auth.secretName }}/{{ .Values.heartbeat.auth.secretKey }}). It carries no telemetry and none of what you relay: only the collector's own health check result.{{ if .Values.networkPolicy.egress.enabled }} networkPolicy.egress is on: that address must be in networkPolicy.egress.allowedEgress too, or the heartbeat is silently blocked.{{ end }}
@@ -19,7 +25,7 @@ Ikhnos regional operator {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}
   source cluster's own agent release needs a separate `helm upgrade` pointing its
   telemetry.export.otlp.endpoint here - Ikhnos prints the exact command for every source cluster named
   when the operator was created.
-{{- $warnings := list }}
+{{- $warnings := include "operator.exportWarnings" . | fromJsonArray }}
 {{- if and (not .Values.receiver.auth.enabled) (not (and .Values.receiver.tls.enabled .Values.receiver.tls.mtls)) }}{{- $warnings = append $warnings "Nothing authenticates this receiver (receiver.auth.enabled is false and no required mTLS client certificate): anything that can reach this Service on the cluster network can push telemetry into it. Set receiver.auth.enabled, or receiver.tls.enabled with receiver.tls.mtls, and receiver.networkPolicy for a shared or multi-tenant cluster." }}{{- end }}
 {{- if $warnings }}
 

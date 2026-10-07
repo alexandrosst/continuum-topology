@@ -13,8 +13,49 @@ Ikhnos agent {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ 
 {{- end }}
 {{- if include "agent.telemetryEnabled" . }}
   ✓ Telemetry: {{ include "agent.telemetrySignalNames" . }}
+{{- range include "agent.telemetryDestinationLines" . | fromJsonArray }}
+  ✓ Sends {{ . }}
+{{- end }}
+{{- with include "agent.telemetryExportSecrets" . | fromJsonArray }}
+  ! Secrets in namespace {{ $.Release.Namespace }} that must exist before the collectors can start: {{ join "; " . }}. A pod whose Secret is missing stays in ContainerCreating (event FailedMount) or CreateContainerConfigError, not Ready - `kubectl -n {{ $.Release.Namespace }} describe pod -l app.kubernetes.io/part-of=continuum` says which.
+{{- end }}
+  ✓ Is it arriving? A Ready collector only means it started; nothing in a pod's readiness can say a destination is reachable. The agent reports each destination's state (exporting / silent / failing) in its Diagnostics (telemetry.health); in the cluster: `kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "agent.telemetryName" . }}-cluster | grep -E "Exporting failed|failed to connect"` (and ds/{{ include "agent.telemetryName" . }}-host). README, "Troubleshooting export", lists each message with its cause.
 {{- if and (include "agent.telemetryHostEnabled" .) (or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled) }}
-  ✓ Kubelet metrics: from each node's IP, certificate {{ if .Values.telemetry.kubelet.insecureSkipVerify }}NOT verified (telemetry.kubelet.insecureSkipVerify) - the pod's service account token goes to whatever answers there{{ else }}verified against the cluster CA; if your kubelets serve a self-signed certificate no kubelet metrics arrive until telemetry.kubelet.insecureSkipVerify=true{{ end }}
+{{- if .Values.telemetry.kubelet.viaAPIServer }}
+  ! Kubelet metrics: through the API server (telemetry.kubelet.viaAPIServer). No kubelet certificate is involved, but the host collectors' token holds nodes/proxy "get", which Kubernetes documents as being able to run commands in any container on a node.
+{{- else }}
+  ✓ Kubelet metrics: from each node's {{ if eq .Values.telemetry.kubelet.address "nodeName" }}name{{ else }}IP{{ end }}, certificate {{ if .Values.telemetry.kubelet.insecureSkipVerify }}NOT verified (telemetry.kubelet.insecureSkipVerify) - the pod's service account token goes to whatever answers there{{ else if include "agent.telemetryKubeletCA" . }}verified against telemetry.kubelet.ca{{ else }}verified against the cluster CA; if your kubelets serve a self-signed certificate (kubeadm, kind, Talos by default) the collector logs "x509: certificate signed by unknown authority" and no kubelet metrics arrive until you use telemetry.kubelet.ca, telemetry.kubelet.viaAPIServer or telemetry.kubelet.insecureSkipVerify (README, "Kubelet metrics"){{ end }}
+{{- end }}
+{{- end }}
+{{- if include "agent.telemetryHostAccessWho" . | fromJsonArray }}
+  ! Pod Security: namespace {{ .Release.Namespace }} must not enforce "baseline" or "restricted" - {{ join " and " (include "agent.telemetryHostAccessWho" . | fromJsonArray) }} need host access (hostPath volumes; Kepler is privileged, dcgm-exporter needs SYS_ADMIN). If a pod is refused:
+      kubectl label namespace {{ .Release.Namespace }} pod-security.kubernetes.io/enforce=privileged --overwrite
+{{- with include "agent.preflightPodSecurityMessage" . }}
+  ! PRE-FLIGHT: {{ . }}
+{{- end }}
+{{- end }}
+{{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
+  ✓ Energy: Kepler, {{ include "agent.telemetryKeplerEngine" . }} engine, one pod per node{{ if eq (include "agent.telemetryKeplerEngine" .) "powercap" }} (amd64 nodes with RAPL or hwmon power sensors only){{ end }}.{{ if .Values.telemetry.energy.metrics.nodeChecks }} A pod waiting in Init:0/1 is a node Kepler cannot work on (not a failure): `kubectl -n {{ .Release.Namespace }} logs <pod> -c preflight` says why. A pod that restarts is a Kepler that is broken: read its own log.{{ end }}
+{{- end }}
+{{- if and (include "agent.telemetryScopeDefined" .) (or (and .Values.telemetry.energy.metrics.enabled (include "agent.telemetryEnergyApplyScope" .)) (and .Values.telemetry.accelerators.metrics.enabled (include "agent.telemetryAccApplyScope" .))) }}
+  ✓ Energy / GPU data follows the scope: series of pods in namespaces outside it are not reported; node-level series are.{{ if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "existing") (include "agent.telemetryAccApplyScope" .) }} An existing dcgm-exporter must map GPUs to pods (the GPU Operator's does), or every GPU series lacks a namespace and a namespaces scope drops them all.{{ end }}
+{{- end }}
+{{- if .Values.telemetry.accelerators.metrics.enabled }}
+{{- $acc := .Values.telemetry.accelerators.metrics }}
+{{- if eq $acc.source "bundle-dcgm" }}
+  ! GPU metrics: dcgm-exporter runs only on nodes that announce an NVIDIA GPU ({{ if or $acc.nodeSelector $acc.affinity }}your telemetry.accelerators.metrics.nodeSelector/affinity{{ else }}nvidia.com/gpu.present=true, nvidia.com/gpu.count, an NFD NVIDIA PCI label or cloud.google.com/gke-accelerator{{ end }}) and needs the NVIDIA driver and container toolkit there. If it is not running where you expect:
+      kubectl -n {{ .Release.Namespace }} get ds {{ include "agent.telemetryName" . }}-dcgm      # DESIRED 0: no node has that label - kubectl label node <node> nvidia.com/gpu.present=true
+      kubectl -n {{ .Release.Namespace }} logs ds/{{ include "agent.telemetryName" . }}-dcgm    # CrashLoopBackOff and "Failed to initialize embedded DCGM": no driver or no NVIDIA runtime on that node{{ if not $acc.runtimeClassName }} (k3s/RKE2: --set telemetry.accelerators.metrics.runtimeClassName=nvidia){{ end }}
+    If the NVIDIA GPU Operator, GKE or AKS already runs a dcgm-exporter, scrape that one instead of starting a second: telemetry.accelerators.metrics.source=existing (README, "GPU metrics").
+{{- else if $acc.existing.pods.labelSelector }}
+  ✓ GPU metrics: every running pod matching "{{ $acc.existing.pods.labelSelector }}"{{ if $acc.existing.pods.namespace }} in {{ $acc.existing.pods.namespace }}{{ else }} in any namespace{{ end }} is scraped on port {{ $acc.existing.pods.port }}; none matching means no GPU data (check: kubectl get pods -A -l {{ $acc.existing.pods.labelSelector }})
+{{- else }}
+  ✓ GPU metrics: {{ $acc.existing.prometheusEndpoint }} is scraped as one target{{ if contains "dcgm-exporter" $acc.existing.prometheusEndpoint }}
+  ! That looks like a Service name. A Service in front of a per-node exporter (the GPU Operator's nvidia-dcgm-exporter) answers each connection from a single node's pod (the proxy picks it), so the GPUs of all the other nodes are missing from that scrape. Use telemetry.accelerators.metrics.existing.pods.labelSelector=app=nvidia-dcgm-exporter instead.{{ end }}
+{{- end }}
+{{- end }}
+{{- if include "agent.telemetryOtlpReceiverEnabled" . }}
+  ✓ Applications push OTLP to {{ include "agent.telemetryName" . }}-cluster.{{ .Release.Namespace }}.svc:4317 (gRPC) or :4318 (HTTP){{ if .Values.telemetry.receiver.tls.secretName }}, over TLS{{ if .Values.telemetry.receiver.tls.clientCAKey }} with a client certificate{{ end }}{{ end }}{{ if .Values.telemetry.receiver.auth.enabled }}, with the bearer token from Secret {{ .Values.telemetry.receiver.auth.secretName }} in the Authorization header{{ end }}; a record is attributed to the namespace of the pod it comes from (by source address)
 {{- end }}
 {{- if .Values.telemetry.systemLogs.logs.enabled }}
   ✓ Container logs: follow telemetry.scope, never this release's own pods{{ if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}; the node journal is read too (needs a journal group 65532 can read){{ end }}
@@ -32,8 +73,19 @@ Ikhnos agent {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ 
   reported before you do.
 {{- end }}
 
+{{- if include "agent.telemetryEnabled" . }}
+{{- $warnings := include "agent.telemetryExportWarnings" . | fromJsonArray }}
+{{- if $warnings }}
+
+› WORTH DOING NOW
+{{- range $w := $warnings }}
+  ⚠ {{ $w }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 ────────────────────────────────────────────────────────────────────────────
 Full reference - exactly what each tier can see, narrowing/widening or removing access, checking on it, and
-Pod Security / OpenShift / GKE Autopilot troubleshooting for the node probe, traffic observer or telemetry
+Pod Security troubleshooting for the node probe, traffic observer or telemetry
 above: this chart's own README (`helm show readme` against whatever chart reference you installed from, or
 read README.md directly if you have the chart unpacked).

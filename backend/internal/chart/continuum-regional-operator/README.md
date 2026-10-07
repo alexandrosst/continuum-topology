@@ -79,18 +79,59 @@ Run the install command again with the renewed Secrets and the new certificate i
   Helm's `lookup`; a changed Secret changes the annotation and the pod restarts. Under `helm template` - which is
   what Argo CD and Flux run - `lookup` sees nothing, so no annotation is rendered and nothing restarts. An account
   that may not `get` Secrets in the namespace makes Helm fail the render: set `rolloutOnSecretChange=false`.
-- **Within the hour, without a restart.** Every receiver and every client-certificate exporter has
-  `reload_interval: 1h`, so the collector re-reads the certificate and key from the mounted Secret by itself
-  (Kubernetes refreshes the mount within about a minute). This covers a certificate and key, not a CA: after
-  replacing `ca.crt`, run `kubectl rollout restart`.
+- **Without a restart, on a later connection.** Every receiver and every client-certificate exporter has
+  `reload_interval: 1h`: the certificate and key are re-read from the mounted Secret (Kubernetes refreshes the mount
+  within about a minute) at the first new handshake after the hour has passed, so a connection that stays open keeps the
+  certificate it started with ([configtls](https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configtls/README.md)).
+  The receiver's mTLS client CA is re-read when the file changes (`client_ca_file_reload`). A destination's CA bundle
+  (`ca.crt` of an exporter) is read at start only: after replacing it, run `kubectl rollout restart`.
 
-## When the next hop is down
+## Where it sends, through a proxy, and what the receiver accepts
 
-Every exporter retries for `export.queue.retryMaxElapsedTime` (30m) and holds up to `export.queue.size` batches
-(256, each at most `processors.batch.sendBatchMaxSize` = 4096 items) in memory meanwhile. When the queue is full the
-exporter refuses, `memory_limiter` pushes back on the senders, and memory stays bounded. A restart empties a memory
-queue; `export.queue.persistent.enabled` also writes it to an `emptyDir` (`sizeLimit`, 1Gi), which survives a
-container restart but not a rescheduled pod. The container's `GOMEMLIMIT` is set to 80% of `resources.limits.memory`.
+- **Endpoint shape.** `export.otlp.protocol=grpc`: `host:port`, no path (`[fd00::5]:4317`; a leading `https://`, `http://`
+  or `dns:///` is accepted). `protocol=http`: `host[:port]` or a base URL; the collector appends `/v1/metrics`, `/v1/logs` or
+  `/v1/traces`. A route whose address is not `<base>/v1/<signal>` sets `fullUrl: true` (posted as written). An endpoint
+  that cannot work is refused when the chart is rendered, with the value to change in the message; the other protocol's
+  conventional port (`:4318` with grpc, `:4317` with http) can be allowed with `export.checkPorts=false`. Ports and paths
+  of common backends are listed in continuum-agent's README, "Where the data goes".
+- **Proxy (`export.proxy`).** Same semantics as the agent's: the exporters read `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`;
+  OTLP/gRPC uses `HTTPS_PROXY` only (a CONNECT tunnel); `NO_PROXY` always holds `localhost`, `127.0.0.1`, `::1`, `.svc`,
+  `.cluster.local` plus `export.proxy.noProxy`. The heartbeat to the Ikhnos server goes through the proxy too. Credentials
+  in the proxy URL belong in a Secret (`export.proxy.secretName`, keys `HTTPS_PROXY`, optionally `HTTP_PROXY`). With
+  `networkPolicy.egress` on, allow the proxy's address and port. `extraEnv` and `dnsConfig` (ndots) are available as well.
+- **What the receiver accepts.** gRPC pings from a sender's `telemetry.export.keepalive` (one every 30s, also while idle; a
+  stock receiver would answer faster pings with `too_many_pings`), and, with `receiver.tls.mtls`, a client CA that is
+  re-read when its Secret changes (`client_ca_file_reload`), so adding a source cluster's CA needs no restart. Its server
+  certificate is re-read at the next handshake after an hour; a destination's CA bundle (`export...tls.caSecretName`) is
+  read at start only.
+
+### Troubleshooting export
+
+Read the pod's log: `kubectl -n <namespace> logs deploy/<release>-regional-operator | grep -E "Exporting failed|createTransport"`.
+Lines measured with the pinned collector (0.160.0):
+
+| Log line (abridged) | Cause | Fix |
+|---|---|---|
+| `connect: connection refused` (`Exporting failed. Will retry`) | Nothing listens at that address and port, or a firewall / NetworkPolicy rejects it | Check the endpoint and port; `networkPolicy.egress.allowedEgress` |
+| `tls: failed to verify certificate: x509: certificate signed by unknown authority` | The destination's certificate is signed by a CA the image does not trust | `tls.caSecretName` (Secret with `ca.crt`); a TLS-terminating proxy: its CA |
+| `x509: cannot validate certificate for <ip> because it doesn't contain any IP SANs` | Endpoint is an IP, the certificate names hosts only | Use the name, or `tls.serverName` |
+| `x509: certificate is valid for other.test, not recv.test` | Name in the endpoint differs from the certificate's | `tls.serverName` |
+| `x509: certificate has expired or is not yet valid` | Expired certificate on the destination, or a wrong clock on the node | Renew; check node time |
+| `tls: first record does not look like a TLS handshake` | TLS client, plaintext port (`insecure: false` against a plaintext receiver) | `tls.insecure=true` for that destination, or enable TLS there |
+| `error reading server preface: EOF` | Plaintext client, TLS port | `tls.insecure=false` |
+| `error reading server preface: remote error: tls: certificate required` | The receiver requires a client certificate | `tls.mtls.enabled` with a Secret holding `tls.crt`, `tls.key`, `ca.crt` |
+| receiver log: `TLS handshake error ... remote error: tls: bad certificate` | The client certificate is not signed by the CA the receiver trusts (receiver side) | Reissue; on the operator, `client_ca_file_reload` picks up a new CA without a restart |
+| `code = Unauthenticated desc = missing or empty authorization header: Authorization` | No credential sent | `auth.secretName` (key `auth.secretKey`) |
+| `code = Unauthenticated desc = provided authorization does not match expected scheme or token` | Wrong token, or a token without the `Bearer ` prefix the receiver expects | Fix the Secret value; the install command again restarts the pods |
+| `error reading server preface: http2: failed reading the frame payload: http2: frame too large, note that the frame header looked like an HTTP/1.1 header` | gRPC client on an HTTP port (4318) | `protocol=http`, or port 4317 |
+| `net/http: HTTP/1.x transport connection broken: malformed HTTP response "\x00\x00..."` | HTTP client on a gRPC port (4317) | `protocol=grpc`, or port 4318 |
+| `HTTP Status Code 404` / `code = Unimplemented` (Dropping data) | The path is wrong (a `/v1/<signal>` appended to an address that has it, or a backend with another path), or the receiver has that signal off | Drop a doubled `/v1/...`; `fullUrl`; check which signals the receiver accepts |
+| `HTTP Status Code 400` (Dropping data) | The destination did not accept the body, e.g. gRPC-framed bytes to an HTTP port | Check protocol against port |
+| `grpc: received message larger than max (N vs. 4194304)` (Dropping data) | A request above the receiver's 4 MiB | Keep `export.queue.maxRequestBytes` at or below it |
+| `write ...: no space left on device` | Persistent queue's `emptyDir` is full | `queue.persistent.sizeLimit`, `queue.size`; see above |
+| `Client received GoAway ... too_many_pings` | `export.keepalive.time` faster than the destination allows | Raise it or set the destination's policy |
+| `proxyconnect tcp: ...` / `Proxy Authentication Required` | The proxy refuses or needs credentials (message text from the Go standard library: unverified with this collector) | `proxy.secretName`; allow the destination at the proxy |
+
 
 ## Exposing the receiver
 
@@ -117,6 +158,15 @@ pointed at this operator's receiver (`<release>.<namespace>.svc:4317`) — Ikhno
 for every source cluster named when the operator was created. Nothing here applies that for you, and adding
 a cluster later is the same `helm upgrade` against that cluster's own release, not against this chart.
 
+## Platform notes (admission, registries, mesh)
+
+The pod passes Pod Security `restricted` (non-root, no host access, read-only root filesystem, all capabilities dropped, `RuntimeDefault`
+seccomp). **Images**: `global.imageRegistry` replaces
+the registry host of `image.repository` and keeps the rest of its path, for an air-gapped mirror. **Service mesh**: the pod is labelled
+`sidecar.istio.io/inject: "false"` and annotated `linkerd.io/inject: disabled` (`mesh.injection=inherit` turns that off), because the receiver
+terminates TLS/mTLS itself and an injected namespace enforcing `restricted` would refuse Istio's `NET_ADMIN` init container. **Network
+policy**: the egress policy always lets DNS through to kube-dns/CoreDNS and NodeLocal DNSCache (169.254.20.10).
+
 ## Values reference
 
 `values.yaml` is commented in full; the shape worth knowing before you read it:
@@ -131,7 +181,12 @@ a cluster later is the same `helm upgrade` against that cluster's own release, n
   network, and a wrong one silently cuts a pipeline off rather than failing loudly.
 - **`heartbeat`** — the opt-in liveness report described above: `enabled`, `url`, `intervalSeconds`, `auth`
   (the Secret holding the heartbeat secret), `tls` (an optional private CA) and `allowPlainHTTP`.
-- **`export.queue`** — retry window, in-memory queue size and the opt-in persistent queue, described above.
+- **`export.proxy` / `export.timeout` / `export.keepalive` / `export.checkPorts`, `extraEnv`, `dnsConfig`** — reaching the destination
+  through a proxy, the per-attempt timeout, idle-connection pings, the port check, extra environment and pod DNS options,
+  described above.
+- **`export.queue`** — retry window, queue size, the largest request (`maxRequestBytes`) and the opt-in persistent queue, described above.
+- **`selfMetrics`** — the collector's own metrics, on by default, described above.
+- **`podDisruptionBudget`** — with more than one replica, a budget of `maxUnavailable` (1), and upgrades replace one pod at a time.
 - **`processors`** — `memory_limiter`, `batch` sizes, `resourceDetection`, `redaction`, trace sampling and the
   `extraProcessors`/`extraProcessorNames` escape hatch, deliberately the same shape as
   `continuum-agent`'s `telemetry.processors` so the same processor-editing UI drives both charts unmodified.

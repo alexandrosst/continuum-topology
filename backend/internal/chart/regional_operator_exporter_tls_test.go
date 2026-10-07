@@ -36,7 +36,9 @@ func TestRegionalOperatorHTTPExporterKeepsSchemeAndServerName(t *testing.T) {
 // writable, so a bare caFile path has nothing behind it) and the exporter's ca_file points into the mount.
 func TestRegionalOperatorCASecretIsMountedAndTrusted(t *testing.T) {
 	for _, proto := range []string{"grpc", "http"} {
-		r := operatorRender(t, "--set", "export.otlp.protocol="+proto, "--set", "export.otlp.tls.caSecretName=dest-ca",
+		// 4317 is gRPC's conventional port and 4318 HTTP's: the render refuses a protocol on the other one (export.checkPorts).
+		port := map[string]string{"grpc": "4317", "http": "4318"}[proto]
+		r := operatorRender(t, "--set", "export.otlp.protocol="+proto, "--set", "export.otlp.endpoint=collector.example:"+port, "--set", "export.otlp.tls.caSecretName=dest-ca",
 			"--set", "export.routes.traces.endpoint=traces.example:4317", "--set", "export.routes.traces.tls.caSecretName=traces-ca")
 		cfg := otelConfig(t, r.configmaps["op-regional-operator-config"].Data)
 		exp := cfg["exporters"].(map[string]any)

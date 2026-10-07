@@ -1,0 +1,16 @@
+{{- include "operator.validate" . -}}
+{{- if and (gt (int .Values.replicaCount) 1) .Values.podDisruptionBudget.enabled }}
+# Several replicas are there to keep the receiver up: a node drain or a cluster upgrade may take only
+# podDisruptionBudget.maxUnavailable of them at a time. Not rendered for a single replica, whose budget could only
+# be "none unavailable" and would stop its node from ever being drained.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "operator.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "operator.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels: {app.kubernetes.io/name: continuum-regional-operator, app.kubernetes.io/instance: {{ .Release.Name }}}
+{{- end }}

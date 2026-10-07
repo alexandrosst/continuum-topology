@@ -197,7 +197,7 @@ func TestRegionalOperatorHeartbeatAddsOneSelfContainedPipeline(t *testing.T) {
 		}
 	}
 	// And no new ports or Services: the heartbeat only dials out.
-	if len(on.services["op-regional-operator"].Spec.Ports) != 2 || len(dep.Spec.Template.Spec.Containers[0].Ports) != len(off.deployments["op-regional-operator"].Spec.Template.Spec.Containers[0].Ports) {
+	if len(on.services["op-regional-operator"].Spec.Ports) != len(off.services["op-regional-operator"].Spec.Ports) || len(dep.Spec.Template.Spec.Containers[0].Ports) != len(off.deployments["op-regional-operator"].Spec.Template.Spec.Containers[0].Ports) {
 		t.Fatal("the heartbeat added a listening port")
 	}
 }

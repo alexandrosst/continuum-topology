@@ -22,11 +22,17 @@ spec:
         app.kubernetes.io/name: continuum-telemetry-host
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/part-of: continuum
+        app.kubernetes.io/component: telemetry-host
+        {{- include "agent.meshOptOutLabels" . | nindent 8 }}
         {{- include "agent.podLabels" . | nindent 8 }}
       annotations:
+        {{- include "agent.meshOptOutAnnotations" . | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/telemetry-host-config.yaml") . | sha256sum }}
         {{- with include "agent.telemetryMtlsChecksum" (dict "root" . "scope" "host") }}
         checksum/mtls: {{ . }}
+        {{- end }}
+        {{- with include "agent.telemetryAuthChecksum" (dict "root" . "scope" "host") }}
+        checksum/auth: {{ . }}
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -40,16 +46,27 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "agent.name" . }}-telemetry
       automountServiceAccountToken: true   # k8sattributes (pod/namespace/node identity) needs the Kubernetes API
-      # Not root, not privileged: every path this collector reads is one this chart mounts read-only, and
-      # the standard container-log/journal file permissions are readable by this GID on every distribution
-      # this chart has been run against. If your nodes lock file permissions down further than that, widen
-      # this group rather than the container's own capabilities.
+      enableServiceLinks: false   # nothing here reads *_SERVICE_HOST variables; on a cluster with thousands of Services they only bloat the environment
+      {{- with .Values.telemetry.dnsConfig }}
+      dnsConfig: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.telemetry.systemLogs.logs.enabled }}
+      # Root, with every capability dropped, because of one thing: container logs. The container runtime creates each
+      # log file as root with mode 0640 (containerd) or 0600 (CRI-O's conmon), so a collector running as any other user
+      # opens none of them ("permission denied", no logs, and a pod that still looks healthy); fsGroup does not reach a
+      # hostPath volume, and a supplemental group would not cover 0600. As the owner, root reads them without
+      # CAP_DAC_OVERRIDE or CAP_DAC_READ_SEARCH, so nothing is added to the dropped set. Stated here, in the pod
+      # spec, the way flow.yaml states its own runAsUser: 0. With systemLogs off this pod stays non-root (below).
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        runAsGroup: 65532
-        fsGroup: 65532
+        runAsUser: 0
+        runAsGroup: 0
         seccompProfile: {type: RuntimeDefault}
+      {{- else }}
+      # Not root, not privileged: with systemLogs off every path this collector reads is one this chart mounts
+      # read-only and the files in it are world-readable (/proc, /sys, the mount table, the kubelet's HTTPS API).
+      # The chart's fixed user (podSecurity.runAsUser, 65532).
+      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" true) | nindent 8 }}
+      {{- end }}
       containers:
         - name: otel-collector
           image: {{ include "agent.telemetryCollectorImage" . | quote }}
@@ -58,25 +75,38 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
-            capabilities: {drop: ["ALL"]}
+            capabilities:
+              drop: ["ALL"]
+              {{- if and .Values.telemetry.systemLogs.logs.enabled (eq .Values.telemetry.systemLogs.logs.journaling "host") }}
+              # journaling: host chroots into the node's root filesystem to run the node's own journalctl; chroot(2) needs
+              # this capability (verified: without it the receiver fails to start with "fork/exec ...: operation not
+              # permitted"). It is on Pod Security baseline's list of allowed capabilities.
+              add: ["SYS_CHROOT"]
+              {{- end }}
           env:
             - name: NODE_NAME
               valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
-            {{- if or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled }}
+            {{- if include "agent.telemetryKubeletNeedsNodeIP" . }}
             # kubelet_stats dials the kubelet on this address (see telemetry-host-config.yaml).
             - name: NODE_IP
               valueFrom: {fieldRef: {fieldPath: status.hostIP}}
             {{- end }}
-            {{- if include "agent.telemetryHealthEnabled" . }}
             - name: POD_IP
               valueFrom: {fieldRef: {fieldPath: status.podIP}}
-            {{- end }}
             {{- include "agent.telemetryExporterEnv" (dict "root" . "scope" "host") | nindent 12 }}
             {{- $hostGml := include "agent.telemetryGomemlimit" (include "agent.telemetryHostCollectorResources" . | fromYaml) }}
             {{- if $hostGml }}
             - name: GOMEMLIMIT
               value: {{ $hostGml | quote }}
             {{- end }}
+            {{- /* After NODE_IP and POD_IP above (NO_PROXY refers to both) and after everything else, so that extraEnv wins. */}}
+            {{- include "agent.telemetryProxyEnv" (dict "root" . "kubelet" (or .Values.telemetry.resourceUsage.metrics.enabled .Values.telemetry.nodeRuntime.metrics.enabled)) | nindent 12 }}
+            {{- with .Values.telemetry.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - {name: health, containerPort: {{ include "agent.telemetryProbePort" . }}, protocol: TCP}
+          {{- include "agent.telemetryProbesYAML" . | nindent 10 }}
           volumeMounts:
             - {name: config, mountPath: /conf, readOnly: true}
             {{- with include "agent.telemetryExportMtlsMounts" (dict "root" . "scope" "host") }}
@@ -85,14 +115,28 @@ spec:
             {{- with include "agent.telemetryExportCAMounts" (dict "root" . "scope" "host") }}
             {{- . | nindent 12 }}
             {{- end }}
-            {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
-            - {name: host-fs, mountPath: /hostfs, readOnly: true}
+            {{- if include "agent.telemetryHostRootfsMounted" . }}
+            # The node's root, read-only. With telemetry.hostCollector.rootMountPropagation=HostToContainer a filesystem mounted on
+            # the node after this pod started (a data disk attached later) shows up here too; it is opt-in because the runtime
+            # refuses to create the container ("path / is mounted on / but it is not a shared or slave mount") on a node whose
+            # root mount is private - verified on a micro-VM node - and a collector that never starts is worse than a late mount.
+            - {name: host-fs, mountPath: /hostfs, readOnly: true{{ with .Values.telemetry.hostCollector.rootMountPropagation }}, mountPropagation: {{ . }}{{ end }}}
+            {{- end }}
+            {{- if include "agent.telemetryHostProcMounted" . }}
+            - {name: host-proc, mountPath: /hostfs/proc, readOnly: true}
             {{- end }}
             {{- if .Values.telemetry.export.queue.persistent.enabled }}
             - {name: queue, mountPath: /queue}
             {{- end }}
+            {{- with include "agent.telemetryKubeletCA" . }}
+            - {name: kubelet-ca, mountPath: /etc/continuum/kubelet-ca, readOnly: true}
+            {{- end }}
             {{- if .Values.telemetry.systemLogs.logs.enabled }}
-            - {name: var-log-pods, mountPath: /var/log/pods, readOnly: true}
+            - {name: var-log-pods, mountPath: {{ .Values.telemetry.systemLogs.logs.podLogsDir | trimSuffix "/" | quote }}, readOnly: true}
+            {{- range $i, $p := .Values.telemetry.systemLogs.logs.extraHostPaths }}
+            - {name: log-extra-{{ $i }}, mountPath: {{ $p | quote }}, readOnly: true}
+            {{- end }}
+            - {name: log-checkpoints, mountPath: /var/lib/otelcol/checkpoints}
             {{- if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}
             - {name: journal, mountPath: /var/log/journal, readOnly: true}
             {{- end }}
@@ -110,18 +154,51 @@ spec:
         {{- if .Values.telemetry.export.queue.persistent.enabled }}
         {{- include "agent.telemetryQueueVolume" . | nindent 8 }}
         {{- end }}
-        {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
-        # Read-only, and only for the filesystem/network scrapers to see real host mounts and interfaces -
-        # the same trade-off nodeProbe.hostSys documents above. A namespace enforcing the Pod Security
-        # "baseline" or "restricted" profile refuses this hostPath volume; label the namespace privileged,
-        # or leave telemetry.resourceUsage off and rely on kubeletstats alone (container/pod metrics only,
-        # no host filesystem/network totals).
+        {{- with include "agent.telemetryKubeletCA" . }}
+        - name: kubelet-ca
+          {{- if eq . "configMap" }}
+          configMap:
+            name: {{ $.Values.telemetry.kubelet.ca.configMap | quote }}
+            items: [{key: {{ $.Values.telemetry.kubelet.ca.key | quote }}, path: ca.crt}]
+          {{- else }}
+          secret:
+            secretName: {{ $.Values.telemetry.kubelet.ca.secret | quote }}
+            items: [{key: {{ $.Values.telemetry.kubelet.ca.key | quote }}, path: ca.crt}]
+          {{- end }}
+        {{- end }}
+        {{- if include "agent.telemetryHostRootfsMounted" . }}
+        # Read-only, and only for the filesystem scraper (telemetry.resourceUsage.metrics.hostFilesystem) and, with journaling: host, the node's journalctl to see the real host's mounts and binaries -
+        # the same trade-off nodeProbe.hostSys documents above. Every hostPath volume here (this one,
+        # /var/log/pods for systemLogs, the journal) is refused by a namespace enforcing the Pod Security "baseline"
+        # or "restricted" profile; label the namespace privileged (README, "Pod Security"), or leave resourceUsage
+        # and systemLogs off: with only nodeRuntime on this pod mounts no host path at all. Note the combination
+        # resourceUsage + systemLogs: the pod is then root (see securityContext above) with this view of the whole
+        # node filesystem; it is mounted read-only, but only the top mount is - submounts of a read-write host
+        # filesystem stay writable until the cluster supports recursiveReadOnly everywhere.
         - name: host-fs
           hostPath: {path: /, type: Directory}
         {{- end }}
+        {{- if include "agent.telemetryHostProcMounted" . }}
+        # resourceUsage alone: only the node's /proc, read-only, which is all the cpu and memory scrapers read. The whole root
+        # (above) is for the node-wide filesystem scraper, telemetry.resourceUsage.metrics.hostFilesystem. Pod Security still
+        # refuses any hostPath, but this one is a view of process and memory counters, not of the node's files.
+        - name: host-proc
+          hostPath: {path: /proc, type: Directory}
+        {{- end }}
         {{- if .Values.telemetry.systemLogs.logs.enabled }}
         - name: var-log-pods
-          hostPath: {path: /var/log/pods, type: DirectoryOrCreate}
+          hostPath: {path: {{ .Values.telemetry.systemLogs.logs.podLogsDir | trimSuffix "/" | quote }}, type: DirectoryOrCreate}
+        {{- range $i, $p := .Values.telemetry.systemLogs.logs.extraHostPaths }}
+        # Where the files under the pod log directory point to (Docker's json-file logs through cri-dockerd), mounted at the
+        # same path so the links resolve. Type Directory: on a node that does not have it the pod stays in ContainerCreating
+        # with "hostPath type check failed" instead of the directory being created on a node of another runtime.
+        - name: log-extra-{{ $i }}
+          hostPath: {path: {{ $p | quote }}, type: Directory}
+        {{- end }}
+        # Where filelog/containers keeps its read positions (file_storage/logs), so a restarted collector carries on
+        # where it stopped. A few hundred bytes per log file; it survives a container restart, not a replaced pod.
+        - name: log-checkpoints
+          emptyDir: {sizeLimit: 64Mi}
         {{- if eq .Values.telemetry.systemLogs.logs.journaling "journald" }}
         - name: journal
           hostPath: {path: /var/log/journal, type: Directory}
@@ -129,6 +206,9 @@ spec:
         {{- end }}
       tolerations: {{- toYaml .Values.telemetry.hostCollector.tolerations | nindent 8 }}
       nodeSelector: {{- toYaml .Values.telemetry.hostCollector.nodeSelector | nindent 8 }}
+      {{- with .Values.telemetry.hostCollector.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
 {{- end }}
 
 {{/* ============================== Cluster-scoped collector (Deployment) ==============================
@@ -156,11 +236,17 @@ spec:
         app.kubernetes.io/name: continuum-telemetry-cluster
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/part-of: continuum
+        app.kubernetes.io/component: telemetry-cluster
+        {{- include "agent.meshOptOutLabels" . | nindent 8 }}
         {{- include "agent.podLabels" . | nindent 8 }}
       annotations:
+        {{- include "agent.meshOptOutAnnotations" . | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/telemetry-cluster-config.yaml") . | sha256sum }}
         {{- with include "agent.telemetryMtlsChecksum" (dict "root" . "scope" "cluster") }}
         checksum/mtls: {{ . }}
+        {{- end }}
+        {{- with include "agent.telemetryAuthChecksum" (dict "root" . "scope" "cluster") }}
+        checksum/auth: {{ . }}
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -174,25 +260,30 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "agent.name" . }}-telemetry
       automountServiceAccountToken: true   # k8sattributes (pod/namespace/node identity) needs the Kubernetes API
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        runAsGroup: 65532
-        seccompProfile: {type: RuntimeDefault}
+      enableServiceLinks: false
+      # Fixed user (podSecurity.runAsUser, 65532). Every
+      # volume this pod mounts (ConfigMap, Secret, emptyDir) is readable by any uid, so no fsGroup is needed.
+      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" false) | nindent 8 }}
+      {{- with .Values.telemetry.dnsConfig }}
+      dnsConfig: {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: otel-collector
           image: {{ include "agent.telemetryCollectorImage" . | quote }}
           imagePullPolicy: {{ include "agent.telemetryCollectorImagePullPolicy" . }}
-          args: ["--config=/conf/otel-collector-config.yaml"]
+          args:
+            - --config=/conf/otel-collector-config.yaml
+            {{- if include "agent.telemetryShareWatches" . }}
+            # One k8sattributes pod cache for all pipelines instead of one each, see telemetry.clusterCollector.shareWatches.
+            - --feature-gates=processor.k8sattributes.ShareProcessorBetweenPipelines
+            {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: {drop: ["ALL"]}
           env:
-            {{- if include "agent.telemetryHealthEnabled" . }}
             - name: POD_IP
               valueFrom: {fieldRef: {fieldPath: status.podIP}}
-            {{- end }}
             {{- include "agent.telemetryExporterEnv" (dict "root" . "scope" "cluster") | nindent 12 }}
             {{- include "agent.telemetryReceiverAuthEnv" . | nindent 12 }}
             {{- $clusterGml := include "agent.telemetryGomemlimit" (include "agent.telemetryClusterCollectorResources" . | fromYaml) }}
@@ -200,11 +291,17 @@ spec:
             - name: GOMEMLIMIT
               value: {{ $clusterGml | quote }}
             {{- end }}
-          {{- if include "agent.telemetryOtlpReceiverEnabled" . }}
+            {{- include "agent.telemetryProxyEnv" (dict "root" . "kubelet" false) | nindent 12 }}
+            {{- with .Values.telemetry.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           ports:
+            {{- if include "agent.telemetryOtlpReceiverEnabled" . }}
             - {name: otlp-grpc, containerPort: 4317, protocol: TCP}
             - {name: otlp-http, containerPort: 4318, protocol: TCP}
-          {{- end }}
+            {{- end }}
+            - {name: health, containerPort: {{ include "agent.telemetryProbePort" . }}, protocol: TCP}
+          {{- include "agent.telemetryProbesYAML" . | nindent 10 }}
           volumeMounts:
             - {name: config, mountPath: /conf, readOnly: true}
             {{- with include "agent.telemetryExportMtlsMounts" (dict "root" . "scope" "cluster") }}
@@ -212,6 +309,11 @@ spec:
             {{- end }}
             {{- with include "agent.telemetryExportCAMounts" (dict "root" . "scope" "cluster") }}
             {{- . | nindent 12 }}
+            {{- end }}
+            {{- if include "agent.telemetryOtlpReceiverEnabled" . }}
+            {{- with include "agent.telemetryReceiverTLSMounts" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
             {{- end }}
             {{- if .Values.telemetry.export.queue.persistent.enabled }}
             - {name: queue, mountPath: /queue}
@@ -225,6 +327,11 @@ spec:
         {{- end }}
         {{- with include "agent.telemetryExportCAVolumes" (dict "root" . "scope" "cluster") }}
         {{- . | nindent 8 }}
+        {{- end }}
+        {{- if include "agent.telemetryOtlpReceiverEnabled" . }}
+        {{- with include "agent.telemetryReceiverTLSVolumes" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
         {{- end }}
         {{- if .Values.telemetry.export.queue.persistent.enabled }}
         {{- include "agent.telemetryQueueVolume" . | nindent 8 }}
@@ -248,14 +355,33 @@ metadata:
 spec:
   selector: {app.kubernetes.io/name: continuum-telemetry-cluster, app.kubernetes.io/instance: {{ .Release.Name }}}
   ports:
-    - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
-    - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
+    # appProtocol tells a mesh or L7 proxy what to speak (Istio and Linkerd read it; their protocol detection is not reliable
+    # for a port named otlp-grpc, which is not "<protocol>[-suffix]"). Left out when the receiver terminates TLS itself:
+    # then the bytes are not plain HTTP/2 to a proxy that would try to parse them.
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+      {{- if not .Values.telemetry.receiver.tls.secretName }}
+      appProtocol: grpc
+      {{- end }}
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+      {{- if not .Values.telemetry.receiver.tls.secretName }}
+      appProtocol: http
+      {{- end }}
 {{- end }}
 {{- end }}
 
 {{/* ============================== Kepler (only when explicitly enabled AND bundled) ============================== */}}
 {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
 {{- $keplerName := printf "%s-kepler" (include "agent.telemetryName" .) }}
+{{- include "agent.telemetryKeplerValidate" . }}
+{{- $engine := include "agent.telemetryKeplerEngine" . }}
+{{- $checks := .Values.telemetry.energy.metrics.nodeChecks }}
+{{- $keplerImage := include "agent.telemetryKeplerImage" . }}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -267,64 +393,165 @@ metadata:
 spec:
   selector:
     matchLabels: {app.kubernetes.io/name: {{ $keplerName }}, app.kubernetes.io/instance: {{ .Release.Name }}}
-  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 10%}}
+  # 100%, not the 10% the collectors use: on a node Kepler cannot work on (held by the preflight, or crash-looping) the new pod
+  # is never available, and the DaemonSet controller counts every unavailable new pod against maxUnavailable ("an unavailable
+  # new pod is counted against maxUnavailable", pkg/controller/daemon/update.go) - so with more than 10% of the nodes like
+  # that, the pods on the healthy nodes would never be replaced and an image or config change would stall for good. Kepler is
+  # an optional exporter: restarting it everywhere at once costs a gap in its data, not a workload.
+  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 100%}}
   template:
     metadata:
       labels:
         app.kubernetes.io/name: {{ $keplerName }}
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/part-of: continuum
+        app.kubernetes.io/component: telemetry-kepler
+        {{- include "agent.meshOptOutLabels" . | nindent 8 }}
         {{- include "agent.podLabels" . | nindent 8 }}
+      annotations:
+        {{- include "agent.meshOptOutAnnotations" . | nindent 8 }}
+        {{- if eq $engine "powercap" }}
+        checksum/config: {{ include (print $.Template.BasePath "/telemetry-kepler-config.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
-      automountServiceAccountToken: false   # Kepler reads host energy counters, never the Kubernetes API
+      # Kepler names the pod behind every container it measures by watching the Kubernetes API (it lists this node's
+      # pods; release-0.7's -apiserver flag defaults to true and rest.InClusterConfig is its only way in, and the v0.10+ config
+      # of engine=powercap selects the same API-server mode). Without a token release-0.7 logs "failed to get config" and
+      # labels every container "system_processes" in namespace "system", which makes per-pod energy useless. Its own
+      # ServiceAccount holds read access to pods and nothing else (telemetry-rbac.yaml).
+      serviceAccountName: {{ include "agent.name" . }}-kepler
+      automountServiceAccountToken: true
+      enableServiceLinks: false
       hostPID: true   # required to attribute RAPL energy readings to the processes/pods actually using it
+      {{- if $checks }}
+      initContainers:
+        # Asks this node whether Kepler can work here at all (values.yaml: energy.metrics.nodeChecks) and, when the answer is
+        # a definite no, says why in its log and waits - the pod stays in Init:0/1, not crash-looping, and the cluster
+        # collector does not scrape it (it is not Running). Privileged because the checks need what Kepler needs: the bpf()
+        # syscall (ebpf) and root-only sysfs counters (powercap).
+        - name: preflight
+          image: {{ $keplerImage | quote }}
+          imagePullPolicy: {{ include "agent.telemetryKeplerImagePullPolicy" . }}
+          securityContext:
+            privileged: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              {{- include "agent.telemetryKeplerPreflightScript" . | nindent 14 }}
+          volumeMounts:
+            - {name: sys, mountPath: /sys, readOnly: true}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 64Mi}
+      {{- end }}
       containers:
         - name: kepler
-          image: {{ include "agent.telemetryKeplerImage" . | quote }}
+          image: {{ $keplerImage | quote }}
           imagePullPolicy: {{ include "agent.telemetryKeplerImagePullPolicy" . }}
           # Privileged, deliberately, and more broadly than flowObserver's eBPF path above: flowObserver is
           # this project's own code, so its exact kernel needs are known and scoped to three named
           # capabilities (BPF, PERFMON, SYS_RESOURCE) with everything else dropped. Kepler is a third-party
-          # image upstream documents as needing privileged: true and hostPID: true with no capability-based
+          # image whose own manifest runs it privileged: true with hostPID: true and offers no capability-based
           # alternative (raw /sys/class/powercap/intel-rapl and, on some kernels, MSR reads for RAPL energy
-          # counters, plus loading its own eBPF program to attribute power draw to individual pods) - see
-          # https://sustainable-computing.io/kepler/installation/guide/. Guessing a narrower capability set
-          # for code this chart does not control would risk silently breaking energy attribution on some
-          # kernels while giving little real isolation benefit. It is scoped here to one single-purpose pod
-          # instead of widening the collector, the agent, or anything else in this chart. If this trade-off
-          # is not acceptable on a given node pool, leave telemetry.energy off there, or point source at an
+          # counters, plus - release-0.7 - loading its own eBPF program to attribute power draw to individual pods).
+          # Guessing a narrower capability set for code this chart does not control would risk silently breaking energy
+          # attribution on some kernels while giving little real isolation benefit: v0.10+ needs root (the RAPL energy
+          # counters are root-only on current kernels) and CAP_SYS_PTRACE (it reads /proc/<pid>/exe of other users'
+          # processes and fails the whole collection if it cannot), release-0.7 the eBPF/perf capabilities. It is scoped here to one
+          # single-purpose pod instead of widening the collector, the agent, or anything else in this chart. If this
+          # trade-off is not acceptable on a given node pool, leave telemetry.energy off there, or point source at an
           # existing endpoint you already trust instead of bundling this pod.
           securityContext:
             privileged: true
-          # Kepler (release-0.7.x) listens on 0.0.0.0:8888 unless told otherwise, and nothing else here moves it: without this
-          # the container declares 9103, the Service and the scrape job use 9103, and every scrape is "connection refused"
-          # while the pod reports Ready (found on a real cluster: the collector's only output was the scrape's own `up`
-          # series). BIND_ADDRESS is the variable Kepler reads for its listen address (pkg/config: bindAddressKey), and it
-          # outranks the -address flag.
+          {{- if eq $engine "powercap" }}
+          args:
+            - --config.file=/etc/kepler/config.yaml
+            - --kube.node-name=$(NODE_NAME)
+          {{- end }}
+          # NODE_NAME is the node whose pods Kepler's watcher lists (a spec.nodeName field selector). Unset, release-0.7
+          # falls back to the container's hostname - the POD's name, since this pod is not on the host network - and the
+          # selector matches no pod at all. (For release-0.7 it is also the value of the "instance" label on Kepler's node metrics.)
           env:
-            - {name: BIND_ADDRESS, value: "0.0.0.0:9103"}
+            {{- if eq $engine "ebpf" }}
+            # Kepler (release-0.7.x) listens on 0.0.0.0:8888 unless told otherwise, and nothing else here moves it: without this
+            # the container declares 9103, the Service and the scrape job use 9103, and every scrape is "connection refused"
+            # while the pod reports Ready (found on a real cluster: the collector's only output was the scrape's own `up`
+            # series). BIND_ADDRESS is the variable Kepler reads for its listen address (pkg/config: bindAddressKey), and it
+            # outranks the -address flag.
+            - {name: BIND_ADDRESS, value: ":9103"}
+            {{- end }}
+            - name: NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
           ports:
             - {name: metrics, containerPort: 9103, protocol: TCP}
+          {{- if $checks }}
+          # Before the pod can be Ready, /metrics must really serve Kepler's node series. The port answering (what readiness
+          # tests) is not enough: v0.10+ answers /probe/readyz while every collection fails (it cannot read /proc entries of
+          # other users, and gives up on the whole refresh: /metrics then holds only kepler_build_info and kepler_node_cpu_info,
+          # so the check is for kepler_node_cpu_watts, not any kepler_node_cpu_*). Such a pod is restarted after 5 minutes -
+          # visible as restarts - instead of being a Ready pod that produces nothing. The failure text below is what
+          # `kubectl describe pod` shows. (release-0.7 has no series that is absent only when it is broken, so there the check
+          # proves /metrics is served, nothing more.)
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - >-
+                  curl -sf --max-time 12 http://localhost:9103/metrics | grep -q '^kepler_node_{{ ternary "cpu_watts" "" (eq $engine "powercap") }}'
+                  || { echo "Kepler answers on 9103 but /metrics has no {{ ternary "kepler_node_cpu_watts" "kepler_node_*" (eq $engine "powercap") }} series - read the kepler container's log"; exit 1; }
+            periodSeconds: 10
+            timeoutSeconds: 15
+            failureThreshold: 30
+          {{- end }}
           # Ready means the metrics port answers, so a Kepler that is running but not serving shows as not ready instead of
-          # as a healthy pod with no data.
+          # as a healthy pod with no data. Liveness: upstream's own endpoints, which do no power computation per call
+          # (/healthz for release-0.7; /probe/livez and /probe/readyz for v0.10+, which also report services still starting).
           readinessProbe:
+            {{- if eq $engine "powercap" }}
+            httpGet: {path: /probe/readyz, port: metrics}
+            {{- else }}
             tcpSocket: {port: metrics}
+            {{- end }}
             initialDelaySeconds: 10
             periodSeconds: 15
+          # A liveness probe next to the readiness one, because AKS Deployment Safeguards (Azure Policy) refuse a container
+          # that lacks either ("Container ... has no livenessProbe. Required probes: readinessProbe, livenessProbe",
+          # learn.microsoft.com/azure/aks/deployment-safeguards) and AKS Automatic enforces them by default. Generous: it
+          # restarts a Kepler whose HTTP endpoint has stopped answering for five minutes, never one that is merely slow.
+          livenessProbe:
+            httpGet: {path: {{ ternary "/probe/livez" "/healthz" (eq $engine "powercap") }}, port: metrics}
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
           volumeMounts:
             - {name: proc, mountPath: /proc, readOnly: true}
             - {name: sys, mountPath: /sys, readOnly: true}
+            {{- if eq $engine "powercap" }}
+            - {name: config, mountPath: /etc/kepler, readOnly: true}
+            {{- end }}
           resources: {{- include "agent.telemetryKeplerResources" . | nindent 12 }}
       volumes:
         - name: proc
           hostPath: {path: /proc}
         - name: sys
           hostPath: {path: /sys}
+        {{- if eq $engine "powercap" }}
+        - name: config
+          configMap: {name: {{ $keplerName }}-config}
+        {{- end }}
       tolerations: {{- toYaml .Values.telemetry.energy.metrics.tolerations | nindent 8 }}
-      nodeSelector: {{- toYaml .Values.telemetry.energy.metrics.nodeSelector | nindent 8 }}
+      nodeSelector: {{- include "agent.telemetryKeplerNodeSelector" . | nindent 8 }}
 ---
 apiVersion: v1
 kind: Service
@@ -342,6 +569,7 @@ spec:
 {{/* ============================== dcgm-exporter (only when explicitly enabled AND bundled) ============================== */}}
 {{- if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
 {{- $dcgmName := printf "%s-dcgm" (include "agent.telemetryName" .) }}
+{{- $acc := .Values.telemetry.accelerators.metrics }}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -360,22 +588,55 @@ spec:
         app.kubernetes.io/name: {{ $dcgmName }}
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/part-of: continuum
+        app.kubernetes.io/component: telemetry-dcgm
+        {{- include "agent.meshOptOutLabels" . | nindent 8 }}
         {{- include "agent.podLabels" . | nindent 8 }}
+      annotations:
+        {{- include "agent.meshOptOutAnnotations" . | nindent 8 }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with $acc.runtimeClassName }}
+      # The NVIDIA container runtime is what injects the driver's libraries and the GPU devices into the container. Where it
+      # is not the node's default runtime - k3s registers it but leaves runc as the default (docs.k3s.io/advanced,
+      # "NVIDIA Container Runtime") - the pod must ask for it, or dcgm-exporter starts with no NVML and exits (CrashLoopBackOff,
+      # "Failed to initialize embedded DCGM ... libdcgm.so.4 not found" / no GPU in its log). The RuntimeClass must exist.
+      runtimeClassName: {{ . | quote }}
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
-      automountServiceAccountToken: false   # dcgm-exporter reads GPU hardware directly, never the Kubernetes API
+      # Its own ServiceAccount, with no token and no RBAC at all: dcgm-exporter reads GPU hardware and the kubelet's pod-resources
+      # socket, never the Kubernetes API. A name of its own (instead of the namespace's "default") means no policy has to be
+      # granted to the namespace's shared account for this pod to run.
+      serviceAccountName: {{ include "agent.name" . }}-dcgm
+      automountServiceAccountToken: false
+      enableServiceLinks: false
       containers:
         - name: dcgm-exporter
           image: {{ include "agent.telemetryAcceleratorsImage" . | quote }}
           imagePullPolicy: {{ include "agent.telemetryAcceleratorsImagePullPolicy" . }}
-          # NVIDIA's own documented requirement for reading GPU state via DCGM: root plus SYS_ADMIN, not
-          # full privileged: true like Kepler above (a narrower ask - no hostPID, no arbitrary device
-          # access beyond what the NVIDIA Container Toolkit already exposes to this pod). Left disabled
-          # unless bundle-dcgm is actually selected; needs the NVIDIA driver and NVIDIA Container Toolkit
-          # already installed on the node, which this chart cannot install for you - see
-          # https://github.com/NVIDIA/dcgm-exporter.
+          {{- if $acc.privileged }}
+          # telemetry.accelerators.metrics.privileged: how the NVIDIA GPU Operator runs its own dcgm-exporter (privileged: true,
+          # assets/state-dcgm-exporter in github.com/NVIDIA/gpu-operator). Wider than the default below, so opt-in: it is what
+          # makes the pod able to read the GPU devices and the kubelet socket with a
+          # toolkit that does not honour NVIDIA_VISIBLE_DEVICES for unprivileged containers. allowPrivilegeEscalation is left
+          # out on purpose: the API refuses privileged together with allowPrivilegeEscalation: false.
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            runAsNonRoot: false
+          {{- else }}
+          # What NVIDIA's own chart runs it with: root plus SYS_ADMIN (its values.yaml notes SYS_ADMIN is "required for
+          # profiling metrics (DCGM_FI_PROF_*)"; DCGM documents that profiling needs administrator privileges), not full
+          # privileged: true like Kepler above (a narrower ask - no hostPID, no arbitrary device access beyond what the NVIDIA
+          # Container Toolkit already exposes to this pod). Left disabled unless bundle-dcgm is actually selected; needs the NVIDIA
+          # driver and NVIDIA Container Toolkit already installed on the node, which this chart cannot install for you - see
+          # https://docs.nvidia.com/datacenter/dcgm/latest/installation/install-dcgm-exporter.html.
           # allowPrivilegeEscalation: false and capabilities.drop: ["ALL"] match every other container in
           # this chart (see flow.yaml, probe.yaml) - dropping everything but the one capability actually
           # needed costs nothing here regardless of what SYS_ADMIN itself is used for.
@@ -391,29 +652,77 @@ spec:
             capabilities:
               drop: ["ALL"]
               add: ["SYS_ADMIN"]
+          {{- end }}
           ports:
             - {name: metrics, containerPort: 9400, protocol: TCP}
-          {{- if .Values.telemetry.accelerators.metrics.applyScope }}
-          # Off by default (telemetry.accelerators.metrics.applyScope). Enables dcgm-exporter's own
-          # Kubernetes pod-label enrichment: DCGM_EXPORTER_KUBERNETES turns on GPU-to-pod mapping at all,
-          # DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS actually adds namespace/pod/container Prometheus
-          # labels to the metrics it emits. Needs no new mount - the pod-resources volume below already
-          # sits at DCGM's default kubelet socket path (.../pod-resources/kubelet.sock).
+          # NODE_NAME is what dcgm-exporter puts in the hostname label of every GPU series (release 3.1.6-3.1.3 "Enable
+          # NODE_NAME env for metrics", the same variable NVIDIA's chart sets): without it the label is the POD's name, not the node's.
+          # DCGM_EXPORTER_LISTEN pins the port the Service, the scrape job and the probes use to the one the exporter binds, whatever
+          # a later image changes its default to.
           env:
+            - {name: DCGM_EXPORTER_LISTEN, value: ":9400"}
+            - name: NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            {{- if include "agent.telemetryAccApplyScope" . }}
+            # Only when the accelerators follow the scope (telemetry.accelerators.metrics.applyScope: auto with a scope set, or true). DCGM_EXPORTER_KUBERNETES turns on dcgm-exporter's
+            # GPU-to-pod mapping, which is what puts the namespace/pod/container labels on the GPU metrics - it reads them from
+            # the kubelet's pod-resources socket mounted below, not from the Kubernetes API. Deliberately NOT set:
+            # DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS, which adds the pod's own labels as extra Prometheus labels (and
+            # needs the API access this pod does not have); it does not provide namespace/pod/container.
             - {name: DCGM_EXPORTER_KUBERNETES, value: "true"}
-            - {name: DCGM_EXPORTER_KUBERNETES_ENABLE_POD_LABELS, value: "true"}
-          {{- end }}
+            {{- end }}
+            {{- with $acc.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # /health (NVIDIA's own chart probes the same path, after 45 s: DCGM takes a while to start) answers 200 as soon as the
+          # exporter's HTTP server runs, even during a hot reload; it does not test GPU access. What turns "this node has no
+          # usable GPU stack" into a visible state is that dcgm-exporter exits at startup when DCGM cannot initialise (no
+          # driver, no NVIDIA runtime: "Failed to initialize embedded DCGM", then os.Exit(1) - internal/pkg/dcgmprovider in
+          # github.com/NVIDIA/dcgm-exporter): the pod is CrashLoopBackOff, never Ready, `kubectl logs` says why. The liveness
+          # probe is NVIDIA's too, with a longer period: a hung exporter is restarted instead of staying up with a closed port.
+          readinessProbe:
+            httpGet: {path: /health, port: metrics}
+            initialDelaySeconds: 45
+            periodSeconds: 15
+          # A liveness probe next to the readiness one (NVIDIA's chart has one too), also for AKS Deployment Safeguards, which refuse a
+          # container with only one of the two probes: a restart after a minute of /health failing.
+          # Slower than NVIDIA's own (they probe every 5 s).
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: metrics}
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
+          {{- if or (include "agent.telemetryAccApplyScope" .) $acc.hostMounts }}
           volumeMounts:
+            {{- if include "agent.telemetryAccApplyScope" . }}
             # Read-only: maps GPUs to the pods actually using them, the same read-only kubelet interface
-            # kubeletstats above uses for its own pod-resource accounting. Also dcgm-exporter's own source
-            # for the namespace/pod/container labels above, when applyScope turns that on.
+            # kubeletstats above uses for its own pod-resource accounting. dcgm-exporter's default socket is
+            # .../pod-resources/kubelet.sock. Only mounted when something reads it.
             - {name: pod-resources, mountPath: /var/lib/kubelet/pod-resources, readOnly: true}
+            {{- end }}
+            {{- range $i, $m := $acc.hostMounts }}
+            - {name: {{ printf "host-mount-%d" $i }}, mountPath: {{ $m.mountPath | quote }}, readOnly: true}
+            {{- end }}
+          {{- end }}
           resources: {{- include "agent.telemetryAcceleratorsResources" . | nindent 12 }}
+      {{- if or (include "agent.telemetryAccApplyScope" .) $acc.hostMounts }}
       volumes:
+        {{- if include "agent.telemetryAccApplyScope" . }}
         - name: pod-resources
           hostPath: {path: /var/lib/kubelet/pod-resources}
-      tolerations: {{- toYaml .Values.telemetry.accelerators.metrics.tolerations | nindent 8 }}
-      nodeSelector: {{- toYaml .Values.telemetry.accelerators.metrics.nodeSelector | nindent 8 }}
+        {{- end }}
+        {{- range $i, $m := $acc.hostMounts }}
+        - name: {{ printf "host-mount-%d" $i }}
+          hostPath: {path: {{ $m.hostPath | quote }}}
+        {{- end }}
+      {{- end }}
+      tolerations: {{- toYaml $acc.tolerations | nindent 8 }}
+      nodeSelector: {{- toYaml $acc.nodeSelector | nindent 8 }}
+      {{- with include "agent.telemetryAcceleratorsAffinity" . }}
+      affinity: {{- . | nindent 8 }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service
