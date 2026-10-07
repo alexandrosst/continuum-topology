@@ -49,3 +49,26 @@ Resource usage and Node runtime read the kubelet. The collector now dials the no
 ## The heartbeat address
 
 A regional operator's heartbeat reports to the server's public address: set `admin.publicURL` in the server chart (for example `https://ikhnos.example.com`). Without it the address is whichever host your browser used, which is wrong behind a port-forward or an internal name, and the screen says so for `localhost`, `.svc` and private addresses. When the server's own certificate is signed by a private CA, mount the CA file and set `admin.heartbeatCAFile`: the operator's commands then include a Secret with that CA and `heartbeat.tls.caSecretName`.
+
+## What the receiver does with certificates (tested with a real collector)
+
+Checked with OpenTelemetry Collector Contrib 0.160.0 as the receiver (mTLS on, `client_ca_file` set to the operator's CA) and as the sender, using certificates minted by the server's own PKI code:
+
+| Sender presents | Result |
+| --- | --- |
+| A certificate from the operator's CA, connecting by a name on the server certificate | Accepted |
+| A certificate from another operator's CA | Refused (`unknown certificate authority`) |
+| No client certificate | Refused (`client didn't provide a certificate`) |
+| An expired certificate | Refused (`expired certificate`) |
+| Any certificate, connecting by a name the server certificate does not list | Refused by the sender (`certificate is valid for ...`) |
+| A sender that trusts a different CA for the server | Refused by the sender (`signed by unknown authority`) |
+
+Renewal and trust, with the reload interval shortened for the test (the charts use one hour):
+
+- A renewed **client** certificate written over the old files is used without restarting the sender; a sender that was failing with an expired certificate recovered on its own.
+- A renewed **server** certificate is served to new connections without restarting the receiver. A connection that is already open keeps the certificate it started with.
+- A replaced **CA file is not re-read**: after swapping `ca.crt` the old CA's clients were still accepted and the new CA's refused until the receiver restarts. Revoking or rotating a CA therefore needs a rollout.
+- The receiver refuses silently at the default log level. At `debug` (chart value `selfMetrics.logLevel`) it logs each refusal with the reason. The sender logs "Exporting failed" with the same reason at any level.
+
+Expiry is tracked per sender from the certificate ledger: the operator's client date is the earliest end among the newest certificate of each sender that is configured to send to it (its source clusters, clusters of active telemetry intents that name it, operators that export into it), and the daily warning says which sender it is. A sender that no longer sends does not keep an old certificate on the alarm.
+
