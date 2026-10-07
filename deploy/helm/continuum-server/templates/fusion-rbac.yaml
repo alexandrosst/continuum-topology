@@ -1,5 +1,16 @@
 {{- if include "continuum.fusionControl" . }}
 {{- $n := include "continuum.fusionName" . }}
+{{- $stores := list (printf "%s-prometheus" $n) (printf "%s-loki" $n) (printf "%s-tempo" $n) }}
+{{- if .Values.fusion.grafana.enabled }}
+{{- $stores = append $stores (printf "%s-grafana" $n) }}
+{{- end }}
+{{- $pods := list }}
+{{- $claims := list }}
+{{- range $s := $stores }}
+{{- $pod := printf "%s-0" $s }}
+{{- $pods = append $pods $pod }}
+{{- $claims = append $claims (printf "data-%s" $pod) }}
+{{- end }}
 # The only thing this server may do with the Kubernetes API: switch FUSION on and off. Namespaced, and every rule names
 # the objects it covers - the three stores, the central gateway and the gateway's certificate Secret - so it cannot see
 # or touch anything else in the namespace. There is no create, delete, list or watch, and no Secret can be read.
@@ -13,7 +24,7 @@ rules:
   # Read the workloads' state ("starting", "running") and their replica count.
   - apiGroups: ["apps"]
     resources: ["statefulsets"]
-    resourceNames: [{{ $n }}-prometheus, {{ $n }}-loki, {{ $n }}-tempo]
+    resourceNames: {{ toJson $stores }}
     verbs: ["get"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
@@ -22,7 +33,7 @@ rules:
   # The switch itself: set the replica count to 0 or 1, through the scale subresource only.
   - apiGroups: ["apps"]
     resources: ["statefulsets/scale"]
-    resourceNames: [{{ $n }}-prometheus, {{ $n }}-loki, {{ $n }}-tempo]
+    resourceNames: {{ toJson $stores }}
     verbs: ["get", "patch"]
   - apiGroups: ["apps"]
     resources: ["deployments/scale"]
@@ -33,6 +44,20 @@ rules:
     resources: ["secrets"]
     resourceNames: [{{ $n }}-central-receiver-tls]
     verbs: ["patch"]
+  # Read-only: the one pod and one PVC each store uses, and the central gateway's Service, so the server can report
+  # why a store did not start and where to reach the central operator.
+  - apiGroups: [""]
+    resources: ["pods"]
+    resourceNames: {{ toJson $pods }}
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    resourceNames: {{ toJson $claims }}
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["services"]
+    resourceNames: [{{ $n }}-central]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
