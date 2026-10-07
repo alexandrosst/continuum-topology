@@ -173,3 +173,22 @@ func TestOnlyAnAdministratorMayAskForAPageLink(t *testing.T) {
 		t.Errorf("a page that is down: %d %s", r.Code, r.Body.String())
 	}
 }
+
+// The server's platform-wide core has no organisation of its own, and FUSION belongs to the main one: asking for "FUSION's
+// organisation" must never come out empty (it once did, and every page and token request was refused as coming from
+// another organisation).
+func TestFusionBelongsToTheMainOrganisationOfAServerWhoseCoreHasNone(t *testing.T) {
+	base := &Core{DefaultOrg: "main"}
+	if got := (&Admin{C: base, Fusion: &FusionControl{}}).fusionOrg(); got != "main" {
+		t.Fatalf("no organisation configured: %q", got)
+	}
+	if got := (&Admin{C: &Core{}, Fusion: &FusionControl{}}).fusionOrg(); got != "default" {
+		t.Fatalf("no flag either: %q", got)
+	}
+	if got := (&Admin{C: base, Fusion: &FusionControl{Org: "told"}}).fusionOrg(); got != "told" {
+		t.Fatalf("configured: %q", got)
+	}
+	if got := (&Admin{C: &Core{OrgID: "org-1"}}).fusionOrg(); got != "org-1" {
+		t.Fatalf("a core with an organisation: %q", got)
+	}
+}

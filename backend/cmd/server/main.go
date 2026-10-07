@@ -343,7 +343,7 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 		admin.HeartbeatCAPEM = pem
 	}
 	if fusionName != "" {
-		admin.Fusion = fusionControl(log, fusionName, releaseNamespace, fusionCentralAddress, core.OrgID)
+		admin.Fusion = fusionControl(log, fusionName, releaseNamespace, fusionCentralAddress, core.MainOrg())
 		// An address set from the screen (Reachable at on the central operator) outranks the startup flag, which is
 		// only the first value.
 		if op, err := core.Store.GetOperator(context.Background(), server.CentralOperatorID); err == nil && op.Address != "" {

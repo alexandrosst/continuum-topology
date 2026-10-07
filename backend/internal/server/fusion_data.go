@@ -205,12 +205,17 @@ func toFusionTokenDoc(t store.FusionToken) fusionTokenDoc {
 		CreatedBy: t.CreatedBy, CreatedAt: rfc(t.CreatedAt), ExpiresAt: rfc(t.ExpiresAt), LastUsedAt: rfcp(t.LastUsed)}
 }
 
-// fusionOrg is the organisation FUSION belongs to: the one the server was told, else the default one.
+// fusionOrg is the organisation FUSION belongs to: the one the server was told, else the server's main organisation. (Not
+// a.C.OrgID alone: the server's platform-wide core has none, which once made every request look like it came from another
+// organisation.)
 func (a *Admin) fusionOrg() string {
 	if a.Fusion != nil && a.Fusion.Org != "" {
 		return a.Fusion.Org
 	}
-	return a.C.OrgID
+	if a.C.OrgID != "" {
+		return a.C.OrgID
+	}
+	return a.C.MainOrg()
 }
 
 // fusionOrgOnly refuses a token request from any organisation but the one FUSION belongs to.

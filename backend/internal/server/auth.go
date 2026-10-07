@@ -1269,13 +1269,18 @@ func (c *Core) BootstrapAdmin(ctx context.Context, password string) (created boo
 	if err := c.Store.CreateUser(ctx, u); err != nil {
 		return false, "", err
 	}
-	o := store.Org{ID: firstNonEmpty(c.DefaultOrg, "default"), Name: "Default", CreatedAt: now, CreatedBy: u.ID}
+	o := store.Org{ID: c.MainOrg(), Name: "Default", CreatedAt: now, CreatedBy: u.ID}
 	if err := c.Store.CreateOrg(ctx, o, u.ID); err != nil {
 		return false, "", err
 	}
 	c.auditOrg(ctx, o.ID, "system", "user-created", "user", u.ID, "first administrator")
 	return true, generated, nil
 }
+
+// MainOrg is the server's main organisation: the one created together with the first account (see DefaultOrg), the one
+// FUSION belongs to. The platform-wide core has no organisation of its own (OrgID is empty), so code that needs "the
+// main one" asks here rather than reading OrgID.
+func (c *Core) MainOrg() string { return firstNonEmpty(c.DefaultOrg, "default") }
 
 func firstNonEmpty(a, b string) string {
 	if a != "" {
