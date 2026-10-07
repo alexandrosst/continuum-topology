@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -526,8 +527,20 @@ func TestPodSecurityPreflightReadsTheNamespaceLabelThroughLookup(t *testing.T) {
 	if err != nil {
 		t.Skip("helm is not installed")
 	}
+	// The handler runs on the server's goroutines while the test changes what it answers: guarded by a mutex.
+	var mu sync.Mutex
 	var label string
 	var forbidden, missing bool
+	set := func(l string, f, m bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		label, forbidden, missing = l, f, m
+	}
+	state := func() (string, bool, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		return label, forbidden, missing
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		write := func(code int, v any) {
@@ -538,6 +551,7 @@ func TestPodSecurityPreflightReadsTheNamespaceLabelThroughLookup(t *testing.T) {
 			write(code, map[string]any{"kind": "Status", "apiVersion": "v1", "status": "Failure", "reason": reason, "code": code, "message": reason})
 		}
 		p := r.URL.Path
+		label, forbidden, missing := state()
 		switch {
 		case p == "/version":
 			write(200, map[string]any{"major": "1", "minor": "31", "gitVersion": "v1.31.0"})
@@ -587,30 +601,30 @@ func TestPodSecurityPreflightReadsTheNamespaceLabelThroughLookup(t *testing.T) {
 		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}
-	label, forbidden, missing = "restricted", false, false
+	set("restricted", false, false)
 	if out, err := run(); err == nil || !strings.Contains(out, "kubectl label namespace default pod-security.kubernetes.io/enforce=privileged") {
 		t.Errorf("a namespace labelled enforce=restricted must stop the install with the fix, got err=%v\n%s", err, out)
 	}
 	if out, err := run("--set", "preflight.podSecurity=warn"); err != nil {
 		t.Errorf("warn must not stop it: %v\n%s", err, out)
 	}
-	label = "baseline"
+	set("baseline", false, false)
 	if _, err := run(); err == nil {
 		t.Errorf("enforce=baseline must stop the install")
 	}
-	label = "privileged"
+	set("privileged", false, false)
 	if out, err := run(); err != nil {
 		t.Errorf("enforce=privileged: %v\n%s", err, out)
 	}
-	label = ""
+	set("", false, false)
 	if out, err := run(); err != nil {
 		t.Errorf("no label: %v\n%s", err, out)
 	}
-	missing = true
+	set("", false, true)
 	if out, err := run(); err != nil {
 		t.Errorf("a namespace that does not exist yet (--create-namespace) must not fail: %v\n%s", err, out)
 	}
-	missing, forbidden = false, true
+	set("", true, false)
 	if out, err := run(); err == nil || !strings.Contains(out, "forbidden") && !strings.Contains(out, "Forbidden") {
 		t.Errorf("Helm turns a Forbidden lookup into a render error; got err=%v\n%s", err, out)
 	}
