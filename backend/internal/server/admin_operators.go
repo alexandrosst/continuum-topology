@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -160,6 +161,11 @@ type operatorDoc struct {
 	Endpoint string `json:"endpoint,omitempty"`
 	// UsedBy is what is configured to send to this operator; absent when nothing is.
 	UsedBy *usedByDoc `json:"usedBy,omitempty"`
+	// AddressWarnings are the doubts about Address, in words: a port that is the HTTP one, a private address, and - for the
+	// central operator - a gateway Service that is not exposed or listens elsewhere. A recorded address is what a person
+	// typed (or what the cloud reported), not something the server has seen answer: these say where it looks wrong, and
+	// POST .../address/check looks at what answers. Absent when there is nothing to say.
+	AddressWarnings []string `json:"addressWarnings,omitempty"`
 }
 
 func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
@@ -214,6 +220,7 @@ func (a *Admin) opDocWith(r *http.Request, op store.Operator, usages map[string]
 	d := toOperatorDoc(op, a.core(r).Now())
 	d.Endpoint = a.operatorEndpoint(op)
 	d.UsedBy = toUsedByDoc(usages[op.ID])
+	d.AddressWarnings = addressWarnings(op.Address, nil)
 	if op.ID == CentralOperatorID {
 		h := centralHealth(fusion)
 		h.LastSeenAt = fusion.LastDataAt
@@ -222,6 +229,7 @@ func (a *Admin) opDocWith(r *http.Request, op store.Operator, usages map[string]
 			if d.ReachableFromOtherClusters = a.Fusion.Exposed(); d.ReachableFromOtherClusters {
 				d.Address = a.Fusion.CentralEndpoint()
 				d.AddressState = addressSet
+				d.AddressWarnings = a.Fusion.AddressWarnings(r.Context()) // checked against the gateway's own Service
 			} else {
 				d.AddressState = addressNone
 			}
@@ -448,6 +456,9 @@ func (a *Admin) setOperatorAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	if id == CentralOperatorID && a.Fusion != nil {
+		req.Address = a.Fusion.WithGatewayPort(r.Context(), req.Address) // a NodePort is not on 4317
+	}
 	addr, err := a.core(r).SetOperatorAddress(r.Context(), actor(r), id, req.Address)
 	if err != nil {
 		a.fail(w, err)
@@ -627,6 +638,19 @@ func operatorClientSecretCommand(op store.Operator, certPEM, keyPEM, caPEM []byt
 		secretKV("tls.crt", string(certPEM)), secretKV("tls.key", string(keyPEM)), secretKV("ca.crt", string(caPEM)))
 }
 
+// routeModalities are the signal types that can have a destination of their own (telemetry.export.routes.<type>).
+var routeModalities = []store.Modality{store.ModalityMetrics, store.ModalityLogs, store.ModalityTraces}
+
+// clearRouteFlags states that the given signal types have no destination of their own: an empty route endpoint is how
+// the chart reads "no route", so they go to the default destination again.
+func clearRouteFlags(ms ...store.Modality) string {
+	flags := make([]string, len(ms))
+	for i, m := range ms {
+		flags[i] = setFlag(fmt.Sprintf("telemetry.export.routes.%s.endpoint", m), "")
+	}
+	return strings.Join(flags, " ")
+}
+
 // operatorRouteFlags are the --set flags that make one signal type's own route (telemetry.export.routes.<m>)
 // export to this operator over mutual TLS: its receiver, gRPC, certificate verified, and the Secret from
 // operatorClientSecretCommand. Stated in full (see exportBlockFlags) so the route does not depend on anything an
@@ -659,6 +683,29 @@ func (a *Admin) operatorEndpoint(op store.Operator) string {
 	return operatorInClusterEndpoint(op)
 }
 
+// targetWarnings are the doubts about pointing something at op, for the commands that do: an operator with no address
+// recorded is dialled by its in-cluster name, which resolves only inside the cluster it runs in, and an address that
+// is recorded is only what a person typed (see addressWarnings). Empty when there is nothing to say.
+func (a *Admin) targetWarnings(ctx context.Context, op store.Operator) []string {
+	name := op.Name
+	if op.ID == CentralOperatorID && name == "" {
+		name = centralOperatorName
+	}
+	op = a.advertised(op)
+	if op.Address == "" {
+		return []string{fmt.Sprintf("%s has no address recorded, so this command dials its in-cluster name (%s), which resolves only inside the cluster it runs in. If the cluster being pointed at it is another one, record where %s is reached from outside first.", name, a.operatorEndpoint(op), name)}
+	}
+	var svc *KubeService
+	if op.ID == CentralOperatorID && a.Fusion != nil {
+		svc = a.Fusion.gatewayService(ctx)
+	}
+	var out []string
+	for _, w := range addressWarnings(op.Address, svc) {
+		out = append(out, name+": "+w)
+	}
+	return out
+}
+
 // addOperatorTargetExport adds, for a regional operator that exports to ANOTHER operator (the central one, usually),
 // the one Secret its install command depends on: the client certificate the target's receiver requires, issued now
 // from the target's own CA. The install command itself already points the exporter at it (operatorInstallCommand).
@@ -678,7 +725,11 @@ func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op
 		return
 	}
 	resp["exportSecretCommand"] = withNamespace("continuum-system", operatorClientSecretCommand(target, certPEM, keyPEM, caPEM, "continuum-system"))
-	resp["exportTarget"] = map[string]any{"operatorId": target.ID, "name": target.Name, "endpoint": a.operatorEndpoint(target), "reachableFromOtherClusters": target.Address != ""}
+	exportTarget := map[string]any{"operatorId": target.ID, "name": target.Name, "endpoint": a.operatorEndpoint(target), "reachableFromOtherClusters": target.Address != ""}
+	if w := a.targetWarnings(r.Context(), target); len(w) > 0 {
+		exportTarget["warnings"] = w
+	}
+	resp["exportTarget"] = exportTarget
 }
 
 // operatorChartArgs is the chart reference an operator `helm` command names, and the " --version ..." that
@@ -897,6 +948,9 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 	for _, t := range targets {
 		sc, _ := tlsBundle.forSender(t.cluster)
 		setFlags, _ := operatorDestinationCommand(op, a.operatorEndpoint(op), sc.CertPEM, sc.KeyPEM, tlsBundle.CACertPEM, t.ns)
+		// Everything goes to this operator: no per-signal route may stay (a route outranks the default, and one an
+		// earlier command set is kept by --reset-then-reuse-values).
+		setFlags += " " + clearRouteFlags(routeModalities...)
 		upgrade := fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reset-then-reuse-values %s", shellArg(t.name), ref, version, shellArg(t.ns), setFlags)
 		out = append(out, upgrade+fmt.Sprintf("  # cluster %s", t.cluster))
 	}

@@ -90,6 +90,10 @@ type Admin struct {
 	authRL        *Limiter
 	// hbFailRL throttles failed regional-operator heartbeat authentications per address (see operatorHeartbeat).
 	hbFailRL *Limiter
+	// probes remembers the last look at each operator's address (see checkOperatorAddress); probeDial replaces the
+	// network in tests.
+	probes    addressProbes
+	probeDial func(ctx context.Context, network, addr string) (net.Conn, error)
 	// fusionRL limits how fast one FUSION data-API caller (a token or a person) may read.
 	fusionRL *Limiter
 	// fusionPageRL throttles failed authentications on the Prometheus and Grafana pages per address. It is its own limiter, not
@@ -256,6 +260,8 @@ func (a *Admin) Handler() http.Handler {
 	// What was issued for an operator (not the certificates: those are shown once): which sender holds which, and until when.
 	route("GET "+o+"/operators/{id}/certificates", adminRole, a.listOperatorCertificates)
 	route("POST "+o+"/operators/{id}/address", adminRole, a.setOperatorAddress)
+	// One look at that address from this server: does anything answer there, and is it this operator.
+	route("POST "+o+"/operators/{id}/address/check", adminRole, a.checkOperatorAddress)
 	// Mints (or rotates) the operator's heartbeat secret: credential material, so adminRole like the rest.
 	route("POST "+o+"/operators/{id}/heartbeat", adminRole, a.enableOperatorHeartbeat)
 	route("POST "+o+"/operators/{id}/revoke", adminRole, a.revokeOperator)

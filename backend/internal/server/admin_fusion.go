@@ -15,6 +15,9 @@ type fusionCentralDoc struct {
 	// once they have exposed it (kubectl get svc <service> --namespace <namespace>).
 	Service   string `json:"service"`
 	Namespace string `json:"namespace"`
+	// Warnings are the doubts about Endpoint when it is a public address: it is something a person typed, not something
+	// seen to answer (see operatorDoc.AddressWarnings). Absent when there is nothing to say.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 type fusionResponse struct {
@@ -42,7 +45,7 @@ func (a *Admin) fusionDoc(r *http.Request) fusionResponse {
 	}
 	if f != nil && st.Available {
 		_, err := core.GetOperator(r.Context(), CentralOperatorID)
-		out.Central = &fusionCentralDoc{OperatorID: CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace}
+		out.Central = &fusionCentralDoc{OperatorID: CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace, Warnings: f.AddressWarnings(r.Context())}
 		if out.Central.Exists && !out.Central.Exposed && st.State != "off" {
 			f.DiscoverAddressSoon(core) // the next read of this screen shows it
 		}

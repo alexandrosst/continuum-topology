@@ -1,6 +1,7 @@
 package server
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -343,8 +344,16 @@ func TestTelemetryIntentCommandRoutesShareOneCertificatePerOperator(t *testing.T
 		t.Fatalf("clear routes: %d %s", r.Code, r.Body.String())
 	}
 	doc = a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(cookie)).json(t)
-	if f, _ := doc["installFragment"].(string); !strings.Contains(f, "telemetry.export.otlp.endpoint="+opID) || strings.Contains(f, "export.routes") {
+	// ... and says so in full: the default destination, and every route empty (a route outranks the default, and one an
+	// earlier command set is kept by --reset-then-reuse-values).
+	f, _ := doc["installFragment"].(string)
+	if !strings.Contains(f, "telemetry.export.otlp.endpoint="+opID) || regexp.MustCompile(`export\.routes\.\w+\.endpoint=\S`).MatchString(f) {
 		t.Fatalf("after clearing the routes the fragment is %q", f)
+	}
+	for _, m := range []string{"metrics", "logs", "traces"} {
+		if !strings.Contains(f, "--set telemetry.export.routes."+m+".endpoint= ") && !strings.HasSuffix(f, "--set telemetry.export.routes."+m+".endpoint=") {
+			t.Fatalf("the %s route is not cleared: %q", m, f)
+		}
 	}
 }
 
@@ -369,5 +378,41 @@ func TestTelemetryIntentCommandRefusesARevokedIntent(t *testing.T) {
 	}
 	if r := a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(cookie)); r.Code != 409 {
 		t.Fatalf("command for a revoked intent: %d %s", r.Code, r.Body.String())
+	}
+}
+
+// Two requests to create an intent for the same agent, arriving together, make one intent: the other is told there
+// already is one. (Checking and inserting were two steps, so both used to pass the check.)
+func TestConcurrentTelemetryIntentCreatesLeaveOneActiveIntent(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleEditor)
+	agentID := a.approvedAgentID(t, fp)
+	body := map[string]any{"agentId": agentID, "name": "racing", "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
+	const n = 24
+	codes := make(chan int, n)
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		go func() {
+			<-start
+			codes <- a.do("POST", "/api/v1/telemetry-intents", body, withCookie(cookie)).Code
+		}()
+	}
+	close(start)
+	created, conflicts := 0, 0
+	for i := 0; i < n; i++ {
+		switch c := <-codes; c {
+		case 201:
+			created++
+		case 409:
+			conflicts++
+		default:
+			t.Errorf("unexpected status %d", c)
+		}
+	}
+	if created != 1 || conflicts != n-1 {
+		t.Fatalf("%d created and %d refused, want exactly one created", created, conflicts)
+	}
+	if got := a.do("GET", "/api/v1/telemetry-intents?agentId="+agentID, nil, withCookie(cookie)).jsonArray(t); len(got) != 1 {
+		t.Fatalf("%d intents on one agent", len(got))
 	}
 }

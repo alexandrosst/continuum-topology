@@ -229,6 +229,8 @@ func (c *Core) CreateTelemetryIntentWithRoutes(ctx context.Context, actor, agent
 	if err := c.checkDestinationsAcceptSignals(ctx, dest, routes, sig); err != nil {
 		return store.TelemetryIntent{}, err
 	}
+	c.intentMu.Lock() // the check below and the insert are one step: see Core.intentMu
+	defer c.intentMu.Unlock()
 	existing, err := c.Store.ListTelemetryIntentsByAgent(ctx, agent.ID)
 	if err != nil {
 		return store.TelemetryIntent{}, err

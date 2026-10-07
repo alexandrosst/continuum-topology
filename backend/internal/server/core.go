@@ -142,6 +142,11 @@ type Core struct {
 	// REMOVES it (revoke, delete): the dependents check and the removal are then one step, so nothing can start sending to an
 	// operator between "nothing depends on it" and "it is gone". A pointer, shared by ForOrg's copies; one server, one database.
 	depMu *sync.RWMutex
+	// intentMu makes "this agent has no active telemetry intent" and the insert of a new one a single step (see
+	// CreateTelemetryIntentWithRoutes): two requests arriving together would otherwise both pass the check and leave the
+	// agent with two active intents, which everything that reads an agent's intent takes to be one. A pointer, shared by
+	// ForOrg's copies.
+	intentMu *sync.Mutex
 }
 
 // ForOrg returns a view of the same server scoped to one organisation. It shares the database, the
@@ -161,7 +166,7 @@ func NewCore(st store.Store, ca *pki.CA, org string, log *slog.Logger) *Core {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, auth: newAuthState(), userMu: &sync.Mutex{}, RegMode: RegOpen, settings: &settingsHolder{}, trafficCache: &trafficCache{}, mailer: &mailHolder{}, heartbeats: newHeartbeatSeen(), opCAs: newOperatorCAs(), depMu: &sync.RWMutex{}}
+	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, auth: newAuthState(), userMu: &sync.Mutex{}, RegMode: RegOpen, settings: &settingsHolder{}, trafficCache: &trafficCache{}, mailer: &mailHolder{}, heartbeats: newHeartbeatSeen(), opCAs: newOperatorCAs(), depMu: &sync.RWMutex{}, intentMu: &sync.Mutex{}}
 }
 
 // audit records something that happened. It is best effort: a failure is logged and the caller carries on.

@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"net/http"
-	"sort"
 
 	"continuum/internal/store"
 )
@@ -241,20 +240,45 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	hub := a.tn(r).Hub
 	rns, rname, _ := releaseTarget(hub.NamespaceOf(agent.ID), hub.ReleaseNameOf(agent.ID))
 	resp := map[string]any{"namespace": rns, "release": rname}
+	// What the printed endpoints are only taken on trust for (see targetWarnings), once per operator.
+	var warnings []string
+	warned := map[string]bool{}
+	warn := func(op store.Operator) {
+		if !warned[op.ID] {
+			warned[op.ID] = true
+			warnings = append(warnings, a.targetWarnings(r.Context(), op)...)
+		}
+	}
 	if len(ti.Routes) > 0 {
 		// Each signal type with its own destination. Only the routes to a regional operator need anything from
 		// the server (a client certificate); the others are built by the caller from what it holds. An operator
 		// that several signal types export to is issued ONE certificate, in ONE Secret, however many routes
 		// name it - the Secret every one of those routes reads.
-		lanes := make([]string, 0, len(ti.Routes))
-		for m := range ti.Routes {
-			lanes = append(lanes, string(m))
-		}
-		sort.Strings(lanes)
 		issued := map[string]bool{}
 		auth := map[string]string{}
-		for _, lane := range lanes {
-			d := ti.Routes[store.Modality(lane)]
+		// issue mints the operator's client certificate once and queues the Secret that holds it.
+		issue := func(op store.Operator) error {
+			if issued[op.ID] {
+				return nil
+			}
+			certPEM, keyPEM, caPEM, err := a.core(r).IssueOperatorClientCertFor(r.Context(), actor(r), op.ID, agent.ClusterID, forWhat)
+			if err != nil {
+				return err
+			}
+			issued[op.ID] = true
+			auth[op.ID] = string(op.ReceiverAuth)
+			if len(certPEM) > 0 {
+				secretCommands = append(secretCommands, operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, rns))
+			}
+			return nil
+		}
+		var unrouted []store.Modality
+		for _, m := range routeModalities {
+			d, ok := ti.Routes[m]
+			if !ok {
+				unrouted = append(unrouted, m)
+				continue
+			}
 			if d.Kind != store.DestinationOperator {
 				continue
 			}
@@ -264,19 +288,32 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			op = a.advertised(op)
-			if !issued[op.ID] {
-				certPEM, keyPEM, caPEM, err := a.core(r).IssueOperatorClientCertFor(r.Context(), actor(r), op.ID, agent.ClusterID, forWhat)
+			if err := issue(op); err != nil {
+				a.fail(w, err)
+				return
+			}
+			warn(op)
+			installFragment += " " + operatorRouteFlags(op, a.operatorEndpoint(op), m)
+		}
+		if len(unrouted) > 0 {
+			// The signal types without a route of their own go to the intent's default destination. When that is a
+			// regional operator it is stated in full here, like a route, and the routes these types may still carry from
+			// an earlier command are cleared: a route outranks the default.
+			if ti.Destination.Kind == store.DestinationOperator {
+				op, err := a.core(r).GetOperator(r.Context(), ti.Destination.TargetOperatorID)
 				if err != nil {
 					a.fail(w, err)
 					return
 				}
-				issued[op.ID] = true
-				auth[op.ID] = string(op.ReceiverAuth)
-				if len(certPEM) > 0 {
-					secretCommands = append(secretCommands, operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, rns))
+				op = a.advertised(op)
+				if err := issue(op); err != nil {
+					a.fail(w, err)
+					return
 				}
+				warn(op)
+				installFragment += " " + exportBlockFlags("telemetry.export.otlp", op, a.operatorEndpoint(op), true)
 			}
-			installFragment += " " + operatorRouteFlags(op, a.operatorEndpoint(op), store.Modality(lane))
+			installFragment += " " + clearRouteFlags(unrouted...)
 		}
 		if len(auth) > 0 {
 			resp["operators"] = auth
@@ -293,8 +330,11 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			a.fail(w, err)
 			return
 		}
+		warn(op)
 		setFlags, secretCmd := operatorDestinationCommand(op, a.operatorEndpoint(op), certPEM, keyPEM, caPEM, rns)
-		installFragment += " " + setFlags
+		// Every signal type goes to this one destination, so no per-signal route may stay: a route outranks the default,
+		// and one an earlier command set (--reset-then-reuse-values keeps it) would keep sending to the old destination.
+		installFragment += " " + setFlags + " " + clearRouteFlags(routeModalities...)
 		// Whether the person must also supply a receiver bearer token: not for an "mtls" operator, whose
 		// only gate is the client certificate in the Secret above; for a "bearer" one the flags are exactly
 		// what they always were and the caller still supplies the token itself.
@@ -305,5 +345,8 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	resp["installFragment"], resp["secretCommands"] = installFragment, secretCommands
+	if len(warnings) > 0 {
+		resp["warnings"] = warnings
+	}
 	writeJSON(w, 200, resp)
 }

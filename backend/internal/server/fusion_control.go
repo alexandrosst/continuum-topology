@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,6 +71,11 @@ type FusionControl struct {
 
 	discoverMu sync.Mutex
 	discoverAt time.Time // when the Service was last looked at for an address (see DiscoverAddress)
+
+	// svc is the gateway's Service as it was last read (nil: unknown - not readable, or not asked yet), and svcAt when.
+	svcMu sync.Mutex
+	svc   *KubeService
+	svcAt time.Time
 
 	// switchMu serialises the calls that change the cluster: Enable, Disable and Renew. Each is a read, a few writes and
 	// a report (Enable: certificate, Secret, then four scale calls), and two of them interleaving - an admin double
@@ -206,6 +212,66 @@ func (f *FusionControl) DiscoverAddressSoon(c *Core) {
 			c.Log.Warn("could not record the FUSION gateway's address", "err", err)
 		}
 	}()
+}
+
+// fusionServiceEvery is how long a read of the gateway's Service is reused: it changes when somebody edits the
+// release, not from one second to the next, and every screen that shows the address asks.
+const fusionServiceEvery = 15 * time.Second
+
+// gatewayService is the gateway's own Service, so an address recorded for it can be compared with what the Service
+// really publishes; nil when that cannot be told (this server's Role cannot read Services, the Service is not there, or
+// the KubeAPI is one that cannot say), in which case nothing is claimed either way.
+func (f *FusionControl) gatewayService(ctx context.Context) *KubeService {
+	if f == nil || f.Kube == nil {
+		return nil
+	}
+	insp, ok := f.Kube.(serviceInspector)
+	if !ok {
+		return nil
+	}
+	f.svcMu.Lock()
+	defer f.svcMu.Unlock()
+	if !f.svcAt.IsZero() && f.now().Sub(f.svcAt) < fusionServiceEvery {
+		return f.svc
+	}
+	cctx, cancel := context.WithTimeout(ctx, fusionKubeTimeout)
+	defer cancel()
+	svc, err := insp.Service(cctx, f.ServiceName())
+	f.svcAt = f.now()
+	if err != nil {
+		f.svc = nil
+		return nil
+	}
+	f.svc = &svc
+	return f.svc
+}
+
+// AddressWarnings are the doubts about the public address recorded for the gateway (see addressWarnings), checked against
+// the gateway's own Service. Empty when there is no address, or nothing to doubt.
+func (f *FusionControl) AddressWarnings(ctx context.Context) []string {
+	if f == nil || !f.Exposed() {
+		return nil
+	}
+	return addressWarnings(f.CentralEndpoint(), f.gatewayService(ctx))
+}
+
+// WithGatewayPort completes an address typed without a port. Anything with a port is returned as it is. A bare host gets the
+// port the gateway really listens on from outside: the Service's node port when it is a NodePort (nothing listens on 4317
+// there: the receiver's own port is only the Service's), and otherwise the receiver's, which is what validOperatorAddress
+// adds when it is left alone.
+func (f *FusionControl) WithGatewayPort(ctx context.Context, addr string) string {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return addr
+	}
+	var ae *net.AddrError
+	if _, _, err := net.SplitHostPort(addr); !errors.As(err, &ae) || !strings.Contains(ae.Err, "missing port") {
+		return addr
+	}
+	if svc := f.gatewayService(ctx); svc != nil && svc.Type == "NodePort" && svc.NodePort != 0 {
+		return net.JoinHostPort(strings.Trim(addr, "[]"), strconv.Itoa(svc.NodePort))
+	}
+	return addr
 }
 
 // ServiceName is the gateway's Service (what `kubectl get svc` names to read its address).

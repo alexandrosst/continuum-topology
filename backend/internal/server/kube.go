@@ -295,16 +295,35 @@ func (k *kubeClient) ClaimPhase(ctx context.Context, name string) (string, error
 // gatewayPort is the gateway's OTLP gRPC port, the one its Service publishes to other clusters.
 const gatewayPort = 4317
 
-func (k *kubeClient) ServiceAddress(ctx context.Context, name string) (string, error) {
+// KubeService is the part of the gateway's Service that says how, and whether, it can be reached from outside the
+// cluster.
+type KubeService struct {
+	// Type is the Service's spec.type: ClusterIP, NodePort, LoadBalancer or ExternalName.
+	Type string
+	// Port is the OTLP gRPC port the Service publishes (4317), and NodePort the port every node listens on for it (0 unless
+	// the Service is a NodePort or a LoadBalancer that allocates one).
+	Port, NodePort int
+	// LoadBalancer is the host:port the cloud gave the Service ("" while it has none, and for any other type).
+	LoadBalancer string
+}
+
+// serviceInspector is what a KubeAPI may also offer: the gateway Service's own spec. It is a separate interface so a
+// KubeAPI that cannot read it (an older Role) still works: the address is then simply not checked against the Service.
+type serviceInspector interface {
+	Service(ctx context.Context, name string) (KubeService, error)
+}
+
+func (k *kubeClient) Service(ctx context.Context, name string) (KubeService, error) {
 	b, err := k.do(ctx, http.MethodGet, k.corePath("services", name), "", nil)
 	if err != nil {
-		return "", err
+		return KubeService{}, err
 	}
 	var s struct {
 		Spec struct {
 			Type  string `json:"type"`
 			Ports []struct {
-				Port int `json:"port"`
+				Port     int `json:"port"`
+				NodePort int `json:"nodePort"`
 			} `json:"ports"`
 		} `json:"spec"`
 		Status struct {
@@ -314,23 +333,31 @@ func (k *kubeClient) ServiceAddress(ctx context.Context, name string) (string, e
 		} `json:"status"`
 	}
 	if err := json.Unmarshal(b, &s); err != nil {
-		return "", err
+		return KubeService{}, err
 	}
-	port := 0
+	svc := KubeService{Type: s.Spec.Type}
 	for _, p := range s.Spec.Ports {
-		if p.Port == gatewayPort || port == 0 {
-			port = p.Port
+		if p.Port == gatewayPort || svc.Port == 0 {
+			svc.Port, svc.NodePort = p.Port, p.NodePort
 		}
 	}
-	switch s.Spec.Type {
-	case "LoadBalancer":
+	if svc.Type == "LoadBalancer" {
 		for _, in := range s.Status.LoadBalancer.Ingress {
-			if h := cmp.Or(in.IP, in.Hostname); h != "" && port != 0 {
-				return net.JoinHostPort(h, strconv.Itoa(port)), nil
+			if h := cmp.Or(in.IP, in.Hostname); h != "" && svc.Port != 0 {
+				svc.LoadBalancer = net.JoinHostPort(h, strconv.Itoa(svc.Port))
+				break
 			}
 		}
 	}
+	return svc, nil
+}
+
+func (k *kubeClient) ServiceAddress(ctx context.Context, name string) (string, error) {
+	svc, err := k.Service(ctx, name)
+	if err != nil {
+		return "", err
+	}
 	// A NodePort is deliberately not an answer: it is one node's address, and a node's address is often a private one, so
 	// recording it for the administrator would put a wrong "Reachable at" into every command. A person records it.
-	return "", nil
+	return svc.LoadBalancer, nil
 }
