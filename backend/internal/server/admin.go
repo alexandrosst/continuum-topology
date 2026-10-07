@@ -92,6 +92,8 @@ type Admin struct {
 	hbFailRL *Limiter
 	// fusionRL limits how fast one FUSION data-API caller (a token or a person) may read.
 	fusionRL *Limiter
+	// fusionUIAccess holds the one-time tickets and the page-only sessions of the Prometheus and Grafana pages (see fusion_ui_access.go).
+	fusionUIAccess *fusionUIAccess
 	// Readiness says what /readyz checks besides the database; nil checks only the database.
 	Readiness *Readiness
 }
@@ -133,6 +135,7 @@ func (a *Admin) Handler() http.Handler {
 	a.authRL = NewLimiter(30, 10)
 	a.hbFailRL = NewLimiter(30, 10)
 	a.fusionRL = NewLimiter(600, 60)
+	a.fusionUIAccess = newFusionUIAccess()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("GET /readyz", a.readyz)
@@ -232,6 +235,8 @@ func (a *Admin) Handler() http.Handler {
 	// editorRole (the wizard's), where the list above stays an admin's.
 	route("GET "+o+"/operator-destinations", editorRole, a.listOperatorDestinations)
 	route("GET "+o+"/fusion", adminRole, a.getFusion)
+	// The ticketed path that opens one of FUSION's own pages (Prometheus, Grafana) in a new tab; see fusion_ui_access.go.
+	route("POST "+o+"/fusion/pages", adminRole, a.openFusionPage)
 	route("POST "+o+"/fusion/enable", adminRole, a.enableFusion)
 	route("POST "+o+"/fusion/disable", adminRole, a.disableFusion)
 	// FUSION access tokens: read-only credentials for the shared data API below.

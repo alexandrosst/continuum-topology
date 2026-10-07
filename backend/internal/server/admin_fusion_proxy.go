@@ -12,7 +12,7 @@ import (
 
 // The two pages FUSION has of its own - Prometheus's and Grafana's - are opened from the Ikhnos UI through the server, so
 // they need no Ingress, no second login and no port-forward, and the stores stay inside the cluster. The
-// server is the only way in: it signs the person in (an administrator of FUSION's organisation, by the session cookie),
+// server is the only way in: it signs the person in (an administrator of FUSION's organisation, by the session cookie, or - for the new tab the UI opens, which carries no session cookie - by the page cookie a one-time ticket gives, see fusion_ui_access.go),
 // strips what must not reach the other side (their Ikhnos cookie and any credentials) and, for Grafana, tells it who
 // they are in the one header it trusts (X-WEBAUTH-USER).
 //
@@ -198,7 +198,17 @@ func (a *Admin) fusionUI(component string) http.Handler {
 			writeErr(w, http.StatusServiceUnavailable, a.Fusion.Status(r.Context()).Message)
 			return
 		}
+		if t := ticketOf(r); t != "" {
+			a.redeemFusionTicket(w, r, t)
+			return
+		}
 		who, err := a.fusionCaller(r)
+		if err != nil || who.Kind != "user" {
+			// The session cookie does not come with a navigation that starts elsewhere (a new tab); the page cookie does.
+			if pu, ok := a.fusionUISessionCaller(r); ok {
+				who, err = pu, nil
+			}
+		}
 		if err != nil || who.Kind != "user" { // a FUSION access token reads data through the API; it does not get a web page
 			Metrics.authFailures.Add(1)
 			if !a.authRL.Allow(LimitKey(a.clientIP(r))) {

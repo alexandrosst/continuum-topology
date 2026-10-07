@@ -157,9 +157,29 @@ export function FusionPanel({ fusion }: { fusion: ReturnType<typeof useFusion> }
   const sentence = fusionSentence(status, now)
   const canSwitch = !!status?.available
   const on = status?.state && status.state !== 'off'
-  const serverUrl = useServer((st) => st.conn()?.url ?? '')
+  const conn = useServer((st) => st.conn)
   const links = status?.links
-  const open = (path?: string) => (path ? `${serverUrl.replace(/\/$/, '')}${path}` : undefined)
+  const [openError, setOpenError] = useState('')
+  /** Opens one of FUSION's pages in a new tab. The tab is opened inside the click, which is what lets a pop-up blocker allow it; the
+   *  address arrives with the server's answer (a link into a new tab carries no session cookie, so the server gives it a ticket). */
+  const openPage = async (page: 'grafana' | 'prometheus') => {
+    const c = conn()
+    if (!c) return
+    setOpenError('')
+    const tab = window.open('', '_blank')
+    if (!tab) {
+      setOpenError('Your browser blocked the new tab. Allow pop-ups for this address and try again.')
+      return
+    }
+    tab.opener = null
+    try {
+      const r = await api.openFusionPage(c, page)
+      tab.location.href = `${c.url.replace(/\/$/, '')}${r.path}`
+    } catch (e) {
+      tab.close()
+      setOpenError(e instanceof ApiError ? e.message : 'Could not open the page.')
+    }
+  }
   const starting = sentence.kind === 'starting'
   return (
     <div className="min-h-[3.75rem] rounded-lg border border-nb-850 bg-nb-925 p-4" data-testid="fusion-panel" data-fusion={sentence.kind}>
@@ -192,8 +212,8 @@ export function FusionPanel({ fusion }: { fusion: ReturnType<typeof useFusion> }
           <span className="ml-auto flex flex-wrap items-center gap-2">
             {on && (
               <>
-                <OpenLink href={open(links?.grafana)} testId="fusion-open-grafana">Open Grafana</OpenLink>
-                <OpenLink href={open(links?.prometheus)} testId="fusion-open-prometheus">Open Prometheus</OpenLink>
+                <OpenLink ready={!!links?.grafana} onOpen={() => void openPage('grafana')} testId="fusion-open-grafana">Open Grafana</OpenLink>
+                <OpenLink ready={!!links?.prometheus} onOpen={() => void openPage('prometheus')} testId="fusion-open-prometheus">Open Prometheus</OpenLink>
               </>
             )}
             {on ? (
@@ -242,6 +262,7 @@ export function FusionPanel({ fusion }: { fusion: ReturnType<typeof useFusion> }
         </p>
       )}
       {error && <ErrorBanner className="mt-3">{error}</ErrorBanner>}
+      {openError && <ErrorBanner className="mt-3" data-testid="fusion-open-error">{openError}</ErrorBanner>}
 
       {status?.data && <FusionAccess />}
       </>
@@ -260,11 +281,11 @@ export function FusionPanel({ fusion }: { fusion: ReturnType<typeof useFusion> }
   )
 }
 
-/** A page FUSION serves, opened in a new tab. Without a link yet (the part is still starting) it is shown, disabled, so the person
+/** A page FUSION serves, opened in a new tab. Before it is up (the part is still starting) it is shown, disabled, so the person
  *  knows it is coming rather than wondering where it is. */
-function OpenLink({ href, children, testId }: { href?: string; children: string; testId: string }) {
+function OpenLink({ ready, onOpen, children, testId }: { ready: boolean; onOpen: () => void; children: string; testId: string }) {
   const cls = buttonClass('secondary', 'sm')
-  if (!href) {
+  if (!ready) {
     return (
       <span className={clsx(cls, 'cursor-not-allowed opacity-45')} aria-disabled="true" title="Available when it has started" data-testid={testId}>
         <ExternalLink size={ICON_SM} aria-hidden /> {children}
@@ -272,8 +293,8 @@ function OpenLink({ href, children, testId }: { href?: string; children: string;
     )
   }
   return (
-    <a className={cls} href={href} target="_blank" rel="noopener" data-testid={testId}>
+    <button type="button" className={cls} onClick={onOpen} data-testid={testId}>
       <ExternalLink size={ICON_SM} aria-hidden /> {children}
-    </a>
+    </button>
   )
 }

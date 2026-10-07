@@ -64,6 +64,7 @@ const enableFusion = vi.fn(async () => (fusionStatus = fusionStarting()))
 const disableFusion = vi.fn(async () => (fusionStatus = fusionOff()))
 const revokeOperator = vi.fn(async (..._a: unknown[]): Promise<OperatorRemoval | undefined> => undefined)
 const deleteOperator = vi.fn(async (..._a: unknown[]): Promise<OperatorRemoval | undefined> => undefined)
+const openFusionPage = vi.fn(async (_c: unknown, page: string): Promise<{ path: string }> => ({ path: `/fusion/${page === 'grafana' ? 'grafana' : 'prometheus'}/?ikhnos_ticket=t1` }))
 const listOperatorCertificates = vi.fn(async (_c: unknown, _id: string): Promise<{ certificates: IssuedCertificate[] }> => ({ certificates: [] }))
 const setOperatorAddress = vi.fn(async (_c: unknown, _id: string, _address: string): Promise<RegionalOperator> => ({} as RegionalOperator))
 
@@ -95,6 +96,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
       reinstallOperator: (...a: Parameters<typeof reinstallOperator>) => reinstallOperator(...a),
       enableOperatorHeartbeat: (...a: Parameters<typeof enableOperatorHeartbeat>) => enableOperatorHeartbeat(...a),
       getFusion: () => getFusion(),
+      openFusionPage: (...a: Parameters<typeof openFusionPage>) => openFusionPage(...a),
       enableFusion: () => enableFusion(),
       disableFusion: () => disableFusion(),
       revokeOperator: (...a: Parameters<typeof revokeOperator>) => revokeOperator(...a),
@@ -122,6 +124,7 @@ beforeEach(() => {
   revokeOperator.mockResolvedValue(undefined)
   deleteOperator.mockReset()
   deleteOperator.mockResolvedValue(undefined)
+  openFusionPage.mockClear()
   listOperatorCertificates.mockReset()
   listOperatorCertificates.mockResolvedValue({ certificates: [] })
   setOperatorAddress.mockReset()
@@ -575,12 +578,39 @@ describe('RegionalOperatorsPage - FUSION on the page', () => {
     fusionStatus = { ...fusionRunning(), links: { prometheus: '/fusion/prometheus/', grafana: '/fusion/grafana/' } }
     renderPage()
     const g = await screen.findByTestId('fusion-open-grafana')
-    expect(g).toHaveAttribute('href', '/fusion/grafana/')
-    expect(g).toHaveAttribute('target', '_blank')
-    expect(g).toHaveAttribute('rel', expect.stringContaining('noopener'))
-    expect(screen.getByTestId('fusion-open-prometheus')).toHaveAttribute('href', '/fusion/prometheus/')
+    expect(g).not.toHaveAttribute('aria-disabled')
+    // The tab opens inside the click and is sent to the ticketed address once the server has given it.
+    const tab = { location: { href: '' }, close: vi.fn(), opener: {} as unknown }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+    const user = userEvent.setup()
+    await user.click(g)
+    expect(openSpy).toHaveBeenCalledWith('', '_blank')
+    await waitFor(() => expect(tab.location.href).toBe('/fusion/grafana/?ikhnos_ticket=t1'))
+    expect(openFusionPage).toHaveBeenCalledWith(expect.anything(), 'grafana')
+    expect(tab.opener).toBeNull()
+    await user.click(screen.getByTestId('fusion-open-prometheus'))
+    await waitFor(() => expect(tab.location.href).toBe('/fusion/prometheus/?ikhnos_ticket=t1'))
+    openSpy.mockRestore()
     expect(screen.queryByTestId('fusion-waiting')).not.toBeInTheDocument()
     expect(screen.getByTestId('fusion-links-note')).toHaveTextContent('open through this server')
+  })
+
+  test('opening a page says why when the server refuses, closes the empty tab, and says when the browser blocks the tab', async () => {
+    fusionStatus = { ...fusionRunning(), links: { prometheus: '/fusion/prometheus/', grafana: '/fusion/grafana/' } }
+    renderPage()
+    const user = userEvent.setup()
+    const tab = { location: { href: '' }, close: vi.fn(), opener: {} as unknown }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+    openFusionPage.mockRejectedValueOnce(new ApiError(409, 'Grafana is not running yet'))
+    await user.click(await screen.findByTestId('fusion-open-grafana'))
+    expect(await screen.findByTestId('fusion-open-error')).toHaveTextContent('Grafana is not running yet')
+    expect(tab.close).toHaveBeenCalled()
+    expect(tab.location.href).toBe('')
+    openSpy.mockReturnValue(null)
+    await user.click(screen.getByTestId('fusion-open-prometheus'))
+    expect(await screen.findByTestId('fusion-open-error')).toHaveTextContent('blocked the new tab')
+    expect(openFusionPage).toHaveBeenCalledTimes(1)
+    openSpy.mockRestore()
   })
 
   test('an exposed central operator says where other clusters reach it', async () => {
