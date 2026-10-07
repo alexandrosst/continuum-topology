@@ -170,6 +170,14 @@
     "admin": {
       "type": "object",
       "properties": {
+        "publicURL": {
+          "type": "string",
+          "pattern": "^(https?://[^\\s]+)?$"
+        },
+        "heartbeatCAFile": {
+          "type": "string",
+          "pattern": "^(/[^\\s]+)?$"
+        },
         "port": {
           "type": "integer",
           "minimum": 1,

@@ -128,6 +128,18 @@ spec:
             - {{ . | quote }}
             {{- end }}
           env:
+            {{- with .Values.admin.publicURL }}
+            # Where people and regional operators outside the cluster reach this server: the heartbeat address in the
+            # commands a regional operator is installed with.
+            - name: CONTINUUM_PUBLIC_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.admin.heartbeatCAFile }}
+            # The private CA that signed this server's HTTPS certificate (a file you mount with extraVolumes): regional
+            # operators are given it so their heartbeat can verify the server.
+            - name: CONTINUUM_HEARTBEAT_CA_FILE
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.tuning.goMemLimit }}
             - name: GOMEMLIMIT
               value: {{ .Values.tuning.goMemLimit | quote }}

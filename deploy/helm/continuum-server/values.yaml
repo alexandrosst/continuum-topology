@@ -118,6 +118,14 @@ agent:
 # ---------------------------------------------------------------------------------------------------------------------
 admin:
   port: 8080
+  # The address people and regional operators outside the cluster reach this server at, such as https://ikhnos.example.com
+  # (a path prefix is kept). The commands that install a regional operator tell it to report its heartbeat there; without it
+  # that address is whichever host the administrator's browser used, which is wrong behind a port-forward or an internal name.
+  publicURL: ""
+  # Path (inside the server container) of the PEM certificate of the private CA that signed this server's HTTPS certificate,
+  # when it is not signed by a public one. Mount the file with extraVolumes/extraVolumeMounts. Regional operators are given it
+  # (as a Secret in their namespace) so the heartbeat can verify the server; leave empty when the certificate is publicly trusted.
+  heartbeatCAFile: ""
   # Pass --admin-behind-tls-proxy: serve plain HTTP because a TLS-terminating proxy in front protects the port. This also
   # makes the server trust X-Forwarded-For / X-Forwarded-Proto from whoever connects, so keep the port reachable ONLY through
   # that proxy (networkPolicy.ingress.admin.from).
@@ -408,18 +416,29 @@ fusion:
   switch:
     managed: true          # the server owns the replica count: a `helm upgrade` leaves its last decision alone
     initialReplicas: 0     # standing by until the UI turns it on
+  grafana:
+    enabled: true          # Grafana, pre-connected to the three stores, opened from the UI at /fusion/grafana/
+  networkPolicy:
+    # The stores authenticate nothing, so who may reach them is their only protection: only this release's own pods (the
+    # server among them) and what allowedIngress names. Turning it off leaves every pod in the cluster able to read and
+    # write FUSION's data. A cluster whose network plugin does not enforce NetworkPolicy ignores it either way.
+    enabled: true
 
-# What lets the server do that, and all it can do: a namespaced Role that reads and scales the four FUSION workloads and
-# writes the central gateway's certificate Secret. No other object, no cluster-wide rule, no delete, no create, no
-# exec. Needs fusion.enabled. Set enabled to false to remove the permission and the API token: the server then cannot
-# switch FUSION itself, and you scale the workloads (or `helm upgrade --set fusion.switch.initialReplicas=1`) by hand.
+# What lets the server do that, and all it can do: a namespaced Role that reads and scales the four FUSION workloads,
+# reads (never changes) their pods and volume claims and the gateway's Service so it can say why a part is not starting
+# and where the gateway is reachable, and writes the central gateway's certificate Secret. No other object, no
+# cluster-wide rule, no delete, no create, no exec. Needs fusion.enabled. Set enabled to false to remove the permission
+# and the API token: the server then cannot switch FUSION itself, and you scale the workloads (or `helm upgrade --set
+# fusion.switch.initialReplicas=1`) by hand.
 fusionControl:
   enabled: true
   # Optional starting value: host:port that regional operators in OTHER clusters dial to reach FUSION's central operator
-  # (the one door into FUSION; the stores themselves are never exposed). You do not need it: expose the Service
-  # ("<release>-fusion-central", port 4317, gRPC over mutual TLS) with fusion.central.service.type=LoadBalancer or
+  # (the one door into FUSION; the stores themselves are not exposed outside the cluster). You do not need it: expose the
+  # Service ("<release>-fusion-central", port 4317, gRPC over mutual TLS) with fusion.central.service.type=LoadBalancer or
   # NodePort, or your own Ingress/Gateway, and record its address in the UI (Regional operators > Central > Reachable at).
-  # An address recorded there outranks this one. Empty = reachable inside this cluster only, and the UI says so.
+  # An address recorded there outranks this one. Empty = the server records the address the gateway's Service is given (a
+  # LoadBalancer's, or - for a NodePort - this node's address with that port), and until it has one the gateway is
+  # reachable inside this cluster only, and the UI says so.
   centralAddress: ""
 
 # Requests suit a small install (a handful of agents). The limit is what the Go runtime is told to respect through GOMEMLIMIT.
