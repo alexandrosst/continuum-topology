@@ -299,8 +299,21 @@ spec:
           # existing endpoint you already trust instead of bundling this pod.
           securityContext:
             privileged: true
+          # Kepler (release-0.7.x) listens on 0.0.0.0:8888 unless told otherwise, and nothing else here moves it: without this
+          # the container declares 9103, the Service and the scrape job use 9103, and every scrape is "connection refused"
+          # while the pod reports Ready (found on a real cluster: the collector's only output was the scrape's own `up`
+          # series). BIND_ADDRESS is the variable Kepler reads for its listen address (pkg/config: bindAddressKey), and it
+          # outranks the -address flag.
+          env:
+            - {name: BIND_ADDRESS, value: "0.0.0.0:9103"}
           ports:
             - {name: metrics, containerPort: 9103, protocol: TCP}
+          # Ready means the metrics port answers, so a Kepler that is running but not serving shows as not ready instead of
+          # as a healthy pod with no data.
+          readinessProbe:
+            tcpSocket: {port: metrics}
+            initialDelaySeconds: 10
+            periodSeconds: 15
           volumeMounts:
             - {name: proc, mountPath: /proc, readOnly: true}
             - {name: sys, mountPath: /sys, readOnly: true}

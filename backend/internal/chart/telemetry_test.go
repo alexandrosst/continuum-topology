@@ -1510,3 +1510,32 @@ func TestApplicationMetricsWithoutScrapeTargetsRendersNoPrometheusReceiver(t *te
 		t.Fatalf("the relabel replacement is not escaped: %s", raw)
 	}
 }
+
+// Kepler (release-0.7.x) listens on 0.0.0.0:8888 unless BIND_ADDRESS says otherwise. The container declares 9103 - which is
+// what the cluster collector's pod-based scrape job connects to - so without the variable every scrape was "connection
+// refused" while the pod reported Ready, and the collector's only output was its own `up` series (found on a real cluster).
+func TestKeplerListensOnThePortItDeclaresAndIsNotReadyUntilItDoes(t *testing.T) {
+	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.energy.metrics.source=bundle-kepler")
+	c := r.daemonsets["continuum-telemetry-kepler"].Spec.Template.Spec.Containers[0]
+	var port int32
+	for _, p := range c.Ports {
+		if p.Name == "metrics" {
+			port = p.ContainerPort
+		}
+	}
+	if port == 0 {
+		t.Fatal("Kepler declares no metrics port")
+	}
+	bind := ""
+	for _, e := range c.Env {
+		if e.Name == "BIND_ADDRESS" {
+			bind = e.Value
+		}
+	}
+	if want := fmt.Sprintf("0.0.0.0:%d", port); bind != want {
+		t.Errorf("BIND_ADDRESS = %q, want %q (the declared metrics port, which is what gets scraped)", bind, want)
+	}
+	if c.ReadinessProbe == nil || c.ReadinessProbe.TCPSocket == nil {
+		t.Error("Kepler has no readiness probe on its metrics port, so a pod that is not serving looks healthy")
+	}
+}
