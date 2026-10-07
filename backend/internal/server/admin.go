@@ -1398,7 +1398,11 @@ func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 		// What the install wizard tells the operator to bring to the cluster: the chart file this server hands out
 		// (empty when the command names a chart elsewhere) and where the image comes from (this organisation's
 		// Settings → Installation, else the server's flags; empty registry: the chart's built-in names).
-		"install": map[string]any{"chartFile": a.chartFile(), "chartRef": a.chartRef(img), "chartVersion": chart.Version(), "imagesConfigured": img.Configured(), "imageRegistry": img.Registry, "imageTag": img.Tag, "imageDigest": img.Digest}})
+		// chartVersion is the version a `--version` flag must say - the one the release pipeline published this build's
+		// chart under (agentChartVersion), NOT chart.Version(): the browser builds several commands itself from this
+		// field, and the bundled Chart.yaml literal can name an old chart whose values schema rejects what this build
+		// sends (helm: "Additional property ... is not allowed").
+		"install": map[string]any{"chartFile": a.chartFile(), "chartRef": a.chartRef(img), "chartVersion": a.agentChartVersion(), "imagesConfigured": img.Configured(), "imageRegistry": img.Registry, "imageTag": img.Tag, "imageDigest": img.Digest}})
 }
 
 // state is what the UI polls. The audit trail is part of it only for administrators and owners: it names

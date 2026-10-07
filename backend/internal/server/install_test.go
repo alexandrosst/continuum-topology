@@ -370,3 +370,26 @@ func TestImageChangesAreAuditedAndPersist(t *testing.T) {
 		t.Fatalf("after restart: %+v", s)
 	}
 }
+
+// The browser builds its own `helm upgrade` commands (telemetry, access tier) from /info's install.chartVersion, so
+// that field must carry the published chart version - the one the server's own commands print - and not the bundled
+// Chart.yaml literal. Reporting the literal made a CI-built server hand out `--version 0.2.0`, an old published chart
+// whose values schema rejected every new telemetry value.
+func TestInfoReportsThePublishedChartVersion(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleAdmin)
+	version := func() string {
+		r := a.do("GET", "/api/v1/info", nil, withCookie(cookie))
+		if r.Code != 200 {
+			t.Fatalf("info: %d", r.Code)
+		}
+		return r.json(t)["install"].(map[string]any)["chartVersion"].(string)
+	}
+	if got := version(); got != chart.Version() {
+		t.Fatalf("an unlinked build falls back to the bundled chart's version %q, got %q", chart.Version(), got)
+	}
+	a.a.AgentChartVersion = "0.0.0-edge.gb08f844"
+	if got := version(); got != "0.0.0-edge.gb08f844" {
+		t.Fatalf("info must say what the release pipeline published, got %q", got)
+	}
+}
