@@ -28,7 +28,7 @@ This guide covers the **server** (control plane and web UI) and its databases. T
 
 ## Prerequisites
 
-* Kubernetes 1.25 or newer and Helm 3.
+* Kubernetes 1.25 or newer and Helm 3.14 or newer (Helm 3.14 added `--reset-then-reuse-values`, which every `helm upgrade` command Ikhnos prints for an agent or a regional operator uses).
 * A default **StorageClass** that provisions volumes (the server needs one PersistentVolumeClaim; bundled Neo4j needs another).
 * A way to expose two ports (see [The two ports](#the-two-ports)): a LoadBalancer or NodePort for agents, and a Gateway (HTTPRoute) for the UI. On k3s and kind a NodePort and `kubectl port-forward` are enough.
 * A DNS name for agents to dial, and a certificate for the UI (cert-manager works well). A public IP address also works for agents.
@@ -244,6 +244,7 @@ helm upgrade continuum-server deploy/helm/continuum-server -n continuum -f value
 ```
 
 * Use your values file rather than `--reuse-values`, so new chart values pick up their defaults deliberately.
+* The same applies to the upgrade commands Ikhnos prints for an **agent** or a **regional operator** (they keep what you set at install, since there is no values file to point at): they use `--reset-then-reuse-values` (Helm 3.14+), never `--reuse-values`. `--reuse-values` replaces the new chart's defaults with the values the old release was installed with, so a setting a newer chart added after your install does not exist and the upgrade can fail with a nil-pointer error in a template; `--reset-then-reuse-values` starts from the new chart's defaults and puts your own values on top.
 * The Deployment uses `Recreate` (a ReadWriteOnce volume cannot be mounted twice): expect a gap of seconds to a minute in which the UI is down and agents are reconnecting. They reconnect on their own and no agent re-enrolls.
 * **Data migration.** The server upgrades its SQLite schema in place when it starts (a version marker in the database), and Neo4j upgrades its store when a newer image opens it. Neither is designed to go backwards: **take a backup before every upgrade** (a VolumeSnapshot, or a [cold backup](#backup-and-restore)) and roll back by restoring it, not by re-deploying an older image over a migrated database.
 * The PVC is never touched by an upgrade (`persistence.keepOnUninstall` marks it `helm.sh/resource-policy: keep`, which Helm also honours if you later switch to `persistence.existingClaim`). A larger `persistence.size` expands the volume only if the StorageClass has `allowVolumeExpansion`.

@@ -136,7 +136,7 @@ func TestSourceRemindersStateTheWholeBlockAndOneSecretPerCluster(t *testing.T) {
 	}
 	for _, r := range reminders[2:] {
 		up := r.(string)
-		for _, want := range []string{"--reuse-values", "--set telemetry.export.otlp.endpoint=" + operatorServiceName(id) + ".continuum-system.svc:4317", "--set telemetry.export.otlp.protocol=grpc",
+		for _, want := range []string{"--reset-then-reuse-values", "--set telemetry.export.otlp.endpoint=" + operatorServiceName(id) + ".continuum-system.svc:4317", "--set telemetry.export.otlp.protocol=grpc",
 			"--set telemetry.export.otlp.tls.insecure=false", "--set telemetry.export.otlp.tls.caFile= ", "--set telemetry.export.otlp.tls.mtls.enabled=true",
 			"--set telemetry.export.otlp.tls.mtls.secretName=" + id + "-export-mtls", "--set telemetry.export.otlp.tls.serverName=" + id + ".continuum-system.svc", "--set telemetry.export.otlp.auth.secretName="} {
 			if !strings.Contains(up, want) {

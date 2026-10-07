@@ -64,8 +64,8 @@ const (
 	maxProblems             = 32
 	informerNotSyncedGrace  = 20 * time.Second
 
-	helmRestoreRBACAdvice = "Check the agent's ClusterRole (kubectl get clusterrole -l app.kubernetes.io/instance=continuum-agent -o yaml), then restore the chart's permissions with `helm upgrade --reuse-values` on the same release and chart you installed with."
-	scopeEmptyAdvice      = "Change scope.namespaces, scope.exclude or scope.selector with `helm upgrade --reuse-values`, or clear the server-side exclusions on this agent."
+	helmRestoreRBACAdvice = "Check the agent's ClusterRole (kubectl get clusterrole -l app.kubernetes.io/instance=continuum-agent -o yaml), then restore the chart's permissions with `helm upgrade --reset-then-reuse-values` on the same release and chart you installed with."
+	scopeEmptyAdvice      = "Change scope.namespaces, scope.exclude or scope.selector with `helm upgrade --reset-then-reuse-values`, or clear the server-side exclusions on this agent."
 	rbacWiderAdvice       = "If a `helm upgrade --set access.tier=N` to narrow this install was run recently, it may not have finished; otherwise it was never run against this cluster, or ran only partway. Run (or re-run) it with N set to this install's declared tier to remove the wider ClusterRole/ClusterRoleBinding."
 )
 

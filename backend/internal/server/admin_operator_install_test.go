@@ -57,10 +57,10 @@ func TestInstallAgainReissuesCertificatesFromTheStoredCA(t *testing.T) {
 	}
 	doc := r.json(t)
 	install := doc["install"].(string)
-	if !strings.HasPrefix(install, "helm upgrade --install "+id+" ") || !strings.Contains(install, "--reuse-values") || !strings.Contains(install, "--set receiver.tls.secretName="+id+"-receiver-tls") {
+	if !strings.HasPrefix(install, "helm upgrade --install "+id+" ") || !strings.Contains(install, "--reset-then-reuse-values") || !strings.Contains(install, "--set receiver.tls.secretName="+id+"-receiver-tls") {
 		t.Fatalf("install command:\n%s", install)
 	}
-	// Whole export block stated, since the release is upgraded with --reuse-values.
+	// Whole export block stated, since the release is upgraded with --reset-then-reuse-values.
 	for _, want := range []string{"--set export.otlp.endpoint=c:4317", "--set export.otlp.tls.insecure=false", "--set export.otlp.tls.caFile=", "--set export.otlp.auth.secretName="} {
 		if !strings.Contains(install, want) {
 			t.Fatalf("install lacks %q:\n%s", want, install)

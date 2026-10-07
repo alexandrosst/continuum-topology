@@ -213,7 +213,7 @@ func TestOverridesIgnoredAreReportedAndClearedWhenPutRight(t *testing.T) {
 	r := newTestRunner()
 	r.enforce(resolveOverrides(&continuumv1.Config{ApprovedAccessTier: 2}, 1))
 	p := codesOf(r)[CodeOverrideIgnored]
-	if p == nil || !strings.Contains(p.Message, "helm upgrade --reuse-values") || p.Severity != continuumv1.Problem_INFO {
+	if p == nil || !strings.Contains(p.Message, "helm upgrade --reset-then-reuse-values") || p.Severity != continuumv1.Problem_INFO {
 		t.Fatalf("problem = %v", p)
 	}
 	r.enforce(resolveOverrides(&continuumv1.Config{ApprovedAccessTier: 1}, 1))

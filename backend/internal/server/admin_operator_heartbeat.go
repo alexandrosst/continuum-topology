@@ -93,7 +93,7 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 		"rotated":                  rotated,
 		"heartbeatToken":           secret,
 		"heartbeatSecretCommand":   operatorHeartbeatSecretCommand(op, secret),
-		"heartbeatUpgradeCommand":  fmt.Sprintf("helm upgrade %s %s%s --namespace continuum-system --reuse-values %s", op.ID, ref, version, a.operatorHeartbeatSetFlags(op, url)),
+		"heartbeatUpgradeCommand":  fmt.Sprintf("helm upgrade %s %s%s --namespace continuum-system --reset-then-reuse-values %s", op.ID, ref, version, a.operatorHeartbeatSetFlags(op, url)),
 		"heartbeatUrl":             url,
 		"heartbeatIntervalSeconds": int(OperatorHeartbeatInterval / time.Second),
 	}

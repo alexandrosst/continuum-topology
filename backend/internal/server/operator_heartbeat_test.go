@@ -509,7 +509,7 @@ func TestOperatorsHTTPHealthShapeAndHeartbeatEnableRoute(t *testing.T) {
 			t.Fatalf("install command lacks %q:\n%s", want, install)
 		}
 	}
-	if sc := on["heartbeatSecretCommand"].(string); !strings.Contains(sc, "token: \""+tok+"\"") || !strings.Contains(sc, "kubectl apply -f - <<'CONTINUUM_SECRET'") || strings.Contains(sc, "--from-literal") {
+	if sc := on["heartbeatSecretCommand"].(string); !strings.Contains(sc, "token: \""+tok+"\"") || !strings.Contains(sc, "kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'") || strings.Contains(sc, "--from-literal") {
 		t.Fatalf("heartbeat secret command = %q", sc)
 	}
 	if on["heartbeatIntervalSeconds"] != float64(60) || on["heartbeatUrl"] != "http://example.com"+OperatorHeartbeatPath {
@@ -537,7 +537,7 @@ func TestOperatorsHTTPHealthShapeAndHeartbeatEnableRoute(t *testing.T) {
 	if en["rotated"] != false || en["heartbeatRestartCommand"] != nil {
 		t.Fatalf("first enable = %v", en)
 	}
-	if !strings.HasPrefix(en["heartbeatUpgradeCommand"].(string), "helm upgrade "+id+" ") || !strings.Contains(en["heartbeatUpgradeCommand"].(string), "--reuse-values --set heartbeat.enabled=true") {
+	if !strings.HasPrefix(en["heartbeatUpgradeCommand"].(string), "helm upgrade "+id+" ") || !strings.Contains(en["heartbeatUpgradeCommand"].(string), "--reset-then-reuse-values --set heartbeat.enabled=true") {
 		t.Fatalf("upgrade command = %v", en["heartbeatUpgradeCommand"])
 	}
 	if a.beat(first, nil).Code != 200 {
@@ -545,7 +545,7 @@ func TestOperatorsHTTPHealthShapeAndHeartbeatEnableRoute(t *testing.T) {
 	}
 	r = a.do("POST", "/api/v1/operators/"+id+"/heartbeat", nil, withCookie(cookie))
 	rot := r.json(t)
-	if rot["rotated"] != true || !strings.Contains(rot["heartbeatRestartCommand"].(string), "rollout restart") || !strings.Contains(rot["heartbeatSecretCommand"].(string), "kubectl apply -f -") {
+	if rot["rotated"] != true || !strings.Contains(rot["heartbeatRestartCommand"].(string), "rollout restart") || !strings.Contains(rot["heartbeatSecretCommand"].(string), "kubectl apply --server-side --force-conflicts -f -") {
 		t.Fatalf("rotation = %v", rot)
 	}
 	if a.beat(first, nil).Code != 401 || a.beat(rot["heartbeatToken"].(string), nil).Code != 200 {

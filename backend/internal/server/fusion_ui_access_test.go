@@ -2,9 +2,12 @@ package server
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"continuum/internal/store"
 )
 
 // pageCookie is the cookie a redeemed ticket sets, nil when there is none.
@@ -63,7 +66,7 @@ func TestAPageOpensFromATicketWithoutTheSessionCookie(t *testing.T) {
 	if seen.Header.Get("Cookie") != "" || strings.Contains(seen.URL.RawQuery, "ticket") {
 		t.Fatalf("Grafana was sent our cookie or the ticket: %q ?%s", seen.Header.Get("Cookie"), seen.URL.RawQuery)
 	}
-	if seen.Header.Get("X-Webauth-User") != "root" {
+	if seen.Header.Get("X-Webauth-User") != "ikhnos-root" {
 		t.Fatalf("Grafana was told %q, want the person the ticket was for", seen.Header.Get("X-Webauth-User"))
 	}
 	// Prometheus too, on the same cookie.
@@ -190,5 +193,226 @@ func TestFusionBelongsToTheMainOrganisationOfAServerWhoseCoreHasNone(t *testing.
 	}
 	if got := (&Admin{C: &Core{OrgID: "org-1"}}).fusionOrg(); got != "org-1" {
 		t.Fatalf("a core with an organisation: %q", got)
+	}
+}
+
+// pageSession opens a page session for the person whose session cookie is given and returns the page cookie.
+func (p *pageRig) pageSession(t *testing.T, session string) *http.Cookie {
+	t.Helper()
+	ck := pageCookie(p.get(p.ticketPath(t, "grafana", session)))
+	if ck == nil {
+		t.Fatal("no page cookie")
+	}
+	return ck
+}
+
+// pageCode is the status of a Grafana page request that carries only the page cookie, as a new tab does.
+func (p *pageRig) pageCode(ck *http.Cookie) int {
+	return p.get(fusionGrafanaPath, func(req *http.Request) { req.AddCookie(ck) }).Code
+}
+
+// The page cookie is judged like the session cookie: an account that was disabled, or that has to choose a new password,
+// has no pages, even though its membership and role are still fine.
+func TestThePageCookieStopsForADisabledAccountOrOneThatMustChangeItsPassword(t *testing.T) {
+	p := newPageRig(t)
+	id, cookie := p.user(t, "dana", RoleAdmin)
+	ck := p.pageSession(t, cookie)
+	if c := p.pageCode(ck); c != 200 {
+		t.Fatalf("an administrator: %d", c)
+	}
+	if err := p.st.SetDisabled(p.ctx, id, p.now); err != nil {
+		t.Fatal(err)
+	}
+	if c := p.pageCode(ck); c != 401 {
+		t.Fatalf("a disabled account: %d", c)
+	}
+	if err := p.st.SetDisabled(p.ctx, id, nil); err != nil {
+		t.Fatal(err)
+	}
+	ck = p.pageSession(t, cookie)
+	if err := p.st.SetPassword(p.ctx, id, mustHash(t, goodPW), true); err != nil {
+		t.Fatal(err)
+	}
+	if c := p.pageCode(ck); c != 401 {
+		t.Fatalf("an account that must change its password: %d", c)
+	}
+}
+
+// Signing out ends the pages that sign-in opened, and tells the browser to drop the page cookie.
+func TestLoggingOutEndsThePageSessionsAndClearsTheCookie(t *testing.T) {
+	p := newPageRig(t)
+	_, cookie := p.user(t, "dana", RoleAdmin)
+	ck := p.pageSession(t, cookie)
+	ticket := p.ticketPath(t, "grafana", cookie) // a link not opened yet
+	r := p.do("POST", "/api/v1/auth/logout", nil, withCookie(cookie))
+	if r.Code != http.StatusNoContent {
+		t.Fatalf("logout: %d", r.Code)
+	}
+	cleared := pageCookie(r)
+	if cleared == nil || cleared.MaxAge >= 0 || cleared.Path != "/fusion/" || cleared.Value != "" {
+		t.Fatalf("the page cookie was not cleared: %+v", cleared)
+	}
+	if c := p.pageCode(ck); c != 401 {
+		t.Fatalf("the page after signing out: %d", c)
+	}
+	if r := p.get(ticket); r.Code != 401 {
+		t.Fatalf("a link from before signing out: %d", r.Code)
+	}
+}
+
+// A new password signs the person's other browsers out; the pages those opened go with them.
+func TestChangingThePasswordEndsThePageSessions(t *testing.T) {
+	p := newPageRig(t)
+	_, cookie := p.user(t, "dana", RoleAdmin)
+	ck := p.pageSession(t, cookie)
+	r := p.do("POST", "/api/v1/auth/password", map[string]string{"current": goodPW, "new": goodPW + "x"}, withCookie(cookie))
+	if r.Code != 200 {
+		t.Fatalf("change password: %d %s", r.Code, r.Body.String())
+	}
+	if c := p.pageCode(ck); c != 401 {
+		t.Fatalf("the page after a password change: %d", c)
+	}
+}
+
+// Losing the role that opens the pages, or the membership, ends the person's page sessions for good: being made an
+// administrator again later does not bring the old cookie back to life.
+func TestLosingTheRoleOrTheMembershipEndsThePageSessions(t *testing.T) {
+	p := newPageRig(t)
+	_, owner := p.user(t, "olga", RoleOwner)
+	id, cookie := p.user(t, "dana", RoleAdmin)
+
+	ck := p.pageSession(t, cookie)
+	if r := p.do("POST", "/api/v1/members/"+id+"/role", map[string]string{"role": RoleViewer}, withCookie(owner)); r.Code != http.StatusNoContent {
+		t.Fatalf("downgrade: %d %s", r.Code, r.Body.String())
+	}
+	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if c := p.pageCode(ck); c != 401 {
+		t.Fatalf("a cookie from before a downgrade came back: %d", c)
+	}
+
+	// A promotion is not a loss: the pages stay.
+	ck = p.pageSession(t, cookie)
+	if r := p.do("POST", "/api/v1/members/"+id+"/role", map[string]string{"role": RoleOwner}, withCookie(owner)); r.Code != http.StatusNoContent {
+		t.Fatalf("promotion: %d %s", r.Code, r.Body.String())
+	}
+	if c := p.pageCode(ck); c != 200 {
+		t.Fatalf("a promotion ended the pages: %d", c)
+	}
+	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+
+	ck = p.pageSession(t, cookie)
+	if r := p.do("POST", "/api/v1/members/"+id+"/remove", nil, withCookie(owner)); r.Code != http.StatusNoContent {
+		t.Fatalf("remove: %d %s", r.Code, r.Body.String())
+	}
+	if err := p.st.AddMember(p.ctx, store.Membership{OrgID: "org-1", UserID: id, Role: RoleAdmin, CreatedAt: *p.now}); err != nil {
+		t.Fatal(err)
+	}
+	if c := p.pageCode(ck); c != 401 {
+		t.Fatalf("a cookie from before the removal came back: %d", c)
+	}
+}
+
+// One person cannot fill the table: past the cap their oldest page session goes, and others are not touched.
+func TestAPersonHoldsAtMostSomePageSessionsAndTheOldestGoesFirst(t *testing.T) {
+	f := newFusionUIAccess()
+	now := time.Now()
+	var secrets []string
+	for i := 0; i < maxFusionUIGrantsPerUser+4; i++ {
+		secret, _, out := f.redeemAndOpen(f.ticket("u-1", "dana", now), now)
+		if out != fusionTicketOK {
+			t.Fatalf("open %d: %v", i, out)
+		}
+		secrets = append(secrets, secret)
+	}
+	other, _, _ := f.redeemAndOpen(f.ticket("u-2", "olga", now), now)
+	if n := len(f.sessions); n != maxFusionUIGrantsPerUser+1 {
+		t.Fatalf("%d sessions held, want %d for dana and 1 for olga", n, maxFusionUIGrantsPerUser)
+	}
+	for i, s := range secrets {
+		_, ok := f.session(s, now)
+		if want := i >= 4; ok != want {
+			t.Errorf("dana's session %d alive = %v, want %v (the 4 oldest go)", i, ok, want)
+		}
+	}
+	if _, ok := f.session(other, now); !ok {
+		t.Error("another person's session was evicted for dana's")
+	}
+	// Tickets are capped the same way.
+	for i := 0; i < maxFusionUIGrantsPerUser+3; i++ {
+		f.ticket("u-3", "sam", now)
+	}
+	n := 0
+	for _, g := range f.tickets {
+		if g.userID == "u-3" {
+			n++
+		}
+	}
+	if n != maxFusionUIGrantsPerUser {
+		t.Fatalf("%d tickets held for one person, want %d", n, maxFusionUIGrantsPerUser)
+	}
+}
+
+// Expired entries are cleared out as time goes by, not only once the table is full.
+func TestExpiredPageGrantsAreSweptWithoutTheTableBeingFull(t *testing.T) {
+	f := newFusionUIAccess()
+	now := time.Now()
+	for i := 0; i < 5; i++ {
+		f.ticket("u-"+string(rune('a'+i)), "x", now)
+		f.redeemAndOpen(f.ticket("u-"+string(rune('a'+i)), "x", now), now)
+	}
+	later := now.Add(fusionUISessionTTL + time.Minute)
+	f.ticket("u-new", "x", later)
+	if len(f.tickets) != 1 || len(f.sessions) != 0 {
+		t.Fatalf("after the sweep: %d tickets and %d sessions left, want 1 and 0", len(f.tickets), len(f.sessions))
+	}
+}
+
+// A table with no room for another page session answers "busy" and does not spend the ticket: the same link works as soon
+// as there is room.
+func TestAFullTableDoesNotBurnATicket(t *testing.T) {
+	p := newPageRig(t)
+	path := p.ticketPath(t, "grafana")
+	far := p.now.Add(24 * time.Hour)
+	f := p.a.fusionUIAccess
+	f.mu.Lock()
+	for i := 0; i < maxFusionUIGrants; i++ {
+		f.sessions[strconv.Itoa(i)] = fusionUIGrant{userID: "u-" + strconv.Itoa(i), expires: far}
+	}
+	f.mu.Unlock()
+	r := p.get(path)
+	if r.Code != http.StatusServiceUnavailable || pageCookie(r) != nil {
+		t.Fatalf("a full table: %d %q", r.Code, r.Body.String())
+	}
+	f.mu.Lock()
+	delete(f.sessions, "0")
+	f.mu.Unlock()
+	if r := p.get(path); r.Code != http.StatusSeeOther || pageCookie(r) == nil {
+		t.Fatalf("the same link once there was room: %d %q", r.Code, r.Body.String())
+	}
+}
+
+// A stranger's failed requests to the pages are throttled on their own budget, not the one sign-in and the rest of the API
+// share: after a page's assets have all been refused, the same address can still sign in and get an ordinary 401 (not a 429).
+func TestFailedPageRequestsDoNotUseUpTheSignInBudget(t *testing.T) {
+	p := newPageRig(t)
+	ip := fromIP("10.7.7.7")
+	limited := false
+	for i := 0; i < 40; i++ {
+		if r := p.get(fusionGrafanaPath+"public/build/app.js", ip); r.Code == http.StatusTooManyRequests {
+			limited = true
+		}
+	}
+	if !limited {
+		t.Fatal("failed page requests are not throttled at all")
+	}
+	if r := p.do("GET", "/api/v1/auth/me", nil, ip); r.Code != 401 {
+		t.Fatalf("the sign-in budget of the same address was spent by page requests: %d", r.Code)
+	}
+	if r := p.do("POST", "/api/v1/auth/login", map[string]string{"username": "root", "password": "wrong"}, ip); r.Code == http.StatusTooManyRequests {
+		t.Fatalf("sign-in from the same address was throttled: %d", r.Code)
 	}
 }

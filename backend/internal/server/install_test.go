@@ -393,3 +393,45 @@ func TestInfoReportsThePublishedChartVersion(t *testing.T) {
 		t.Fatalf("info must say what the release pipeline published, got %q", got)
 	}
 }
+
+// --chart-ref names the AGENT chart. The regional-operator commands must not install that chart with the operator's flags:
+// the operator chart is derived from the reference when it plainly is the agent chart's address, and is otherwise the
+// file this server serves.
+func TestOperatorChartRefIsDerivedFromTheAgentChartRef(t *testing.T) {
+	a := testAdmin(t)
+	img := ImageConfig{Registry: "reg.example.com/team/", Tag: "1.2.3"}
+	img, _ = img.Normalize()
+	local := "./" + chart.RegionalOperator.Filename()
+	for _, c := range []struct {
+		name, chartRef, wantRef string
+		wantVersion             bool
+	}{
+		{"oci", "oci://ghcr.io/acme/charts/continuum-agent", "oci://ghcr.io/acme/charts/continuum-regional-operator", true},
+		{"oci with a trailing slash", "oci://ghcr.io/acme/charts/continuum-agent/", local, false}, // not recognisable: the file
+		{"https repository", "https://charts.example.com/stable/continuum-agent", "https://charts.example.com/stable/continuum-regional-operator", true},
+		{"repo alias", "acme/continuum-agent", "acme/continuum-regional-operator", true},
+		{"a packaged agent chart", "https://charts.example.com/continuum-agent-0.3.1.tgz", local, false},
+		{"a local .tgz", "./continuum-agent-0.3.1.tgz", local, false},
+		{"a name that is not the agent chart", "oci://ghcr.io/acme/charts/something-else", local, false},
+		{"a longer name that ends in it", "oci://ghcr.io/acme/charts/my-continuum-agent", local, false},
+		{"local", "local", local, false},
+		{"nothing set: the image registry's own", "", "oci://reg.example.com/team/continuum-regional-operator", true},
+	} {
+		a.ChartRef = c.chartRef
+		ref, version := a.operatorChartArgs(img)
+		if ref != shellArg(c.wantRef) && ref != c.wantRef {
+			t.Errorf("%s: chart ref %q -> operator ref %q, want %q", c.name, c.chartRef, ref, c.wantRef)
+		}
+		if (version != "") != c.wantVersion {
+			t.Errorf("%s: version %q, want a --version: %v", c.name, version, c.wantVersion)
+		}
+		if strings.Contains(ref, "continuum-agent") && c.chartRef != "" {
+			t.Errorf("%s: the operator command names the agent chart: %q", c.name, ref)
+		}
+	}
+	// With no registry either, the served file.
+	a.ChartRef = ""
+	if ref, _ := a.operatorChartArgs(ImageConfig{}); ref != local {
+		t.Errorf("no reference at all: %q", ref)
+	}
+}

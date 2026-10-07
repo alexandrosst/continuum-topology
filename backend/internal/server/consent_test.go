@@ -99,7 +99,7 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	j := r.json(t)
 	msg, _ := j["error"].(string)
 	helm, _ := j["helm"].(string)
-	want := "--reuse-values --set access.tier=2"
+	want := "--reset-then-reuse-values --set access.tier=2"
 	if !strings.Contains(msg, "helm upgrade continuum-agent") || !strings.Contains(msg, want) || !strings.Contains(helm, want) {
 		t.Fatalf("the refusal does not carry the helm command: %v", j)
 	}

@@ -92,6 +92,11 @@ type Admin struct {
 	hbFailRL *Limiter
 	// fusionRL limits how fast one FUSION data-API caller (a token or a person) may read.
 	fusionRL *Limiter
+	// fusionPageRL throttles failed authentications on the Prometheus and Grafana pages per address. It is its own limiter, not
+	// authRL's: a page makes a request for every asset it loads, so a stranger (or a browser tab whose cookie just ended)
+	// can run through a budget in seconds, and on a shared limiter that would lock the sign-in out for everyone behind the
+	// same address - and the other way round.
+	fusionPageRL *Limiter
 	// fusionUIAccess holds the one-time tickets and the page-only sessions of the Prometheus and Grafana pages (see fusion_ui_access.go).
 	fusionUIAccess *fusionUIAccess
 	// Readiness says what /readyz checks besides the database; nil checks only the database.
@@ -135,6 +140,7 @@ func (a *Admin) Handler() http.Handler {
 	a.authRL = NewLimiter(30, 10)
 	a.hbFailRL = NewLimiter(30, 10)
 	a.fusionRL = NewLimiter(600, 60)
+	a.fusionPageRL = NewLimiter(30, 10)
 	a.fusionUIAccess = newFusionUIAccess()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
@@ -665,9 +671,22 @@ func (a *Admin) chartRef(img ImageConfig) string {
 
 // operatorChartFile/operatorChartRef are chartFile/chartRef's own twins for the regional-operator chart -
 // same rules, parameterized on chart.RegionalOperator and the "continuum-regional-operator" OCI artifact
-// name instead of chart.Agent and "continuum-agent". There is no separate --chart-ref flag for it: an
-// explicit a.ChartRef (set once, server-wide) is assumed to point at a repository that holds both charts
-// under their own names, the same way a configured image registry does.
+// name instead of chart.Agent and "continuum-agent". There is no separate --chart-ref flag for it, and a.ChartRef
+// (set once, server-wide) names the AGENT chart - the flag's own help says so, and every agent install command uses it
+// as it is. Used verbatim here it installed the agent chart with the regional operator's flags (export.otlp.endpoint,
+// receiver.tls...): wrong chart, wrong values, a failed or - worse - half-working install. So the operator chart is derived
+// from it, on the one assumption that is safe to make: the two charts are published side by side under their own names.
+//
+//	oci://ghcr.io/acme/charts/continuum-agent          -> oci://ghcr.io/acme/charts/continuum-regional-operator
+//	https://charts.example.com/stable/continuum-agent  -> https://charts.example.com/stable/continuum-regional-operator
+//	acme/continuum-agent (a configured repo alias)     -> acme/continuum-regional-operator
+//
+// Only a reference whose last path segment is exactly the agent chart's name is rewritten. Everything else - a .tgz (a
+// packaged file of one chart, which says nothing about where the other is), a name that is not the agent chart's, "local" -
+// cannot be turned into the operator chart's address by guessing, so the command names the operator chart file this server
+// serves (the "./continuum-regional-operator-<version>.tgz" the page offers as a download, which operatorChartArgs
+// prints and which needs no --version), exactly as it does when there is no registry. That fallback is deliberate:
+// it is the only reference that is known to be the right chart.
 func (a *Admin) operatorChartFile() string { return chart.RegionalOperator.Filename() }
 
 func (a *Admin) operatorChartRef(img ImageConfig) string {
@@ -675,7 +694,14 @@ func (a *Admin) operatorChartRef(img ImageConfig) string {
 	case a.ChartRef == "local":
 		return ""
 	case a.ChartRef != "":
-		return a.ChartRef
+		ref := strings.TrimSpace(a.ChartRef)
+		if strings.HasSuffix(ref, ".tgz") {
+			return "" // a packaged agent chart: the operator's is the file this server serves
+		}
+		if i := strings.LastIndexByte(ref, '/'); ref[i+1:] == "continuum-agent" {
+			return ref[:i+1] + "continuum-regional-operator"
+		}
+		return "" // not recognisably the agent chart's address: serve the operator chart file instead of guessing
 	case img.Configured():
 		return "oci://" + OCIBase(img.Registry) + "/continuum-regional-operator"
 	}
@@ -805,9 +831,11 @@ func (a *Admin) logout(w http.ResponseWriter, r *http.Request) {
 	if secret, ok := sessionCookie(r); ok {
 		if p, err := a.C.Authenticate(r.Context(), secret); err == nil {
 			a.C.Logout(r.Context(), p)
+			a.fusionUIAccess.endUser(p.User.ID) // the pages opened in other tabs end with the sign-in that opened them
 		}
 	}
 	a.setCookie(w, r, "", -1)
+	a.clearFusionUICookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -828,6 +856,8 @@ func (a *Admin) changePassword(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
+	// Every other browser is signed out by a new password (ChangePassword); the pages they opened go with them.
+	a.fusionUIAccess.endUser(principal(r).User.ID)
 	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
 	writeJSON(w, 200, a.session(r.Context(), u))
 }
@@ -1215,6 +1245,7 @@ func (a *Admin) leaveOrg(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
+	a.endFusionPagesIn(r, p.User.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1252,6 +1283,9 @@ func (a *Admin) setMemberRole(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
+	if roleRank[req.Role] < roleRank[RoleAdmin] { // a downgrade below what the pages need; a promotion changes nothing for them
+		a.endFusionPagesIn(r, r.PathValue("id"))
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1260,6 +1294,7 @@ func (a *Admin) removeMember(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
+	a.endFusionPagesIn(r, r.PathValue("id"))
 	w.WriteHeader(http.StatusNoContent)
 }
 

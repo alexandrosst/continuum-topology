@@ -39,6 +39,12 @@ func releaseTarget(namespace, release string) (ns, name string, guessed bool) {
 // upgradeCommand is what the owner of a cluster runs there to change the ceiling of an agent's install to a tier: raise it
 // (the only way widening ever happens; the server cannot do it) or, just as validly, lower it for real, which the tier
 // slider in the UI on its own does not do (see setAgentTier's doc comment).
+//
+// Every upgrade command this server prints uses --reset-then-reuse-values (Helm 3.14 or newer), never --reuse-values. The
+// older flag replaces the NEW chart's defaults with the values the OLD release was installed with, so a value block a
+// newer chart added after the release was installed does not exist at all and a template that reads it fails with a
+// nil-pointer error. The newer flag starts from the new chart's defaults and then puts the person's own values from the old
+// release on top, which is what "keep what I set" was always meant to say.
 func (a *Admin) upgradeCommand(img ImageConfig, tier int, namespace, release string) string {
 	ref, version := a.chartRef(img), ""
 	if ref == "" {
@@ -47,7 +53,7 @@ func (a *Admin) upgradeCommand(img ImageConfig, tier int, namespace, release str
 		version = " --version " + a.agentChartVersion()
 	}
 	ns, name, _ := releaseTarget(namespace, release)
-	return fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reuse-values --set access.tier=%d", name, ref, version, ns, tier)
+	return fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reset-then-reuse-values --set access.tier=%d", name, ref, version, ns, tier)
 }
 
 // teardownCommands is what the owner of a cluster runs there to remove an agent's install for good: helm uninstall drops

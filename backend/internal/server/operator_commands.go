@@ -36,6 +36,15 @@ func secretKV(key, value string) secretEntry { return secretEntry{key, value} }
 // it, a first attempt failed half way, a certificate is re-issued) from a manifest on standard input, never from
 // --from-literal arguments. The here-document is quoted, so the shell expands nothing inside it, and its closing
 // word is chosen so that no line of the data can end it early.
+//
+// It is a server-side apply (--server-side), not the client-side `kubectl apply -f -`: the client-side one records the whole
+// manifest it applied in the kubectl.kubernetes.io/last-applied-configuration annotation, and for a Secret that manifest
+// holds the private key (and the token) in the clear - readable by anyone who may `get` or `describe` the Secret, and by
+// anything that logs or backs up objects with their annotations, even though the data itself is stored as a Secret. A server-side
+// apply keeps no such copy. It still creates or updates, so the command can be run again. --force-conflicts takes the fields over
+// from whichever tool set them before (a Secret first created by a client-side apply, or by hand): without it, rotating the
+// content of such a Secret is refused as a field-ownership conflict. The Secret is this product's own, so there is nothing
+// of anyone else's to protect.
 func applySecretCommand(name, namespace string, entries ...secretEntry) string {
 	delim := "CONTINUUM_SECRET"
 	for clash := true; clash; {
@@ -52,7 +61,7 @@ func applySecretCommand(name, namespace string, entries ...secretEntry) string {
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "kubectl apply -f - <<'%s'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\ntype: Opaque\nstringData:\n", delim, name, namespace)
+	fmt.Fprintf(&b, "kubectl apply --server-side --force-conflicts -f - <<'%s'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\ntype: Opaque\nstringData:\n", delim, name, namespace)
 	for _, e := range entries {
 		b.WriteString(yamlEntry(e))
 	}

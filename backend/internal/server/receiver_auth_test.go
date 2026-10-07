@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/chart"
 	"continuum/internal/store"
 )
 
@@ -59,14 +60,16 @@ func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 	withTLS := OperatorTLSBundle{ReceiverCertPEM: []byte("x")}
 
 	got, secretCmd := a.a.operatorInstallCommand(ImageConfig{}, "cno_SECRET", op, withTLS, "")
-	want := "helm install op-abc123 chart --version 0.1.0 \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=c:4317" +
+	// The rig's ChartRef ("chart") is not the agent chart's address, so the operator chart is the file the server serves: an explicit
+	// reference is the AGENT chart and is never used as it is for the operator (see operatorChartRef).
+	want := "helm install op-abc123 ./" + chart.RegionalOperator.Filename() + " \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=c:4317" +
 		" \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=op-abc123-receiver-auth" +
 		" \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=op-abc123-receiver-tls \\\n  --set receiver.tls.mtls=true" +
 		" \\\n  --set-json operator='{\"id\":\"op-abc123\",\"name\":\"\",\"labels\":[]}'"
 	if got != want {
 		t.Fatalf("bearer install command changed:\n got: %q\nwant: %q", got, want)
 	}
-	wantSecret := "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: op-abc123-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+	wantSecret := "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: op-abc123-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
 	if secretCmd != wantSecret {
 		t.Fatalf("secret command = %q", secretCmd)
 	}
@@ -122,10 +125,10 @@ func TestOperatorDestinationCommandIsTheSameForBothAuthModes(t *testing.T) {
 	for _, mode := range []store.ReceiverAuth{store.ReceiverAuthMTLS, store.ReceiverAuthBearer} {
 		op := store.Operator{ID: "op-abc123", ReceiverAuth: mode}
 		flags, secret := operatorDestinationCommand(op, "op-abc123-regional-operator.continuum-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
-		// The whole destination block, every field stated (the unused ones empty), so --reuse-values leaves nothing stale.
+		// The whole destination block, every field stated (the unused ones empty), so --reset-then-reuse-values leaves nothing stale.
 		wantFlags := "--set telemetry.export.otlp.endpoint=op-abc123-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= " +
 			"--set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-abc123-export-mtls --set telemetry.export.otlp.tls.serverName=op-abc123.continuum-system.svc --set telemetry.export.otlp.auth.secretName="
-		wantSecret := "kubectl apply -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: op-abc123-export-mtls\n  namespace: ns1\ntype: Opaque\nstringData:\n  tls.crt: \"CERT\"\n  tls.key: \"KEY\"\n  ca.crt: \"CA\"\nCONTINUUM_SECRET"
+		wantSecret := "kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: op-abc123-export-mtls\n  namespace: ns1\ntype: Opaque\nstringData:\n  tls.crt: \"CERT\"\n  tls.key: \"KEY\"\n  ca.crt: \"CA\"\nCONTINUUM_SECRET"
 		if flags != wantFlags || secret != wantSecret {
 			t.Fatalf("%s: flags=%q secret=%q", mode, flags, secret)
 		}

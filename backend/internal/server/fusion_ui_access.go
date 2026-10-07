@@ -26,68 +26,141 @@ const (
 	fusionTicketParam  = "ikhnos_ticket"
 	fusionTicketTTL    = 30 * time.Second
 	fusionUISessionTTL = 8 * time.Hour
-	// maxFusionUIGrants bounds what a loop of requests can make the server hold.
+	// maxFusionUIGrants bounds what a loop of requests can make the server hold: tickets and page sessions each have a
+	// table of this size. They are counted apart so that a table of sessions that is full never costs a ticket (see
+	// redeemAndOpen).
 	maxFusionUIGrants = 4096
+	// maxFusionUIGrantsPerUser bounds what one person can hold of each kind. Opening a page is something an administrator
+	// does a few times a day; a script (or a stolen cookie) looping on it would otherwise fill the whole table and shut every
+	// other administrator out of the pages until the entries expire. Past the cap the person's own oldest is dropped.
+	maxFusionUIGrantsPerUser = 16
+	// fusionUISweepEvery is how often expired grants are cleared out even when the table is not full.
+	fusionUISweepEvery = time.Minute
 )
 
 // fusionUIGrant is who a ticket or a page session is for.
 type fusionUIGrant struct {
 	userID, name string
 	expires      time.Time
+	seq          uint64 // the order grants were made in, to tell a person's oldest (see makeRoomLocked)
 }
 
 type fusionUIAccess struct {
 	mu                sync.Mutex
 	tickets, sessions map[string]fusionUIGrant // keyed by the hash of the secret
+	swept             time.Time                // when expired grants were last cleared out
+	seq               uint64
 }
 
 func newFusionUIAccess() *fusionUIAccess {
 	return &fusionUIAccess{tickets: map[string]fusionUIGrant{}, sessions: map[string]fusionUIGrant{}}
 }
 
+// sweepLocked drops what has expired, at most once every fusionUISweepEvery unless force is set (a table that is full
+// must look at once). Without this an expired entry stayed until the table filled up, so the table's size said nothing
+// about how many pages were really open. f.mu is held.
+func (f *fusionUIAccess) sweepLocked(now time.Time, force bool) {
+	if !force && now.Sub(f.swept) < fusionUISweepEvery {
+		return
+	}
+	f.swept = now
+	for _, t := range []map[string]fusionUIGrant{f.tickets, f.sessions} {
+		for k, v := range t {
+			if !v.expires.After(now) {
+				delete(t, k)
+			}
+		}
+	}
+}
+
+// makeRoomLocked gets m ready to take one more grant for userID: expired ones are swept, the person's oldest is evicted
+// if they already hold the most they may, and it says whether there is room in the table. f.mu is held.
+func (f *fusionUIAccess) makeRoomLocked(m map[string]fusionUIGrant, userID string, now time.Time) bool {
+	f.sweepLocked(now, false)
+	if len(m) >= maxFusionUIGrants {
+		f.sweepLocked(now, true)
+	}
+	for {
+		var oldest string
+		var oldestSeq uint64
+		n := 0
+		for k, v := range m {
+			if v.userID != userID {
+				continue
+			}
+			if n++; oldest == "" || v.seq < oldestSeq {
+				oldest, oldestSeq = k, v.seq
+			}
+		}
+		if n < maxFusionUIGrantsPerUser {
+			break
+		}
+		delete(m, oldest)
+	}
+	return len(m) < maxFusionUIGrants
+}
+
 // put stores a new grant under a fresh secret and returns it; "" when the table is full of live ones.
 func (f *fusionUIAccess) put(m map[string]fusionUIGrant, g fusionUIGrant, now time.Time) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.tickets)+len(f.sessions) >= maxFusionUIGrants {
-		for _, t := range []map[string]fusionUIGrant{f.tickets, f.sessions} {
-			for k, v := range t {
-				if !v.expires.After(now) {
-					delete(t, k)
-				}
-			}
-		}
-		if len(f.tickets)+len(f.sessions) >= maxFusionUIGrants {
-			return ""
-		}
+	if !f.makeRoomLocked(m, g.userID, now) {
+		return ""
 	}
 	secret, err := newSecret()
 	if err != nil {
 		return ""
 	}
+	f.seq++
+	g.seq = f.seq
 	m[string(HashSecret(secret))] = g
 	return secret
 }
 
 // ticket makes a one-time ticket for a person.
 func (f *fusionUIAccess) ticket(userID, name string, now time.Time) string {
-	return f.put(f.tickets, fusionUIGrant{userID, name, now.Add(fusionTicketTTL)}, now)
+	return f.put(f.tickets, fusionUIGrant{userID: userID, name: name, expires: now.Add(fusionTicketTTL)}, now)
 }
 
-// redeem uses a ticket up: it answers once, whatever the outcome.
-func (f *fusionUIAccess) redeem(ticket string, now time.Time) (fusionUIGrant, bool) {
+// fusionTicketOutcome is what redeemAndOpen found.
+type fusionTicketOutcome int
+
+const (
+	fusionTicketOK      fusionTicketOutcome = iota // the ticket is used up and a page session is open
+	fusionTicketInvalid                            // unknown, used or expired (and gone either way)
+	fusionTicketBusy                               // good, but there is no room for a page session: the ticket is kept
+)
+
+// redeemAndOpen is what a request carrying a ticket does: it uses the ticket up and opens the page session it is for,
+// as one step. The room for the session is made BEFORE the ticket is spent, so a table that has no room (or a secret that
+// could not be made) answers "busy" and leaves the ticket as it was - the person's retry a moment later still works,
+// instead of finding a link that was burnt without giving them anything. An unknown, used or expired ticket answers
+// "invalid"; it is deleted, so it answers once whatever the outcome.
+func (f *fusionUIAccess) redeemAndOpen(ticket string, now time.Time) (secret string, who fusionUIGrant, out fusionTicketOutcome) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	k := string(HashSecret(ticket))
 	g, ok := f.tickets[k]
+	if !ok {
+		return "", fusionUIGrant{}, fusionTicketInvalid
+	}
+	if !g.expires.After(now) {
+		delete(f.tickets, k)
+		return "", fusionUIGrant{}, fusionTicketInvalid
+	}
+	if !f.makeRoomLocked(f.sessions, g.userID, now) {
+		return "", g, fusionTicketBusy
+	}
+	secret, err := newSecret()
+	if err != nil {
+		return "", g, fusionTicketBusy
+	}
 	delete(f.tickets, k)
-	return g, ok && g.expires.After(now)
-}
-
-// open starts a page session for who a ticket was redeemed by.
-func (f *fusionUIAccess) open(g fusionUIGrant, now time.Time) string {
 	g.expires = now.Add(fusionUISessionTTL)
-	return f.put(f.sessions, g, now)
+	f.seq++
+	g.seq = f.seq
+	f.sessions[string(HashSecret(secret))] = g
+	return secret, g, fusionTicketOK
 }
 
 // session is who a page session cookie belongs to.
@@ -109,7 +182,28 @@ func (f *fusionUIAccess) end(secret string) {
 	delete(f.sessions, string(HashSecret(secret)))
 }
 
-// fusionUISessionCaller is the person a page cookie stands for, if they are still an administrator of FUSION's organisation.
+// endUser ends every page session and ticket a person holds. It is what signing out, a new password, and losing the role
+// that gives access (or the membership itself) do: the page cookie is checked on every request anyway, but a grant that is
+// not removed would come back to life if the person were made an administrator again, and until then it would sit in the
+// table. Safe on a nil table (an Admin that was never given its handler).
+func (f *fusionUIAccess) endUser(userID string) {
+	if f == nil || userID == "" {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, t := range []map[string]fusionUIGrant{f.tickets, f.sessions} {
+		for k, v := range t {
+			if v.userID == userID {
+				delete(t, k)
+			}
+		}
+	}
+}
+
+// fusionUISessionCaller is the person a page cookie stands for, if they are still an administrator of FUSION's organisation
+// and could still sign in: an account that has been disabled, or that must choose a new password before anything else (the
+// same two refusals fusionCaller makes for the session cookie), loses the pages at its next request too.
 func (a *Admin) fusionUISessionCaller(r *http.Request) (fusionCaller, bool) {
 	ck, err := r.Cookie(fusionUICookie)
 	if err != nil || ck.Value == "" {
@@ -119,30 +213,51 @@ func (a *Admin) fusionUISessionCaller(r *http.Request) (fusionCaller, bool) {
 	if !ok {
 		return fusionCaller{}, false
 	}
+	u, err := a.C.Store.GetUser(r.Context(), g.userID)
+	if err != nil || u.DisabledAt != nil || u.MustChange {
+		a.fusionUIAccess.end(ck.Value)
+		return fusionCaller{}, false
+	}
 	m, err := a.C.Store.GetMembership(r.Context(), a.fusionOrg(), g.userID)
 	if err != nil || roleRank[m.Role] < roleRank[RoleAdmin] {
 		a.fusionUIAccess.end(ck.Value)
 		return fusionCaller{}, false
 	}
-	return fusionCaller{Kind: "user", ID: g.userID, Name: g.name}, true
+	return fusionCaller{Kind: "user", ID: g.userID, Name: u.Username}, true
+}
+
+// endFusionPagesIn ends a person's page sessions when what changed was their standing in FUSION's organisation (the pages
+// are that organisation's alone, so a change in any other one does not touch them).
+func (a *Admin) endFusionPagesIn(r *http.Request, userID string) {
+	if a.core(r).OrgID == a.fusionOrg() {
+		a.fusionUIAccess.endUser(userID)
+	}
+}
+
+// clearFusionUICookie tells the browser to drop the page cookie, with the same name, path and flags it was set with.
+func (a *Admin) clearFusionUICookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{Name: fusionUICookie, Value: "", Path: "/fusion/", MaxAge: -1,
+		HttpOnly: true, Secure: a.SecureCookies || a.secure(r), SameSite: http.SameSiteLaxMode})
 }
 
 // redeemFusionTicket answers a request that carries a ticket: it sets the page cookie and sends the person to the same
 // address without the ticket.
 func (a *Admin) redeemFusionTicket(w http.ResponseWriter, r *http.Request, ticket string) {
 	now := a.C.Now()
-	g, ok := a.fusionUIAccess.redeem(ticket, now)
-	if !ok {
+	secret, _, out := a.fusionUIAccess.redeemAndOpen(ticket, now)
+	switch out {
+	case fusionTicketInvalid:
 		Metrics.authFailures.Add(1)
-		if !a.authRL.Allow(LimitKey(a.clientIP(r))) {
+		// Not the sign-in's limiter: a stranger's bad links must not use up the budget a person signing in from the same
+		// address needs (see fusionPageRL).
+		if !a.fusionPageRL.Allow(LimitKey(a.clientIP(r))) {
 			writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 			return
 		}
 		writeErr(w, http.StatusUnauthorized, "this link has expired - open the page again from Ikhnos")
 		return
-	}
-	secret := a.fusionUIAccess.open(g, now)
-	if secret == "" {
+	case fusionTicketBusy:
+		// The ticket was not spent: the same link works again in a moment.
 		writeErr(w, http.StatusServiceUnavailable, "too many pages are open, try again in a moment")
 		return
 	}

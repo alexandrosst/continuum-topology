@@ -74,6 +74,12 @@ type FusionControl struct {
 	discoverMu sync.Mutex
 	discoverAt time.Time // when the Service was last looked at for an address (see DiscoverAddress)
 
+	// switchMu serialises the calls that change the cluster: Enable, Disable and Renew. Each is a read, a few writes and
+	// a report (Enable: certificate, Secret, then four scale calls), and two of them interleaving - an admin double
+	// clicking, or the daily renewal landing on an Enable - could leave the stores half up and half down, or the gateway
+	// started with a certificate that was already replaced. One at a time, in the order they arrive.
+	switchMu sync.Mutex
+
 	mu    sync.Mutex
 	data  *fusionapi.Client
 	since time.Time // when the stores were last asked to start; zero when off or unknown
@@ -674,8 +680,25 @@ func (f *FusionControl) rememberedLastData() *time.Time {
 	return &t
 }
 
+// OrgCore is the core FUSION's own work runs on: the main organisation's view of the platform-wide core. The central
+// operator, its CA and its certificate live in that one organisation (see Org), and the checks in Enable, Disable and
+// Renew compare the core's OrgID with it. Work that has no signed-in user to take the organisation from - the daily
+// renewal started at boot - is handed the platform core (OrgID ""), which would fail that comparison and silently do
+// nothing, so it goes through here first. A core that already is some organisation's is returned as it is, and the
+// comparison then decides; with no Org set there is nothing to scope to.
+func (f *FusionControl) OrgCore(c *Core) *Core {
+	if f == nil || f.Org == "" || c == nil || c.OrgID != "" {
+		return c
+	}
+	return c.ForOrg(f.Org)
+}
+
 // Enable gets the central operator and its certificates ready, then starts the four workloads. Safe to repeat.
 func (f *FusionControl) Enable(ctx context.Context, c *Core, actor string) (FusionStatus, error) {
+	if f != nil { // a nil switch answers "not available" below, without touching anything
+		f.switchMu.Lock()
+		defer f.switchMu.Unlock()
+	}
 	prev := f.Status(ctx)
 	if !prev.Available {
 		return prev, errf(KindConflict, "%s", prev.Message)
@@ -713,6 +736,8 @@ func (f *FusionControl) Renew(ctx context.Context, c *Core) error {
 	if f == nil || f.Kube == nil || (f.Org != "" && c.OrgID != f.Org) {
 		return nil
 	}
+	f.switchMu.Lock()
+	defer f.switchMu.Unlock()
 	if st := f.Status(ctx); !st.Available || st.State == "off" {
 		return nil
 	}
@@ -730,6 +755,10 @@ func (f *FusionControl) Renew(ctx context.Context, c *Core) error {
 
 // Disable stops the four workloads. Their volumes stay, so turning FUSION on again brings the data back.
 func (f *FusionControl) Disable(ctx context.Context, c *Core, actor string) (FusionStatus, error) {
+	if f != nil { // a nil switch answers "not available" below, without touching anything
+		f.switchMu.Lock()
+		defer f.switchMu.Unlock()
+	}
 	prev := f.Status(ctx)
 	if !prev.Available {
 		return prev, errf(KindConflict, "%s", prev.Message)
@@ -801,6 +830,12 @@ func kubeFail(what string, err error) error {
 // EnsureCentralOperator makes sure the central operator exists in this organisation and issues a fresh server
 // certificate for its receiver (valid for hosts) from the operator's own CA. The first call mints the operator and its
 // CA; later calls only reissue the certificate, which is safe because senders trust the CA, not one certificate.
+//
+// Two first calls can meet - two replicas of the server on one database, or the boot-time renewal beside a click on
+// Enable (within one process FusionControl already runs them one at a time). Both see no operator, both mint a CA, and
+// the second insert fails on the operator's id. That second caller must not report the raw store error: the operator is
+// there, it is just not its own. It throws away the CA it minted - nothing has used it, and a certificate from it
+// would not verify against the CA that won - and goes round again as a later call, issuing from the winner's CA.
 func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest store.Destination, hosts []string) (store.Operator, OperatorTLSBundle, error) {
 	op, err := c.Store.GetOperator(ctx, CentralOperatorID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -814,14 +849,20 @@ func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest sto
 			ClientCACertPEM: bundle.CACertPEM, ClientCAKeyPEM: caKeyPEM,
 			CreatedBy: actor, CreatedAt: c.Now(),
 		}
-		if err := c.audited(ctx, actor, "operator-created", "operator", op.ID, "central (FUSION)", func() error {
+		createErr := c.audited(ctx, actor, "operator-created", "operator", op.ID, "central (FUSION)", func() error {
 			return c.Store.CreateOperator(ctx, op, nil)
-		}); err != nil {
-			return store.Operator{}, OperatorTLSBundle{}, err
+		})
+		if createErr == nil {
+			return op, bundle, nil
 		}
-		return op, bundle, nil
-	}
-	if err != nil {
+		// Lost the race? Then the operator exists now and is the one to use. Anything else (the audit trail, the
+		// database) is the caller's error as it was.
+		won, getErr := c.Store.GetOperator(ctx, CentralOperatorID)
+		if getErr != nil {
+			return store.Operator{}, OperatorTLSBundle{}, createErr
+		}
+		op = won
+	} else if err != nil {
 		return store.Operator{}, OperatorTLSBundle{}, err
 	}
 	if op.OrgID != c.OrgID {

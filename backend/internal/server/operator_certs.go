@@ -203,6 +203,8 @@ type OperatorReissue struct {
 // earlier certificates are not revoked (nothing here can) and keep working until they expire; the replaced
 // tokens stop working at once. The new certificate dates are recorded and the expiry warning starts over.
 func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (store.Operator, OperatorReissue, error) {
+	c.depMu.RLock() // see Core.depMu: a revoke or delete cannot come between the check that it is active and the writes below
+	defer c.depMu.RUnlock()
 	var out OperatorReissue
 	if err := guardCentral(id); err != nil {
 		return store.Operator{}, out, err
@@ -231,10 +233,16 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 			return store.Operator{}, out, fmt.Errorf("the certificate just issued could not be read back")
 		}
 		recvEnd = *r
+		// Recorded in the ledger now, before anything is changed, and a failure is the request's failure: the new secrets
+		// exist only in this call, so an error AFTER the rotation was committed would lose the only copy of keys the
+		// operator's old ones have already been replaced by. Here nothing has been replaced yet, so refusing costs nothing.
+		if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", out.TLS.ReceiverCertPEM); err != nil {
+			return store.Operator{}, OperatorReissue{}, fmt.Errorf("the new receiver certificate could not be recorded, so nothing was changed: %w", err)
+		}
 		// One certificate per source cluster, each naming its holder. Unlike at creation a failure here is the
 		// request's failure: this call exists to hand them out.
 		for _, cl := range op.SourceClusterIDs {
-			certPEM, keyPEM, _, err := c.IssueOperatorClientCertFor(ctx, actor, op.ID, cl, "cluster="+cl+" (install again)")
+			certPEM, keyPEM, _, err := c.issueOperatorClientCertHeld(ctx, actor, op.ID, cl, "cluster="+cl+" (install again)")
 			if err != nil {
 				return store.Operator{}, out, err
 			}
@@ -277,11 +285,6 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 		return store.Operator{}, OperatorReissue{}, err
 	}
 	op, err = c.operatorInOrg(ctx, id)
-	if err == nil && len(out.TLS.ReceiverCertPEM) > 0 {
-		if rerr := c.recordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", out.TLS.ReceiverCertPEM); rerr != nil {
-			c.Log.Error("receiver certificate not recorded in the ledger", "operator", op.ID, "err", rerr)
-		}
-	}
 	return op, out, err
 }
 

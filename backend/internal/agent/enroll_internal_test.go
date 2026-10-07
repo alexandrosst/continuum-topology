@@ -131,3 +131,15 @@ func TestClockHint(t *testing.T) {
 		t.Fatal("no hint for other errors")
 	}
 }
+
+// The advice to a revoked agent's owner names the command that works: a bare `helm upgrade --set enrollment.token=...`
+// would reset every value the install was given (server.address among them), so the agent would come back unable to find
+// its server.
+func TestRevokedAgentAdviceKeepsTheInstallsOtherValues(t *testing.T) {
+	var lines []string
+	r := &runner{log: captureLog(&lines)}
+	r.logEnded("the agent was revoked")
+	if len(lines) != 1 || !contains(lines[0], "--reset-then-reuse-values --set enrollment.token=") || contains(lines[0], " --reuse-values") {
+		t.Fatalf("advice = %q", lines)
+	}
+}

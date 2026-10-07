@@ -162,7 +162,7 @@ func (r *runner) enforce(o overrides) {
 	r.dg.paused, r.dg.excluded = o.paused, o.excluded
 	r.dg.mu.Unlock()
 	if len(o.ignored) > 0 {
-		r.probs.raise("override", CodeOverrideIgnored, continuumv1.Problem_INFO, "Part of what the server pushed was not applied, because it would give the agent more than this install allows or is not something it can do: "+strings.Join(o.ignored, "; ")+". Only `helm upgrade --reuse-values` can widen what the agent may do.", 0)
+		r.probs.raise("override", CodeOverrideIgnored, continuumv1.Problem_INFO, "Part of what the server pushed was not applied, because it would give the agent more than this install allows or is not something it can do: "+strings.Join(o.ignored, "; ")+". Only `helm upgrade --reset-then-reuse-values` can widen what the agent may do.", 0)
 	} else {
 		r.probs.clear("override")
 	}
@@ -224,7 +224,7 @@ func (r *runner) noteStreamError(err error) {
 	case codes.ResourceExhausted, codes.InvalidArgument:
 		msg := clipMsg(st.Message(), 300)
 		if strings.Contains(msg, "limit for") || strings.Contains(msg, "may carry at most") {
-			r.probs.raise("sync", CodeSyncTooLarge, continuumv1.Problem_ERROR, "The server refused this agent's picture of the cluster because it is larger than the server accepts ("+msg+"). Nothing new is arriving until it fits: narrow what the agent reports with scope.namespaces or scope.exclude (`helm upgrade --reuse-values`), or ask whoever runs the server to raise its limits.", 0)
+			r.probs.raise("sync", CodeSyncTooLarge, continuumv1.Problem_ERROR, "The server refused this agent's picture of the cluster because it is larger than the server accepts ("+msg+"). Nothing new is arriving until it fits: narrow what the agent reports with scope.namespaces or scope.exclude (`helm upgrade --reset-then-reuse-values`), or ask whoever runs the server to raise its limits.", 0)
 		} else {
 			r.probs.raise("sync", CodeServerLimitsRefused, continuumv1.Problem_ERROR, "The server refused an update from this agent: "+msg+". The agent retries; if it keeps happening, look at the server's log.", 0)
 		}
@@ -651,5 +651,5 @@ func (r *runner) probeIdentity(ctx context.Context, id *Identity) {
 
 func (r *runner) identityUnwritable(err error) {
 	r.log.Error("cannot write the agent's identity", "err", err)
-	r.probs.raise("identity", CodeIdentityUnwritable, continuumv1.Problem_ERROR, "The agent cannot write its identity (the Secret it keeps its key and certificate in): "+clipMsg(err.Error(), 200)+". It works now, but the certificate it renews every day cannot be saved, so it will lose its identity when the current one expires. Check the Role that grants it update on that one Secret (`kubectl -n continuum-system get role,rolebinding`) and restore it with `helm upgrade --reuse-values`.", 0)
+	r.probs.raise("identity", CodeIdentityUnwritable, continuumv1.Problem_ERROR, "The agent cannot write its identity (the Secret it keeps its key and certificate in): "+clipMsg(err.Error(), 200)+". It works now, but the certificate it renews every day cannot be saved, so it will lose its identity when the current one expires. Check the Role that grants it update on that one Secret (`kubectl -n continuum-system get role,rolebinding`) and restore it with `helm upgrade --reset-then-reuse-values`.", 0)
 }

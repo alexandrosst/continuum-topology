@@ -323,7 +323,7 @@ func (r *runner) logEnded(reason string) {
 	r.ex.endedLogged = time.Now()
 	r.log.Error("this agent was revoked or rejected and will not connect again: "+reason+". "+
 		"Revocation is permanent. To connect this cluster again, create a new enrollment token in Ikhnos and run `helm upgrade` with it "+
-		"(--set enrollment.token=...). This agent does not contact the server any more.", "reason", reason)
+		"(--reset-then-reuse-values --set enrollment.token=..., Helm 3.14 or newer; without it the upgrade drops the settings the install was given, server.address among them). This agent does not contact the server any more.", "reason", reason)
 }
 
 // holdFor is how long a revoked agent waits before it exits: what the configuration says (tests), or else

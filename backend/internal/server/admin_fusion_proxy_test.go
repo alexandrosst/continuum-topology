@@ -132,8 +132,8 @@ func TestFusionGrafanaGetsTheSignedInPersonAndNothingElse(t *testing.T) {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
 	}
 	got := p.last("grafana")
-	if got.Header.Get("X-WEBAUTH-USER") != "root" {
-		t.Errorf("signed in as %q, want the real person (root)", got.Header.Get("X-WEBAUTH-USER"))
+	if got.Header.Get("X-WEBAUTH-USER") != "ikhnos-root" {
+		t.Errorf("signed in as %q, want the real person under the Ikhnos prefix (ikhnos-root)", got.Header.Get("X-WEBAUTH-USER"))
 	}
 	if got.Header.Get("X-Webauth-Role") != "" {
 		t.Error("a client-supplied X-WEBAUTH-* header reached Grafana")
@@ -567,5 +567,46 @@ func TestLocalLocation(t *testing.T) {
 		if got, err := localLocation(loc, "ikhnos.example", up); err == nil {
 			t.Errorf("%q was passed on as %q", loc, got)
 		}
+	}
+}
+
+// Grafana has a built-in administrator called "admin", and Ikhnos's own first account has the same name. Sent as it was,
+// that account would be signed in to Grafana as its Server Admin whatever role Grafana is configured to give people who
+// arrive through the proxy: so the login Grafana is told always carries Ikhnos's prefix.
+func TestGrafanaIsToldANamespacedLoginSoTheBootstrapAdminIsNotGrafanasAdmin(t *testing.T) {
+	p := newPageRig(t)
+	_, cookie := p.user(t, "admin", RoleAdmin)
+	if r := p.get(fusionGrafanaPath+"explore", withCookie(cookie)); r.Code != 200 {
+		t.Fatalf("%d %s", r.Code, r.Body.String())
+	}
+	if got := p.last("grafana").Header.Get("X-WEBAUTH-USER"); got != "ikhnos-admin" {
+		t.Fatalf("Grafana was told %q for the Ikhnos account admin, want ikhnos-admin", got)
+	}
+}
+
+func TestGrafanaLogin(t *testing.T) {
+	for in, want := range map[string]string{
+		"admin":           "ikhnos-admin",
+		"Alex.Smith@x.io": "ikhnos-alex.smith@x.io", // case only: Ikhnos reads these as one account
+		"first_last-2":    "ikhnos-first_last-2",
+		"a b":             "ikhnos-a+20+b", // cannot come from a valid username; never reaches the header as it is
+		"a+b":             "ikhnos-a+2b+b",
+		"ünï":             "ikhnos-+fc+n+ef+",
+	} {
+		if got := grafanaLogin(in); got != want {
+			t.Errorf("grafanaLogin(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// No two names share a login, and none can be Grafana's own: every login starts with the prefix.
+	seen := map[string]string{}
+	for _, n := range []string{"admin", "Admin", "a b", "a+20+b", "a+b", "a+2b+b", "x_y", "x-y"} {
+		g := grafanaLogin(n)
+		if !strings.HasPrefix(g, "ikhnos-") {
+			t.Errorf("%q: %q has no prefix", n, g)
+		}
+		if prev, dup := seen[g]; dup && !strings.EqualFold(prev, n) {
+			t.Errorf("%q and %q give the same login %q", prev, n, g)
+		}
+		seen[g] = n
 	}
 }

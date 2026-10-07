@@ -349,7 +349,9 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 		if op, err := core.Store.GetOperator(context.Background(), server.CentralOperatorID); err == nil && op.Address != "" {
 			admin.Fusion.SetPublicAddress(op.Address)
 		}
-		go renewFusionCertificate(log, admin.Fusion, core)
+		// The renewal has no signed-in user to take an organisation from, and the platform core has none: FUSION's
+		// central operator lives in the main organisation, so it runs on that organisation's view of the core.
+		go renewFusionCertificate(log, admin.Fusion, admin.Fusion.OrgCore(core))
 	}
 	admin.Readiness = &server.Readiness{AgentsListening: grpcSrv.Serving}
 	if graphStore != nil {

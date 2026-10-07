@@ -573,7 +573,7 @@ func operatorTLSSecretCommand(op store.Operator, b OperatorTLSBundle) string {
 // exportBlockFlags states the whole destination block of one exporter (telemetry.export.otlp, or one route of
 // telemetry.export.routes) that sends to the regional operator op at endpoint: endpoint, protocol, certificate
 // checking, the client certificate and the name it is verified by, and no credential header. Every field is stated,
-// the unused ones empty, because the command is applied with --reuse-values: a field it leaves out keeps whatever an
+// the unused ones empty, because the command is applied with --reset-then-reuse-values: a field it leaves out keeps whatever an
 // earlier destination set (an operator's mTLS Secret, protocol=http, insecure=true), and the exporter would carry on
 // half pointed at the old one. withMTLS is whether the exporter presents a client certificate; a bearer operator
 // reached without one leaves the credential header to the person, who holds the token.
@@ -723,15 +723,15 @@ func (a *Admin) operatorInstallCommandTo(img ImageConfig, secret string, op stor
 }
 
 // operatorInstallCommandWith is operatorInstallCommandTo that can also upgrade a release that already runs
-// (reissue): `helm upgrade --install --reuse-values` keeps what the person tuned (resources, image), so every value
-// this command is about is stated, the unused ones empty - an export block left out would keep an old destination's
-// settings.
+// (reissue): `helm upgrade --install --reset-then-reuse-values` (Helm 3.14 or newer; see upgradeCommand for why not
+// --reuse-values) keeps what the person tuned (resources, image), so every value this command is about is stated, the unused
+// ones empty - an export block left out would keep an old destination's settings.
 func (a *Admin) operatorInstallCommandWith(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string, target *store.Operator, reissue bool) (install, secretCmd string) {
 	ref, version := a.operatorChartArgs(img)
 	secretName := op.ID + "-receiver-auth"
 	var b strings.Builder
 	if reissue {
-		fmt.Fprintf(&b, "helm upgrade --install %s %s%s \\\n  --namespace continuum-system --create-namespace --reuse-values", op.ID, ref, version)
+		fmt.Fprintf(&b, "helm upgrade --install %s %s%s \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values", op.ID, ref, version)
 	} else {
 		fmt.Fprintf(&b, "helm install %s %s%s \\\n  --namespace continuum-system --create-namespace", op.ID, ref, version)
 	}
@@ -897,7 +897,7 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 	for _, t := range targets {
 		sc, _ := tlsBundle.forSender(t.cluster)
 		setFlags, _ := operatorDestinationCommand(op, a.operatorEndpoint(op), sc.CertPEM, sc.KeyPEM, tlsBundle.CACertPEM, t.ns)
-		upgrade := fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reuse-values %s", shellArg(t.name), ref, version, shellArg(t.ns), setFlags)
+		upgrade := fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reset-then-reuse-values %s", shellArg(t.name), ref, version, shellArg(t.ns), setFlags)
 		out = append(out, upgrade+fmt.Sprintf("  # cluster %s", t.cluster))
 	}
 	return out

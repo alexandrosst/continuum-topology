@@ -132,7 +132,8 @@ func validExternalDestination(dest store.Destination) error {
 // agent's own telemetry intent, or a regional operator's own export, may point directly AT one regional
 // operator, but nothing here builds live reparenting or operator-to-operator chaining beyond that single
 // hop - the target operator's own Destination (if it is itself "operator") is not walked or re-validated
-// here.
+// here. (Operator-to-operator chains, and the loops they could form, are checked for operators' own destinations by
+// operatorDestination.)
 func (c *Core) validateDestination(ctx context.Context, dest store.Destination) error {
 	switch dest.Kind {
 	case store.DestinationExternal:
@@ -161,11 +162,48 @@ func (c *Core) validateDestination(ctx context.Context, dest store.Destination) 
 // any other) or an external backend. A "fusion" destination is the central operator's own, set by the server when
 // FUSION is turned on (see EnsureCentralOperator) - nobody creates one by hand, because FUSION is part of the server
 // and reached through its central operator.
-func (c *Core) operatorDestination(ctx context.Context, dest store.Destination) (store.Destination, error) {
+//
+// selfID is the operator whose destination this is ("" for one being created, which has no id yet and nothing sends to
+// it). A destination that sends an operator to itself, or back round to it through others, is refused: telemetry would
+// circle between the operators forever and never reach a backend.
+func (c *Core) operatorDestination(ctx context.Context, selfID string, dest store.Destination) (store.Destination, error) {
 	if dest.Kind == store.DestinationFusion {
 		return dest, errf(KindInvalid, "FUSION is reached through the central operator: choose it as the destination (kind %q), or turn FUSION on in the server's Settings", store.DestinationOperator)
 	}
-	return dest, c.validateDestination(ctx, dest)
+	if err := c.validateDestination(ctx, dest); err != nil {
+		return dest, err
+	}
+	return dest, c.checkOperatorChain(ctx, selfID, dest)
+}
+
+// maxOperatorChain bounds how many operators checkOperatorChain follows. The fleet is meant to be two tiers; this is
+// only the point past which a chain is treated as a loop rather than followed for ever (a loop already in the database
+// from before this check must not hang a request).
+const maxOperatorChain = 16
+
+// checkOperatorChain follows dest through the operators that export to other operators and refuses a destination that
+// leads back to selfID (itself, or A -> B -> A), or into a loop, or into a chain longer than maxOperatorChain. It stops
+// at the first operator that exports to a backend or to FUSION, and at one that does not exist or cannot be read
+// (validateDestination has already said what is wrong with a target that is missing or revoked).
+func (c *Core) checkOperatorChain(ctx context.Context, selfID string, dest store.Destination) error {
+	if dest.Kind != store.DestinationOperator {
+		return nil
+	}
+	cur := dest.TargetOperatorID
+	for hop := 0; hop < maxOperatorChain; hop++ {
+		if selfID != "" && cur == selfID {
+			if hop == 0 {
+				return errf(KindInvalid, "destination.targetOperatorId cannot be the operator itself: it would send to itself and never reach a backend")
+			}
+			return errf(KindInvalid, "destination.targetOperatorId would make a loop: the operator it names already sends, through other operators, back to this one")
+		}
+		op, err := c.Store.GetOperator(ctx, cur)
+		if err != nil || op.Destination.Kind != store.DestinationOperator {
+			return nil
+		}
+		cur = op.Destination.TargetOperatorID
+	}
+	return errf(KindInvalid, "destination.targetOperatorId leads into a chain of more than %d operators, or into a loop: choose an operator that exports to a backend", maxOperatorChain)
 }
 
 // validModalities checks every value is a known telemetry modality. An empty list is always valid - see
@@ -291,7 +329,7 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 	if name == "" || len(name) > maxOperatorName {
 		return store.Operator{}, "", OperatorTLSBundle{}, "", errf(KindInvalid, "name the regional operator (1-%d characters)", maxOperatorName)
 	}
-	dest, err := c.operatorDestination(ctx, dest)
+	dest, err := c.operatorDestination(ctx, "", dest)
 	if err != nil {
 		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
@@ -358,11 +396,23 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 		tokenHash = HashSecret(secret)
 		op.ReceiverAuth = store.ReceiverAuthBearer
 	}
+	// The receiver certificate is recorded in the ledger BEFORE the operator is stored, and a failure to record it is the
+	// request's failure: nothing has been stored or handed out yet, so nothing is lost by refusing, whereas after the
+	// operator exists the bundle is the only copy of its keys and could not be returned with an error. (The ledger has no
+	// foreign key; should the creation itself then fail, the ledger keeps a row for an id that never existed, which nothing
+	// lists.) The same rule the client certificates follow: a certificate that cannot be recorded is not handed out.
+	if tlsErr == nil {
+		if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", bundle.ReceiverCertPEM); err != nil {
+			c.Log.Error("receiver certificate not recorded in the ledger; the operator was not created", "operator", op.ID, "err", err)
+			return store.Operator{}, "", OperatorTLSBundle{}, "", errf(KindInternal, "the operator's certificate could not be recorded, so the operator was not created: %v", err)
+		}
+	}
 	detail := name
 	if heartbeat {
 		// Only the fact, never the secret: the audit trail must hold no credential material.
 		detail += " (heartbeat enabled)"
 	}
+	detail += "; " + operatorAuditSummary(dest, sourceClusterIDs)
 	if err := c.audited(ctx, actor, "operator-created", "operator", op.ID, detail, func() error {
 		return c.Store.CreateOperator(ctx, op, tokenHash)
 	}); err != nil {
@@ -375,18 +425,25 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 		c.audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, tlsErr.Error())
 		return op, secret, OperatorTLSBundle{}, hbSecret, nil
 	}
-	if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", bundle.ReceiverCertPEM); err != nil {
-		c.Log.Error("receiver certificate not recorded in the ledger", "operator", op.ID, "err", err)
-	}
-	bundle.Senders, _ = c.mintSenderCerts(ctx, actor, op, op.SourceClusterIDs)
+	bundle.Senders, _ = c.mintSenderCertsHeld(ctx, actor, op, op.SourceClusterIDs)
 	return op, secret, bundle, hbSecret, nil
 }
 
-// mintSenderCerts issues each of clusters its own client certificate from op's CA. One that cannot be issued is left out
-// and audited, not fatal: the operator exists, and Renew certificates issues them again.
+// mintSenderCerts issues each of clusters its own client certificate from op's CA, under depMu (see Core.depMu) like
+// IssueOperatorClientCertFor: for a caller that does not already hold it.
 func (c *Core) mintSenderCerts(ctx context.Context, actor string, op store.Operator, clusters []string) (out []SenderCert, caPEM []byte) {
+	c.depMu.RLock()
+	defer c.depMu.RUnlock()
+	return c.mintSenderCertsHeld(ctx, actor, op, clusters)
+}
+
+// mintSenderCertsHeld is mintSenderCerts for a caller that already holds depMu for reading (CreateOperatorWithOptions): a
+// second RLock from the same goroutine would deadlock the moment a revoke or delete (which takes the write lock) is waiting
+// between the two. One that cannot be issued is left out and audited, not fatal: the operator exists, and Renew certificates
+// issues them again.
+func (c *Core) mintSenderCertsHeld(ctx context.Context, actor string, op store.Operator, clusters []string) (out []SenderCert, caPEM []byte) {
 	for _, cl := range clusters {
-		certPEM, keyPEM, ca, err := c.IssueOperatorClientCertFor(ctx, actor, op.ID, cl, "cluster="+cl)
+		certPEM, keyPEM, ca, err := c.issueOperatorClientCertHeld(ctx, actor, op.ID, cl, "cluster="+cl)
 		if err != nil {
 			c.audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, "client certificate for "+cl+": "+err.Error())
 			continue
@@ -413,10 +470,11 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 	if err := guardCentral(id); err != nil {
 		return err
 	}
-	if _, err := c.operatorInOrg(ctx, id); err != nil {
+	before, err := c.operatorInOrg(ctx, id)
+	if err != nil {
 		return err
 	}
-	dest, err := c.operatorDestination(ctx, dest)
+	dest, err = c.operatorDestination(ctx, id, dest)
 	if err != nil {
 		return err
 	}
@@ -426,7 +484,16 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 	if err := validModalities(acceptedModalities); err != nil {
 		return err
 	}
-	return c.audited(ctx, actor, "operator-scope-changed", "operator", id, "", func() error {
+	detail := operatorAuditSummary(dest, sourceClusterIDs)
+	if added, removed := idChanges(before.SourceClusterIDs, sourceClusterIDs); len(added)+len(removed) > 0 {
+		if len(added) > 0 {
+			detail += "; added " + auditIDList(added)
+		}
+		if len(removed) > 0 {
+			detail += "; removed " + auditIDList(removed)
+		}
+	}
+	return c.audited(ctx, actor, "operator-scope-changed", "operator", id, detail, func() error {
 		if err := c.Store.UpdateOperatorScope(ctx, id, sourceClusterIDs, dest, acceptedModalities); err != nil {
 			if errors.Is(err, store.ErrBadState) {
 				return errf(KindConflict, "only an active operator's scope can be changed")
@@ -435,6 +502,69 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 		}
 		return nil
 	})
+}
+
+// maxAuditIDs is how many cluster ids an operator's audit detail lists by name; the rest are counted. Together with the row's
+// own bound (maxAuditDetail, applied by printable in auditRow) it keeps a scope change that moves a hundred clusters from
+// writing a hundred ids into the trail.
+const maxAuditIDs = 5
+
+// operatorAuditSummary is what an operator's audit row says about where it sends and who sends to it: the destination's kind
+// and its endpoint (or the operator it chains to), and how many source clusters it has. Nothing in it is a secret - the
+// endpoint is a host and port or a URL without credentials (see validExternalDestination), and no Secret name, key or
+// token is named - and each value is clipped, so a hostile name cannot bloat the trail.
+func operatorAuditSummary(dest store.Destination, clusters []string) string {
+	var to string
+	switch dest.Kind {
+	case store.DestinationOperator:
+		to = "operator " + printable(dest.TargetOperatorID, 64)
+	case store.DestinationFusion:
+		to = "fusion"
+	default:
+		to = "external " + printable(dest.Endpoint, 120)
+	}
+	noun := "source clusters"
+	if len(clusters) == 1 {
+		noun = "source cluster"
+	}
+	return fmt.Sprintf("to %s; %d %s", to, len(clusters), noun)
+}
+
+// idChanges is what a new list of ids adds to the old one and what it drops, each in the order it was given.
+func idChanges(before, after []string) (added, removed []string) {
+	was, is := make(map[string]bool, len(before)), make(map[string]bool, len(after))
+	for _, id := range before {
+		was[id] = true
+	}
+	for _, id := range after {
+		is[id] = true
+		if !was[id] {
+			added = append(added, id)
+		}
+	}
+	for _, id := range before {
+		if !is[id] {
+			removed = append(removed, id)
+		}
+	}
+	return added, removed
+}
+
+// auditIDList names the first maxAuditIDs ids and counts the rest.
+func auditIDList(ids []string) string {
+	shown := ids
+	if len(shown) > maxAuditIDs {
+		shown = shown[:maxAuditIDs]
+	}
+	out := make([]string, len(shown))
+	for i, id := range shown {
+		out[i] = printable(id, 64)
+	}
+	list := strings.Join(out, ", ")
+	if more := len(ids) - len(shown); more > 0 {
+		list += fmt.Sprintf(" and %d more", more)
+	}
+	return list
 }
 
 // DefaultOperatorPort is the OTLP/gRPC port a regional operator receives on.
@@ -695,7 +825,17 @@ func (c *Core) operatorIssuer(ctx context.Context, op store.Operator) (*pki.CA, 
 // once, to be put into a Kubernetes Secret, and never stored; what IS stored is the ledger entry (store.OperatorCert:
 // serial, subject, sender, dates, by whom), and a certificate that cannot be recorded is not handed out. forWhat is
 // extra words for the audit entry ("intent=ti-1 cluster=cl-a").
+//
+// It holds depMu for reading (see Core.depMu) from the check that the operator is active to the ledger write, so a revoke or
+// a delete cannot slip in between and leave a certificate minted and recorded for an operator that is gone or revoked.
 func (c *Core) IssueOperatorClientCertFor(ctx context.Context, actor, operatorID, sender, forWhat string) (certPEM, keyPEM, caPEM []byte, err error) {
+	c.depMu.RLock()
+	defer c.depMu.RUnlock()
+	return c.issueOperatorClientCertHeld(ctx, actor, operatorID, sender, forWhat)
+}
+
+// issueOperatorClientCertHeld is IssueOperatorClientCertFor for a caller that already holds depMu for reading.
+func (c *Core) issueOperatorClientCertHeld(ctx context.Context, actor, operatorID, sender, forWhat string) (certPEM, keyPEM, caPEM []byte, err error) {
 	op, err := c.operatorInOrg(ctx, operatorID)
 	if err != nil {
 		return nil, nil, nil, err

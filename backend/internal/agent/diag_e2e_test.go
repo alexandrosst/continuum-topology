@@ -282,10 +282,10 @@ func TestAnOverCeilingTierIsRefusedWithTheHelmCommand(t *testing.T) {
 	d := newDx(t, dxOpts{installed: 1, approve: 1})
 	waitFor(t, "first picture", 15*time.Second, func() bool { return d.agentDoc().Synced })
 	_, err := d.hub.SetAgentTier(context.Background(), "test", d.id, 2, func(n int) string {
-		return fmt.Sprintf("helm upgrade continuum-agent ./chart.tgz --namespace continuum-system --reuse-values --set access.tier=%d", n)
+		return fmt.Sprintf("helm upgrade continuum-agent ./chart.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=%d", n)
 	})
 	var se *server.Error
-	if !errors.As(err, &se) || !strings.Contains(se.Msg, "helm upgrade continuum-agent ./chart.tgz --namespace continuum-system --reuse-values --set access.tier=2") {
+	if !errors.As(err, &se) || !strings.Contains(se.Msg, "helm upgrade continuum-agent ./chart.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=2") {
 		t.Fatalf("err = %v", err)
 	}
 	if a, _ := d.st.GetAgent(context.Background(), d.id); a.AccessTier != 1 || a.InstalledTier != 1 {
@@ -302,7 +302,7 @@ func TestForbiddenResourcesAreReportedAndTheAgentCarriesOn(t *testing.T) {
 	}})
 	g := d.waitDiag("an rbac problem", func(g *server.DiagnosticsDoc) bool { return problem(g, "rbac_forbidden") != nil })
 	p := problem(g, "rbac_forbidden")
-	if p.Severity != "error" || !strings.Contains(p.Message, "deployments") || !strings.Contains(p.Message, "list") || !strings.Contains(p.Message, "helm upgrade --reuse-values") {
+	if p.Severity != "error" || !strings.Contains(p.Message, "deployments") || !strings.Contains(p.Message, "list") || !strings.Contains(p.Message, "helm upgrade --reset-then-reuse-values") {
 		t.Fatalf("problem = %+v", p)
 	}
 	var forbidden bool
@@ -489,7 +489,7 @@ func TestAWideningOverrideFromTheServerIsIgnoredAndReported(t *testing.T) {
 	}
 	g := d.waitDiag("override_ignored", func(g *server.DiagnosticsDoc) bool { return problem(g, "override_ignored") != nil })
 	p := problem(g, "override_ignored")
-	if !strings.Contains(p.Message, "helm upgrade --reuse-values") || !strings.Contains(p.Message, "above the tier 1") {
+	if !strings.Contains(p.Message, "helm upgrade --reset-then-reuse-values") || !strings.Contains(p.Message, "above the tier 1") {
 		t.Fatalf("problem = %+v", p)
 	}
 	if g.InstalledTier != 1 || g.EffectiveTier != 1 || g.ApprovedTier != 2 {

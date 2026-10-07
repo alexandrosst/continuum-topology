@@ -532,3 +532,171 @@ func TestARestartLongAfterAHealthyStartIsStartingNotAttention(t *testing.T) {
 		t.Fatalf("a second restart starts a fresh grace period: %+v", st)
 	}
 }
+
+// The renewal that main starts at boot has no signed-in user, so it is handed the platform core, whose OrgID is "". With
+// FUSION's Org set to the main organisation (as main does: core.MainOrg()), Renew's own guard - "only the organisation
+// that owns FUSION may touch it" - saw a core with no organisation and returned nil every time: the gateway's
+// certificate was never renewed and expired after a year. newFusion hides it by setting Org to the rig's own empty
+// OrgID; this test uses a real, non-empty main organisation and the core main really has.
+func TestRenewRunsOnTheMainOrganisationWhenStartedWithThePlatformCore(t *testing.T) {
+	a := newAdminRig(t)
+	f, k := newFusion(t, a)
+	f.Org = "org-1" // what main sets: the main organisation, not the platform's empty one
+	platform := a.a.C
+	if platform.OrgID != "" {
+		t.Fatalf("the rig's core is not the platform core: %q", platform.OrgID)
+	}
+	ctx := context.Background()
+	// FUSION is switched on from the main organisation, the way the admin screen does it.
+	if _, err := f.Enable(ctx, platform.ForOrg("org-1"), "alex"); err != nil {
+		t.Fatal(err)
+	}
+	k.secret, k.secretIn = nil, ""
+
+	// The platform core itself is not the main organisation's: Renew refuses to act for it, which is why main must not
+	// hand it over as it is.
+	if err := f.Renew(ctx, platform); err != nil || k.secretIn != "" {
+		t.Fatalf("renewed on the platform core: %v (secret %q)", err, k.secretIn)
+	}
+	// What main passes: the main organisation's view of the platform core.
+	oc := f.OrgCore(platform)
+	if oc.OrgID != "org-1" {
+		t.Fatalf("OrgCore is scoped to %q, want the main organisation", oc.OrgID)
+	}
+	if err := f.Renew(ctx, oc); err != nil {
+		t.Fatal(err)
+	}
+	if k.secretIn != f.tlsSecretName() || len(k.secret["tls.crt"]) == 0 {
+		t.Fatalf("the certificate was not renewed through the organisation core: secret %q", k.secretIn)
+	}
+	// Another organisation's core stays another organisation's: OrgCore only fills in the missing one.
+	if other := platform.ForOrg("org-2"); f.OrgCore(other) != other {
+		t.Error("OrgCore rescoped a core that already belongs to an organisation")
+	}
+	k.secret, k.secretIn = nil, ""
+	if err := f.Renew(ctx, platform.ForOrg("org-2")); err != nil || k.secretIn != "" {
+		t.Fatalf("another organisation renewed FUSION's certificate: %v (secret %q)", err, k.secretIn)
+	}
+	var nilF *FusionControl
+	if nilF.OrgCore(platform) != platform {
+		t.Error("a nil switch changed the core")
+	}
+}
+
+// overlapKube records every Scale call with a pause in it, so two Enable/Disable calls running at once interleave their
+// calls in the record unless something keeps them apart.
+type overlapKube struct {
+	*fakeKube
+	seqMu sync.Mutex
+	seq   []int
+}
+
+func (k *overlapKube) Scale(ctx context.Context, kind, name string, replicas int) error {
+	time.Sleep(time.Millisecond)
+	err := k.fakeKube.Scale(ctx, kind, name, replicas)
+	if err == nil { // a workload the cluster does not have (the optional Grafana here) is not a call that changed anything
+		k.seqMu.Lock()
+		k.seq = append(k.seq, replicas)
+		k.seqMu.Unlock()
+	}
+	return err
+}
+
+// Enable, Disable and Renew change the cluster in several steps (certificate, Secret, one scale call per store). Run
+// concurrently they must not interleave those steps: every run of four scale calls (one per store) has to be all up or
+// all down, never a mix.
+func TestEnableDisableAndRenewDoNotInterleave(t *testing.T) {
+	a := newAdminRig(t)
+	f, k := newFusion(t, a)
+	ok := &overlapKube{fakeKube: k}
+	f.Kube = ok
+	f.Org = "org-1"
+	core := a.a.C.ForOrg("org-1")
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var err error
+			switch i % 3 {
+			case 0:
+				_, err = f.Enable(ctx, core, "alex")
+			case 1:
+				_, err = f.Disable(ctx, core, "alex")
+			default:
+				err = f.Renew(ctx, core)
+			}
+			if err != nil {
+				t.Errorf("call %d: %v", i, err)
+			}
+		}()
+	}
+	wg.Wait()
+	ok.seqMu.Lock()
+	defer ok.seqMu.Unlock()
+	if len(ok.seq) == 0 || len(ok.seq)%len(fusionNames) != 0 {
+		t.Fatalf("scale calls: %v", ok.seq)
+	}
+	for i := 0; i < len(ok.seq); i += len(fusionNames) {
+		for _, r := range ok.seq[i : i+len(fusionNames)] {
+			if r != ok.seq[i] {
+				t.Fatalf("an Enable and a Disable interleaved their scale calls: %v", ok.seq)
+			}
+		}
+	}
+}
+
+// racingStore lets another caller win the creation of the central operator between this caller's read ("not there")
+// and its insert.
+type racingStore struct {
+	store.Store
+	once  sync.Once
+	rival func(store.Store)
+}
+
+func (s *racingStore) CreateOperator(ctx context.Context, op store.Operator, tokenHash []byte) error {
+	s.once.Do(func() { s.rival(s.Store) })
+	return s.Store.CreateOperator(ctx, op, tokenHash)
+}
+
+// Two first calls can both find no central operator. The one that loses the insert must reuse the operator the other
+// created, with a certificate that verifies against ITS CA, not fail with the store's raw constraint error.
+func TestEnsureCentralOperatorReusesTheOneARivalCreatedFirst(t *testing.T) {
+	a := newAdminRig(t)
+	core := a.a.C.ForOrg("org-1")
+	var rivalCA []byte
+	core.Store = &racingStore{Store: core.Store, rival: func(st store.Store) {
+		bundle, key, err := mintOperatorTLS(core, CentralOperatorID, []string{"x.svc"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rivalCA = bundle.CACertPEM
+		if err := st.CreateOperator(context.Background(), store.Operator{
+			ID: CentralOperatorID, OrgID: "org-1", Name: "Central (FUSION)", Status: store.OperatorActive,
+			ReceiverAuth: store.ReceiverAuthMTLS, ClientCACertPEM: bundle.CACertPEM, ClientCAKeyPEM: key, CreatedBy: "other", CreatedAt: time.Now(),
+		}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}}
+	op, bundle, err := core.EnsureCentralOperator(context.Background(), "alex", store.Destination{}, []string{"gw.example.com"})
+	if err != nil {
+		t.Fatalf("the second first-time caller failed: %v", err)
+	}
+	if op.ID != CentralOperatorID || op.CreatedBy != "other" {
+		t.Errorf("did not reuse the existing operator: %+v", op)
+	}
+	if string(bundle.CACertPEM) != string(rivalCA) {
+		t.Fatal("the certificate was issued from a CA nobody trusts, not from the existing operator's")
+	}
+	block, _ := pem.Decode(bundle.ReceiverCertPEM)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(rivalCA)
+	if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, DNSName: "gw.example.com"}); err != nil {
+		t.Errorf("the certificate does not verify against the existing CA: %v", err)
+	}
+}
