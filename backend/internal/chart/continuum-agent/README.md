@@ -160,6 +160,11 @@ stats, container/journal logs).
   The pod's IP is scraped on `port` (one series set per pod however many ports it declares), and pods that
   have completed are skipped. Discovering the pods needs no permission beyond the `pods` read access every collector of this
   chart already has.
+- **A scope limits what is reported, not what the collectors may read.** `telemetry.scope` decides which namespaces' data
+  leaves the cluster: the collectors drop everything else before export. Their Kubernetes read access (pods, events,
+  workloads, nodes, namespaces) stays cluster-wide, because the components that attach pod metadata and watch cluster state
+  need it, and an exclude-style scope cannot be written as per-namespace permissions at all. If a narrower grant matters,
+  that is a limit of this chart today, not something the scope setting provides.
 - **Container logs follow the scope.** `systemLogs` reads every container's output from the kubelet's log
   directory, so it honours `telemetry.scope` (namespaces to keep, namespaces to drop; `telemetry.scope.infra` first)
   and never reads this release's own pods. While `systemLogs` is on the host collector runs as root with every
