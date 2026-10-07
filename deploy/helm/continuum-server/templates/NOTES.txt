@@ -36,7 +36,6 @@ Ikhnos server {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{
 {{- else }}{{- $warnings = append $warnings "pki.encryptAtRest is false: the CA private key is stored UNENCRYPTED on disk. Only use this for local/dev, or where disk-level encryption already covers it." }}{{- end }}
 {{- end }}
 {{- if not .Values.networkPolicy.enabled }}{{- $warnings = append $warnings "networkPolicy.enabled is false: nothing restricts who may reach the admin port from inside the cluster." }}{{- end }}
-{{- if and .Values.fusion.enabled (not (dig "networkPolicy" "enabled" true .Values.fusion)) }}{{- $warnings = append $warnings "fusion.networkPolicy.enabled is false: FUSION's stores (Prometheus, Loki, Tempo) authenticate nothing, so any pod in the cluster can read or write their data, around the gateway's certificates and a token's limits." }}{{- end }}
 {{- if $warnings }}
 
 › WORTH DOING NOW

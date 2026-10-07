@@ -105,7 +105,9 @@ affinity: {{- toYaml . | nindent 2 }}
 
 {{/* The central gateway: the one door into FUSION. Named <name>-central like the stores are <name>-<store>. */}}
 {{- define "fusion.central" -}}{{- printf "%s-central" (include "fusion.name" .) -}}{{- end -}}
-{{- define "fusion.centralTLSSecret" -}}{{- .Values.central.receiver.tlsSecretName | default (printf "%s-receiver-tls" (include "fusion.central" .)) -}}{{- end -}}
+{{/* Derived, never a value: the Ikhnos server writes the certificates into <name>-central-receiver-tls and the Role it
+     is granted names that Secret, so the chart cannot let it be renamed. */}}
+{{- define "fusion.centralTLSSecret" -}}{{- printf "%s-receiver-tls" (include "fusion.central" .) -}}{{- end -}}
 
 {{/* GOMEMLIMIT (80% of a container's memory limit) as a byte count, so the Go runtime collects harder before the
      container is OOM-killed; memory_limiter alone reacts only once the heap is already large. Takes a resources

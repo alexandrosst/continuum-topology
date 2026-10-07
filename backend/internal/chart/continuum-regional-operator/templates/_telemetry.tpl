@@ -167,39 +167,51 @@ bearertokenauth:
 {{- end -}}
 {{- end -}}
 
+{{/* The trust and identity lines of an exporter's tls block, at column 0, empty when it has none: the client
+     certificate (and the CA that verifies the destination, from the same Secret) when ...tls.mtls is on; otherwise
+     the CA bundle of caSecretName, mounted at .ca; otherwise the caFile path as written (nothing mounts it). */}}
+{{- define "operator.exporterTrust" -}}
+{{- $c := .c -}}
+{{- if $c.tls.mtls.enabled -}}
+ca_file: {{ .mtls }}/ca.crt
+cert_file: {{ .mtls }}/tls.crt
+key_file: {{ .mtls }}/tls.key
+reload_interval: 1h
+{{- else if $c.tls.caSecretName -}}
+ca_file: {{ printf "%s/ca.crt" .ca | quote }}
+{{- else if $c.tls.caFile -}}
+ca_file: {{ $c.tls.caFile | quote }}
+{{- end -}}
+{{- end -}}
+
 {{/* One exporter block: .key its name in the collector config, .c the destination (the export.otlp shape), .env
-     the variable its credential header is read from. Emits at column 0. The header's value is never written here,
+     the variable its credential header is read from, .mtls and .ca the directories its client-certificate and
+     CA-bundle Secrets are mounted at. Emits at column 0. The header's value is never written here,
      only a reference to the environment variable the container fills from a Secret. An http endpoint takes the
      scheme tls.insecure picks unless it already carries one; the collector appends /v1/<signal> to it. */}}
 {{- define "operator.exporterBlock" -}}
 {{- $c := .c -}}
+{{- $trust := include "operator.exporterTrust" . -}}
 {{ .key }}:
 {{- if eq $c.protocol "http" }}
 {{- $e := $c.endpoint }}
 {{- if not (regexMatch "^https?://" $e) }}{{ $e = printf "%s://%s" (ternary "http" "https" $c.tls.insecure) $e }}{{ end }}
   endpoint: {{ $e | quote }}
-  {{- if or $c.tls.mtls.enabled $c.tls.caFile }}
+  {{- if or $trust $c.tls.serverName }}
   tls:
-    {{- if $c.tls.mtls.enabled }}
-    ca_file: {{ .mtls }}/ca.crt
-    cert_file: {{ .mtls }}/tls.crt
-    key_file: {{ .mtls }}/tls.key
-    reload_interval: 1h
-    {{- else }}
-    ca_file: {{ $c.tls.caFile | quote }}
+    {{- if $trust }}
+    {{- $trust | nindent 4 }}
+    {{- end }}
+    {{- if $c.tls.serverName }}
+    server_name_override: {{ $c.tls.serverName | quote }}
     {{- end }}
   {{- end }}
 {{- else }}
   endpoint: {{ $c.endpoint | quote }}
   tls:
     insecure: {{ $c.tls.insecure }}
-    {{- if $c.tls.mtls.enabled }}
-    ca_file: {{ .mtls }}/ca.crt
-    cert_file: {{ .mtls }}/tls.crt
-    key_file: {{ .mtls }}/tls.key
-    reload_interval: 1h
-    {{- else if $c.tls.caFile }}
-    ca_file: {{ $c.tls.caFile | quote }}
+    {{- if $trust }}
+    {{- $trust | nindent 4 }}
     {{- end }}
     {{- if $c.tls.serverName }}
     server_name_override: {{ $c.tls.serverName | quote }}
@@ -258,11 +270,11 @@ batch:
 {{- $root := . -}}
 {{- $blocks := list -}}
 {{- if include "operator.defaultUsed" . -}}
-{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "root" $root "key" (include "operator.exporterName" $root) "c" $root.Values.export.otlp "env" "CONTINUUM_OPERATOR_EXPORT_AUTH" "mtls" "/export-mtls")) -}}
+{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "root" $root "key" (include "operator.exporterName" $root) "c" $root.Values.export.otlp "env" "CONTINUUM_OPERATOR_EXPORT_AUTH" "mtls" "/export-mtls" "ca" "/export-ca")) -}}
 {{- end -}}
 {{- range (include "operator.modalities" . | fromJsonArray) -}}
 {{- if include "operator.hasRoute" (dict "root" $root "m" .) -}}
-{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "root" $root "key" (include "operator.exporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.export.routes .) "env" (printf "CONTINUUM_OPERATOR_EXPORT_AUTH_%s" (upper .)) "mtls" (printf "/export-mtls-%s" .))) -}}
+{{- $blocks = append $blocks (include "operator.exporterBlock" (dict "root" $root "key" (include "operator.exporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.export.routes .) "env" (printf "CONTINUUM_OPERATOR_EXPORT_AUTH_%s" (upper .)) "mtls" (printf "/export-mtls-%s" .) "ca" (printf "/export-ca-%s" .))) -}}
 {{- end -}}
 {{- end -}}
 {{- join "\n" $blocks -}}
@@ -312,6 +324,40 @@ batch:
 {{- range (include "operator.modalities" . | fromJsonArray) -}}
 {{- if and (include "operator.hasRoute" (dict "root" $root "m" .)) (get $root.Values.export.routes .).tls.mtls.enabled -}}
 {{- $l = append $l (printf "- name: export-mtls-%s\n  secret: {secretName: %s}" . (get $root.Values.export.routes .).tls.mtls.secretName) -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $l -}}
+{{- end -}}
+
+{{/* CA-bundle Secrets (...tls.caSecretName, key ca.crt) for destinations in use: the default at /export-ca, each route
+     at /export-ca-<signal>. Not mounted when that destination's mtls is on, because its own Secret's ca.crt is what is
+     trusted then. Same shape as the client-certificate lists above. */}}
+{{- define "operator.exporterCAMounts" -}}
+{{- $root := . -}}
+{{- $l := list -}}
+{{- $d := $root.Values.export.otlp.tls -}}
+{{- if and (include "operator.defaultUsed" .) $d.caSecretName (not $d.mtls.enabled) -}}
+{{- $l = append $l "- {name: export-ca, mountPath: /export-ca, readOnly: true}" -}}
+{{- end -}}
+{{- range (include "operator.modalities" . | fromJsonArray) -}}
+{{- $r := get $root.Values.export.routes . -}}
+{{- if and (include "operator.hasRoute" (dict "root" $root "m" .)) $r.tls.caSecretName (not $r.tls.mtls.enabled) -}}
+{{- $l = append $l (printf "- {name: export-ca-%s, mountPath: /export-ca-%s, readOnly: true}" . .) -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $l -}}
+{{- end -}}
+{{- define "operator.exporterCAVolumes" -}}
+{{- $root := . -}}
+{{- $l := list -}}
+{{- $d := $root.Values.export.otlp.tls -}}
+{{- if and (include "operator.defaultUsed" .) $d.caSecretName (not $d.mtls.enabled) -}}
+{{- $l = append $l (printf "- name: export-ca\n  secret: {secretName: %s}" $d.caSecretName) -}}
+{{- end -}}
+{{- range (include "operator.modalities" . | fromJsonArray) -}}
+{{- $r := get $root.Values.export.routes . -}}
+{{- if and (include "operator.hasRoute" (dict "root" $root "m" .)) $r.tls.caSecretName (not $r.tls.mtls.enabled) -}}
+{{- $l = append $l (printf "- name: export-ca-%s\n  secret: {secretName: %s}" . $r.tls.caSecretName) -}}
 {{- end -}}
 {{- end -}}
 {{- join "\n" $l -}}

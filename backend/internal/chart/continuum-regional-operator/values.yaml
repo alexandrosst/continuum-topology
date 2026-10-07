@@ -70,12 +70,20 @@ export:
     protocol: grpc  # grpc | http
     tls:
       insecure: false
-      caFile: ""    # path to a CA bundle to mount and trust, if the destination's certificate isn't otherwise trusted
+      # To trust a CA the image does not already know (a private one), name a Secret in this release's namespace,
+      # created outside this chart, holding the bundle under ca.crt: it is mounted read-only and the exporter's
+      # ca_file points at it (the same idiom as heartbeat.tls.caSecretName). Ignored when mtls is on, whose own
+      # Secret's ca.crt is trusted instead.
+      caSecretName: ""
+      # A CA bundle path INSIDE the container, used verbatim. This chart does not mount anything there (the root
+      # filesystem is read-only), so it is only useful for a path the image already contains; to supply your own
+      # bundle use caSecretName, which takes priority over this.
+      caFile: ""
       serverName: ""    # verify the destination's certificate against this name instead of the endpoint's host (see continuum-agent)
       # Present a client certificate to the destination - the shape of a regional operator (or FUSION's central
       # operator) whose receiver.tls.mtls is on. secretName is a Secret in this release's namespace, created
       # outside this chart, holding tls.crt, tls.key (this operator's client certificate) and ca.crt (to verify
-      # the destination's own server certificate - takes priority over caFile). Ikhnos's install command
+      # the destination's own server certificate - takes priority over caSecretName and caFile). Ikhnos's install command
       # always fills it in; this default only matters if you hand-edit these values.
       mtls:
         enabled: false
@@ -112,6 +120,7 @@ export:
       protocol: grpc
       tls:
         insecure: false
+        caSecretName: ""
         caFile: ""
         serverName: ""
         mtls:

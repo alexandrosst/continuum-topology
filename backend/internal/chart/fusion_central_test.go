@@ -73,8 +73,12 @@ func TestFusionCentralOnlyFeedsStoresThatAreDeployed(t *testing.T) {
 
 func TestFusionCentralCanBeLeftOut(t *testing.T) {
 	r := fusionRender(t, "f", "--set", "central.enabled=false")
-	if len(r.deploys) != 0 || len(r.secrets) != 0 {
+	// Grafana's own admin Secret is not the gateway's, and stays.
+	if _, ok := r.secrets["f-fusion-central-receiver-tls"]; len(r.deploys) != 0 || ok || len(r.secrets) != 1 {
 		t.Errorf("central objects rendered though disabled: %v %v", mapKeys(r.deploys), mapKeys(r.secrets))
+	}
+	if off := fusionRender(t, "f", "--set", "grafana.enabled=false"); len(off.secrets) != 1 {
+		t.Errorf("secrets with Grafana off = %v, want the gateway's alone", mapKeys(off.secrets))
 	}
 }
 
@@ -145,5 +149,27 @@ func TestFusionCentralReloadsItsCertificateAndPublishesOnlyGRPCWhenExposed(t *te
 	}
 	if rs := r.services["f-fusion-central"].Spec.LoadBalancerSourceRanges; len(rs) != 1 || rs[0] != "203.0.113.0/24" {
 		t.Errorf("source ranges = %v", rs)
+	}
+}
+
+// The gateway's TLS Secret is named by the chart alone, because the Ikhnos server patches exactly
+// <name>-central-receiver-tls: it cannot be renamed by a value, and the retired value is refused unless empty (the
+// empty string an earlier release stored must not break a --reuse-values upgrade).
+func TestFusionCentralTLSSecretNameIsNotConfigurable(t *testing.T) {
+	r := fusionRender(t, "f")
+	var mounted string
+	for _, v := range r.deploys["f-fusion-central"].Spec.Template.Spec.Volumes {
+		if v.Name == "receiver-tls" && v.Secret != nil {
+			mounted = v.Secret.SecretName
+		}
+	}
+	if mounted != "f-fusion-central-receiver-tls" {
+		t.Errorf("the gateway mounts Secret %q, want f-fusion-central-receiver-tls", mounted)
+	}
+	if out, err := fusionTemplate(t, "f", "--set", "central.receiver.tlsSecretName=mine"); err == nil {
+		t.Errorf("a renamed gateway TLS Secret was accepted, which the server would not fill in:\n%s", out)
+	}
+	if out, err := fusionTemplate(t, "f", "--set", "central.receiver.tlsSecretName="); err != nil {
+		t.Errorf("the empty value an earlier release stored is refused: %v\n%s", err, out)
 	}
 }

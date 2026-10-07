@@ -13,6 +13,10 @@
 {{- printf "%s-%s" .Release.Name $suffix | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 {{- end -}}
+{{/* The collector's ConfigMap. Named in two places (the ConfigMap itself and the Deployment volume that mounts it), so
+     both take it from here: the suffix has to be added before the 63-character cut, or a long release name gets a
+     ConfigMap whose name is truncated while the Deployment asks for the untruncated one and never starts. */}}
+{{- define "operator.configMapName" -}}{{- printf "%s-config" (include "operator.name" .) | trunc 63 | trimSuffix "-" -}}{{- end -}}
 {{- define "operator.labels" -}}
 app.kubernetes.io/name: continuum-regional-operator
 app.kubernetes.io/instance: {{ .Release.Name }}
@@ -46,7 +50,7 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- end -}}
 
 {{/* The names of the Secrets this pod mounts for TLS, as a JSON list: the receiver's certificate, each destination's
-     client certificate, and the heartbeat's CA. Kubernetes refreshes a mounted Secret in place when it changes, but
+     client certificate, each destination's CA bundle, and the heartbeat's CA. Kubernetes refreshes a mounted Secret in place when it changes, but
      a collector reads its certificate files only at start and then at every reload_interval (1h, see
      operator.exporterBlock and config.yaml). */}}
 {{- define "operator.tlsSecretNames" -}}
@@ -57,7 +61,9 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- range (include "operator.modalities" . | fromJsonArray) -}}
 {{- $r := get $root.Values.export.routes . -}}
 {{- if and (include "operator.hasRoute" (dict "root" $root "m" .)) $r.tls.mtls.enabled }}{{ $l = append $l $r.tls.mtls.secretName }}{{ end -}}
+{{- if and (include "operator.hasRoute" (dict "root" $root "m" .)) $r.tls.caSecretName (not $r.tls.mtls.enabled) }}{{ $l = append $l $r.tls.caSecretName }}{{ end -}}
 {{- end -}}
+{{- if and (include "operator.defaultUsed" .) .Values.export.otlp.tls.caSecretName (not .Values.export.otlp.tls.mtls.enabled) }}{{ $l = append $l .Values.export.otlp.tls.caSecretName }}{{ end -}}
 {{- if and .Values.heartbeat.enabled .Values.heartbeat.tls.caSecretName }}{{ $l = append $l .Values.heartbeat.tls.caSecretName }}{{ end -}}
 {{- toJson (uniq $l) -}}
 {{- end -}}

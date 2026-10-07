@@ -3,8 +3,8 @@
 {{- $name := include "fusion.central" . }}
 {{- $sel := include "fusion.selector" (dict "root" . "component" "central") }}
 {{- $tls := include "fusion.centralTLSSecret" . }}
-# Created empty and kept as it is found: the Ikhnos server puts the certificates in (see central.receiver.
-# tlsSecretName), and a later `helm upgrade` carries what is there forward instead of wiping it.
+# Created empty and kept as it is found: the Ikhnos server puts the certificates in (by this exact name, which is why it
+# is not configurable), and a later `helm upgrade` carries what is there forward instead of wiping it.
 apiVersion: v1
 kind: Secret
 metadata:

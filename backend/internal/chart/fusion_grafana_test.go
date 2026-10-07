@@ -1,10 +1,12 @@
 package chart
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 )
 
@@ -152,5 +154,59 @@ func TestFusionPrometheusKnowsItsPrefix(t *testing.T) {
 	args = fusionRender(t, "f", "--set", "prometheus.webPrefix=").sets["f-fusion-prometheus"].Spec.Template.Spec.Containers[0].Args
 	if strings.Contains(strings.Join(args, " "), "web.external-url") {
 		t.Errorf("an empty webPrefix still sets an external url: %v", args)
+	}
+}
+
+// Basic auth is off, so Grafana's built-in admin cannot be signed in to with a password from any pod that reaches the
+// Service, and the admin's password is neither a literal nor the default: it is read from a Secret the chart generates.
+func TestFusionGrafanaBasicAuthIsOffAndAdminPasswordIsFromASecret(t *testing.T) {
+	r := fusionRender(t, "f")
+	g := r.sets["f-fusion-grafana"].Spec.Template.Spec.Containers[0]
+	var pw *corev1.EnvVar
+	basic := ""
+	for i, e := range g.Env {
+		switch e.Name {
+		case "GF_AUTH_BASIC_ENABLED":
+			basic = e.Value
+		case "GF_SECURITY_ADMIN_PASSWORD":
+			pw = &g.Env[i]
+		case "GF_SECURITY_ADMIN_USER":
+			t.Errorf("the chart hardcodes the admin user %q; proxy users are namespaced by the server instead", e.Value)
+		}
+	}
+	if basic != "false" {
+		t.Errorf("GF_AUTH_BASIC_ENABLED = %q, want false", basic)
+	}
+	if pw == nil {
+		t.Fatal("GF_SECURITY_ADMIN_PASSWORD is not set, so Grafana's admin is admin:admin")
+	}
+	if pw.Value != "" || pw.ValueFrom == nil || pw.ValueFrom.SecretKeyRef == nil || pw.ValueFrom.SecretKeyRef.Name != "f-fusion-grafana-admin" || pw.ValueFrom.SecretKeyRef.Key != "admin-password" {
+		t.Fatalf("admin password = %+v, want a reference to Secret f-fusion-grafana-admin", pw)
+	}
+	sec, ok := r.secrets["f-fusion-grafana-admin"]
+	if !ok {
+		t.Fatalf("no Grafana admin Secret (have %v)", mapKeys(r.secrets))
+	}
+	if got := sec.Data["admin-password"]; len(got) < 32 || string(got) == "admin" {
+		t.Errorf("generated admin password = %q, want 32 random characters", got)
+	}
+	// Proxy auth, the way people do sign in, is untouched.
+	env := map[string]string{}
+	for _, e := range g.Env {
+		env[e.Name] = e.Value
+	}
+	if env["GF_AUTH_PROXY_ENABLED"] != "true" || env["GF_AUTH_PROXY_HEADER_NAME"] != "X-WEBAUTH-USER" || env["GF_AUTH_PROXY_AUTO_SIGN_UP"] != "true" {
+		t.Errorf("proxy auth is not wired: %v", env)
+	}
+}
+
+// The admin password survives `helm upgrade`: a Secret that already exists is carried forward, not redrawn.
+func TestFusionGrafanaAdminPasswordIsPreservedAcrossUpgrades(t *testing.T) {
+	k, kc := startFakeKubernetes(t)
+	k.set("rel-fusion-grafana-admin", map[string]string{"admin-password": "kept-from-the-first-install"})
+	out := helmTemplateInCluster(t, Fusion, kc)
+	want := base64.StdEncoding.EncodeToString([]byte("kept-from-the-first-install"))
+	if !strings.Contains(out, "admin-password: "+want) {
+		t.Errorf("the existing admin password was not carried forward (lookups: %v):\n%s", k.lookups(), out)
 	}
 }

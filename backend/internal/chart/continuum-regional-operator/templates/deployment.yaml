@@ -90,6 +90,9 @@ spec:
             {{- with include "operator.exporterMtlsMounts" . }}
             {{- . | nindent 12 }}
             {{- end }}
+            {{- with include "operator.exporterCAMounts" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
             {{- if and .Values.heartbeat.enabled .Values.heartbeat.tls.caSecretName }}
             - {name: heartbeat-ca, mountPath: /heartbeat-ca, readOnly: true}
             {{- end }}
@@ -99,12 +102,15 @@ spec:
           resources: {{- toYaml .Values.resources | nindent 12 }}
       volumes:
         - name: config
-          configMap: {name: {{ include "operator.name" . }}-config}
+          configMap: {name: {{ include "operator.configMapName" . }}}
         {{- if .Values.receiver.tls.enabled }}
         - name: receiver-tls
           secret: {secretName: {{ .Values.receiver.tls.secretName }}}
         {{- end }}
         {{- with include "operator.exporterMtlsVolumes" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with include "operator.exporterCAVolumes" . }}
         {{- . | nindent 8 }}
         {{- end }}
         {{- if and .Values.heartbeat.enabled .Values.heartbeat.tls.caSecretName }}

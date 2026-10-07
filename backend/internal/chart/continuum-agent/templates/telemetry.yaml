@@ -82,6 +82,9 @@ spec:
             {{- with include "agent.telemetryExportMtlsMounts" (dict "root" . "scope" "host") }}
             {{- . | nindent 12 }}
             {{- end }}
+            {{- with include "agent.telemetryExportCAMounts" (dict "root" . "scope" "host") }}
+            {{- . | nindent 12 }}
+            {{- end }}
             {{- if .Values.telemetry.resourceUsage.metrics.enabled }}
             - {name: host-fs, mountPath: /hostfs, readOnly: true}
             {{- end }}
@@ -99,6 +102,9 @@ spec:
         - name: config
           configMap: {name: {{ include "agent.telemetryName" . }}-host-config}
         {{- with include "agent.telemetryExportMtlsVolumes" (dict "root" . "scope" "host") }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with include "agent.telemetryExportCAVolumes" (dict "root" . "scope" "host") }}
         {{- . | nindent 8 }}
         {{- end }}
         {{- if .Values.telemetry.export.queue.persistent.enabled }}
@@ -204,6 +210,9 @@ spec:
             {{- with include "agent.telemetryExportMtlsMounts" (dict "root" . "scope" "cluster") }}
             {{- . | nindent 12 }}
             {{- end }}
+            {{- with include "agent.telemetryExportCAMounts" (dict "root" . "scope" "cluster") }}
+            {{- . | nindent 12 }}
+            {{- end }}
             {{- if .Values.telemetry.export.queue.persistent.enabled }}
             - {name: queue, mountPath: /queue}
             {{- end }}
@@ -212,6 +221,9 @@ spec:
         - name: config
           configMap: {name: {{ include "agent.telemetryName" . }}-cluster-config}
         {{- with include "agent.telemetryExportMtlsVolumes" (dict "root" . "scope" "cluster") }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with include "agent.telemetryExportCAVolumes" (dict "root" . "scope" "cluster") }}
         {{- . | nindent 8 }}
         {{- end }}
         {{- if .Values.telemetry.export.queue.persistent.enabled }}

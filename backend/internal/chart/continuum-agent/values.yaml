@@ -166,10 +166,20 @@ networkPolicy:
   # DaemonSet when enabled) - separate from egress above, which only ever covers the agent pod (different
   # labels, and a fixed CIDR list set once for the whole cluster, unlike a telemetry export destination
   # which is whatever the operator configured under telemetry.export.otlp.endpoint). Off by default, same
-  # reasoning as egress above.
+  # reasoning as egress above. When enabled the telemetry pods may reach ONLY:
+  #   - DNS (as for egress above)
+  #   - your export destination(s): allowedEgress, required
+  #   - the Kubernetes API server, when apiServerCIDRs is set (or, if it is empty, when networkPolicy.egress.apiServerCIDRs
+  #     is): the collectors read it for pod metadata and cluster state. Leave both empty and they cannot reach it.
+  #   - the node's kubelet on port 10250, when the host collector reads resource usage or node runtime metrics
+  #     (kubeletCIDRs, the nodes' addresses; empty = any address on that port, since a NetworkPolicy cannot say "my own node")
+  #   - anything you list in extraEgress
   telemetryEgress:
     enabled: false
     allowedEgress: []   # e.g. [{cidr: "203.0.113.7/32", ports: [4317, 443]}] - your telemetry.export.otlp.endpoint's destination(s)
+    apiServerCIDRs: []  # e.g. ["10.43.0.1/32", "192.168.1.10/32"], as for egress above; empty = take networkPolicy.egress.apiServerCIDRs
+    apiServerPorts: []  # empty = networkPolicy.egress.apiServerPorts, else [443, 6443]
+    kubeletCIDRs: []    # e.g. ["192.168.1.0/24"]: the nodes' addresses; empty = any address, on port 10250 only
     dnsCIDRs: []
     extraEgress: []
 
@@ -341,11 +351,19 @@ telemetry:
                       # carries traces only: enabling any other signal with it is refused at render time.
       tls:
         insecure: false
-        caFile: ""    # path to a CA bundle to mount and trust, if your endpoint's certificate isn't otherwise trusted
+        # To trust a CA the collector image does not already know (a private one), name a Secret in this release's
+        # namespace, created outside this chart, holding the bundle under ca.crt: it is mounted read-only into the
+        # collectors and the exporter's ca_file points at it (the same idiom as heartbeat.tls.caSecretName in the
+        # regional-operator chart). Ignored when mtls is on, whose own Secret's ca.crt is trusted instead.
+        caSecretName: ""
+        # A CA bundle path INSIDE the collector container, used verbatim. This chart does not mount anything there
+        # (the root filesystem is read-only), so it is only useful for a path the image already contains; to supply
+        # your own bundle use caSecretName, which takes priority over this.
+        caFile: ""
         serverName: ""    # verify the destination's certificate against THIS name instead of the endpoint's host - for reaching a
                            # regional operator at a LoadBalancer/Ingress address while its certificate is for its in-cluster name.
                            # Ikhnos's install command sets it when it points you at an operator's advertised address.
-        # Present a client certificate on top of (or instead of) caFile above - e.g. when your destination
+        # Present a client certificate on top of (or instead of) caSecretName/caFile above - e.g. when your destination
         # is an Ikhnos regional operator with receiver.tls.mtls on. Off by default in this file, but a
         # regional operator's own "point this cluster at me" reminder always sets this on with the
         # certificate it minted for exactly this purpose (see CreateOperator/IssueOperatorClientTLS) - this
@@ -354,7 +372,7 @@ telemetry:
           enabled: false
           secretName: ""   # a Secret in this release's namespace, created outside this chart, holding
                             # tls.crt, tls.key (this cluster's client certificate) and ca.crt (to verify
-                            # the destination's own server certificate - takes priority over caFile above)
+                            # the destination's own server certificate - takes priority over caSecretName and caFile above)
       # A single credential header, for backends that require one - never put its value directly in
       # values.yaml (it would render into a ConfigMap in plain text, and land in `helm get values`/git diff).
       # Instead point at a Secret you create yourself, in this release's namespace, holding just that value.
@@ -391,6 +409,7 @@ telemetry:
         protocol: grpc
         tls:
           insecure: false
+          caSecretName: ""
           caFile: ""
           serverName: ""
           mtls:
@@ -405,6 +424,7 @@ telemetry:
         protocol: grpc
         tls:
           insecure: false
+          caSecretName: ""
           caFile: ""
           serverName: ""
           mtls:
@@ -419,6 +439,7 @@ telemetry:
         protocol: grpc
         tls:
           insecure: false
+          caSecretName: ""
           caFile: ""
           serverName: ""
           mtls:

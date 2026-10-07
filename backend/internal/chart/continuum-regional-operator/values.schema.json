@@ -66,6 +66,7 @@
               "additionalProperties": false,
               "properties": {
                 "insecure": { "type": "boolean" },
+                "caSecretName": { "type": "string" },
                 "caFile": { "type": "string" },
                 "serverName": { "type": "string" },
                 "mtls": {

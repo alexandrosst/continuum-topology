@@ -92,12 +92,10 @@ central:
     enabled: true
     maxStale: 5m
     maxStreams: 100000
-  receiver:
-    # A Secret in this release's namespace holding tls.crt, tls.key (the gateway's own server certificate) and
-    # ca.crt (the CA every sender's client certificate must chain to). Empty = "<name>-central-receiver-tls",
-    # which this chart creates empty and the Ikhnos server fills in - a gateway with no certificate in it does
-    # not start, which is why a fresh managed install stands by at 0 replicas.
-    tlsSecretName: ""
+  # The gateway's TLS Secret (tls.crt, tls.key: its own server certificate; ca.crt: the CA every sender's client
+  # certificate must chain to) is "<name>-central-receiver-tls" and is not a value: this chart creates it empty and the
+  # Ikhnos server fills it in by that name, so a different name would leave the gateway with no certificate. A gateway
+  # with none does not start, which is why a fresh managed install stands by at 0 replicas.
   resources:
     requests: {cpu: 50m, memory: 96Mi}
     limits: {memory: 384Mi}
@@ -173,7 +171,8 @@ tempo:
 # Grafana, already connected to the stores: Prometheus, Loki and Tempo are its provisioned data sources (a log line links
 # to its trace, a trace to its logs) and one starter dashboard shows what is arriving. It has no login page and no
 # anonymous access: it is reached only through the Ikhnos server (an administrator, at /fusion/grafana/), which signs the
-# person in to it. Off here means no Grafana at all; the three stores are unaffected.
+# person in to it (basic auth is off; its built-in admin has a random password in a Secret this chart generates and keeps
+# across upgrades). Off here means no Grafana at all; the three stores are unaffected.
 grafana:
   enabled: true
   image:

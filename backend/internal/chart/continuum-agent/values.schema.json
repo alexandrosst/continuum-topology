@@ -319,6 +319,26 @@
                 }
               }
             },
+            "apiServerCIDRs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "apiServerPorts": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              }
+            },
+            "kubeletCIDRs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "dnsCIDRs": {
               "type": "array",
               "items": {
@@ -565,6 +585,9 @@
                     "insecure": {
                       "type": "boolean"
                     },
+                    "caSecretName": {
+                      "type": "string"
+                    },
                     "caFile": {
                       "type": "string"
                     },
@@ -627,6 +650,9 @@
                         "insecure": {
                           "type": "boolean"
                         },
+                        "caSecretName": {
+                          "type": "string"
+                        },
                         "caFile": {
                           "type": "string"
                         },
@@ -685,6 +711,9 @@
                         "insecure": {
                           "type": "boolean"
                         },
+                        "caSecretName": {
+                          "type": "string"
+                        },
                         "caFile": {
                           "type": "string"
                         },
@@ -742,6 +771,9 @@
                       "properties": {
                         "insecure": {
                           "type": "boolean"
+                        },
+                        "caSecretName": {
+                          "type": "string"
                         },
                         "caFile": {
                           "type": "string"

@@ -534,49 +534,63 @@ telemetry:
 {{- $e -}}
 {{- end -}}
 
+{{/* The trust and identity lines of an exporter's tls block, at column 0, empty when it has none: the client
+     certificate (and the CA that verifies the destination, from the same Secret) when ...tls.mtls is on; otherwise
+     the CA bundle of caSecretName, mounted at .ca; otherwise the caFile path as written (nothing mounts it). */}}
+{{- define "agent.telemetryExporterTrust" -}}
+{{- $c := .c -}}
+{{- if $c.tls.mtls.enabled -}}
+ca_file: {{ .mtls }}/ca.crt
+cert_file: {{ .mtls }}/tls.crt
+key_file: {{ .mtls }}/tls.key
+reload_interval: 1h
+{{- else if $c.tls.caSecretName -}}
+ca_file: {{ printf "%s/ca.crt" .ca | quote }}
+{{- else if $c.tls.caFile -}}
+ca_file: {{ $c.tls.caFile | quote }}
+{{- end -}}
+{{- end -}}
+
 {{/* One exporter block for a destination: .key is its name in the collector config, .c the destination
-     (the telemetry.export.otlp shape), .env the variable its credential header is read from and .mtls the
-     directory its client certificate Secret is mounted at, .root the chart context. Emits at column 0. The auth
-     header's value is never written here - only a reference to the environment variable the container injects
-     it into from a Secret at start (see agent.telemetryExporterEnv). A client certificate carries
-     reload_interval: 1h, so a renewed certificate in the mounted Secret is picked up without a restart (the CA
-     in ca.crt is not re-read; see telemetry.rolloutOnSecretChange in values.yaml). */}}
+     (the telemetry.export.otlp shape), .env the variable its credential header is read from, .mtls and .ca the
+     directories its client certificate and CA bundle Secrets are mounted at, .root the chart context. Emits at
+     column 0. The auth header's value is never written here - only a reference to the environment variable the
+     container injects it into from a Secret at start (see agent.telemetryExporterEnv). A client certificate
+     carries reload_interval: 1h, so a renewed certificate in the mounted Secret is picked up without a restart
+     (the CA in ca.crt is not re-read; see telemetry.rolloutOnSecretChange in values.yaml). An http endpoint takes
+     the scheme tls.insecure picks unless it already carries one. */}}
 {{- define "agent.telemetryExporterBlock" -}}
 {{- $c := .c -}}
+{{- $trust := include "agent.telemetryExporterTrust" . -}}
 {{ .key }}:
 {{- if eq $c.protocol "zipkin" }}
   endpoint: {{ include "agent.telemetryZipkinEndpoint" $c | quote }}
   format: json
 {{- else if eq $c.protocol "http" }}
-  endpoint: {{ printf "%s://%s" (ternary "http" "https" $c.tls.insecure) $c.endpoint | quote }}
+  {{- $e := $c.endpoint }}
+  {{- if not (regexMatch "^https?://" $e) }}{{ $e = printf "%s://%s" (ternary "http" "https" $c.tls.insecure) $e }}{{ end }}
+  endpoint: {{ $e | quote }}
 {{- else }}
   endpoint: {{ $c.endpoint | quote }}
 {{- end }}
 {{- if eq $c.protocol "grpc" }}
   tls:
     insecure: {{ $c.tls.insecure }}
-    {{- if $c.tls.mtls.enabled }}
-    ca_file: {{ .mtls }}/ca.crt
-    cert_file: {{ .mtls }}/tls.crt
-    key_file: {{ .mtls }}/tls.key
-    reload_interval: 1h
-    {{- else if $c.tls.caFile }}
-    ca_file: {{ $c.tls.caFile | quote }}
+    {{- if $trust }}
+    {{- $trust | nindent 4 }}
     {{- end }}
     {{- if $c.tls.serverName }}
     server_name_override: {{ $c.tls.serverName | quote }}
     {{- end }}
-{{- else if or $c.tls.mtls.enabled $c.tls.caFile }}
+{{- else if or $trust $c.tls.serverName }}
   {{/* The http and zipkin exporters have no insecure toggle: the endpoint's scheme IS that choice, and the
        collector appends /v1/<signal> to an otlphttp endpoint itself. */}}
   tls:
-    {{- if $c.tls.mtls.enabled }}
-    ca_file: {{ .mtls }}/ca.crt
-    cert_file: {{ .mtls }}/tls.crt
-    key_file: {{ .mtls }}/tls.key
-    reload_interval: 1h
-    {{- else }}
-    ca_file: {{ $c.tls.caFile | quote }}
+    {{- if $trust }}
+    {{- $trust | nindent 4 }}
+    {{- end }}
+    {{- if $c.tls.serverName }}
+    server_name_override: {{ $c.tls.serverName | quote }}
     {{- end }}
 {{- end }}
 {{- if $c.auth.secretName }}
@@ -642,7 +656,7 @@ batch:
   emptyDir: {sizeLimit: {{ .Values.telemetry.export.queue.persistent.sizeLimit | quote }}}
 {{- end -}}
 
-{{/* The Secrets one collector mounts for a client certificate (.scope is "host" or "cluster"), as a JSON list. */}}
+{{/* The Secrets one collector mounts for a client certificate or a CA bundle (.scope is "host" or "cluster"), as a JSON list. */}}
 {{- define "agent.telemetryMtlsSecretNames" -}}
 {{- $root := .root -}}
 {{- $l := list -}}
@@ -650,9 +664,11 @@ batch:
 {{- range (include "agent.telemetryModalities" . | fromJsonArray) -}}
 {{- if include "agent.telemetryHasRoute" (dict "root" $root "m" .) -}}
 {{- $r := get $root.Values.telemetry.export.routes . -}}
-{{- if $r.tls.mtls.enabled }}{{ $l = append $l $r.tls.mtls.secretName }}{{ end -}}
+{{- if $r.tls.mtls.enabled }}{{ $l = append $l $r.tls.mtls.secretName }}{{ else if $r.tls.caSecretName }}{{ $l = append $l $r.tls.caSecretName }}{{ end -}}
 {{- end -}}
 {{- end -}}
+{{- $d := $root.Values.telemetry.export.otlp.tls -}}
+{{- if and (include "agent.telemetryDefaultUsed" .) $d.caSecretName (not $d.mtls.enabled) }}{{ $l = append $l $d.caSecretName }}{{ end -}}
 {{- toJson (uniq $l) -}}
 {{- end -}}
 
@@ -681,11 +697,11 @@ batch:
 {{- $root := .root -}}
 {{- $blocks := list -}}
 {{- if include "agent.telemetryDefaultUsed" . -}}
-{{- $blocks = append $blocks (include "agent.telemetryExporterBlock" (dict "root" $root "key" (include "agent.telemetryExporterName" $root) "c" $root.Values.telemetry.export.otlp "env" "CONTINUUM_TELEMETRY_AUTH" "mtls" "/export-mtls")) -}}
+{{- $blocks = append $blocks (include "agent.telemetryExporterBlock" (dict "root" $root "key" (include "agent.telemetryExporterName" $root) "c" $root.Values.telemetry.export.otlp "env" "CONTINUUM_TELEMETRY_AUTH" "mtls" "/export-mtls" "ca" "/export-ca")) -}}
 {{- end -}}
 {{- range (include "agent.telemetryModalities" . | fromJsonArray) -}}
 {{- if include "agent.telemetryHasRoute" (dict "root" $root "m" .) -}}
-{{- $blocks = append $blocks (include "agent.telemetryExporterBlock" (dict "root" $root "key" (include "agent.telemetryExporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.telemetry.export.routes .) "env" (printf "CONTINUUM_TELEMETRY_AUTH_%s" (upper .)) "mtls" (printf "/export-mtls-%s" .))) -}}
+{{- $blocks = append $blocks (include "agent.telemetryExporterBlock" (dict "root" $root "key" (include "agent.telemetryExporterFor" (dict "root" $root "m" .)) "c" (get $root.Values.telemetry.export.routes .) "env" (printf "CONTINUUM_TELEMETRY_AUTH_%s" (upper .)) "mtls" (printf "/export-mtls-%s" .) "ca" (printf "/export-ca-%s" .))) -}}
 {{- end -}}
 {{- end -}}
 {{- join "\n" $blocks -}}
@@ -743,6 +759,45 @@ batch:
 {{- $r := get $root.Values.telemetry.export.routes . -}}
 {{- if $r.tls.mtls.enabled -}}
 {{- $l = append $l (printf "- name: export-mtls-%s\n  secret: {secretName: %s}" . $r.tls.mtls.secretName) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $l -}}
+{{- end -}}
+
+{{/* CA-bundle Secrets (...tls.caSecretName, key ca.crt) for destinations in use: the default at /export-ca, each
+     route at /export-ca-<signal>. Not mounted for a destination whose mtls is on, because its own Secret's ca.crt is
+     what is trusted then. Same shape as the client-certificate lists above. */}}
+{{- define "agent.telemetryExportCAMounts" -}}
+{{- $root := .root -}}
+{{- $l := list -}}
+{{- $d := $root.Values.telemetry.export.otlp.tls -}}
+{{- if and (include "agent.telemetryDefaultUsed" .) $d.caSecretName (not $d.mtls.enabled) -}}
+{{- $l = append $l "- {name: export-ca, mountPath: /export-ca, readOnly: true}" -}}
+{{- end -}}
+{{- range (include "agent.telemetryModalities" . | fromJsonArray) -}}
+{{- if include "agent.telemetryHasRoute" (dict "root" $root "m" .) -}}
+{{- $r := get $root.Values.telemetry.export.routes . -}}
+{{- if and $r.tls.caSecretName (not $r.tls.mtls.enabled) -}}
+{{- $l = append $l (printf "- {name: export-ca-%s, mountPath: /export-ca-%s, readOnly: true}" . .) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- join "\n" $l -}}
+{{- end -}}
+
+{{- define "agent.telemetryExportCAVolumes" -}}
+{{- $root := .root -}}
+{{- $l := list -}}
+{{- $d := $root.Values.telemetry.export.otlp.tls -}}
+{{- if and (include "agent.telemetryDefaultUsed" .) $d.caSecretName (not $d.mtls.enabled) -}}
+{{- $l = append $l (printf "- name: export-ca\n  secret: {secretName: %s}" $d.caSecretName) -}}
+{{- end -}}
+{{- range (include "agent.telemetryModalities" . | fromJsonArray) -}}
+{{- if include "agent.telemetryHasRoute" (dict "root" $root "m" .) -}}
+{{- $r := get $root.Values.telemetry.export.routes . -}}
+{{- if and $r.tls.caSecretName (not $r.tls.mtls.enabled) -}}
+{{- $l = append $l (printf "- name: export-ca-%s\n  secret: {secretName: %s}" . $r.tls.caSecretName) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

@@ -262,11 +262,14 @@
           }
         },
         "receiver": {
+          "description": "Retired. The gateway's TLS Secret is always <name>-central-receiver-tls, because the Ikhnos server fills it in by that name. Only the empty string an earlier release stored is still accepted, so a --reuse-values upgrade does not fail; anything else is refused instead of silently ignored.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "tlsSecretName": {
-              "type": "string"
+              "enum": [
+                ""
+              ]
             }
           }
         },

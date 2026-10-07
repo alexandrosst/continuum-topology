@@ -446,3 +446,58 @@ func TestRegionalOperatorSelfMetricsOptIn(t *testing.T) {
 		t.Fatalf("Service has no metrics port: %+v", svcPort.Spec.Ports)
 	}
 }
+
+// The ConfigMap is named in two places, the ConfigMap itself and the Deployment volume that mounts it; for a long
+// release name the 63-character cut used to apply to the first alone, so the Deployment asked for a ConfigMap that did
+// not exist and its pod never started.
+func TestRegionalOperatorLongNameMountsTheConfigMapItRenders(t *testing.T) {
+	for _, release := range []string{
+		"eu-west-production-cluster-number-0001-x",     // 40 characters: the name is 58, the ConfigMap's 65
+		"a-release-name-that-is-as-long-as-helm-allow", // 44: the ConfigMap name is cut to the operator's own
+	} {
+		out, err := operatorHelmTemplateNamed(t, release)
+		if err != nil {
+			t.Fatalf("helm template %s: %v\n%s", release, err, out)
+		}
+		var cm string
+		var mounted []string
+		dec := yaml.NewYAMLOrJSONDecoder(strings.NewReader(out), 4096)
+		for {
+			var raw json.RawMessage
+			if err := dec.Decode(&raw); err == io.EOF {
+				break
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			var o struct {
+				Kind     string `json:"kind"`
+				Metadata struct {
+					Name string `json:"name"`
+				} `json:"metadata"`
+			}
+			if json.Unmarshal(raw, &o) != nil {
+				continue
+			}
+			switch o.Kind {
+			case "ConfigMap":
+				cm = o.Metadata.Name
+			case "Deployment":
+				var d appsv1.Deployment
+				if err := json.Unmarshal(raw, &d); err != nil {
+					t.Fatal(err)
+				}
+				for _, v := range d.Spec.Template.Spec.Volumes {
+					if v.Name == "config" && v.ConfigMap != nil {
+						mounted = append(mounted, v.ConfigMap.Name)
+					}
+				}
+			}
+		}
+		if len(cm) == 0 || len(cm) > 63 {
+			t.Errorf("release %q: ConfigMap name %q is empty or longer than 63 characters", release, cm)
+		}
+		if len(mounted) != 1 || mounted[0] != cm {
+			t.Errorf("release %q: the Deployment mounts ConfigMap %v, but the chart renders %q", release, mounted, cm)
+		}
+	}
+}
