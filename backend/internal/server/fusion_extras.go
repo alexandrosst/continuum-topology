@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sort"
 	"sync"
 	"time"
 
@@ -125,23 +126,57 @@ func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
 	// A service a person wrote into Ikhnos by hand is not in the interpreted topology (that is what the agents saw), but the
 	// record itself says what it is called and where it runs, which is all telemetry can be matched with.
 	declared := map[string]map[string]any{}
+	live := map[string]bool{}    // applications that exist
+	deleted := map[string]bool{} // applications a person deleted: not applications any more
+	chosen := map[string]bool{}  // services a person put in an application explicitly, in a ref or on their own record
 	if d, err := workspace.Parse(data); err == nil {
 		for _, r := range d.Records["service"] {
 			if id, _ := r["id"].(string); id != "" {
 				if _, gone := r["deletedAt"]; !gone {
 					declared[id] = r
 				}
+				if app, _ := r["applicationId"].(string); app != "" {
+					chosen[id] = true
+				}
 			}
+		}
+		for id, ref := range d.Refs {
+			if ref.ApplicationID != "" {
+				chosen[id] = true
+			}
+		}
+		for _, r := range d.Records["application"] {
+			if id, _ := r["id"].(string); id != "" {
+				if _, gone := r["deletedAt"]; gone {
+					deleted[id] = true
+				} else {
+					live[id] = true
+				}
+			}
+		}
+	}
+	// A discovered service whose own labels suggest an application ("grouped as ...") belongs to it as soon as a person has
+	// accepted that grouping, i.e. the application exists, unless a person put it somewhere else. Ikhnos does not store this
+	// as a membership (the suggestion is the membership), so it is read from the topology the same way the UI reads it.
+	hinted := map[string][]string{}
+	for _, s := range doc.Topology.Services {
+		if s.ApplicationHint != "" && !chosen[s.ID] && live[s.ApplicationHint] {
+			hinted[s.ApplicationHint] = append(hinted[s.ApplicationHint], s.ID)
 		}
 	}
 	str := func(r map[string]any, k string) string { v, _ := r[k].(string); return v }
 	out := make([]fusionapi.AppGroup, 0, len(apps))
 	for _, a := range apps {
+		if deleted[a.ID] {
+			continue
+		}
 		g := fusionapi.AppGroup{ID: a.ID, Name: a.Name, Description: a.Description, Members: []fusionapi.AppMember{}}
 		if g.Name == "" {
 			g.Name = a.ID
 		}
-		for _, id := range a.ServiceIDs {
+		ids := append(append([]string{}, a.ServiceIDs...), hinted[a.ID]...)
+		sort.Strings(ids)
+		for _, id := range ids {
 			var m fusionapi.AppMember
 			if i, ok := byID[id]; ok {
 				s := doc.Topology.Services[i]

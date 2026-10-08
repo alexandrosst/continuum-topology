@@ -288,3 +288,33 @@ func TestTheApplicationSeriesAreWrittenOnlyWhileFusionRuns(t *testing.T) {
 		t.Fatal("no admin, no series")
 	}
 }
+
+// Accepting a grouping suggestion in Ikhnos creates the application and nothing else: the services belong to it because their
+// own labels pointed at it (the hint), which is not stored as a membership. A service a person put somewhere else is not
+// taken, a deleted application is not an application, and a hint at an application that does not exist is nothing.
+func TestAServiceBelongsToTheApplicationItsLabelsSuggestOnceThatApplicationExists(t *testing.T) {
+	doc := StateDoc{Topology: model.Topology{Services: []model.Service{
+		{ID: "sv-a", Name: "api", Namespace: "core", ClusterID: "cl-1", ApplicationHint: "app-core"},
+		{ID: "sv-b", Name: "db", Namespace: "core", ClusterID: "cl-1", ApplicationHint: "app-core"},
+		{ID: "sv-c", Name: "moved", Namespace: "core", ClusterID: "cl-1", ApplicationHint: "app-core"},
+		{ID: "sv-d", Name: "ghost", Namespace: "x", ClusterID: "cl-1", ApplicationHint: "app-unknown"},
+		{ID: "sv-e", Name: "old", Namespace: "x", ClusterID: "cl-1", ApplicationHint: "app-old"},
+	}}}
+	ws := []byte(`{"schemaVersion":4,"applications":[{"id":"app-core","name":"app-core"},{"id":"app-other","name":"Other"},{"id":"app-old","name":"Old","deletedAt":"2026-10-01T00:00:00Z"}],
+		"refs":{"sv-c":{"kind":"service","applicationId":"app-other"}}}`)
+	got := map[string][]string{}
+	for _, g := range appGroups(ws, doc) {
+		for _, m := range g.Members {
+			got[g.ID] = append(got[g.ID], m.Name)
+		}
+		if g.ID == "app-old" {
+			t.Errorf("a deleted application is listed: %+v", g)
+		}
+	}
+	if len(got["app-core"]) != 2 || got["app-core"][0] != "api" || got["app-core"][1] != "db" {
+		t.Errorf("app-core = %v, want api and db (its labels point at it); moved was put elsewhere", got["app-core"])
+	}
+	if len(got["app-other"]) != 1 || got["app-other"][0] != "moved" {
+		t.Errorf("app-other = %v", got["app-other"])
+	}
+}
