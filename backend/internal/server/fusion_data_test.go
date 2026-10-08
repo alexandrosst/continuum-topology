@@ -482,3 +482,29 @@ func TestTheFusionCardKnowsWhetherTheDataApiIsServed(t *testing.T) {
 		t.Fatalf("%s", r.Body.String())
 	}
 }
+
+// deadlineRecorder is a response writer that remembers the write deadline it was given.
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadline time.Time
+}
+
+func (d *deadlineRecorder) SetWriteDeadline(t time.Time) error { d.deadline = t; return nil }
+
+// The server's WriteTimeout is as long as the request budget and starts earlier, so a data read extends the write deadline
+// past its budget: the partial answer the budget promises (the 504 items, the stream's last line) must be writable.
+func TestFusionDataExtendsTheWriteDeadlinePastItsBudget(t *testing.T) {
+	d := newDataRig(t)
+	req := httptest.NewRequest("GET", "/api/v1/fusion/status", nil)
+	req.RemoteAddr = "10.1.1.1:5555"
+	withCookie(d.admin)(req)
+	rec := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	before := time.Now()
+	d.h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if min := before.Add(fusionRequestTimeout + time.Second); rec.deadline.Before(min) {
+		t.Fatalf("write deadline %v is not past the %v budget", rec.deadline, fusionRequestTimeout)
+	}
+}

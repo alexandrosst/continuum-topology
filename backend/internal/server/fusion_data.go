@@ -39,6 +39,10 @@ const (
 	maxFusionTokenTTL     = 365 * 24 * time.Hour
 	maxScopeEntries       = 50
 	fusionRequestTimeout  = 30 * time.Second
+	// fusionWriteGrace is how long after the request budget the connection can still be written to, so the partial answer
+	// (the 504 items of a bulk read, the last line of a stream) reaches the caller. The http.Server's WriteTimeout is as
+	// long as the budget and started earlier, so without it the budget would end after the connection could be written.
+	fusionWriteGrace = 5 * time.Second
 )
 
 var (
@@ -333,6 +337,7 @@ func (a *Admin) fusionData(h fusionHandler) http.Handler {
 			writeErr(w, http.StatusTooManyRequests, "too many requests, slow down")
 			return
 		}
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(fusionRequestTimeout + fusionWriteGrace))
 		ctx, cancel := context.WithTimeout(r.Context(), fusionRequestTimeout)
 		defer cancel()
 		h(w, r.WithContext(ctx), a.Fusion.dataClient(), who)
