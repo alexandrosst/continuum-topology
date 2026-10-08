@@ -901,7 +901,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "60 * sum by (continuum_cluster_id, k8s_namespace_name, k8s_pod_name) (rate({k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"${member:pipe}\" | ikhnos_scope=\"\" or ikhnos_member=~\"${member:pipe}\" [$__interval]))",
+          "expr": "60 * sum by (continuum_cluster_id, k8s_namespace_name, k8s_pod_name) (rate({k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"$member\" | ikhnos_scope=\"\" or ikhnos_member=~\"$member\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
@@ -951,7 +951,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "60 * sum by (continuum_cluster_id, k8s_namespace_name, k8s_pod_name) (rate({k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} |~ \"(?i)(error|exception|fatal|panic)\" | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"${member:pipe}\" | ikhnos_scope=\"\" or ikhnos_member=~\"${member:pipe}\" [$__interval]))",
+          "expr": "60 * sum by (continuum_cluster_id, k8s_namespace_name, k8s_pod_name) (rate({k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} |~ \"(?i)(error|exception|fatal|panic)\" | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"$member\" | ikhnos_scope=\"\" or ikhnos_member=~\"$member\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
@@ -1002,7 +1002,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"${member:pipe}\" | ikhnos_scope=\"\" or ikhnos_member=~\"${member:pipe}\"",
+          "expr": "{k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"$member\" | ikhnos_scope=\"\" or ikhnos_member=~\"$member\"",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"

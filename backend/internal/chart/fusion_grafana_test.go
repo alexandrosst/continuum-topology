@@ -407,7 +407,7 @@ func TestFusionApplicationsDashboardFollowsTheInfoSeries(t *testing.T) {
 	for _, p := range d.Panels {
 		for _, q := range p.Targets {
 			e := q.Expr + q.Query
-			if strings.Contains(e, "service_name=~") && !strings.Contains(e, "$member") && !strings.Contains(e, "${member:pipe}") &&
+			if strings.Contains(e, "service_name=~") && !strings.Contains(e, "$member") && !strings.Contains(e, "$member") &&
 				!strings.Contains(e, "resource.service.name") {
 				t.Errorf("panel %q selects services but not the exact members: %s", p.Title, e)
 			}
@@ -631,7 +631,7 @@ func TestFusionApplicationPickerLeavesAllAsItWas(t *testing.T) {
 				if strings.Contains(e, "ikhnos_application_info") && (!strings.Contains(e, join) || !strings.Contains(e, " and on() "+allChosen)) {
 					t.Errorf("%s: %q must join on the exact member and keep today's selection when no application is chosen: %s", name, p.Title, e)
 				}
-				if strings.Contains(e, "ikhnos_member") && !strings.Contains(e, `| ikhnos_scope="" or ikhnos_member=~"${member:pipe}"`) {
+				if strings.Contains(e, "ikhnos_member") && !strings.Contains(e, `| ikhnos_scope="" or ikhnos_member=~"$member"`) {
 					t.Errorf("%s: %q must let everything through when no application is chosen: %s", name, p.Title, e)
 				}
 			}

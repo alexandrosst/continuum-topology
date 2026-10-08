@@ -1303,7 +1303,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "60 * sum by (service_name) (rate({service_name=~\".+\", k8s_namespace_name!~\"kube-system|kube-public|kube-node-lease\", k8s_namespace_name!=\"\"} | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"${member:pipe}\" | ikhnos_scope=\"\" or ikhnos_member=~\"${member:pipe}\" [$__interval]))",
+          "expr": "60 * sum by (service_name) (rate({service_name=~\".+\", k8s_namespace_name!~\"kube-system|kube-public|kube-node-lease\", k8s_namespace_name!=\"\"} | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"$member\" | ikhnos_scope=\"\" or ikhnos_member=~\"$member\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
@@ -1354,7 +1354,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "60 * sum by (service_name) (rate({service_name=~\".+\", k8s_namespace_name!~\"kube-system|kube-public|kube-node-lease\", k8s_namespace_name!=\"\"} |~ \"(?i)(error|exception|fatal|panic)\" | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"${member:pipe}\" | ikhnos_scope=\"\" or ikhnos_member=~\"${member:pipe}\" [$__interval]))",
+          "expr": "60 * sum by (service_name) (rate({service_name=~\".+\", k8s_namespace_name!~\"kube-system|kube-public|kube-node-lease\", k8s_namespace_name!=\"\"} |~ \"(?i)(error|exception|fatal|panic)\" | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"$member\" | ikhnos_scope=\"\" or ikhnos_member=~\"$member\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"

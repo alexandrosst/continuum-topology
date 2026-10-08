@@ -909,7 +909,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "60 * sum by (service_name) (rate({service_name=~\".+\", service_name=~\"$service\"} | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\" | ikhnos_member=~\"${member:pipe}\" [$__interval]))",
+          "expr": "60 * sum by (service_name) (rate({service_name=~\".+\", service_name=~\"$service\"} | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\" | ikhnos_member=~\"$member\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
@@ -960,7 +960,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "60 * sum by (service_name) (rate({service_name=~\".+\", service_name=~\"$service\"} |~ \"(?i)(error|exception|fatal|panic)\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\" | ikhnos_member=~\"${member:pipe}\" [$__interval]))",
+          "expr": "60 * sum by (service_name) (rate({service_name=~\".+\", service_name=~\"$service\"} |~ \"(?i)(error|exception|fatal|panic)\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\" | ikhnos_member=~\"$member\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
@@ -1011,7 +1011,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{service_name=~\".+\", service_name=~\"$service\"} | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\" | ikhnos_member=~\"${member:pipe}\"",
+          "expr": "{service_name=~\".+\", service_name=~\"$service\"} | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\" | ikhnos_member=~\"$member\"",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
