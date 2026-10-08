@@ -165,3 +165,30 @@ func TestTheBatchBodySchemaNamesEveryFusedOption(t *testing.T) {
 		}
 	}
 }
+
+// The applications are worked out from the topology and the saved workspace, which is not cheap, and a dashboard asks on every
+// refresh: the answer is reused for appGroupTTL and worked out again after it; a failure is never kept.
+func TestTheApplicationsAreReusedForAShortWhile(t *testing.T) {
+	d := newDataRig(t)
+	if r := d.get("/api/v1/fusion/applications", withCookie(d.admin)); r.Code != 200 {
+		t.Fatalf("%d %s", r.Code, r.Body.String())
+	}
+	c := &d.a.appCache
+	c.mu.Lock()
+	if c.at.IsZero() {
+		c.mu.Unlock()
+		t.Fatal("the first answer was not kept")
+	}
+	c.groups = []fusionapi.AppGroup{{ID: "from-cache", Name: "from-cache", Members: []fusionapi.AppMember{{Name: "cached"}}}}
+	c.mu.Unlock()
+
+	r := d.get("/api/v1/fusion/applications", withCookie(d.admin))
+	if !strings.Contains(r.Body.String(), "from-cache") {
+		t.Fatalf("a second read within the TTL did not use the kept answer: %s", r.Body.String())
+	}
+	*d.now = d.now.Add(appGroupTTL + time.Second)
+	r = d.get("/api/v1/fusion/applications", withCookie(d.admin))
+	if r.Code != 200 || strings.Contains(r.Body.String(), "from-cache") {
+		t.Fatalf("after the TTL the answer was not worked out again: %d %s", r.Code, r.Body.String())
+	}
+}

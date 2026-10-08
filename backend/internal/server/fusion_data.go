@@ -478,8 +478,9 @@ func (a *Admin) fusionGroups(r *http.Request, who fusionCaller) ([]fusionapi.App
 }
 
 func metricFilter(q url.Values) fusionapi.MetricFilter {
+	cats, _ := fusionapi.ParseCategories(q.Get("category")) // already checked by the route (checkQuery)
 	return fusionapi.MetricFilter{Name: q.Get("name"), NameRegex: q.Get("metric"), Service: q.Get("service"), Namespace: q.Get("namespace"),
-		Pod: q.Get("pod"), Node: q.Get("node"), Cluster: q.Get("cluster")}
+		Pod: q.Get("pod"), Node: q.Get("node"), Cluster: q.Get("cluster"), Categories: cats}
 }
 
 // fusionApplications lists the Ikhnos applications, each with its services and which signals FUSION has for them in the range.
@@ -606,7 +607,11 @@ func (a *Admin) fusionMetricNames(w http.ResponseWriter, r *http.Request, c *fus
 		a.fusionErr(w, r, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"names": orEmpty(names)})
+	cat := make(map[string]string, len(names))
+	for _, n := range names {
+		cat[n] = fusionapi.MetricCategory(n)
+	}
+	writeJSON(w, 200, map[string]any{"names": orEmpty(names), "categories": cat})
 }
 
 func (a *Admin) fusionMetricSeries(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
@@ -716,8 +721,9 @@ func (a *Admin) fusionLogs(w http.ResponseWriter, r *http.Request, c *fusionapi.
 	} else if scope, serr := a.fusionScope(r, who); serr != nil {
 		err = serr
 	} else {
+		cats, _ := fusionapi.ParseCategories(q.Get("category")) // already checked by the route (checkQuery)
 		entries, truncated, err = c.Logs(r.Context(), scope, fusionapi.LogFilter{
-			Service: q.Get("service"), Namespace: q.Get("namespace"), Pod: q.Get("pod"), Cluster: q.Get("cluster"),
+			Service: q.Get("service"), Namespace: q.Get("namespace"), Pod: q.Get("pod"), Cluster: q.Get("cluster"), Categories: cats,
 			TraceID: q.Get("trace_id"), SpanID: q.Get("span_id"), Severity: q.Get("severity"), Contains: q.Get("contains"), Backward: backward,
 		}, tr, limit)
 	}
@@ -771,8 +777,9 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 			scope, err = a.fusionScope(r, who)
 		}
 		if err == nil {
+			cats, _ := fusionapi.ParseCategories(q.Get("category")) // already checked by the route (checkQuery)
 			traces, err = c.SearchTraces(r.Context(), scope, fusionapi.TraceFilter{
-				Service: q.Get("service"), Namespace: q.Get("namespace"), Cluster: q.Get("cluster"), Name: q.Get("name"), Status: q.Get("status"),
+				Service: q.Get("service"), Namespace: q.Get("namespace"), Cluster: q.Get("cluster"), Name: q.Get("name"), Status: q.Get("status"), Categories: cats,
 				MinDuration: minD, MaxDuration: maxD,
 			}, tr, limit)
 		}

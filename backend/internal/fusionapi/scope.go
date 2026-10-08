@@ -188,6 +188,26 @@ func normHex(what, id string, width int) (string, error) {
 // Go-style escapes.
 func quote(s string) string { return strconv.Quote(s) }
 
+// eqFilter is one optional exact-match filter: name is what the caller called it (for the error), label what the store
+// calls it, val what was asked for ("" = not asked).
+type eqFilter struct{ name, label, val string }
+
+// eqMatchers renders each filter that was asked for with render(label, quotedValue), after the same validation every
+// value gets, in the order given.
+func eqMatchers(filters []eqFilter, render func(label, quoted string) string) ([]string, error) {
+	var out []string
+	for _, f := range filters {
+		if f.val == "" {
+			continue
+		}
+		if err := checkValue(f.name, f.val); err != nil {
+			return nil, err
+		}
+		out = append(out, render(f.label, quote(f.val)))
+	}
+	return out, nil
+}
+
 // regexAny is a regular expression matching exactly one of the values (all three stores anchor a regex).
 func regexAny(vals []string) string {
 	q := make([]string, len(vals))

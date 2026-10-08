@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,18 +26,23 @@ const (
 	lblCluster   = "continuum_cluster_id"
 )
 
+// The labels that name the workload a pod belongs to. A pod's metrics carry no service name, only these.
+var lblWorkloads = []string{"k8s_deployment_name", "k8s_statefulset_name", "k8s_daemonset_name"}
+
 // Point is one sample, [unix seconds, value] in JSON.
 type Point [2]float64
 
 // MetricSeries is one series and what it did over the asked range.
 type MetricSeries struct {
-	Name   string            `json:"name"`
-	Labels map[string]string `json:"labels"`
-	Points []Point           `json:"points,omitempty"`
-	Min    float64           `json:"min"`
-	Max    float64           `json:"max"`
-	Avg    float64           `json:"avg"`
-	Last   float64           `json:"last"`
+	Name string `json:"name"`
+	// Category is system, kubernetes or application, by the metric's name (see MetricCategory).
+	Category string            `json:"category,omitempty"`
+	Labels   map[string]string `json:"labels"`
+	Points   []Point           `json:"points,omitempty"`
+	Min      float64           `json:"min"`
+	Max      float64           `json:"max"`
+	Avg      float64           `json:"avg"`
+	Last     float64           `json:"last"`
 }
 
 // MetricFilter picks series. Every field is an exact match except NameRegex, which is a regular expression over the
@@ -49,6 +55,8 @@ type MetricFilter struct {
 	Pod       string `json:"pod,omitempty"`
 	Node      string `json:"node,omitempty"`
 	Cluster   string `json:"cluster,omitempty"`
+	// Categories keeps metrics of these categories (system, kubernetes, application) by their names; empty keeps all.
+	Categories []string `json:"categories,omitempty"`
 	// NoPod keeps only series that name no pod: with Node, what was reported about the node itself.
 	NoPod bool `json:"noPod,omitempty"`
 }
@@ -74,23 +82,22 @@ func (f MetricFilter) matchers(s Scope) ([]string, error) {
 	default:
 		m = append(m, lblName+`=~".+"`)
 	}
+	if cm := metricNameMatcher(f.Categories); cm != "" {
+		m = append(m, cm)
+	}
 	if f.Name != AppInfoMetric {
 		// The series the server writes to say which services are in which application is not telemetry: it would make every
 		// service of an application look like it reports a metric of that name.
 		m = append(m, lblName+"!="+quote(AppInfoMetric))
 	}
-	for _, p := range []struct{ name, label, val string }{
+	eq, err := eqMatchers([]eqFilter{
 		{"service", lblService, f.Service}, {"namespace", lblNamespace, f.Namespace}, {"pod", lblPod, f.Pod},
 		{"node", lblNode, f.Node}, {"cluster", lblCluster, f.Cluster},
-	} {
-		if p.val == "" {
-			continue
-		}
-		if err := checkValue(p.name, p.val); err != nil {
-			return nil, err
-		}
-		m = append(m, p.label+"="+quote(p.val))
+	}, func(l, v string) string { return l + "=" + v })
+	if err != nil {
+		return nil, err
 	}
+	m = append(m, eq...)
 	if f.NoPod {
 		m = append(m, lblPod+`=""`)
 	}
@@ -104,6 +111,31 @@ func (f MetricFilter) matchers(s Scope) ([]string, error) {
 		m = append(m, lblService+"=~"+quote(regexAny(s.FocusServices)))
 	}
 	return m, nil
+}
+
+// selectors is what a read sends: one selector, or, when the caller chose services (an application) and did not name one
+// itself, that selector plus one per workload kind. Pod metrics (k8s_pod_cpu_usage, restarts, ...) carry the name of
+// their Deployment, StatefulSet or DaemonSet and no service name, so without the extra selectors choosing an application
+// would leave them out. The selectors are disjoint in what they add, so the results are simply united.
+func (f MetricFilter) selectors(s Scope) ([]string, error) {
+	base, err := f.selector(s)
+	if err != nil {
+		return nil, err
+	}
+	if len(s.FocusServices) == 0 || f.Service != "" {
+		return []string{base}, nil
+	}
+	wide := s
+	wide.FocusServices = nil
+	m, err := f.matchers(wide)
+	if err != nil {
+		return nil, err
+	}
+	out := []string{base}
+	for _, l := range lblWorkloads {
+		out = append(out, "{"+strings.Join(append(slices.Clone(m), l+"=~"+quote(regexAny(s.FocusServices))), ",")+"}")
+	}
+	return out, nil
 }
 
 func (f MetricFilter) selector(s Scope) (string, error) {
@@ -169,11 +201,11 @@ func (c *Client) MetricNames(ctx context.Context, s Scope, f MetricFilter, tr Ti
 	if err := s.needSignal(SignalMetrics); err != nil {
 		return nil, err
 	}
-	sel, err := f.selector(s)
+	sel, err := f.selectors(s)
 	if err != nil {
 		return nil, err
 	}
-	data, err := c.prom(ctx, "/api/v1/label/__name__/values", url.Values{"match[]": {sel}, "start": {unixFloat(tr.From)}, "end": {unixFloat(tr.To)}, "limit": {strconv.Itoa(limit)}})
+	data, err := c.prom(ctx, "/api/v1/label/__name__/values", url.Values{"match[]": sel, "start": {unixFloat(tr.From)}, "end": {unixFloat(tr.To)}, "limit": {strconv.Itoa(limit)}})
 	if err != nil {
 		return nil, err
 	}
@@ -193,11 +225,11 @@ func (c *Client) Series(ctx context.Context, s Scope, f MetricFilter, tr TimeRan
 	if err := s.needSignal(SignalMetrics); err != nil {
 		return nil, err
 	}
-	sel, err := f.selector(s)
+	sel, err := f.selectors(s)
 	if err != nil {
 		return nil, err
 	}
-	data, err := c.prom(ctx, "/api/v1/series", url.Values{"match[]": {sel}, "start": {unixFloat(tr.From)}, "end": {unixFloat(tr.To)}, "limit": {strconv.Itoa(limit)}})
+	data, err := c.prom(ctx, "/api/v1/series", url.Values{"match[]": sel, "start": {unixFloat(tr.From)}, "end": {unixFloat(tr.To)}, "limit": {strconv.Itoa(limit)}})
 	if err != nil {
 		return nil, err
 	}
@@ -262,12 +294,12 @@ func (c *Client) MetricRange(ctx context.Context, s Scope, f MetricFilter, tr Ti
 	if err := s.needSignal(SignalMetrics); err != nil {
 		return nil, false, err
 	}
-	sel, err := f.selector(s)
+	sel, err := f.selectors(s)
 	if err != nil {
 		return nil, false, err
 	}
 	data, err := c.prom(ctx, "/api/v1/query_range", url.Values{
-		"query": {sel}, "start": {unixFloat(tr.From)}, "end": {unixFloat(tr.To)}, "step": {strconv.FormatFloat(step.Seconds(), 'f', -1, 64)}, "limit": {strconv.Itoa(maxSeries + 1)},
+		"query": {strings.Join(sel, " or ")}, "start": {unixFloat(tr.From)}, "end": {unixFloat(tr.To)}, "step": {strconv.FormatFloat(step.Seconds(), 'f', -1, 64)}, "limit": {strconv.Itoa(maxSeries + 1)},
 	})
 	if err != nil {
 		return nil, false, err
@@ -292,7 +324,7 @@ func decodeMatrix(data json.RawMessage, s Scope, maxSeries int) (series []Metric
 		if !s.NamespaceVisible(r.Metric[lblNamespace]) || !s.ClusterVisible(r.Metric[lblCluster]) {
 			continue
 		}
-		ms := MetricSeries{Name: r.Metric[lblName], Labels: map[string]string{}}
+		ms := MetricSeries{Name: r.Metric[lblName], Category: MetricCategory(r.Metric[lblName]), Labels: map[string]string{}}
 		for k, v := range r.Metric {
 			if k != lblName {
 				ms.Labels[k] = v

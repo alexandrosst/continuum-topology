@@ -72,29 +72,43 @@ const (
 	storeTempo = "Tempo"
 )
 
+// acquire takes one slot of sem, waiting for it or for ctx; release gives it back. Every place that bounds how many
+// store calls run at once uses it, so the wait and the way out are the same everywhere.
+func acquire(ctx context.Context, sem chan struct{}) (release func(), err error) {
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// lanes creates the in-flight limits of this Client on first use.
+func (c *Client) lanes() {
+	c.semOnce.Do(func() {
+		c.sem = make(chan struct{}, maxUpstream)
+		c.bulkSem = make(chan struct{}, maxBulkUpstream)
+	})
+}
+
 // get calls one store and decodes a JSON answer into out (a *json.RawMessage keeps it verbatim).
 func (c *Client) get(ctx context.Context, store, base, path string, q url.Values, hdr map[string]string, out any) error {
 	if base == "" {
 		return errf(http.StatusServiceUnavailable, "%s is not configured on this server", store)
 	}
-	c.semOnce.Do(func() {
-		c.sem = make(chan struct{}, maxUpstream)
-		c.bulkSem = make(chan struct{}, maxBulkUpstream)
-	})
+	c.lanes()
 	if isBulk(ctx) { // wait in the bulk lane first, so a queue of bulk calls never sits in the shared one
-		select {
-		case c.bulkSem <- struct{}{}:
-			defer func() { <-c.bulkSem }()
-		case <-ctx.Done():
-			return ctx.Err()
+		release, err := acquire(ctx, c.bulkSem)
+		if err != nil {
+			return err
 		}
+		defer release()
 	}
-	select {
-	case c.sem <- struct{}{}:
-		defer func() { <-c.sem }()
-	case <-ctx.Done():
-		return ctx.Err()
+	release, err := acquire(ctx, c.sem)
+	if err != nil {
+		return err
 	}
+	defer release()
 	u := base + path
 	if len(q) > 0 {
 		u += "?" + q.Encode()

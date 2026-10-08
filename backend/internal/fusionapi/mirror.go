@@ -97,16 +97,12 @@ func (c *Client) Mirror(ctx context.Context, s Scope, store, upstreamPath string
 		return nil, errf(http.StatusMethodNotAllowed, "only GET and POST are served")
 	}
 
-	c.semOnce.Do(func() {
-		c.sem = make(chan struct{}, maxUpstream)
-		c.bulkSem = make(chan struct{}, maxBulkUpstream)
-	})
-	select {
-	case c.sem <- struct{}{}:
-		defer func() { <-c.sem }()
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	c.lanes()
+	release, err := acquire(ctx, c.sem)
+	if err != nil {
+		return nil, err
 	}
+	defer release()
 	u := base + upstreamPath
 	if in.URL.RawQuery != "" {
 		u += "?" + in.URL.RawQuery

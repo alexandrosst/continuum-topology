@@ -70,6 +70,9 @@ type Admin struct {
 	Fusion *FusionControl
 	// extras replaces the platform-backed provider of what Ikhnos knows (topology, applications, events) for a test.
 	extras fusionapi.Extras
+	// appCache holds the Ikhnos applications for a few seconds: working them out builds the whole state document (every agent
+	// and the topology) and a dashboard or a script reading the API many times a second would otherwise redo it each time.
+	appCache appGroupCache
 	// TrustProxy is set when a TLS-terminating proxy sits in front: the client address is read from
 	// the last entry of X-Forwarded-For (what the proxy itself saw), and the request counts as HTTPS
 	// when the proxy says so in X-Forwarded-Proto. Only correct when the proxy is the sole way in and

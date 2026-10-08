@@ -319,13 +319,12 @@ func (c *Client) fusePromQL(ctx context.Context, s Scope, tr *Trace, looked []*R
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				run.err = ctx.Err()
+			release, err := acquire(ctx, sem)
+			if err != nil {
+				run.err = err
 				return
 			}
+			defer release()
 			run.series, run.truncated, run.err = c.promRange(ctx, s, expr, w, step, opts.MaxSeries)
 		}()
 	}

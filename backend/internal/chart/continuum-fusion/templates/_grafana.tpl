@@ -18,7 +18,7 @@
 {{- if .Values.tempo.enabled -}}
 {{- $panels = append $panels (dict "id" 5 "type" "table" "title" "Recent traces" "datasource" (dict "type" "tempo" "uid" "fusion-traces") "gridPos" (dict "h" 8 "w" 24 "x" 0 "y" $y) "targets" (list (dict "refId" "A" "queryType" "traceql" "query" "{}" "limit" 20 "tableType" "traces"))) -}}
 {{- end -}}
-{{- dict "uid" "fusion-arriving" "title" "What is arriving" "tags" (list "ikhnos") "schemaVersion" 39 "version" 1 "editable" false "time" (dict "from" "now-3h" "to" "now") "refresh" "1m" "panels" $panels | toPrettyJson -}}
+{{- dict "uid" "fusion-arriving" "title" "What is arriving" "tags" (list "ikhnos") "schemaVersion" 39 "version" 1 "editable" false "time" (dict "from" "now-3h" "to" "now") "refresh" "30s" "timepicker" (dict "refresh_intervals" (list "10s" "30s" "1m" "5m" "15m" "1h")) "panels" $panels | toPrettyJson -}}
 {{- end -}}
 
 {{/* The Ikhnos dashboards (files/dashboards/*.json: clusters and nodes, namespaces and workloads with logs, delivery health). They
@@ -31,7 +31,7 @@
 {{- $keep := list -}}
 {{- range $d.panels -}}
 {{- $uid := dig "datasource" "uid" "" . -}}
-{{- if or (and (eq $uid "fusion-metrics") $root.Values.prometheus.enabled) (and (eq $uid "fusion-logs") $root.Values.loki.enabled) (and (eq $uid "fusion-traces") $root.Values.tempo.enabled) -}}
+{{- if or (eq .type "row") (and (eq $uid "fusion-metrics") $root.Values.prometheus.enabled) (and (eq $uid "fusion-logs") $root.Values.loki.enabled) (and (eq $uid "fusion-traces") $root.Values.tempo.enabled) -}}
 {{- $keep = append $keep . -}}
 {{- end -}}
 {{- end -}}
@@ -42,5 +42,5 @@
 {{/* Which dashboard files there are, for the ConfigMap and its checksum. They all read metrics (their variables do), so none
      is rendered without Prometheus. */}}
 {{- define "fusion.dashboardNames" -}}
-{{- if .Values.prometheus.enabled -}}clusters workloads delivery applications{{- end -}}
+{{- if .Values.prometheus.enabled -}}clusters workloads delivery applications categories{{- end -}}
 {{- end -}}

@@ -81,6 +81,11 @@ func (op fusionOp) checkQuery(q url.Values) error {
 			return &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("this route does not take %q; it takes %s", printable(k, 40), takes(op))}
 		}
 	}
+	if v := q.Get("category"); v != "" {
+		if _, err := fusionapi.ParseCategories(v); err != nil {
+			return err
+		}
+	}
 	for k := range q {
 		for _, e := range op.excluded(k) {
 			if q.Has(e) {
@@ -153,7 +158,8 @@ var fusionParams = map[string]fusionParam{
 	"pod":         {Type: "string", Desc: "Only this pod."},
 	"node":        {Type: "string", Desc: "Only this node."},
 	"cluster":     {Type: "string", Example: "cl-1", Desc: "Only this cluster (its Ikhnos cluster id)."},
-	"application": {Type: "string", Example: "Shop", Desc: "Only this Ikhnos application: the id or the name (any case) of one listed by `/groups`. It is resolved when you ask, from the services Ikhnos groups into it, to their service names within their namespaces and clusters, so a change to the application shows at once and the stored telemetry carries no application label. It narrows alongside the other filters and your own access, and cannot be combined with a query you write yourself (`query`, `q`). When two members of the application share a service name in different namespaces, a same-named service of the application's other namespaces may show too: telemetry says which service it is from, not which application."},
+	"category":    {Type: "string", Example: "application", Desc: "Only this kind of telemetry (or a comma-separated list of kinds): `system` (the machine and the telemetry pipeline: host CPU, memory and disk, energy, scrape health, the collectors' own metrics; and logs written outside any namespace), `kubernetes` (the cluster's own objects: the `k8s_*`, `container_*` and `kube_*` metrics, and the logs and spans of `kube-system`, `kube-public` and `kube-node-lease`) or `application` (everything else: what an application reports about itself, and the logs and spans of every other namespace). A metric is placed by its name, a log line or a span by its namespace; the category is what the signal is about, not who owns it, so a pod's CPU is `kubernetes` whichever application the pod is in (use `application` for whose). Traces have no `system` category, and a span with no namespace attribute is in neither of the others. Every metric series and log line also says its own `category`. All three kinds, or none, is no filter."},
+	"application": {Type: "string", Example: "Shop", Desc: "Only this Ikhnos application: the id or the name (any case) of one listed by `/applications`. It is resolved when you ask, from the services Ikhnos groups into it, to their service names within their namespaces and clusters, so a change to the application shows at once and the stored telemetry carries no application label. It narrows alongside the other filters and your own access, and cannot be combined with a query you write yourself (`query`, `q`). When two members of the application share a service name in different namespaces, a same-named service of the application's other namespaces may show too: telemetry says which service it is from, not which application."},
 
 	// metrics
 	"name":         {Type: "string", Example: "http_server_duration_seconds_count", Desc: "The exact metric name."},
@@ -218,7 +224,7 @@ var fusionParams = map[string]fusionParam{
 }
 
 // fusionFilterParams are the filters every metric read takes.
-var fusionMetricFilter = []string{"name", "metric", "service", "namespace", "pod", "node", "cluster", "application"}
+var fusionMetricFilter = []string{"name", "metric", "service", "namespace", "pod", "node", "cluster", "application", "category"}
 
 func fusionOps(a *Admin) []fusionOp {
 	rng := []string{"from", "to"}
@@ -266,16 +272,16 @@ func fusionOps(a *Admin) []fusionOp {
 
 		{Method: "GET", Path: "/logs", Tag: "Logs", Summary: "Search log lines",
 			Description: "Lines matching every filter given, in the range. A line carries the trace and span id it was written under, so `trace_id` finds everything a request logged.",
-			Params:      join(rng, []string{"service", "namespace", "pod", "cluster", "application", "trace_id", "span_id", "severity", "contains", "order", "limit", "query"}),
+			Params:      join(rng, []string{"service", "namespace", "pod", "cluster", "application", "category", "trace_id", "span_id", "severity", "contains", "order", "limit", "query"}),
 			Notes:       map[string]string{"limit": "The most lines (default 200, at most 2000)."},
-			Excludes:    map[string][]string{"query": {"service", "namespace", "pod", "cluster", "application", "trace_id", "span_id", "severity", "contains"}},
+			Excludes:    map[string][]string{"query": {"service", "namespace", "pod", "cluster", "application", "category", "trace_id", "span_id", "severity", "contains"}},
 			Response:    "LogResult", Handler: a.fusionLogs},
 
 		{Method: "GET", Path: "/traces", Tag: "Traces", Summary: "Search traces — optionally fused",
 			Description: "Traces matching the filters, newest first. With `fused=true` each hit is also read in full and joined to its logs and metrics (the options below apply to every hit); that returns up to 25 traces, read in parallel, and with `stream=true` they arrive one by one as they are ready.",
-			Params:      join(rng, []string{"service", "namespace", "cluster", "application", "name", "status", "min_duration", "max_duration", "limit", "q"}, fused, []string{"stream"}),
+			Params:      join(rng, []string{"service", "namespace", "cluster", "application", "category", "name", "status", "min_duration", "max_duration", "limit", "q"}, fused, []string{"stream"}),
 			Notes:       map[string]string{"limit": "The most traces (default 20, at most 100; a fused search defaults to 10 and takes at most 25)."},
-			Excludes:    map[string][]string{"q": {"service", "namespace", "cluster", "application", "name", "status", "min_duration", "max_duration"}},
+			Excludes:    map[string][]string{"q": {"service", "namespace", "cluster", "application", "category", "name", "status", "min_duration", "max_duration"}},
 			Response:    "TraceList", Stream: true, Handler: a.fusionTraces},
 		{Method: "GET", Path: "/traces/{id}", Tag: "Traces", Summary: "One trace — optionally fused",
 			Description: "The trace as Tempo has it. With `fused=true` (or an `include` list) it is the fused object: every span carries the log lines written under its id and the metric points of its own time; every resource carries its metric series and optionally the lines it wrote without a trace id; and `system_logs` adds the system namespaces' lines on the trace's nodes. `sources` says what could be read, `joins` how each signal was tied to the trace, `warnings` what went wrong.",

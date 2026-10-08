@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/fusionapi"
+
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 )
@@ -64,6 +66,7 @@ func TestFusionGrafanaIsProvisionedWithTheStores(t *testing.T) {
 	// The dashboard is JSON Grafana can load, and only points at data sources that exist.
 	var dash struct {
 		Panels []struct {
+			Type       string `json:"type"`
 			Title      string `json:"title"`
 			Datasource struct {
 				UID string `json:"uid"`
@@ -234,6 +237,7 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 		Title  string   `json:"title"`
 		Tags   []string `json:"tags"`
 		Panels []struct {
+			Type       string `json:"type"`
 			Title      string `json:"title"`
 			Datasource struct {
 				UID string `json:"uid"`
@@ -268,7 +272,7 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 		provisioned[d.UID] = true
 	}
 	uids := map[string]bool{}
-	for name, want := range map[string]string{"clusters": "ikhnos-clusters", "workloads": "ikhnos-workloads", "delivery": "ikhnos-delivery", "applications": "ikhnos-applications"} {
+	for name, want := range map[string]string{"clusters": "ikhnos-clusters", "workloads": "ikhnos-workloads", "delivery": "ikhnos-delivery", "applications": "ikhnos-applications", "categories": "ikhnos-categories"} {
 		d := load(full, name)
 		if d.UID != want || d.Title == "" || len(d.Panels) < 8 {
 			t.Errorf("%s: uid %q title %q with %d panels", name, d.UID, d.Title, len(d.Panels))
@@ -281,11 +285,14 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 			t.Errorf("%s is not tagged ikhnos, so it is missing from the navigation menu: %v", name, d.Tags)
 		}
 		for _, p := range d.Panels {
+			if p.Type == "row" {
+				continue
+			}
 			if !provisioned[p.Datasource.UID] {
 				t.Errorf("%s: panel %q uses data source %q, which is not provisioned", name, p.Title, p.Datasource.UID)
 			}
 			for _, q := range p.Targets {
-				if strings.Contains(q.Expr+q.Query, "target_info") {
+				if strings.Contains(strings.ReplaceAll(q.Expr+q.Query, fusionapi.SystemMetricNames, ""), "target_info") {
 					t.Errorf("%s: panel %q reads target_info, which is only written for some resources", name, p.Title)
 				}
 			}
@@ -312,16 +319,16 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 	}
 
 	only := fusionRender(t, "f", "--set", "loki.enabled=false", "--set", "tempo.enabled=false")
-	for _, name := range []string{"clusters", "workloads", "delivery", "applications"} {
+	for _, name := range []string{"clusters", "workloads", "delivery", "applications", "categories"} {
 		for _, p := range load(only, name).Panels {
-			if p.Datasource.UID != "fusion-metrics" {
+			if p.Type != "row" && p.Datasource.UID != "fusion-metrics" {
 				t.Errorf("%s with only Prometheus on still has panel %q on %q", name, p.Title, p.Datasource.UID)
 			}
 		}
 	}
 	// Without Prometheus there is nothing for their variables to read: only the starter dashboard remains, and it is the home.
 	noProm := fusionRender(t, "f", "--set", "prometheus.enabled=false")
-	for _, name := range []string{"clusters.json", "workloads.json", "delivery.json", "applications.json"} {
+	for _, name := range []string{"clusters.json", "workloads.json", "delivery.json", "applications.json", "categories.json"} {
 		if _, ok := noProm.configs["f-fusion-grafana-dashboards"].Data[name]; ok {
 			t.Errorf("%s rendered with Prometheus off", name)
 		}
@@ -476,6 +483,44 @@ func TestFusionDashboardQueriesMeanWhatTheirTitlesSay(t *testing.T) {
 	for _, e := range exprs["workloads"] {
 		if strings.Contains(titles[e], "Pods") && strings.Contains(e, "sum by (k8s_pod_name)") {
 			t.Errorf("workloads: the Pods table joins on the pod name, which two clusters can share: %s", e)
+		}
+	}
+}
+
+// Every dashboard refreshes by itself and offers the same picker, and the "Telemetry by category" dashboard draws its three
+// groups with exactly the rule the API's category filter uses, so a plot and an API call never disagree about what is system.
+func TestFusionDashboardsRefreshAndCategories(t *testing.T) {
+	r := fusionRender(t, "f")
+	for _, name := range []string{"clusters", "workloads", "delivery", "applications", "categories", "arriving"} {
+		raw := r.configs["f-fusion-grafana-dashboards"].Data[name+".json"]
+		var d struct {
+			Refresh    string `json:"refresh"`
+			Timepicker struct {
+				Intervals []string `json:"refresh_intervals"`
+			} `json:"timepicker"`
+		}
+		if err := json.Unmarshal([]byte(raw), &d); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if d.Refresh != "30s" || !strings.Contains(strings.Join(d.Timepicker.Intervals, ","), "10s") {
+			t.Errorf("%s: refresh %q, picker %v", name, d.Refresh, d.Timepicker.Intervals)
+		}
+	}
+	for _, name := range []string{"categories", "applications"} {
+		raw := r.configs["f-fusion-grafana-dashboards"].Data[name+".json"]
+		if !strings.Contains(raw, fusionapi.SystemMetricNames) || !strings.Contains(raw, fusionapi.KubernetesMetricNames) {
+			t.Errorf("%s does not use the API's system/kubernetes metric families (%s, %s)", name, fusionapi.SystemMetricNames, fusionapi.KubernetesMetricNames)
+		}
+	}
+	raw := r.configs["f-fusion-grafana-dashboards"].Data["categories.json"]
+	for _, ns := range fusionapi.SystemNamespaces {
+		if !strings.Contains(raw, ns) {
+			t.Errorf("categories.json does not treat %s as a system namespace", ns)
+		}
+	}
+	for _, row := range []string{"System", "Kubernetes", "Application"} {
+		if !strings.Contains(raw, `"title": "`+row) {
+			t.Errorf("categories.json has no %s row", row)
 		}
 	}
 }

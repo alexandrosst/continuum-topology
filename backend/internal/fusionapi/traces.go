@@ -400,25 +400,20 @@ type TraceFilter struct {
 	Service     string        `json:"service,omitempty"`
 	Namespace   string        `json:"namespace,omitempty"`
 	Cluster     string        `json:"cluster,omitempty"`
-	Name        string        `json:"name,omitempty"`   // span name
-	Status      string        `json:"status,omitempty"` // error | ok | unset
+	Categories  []string      `json:"categories,omitempty"` // kubernetes or application, by namespace (see traceCategoryCond)
+	Name        string        `json:"name,omitempty"`       // span name
+	Status      string        `json:"status,omitempty"`     // error | ok | unset
 	MinDuration time.Duration `json:"minDuration,omitempty"`
 	MaxDuration time.Duration `json:"maxDuration,omitempty"`
 }
 
 func (f TraceFilter) traceQL(s Scope) (string, error) {
-	var c []string
-	for _, p := range []struct{ name, attr, val string }{
+	c, err := eqMatchers([]eqFilter{
 		{"service", "resource." + attrService, f.Service}, {"namespace", "resource." + attrNamespace, f.Namespace},
 		{"cluster", "resource." + attrCluster, f.Cluster}, {"name", "name", f.Name},
-	} {
-		if p.val == "" {
-			continue
-		}
-		if err := checkValue(p.name, p.val); err != nil {
-			return "", err
-		}
-		c = append(c, p.attr+" = "+quote(p.val))
+	}, func(l, v string) string { return l + " = " + v })
+	if err != nil {
+		return "", err
 	}
 	switch f.Status {
 	case "":
@@ -432,6 +427,13 @@ func (f TraceFilter) traceQL(s Scope) (string, error) {
 	}
 	if f.MaxDuration > 0 {
 		c = append(c, "traceDuration <= "+f.MaxDuration.String())
+	}
+	cat, err := traceCategoryCond("resource."+attrNamespace, f.Categories)
+	if err != nil {
+		return "", err
+	}
+	if cat != "" {
+		c = append(c, cat)
 	}
 	if ns := s.nsLimit(); len(ns) > 0 {
 		c = append(c, anyOf("resource."+attrNamespace, ns))

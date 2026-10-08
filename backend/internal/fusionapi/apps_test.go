@@ -1,11 +1,13 @@
 package fusionapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testGroups() []AppGroup {
@@ -140,5 +142,61 @@ func TestServicesFocusReachesEveryQuery(t *testing.T) {
 	q, err := TraceFilter{}.traceQL(s)
 	if err != nil || !strings.Contains(q, `resource.service.name`) || !strings.Contains(q, "cart") {
 		t.Fatalf("traces: %q %v", q, err)
+	}
+}
+
+// A pod's metrics carry the name of their workload and no service name, so choosing an application must also select by
+// workload, or CPU, memory and restarts of its pods would be missing from every metric read.
+func TestServicesFocusAlsoSelectsPodMetricsByWorkload(t *testing.T) {
+	s := Scope{Signals: Signals, FocusServices: []string{"cart", "web"}}
+	sels, err := MetricFilter{}.selectors(s)
+	if err != nil || len(sels) != 4 {
+		t.Fatalf("%v %v", sels, err)
+	}
+	if !strings.Contains(sels[0], `service_name=~"cart|web"`) {
+		t.Errorf("the service selector lost its service: %s", sels[0])
+	}
+	for i, l := range lblWorkloads {
+		if !strings.Contains(sels[i+1], l+`=~"cart|web"`) || strings.Contains(sels[i+1], lblService) {
+			t.Errorf("workload selector %d = %s", i, sels[i+1])
+		}
+	}
+	// The caller's own service filter means exactly that service, not its pods.
+	if sels, _ := (MetricFilter{Service: "cart"}).selectors(s); len(sels) != 1 {
+		t.Errorf("an explicit service widened to %v", sels)
+	}
+	// Without a choice nothing changes, and the token's own limits stay on every selector.
+	if sels, _ := (MetricFilter{}).selectors(Scope{Signals: Signals}); len(sels) != 1 {
+		t.Errorf("no choice made %d selectors", len(sels))
+	}
+	lim := Scope{Signals: Signals, Namespaces: []string{"shop"}, FocusServices: []string{"cart"}}
+	sels, _ = MetricFilter{}.selectors(lim)
+	for _, x := range sels {
+		if !strings.Contains(x, `k8s_namespace_name=~"shop"`) {
+			t.Errorf("a selector escaped the token's namespaces: %s", x)
+		}
+	}
+
+	// And the read sends them all: several match[] for names and series, one `or` expression for a range.
+	f := newFake(t)
+	f.prom = func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/query_range") {
+			writeJSON(w, map[string]any{"status": "success", "data": map[string]any{"resultType": "matrix", "result": []any{}}})
+			return
+		}
+		writeJSON(w, map[string]any{"status": "success", "data": []any{}})
+	}
+	c := f.client()
+	if _, err := c.Series(context.Background(), s, MetricFilter{}, rangeAll, 10); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.last("/api/v1/series")["match[]"]; len(got) != 4 {
+		t.Errorf("series sent %d selectors: %v", len(got), got)
+	}
+	if _, _, err := c.MetricRange(context.Background(), s, MetricFilter{}, rangeAll, time.Minute, 10); err != nil {
+		t.Fatal(err)
+	}
+	if q := f.last("/api/v1/query_range").Get("query"); strings.Count(q, " or ") != 3 {
+		t.Errorf("range query = %s", q)
 	}
 }

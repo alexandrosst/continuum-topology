@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"continuum/internal/fusionapi"
@@ -51,8 +52,34 @@ func (e fusionExtras) Topology(ctx context.Context) (*fusionapi.TopologyView, er
 	return v, nil
 }
 
+// appGroupTTL is how long the applications are reused: an application edited in Ikhnos shows in the API within this.
+const appGroupTTL = 10 * time.Second
+
+// appGroupCache is the applications as last worked out, shared by every request of this server.
+type appGroupCache struct {
+	mu     sync.Mutex
+	at     time.Time
+	groups []fusionapi.AppGroup
+}
+
 // Applications are the Ikhnos applications of the organisation, each with the services in it as the topology knows them.
+// A failure is not cached; a result is, for appGroupTTL, and callers get their own copy of the slice header.
 func (e fusionExtras) Applications(ctx context.Context) ([]fusionapi.AppGroup, error) {
+	c := &e.a.appCache
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if now := e.a.C.Now(); !c.at.IsZero() && now.Sub(c.at) >= 0 && now.Sub(c.at) < appGroupTTL {
+		return slices.Clone(c.groups), nil
+	}
+	groups, err := e.applications(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.at, c.groups = e.a.C.Now(), groups
+	return slices.Clone(groups), nil
+}
+
+func (e fusionExtras) applications(ctx context.Context) ([]fusionapi.AppGroup, error) {
 	t, err := e.tenant(ctx)
 	if err != nil {
 		return nil, err

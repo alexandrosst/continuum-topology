@@ -398,10 +398,29 @@ func TestFusionDataRejectsBadParameters(t *testing.T) {
 		"/api/v1/fusion/logs?service=" + strings.Repeat("a", 300),
 		"/api/v1/fusion/metrics/range?step=1s&from=now-30d",
 		"/api/v1/fusion/metrics/names?metric=(unclosed",
+		"/api/v1/fusion/metrics/names?category=infrastructure",
+		"/api/v1/fusion/logs?category=system,bogus",
+		"/api/v1/fusion/traces?category=system",                            // spans have no system category
+		"/api/v1/fusion/logs?query=%7Bx%3D%22y%22%7D&category=application", // a raw query would ignore it
 	} {
 		if r := d.get(p, withCookie(d.admin)); r.Code != 400 {
 			t.Errorf("%s: %d %s", p, r.Code, r.Body.String())
 		}
+	}
+}
+
+// The category reaches the stores as a matcher, and every metric name and log line says its own.
+func TestFusionDataCategory(t *testing.T) {
+	d := newDataRig(t)
+	r := d.get("/api/v1/fusion/metrics/names?category=kubernetes", withCookie(d.admin))
+	if r.Code != 200 || !d.stores.askedAbout("k8s_") {
+		t.Fatalf("%d %s", r.Code, r.Body.String())
+	}
+	if cats, _ := r.json(t)["categories"].(map[string]any); cats == nil {
+		t.Fatalf("a name list says no categories: %s", r.Body.String())
+	}
+	if r := d.get("/api/v1/fusion/logs?category=application", withCookie(d.admin)); r.Code != 200 || !d.stores.askedAbout("kube-system") {
+		t.Fatalf("logs: %d %s", r.Code, r.Body.String())
 	}
 }
 

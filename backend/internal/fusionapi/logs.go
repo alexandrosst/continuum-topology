@@ -38,6 +38,8 @@ type LogEntry struct {
 	Namespace string    `json:"namespace,omitempty"`
 	Pod       string    `json:"pod,omitempty"`
 	Cluster   string    `json:"cluster,omitempty"`
+	// Category is system, kubernetes or application, by the namespace the line came from (see LogCategory).
+	Category string `json:"category,omitempty"`
 	// Labels are the stream's index labels; Metadata the record's structured metadata (everything else OTLP carried).
 	Labels   map[string]string `json:"labels,omitempty"`
 	Metadata map[string]string `json:"metadata,omitempty"`
@@ -49,8 +51,10 @@ type LogFilter struct {
 	Namespace string `json:"namespace,omitempty"`
 	Pod       string `json:"pod,omitempty"`
 	Cluster   string `json:"cluster,omitempty"`
-	TraceID   string `json:"traceId,omitempty"`
-	SpanID    string `json:"spanId,omitempty"`
+	// Categories keeps lines of these categories (system, kubernetes, application); empty keeps all.
+	Categories []string `json:"categories,omitempty"`
+	TraceID    string   `json:"traceId,omitempty"`
+	SpanID     string   `json:"spanId,omitempty"`
 	// Severity matches the record's severity text, ignoring case (error, warn, info, ...).
 	Severity string `json:"severity,omitempty"`
 	// Contains keeps only lines containing this text.
@@ -111,15 +115,11 @@ func (f LogFilter) selector(s Scope) (string, error) {
 	if len(s.FocusServices) > 0 {
 		sel = append(sel, lokiService+"=~"+quote(regexAny(s.FocusServices)))
 	}
-	for _, p := range []struct{ name, label, val string }{{"namespace", lokiNamespace, f.Namespace}, {"pod", lokiPod, f.Pod}} {
-		if p.val == "" {
-			continue
-		}
-		if err := checkValue(p.name, p.val); err != nil {
-			return "", err
-		}
-		sel = append(sel, p.label+"="+quote(p.val))
+	eq, err := eqMatchers([]eqFilter{{"namespace", lokiNamespace, f.Namespace}, {"pod", lokiPod, f.Pod}}, func(l, v string) string { return l + "=" + v })
+	if err != nil {
+		return "", err
 	}
+	sel = append(sel, eq...)
 	if len(f.Namespaces) > 0 {
 		for _, n := range f.Namespaces {
 			if err := checkValue("namespace", n); err != nil {
@@ -131,6 +131,7 @@ func (f LogFilter) selector(s Scope) (string, error) {
 	if ns := s.nsLimit(); len(ns) > 0 {
 		sel = append(sel, lokiNamespace+"=~"+quote(regexAny(ns)))
 	}
+	sel = append(sel, logCategoryMatchers(lokiNamespace, f.Categories)...)
 	return "{" + strings.Join(sel, ",") + "}", nil
 }
 
@@ -301,6 +302,7 @@ func lokiEntry(stream map[string]string, v []json.RawMessage) (LogEntry, bool) {
 		Service: stream[lokiService], Namespace: stream[lokiNamespace], Pod: stream[lokiPod], Cluster: get(lokiCluster),
 		Labels: stream,
 	}
+	e.Category = LogCategory(e.Namespace)
 	if len(meta) > 0 {
 		e.Metadata = meta
 	}

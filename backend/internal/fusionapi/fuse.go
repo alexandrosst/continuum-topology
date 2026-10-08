@@ -365,12 +365,11 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				select {
-				case sem <- struct{}{}:
-					defer func() { <-sem }()
-				case <-ctx.Done():
+				release, err := acquire(ctx, sem)
+				if err != nil {
 					return
 				}
+				defer release()
 				lines, truncated, err := c.Logs(ctx, s, LogFilter{Service: r.Service, Namespace: r.Namespace, Pod: r.Pod, Cluster: r.Cluster, NoTrace: true,
 					Severity: opts.LogSeverity, Contains: opts.LogContains, Backward: true}, window, opts.MaxContextLogs)
 				if err != nil {
@@ -425,12 +424,11 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				select {
-				case sem <- struct{}{}:
-					defer func() { <-sem }()
-				case <-ctx.Done():
+				release, err := acquire(ctx, sem)
+				if err != nil {
 					return
 				}
+				defer release()
 				series, truncated, err := c.resourceMetrics(ctx, s, r, opts, window, step)
 				if err != nil {
 					warn(SignalMetrics, err)

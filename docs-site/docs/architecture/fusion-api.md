@@ -57,10 +57,10 @@ All are `GET` (but the batch read, and the backends' own POST forms), all take `
 | `/api/v1/fusion/applications/{name}` | One Ikhnos application at a glance (`name` is its id or name): its signals across all its services, recent traces, recent traces with an error span, recent error-level log lines, the metric names it reports. |
 | `/api/v1/fusion/services` | The **services** that have telemetry in the range (their `service.name`), which signal types each has, and the Ikhnos applications each is in (`applications`; empty for infrastructure that reports under a name of its own, such as an exporter). `application=` keeps only the services of one application. |
 | `/api/v1/fusion/services/{name}` | One service at a glance: the same overview, for a single `service.name`. |
-| `/api/v1/fusion/metrics/names`, `/series`, `/range` | Metric names, series label sets, and series values over the range, filtered by `name`, `metric` (a regular expression over the name), `service`, `namespace`, `pod`, `node`, `cluster`, `application`. `/range` takes `step` and `limit`. |
+| `/api/v1/fusion/metrics/names`, `/series`, `/range` | Metric names, series label sets, and series values over the range, filtered by `name`, `metric` (a regular expression over the name), `service`, `namespace`, `pod`, `node`, `cluster`, `application`, `category`. `/range` takes `step` and `limit`. |
 | `/api/v1/fusion/metrics/query`, `/query_range` | PromQL as written, answered in Prometheus' own shape. Unrestricted callers only. |
-| `/api/v1/fusion/logs` | Log lines, with `service`, `namespace`, `pod`, `cluster`, `application`, `trace_id`, `span_id`, `severity`, `contains`, `order=newest\|oldest`, `limit`. With `query=` it takes LogQL as written (unrestricted callers only). |
-| `/api/v1/fusion/traces` | A trace search: `service`, `namespace`, `cluster`, `application`, `name`, `status=error\|ok\|unset`, `min_duration`, `max_duration`, `limit`. With `q=` it takes TraceQL as written (unrestricted callers only). With `fused=true` every hit also comes back as a fused trace ([reading many](#reading-many-traces)). |
+| `/api/v1/fusion/logs` | Log lines, with `service`, `namespace`, `pod`, `cluster`, `application`, `category`, `trace_id`, `span_id`, `severity`, `contains`, `order=newest\|oldest`, `limit`. With `query=` it takes LogQL as written (unrestricted callers only). |
+| `/api/v1/fusion/traces` | A trace search: `service`, `namespace`, `cluster`, `application`, `category`, `name`, `status=error\|ok\|unset`, `min_duration`, `max_duration`, `limit`. With `q=` it takes TraceQL as written (unrestricted callers only). With `fused=true` every hit also comes back as a fused trace ([reading many](#reading-many-traces)). |
 | `/api/v1/fusion/traces/{id}` | One trace. With `fused=true` (or an `include` list) it is the fused object below. |
 | `POST /api/v1/fusion/traces/batch` | Up to 25 fused traces in one request ([reading many](#reading-many-traces)). |
 | `/api/v1/fusion/prometheus/...`, `/loki/...`, `/tempo/...` | Each store's own read API, unchanged ([the backends' own APIs](#the-backends-own-apis)). |
@@ -195,6 +195,8 @@ What it does and does not do:
 - It cannot be combined with a query you write yourself (`query`, `q`, the PromQL routes): those are sent as written, so there is nowhere to add the application. Add its services to your own query (the list is in `/applications`) or use the join below.
 - Telemetry says which service it is from, not which application. When two members of an application share a service name in different namespaces, a same-named service in the application's other namespaces can show up too; this is exact when the names are unique across the application's namespaces. A member Ikhnos could not tie to a running service is left out. The services are matched by name, namespace and cluster, so what is "in" an application is as good as that match ("associated, not proven").
 - An application with no services, or more than 500 service names, is refused.
+- **Its pods' own metrics are included.** Pod and container metrics carry the name of the Deployment, StatefulSet or DaemonSet but no `service.name`, so for metric reads the application's service names are also matched against those workload names (the same assumption the Grafana dashboard makes: a workload is named after its service). This applies only when you have not named a `service` yourself.
+- The list of applications is cached for ten seconds, so a burst of requests (a dashboard refreshing) reads Ikhnos' state once; an edit shows up within that time.
 - **Your own choice is separate from your rights.** A token's namespaces and clusters are rights: they decide what you may see and are never widened. `application=` (like `service`, `namespace` and `cluster`) is a choice inside them. Reading one trace, a fused join and the trace roots a limited token must not see follow the rights only, so choosing an application never hides part of a trace you are allowed to read.
 - `include=topology` also names, on each service, the applications it is in (`applications`).
 
@@ -219,6 +221,20 @@ sum by (service_name) (rate(http_server_duration_seconds_count[5m]))
 ```
 
 The series is not telemetry: the Grafana dashboards leave it out of their counts, and it appears only while FUSION runs. It carries a series for each name a member's telemetry may use (its name and its aliases) in each namespace and cluster it runs in, so a count of the series is not a count of services. A member Ikhnos knows no namespace or cluster for is written without that label (the dashboards' namespace and cluster choices match those with `.*`, not `.+`). It describes the present: an application edited or deleted in Ikhnos changes the series within a minute (a removed one is gone after Prometheus' five-minute lookback), and its history is not kept. It is written only while FUSION is running, and the Grafana dashboard **Applications** reads it for its variables. A service in two applications makes the join many-to-many; select one application, as the dashboard does. Loki and Tempo have no such series: use the API's `application=`, or the service list from `/applications` in a LogQL or TraceQL selector.
+
+## Categories: system, kubernetes, application
+
+Every metric series, log line and span is about one of three things, and `category=` lets you ask for one: **`system`** is the host and the collectors (node and process metrics, scrape health, energy, the collectors' own metrics; logs of the host and node, which carry no namespace), **`kubernetes`** is the cluster's own objects (pod, container, node-condition and `kube_*` metrics; logs of `kube-system`, `kube-public` and `kube-node-lease`), and **`application`** is everything else: what workloads report about themselves. Give one or several, separated by commas (`category=system,kubernetes`); all three, or none, means no filter. An unknown value is a `400`.
+
+```sh
+curl -s -H "Authorization: Bearer $TOKEN" "$ADDR/api/v1/fusion/metrics/names?category=application"
+curl -s -H "Authorization: Bearer $TOKEN" "$ADDR/api/v1/fusion/logs?category=kubernetes&severity=error"
+```
+
+- **A category says what a signal is about, not who owns it.** A pod's CPU is `kubernetes` whichever application the pod belongs to; `application=` answers "whose", `category=` answers "what". They combine.
+- **It is worked out when you ask, not stored on the data.** Metrics are sorted by the family of their name (`system_*`, `process_*`, `node_*`, `kepler_*`, `dcgm_*`, `otelcol_*`, `scrape_*`, `up`, `target_info` are system; `k8s_*`, `container_*`, `kube_*` are kubernetes; the rest are application). Logs are sorted by namespace (none is system; the three namespaces above are kubernetes). Nothing is rewritten, so a rule changed in a release applies to old data too. The answer says which category each result was put in: `category` on every series and log line, and `categories` (a name to category map) beside the names of `/metrics/names`. Stamping the category at the source (the collectors) would make it a stored label, but it would only apply to data that arrives afterwards, so it stays a later optimisation.
+- **Traces have two categories, not three.** A span is not a host signal: `category=kubernetes` selects spans of the system namespaces, `category=application` the others, and `category=system` is a `400` rather than an empty answer.
+- It cannot be combined with a query you write yourself (`query`, `q`), for the same reason as `application=`.
 
 ## Reading many traces
 
