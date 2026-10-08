@@ -52,6 +52,10 @@ type Scope struct {
 	// that limits it.
 	Namespaces []string
 	Clusters   []string
+	// Services narrows the lists, searches and metric reads this package builds to telemetry whose service.name is one of these. It is
+	// not a right the caller lacks but a choice the caller made (an Ikhnos application, resolved to its services by the server), so it
+	// is not part of Unrestricted: it is applied only to the queries built from structured filters, and never to reading one trace.
+	Services []string
 }
 
 // AllSignals is the Scope of a caller who may read everything: a person signed in as an administrator.

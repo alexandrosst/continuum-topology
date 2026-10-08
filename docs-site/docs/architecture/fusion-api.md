@@ -53,12 +53,13 @@ All are `GET` (but the batch read, and the backends' own POST forms), all take `
 | Call | What it returns |
 | --- | --- |
 | `/api/v1/fusion/status` | FUSION's own state, and what this caller may read (signals, namespaces, clusters, expiry, whether raw queries are allowed). |
-| `/api/v1/fusion/applications` | The services with telemetry in the range, and which signal types each has. |
+| `/api/v1/fusion/applications` | The services with telemetry in the range, and which signal types each has. With `application=` only the services of that Ikhnos application ([filtering by application](#filtering-by-ikhnos-application)). |
+| `/api/v1/fusion/groups` | The Ikhnos applications you can filter by, each with its services, namespaces and clusters. |
 | `/api/v1/fusion/applications/{name}` | One service at a glance: recent traces, recent traces with an error span, recent error-level log lines, the metric names it reports. |
-| `/api/v1/fusion/metrics/names`, `/series`, `/range` | Metric names, series label sets, and series values over the range, filtered by `name`, `metric` (a regular expression over the name), `service`, `namespace`, `pod`, `node`, `cluster`. `/range` takes `step` and `limit`. |
+| `/api/v1/fusion/metrics/names`, `/series`, `/range` | Metric names, series label sets, and series values over the range, filtered by `name`, `metric` (a regular expression over the name), `service`, `namespace`, `pod`, `node`, `cluster`, `application`. `/range` takes `step` and `limit`. |
 | `/api/v1/fusion/metrics/query`, `/query_range` | PromQL as written, answered in Prometheus' own shape. Unrestricted callers only. |
-| `/api/v1/fusion/logs` | Log lines, with `service`, `namespace`, `pod`, `cluster`, `trace_id`, `span_id`, `severity`, `contains`, `order=newest\|oldest`, `limit`. With `query=` it takes LogQL as written (unrestricted callers only). |
-| `/api/v1/fusion/traces` | A trace search: `service`, `namespace`, `cluster`, `name`, `status=error\|ok\|unset`, `min_duration`, `max_duration`, `limit`. With `q=` it takes TraceQL as written (unrestricted callers only). With `fused=true` every hit also comes back as a fused trace ([reading many](#reading-many-traces)). |
+| `/api/v1/fusion/logs` | Log lines, with `service`, `namespace`, `pod`, `cluster`, `application`, `trace_id`, `span_id`, `severity`, `contains`, `order=newest\|oldest`, `limit`. With `query=` it takes LogQL as written (unrestricted callers only). |
+| `/api/v1/fusion/traces` | A trace search: `service`, `namespace`, `cluster`, `application`, `name`, `status=error\|ok\|unset`, `min_duration`, `max_duration`, `limit`. With `q=` it takes TraceQL as written (unrestricted callers only). With `fused=true` every hit also comes back as a fused trace ([reading many](#reading-many-traces)). |
 | `/api/v1/fusion/traces/{id}` | One trace. With `fused=true` (or an `include` list) it is the fused object below. |
 | `POST /api/v1/fusion/traces/batch` | Up to 25 fused traces in one request ([reading many](#reading-many-traces)). |
 | `/api/v1/fusion/prometheus/...`, `/loki/...`, `/tempo/...` | Each store's own read API, unchanged ([the backends' own APIs](#the-backends-own-apis)). |
@@ -164,8 +165,53 @@ The join is only as good as the instrumentation behind it, and it is worth sayin
 
 - **Logs to spans** use the OTLP log record's own `trace_id` and `span_id`, which Loki keeps as structured metadata. An application that logs without its trace context (most do until the logging bridge of its OpenTelemetry SDK is turned on) has logs, and traces, and nothing that joins them.
 - **Metrics to spans** are placed by resource and by time, never by request. They use resource attributes that the FUSION chart promotes to Prometheus labels: `service.name`, `k8s.namespace.name`, `k8s.pod.name` and a few more (`prometheus.promoteResourceAttributes` in the FUSION chart). The join is "the same service, namespace or pod around the same time", not a causal link from one request to one sample: metrics do not carry trace ids.
-- **An application is a `service.name`**, as the telemetry reports it. It is not (yet) the same thing as an application in the topology graph, which is built from discovery; matching the two is a separate piece of work.
+- **An application is a `service.name`**, as the telemetry reports it. An application in Ikhnos (a group of services, made by a person or found by discovery) is a different thing, and telemetry does not carry it; [filtering by application](#filtering-by-ikhnos-application) resolves one to its services when you ask.
 - **Clocks.** Spans, log lines and samples are stamped by the nodes that produced them. The margin around the trace absorbs ordinary skew, not a node whose clock is minutes out.
+
+## Filtering by Ikhnos application
+
+In Ikhnos an application is a group of services: a person made it, or discovery found it. The telemetry itself only says which `service.name`, namespace and cluster it came from, so FUSION does not stamp an application on anything. Instead `application=<id or name>` is resolved **when you ask**: the server looks the application up in what Ikhnos holds now, takes its services (by name, and by their `app` label when telemetry uses that as its `service.name`) and the namespaces and clusters they run in, and adds them to the query as ordinary filters. Edit an application in Ikhnos and the next read follows; nothing stored is rewritten. `/api/v1/fusion/groups` lists what you can name.
+
+```bash
+# the applications you can filter by, and what is in each
+curl -s -H "Authorization: Bearer $TOKEN" $ADDR/api/v1/fusion/groups
+
+# the failing traces of one application, the logs of the same application, the metric names it reports
+curl -s -H "Authorization: Bearer $TOKEN" "$ADDR/api/v1/fusion/traces?application=Shop&status=error&fused=true&include=logs,metrics"
+curl -s -H "Authorization: Bearer $TOKEN" "$ADDR/api/v1/fusion/logs?application=Shop&severity=error"
+curl -s -H "Authorization: Bearer $TOKEN" "$ADDR/api/v1/fusion/metrics/names?application=Shop"
+```
+
+What it does and does not do:
+
+- It narrows **the lists, searches and metric reads** (applications, metrics, logs, trace search). It is combined with the other filters and with the token's own limits, never widened by them: a token limited to one namespace sees only the part of the application in it, and an application none of whose services it can see answers `404`, as if it did not exist.
+- It does **not** narrow reading one trace, or what a fused read joins around a trace you found. A trace of the application also passes through services that are not part of it, and cutting those away would hide the cause of a failure; the search finds the traces, and each is then read whole.
+- It cannot be combined with a query you write yourself (`query`, `q`, the PromQL routes): those are sent as written, so there is nowhere to add the application. Add its services to your own query (the list is in `/groups`) or use the join below.
+- Telemetry says which service it is from, not which application. When two members of an application share a service name in different namespaces, a same-named service in the application's other namespaces can show up too; this is exact when the names are unique across the application's namespaces. A member Ikhnos could not tie to a running service is left out. The services are matched by name, namespace and cluster, so what is "in" an application is as good as that match ("associated, not proven").
+- An application with no services, or more than 500 service names, is refused.
+- `include=topology` also names, on each service, the applications it is in (`applications`).
+
+### From Prometheus, Grafana and other tools that read the stores directly
+
+Those tools do not go through this API, so while FUSION is running the server writes one series into FUSION's Prometheus every minute:
+
+```
+ikhnos_application_info{application="Shop", application_id="app-1", service_name="cart", k8s_namespace_name="shop", continuum_cluster_id="cl-1"} 1
+```
+
+One series per service name of each application, with the labels the telemetry's own series carry for it. Select by application with the same filters the API adds, or join:
+
+```promql
+# the services of an application, as a selector
+rate(http_server_duration_seconds_count{service_name=~"cart|cart-app|web", k8s_namespace_name="shop"}[5m])
+
+# or let Prometheus do it: an application's series from the series it labels (one application at a time)
+sum by (service_name) (rate(http_server_duration_seconds_count[5m]))
+  * on(service_name) group_left(application)
+  max by (service_name, application) (ikhnos_application_info{application="Shop"})
+```
+
+It describes the present: an application edited or deleted in Ikhnos changes the series within a minute (a removed one is gone after Prometheus' five-minute lookback), and its history is not kept. It is written only while FUSION is running, and the Grafana dashboard **Applications** reads it for its variables. A service in two applications makes the join many-to-many; select one application, as the dashboard does. Loki and Tempo have no such series: use the API's `application=`, or the service list from `/groups` in a LogQL or TraceQL selector.
 
 ## Reading many traces
 

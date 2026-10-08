@@ -22,6 +22,9 @@ const (
 type Extras interface {
 	// Topology is the estate as the server last worked it out.
 	Topology(ctx context.Context) (*TopologyView, error)
+	// Applications are the Ikhnos applications of the organisation (groups of services a person or discovery made) and the
+	// services in each, as of the last saved workspace.
+	Applications(ctx context.Context) ([]AppGroup, error)
 	// Changes lists events recorded between since and until, newest last, at most limit of them. clusters narrows them to
 	// those Ikhnos cluster ids when it is not empty.
 	Changes(ctx context.Context, since, until time.Time, clusters []string, limit int) ([]ChangeEvent, error)
@@ -49,6 +52,64 @@ type TopoService struct {
 	Ready     int               `json:"readyReplicas"`
 	Restarts  int               `json:"restarts,omitempty"`
 	Labels    map[string]string `json:"-"`
+	// Applications names the Ikhnos applications this service is in.
+	Applications []string `json:"applications,omitempty"`
+}
+
+// AppGroup is an Ikhnos application: a named group of services. What FUSION calls an "application" elsewhere is a single
+// service.name; this is the grouping a person made in Ikhnos, which telemetry itself does not carry.
+type AppGroup struct {
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Description string      `json:"description,omitempty"`
+	Members     []AppMember `json:"services"`
+}
+
+// AppMember is one service of an application, by the identity telemetry carries.
+type AppMember struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	Cluster   string `json:"cluster,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	// Aliases are other names the telemetry of this service may carry as its service.name (its app label), besides Name.
+	Aliases []string `json:"aliases,omitempty"`
+}
+
+// ServiceNames is every service.name telemetry of this application may carry: each member's name and aliases, sorted and without repeats.
+func (g AppGroup) ServiceNames() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range g.Members {
+		for _, n := range append([]string{m.Name}, m.Aliases...) {
+			if n != "" && !seen[n] {
+				seen[n] = true
+				out = append(out, n)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Namespaces and Clusters are those the members run in, sorted and without repeats.
+func (g AppGroup) Namespaces() []string {
+	return g.distinct(func(m AppMember) string { return m.Namespace })
+}
+func (g AppGroup) Clusters() []string {
+	return g.distinct(func(m AppMember) string { return m.Cluster })
+}
+
+func (g AppGroup) distinct(f func(AppMember) string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range g.Members {
+		if v := f(m); v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // TopoLink is traffic seen from one entity to another.

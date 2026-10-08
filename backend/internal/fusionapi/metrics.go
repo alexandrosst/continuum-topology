@@ -95,6 +95,9 @@ func (f MetricFilter) matchers(s Scope) ([]string, error) {
 	if len(s.Clusters) > 0 {
 		m = append(m, lblCluster+"=~"+quote(regexAny(s.Clusters)))
 	}
+	if len(s.Services) > 0 {
+		m = append(m, lblService+"=~"+quote(regexAny(s.Services)))
+	}
 	return m, nil
 }
 

@@ -53,12 +53,13 @@ var fusionParams = map[string]fusionParam{
 	"to":   {Type: "string", Default: "now", Example: "now", Desc: "End of the range, in the same forms as `from`. The range can be at most 31 days."},
 
 	// shared filters
-	"limit":     {Type: "integer", Example: "50", Desc: "The most results to return. Larger values are cut to the route's maximum, which each route states."},
-	"service":   {Type: "string", Example: "checkout", Desc: "Only this service (the `service.name` of the telemetry)."},
-	"namespace": {Type: "string", Example: "shop", Desc: "Only this Kubernetes namespace."},
-	"pod":       {Type: "string", Desc: "Only this pod."},
-	"node":      {Type: "string", Desc: "Only this node."},
-	"cluster":   {Type: "string", Example: "cl-1", Desc: "Only this cluster (its Ikhnos cluster id)."},
+	"limit":       {Type: "integer", Example: "50", Desc: "The most results to return. Larger values are cut to the route's maximum, which each route states."},
+	"service":     {Type: "string", Example: "checkout", Desc: "Only this service (the `service.name` of the telemetry)."},
+	"namespace":   {Type: "string", Example: "shop", Desc: "Only this Kubernetes namespace."},
+	"pod":         {Type: "string", Desc: "Only this pod."},
+	"node":        {Type: "string", Desc: "Only this node."},
+	"cluster":     {Type: "string", Example: "cl-1", Desc: "Only this cluster (its Ikhnos cluster id)."},
+	"application": {Type: "string", Example: "Shop", Desc: "Only this Ikhnos application: the id or the name (any case) of one listed by `/groups`. It is resolved when you ask, from the services Ikhnos groups into it, to their service names within their namespaces and clusters, so a change to the application shows at once and the stored telemetry carries no application label. It narrows alongside the other filters and your own access, and cannot be combined with a query you write yourself (`query`, `q`). When two members of the application share a service name in different namespaces, a same-named service of the application's other namespaces may show too: telemetry says which service it is from, not which application."},
 
 	// metrics
 	"name":         {Type: "string", Example: "http_server_duration_seconds_count", Desc: "The exact metric name."},
@@ -123,7 +124,7 @@ var fusionParams = map[string]fusionParam{
 }
 
 // fusionFilterParams are the filters every metric read takes.
-var fusionMetricFilter = []string{"name", "metric", "service", "namespace", "pod", "node", "cluster"}
+var fusionMetricFilter = []string{"name", "metric", "service", "namespace", "pod", "node", "cluster", "application"}
 
 func fusionOps(a *Admin) []fusionOp {
 	rng := []string{"from", "to"}
@@ -141,7 +142,10 @@ func fusionOps(a *Admin) []fusionOp {
 			Response:    "Status", Handler: a.fusionStatus},
 		{Method: "GET", Path: "/applications", Tag: "Applications", Summary: "List the applications that have telemetry",
 			Description: "Every service FUSION has data for in the range, with which signals (metrics, logs, traces) it has.",
-			Params:      rng, Response: "ApplicationList", Handler: a.fusionApplications},
+			Params:      join(rng, []string{"application"}), Response: "ApplicationList", Handler: a.fusionApplications},
+		{Method: "GET", Path: "/groups", Tag: "Applications", Summary: "List the Ikhnos applications you can filter by",
+			Description: "The applications Ikhnos groups services into - made by a person or found by discovery - each with its services (name, namespace, cluster) and the service names its telemetry may carry. Pass an `id` or `name` as `application` to the list routes to read only that application. A token limited to certain namespaces or clusters sees only the services in them.",
+			Response:    "GroupList", Handler: a.fusionGroups},
 		{Method: "GET", Path: "/applications/{name}", Tag: "Applications", Summary: "One application at a glance",
 			Description: "The signals the application has, its most recent traces and failing traces, its latest error logs and the metric names it reports: the places to go on from.",
 			PathParams:  []string{"name"}, Params: rng, Response: "Overview", Handler: a.fusionApplication},
@@ -164,12 +168,12 @@ func fusionOps(a *Admin) []fusionOp {
 
 		{Method: "GET", Path: "/logs", Tag: "Logs", Summary: "Search log lines",
 			Description: "Lines matching every filter given, in the range. A line carries the trace and span id it was written under, so `trace_id` finds everything a request logged.",
-			Params:      join(rng, []string{"service", "namespace", "pod", "cluster", "trace_id", "span_id", "severity", "contains", "order", "limit", "query"}),
+			Params:      join(rng, []string{"service", "namespace", "pod", "cluster", "application", "trace_id", "span_id", "severity", "contains", "order", "limit", "query"}),
 			Response:    "LogResult", Handler: a.fusionLogs},
 
 		{Method: "GET", Path: "/traces", Tag: "Traces", Summary: "Search traces — optionally fused",
 			Description: "Traces matching the filters, newest first. With `fused=true` each hit is also read in full and joined to its logs and metrics (the options below apply to every hit); that returns up to 25 traces, read in parallel, and with `stream=true` they arrive one by one as they are ready.",
-			Params:      join(rng, []string{"service", "namespace", "cluster", "name", "status", "min_duration", "max_duration", "limit", "q"}, fused, []string{"stream"}),
+			Params:      join(rng, []string{"service", "namespace", "cluster", "application", "name", "status", "min_duration", "max_duration", "limit", "q"}, fused, []string{"stream"}),
 			Response:    "TraceList", Stream: true, Handler: a.fusionTraces},
 		{Method: "GET", Path: "/traces/{id}", Tag: "Traces", Summary: "One trace — optionally fused",
 			Description: "The trace as Tempo has it. With `fused=true` (or an `include` list) it is the fused object: every span carries the log lines written under its id and the metric points of its own time; every resource carries its metric series and optionally the lines it wrote without a trace id; and `system_logs` adds the system namespaces' lines on the trace's nodes. `sources` says what could be read, `joins` how each signal was tied to the trace, `warnings` what went wrong.",

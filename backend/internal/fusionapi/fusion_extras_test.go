@@ -258,13 +258,15 @@ func mustQuery(t *testing.T, raw string) url.Values {
 type fakeExtras struct {
 	view   *TopologyView
 	events []ChangeEvent
+	groups []AppGroup
 	err    error
 	since  time.Time
 	until  time.Time
 	cls    []string
 }
 
-func (f *fakeExtras) Topology(context.Context) (*TopologyView, error) { return f.view, f.err }
+func (f *fakeExtras) Topology(context.Context) (*TopologyView, error)  { return f.view, f.err }
+func (f *fakeExtras) Applications(context.Context) ([]AppGroup, error) { return f.groups, f.err }
 func (f *fakeExtras) Changes(_ context.Context, since, until time.Time, clusters []string, _ int) ([]ChangeEvent, error) {
 	f.since, f.until, f.cls = since, until, clusters
 	return f.events, f.err

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"continuum/internal/fusionapi"
 	"continuum/internal/store"
+	"continuum/internal/workspace"
 )
 
 // fusionExtras gives a fused read what Ikhnos itself knows (fusionapi.Extras): the observed topology of the FUSION
@@ -16,6 +18,9 @@ type fusionExtras struct{ a *Admin }
 
 // extras is nil on a server with no platform behind it (it can then only be asked for what the stores hold).
 func (a *Admin) fusionExtras() fusionapi.Extras {
+	if a.extras != nil {
+		return a.extras
+	}
 	if a.P == nil {
 		return nil
 	}
@@ -39,7 +44,98 @@ func (e fusionExtras) Topology(ctx context.Context) (*fusionapi.TopologyView, er
 	if err != nil {
 		return nil, &fusionapi.Error{Status: 503, Msg: "the organisation's topology is not available"}
 	}
-	return topologyView(doc), nil
+	v := topologyView(doc)
+	// Say which Ikhnos applications each service is in. The topology is still worth returning when the saved workspace
+	// cannot be read, so a failure here leaves the services unannotated.
+	annotateApplications(v, e.groups(ctx, t, doc))
+	return v, nil
+}
+
+// Applications are the Ikhnos applications of the organisation, each with the services in it as the topology knows them.
+func (e fusionExtras) Applications(ctx context.Context) ([]fusionapi.AppGroup, error) {
+	t, err := e.tenant(ctx)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := t.Hub.State(ctx)
+	if err != nil {
+		return nil, &fusionapi.Error{Status: 503, Msg: "the organisation's topology is not available"}
+	}
+	ws, err := t.C.Store.GetWorkspace(ctx, t.C.OrgID)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		return nil, &fusionapi.Error{Status: 503, Msg: "the saved applications are not available"}
+	}
+	return appGroups(ws.Data, doc), nil
+}
+
+func (e fusionExtras) groups(ctx context.Context, t *Tenant, doc StateDoc) []fusionapi.AppGroup {
+	ws, err := t.C.Store.GetWorkspace(ctx, t.C.OrgID)
+	if err != nil {
+		return nil
+	}
+	return appGroups(ws.Data, doc)
+}
+
+// appGroups turns the applications of a saved workspace into groups of services by the identity telemetry carries. A member
+// is a topology service the workspace names by id; one the topology does not (or no longer) have is left out, since there
+// is nothing to match telemetry with. The aliases are the app labels a service's telemetry often takes as its service.name
+// instead of the workload name.
+func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
+	if len(data) == 0 {
+		return nil
+	}
+	apps, err := workspace.Applications(data)
+	if err != nil {
+		return nil
+	}
+	byID := map[string]int{}
+	for i, s := range doc.Topology.Services {
+		byID[s.ID] = i
+	}
+	out := make([]fusionapi.AppGroup, 0, len(apps))
+	for _, a := range apps {
+		g := fusionapi.AppGroup{ID: a.ID, Name: a.Name, Description: a.Description, Members: []fusionapi.AppMember{}}
+		if g.Name == "" {
+			g.Name = a.ID
+		}
+		for _, id := range a.ServiceIDs {
+			i, ok := byID[id]
+			if !ok {
+				continue
+			}
+			s := doc.Topology.Services[i]
+			m := fusionapi.AppMember{Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID, Kind: s.Kind}
+			for _, k := range []string{"app", "app.kubernetes.io/name"} {
+				if v := s.Labels[k]; v != "" && v != s.Name && !slices.Contains(m.Aliases, v) {
+					m.Aliases = append(m.Aliases, v)
+				}
+			}
+			g.Members = append(g.Members, m)
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+// annotateApplications names, on each service of the view, the applications it is in.
+func annotateApplications(v *fusionapi.TopologyView, groups []fusionapi.AppGroup) {
+	if len(groups) == 0 {
+		return
+	}
+	for i := range v.Services {
+		sv := &v.Services[i]
+		for _, g := range groups {
+			for _, m := range g.Members {
+				if m.Name == sv.Name && m.Namespace == sv.Namespace && m.Cluster == sv.Cluster {
+					sv.Applications = append(sv.Applications, g.Name)
+					break
+				}
+			}
+		}
+	}
 }
 
 // topologyView is the part of the state a fused read joins.

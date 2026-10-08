@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -430,6 +431,9 @@ func (f TraceFilter) traceQL(s Scope) (string, error) {
 	if len(s.Clusters) > 0 {
 		c = append(c, anyOf("resource."+attrCluster, s.Clusters))
 	}
+	if len(s.Services) > 0 {
+		c = append(c, anyOf("resource."+attrService, s.Services))
+	}
 	if len(c) == 0 {
 		return "{ true }", nil
 	}
@@ -552,7 +556,7 @@ func (c *Client) traceServices(ctx context.Context, s Scope, tr TimeRange) ([]st
 	if err := s.needSignal(SignalTraces); err != nil {
 		return nil, err
 	}
-	if !s.Unrestricted() {
+	if !s.Unrestricted() || len(s.Services) > 0 {
 		hits, err := c.SearchTraces(ctx, s, TraceFilter{}, tr, scopedServiceSample)
 		if err != nil {
 			return nil, err
@@ -561,6 +565,10 @@ func (c *Client) traceServices(ctx context.Context, s Scope, tr TimeRange) ([]st
 		var out []string
 		for _, h := range hits {
 			for _, svc := range h.Services {
+				// A trace that touches the focused services also names the ones it passed through; those are not the focus.
+				if len(s.Services) > 0 && !slices.Contains(s.Services, svc) {
+					continue
+				}
 				if !seen[svc] {
 					seen[svc] = true
 					out = append(out, svc)

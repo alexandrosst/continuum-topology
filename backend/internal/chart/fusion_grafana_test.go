@@ -246,6 +246,7 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 		Templating struct {
 			List []struct {
 				Name, AllValue string
+				IncludeAll     bool
 			} `json:"list"`
 		} `json:"templating"`
 	}
@@ -267,7 +268,7 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 		provisioned[d.UID] = true
 	}
 	uids := map[string]bool{}
-	for name, want := range map[string]string{"clusters": "ikhnos-clusters", "workloads": "ikhnos-workloads", "delivery": "ikhnos-delivery"} {
+	for name, want := range map[string]string{"clusters": "ikhnos-clusters", "workloads": "ikhnos-workloads", "delivery": "ikhnos-delivery", "applications": "ikhnos-applications"} {
 		d := load(full, name)
 		if d.UID != want || d.Title == "" || len(d.Panels) < 8 {
 			t.Errorf("%s: uid %q title %q with %d panels", name, d.UID, d.Title, len(d.Panels))
@@ -292,7 +293,7 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 		// "All" must match a series that has no such label at all (an install that never set a cluster id), and must be
 		// usable in a Loki stream selector, which refuses a matcher that can match the empty string on its own.
 		for _, v := range d.Templating.List {
-			if v.AllValue == "" {
+			if v.IncludeAll && v.AllValue == "" {
 				t.Errorf("%s: variable %q has no All value", name, v.Name)
 			}
 		}
@@ -309,7 +310,7 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 	}
 
 	only := fusionRender(t, "f", "--set", "loki.enabled=false", "--set", "tempo.enabled=false")
-	for _, name := range []string{"clusters", "workloads", "delivery"} {
+	for _, name := range []string{"clusters", "workloads", "delivery", "applications"} {
 		for _, p := range load(only, name).Panels {
 			if p.Datasource.UID != "fusion-metrics" {
 				t.Errorf("%s with only Prometheus on still has panel %q on %q", name, p.Title, p.Datasource.UID)
@@ -318,7 +319,7 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 	}
 	// Without Prometheus there is nothing for their variables to read: only the starter dashboard remains, and it is the home.
 	noProm := fusionRender(t, "f", "--set", "prometheus.enabled=false")
-	for _, name := range []string{"clusters.json", "workloads.json", "delivery.json"} {
+	for _, name := range []string{"clusters.json", "workloads.json", "delivery.json", "applications.json"} {
 		if _, ok := noProm.configs["f-fusion-grafana-dashboards"].Data[name]; ok {
 			t.Errorf("%s rendered with Prometheus off", name)
 		}
@@ -327,5 +328,65 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 		if e.Name == "GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH" && e.Value != "/etc/grafana/dashboards/arriving.json" {
 			t.Errorf("home dashboard with Prometheus off = %q", e.Value)
 		}
+	}
+}
+
+// The Applications dashboard reads the series the server writes (ikhnos_application_info, see fusionapi/appinfo.go): its
+// variables must come from that series and from nothing a sender may have left out, and its panels must select telemetry only
+// by labels that series carries, so that choosing an application filters the same way the API's application filter does.
+func TestFusionApplicationsDashboardFollowsTheInfoSeries(t *testing.T) {
+	r := fusionRender(t, "f")
+	raw := r.configs["f-fusion-grafana-dashboards"].Data["applications.json"]
+	var d struct {
+		Templating struct {
+			List []struct {
+				Name, Definition string
+				Multi            bool
+				IncludeAll       bool
+				AllValue         string
+			} `json:"list"`
+		} `json:"templating"`
+		Panels []struct {
+			Title   string `json:"title"`
+			Targets []struct {
+				Expr  string `json:"expr"`
+				Query string `json:"query"`
+			} `json:"targets"`
+		} `json:"panels"`
+	}
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"application": false, "service": false, "namespace": false, "cluster": false}
+	for _, v := range d.Templating.List {
+		if _, ok := want[v.Name]; !ok {
+			t.Errorf("unexpected variable %q", v.Name)
+		}
+		want[v.Name] = true
+		if !strings.Contains(v.Definition, "ikhnos_application_info") {
+			t.Errorf("variable %q is not read from the info series: %s", v.Name, v.Definition)
+		}
+		if v.Name == "application" && (v.Multi || v.IncludeAll) {
+			t.Error("one application at a time: a service in two applications would make the labels ambiguous")
+		}
+		if v.Name == "service" && v.AllValue != ".+" {
+			t.Errorf("service All = %q; a Loki selector needs one that cannot be empty", v.AllValue)
+		}
+	}
+	for n, seen := range want {
+		if !seen {
+			t.Errorf("no %q variable", n)
+		}
+	}
+	for _, p := range d.Panels {
+		for _, q := range p.Targets {
+			e := q.Expr + q.Query
+			if strings.Contains(e, "$application") && !strings.Contains(e, "ikhnos_application_info") {
+				t.Errorf("panel %q filters telemetry by an application label, which telemetry does not carry: %s", p.Title, e)
+			}
+		}
+	}
+	if len(d.Panels) < 12 {
+		t.Errorf("%d panels", len(d.Panels))
 	}
 }

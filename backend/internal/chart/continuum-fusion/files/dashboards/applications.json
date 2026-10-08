@@ -1,0 +1,902 @@
+{
+  "uid": "ikhnos-applications",
+  "title": "Applications",
+  "description": "One Ikhnos application at a glance: the services it is made of, and their pods, traces and logs. Pick the application; its services, namespaces and clusters come from what Ikhnos groups into it.",
+  "tags": [
+    "ikhnos"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "application",
+        "label": "Application",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fusion-metrics"
+        },
+        "query": {
+          "query": "label_values(ikhnos_application_info, application)",
+          "refId": "v-application"
+        },
+        "definition": "label_values(ikhnos_application_info, application)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "description": "An application from Ikhnos. Its services are written to Prometheus once a minute while FUSION runs."
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fusion-metrics"
+        },
+        "query": {
+          "query": "label_values(ikhnos_application_info{application=\"$application\"}, service_name)",
+          "refId": "v-service"
+        },
+        "definition": "label_values(ikhnos_application_info{application=\"$application\"}, service_name)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fusion-metrics"
+        },
+        "query": {
+          "query": "label_values(ikhnos_application_info{application=\"$application\"}, k8s_namespace_name)",
+          "refId": "v-namespace"
+        },
+        "definition": "label_values(ikhnos_application_info{application=\"$application\"}, k8s_namespace_name)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fusion-metrics"
+        },
+        "query": {
+          "query": "label_values(ikhnos_application_info{application=\"$application\"}, continuum_cluster_id)",
+          "refId": "v-cluster"
+        },
+        "definition": "label_values(ikhnos_application_info{application=\"$application\"}, continuum_cluster_id)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "title": "Ikhnos",
+      "tags": [
+        "ikhnos"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true,
+      "icon": "dashboard"
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Service names listed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(ikhnos_application_info{application=\"$application\"}) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "The service names Ikhnos lists for this application, one per name its telemetry may carry (a service can be listed under its workload name and its app label).",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Pods running",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"} == 2) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "Pods of the workloads that carry the application's service names.",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Pods not running",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"} != 2) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "Pods of those workloads that are pending, failed or unknown.",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Restarts in the last hour",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "round(sum(increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"}[1h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "Container restarts across those workloads.",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "CPU in use (cores)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"}) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "Cores in use by those workloads' pods.",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Memory in use",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"}) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "Working set of those workloads' pods.",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "What Ikhnos has in this application",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ikhnos_application_info{application=\"$application\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "description": "The services Ikhnos groups into the application, as the labels their telemetry carries. Edit the application in Ikhnos and this follows within a minute; the telemetry itself is not changed.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Service",
+            "desc": false
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "application": "Application",
+              "application_id": "Application id",
+              "service_name": "Service",
+              "k8s_namespace_name": "Namespace",
+              "continuum_cluster_id": "Cluster"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Spans per second, by service",
+      "datasource": {
+        "type": "tempo",
+        "uid": "fusion-traces"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "fusion-traces"
+          },
+          "queryType": "traceql",
+          "metricsQueryType": "range",
+          "query": "{ resource.service.name =~ \"${service:regex}\" } | rate() by (resource.service.name)"
+        }
+      ],
+      "description": "Traces of the application's services that reached the store. Needs the trace store's metrics generator, which this chart turns on (tempo.traceqlMetrics).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "noValue": "No traces have arrived yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "CPU by pod",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (k8s_namespace_name, k8s_pod_name) (k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "{{k8s_namespace_name}}/{{k8s_pod_name}}"
+        }
+      ],
+      "description": "Cores in use.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Memory by pod",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (k8s_namespace_name, k8s_pod_name) (k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "{{k8s_namespace_name}}/{{k8s_pod_name}}"
+        }
+      ],
+      "description": "Working set.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Log lines per minute, by service",
+      "datasource": {
+        "type": "loki",
+        "uid": "fusion-logs"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service_name) (count_over_time({service_name=~\"$service\", k8s_namespace_name=~\"$namespace\"} [1m]))",
+          "datasource": {
+            "type": "loki",
+            "uid": "fusion-logs"
+          },
+          "legendFormat": "{{service_name}}"
+        }
+      ],
+      "description": "Everything the application's services wrote.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "noValue": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Log lines that mention an error",
+      "datasource": {
+        "type": "loki",
+        "uid": "fusion-logs"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service_name) (count_over_time({service_name=~\"$service\", k8s_namespace_name=~\"$namespace\"} |~ \"(?i)(error|exception|fatal|panic)\" [$__interval]))",
+          "datasource": {
+            "type": "loki",
+            "uid": "fusion-logs"
+          },
+          "legendFormat": "{{service_name}}"
+        }
+      ],
+      "description": "Lines that contain the words error, exception, fatal or panic. A text match, not a severity level.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "noValue": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Failing spans per second, by service",
+      "datasource": {
+        "type": "tempo",
+        "uid": "fusion-traces"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "fusion-traces"
+          },
+          "queryType": "traceql",
+          "metricsQueryType": "range",
+          "query": "{ resource.service.name =~ \"${service:regex}\" && status = error } | rate() by (resource.service.name)"
+        }
+      ],
+      "description": "Spans that ended in an error.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "noValue": "No failing spans"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Recent traces",
+      "datasource": {
+        "type": "tempo",
+        "uid": "fusion-traces"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 27,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "fusion-traces"
+          },
+          "queryType": "traceql",
+          "query": "{ resource.service.name =~ \"${service:regex}\" }",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "description": "The latest traces that touched any of the application's services. Open one to follow it to its logs and metrics.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 15,
+      "type": "logs",
+      "title": "Logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "fusion-logs"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=~\"$service\", k8s_namespace_name=~\"$namespace\"}",
+          "datasource": {
+            "type": "loki",
+            "uid": "fusion-logs"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true,
+        "showTime": true
+      }
+    }
+  ]
+}

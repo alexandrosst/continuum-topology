@@ -105,8 +105,11 @@ func (f LogFilter) selector(s Scope) (string, error) {
 			return "", err
 		}
 		sel = append(sel, lokiService+"="+quote(f.Service))
-	} else {
+	} else if len(s.Services) == 0 {
 		sel = append(sel, lokiService+`=~".+"`)
+	}
+	if len(s.Services) > 0 {
+		sel = append(sel, lokiService+"=~"+quote(regexAny(s.Services)))
 	}
 	for _, p := range []struct{ name, label, val string }{{"namespace", lokiNamespace, f.Namespace}, {"pod", lokiPod, f.Pod}} {
 		if p.val == "" {

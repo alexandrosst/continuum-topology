@@ -352,6 +352,9 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 		// The renewal has no signed-in user to take an organisation from, and the platform core has none: FUSION's
 		// central operator lives in the main organisation, so it runs on that organisation's view of the core.
 		go renewFusionCertificate(log, admin.Fusion, admin.Fusion.OrgCore(core))
+		// Telemetry does not carry which Ikhnos application a service is in, so the tools that read Prometheus directly
+		// are given it as a series of its own.
+		go admin.RunApplicationInfo(context.Background(), log)
 	}
 	admin.Readiness = &server.Readiness{AgentsListening: grpcSrv.Serving}
 	if graphStore != nil {

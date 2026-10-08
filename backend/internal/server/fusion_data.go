@@ -429,6 +429,39 @@ func fusionRange(r *http.Request, now time.Time) (fusionapi.TimeRange, error) {
 	return fusionapi.ParseRange(q.Get("from"), q.Get("to"), now)
 }
 
+// fusionScope is the Scope a structured list read runs with: the caller's own, narrowed to one Ikhnos application when the
+// request names one (application=<id or name>). The application is resolved here, at read time, from what Ikhnos knows
+// now, so changing an application changes what it shows without touching any stored telemetry. The caller's own Scope
+// (who.Scope) is what everything not narrowed keeps using: reading one trace, and the fused joins around a search hit.
+func (a *Admin) fusionScope(r *http.Request, who fusionCaller) (fusionapi.Scope, error) {
+	ref := r.URL.Query().Get("application")
+	if ref == "" {
+		return who.Scope, nil
+	}
+	ex := a.fusionExtras()
+	if ex == nil {
+		return fusionapi.Scope{}, &fusionapi.Error{Status: http.StatusServiceUnavailable, Msg: "this server does not know the applications"}
+	}
+	groups, err := ex.Applications(r.Context())
+	if err != nil {
+		return fusionapi.Scope{}, err
+	}
+	g, err := fusionapi.FindGroup(groups, ref)
+	if err != nil {
+		return fusionapi.Scope{}, err
+	}
+	return who.Scope.FocusOn(g)
+}
+
+// fusionNoApplication refuses the application filter on a read that cannot carry it: a query written by the caller is sent
+// as it is, so there is nothing to add the application's services to.
+func fusionNoApplication(r *http.Request) error {
+	if r.URL.Query().Has("application") {
+		return &fusionapi.Error{Status: http.StatusBadRequest, Msg: "application narrows the structured filters; it cannot be combined with a query written as PromQL, LogQL or TraceQL (add the application's services to your own query)"}
+	}
+	return nil
+}
+
 func metricFilter(q url.Values) fusionapi.MetricFilter {
 	return fusionapi.MetricFilter{Name: q.Get("name"), NameRegex: q.Get("metric"), Service: q.Get("service"), Namespace: q.Get("namespace"),
 		Pod: q.Get("pod"), Node: q.Get("node"), Cluster: q.Get("cluster")}
@@ -440,7 +473,12 @@ func (a *Admin) fusionApplications(w http.ResponseWriter, r *http.Request, c *fu
 		a.fusionErr(w, r, err)
 		return
 	}
-	apps, sources, err := c.Applications(r.Context(), who.Scope, tr)
+	scope, err := a.fusionScope(r, who)
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	apps, sources, err := c.Applications(r.Context(), scope, tr)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
@@ -476,7 +514,12 @@ func (a *Admin) fusionMetricNames(w http.ResponseWriter, r *http.Request, c *fus
 		a.fusionErr(w, r, err)
 		return
 	}
-	names, err := c.MetricNames(r.Context(), who.Scope, metricFilter(r.URL.Query()), tr, limit)
+	scope, err := a.fusionScope(r, who)
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	names, err := c.MetricNames(r.Context(), scope, metricFilter(r.URL.Query()), tr, limit)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
@@ -495,7 +538,12 @@ func (a *Admin) fusionMetricSeries(w http.ResponseWriter, r *http.Request, c *fu
 		a.fusionErr(w, r, err)
 		return
 	}
-	series, err := c.Series(r.Context(), who.Scope, metricFilter(r.URL.Query()), tr, limit)
+	scope, err := a.fusionScope(r, who)
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	series, err := c.Series(r.Context(), scope, metricFilter(r.URL.Query()), tr, limit)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
@@ -528,7 +576,12 @@ func (a *Admin) fusionMetricRange(w http.ResponseWriter, r *http.Request, c *fus
 		a.fusionErr(w, r, err)
 		return
 	}
-	series, truncated, err := c.MetricRange(r.Context(), who.Scope, metricFilter(q), tr, step, limit)
+	scope, err := a.fusionScope(r, who)
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	series, truncated, err := c.MetricRange(r.Context(), scope, metricFilter(q), tr, step, limit)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
@@ -542,6 +595,10 @@ func (a *Admin) fusionMetricRange(w http.ResponseWriter, r *http.Request, c *fus
 // fusionMetricRaw is PromQL as written, answered the way Prometheus itself answers.
 func (a *Admin) fusionMetricRaw(endpoint string) fusionHandler {
 	return func(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+		if err := fusionNoApplication(r); err != nil {
+			a.fusionErr(w, r, err)
+			return
+		}
 		data, err := c.RawMetricQuery(r.Context(), who.Scope, endpoint, r.URL.Query())
 		if err != nil {
 			a.fusionErr(w, r, err)
@@ -577,9 +634,13 @@ func (a *Admin) fusionLogs(w http.ResponseWriter, r *http.Request, c *fusionapi.
 	var entries []fusionapi.LogEntry
 	var truncated bool
 	if raw := q.Get("query"); raw != "" {
-		entries, truncated, err = c.RawLogQuery(r.Context(), who.Scope, raw, backward, tr, limit)
+		if err = fusionNoApplication(r); err == nil {
+			entries, truncated, err = c.RawLogQuery(r.Context(), who.Scope, raw, backward, tr, limit)
+		}
+	} else if scope, serr := a.fusionScope(r, who); serr != nil {
+		err = serr
 	} else {
-		entries, truncated, err = c.Logs(r.Context(), who.Scope, fusionapi.LogFilter{
+		entries, truncated, err = c.Logs(r.Context(), scope, fusionapi.LogFilter{
 			Service: q.Get("service"), Namespace: q.Get("namespace"), Pod: q.Get("pod"), Cluster: q.Get("cluster"),
 			TraceID: q.Get("trace_id"), SpanID: q.Get("span_id"), Severity: q.Get("severity"), Contains: q.Get("contains"), Backward: backward,
 		}, tr, limit)
@@ -623,14 +684,20 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 	}
 	var traces []fusionapi.TraceSummary
 	if raw := q.Get("q"); raw != "" {
-		traces, err = c.RawTraceSearch(r.Context(), who.Scope, raw, tr, limit)
+		if err = fusionNoApplication(r); err == nil {
+			traces, err = c.RawTraceSearch(r.Context(), who.Scope, raw, tr, limit)
+		}
 	} else {
 		var minD, maxD time.Duration
 		if minD, err = fusionapi.DurationParam(q.Get("min_duration")); err == nil {
 			maxD, err = fusionapi.DurationParam(q.Get("max_duration"))
 		}
+		var scope fusionapi.Scope
 		if err == nil {
-			traces, err = c.SearchTraces(r.Context(), who.Scope, fusionapi.TraceFilter{
+			scope, err = a.fusionScope(r, who)
+		}
+		if err == nil {
+			traces, err = c.SearchTraces(r.Context(), scope, fusionapi.TraceFilter{
 				Service: q.Get("service"), Namespace: q.Get("namespace"), Cluster: q.Get("cluster"), Name: q.Get("name"), Status: q.Get("status"),
 				MinDuration: minD, MaxDuration: maxD,
 			}, tr, limit)
@@ -887,4 +954,48 @@ func (a *Admin) streamBulk(w http.ResponseWriter, r *http.Request, c *fusionapi.
 		fusionapi.BulkSummary
 	}{"summary", fusionapi.Summarise(items)})
 	flush()
+}
+
+// fusionGroups lists the Ikhnos applications the application filter accepts, each with the services it is made of, the
+// namespaces and clusters they run in, and the service names its telemetry may carry. A caller limited to certain
+// namespaces or clusters sees only the applications that have a service in them, and only those services.
+func (a *Admin) fusionGroups(w http.ResponseWriter, r *http.Request, _ *fusionapi.Client, who fusionCaller) {
+	ex := a.fusionExtras()
+	if ex == nil {
+		a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusServiceUnavailable, Msg: "this server does not know the applications"})
+		return
+	}
+	groups, err := ex.Applications(r.Context())
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	type view struct {
+		ID           string                `json:"id"`
+		Name         string                `json:"name"`
+		Description  string                `json:"description,omitempty"`
+		Services     []fusionapi.AppMember `json:"services"`
+		ServiceNames []string              `json:"serviceNames"`
+		Namespaces   []string              `json:"namespaces"`
+		Clusters     []string              `json:"clusters"`
+	}
+	out := []view{}
+	for _, g := range groups {
+		kept := g
+		kept.Members = nil
+		for _, m := range g.Members {
+			if who.Scope.NamespaceVisible(m.Namespace) && who.Scope.ClusterVisible(m.Cluster) {
+				kept.Members = append(kept.Members, m)
+			}
+		}
+		if len(kept.Members) == 0 && len(g.Members) > 0 {
+			continue // nothing of it is in the caller's scope
+		}
+		if kept.Members == nil {
+			kept.Members = []fusionapi.AppMember{}
+		}
+		out = append(out, view{ID: g.ID, Name: g.Name, Description: g.Description, Services: kept.Members, ServiceNames: orEmpty(kept.ServiceNames()),
+			Namespaces: orEmpty(kept.Namespaces()), Clusters: orEmpty(kept.Clusters())})
+	}
+	writeJSON(w, 200, map[string]any{"groups": out})
 }

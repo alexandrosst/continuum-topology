@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"continuum/internal/chart"
+	"continuum/internal/fusionapi"
 	"continuum/internal/store"
 	"continuum/internal/workspace"
 )
@@ -67,6 +68,8 @@ type Admin struct {
 	// Fusion switches the FUSION bundled with the server's chart on and off. Nil when the server was installed without
 	// it or without the permission to scale it; the endpoints then report it as unavailable and say why.
 	Fusion *FusionControl
+	// extras replaces the platform-backed provider of what Ikhnos knows (topology, applications, events) for a test.
+	extras fusionapi.Extras
 	// TrustProxy is set when a TLS-terminating proxy sits in front: the client address is read from
 	// the last entry of X-Forwarded-For (what the proxy itself saw), and the request counts as HTTPS
 	// when the proxy says so in X-Forwarded-Proto. Only correct when the proxy is the sole way in and

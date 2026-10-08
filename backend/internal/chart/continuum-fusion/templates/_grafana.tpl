@@ -42,5 +42,5 @@
 {{/* Which dashboard files there are, for the ConfigMap and its checksum. They all read metrics (their variables do), so none
      is rendered without Prometheus. */}}
 {{- define "fusion.dashboardNames" -}}
-{{- if .Values.prometheus.enabled -}}clusters workloads delivery{{- end -}}
+{{- if .Values.prometheus.enabled -}}clusters workloads delivery applications{{- end -}}
 {{- end -}}
