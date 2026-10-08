@@ -25,10 +25,6 @@ data:
         jsonData:
           httpMethod: POST
           timeInterval: 60s
-          {{- if .Values.tempo.enabled }}
-          exemplarTraceIdDestinations:
-            - {name: trace_id, datasourceUid: fusion-traces}
-          {{- end }}
       {{- end }}
       {{- if .Values.loki.enabled }}
       - name: FUSION logs
@@ -60,10 +56,10 @@ data:
             tags:
               - {key: service.name, value: service_name}
               - {key: k8s.namespace.name, value: k8s_namespace_name}
-            filterByTraceID: true
-          {{- end }}
-          {{- if .Values.prometheus.enabled }}
-          serviceMap: {datasourceUid: fusion-metrics}
+            # The trace id is structured metadata, not part of the line, so the built-in line filter (filterByTraceID) finds
+            # nothing. ($$ is Grafana's escape: provisioning files expand $VAR themselves.)
+            customQuery: true
+            query: '{$${__tags}} | trace_id="$${__span.traceId}"'
           {{- end }}
           nodeGraph: {enabled: true}
       {{- end }}

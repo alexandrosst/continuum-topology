@@ -64,6 +64,16 @@ func TestFusionGrafanaIsProvisionedWithTheStores(t *testing.T) {
 	if raw, _ := json.Marshal(byUID["fusion-traces"].JSONData); !strings.Contains(string(raw), `"datasourceUid":"fusion-logs"`) {
 		t.Errorf("a trace is not linked to its logs: %s", raw)
 	}
+	// The trace id lives in structured metadata, which Grafana's own trace-to-logs line filter (filterByTraceID) cannot see.
+	if raw, _ := json.Marshal(byUID["fusion-traces"].JSONData); strings.Contains(string(raw), "filterByTraceID") || !strings.Contains(string(raw), `| trace_id=\"$${__span.traceId}\"`) {
+		t.Errorf("a trace's logs are not found by the trace_id metadata: %s", raw)
+	}
+	// Links to data that is never written (no service-graph metrics, no exemplar storage) only open empty views.
+	for uid, key := range map[string]string{"fusion-traces": "serviceMap", "fusion-metrics": "exemplarTraceIdDestinations"} {
+		if _, ok := byUID[uid].JSONData[key]; ok {
+			t.Errorf("%s has %s, but nothing writes what it links to", uid, key)
+		}
+	}
 	// The dashboard is JSON Grafana can load, and only points at data sources that exist.
 	var dash struct {
 		Panels []struct {
