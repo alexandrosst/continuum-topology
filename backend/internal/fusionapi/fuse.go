@@ -3,6 +3,7 @@ package fusionapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -195,6 +196,23 @@ func (o *FuseOptions) defaults() error {
 	return nil
 }
 
+// sourceState is what a part of a read reports about itself when err ended it.
+func sourceState(err error) string {
+	if IsUnavailable(err) {
+		return SourceUnavailable
+	}
+	return SourceError
+}
+
+// callerGone is the error of a context whose caller went away. A request that merely ran out of its time is not that: it
+// still returns what the stores answered, with the parts that did not make it named in the sources and warnings.
+func callerGone(ctx context.Context) error {
+	if err := ctx.Err(); errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
+}
+
 // FusedLogs says what became of the trace's log lines. The lines whose span is in the trace sit on that span; these
 // are the rest.
 type FusedLogs struct {
@@ -306,11 +324,7 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 	warn := func(signal string, err error) {
 		mu.Lock()
 		defer mu.Unlock()
-		if IsUnavailable(err) {
-			f.Sources[signal] = SourceUnavailable
-		} else {
-			f.Sources[signal] = SourceError
-		}
+		f.Sources[signal] = sourceState(err)
 		f.Warnings = append(f.Warnings, fmt.Sprintf("%s: %v", signal, err))
 	}
 	note := func(format string, a ...any) {
@@ -367,6 +381,7 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 				defer wg.Done()
 				release, err := acquire(ctx, sem)
 				if err != nil {
+					warn(SourceContextLogs, err)
 					return
 				}
 				defer release()
@@ -426,6 +441,7 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 				defer wg.Done()
 				release, err := acquire(ctx, sem)
 				if err != nil {
+					warn(SignalMetrics, err)
 					return
 				}
 				defer release()
@@ -493,7 +509,7 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 		}()
 	}
 	wg.Wait()
-	if err := ctx.Err(); err != nil {
+	if err := callerGone(ctx); err != nil {
 		return nil, err
 	}
 	if len(opts.PromQL) > 0 && opts.PromQLSpans && f.Sources[SourcePromQL] != SourceNotAllowed {
@@ -727,11 +743,7 @@ func (c *Client) Applications(ctx context.Context, s Scope, tr TimeRange) ([]App
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
-				if IsUnavailable(err) {
-					sources[signal] = SourceUnavailable
-				} else {
-					sources[signal] = SourceError
-				}
+				sources[signal] = sourceState(err)
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -750,7 +762,7 @@ func (c *Client) Applications(ctx context.Context, s Scope, tr TimeRange) ([]App
 	run(SignalLogs, func() ([]string, error) { return c.logServices(ctx, s, tr) })
 	run(SignalTraces, func() ([]string, error) { return c.traceServices(ctx, s, tr) })
 	wg.Wait()
-	if err := ctx.Err(); err != nil {
+	if err := callerGone(ctx); err != nil {
 		return nil, nil, err
 	}
 	ok := false
@@ -852,11 +864,7 @@ func (c *Client) overview(ctx context.Context, s Scope, name, label string, tr T
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
-				if IsUnavailable(err) {
-					o.Sources[signal] = SourceUnavailable
-				} else {
-					o.Sources[signal] = SourceError
-				}
+				o.Sources[signal] = sourceState(err)
 				o.Warnings = append(o.Warnings, fmt.Sprintf("%s: %v", signal, err))
 				if firstErr == nil {
 					firstErr = err
@@ -906,7 +914,7 @@ func (c *Client) overview(ctx context.Context, s Scope, name, label string, tr T
 		return len(names) > 0, nil
 	})
 	wg.Wait()
-	if err := ctx.Err(); err != nil {
+	if err := callerGone(ctx); err != nil {
 		return nil, err
 	}
 	allFailed := firstErr != nil

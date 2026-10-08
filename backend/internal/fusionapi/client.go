@@ -21,6 +21,9 @@ type Client struct {
 	Loki       string
 	Tempo      string
 	HTTP       *http.Client
+	// StoreTimeout bounds one call to a store (default 10 s), shorter than a request's own budget, so a store that hangs
+	// costs the read that part and not the parts the other stores already answered.
+	StoreTimeout time.Duration
 	// MaxBytes bounds one store answer; a bigger one is refused rather than held in memory. Default 16 MiB.
 	MaxBytes int64
 	// Now is the clock, for tests.
@@ -42,7 +45,10 @@ const (
 	maxBulkUpstream = 5
 )
 
-const defaultMaxBytes = 16 << 20
+const (
+	defaultMaxBytes     = 16 << 20
+	defaultStoreTimeout = 10 * time.Second
+)
 
 func (c *Client) now() time.Time {
 	if c.Now != nil {
@@ -56,6 +62,13 @@ func (c *Client) http() *http.Client {
 		return c.HTTP
 	}
 	return &http.Client{Timeout: 30 * time.Second}
+}
+
+func (c *Client) storeTimeout() time.Duration {
+	if c.StoreTimeout > 0 {
+		return c.StoreTimeout
+	}
+	return defaultStoreTimeout
 }
 
 func (c *Client) maxBytes() int64 {
@@ -79,6 +92,9 @@ func acquire(ctx context.Context, sem chan struct{}) (release func(), err error)
 	case sem <- struct{}{}:
 		return func() { <-sem }, nil
 	case <-ctx.Done():
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, errf(http.StatusGatewayTimeout, "the time limit ran out before the stores could be asked")
+		}
 		return nil, ctx.Err()
 	}
 }
@@ -113,7 +129,9 @@ func (c *Client) get(ctx context.Context, store, base, path string, q url.Values
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	callCtx, cancel := context.WithTimeout(ctx, c.storeTimeout()) // (after the wait for a slot, which is not the store's doing)
+	defer cancel()
+	req, err := http.NewRequestWithContext(callCtx, http.MethodGet, u, nil)
 	if err != nil {
 		return errf(http.StatusInternalServerError, "could not build the %s request", store)
 	}
@@ -123,14 +141,17 @@ func (c *Client) get(ctx context.Context, store, base, path string, q url.Values
 	}
 	resp, err := c.http().Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if err := tooSlow(ctx, callCtx, store); err != nil {
+			return err
 		}
 		return errf(http.StatusServiceUnavailable, "%s is not reachable. FUSION is off or still starting", store)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, c.maxBytes()+1))
 	if err != nil {
+		if err := tooSlow(ctx, callCtx, store); err != nil {
+			return err
+		}
 		return errf(http.StatusBadGateway, "%s: the answer was cut off", store)
 	}
 	if int64(len(body)) > c.maxBytes() {
@@ -159,6 +180,19 @@ func (c *Client) get(ctx context.Context, store, base, path string, q url.Values
 		// A store's own error text can name hosts, paths and internals; the caller gets the fact, not the text.
 		return errf(http.StatusBadGateway, "%s had a problem answering (status %d)", store, resp.StatusCode)
 	}
+}
+
+// tooSlow says why a call that failed ran out of time, or nil when it did not. The caller going away is its own context's
+// error; a deadline, the call's own or the request's, is a 504 naming the store, so that part of a fused read degrades to
+// an error source and the rest is still returned.
+func tooSlow(ctx, callCtx context.Context, store string) error {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return ctx.Err()
+	}
+	if ctx.Err() != nil || callCtx.Err() != nil {
+		return errf(http.StatusGatewayTimeout, "%s took too long to answer; narrow the time range or the filters", store)
+	}
+	return nil
 }
 
 // upstreamMessage pulls the human part out of a store's error body (Prometheus and Loki answer JSON with "error",
