@@ -77,7 +77,7 @@ func TestFusedMetricsAndContextLogsStayInTheClustersOfTheResource(t *testing.T) 
 	}
 	r := &Resource{Service: "cart", Namespace: "shop", Pod: "cart-0", Cluster: "cl-1"}
 	c := f.client()
-	if _, _, err := c.resourceMetrics(context.Background(), AllSignals(), r, FuseOptions{MaxSeries: 5, MetricViews: MetricViews{App: true, Pod: true}}, rangeAll, time.Minute); err != nil {
+	if _, _, err := resourceMetrics(context.Background(), r, FuseOptions{MaxSeries: 5, MetricViews: MetricViews{App: true, Pod: true}}, newMetricReads(c, AllSignals(), rangeAll, time.Minute, 5)); err != nil {
 		t.Fatal(err)
 	}
 	f.mu.Lock()

@@ -434,6 +434,7 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 			return nil, err
 		}
 		sem := make(chan struct{}, fuseConcurrency)
+		reads := newMetricReads(c, s, window, step, opts.MaxSeries)
 		for _, r := range looked {
 			r := r
 			wg.Add(1)
@@ -445,7 +446,7 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 					return
 				}
 				defer release()
-				series, truncated, err := c.resourceMetrics(ctx, s, r, opts, window, step)
+				series, truncated, err := resourceMetrics(ctx, r, opts, reads)
 				if err != nil {
 					warn(SignalMetrics, err)
 					return
@@ -681,9 +682,46 @@ func attachLogs(f *Fused, lines []LogEntry, truncated bool) {
 	}
 }
 
+// metricReads shares the range reads of one fused read. Resources that differ only in their pod (the replicas of a service)
+// ask for the same app view, and those on one node for the same node view; each question is asked once and every resource
+// that asked carries the answer. (The answer is read-only from then on, so they share its slices.)
+type metricReads struct {
+	c         *Client
+	s         Scope
+	window    TimeRange
+	step      time.Duration
+	maxSeries int
+	mu        sync.Mutex
+	reads     map[string]*metricRead
+}
+
+type metricRead struct {
+	once      sync.Once
+	series    []MetricSeries
+	truncated bool
+	err       error
+}
+
+func newMetricReads(c *Client, s Scope, window TimeRange, step time.Duration, maxSeries int) *metricReads {
+	return &metricReads{c: c, s: s, window: window, step: step, maxSeries: maxSeries, reads: map[string]*metricRead{}}
+}
+
+func (m *metricReads) get(ctx context.Context, f MetricFilter) ([]MetricSeries, bool, error) {
+	key := fmt.Sprintf("%+v", f)
+	m.mu.Lock()
+	r := m.reads[key]
+	if r == nil {
+		r = &metricRead{}
+		m.reads[key] = r
+	}
+	m.mu.Unlock()
+	r.once.Do(func() { r.series, r.truncated, r.err = m.c.MetricRange(ctx, m.s, f, m.window, m.step, m.maxSeries) })
+	return r.series, r.truncated, r.err
+}
+
 // resourceMetrics reads the metric series saved for one resource: what the service itself reported under its name
 // and namespace, and what was reported about its pod (the infrastructure view, which usually carries no service name).
-func (c *Client) resourceMetrics(ctx context.Context, s Scope, r *Resource, opts FuseOptions, window TimeRange, step time.Duration) ([]MetricSeries, bool, error) {
+func resourceMetrics(ctx context.Context, r *Resource, opts FuseOptions, reads *metricReads) ([]MetricSeries, bool, error) {
 	var filters []MetricFilter
 	views := opts.MetricViews.orDefault()
 	if views.App && r.Service != "" {
@@ -699,7 +737,7 @@ func (c *Client) resourceMetrics(ctx context.Context, s Scope, r *Resource, opts
 	seen := map[string]bool{}
 	truncated := false
 	for _, f := range filters {
-		series, trunc, err := c.MetricRange(ctx, s, f, window, step, opts.MaxSeries)
+		series, trunc, err := reads.get(ctx, f)
 		if err != nil {
 			return nil, false, err
 		}
