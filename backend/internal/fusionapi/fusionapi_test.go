@@ -675,7 +675,7 @@ func TestAFusedReadBoundsItsWindowAndItsFanOut(t *testing.T) {
 	}
 	var window, resources bool
 	for _, w := range got.Warnings {
-		window = window || strings.Contains(w, "31 days") || strings.Contains(w, "longer than")
+		window = window || strings.Contains(w, "longer than")
 		resources = resources || strings.Contains(w, "more than 20 resources")
 	}
 	if !window || !resources {
@@ -691,7 +691,7 @@ func TestAFusedReadBoundsItsWindowAndItsFanOut(t *testing.T) {
 		if r.URL.Path == "/loki/api/v1/query_range" {
 			from, _ := strconv.ParseInt(r.URL.Query().Get("start"), 10, 64)
 			to, _ := strconv.ParseInt(r.URL.Query().Get("end"), 10, 64)
-			if time.Duration(to-from) > MaxWindow {
+			if time.Duration(to-from) > MaxLogWindow {
 				t.Fatalf("log window %v exceeds the maximum", time.Duration(to-from))
 			}
 		}

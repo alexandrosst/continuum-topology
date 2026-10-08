@@ -240,6 +240,9 @@ func (c *Client) RawLogQuery(ctx context.Context, s Scope, query string, backwar
 }
 
 func (c *Client) lokiQuery(ctx context.Context, s Scope, query string, backward bool, tr TimeRange, limit int) ([]LogEntry, bool, error) {
+	if err := tr.within(storeLoki, MaxLogWindow); err != nil {
+		return nil, false, err
+	}
 	dir := "forward"
 	if backward {
 		dir = "backward"
@@ -341,7 +344,7 @@ func (c *Client) logServices(ctx context.Context, s Scope, tr TimeRange) (names 
 	if len(s.clLimit()) > 0 {
 		// A cluster is structured metadata, which label-value calls cannot filter on: read the newest in-scope lines
 		// and take the services they came from.
-		lines, truncated, err := c.Logs(ctx, s, LogFilter{Backward: true}, tr, scopedLogSample)
+		lines, truncated, err := c.Logs(ctx, s, LogFilter{Backward: true}, tr.newest(MaxLogWindow), scopedLogSample)
 		if err != nil {
 			return nil, "", err
 		}

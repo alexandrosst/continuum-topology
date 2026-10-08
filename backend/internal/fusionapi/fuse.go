@@ -306,9 +306,9 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 	if !window.From.Before(window.To) {
 		window.To = window.From.Add(time.Second)
 	}
-	if window.To.Sub(window.From) > MaxWindow { // a trace that spans weeks must not turn into an unbounded store read
-		window.From = window.To.Add(-MaxWindow)
-		f.Warnings = append(f.Warnings, fmt.Sprintf("the trace is longer than %d days; logs and metrics cover its last %d days", int(MaxWindow.Hours()/24), int(MaxWindow.Hours()/24)))
+	if window.To.Sub(window.From) > MaxLogWindow { // a trace that spans weeks must not turn into an unbounded store read (nor one Loki refuses)
+		window = window.newest(MaxLogWindow)
+		f.Warnings = append(f.Warnings, fmt.Sprintf("the trace is longer than %d days; logs and metrics cover its last %d days", int(MaxLogWindow.Hours()/24), int(MaxLogWindow.Hours()/24)))
 	}
 
 	var mu sync.Mutex

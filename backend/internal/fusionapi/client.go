@@ -232,6 +232,30 @@ const (
 	MaxWindow     = 31 * 24 * time.Hour
 )
 
+// The longest range one query to a store takes under the limits the chart leaves at the stores' defaults: Tempo's
+// query_frontend.search.max_duration is 168h and Loki's limits_config.max_query_length 721h. A longer range is refused here
+// with a message that says so, rather than as the store's own.
+const (
+	MaxSearchWindow = 7 * 24 * time.Hour
+	MaxLogWindow    = 30 * 24 * time.Hour
+)
+
+// within refuses a range longer than a store reads at once.
+func (tr TimeRange) within(store string, max time.Duration) error {
+	if tr.To.Sub(tr.From) > max {
+		return badRequest("%s reads at most %d days of time range in one query; narrow from and to", store, int(max.Hours()/24))
+	}
+	return nil
+}
+
+// newest is the last max of the range: what a sample of the newest items reads from.
+func (tr TimeRange) newest(max time.Duration) TimeRange {
+	if tr.To.Sub(tr.From) > max {
+		tr.From = tr.To.Add(-max)
+	}
+	return tr
+}
+
 // ParseRange reads the from/to parameters: each is an RFC 3339 time, unix seconds, or "now" / "now-<duration>"
 // (for example now-15m). Missing "to" is now; missing "from" is DefaultWindow before "to".
 func ParseRange(from, to string, now time.Time) (TimeRange, error) {

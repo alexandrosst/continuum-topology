@@ -399,6 +399,8 @@ func TestFusionDataRejectsBadParameters(t *testing.T) {
 		"/api/v1/fusion/metrics/range?step=1s&from=now-30d",
 		"/api/v1/fusion/metrics/range",                            // every series there is
 		"/api/v1/fusion/metrics/range?category=system&cluster=c1", // a category and a cluster do not narrow it
+		"/api/v1/fusion/traces?from=now-8d",                       // Tempo's search takes 7 days
+		"/api/v1/fusion/logs?from=now-31d",                        // Loki takes 30
 		"/api/v1/fusion/metrics/names?metric=(unclosed",
 		"/api/v1/fusion/metrics/names?category=infrastructure",
 		"/api/v1/fusion/logs?category=system,bogus",

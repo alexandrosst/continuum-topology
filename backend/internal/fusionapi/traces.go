@@ -507,6 +507,9 @@ func (c *Client) RawTraceSearch(ctx context.Context, s Scope, query string, tr T
 }
 
 func (c *Client) tempoSearch(ctx context.Context, s Scope, q string, tr TimeRange, limit int) ([]TraceSummary, bool, error) {
+	if err := tr.within(storeTempo, MaxSearchWindow); err != nil {
+		return nil, false, err
+	}
 	var res tempoSearch
 	if err := c.get(ctx, storeTempo, c.Tempo, "/api/search", url.Values{
 		"q": {q}, "start": {unixSec(tr.From)}, "end": {unixSec(tr.To)}, "limit": {strconv.Itoa(limit + 1)}, "spss": {"20"}, // (one more: see MetricNames)
@@ -573,7 +576,7 @@ func (c *Client) traceServices(ctx context.Context, s Scope, tr TimeRange) (name
 		return nil, "", err
 	}
 	if !s.Unrestricted() || len(s.FocusServices) > 0 {
-		hits, truncated, err := c.SearchTraces(ctx, s, TraceFilter{}, tr, scopedServiceSample)
+		hits, truncated, err := c.SearchTraces(ctx, s, TraceFilter{}, tr.newest(MaxSearchWindow), scopedServiceSample)
 		if err != nil {
 			return nil, "", err
 		}
