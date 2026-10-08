@@ -8,6 +8,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/probe"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -361,5 +362,40 @@ func TestDiagnosticsAreSentWhenTheyChangeAndAtLeastEveryFiveMinutes(t *testing.T
 	r.started = r.started.Add(-time.Hour)
 	if r.diagToSend(false) != nil {
 		t.Fatal("uptime alone made the account count as changed")
+	}
+}
+
+// How long a collector has been silent is not in the message: it would be new text on every check, which makes every
+// check a changed account (a message every few seconds instead of every five minutes) and, as the message is part of
+// a derived problem's key, a new problem with a new `since` each time.
+func TestASilentCollectorIsOneProblemWhoseMessageDoesNotTick(t *testing.T) {
+	r := newTestRunner()
+	r.cfg.Probes = probe.NewReceiver([]byte("secret"), nil)
+	r.cfg.ProbeInterval = time.Second
+	r.collTier = 1
+	r.started = time.Now().Add(-time.Hour)
+	first := r.diagnostics()
+	var p1 *continuumv1.Problem
+	for _, p := range first.Problems {
+		if p.Code == CodeCollectorSilent {
+			p1 = p
+		}
+	}
+	if p1 == nil {
+		t.Fatalf("a collector that never reported for an hour is not called silent: %v", first.Problems)
+	}
+	if strings.Contains(p1.Message, "1h") {
+		t.Fatalf("the message carries how long the collector has been silent: %q", p1.Message)
+	}
+	if r.diagToSend(false) == nil {
+		t.Fatal("the first account must be sent")
+	}
+	time.Sleep(1100 * time.Millisecond) // the age printed to the second would differ by now
+	d := r.diagnostics()
+	if d.Problems[0].Message != p1.Message || !d.Problems[0].Since.AsTime().Equal(p1.Since.AsTime()) {
+		t.Fatalf("the problem changed while the collector stayed silent:\n%v\n%v", p1, d.Problems[0])
+	}
+	if r.diagToSend(false) != nil {
+		t.Fatal("a collector staying silent made every check a changed account")
 	}
 }

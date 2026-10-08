@@ -113,7 +113,9 @@ func (p *problemSet) clear(keys ...string) {
 	p.mu.Unlock()
 }
 
-// replaceDerived swaps in the conditions that hold now, carrying `since` over for the ones that held before.
+// replaceDerived swaps in the conditions that hold now, carrying `since` over for the ones that held before. A message
+// must not carry a number that changes while the condition lasts (how long a collector has been silent, say): it is the
+// key, so each tick would be a new problem with a new `since`, and a change for diagSignature. Problem.since says how long.
 func (p *problemSet) replaceDerived(now []*prob) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -415,7 +417,7 @@ func (r *runner) collectorDiagnostics(c *collect.Collector, tier int, paused map
 			}
 		}
 		if now.Sub(ref) > threshold {
-			add(CodeCollectorSilent, continuumv1.Problem_WARN, fmt.Sprintf("The %s is switched on but nothing has arrived from it for %s (it should report about every %s). %s", where, now.Sub(ref).Round(time.Second), every, silentAdvice(name)))
+			add(CodeCollectorSilent, continuumv1.Problem_WARN, fmt.Sprintf("The %s is switched on but nothing has arrived from it for more than %s (it should report about every %s). %s", where, threshold, every, silentAdvice(name)))
 			return true
 		}
 		return false
@@ -495,8 +497,8 @@ func (r *runner) collectorDiagnostics(c *collect.Collector, tier int, paused map
 			if tsince.After(ref) {
 				ref = tsince
 			}
-			if now.Sub(ref) > silentAfterIntervals*every+10*time.Second {
-				add(CodeCollectorSilent, continuumv1.Problem_WARN, fmt.Sprintf("Connection timing is switched on with %d addresses to time, but no round has completed for %s (it should run about every %s). %s", targets, now.Sub(ref).Round(time.Second), every, silentAdvice(collectorMeasure)))
+			if threshold := silentAfterIntervals*every + 10*time.Second; now.Sub(ref) > threshold {
+				add(CodeCollectorSilent, continuumv1.Problem_WARN, fmt.Sprintf("Connection timing is switched on with %d addresses to time, but no round has completed for more than %s (it should run about every %s). %s", targets, threshold, every, silentAdvice(collectorMeasure)))
 				md.Producing = false
 			}
 		}
