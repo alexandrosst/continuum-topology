@@ -180,7 +180,7 @@ func (a *Admin) graphDiff(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /timeline?kind=service&id=...: every version of one record, what changed between them, the events
-// about it and what people did to it.
+// about it and what people did to it (the last only for administrators, as /audit is).
 func (a *Admin) timeline(w http.ResponseWriter, r *http.Request) {
 	g := a.graphAPI()
 	if g == nil {
@@ -207,7 +207,11 @@ func (a *Admin) timeline(w http.ResponseWriter, r *http.Request) {
 		evs[i] = eventDoc{ID: "ev-" + itoa(e.ID), At: rfc(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
 			ClusterName: e.ClusterName, Detail: e.Detail, Cause: e.Cause, Severity: e.Severity}
 	}
-	writeJSON(w, 200, map[string]any{"kind": tl.Kind, "id": tl.ID, "versions": tl.Versions, "events": evs, "audit": tl.Audit})
+	audit := tl.Audit
+	if roleRank[principal(r).Role] < roleRank[RoleAdmin] { // it names people, which /audit and the state document keep for administrators
+		audit = []graph.AuditRow{}
+	}
+	writeJSON(w, 200, map[string]any{"kind": tl.Kind, "id": tl.ID, "versions": tl.Versions, "events": evs, "audit": audit})
 }
 
 // GET /audit: who did what in this organisation. Administrators only. With the graph it can be searched

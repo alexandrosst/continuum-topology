@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"strings"
@@ -561,5 +562,45 @@ func TestWithoutTheGraphTheSameRoutesSayWhatIsMissing(t *testing.T) {
 	r := a.do("GET", org(id, "audit?action=org-created"), nil, withCookie(alice))
 	if r.Code != 200 || r.json(t)["source"] != "local" || len(r.json(t)["rows"].([]any)) != 1 {
 		t.Errorf("audit without graph: %d %s", r.Code, r.Body.String())
+	}
+}
+
+// timelineGraph is a store whose graph answers /timeline with one audit row, so the role trimming can be tested
+// without Neo4j.
+type timelineGraph struct {
+	store.Store
+	GraphAPI
+}
+
+func (timelineGraph) Timeline(_ context.Context, _, kind, id string, _ int) (graph.Timeline, error) {
+	return graph.Timeline{Kind: kind, ID: id, Audit: []graph.AuditRow{{Actor: "alice", Action: "agent-revoked", TargetID: id, Detail: "because"}}}, nil
+}
+
+// The timeline carries who did what to a record; like /audit and the state document it shows that to
+// administrators only.
+func TestTimelineShowsAuditRowsToAdministratorsOnly(t *testing.T) {
+	e := newEnv(t)
+	e.base.Store = timelineGraph{Store: e.st}
+	e.core = e.base.ForOrg("org-1")
+	a := adminRigOn(t, e)
+	_, admin := a.user(t, "adam", RoleAdmin)
+	_, viewer := a.user(t, "vic", RoleViewer)
+	rows := func(cookie string) []any {
+		t.Helper()
+		r := a.do("GET", "/api/v1/timeline?kind=service&id=svc-web", nil, withCookie(cookie))
+		if r.Code != 200 {
+			t.Fatalf("timeline: %d %s", r.Code, r.Body.String())
+		}
+		got, ok := r.json(t)["audit"].([]any)
+		if !ok {
+			t.Fatalf("audit is not a list: %s", r.Body.String())
+		}
+		return got
+	}
+	if got := rows(admin); len(got) != 1 {
+		t.Errorf("an administrator sees %d audit rows, want 1", len(got))
+	}
+	if got := rows(viewer); len(got) != 0 {
+		t.Errorf("a viewer sees audit rows: %v", got)
 	}
 }
