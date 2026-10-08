@@ -18,7 +18,7 @@ func TestDispatch(t *testing.T) {
 	}
 	out.Reset()
 	errb.Reset()
-	if code := run([]string{"help"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "agent") || !strings.Contains(out.String(), "flow") || !strings.Contains(out.String(), "probe") {
+	if code := run([]string{"help"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "agent") || !strings.Contains(out.String(), "flow") || !strings.Contains(out.String(), "probe") || !strings.Contains(out.String(), "cert-renew") {
 		t.Fatalf("help: code %d, stdout %q", code, out.String())
 	}
 	errb.Reset()
@@ -31,7 +31,7 @@ func TestDispatch(t *testing.T) {
 // binaries had: 2 for a bad flag, 1 for a missing requirement, 0 for --help.
 func TestRolesKeepTheirFlagContracts(t *testing.T) {
 	var out, errb bytes.Buffer
-	for _, role := range []string{"agent", "probe", "flow"} {
+	for _, role := range []string{"agent", "probe", "flow", "cert-renew"} {
 		if code := run([]string{role, "--help"}, &out, &errb); code != 0 {
 			t.Errorf("%s --help: code %d", role, code)
 		}
@@ -43,6 +43,9 @@ func TestRolesKeepTheirFlagContracts(t *testing.T) {
 	t.Setenv("CONTINUUM_CA_PIN", "")
 	if code := run([]string{"agent"}, &out, &errb); code != 1 {
 		t.Errorf("agent without --server: code %d, want 1", code)
+	}
+	if code := run([]string{"cert-renew"}, &out, &errb); code != 1 {
+		t.Errorf("cert-renew without --server: code %d, want 1", code)
 	}
 	if code := run([]string{"probe"}, &out, &errb); code != 1 {
 		t.Errorf("probe without --agent: code %d, want 1", code)

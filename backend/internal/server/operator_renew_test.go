@@ -13,8 +13,13 @@ import (
 	"google.golang.org/grpc/codes"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/certrenew"
 	"continuum/internal/pki"
 	"continuum/internal/store"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 func keyFromPEM(t *testing.T, keyPEM []byte) *ecdsa.PrivateKey {
@@ -295,5 +300,61 @@ func TestRenewTelemetryCertOverTheAnonymousListener(t *testing.T) {
 	bad := &continuumv1.RenewTelemetryCertRequest{OldLeafDer: req.OldLeafDer, CsrDer: req.CsrDer, Proof: []byte("no")}
 	if _, err := enr.RenewTelemetryCert(ctx, bad); code(err) != codes.Unauthenticated {
 		t.Fatalf("a bad proof: %v", err)
+	}
+}
+
+// The whole path: a Secret holding the certificate the install put there, the renewer, the real server over pinned TLS.
+// After it the Secret holds a certificate for a new key, signed by the operator's CA, and the server's ledger has it.
+func TestRenewerAgainstTheRealServerReplacesTheSecret(t *testing.T) {
+	r := newRig(t)
+	agent := r.approvedAgentID(t, fp)
+	a, _ := r.st.GetAgent(r.ctx, agent)
+	op, _, bundle, err := r.core.CreateOperator(r.ctx, "alex", "athens", []string{a.ClusterID}, extDest("c:4317"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := bundle.Senders[0]
+	kube := fake.NewSimpleClientset(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "continuum-system", Name: "export-tls"}, Data: map[string][]byte{
+		"tls.crt": sc.CertPEM, "tls.key": sc.KeyPEM, "ca.crt": bundle.CACertPEM,
+	}})
+	cfg := certrenew.Config{
+		Client: kube, Targets: certrenew.ParseTargets("continuum-system", "export-tls"), RenewBefore: 1000 * day,
+		Dial: func() (continuumv1.EnrollmentClient, func(), error) {
+			return continuumv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(r.base.CA.SPKIPin(), "127.0.0.1", nil))), func() {}, nil
+		},
+	}
+	if failed := certrenew.Once(r.ctx, cfg); failed != 0 {
+		t.Fatal("the renewer failed")
+	}
+	got, _ := kube.CoreV1().Secrets("continuum-system").Get(r.ctx, "export-tls", metav1.GetOptions{})
+	if string(got.Data["tls.crt"]) == string(sc.CertPEM) || string(got.Data["tls.key"]) == string(sc.KeyPEM) {
+		t.Fatal("the Secret still holds the old certificate or key")
+	}
+	cert, err := pki.ParseCertificate(got.Data["tls.crt"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(got.Data["ca.crt"])
+	if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+		t.Fatalf("the renewed certificate does not verify against the Secret's ca.crt: %v", err)
+	}
+	ledger, _ := r.st.ListOperatorCerts(r.ctx, op.ID)
+	var recorded bool
+	for _, c := range ledger {
+		recorded = recorded || c.Serial == cert.SerialNumber.Text(16)
+	}
+	if !recorded {
+		t.Fatal("the server did not record the renewed certificate")
+	}
+
+	// And once the agent is revoked the same renewer is refused, and says so.
+	if err := r.core.Revoke(r.ctx, "alex", agent, "test"); err != nil {
+		t.Fatal(err)
+	}
+	var res certrenew.Result
+	cfg.Report = func(x certrenew.Result) { res = x }
+	if failed := certrenew.Once(r.ctx, cfg); failed != 1 || !res.Refused {
+		t.Fatalf("after revoking the agent: failed %d, %+v", failed, res)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agent/collect"
 	"continuum/internal/agent/exporthealth"
+	"continuum/internal/certrenew"
 	"continuum/internal/flow"
 	"continuum/internal/measure"
 	"continuum/internal/pki"
@@ -89,6 +90,14 @@ type Config struct {
 	// and is reported in Diagnostics as ExportHealth: whether each destination is actually receiving data. Run
 	// starts it. Nil outside the chart, when no telemetry signal is enabled, or when health is turned off.
 	ExportHealth *exporthealth.Monitor
+
+	// RenewSecrets are Secrets in Namespace that hold the TLS certificate of one of this cluster's telemetry collectors
+	// (tls.crt, tls.key, ca.crt) towards a regional operator. The agent keeps them from expiring (internal/certrenew):
+	// the chart names them, since it is the chart that mounts them. Empty outside the chart or when no collector
+	// presents a client certificate.
+	RenewSecrets []certrenew.Target
+	// RenewEvery is how often those Secrets are looked at (0: an hour; tests shorten it).
+	RenewEvery time.Duration
 
 	// RBACSelfCheck, when true, periodically asks the cluster (SelfSubjectAccessReview, which every ServiceAccount
 	// may always ask about itself, needing no permission of its own) whether it still grants more than Tier
@@ -181,6 +190,9 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	if cfg.RBACSelfCheck && cfg.Kube != nil {
 		go a.rbacCheckLoop(ctx)
+	}
+	if len(cfg.RenewSecrets) > 0 && cfg.Kube != nil {
+		go certrenew.Run(ctx, certrenew.Config{Server: cfg.Server, CAPin: cfg.CAPin, Client: cfg.Kube, Targets: cfg.RenewSecrets, Log: cfg.Log, Every: cfg.RenewEvery, Report: a.noteCertRenewal})
 	}
 	if (cfg.Probes != nil || cfg.Flows != nil) && cfg.ProbeListen != "" {
 		routes := map[string]http.Handler{}

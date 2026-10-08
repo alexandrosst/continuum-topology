@@ -18,6 +18,7 @@ import (
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
 	"continuum/internal/agent/exporthealth"
+	"continuum/internal/certrenew"
 	"continuum/internal/cli"
 	"continuum/internal/flow"
 	"continuum/internal/measure"
@@ -54,6 +55,7 @@ func Main(args []string) int {
 	telemetryHealthTargets := fs.String("telemetry-health-targets", cli.Env("CONTINUUM_TELEMETRY_HEALTH_TARGETS", ""), "host:port names of the telemetry collectors' own export counters (the chart's telemetry.health), comma separated; each resolves to every collector pod. The agent reads the counters (never telemetry) to report whether each destination is receiving data; the chart sets this automatically, and empty means do not")
 	telemetryAcceleratorsSource := fs.String("telemetry-accelerators-source", cli.Env("CONTINUUM_TELEMETRY_ACCELERATORS_SOURCE", ""), "effective telemetry.accelerators.metrics.source (bundle-dcgm | existing), only set by the chart when the accelerators signal is enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
 	rbacSelfCheck := fs.Bool("rbac-self-check", cli.Env("CONTINUUM_RBAC_SELF_CHECK", "true") == "true", "periodically ask the cluster (SelfSubjectAccessReview) whether it still grants more than --tier declares, and report it as a problem if so; catches a helm upgrade that narrowed access.tier locally but was never run against the cluster")
+	renewSecrets := fs.String("renew-secrets", cli.Env("CONTINUUM_RENEW_SECRETS", ""), "Secrets in the agent's namespace that hold this cluster's telemetry mTLS certificates (comma separated, each with tls.crt, tls.key, ca.crt); the agent renews them before they expire. The chart sets this automatically")
 	probeListen := fs.String("probe-listen", cli.Env("CONTINUUM_PROBE_LISTEN", ""), "address to listen on for node probe reports, e.g. :8081 (empty: no node probes)")
 	probeSecretFile := fs.String("probe-secret-file", cli.Env("CONTINUUM_PROBE_SECRET_FILE", ""), "file holding the secret shared with the node probes")
 	healthListen := fs.String("health-listen", cli.Env("CONTINUUM_HEALTH_LISTEN", ""), "address to serve /healthz (liveness) and /readyz (readiness) on, e.g. :8082 (empty: off)")
@@ -229,7 +231,7 @@ func Main(args []string) int {
 		}
 		defer stopHealth()
 	}
-	err = agent.Run(ctx, agent.Config{Server: *server, CAPin: *pin, Token: token, Tier: *tier, Kube: client, APIHost: apiHost, Identity: ids, Version: cli.Version, Log: log, Probes: probes, Flows: flows, FlowWindow: *flowWindow, Measure: *measureOn, ProbeListen: *probeListen, Scope: scope, Health: health, RevokedHold: *revokedHold, ProbeInterval: *probeEvery, FlowInterval: *flowEvery, Namespace: *ns, ReleaseName: *releaseName, TelemetrySignals: telemetrySignalList, TelemetryConfig: telemetryConfig, ExportHealth: exportHealth, RBACSelfCheck: *rbacSelfCheck, RBACNamespaced: rbacNamespaced})
+	err = agent.Run(ctx, agent.Config{Server: *server, CAPin: *pin, Token: token, Tier: *tier, Kube: client, APIHost: apiHost, Identity: ids, Version: cli.Version, Log: log, Probes: probes, Flows: flows, FlowWindow: *flowWindow, Measure: *measureOn, ProbeListen: *probeListen, Scope: scope, Health: health, RevokedHold: *revokedHold, ProbeInterval: *probeEvery, FlowInterval: *flowEvery, Namespace: *ns, ReleaseName: *releaseName, TelemetrySignals: telemetrySignalList, TelemetryConfig: telemetryConfig, ExportHealth: exportHealth, RBACSelfCheck: *rbacSelfCheck, RBACNamespaced: rbacNamespaced, RenewSecrets: certrenew.ParseTargets(*ns, *renewSecrets)})
 	if errors.Is(err, agent.ErrRevoked) {
 		// Exit with a code of its own (agent.ExitRevoked) so `kubectl get pod` and the restart count say what
 		// happened. Run has already said why, in plain words, and has waited a random 5-10 minutes if this was a

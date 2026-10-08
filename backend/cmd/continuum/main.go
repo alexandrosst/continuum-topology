@@ -4,6 +4,7 @@
 //	continuum agent   the in-cluster agent (Deployment)
 //	continuum probe   the optional node probe (DaemonSet)
 //	continuum flow    the optional node flow collector (DaemonSet, needs root and BPF)
+//	continuum cert-renew   the regional operator's sidecar that keeps its TLS Secrets from expiring
 //	continuum version
 //
 // Each role takes exactly the flags and environment variables the separate binaries (cmd/agent, cmd/probe, cmd/flow, now
@@ -18,6 +19,7 @@ import (
 
 	"continuum/internal/cli"
 	agentcli "continuum/internal/cli/agent"
+	renewcli "continuum/internal/cli/certrenew"
 	flowcli "continuum/internal/cli/flow"
 	probecli "continuum/internal/cli/probe"
 )
@@ -42,6 +44,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return probecli.Main(args[1:])
 	case "flow":
 		return flowcli.Main(args[1:])
+	case "cert-renew":
+		return renewcli.Main(args[1:])
 	case "version", "--version", "-version":
 		fmt.Fprintf(stdout, "continuum %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return 0
@@ -58,7 +62,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "usage: continuum <role> [flags]   (continuum <role> --help lists a role's flags)")
 	fmt.Fprintln(w)
 	for _, r := range cli.Roles {
-		fmt.Fprintf(w, "  %-8s %s\n", r.Name, r.Summary)
+		fmt.Fprintf(w, "  %-10s %s\n", r.Name, r.Summary)
 	}
-	fmt.Fprintf(w, "  %-8s %s\n", "version", "print the version")
+	fmt.Fprintf(w, "  %-10s %s\n", "version", "print the version")
 }

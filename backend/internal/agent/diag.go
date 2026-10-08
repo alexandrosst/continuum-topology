@@ -11,6 +11,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agent/collect"
+	"continuum/internal/certrenew"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -41,6 +42,9 @@ const (
 	CodeInternalError       = "internal_error"
 	CodeRBACWiderThanTier   = "rbac_wider_than_tier"
 	CodeRBACNamespacedMode  = "rbac_namespaced_mode"
+	// CodeCertRenewalFailing: a telemetry collector's certificate towards a regional operator is close to ending and
+	// could not be renewed (see noteCertRenewal).
+	CodeCertRenewalFailing = "telemetry_cert_renewal_failing"
 )
 
 const (
@@ -598,4 +602,33 @@ func processCPUSeconds() float64 {
 	user := float64(ru.Utime.Sec) + float64(ru.Utime.Usec)/1e6
 	sys := float64(ru.Stime.Sec) + float64(ru.Stime.Usec)/1e6
 	return user + sys
+}
+
+// certRenewalWarnWithin is how close to its end a certificate must be before a failed renewal is shown as a problem. A
+// renewal that fails while there are weeks left is ordinary (the server was restarting) and is retried; it only becomes
+// something to look at when the time is getting short, or at once when the server has said no.
+const certRenewalWarnWithin = 7 * 24 * time.Hour
+
+// noteCertRenewal is the renewer's report on one Secret: success clears the problem, a failure that matters raises it.
+func (r *runner) noteCertRenewal(res certrenew.Result) {
+	key := "telemetry-cert:" + res.Target.Name
+	if res.Err == nil {
+		r.probs.clear(key)
+		return
+	}
+	left := time.Until(res.NotAfter)
+	if !res.Refused && left > certRenewalWarnWithin {
+		return
+	}
+	sev := continuumv1.Problem_WARN
+	if left < 2*24*time.Hour {
+		sev = continuumv1.Problem_ERROR
+	}
+	msg := fmt.Sprintf("The telemetry certificate in Secret %s ends on %s and could not be renewed: %v.", res.Target.Name, res.NotAfter.UTC().Format("2006-01-02"), res.Err)
+	if res.Refused {
+		msg += " The server refused: this cluster may no longer send to that operator, or the agent was revoked. If that is not intended, open the operator in Ikhnos and choose Install again to put a new certificate in this Secret."
+	} else {
+		msg += " It is retried automatically; check that this cluster can reach the Ikhnos server."
+	}
+	r.probs.raise(key, CodeCertRenewalFailing, sev, msg, 0)
 }
