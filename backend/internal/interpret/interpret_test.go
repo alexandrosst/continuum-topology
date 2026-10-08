@@ -310,6 +310,34 @@ func TestInterpretAttachesPerPodTraffic(t *testing.T) {
 	}
 }
 
+// Pod names repeat across namespaces (db-0 of two StatefulSets, a template-named pod), so a pod's traffic is looked up
+// by namespace and name, never by name alone.
+func TestPodTrafficOfSameNamedPodsInOtherNamespacesIsNotMixed(t *testing.T) {
+	st := k3sFixture()
+	st.Workloads["staging/StatefulSet/db"] = &W{Key: "staging/StatefulSet/db", Namespace: "staging", Kind: "StatefulSet", Name: "db", Replicas: 1, ReadyReplicas: 1,
+		Pods: []*continuumv1.PodFacts{{Name: "db-0", Phase: "Running", Ready: true}}}
+	st.Workloads["shop/StatefulSet/db"].Pods = []*continuumv1.PodFacts{{Name: "db-0", Phase: "Running", Ready: true}}
+	wl := func(ref string) *continuumv1.FlowEndpoint {
+		return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: ref}
+	}
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "e", State: st, Now: time.Now(), PodFlows: []*continuumv1.Flow{
+		{Src: wl("shop/Deployment/cart"), Dst: wl("shop/StatefulSet/db"), Port: 5432, Protocol: "tcp", Connections: 3, SrcPod: "cart-abc-1", DstPod: "db-0"},
+		{Src: wl("staging/StatefulSet/db"), Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 9, SrcPod: "db-0"},
+	}})
+	pods := map[string]model.Pod{}
+	for _, s := range out.Services {
+		if s.Name == "db" {
+			pods[s.Namespace] = s.Pods[0]
+		}
+	}
+	if t1 := pods["shop"].Traffic; len(t1) != 1 || t1[0].Direction != "in" || t1[0].Connections != 3 {
+		t.Errorf("shop/db-0 traffic = %+v, want only the one inbound call from cart", t1)
+	}
+	if t2 := pods["staging"].Traffic; len(t2) != 1 || t2[0].Direction != "out" || t2[0].Peer != "93.184.216.34" || t2[0].Connections != 9 {
+		t.Errorf("staging/db-0 traffic = %+v, want only its own outbound call", t2)
+	}
+}
+
 func TestInterpretIsDeterministicAndIDsSurviveChanges(t *testing.T) {
 	in := Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "e", State: k3sFixture(), Now: time.Now()}
 	a, b := Interpret(in), Interpret(in)
