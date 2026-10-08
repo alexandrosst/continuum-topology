@@ -6,7 +6,7 @@
     "ikhnos"
   ],
   "schemaVersion": 39,
-  "version": 6,
+  "version": 7,
   "editable": false,
   "graphTooltip": 1,
   "time": {
@@ -726,9 +726,11 @@
           "format": "table"
         }
       ],
-      "description": "The metrics of the application category (not Kubernetes or system ones) that these services report, with how many series each has. A service that only logs and traces has none.",
+      "description": "The metrics of the application category (not Kubernetes or system ones) that these services report, with how many series each has. A service that only logs and traces has none. It is cut to exactly the chosen members; telemetry that carries no namespace or cluster label cannot be tied to one and does not show.",
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "noValue": "These services report no metrics of their own here: nothing outside the Kubernetes and system metrics. A service that only sends traces and logs shows nothing in this table."
+        },
         "overrides": []
       },
       "options": {
