@@ -3,6 +3,7 @@ package chart
 import (
 	"encoding/base64"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -628,6 +629,74 @@ func TestFusionApplicationPickerLeavesAllAsItWas(t *testing.T) {
 		// The service lookup answers .* with All applications, which is what the trace filter relies on.
 		if !strings.Contains(vars["service"].Query.Query, `".*"`) || !strings.Contains(vars["service"].Query.Query, allChosen) {
 			t.Errorf("%s: the service lookup does not answer .* when no application is chosen: %s", name, vars["service"].Query.Query)
+		}
+	}
+}
+
+// Findings of the second dashboard review: a panel that grouped by pod or deployment without the cluster added up same-named
+// ones of different clusters, the delivery headline went red for a cluster that had changed operator or never sent
+// Kubernetes state, and range queries over every series re-read the whole store at each of a few hundred steps.
+func TestFusionDashboardsKeepClustersApartAndAreCheapToRefresh(t *testing.T) {
+	r := fusionRender(t, "f")
+	type target struct {
+		Expr     string `json:"expr"`
+		Query    string `json:"query"`
+		Interval string `json:"interval"`
+		Instant  bool   `json:"instant"`
+	}
+	type dashboard struct {
+		Panels []struct {
+			Title   string   `json:"title"`
+			Targets []target `json:"targets"`
+		} `json:"panels"`
+		Templating struct {
+			List []struct {
+				Name  string
+				Query struct{ Query string }
+			} `json:"list"`
+		} `json:"templating"`
+	}
+	byClause := regexp.MustCompile(`by \(([^)]*)\)`)
+	nameless := regexp.MustCompile(`(^|[^\w])\{continuum_`)
+	for _, name := range []string{"clusters", "workloads", "delivery", "applications", "categories", "arriving"} {
+		var d dashboard
+		if err := json.Unmarshal([]byte(r.configs["f-fusion-grafana-dashboards"].Data[name+".json"]), &d); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range d.Panels {
+			for _, q := range p.Targets {
+				for _, m := range byClause.FindAllStringSubmatch(q.Expr, -1) {
+					if (strings.Contains(m[1], "k8s_pod_name") || strings.Contains(m[1], "k8s_deployment_name")) && !strings.Contains(m[1], "continuum_cluster_id") {
+						t.Errorf("%s: %q groups by %q without the cluster, so same-named pods of two clusters become one series", name, p.Title, m[1])
+					}
+				}
+				// A selector with no metric name reads every series at every step; the default step is a minute.
+				if !q.Instant && nameless.MatchString(q.Expr) && q.Interval != "5m" {
+					t.Errorf("%s: %q is a range query over every series with a step of %q, not 5m: %s", name, p.Title, q.Interval, q.Expr)
+				}
+			}
+		}
+		if name != "delivery" {
+			continue
+		}
+		// What the delivery dashboard says must not depend on one signal (node conditions come from Kubernetes state, which is
+		// opt-in) or on how a cluster reached us: a cluster is as fresh as its newest data through any operator.
+		for _, v := range d.Templating.List {
+			if strings.Contains(v.Query.Query, "k8s_node_condition_ready") {
+				t.Errorf("delivery: variable %q lists clusters from Kubernetes state: %s", v.Name, v.Query.Query)
+			}
+		}
+		for _, p := range d.Panels {
+			for _, q := range p.Targets {
+				if p.Title == "Slowest cluster, seconds since data" {
+					if strings.Contains(q.Expr, "k8s_node_condition_ready") || !strings.Contains(q.Expr, "max by (continuum_cluster_id) (") || strings.Contains(q.Expr, "continuum_operator_id") {
+						t.Errorf("delivery: the headline must be the oldest cluster by any metric, grouped by cluster alone: %s", q.Expr)
+					}
+				}
+				if strings.Contains(p.Title, "restarts") && strings.Contains(q.Expr, "vector(0)") {
+					t.Errorf("delivery: %q shows 0 when the restart counters are not collected at all: %s", p.Title, q.Expr)
+				}
+			}
 		}
 	}
 }

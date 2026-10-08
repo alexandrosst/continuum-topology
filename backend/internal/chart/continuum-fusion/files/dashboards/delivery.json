@@ -26,10 +26,10 @@
           "uid": "fusion-metrics"
         },
         "query": {
-          "query": "label_values(k8s_node_condition_ready, continuum_cluster_id)",
+          "query": "label_values(continuum_cluster_id)",
           "refId": "v-cluster"
         },
-        "definition": "label_values(k8s_node_condition_ready, continuum_cluster_id)",
+        "definition": "label_values(continuum_cluster_id)",
         "refresh": 2,
         "sort": 1,
         "multi": true,
@@ -81,7 +81,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max(time() - max by (continuum_cluster_id, continuum_operator_id) (max_over_time(timestamp(k8s_node_condition_ready{continuum_cluster_id=~\"$cluster\"})[1d:1m])))",
+          "expr": "max(time() - (max by (continuum_cluster_id) (timestamp({continuum_cluster_id=~\"$cluster\", continuum_cluster_id!=\"\", __name__!=\"ikhnos_application_info\"})) or max by (continuum_cluster_id) (max_over_time(timestamp({continuum_cluster_id=~\"$cluster\", continuum_cluster_id!=\"\", __name__!=\"ikhnos_application_info\"})[1d:5m]))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -90,7 +90,7 @@
           "range": false
         }
       ],
-      "description": "How long ago the quietest cluster last sent a metric (looking back one day, sampled by the minute). Green under 3 minutes, amber under 15, red beyond. Empty when no cluster has reported in the last day.",
+      "description": "How long ago the quietest cluster last sent anything: a metric of any kind from the cluster, whatever the signal. Looks back one day; a cluster that moved to another operator counts once, by its newest data. Green under 3 minutes, amber under 15, red beyond. Empty when no cluster has reported in the last day.",
       "fieldConfig": {
         "defaults": {
           "unit": "s",
@@ -142,7 +142,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(count by (continuum_cluster_id) (k8s_node_condition_ready{continuum_cluster_id=~\"$cluster\"})) or vector(0)",
+          "expr": "count(count by (continuum_cluster_id) ({continuum_cluster_id=~\"$cluster\", continuum_cluster_id!=\"\", __name__!=\"ikhnos_application_info\"})) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -175,7 +175,8 @@
         "colorMode": "background",
         "graphMode": "none",
         "textMode": "value"
-      }
+      },
+      "description": "Clusters that sent a metric in the last 5 minutes, of any kind."
     },
     {
       "id": 3,
@@ -251,7 +252,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "round(sum(increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_pod_name=~\"continuum-telemetry.*|.*regional-operator.*\"}[1h]))) or vector(0)",
+          "expr": "round(sum(increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_pod_name=~\"continuum-telemetry.*|.*regional-operator.*\"}[1h])))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -260,10 +261,9 @@
           "range": false
         }
       ],
-      "description": "Restarts of the telemetry collectors and regional operators themselves. They restart when they run out of memory.",
+      "description": "Restarts of the telemetry collectors and regional operators themselves. They restart when they run out of memory. Needs the pod metrics (telemetry.kubernetesState or resourceUsage): \"No data\" means they are not being collected, not that nothing restarted.",
       "fieldConfig": {
         "defaults": {
-          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -308,7 +308,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - max by (continuum_cluster_id, continuum_operator_id) (max_over_time(timestamp(k8s_node_condition_ready{continuum_cluster_id=~\"$cluster\"})[1d:1m]))",
+          "expr": "time() - (max by (continuum_cluster_id, continuum_operator_id) (timestamp({continuum_cluster_id=~\"$cluster\", continuum_cluster_id!=\"\", __name__!=\"ikhnos_application_info\"})) or max by (continuum_cluster_id, continuum_operator_id) (max_over_time(timestamp({continuum_cluster_id=~\"$cluster\", continuum_cluster_id!=\"\", __name__!=\"ikhnos_application_info\"})[1d:5m])))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -318,7 +318,7 @@
           "format": "table"
         }
       ],
-      "description": "Which operator each cluster's data arrived through, and how fresh it is. A cluster that stopped sending keeps its row, growing older.",
+      "description": "Which operator each cluster's data arrived through, and how fresh it is, newest first. A cluster that stopped sending keeps its row, growing older; one that moved to another operator keeps a row for the old operator until a day has passed.",
       "fieldConfig": {
         "defaults": {},
         "overrides": [
@@ -379,6 +379,17 @@
               "Value": "Seconds since data"
             }
           }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Seconds since data"
+              }
+            ]
+          }
         }
       ]
     },
@@ -404,7 +415,8 @@
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{continuum_cluster_id}}"
+          "legendFormat": "{{continuum_cluster_id}}",
+          "interval": "5m"
         }
       ],
       "description": "How many different metric series each cluster is sending. A drop is a signal that went quiet.",
@@ -454,7 +466,8 @@
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{continuum_operator_id}}"
+          "legendFormat": "{{continuum_operator_id}}",
+          "interval": "5m"
         }
       ],
       "fieldConfig": {
@@ -590,12 +603,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (k8s_pod_name) (k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_pod_name=~\"continuum-telemetry.*|.*regional-operator.*\"})",
+          "expr": "sum by (continuum_cluster_id, k8s_pod_name) (k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_pod_name=~\"continuum-telemetry.*|.*regional-operator.*\"})",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{k8s_pod_name}} memory"
+          "legendFormat": "{{continuum_cluster_id}}/{{k8s_pod_name}} memory"
         }
       ],
       "description": "Working-set memory of the collector and operator pods.",
@@ -641,12 +654,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (k8s_pod_name) (k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_pod_name=~\"continuum-telemetry.*|.*regional-operator.*\"})",
+          "expr": "sum by (continuum_cluster_id, k8s_pod_name) (k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_pod_name=~\"continuum-telemetry.*|.*regional-operator.*\"})",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{k8s_pod_name}}"
+          "legendFormat": "{{continuum_cluster_id}}/{{k8s_pod_name}}"
         }
       ],
       "fieldConfig": {

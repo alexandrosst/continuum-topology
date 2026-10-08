@@ -492,12 +492,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (k8s_namespace_name, k8s_pod_name) ((((label_replace(k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
+          "expr": "sum by (continuum_cluster_id, k8s_namespace_name, k8s_pod_name) ((((label_replace(k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{k8s_namespace_name}}/{{k8s_pod_name}}"
+          "legendFormat": "{{continuum_cluster_id}}/{{k8s_namespace_name}}/{{k8s_pod_name}}"
         }
       ],
       "description": "Cores in use.",
@@ -543,12 +543,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (k8s_namespace_name, k8s_pod_name) ((((label_replace(k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
+          "expr": "sum by (continuum_cluster_id, k8s_namespace_name, k8s_pod_name) ((((label_replace(k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{k8s_namespace_name}}/{{k8s_pod_name}}"
+          "legendFormat": "{{continuum_cluster_id}}/{{k8s_namespace_name}}/{{k8s_pod_name}}"
         }
       ],
       "description": "Working-set memory.",
@@ -594,12 +594,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (k8s_namespace_name, k8s_pod_name, direction) ((((label_replace(rate(k8s_pod_network_io_bytes_total{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_deployment_name=~\"$service\"}[$__rate_interval]), \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(rate(k8s_pod_network_io_bytes_total{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_statefulset_name=~\"$service\"}[$__rate_interval]), \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(rate(k8s_pod_network_io_bytes_total{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_daemonset_name=~\"$service\"}[$__rate_interval]), \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (rate(k8s_pod_network_io_bytes_total{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"}[$__rate_interval]) and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
+          "expr": "sum by (continuum_cluster_id, k8s_namespace_name, k8s_pod_name, direction) ((((label_replace(rate(k8s_pod_network_io_bytes_total{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_deployment_name=~\"$service\"}[$__rate_interval]), \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(rate(k8s_pod_network_io_bytes_total{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_statefulset_name=~\"$service\"}[$__rate_interval]), \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(rate(k8s_pod_network_io_bytes_total{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_daemonset_name=~\"$service\"}[$__rate_interval]), \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (rate(k8s_pod_network_io_bytes_total{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"}[$__rate_interval]) and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{k8s_namespace_name}}/{{k8s_pod_name}} {{direction}}"
+          "legendFormat": "{{continuum_cluster_id}}/{{k8s_namespace_name}}/{{k8s_pod_name}} {{direction}}"
         }
       ],
       "fieldConfig": {
@@ -644,21 +644,21 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (k8s_namespace_name, k8s_deployment_name) ((((label_replace(k8s_deployment_available{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_deployment_available{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
+          "expr": "sum by (continuum_cluster_id, k8s_namespace_name, k8s_deployment_name) ((((label_replace(k8s_deployment_available{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_deployment_available{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{k8s_namespace_name}}/{{k8s_deployment_name}} available"
+          "legendFormat": "{{continuum_cluster_id}}/{{k8s_namespace_name}}/{{k8s_deployment_name}} available"
         },
         {
           "refId": "B",
-          "expr": "sum by (k8s_namespace_name, k8s_deployment_name) ((((label_replace(k8s_deployment_desired{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_deployment_desired{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
+          "expr": "sum by (continuum_cluster_id, k8s_namespace_name, k8s_deployment_name) ((((label_replace(k8s_deployment_desired{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_deployment_desired{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{k8s_namespace_name}}/{{k8s_deployment_name}} desired"
+          "legendFormat": "{{continuum_cluster_id}}/{{k8s_namespace_name}}/{{k8s_deployment_name}} desired"
         }
       ],
       "fieldConfig": {
@@ -901,12 +901,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "60 * sum by (k8s_pod_name) (rate({k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"${member:pipe}\" | ikhnos_scope=\"\" or ikhnos_member=~\"${member:pipe}\" [$__interval]))",
+          "expr": "60 * sum by (continuum_cluster_id, k8s_namespace_name, k8s_pod_name) (rate({k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"${member:pipe}\" | ikhnos_scope=\"\" or ikhnos_member=~\"${member:pipe}\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
           },
-          "legendFormat": "{{k8s_pod_name}}"
+          "legendFormat": "{{continuum_cluster_id}}/{{k8s_namespace_name}}/{{k8s_pod_name}}"
         }
       ],
       "description": "How much each pod writes.",
@@ -951,12 +951,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "60 * sum by (k8s_pod_name) (rate({k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} |~ \"(?i)(error|exception|fatal|panic)\" | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"${member:pipe}\" | ikhnos_scope=\"\" or ikhnos_member=~\"${member:pipe}\" [$__interval]))",
+          "expr": "60 * sum by (continuum_cluster_id, k8s_namespace_name, k8s_pod_name) (rate({k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$workload\"} |~ \"(?i)(error|exception|fatal|panic)\" | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"${member:pipe}\" | ikhnos_scope=\"\" or ikhnos_member=~\"${member:pipe}\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
           },
-          "legendFormat": "{{k8s_pod_name}}"
+          "legendFormat": "{{continuum_cluster_id}}/{{k8s_namespace_name}}/{{k8s_pod_name}}"
         }
       ],
       "description": "Lines that contain the words error, exception, fatal or panic. A text match, not a severity level.",
