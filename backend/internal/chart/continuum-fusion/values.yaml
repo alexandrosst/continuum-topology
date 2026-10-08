@@ -81,7 +81,10 @@ central:
   # counts against the node's ephemeral storage up to sizeLimit). Off by default, and only worth it once the gateway
   # is the thing whose restart you cannot afford to lose a minute of data across.
   queue:
-    size: 256
+    # 64 requests of at most 3 MiB are 192 MiB: one stalled store fills its queue without taking the gateway past the memory
+    # limiter's soft limit (60% of the 384Mi limit, about 230 MiB), at which it would refuse ALL three signals, not just the
+    # stalled one. A full queue only pushes back on the senders, whose own queues hold the data.
+    size: 64
     retryMaxElapsedTime: 30m
     maxRequestBytes: 3145728
     persistent:

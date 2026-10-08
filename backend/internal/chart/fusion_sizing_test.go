@@ -162,7 +162,7 @@ func TestFusionCentralExportersHoldDataWhileAStoreIsDown(t *testing.T) {
 		if rt := sub(t, ex, "retry_on_failure"); rt["enabled"] != true || rt["max_elapsed_time"] != "30m" {
 			t.Errorf("%s retry_on_failure = %v", name, rt)
 		}
-		if q := sub(t, ex, "sending_queue"); q["enabled"] != true || q["queue_size"] != float64(256) || q["storage"] != nil {
+		if q := sub(t, ex, "sending_queue"); q["enabled"] != true || q["queue_size"] != float64(64) || q["storage"] != nil {
 			t.Errorf("%s sending_queue = %v", name, q)
 		}
 	}
@@ -258,5 +258,19 @@ func TestFusionSchemaChecksTheSizingValues(t *testing.T) {
 		if out, err := fusionTemplate(t, "f", "--set", bad[0]); err == nil {
 			t.Errorf("%v rendered, want a schema error\n%s", bad, out)
 		}
+	}
+}
+
+// The memory limiter is one for the whole gateway: past its soft limit it refuses metrics, logs and traces alike. A single
+// stalled store must therefore fill its own queue, and block its senders, before it can push the process that far.
+func TestFusionCentralOneStalledStoreCannotTripTheMemoryLimiter(t *testing.T) {
+	r := fusionRender(t, "f")
+	limit := r.deploys["f-fusion-central"].Spec.Template.Spec.Containers[0].Resources.Limits.Memory().Value()
+	lim := sub(t, centralConfig(t), "processors", "memory_limiter")
+	soft := float64(limit) * (lim["limit_percentage"].(float64) - lim["spike_limit_percentage"].(float64)) / 100
+	q := sub(t, centralConfig(t), "exporters", "otlp/traces", "sending_queue")
+	worst := q["queue_size"].(float64) * sub(t, q, "batch")["max_size"].(float64)
+	if worst >= soft {
+		t.Errorf("one full queue holds up to %.0f MiB, past the limiter's soft limit of %.0f MiB", worst/(1<<20), soft/(1<<20))
 	}
 }
