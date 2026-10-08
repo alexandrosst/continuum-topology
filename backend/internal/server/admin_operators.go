@@ -763,8 +763,8 @@ func (a *Admin) operatorChartArgs(img ImageConfig) (ref, version string) {
 //     the required client certificate (signed by the operator's own CA, see ClientCaScope). receiver.requireAuth=true makes the chart refuse to
 //     render at all if either half is missing, so this operator can never be installed open. There is no
 //     receiver token: secret is unused and secretCmd is "".
-//   - ReceiverAuthBearer (every operator from before ReceiverAuth existed, and a new one whose TLS mint
-//     failed): unchanged - the bearer token, plus mTLS on top when the certificates were minted.
+//   - ReceiverAuthBearer (only operators stored before ReceiverAuth existed; new ones are never created
+//     this way): unchanged - the bearer token, plus mTLS on top when the certificates were minted.
 //
 // heartbeatURL is "" for an operator that did not opt in to a heartbeat (the command is then exactly what
 // it was before heartbeats existed).

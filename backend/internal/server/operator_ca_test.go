@@ -331,17 +331,17 @@ func TestClientCaScopeAndCommandsCarryTheRightCA(t *testing.T) {
 	}
 }
 
-// A bearer operator is unchanged: its client certificates still come from the org CA, the same as before
+// A bearer operator stored before they stopped being created is unchanged: its client certificates still come from the org CA, the same as before
 // per-operator CAs existed, and nothing about it gains a CA.
 func TestBearerOperatorStillUsesTheOrgCA(t *testing.T) {
-	failTLSMint(t) // creation falls back to bearer
 	e := newEnv(t)
 	cl := e.approvedCluster(t, fp)
-	op, tok, _, err := e.core.CreateOperator(e.ctx, "alex", "b", []string{cl}, extDest("c:4317"), nil)
-	if err != nil {
+	op := store.Operator{ID: "op-bearer000008", OrgID: "org-1", Name: "b", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
+		SourceClusterIDs: []string{cl}, Destination: extDest("c:4317"), CreatedBy: "alex", CreatedAt: e.core.Now()}
+	if err := e.st.CreateOperator(e.ctx, op, HashSecret("cno_old")); err != nil {
 		t.Fatal(err)
 	}
-	if tok == "" || op.ReceiverAuth != store.ReceiverAuthBearer || op.ClientCAScope() != "" || len(op.ClientCACertPEM) != 0 {
+	if op.ReceiverAuth != store.ReceiverAuthBearer || op.ClientCAScope() != "" || len(op.ClientCACertPEM) != 0 {
 		t.Fatalf("%+v", op)
 	}
 	if _, err := e.st.GetOperatorClientCAKey(e.ctx, op.ID); !errors.Is(err, store.ErrNotFound) {

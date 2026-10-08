@@ -88,36 +88,19 @@ func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 	}
 }
 
-// If the TLS material cannot be minted the receiver must still have a gate: the operator is a bearer one,
-// its token is minted, and it is installed with receiver.auth on.
-func TestCreateOperatorFallsBackToBearerWhenTheTLSMintFails(t *testing.T) {
+// If the TLS material cannot be minted no operator is created: a weaker, token-only receiver is not an outcome.
+func TestCreateOperatorFailsWhenTheTLSMintFails(t *testing.T) {
 	failTLSMint(t)
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "x", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}, withCookie(cookie))
-	if r.Code != 201 {
-		t.Fatal(r.Body.String())
+	if r.Code != 500 {
+		t.Fatalf("status %d, want 500: %s", r.Code, r.Body.String())
 	}
-	created := r.json(t)
-	op := created["operator"].(map[string]any)
-	if op["receiverAuth"] != "bearer" {
-		t.Fatalf("receiverAuth = %v, want bearer after a failed mint", op["receiverAuth"])
-	}
-	tok, _ := created["token"].(string)
-	if !strings.HasPrefix(tok, operatorPrefix) || created["secretCommand"] == nil {
-		t.Fatalf("no receiver token minted for the fallback: %v", created)
-	}
-	install := created["install"].(string)
-	if !strings.Contains(install, "receiver.auth.enabled=true") || strings.Contains(install, "receiver.auth.enabled=false") || strings.Contains(install, "receiver.tls") {
-		t.Fatalf("fallback install command leaves the receiver without its bearer gate:\n%s", install)
-	}
-	stored, _ := a.st.GetOperator(a.ctx, op["id"].(string))
-	if stored.ReceiverAuth != store.ReceiverAuthBearer || len(stored.ReceiverAuthTokenHash) == 0 || string(stored.ReceiverAuthTokenHash) == tok {
-		t.Fatalf("stored = %+v", stored)
-	}
-	if _, has := created["tlsSecretCommand"]; has {
-		t.Fatal("a receiver TLS Secret command without certificates")
+	ops, _ := a.st.ListOperators(a.ctx, a.a.C.OrgID)
+	if len(ops) != 0 {
+		t.Fatalf("an operator exists after a failed mint: %+v", ops)
 	}
 }
 

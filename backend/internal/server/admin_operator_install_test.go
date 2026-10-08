@@ -139,14 +139,22 @@ func TestInstallAgainRotatesTheHeartbeatSecret(t *testing.T) {
 
 // A bearer operator has a token instead of certificates: it is replaced, and the old one no longer matches.
 func TestInstallAgainRotatesABearerOperatorsToken(t *testing.T) {
-	failTLSMint(t)
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", RoleAdmin)
 	cl := a.approvedCluster(t, fp)
-	created := a.createOperatorDoc(t, cookie, extBody("bearer", cl))
-	id := created["operator"].(map[string]any)["id"].(string)
+	const id = "op-bearer000007"
+	legacy := store.Operator{ID: id, OrgID: "org-1", Name: "bearer", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
+		SourceClusterIDs: []string{cl}, Destination: extDest("c:4317"), CreatedBy: "alex", CreatedAt: a.a.C.Now()}
+	if err := a.st.CreateOperator(a.ctx, legacy, HashSecret("cno_old")); err != nil {
+		t.Fatal(err)
+	}
+	created := map[string]any{"token": "cno_old"}
 	before, _ := a.st.GetOperator(a.ctx, id)
-	doc := a.do("POST", "/api/v1/operators/"+id+"/install", nil, withCookie(cookie)).json(t)
+	resp := a.do("POST", "/api/v1/operators/"+id+"/install", nil, withCookie(cookie))
+	if resp.Code != 200 {
+		t.Fatalf("%d %s", resp.Code, resp.Body.String())
+	}
+	doc := resp.json(t)
 	tok, _ := doc["token"].(string)
 	if !strings.HasPrefix(tok, operatorPrefix) || tok == created["token"] || doc["secretCommand"] == nil {
 		t.Fatalf("token = %q, secretCommand = %v", tok, doc["secretCommand"])

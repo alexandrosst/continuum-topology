@@ -49,8 +49,7 @@ func (b OperatorTLSBundle) forSender(sender string) (SenderCert, bool) {
 // certificate. Its source clusters' client certificates are minted afterwards, one each (mintSenderCerts). bundle.CACertPEM is the operator CA's
 // certificate (never the org CA's); caKeyPEM is the CA's private key sealed like the org CA key, for the
 // caller to store - it is not part of the bundle so nothing that renders a bundle can leak it. A variable
-// only so a test can make the mint fail - the one path (it cannot fail in practice) on which CreateOperator
-// must fall back to a bearer-token operator.
+// only so a test can make the mint fail and check that no operator is created then.
 var mintOperatorTLS = func(c *Core, operatorID string, hosts []string) (bundle OperatorTLSBundle, caKeyPEM []byte, err error) {
 	issuer, caCertPEM, caKeyPEM, err := c.CA.NewOperatorCA(operatorID, c.OrgID)
 	if err != nil {
@@ -373,39 +372,27 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 	// installed with this chart's own defaults - see operatorInstallCommand) and the client certificate
 	// every source cluster presents to it, shown once the same way a secret is.
 	//
-	// What gates the receiver is decided by whether that mint worked. If it did, the operator is
-	// ReceiverAuthMTLS: TLS with a required client certificate signed by THIS operator's own private CA is
-	// its ONLY gate (no other operator's certificate, and not the org CA's, is accepted), and no receiver bearer token is minted at all (an agent pointed at it with the per-agent
-	// command presents only a client certificate, so a token on top could never be satisfied). If the mint
-	// failed, the operator falls back to ReceiverAuthBearer and a token IS minted, so the receiver is never
-	// left with no gate whatever happens here. The operator is still created either way - failing the
-	// request would report an operator that does not exist when it does.
+	// The receiver is mTLS-only: TLS with a required client certificate signed by THIS operator's own private CA is its
+	// only gate, and no receiver bearer token is minted at all. If the CA or the receiver certificate cannot be made the
+	// request fails before anything is stored, rather than creating an operator with a weaker gate. (Operators stored
+	// earlier as bearer or org-CA operators are still served; they are simply no longer created.)
 	bundle, caKeyPEM, tlsErr := mintOperatorTLS(c, op.ID, operatorReceiverHosts(op.ID))
-	var secret string
-	var tokenHash []byte
-	if tlsErr == nil {
-		op.ReceiverAuth = store.ReceiverAuthMTLS
-		op.ClientCACertPEM, op.ClientCAKeyPEM = bundle.CACertPEM, caKeyPEM
-		op.ReceiverNotAfter = certNotAfter(bundle.ReceiverCertPEM)
-		op.ClientNotAfter = op.ReceiverNotAfter // client certificates are minted with it, for the same time
-	} else {
-		var err error
-		if secret, err = NewOperatorReceiverSecret(); err != nil {
-			return store.Operator{}, "", OperatorTLSBundle{}, "", err
-		}
-		tokenHash = HashSecret(secret)
-		op.ReceiverAuth = store.ReceiverAuthBearer
+	if tlsErr != nil {
+		c.audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, tlsErr.Error())
+		return store.Operator{}, "", OperatorTLSBundle{}, "", errf(KindInternal, "the operator's certificates could not be made, so the operator was not created: %v", tlsErr)
 	}
+	op.ReceiverAuth = store.ReceiverAuthMTLS
+	op.ClientCACertPEM, op.ClientCAKeyPEM = bundle.CACertPEM, caKeyPEM
+	op.ReceiverNotAfter = certNotAfter(bundle.ReceiverCertPEM)
+	op.ClientNotAfter = op.ReceiverNotAfter // client certificates are minted with it, for the same time
 	// The receiver certificate is recorded in the ledger BEFORE the operator is stored, and a failure to record it is the
 	// request's failure: nothing has been stored or handed out yet, so nothing is lost by refusing, whereas after the
 	// operator exists the bundle is the only copy of its keys and could not be returned with an error. (The ledger has no
 	// foreign key; should the creation itself then fail, the ledger keeps a row for an id that never existed, which nothing
 	// lists.) The same rule the client certificates follow: a certificate that cannot be recorded is not handed out.
-	if tlsErr == nil {
-		if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", bundle.ReceiverCertPEM); err != nil {
-			c.Log.Error("receiver certificate not recorded in the ledger; the operator was not created", "operator", op.ID, "err", err)
-			return store.Operator{}, "", OperatorTLSBundle{}, "", errf(KindInternal, "the operator's certificate could not be recorded, so the operator was not created: %v", err)
-		}
+	if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", bundle.ReceiverCertPEM); err != nil {
+		c.Log.Error("receiver certificate not recorded in the ledger; the operator was not created", "operator", op.ID, "err", err)
+		return store.Operator{}, "", OperatorTLSBundle{}, "", errf(KindInternal, "the operator's certificate could not be recorded, so the operator was not created: %v", err)
 	}
 	detail := name
 	if heartbeat {
@@ -414,19 +401,12 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 	}
 	detail += "; " + operatorAuditSummary(dest, sourceClusterIDs)
 	if err := c.audited(ctx, actor, "operator-created", "operator", op.ID, detail, func() error {
-		return c.Store.CreateOperator(ctx, op, tokenHash)
+		return c.Store.CreateOperator(ctx, op, nil)
 	}); err != nil {
 		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
-	if tlsErr != nil {
-		// The operator (as a bearer-token one - see above) is already persisted and audited: failing the
-		// whole request now would report an operator that does not exist when it does. The caller gets no
-		// certificate material and the bearer token that gates the receiver instead.
-		c.audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, tlsErr.Error())
-		return op, secret, OperatorTLSBundle{}, hbSecret, nil
-	}
 	bundle.Senders, _ = c.mintSenderCertsHeld(ctx, actor, op, op.SourceClusterIDs)
-	return op, secret, bundle, hbSecret, nil
+	return op, "", bundle, hbSecret, nil
 }
 
 // mintSenderCerts issues each of clusters its own client certificate from op's CA, under depMu (see Core.depMu) like
