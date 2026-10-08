@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,8 @@ import (
 	"continuum/internal/agent/collect"
 	"continuum/internal/flow"
 	"continuum/internal/probe"
+
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 type fake struct {
@@ -378,3 +381,60 @@ func TestRollupSaturationClampsAt100(t *testing.T) {
 }
 
 func round1(f float64) float64 { return float64(int(f*10+0.5)) / 10 }
+
+// A flow that could not be sent is merged with the next window's reading of it. Every field of that reading must
+// survive: counts add, samples take the newer value. The test walks the message, so a field added to RawFlow and not
+// handled by merge fails here.
+func TestMergeKeepsEveryFieldOfTheNewerReading(t *testing.T) {
+	isKey := func(fd protoreflect.FieldDescriptor) bool {
+		switch fd.Name() {
+		case "client", "local_ip", "peer_ip", "port", "protocol":
+			return true
+		}
+		return false
+	}
+	fill := func(n uint64) *continuumv1.RawFlow {
+		f := &continuumv1.RawFlow{Client: true, LocalIp: "10.0.0.1", PeerIp: "10.0.0.2", Port: 80, Protocol: "tcp"}
+		m := f.ProtoReflect()
+		fields := m.Descriptor().Fields()
+		for i := 0; i < fields.Len(); i++ {
+			fd := fields.Get(i)
+			if isKey(fd) {
+				continue
+			}
+			switch fd.Kind() {
+			case protoreflect.Uint32Kind:
+				m.Set(fd, protoreflect.ValueOfUint32(uint32(n)))
+			case protoreflect.Uint64Kind:
+				m.Set(fd, protoreflect.ValueOfUint64(n))
+			case protoreflect.StringKind:
+				m.Set(fd, protoreflect.ValueOfString(fmt.Sprint("s", n)))
+			case protoreflect.EnumKind:
+				m.Set(fd, protoreflect.ValueOfEnum(fd.Enum().Values().Get(int(n)).Number()))
+			}
+		}
+		return f
+	}
+	got := merge([]*continuumv1.RawFlow{fill(1)}, []*continuumv1.RawFlow{fill(2)})
+	if len(got) != 1 {
+		t.Fatalf("%d flows after the merge, want 1", len(got))
+	}
+	old := fill(1).ProtoReflect()
+	m := got[0].ProtoReflect()
+	fields := m.Descriptor().Fields()
+	for i := 0; i < fields.Len(); i++ {
+		fd := fields.Get(i)
+		if isKey(fd) {
+			continue
+		}
+		if m.Get(fd).Equal(old.Get(fd)) {
+			t.Errorf("%s still has the older reading's value %v: the newer reading was dropped by merge", fd.Name(), m.Get(fd))
+		}
+	}
+	if got[0].Connections != 3 || got[0].Retransmits != 3 || got[0].FailedReset != 3 {
+		t.Errorf("counts must add: connections %d, retransmits %d, failed_reset %d", got[0].Connections, got[0].Retransmits, got[0].FailedReset)
+	}
+	if got[0].RttUs != 2 {
+		t.Errorf("a sample must take the newer value: rtt %d", got[0].RttUs)
+	}
+}

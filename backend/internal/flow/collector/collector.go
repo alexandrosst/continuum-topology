@@ -199,15 +199,70 @@ func merge(a, b []*continuumv1.RawFlow) []*continuumv1.RawFlow {
 	for _, f := range b {
 		k := rawKey{f.Client, f.LocalIp, f.PeerIp, f.Protocol, f.Port}
 		if cur, ok := idx[k]; ok {
-			cur.Connections += f.Connections
-			cur.BytesOut += f.BytesOut
-			cur.BytesIn += f.BytesIn
+			addRaw(cur, f)
 			continue
 		}
 		idx[k] = f
 		a = append(a, f)
 	}
 	return a
+}
+
+// addRaw folds a newer reading of the same flow into an older one that was not sent yet: what was counted since is
+// added, and what was sampled (a round-trip time, a window, a route) is replaced by the newer sample unless it has none.
+func addRaw(cur, f *continuumv1.RawFlow) {
+	cur.Connections += f.Connections
+	cur.BytesOut += f.BytesOut
+	cur.BytesIn += f.BytesIn
+	cur.Retransmits += f.Retransmits
+	cur.RtoRetransmits += f.RtoRetransmits
+	cur.FailedAttempts += f.FailedAttempts
+	cur.FailedRefused += f.FailedRefused
+	cur.FailedTimeout += f.FailedTimeout
+	cur.FailedReset += f.FailedReset
+	cur.FailedUnreachable += f.FailedUnreachable
+	cur.SegsOut += f.SegsOut
+	cur.BufferDrops += f.BufferDrops
+	cur.MeshBypassSyns += f.MeshBypassSyns
+	if f.Iface != "" {
+		cur.Iface = f.Iface
+	}
+	if f.SniHost != "" {
+		cur.SniHost = f.SniHost
+	}
+	if f.DnsQueryName != "" {
+		cur.DnsQueryName = f.DnsQueryName
+	}
+	for _, g := range []struct {
+		dst *uint32
+		src uint32
+	}{{&cur.RttUs, f.RttUs}, {&cur.JitterUs, f.JitterUs}, {&cur.HandshakeUs, f.HandshakeUs}, {&cur.Cwnd, f.Cwnd}, {&cur.DnsRttUs, f.DnsRttUs}, {&cur.MssBytes, f.MssBytes}} {
+		if g.src != 0 {
+			*g.dst = g.src
+		}
+	}
+	if f.PacingBps != 0 {
+		cur.PacingBps = f.PacingBps
+	}
+	if f.CgroupId != 0 {
+		cur.CgroupId = f.CgroupId
+	}
+	// Optional on the wire because 0 is a real sample: presence is the pointer.
+	if f.RcvWndBytes != nil {
+		cur.RcvWndBytes = f.RcvWndBytes
+	}
+	if f.SndWndBytes != nil {
+		cur.SndWndBytes = f.SndWndBytes
+	}
+	if f.WmemQueuedBytes != nil {
+		cur.WmemQueuedBytes = f.WmemQueuedBytes
+	}
+	if f.SndbufBytes != nil {
+		cur.SndbufBytes = f.SndbufBytes
+	}
+	if f.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN {
+		cur.TlsHandshake = f.TlsHandshake
+	}
 }
 
 func sortByWeight(fl []*continuumv1.RawFlow) {
