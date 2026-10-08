@@ -284,7 +284,7 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 	f := &Fused{Trace: tr, Sources: map[string]string{SignalTraces: SourceOK, SignalLogs: SourceNotRequested, SignalMetrics: SourceNotRequested}}
 	f.Joins = map[string]string{}
 	if opts.Logs {
-		f.Joins[SignalLogs] = "exact: log records that carry this trace's id, each placed on the span whose id it carries"
+		f.Joins[SignalLogs] = "exact: log records of the trace's services that carry this trace's id, each placed on the span whose id it carries"
 	}
 	if opts.ContextLogs {
 		f.Sources[SourceContextLogs] = SourceNotRequested
@@ -355,7 +355,7 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			lines, truncated, err := c.Logs(ctx, s, LogFilter{TraceID: tr.TraceID, Severity: opts.LogSeverity, Contains: opts.LogContains}, window, opts.MaxLogs)
+			lines, truncated, err := c.Logs(ctx, s, LogFilter{TraceID: tr.TraceID, Services: tr.Services, Severity: opts.LogSeverity, Contains: opts.LogContains}, window, opts.MaxLogs)
 			if err != nil {
 				warn(SignalLogs, err)
 				return

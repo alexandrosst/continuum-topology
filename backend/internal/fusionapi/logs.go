@@ -61,6 +61,9 @@ type LogFilter struct {
 	Contains string `json:"contains,omitempty"`
 	// Node keeps lines written on this Kubernetes node.
 	Node string `json:"node,omitempty"`
+	// Services keeps lines of any of these services (Service, when set, wins). It is an index label, so a read that knows
+	// the services it wants (a trace's) does not have to open every stream.
+	Services []string `json:"services,omitempty"`
 	// Namespaces keeps lines of any of these namespaces (Namespace, when set, narrows it further).
 	Namespaces []string `json:"namespaces,omitempty"`
 	// NoTrace keeps only lines that carry no trace id: the context around a trace rather than what it wrote itself.
@@ -104,12 +107,20 @@ func (f LogFilter) logQL(s Scope) (string, error) {
 // selector is the stream selector alone: the part Loki's label-value and series calls accept.
 func (f LogFilter) selector(s Scope) (string, error) {
 	var sel []string
-	if f.Service != "" {
+	switch {
+	case f.Service != "":
 		if err := checkValue("service", f.Service); err != nil {
 			return "", err
 		}
 		sel = append(sel, lokiService+"="+quote(f.Service))
-	} else if len(s.FocusServices) == 0 {
+	case len(f.Services) > 0:
+		for _, n := range f.Services {
+			if err := checkValue("service", n); err != nil {
+				return "", err
+			}
+		}
+		sel = append(sel, lokiService+"=~"+quote(regexAny(f.Services)))
+	case len(s.FocusServices) == 0:
 		sel = append(sel, lokiService+`=~".+"`)
 	}
 	if len(s.FocusServices) > 0 {
