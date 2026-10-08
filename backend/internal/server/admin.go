@@ -1449,7 +1449,7 @@ func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 	t := a.tn(r)
 	o, _ := a.C.Store.GetOrg(r.Context(), t.ID)
 	img := a.images(t.C)
-	writeJSON(w, 200, map[string]any{"orgId": t.ID, "orgName": o.Name, "role": principal(r).Role, "agentAddress": a.AgentAddr, "agentExposure": a.AgentExposure, "releaseName": a.ReleaseName, "releaseNamespace": a.ReleaseNamespace, "caPin": a.C.CA.Pin(), "version": a.Version, "implementedTier": ImplementedTier, "geoip": a.P.Geo.Info(),
+	writeJSON(w, 200, map[string]any{"orgId": t.ID, "orgName": o.Name, "role": principal(r).Role, "agentAddress": a.AgentAddr, "agentExposure": a.AgentExposure, "releaseName": a.ReleaseName, "releaseNamespace": a.ReleaseNamespace, "caPin": a.C.CA.SPKIPin(), "version": a.Version, "implementedTier": ImplementedTier, "geoip": a.P.Geo.Info(),
 		// What the install wizard tells the operator to bring to the cluster: the chart file this server hands out
 		// (empty when the command names a chart elsewhere) and where the image comes from (this organisation's
 		// Settings → Installation, else the server's flags; empty registry: the chart's built-in names).
@@ -1570,11 +1570,11 @@ func (a *Admin) installCommand(img ImageConfig, secret string, t store.Token) st
 	}
 	// enrollment.key packs the CA pin and the one-time token into the single flag the chart splits back apart at
 	// render time (see continuum-agent's _helpers.tpl): one thing to paste instead of two, without hiding either
-	// value's own text - the pin is 64 hex characters, the token cannot contain ".", so joining them is unambiguous
-	// and needs no escaping.
+	// value's own text - the pin is the CA's public-key pin (sha256/<base64>, which survives re-issuing the CA
+	// certificate), the token cannot contain ".", and base64 has no ".", so joining them is unambiguous.
 	var b strings.Builder
 	fmt.Fprintf(&b, "helm install continuum-agent %s%s \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=%s \\\n  --set enrollment.key=%s.%s",
-		ref, version, a.AgentAddr, a.C.CA.Pin(), secret)
+		ref, version, a.AgentAddr, a.C.CA.SPKIPin(), secret)
 	if t.AccessTier != chartDefaultAccessTier {
 		fmt.Fprintf(&b, " \\\n  --set access.tier=%d", t.AccessTier)
 	}

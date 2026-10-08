@@ -432,6 +432,14 @@ func TestEnrollmentKeySplitsIntoCAPinAndToken(t *testing.T) {
 	if s, ok := r.secrets["continuum-agent-enrollment"]; !ok || s.StringData["token"] != "cnt_xyz" {
 		t.Errorf("enrollment secret token = %q, ok=%v, want \"cnt_xyz\"", s.StringData["token"], ok)
 	}
+	// The public-key pin the install command prints ("sha256/<base64>", with + / and =) goes through the schema and
+	// the split intact, and so does the legacy hex form above.
+	spki := "sha256/" + strings.Repeat("A", 42) + "+="
+	r = render(t, "--set", "server.caPin=", "--set", "enrollment.token=", "--set", "enrollment.key="+spki+".cnt_xyz")
+	c = r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
+	if v, _ := env(c, "CONTINUUM_CA_PIN"); v != spki {
+		t.Errorf("CONTINUUM_CA_PIN = %q, want %q", v, spki)
+	}
 	// server.caPin and enrollment.token, given directly, win over enrollment.key: an operator's explicit override is
 	// never silently shadowed by the convenience field.
 	r = render(t, "--set", "server.caPin=ab", "--set", "enrollment.token=direct", "--set", "enrollment.key="+pin+".cnt_xyz")

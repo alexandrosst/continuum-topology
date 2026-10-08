@@ -6,6 +6,7 @@
 package pki
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -34,12 +35,17 @@ import (
 var AgentCertTTL = 24 * time.Hour
 
 // RejoinWindow is how long after its certificate expired an agent may still rejoin without
-// a new enrollment token (for example after a cluster outage or a node reboot).
-const RejoinWindow = 7 * 24 * time.Hour
+// a new enrollment token (for example after a cluster outage, a node reboot or a cluster that was
+// switched off for a holiday). Long on purpose: revocation, not expiry, is the control, and a rejoin
+// still needs the agent to be approved and not revoked.
+const RejoinWindow = 60 * 24 * time.Hour
 
 const (
 	serverTTL = 30 * 24 * time.Hour
 	caTTL     = 10 * 365 * 24 * time.Hour
+	// caRenewBefore is how close to its end a CA certificate is re-signed (with the same key) when the
+	// server starts. A server that restarts at least once in nine years never reaches the end of its CA.
+	caRenewBefore = 365 * 24 * time.Hour
 	// clockSkew backdates certificates so a slightly slow agent clock still works.
 	clockSkew = 5 * time.Minute
 )
@@ -90,6 +96,12 @@ func LoadOrCreateWith(dir string, opts Options) (*CA, error) {
 			return nil, err
 		}
 		ca.passphrase, ca.log = opts.Passphrase, log
+		if left := time.Until(ca.cert.NotAfter); left < caRenewBefore {
+			if err := ca.reissueSelf(certPath); err != nil {
+				return nil, fmt.Errorf("pki: renewing the CA certificate: %w", err)
+			}
+			log.Info("the CA certificate had little time left and was re-signed with the same key; its public-key pin (sha256/...) is unchanged", "was_valid_until", ca.cert.NotAfter)
+		}
 		switch {
 		case !encrypted && len(opts.Passphrase) > 0:
 			// First start with a passphrase: encrypt the key that is already there, and check that it
@@ -222,10 +234,42 @@ func parseCA(certPEM, keyPEM, passphrase []byte) (ca *CA, encrypted bool, err er
 	if !ok || !pub.Equal(&key.PublicKey) {
 		return nil, encrypted, errors.New("pki: ca.crt does not match ca.key")
 	}
-	if time.Now().After(cert.NotAfter) {
-		return nil, encrypted, errors.New("pki: the CA certificate has expired")
-	}
 	return &CA{cert: cert, key: key, DER: cb.Bytes}, encrypted, nil
+}
+
+// reissueSelf signs a new self-signed certificate for the same key and subject, valid for caTTL from now,
+// and replaces ca.crt with it. Same key and same subject mean everything the old certificate signed still
+// verifies against the new one, and the public-key pin (SPKIPin) every agent and sidecar holds is unchanged;
+// only the legacy whole-certificate pin changes, which is why install commands print the public-key pin.
+func (ca *CA) reissueSelf(certPath string) error {
+	serial, err := newSerial()
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               ca.cert.Subject,
+		NotBefore:             now.Add(-clockSkew),
+		NotAfter:              now.Add(caTTL),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLenZero:        true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &ca.key.PublicKey, ca.key)
+	if err != nil {
+		return err
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		return err
+	}
+	if err := writeFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
+		return err
+	}
+	ca.cert, ca.DER = cert, der
+	return nil
 }
 
 // writeFile writes atomically with the given mode: the data goes to a temporary file created with that
@@ -332,11 +376,18 @@ func (ca *CA) IssueAgent(csr *x509.CertificateRequest, agentID, orgID string, tt
 }
 
 // OperatorTLSTTL is how long a regional operator's receiver certificate, and the client certificate its
-// source clusters present to it, are valid. Long relative to AgentCertTTL because nothing on this path
-// renews itself automatically the way an online agent does: the receiver is an OTel Collector driven only
-// by Helm-mounted static files, with no process here to ask the server for a fresh one before it expires.
-// Revoke and recreate the operator to rotate it early.
+// senders present to it, are valid.
 var OperatorTLSTTL = 365 * 24 * time.Hour
+
+const (
+	// OperatorRenewBefore is how much life an operator certificate has left when its holder renews it: two
+	// thirds of the way through its TTL, so a renewer that is down for a few days still has time to recover.
+	OperatorRenewBefore = 20 * 24 * time.Hour
+	// OperatorRenewGrace is how long after expiry the server still renews an operator certificate on proof of
+	// the old key (a cluster that was off, or a renewer that crashed). Past it the holder must be given a new
+	// certificate by hand ("install again").
+	OperatorRenewGrace = 14 * 24 * time.Hour
+)
 
 // CertPEM returns this CA's own certificate, PEM-encoded. Unlike Pool (used to verify a presented
 // certificate in-process) or Pin (a fingerprint an agent checks against before it has any certificate of
@@ -348,25 +399,20 @@ func (ca *CA) CertPEM() []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.DER})
 }
 
-// issueLeaf is IssueAgent's and NewServerCerts' shared shape, generalized to any subject/usage/hosts:
-// generate a fresh ECDSA P-256 key here (rather than receive a CSR) and sign a leaf certificate for it.
-// Used only where the caller cannot generate its own key and submit a CSR the way an agent does - a
-// Helm-templated OTel Collector has no process able to do that, so the server holds the private key
-// briefly and hands it over once, the same trade-off an operator's receiver bearer token already makes.
-func (ca *CA) issueLeaf(subject pkix.Name, ttl time.Duration, eku x509.ExtKeyUsage, hosts []string) (certPEM, keyPEM []byte, err error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, nil, err
-	}
+// SignLeaf signs a leaf certificate for a public key someone else holds the private half of: the CSR path an
+// agent uses, generalised to any subject, usage and hosts. The identity in the certificate is whatever the
+// caller passes, never what the key holder asked for. The TTL is capped to what is left of this CA, because a
+// leaf valid past its issuer verifies nowhere.
+func (ca *CA) SignLeaf(pub crypto.PublicKey, subject pkix.Name, ttl time.Duration, eku x509.ExtKeyUsage, hosts []string) ([]byte, error) {
 	serial, err := newSerial()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	now := time.Now()
 	if left := ca.cert.NotAfter.Sub(now); left <= 0 {
-		return nil, nil, errors.New("pki: the CA certificate has expired")
+		return nil, errors.New("pki: the CA certificate has expired")
 	} else if ttl > left {
-		ttl = left // never outlive the CA that signs it: a leaf valid past its issuer verifies nowhere
+		ttl = left
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
@@ -384,7 +430,19 @@ func (ca *CA) issueLeaf(subject pkix.Name, ttl time.Duration, eku x509.ExtKeyUsa
 			tmpl.DNSNames = append(tmpl.DNSNames, h)
 		}
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.cert, &key.PublicKey, ca.key)
+	return x509.CreateCertificate(rand.Reader, tmpl, ca.cert, pub, ca.key)
+}
+
+// issueLeaf generates a key here and signs a leaf for it with SignLeaf. It is the bootstrap path only: the
+// first certificate an operator's receiver and each sender get is pasted into a Secret by hand, so there is
+// no process yet that could generate a key and send a CSR. Every renewal after that generates its key where
+// it is used.
+func (ca *CA) issueLeaf(subject pkix.Name, ttl time.Duration, eku x509.ExtKeyUsage, hosts []string) (certPEM, keyPEM []byte, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	der, err := ca.SignLeaf(&key.PublicKey, subject, ttl, eku, hosts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -457,12 +515,11 @@ func senderLabel(sender string, max int) string {
 	return string(clean) + tag
 }
 
-// OperatorCATTL is how long a per-operator CA certificate is valid: five years, comfortably longer than the
-// OperatorTLSTTL (one year) of anything it signs, so the receiver certificate and client certificates
-// reissued late in its life are not cut short, yet far shorter than the org CA's ten. Nothing renews it:
-// when it expires the operator must be revoked and recreated (reissue refuses with "the CA certificate has
-// expired"), the same remedy an expiring leaf already has. A variable only so tests can shorten it.
-var OperatorCATTL = 5 * 365 * 24 * time.Hour
+// OperatorCATTL is how long a per-operator CA certificate is valid: ten years, as long as the org CA's, so it
+// outlives every renewal and nothing a sender or a receiver holds as "the CA" ever has to be replaced in
+// normal operation. Operators created before this was ten years keep their five-year CA; when one of those is
+// about to expire the operator must be recreated. A variable only so tests can shorten it.
+var OperatorCATTL = 10 * 365 * 24 * time.Hour
 
 // NewOperatorCA mints a private issuing CA for one regional operator: a fresh ECDSA P-256 key and a SELF-SIGNED
 // certificate (CN "Continuum operator CA <operatorID>", O orgID), NOT chained to this CA. Being its own root is
@@ -525,14 +582,17 @@ func (ca *CA) OpenOperatorCA(certPEM, keyPEM []byte) (*CA, error) {
 	if err != nil {
 		return nil, err
 	}
+	if time.Now().After(op.cert.NotAfter) {
+		return nil, errors.New("pki: the CA certificate has expired")
+	}
 	op.passphrase, op.log = ca.passphrase, ca.log
 	return op, nil
 }
 
-// VerifyExpiredAgent checks that der is an agent certificate signed by this CA, valid for client
-// authentication, and returns it. Expiry is deliberately ignored here (the caller enforces a
-// window): the certificate is only ever used as proof that this key was once issued to this agent.
-func (ca *CA) VerifyExpiredAgent(der []byte) (*x509.Certificate, error) {
+// VerifyExpired checks that der is a certificate signed by this CA, valid for the given usage, and returns it.
+// Expiry is deliberately ignored here (the caller enforces its own window): the certificate is only ever used
+// as proof that this key was once issued to this holder.
+func (ca *CA) VerifyExpired(der []byte, eku x509.ExtKeyUsage) (*x509.Certificate, error) {
 	if len(der) == 0 || len(der) > 4096 {
 		return nil, errors.New("pki: certificate has an invalid size")
 	}
@@ -543,13 +603,43 @@ func (ca *CA) VerifyExpiredAgent(der []byte) (*x509.Certificate, error) {
 	// Verify as of a moment inside the certificate's own validity so only the signature,
 	// chain and key usage are being tested.
 	_, err = leaf.Verify(x509.VerifyOptions{
-		Roots: ca.Pool(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		Roots: ca.Pool(), KeyUsages: []x509.ExtKeyUsage{eku},
 		CurrentTime: leaf.NotAfter.Add(-time.Second),
 	})
 	if err != nil {
 		return nil, errors.New("pki: certificate was not issued by this server")
 	}
 	return leaf, nil
+}
+
+// VerifyExpiredAgent is VerifyExpired for an agent's client certificate.
+func (ca *CA) VerifyExpiredAgent(der []byte) (*x509.Certificate, error) {
+	return ca.VerifyExpired(der, x509.ExtKeyUsageClientAuth)
+}
+
+// renewContext is mixed into what a renewal proof signs, so a signature made for this purpose can never be
+// replayed as any other signature by the same key.
+const renewContext = "continuum telemetry certificate renewal v1\x00"
+
+// ProveRenewal is what the holder of a certificate's private key sends to renew it: an ECDSA signature,
+// by that key, over the new certificate request. Together with the old certificate it shows the request comes
+// from whoever holds the old key, and binds the proof to this one request so it cannot be reused for another.
+func ProveRenewal(oldKey *ecdsa.PrivateKey, csrDER []byte) ([]byte, error) {
+	sum := sha256.Sum256(append([]byte(renewContext), csrDER...))
+	return ecdsa.SignASN1(rand.Reader, oldKey, sum[:])
+}
+
+// VerifyRenewalProof checks a proof made by ProveRenewal against the old certificate's public key.
+func VerifyRenewalProof(old *x509.Certificate, csrDER, proof []byte) error {
+	pub, ok := old.PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return errors.New("pki: the certificate does not hold an ECDSA key")
+	}
+	sum := sha256.Sum256(append([]byte(renewContext), csrDER...))
+	if !ecdsa.VerifyASN1(pub, sum[:], proof) {
+		return errors.New("pki: the renewal proof does not match the certificate's key")
+	}
+	return nil
 }
 
 // ServerCerts serves the TLS certificate for the gRPC and enrollment listener and

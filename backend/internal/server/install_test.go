@@ -60,7 +60,7 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 
 	// 2. Registry only: one image, the chart from the same registry, no tag and no digest.
 	cmd = cmdFor(a, ImageConfig{Registry: "myteam"})
-	for _, want := range []string{"helm install continuum-agent oci://registry-1.docker.io/myteam/continuum-agent" + ver + "\\\n", "--set image.repository=myteam/continuum", "--set enrollment.key=" + a.C.CA.Pin() + ".cnt_1"} {
+	for _, want := range []string{"helm install continuum-agent oci://registry-1.docker.io/myteam/continuum-agent" + ver + "\\\n", "--set image.repository=myteam/continuum", "--set enrollment.key=" + a.C.CA.SPKIPin() + ".cnt_1"} {
 		if !strings.Contains(cmd, want) {
 			t.Fatalf("missing %q in:\n%s", want, cmd)
 		}
@@ -104,7 +104,7 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 func TestInstallCommandBundlesTheCAPinAndToken(t *testing.T) {
 	a := testAdmin(t)
 	cmd := cmdFor(a, ImageConfig{})
-	want := "--set enrollment.key=" + a.C.CA.Pin() + ".cnt_1"
+	want := "--set enrollment.key=" + a.C.CA.SPKIPin() + ".cnt_1"
 	if !strings.Contains(cmd, want) {
 		t.Fatalf("missing %q in:\n%s", want, cmd)
 	}
@@ -113,8 +113,10 @@ func TestInstallCommandBundlesTheCAPinAndToken(t *testing.T) {
 			t.Fatalf("the bundled command must not also print %q:\n%s", not, cmd)
 		}
 	}
-	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(a.C.CA.Pin()) {
-		t.Fatalf("the pin half must be 64 lowercase hex characters (the chart's schema requires this): %q", a.C.CA.Pin())
+	// The public-key pin, not the whole-certificate fingerprint: it is the one that survives the CA certificate
+	// being re-signed (pki.LoadOrCreateWith does that a year before the end), so an installed agent keeps working.
+	if !regexp.MustCompile(`^sha256/[A-Za-z0-9+/]{43}=$`).MatchString(a.C.CA.SPKIPin()) {
+		t.Fatalf("the pin half must be a sha256/<base64> public-key pin (the chart's schema requires this): %q", a.C.CA.SPKIPin())
 	}
 }
 

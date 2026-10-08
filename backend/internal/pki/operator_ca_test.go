@@ -138,7 +138,7 @@ func TestOperatorCAIsAStandaloneLeafOnlyRoot(t *testing.T) {
 	if c.Subject.CommonName != "Continuum operator CA op-aaa" || c.Subject.Organization[0] != "org-1" {
 		t.Fatalf("subject = %v", c.Subject)
 	}
-	if got := time.Until(c.NotAfter); got < 4*365*24*time.Hour || got > OperatorCATTL {
+	if got := time.Until(c.NotAfter); got < 9*365*24*time.Hour || got > OperatorCATTL {
 		t.Fatalf("operator CA validity %v is not about OperatorCATTL (%v)", got, OperatorCATTL)
 	}
 	if !bytes.Equal(iss.CertPEM(), certPEM) {
@@ -231,7 +231,7 @@ func TestOperatorCAKeyIsPlainOnlyWhenTheOrgCAKeyIs(t *testing.T) {
 func TestOperatorCAClampsAndExpires(t *testing.T) {
 	old := OperatorCATTL
 	t.Cleanup(func() { OperatorCATTL = old })
-	OperatorCATTL = 30 * 24 * time.Hour
+	OperatorCATTL = OperatorTLSTTL / 2
 	org, err := LoadOrCreate(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestOperatorCAClampsAndExpires(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaf, _, err := iss.IssueOperatorClientTLS("op-aaa", "org-1", "") // asks for OperatorTLSTTL (365d)
+	leaf, _, err := iss.IssueOperatorClientTLS("op-aaa", "org-1", "") // asks for OperatorTLSTTL, more than the CA has left
 	if err != nil {
 		t.Fatal(err)
 	}
