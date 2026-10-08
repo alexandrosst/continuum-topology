@@ -1222,8 +1222,11 @@ func (c *Core) RenameOrg(ctx context.Context, p Principal, name string) error {
 }
 
 // DeleteOrg erases the organisation with its agents, topology, history and members. The caller must
-// type its name. The audit trail is kept, so it stays possible to see who deleted it.
+// type its name. The main organisation cannot be deleted. The audit trail is kept, so it stays possible to see who deleted it.
 func (c *Core) DeleteOrg(ctx context.Context, p Principal, confirm string) error {
+	if c.OrgID == c.MainOrg() {
+		return errf(KindInvalid, "the main organisation owns FUSION and the server's mail settings, and cannot be deleted")
+	}
 	o, err := c.Store.GetOrg(ctx, c.OrgID)
 	if err != nil {
 		return errf(KindNotFound, "no such organisation")

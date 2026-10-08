@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -457,6 +458,19 @@ func TestDeletingAnOrganisationErasesItsDataAndEndsItsAgents(t *testing.T) {
 	}
 	if !seen {
 		t.Error("deletion was not recorded")
+	}
+}
+
+// The main organisation owns FUSION and the server's mail settings; deleting it would orphan both.
+func TestTheMainOrganisationCannotBeDeleted(t *testing.T) {
+	e := newEnv(t)
+	err := e.core.DeleteOrg(e.ctx, Principal{User: store.User{Username: "x"}}, "Org One")
+	var se *Error
+	if !errors.As(err, &se) || se.Kind != KindInvalid {
+		t.Fatalf("deleting the main organisation: %v", err)
+	}
+	if _, err := e.st.GetOrg(e.ctx, "org-1"); err != nil {
+		t.Fatalf("the main organisation is gone: %v", err)
 	}
 }
 

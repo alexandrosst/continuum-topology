@@ -37,6 +37,9 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 	}
 	tokID := a.do("POST", "/api/v1/tokens", map[string]any{"name": "keep", "tier": 1}, withCookie(owner)).json(t)["meta"].(map[string]any)["id"].(string)
 
+	// The main organisation cannot be deleted at all, so the deletion is tried on another one.
+	carol, carolOrg := a.register(t, "carol", "Carol Co")
+
 	fs.fail.Store(true)
 	expect := func(what string, r resp) {
 		t.Helper()
@@ -54,7 +57,7 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 	expect("create invite", a.do("POST", "/api/v1/invites", map[string]any{"role": "viewer"}, withCookie(owner)))
 	expect("decider change", a.do("PUT", "/api/v1/settings", Settings{DeciderURL: "https://decider.example.com/x"}, withCookie(owner)))
 	expect("rename", a.do("POST", "/api/v1/rename", map[string]any{"name": "Renamed"}, withCookie(owner)))
-	expect("delete organisation", a.do("POST", "/api/v1/delete", map[string]any{"confirm": "Org One"}, withCookie(owner)))
+	expect("delete organisation", a.do("POST", org(carolOrg, "delete"), map[string]any{"confirm": "Carol Co"}, withCookie(carol)))
 
 	// Nothing happened.
 	if ag, _ := a.st.GetAgent(a.ctx, pending.AgentId); ag.Status != store.StatusPending {
@@ -82,6 +85,9 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 	}
 	if o, err := a.st.GetOrg(a.ctx, "org-1"); err != nil || o.Name != "Org One" {
 		t.Errorf("the organisation was changed or deleted: %v %+v", err, o)
+	}
+	if _, err := a.st.GetOrg(a.ctx, carolOrg); err != nil {
+		t.Errorf("an organisation was deleted without an audit row: %v", err)
 	}
 	if data, _ := a.st.GetSettings(a.ctx, "org-1"); data != nil && strings.Contains(string(data), "decider.example.com") {
 		t.Error("the decider was saved without an audit row")

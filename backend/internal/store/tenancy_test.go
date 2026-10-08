@@ -157,3 +157,55 @@ func TestListMembersDoesNotLoadPasswordHashes(t *testing.T) {
 		t.Errorf("sign-in needs the hash: %+v %v", u, err)
 	}
 }
+
+// Deleting an organisation removes everything keyed to it, including operators (with their sealed CA keys and
+// credential hashes), the certificate ledger, intents, gateway tokens, decisions and FUSION tokens - and
+// leaves another organisation's rows alone.
+func TestDeleteOrgRemovesEveryTableKeyedToIt(t *testing.T) {
+	ctx := context.Background()
+	s, err := OpenSQLite(filepath.Join(t.TempDir(), "d.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	now := time.Now()
+	if err := s.CreateUser(ctx, User{ID: "u-o", Username: "u-o", PasswordHash: "x", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	for _, org := range []string{"gone", "kept"} {
+		must := func(err error) {
+			t.Helper()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		must(s.CreateOrg(ctx, Org{ID: org, Name: org, CreatedAt: now}, "u-o"))
+		must(s.CreateOperator(ctx, Operator{ID: "op-" + org, OrgID: org, Name: "op", Status: OperatorActive, HeartbeatHash: []byte("hb-" + org), CreatedBy: "x", CreatedAt: now}, []byte("recv-"+org)))
+		must(s.AddOperatorCert(ctx, OperatorCert{Serial: "s-" + org, OrgID: org, OperatorID: "op-" + org, Kind: "receiver", IssuedAt: now, NotBefore: now, NotAfter: now}))
+		must(s.CreateTelemetryIntent(ctx, TelemetryIntent{ID: "ti-" + org, OrgID: org, AgentID: "a", Name: "n", Status: TelemetryIntentActive, CreatedBy: "x", CreatedAt: now}))
+		must(s.CreateGatewayToken(ctx, GatewayToken{ID: "gt-" + org, OrgID: org, BackendID: "b", CreatedBy: "x", CreatedAt: now, ExpiresAt: now}, []byte("gt-"+org)))
+		must(s.AddDecisions(ctx, []DecisionLog{{OrgID: org, At: now, DeciderID: "d", ServiceID: "svc"}}))
+		must(s.CreateFusionToken(ctx, FusionToken{ID: "ft-" + org, OrgID: org, Name: "n", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, []byte("ft-"+org)))
+	}
+	if err := s.DeleteOrg(ctx, "gone"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.LookupFusionToken(ctx, []byte("ft-gone")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a deleted organisation's FUSION token still resolves: %v", err)
+	}
+	if _, err := s.GetOperatorByHeartbeatHash(ctx, []byte("hb-gone")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a deleted organisation's operator still authenticates: %v", err)
+	}
+	for _, table := range []string{"operators", "operator_certs", "telemetry_intents", "gateway_tokens", "decisions", "fusion_tokens"} {
+		var gone, kept int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM ` + table + ` WHERE org_id='gone'`).Scan(&gone); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM ` + table + ` WHERE org_id='kept'`).Scan(&kept); err != nil {
+			t.Fatal(err)
+		}
+		if gone != 0 || kept != 1 {
+			t.Errorf("%s: %d rows left for the deleted organisation, %d for the other (want 0 and 1)", table, gone, kept)
+		}
+	}
+}
