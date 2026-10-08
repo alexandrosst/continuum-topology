@@ -1378,7 +1378,7 @@ func TestTelemetryWorkloadScopeEmptyListKeepsNothingOfThatNamespace(t *testing.T
 	}
 }
 
-func TestTelemetryWorkloadNamesAreExtractedOnlyWhenSomethingFiltersOnThem(t *testing.T) {
+func TestTelemetryWorkloadNamesAreExtracted(t *testing.T) {
 	meta := func(r rendered) []any {
 		cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
 		procs, _ := cfg["processors"].(map[string]any)
@@ -1388,10 +1388,25 @@ func TestTelemetryWorkloadNamesAreExtractedOnlyWhenSomethingFiltersOnThem(t *tes
 		return m
 	}
 	base := []string{"--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.traces.traces.enabled=true"}
-	if m := meta(render(t, base...)); containsAny(m, "k8s.statefulset.name") {
-		t.Errorf("workload names extracted with no workload scope: %v", m)
+	// The dashboards match an application's pods on these, whatever the scope: StatefulSet and DaemonSet pods are otherwise invisible.
+	m := meta(render(t, base...))
+	for _, want := range []string{"k8s.deployment.name", "k8s.statefulset.name", "k8s.daemonset.name"} {
+		if !containsAny(m, want) {
+			t.Errorf("default install should extract %s: %v", want, m)
+		}
 	}
-	m := meta(render(t, append(base, "--set-json", `telemetry.traces.traces.scope.workloads=[{"namespace":"shop","names":["a"]}]`)...))
+	if containsAny(m, "k8s.job.name") {
+		t.Errorf("job names extracted with no workload scope: %v", m)
+	}
+	// The host collector's k8sattributes is what labels the kubelet's pod metrics and the container logs.
+	h := hostConfig(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true")...)
+	hp, _ := h["processors"].(map[string]any)
+	hk, _ := hp["k8sattributes"].(map[string]any)
+	hx, _ := hk["extract"].(map[string]any)
+	if hm, _ := hx["metadata"].([]any); !containsAny(hm, "k8s.statefulset.name") || !containsAny(hm, "k8s.daemonset.name") {
+		t.Errorf("host collector should extract StatefulSet and DaemonSet names: %v", hm)
+	}
+	m = meta(render(t, append(base, "--set-json", `telemetry.traces.traces.scope.workloads=[{"namespace":"shop","names":["a"]}]`)...))
 	for _, want := range []string{"k8s.deployment.name", "k8s.statefulset.name", "k8s.daemonset.name", "k8s.job.name", "k8s.cronjob.name"} {
 		if !containsAny(m, want) {
 			t.Errorf("per-signal workload scope should extract %s: %v", want, m)

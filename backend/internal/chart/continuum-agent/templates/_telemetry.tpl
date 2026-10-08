@@ -260,16 +260,17 @@
 {{- end -}}
 
 {{/* Whether any scope in this release narrows by workload - the one case where k8sattributes has to extract
-     the workload names (a few more attributes on every record, so only when something filters on them). */}}
+     the Job and CronJob names too (a few more attributes on every record, so only when something filters on them). */}}
 {{- define "agent.telemetryWorkloadScopeEnabled" -}}
 {{- $t := .Values.telemetry -}}
 {{- if or $t.scope.workloads $t.scope.infra.workloads $t.applicationMetrics.metrics.scope.workloads $t.applicationLogs.logs.scope.workloads $t.traces.traces.scope.workloads -}}true{{- end -}}
 {{- end -}}
 
-{{/* The metadata list k8sattributes extracts, in both collector configs. */}}
+{{/* The metadata list k8sattributes extracts, in both collector configs. The Deployment, StatefulSet and DaemonSet names are
+     always there: the FUSION dashboards match an application's pods on them, and a pod metric carries no workload name of its own. */}}
 {{- define "agent.telemetryK8sAttrsMetadata" -}}
-{{- $m := list "k8s.namespace.name" "k8s.pod.name" "k8s.pod.uid" "k8s.node.name" "k8s.deployment.name" -}}
-{{- if include "agent.telemetryWorkloadScopeEnabled" . }}{{ $m = concat $m (list "k8s.statefulset.name" "k8s.daemonset.name" "k8s.job.name" "k8s.cronjob.name") }}{{ end -}}
+{{- $m := list "k8s.namespace.name" "k8s.pod.name" "k8s.pod.uid" "k8s.node.name" "k8s.deployment.name" "k8s.statefulset.name" "k8s.daemonset.name" -}}
+{{- if include "agent.telemetryWorkloadScopeEnabled" . }}{{ $m = concat $m (list "k8s.job.name" "k8s.cronjob.name") }}{{ end -}}
 {{- toJson $m -}}
 {{- end -}}
 
