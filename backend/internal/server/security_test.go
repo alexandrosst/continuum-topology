@@ -372,25 +372,30 @@ func TestTierOneDropsPodDerivedNodeFigures(t *testing.T) {
 	}
 }
 
-func TestValidateSyncBoundsStorageAndScalingFacts(t *testing.T) {
-	claims := make([]*continuumv1.VolumeClaim, 201)
+// What is merely too big is cut, not refused: a refusal ends the agent's stream and the cluster never gets in.
+func TestValidateSyncCutsOversizedFacts(t *testing.T) {
+	claims := make([]*continuumv1.VolumeClaim, facts.MaxRepeated+1)
 	for i := range claims {
 		claims[i] = &continuumv1.VolumeClaim{Name: "v"}
 	}
-	for name, w := range map[string]*continuumv1.WorkloadFacts{
-		"too many claims":   {Key: "k", VolumeClaims: claims},
-		"huge claim name":   {Key: "k", VolumeClaims: []*continuumv1.VolumeClaim{{Name: strings.Repeat("a", maxStr+1)}}},
-		"pinned to a crowd": {Key: "k", VolumeClaims: []*continuumv1.VolumeClaim{{Name: "v", PinnedNodes: make([]string, 101)}}},
-		"many targets":      {Key: "k", Autoscaler: &continuumv1.Autoscaler{Targets: make([]string, 51)}},
-		"long budget":       {Key: "k", Disruption: &continuumv1.Disruption{MinAvailable: strings.Repeat("9", 33)}},
+	w := &continuumv1.WorkloadFacts{Key: "k", VolumeClaims: claims, Hosts: make([]string, facts.MaxRepeated+1),
+		Autoscaler: &continuumv1.Autoscaler{Targets: []string{strings.Repeat("a", facts.MaxString+1)}}}
+	cl := &continuumv1.ClusterFacts{Scope: &continuumv1.ScopeFacts{Description: strings.Repeat("ns,", 1000)}}
+	s := &continuumv1.Sync{Cluster: cl, Workloads: []*continuumv1.WorkloadFacts{w}, DeletedNodes: []string{strings.Repeat("n", facts.MaxString+1)}}
+	if err := validateSync(s); err != nil {
+		t.Fatalf("an oversized cluster was refused: %v", err)
+	}
+	if len(w.VolumeClaims) != facts.MaxRepeated || len(w.Hosts) != facts.MaxRepeated || len(w.Autoscaler.Targets[0]) > facts.MaxString || len(cl.Scope.Description) > facts.MaxString || len(s.DeletedNodes) != 0 {
+		t.Errorf("not cut: %d claims, %d hosts, %d target bytes, %d description bytes, %d deleted keys", len(w.VolumeClaims), len(w.Hosts), len(w.Autoscaler.Targets[0]), len(cl.Scope.Description), len(s.DeletedNodes))
+	}
+	// What cannot be cut is refused: a fact that names nothing.
+	for name, bad := range map[string]*continuumv1.Sync{
+		"no key":   {Workloads: []*continuumv1.WorkloadFacts{{}}},
+		"long key": {Nodes: []*continuumv1.NodeFacts{{Key: strings.Repeat("k", maxStr+1)}}},
 	} {
-		if validateSync(&continuumv1.Sync{Workloads: []*continuumv1.WorkloadFacts{w}}) == nil {
+		if validateSync(bad) == nil {
 			t.Errorf("%s was accepted", name)
 		}
-	}
-	ok := &continuumv1.WorkloadFacts{Key: "k", VolumeClaims: claims[:200], Autoscaler: &continuumv1.Autoscaler{Targets: make([]string, 50)}, Disruption: &continuumv1.Disruption{MinAvailable: "50%"}}
-	if err := validateSync(&continuumv1.Sync{Workloads: []*continuumv1.WorkloadFacts{ok}}); err != nil {
-		t.Errorf("a normal workload was refused: %v", err)
 	}
 }
 

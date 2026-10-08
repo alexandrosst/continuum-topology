@@ -647,3 +647,44 @@ func TestModuleReasonsAreClipped(t *testing.T) {
 		t.Fatalf("the mesh module = %v", mesh)
 	}
 }
+
+// A scope naming many namespaces, or a workload with many ingress hosts, makes a picture the server would refuse
+// (a string over facts.MaxString, a list over facts.MaxRepeated): the agent sends it already cut.
+func TestSnapshotIsCutToWhatTheServerAccepts(t *testing.T) {
+	cs := fixture()
+	nss := []string{"shop"}
+	for i := 0; i < 200; i++ {
+		nss = append(nss, fmt.Sprintf("team-namespace-%03d", i))
+	}
+	ing, err := cs.NetworkingV1().Ingresses("shop").List(context.Background(), metav1.ListOptions{})
+	if err != nil || len(ing.Items) == 0 {
+		t.Fatalf("the fixture has no ingress: %v", err)
+	}
+	route := ing.Items[0].Spec.Rules[0].IngressRuleValue
+	var rules []networkingv1.IngressRule
+	for i := 0; i < facts.MaxRepeated+10; i++ {
+		rules = append(rules, networkingv1.IngressRule{Host: fmt.Sprintf("h%d.example.com", i), IngressRuleValue: route})
+	}
+	ing.Items[0].Spec.Rules = rules
+	if _, err := cs.NetworkingV1().Ingresses("shop").Update(context.Background(), &ing.Items[0], metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	c := New(cs, 2, "10.0.0.5:6443")
+	c.SetScope(&Scope{Include: nss})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	t.Cleanup(cancel)
+	if err := c.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	s := c.Snapshot()
+	if d := s.Cluster.Scope.Description; len(d) == 0 || len(d) > facts.MaxString {
+		t.Errorf("the scope description is %d bytes", len(d))
+	}
+	var hosts int
+	for _, w := range s.Workloads {
+		hosts = max(hosts, len(w.Hosts))
+	}
+	if hosts == 0 || hosts > facts.MaxRepeated {
+		t.Errorf("a workload has %d hosts", hosts)
+	}
+}

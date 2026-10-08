@@ -753,7 +753,6 @@ const (
 	maxNodes      = 5000
 	maxNamespaces = 5000
 	maxWorkloads  = 50000
-	maxListItems  = 200
 	maxStr        = 512
 )
 
@@ -766,46 +765,29 @@ func validateSync(s *continuumv1.Sync) error {
 	if err := validateModules(s.Modules); err != nil {
 		return err
 	}
-	if c := s.Cluster; c != nil && (len(c.StorageClasses) > maxListItems || len(c.IngressClasses) > maxListItems || len(c.Version) > 64 || len(c.ApiHost) > maxStr) {
-		return errors.New("cluster facts are malformed")
-	}
-	for _, n := range s.Nodes {
-		if n.Key == "" || len(n.Key) > maxStr || len(n.Name) > maxStr || len(n.Labels) > 500 || len(n.Annotations) > 100 || len(n.Taints) > maxListItems || len(n.InternalIps) > 50 {
-			return errors.New("node facts are malformed")
+	// An entity must name itself. Everything else is a size, and sizes are cut, not refused (facts.SanitizeSync:
+	// every string, map and list in every fact, including fields added to the protocol later, and the same call the
+	// agent makes before sending), so a cluster larger than the limits loses detail instead of being refused.
+	for _, k := range syncKeys(s) {
+		if k == "" || len(k) > maxStr {
+			return errors.New("a fact has no key or too long a one")
 		}
+	}
+	return facts.SanitizeSync(s)
+}
+
+func syncKeys(s *continuumv1.Sync) []string {
+	var keys []string
+	for _, n := range s.Nodes {
+		keys = append(keys, n.Key)
 	}
 	for _, n := range s.Namespaces {
-		if n.Key == "" || len(n.Key) > maxStr || len(n.Name) > maxStr || len(n.Labels) > 500 || len(n.Annotations) > 100 {
-			return errors.New("namespace facts are malformed")
-		}
+		keys = append(keys, n.Key)
 	}
 	for _, w := range s.Workloads {
-		if w.Key == "" || len(w.Key) > maxStr || len(w.Images) > 100 || len(w.Labels) > 500 || len(w.Annotations) > 100 || len(w.NodeNames) > 5000 || len(w.Ports) > 500 || len(w.Hosts) > 500 || len(w.VolumeClaims) > 200 {
-			return errors.New("workload facts are malformed")
-		}
-		for _, v := range w.VolumeClaims {
-			if len(v.Name) > maxStr || len(v.StorageClass) > maxStr || len(v.AccessModes) > 10 || len(v.PinnedNodes) > 100 {
-				return errors.New("volume claim facts are malformed")
-			}
-		}
-		if a := w.Autoscaler; a != nil && len(a.Targets) > 50 {
-			return errors.New("autoscaler facts are malformed")
-		}
-		if d := w.Disruption; d != nil && (len(d.MinAvailable) > 32 || len(d.MaxUnavailable) > 32) {
-			return errors.New("disruption facts are malformed")
-		}
+		keys = append(keys, w.Key)
 	}
-	for _, k := range append(append(append([]string{}, s.DeletedNodes...), s.DeletedNamespaces...), s.DeletedWorkloads...) {
-		if len(k) > maxStr {
-			return errors.New("a deleted key is malformed")
-		}
-	}
-	// Every string, map and list in every fact, including fields added to the protocol later: too long is
-	// refused (map values are cut), so nothing an agent sends can be arbitrarily large.
-	if err := facts.SanitizeSync(s); err != nil {
-		return fmt.Errorf("facts are malformed: %v", err)
-	}
-	return nil
+	return keys
 }
 
 // ---- data-integrity backstop: physically impossible values, independent of the shape checks above ----

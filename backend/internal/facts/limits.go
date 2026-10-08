@@ -2,6 +2,8 @@ package facts
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"unicode/utf8"
 
 	continuumv1 "continuum/gen/continuumv1"
@@ -57,45 +59,41 @@ func (e *LimitError) Error() string {
 	return fmt.Sprintf("this cluster's facts would exceed the server's limit for %s (%d, at most %d); narrow what the agent reports (scope) or split the cluster", e.What, e.Have, e.Max)
 }
 
-// Sanitize bounds every string, map and list inside m, whatever the field: an over-long string, a map
-// with too many entries or a list that is too long is refused; a map value that is too long is cut in
-// place. Walking the message by reflection means a field added to the protocol later is bounded too.
+// Sanitize bounds every string, map and list inside m, whatever the field, by cutting in place: a string over
+// MaxString is cut, a list over MaxRepeated is truncated, a map keeps its first MaxMapEntries keys (in order) and
+// loses any entry whose key is over MaxString, and a map value over MaxMapValue is cut. The agent applies it to
+// what it is about to send and the server to what it receives, so the two cannot disagree about a limit and an
+// over-large cluster loses detail instead of being refused. Walking the message by reflection means a field
+// added to the protocol later is bounded too. Only a message nested too deeply is an error.
 func Sanitize(m proto.Message) error { return walk(m.ProtoReflect(), 0) }
 
 // SanitizeSync applies Sanitize to every fact a message carries. The message's own lists of nodes, namespaces
-// and workloads are not subject to MaxRepeated (the counts are limited separately, in total, by Check).
+// and workloads are not subject to MaxRepeated (the counts are limited separately, in total, by Check). A deleted
+// key over MaxString cannot name anything the server holds and is dropped.
 func SanitizeSync(m *continuumv1.Sync) error {
+	var all []proto.Message
 	if m.Cluster != nil {
-		if err := Sanitize(m.Cluster); err != nil {
-			return err
-		}
+		all = append(all, m.Cluster)
 	}
 	for _, n := range m.Nodes {
-		if err := Sanitize(n); err != nil {
-			return err
-		}
+		all = append(all, n)
 	}
 	for _, n := range m.Namespaces {
-		if err := Sanitize(n); err != nil {
-			return err
-		}
+		all = append(all, n)
 	}
 	for _, w := range m.Workloads {
-		if err := Sanitize(w); err != nil {
-			return err
-		}
+		all = append(all, w)
 	}
 	for _, x := range m.Modules {
+		all = append(all, x)
+	}
+	for _, x := range all {
 		if err := Sanitize(x); err != nil {
 			return err
 		}
 	}
-	for _, keys := range [][]string{m.DeletedNodes, m.DeletedNamespaces, m.DeletedWorkloads} {
-		for _, k := range keys {
-			if len(k) > MaxString {
-				return fmt.Errorf("a deleted key is longer than %d bytes", MaxString)
-			}
-		}
+	for _, keys := range []*[]string{&m.DeletedNodes, &m.DeletedNamespaces, &m.DeletedWorkloads} {
+		*keys = slices.DeleteFunc(*keys, func(k string) bool { return len(k) > MaxString })
 	}
 	return nil
 }
@@ -116,6 +114,7 @@ func walk(msg protoreflect.Message, depth int) error {
 		return fmt.Errorf("facts are nested too deeply")
 	}
 	var err error
+	cuts := map[protoreflect.FieldDescriptor]string{} // set after Range: a message must not change while it is ranged over
 	msg.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		switch {
 		case fd.IsMap():
@@ -123,30 +122,29 @@ func walk(msg protoreflect.Message, depth int) error {
 		case fd.IsList():
 			err = walkList(fd, v.List(), depth)
 		case fd.Kind() == protoreflect.StringKind:
-			if len(v.String()) > MaxString {
-				err = tooLong(fd)
+			if s := v.String(); len(s) > MaxString {
+				cuts[fd] = Cut(s, MaxString)
 			}
 		case fd.Kind() == protoreflect.MessageKind || fd.Kind() == protoreflect.GroupKind:
 			err = walk(v.Message(), depth+1)
 		}
 		return err == nil
 	})
+	for fd, s := range cuts {
+		msg.Set(fd, protoreflect.ValueOfString(s))
+	}
 	return err
-}
-
-func tooLong(fd protoreflect.FieldDescriptor) error {
-	return fmt.Errorf("a value of %s is longer than %d bytes", fd.FullName(), MaxString)
 }
 
 func walkList(fd protoreflect.FieldDescriptor, l protoreflect.List, depth int) error {
 	if l.Len() > MaxRepeated {
-		return fmt.Errorf("%s has %d entries; at most %d are accepted", fd.FullName(), l.Len(), MaxRepeated)
+		l.Truncate(MaxRepeated)
 	}
 	switch fd.Kind() {
 	case protoreflect.StringKind:
 		for i := 0; i < l.Len(); i++ {
-			if len(l.Get(i).String()) > MaxString {
-				return tooLong(fd)
+			if s := l.Get(i).String(); len(s) > MaxString {
+				l.Set(i, protoreflect.ValueOfString(Cut(s, MaxString)))
 			}
 		}
 	case protoreflect.MessageKind, protoreflect.GroupKind:
@@ -160,39 +158,44 @@ func walkList(fd protoreflect.FieldDescriptor, l protoreflect.List, depth int) e
 }
 
 func walkMap(fd protoreflect.FieldDescriptor, m protoreflect.Map, depth int) error {
-	if m.Len() > MaxMapEntries {
-		return fmt.Errorf("%s has %d entries; at most %d are accepted", fd.FullName(), m.Len(), MaxMapEntries)
-	}
 	type fix struct {
-		k protoreflect.MapKey
-		v string
+		k   protoreflect.MapKey
+		v   string
+		del bool
 	}
-	var cuts []fix
+	var fixes []fix // applied after Range: a map must not change while it is ranged over
 	var err error
 	m.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
 		if fd.MapKey().Kind() == protoreflect.StringKind && len(k.String()) > MaxString {
-			err = fmt.Errorf("a key of %s is longer than %d bytes", fd.FullName(), MaxString)
-			return false
+			fixes = append(fixes, fix{k: k, del: true})
+			return true
 		}
 		switch fd.MapValue().Kind() {
 		case protoreflect.StringKind:
 			if s := v.String(); len(s) > MaxMapValue {
-				cuts = append(cuts, fix{k, Cut(s, MaxMapValue)})
+				fixes = append(fixes, fix{k: k, v: Cut(s, MaxMapValue)})
 			}
 		case protoreflect.MessageKind, protoreflect.GroupKind:
-			if err = walk(v.Message(), depth+1); err != nil {
-				return false
-			}
+			err = walk(v.Message(), depth+1)
 		}
-		return true
+		return err == nil
 	})
-	if err != nil {
-		return err
+	for _, f := range fixes {
+		if f.del {
+			m.Clear(f.k)
+		} else {
+			m.Set(f.k, protoreflect.ValueOfString(f.v))
+		}
 	}
-	for _, c := range cuts {
-		m.Set(c.k, protoreflect.ValueOfString(c.v))
+	if m.Len() > MaxMapEntries { // keep the first MaxMapEntries keys in order, so the same input always loses the same entries
+		var keys []protoreflect.MapKey
+		m.Range(func(k protoreflect.MapKey, _ protoreflect.Value) bool { keys = append(keys, k); return true })
+		slices.SortFunc(keys, func(a, b protoreflect.MapKey) int { return strings.Compare(a.String(), b.String()) })
+		for _, k := range keys[MaxMapEntries:] {
+			m.Clear(k)
+		}
 	}
-	return nil
+	return err
 }
 
 // project is what one kind of entity would look like after a message: how many there would be and how

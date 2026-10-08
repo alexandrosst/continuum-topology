@@ -176,7 +176,7 @@ func TestUniqueKeyFloodThroughApplySyncStopsAtTheLimit(t *testing.T) {
 	}
 }
 
-func TestLongStringsAreRefusedAndLongLabelValuesAreCut(t *testing.T) {
+func TestLongKeysAreRefusedAndLongStringsAreCut(t *testing.T) {
 	r := newHubRig(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -198,12 +198,10 @@ func TestLongStringsAreRefusedAndLongLabelValuesAreCut(t *testing.T) {
 		t.Fatalf("stored label is %d bytes", len(got))
 	}
 
+	// A fact that names nothing is refused; one that is merely too long is cut, so it cannot end the stream.
 	for name, w := range map[string]*continuumv1.WorkloadFacts{
-		"name":      {Key: "ns/Deployment/b", Name: strings.Repeat("n", 5000)},
 		"key":       {Key: strings.Repeat("k", 600)},
 		"empty key": {Key: ""},
-		"image":     {Key: "ns/Deployment/c", Images: []*continuumv1.ContainerImage{{Image: strings.Repeat("i", 2000)}}},
-		"label key": {Key: "ns/Deployment/d", Labels: map[string]string{strings.Repeat("k", 2000): "v"}},
 	} {
 		s := r.agentStream(t, ctx, id, key, leaf)
 		if err := s.Send(syncMsg(&continuumv1.Sync{Seq: 9, Cluster: cluster, Workloads: []*continuumv1.WorkloadFacts{w}})); err != nil {
@@ -213,11 +211,20 @@ func TestLongStringsAreRefusedAndLongLabelValuesAreCut(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	n := &continuumv1.NodeFacts{Key: "n", Name: strings.Repeat("n", 2000)}
 	s = r.agentStream(t, ctx, id, key, leaf)
-	_ = s.Send(syncMsg(&continuumv1.Sync{Seq: 10, Cluster: cluster, Nodes: []*continuumv1.NodeFacts{n}}))
-	if _, err := s.Recv(); code(err) != codes.InvalidArgument {
-		t.Errorf("long node name: %v", err)
+	cut := &continuumv1.Sync{Seq: 11, Cluster: cluster,
+		Workloads: []*continuumv1.WorkloadFacts{{Key: "ns/Deployment/b", Name: strings.Repeat("n", 5000),
+			Images: []*continuumv1.ContainerImage{{Image: strings.Repeat("i", 2000)}}, Labels: map[string]string{strings.Repeat("k", 2000): "v"}}},
+		Nodes: []*continuumv1.NodeFacts{{Key: "n", Name: strings.Repeat("n", 2000)}}}
+	_ = s.Send(syncMsg(cut))
+	if m, err := s.Recv(); err != nil || m.GetAck() == nil {
+		t.Fatalf("an over-long name, image or label key should be cut, not refused: %v %v", m, err)
+	}
+	r.hub.mu.Lock()
+	b, n := r.hub.views[id].state.Workloads["ns/Deployment/b"], r.hub.views[id].state.Nodes["n"]
+	r.hub.mu.Unlock()
+	if len(b.Name) != facts.MaxString || len(b.Images[0].Image) != facts.MaxString || len(b.Labels) != 0 || len(n.Name) != facts.MaxString {
+		t.Errorf("stored name %d, image %d, %d labels, node name %d", len(b.Name), len(b.Images[0].Image), len(b.Labels), len(n.Name))
 	}
 	// Heartbeat module lists are bounded too; they were not before.
 	s = r.agentStream(t, ctx, id, key, leaf)
@@ -273,7 +280,11 @@ func TestAPoisonedStoredSnapshotIsDroppedOnRestore(t *testing.T) {
 	if v := h.views[good]; v == nil || len(v.state.Nodes) != 5 || v.state.Seq != 3 {
 		t.Fatalf("a valid snapshot was not restored: %+v", v)
 	}
-	for name, id := range map[string]string{"too many nodes": tooMany, "long string": longName, "too many bytes": tooBig, "garbage": garbage} {
+	// A string over the limit in a stored snapshot is cut on the way in, as it would be from a live message.
+	if v := h.views[longName]; v == nil || len(v.state.Nodes["n"].Name) != facts.MaxString {
+		t.Errorf("a snapshot with a long string was not restored cut: %+v", v)
+	}
+	for name, id := range map[string]string{"too many nodes": tooMany, "too many bytes": tooBig, "garbage": garbage} {
 		if h.views[id] != nil {
 			t.Errorf("a snapshot with %s was restored", name)
 		}

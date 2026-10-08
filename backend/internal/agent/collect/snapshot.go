@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/facts"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 	appsv1 "k8s.io/api/apps/v1"
@@ -101,6 +102,10 @@ func (c *Collector) Snapshot() *continuumv1.Sync {
 			s.Cluster.PendingPodCount = &pending
 		}
 	}
+	// The server cuts what is over its limits, so a cluster with a scope of many namespaces, a workload with many
+	// hosts or claims, or a long annotation is sent already cut, the same way (it only errors on nesting that the
+	// protocol does not have).
+	_ = facts.SanitizeSync(s)
 	return s
 }
 

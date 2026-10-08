@@ -3,9 +3,11 @@ package facts
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	continuumv1 "continuum/gen/continuumv1"
 
@@ -162,48 +164,60 @@ func TestByteAccountingMatchesTheStateAfterAnySequenceOfMessages(t *testing.T) {
 	}
 }
 
-func TestSanitizeBoundsStringsMapsAndListsInEveryField(t *testing.T) {
-	long := strings.Repeat("x", MaxString+1)
-	bad := map[string]*continuumv1.WorkloadFacts{
-		"name":           {Key: "k", Name: long},
-		"exposure":       {Key: "k", Exposure: long},
-		"image":          {Key: "k", Images: []*continuumv1.ContainerImage{{Image: long}}},
-		"nested mesh":    {Key: "k", Mesh: &continuumv1.WorkloadMesh{Source: long}},
-		"label key":      {Key: "k", Labels: map[string]string{long: "v"}},
-		"list entry":     {Key: "k", Hosts: []string{"ok", long}},
-		"node names":     {Key: "k", NodeNames: make([]string, MaxRepeated+1)},
-		"nested address": {Key: "k", Reachable: []*continuumv1.Address{{Ip: long}}},
+func TestSanitizeCutsStringsMapsAndListsInEveryField(t *testing.T) {
+	long := strings.Repeat("é", MaxString) // 2*MaxString bytes
+	w := &continuumv1.WorkloadFacts{Key: "k", Name: long, Exposure: long,
+		Images:      []*continuumv1.ContainerImage{{Image: long}},
+		Mesh:        &continuumv1.WorkloadMesh{Source: long},
+		Labels:      map[string]string{long: "dropped", "ok": long},
+		Hosts:       []string{"ok", long},
+		NodeNames:   make([]string, MaxRepeated+1),
+		Reachable:   []*continuumv1.Address{{Ip: long}},
+		Annotations: map[string]string{"a": long, "b": "short"}}
+	if err := Sanitize(w); err != nil {
+		t.Fatal(err)
 	}
-	for name, w := range bad {
-		if err := Sanitize(w); err == nil {
-			t.Errorf("%s: an over-long or over-large field was accepted", name)
+	valid := func(name, s string, max int) {
+		t.Helper()
+		if len(s) > max || len(s) < max-1 || !utf8.ValidString(s) || !strings.HasPrefix(s, "éé") {
+			t.Errorf("%s: %d bytes, valid utf-8 %v", name, len(s), utf8.ValidString(s))
 		}
 	}
+	valid("name", w.Name, MaxString)
+	valid("exposure", w.Exposure, MaxString)
+	valid("image", w.Images[0].Image, MaxString)
+	valid("nested mesh", w.Mesh.Source, MaxString)
+	valid("list entry", w.Hosts[1], MaxString)
+	valid("nested address", w.Reachable[0].Ip, MaxString)
+	valid("map value", w.Annotations["a"], MaxMapValue) // a long label or annotation value is cut at MaxMapValue
+	valid("label value", w.Labels["ok"], MaxMapValue)
+	if w.Annotations["b"] != "short" || w.Hosts[0] != "ok" || len(w.Labels) != 1 {
+		t.Errorf("short values must be untouched and a label whose key is too long dropped: %v %v", w.Annotations, w.Labels)
+	}
+	if len(w.NodeNames) != MaxRepeated {
+		t.Errorf("a list of %d entries was not cut to %d", len(w.NodeNames), MaxRepeated)
+	}
+
 	tooMany := map[string]string{}
-	for i := 0; i <= MaxMapEntries; i++ {
-		tooMany[fmt.Sprint(i)] = "v"
+	for i := 0; i <= MaxMapEntries+5; i++ {
+		tooMany[fmt.Sprintf("%05d", i)] = "v"
 	}
-	if err := Sanitize(&continuumv1.NamespaceFacts{Key: "k", Labels: tooMany}); err == nil {
-		t.Error("a map with too many entries was accepted")
+	ns := &continuumv1.NamespaceFacts{Key: "k", Labels: tooMany}
+	cl := &continuumv1.ClusterFacts{Mesh: &continuumv1.MeshFacts{NamespaceMtls: maps.Clone(tooMany)}}
+	for _, m := range []proto.Message{ns, cl} {
+		if err := Sanitize(m); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := Sanitize(&continuumv1.ClusterFacts{Mesh: &continuumv1.MeshFacts{NamespaceMtls: tooMany}}); err == nil {
-		t.Error("a nested map with too many entries was accepted")
+	if len(ns.Labels) != MaxMapEntries || len(cl.Mesh.NamespaceMtls) != MaxMapEntries || ns.Labels["00000"] == "" || ns.Labels[fmt.Sprintf("%05d", MaxMapEntries)] != "" {
+		t.Errorf("a map over the cap keeps its first %d keys: %d, %d", MaxMapEntries, len(ns.Labels), len(cl.Mesh.NamespaceMtls))
 	}
-	// A long label or annotation value is cut, not refused, and never in the middle of a character.
-	w := &continuumv1.WorkloadFacts{Key: "k", Annotations: map[string]string{"a": strings.Repeat("é", 2000), "b": "short"}}
-	if err := Sanitize(w); err != nil {
-		t.Fatalf("a long value should be truncated: %v", err)
-	}
-	if got := w.Annotations["a"]; len(got) > MaxMapValue || !strings.HasPrefix(got, "éé") || strings.ContainsRune(got, '�') || strings.Trim(got, "é") != "" {
-		t.Fatalf("truncated to %d bytes: %q...", len(got), got[:10])
-	}
-	if w.Annotations["b"] != "short" {
-		t.Fatal("a short value changed")
-	}
+
 	// A normal fact passes untouched.
 	ok := &continuumv1.WorkloadFacts{Key: "ns/Deployment/a", Name: "a", Labels: map[string]string{"app": "a"}, Images: []*continuumv1.ContainerImage{{Image: "nginx:1"}}}
-	if err := Sanitize(ok); err != nil {
-		t.Fatal(err)
+	want := proto.Clone(ok)
+	if err := Sanitize(ok); err != nil || !proto.Equal(ok, want) {
+		t.Fatalf("a normal fact changed: %v %v", err, ok)
 	}
 }
 
@@ -212,11 +226,15 @@ func TestSanitizeSyncDoesNotCapTheMessagesOwnLists(t *testing.T) {
 	for i := 0; i < MaxRepeated+10; i++ {
 		ws = append(ws, wl(fmt.Sprint("w", i), 1))
 	}
-	if err := SanitizeSync(&continuumv1.Sync{Workloads: ws}); err != nil {
+	s := &continuumv1.Sync{Workloads: ws, DeletedNodes: []string{"n", strings.Repeat("k", MaxString+1)}}
+	if err := SanitizeSync(s); err != nil {
 		t.Fatalf("a large cluster's full sync: %v", err)
 	}
-	if err := SanitizeSync(&continuumv1.Sync{DeletedNodes: []string{strings.Repeat("k", MaxString+1)}}); err == nil {
-		t.Fatal("an over-long deleted key was accepted")
+	if len(s.Workloads) != MaxRepeated+10 {
+		t.Fatalf("the message's own list was cut to %d", len(s.Workloads))
+	}
+	if len(s.DeletedNodes) != 1 || s.DeletedNodes[0] != "n" {
+		t.Fatalf("an over-long deleted key names nothing and is dropped: %v", s.DeletedNodes)
 	}
 }
 
