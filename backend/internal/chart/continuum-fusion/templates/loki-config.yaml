@@ -45,11 +45,25 @@ data:
       ingestion_rate_mb: 32
       ingestion_burst_size_mb: 64
       max_global_streams_per_user: 100000
+      # The API accepts ranges of up to 31 days (744h); Loki's default stops at 30 days and an hour (721h).
+      max_query_length: 744h
+      # Loki indexes only a fixed list of OTLP resource attributes as stream labels (service.*, k8s.*, ...) and keeps the
+      # rest as structured metadata. Where the data came from is not on that list, so two clusters whose pods share a name
+      # (a StatefulSet's web-0) were merged into one stream and every per-cluster query read all of them. These two are
+      # added to the list. Filters on them after a pipe (| continuum_cluster_id="x") work the same as before.
+      otlp_config:
+        resource_attributes:
+          attributes_config:
+            - action: index_label
+              attributes: [continuum.cluster.id, continuum.org.id]
       {{- if .Values.switch.managed }}
       retention_period: ${LOKI_RETENTION}
       {{- else }}
       retention_period: {{ $l.retention }}
       {{- end }}
+    # What Grafana's Drilldown > Logs needs for its patterns view; off by default. (The volume view it also uses is on.)
+    pattern_ingester:
+      enabled: true
     compactor:
       working_directory: /loki/compactor
       retention_enabled: true

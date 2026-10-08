@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"continuum/internal/fusionapi"
 )
@@ -190,5 +191,43 @@ func TestFusionCentralStampsEachSignalWithItsCategoryByTheAPIsRule(t *testing.T)
 		if first := stmts(key)[0]; !strings.Contains(first, `"application")`) || strings.Contains(first, "where") {
 			t.Errorf("%s starts with %q: the unconditional default must come first so a sender's own value is replaced", key, first)
 		}
+	}
+}
+
+// The API takes ranges of up to fusionapi.MaxWindow, so the stores must too (Loki stops at 721h and a Tempo search at 168h
+// unless told otherwise). Where the data came from must also be a Loki stream label: left as structured metadata, two
+// clusters whose pods share a name (a StatefulSet's web-0) are one stream and a per-cluster query reads all of them.
+func TestFusionStoresAcceptTheLongestRangeAndIndexTheCluster(t *testing.T) {
+	long := func(v any, what string) {
+		t.Helper()
+		d, err := time.ParseDuration(strings.TrimSpace(v.(string)))
+		if err != nil || d < fusionapi.MaxWindow {
+			t.Errorf("%s = %v, want at least the API's %v", what, v, fusionapi.MaxWindow)
+		}
+	}
+	for _, set := range [][]string{nil, {"--set", "tempo.traceqlMetrics=false"}} {
+		r := fusionRender(t, "f", set...)
+		tempo := yamlInto(t, r.configs["f-fusion-tempo"].Data["tempo.yaml"])
+		long(tempo["query_frontend"].(map[string]any)["search"].(map[string]any)["max_duration"], "tempo query_frontend.search.max_duration")
+	}
+	loki := yamlInto(t, fusionRender(t, "f").configs["f-fusion-loki"].Data["loki.yaml"])
+	limits := loki["limits_config"].(map[string]any)
+	long(limits["max_query_length"], "loki limits_config.max_query_length")
+	attrs := limits["otlp_config"].(map[string]any)["resource_attributes"].(map[string]any)["attributes_config"].([]any)
+	indexed := map[string]bool{}
+	for _, a := range attrs {
+		if a.(map[string]any)["action"] == "index_label" {
+			for _, n := range a.(map[string]any)["attributes"].([]any) {
+				indexed[n.(string)] = true
+			}
+		}
+	}
+	for _, n := range []string{"continuum.cluster.id", "continuum.org.id"} {
+		if !indexed[n] {
+			t.Errorf("loki does not index %s as a stream label: %v", n, indexed)
+		}
+	}
+	if loki["pattern_ingester"].(map[string]any)["enabled"] != true {
+		t.Error("Drilldown > Logs needs Loki's pattern ingester")
 	}
 }
