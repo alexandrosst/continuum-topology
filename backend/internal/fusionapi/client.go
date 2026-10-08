@@ -284,15 +284,39 @@ func ParseRange(from, to string, now time.Time) (TimeRange, error) {
 	return TimeRange{From: t1.UTC(), To: t2.UTC()}, nil
 }
 
+// parseDuration is time.ParseDuration that also takes days and weeks (7d, 2w, 1w3d12h), which the 31-day range makes the
+// natural unit; "d" is 24 hours and "w" is 7 days, as they are on a calendar without daylight saving.
+func parseDuration(s string) (time.Duration, error) {
+	var days time.Duration
+	for _, unit := range []struct {
+		suffix string
+		per    time.Duration
+	}{{"w", 7 * 24 * time.Hour}, {"d", 24 * time.Hour}} {
+		if i := strings.Index(s, unit.suffix); i > 0 {
+			n, err := strconv.ParseUint(s[:i], 10, 12) // (at most 4095, so the sum cannot overflow)
+			if err != nil {
+				return 0, err
+			}
+			days += time.Duration(n) * unit.per
+			s = s[i+1:]
+		}
+	}
+	if s == "" && days > 0 {
+		return days, nil
+	}
+	d, err := time.ParseDuration(s)
+	return days + d, err
+}
+
 func parseTime(s string, now time.Time) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	switch {
 	case s == "now":
 		return now, nil
 	case strings.HasPrefix(s, "now-"):
-		d, err := time.ParseDuration(strings.TrimPrefix(s, "now-"))
+		d, err := parseDuration(strings.TrimPrefix(s, "now-"))
 		if err != nil || d < 0 {
-			return time.Time{}, errors.New("not a time (use RFC 3339, unix seconds, or now-<duration> such as now-15m)")
+			return time.Time{}, errors.New("not a time (use RFC 3339, unix seconds, or now-<duration> such as now-15m or now-7d)")
 		}
 		return now.Add(-d), nil
 	}
@@ -306,7 +330,7 @@ func parseTime(s string, now time.Time) (time.Time, error) {
 	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 		return t, nil
 	}
-	return time.Time{}, errors.New("not a time (use RFC 3339, unix seconds, or now-<duration> such as now-15m)")
+	return time.Time{}, errors.New("not a time (use RFC 3339, unix seconds, or now-<duration> such as now-15m or now-7d)")
 }
 
 // Limit parses a result-count parameter: def when absent, never above max.

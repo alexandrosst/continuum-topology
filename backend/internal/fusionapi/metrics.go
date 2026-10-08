@@ -447,9 +447,9 @@ func DurationParam(s string) (time.Duration, error) {
 		}
 		return time.Duration(f * float64(time.Second)), nil
 	}
-	d, err := time.ParseDuration(s)
+	d, err := parseDuration(s)
 	if err != nil || d < 0 {
-		return 0, badRequest("%q is not a duration (30s, 2m, or seconds)", s)
+		return 0, badRequest("%q is not a duration (30s, 2m, 1d, or seconds)", s)
 	}
 	return d, nil
 }

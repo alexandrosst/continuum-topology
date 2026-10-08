@@ -148,7 +148,7 @@ var fusionPathParams = map[string]fusionParam{
 // it is used.
 var fusionParams = map[string]fusionParam{
 	// time
-	"from": {Type: "string", Default: "to − 1h", Example: "now-15m", Desc: "Start of the range: an RFC 3339 time, unix seconds, or `now-<duration>` such as `now-15m`."},
+	"from": {Type: "string", Default: "to − 1h", Example: "now-15m", Desc: "Start of the range: an RFC 3339 time, unix seconds, or `now-<duration>` such as `now-15m` or `now-7d` (durations take s, m, h, d and w)."},
 	"to":   {Type: "string", Default: "now", Example: "now", Desc: "End of the range, in the same forms as `from`. The range can be at most 31 days, but a trace search reads at most 7 days and a log read at most 30 days at a time."},
 
 	// shared filters
