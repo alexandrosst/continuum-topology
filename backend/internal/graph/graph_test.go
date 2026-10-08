@@ -1730,6 +1730,52 @@ func TestEventsKeepTheirOrderFiltersAndPruning(t *testing.T) {
 	}
 }
 
+// TestPruneEventsAppliesAgeAndCountTogetherAcrossBatches: age and the count cap are separate statements
+// now; both must apply in one call, and each must keep going past one 2000-row batch.
+func TestPruneEventsAppliesAgeAndCountTogetherAcrossBatches(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	const total = 4500
+	for from := 0; from < total; from += 1500 {
+		var evs []store.Event
+		for i := from; i < from+1500; i++ {
+			evs = append(evs, store.Event{At: t0.Add(time.Duration(i) * time.Second), Kind: "k", TargetID: "t", Name: fmt.Sprint("e", i)})
+		}
+		if err := db.AddEvents(ctx, org, evs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func() int64 {
+		res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (e:Event {org:$org}) RETURN count(e)`, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return i64(res[0].Rows[0][0])
+	}
+	// Age removes the first 2100 (more than a batch); the cap of 1000 then removes 1400 more.
+	if err := db.PruneEvents(ctx, org, t0.Add(2100*time.Second), 1000); err != nil {
+		t.Fatal(err)
+	}
+	left, _ := db.Events(ctx, org, store.EventQuery{Limit: 2000})
+	if n := count(); n != 1000 || left[0].Name != "e4499" || left[999].Name != "e3500" {
+		t.Errorf("%d events left, newest %s oldest %s; want the newest 1000", n, left[0].Name, left[len(left)-1].Name)
+	}
+	// An age beyond everything, with a cap far above what is left, empties it; nothing else removes anything.
+	if err := db.PruneEvents(ctx, org, t0.Add(-time.Hour), 5000); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(); n != 1000 {
+		t.Errorf("a cap above the count and an age before everything removed events: %d left", n)
+	}
+	if err := db.PruneEvents(ctx, org, t0.Add(24*time.Hour), 0); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(); n != 0 {
+		t.Errorf("age past everything should empty it: %d left", n)
+	}
+}
+
 func names(evs []store.Event) []string {
 	var o []string
 	for _, e := range evs {

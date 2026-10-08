@@ -87,20 +87,29 @@ ORDER BY e.at DESC, e.id DESC LIMIT $limit`, p))
 }
 
 // PruneEvents drops events older than `before` and, when keepNewest is positive, all but the newest keepNewest.
-// keepNewest <= 0 means no count-based cap: only age matters.
+// keepNewest <= 0 means no count-based cap: only age matters. Two statements, each on one indexed property
+// (event_at, event_key): one that tests both with an OR cannot use either index and scans every event.
 func (d *DB) PruneEvents(ctx context.Context, org string, before time.Time, keepNewest int) error {
 	sc := d.C.For(org)
-	for {
-		r, err := d.C.Run(ctx, sc.S(`MATCH (c:Counter {org:$org, name:'event'})
-OPTIONAL MATCH (e:Event {org:$org}) WHERE e.at < datetime($before) OR ($keep > 0 AND e.id <= coalesce(c.n, 0) - $keep)
-WITH e LIMIT 2000 WHERE e IS NOT NULL DETACH DELETE e RETURN count(*)`, map[string]any{"before": ts(before), "keep": keepNewest}))
-		if err != nil {
-			return err
-		}
-		if len(r[0].Rows) == 0 || i64(r[0].Rows[0][0]) < 2000 {
-			return nil
+	drop := func(match string, p map[string]any) error {
+		for {
+			r, err := d.C.Run(ctx, sc.S(match+` WITH e LIMIT 2000 DETACH DELETE e RETURN count(*)`, p))
+			if err != nil {
+				return err
+			}
+			if len(r[0].Rows) == 0 || i64(r[0].Rows[0][0]) < 2000 {
+				return nil
+			}
 		}
 	}
+	if err := drop(`MATCH (e:Event {org:$org}) WHERE e.at < datetime($before)`, map[string]any{"before": ts(before)}); err != nil || keepNewest <= 0 {
+		return err
+	}
+	c, err := d.C.Run(ctx, sc.S(`MATCH (c:Counter {org:$org, name:'event'}) RETURN c.n`, nil))
+	if err != nil || len(c[0].Rows) == 0 {
+		return err
+	}
+	return drop(`MATCH (e:Event {org:$org}) WHERE e.id <= $cut`, map[string]any{"cut": i64(c[0].Rows[0][0]) - int64(keepNewest)})
 }
 
 // ---- who did what ----
