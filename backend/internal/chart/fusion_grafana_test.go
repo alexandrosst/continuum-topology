@@ -574,8 +574,10 @@ func TestFusionApplicationPickerLeavesAllAsItWas(t *testing.T) {
 		} `json:"templating"`
 	}
 	const (
-		absent = "absent(ikhnos_application_info{application=${application:doublequote}})"
-		join   = "and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}"
+		// True exactly when the picker is on its All marker: whether to fall back to everything depends on the choice, never on
+		// whether the info series has data (a gap in it must not turn one application into the whole cluster).
+		allChosen = `(label_replace(vector(1), "application", ${application:doublequote}, "", "") and on(application) label_replace(vector(1), "application", "__all__", "", ""))`
+		join      = "and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}"
 	)
 	// Panels that must follow the picker (and, for the others, must not).
 	follows := map[string][]int{
@@ -583,6 +585,9 @@ func TestFusionApplicationPickerLeavesAllAsItWas(t *testing.T) {
 		"categories": {10, 11, 13, 15, 16, 17, 21, 22, 23, 24, 25, 26, 27, 28},
 	}
 	for name, ids := range follows {
+		if raw := r.configs["f-fusion-grafana-dashboards"].Data[name+".json"]; strings.Contains(raw, "absent(") {
+			t.Errorf("%s decides between one application and everything with absent(), which is true whenever the info series has a gap", name)
+		}
 		var d dashboard
 		if err := json.Unmarshal([]byte(r.configs["f-fusion-grafana-dashboards"].Data[name+".json"]), &d); err != nil {
 			t.Fatal(err)
@@ -612,7 +617,7 @@ func TestFusionApplicationPickerLeavesAllAsItWas(t *testing.T) {
 				if got := strings.Contains(e, "ikhnos_application_info") || strings.Contains(e, "ikhnos_member") || strings.Contains(e, "${service:pipe}"); got != follow {
 					t.Errorf("%s: panel %d %q follows the picker = %v, want %v", name, p.ID, p.Title, got, follow)
 				}
-				if strings.Contains(e, "ikhnos_application_info") && (!strings.Contains(e, join) || !strings.Contains(e, " and on() "+absent)) {
+				if strings.Contains(e, "ikhnos_application_info") && (!strings.Contains(e, join) || !strings.Contains(e, " and on() "+allChosen)) {
 					t.Errorf("%s: %q must join on the exact member and keep today's selection when no application is chosen: %s", name, p.Title, e)
 				}
 				if strings.Contains(e, "ikhnos_member") && !strings.Contains(e, `| ikhnos_scope="" or ikhnos_member=~"${member:pipe}"`) {
@@ -621,7 +626,7 @@ func TestFusionApplicationPickerLeavesAllAsItWas(t *testing.T) {
 			}
 		}
 		// The service lookup answers .* with All applications, which is what the trace filter relies on.
-		if !strings.Contains(vars["service"].Query.Query, `".*"`) || !strings.Contains(vars["service"].Query.Query, absent) {
+		if !strings.Contains(vars["service"].Query.Query, `".*"`) || !strings.Contains(vars["service"].Query.Query, allChosen) {
 			t.Errorf("%s: the service lookup does not answer .* when no application is chosen: %s", name, vars["service"].Query.Query)
 		}
 	}
