@@ -81,15 +81,15 @@ func TestTheEncodedRequestIsTheOTLPMetricShape(t *testing.T) {
 		kv := readMsg(t, a)
 		labels[string(kv[1][0])] = string(readMsg(t, kv[2][0])[1][0])
 	}
-	want := map[string]string{"application": "Shop", "application_id": "app-1", "service_name": "cart", "k8s_namespace_name": "shop", "continuum_cluster_id": "cl-1"}
+	want := map[string]string{"application": "Shop", "application_id": "app-1", "service_name": "cart", "k8s_namespace_name": "shop", "continuum_cluster_id": "cl-1", "member": "cart/shop/cl-1"}
 	if !reflect.DeepEqual(labels, want) {
 		t.Fatalf("labels %v", labels)
 	}
 	if v, _ := protowire.ConsumeFixed64(dp[3][0]); int64(v) != at.UnixNano() {
 		t.Fatalf("time %d", v)
 	}
-	// A member with no cluster simply lacks that label.
-	if n := len(readMsg(t, points[2])[7]); n != 4 {
+	// A member with no cluster simply lacks that label (its member value has an empty last part).
+	if n := len(readMsg(t, points[2])[7]); n != 5 {
 		t.Fatalf("%d attributes for a service without a cluster", n)
 	}
 }
@@ -161,6 +161,20 @@ func TestInfoSeriesAreAcceptedByARealPrometheus(t *testing.T) {
 		t.Logf("%v = %v", r.Metric, r.Value[1])
 		if r.Metric["application_id"] != "app-1" || r.Metric["k8s_namespace_name"] != "shop" || r.Value[1] != "1" {
 			t.Errorf("%v", r)
+		}
+	}
+}
+
+// A member is one service in one namespace of one cluster as a single value, so a picker's selection is exact; a part
+// Ikhnos does not know is empty, never a wildcard.
+func TestMemberNamesOneServiceInOneNamespaceOfOneCluster(t *testing.T) {
+	got := map[string]bool{}
+	for _, s := range AppInfoSeriesOf(infoGroups()) {
+		got[s.Member()] = true
+	}
+	for _, want := range []string{"cart/shop/cl-1", "cart-app/shop/cl-1", "web/shop/", "pay/pay/cl-2"} {
+		if !got[want] {
+			t.Errorf("no member %q in %v", want, got)
 		}
 	}
 }

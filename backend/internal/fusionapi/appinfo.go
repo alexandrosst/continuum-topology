@@ -15,7 +15,7 @@ import (
 // The application info series: what lets the tools that read Prometheus directly (Grafana, PromQL written by hand) filter by
 // Ikhnos application, which telemetry itself does not carry. For each service of each application the server writes
 //
-//	ikhnos_application_info{application, application_id, service_name, k8s_namespace_name, continuum_cluster_id} 1
+//	ikhnos_application_info{application, application_id, service_name, k8s_namespace_name, continuum_cluster_id, member} 1
 //
 // into FUSION's Prometheus, the same labels the telemetry's own series have for the service, so a query joins on them:
 //
@@ -36,7 +36,14 @@ const maxAppInfoSeries = 5000
 const (
 	infoApplication   = "application"
 	infoApplicationID = "application_id"
+	// infoMember names one service in one namespace of one cluster as a single value, "service/namespace/cluster" (a part
+	// Ikhnos does not know is empty). A dashboard's picker offers these, so a selection is exact: choosing two members of
+	// two namespaces never also selects the pairing of the first's service with the second's namespace.
+	infoMember = "member"
 )
+
+// Member is the value of the info series' member label.
+func (s AppInfoSeries) Member() string { return s.Service + "/" + s.Namespace + "/" + s.Cluster }
 
 // AppInfoSeries is one series of the info metric: the labels of one service of one application.
 type AppInfoSeries struct {
@@ -91,7 +98,7 @@ func EncodeAppInfo(series []AppInfoSeries, at time.Time) []byte {
 	for _, s := range series {
 		var dp []byte
 		for _, kv := range [][2]string{{infoApplication, s.Application}, {infoApplicationID, s.ApplicationID}, {lblService, s.Service},
-			{lblNamespace, s.Namespace}, {lblCluster, s.Cluster}} {
+			{lblNamespace, s.Namespace}, {lblCluster, s.Cluster}, {infoMember, s.Member()}} {
 			if kv[1] == "" {
 				continue
 			}

@@ -205,7 +205,7 @@ What it does and does not do:
 Those tools do not go through this API, so while FUSION is running the server writes one series into FUSION's Prometheus every minute:
 
 ```
-ikhnos_application_info{application="Shop", application_id="app-1", service_name="cart", k8s_namespace_name="shop", continuum_cluster_id="cl-1"} 1
+ikhnos_application_info{application="Shop", application_id="app-1", service_name="cart", k8s_namespace_name="shop", continuum_cluster_id="cl-1", member="cart/shop/cl-1"} 1
 ```
 
 One series per service name of each application, with the labels the telemetry's own series carry for it. Select by application with the same filters the API adds, or join:
@@ -219,6 +219,8 @@ sum by (service_name) (rate(http_server_duration_seconds_count[5m]))
   * on(service_name) group_left(application)
   max by (service_name, application) (ikhnos_application_info{application="Shop"})
 ```
+
+`member` is the service, the namespace and the cluster as one value (`service/namespace/cluster`; a part Ikhnos does not know is empty, not a wildcard). It exists so a selection can be exact: a join on `on(service_name, k8s_namespace_name, continuum_cluster_id)` keeps exactly the tuples of the members you chose, where filtering by service, namespace and cluster separately would also keep a service in a namespace it does not run in. The Applications dashboard's picker is built from it.
 
 The series is not telemetry: the Grafana dashboards leave it out of their counts, and it appears only while FUSION runs. It carries a series for each name a member's telemetry may use (its name and its aliases) in each namespace and cluster it runs in, so a count of the series is not a count of services. A member Ikhnos knows no namespace or cluster for is written without that label (the dashboards' namespace and cluster choices match those with `.*`, not `.+`). It describes the present: an application edited or deleted in Ikhnos changes the series within a minute (a removed one is gone after Prometheus' five-minute lookback), and its history is not kept. It is written only while FUSION is running, and the Grafana dashboard **Applications** reads it for its variables. A service in two applications makes the join many-to-many; select one application, as the dashboard does. Loki and Tempo have no such series: use the API's `application=`, or the service list from `/applications` in a LogQL or TraceQL selector.
 

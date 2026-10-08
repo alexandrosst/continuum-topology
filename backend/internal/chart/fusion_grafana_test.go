@@ -302,7 +302,7 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 		// The one exception is the Applications dashboard's service: All must be exactly the application's own services
 		// (Grafana expands it to the list), not every service there is.
 		for _, v := range d.Templating.List {
-			if v.IncludeAll && v.AllValue == "" && !(name == "applications" && v.Name == "service") {
+			if v.IncludeAll && v.AllValue == "" && !(name == "applications" && (v.Name == "service" || v.Name == "member")) {
 				t.Errorf("%s: variable %q has no All value", name, v.Name)
 			}
 		}
@@ -366,7 +366,7 @@ func TestFusionApplicationsDashboardFollowsTheInfoSeries(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &d); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"application": false, "service": false, "namespace": false, "cluster": false}
+	want := map[string]bool{"application": false, "member": false, "service": false, "namespace": false, "cluster": false}
 	for _, v := range d.Templating.List {
 		if _, ok := want[v.Name]; !ok {
 			t.Errorf("unexpected variable %q", v.Name)
@@ -378,8 +378,8 @@ func TestFusionApplicationsDashboardFollowsTheInfoSeries(t *testing.T) {
 		if v.Name == "application" && (v.Multi || v.IncludeAll) {
 			t.Error("one application at a time: a service in two applications would make the labels ambiguous")
 		}
-		if v.Name == "service" && v.AllValue != "" {
-			t.Errorf("service All = %q: it must expand to the application's own services, or choosing All shows every service", v.AllValue)
+		if (v.Name == "service" || v.Name == "member") && v.AllValue != "" {
+			t.Errorf("%s All = %q: it must expand to the application's own services, or choosing All shows every service", v.Name, v.AllValue)
 		}
 		if (v.Name == "namespace" || v.Name == "cluster") && v.AllValue != ".*" {
 			t.Errorf("%s All = %q: a member Ikhnos knows no namespace or cluster for is written without that label, and .+ would hide it", v.Name, v.AllValue)
@@ -388,6 +388,21 @@ func TestFusionApplicationsDashboardFollowsTheInfoSeries(t *testing.T) {
 	for n, seen := range want {
 		if !seen {
 			t.Errorf("no %q variable", n)
+		}
+	}
+	// A selection is exact: the member is service/namespace/cluster (the info series' member label), so metrics, pods and logs
+	// are cut by the tuple and never by service, namespace and cluster independently (which pairs a service with a namespace
+	// it does not run in). A stream selector must also keep one matcher that cannot be empty, or an empty selection is a 500.
+	for _, p := range d.Panels {
+		for _, q := range p.Targets {
+			e := q.Expr + q.Query
+			if strings.Contains(e, "service_name=~") && !strings.Contains(e, "$member") && !strings.Contains(e, "${member:pipe}") &&
+				!strings.Contains(e, "resource.service.name") {
+				t.Errorf("panel %q selects services but not the exact members: %s", p.Title, e)
+			}
+			if strings.Contains(e, "{service_name=~") && !strings.Contains(e, `service_name=~".+"`) {
+				t.Errorf("panel %q has a Loki selector that can be empty when nothing is selected: %s", p.Title, e)
+			}
 		}
 	}
 	for _, p := range d.Panels {
@@ -464,7 +479,7 @@ func TestFusionDashboardQueriesMeanWhatTheirTitlesSay(t *testing.T) {
 			t.Errorf("a silent cluster set shows as 0 seconds, i.e. perfectly fresh: %s", e)
 		}
 	}
-	// Telemetry of an application's services is narrowed by the cluster choice in Loki and in every pod query.
+	// Telemetry of an application's services is narrowed by the exact member choice (service, namespace and cluster together).
 	for _, e := range exprs["applications"] {
 		switch {
 		case strings.Contains(e, "k8s_pod_") || strings.Contains(e, "k8s_container_"):
@@ -473,9 +488,12 @@ func TestFusionDashboardQueriesMeanWhatTheirTitlesSay(t *testing.T) {
 					t.Errorf("applications: %q does not look for %ss: %s", titles[e], kind, e)
 				}
 			}
+			if !strings.Contains(e, "and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info") {
+				t.Errorf("applications: %q is not cut to the chosen members: %s", titles[e], e)
+			}
 		case strings.Contains(e, "service_name=~"):
-			if !strings.Contains(e, "continuum_cluster_id=~") {
-				t.Errorf("applications: %q ignores the cluster choice: %s", titles[e], e)
+			if !strings.Contains(e, "member") {
+				t.Errorf("applications: %q ignores the member choice, which carries the namespace and the cluster: %s", titles[e], e)
 			}
 		}
 	}
