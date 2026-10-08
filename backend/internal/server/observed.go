@@ -139,7 +139,10 @@ func boundFlowFacts(b *continuumv1.FlowBatch) int {
 func validateFlowEndpoints(f *continuumv1.Flow) error {
 	for _, e := range []*continuumv1.FlowEndpoint{f.Src, f.Dst} {
 		switch e.Kind {
-		case continuumv1.FlowEndpoint_WORKLOAD:
+		case continuumv1.FlowEndpoint_WORKLOAD, continuumv1.FlowEndpoint_NODE:
+			// A NODE endpoint is what the agent reports for a node-level process or a hostNetwork pod it cannot pin to a
+			// pod (resolve.go): its ref is the node's name, bounded like a workload key. Refusing it refused the whole
+			// batch it travelled in, so one kubelet connection stopped all of that cluster's flows from arriving.
 			if e.Ref == "" || len(e.Ref) > maxStr {
 				return fmt.Errorf("flow endpoint is malformed")
 			}

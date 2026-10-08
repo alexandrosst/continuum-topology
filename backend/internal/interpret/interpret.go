@@ -128,6 +128,9 @@ func buildPodTraffic(flows []*continuumv1.Flow, clusterID string) map[string][]m
 		if e.Kind == continuumv1.FlowEndpoint_EXTERNAL {
 			return e.Ip, "external"
 		}
+		if e.Kind != continuumv1.FlowEndpoint_WORKLOAD {
+			return "", "" // a node (or an address the agent could not place) is not a service: no peer is shown for it
+		}
 		return svcID(clusterID, e.Ref), "service"
 	}
 	out := map[string][]model.PodPeer{}

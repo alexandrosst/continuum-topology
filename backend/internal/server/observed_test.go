@@ -417,6 +417,17 @@ func TestFlowBatchValidationAndTable(t *testing.T) {
 			t.Errorf("%s must be refused", name)
 		}
 	}
+	// A node-level process (kubelet, a hostNetwork pod) is reported as a NODE endpoint: that must be accepted, with a
+	// name, or one such connection makes the server refuse every flow of the batch ("flow endpoint is malformed").
+	nodeEp := func(ref string) *continuumv1.FlowEndpoint {
+		return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_NODE, Ref: ref}
+	}
+	if err := validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{flowOf(nodeEp("n1"), xep("93.184.216.34"), 443, 1)}}); err != nil {
+		t.Errorf("a flow from a node must be accepted: %v", err)
+	}
+	if validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{flowOf(nodeEp(""), xep("93.184.216.34"), 443, 1)}}) == nil {
+		t.Error("a node endpoint without a name must be refused")
+	}
 	if validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 0, Flows: []*continuumv1.Flow{good}}) == nil {
 		t.Error("a window of zero seconds must be refused")
 	}
