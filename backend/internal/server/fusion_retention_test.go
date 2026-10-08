@@ -65,6 +65,17 @@ func (k *fakeKube) ResizeClaim(_ context.Context, name string, bytes int64) erro
 	return nil
 }
 
+// CheckResize is a dry run: it refuses only the way the cluster refuses a storage class that cannot grow.
+func (k *fakeKube) CheckResize(_ context.Context, name string, bytes int64) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.checks = append(k.checks, name)
+	if errors.Is(k.resizeErr, ErrKubeNoResize) && (k.resizeErrOn == "" || k.resizeErrOn == name) {
+		return ErrKubeNoResize
+	}
+	return nil
+}
+
 func (k *fakeKube) RestartPod(_ context.Context, name string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -435,5 +446,46 @@ func TestFusionRetentionOverHTTP(t *testing.T) {
 	}
 	if r := a.do("GET", "/api/v1/fusion/retention", nil, withCookie(viewer)); r.Code != 403 {
 		t.Errorf("viewer read: %d", r.Code)
+	}
+}
+
+func TestRetentionSaysBeforehandWhichVolumesCanGrow(t *testing.T) {
+	f, k, a := retentionRig(t)
+	ctx := context.Background()
+	k.resizeErr, k.resizeErrOn = ErrKubeNoResize, "data-continuum-fusion-loki-0"
+	c := k.rclaims["data-continuum-fusion-loki-0"]
+	c.Provisioner = "rancher.io/local-path"
+	k.rclaims["data-continuum-fusion-loki-0"] = c
+	d := f.Retention(ctx, a.a.C.ForOrg("org-1"))
+	if m := storeOf(t, d, "metrics"); m.CanGrow == nil || !*m.CanGrow || m.SizeNotEnforced {
+		t.Errorf("a class that grows: %+v", m)
+	}
+	l := storeOf(t, d, "logs")
+	if l.CanGrow == nil || *l.CanGrow || !strings.Contains(l.GrowNote, "does not allow") || !l.SizeNotEnforced {
+		t.Errorf("local-path: %+v", l)
+	}
+	// The answer is reused, not asked again on every look at the card.
+	n := len(k.checks)
+	f.Retention(ctx, a.a.C.ForOrg("org-1"))
+	if len(k.checks) != n {
+		t.Errorf("trial resizes asked again: %d -> %d", n, len(k.checks))
+	}
+	// The trial changes nothing.
+	if len(k.ops) != 0 || k.rclaims["data-continuum-fusion-prometheus-0"].Requested != 10*gib {
+		t.Errorf("a trial resize changed something: %v", k.ops)
+	}
+}
+
+func TestSetRetentionGrowsNothingIfAnyOfTheVolumesCannot(t *testing.T) {
+	f, k, a := retentionRig(t)
+	k.resizeErr, k.resizeErrOn = ErrKubeNoResize, "data-continuum-fusion-loki-0"
+	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1"), "alex", RetentionRequest{
+		Metrics: &RetentionChange{VolumeGiB: intp(20)}, Logs: &RetentionChange{VolumeGiB: intp(20), Days: intp(30)}})
+	if err == nil || !strings.Contains(err.Error(), "Loki's volume cannot be grown") || !strings.Contains(err.Error(), "Nothing was changed") {
+		t.Fatalf("err = %v", err)
+	}
+	// Prometheus' volume, which could have grown, was not touched either.
+	if len(k.ops) != 0 || k.rclaims["data-continuum-fusion-prometheus-0"].Requested != 10*gib {
+		t.Errorf("ops %v", k.ops)
 	}
 }

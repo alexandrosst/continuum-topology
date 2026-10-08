@@ -55,6 +55,33 @@ export function retentionVerdict(s: FusionRetentionStore, days: number, gib: num
   return { tone: 'warn', text: `At today's growth about ${formatBytes(need)} is needed, more than the ${formatBytes(have)} volume: ${consequence}`, suggestGiB }
 }
 
+/** The most days that fit a volume of `gib` GiB at today's growth, at least 1; null while growth is unknown. */
+export function daysThatFit(s: FusionRetentionStore, gib: number): number | null {
+  if (s.bytesPerDay === undefined || s.bytesPerDay <= 0 || !s.share) return null
+  return Math.max(1, Math.floor((gib * GIB * s.share) / s.bytesPerDay))
+}
+
+export type FullLevel = 'warn' | 'critical'
+/** How full the volume is once it is nearly full: 85% and 95% of what was asked for. Only the kubelet's count for the whole volume says it
+ *  (Prometheus' own figure is its data, and it deletes its oldest blocks at its size limit before the volume fills). */
+export function fullness(s: FusionRetentionStore): { level: FullLevel; pct: number } | null {
+  if (s.usedBytes === undefined || s.usedSource !== 'volume' || !s.volumeKnown || s.volumeBytes <= 0) return null
+  const pct = Math.round((s.usedBytes / s.volumeBytes) * 100)
+  if (pct >= 95) return { level: 'critical', pct }
+  if (pct >= 85) return { level: 'warn', pct }
+  return null
+}
+
+/** What to do about a nearly full volume, in a sentence. */
+export function fullnessAdvice(s: FusionRetentionStore): string {
+  const f = fullness(s)
+  if (!f) return ''
+  const lead = `${s.label}'s volume is ${f.pct}% full${f.level === 'critical' ? ' and it may stop accepting data' : ''}.`
+  return s.canGrow === false
+    ? `${lead} This volume cannot be grown, so lower the days it keeps.`
+    : `${lead} Lower the days it keeps or grow the volume.`
+}
+
 /** What the card says about use, in a few words. */
 export function usageText(s: FusionRetentionStore): string {
   if (s.usedBytes === undefined) return 'use not measured'
@@ -98,7 +125,7 @@ export function formChanges(stores: FusionRetentionStore[], form: RetentionFormS
     const f = form[s.component]
     const change: { days?: number; volumeGiB?: number } = {}
     if (whole(f.days) && Number(f.days) !== s.days) change.days = Number(f.days)
-    if (s.volumeKnown && whole(f.gib) && Number(f.gib) > volumeGiB(s)) change.volumeGiB = Number(f.gib)
+    if (s.volumeKnown && s.canGrow !== false && whole(f.gib) && Number(f.gib) > volumeGiB(s)) change.volumeGiB = Number(f.gib)
     if (change.days !== undefined || change.volumeGiB !== undefined) req[s.component] = change
   }
   return req

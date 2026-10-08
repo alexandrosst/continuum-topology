@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -53,6 +54,8 @@ var retentionSpecs = []retentionSpec{
 	{"traces", "tempo.retention", true, retentionMaxDaysOther, otherVolumeShare},
 }
 
+const oneGiB = int64(1) << 30
+
 const promSizeKey = "prometheus.retentionSize"
 
 // RetentionStore is one store's retention and the volume it lives on.
@@ -72,8 +75,15 @@ type RetentionStore struct {
 	VolumeBytes   int64  `json:"volumeBytes"`   // what was asked of the cluster
 	CapacityBytes int64  `json:"capacityBytes"` // what the cluster has made available so far
 	StorageClass  string `json:"storageClass,omitempty"`
-	Resizing      bool   `json:"resizing,omitempty"`
-	ResizeNote    string `json:"resizeNote,omitempty"`
+	// CanGrow is the cluster's answer to a trial resize (nil: not known); GrowNote says why not when it is false. Checked
+	// without changing anything, so the card can say so before anyone presses Save.
+	CanGrow  *bool  `json:"canGrow,omitempty"`
+	GrowNote string `json:"growNote,omitempty"`
+	// SizeNotEnforced is true for storage that does not hold a volume to its size (local-path and other host directories): the
+	// size is only what was asked for, and the node's disk is the real limit.
+	SizeNotEnforced bool   `json:"sizeNotEnforced,omitempty"`
+	Resizing        bool   `json:"resizing,omitempty"`
+	ResizeNote      string `json:"resizeNote,omitempty"`
 
 	// Use. UsedSource says where UsedBytes came from: "volume" (the kubelet's own count for the whole volume) or "database"
 	// (Prometheus' account of its data). Absent when it was not measured.
@@ -218,9 +228,66 @@ type retentionMeasure struct {
 	vols map[string]fusionapi.VolumeUse
 }
 
+type growCheck struct {
+	requested int64
+	at        time.Time
+	can       *bool
+	note      string
+}
+
 type retentionCache struct {
-	mu sync.Mutex
-	m  retentionMeasure
+	mu    sync.Mutex
+	m     retentionMeasure
+	grows map[string]growCheck // by claim name
+}
+
+// retentionGrowEvery is how long a trial resize's answer is reused: a storage class does not change its mind between two looks
+// at the card, and each trial is a call to the cluster.
+const retentionGrowEvery = 10 * time.Minute
+
+// provisionersWithoutQuota are storage provisioners that make a plain directory on the node: the claim's size is a label, and
+// nothing stops the data from growing past it.
+var provisionersWithoutQuota = []string{"local-path", "hostpath"}
+
+func sizeNotEnforced(provisioner string) bool {
+	for _, p := range provisionersWithoutQuota {
+		if strings.Contains(provisioner, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// canGrow asks the cluster whether a bigger volume would be accepted (a dry run: nothing is changed) and remembers the answer.
+func (f *FusionControl) canGrow(ctx context.Context, rk retentionKube, claimName string, claim KubeClaim) (*bool, string) {
+	f.retention.mu.Lock()
+	if g, ok := f.retention.grows[claimName]; ok && g.requested == claim.Requested && f.now().Sub(g.at) < retentionGrowEvery {
+		f.retention.mu.Unlock()
+		return g.can, g.note
+	}
+	f.retention.mu.Unlock()
+	cctx, cancel := context.WithTimeout(ctx, fusionKubeTimeout)
+	defer cancel()
+	err := rk.CheckResize(cctx, claimName, claim.Requested+oneGiB)
+	var can *bool
+	note := ""
+	switch {
+	case err == nil:
+		t := true
+		can = &t
+	case errors.Is(err, ErrKubeNoResize):
+		fl := false
+		can, note = &fl, "its storage class does not allow volumes to be grown"
+	default:
+		return nil, "" // forbidden, unreachable or the like: not known, and not worth remembering
+	}
+	f.retention.mu.Lock()
+	if f.retention.grows == nil {
+		f.retention.grows = map[string]growCheck{}
+	}
+	f.retention.grows[claimName] = growCheck{requested: claim.Requested, at: f.now(), can: can, note: note}
+	f.retention.mu.Unlock()
+	return can, note
 }
 
 // measure reads how much the stores hold. Everything here is a nicety next to the settings: whatever cannot be read is
@@ -307,6 +374,10 @@ func (f *FusionControl) Retention(ctx context.Context, c *Core) RetentionDoc {
 			claim = cl
 			rs.VolumeKnown, rs.VolumeBytes, rs.CapacityBytes = true, cl.Requested, cl.Capacity
 			rs.StorageClass, rs.Resizing, rs.ResizeNote = cl.StorageClass, cl.Resizing || (cl.Capacity > 0 && cl.Capacity < cl.Requested), cl.ResizeNote
+			rs.SizeNotEnforced = sizeNotEnforced(cl.Provisioner)
+			if cl.Phase == "Bound" {
+				rs.CanGrow, rs.GrowNote = f.canGrow(ctx, rk, storeClaim(s), cl)
+			}
 		}
 		f.fillUse(&rs, sp, claim, m, settings)
 		doc.Stores = append(doc.Stores, rs)
@@ -431,6 +502,11 @@ func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string,
 					return RetentionDoc{}, errf(KindConflict, "%s's volume is still being grown from an earlier change. Wait for it to finish, then grow it again", s.Label)
 				}
 				p.grow = want
+				// Ask the cluster now, before anything is changed, so that a volume that cannot grow stops the whole request and
+				// not just the part after the first store that did.
+				if err := rk.CheckResize(ctx, storeClaim(s), want); errors.Is(err, ErrKubeNoResize) {
+					return RetentionDoc{}, noResizeError(s, p.claim, "")
+				}
 			}
 		}
 		// A Prometheus size limit that was only ever the default follows its volume.
@@ -464,11 +540,7 @@ func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string,
 				done = fmt.Sprintf(" (%s was already grown and stays so; no retention was changed)", strings.Join(grown, ", "))
 			}
 			if errors.Is(err, ErrKubeNoResize) {
-				class := p.claim.StorageClass
-				if class == "" {
-					class = "default"
-				}
-				return RetentionDoc{}, errf(KindConflict, "%s's volume cannot be grown: its storage class (%s) does not allow volume expansion. Set allowVolumeExpansion: true on the class, or move the data to a bigger volume%s", p.store.Label, class, done)
+				return RetentionDoc{}, noResizeError(p.store, p.claim, done)
 			}
 			e := kubeFail("grow "+p.store.Label+"'s volume", err)
 			return RetentionDoc{}, errf(KindConflict, "%v%s", e, done)
@@ -555,4 +627,10 @@ func humanGiB(b int64) string {
 		return fmt.Sprintf("%d GiB", int64(g))
 	}
 	return fmt.Sprintf("%.1f GiB", g)
+}
+
+// noResizeError is the cluster refusing to grow a volume, in words that say what to do.
+func noResizeError(s fusionStore, claim KubeClaim, done string) error {
+	class := cmp.Or(claim.StorageClass, "default")
+	return errf(KindConflict, "%s's volume cannot be grown: its storage class (%s) does not allow volume expansion. Nothing was changed. Keep the volume as it is and lower the days to fit it, set allowVolumeExpansion: true on the class, or use a class that can grow%s", s.Label, class, done)
 }

@@ -5,7 +5,7 @@ import { buttonClass } from '@/components/ui/buttonClass'
 import { Button, ErrorBanner, Field, ICON_SM, Input, Modal } from '@/components/ui/primitives'
 import { api, ApiError, type FusionRetention, type FusionRetentionStore } from '@/lib/api'
 import {
-  daysText, formatBytes, formChanges, formError, initialForm, restartedBy, retentionVerdict, type RetentionFormState,
+  daysText, daysThatFit, formatBytes, formChanges, formError, fullness, fullnessAdvice, initialForm, restartedBy, retentionVerdict, type RetentionFormState,
   usageText, volumeGiB,
 } from '@/lib/fusionRetention'
 import { useVisiblePolling } from '@/lib/usePolling'
@@ -132,6 +132,21 @@ function StoreRow({ s }: { s: FusionRetentionStore }) {
           </span>
         )}
       </span>
+      {fullness(s) && (
+        <span className={clsx('w-full', fullness(s)!.level === 'critical' ? 'text-bad' : 'text-warn')} data-testid={`fusion-retention-full-${s.component}`}>
+          {fullnessAdvice(s)}
+        </span>
+      )}
+      {s.volumeKnown && s.canGrow === false && (
+        <span className="w-full text-nb-500" data-testid={`fusion-retention-fixed-${s.component}`}>
+          This volume cannot be grown ({s.growNote ?? 'the cluster refuses'}), so only the days can be changed.
+        </span>
+      )}
+      {s.sizeNotEnforced && (
+        <span className="w-full text-nb-500" data-testid={`fusion-retention-nominal-${s.component}`}>
+          This storage does not enforce the volume&apos;s size: {formatBytes(s.volumeBytes)} is what was asked for, and the node&apos;s disk is the real limit.
+        </span>
+      )}
       {sizeShort && (
         <span className="w-full text-warn" data-testid={`fusion-retention-sizecap-${s.component}`}>
           Its size limit keeps only about {daysText(Math.max(1, Math.floor(s.sizeLimitDays!)))} at today&apos;s growth, fewer than the {daysText(s.days)} set. Grow the volume to keep more.
@@ -192,7 +207,8 @@ function RetentionModal({ doc, onClose, onSaved }: { doc: FusionRetention; onClo
           const days = Number(f.days)
           const gib = s.volumeKnown ? Number(f.gib) : 0
           const verdict = !err && s.volumeKnown ? retentionVerdict(s, days, gib) : null
-          const suggestion = verdict?.suggestGiB
+          const suggestion = s.canGrow === false ? undefined : verdict?.suggestGiB
+          const fit = s.canGrow === false && verdict?.tone === 'warn' ? daysThatFit(s, gib) : null
           return (
             <fieldset key={s.component} className="space-y-2" data-testid={`fusion-retention-form-${s.component}`}>
               <legend className="text-sm font-medium text-nb-200">{s.label}</legend>
@@ -204,10 +220,10 @@ function RetentionModal({ doc, onClose, onSaved }: { doc: FusionRetention; onClo
                   />
                 </Field>
                 {s.volumeKnown ? (
-                  <Field label="Volume (GiB)" hint={`Now ${formatBytes(s.volumeBytes)}${s.storageClass ? ` on ${s.storageClass}` : ''}. It can grow, not shrink.`}>
+                  <Field label="Volume (GiB)" hint={`Now ${formatBytes(s.volumeBytes)}${s.storageClass ? ` on ${s.storageClass}` : ''}. ${s.canGrow === false ? 'This volume cannot be grown.' : 'It can grow, not shrink.'}`}>
                     <Input
                       type="number" inputMode="numeric" min={volumeGiB(s)} value={f.gib}
-                      onChange={(e) => set(s.component, 'gib', e.target.value)} disabled={s.resizing} data-testid={`fusion-retention-input-gib-${s.component}`}
+                      onChange={(e) => set(s.component, 'gib', e.target.value)} disabled={s.resizing || s.canGrow === false} data-testid={`fusion-retention-input-gib-${s.component}`}
                     />
                   </Field>
                 ) : (
@@ -221,6 +237,14 @@ function RetentionModal({ doc, onClose, onSaved }: { doc: FusionRetention; onClo
                   data-testid={`fusion-retention-verdict-${s.component}`}
                 >
                   {verdict.text}
+                  {fit !== null && fit < days && (
+                    <button
+                      type="button" className={clsx(buttonClass('secondary', 'sm'), 'ml-2 align-middle')}
+                      onClick={() => set(s.component, 'days', String(fit))} data-testid={`fusion-retention-fit-${s.component}`}
+                    >
+                      Keep {daysText(fit)}
+                    </button>
+                  )}
                   {suggestion !== undefined && suggestion > gib && (
                     <button
                       type="button" className={clsx(buttonClass('secondary', 'sm'), 'ml-2 align-middle')}
@@ -231,6 +255,7 @@ function RetentionModal({ doc, onClose, onSaved }: { doc: FusionRetention; onClo
                   )}
                 </p>
               )}
+              {s.sizeNotEnforced && <p className="text-xs text-nb-500">This storage does not enforce the volume&apos;s size, so the estimate above is against the size asked for; the node&apos;s disk is the real limit.</p>}
               {s.resizing && <p className="text-xs text-warn">The volume is still being grown from an earlier change. It can be grown again when that has finished.</p>}
             </fieldset>
           )

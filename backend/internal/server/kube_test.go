@@ -245,3 +245,27 @@ func TestParseQuantity(t *testing.T) {
 		}
 	}
 }
+
+func TestKubeClientTriesAResizeWithoutChangingAnything(t *testing.T) {
+	var query, method string
+	k := testKube(t, func(w http.ResponseWriter, r *http.Request) {
+		query, method = r.URL.RawQuery, r.Method
+		w.Write([]byte(`{}`))
+	})
+	if err := k.CheckResize(context.Background(), "data-f-loki-0", 20<<30); err != nil || method != "PATCH" || query != "dryRun=All" {
+		t.Fatalf("%v %s ?%s", err, method, query)
+	}
+	if err := k.ResizeClaim(context.Background(), "data-f-loki-0", 20<<30); err != nil || query != "" {
+		t.Fatalf("a real resize carried a query: %v ?%s", err, query)
+	}
+}
+
+func TestKubeClientReadsWhoProvisionedAClaim(t *testing.T) {
+	k := testKube(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"metadata":{"annotations":{"volume.kubernetes.io/storage-provisioner":"rancher.io/local-path"}},"spec":{"resources":{"requests":{"storage":"10Gi"}}},"status":{"phase":"Bound"}}`))
+	})
+	c, err := k.Claim(context.Background(), "data-f-loki-0")
+	if err != nil || c.Provisioner != "rancher.io/local-path" || !sizeNotEnforced(c.Provisioner) || sizeNotEnforced("ebs.csi.aws.com") {
+		t.Fatalf("%+v %v", c, err)
+	}
+}

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { FusionRetentionCard } from '@/components/operators/FusionRetention'
 import type { FusionRetention, FusionRetentionStore } from '@/lib/api'
-import { formatBytes, formChanges, formError, GIB, initialForm, neededGiB, restartedBy, retentionVerdict, usageText } from '@/lib/fusionRetention'
+import { daysThatFit, formatBytes, formChanges, fullness, formError, GIB, initialForm, neededGiB, restartedBy, retentionVerdict, usageText } from '@/lib/fusionRetention'
 
 const getRetention = vi.fn()
 const setRetention = vi.fn()
@@ -81,6 +81,50 @@ describe('the numbers behind the card', () => {
     const ss = stores()
     expect(restartedBy(ss, { logs: { days: 14 }, traces: { volumeGiB: 20 } })).toEqual(['Loki'])
     expect(restartedBy(ss, { metrics: { volumeGiB: 20 } })).toEqual(['Prometheus'])
+  })
+})
+
+describe('a volume that is nearly full or cannot grow', () => {
+  test('nearly full is told from the kubelet\'s count of the volume, at 85% and 95%', () => {
+    const base = store({ usedSource: 'volume' })
+    expect(fullness({ ...base, usedBytes: 8 * GIB })).toBeNull()
+    expect(fullness({ ...base, usedBytes: 8.7 * GIB })).toEqual({ level: 'warn', pct: 87 })
+    expect(fullness({ ...base, usedBytes: 9.8 * GIB })).toEqual({ level: 'critical', pct: 98 })
+    // Prometheus' own figure is its data, and it trims itself at its size limit: not a reason to warn
+    expect(fullness({ ...base, usedSource: 'database', usedBytes: 9.8 * GIB })).toBeNull()
+    expect(fullness({ ...base, usedBytes: undefined })).toBeNull()
+  })
+
+  test('the most days that fit a fixed volume', () => {
+    const loki = store({ bytesPerDay: GIB })
+    expect(daysThatFit(loki, 10)).toBe(8) // 10 GiB * 0.87 / 1 GiB a day
+    expect(daysThatFit(store({ bytesPerDay: 100 * GIB }), 10)).toBe(1)
+    expect(daysThatFit(store(), 10)).toBeNull()
+  })
+
+  test('the card says so on the row: nearly full, fixed, and not enforced', async () => {
+    getRetention.mockResolvedValue(doc([store({ usedBytes: 9 * GIB, usedSource: 'volume', canGrow: false, growNote: 'its storage class does not allow volumes to be grown', sizeNotEnforced: true, storageClass: 'local-path' })]))
+    render(<FusionRetentionCard state="running" />)
+    expect(await screen.findByTestId('fusion-retention-full-logs')).toHaveTextContent("Loki's volume is 90% full. This volume cannot be grown, so lower the days it keeps.")
+    expect(screen.getByTestId('fusion-retention-fixed-logs')).toHaveTextContent('only the days can be changed')
+    expect(screen.getByTestId('fusion-retention-nominal-logs')).toHaveTextContent("node's disk is the real limit")
+  })
+
+  test('a fixed volume cannot be resized in the dialog, and the days that fit are offered instead', async () => {
+    const user = userEvent.setup()
+    getRetention.mockResolvedValue(doc([store({ bytesPerDay: GIB, usedBytes: 3 * GIB, usedSource: 'volume', dataDays: 3, canGrow: false, growNote: 'x' })]))
+    setRetention.mockResolvedValue(doc([store({ days: 8 })]))
+    render(<FusionRetentionCard state="running" />)
+    await user.click(await screen.findByTestId('fusion-retention-change'))
+    expect(screen.getByTestId('fusion-retention-input-gib-logs')).toBeDisabled()
+    const days = screen.getByTestId('fusion-retention-input-days-logs')
+    await user.clear(days)
+    await user.type(days, '30')
+    expect(screen.queryByTestId('fusion-retention-suggest-logs')).not.toBeInTheDocument() // no "grow to" for a volume that cannot
+    await user.click(screen.getByTestId('fusion-retention-fit-logs'))
+    expect(days).toHaveValue(8)
+    await user.click(screen.getByTestId('fusion-retention-save'))
+    expect(setRetention).toHaveBeenCalledWith(expect.anything(), { logs: { days: 8 } })
   })
 })
 

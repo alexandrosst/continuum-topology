@@ -219,6 +219,11 @@ export interface FusionRetentionStore {
   volumeBytes: number
   capacityBytes: number
   storageClass?: string
+  /** The cluster's answer to a trial resize: false when the storage class does not allow volumes to grow (`growNote` says so); absent when not known. */
+  canGrow?: boolean
+  growNote?: string
+  /** True on storage that does not hold a volume to its size (local-path and other host directories): the size is only what was asked for. */
+  sizeNotEnforced?: boolean
   resizing?: boolean
   resizeNote?: string
   /** Measured use: `volume` is the kubelet's count for the whole volume, `database` Prometheus' account of its data. Absent when not measured. */

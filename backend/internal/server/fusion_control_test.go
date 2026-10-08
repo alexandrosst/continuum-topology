@@ -45,6 +45,7 @@ type fakeKube struct {
 	resizeErrOn string // the claim resizeErr applies to ("": every one)
 	restartErr  error
 	ops         []string // the retention calls that changed anything, in order
+	checks      []string // the trial resizes (dry runs) asked of the cluster
 }
 
 func newFakeKube(names ...string) *fakeKube {

@@ -380,6 +380,8 @@ type KubeClaim struct {
 	// Resizing is true while the cluster is still growing the volume or its file system; ResizeNote is its own sentence.
 	Resizing   bool
 	ResizeNote string
+	// Provisioner is the storage provisioner that made the volume (the claim's own annotation), "" for one made by hand.
+	Provisioner string
 }
 
 // ErrKubeNoResize is the cluster refusing to grow a claim: its storage class does not allow volume expansion.
@@ -397,6 +399,9 @@ type retentionKube interface {
 	Claim(ctx context.Context, name string) (KubeClaim, error)
 	// ResizeClaim raises a claim's requested size. ErrKubeNoResize when the storage class cannot grow volumes.
 	ResizeClaim(ctx context.Context, name string, bytes int64) error
+	// CheckResize asks the cluster whether it would accept that size, without changing anything (a dry run): nil if it
+	// would, ErrKubeNoResize if the storage class cannot grow volumes.
+	CheckResize(ctx context.Context, name string, bytes int64) error
 	// RestartPod deletes a pod so its StatefulSet starts it again (a missing pod is not an error).
 	RestartPod(ctx context.Context, name string) error
 }
@@ -430,7 +435,8 @@ func (k *kubeClient) Claim(ctx context.Context, name string) (KubeClaim, error) 
 	}
 	var c struct {
 		Metadata struct {
-			Created time.Time `json:"creationTimestamp"`
+			Created     time.Time         `json:"creationTimestamp"`
+			Annotations map[string]string `json:"annotations"`
 		} `json:"metadata"`
 		Spec struct {
 			StorageClassName *string `json:"storageClassName"`
@@ -450,6 +456,7 @@ func (k *kubeClient) Claim(ctx context.Context, name string) (KubeClaim, error) 
 		return KubeClaim{}, err
 	}
 	out := KubeClaim{Phase: c.Status.Phase, Created: c.Metadata.Created}
+	out.Provisioner = cmp.Or(c.Metadata.Annotations["volume.kubernetes.io/storage-provisioner"], c.Metadata.Annotations["volume.beta.kubernetes.io/storage-provisioner"])
 	if c.Spec.StorageClassName != nil {
 		out.StorageClass = *c.Spec.StorageClassName
 	}
@@ -464,11 +471,22 @@ func (k *kubeClient) Claim(ctx context.Context, name string) (KubeClaim, error) 
 }
 
 func (k *kubeClient) ResizeClaim(ctx context.Context, name string, bytes int64) error {
-	_, err := k.do(ctx, http.MethodPatch, k.corePath("persistentvolumeclaims", name), "application/merge-patch+json",
+	return k.patchClaimSize(ctx, name, bytes, "")
+}
+
+// CheckResize is the same patch as a dry run: the API server runs it through its admission checks, which is where a storage
+// class that cannot grow volumes says no, and stores nothing.
+func (k *kubeClient) CheckResize(ctx context.Context, name string, bytes int64) error {
+	return k.patchClaimSize(ctx, name, bytes, "?dryRun=All")
+}
+
+func (k *kubeClient) patchClaimSize(ctx context.Context, name string, bytes int64, query string) error {
+	_, err := k.do(ctx, http.MethodPatch, k.corePath("persistentvolumeclaims", name)+query, "application/merge-patch+json",
 		map[string]any{"spec": map[string]any{"resources": map[string]any{"requests": map[string]string{"storage": strconv.FormatInt(bytes, 10)}}}})
 	var d *kubeDenied
 	// The Role grants this patch, so a refusal that talks about resizing is the cluster's: the storage class does not
-	// allow expansion (or the claim is not dynamically provisioned).
+	// allow expansion (or the claim is not dynamically provisioned). Seen on a real API server: "only dynamically
+	// provisioned pvc can be resized and the storageclass that provisions the pvc must support resize".
 	if errors.As(err, &d) && strings.Contains(strings.ToLower(d.say), "resiz") {
 		return ErrKubeNoResize
 	}
