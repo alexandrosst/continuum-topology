@@ -1008,3 +1008,64 @@ func TestRevokedAgentsAreReclaimedAfterTheirRetention(t *testing.T) {
 		t.Fatalf("an approved agent lost its view (%v) or snapshots (%d of 3)", !v, n)
 	}
 }
+
+// countGets counts the snapshots read from the store.
+type countGets struct {
+	store.Store
+	n atomic.Int64
+}
+
+func (c *countGets) GetHistory(ctx context.Context, org string, at time.Time) (store.HistoryPoint, []byte, error) {
+	c.n.Add(1)
+	return c.Store.GetHistory(ctx, org, at)
+}
+
+// A stored snapshot is decoded once: the dependency series and the traffic chart share what they read
+// from it, and a snapshot replaced in the store is read again.
+func TestHistoryEndpointsDecodeEachSnapshotOnce(t *testing.T) {
+	a := newAdminRig(t)
+	_, viewer := a.user(t, "eve", RoleViewer)
+	cnt := &countGets{Store: a.a.C.Store}
+	a.a.C.Store = cnt
+
+	put := func(at time.Time, bytes uint64) {
+		data, _, err := history.Encode(model.Topology{Dependencies: []model.Dependency{{ID: "dep-1", OrgID: "org-1", From: "a", To: "b", Protocol: "TCP", RttMs: 5, Bytes: bytes}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := a.st.AddHistory(a.ctx, "org-1", at, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := *a.now
+	put(base, 1000)
+	put(base.Add(10*time.Second), 3000)
+
+	series := func() []any {
+		t.Helper()
+		r := a.do("GET", "/api/v1/history/dependency/dep-1/series?hours=1", nil, withCookie(viewer))
+		if r.Code != 200 {
+			t.Fatalf("series: %d %s", r.Code, r.Body.String())
+		}
+		return r.json(t)["points"].([]any)
+	}
+	if got := len(series()); got != 2 || cnt.n.Load() != 2 {
+		t.Fatalf("first request: %d points, %d snapshots read", got, cnt.n.Load())
+	}
+	pts := series()
+	if cnt.n.Load() != 2 {
+		t.Fatalf("a second request read %d snapshots, want the 2 cached", cnt.n.Load())
+	}
+	if bps := pts[1].(map[string]any)["bytesPerSec"]; bps != float64(200) {
+		t.Fatalf("cached rate = %v", bps)
+	}
+	// The traffic chart's slow path is served from the same cache (when the store has no fast path).
+	if r := a.do("GET", "/api/v1/history/traffic?hours=1", nil, withCookie(viewer)); r.Code != 200 || cnt.n.Load() != 2 {
+		t.Fatalf("traffic: %d, %d snapshots read", r.Code, cnt.n.Load())
+	}
+	// A snapshot rewritten in the same second is a different snapshot.
+	put(base.Add(10*time.Second), 5000000)
+	if pts := series(); cnt.n.Load() != 3 || pts[1].(map[string]any)["bytesPerSec"] == float64(200) {
+		t.Fatalf("a replaced snapshot was served stale: %d reads, %v", cnt.n.Load(), pts[1])
+	}
+}

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"continuum/internal/history"
-	"continuum/internal/model"
 	"continuum/internal/store"
 )
 
@@ -191,6 +190,67 @@ type trafficCacheEntry struct {
 type trafficCache struct {
 	mu    sync.Mutex
 	entry *trafficCacheEntry
+	// deps holds what the two history endpoints read out of a stored snapshot (see snapshotDeps), so a
+	// snapshot is decoded once, not once per request.
+	deps map[snapshotKey]map[string]depNumbers
+}
+
+// snapshotKey names one stored snapshot. The stored size is part of it because a snapshot taken in the
+// same second as an earlier one replaces it.
+type snapshotKey struct {
+	at    int64
+	bytes int
+}
+
+// depNumbers is the part of a Dependency the history endpoints chart.
+type depNumbers struct {
+	bytes   uint64
+	rttMs   float64
+	lossPct *float64
+}
+
+// maxCachedSnapshots bounds trafficCache.deps: a little over the 300 points historyTraffic reads in a
+// request. When it is full the cache starts again, which costs no more than not having one.
+const maxCachedSnapshots = 320
+
+// snapshotDeps returns the per-dependency numbers of the snapshot at p, decoding it only the first
+// time. ok is false when the snapshot cannot be read or decoded.
+func (a *Admin) snapshotDeps(ctx context.Context, core *Core, p store.HistoryPoint) (map[string]depNumbers, bool) {
+	c := core.trafficCache
+	key := snapshotKey{p.At.UnixMilli(), p.Bytes}
+	if c != nil {
+		c.mu.Lock()
+		m, ok := c.deps[key]
+		c.mu.Unlock()
+		if ok {
+			return m, true
+		}
+	}
+	_, data, err := a.C.Store.GetHistory(ctx, core.OrgID, p.At)
+	if err != nil {
+		return nil, false
+	}
+	t, err := history.Decode(data)
+	if err != nil {
+		return nil, false
+	}
+	m := make(map[string]depNumbers, len(t.Dependencies))
+	for _, d := range t.Dependencies {
+		n := depNumbers{bytes: d.Bytes, rttMs: d.RttMs}
+		if d.Stats != nil {
+			n.lossPct = d.Stats.LossPct
+		}
+		m[d.ID] = n
+	}
+	if c != nil {
+		c.mu.Lock()
+		if c.deps == nil || len(c.deps) >= maxCachedSnapshots {
+			c.deps = map[snapshotKey]map[string]depNumbers{}
+		}
+		c.deps[key] = m
+		c.mu.Unlock()
+	}
+	return m, true
 }
 
 func (c *trafficCache) get(hours int, now time.Time) (map[string]any, bool) {
@@ -262,17 +322,13 @@ func (a *Admin) historyTraffic(w http.ResponseWriter, r *http.Request) {
 	}
 	var samples []history.Sample
 	for _, p := range pts {
-		_, data, err := a.C.Store.GetHistory(r.Context(), core.OrgID, p.At)
-		if err != nil {
+		deps, ok := a.snapshotDeps(r.Context(), core, p)
+		if !ok {
 			continue
 		}
-		t, err := history.Decode(data)
-		if err != nil {
-			continue
-		}
-		s := history.Sample{At: p.At, Bytes: map[string]uint64{}}
-		for _, d := range t.Dependencies {
-			s.Bytes[d.ID] = d.Bytes
+		s := history.Sample{At: p.At, Bytes: make(map[string]uint64, len(deps))}
+		for id, d := range deps {
+			s.Bytes[id] = d.bytes
 		}
 		samples = append(samples, s)
 	}
@@ -300,9 +356,8 @@ type dependencySeriesPoint struct {
 
 // historyDependencySeries returns one dependency's RTT/loss/throughput trend across recorded
 // history - the per-point analogue of historyTraffic's aggregate average/peak, for a sparkline
-// rather than a summary number. Same decode-each-snapshot approach and downsampling idea as
-// historyTraffic's slow path; no fast-path cache here, since a sparkline's data volume is tiny next
-// to a full traffic chart and isn't worth one. A snapshot the dependency didn't exist in yet (too
+// rather than a summary number. Same downsampling idea as historyTraffic's slow path, and the same
+// per-snapshot cache (snapshotDeps), so hovering an edge twice decodes nothing the second time. A snapshot the dependency didn't exist in yet (too
 // young, or since removed) is skipped rather than turned into a fabricated zero point.
 func (a *Admin) historyDependencySeries(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -338,40 +393,27 @@ func (a *Admin) historyDependencySeries(w http.ResponseWriter, r *http.Request) 
 	var prevAt time.Time
 	havePrev := false
 	for _, p := range pts {
-		_, data, err := a.C.Store.GetHistory(r.Context(), core.OrgID, p.At)
-		if err != nil {
+		deps, ok := a.snapshotDeps(r.Context(), core, p)
+		if !ok {
 			continue
 		}
-		t, err := history.Decode(data)
-		if err != nil {
+		dep, ok := deps[id]
+		if !ok {
 			continue
 		}
-		var dep *model.Dependency
-		for i := range t.Dependencies {
-			if t.Dependencies[i].ID == id {
-				dep = &t.Dependencies[i]
-				break
-			}
-		}
-		if dep == nil {
-			continue
-		}
-		pt := dependencySeriesPoint{At: rfc(p.At), RttMs: dep.RttMs}
-		if dep.Stats != nil {
-			pt.LossPct = dep.Stats.LossPct
-		}
+		pt := dependencySeriesPoint{At: rfc(p.At), RttMs: dep.rttMs, LossPct: dep.lossPct}
 		if havePrev {
 			if dt := p.At.Sub(prevAt).Seconds(); dt > 0 {
-				delta := dep.Bytes - prevBytes // counter reset (dep.Bytes < prevBytes) wraps to a huge
-				if dep.Bytes < prevBytes {     // delta instead, so treat it as a restart from zero.
-					delta = dep.Bytes
+				delta := dep.bytes - prevBytes // counter reset (dep.bytes < prevBytes) wraps to a huge
+				if dep.bytes < prevBytes {     // delta instead, so treat it as a restart from zero.
+					delta = dep.bytes
 				}
 				bps := float64(delta) / dt
 				pt.BytesPerSec = &bps
 			}
 		}
 		out = append(out, pt)
-		prevBytes, prevAt, havePrev = dep.Bytes, p.At, true
+		prevBytes, prevAt, havePrev = dep.bytes, p.At, true
 	}
 	writeJSON(w, 200, map[string]any{"id": id, "hours": hours, "points": out})
 }
