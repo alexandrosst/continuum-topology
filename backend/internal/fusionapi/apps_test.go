@@ -200,3 +200,19 @@ func TestServicesFocusAlsoSelectsPodMetricsByWorkload(t *testing.T) {
 		t.Errorf("range query = %s", q)
 	}
 }
+
+// An application with members Ikhnos cannot tie to a service says so, so "has no services" is not a riddle.
+func TestAnApplicationWithOnlyUnresolvedMembersSaysWhy(t *testing.T) {
+	_, err := Scope{}.FocusOn(&AppGroup{ID: "app-core", Name: "app-core", Unresolved: 3})
+	if err == nil || !strings.Contains(err.Error(), "3 of its members") {
+		t.Fatalf("%v", err)
+	}
+	_, err = Scope{}.FocusOn(&AppGroup{ID: "app-core", Name: "app-core"})
+	if err == nil || !strings.Contains(err.Error(), "none has been added") {
+		t.Fatalf("%v", err)
+	}
+	v := DescribeGroups([]AppGroup{{ID: "a", Name: "a", Unresolved: 2}}, nil)
+	if v[0].Unresolved != 2 {
+		t.Fatalf("%+v", v)
+	}
+}

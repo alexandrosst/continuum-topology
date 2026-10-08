@@ -122,6 +122,19 @@ func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
 	for i, s := range doc.Topology.Services {
 		byID[s.ID] = i
 	}
+	// A service a person wrote into Ikhnos by hand is not in the interpreted topology (that is what the agents saw), but the
+	// record itself says what it is called and where it runs, which is all telemetry can be matched with.
+	declared := map[string]map[string]any{}
+	if d, err := workspace.Parse(data); err == nil {
+		for _, r := range d.Records["service"] {
+			if id, _ := r["id"].(string); id != "" {
+				if _, gone := r["deletedAt"]; !gone {
+					declared[id] = r
+				}
+			}
+		}
+	}
+	str := func(r map[string]any, k string) string { v, _ := r[k].(string); return v }
 	out := make([]fusionapi.AppGroup, 0, len(apps))
 	for _, a := range apps {
 		g := fusionapi.AppGroup{ID: a.ID, Name: a.Name, Description: a.Description, Members: []fusionapi.AppMember{}}
@@ -129,16 +142,22 @@ func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
 			g.Name = a.ID
 		}
 		for _, id := range a.ServiceIDs {
-			i, ok := byID[id]
-			if !ok {
-				continue
-			}
-			s := doc.Topology.Services[i]
-			m := fusionapi.AppMember{Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID, Kind: s.Kind}
-			for _, k := range []string{"app", "app.kubernetes.io/name"} {
-				if v := s.Labels[k]; v != "" && v != s.Name && !slices.Contains(m.Aliases, v) {
-					m.Aliases = append(m.Aliases, v)
+			var m fusionapi.AppMember
+			if i, ok := byID[id]; ok {
+				s := doc.Topology.Services[i]
+				m = fusionapi.AppMember{Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID, Kind: s.Kind}
+				for _, k := range []string{"app", "app.kubernetes.io/name"} {
+					if v := s.Labels[k]; v != "" && v != s.Name && !slices.Contains(m.Aliases, v) {
+						m.Aliases = append(m.Aliases, v)
+					}
 				}
+			} else if r, ok := declared[id]; ok && str(r, "name") != "" {
+				m = fusionapi.AppMember{Name: str(r, "name"), Namespace: str(r, "namespace"), Cluster: str(r, "clusterId"), Kind: str(r, "kind")}
+			} else {
+				// A member Ikhnos has an id for but cannot tie to a running service: a cluster that is not connected, or a
+				// service that has gone. Counted, so a caller can be told why an application looks empty.
+				g.Unresolved++
+				continue
 			}
 			g.Members = append(g.Members, m)
 		}

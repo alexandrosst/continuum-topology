@@ -50,7 +50,10 @@ func FindGroup(groups []AppGroup, ref string) (*AppGroup, error) {
 func (s Scope) FocusOn(g *AppGroup) (Scope, error) {
 	names := g.ServiceNames()
 	if len(names) == 0 {
-		return Scope{}, errf(http.StatusNotFound, "application %q has no services", g.Name)
+		if g.Unresolved > 0 {
+			return Scope{}, errf(http.StatusNotFound, "application %q has no services FUSION can match: %d of its members are not in the live topology (a cluster that is not connected, or a service that has gone)", g.Name, g.Unresolved)
+		}
+		return Scope{}, errf(http.StatusNotFound, "application %q has no services: none has been added to it in Ikhnos", g.Name)
 	}
 	if len(names) > maxAppServices {
 		return Scope{}, badRequest("application %q has %d service names, more than the %d one filter can carry", g.Name, len(names), maxAppServices)
@@ -125,6 +128,9 @@ type AppView struct {
 	Signals    []string `json:"signals"`
 	Namespaces []string `json:"namespaces"`
 	Clusters   []string `json:"clusters"`
+	// Unresolved is how many members Ikhnos has an id for but cannot tie to a running service, and so cannot match with
+	// telemetry; when it is not zero the application may look emptier here than it does in Ikhnos.
+	Unresolved int `json:"unresolvedMembers,omitempty"`
 }
 
 // AppServiceView is one service of an application with the signals its telemetry has in the range.
@@ -148,7 +154,7 @@ func DescribeGroups(groups []AppGroup, withTelemetry []Application) []AppView {
 	out := make([]AppView, 0, len(groups))
 	for _, g := range groups {
 		v := AppView{ID: g.ID, Name: g.Name, Description: g.Description, Services: []AppServiceView{},
-			Namespaces: orNone(g.Namespaces()), Clusters: orNone(g.Clusters())}
+			Namespaces: orNone(g.Namespaces()), Clusters: orNone(g.Clusters()), Unresolved: g.Unresolved}
 		all := map[string]bool{}
 		for _, m := range g.Members {
 			sv := AppServiceView{AppMember: m}

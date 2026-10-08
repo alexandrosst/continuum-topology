@@ -63,6 +63,9 @@ type AppGroup struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description,omitempty"`
 	Members     []AppMember `json:"services"`
+	// Unresolved counts the members Ikhnos has an id for but cannot tie to a service (a cluster that is not connected, a
+	// service that has gone): they cannot be matched with telemetry, so they are not in Members.
+	Unresolved int `json:"-"`
 }
 
 // AppMember is one service of an application, by the identity telemetry carries.

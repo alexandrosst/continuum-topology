@@ -229,7 +229,8 @@ func TestApplicationGroupsAreBuiltFromTheWorkspaceAndTheTopology(t *testing.T) {
 		{ID: "sv-2", Name: "other", Namespace: "x", ClusterID: "cl-1"},
 	}}}
 	ws := []byte(`{"schemaVersion":4,"applications":[{"id":"app-1","name":"Shop"},{"id":"app-3","name":"Gone"}],
-		"services":[{"id":"sv-1","source":"manual","applicationId":"app-1","name":"cart-deploy"},{"id":"sv-missing","source":"manual","applicationId":"app-1","name":"x"},{"id":"sv-2","source":"manual","applicationId":"app-3","name":"other"}]}`)
+		"refs":{"sv-gone":{"kind":"service","applicationId":"app-1"}},
+		"services":[{"id":"sv-1","source":"manual","applicationId":"app-1","name":"cart-deploy"},{"id":"sv-hand","source":"manual","applicationId":"app-1","name":"billing","namespace":"pay","clusterId":"cl-9","kind":"Deployment"},{"id":"sv-2","source":"manual","applicationId":"app-3","name":"other"}]}`)
 	gs := appGroups(ws, doc)
 	if len(gs) != 2 {
 		t.Fatalf("%+v", gs)
@@ -240,10 +241,18 @@ func TestApplicationGroupsAreBuiltFromTheWorkspaceAndTheTopology(t *testing.T) {
 			shop = g
 		}
 	}
-	if len(shop.Members) != 1 || shop.Members[0].Name != "cart-deploy" || len(shop.Members[0].Aliases) != 1 || shop.Members[0].Aliases[0] != "cart" {
-		t.Fatalf("a member the topology does not have is left out; the app label is an alias: %+v", shop)
+	// A discovered member is read from the topology (its app label is an alias); one written by hand is not in the topology
+	// but says what it is and where it runs itself; one only a ref remembers, whose service is gone, is counted and left out.
+	if len(shop.Members) != 2 || shop.Members[0].Name != "cart-deploy" || len(shop.Members[0].Aliases) != 1 || shop.Members[0].Aliases[0] != "cart" {
+		t.Fatalf("%+v", shop)
 	}
-	if got := shop.ServiceNames(); len(got) != 2 {
+	if m := shop.Members[1]; m.Name != "billing" || m.Namespace != "pay" || m.Cluster != "cl-9" || m.Kind != "Deployment" {
+		t.Fatalf("a service written by hand matches telemetry by its own record: %+v", m)
+	}
+	if shop.Unresolved != 1 {
+		t.Fatalf("one member could not be tied to a service: %+v", shop)
+	}
+	if got := shop.ServiceNames(); len(got) != 3 {
 		t.Fatalf("%v", got)
 	}
 	v := topologyView(doc)
