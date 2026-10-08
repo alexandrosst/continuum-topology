@@ -154,7 +154,7 @@ func TestExportFlagsTakeEffectInTheRenderedExporter(t *testing.T) {
 					t.Errorf("endpoint = %v, want %v", ex["endpoint"], tc.want.endpoint)
 				}
 				tls := mustMap(t, ex["tls"], "tls")
-				for k, v := range map[string]any{"insecure": false, "ca_file": dir + "/ca.crt", "cert_file": dir + "/tls.crt", "key_file": dir + "/tls.key", "reload_interval": "1h"} {
+				for k, v := range map[string]any{"insecure": false, "ca_file": dir + "/ca.crt", "cert_file": dir + "/tls.crt", "key_file": dir + "/tls.key", "reload_interval": "5m"} {
 					if tls[k] != v {
 						t.Errorf("tls.%s = %v, want %v", k, tls[k], v)
 					}

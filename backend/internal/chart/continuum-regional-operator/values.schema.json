@@ -17,6 +17,27 @@
     },
     "replicaCount": { "type": "integer", "minimum": 1 },
     "rolloutOnSecretChange": { "type": "boolean" },
+    "renew": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "server": { "type": "string", "pattern": "^$|^[^\\s:/]+:[0-9]{1,5}$" },
+        "caPin": { "type": "string", "pattern": "^$|^sha256/[A-Za-z0-9+/]{43}=$|^[0-9a-fA-F]{64}$" },
+        "extraSecrets": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "interval": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": { "type": "string" },
+            "tag": { "type": "string" },
+            "digest": { "type": "string" }
+          }
+        },
+        "resources": { "type": "object" }
+      }
+    },
     "extraEnv": {
       "type": "array",
       "items": {

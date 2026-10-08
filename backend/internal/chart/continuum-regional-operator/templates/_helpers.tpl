@@ -107,7 +107,7 @@ linkerd.io/inject: disabled
 
 {{/* The names of the Secrets this pod mounts for TLS, as a JSON list: the receiver's certificate, each destination's
      client certificate, each destination's CA bundle, and the heartbeat's CA. Kubernetes refreshes a mounted Secret in place when it changes, but
-     a collector reads its certificate files only at start and then at every reload_interval (1h, see
+     a collector reads its certificate files only at start and then at every reload_interval (5m, see
      operator.exporterBlock and config.yaml). */}}
 {{- define "operator.tlsSecretNames" -}}
 {{- $root := . -}}
@@ -143,6 +143,22 @@ linkerd.io/inject: disabled
 {{- toJson (uniq $l) -}}
 {{- end -}}
 
+{{/* The Secrets the cert-renew sidecar keeps renewed, as a JSON list: the receiver's certificate, the client certificate of an
+     mTLS destination (the default one: routes carry destinations of the user's own), and renew.extraSecrets. */}}
+{{- define "operator.renewSecretNames" -}}
+{{- $r := .Values.renew | default dict -}}
+{{- $l := list -}}
+{{- if .Values.receiver.tls.enabled }}{{ $l = append $l .Values.receiver.tls.secretName }}{{ end -}}
+{{- if and (include "operator.defaultUsed" .) .Values.export.otlp.tls.mtls.enabled }}{{ $l = append $l .Values.export.otlp.tls.mtls.secretName }}{{ end -}}
+{{- range ($r.extraSecrets | default list) }}{{ $l = append $l . }}{{ end -}}
+{{- toJson (uniq $l) -}}
+{{- end -}}
+
+{{/* Whether the sidecar runs: renew.enabled, and something to renew. */}}
+{{- define "operator.renewOn" -}}
+{{- if and (dig "renew" "enabled" false .Values.AsMap) (gt (len (include "operator.renewSecretNames" . | fromJsonArray)) 0) -}}true{{- end -}}
+{{- end -}}
+
 {{/* A digest of what those Secrets hold right now, so that renewing a certificate or rotating a token and running `helm upgrade`
      (the install command again) restarts the pod instead of leaving it on the old certificate until
      reload_interval comes round. Read with `lookup`, which Helm answers with an empty map when the object does not
@@ -152,11 +168,17 @@ linkerd.io/inject: disabled
      `get` Secrets in this namespace makes Helm itself fail the lookup - set rolloutOnSecretChange=false there. */}}
 {{- define "operator.tlsChecksum" -}}
 {{- if .Values.rolloutOnSecretChange -}}
+{{- $root := . -}}
 {{- $ns := .Release.Namespace -}}
 {{- $parts := list -}}
 {{- range (include "operator.rolloutSecretNames" . | fromJsonArray) -}}
 {{- $s := lookup "v1" "Secret" $ns . -}}
-{{- if and $s $s.data }}{{ $parts = append $parts (printf "%s=%s" . (toJson $s.data | sha256sum)) }}{{ end -}}
+{{- if and $s $s.data -}}
+{{- /* With the renewer on, tls.crt and tls.key change about every 10 days by themselves and the collector re-reads them: a restart for that would be pointless. The CA stays in. */ -}}
+{{- $d := $s.data -}}
+{{- if (include "operator.renewOn" $root) }}{{ $d = omit $d "tls.crt" "tls.key" }}{{ end -}}
+{{- $parts = append $parts (printf "%s=%s" . (toJson $d | sha256sum)) }}
+{{- end -}}
 {{- end -}}
 {{- if $parts }}{{ join "," $parts | sha256sum }}{{ end -}}
 {{- end -}}
@@ -165,6 +187,9 @@ linkerd.io/inject: disabled
 {{/* Required: an operator with no destination for a signal type has nothing to do with it. */}}
 {{- define "operator.validate" -}}
 {{- include "operator.exportValidate" . -}}
+{{- if dig "renew" "enabled" false .Values.AsMap -}}
+{{- if not (and (dig "renew" "server" "" .Values.AsMap) (dig "renew" "caPin" "" .Values.AsMap)) -}}{{- fail "renew.enabled needs renew.server (the Ikhnos server's agent address, host:port) and renew.caPin: the install command Ikhnos prints sets both" -}}{{- end -}}
+{{- end -}}
 {{- /* retry_on_failure.max_interval is 30s (operator.exporterResilienceYAML) and the collector refuses to start when
        max_elapsed_time is shorter than it, which the schema's duration pattern cannot say: the pod would crash-loop
        on a value that looked fine. 0 is "never stop retrying". */ -}}
@@ -212,5 +237,17 @@ linkerd.io/inject: disabled
 {{- if and .Values.heartbeat.tls.caSecretName (not (hasPrefix "https://" (toString .Values.heartbeat.url))) -}}
 {{- fail "heartbeat.tls.caSecretName only applies to an https:// heartbeat.url" -}}
 {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The continuum image the renewer runs (the discovery agent's, not the collector's): renew.image with the same global.imageRegistry rule. */}}
+{{- define "operator.renewImage" -}}
+{{- $i := dig "renew" "image" (dict "repository" "continuum/continuum") .Values.AsMap -}}
+{{- $repo := include "operator.imageRepo" (dict "root" . "repo" ($i.repository | default "continuum/continuum")) -}}
+{{- if $i.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (toString $i.digest)) -}}{{- fail (printf "renew.image.digest must look like sha256:<64 hex characters>, got %q" (toString $i.digest)) -}}{{- end -}}
+{{- printf "%s@%s" $repo $i.digest -}}
+{{- else -}}
+{{- printf "%s:%s" $repo (toString ($i.tag | default .Chart.AppVersion)) -}}
 {{- end -}}
 {{- end -}}

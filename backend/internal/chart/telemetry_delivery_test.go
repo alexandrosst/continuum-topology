@@ -68,11 +68,11 @@ func TestAgentExportersReloadTheirClientCertificate(t *testing.T) {
 	r := render(t, both...)
 	for _, cm := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
 		ex := sub(t, otelConfig(t, r.configmaps[cm].Data), "exporters")
-		if got := sub(t, ex, "otlp", "tls")["reload_interval"]; got != "1h" {
-			t.Errorf("%s: grpc exporter reload_interval = %v, want 1h", cm, got)
+		if got := sub(t, ex, "otlp", "tls")["reload_interval"]; got != "5m" {
+			t.Errorf("%s: grpc exporter reload_interval = %v, want 5m", cm, got)
 		}
-		if got := sub(t, ex, "otlphttp/metrics", "tls")["reload_interval"]; got != "1h" {
-			t.Errorf("%s: http exporter reload_interval = %v, want 1h", cm, got)
+		if got := sub(t, ex, "otlphttp/metrics", "tls")["reload_interval"]; got != "5m" {
+			t.Errorf("%s: http exporter reload_interval = %v, want 5m", cm, got)
 		}
 	}
 	plain := sub(t, hostConfig(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true")...), "exporters", "otlp")

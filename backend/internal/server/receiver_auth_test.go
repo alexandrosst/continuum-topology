@@ -65,6 +65,9 @@ func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 	want := "helm install op-abc123 ./" + chart.RegionalOperator.Filename() + " \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=c:4317" +
 		" \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=op-abc123-receiver-auth" +
 		" \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=op-abc123-receiver-tls \\\n  --set receiver.tls.mtls=true" +
+		// The renewer: where the server is, which CA to trust, and the image of the sidecar (the agent's, not the collector's).
+		" \\\n  --set renew.enabled=true \\\n  --set renew.server=" + a.a.AgentAddr + " \\\n  --set renew.caPin=" + a.a.C.CA.SPKIPin() +
+		" \\\n  --set renew.image.tag=" + chart.Agent.AppVersion() +
 		" \\\n  --set-json operator='{\"id\":\"op-abc123\",\"name\":\"\",\"labels\":[]}'"
 	if got != want {
 		t.Fatalf("bearer install command changed:\n got: %q\nwant: %q", got, want)
@@ -229,5 +232,24 @@ func TestOperatorOwnSecretsEnsureTheNamespaceFirst(t *testing.T) {
 	client := operatorClientSecretCommand(store.Operator{ID: "op-abc"}, []byte("C"), []byte("K"), []byte("A"), "continuum-system")
 	if strings.Contains(client, "create namespace") {
 		t.Fatalf("a client Secret goes into an existing namespace: %q", client)
+	}
+}
+
+// An operator that holds no certificate has nothing to renew: its command says nothing about renewal. One that exports to
+// another operator holds a client certificate even when its own receiver is a bearer one.
+func TestInstallCommandOnlyAsksForRenewalWhereThereIsACertificate(t *testing.T) {
+	a := newAdminRig(t)
+	plain := store.Operator{ID: "op-abc123", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
+		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "c:4317"}}
+	if got, _ := a.a.operatorInstallCommand(ImageConfig{}, "cno_SECRET", plain, OperatorTLSBundle{}, ""); strings.Contains(got, "renew.") {
+		t.Errorf("a bearer operator without certificates asks for renewal: %s", got)
+	}
+	chained := plain
+	chained.Destination = store.Destination{Kind: store.DestinationOperator, TargetOperatorID: "op-central"}
+	got, _ := a.a.operatorInstallCommand(ImageConfig{}, "cno_SECRET", chained, OperatorTLSBundle{}, "")
+	for _, want := range []string{"--set renew.enabled=true", "--set renew.server=" + a.a.AgentAddr, "--set renew.caPin=" + a.a.C.CA.SPKIPin()} {
+		if !strings.Contains(got, want) {
+			t.Errorf("an operator with a client certificate lacks %q: %s", want, got)
+		}
 	}
 }

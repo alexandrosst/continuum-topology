@@ -539,11 +539,11 @@ bearertokenauth:
 {{- end }}
 {{- end -}}
 {{/* The "tls" block of both OTLP receiver protocols (telemetry.receiver.tls): the Secret is mounted at /receiver-tls. The
-     certificate is re-read every hour, so a renewal needs no restart. A CA key makes every client present a certificate. */}}
+     certificate is re-read every 5 minutes, so a renewal needs no restart. A CA key makes every client present a certificate. */}}
 {{- define "agent.telemetryReceiverTLSYAML" -}}
 cert_file: /receiver-tls/tls.crt
 key_file: /receiver-tls/tls.key
-reload_interval: 1h
+reload_interval: 5m
 {{- with .Values.telemetry.receiver.tls.clientCAKey }}
 client_ca_file: /receiver-tls/{{ . }}
 {{- end }}
@@ -796,7 +796,7 @@ telemetry:
 ca_file: {{ .mtls }}/ca.crt
 cert_file: {{ .mtls }}/tls.crt
 key_file: {{ .mtls }}/tls.key
-reload_interval: 1h
+reload_interval: 5m
 {{- else if $c.tls.caSecretName -}}
 ca_file: {{ printf "%s/ca.crt" .ca | quote }}
 {{- else if $c.tls.caFile -}}
@@ -809,7 +809,7 @@ ca_file: {{ $c.tls.caFile | quote }}
      directories its client certificate and CA bundle Secrets are mounted at, .root the chart context. Emits at
      column 0. The auth header's value is never written here - only a reference to the environment variable the
      container injects it into from a Secret at start (see agent.telemetryExporterEnv). A client certificate
-     carries reload_interval: 1h, so a renewed certificate in the mounted Secret is picked up without a restart
+     carries reload_interval: 5m, so a renewed certificate in the mounted Secret is picked up without a restart
      (the CA in ca.crt is not re-read; see telemetry.rolloutOnSecretChange in values.yaml). An http endpoint takes
      the scheme tls.insecure picks unless it already carries one. */}}
 {{- define "agent.telemetryExporterBlock" -}}
@@ -958,6 +958,22 @@ batch:
 {{- toJson (uniq $l) -}}
 {{- end -}}
 
+{{/* The client-certificate Secrets the agent keeps renewed (the server issued them, and decides again at each renewal), as a
+     JSON list: those of the default destination and of each route in use, with telemetry.export...tls.mtls on. */}}
+{{- define "agent.renewSecretNames" -}}
+{{- $root := . -}}
+{{- $a := dict "root" . "scope" "all" -}}
+{{- $l := list -}}
+{{- if and (include "agent.telemetryDefaultUsed" $a) .Values.telemetry.export.otlp.tls.mtls.enabled }}{{ $l = append $l .Values.telemetry.export.otlp.tls.mtls.secretName }}{{ end -}}
+{{- range (include "agent.telemetryModalities" $a | fromJsonArray) -}}
+{{- if include "agent.telemetryHasRoute" (dict "root" $root "m" .) -}}
+{{- $r := get $root.Values.telemetry.export.routes . -}}
+{{- if $r.tls.mtls.enabled }}{{ $l = append $l $r.tls.mtls.secretName }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- toJson (uniq (compact $l)) -}}
+{{- end -}}
+
 {{/* A digest of what those Secrets hold right now, for a pod annotation: renewing a client certificate and running
      the install command again then restarts the collector instead of leaving it on the old certificate until
      reload_interval comes round. Read with `lookup`, which is empty under `helm template` (so also under Argo CD and
@@ -967,10 +983,16 @@ batch:
 {{- define "agent.telemetryMtlsChecksum" -}}
 {{- if .root.Values.telemetry.rolloutOnSecretChange -}}
 {{- $ns := .root.Release.Namespace -}}
+{{- $renewed := include "agent.renewSecretNames" .root | fromJsonArray -}}
 {{- $parts := list -}}
 {{- range (include "agent.telemetryMtlsSecretNames" . | fromJsonArray) -}}
 {{- $s := lookup "v1" "Secret" $ns . -}}
-{{- if and $s $s.data }}{{ $parts = append $parts (printf "%s=%s" . (toJson $s.data | sha256sum)) }}{{ end -}}
+{{- if and $s $s.data -}}
+{{- /* A Secret the agent renews changes its tls.crt and tls.key about every 10 days by itself and the collectors re-read them: a restart for that would be pointless. The CA stays in. */ -}}
+{{- $d := $s.data -}}
+{{- if has . $renewed }}{{ $d = omit $d "tls.crt" "tls.key" }}{{ end -}}
+{{- $parts = append $parts (printf "%s=%s" . (toJson $d | sha256sum)) }}
+{{- end -}}
 {{- end -}}
 {{- if $parts }}{{ join "," $parts | sha256sum }}{{ end -}}
 {{- end -}}

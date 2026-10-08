@@ -120,7 +120,37 @@ spec:
             - {name: queue, mountPath: /queue}
             {{- end }}
           resources: {{- toYaml .Values.resources | nindent 12 }}
+        {{- if include "operator.renewOn" . }}
+        # Keeps the certificates in the Secrets mounted above from running out (see renew in values.yaml). Same image as the
+        # discovery agent, a different role. It alone gets the service-account token, through the projected volume below.
+        - name: cert-renew
+          image: {{ include "operator.renewImage" . | quote }}
+          imagePullPolicy: {{ include "operator.imagePullPolicy" . }}
+          args: ["cert-renew", "--every={{ dig "renew" "interval" "1h" .Values.AsMap }}"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            - {name: CONTINUUM_SERVER, value: {{ .Values.renew.server | quote }}}
+            - {name: CONTINUUM_CA_PIN, value: {{ .Values.renew.caPin | quote }}}
+            - {name: CONTINUUM_RENEW_SECRETS, value: {{ include "operator.renewSecretNames" . | fromJsonArray | join "," | quote }}}
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+          volumeMounts:
+            - {name: kube-api-access, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+          resources: {{- toYaml (dig "renew" "resources" (dict) .Values.AsMap) | nindent 12 }}
+        {{- end }}
       volumes:
+        {{- if include "operator.renewOn" . }}
+        - name: kube-api-access
+          projected:
+            defaultMode: 0444
+            sources:
+              - serviceAccountToken: {path: token, expirationSeconds: 3600}
+              - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: ca.crt}]}
+              - downwardAPI: {items: [{path: namespace, fieldRef: {fieldPath: metadata.namespace}}]}
+        {{- end }}
         - name: config
           configMap: {name: {{ include "operator.configMapName" . }}}
         {{- if .Values.receiver.tls.enabled }}

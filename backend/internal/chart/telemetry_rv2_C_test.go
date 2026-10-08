@@ -247,7 +247,7 @@ func TestRV2CReceiverTLSIsMountedAndWired(t *testing.T) {
 	protos := rv2CMap(rv2CMap(rv2CMap(cfg["receivers"])["otlp"])["protocols"])
 	for _, p := range []string{"grpc", "http"} {
 		tls := rv2CMap(rv2CMap(protos[p])["tls"])
-		if tls["cert_file"] != "/receiver-tls/tls.crt" || tls["key_file"] != "/receiver-tls/tls.key" || tls["reload_interval"] != "1h" {
+		if tls["cert_file"] != "/receiver-tls/tls.crt" || tls["key_file"] != "/receiver-tls/tls.key" || tls["reload_interval"] != "5m" {
 			t.Errorf("%s tls = %v", p, tls)
 		}
 		if _, ok := tls["client_ca_file"]; ok {

@@ -44,6 +44,33 @@ metadata:
   labels: {{- include "agent.labels" . | nindent 4 }}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ include "agent.name" . }}-identity}
 subjects: [{kind: ServiceAccount, name: {{ include "agent.name" . }}, namespace: {{ .Release.Namespace }}}]
+{{- with include "agent.renewSecretNames" . | fromJsonArray }}
+---
+# The client certificates of the telemetry exporters (the Secrets named in telemetry.export...tls.mtls.secretName) are
+# renewed by the agent before they run out, so nobody has to remember to. Get/update/patch on exactly those named
+# Secrets: it cannot list them, read any other Secret or create one. They exist before the agent does (the install
+# command applies them first); the agent renews what is there and leaves a missing one alone.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "agent.name" $ }}-cert-renew
+  namespace: {{ $.Release.Namespace }}
+  labels: {{- include "agent.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: {{ toJson . }}
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "agent.name" $ }}-cert-renew
+  namespace: {{ $.Release.Namespace }}
+  labels: {{- include "agent.labels" $ | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ include "agent.name" $ }}-cert-renew}
+subjects: [{kind: ServiceAccount, name: {{ include "agent.name" $ }}, namespace: {{ $.Release.Namespace }}}]
+{{- end }}
 {{- if .Values.access.resolveApiEndpoint }}
 ---
 # Resolves a more useful "API endpoint" than the raw ClusterIP every in-cluster client, including this

@@ -858,6 +858,26 @@ func (a *Admin) operatorInstallCommandWith(img ImageConfig, secret string, op st
 	if heartbeatURL != "" {
 		flag(a.operatorHeartbeatSetFlags(op, heartbeatURL))
 	}
+	// Keeps this operator's certificates from running out: the chart's cert-renew sidecar (the discovery agent's image, a
+	// different role) asks this server for a new one before the old one ends. It only needs to know where the server is
+	// and which CA to trust; there is no token or key to hand out. Only when the operator holds a certificate at all.
+	if a.AgentAddr != "" && (mtlsOnly || len(tlsBundle.ReceiverCertPEM) > 0 || op.Destination.Kind == store.DestinationOperator) {
+		flag("--set renew.enabled=true")
+		flag(setFlag("renew.server", a.AgentAddr))
+		flag(setFlag("renew.caPin", a.C.CA.SPKIPin()))
+		if img.Configured() {
+			flag(setFlag("renew.image.repository", img.Registry+"/continuum"))
+			if img.Tag != "" {
+				flag(setFlag("renew.image.tag", img.Tag))
+			}
+			if img.Digest != "" {
+				flag(setFlag("renew.image.digest", img.Digest))
+			}
+		} else if v := chart.Agent.AppVersion(); v != "" {
+			// The operator chart's own appVersion is the collector's; the sidecar runs the agent image.
+			flag(setFlag("renew.image.tag", v))
+		}
+	}
 	flag("--set-json operator=" + shellQuote(operatorProvenanceJSON(op)))
 	// No image flags, on purpose. The operator runs the upstream OpenTelemetry Collector image the chart
 	// already names - not the `continuum` image the configured registry holds - so pointing it at

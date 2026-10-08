@@ -389,9 +389,11 @@ telemetry:
   # renewing a certificate and running the install command again takes effect at once. It is a checksum annotation on
   # the pods, computed with Helm's `lookup` at render time. Two limits, both harmless:
   #   - `helm template`, and so Argo CD and Flux, cannot look at the cluster: no checksum is rendered and nothing
-  #     restarts. Every client-certificate exporter still re-reads the certificate and key at the first new connection after each hour (reload_interval),
+  #     restarts. Every client-certificate exporter still re-reads the certificate and key at the first new connection after each 5 minutes (reload_interval),
   #     so a renewed certificate is in use from the first new connection after that, which a long-lived connection delays. A new CA (ca.crt) is not re-read: run
   #     `kubectl rollout restart` after replacing one.
+  # The agent renews those client certificates itself, with 20 days or less left (it asks the server, proving it holds the old
+  # key): their tls.crt and tls.key are left out of the digest, so that does not restart the collectors every time.
   #   - Helm fails the render if the account running it may not `get` Secrets in this namespace. Set this to false then.
   rolloutOnSecretChange: true
 

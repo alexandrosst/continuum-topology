@@ -130,7 +130,7 @@ func TestFusionNetworkPolicyLeavesTheGatewayReachable(t *testing.T) {
 func TestFusionCentralReloadsItsCertificateAndPublishesOnlyGRPCWhenExposed(t *testing.T) {
 	cfg := centralConfig(t)
 	grpc := cfg["receivers"].(map[string]any)["otlp"].(map[string]any)["protocols"].(map[string]any)["grpc"].(map[string]any)
-	if tls, _ := grpc["tls"].(map[string]any); tls["reload_interval"] != "1h" {
+	if tls, _ := grpc["tls"].(map[string]any); tls["reload_interval"] != "5m" {
 		t.Errorf("the gateway does not reload its certificate: %v", tls)
 	}
 	ports := func(r fusionRendered) string {

@@ -76,15 +76,44 @@ podSecurity:
 mesh:
   injection: disabled   # disabled | inherit
 
+# Keeps this operator's own certificates from running out, with nobody doing anything. A small sidecar (the `continuum
+# cert-renew` role of the same image the discovery agent runs) looks at the receiver's certificate (receiver.tls) and the
+# client certificate of an mTLS destination (export.otlp.tls.mtls) and, with less than 20 days left, asks the Ikhnos
+# server for a new one: it makes a NEW key here and proves it holds the OLD one, so the key never leaves the pod and no
+# token or enrollment key is involved. The collector re-reads the files within minutes (reload_interval), no restart.
+# The server decides again at every renewal: an operator that was deleted, or a sender that is no longer approved,
+# is not renewed, and its certificate simply runs out.
+# The install command Ikhnos prints sets enabled, server and caPin; nothing else is needed. The sidecar may only get
+# and update the Secrets it renews (a Role with resourceNames), and gets the service-account token to do it; the
+# collector container does not. With networkPolicy.egress on, let the pod reach the Ikhnos server and the Kubernetes
+# API server too (networkPolicy.egress.extraEgress): the policy covers every container of the pod.
+renew:
+  enabled: false
+  server: ""        # the Ikhnos server's agent address, host:port (the enrollment listener)
+  caPin: ""         # pin of the server CA, sha256/<base64> as the install command prints it
+  # Extra Secrets in this namespace to renew besides the receiver's and the mTLS destination's; each holds tls.crt, tls.key and ca.crt.
+  extraSecrets: []
+  # How often the Secrets are looked at (a Go duration); a failed attempt is retried sooner.
+  interval: 1h
+  image:
+    repository: continuum/continuum
+    tag: ""         # defaults to the chart's appVersion
+    digest: ""
+  resources:
+    requests: {cpu: 10m, memory: 24Mi}
+    limits: {memory: 64Mi}
+
 # Restart the pod when a Secret it reads changes - a TLS Secret it mounts (the receiver's certificate, a destination's
 # client certificate, the heartbeat CA) or one it reads into an environment variable at start (the receiver's bearer
 # token, a destination's credential header, the heartbeat secret; a running container never sees those change) - so
 # that renewing a certificate or rotating a token and running the install command again takes effect at once. It is
 # a checksum annotation on the pod, computed with Helm's `lookup` at render time. Two limits, both harmless:
 #   - `helm template`, and so Argo CD and Flux, cannot look at the cluster: no checksum is rendered and nothing
-#     restarts. The collector still re-reads the certificate and key at the first new connection after each hour (reload_interval) without a restart,
-#     so a renewed certificate is in use from the first new connection after that, which a long-lived connection delays. A new CA (ca.crt) is not re-read, and neither
+#     restarts. The collector still re-reads the certificate and key at the first new connection after each 5 minutes (reload_interval) without a restart,
+#     so a renewed certificate is in use from the first new connection after that, which a long-lived connection delays. A new CA (ca.crt) of a destination is not re-read, and neither
 #     is a token: restart the pod (`kubectl rollout restart`) after replacing one.
+# With renew.enabled the certificate and key (tls.crt, tls.key) are left out of the digest: the sidecar replaces them on
+# its own about every 10 days, and a restart for each of those would be pointless. The CA (ca.crt) stays in it.
 #   - Helm fails the render if the account running it may not `get` Secrets in this namespace. Set this to false then.
 rolloutOnSecretChange: true
 

@@ -72,7 +72,13 @@ func TestOperatorInstallCommandNeverOverridesTheImage(t *testing.T) {
 		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "c:4317"}}
 	img := ImageConfig{Registry: "ghcr.io/me", Tag: "0.2.0-dev", Digest: "sha256:" + strings.Repeat("a", 64)}
 	got, _ := a.a.operatorInstallCommand(img, "", op, OperatorTLSBundle{ReceiverCertPEM: []byte("x")}, "")
-	if strings.Contains(got, "image.") {
-		t.Fatalf("operator install command sets an image: %s", got)
+	// The collector keeps the upstream image the chart names; only the cert-renew sidecar runs the continuum image.
+	if strings.Contains(got, "--set image.") || strings.Contains(got, "--set global.") {
+		t.Fatalf("operator install command sets the collector's image: %s", got)
+	}
+	for _, want := range []string{"--set renew.image.repository=ghcr.io/me/continuum", "--set renew.image.tag=0.2.0-dev", "--set renew.image.digest=sha256:"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("operator install command lacks %q: %s", want, got)
+		}
 	}
 }

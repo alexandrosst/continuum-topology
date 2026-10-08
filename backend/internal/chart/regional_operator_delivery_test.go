@@ -44,13 +44,13 @@ func TestRegionalOperatorReloadsEveryCertificateItPresentsOrServes(t *testing.T)
 		"--set", "export.routes.logs.tls.mtls.enabled=true", "--set", "export.routes.logs.tls.mtls.secretName=logs-client",
 		"--set", "export.routes.traces.endpoint=tempo.example:4317", "--set", "export.routes.traces.tls.caFile=/some/ca.crt")...)
 	for _, proto := range []string{"grpc", "http"} {
-		if got := sub(t, cfg, "receivers", "otlp", "protocols", proto, "tls")["reload_interval"]; got != "1h" {
-			t.Errorf("receiver %s tls reload_interval = %v, want 1h", proto, got)
+		if got := sub(t, cfg, "receivers", "otlp", "protocols", proto, "tls")["reload_interval"]; got != "5m" {
+			t.Errorf("receiver %s tls reload_interval = %v, want 5m", proto, got)
 		}
 	}
 	for _, name := range []string{"otlp", "otlphttp/logs"} {
-		if got := sub(t, cfg, "exporters", name, "tls")["reload_interval"]; got != "1h" {
-			t.Errorf("exporter %s tls reload_interval = %v, want 1h", name, got)
+		if got := sub(t, cfg, "exporters", name, "tls")["reload_interval"]; got != "5m" {
+			t.Errorf("exporter %s tls reload_interval = %v, want 5m", name, got)
 		}
 	}
 	// A block with no certificate of its own has nothing to reload.

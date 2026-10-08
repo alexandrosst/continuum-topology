@@ -264,8 +264,9 @@ func TestRegionalOperatorChecksumCoversTheHeartbeatCA(t *testing.T) {
 	}
 }
 
-// Both agent collectors mount the client certificate, so both restart on a renewal; a collector that does not mount
-// it (a route that only the cluster collector uses) is not restarted by it.
+// Both agent collectors mount the client certificate, so both restart when its CA is replaced; a collector that does not
+// mount it (a route that only the cluster collector uses) is not restarted by it. A renewed certificate and key restart
+// nothing: the agent renews them in place.
 func TestAgentCollectorsRestartWhenTheClientCertificateChanges(t *testing.T) {
 	k, kc := startFakeKubernetes(t)
 	k.set("op-client-tls", map[string]string{"tls.crt": "client-1", "tls.key": "ckey-1", "ca.crt": "ca-1"})
@@ -289,18 +290,26 @@ func TestAgentCollectorsRestartWhenTheClientCertificateChanges(t *testing.T) {
 		t.Errorf("the cluster collector also mounts the logs route's certificate, the host collector does not: the digests should differ")
 	}
 
+	// The agent renews the client certificates itself (CONTINUUM_RENEW_SECRETS), every ~10 days: a new tls.crt and
+	// tls.key must not restart the collectors, they re-read the files. A new CA must, it is not re-read.
 	k.set("logs-client-tls", map[string]string{"tls.crt": "l-2", "tls.key": "lk-2", "ca.crt": "ca-1"})
+	k.set("op-client-tls", map[string]string{"tls.crt": "client-2", "tls.key": "ckey-2", "ca.crt": "ca-1"})
+	renewed := read()
+	if renewed[host]["checksum/mtls"] != first[host]["checksum/mtls"] || renewed[cluster]["checksum/mtls"] != first[cluster]["checksum/mtls"] {
+		t.Errorf("a renewed certificate and key restart the collectors: the agent renews them in place and the collectors re-read them")
+	}
+	k.set("logs-client-tls", map[string]string{"tls.crt": "l-2", "tls.key": "lk-2", "ca.crt": "ca-2"})
 	second := read()
 	if second[host]["checksum/mtls"] != first[host]["checksum/mtls"] {
 		t.Errorf("the host collector does not mount the logs route's Secret but its checksum changed")
 	}
 	if second[cluster]["checksum/mtls"] == first[cluster]["checksum/mtls"] {
-		t.Errorf("renewing the logs route's certificate did not change the cluster collector's checksum")
+		t.Errorf("replacing the logs route's CA did not change the cluster collector's checksum")
 	}
-	k.set("op-client-tls", map[string]string{"tls.crt": "client-2", "tls.key": "ckey-2", "ca.crt": "ca-1"})
+	k.set("op-client-tls", map[string]string{"tls.crt": "client-2", "tls.key": "ckey-2", "ca.crt": "ca-2"})
 	third := read()
 	if third[host]["checksum/mtls"] == second[host]["checksum/mtls"] || third[cluster]["checksum/mtls"] == second[cluster]["checksum/mtls"] {
-		t.Errorf("renewing the default certificate must change both collectors' checksums")
+		t.Errorf("replacing the default CA must change both collectors' checksums")
 	}
 
 	if got := read("--set", "telemetry.rolloutOnSecretChange=false"); got[host]["checksum/mtls"] != "" || got[cluster]["checksum/mtls"] != "" {

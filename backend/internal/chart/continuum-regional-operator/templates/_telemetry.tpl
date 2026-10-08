@@ -191,7 +191,7 @@ bearertokenauth:
 ca_file: {{ .mtls }}/ca.crt
 cert_file: {{ .mtls }}/tls.crt
 key_file: {{ .mtls }}/tls.key
-reload_interval: 1h
+reload_interval: 5m
 {{- else if $c.tls.caSecretName -}}
 ca_file: {{ printf "%s/ca.crt" .ca | quote }}
 {{- else if $c.tls.caFile -}}

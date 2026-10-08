@@ -79,6 +79,20 @@ func (c *Chart) parseVersion() string {
 	return "0.0.0"
 }
 
+// AppVersion is the appVersion from its Chart.yaml: the tag of the image the chart runs when none is chosen.
+func (c *Chart) AppVersion() string {
+	b, err := c.files.ReadFile(c.dir + "/Chart.yaml")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(line, "appVersion:"); ok {
+			return strings.Trim(strings.TrimSpace(v), `"'`)
+		}
+	}
+	return ""
+}
+
 // Filename is what `helm package` would call the archive.
 func (c *Chart) Filename() string { return c.dir + "-" + c.Version() + ".tgz" }
 

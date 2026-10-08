@@ -94,6 +94,9 @@ spec:
             - {name: CONTINUUM_RBAC_MODE, value: "namespaced"}
             {{- end }}
             - {name: CONTINUUM_IDENTITY_SECRET, value: {{ include "agent.identitySecret" . | quote }}}
+            {{- with include "agent.renewSecretNames" . | fromJsonArray }}
+            - {name: CONTINUUM_RENEW_SECRETS, value: {{ join "," . | quote }}}
+            {{- end }}
             - {name: GOMEMLIMIT, value: {{ .Values.tuning.goMemLimit | quote }}}
             - {name: GOGC, value: {{ .Values.tuning.goGC | quote }}}
             - name: POD_NAMESPACE
