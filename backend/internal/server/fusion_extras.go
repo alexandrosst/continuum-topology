@@ -47,9 +47,11 @@ func (e fusionExtras) Topology(ctx context.Context) (*fusionapi.TopologyView, er
 		return nil, &fusionapi.Error{Status: 503, Msg: "the organisation's topology is not available"}
 	}
 	v := topologyView(doc)
-	// Say which Ikhnos applications each service is in. The topology is still worth returning when the saved workspace
-	// cannot be read, so a failure here leaves the services unannotated.
-	annotateApplications(v, e.groups(ctx, t, doc))
+	// Say which Ikhnos applications each service is in, from the applications as last worked out (reused for appGroupTTL,
+	// so reading many traces does not read and parse the workspace for each). The topology is still worth returning when
+	// they cannot be had, so a failure here leaves the services unannotated.
+	groups, _ := e.Applications(ctx)
+	annotateApplications(v, groups)
 	return v, nil
 }
 
@@ -97,14 +99,6 @@ func (e fusionExtras) applications(ctx context.Context) ([]fusionapi.AppGroup, e
 		return nil, &fusionapi.Error{Status: 503, Msg: "the saved applications are not available"}
 	}
 	return appGroups(ws.Data, doc), nil
-}
-
-func (e fusionExtras) groups(ctx context.Context, t *Tenant, doc StateDoc) []fusionapi.AppGroup {
-	ws, err := t.C.Store.GetWorkspace(ctx, t.C.OrgID)
-	if err != nil {
-		return nil
-	}
-	return appGroups(ws.Data, doc)
 }
 
 // appGroups turns the applications of a saved workspace into groups of services by the identity telemetry carries. A member

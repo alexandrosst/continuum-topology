@@ -81,6 +81,9 @@ func (c *Client) FuseMany(ctx context.Context, s Scope, ids []string, opts FuseO
 		}
 		return out
 	}
+	if opts.Extras != nil && (opts.Topology || opts.Changes) {
+		opts.Extras = &topologyOnce{Extras: opts.Extras} // one topology for the whole batch, not one per trace
+	}
 	var mu sync.Mutex
 	finish := func(i int, it BulkItem) {
 		mu.Lock()
@@ -122,6 +125,20 @@ feed:
 	close(work)
 	wg.Wait()
 	return out
+}
+
+// topologyOnce reads the topology the first time a batch asks and gives every trace of the batch that same view, so the
+// batch is joined to one consistent picture and the server builds it once. (A view is only read after it is built.)
+type topologyOnce struct {
+	Extras
+	once sync.Once
+	view *TopologyView
+	err  error
+}
+
+func (t *topologyOnce) Topology(ctx context.Context) (*TopologyView, error) {
+	t.once.Do(func() { t.view, t.err = t.Extras.Topology(ctx) })
+	return t.view, t.err
 }
 
 // bulkFailure is the status and the words for one trace's failure.

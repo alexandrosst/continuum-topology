@@ -192,3 +192,30 @@ func TestTheApplicationsAreReusedForAShortWhile(t *testing.T) {
 		t.Fatalf("after the TTL the answer was not worked out again: %d %s", r.Code, r.Body.String())
 	}
 }
+
+// A fused read with include=topology takes the applications from the reused answer, so reading many traces does not read and
+// parse the saved workspace once each.
+func TestTheTopologyUsesTheReusedApplications(t *testing.T) {
+	d := newDataRig(t)
+	ex := fusionExtras{d.a}
+	if _, err := ex.Topology(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c := &d.a.appCache
+	c.mu.Lock()
+	if c.at.IsZero() {
+		c.mu.Unlock()
+		t.Fatal("the topology did not go through the kept applications")
+	}
+	kept := c.at.Add(-time.Second) // (the rig's clock stands still; this tells a reuse from a new reading)
+	c.at = kept
+	c.mu.Unlock()
+	if _, err := ex.Topology(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.at.Equal(kept) {
+		t.Fatal("a second topology within the TTL worked the applications out again")
+	}
+}

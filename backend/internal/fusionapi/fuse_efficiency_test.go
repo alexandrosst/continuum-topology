@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -93,5 +94,42 @@ func TestReplicasShareTheirAppAndNodeMetricReads(t *testing.T) {
 		if len(r.Metrics) == 0 || r.Metrics[0].Name != "up" {
 			t.Fatalf("%s carries %+v", r.Pod, r.Metrics)
 		}
+	}
+}
+
+type countingExtras struct {
+	*fakeExtras
+	topologies atomic.Int32
+}
+
+func (c *countingExtras) Topology(ctx context.Context) (*TopologyView, error) {
+	c.topologies.Add(1)
+	return c.fakeExtras.Topology(ctx)
+}
+
+// A batch is joined to one topology, read once, however many traces it holds.
+func TestABatchReadsTheTopologyOnce(t *testing.T) {
+	f := newFake(t)
+	f.tempo = func(w http.ResponseWriter, r *http.Request) { writeJSON(w, tempoTrace()) }
+	ex := &countingExtras{fakeExtras: &fakeExtras{view: testView()}}
+	var ids []string
+	for i := 0; i < 6; i++ {
+		ids = append(ids, strings.Repeat("b", 31)+"0123456789ab"[i:i+1])
+	}
+	items := f.client().FuseMany(context.Background(), AllSignals(), ids, FuseOptions{Topology: true, Extras: ex}, nil)
+	for _, it := range items {
+		if it.Status != http.StatusOK || it.Trace.Sources[SourceTopology] != SourceOK {
+			t.Fatalf("%+v", it)
+		}
+	}
+	if n := ex.topologies.Load(); n != 1 {
+		t.Fatalf("the topology was read %d times for 6 traces", n)
+	}
+	// A single read still asks for its own.
+	if _, err := f.client().FuseTrace(context.Background(), AllSignals(), traceHex, FuseOptions{Topology: true, Extras: ex}); err != nil {
+		t.Fatal(err)
+	}
+	if n := ex.topologies.Load(); n != 2 {
+		t.Fatalf("topology reads = %d", n)
 	}
 }
