@@ -938,9 +938,10 @@ func (h *Hub) persist(ctx context.Context, id string, force bool) {
 		h.mu.Unlock()
 		return
 	}
-	data, err := v.state.Marshal()
+	snap := v.state.Snapshot() // cheap; encoding it is the slow part, so that happens outside h.mu
 	v.savedAt = h.C.Now()
 	h.mu.Unlock()
+	data, err := proto.Marshal(snap)
 	if err == nil && len(data) > snapshotCap(h.limits()) {
 		err = fmt.Errorf("the state is %d bytes, over the limit of %d for what is stored", len(data), snapshotCap(h.limits()))
 	} else if err == nil {

@@ -90,8 +90,10 @@ func drop[T proto.Message](m map[string]T, k string) int64 {
 	return int64(proto.Size(old))
 }
 
-// Marshal serialises the state as one full Sync (for the snapshot table).
-func (s *State) Marshal() ([]byte, error) {
+// Snapshot is the state as one full Sync. It copies the maps into slices of pointers and nothing
+// more: Apply replaces the messages it holds and never edits them, so the result stays valid when the
+// state moves on, and can be encoded without holding whatever lock guards the State.
+func (s *State) Snapshot() *continuumv1.Sync {
 	m := &continuumv1.Sync{Seq: s.Seq, Full: true, Cluster: s.Cluster, Modules: s.Modules}
 	for _, n := range s.Nodes {
 		m.Nodes = append(m.Nodes, n)
@@ -102,8 +104,11 @@ func (s *State) Marshal() ([]byte, error) {
 	for _, w := range s.Workloads {
 		m.Workloads = append(m.Workloads, w)
 	}
-	return proto.Marshal(m)
+	return m
 }
+
+// Marshal serialises the state as one full Sync (for the snapshot table).
+func (s *State) Marshal() ([]byte, error) { return proto.Marshal(s.Snapshot()) }
 
 func Unmarshal(b []byte) (*State, error) {
 	var m continuumv1.Sync
