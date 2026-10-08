@@ -22,6 +22,9 @@ const (
 	// MaxMapEntries and MaxRepeated bound any map and any repeated field inside a fact.
 	MaxMapEntries = 1000
 	MaxRepeated   = 5000
+	// MaxReason bounds ModuleStatus.reason, which carries raw error text: the agent cuts it to this before
+	// sending and the server cuts it again rather than refusing the message.
+	MaxReason = 512
 
 	// The most of each kind one cluster may hold once a message has been merged, and the most all of
 	// them may take up together (their encoded size). Counts alone would not bound memory: an entity can
@@ -97,7 +100,8 @@ func SanitizeSync(m *continuumv1.Sync) error {
 	return nil
 }
 
-func cut(s string, n int) string {
+// Cut returns s cut to at most n bytes, never in the middle of a character.
+func Cut(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
@@ -173,7 +177,7 @@ func walkMap(fd protoreflect.FieldDescriptor, m protoreflect.Map, depth int) err
 		switch fd.MapValue().Kind() {
 		case protoreflect.StringKind:
 			if s := v.String(); len(s) > MaxMapValue {
-				cuts = append(cuts, fix{k, cut(s, MaxMapValue)})
+				cuts = append(cuts, fix{k, Cut(s, MaxMapValue)})
 			}
 		case protoreflect.MessageKind, protoreflect.GroupKind:
 			if err = walk(v.Message(), depth+1); err != nil {

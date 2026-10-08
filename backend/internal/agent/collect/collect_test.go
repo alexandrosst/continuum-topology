@@ -7,8 +7,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/facts"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -624,5 +626,24 @@ func TestNamespacedRBACRequiresNamespaces(t *testing.T) {
 	defer cancel()
 	if err := c.Start(ctx); err == nil || !strings.Contains(err.Error(), "scope.Include") && !strings.Contains(err.Error(), "namespace") {
 		t.Fatalf("Start() error = %v, want a clear refusal", err)
+	}
+}
+
+// A module's reason carries raw error text. The server refuses a reason over facts.MaxReason, which ended the stream
+// whenever the API server was unreachable; the agent cuts it (on a character boundary) instead.
+func TestModuleReasonsAreClipped(t *testing.T) {
+	c, _ := start(t, 2)
+	mods := c.setMeshModule(&continuumv1.MeshFacts{PolicyNote: strings.Repeat("é", 1000)})
+	var mesh *continuumv1.ModuleStatus
+	for _, m := range mods {
+		if len(m.Reason) > facts.MaxReason || !utf8.ValidString(m.Reason) {
+			t.Errorf("%s: reason is %d bytes (valid utf-8: %v)", m.Name, len(m.Reason), utf8.ValidString(m.Reason))
+		}
+		if m.Name == ModMesh {
+			mesh = m
+		}
+	}
+	if mesh == nil || mesh.State != continuumv1.ModuleStatus_SKIPPED || !strings.HasPrefix(mesh.Reason, "policy objects not read: é") {
+		t.Fatalf("the mesh module = %v", mesh)
 	}
 }

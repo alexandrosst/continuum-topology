@@ -924,9 +924,10 @@ func validateModules(ms []*continuumv1.ModuleStatus) error {
 		return errors.New("an agent may report at most 64 modules")
 	}
 	for _, m := range ms {
-		if len(m.Name) > 64 || len(m.Reason) > maxStr {
+		if len(m.Name) > 64 {
 			return errors.New("module status is malformed")
 		}
+		m.Reason = printable(m.Reason, facts.MaxReason) // raw error text: cut, never a reason to end the stream
 	}
 	return nil
 }

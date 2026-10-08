@@ -17,6 +17,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/facts"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -466,6 +467,11 @@ func (c *Collector) Modules() []*continuumv1.ModuleStatus {
 	mods := c.moduleStatus()
 	if c.meshMod != nil {
 		mods = append(mods, c.meshMod)
+	}
+	// Reasons carry raw error text (an unreachable API server gives several long ones, joined): the server refuses
+	// a longer one, which would end the stream exactly when the operator needs to read it.
+	for _, m := range mods {
+		m.Reason = facts.Cut(m.Reason, facts.MaxReason)
 	}
 	return mods
 }
