@@ -51,6 +51,12 @@ spec:
           args:
             - -config.file=/etc/loki/loki.yaml
             - -target=all
+            {{- if .Values.switch.managed }}
+            # The retention comes from the settings ConfigMap the server changes (see fusion.settingsName).
+            - -config.expand-env=true
+          env:
+            {{- include "fusion.settingEnv" (dict "root" . "name" "LOKI_RETENTION" "key" "loki.retention") | nindent 12 }}
+            {{- end }}
           ports:
             - {name: http, containerPort: 3100, protocol: TCP}
           readinessProbe:
@@ -91,6 +97,6 @@ spec:
         storageClassName: {{ . | quote }}
         {{- end }}
         resources:
-          requests: {storage: {{ $l.storage | quote }}}
+          requests: {storage: {{ include "fusion.storageSize" (dict "root" . "values" (toString $l.storage) "name" $name) | quote }}}
   {{- end }}
 {{- end }}

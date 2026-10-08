@@ -161,3 +161,87 @@ func TestKubeClientFindsTheGatewaysAddress(t *testing.T) {
 		}
 	}
 }
+
+func TestKubeClientReadsAClaimsSizeClassAndResize(t *testing.T) {
+	k := testKube(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/namespaces/obs/persistentvolumeclaims/data-f-loki-0" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		w.Write([]byte(`{"metadata":{"creationTimestamp":"2026-09-01T10:00:00Z"},
+		 "spec":{"storageClassName":"gp3","resources":{"requests":{"storage":"20Gi"}}},
+		 "status":{"phase":"Bound","capacity":{"storage":"10Gi"},"conditions":[{"type":"FileSystemResizePending","status":"True","message":"Waiting for user to (re-)start a pod\nsecond line"}]}}`))
+	})
+	c, err := k.Claim(context.Background(), "data-f-loki-0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.StorageClass != "gp3" || c.Requested != 20<<30 || c.Capacity != 10<<30 || c.Phase != "Bound" || !c.Resizing || c.Created.Year() != 2026 {
+		t.Errorf("claim = %+v", c)
+	}
+	if strings.Contains(c.ResizeNote, "\n") {
+		t.Errorf("note = %q", c.ResizeNote)
+	}
+}
+
+func TestKubeClientSaysWhyAClaimCannotGrow(t *testing.T) {
+	var body, ct string
+	status := 403
+	msg := `persistentvolumeclaims "data-f-loki-0" is forbidden: only dynamically provisioned pvc can be resized and the storageclass that provisions the pvc must support resize`
+	k := testKube(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body, ct = string(b), r.Header.Get("Content-Type")
+		w.WriteHeader(status)
+		w.Write([]byte(`{"message":"` + msg + `"}`))
+	})
+	err := k.ResizeClaim(context.Background(), "data-f-loki-0", 20<<30)
+	if !errors.Is(err, ErrKubeNoResize) {
+		t.Fatalf("err = %v", err)
+	}
+	if ct != "application/merge-patch+json" || body != `{"spec":{"resources":{"requests":{"storage":"21474836480"}}}}` {
+		t.Errorf("%s %s", ct, body)
+	}
+	// The Role refusing is a different thing, and must stay "forbidden".
+	msg = `persistentvolumeclaims "data-f-loki-0" is forbidden: User "system:serviceaccount:obs:server" cannot patch resource "persistentvolumeclaims"`
+	if err := k.ResizeClaim(context.Background(), "data-f-loki-0", 20<<30); !errors.Is(err, ErrKubeForbidden) || errors.Is(err, ErrKubeNoResize) {
+		t.Errorf("a Role refusal was read as %v", err)
+	}
+}
+
+func TestKubeClientSettingsAndRestart(t *testing.T) {
+	var method, path, body string
+	status := 200
+	k := testKube(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		method, path, body = r.Method, r.URL.Path, string(b)
+		w.WriteHeader(status)
+		w.Write([]byte(`{"data":{"loki.retention":"168h"}}`))
+	})
+	ctx := context.Background()
+	got, err := k.Settings(ctx, "f-settings")
+	if err != nil || got["loki.retention"] != "168h" || path != "/api/v1/namespaces/obs/configmaps/f-settings" {
+		t.Fatalf("%v %v %s", got, err, path)
+	}
+	if err := k.PatchSettings(ctx, "f-settings", map[string]string{"loki.retention": "336h"}); err != nil || method != "PATCH" || body != `{"data":{"loki.retention":"336h"}}` {
+		t.Errorf("%v %s %s", err, method, body)
+	}
+	if err := k.RestartPod(ctx, "f-loki-0"); err != nil || method != "DELETE" || path != "/api/v1/namespaces/obs/pods/f-loki-0" {
+		t.Errorf("%v %s %s", err, method, path)
+	}
+	status = 404 // already gone: the StatefulSet is starting it anyway
+	if err := k.RestartPod(ctx, "f-loki-0"); err != nil {
+		t.Errorf("a pod that is already gone: %v", err)
+	}
+}
+
+func TestParseQuantity(t *testing.T) {
+	for in, want := range map[string]int64{"10Gi": 10 << 30, "500Mi": 500 << 20, "1073741824": 1 << 30, "10G": 10e9, "1.5Gi": 3 << 29, "1Ti": 1 << 40, "2k": 2000} {
+		if got, err := parseQuantity(in); err != nil || got != want {
+			t.Errorf("parseQuantity(%q) = %d, %v; want %d", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "Gi", "ten", "-1Gi"} {
+		if _, err := parseQuantity(bad); err == nil {
+			t.Errorf("parseQuantity(%q) accepted", bad)
+		}
+	}
+}

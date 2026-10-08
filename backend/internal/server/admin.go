@@ -249,6 +249,8 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/fusion/pages", adminRole, a.openFusionPage)
 	route("POST "+o+"/fusion/enable", adminRole, a.enableFusion)
 	route("POST "+o+"/fusion/disable", adminRole, a.disableFusion)
+	route("GET "+o+"/fusion/retention", adminRole, a.getFusionRetention)
+	route("PUT "+o+"/fusion/retention", adminRole, a.setFusionRetention)
 	// FUSION access tokens: read-only credentials for the shared data API below.
 	route("GET "+o+"/fusion/tokens", adminRole, a.listFusionTokens)
 	route("POST "+o+"/fusion/tokens", adminRole, a.createFusionToken)

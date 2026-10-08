@@ -83,6 +83,9 @@ type FusionControl struct {
 	// started with a certificate that was already replaced. One at a time, in the order they arrive.
 	switchMu sync.Mutex
 
+	// retention caches the last measurement of the stores' disk use (see measure).
+	retention retentionCache
+
 	mu    sync.Mutex
 	data  *fusionapi.Client
 	since time.Time // when the stores were last asked to start; zero when off or unknown

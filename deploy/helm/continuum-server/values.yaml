@@ -414,7 +414,7 @@ automountServiceAccountToken: false
 fusion:
   enabled: true
   switch:
-    managed: true          # the server owns the replica count: a `helm upgrade` leaves its last decision alone
+    managed: true          # the server owns the replica count and the stores' retention and volume size (changed from the UI): a `helm upgrade` leaves its last decision alone
     initialReplicas: 0     # standing by until the UI turns it on
   grafana:
     enabled: true          # Grafana, pre-connected to the three stores, opened from the UI at /fusion/grafana/
@@ -425,9 +425,10 @@ fusion:
     enabled: true
 
 # What lets the server do that, and all it can do: a namespaced Role that reads and scales the four FUSION workloads,
-# reads (never changes) their pods and volume claims and the gateway's Service so it can say why a part is not starting
-# and where the gateway is reachable, and writes the central gateway's certificate Secret. No other object, no
-# cluster-wide rule, no delete, no create, no exec. Needs fusion.enabled. Set enabled to false to remove the permission
+# reads their pods and volume claims and the gateway's Service so it can say why a part is not starting and where the
+# gateway is reachable, writes the central gateway's certificate Secret, and - when an administrator changes how long
+# FUSION keeps its data - writes the settings ConfigMap, grows a store's volume claim and restarts that store's pod. No
+# other object, no cluster-wide rule, no create, no exec, and the only delete is a store's own pod. Needs fusion.enabled. Set enabled to false to remove the permission
 # and the API token: the server then cannot switch FUSION itself, and you scale the workloads (or `helm upgrade --set
 # fusion.switch.initialReplicas=1`) by hand.
 fusionControl:

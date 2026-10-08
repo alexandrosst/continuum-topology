@@ -39,7 +39,11 @@ data:
     limits_config:
       # OTLP carries most of a log's context as structured metadata; this must be on for the OTLP endpoint.
       allow_structured_metadata: true
+      {{- if .Values.switch.managed }}
+      retention_period: ${LOKI_RETENTION}
+      {{- else }}
       retention_period: {{ $l.retention }}
+      {{- end }}
     compactor:
       working_directory: /loki/compactor
       retention_enabled: true

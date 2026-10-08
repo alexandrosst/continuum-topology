@@ -203,6 +203,55 @@ export interface FusionStatus {
 
 export type FusionSignal = 'metrics' | 'logs' | 'traces'
 
+/** One store's retention and the volume it lives on (GET /fusion/retention). Sizes are bytes. */
+export interface FusionRetentionStore {
+  component: FusionSignal
+  label: string
+  /** The setting as the store takes it ("15d", "168h"); `days` is it in whole days, rounded up, and `exactDays` says it was a whole number of them. */
+  value: string
+  days: number
+  exactDays: boolean
+  minDays: number
+  maxDays: number
+  /** False when the volume could not be read; then none of the sizes mean anything. */
+  volumeKnown: boolean
+  /** What was asked of the cluster, and what it has made available so far (they differ while a volume is being grown). */
+  volumeBytes: number
+  capacityBytes: number
+  storageClass?: string
+  resizing?: boolean
+  resizeNote?: string
+  /** Measured use: `volume` is the kubelet's count for the whole volume, `database` Prometheus' account of its data. Absent when not measured. */
+  usedBytes?: number
+  usedSource?: 'volume' | 'database'
+  /** Growth to plan on, and how many days of data it is based on. Absent while there is too little data to tell. */
+  bytesPerDay?: number
+  dataDays?: number
+  /** The part of the volume the data should stay within; the volume a retention needs is bytesPerDay * days / share. */
+  share: number
+  /** Prometheus' own size cap, and how many days of data it keeps at today's growth. */
+  sizeLimitBytes?: number
+  sizeLimitDays?: number
+}
+
+export interface FusionRetention {
+  available: boolean
+  /** Why it cannot be set from here: `unmanaged` (installed without the server managing it), `forbidden` (the server's Role lacks the grant), ... */
+  reason?: string
+  message?: string
+  running: boolean
+  stores: FusionRetentionStore[]
+  warnings?: string[]
+}
+
+/** What to change for one store; a missing field is left alone. */
+export interface FusionRetentionChange {
+  days?: number
+  /** The size to grow the volume to, in GiB. Volumes can grow but not shrink. */
+  volumeGiB?: number
+}
+export type FusionRetentionRequest = Partial<Record<FusionSignal, FusionRetentionChange>>
+
 /** A read-only credential for the shared data API over FUSION. The secret is never in this; see CreatedFusionAccessToken. */
 export interface FusionAccessToken {
   id: string
@@ -701,6 +750,8 @@ export const api = {
   listFusionTokens: (c: Conn) => call<FusionAccessToken[]>(c, 'GET', '/api/v1/fusion/tokens'),
   createFusionToken: (c: Conn, req: NewFusionAccessToken) => call<CreatedFusionAccessToken>(c, 'POST', '/api/v1/fusion/tokens', req),
   revokeFusionToken: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/fusion/tokens/${encodeURIComponent(id)}`),
+  getFusionRetention: (c: Conn) => call<FusionRetention>(c, 'GET', '/api/v1/fusion/retention'),
+  setFusionRetention: (c: Conn, req: FusionRetentionRequest) => call<FusionRetention>(c, 'PUT', '/api/v1/fusion/retention', req),
   /** `force` is the explicit "yes, what depends on it breaks": without it the server answers 409 while anything does (see RegionalOperator.usedBy). */
   revokeOperator: (c: Conn, id: string, reason: string, force = false) =>
     call<OperatorRemoval | undefined>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/revoke`, force ? { reason, force: true } : { reason }),

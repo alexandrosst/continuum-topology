@@ -1,0 +1,115 @@
+import type { FusionRetentionRequest, FusionRetentionStore, FusionSignal } from '@/lib/api'
+
+/** One GiB, the unit volumes are asked for and shown in. */
+export const GIB = 1024 ** 3
+
+/** "512 MiB", "4.2 GiB", "1.5 TiB": binary units, the ones a volume is sized in. */
+export function formatBytes(n: number): string {
+  if (n < GIB) return `${Math.max(0, Math.round(n / 1024 ** 2))} MiB`
+  if (n < 1024 * GIB) return `${trim(n / GIB)} GiB`
+  return `${trim(n / (1024 * GIB))} TiB`
+}
+const trim = (x: number) => (x >= 100 ? Math.round(x) : Math.round(x * 10) / 10).toString()
+
+/** "7 days", "1 day". */
+export const daysText = (d: number) => `${d} day${d === 1 ? '' : 's'}`
+
+/** The volume's size in whole GiB, rounded up: what the size field starts at and cannot go below. */
+export const volumeGiB = (s: FusionRetentionStore) => Math.ceil(s.volumeBytes / GIB - 1e-9)
+
+/** The bytes the data of `days` days takes at today's growth, with the headroom the store needs to work in; null while growth is unknown. */
+export function neededBytes(s: FusionRetentionStore, days: number): number | null {
+  if (s.bytesPerDay === undefined || s.bytesPerDay <= 0 || !s.share) return null
+  return (s.bytesPerDay * days) / s.share
+}
+
+/** The smallest whole-GiB volume that holds `days` days; null while growth is unknown. */
+export function neededGiB(s: FusionRetentionStore, days: number): number | null {
+  const n = neededBytes(s, days)
+  return n === null ? null : Math.max(1, Math.ceil(n / GIB))
+}
+
+export interface Verdict {
+  tone: 'ok' | 'warn' | 'muted'
+  text: string
+  /** The volume to suggest growing to, when this retention does not fit the one entered. */
+  suggestGiB?: number
+}
+
+/** Whether `days` days fit a volume of `gib` GiB, in a sentence. Only an estimate, from the growth seen so far, and says so. */
+export function retentionVerdict(s: FusionRetentionStore, days: number, gib: number): Verdict {
+  const need = neededBytes(s, days)
+  if (need === null || s.bytesPerDay === undefined) {
+    return { tone: 'muted', text: 'Not enough data yet to estimate the room this needs. The estimate appears once a day or so of data has been saved.' }
+  }
+  const have = gib * GIB
+  if (need <= have) {
+    return { tone: 'ok', text: `At today's growth about ${formatBytes(need)} is needed; the volume has ${formatBytes(have)}.` }
+  }
+  const fits = Math.max(0, Math.floor((have * s.share) / s.bytesPerDay))
+  const suggestGiB = neededGiB(s, days) ?? undefined
+  const consequence =
+    s.component === 'metrics'
+      ? `Prometheus' size limit would drop the oldest data after about ${daysText(fits)}.`
+      : `the volume would fill up after about ${daysText(fits)}.`
+  return { tone: 'warn', text: `At today's growth about ${formatBytes(need)} is needed, more than the ${formatBytes(have)} volume: ${consequence}`, suggestGiB }
+}
+
+/** What the card says about use, in a few words. */
+export function usageText(s: FusionRetentionStore): string {
+  if (s.usedBytes === undefined) return 'use not measured'
+  const used = `${formatBytes(s.usedBytes)} used`
+  return s.bytesPerDay !== undefined ? `${used}, about ${formatBytes(s.bytesPerDay)} a day` : used
+}
+
+export interface RetentionForm {
+  days: string
+  gib: string
+}
+
+/** The whole form: one entry per store, as text, starting at what is set now. */
+export type RetentionFormState = Record<FusionSignal, RetentionForm>
+
+export function initialForm(stores: FusionRetentionStore[]): RetentionFormState {
+  const form = {} as RetentionFormState
+  for (const c of ['metrics', 'logs', 'traces'] as const) {
+    const s = stores.find((x) => x.component === c)
+    form[c] = { days: s ? String(s.days) : '', gib: s && s.volumeKnown ? String(volumeGiB(s)) : '' }
+  }
+  return form
+}
+
+const whole = (v: string) => /^[0-9]+$/.test(v.trim())
+
+/** What is wrong with one store's entries, in a sentence; '' when they are fine (or unchanged). */
+export function formError(s: FusionRetentionStore, f: RetentionForm): string {
+  if (!whole(f.days) || Number(f.days) < s.minDays || Number(f.days) > s.maxDays) return `${s.label} keeps between ${s.minDays} and ${s.maxDays} days.`
+  if (s.volumeKnown) {
+    if (!whole(f.gib) || Number(f.gib) < 1) return `${s.label}'s volume must be a whole number of GiB.`
+    if (Number(f.gib) < volumeGiB(s)) return `${s.label}'s volume is ${volumeGiB(s)} GiB. A volume can be grown but not made smaller.`
+  }
+  return ''
+}
+
+/** What differs from the settings now, as the request body; empty when nothing does. A volume field of a store whose volume is unknown is never sent. */
+export function formChanges(stores: FusionRetentionStore[], form: RetentionFormState): FusionRetentionRequest {
+  const req: FusionRetentionRequest = {}
+  for (const s of stores) {
+    const f = form[s.component]
+    const change: { days?: number; volumeGiB?: number } = {}
+    if (whole(f.days) && Number(f.days) !== s.days) change.days = Number(f.days)
+    if (s.volumeKnown && whole(f.gib) && Number(f.gib) > volumeGiB(s)) change.volumeGiB = Number(f.gib)
+    if (change.days !== undefined || change.volumeGiB !== undefined) req[s.component] = change
+  }
+  return req
+}
+
+/** The stores a request restarts for a moment: those whose retention changes (and Prometheus when its volume grows, which may move its size limit). */
+export function restartedBy(stores: FusionRetentionStore[], req: FusionRetentionRequest): string[] {
+  return stores
+    .filter((s) => {
+      const c = req[s.component]
+      return !!c && (c.days !== undefined || (s.component === 'metrics' && c.volumeGiB !== undefined))
+    })
+    .map((s) => s.label)
+}

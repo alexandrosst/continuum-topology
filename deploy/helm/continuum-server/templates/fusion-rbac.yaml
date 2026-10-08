@@ -6,10 +6,15 @@
 {{- if .Values.fusion.grafana.enabled | default false }}{{- $pods = append $pods (printf "%s-grafana-0" $n) }}{{- end }}
 {{- $claims := list }}
 {{- range $pods }}{{- $claims = append $claims (printf "data-%s" .) }}{{- end }}
-# The only thing this server may do with the Kubernetes API: switch FUSION on and off, and read what it needs to say
-# why it is not starting or where it can be reached. Namespaced, and every rule names the objects it covers - the stores
-# (and their pods and volume claims), the central gateway, its Service and its certificate Secret - so it cannot see or
-# touch anything else in the namespace. There is no create, delete, list or watch, and no Secret can be read.
+{{- /* The three stores only: what the server may restart and grow when it changes retention. Grafana's pod and volume are not part of that. */}}
+{{- $storePods := list (printf "%s-prometheus-0" $n) (printf "%s-loki-0" $n) (printf "%s-tempo-0" $n) }}
+{{- $storeClaims := list }}
+{{- range $storePods }}{{- $storeClaims = append $storeClaims (printf "data-%s" .) }}{{- end }}
+# The only things this server may do with the Kubernetes API: switch FUSION on and off, change how long the stores keep
+# their data (and grow their volumes), and read what it needs to say why a part is not starting or where it can be
+# reached. Namespaced, and every rule names the objects it covers - the stores (and their pods and volume claims), the
+# central gateway, its Service, its certificate Secret and its settings - so it cannot see or touch anything else in the
+# namespace. There is no create, list or watch, the only delete is a store's own pod (a restart), and no Secret can be read.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -45,6 +50,21 @@ rules:
     resources: ["persistentvolumeclaims"]
     resourceNames: [{{ join ", " $claims }}]
     verbs: ["get"]
+  # Retention: the stores read how long to keep data from one ConfigMap, which the server changes. It holds no secret.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ $n }}-settings]
+    verbs: ["get", "patch"]
+  # A store reads its settings when it starts: the server restarts it by deleting its pod, which its StatefulSet puts back.
+  - apiGroups: [""]
+    resources: ["pods"]
+    resourceNames: [{{ join ", " $storePods }}]
+    verbs: ["delete"]
+  # A bigger volume when the retention needs it: the claim's requested size, which the storage class must allow to grow.
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    resourceNames: [{{ join ", " $storeClaims }}]
+    verbs: ["patch"]
   # Where the gateway can be reached: the address its LoadBalancer or NodePort Service was given.
   - apiGroups: [""]
     resources: ["services"]

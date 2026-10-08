@@ -80,3 +80,32 @@ func (a *Admin) disableFusion(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, a.fusionDoc(r))
 }
+
+// getFusionRetention is every store's retention, volume and measured use.
+func (a *Admin) getFusionRetention(w http.ResponseWriter, r *http.Request) {
+	if a.Fusion == nil {
+		writeJSON(w, 200, unavailableRetention("unavailable", a.Fusion.Status(r.Context()).Message))
+		return
+	}
+	writeJSON(w, 200, a.Fusion.Retention(r.Context(), a.core(r)))
+}
+
+// setFusionRetention changes retention and grows volumes; the body names the stores (metrics, logs, traces) and, for
+// each, the days to keep and/or the volume size to grow to.
+func (a *Admin) setFusionRetention(w http.ResponseWriter, r *http.Request) {
+	if a.Fusion == nil {
+		a.fail(w, errf(KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
+		return
+	}
+	var req RetentionRequest
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	doc, err := a.Fusion.SetRetention(r.Context(), a.core(r), actor(r), req)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, doc)
+}

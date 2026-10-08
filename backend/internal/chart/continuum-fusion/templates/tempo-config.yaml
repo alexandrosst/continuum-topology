@@ -26,7 +26,11 @@ data:
       max_block_duration: 5m
     compactor:
       compaction:
+        {{- if .Values.switch.managed }}
+        block_retention: ${TEMPO_RETENTION}
+        {{- else }}
         block_retention: {{ $t.retention }}
+        {{- end }}
 {{- if $t.traceqlMetrics }}
     # What Grafana's Drilldown > Traces needs: rate, error and duration charts are TraceQL metrics queries, and Tempo answers
     # those from the metrics-generator's "local-blocks" processor. Without it every one of them fails with

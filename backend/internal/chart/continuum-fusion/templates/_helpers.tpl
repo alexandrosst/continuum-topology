@@ -182,3 +182,41 @@ sending_queue:
   storage: file_storage/queue
   {{- end }}
 {{- end -}}
+
+{{/* ---- Settings the Ikhnos server owns once it manages FUSION (switch.managed) ----
+
+     With switch.managed on, how long each store keeps its data and how big its volume is are changed from the Ikhnos UI,
+     not by `helm upgrade`: the server writes them into the ConfigMap "<name>-settings" and restarts the store that
+     changed, and a store reads them from there as environment variables. This chart creates the ConfigMap with the values
+     below on the first install and then renders what is already in the cluster, so an upgrade keeps what the server last
+     set (exactly as it keeps the replica count). The values in values.yaml are the first install's. With switch.managed
+     off nothing here applies: the stores take their settings from the values, as in any chart. */}}
+{{- define "fusion.settingsName" -}}{{- printf "%s-settings" (include "fusion.name" .) -}}{{- end -}}
+
+{{/* A server-owned setting as it is now: from the live ConfigMap when it has the key, else .default. `lookup` is empty
+     under `helm template`, which is the first-install case. Called with (dict "root" . "key" "..." "default" "..."). */}}
+{{- define "fusion.setting" -}}
+{{- $cm := lookup "v1" "ConfigMap" .root.Release.Namespace (include "fusion.settingsName" .root) -}}
+{{- if and $cm $cm.data (hasKey $cm.data .key) -}}{{- get $cm.data .key -}}{{- else -}}{{- .default -}}{{- end -}}
+{{- end -}}
+
+{{/* One environment variable of a store's container, read from the settings ConfigMap. */}}
+{{- define "fusion.settingEnv" -}}
+- name: {{ .name }}
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "fusion.settingsName" .root }}
+      key: {{ .key | quote }}
+{{- end -}}
+
+{{/* The size a store's volume is created with. The claim template of a StatefulSet cannot be changed, and the server
+     grows the live claim itself, so while it manages FUSION an upgrade renders the template that is already there.
+     Called with (dict "root" . "values" "10Gi" "name" "<statefulset name>"). */}}
+{{- define "fusion.storageSize" -}}
+{{- if .root.Values.switch.managed -}}
+{{- $o := lookup "apps/v1" "StatefulSet" .root.Release.Namespace .name -}}
+{{- if and $o $o.spec $o.spec.volumeClaimTemplates -}}
+{{- (index $o.spec.volumeClaimTemplates 0).spec.resources.requests.storage -}}
+{{- else -}}{{- .values -}}{{- end -}}
+{{- else -}}{{- .values -}}{{- end -}}
+{{- end -}}

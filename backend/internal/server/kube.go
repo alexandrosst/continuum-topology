@@ -67,6 +67,13 @@ var (
 	ErrKubeForbidden = errors.New("kubernetes: this server is not allowed to do that")
 )
 
+// kubeDenied is ErrKubeForbidden with the API server's own sentence, which tells a refusal by the Role from a refusal by
+// the cluster's admission (a volume whose storage class cannot grow).
+type kubeDenied struct{ say string }
+
+func (e *kubeDenied) Error() string { return ErrKubeForbidden.Error() }
+func (e *kubeDenied) Unwrap() error { return ErrKubeForbidden }
+
 // kubeClient talks to the API server over plain net/http: four calls do not need client-go and its dependency tree.
 type kubeClient struct {
 	base      string
@@ -157,7 +164,7 @@ func (k *kubeClient) do(ctx context.Context, method, path, contentType string, b
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, ErrKubeNotFound
 	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized:
-		return nil, ErrKubeForbidden
+		return nil, &kubeDenied{say: firstLine(string(out))}
 	case resp.StatusCode >= 300:
 		return nil, fmt.Errorf("kubernetes answered %d: %s", resp.StatusCode, firstLine(string(out)))
 	}
@@ -360,4 +367,144 @@ func (k *kubeClient) ServiceAddress(ctx context.Context, name string) (string, e
 	// A NodePort is deliberately not an answer: it is one node's address, and a node's address is often a private one, so
 	// recording it for the administrator would put a wrong "Reachable at" into every command. A person records it.
 	return svc.LoadBalancer, nil
+}
+
+// KubeClaim is the part of a PersistentVolumeClaim the retention control shows and changes.
+type KubeClaim struct {
+	Phase        string
+	StorageClass string
+	// Requested is spec.resources.requests.storage and Capacity status.capacity.storage, in bytes. They differ while a
+	// volume is being grown.
+	Requested, Capacity int64
+	Created             time.Time
+	// Resizing is true while the cluster is still growing the volume or its file system; ResizeNote is its own sentence.
+	Resizing   bool
+	ResizeNote string
+}
+
+// ErrKubeNoResize is the cluster refusing to grow a claim: its storage class does not allow volume expansion.
+var ErrKubeNoResize = errors.New("kubernetes: this volume's storage class does not allow it to be grown")
+
+// retentionKube is what a KubeAPI may also offer for the retention control: the server-owned settings object, the
+// stores' volume claims and a store's pod. A separate interface, like serviceInspector, so a KubeAPI that cannot do
+// these (or a server whose Role predates them) still works and the control says why it is unavailable.
+type retentionKube interface {
+	// Settings reads the chart's settings ConfigMap.
+	Settings(ctx context.Context, name string) (map[string]string, error)
+	// PatchSettings merges keys into it.
+	PatchSettings(ctx context.Context, name string, data map[string]string) error
+	// Claim reads a volume claim.
+	Claim(ctx context.Context, name string) (KubeClaim, error)
+	// ResizeClaim raises a claim's requested size. ErrKubeNoResize when the storage class cannot grow volumes.
+	ResizeClaim(ctx context.Context, name string, bytes int64) error
+	// RestartPod deletes a pod so its StatefulSet starts it again (a missing pod is not an error).
+	RestartPod(ctx context.Context, name string) error
+}
+
+func (k *kubeClient) Settings(ctx context.Context, name string) (map[string]string, error) {
+	b, err := k.do(ctx, http.MethodGet, k.corePath("configmaps", name), "", nil)
+	if err != nil {
+		return nil, err
+	}
+	var c struct {
+		Data map[string]string `json:"data"`
+	}
+	if err := json.Unmarshal(b, &c); err != nil {
+		return nil, err
+	}
+	if c.Data == nil {
+		c.Data = map[string]string{}
+	}
+	return c.Data, nil
+}
+
+func (k *kubeClient) PatchSettings(ctx context.Context, name string, data map[string]string) error {
+	_, err := k.do(ctx, http.MethodPatch, k.corePath("configmaps", name), "application/merge-patch+json", map[string]any{"data": data})
+	return err
+}
+
+func (k *kubeClient) Claim(ctx context.Context, name string) (KubeClaim, error) {
+	b, err := k.do(ctx, http.MethodGet, k.corePath("persistentvolumeclaims", name), "", nil)
+	if err != nil {
+		return KubeClaim{}, err
+	}
+	var c struct {
+		Metadata struct {
+			Created time.Time `json:"creationTimestamp"`
+		} `json:"metadata"`
+		Spec struct {
+			StorageClassName *string `json:"storageClassName"`
+			Resources        struct {
+				Requests map[string]string `json:"requests"`
+			} `json:"resources"`
+		} `json:"spec"`
+		Status struct {
+			Phase      string            `json:"phase"`
+			Capacity   map[string]string `json:"capacity"`
+			Conditions []struct {
+				Type, Status, Message string
+			} `json:"conditions"`
+		} `json:"status"`
+	}
+	if err := json.Unmarshal(b, &c); err != nil {
+		return KubeClaim{}, err
+	}
+	out := KubeClaim{Phase: c.Status.Phase, Created: c.Metadata.Created}
+	if c.Spec.StorageClassName != nil {
+		out.StorageClass = *c.Spec.StorageClassName
+	}
+	out.Requested, _ = parseQuantity(c.Spec.Resources.Requests["storage"])
+	out.Capacity, _ = parseQuantity(c.Status.Capacity["storage"])
+	for _, cd := range c.Status.Conditions {
+		if (cd.Type == "Resizing" || cd.Type == "FileSystemResizePending") && cd.Status == "True" {
+			out.Resizing, out.ResizeNote = true, firstLine(cd.Message)
+		}
+	}
+	return out, nil
+}
+
+func (k *kubeClient) ResizeClaim(ctx context.Context, name string, bytes int64) error {
+	_, err := k.do(ctx, http.MethodPatch, k.corePath("persistentvolumeclaims", name), "application/merge-patch+json",
+		map[string]any{"spec": map[string]any{"resources": map[string]any{"requests": map[string]string{"storage": strconv.FormatInt(bytes, 10)}}}})
+	var d *kubeDenied
+	// The Role grants this patch, so a refusal that talks about resizing is the cluster's: the storage class does not
+	// allow expansion (or the claim is not dynamically provisioned).
+	if errors.As(err, &d) && strings.Contains(strings.ToLower(d.say), "resiz") {
+		return ErrKubeNoResize
+	}
+	return err
+}
+
+func (k *kubeClient) RestartPod(ctx context.Context, name string) error {
+	_, err := k.do(ctx, http.MethodDelete, k.corePath("pods", name), "", nil)
+	if errors.Is(err, ErrKubeNotFound) {
+		return nil
+	}
+	return err
+}
+
+// parseQuantity reads a Kubernetes quantity ("10Gi", "500M", "1073741824") in bytes. Fractions and the milli suffix are
+// accepted and rounded down; anything else is an error.
+func parseQuantity(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, errors.New("empty quantity")
+	}
+	scales := []struct {
+		suffix string
+		scale  float64
+	}{{"Ki", 1 << 10}, {"Mi", 1 << 20}, {"Gi", 1 << 30}, {"Ti", 1 << 40}, {"Pi", 1 << 50}, {"Ei", 1 << 60},
+		{"k", 1e3}, {"K", 1e3}, {"M", 1e6}, {"G", 1e9}, {"T", 1e12}, {"P", 1e15}, {"E", 1e18}, {"m", 1e-3}}
+	scale := 1.0
+	for _, sc := range scales {
+		if strings.HasSuffix(s, sc.suffix) {
+			s, scale = strings.TrimSuffix(s, sc.suffix), sc.scale
+			break
+		}
+	}
+	n, err := strconv.ParseFloat(s, 64)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("not a quantity: %q", s)
+	}
+	return int64(n * scale), nil
 }

@@ -173,15 +173,18 @@ func TestServerFusionRoleCoversExactlyWhatTheSubchartNames(t *testing.T) {
 				t.Errorf("release %q: a rule without resourceNames: %+v", release, rule)
 			}
 			for _, v := range rule.Verbs {
-				if v != "get" && v != "patch" {
-					t.Errorf("release %q: verb %q is more than the switch needs (%+v)", release, v, rule)
+				// The one delete is a store's own pod (a restart); see the retention checks below.
+				if v != "get" && v != "patch" && !(v == "delete" && len(rule.Resources) == 1 && rule.Resources[0] == "pods") {
+					t.Errorf("release %q: verb %q is more than the server needs (%+v)", release, v, rule)
 				}
 			}
 			for _, res := range rule.Resources {
 				if res == "secrets" && strings.Join(rule.Verbs, ",") != "patch" {
 					t.Errorf("release %q: the Role can read a Secret: %+v", release, rule)
 				}
-				got[res] = append(got[res], rule.ResourceNames...)
+				if strings.Join(rule.Verbs, ",") == "get" || res == "statefulsets" || res == "statefulsets/scale" || strings.HasPrefix(res, "deployments") || res == "secrets" || res == "services" {
+					got[res] = append(got[res], rule.ResourceNames...)
+				}
 			}
 		}
 		for _, res := range []string{"statefulsets", "statefulsets/scale"} {
@@ -218,11 +221,50 @@ func TestServerFusionRoleCoversExactlyWhatTheSubchartNames(t *testing.T) {
 			if strings.Join(names, ",") != strings.Join(want, ",") {
 				t.Errorf("release %q: Role %s = %v, the subchart renders %v", release, res, names, want)
 			}
-			for _, rule := range role.Rules {
-				for _, rr := range rule.Resources {
-					if rr == res && strings.Join(rule.Verbs, ",") != "get" {
-						t.Errorf("release %q: %s can be more than read: %+v", release, res, rule)
+		}
+		// Changing retention: a store's own pod may be deleted (restarted) and its claim grown - the three stores only,
+		// not Grafana - and the one settings ConfigMap read and patched. Nothing else is writable.
+		var storePods, storeClaims []string
+		for _, n := range sets {
+			if strings.HasSuffix(n, "-grafana") {
+				continue
+			}
+			storePods = append(storePods, n+"-0")
+			for _, vct := range r.sets[n].Spec.VolumeClaimTemplates {
+				storeClaims = append(storeClaims, vct.Name+"-"+n+"-0")
+			}
+		}
+		writable := map[string]map[string][]string{} // resource -> verb -> names
+		for _, rule := range role.Rules {
+			for _, rr := range rule.Resources {
+				for _, v := range rule.Verbs {
+					if writable[rr] == nil {
+						writable[rr] = map[string][]string{}
 					}
+					writable[rr][v] = append(writable[rr][v], rule.ResourceNames...)
+				}
+			}
+		}
+		check := func(res, verb string, want []string) {
+			names := append([]string{}, writable[res][verb]...)
+			sort.Strings(names)
+			sort.Strings(want)
+			if strings.Join(names, ",") != strings.Join(want, ",") {
+				t.Errorf("release %q: Role may %s %s = %v, want %v", release, verb, res, names, want)
+			}
+		}
+		check("pods", "delete", storePods)
+		check("persistentvolumeclaims", "patch", storeClaims)
+		check("configmaps", "get", []string{deploys[0][:len(deploys[0])-len("-central")] + "-settings"})
+		check("configmaps", "patch", []string{deploys[0][:len(deploys[0])-len("-central")] + "-settings"})
+		for res, verbs := range writable {
+			for verb := range verbs {
+				switch {
+				case verb == "get":
+				case verb == "patch" && (res == "statefulsets/scale" || res == "deployments/scale" || res == "secrets" || res == "persistentvolumeclaims" || res == "configmaps"):
+				case verb == "delete" && res == "pods":
+				default:
+					t.Errorf("release %q: Role may %s %s", release, verb, res)
 				}
 			}
 		}

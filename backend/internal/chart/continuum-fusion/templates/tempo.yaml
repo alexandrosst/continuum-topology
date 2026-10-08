@@ -52,6 +52,12 @@ spec:
           imagePullPolicy: {{ $t.image.pullPolicy | default "IfNotPresent" }}
           args:
             - -config.file=/etc/tempo/tempo.yaml
+            {{- if .Values.switch.managed }}
+            # The retention comes from the settings ConfigMap the server changes (see fusion.settingsName).
+            - -config.expand-env=true
+          env:
+            {{- include "fusion.settingEnv" (dict "root" . "name" "TEMPO_RETENTION" "key" "tempo.retention") | nindent 12 }}
+            {{- end }}
           ports:
             - {name: otlp-grpc, containerPort: 4317, protocol: TCP}
             - {name: otlp-http, containerPort: 4318, protocol: TCP}
@@ -94,6 +100,6 @@ spec:
         storageClassName: {{ . | quote }}
         {{- end }}
         resources:
-          requests: {storage: {{ $t.storage | quote }}}
+          requests: {storage: {{ include "fusion.storageSize" (dict "root" . "values" (toString $t.storage) "name" $name) | quote }}}
   {{- end }}
 {{- end }}

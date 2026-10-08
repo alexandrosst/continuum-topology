@@ -51,11 +51,19 @@ spec:
           args:
             - --config.file=/etc/prometheus/prometheus.yml
             - --storage.tsdb.path=/prometheus
+            {{- if .Values.switch.managed }}
+            # The server changes these from the UI (see fusion.settingsName); the values here were the first install's.
+            - --storage.tsdb.retention.time=$(PROMETHEUS_RETENTION)
+            {{- if include "fusion.prometheusRetentionSize" . }}
+            - --storage.tsdb.retention.size=$(PROMETHEUS_RETENTION_SIZE)
+            {{- end }}
+            {{- else }}
             - --storage.tsdb.retention.time={{ $p.retention }}
             {{- with include "fusion.prometheusRetentionSize" . }}
             # Whichever limit is reached first deletes the oldest blocks: the time above, or this size, which by
             # default is 85% of the volume (see fusion.prometheusRetentionSize) so a busy install cannot fill it.
             - --storage.tsdb.retention.size={{ . }}
+            {{- end }}
             {{- end }}
             - --web.listen-address=:9090
             {{- with $p.webPrefix }}
@@ -66,6 +74,13 @@ spec:
             {{- end }}
             # The receiver a regional operator's OTLP/HTTP exporter writes to: /api/v1/otlp/v1/metrics.
             - --web.enable-otlp-receiver
+          {{- if .Values.switch.managed }}
+          env:
+            {{- include "fusion.settingEnv" (dict "root" . "name" "PROMETHEUS_RETENTION" "key" "prometheus.retention") | nindent 12 }}
+            {{- if include "fusion.prometheusRetentionSize" . }}
+            {{- include "fusion.settingEnv" (dict "root" . "name" "PROMETHEUS_RETENTION_SIZE" "key" "prometheus.retentionSize") | nindent 12 }}
+            {{- end }}
+          {{- end }}
           ports:
             - {name: http, containerPort: 9090, protocol: TCP}
           readinessProbe:
@@ -100,6 +115,6 @@ spec:
         storageClassName: {{ . | quote }}
         {{- end }}
         resources:
-          requests: {storage: {{ $p.storage | quote }}}
+          requests: {storage: {{ include "fusion.storageSize" (dict "root" . "values" (toString $p.storage) "name" $name) | quote }}}
   {{- end }}
 {{- end }}

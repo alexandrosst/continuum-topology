@@ -1,0 +1,24 @@
+{{- if .Values.switch.managed }}
+# What the Ikhnos server changes while it manages FUSION (see fusion.settingsName in _helpers.tpl): each store's retention
+# and, for Prometheus, the size limit that keeps it from filling its volume. This is only ever written by the server after
+# the first install; an upgrade renders the live values back.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "fusion.settingsName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+data:
+  {{- if .Values.prometheus.enabled }}
+  prometheus.retention: {{ include "fusion.setting" (dict "root" . "key" "prometheus.retention" "default" (toString .Values.prometheus.retention)) | quote }}
+  {{- with include "fusion.prometheusRetentionSize" . }}
+  prometheus.retentionSize: {{ include "fusion.setting" (dict "root" $ "key" "prometheus.retentionSize" "default" .) | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.loki.enabled }}
+  loki.retention: {{ include "fusion.setting" (dict "root" . "key" "loki.retention" "default" (toString .Values.loki.retention)) | quote }}
+  {{- end }}
+  {{- if .Values.tempo.enabled }}
+  tempo.retention: {{ include "fusion.setting" (dict "root" . "key" "tempo.retention" "default" (toString .Values.tempo.retention)) | quote }}
+  {{- end }}
+{{- end }}

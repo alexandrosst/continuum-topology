@@ -36,6 +36,15 @@ type fakeKube struct {
 	onWorkload                     func()        // runs inside a Workload read, once its sleep is over
 	onService                      func()        // runs inside a Service read, before it answers: what happens while the server is waiting for the cluster
 	podReads, claimReads, svcReads int
+
+	// the retention calls (fusion_retention_test.go)
+	settings    map[string]string // nil: there is no settings object
+	settingsErr error
+	rclaims     map[string]KubeClaim
+	resizeErr   error
+	resizeErrOn string // the claim resizeErr applies to ("": every one)
+	restartErr  error
+	ops         []string // the retention calls that changed anything, in order
 }
 
 func newFakeKube(names ...string) *fakeKube {

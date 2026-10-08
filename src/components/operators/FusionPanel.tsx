@@ -3,6 +3,7 @@ import { ExternalLink, Layers } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ConfirmModal } from '@/components/forms'
 import { FusionAccess } from '@/components/operators/FusionAccess'
+import { FusionRetentionCard } from '@/components/operators/FusionRetention'
 import { buttonClass } from '@/components/ui/buttonClass'
 import { Button, ErrorBanner, ICON_SM, LiveDot, type LiveKind, SkeletonBlock, Waiting } from '@/components/ui/primitives'
 import { api, ApiError, type FusionComponent, type FusionStatus } from '@/lib/api'
@@ -158,6 +159,7 @@ export function FusionPanel({ fusion }: { fusion: ReturnType<typeof useFusion> }
   const canSwitch = !!status?.available
   const on = status?.state && status.state !== 'off'
   const conn = useServer((st) => st.conn)
+  const org = useServer((st) => st.orgId)
   const links = status?.links
   const [openError, setOpenError] = useState('')
   // A page is being opened: a second click in the meantime would mint a second ticket and open a second tab. The ref is the guard (it changes
@@ -273,6 +275,7 @@ export function FusionPanel({ fusion }: { fusion: ReturnType<typeof useFusion> }
       {error && <ErrorBanner className="mt-3">{error}</ErrorBanner>}
       {openError && <ErrorBanner className="mt-3" data-testid="fusion-open-error">{openError}</ErrorBanner>}
 
+      {status?.data && <FusionRetentionCard key={org} state={status.state} />}
       {status?.data && <FusionAccess />}
       </>
       )}
