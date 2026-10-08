@@ -5,7 +5,7 @@
 {{- $d2c := .Values.central.deltaToCumulative }}
 {{- /* Metrics only reach Prometheus, so without it there is no metrics pipeline for the processor to sit in. */ -}}
 {{- $d2cOn := and $d2c.enabled .Values.prometheus.enabled }}
-{{- $metricsProcessors := list "memory_limiter" "transform/provenance" }}
+{{- $metricsProcessors := list "memory_limiter" "transform/provenance" "transform/category" }}
 {{- if $d2cOn }}{{ $metricsProcessors = append $metricsProcessors "delta_to_cumulative" }}{{ end }}
 {{- $metricsProcessors = append $metricsProcessors "batch" }}
 # The central gateway: mTLS in, three stores out. It is a plain OpenTelemetry Collector - no Kubernetes API
@@ -66,6 +66,33 @@ data:
           - context: span
             statements:
               - delete_matching_keys(attributes, "^continuum\\..*")
+      # What a signal is about: system (the host and the collectors), kubernetes (the cluster's own objects) or application
+      # (everything else), as one ikhnos.category attribute so Grafana, PromQL, LogQL and TraceQL can filter on it with no
+      # name patterns (ikhnos_category in Prometheus and Loki, ikhnos.category in Tempo). It is the rule of the FUSION API's
+      # `category` filter (internal/fusionapi/category.go; a chart test keeps the two the same): a metric by its name,
+      # a log line or span by the namespace of the pod that wrote it. It is set here, in the one place all data passes, so
+      # it covers every sender and is always overwritten (a sender cannot choose its own category). The default comes
+      # first and the others override it. Only data arriving after this is stamped; the API still works out the category
+      # itself for what was stored before.
+      transform/category:
+        error_mode: ignore
+        metric_statements:
+          - context: datapoint
+            statements:
+              - set(attributes["ikhnos.category"], "application")
+              - set(attributes["ikhnos.category"], "kubernetes") where IsMatch(metric.name, "^(k8s|container|kube)[._].*$")
+              - set(attributes["ikhnos.category"], "system") where IsMatch(metric.name, "^((system|process|node|kepler|dcgm|otelcol|scrape)[._].*|up|target_info)$")
+        log_statements:
+          - context: resource
+            statements:
+              - set(attributes["ikhnos.category"], "application")
+              - set(attributes["ikhnos.category"], "kubernetes") where attributes["k8s.namespace.name"] == "kube-system" or attributes["k8s.namespace.name"] == "kube-public" or attributes["k8s.namespace.name"] == "kube-node-lease"
+              - set(attributes["ikhnos.category"], "system") where attributes["k8s.namespace.name"] == nil or attributes["k8s.namespace.name"] == ""
+        trace_statements:
+          - context: resource
+            statements:
+              - set(attributes["ikhnos.category"], "application")
+              - set(attributes["ikhnos.category"], "kubernetes") where attributes["k8s.namespace.name"] == "kube-system" or attributes["k8s.namespace.name"] == "kube-public" or attributes["k8s.namespace.name"] == "kube-node-lease"
       {{- if $d2cOn }}
       # Prometheus ingests cumulative metrics only (a delta one is refused or dropped, depending on the version),
       # and a sender that exports delta temporality (some SDKs and statsd-style sources do) would otherwise lose its
@@ -114,13 +141,13 @@ data:
         {{- if .Values.loki.enabled }}
         logs:
           receivers: [otlp]
-          processors: [memory_limiter, transform/provenance, batch]
+          processors: [memory_limiter, transform/provenance, transform/category, batch]
           exporters: [otlphttp/logs]
         {{- end }}
         {{- if .Values.tempo.enabled }}
         traces:
           receivers: [otlp]
-          processors: [memory_limiter, transform/provenance, batch]
+          processors: [memory_limiter, transform/provenance, transform/category, batch]
           exporters: [otlp/traces]
         {{- end }}
 {{- end }}

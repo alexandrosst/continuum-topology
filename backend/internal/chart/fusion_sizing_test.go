@@ -101,7 +101,7 @@ func centralPipelines(t *testing.T, extra ...string) map[string][]string {
 // the batch.
 func TestFusionCentralConvertsDeltaMetricsBeforeBatching(t *testing.T) {
 	p := centralPipelines(t)
-	want := []string{"memory_limiter", "transform/provenance", "delta_to_cumulative", "batch"}
+	want := []string{"memory_limiter", "transform/provenance", "transform/category", "delta_to_cumulative", "batch"}
 	if got := p["metrics"]; strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("metrics processors = %v, want %v", got, want)
 	}
@@ -120,7 +120,7 @@ func TestFusionCentralConvertsDeltaMetricsBeforeBatching(t *testing.T) {
 	}
 
 	off := centralPipelines(t, "--set", "central.deltaToCumulative.enabled=false")
-	if got := off["metrics"]; strings.Join(got, ",") != "memory_limiter,transform/provenance,batch" {
+	if got := off["metrics"]; strings.Join(got, ",") != "memory_limiter,transform/provenance,transform/category,batch" {
 		t.Errorf("with the conversion off, metrics processors = %v", got)
 	}
 	if _, ok := sub(t, centralConfig(t, "--set", "central.deltaToCumulative.enabled=false"), "processors")["delta_to_cumulative"]; ok {
