@@ -34,7 +34,7 @@ var SystemNamespaces = []string{"kube-system", "kube-public", "kube-node-lease"}
 // The metric-name families of the two categories that are named by prefix. Everything else is an application metric.
 // They are Prometheus (RE2) regular expressions over the whole name, which Prometheus anchors itself.
 const (
-	SystemMetricNames     = `(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)`
+	SystemMetricNames     = `(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|scrape_.*|up|target_info)`
 	KubernetesMetricNames = `(k8s_.*|container_.*|kube_.*)`
 )
 

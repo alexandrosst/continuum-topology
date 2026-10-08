@@ -298,7 +298,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count({__name__=~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)\", continuum_cluster_id=~\"$cluster\"})",
+          "expr": "count({__name__=~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|scrape_.*|up|target_info)\", continuum_cluster_id=~\"$cluster\"})",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1096,7 +1096,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(count by (service_name) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", continuum_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}})))))",
+          "expr": "count(count by (service_name) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", continuum_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}})))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1149,7 +1149,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name=~\"$service\", continuum_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))))",
+          "expr": "count((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name=~\"$service\", continuum_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1202,7 +1202,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count by (service_name, __name__) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", continuum_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))))",
+          "expr": "count by (service_name, __name__) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", continuum_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1253,7 +1253,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count by (service_name) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", continuum_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))))",
+          "expr": "count by (service_name) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", continuum_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"

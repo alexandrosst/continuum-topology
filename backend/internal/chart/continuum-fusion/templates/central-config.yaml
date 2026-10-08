@@ -81,7 +81,7 @@ data:
             statements:
               - set(attributes["ikhnos.category"], "application")
               - set(attributes["ikhnos.category"], "kubernetes") where IsMatch(metric.name, "^(k8s|container|kube)[._].*$")
-              - set(attributes["ikhnos.category"], "system") where IsMatch(metric.name, "^((system|process|node|kepler|dcgm|otelcol|scrape)[._].*|up|target_info)$")
+              - set(attributes["ikhnos.category"], "system") where IsMatch(metric.name, "^((system|process|node|kepler|dcgm|DCGM|otelcol|scrape)[._].*|up|target_info)$")
         log_statements:
           - context: resource
             statements:

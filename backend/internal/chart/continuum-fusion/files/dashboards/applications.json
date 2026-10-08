@@ -716,7 +716,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count by (service_name, __name__) (({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name=~\"$service\"}) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"})",
+          "expr": "count by (service_name, __name__) (({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name=~\"$service\"}) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"})",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"

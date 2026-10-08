@@ -12,7 +12,7 @@ func TestMetricCategoryByName(t *testing.T) {
 	for name, want := range map[string]string{
 		"k8s_pod_cpu_usage": CategoryKubernetes, "container_memory_usage_bytes": CategoryKubernetes, "kube_pod_info": CategoryKubernetes,
 		"system_cpu_time_seconds_total": CategorySystem, "process_cpu_seconds_total": CategorySystem, "kepler_node_platform_joules_total": CategorySystem,
-		"up": CategorySystem, "scrape_duration_seconds": CategorySystem, "target_info": CategorySystem, "otelcol_exporter_sent_spans": CategorySystem,
+		"DCGM_FI_DEV_GPU_UTIL": CategorySystem, "dcgm_gpu_utilization": CategorySystem, "up": CategorySystem, "scrape_duration_seconds": CategorySystem, "target_info": CategorySystem, "otelcol_exporter_sent_spans": CategorySystem,
 		"http_server_duration_seconds_count": CategoryApplication, "fusion_demo_requests": CategoryApplication, "upstream_requests_total": CategoryApplication,
 		"systemd_unit_state": CategoryApplication, "k8sish_thing": CategoryApplication,
 	} {
