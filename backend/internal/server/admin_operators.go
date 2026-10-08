@@ -136,11 +136,13 @@ type operatorDoc struct {
 	// certificate that CA signed is accepted - weaker, fixed by recreating the operator) or "" (a bearer
 	// operator: the token is the gate).
 	ClientCaScope string `json:"clientCaScope"`
-	// Certs and CertState say when the operator's certificates stop working and whether that is near ("ok",
-	// "expiring": within 60 days, "expired"). Absent for an operator with no certificate the server can vouch for
-	// (a bearer one) and for a revoked one.
-	Certs     *certsDoc `json:"certs,omitempty"`
-	CertState string    `json:"certState,omitempty"`
+	// Certs and CertState say when the operator's certificates stop working and whether they are being renewed ("ok";
+	// "renewal-failing": the day they should have been renewed by has passed and they still run; "expired").
+	// CertStateSince is that day. Absent for an operator with no certificate the server can vouch for (a bearer one) and
+	// for a revoked one.
+	Certs          *certsDoc `json:"certs,omitempty"`
+	CertState      string    `json:"certState,omitempty"`
+	CertStateSince string    `json:"certStateSince,omitempty"`
 	// Health is always present; for an operator that never opted in to a heartbeat it is
 	// {state: "unknown", reporting: false}.
 	Health operatorHealthDoc `json:"health"`
@@ -190,7 +192,9 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 	if op.Status == store.OperatorActive {
 		if c := operatorCertDates(op); c.known() {
 			d.Certs = &certsDoc{ReceiverNotAfter: rfcp(c.Receiver), ClientNotAfter: rfcp(c.Client), CANotAfter: rfcp(c.CA)}
-			d.CertState = c.certState(now)
+			var since *time.Time
+			d.CertState, since = c.certState(now)
+			d.CertStateSince = rfcp(since)
 		}
 	}
 	d.Address, d.ReachableFromOtherClusters, d.Exposure, d.AddressState = op.Address, op.Address != "", op.Exposure, addressStateOf(op)
@@ -391,8 +395,8 @@ func (a *Admin) reissueOperatorInstall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, a.operatorInstallDoc(r, op, installMaterial{Secret: mat.ReceiverToken, TLS: mat.TLS, HeartbeatSecret: mat.HeartbeatSecret, Reissue: true}))
 }
 
-// issuedCertDoc is one ledger entry. state is "ok", "expiring" (inside the first warning threshold) or "expired",
-// judged by the same thresholds as the operator's own certState.
+// issuedCertDoc is one ledger entry. state is "ok" or "expired": whether renewal is happening is a property of the
+// holder (the operator's certState), not of one of the certificates it has already replaced.
 type issuedCertDoc struct {
 	Serial    string `json:"serial"`
 	Kind      string `json:"kind"`
@@ -418,7 +422,10 @@ func (a *Admin) listOperatorCertificates(w http.ResponseWriter, r *http.Request)
 	out := make([]issuedCertDoc, 0, len(certs))
 	for _, c := range certs {
 		end := c.NotAfter
-		state := OperatorCerts{Receiver: &end}.certState(now)
+		state := CertStateOK
+		if !end.After(now) {
+			state = CertStateExpired
+		}
 		out = append(out, issuedCertDoc{
 			Serial: c.Serial, Kind: string(c.Kind), Subject: c.Subject, Sender: c.Sender, IssuedBy: c.IssuedBy,
 			IssuedAt: rfc(c.IssuedAt), NotBefore: rfc(c.NotBefore), NotAfter: rfc(c.NotAfter), State: state,

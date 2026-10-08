@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/pki"
 	"continuum/internal/store"
 )
 
@@ -86,9 +87,11 @@ type FusionControl struct {
 	// retention caches the last measurement of the stores' disk use (see measure).
 	retention retentionCache
 
-	mu    sync.Mutex
-	data  *fusionapi.Client
-	since time.Time // when the stores were last asked to start; zero when off or unknown
+	mu sync.Mutex
+	// issuedFor is the host list the gateway's certificate was last issued for by this process ("" before it has issued one).
+	issuedFor string
+	data      *fusionapi.Client
+	since     time.Time // when the stores were last asked to start; zero when off or unknown
 	// notReady is when the stores were first seen not all ready, zero while they are (or FUSION is off). The grace
 	// period counts from here, not from `since`: a pod that restarts a month into a healthy run is "starting"
 	// again, not "attention after 43,200 minutes".
@@ -757,6 +760,7 @@ func (f *FusionControl) Enable(ctx context.Context, c *Core, actor string) (Fusi
 	}
 	f.mu.Lock()
 	f.since, f.notReady = f.now(), f.now()
+	f.issuedFor = strings.Join(f.certHosts(), ",")
 	f.mu.Unlock()
 	st, err := f.scaleAndReport(ctx, prev, 1)
 	if err != nil {
@@ -767,11 +771,12 @@ func (f *FusionControl) Enable(ctx context.Context, c *Core, actor string) (Fusi
 }
 
 // Renew reissues the gateway's server certificate and puts it in its Secret, if FUSION is on and has been set up (the
-// central operator exists). The certificate is good for a year and a gateway that is running keeps the one it started
-// with, so without this FUSION would stop accepting senders once it expired; with it, the certificate is replaced well
-// before that and, because the gateway reloads its certificate files, the running gateway takes it up on its own. It
-// also gives the certificate the names the server now knows (a public address set after FUSION was first enabled).
-// Nothing is audited: it changes no one's access, and it runs daily.
+// central operator exists). The certificate is good for 30 days and a gateway that is running keeps the one it started
+// with, so without this FUSION would stop accepting senders once it expired; with it, the certificate is replaced with
+// pki.OperatorRenewBefore left and, because the gateway reloads its certificate files, the running gateway takes it up on
+// its own. It also gives the certificate the names the server now knows (a public address set after FUSION was first
+// enabled). The server owns that cluster, so this is in-process, not the renewer the other operators' certificates use.
+// It runs daily and acts only when there is something to do. Nothing is audited: it changes no one's access.
 func (f *FusionControl) Renew(ctx context.Context, c *Core) error {
 	if f == nil || f.Kube == nil || (f.Org != "" && c.OrgID != f.Org) {
 		return nil
@@ -784,13 +789,29 @@ func (f *FusionControl) Renew(ctx context.Context, c *Core) error {
 	if _, err := c.Store.GetOperator(ctx, CentralOperatorID); err != nil {
 		return nil // never enabled from here: nothing to renew
 	}
-	_, bundle, err := c.EnsureCentralOperator(ctx, "system", f.destination(), f.certHosts())
+	// Only when there is something to do: the certificate is within pki.OperatorRenewBefore of its end, or the names it
+	// must carry changed since this process last issued it (a process that has issued nothing yet issues once).
+	hosts := f.certHosts()
+	key := strings.Join(hosts, ",")
+	f.mu.Lock()
+	same := f.issuedFor == key
+	f.mu.Unlock()
+	if same && c.centralReceiverFresh(ctx) {
+		return nil
+	}
+	_, bundle, err := c.EnsureCentralOperator(ctx, "system", f.destination(), hosts)
 	if err != nil {
 		return err
 	}
-	return f.Kube.PatchSecret(ctx, f.tlsSecretName(), map[string][]byte{
+	if err := f.Kube.PatchSecret(ctx, f.tlsSecretName(), map[string][]byte{
 		"tls.crt": bundle.ReceiverCertPEM, "tls.key": bundle.ReceiverKeyPEM, "ca.crt": bundle.CACertPEM,
-	})
+	}); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	f.issuedFor = key
+	f.mu.Unlock()
+	return nil
 }
 
 // Disable stops the four workloads. Their volumes stay, so turning FUSION on again brings the data back.
@@ -919,7 +940,28 @@ func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest sto
 	if err != nil {
 		return store.Operator{}, OperatorTLSBundle{}, err
 	}
+	// In the ledger like every other certificate the server issues: it is how the dates shown for the operator, and
+	// Renew's "is this still fresh", know what the gateway holds. One that cannot be recorded is not handed out.
+	if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", certPEM); err != nil {
+		return store.Operator{}, OperatorTLSBundle{}, err
+	}
+	c.noteCertEnds(ctx, op)
 	return op, OperatorTLSBundle{ReceiverCertPEM: certPEM, ReceiverKeyPEM: keyPEM, CACertPEM: caPEM}, nil
+}
+
+// centralReceiverFresh says whether the gateway's newest certificate in the ledger still has more than
+// pki.OperatorRenewBefore left, so that Renew has nothing to do.
+func (c *Core) centralReceiverFresh(ctx context.Context) bool {
+	certs, err := c.Store.ListOperatorCerts(ctx, CentralOperatorID) // newest first
+	if err != nil {
+		return false
+	}
+	for _, e := range certs {
+		if e.Kind == store.OperatorCertReceiver {
+			return e.NotAfter.Sub(c.Now()) > pki.OperatorRenewBefore
+		}
+	}
+	return false
 }
 
 // guardCentral refuses to change the server-owned operator through the ordinary operator calls.

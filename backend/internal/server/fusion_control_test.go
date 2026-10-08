@@ -497,6 +497,11 @@ func TestRenewReissuesTheGatewayCertificateOnlyWhileFusionIsOn(t *testing.T) {
 	if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, DNSName: "fusion.example.com"}); err != nil {
 		t.Errorf("the renewed certificate lacks the new address: %v", err)
 	}
+	// A second call changes nothing: the certificate is fresh and its names are unchanged.
+	again := string(k.secret["tls.crt"])
+	if err := f.Renew(ctx, a.a.C); err != nil || string(k.secret["tls.crt"]) != again {
+		t.Errorf("a fresh gateway certificate was replaced again (err %v)", err)
+	}
 	if _, err := f.Disable(ctx, a.a.C, "alex"); err != nil {
 		t.Fatal(err)
 	}

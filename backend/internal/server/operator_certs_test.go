@@ -1,7 +1,6 @@
 package server
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -57,8 +56,9 @@ func TestCreatedOperatorRecordsItsCertificateDates(t *testing.T) {
 	}
 }
 
-// The state is expiring from sixty days out and expired once past; a bearer operator has no certificate to speak of.
-func TestCertStateFollowsTheSoonestDate(t *testing.T) {
+// The state says whether renewal is happening: ok until the day it should have happened has passed by the slack, then
+// renewal-failing (with that day), then expired. A bearer operator has no certificate to speak of.
+func TestCertStateSaysWhetherRenewalIsHappening(t *testing.T) {
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	mk := func(recv time.Time) store.Operator {
 		far := now.Add(900 * day)
@@ -67,9 +67,17 @@ func TestCertStateFollowsTheSoonestDate(t *testing.T) {
 	for _, c := range []struct {
 		left time.Duration
 		want string
-	}{{200 * day, "ok"}, {61 * day, "ok"}, {59 * day, "expiring"}, {1 * day, "expiring"}, {-time.Hour, "expired"}} {
-		if got := toOperatorDoc(mk(now.Add(c.left)), now).CertState; got != c.want {
-			t.Errorf("%v left: certState = %q, want %q", c.left, got, c.want)
+	}{{200 * day, CertStateOK}, {25 * day, CertStateOK}, {16 * day, CertStateOK}, {14 * day, CertStateRenewalFailing}, {1 * day, CertStateRenewalFailing}, {-time.Hour, CertStateExpired}} {
+		d := toOperatorDoc(mk(now.Add(c.left)), now)
+		if d.CertState != c.want {
+			t.Errorf("%v left: certState = %q, want %q", c.left, d.CertState, c.want)
+		}
+		wantSince := ""
+		if c.want != CertStateOK {
+			wantSince = rfc(now.Add(c.left).Add(-pki.OperatorRenewBefore))
+		}
+		if d.CertStateSince != wantSince {
+			t.Errorf("%v left: certStateSince = %q, want %q", c.left, d.CertStateSince, wantSince)
 		}
 	}
 	bearer := store.Operator{ID: "op-b", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer, CreatedAt: now}
@@ -84,7 +92,7 @@ func TestCertStateFollowsTheSoonestDate(t *testing.T) {
 }
 
 // An operator from before the dates were recorded: the receiver and client certificates were issued when it was
-// created and nothing could renew them, so that is when they end; the CA's date is read off its stored certificate.
+// created, for a year, and nothing could renew them, so that is when they end; the CA's date is read off its stored certificate.
 func TestLegacyOperatorCertDatesAreDerivedFromWhatIsStored(t *testing.T) {
 	e := newEnv(t)
 	cl := e.approvedCluster(t, fp)
@@ -95,7 +103,7 @@ func TestLegacyOperatorCertDatesAreDerivedFromWhatIsStored(t *testing.T) {
 	stored, _ := e.st.GetOperator(e.ctx, op.ID)
 	stored.ReceiverNotAfter, stored.ClientNotAfter = nil, nil // as read from a schema 15 row
 	c := operatorCertDates(stored)
-	want := stored.CreatedAt.Add(pki.OperatorTLSTTL)
+	want := stored.CreatedAt.Add(pki.LegacyOperatorTLSTTL)
 	if c.Receiver == nil || !c.Receiver.Equal(want) || c.Client == nil || !c.Client.Equal(want) || c.CA == nil {
 		t.Fatalf("derived dates = %+v, want receiver and client at %v", c, want)
 	}
@@ -106,111 +114,32 @@ func TestLegacyOperatorCertDatesAreDerivedFromWhatIsStored(t *testing.T) {
 	}
 }
 
-// One audit entry per threshold, however often the check runs; a re-issue starts the count over.
-func TestCheckOperatorCertsWarnsOncePerThresholdWithAFakedClock(t *testing.T) {
+// Installing again issues certificates again: the new dates are recorded, and nothing is written to the audit trail but
+// the install itself (there is no expiry warning to raise any more).
+func TestReissueRecordsTheNewDatesAndRaisesNoWarning(t *testing.T) {
 	e := newEnv(t)
 	cl := e.approvedCluster(t, fp)
+	old := pki.OperatorTLSTTL
+	pki.OperatorTLSTTL = 10 * day
 	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
+	pki.OperatorTLSTTL = old
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, _ := e.st.GetOperator(e.ctx, op.ID)
-	end := *stored.ReceiverNotAfter
-	if end2 := *stored.ClientNotAfter; end2.Before(end) {
-		end = end2
-	}
-	check := func(at time.Time) int {
-		*e.now = at
-		n, err := e.core.CheckOperatorCerts(e.ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return n
-	}
-	if n := check(end.Add(-100 * day)); n != 0 {
-		t.Fatalf("a warning 100 days out: %d", n)
-	}
-	steps := []struct {
-		at   time.Time
-		want int
-		text string
-	}{
-		{end.Add(-59 * day), 1, "expires on"},
-		{end.Add(-58 * day), 0, ""}, // same threshold: no second warning
-		{end.Add(-31 * day), 0, ""},
-		{end.Add(-29 * day), 1, "expires on"},
-		{end.Add(-8 * day), 0, ""},
-		{end.Add(-6 * day), 1, "expires on"},
-		{end.Add(-5 * day), 0, ""},
-		{end.Add(time.Hour), 1, "expired on"},
-		{end.Add(2 * time.Hour), 0, ""},
-	}
-	total := 0
-	for i, s := range steps {
-		if n := check(s.at); n != s.want {
-			t.Fatalf("step %d (%v before the end): raised %d, want %d", i, end.Sub(s.at), n, s.want)
-		}
-		total += s.want
-	}
-	if n, detail := e.countAudit(t, "operator-cert-expiring"); n != total || !strings.Contains(detail, "expired on") || !strings.Contains(detail, "certificate") {
-		t.Fatalf("audit entries = %d (%q), want %d", n, detail, total)
-	}
-	// Renewing (the install route) records the new dates and resets the level, so the next generation is watched afresh.
-	*e.now = end.Add(-90 * day)
+	before, _ := e.st.GetOperator(e.ctx, op.ID)
+	*e.now = e.now.Add(time.Minute)
 	if _, _, err := e.core.ReissueOperatorInstall(e.ctx, "alex", op.ID); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := e.st.GetOperator(e.ctx, op.ID)
-	// (The certificates are really issued now, so their end is the same second as before; what matters is the reset.)
-	if after.CertAlertLevel != 0 || after.ReceiverNotAfter == nil || after.ReceiverNotAfter.Before(end) {
-		t.Fatalf("after re-issue: level %d, receiver until %v (was %v)", after.CertAlertLevel, after.ReceiverNotAfter, end)
+	if after.ReceiverNotAfter == nil || !after.ReceiverNotAfter.After(before.ReceiverNotAfter.Add(15*day)) {
+		t.Fatalf("receiver date after installing again = %v (was %v)", after.ReceiverNotAfter, before.ReceiverNotAfter)
 	}
-	if n, _ := e.countAudit(t, "operator-install-reissued"); n != 1 {
-		t.Fatalf("operator-install-reissued entries = %d", n)
+	if after.ClientNotAfter == nil || !after.ClientNotAfter.After(before.ClientNotAfter.Add(15*day)) {
+		t.Fatalf("client date after installing again = %v (was %v)", after.ClientNotAfter, before.ClientNotAfter)
 	}
-	*e.now = end.Add(-59 * day)
-	if n, _ := e.core.CheckOperatorCerts(e.ctx); n != 1 {
-		t.Fatalf("the new generation was not watched afresh: %d", n)
-	}
-}
-
-// An operator that is not active is not warned about, and a certificate with no known date is not guessed at.
-func TestCheckOperatorCertsLeavesRevokedAndBearerOperatorsAlone(t *testing.T) {
-	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
-	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	failTLSMint(t)
-	if _, _, _, err := e.core.CreateOperator(e.ctx, "alex", "bearer", []string{cl}, extDest("c:4317"), nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.core.RevokeOperator(e.ctx, "alex", op.ID, "gone"); err != nil {
-		t.Fatal(err)
-	}
-	*e.now = e.now.Add(4000 * day) // past every certificate
-	if n, err := e.core.CheckOperatorCerts(e.ctx); err != nil || n != 0 {
-		t.Fatalf("raised %d (%v) for a revoked operator and a bearer one", n, err)
-	}
-}
-
-// The watcher is the one place that reaches every organisation, new ones included.
-func TestPlatformChecksEveryOrganisationsOperators(t *testing.T) {
-	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
-	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stored, _ := e.st.GetOperator(e.ctx, op.ID)
-	*e.now = stored.ReceiverNotAfter.Add(-10 * day)
-	p := NewPlatform(e.base, nil)
-	if n, err := p.CheckAllOperatorCerts(e.ctx); err != nil || n != 1 {
-		t.Fatalf("raised %d (%v)", n, err)
-	}
-	if n, _ := p.CheckAllOperatorCerts(e.ctx); n != 0 {
-		t.Fatalf("the second run warned again: %d", n)
+	if n, _ := e.countAudit(t, "operator-cert-expiring"); n != 0 {
+		t.Fatalf("expiry warnings in the trail: %d", n)
 	}
 }
 
@@ -220,7 +149,7 @@ func TestPlatformChecksEveryOrganisationsOperators(t *testing.T) {
 func TestClientCertDateFollowsTheNewestCertificateOfEachSender(t *testing.T) {
 	e := newEnv(t)
 	cl := e.approvedCluster(t, fp)
-	short := 30 * day
+	short := 10 * day
 	old := pki.OperatorTLSTTL
 	pki.OperatorTLSTTL = short
 	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
@@ -229,25 +158,25 @@ func TestClientCertDateFollowsTheNewestCertificateOfEachSender(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := e.st.GetOperator(e.ctx, op.ID)
-	if before.ClientNotAfter == nil || before.ClientNotAfter.After(time.Now().Add(31*day)) {
-		t.Fatalf("setup: client certificate ends %v, want about 30 days out", before.ClientNotAfter)
+	if before.ClientNotAfter == nil || before.ClientNotAfter.After(time.Now().Add(11*day)) {
+		t.Fatalf("setup: client certificate ends %v, want about 10 days out", before.ClientNotAfter)
 	}
 	*e.now = e.now.Add(time.Minute) // issued later than the first: the ledger orders by issue time
 	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, cl, "again"); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := e.st.GetOperator(e.ctx, op.ID)
-	if after.ClientNotAfter == nil || after.ClientNotAfter.Before(time.Now().Add(300*day)) {
-		t.Fatalf("client certificate end after issuing a new one = %v, want about a year out", after.ClientNotAfter)
+	if after.ClientNotAfter == nil || after.ClientNotAfter.Before(time.Now().Add(25*day)) {
+		t.Fatalf("client certificate end after issuing a new one = %v, want about 30 days out", after.ClientNotAfter)
 	}
 	if !after.ReceiverNotAfter.Equal(*before.ReceiverNotAfter) {
 		t.Fatalf("the receiver certificate date moved: %v -> %v", before.ReceiverNotAfter, after.ReceiverNotAfter)
 	}
 }
 
-// With several senders the operator is watched by the one whose newest certificate ends first, and the warning says
-// which: "client certificate held by <cluster>". A sender that is no longer configured does not count.
-func TestExpiryWarningNamesTheSenderWhoseCertificateEndsFirst(t *testing.T) {
+// With several senders the dates follow the one whose newest certificate ends first. A sender that is no longer
+// configured does not count.
+func TestOperatorDatesFollowTheSenderWhoseCertificateEndsFirst(t *testing.T) {
 	e := newEnv(t)
 	c1 := e.approvedCluster(t, fp)
 	c2 := e.approvedCluster(t, "9a3c2a9e-1111-4222-8333-944455556677")
@@ -265,27 +194,16 @@ func TestExpiryWarningNamesTheSenderWhoseCertificateEndsFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	pki.OperatorTLSTTL = 365 * day
-	// c2's newest is now the short one: it is what the operator is watched by.
 	st, _ := e.st.GetOperator(e.ctx, op.ID)
 	if st.ClientNotAfter == nil || st.ClientNotAfter.After(time.Now().Add(21*day)) {
 		t.Fatalf("client date = %v, want about 20 days out", st.ClientNotAfter)
 	}
-	*e.now = time.Now() // the certificates were really issued now, so their ends are measured from now
-	if n, err := e.core.CheckOperatorCerts(e.ctx); err != nil || n != 1 {
-		t.Fatalf("raised %d (%v), want the one 30-day warning", n, err)
-	}
-	if _, detail := e.countAudit(t, "operator-cert-expiring"); !strings.Contains(detail, "client certificate held by "+c2) {
-		t.Fatalf("warning = %q, want it to name %s", detail, c2)
-	}
-	// c2 leaves the operator: the other sender's year is what counts, and the warnings start over.
+	// c2 leaves the operator: the other sender's year is what counts.
 	if err := e.core.UpdateOperatorScope(e.ctx, "alex", op.ID, []string{c1}, extDest("c:4317"), nil); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := e.core.CheckOperatorCerts(e.ctx); err != nil || n != 0 {
-		t.Fatalf("after the short sender left: raised %d (%v)", n, err)
-	}
 	st, _ = e.st.GetOperator(e.ctx, op.ID)
-	if st.ClientNotAfter.Before(time.Now().Add(300*day)) || st.CertAlertLevel != 0 {
-		t.Fatalf("after the short sender left: client date %v, level %d", st.ClientNotAfter, st.CertAlertLevel)
+	if st.ClientNotAfter.Before(time.Now().Add(300 * day)) {
+		t.Fatalf("after the short sender left: client date %v", st.ClientNotAfter)
 	}
 }

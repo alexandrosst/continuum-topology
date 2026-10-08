@@ -120,6 +120,7 @@ func (c *Core) RenewTelemetryCert(ctx context.Context, ip string, req *continuum
 	if err := oc.recordOperatorCert(ctx, "renewal", op, kind, sender, leafPEM); err != nil {
 		return nil, err
 	}
+	oc.noteCertEnds(ctx, op)
 	notAfter := time.Time{}
 	if t := certNotAfter(leafPEM); t != nil {
 		notAfter = *t

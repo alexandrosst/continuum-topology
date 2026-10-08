@@ -65,21 +65,19 @@ func TestOperatorCertificatesLedgerNamesWhoHoldsWhat(t *testing.T) {
 	}
 }
 
-// The central operator's CA cannot be renewed by FUSION's daily certificate loop, so its end must raise the same
-// warning an ordinary operator's does.
-func TestCentralOperatorCAExpiryRaisesTheWarning(t *testing.T) {
+// The central operator's CA is not renewed by FUSION's daily certificate loop, so the document says when it is in trouble
+// like any other operator's.
+func TestCentralOperatorCAIsReportedWhenItsEndIsNear(t *testing.T) {
 	e := newEnv(t)
 	op, _, err := e.core.EnsureCentralOperator(e.ctx, "alex", extDest("c:4317"), []string{"op-central.continuum-system.svc"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	caEnd := *certNotAfter(op.ClientCACertPEM)
-	*e.now = caEnd.Add(-20 * day)
-	n, err := e.core.CheckOperatorCerts(e.ctx)
-	if err != nil || n != 1 {
-		t.Fatalf("raised %d (%v), want the CA's warning", n, err)
+	if d := toOperatorDoc(op, caEnd.Add(-400*day)); d.CertState != CertStateOK {
+		t.Fatalf("a CA with more than a year left: %q", d.CertState)
 	}
-	if _, detail := e.countAudit(t, "operator-cert-expiring"); !strings.Contains(detail, "CA certificate") {
-		t.Fatalf("warning = %q", detail)
+	if d := toOperatorDoc(op, caEnd.Add(-10*day)); d.CertState != CertStateRenewalFailing || d.Certs == nil || d.Certs.CANotAfter == "" {
+		t.Fatalf("a CA ending in ten days: state %q, certs %+v", d.CertState, d.Certs)
 	}
 }

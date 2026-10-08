@@ -376,12 +376,18 @@ func (ca *CA) IssueAgent(csr *x509.CertificateRequest, agentID, orgID string, tt
 }
 
 // OperatorTLSTTL is how long a regional operator's receiver certificate, and the client certificate its
-// senders present to it, are valid.
-var OperatorTLSTTL = 365 * 24 * time.Hour
+// senders present to it, are valid. They renew themselves when OperatorRenewBefore is left (see internal/certrenew), so
+// the lifetime is short on purpose: a holder that stops being entitled (an agent that was revoked, a cluster taken off
+// the operator) loses its access within this time without anyone doing anything.
+var OperatorTLSTTL = 30 * 24 * time.Hour
+
+// LegacyOperatorTLSTTL is what OperatorTLSTTL was before certificates renewed themselves. Operators installed back then
+// still hold certificates of this length; it is used to work out when those end.
+const LegacyOperatorTLSTTL = 365 * 24 * time.Hour
 
 const (
-	// OperatorRenewBefore is how much life an operator certificate has left when its holder renews it: two
-	// thirds of the way through its TTL, so a renewer that is down for a few days still has time to recover.
+	// OperatorRenewBefore is how much life an operator certificate has left when its holder renews it: a third
+	// of the way through its TTL, so a renewer that is down for a couple of weeks still has time to recover.
 	OperatorRenewBefore = 20 * 24 * time.Hour
 	// OperatorRenewGrace is how long after expiry the server still renews an operator certificate on proof of
 	// the old key (a cluster that was off, or a renewer that crashed). Past it the holder must be given a new

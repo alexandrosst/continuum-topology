@@ -493,7 +493,7 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 			detail += "; removed " + auditIDList(removed)
 		}
 	}
-	return c.audited(ctx, actor, "operator-scope-changed", "operator", id, detail, func() error {
+	if err := c.audited(ctx, actor, "operator-scope-changed", "operator", id, detail, func() error {
 		if err := c.Store.UpdateOperatorScope(ctx, id, sourceClusterIDs, dest, acceptedModalities); err != nil {
 			if errors.Is(err, store.ErrBadState) {
 				return errf(KindConflict, "only an active operator's scope can be changed")
@@ -501,7 +501,14 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 			return err
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	// The senders changed, so which certificate ends first may have too.
+	if op, err := c.operatorInOrg(ctx, id); err == nil {
+		c.noteCertEnds(ctx, op)
+	}
+	return nil
 }
 
 // maxAuditIDs is how many cluster ids an operator's audit detail lists by name; the rest are counted. Together with the row's
@@ -854,13 +861,8 @@ func (c *Core) issueOperatorClientCertHeld(ctx context.Context, actor, operatorI
 	if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertClient, sender, certPEM); err != nil {
 		return nil, nil, nil, err
 	}
-	// The new certificate is now the one its sender is watched by, so the dates shown for the operator follow it at once
-	// rather than at the next daily check. Best effort: the certificate is already recorded and the check repeats this.
-	if senders, err := c.operatorSenders(ctx); err != nil {
-		c.Log.Warn("operator certificate dates not refreshed", "operator", op.ID, "err", err)
-	} else if _, _, err := c.refreshCertEnds(ctx, op, senders[op.ID]); err != nil {
-		c.Log.Warn("operator certificate dates not refreshed", "operator", op.ID, "err", err)
-	}
+	// The new certificate is now the one its sender's date follows, so the dates shown for the operator move at once.
+	c.noteCertEnds(ctx, op)
 	// Only which CA signed it is audited ("operator" or the legacy "org"), never any key material.
 	scope := op.ClientCAScope()
 	if scope == "" {

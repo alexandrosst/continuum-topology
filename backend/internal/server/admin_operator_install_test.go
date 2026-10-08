@@ -202,7 +202,7 @@ func TestInstallAgainRecordsDatesForAnOperatorThatHadNone(t *testing.T) {
 		t.Fatal("a legacy operator's receiver trusts the org CA")
 	}
 	got, _ := a.st.GetOperator(a.ctx, legacy.ID)
-	if got.ReceiverNotAfter == nil || got.ReceiverNotAfter.Before(time.Now().Add(300*day)) {
+	if got.ReceiverNotAfter == nil || got.ReceiverNotAfter.Before(time.Now().Add(25*day)) {
 		t.Fatalf("receiver until %v", got.ReceiverNotAfter)
 	}
 }

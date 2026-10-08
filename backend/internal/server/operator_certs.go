@@ -11,15 +11,19 @@ import (
 	"continuum/internal/store"
 )
 
-// Operator certificates expire (the receiver's and the clients' after pki.OperatorTLSTTL, the operator's own CA
-// after pki.OperatorCATTL) and nothing renews them by itself, so the server says when that is coming: the dates are in
-// the operator document, and a daily check writes one audit entry as the first of them comes within each of these
-// many days.
-var certWarnDays = []int{60, 30, 7}
+// Operator certificates renew themselves (internal/certrenew, run by the discovery agent and by the operator chart's
+// cert-renew sidecar; see RenewTelemetryCert), so there is nothing to warn about days ahead: what the server shows is
+// whether that is happening. A certificate is renewed once pki.OperatorRenewBefore is left, so one that is still on its
+// old date certRenewalSlack after that point is not being renewed, and the document says so, with the day renewal should
+// have happened.
+const certRenewalSlack = 5 * 24 * time.Hour
 
-// certExpiredLevel is the CertAlertLevel for a certificate already past its end; levels 1..len(certWarnDays) are
-// the thresholds, in order of increasing urgency.
-var certExpiredLevel = len(certWarnDays) + 1
+// Certificate states in the operator document.
+const (
+	CertStateOK             = "ok"
+	CertStateRenewalFailing = "renewal-failing"
+	CertStateExpired        = "expired"
+)
 
 // OperatorCerts are the dates an operator's certificates stop being valid; a nil one is not known.
 type OperatorCerts struct {
@@ -29,19 +33,25 @@ type OperatorCerts struct {
 // operatorCertDates is what the server knows about op's certificate lifetimes. The CA's comes from its stored
 // certificate. The receiver and client certificates are not kept (they are shown once), so their dates are the ones
 // recorded when they were issued; for an mTLS operator from before they were recorded, the date they must have
-// had: they were issued in the same step that created the operator, for pki.OperatorTLSTTL, and nothing could
+// had: they were issued in the same step that created the operator, for pki.LegacyOperatorTLSTTL, and nothing could
 // re-issue them before the install route existed. A bearer operator has no certificates the server issued that it
-// can vouch for, and the central operator's receiver certificate is renewed daily by its own control loop, so for
-// neither is one guessed.
+// can vouch for, and the central operator's were never issued by the install step, so for neither is one guessed: the
+// central operator's come from the ledger once it has entries (see refreshCertEnds).
 func operatorCertDates(op store.Operator) OperatorCerts {
 	var c OperatorCerts
 	if len(op.ClientCACertPEM) > 0 {
 		c.CA = certNotAfter(op.ClientCACertPEM)
 	}
-	if op.ReceiverAuth != store.ReceiverAuthMTLS || op.ID == CentralOperatorID {
+	if op.ReceiverAuth != store.ReceiverAuthMTLS {
 		return c
 	}
-	derived := op.CreatedAt.Add(pki.OperatorTLSTTL)
+	if op.ID == CentralOperatorID {
+		// Only what the ledger put there: the gateway's own certificate is issued by the server (FusionControl.Renew), never
+		// by the install step a date could be derived from.
+		c.Receiver, c.Client = op.ReceiverNotAfter, op.ClientNotAfter
+		return c
+	}
+	derived := op.CreatedAt.Add(pki.LegacyOperatorTLSTTL)
 	if c.CA != nil && derived.After(*c.CA) {
 		derived = *c.CA // a certificate never outlives the CA that signed it
 	}
@@ -68,95 +78,31 @@ func (c OperatorCerts) soonest() (at time.Time, which string, ok bool) {
 	return at, which, ok
 }
 
-// certLevel is how urgent a certificate ending at `at` is, seen from now: 0 not yet, up to certExpiredLevel.
-func certLevel(at, now time.Time) int {
-	left := at.Sub(now)
-	if left <= 0 {
-		return certExpiredLevel
-	}
-	for i := len(certWarnDays) - 1; i >= 0; i-- {
-		if left <= time.Duration(certWarnDays[i])*24*time.Hour {
-			return i + 1
-		}
-	}
-	return 0
-}
-
 // known says whether any of the dates is.
 func (c OperatorCerts) known() bool { _, _, ok := c.soonest(); return ok }
 
-// certState is "ok", "expiring" (anything within the first threshold) or "expired"; "" when no date is known.
-func (c OperatorCerts) certState(now time.Time) string {
+// certState is "ok", "renewal-failing" (the soonest certificate is past the day it should have been renewed by more
+// than certRenewalSlack and still runs) or "expired"; "" when no date is known. since is the day renewal should have
+// started for the soonest certificate: absent for "ok".
+func (c OperatorCerts) certState(now time.Time) (state string, since *time.Time) {
 	at, _, ok := c.soonest()
+	if !ok {
+		return "", nil
+	}
+	due := at.Add(-pki.OperatorRenewBefore)
 	switch {
-	case !ok:
-		return ""
-	case certLevel(at, now) == certExpiredLevel:
-		return "expired"
-	case certLevel(at, now) > 0:
-		return "expiring"
+	case !at.After(now):
+		return CertStateExpired, &due
+	case now.After(due.Add(certRenewalSlack)):
+		return CertStateRenewalFailing, &due
 	}
-	return "ok"
-}
-
-// CheckOperatorCerts raises the expiry warning for every active operator whose soonest certificate has reached a
-// threshold it has not been warned about yet: one audit entry ("operator-cert-expiring") per threshold per
-// certificate generation, never one per run. Re-issuing the certificates (see ReissueOperatorInstall) resets the
-// level, so the next generation is watched afresh. Returns how many warnings it raised. A warning whose audit row
-// cannot be written is not marked as raised, so the next run tries again.
-func (c *Core) CheckOperatorCerts(ctx context.Context) (int, error) {
-	ops, err := c.Store.ListOperators(ctx, c.OrgID)
-	if err != nil {
-		return 0, err
-	}
-	now := c.Now()
-	raised := 0
-	senders, err := c.operatorSenders(ctx)
-	if err != nil {
-		return 0, err
-	}
-	for _, op := range ops {
-		if op.Status != store.OperatorActive {
-			continue
-		}
-		// The dates the operator document shows are brought in line with the ledger first, so a certificate issued
-		// for one sender on its own is watched, and one for a sender that is gone no longer is.
-		op, holder, err := c.refreshCertEnds(ctx, op, senders[op.ID])
-		if err != nil {
-			c.Log.Error("operator certificate dates not refreshed", "operator", op.ID, "err", err)
-		}
-		at, which, ok := operatorCertDates(op).soonest()
-		if !ok {
-			continue
-		}
-		if which == "client certificate" && holder != "" {
-			which += " held by " + holder
-		}
-		level := certLevel(at, now)
-		if level <= op.CertAlertLevel {
-			continue
-		}
-		detail := fmt.Sprintf("the %s expires on %s (in %d days)", which, at.UTC().Format("2006-01-02"), int(at.Sub(now).Hours()/24))
-		if level == certExpiredLevel {
-			detail = fmt.Sprintf("the %s expired on %s", which, at.UTC().Format("2006-01-02"))
-		}
-		if err := c.Store.AddAudit(ctx, c.auditRow(c.OrgID, "system", "operator-cert-expiring", "operator", op.ID, detail)); err != nil {
-			c.Log.Error("operator certificate warning not recorded; will retry", "operator", op.ID, "err", err)
-			continue
-		}
-		if err := c.Store.SetOperatorCertAlertLevel(ctx, op.ID, level); err != nil {
-			c.Log.Error("operator certificate warning level not saved", "operator", op.ID, "err", err)
-			continue
-		}
-		raised++
-	}
-	return raised, nil
+	return CertStateOK, nil
 }
 
 // operatorSenders is, for every operator of the organisation, who is configured to send to it right now: its own source
 // clusters, the clusters of active telemetry intents that name it as a destination, and the operators that export
 // into it. These are the holders of client certificates that matter: a certificate issued to a sender that no longer
-// sends is not worth a warning. The sender names are the ones the ledger records (a cluster id, or an operator id).
+// sends is not one whose renewal matters. The sender names are the ones the ledger records (a cluster id, or an operator id).
 // A cluster counts only while one of its agents is approved, so revoking the agent ends the cluster's certificate
 // renewals (see RenewTelemetryCert) and the certificate ends within pki.OperatorTLSTTL.
 func (c *Core) operatorSenders(ctx context.Context) (map[string]map[string]bool, error) {
@@ -225,17 +171,17 @@ func (c *Core) operatorSenders(ctx context.Context) (map[string]map[string]bool,
 // one ending first (when that is known).
 //
 // Why: the dates were written only when an operator was created or installed again, so a client certificate issued to one
-// sender on its own (a cluster added later, a telemetry intent pointed at the operator) never moved them, and an old
-// date kept warning about a certificate that had since been replaced, while a new one that was about to end was not
-// watched at all. Now the client date is the soonest of the NEWEST certificate of each current sender. It is only
+// sender on its own (a cluster added later, a telemetry intent pointed at the operator, a renewal) never moved them, and
+// an old date kept showing for a certificate that had since been replaced. Now the client date is the soonest of the NEWEST certificate of each current sender. It is only
 // replaced when every current sender has a ledger entry; with a sender that predates the ledger, or none at all, the date
 // already stored is the best known and stays. Replacing a date starts the expiry warnings over for the new generation.
 func (c *Core) refreshCertEnds(ctx context.Context, op store.Operator, senders map[string]bool) (store.Operator, string, error) {
-	if op.ReceiverAuth != store.ReceiverAuthMTLS || op.ID == CentralOperatorID {
+	if op.ReceiverAuth != store.ReceiverAuthMTLS {
 		return op, "", nil
 	}
 	dates := operatorCertDates(op)
-	if dates.Receiver == nil || dates.Client == nil {
+	central := op.ID == CentralOperatorID
+	if !central && (dates.Receiver == nil || dates.Client == nil) {
 		return op, "", nil
 	}
 	ledger, err := c.Store.ListOperatorCerts(ctx, op.ID) // newest first
@@ -267,11 +213,22 @@ func (c *Core) refreshCertEnds(ctx context.Context, op store.Operator, senders m
 			}
 		}
 	}
-	recv := *dates.Receiver
+	var recv, client time.Time
+	if dates.Receiver != nil {
+		recv = *dates.Receiver
+	}
 	if recvCert != nil {
 		recv = recvCert.NotAfter
 	}
-	client, holder := *dates.Client, ""
+	if central && recv.IsZero() {
+		return op, "", nil // nothing recorded for the gateway yet: nothing to show
+	}
+	if dates.Client != nil {
+		client = *dates.Client
+	} else {
+		client = recv // the central operator before any sender has a certificate: only the gateway's own counts
+	}
+	holder := ""
 	newest := map[string]time.Time{}
 	for s, e := range newestBy {
 		newest[s] = e.NotAfter
@@ -292,58 +249,25 @@ func (c *Core) refreshCertEnds(ctx context.Context, op store.Operator, senders m
 			client, holder = first, who
 		}
 	}
-	if recv.Equal(*dates.Receiver) && client.Equal(*dates.Client) {
+	if dates.Receiver != nil && dates.Client != nil && recv.Equal(*dates.Receiver) && client.Equal(*dates.Client) {
 		return op, holder, nil
 	}
 	if err := c.Store.SetOperatorCerts(ctx, op.ID, recv, client); err != nil {
 		return op, holder, stateErr(err)
 	}
-	op.ReceiverNotAfter, op.ClientNotAfter, op.CertAlertLevel = &recv, &client, 0
+	op.ReceiverNotAfter, op.ClientNotAfter = &recv, &client
 	return op, holder, nil
 }
 
-// operatorCertCheckEvery is how often WatchOperatorCerts runs: the thresholds are days apart.
-const operatorCertCheckEvery = 24 * time.Hour
-
-// CheckAllOperatorCerts is CheckOperatorCerts for every organisation, the ones created since the server started
-// included. It returns how many warnings it raised.
-func (p *Platform) CheckAllOperatorCerts(ctx context.Context) (int, error) {
-	orgs, err := p.Base.Store.ListOrgs(ctx)
+// noteCertEnds brings the dates shown for op in line with the ledger after a certificate was issued or renewed. Best
+// effort: the certificate is already recorded, and the next issue repeats this.
+func (c *Core) noteCertEnds(ctx context.Context, op store.Operator) {
+	senders, err := c.operatorSenders(ctx)
+	if err == nil {
+		_, _, err = c.refreshCertEnds(ctx, op, senders[op.ID])
+	}
 	if err != nil {
-		return 0, err
-	}
-	// One organisation that cannot be read must not leave the others' certificates unwatched: go on, and report all.
-	raised := 0
-	var errs []error
-	for _, o := range orgs {
-		t, err := p.Tenant(ctx, o.ID)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("org %s: %w", o.ID, err))
-			continue
-		}
-		n, err := t.C.CheckOperatorCerts(ctx)
-		raised += n
-		if err != nil {
-			errs = append(errs, fmt.Errorf("org %s: %w", o.ID, err))
-		}
-	}
-	return raised, errors.Join(errs...)
-}
-
-// WatchOperatorCerts runs CheckAllOperatorCerts when it starts, so a server that was down for weeks catches up at
-// once, and then every day, until ctx ends.
-func (p *Platform) WatchOperatorCerts(ctx context.Context) {
-	t := time.NewTicker(operatorCertCheckEvery)
-	defer t.Stop()
-	for {
-		if _, err := p.CheckAllOperatorCerts(ctx); err != nil && ctx.Err() == nil {
-			p.Base.Log.Error("operator certificate check failed", "err", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
+		c.Log.Warn("operator certificate dates not refreshed", "operator", op.ID, "err", err)
 	}
 }
 
