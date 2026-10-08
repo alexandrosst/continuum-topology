@@ -268,6 +268,10 @@ data:
                 # there - see telemetry.energy.metrics.nodeChecks) is Pending, and must not turn into a permanently failing
                 # target. A Kepler that is running but broken keeps its target, so it still shows as up=0.
                 - {source_labels: ["__meta_kubernetes_pod_phase"], regex: "Running", action: keep}
+                {{- /* One target: the container port named metrics. Pod discovery also makes a target for every container that declares no port,
+                       and the preflight init container is one: its target is the pod IP alone, which is scraped on port 80 and refused,
+                       so a healthy Kepler showed up=0 next to its working target. */}}
+                - {source_labels: ["__meta_kubernetes_pod_container_port_name"], regex: "metrics", action: keep}
                 - {source_labels: ["__meta_kubernetes_pod_node_name"], target_label: node}
             {{- end }}
             {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "existing") }}
@@ -292,6 +296,9 @@ data:
               relabel_configs:
                 - {source_labels: ["__meta_kubernetes_pod_label_app_kubernetes_io_name"], regex: {{ $dcgmName | quote }}, action: keep}
                 - {source_labels: ["__meta_kubernetes_pod_label_app_kubernetes_io_instance"], regex: {{ regexQuoteMeta .Release.Name | quote }}, action: keep}
+                # One target per pod: the container port named metrics (a container with no port, an init container for one, would
+                # otherwise be a second, port-less target scraped on port 80 - see the Kepler job).
+                - {source_labels: ["__meta_kubernetes_pod_container_port_name"], regex: "metrics", action: keep}
                 - {source_labels: ["__meta_kubernetes_pod_node_name"], target_label: node}
             {{- end }}
             {{- if and $acc.enabled (eq $acc.source "existing") $acc.existing.pods.labelSelector }}

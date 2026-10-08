@@ -444,3 +444,24 @@ func TestClusterCollectorConfigLoadsInTheRealCollector(t *testing.T) {
 		}
 	}
 }
+
+// Pod discovery makes a target for every container that declares no port, and Kepler's preflight init container is one: its
+// target is the pod IP alone, scraped on port 80 and refused, so a healthy Kepler showed up=0 beside its working target. The
+// bundled jobs keep only the container port named metrics, which each of those pods declares.
+func TestBundledExportersAreScrapedOnTheirMetricsPortOnly(t *testing.T) {
+	jobs := scrapeConfigs(t, render(t, both()...))
+	for _, name := range []string{"kepler", "dcgm-exporter"} {
+		job := jobs[name]
+		if job == nil {
+			t.Fatalf("no %s job: %v", name, keys(jobs))
+		}
+		found := false
+		for _, rc := range job["relabel_configs"].([]any) {
+			m := rc.(map[string]any)
+			found = found || (m["source_labels"].([]any)[0] == "__meta_kubernetes_pod_container_port_name" && m["action"] == "keep" && m["regex"] == "metrics")
+		}
+		if !found {
+			t.Errorf("%s keeps targets without the metrics port: %v", name, job["relabel_configs"])
+		}
+	}
+}
