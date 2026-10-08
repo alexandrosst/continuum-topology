@@ -1,12 +1,13 @@
 package flow
 
 import (
-	"container/heap"
+	"maps"
 	"sort"
 	"sync"
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/flow/wire"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -85,9 +86,9 @@ func ref(e *continuumv1.FlowEndpoint) string {
 	return e.Ref
 }
 
-// mergeFlowCounters folds add's counters/gauges into cur in place - the one rule set for every field
-// Flow carries, shared by flows and podFlows below: a held edge accumulates the same way regardless of
-// which table it lives in.
+// mergeFlowCounters folds add into cur in place - the one rule set for every field Flow carries, shared by flows and
+// podFlows below: counters add up, and the readings (wire.MergeGauges, the same rules the server applies across
+// windows) are replaced by the latest sample.
 func mergeFlowCounters(cur, add *continuumv1.Flow) {
 	cur.Connections += add.Connections
 	cur.BytesOut += add.BytesOut
@@ -98,62 +99,12 @@ func mergeFlowCounters(cur, add *continuumv1.Flow) {
 	cur.BufferDrops += add.BufferDrops
 	cur.MeshBypassSyns += add.MeshBypassSyns
 	cur.FailedAttempts += add.FailedAttempts
-	if add.RttUs != 0 {
-		cur.RttUs = add.RttUs // a gauge, not a sum: the latest sample replaces the last, same as Iface
-	}
-	if add.JitterUs != 0 {
-		cur.JitterUs = add.JitterUs // a gauge, same treatment as RttUs right above it
-	}
-	if add.HandshakeUs != 0 {
-		cur.HandshakeUs = add.HandshakeUs // set once per connection; held the same way as RttUs/JitterUs
-	}
-	if add.Cwnd != 0 {
-		cur.Cwnd = add.Cwnd // a gauge, same treatment as RttUs/JitterUs
-	}
-	if add.PacingBps != 0 {
-		cur.PacingBps = add.PacingBps // a gauge, same treatment as Cwnd right above
-	}
-	if add.DnsRttUs != 0 {
-		cur.DnsRttUs = add.DnsRttUs // a gauge, same treatment as the other sampled figures above
-	}
-	if add.MssBytes != 0 {
-		cur.MssBytes = add.MssBytes // a gauge, same treatment as Cwnd/PacingBps above
-	}
-	// RcvWndBytes/SndWndBytes/WmemQueuedBytes/SndbufBytes are gauges too, but unlike MssBytes/Cwnd above,
-	// 0 is a real, meaningful sample for all four (a zero window, or a drained queue) - these are
-	// `optional uint32` on the wire (RawFlow/Flow) for exactly that reason, so presence is tested on the
-	// pointer, not the value: nil means this report carried no sample of that field at all (never
-	// clobber cur with a fabricated 0), non-nil (0 included) means a real sample that must replace
-	// whatever cur was holding.
-	if add.RcvWndBytes != nil {
-		cur.RcvWndBytes = add.RcvWndBytes
-	}
-	if add.SndWndBytes != nil {
-		cur.SndWndBytes = add.SndWndBytes
-	}
-	if add.WmemQueuedBytes != nil {
-		cur.WmemQueuedBytes = add.WmemQueuedBytes
-	}
-	if add.SndbufBytes != nil {
-		cur.SndbufBytes = add.SndbufBytes
-	}
-	if add.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN {
-		cur.TlsHandshake = add.TlsHandshake // a gauge, same treatment as SniHost below: the latest sample
-		// decided for this edge replaces whatever the last one said, rather than being combined with it -
-		// see RawFlow.tls_handshake/TlsHandshakeOutcome for why only one decision per connection exists in
-		// the first place.
-	}
-	if add.SniHost != "" {
-		cur.SniHost = add.SniHost // also a gauge: one peer essentially always carries one hostname
-	}
-	cur.DnsQueryNames = mergeDNSNames(cur.DnsQueryNames, add.DnsQueryNames)
-	cur.BytesKnown = cur.BytesKnown || add.BytesKnown
-	if add.Method == "ebpf" {
-		cur.Method = "ebpf"
-	}
+	wire.MergeGauges(cur, add)
+	cur.DnsQueryNames = wire.MergeDNSNames(cur.DnsQueryNames, add.DnsQueryNames)
 }
 
 func (a *Aggregator) Add(f *continuumv1.Flow) {
+	wire.Clip(f)
 	k := key{f.Src.Kind, f.Dst.Kind, ref(f.Src), ref(f.Dst), f.Port, f.Protocol}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -196,88 +147,16 @@ func (a *Aggregator) addPod(k key, f *continuumv1.Flow) {
 	}
 }
 
-// maxHeldDNSNames bounds how many distinct domain names one held (and, later, one stored) dns-noise
-// edge remembers - a resolver edge can legitimately field many different lookups, but "recently asked
-// about" is the point, not a full log.
-const maxHeldDNSNames = 8
-
-// mergeDNSNames folds add's distinct, non-empty names into cur, newest first, capped at
-// maxHeldDNSNames - used both here (within one window) and by the server's own FlowEdge accumulation
-// (across many windows), since the list-vs-gauge reasoning is identical either way.
-func mergeDNSNames(cur, add []string) []string {
-	for _, n := range add {
-		if n == "" {
-			continue
-		}
-		found := false
-		for _, c := range cur {
-			if c == n {
-				found = true
-				break
-			}
-		}
-		if !found {
-			cur = append([]string{n}, cur...)
-		}
-	}
-	if len(cur) > maxHeldDNSNames {
-		cur = cur[:maxHeldDNSNames]
-	}
-	return cur
-}
-
-// agedEntry is one held edge's key paired with when it was last touched - the only two fields eviction
-// needs to pick evictions, so it never has to copy a whole *continuumv1.Flow just to sort by one of its
-// fields. Generic over the key shape so both flows (key) and podFlows (podKey) below share one eviction
-// routine. Mirrors observed.go's edgeAge/oldestEdges (same shape, same reason: evicting a bounded number
-// of oldest entries out of a much larger table shouldn't cost a full sort of that table).
-type agedEntry[K comparable] struct {
-	k K
-	t uint64
-}
-
-// agedHeap is a bounded max-heap of the oldest-looking agedEntries seen so far during a single linear
-// scan: its root (index 0) is always the entry with the LATEST t among those currently held - once the
-// heap holds n entries, a new, genuinely older candidate only ever needs to evict that one (the entry
-// least likely to belong in the final "n oldest" answer), never re-examine the rest. See observed.go's
-// ageHeap for the identical reasoning in more detail.
-type agedHeap[K comparable] []agedEntry[K]
-
-func (h agedHeap[K]) Len() int           { return len(h) }
-func (h agedHeap[K]) Less(i, j int) bool { return h[i].t > h[j].t }
-func (h agedHeap[K]) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *agedHeap[K]) Push(x any)        { *h = append(*h, x.(agedEntry[K])) }
-func (h *agedHeap[K]) Pop() any {
-	old := *h
-	last := len(old) - 1
-	x := old[last]
-	*h = old[:last]
-	return x
-}
-
-// evictOldest drops the tenth of the held entries that were touched longest ago from both flows and
-// touched, and reports how many it dropped. Generic over the key shape so Aggregator.evict (flows/
-// touched/max) and evictPod (podFlows/podTouched/podMax) share this one implementation. Finds those n
-// oldest entries in one O(len(flows) * log n) pass via a bounded max-heap, rather than a full
-// O(len(flows) log len(flows)) sort of the whole table just to throw away the n it actually needs.
+// evictOldest drops the tenth of the held entries that were touched longest ago from both flows and touched, and
+// reports how many it dropped. Generic over the key shape so Aggregator.evict (flows/touched/max) and evictPod
+// (podFlows/podTouched/podMax) share this one implementation.
 func evictOldest[K comparable, V any](flows map[K]*V, touched map[K]uint64, max_ int) int {
-	n := max(len(flows)-max_, max_/10, 1)
-	h := make(agedHeap[K], 0, n)
-	for k, t := range touched {
-		age := agedEntry[K]{k, t}
-		switch {
-		case len(h) < n:
-			heap.Push(&h, age)
-		case age.t < h[0].t:
-			heap.Pop(&h)
-			heap.Push(&h, age)
-		}
+	old := wire.Oldest(max(len(flows)-max_, max_/10, 1), maps.All(touched))
+	for _, k := range old {
+		delete(flows, k)
+		delete(touched, k)
 	}
-	for _, x := range h {
-		delete(flows, x.k)
-		delete(touched, x.k)
-	}
-	return len(h)
+	return len(old)
 }
 
 // evict drops the tenth of the held edges that were touched longest ago. It runs once per max/10 additions past the

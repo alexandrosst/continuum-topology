@@ -268,7 +268,7 @@ func TestAggregatorCarriesSniHostAndDnsQueryNames(t *testing.T) {
 	if len(b.Flows) != 1 {
 		t.Fatalf("all three should merge into one held edge: %d", len(b.Flows))
 	}
-	// mergeDNSNames prepends each newly-seen distinct name, so the most recently first-seen name (here,
+	// wire.MergeDNSNames prepends each newly-seen distinct name, so the most recently first-seen name (here,
 	// "second.example.com", added after "first.example.com" and never repeated) ends up in front; the
 	// repeat of "first.example.com" in f3 must not have moved it or duplicated it.
 	got := b.Flows[0].DnsQueryNames

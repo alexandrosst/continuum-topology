@@ -15,6 +15,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
+	"continuum/internal/flow/wire"
 	"continuum/internal/geoip"
 	"continuum/internal/interpret"
 	"continuum/internal/model"
@@ -599,10 +600,11 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 		// gives the tier ceiling, extended to a paused collector.
 		return false, nil
 	}
-	if err := validateFlowBatch(fb); err != nil {
+	dropped, err := sanitizeFlowBatch(fb)
+	if err != nil {
 		return false, err
 	}
-	// A data-integrity backstop independent of validateFlowBatch's own shape checks above: a
+	// A data-integrity backstop independent of sanitizeFlowBatch's own shape checks above: a
 	// physically impossible value (e.g. a saturation percentage outside 0-100) is omitted from just
 	// its own field, never the whole batch - see boundFlowFacts' own doc comment.
 	implausible := boundFlowFacts(fb)
@@ -611,6 +613,12 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 	v := h.views[agentID]
 	if v == nil {
 		return false, nil
+	}
+	if dropped.n > 0 {
+		Metrics.flowItemsDropped.Add(int64(dropped.n))
+		if v.obs.noteDropped(dropped.n, now) {
+			h.Log.Warn("flow batch had items the server cannot use; they were dropped, the rest of the batch kept", "agent", agentID, "dropped", dropped.n, "first_reason", dropped.first)
+		}
 	}
 	if implausible > 0 {
 		Metrics.implausibleFacts.Add(int64(implausible))
@@ -725,7 +733,7 @@ func loadFlowTable(data []byte) (*flowTable, error) {
 		return nil, fmt.Errorf("the stored flow table has %d edges, over the limit of %d", len(t.edges), maxFlowEdges)
 	}
 	for _, e := range t.edges {
-		if err := validateFlowKey(e.Key); err != nil {
+		if err := wire.CheckKey(e.Key); err != nil {
 			return nil, err
 		}
 	}
@@ -792,7 +800,7 @@ func syncKeys(s *continuumv1.Sync) []string {
 
 // ---- data-integrity backstop: physically impossible values, independent of the shape checks above ----
 //
-// validateSync/validateFlowBatch above refuse a message that is malformed - too big, too long, the
+// validateSync/sanitizeFlowBatch above refuse a message that is malformed - too big, too long, the
 // wrong shape. They never ask whether a well-formed value could actually have been measured. A
 // negative RTT, a CPU-pressure percentage over 100, or a negative pod count cannot come from any real
 // kernel counter or kubelet reading; nothing stops a compromised or merely buggy agent from sending one

@@ -33,6 +33,9 @@ type metrics struct {
 	// rather than the whole report being refused the way syncsRefused above is. See
 	// boundSyncFacts/boundFlowFacts for exactly what this counts.
 	implausibleFacts atomic.Int64
+	// flowItemsDropped is how many individual flows, pod flows or collector reports, across every agent, were
+	// dropped from an otherwise accepted flow batch for being unusable (see sanitizeFlowBatch).
+	flowItemsDropped atomic.Int64
 }
 
 // Metrics is the process's counters. Tests read differences, not absolute values, since one process runs many servers.
@@ -138,6 +141,7 @@ func writeMetrics(ctx context.Context, w http.ResponseWriter, src MetricsSource,
 	line("continuum_store_errors_total", "Failed writes to the database (audit, snapshots, agent records) and failed readiness checks.", "counter", m.storeErrors.Load())
 	line("continuum_agent_tier_changes_total", "Times an administrator changed an agent's approved access tier.", "counter", m.tierChanges.Load())
 	line("continuum_agent_consent_changes_total", "Times an administrator changed the collectors or namespaces an agent is asked to leave out.", "counter", m.consentChanges.Load())
+	line("continuum_flow_items_dropped_total", "Flows, pod flows and collector reports dropped from an accepted flow batch because they were malformed or cannot become a dependency (node-level traffic); the rest of the batch was kept.", "counter", m.flowItemsDropped.Load())
 	line("continuum_implausible_facts_total", "Reported field values omitted for being physically impossible (a negative count, an out-of-range percentage), never clamped to a plausible-looking number.", "counter", m.implausibleFacts.Load())
 	_, _ = w.Write([]byte(b.String()))
 }

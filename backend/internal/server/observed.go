@@ -1,7 +1,7 @@
 package server
 
 import (
-	"container/heap"
+	"errors"
 	"fmt"
 	"math"
 	"net/netip"
@@ -12,6 +12,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
+	"continuum/internal/flow/wire"
 	"continuum/internal/interpret"
 	"continuum/internal/model"
 	"continuum/internal/netid"
@@ -65,54 +66,62 @@ func flowKey(f *continuumv1.Flow) string {
 // a pod-level breakdown near its own, smaller one.
 const maxPodFlowsPerBatch = 4000
 
-// maxPodNameLen bounds Flow.src_pod/dst_pod the same way maxStr already bounds a FlowEndpoint's Ref: a
-// Kubernetes pod name is capped at 253 characters by the API server itself, so anything longer is
-// already known to be invented.
-const maxPodNameLen = 253
+var errNodeLevel = errors.New("a node-level flow cannot become a dependency")
 
-// validateFlowBatch bounds what one agent may report, and refuses anything malformed. It is the last
-// line of defence against a compromised agent inventing traffic or filling memory.
-func validateFlowBatch(b *continuumv1.FlowBatch) error {
-	if len(b.Flows) > maxFlowsPerBatch || b.WindowSeconds < 1 || b.WindowSeconds > 24*3600 {
-		return fmt.Errorf("flow batch is malformed")
+// droppedItems is what sanitizeFlowBatch removed from one batch: how many, and the first reason, for the log.
+type droppedItems struct {
+	n     int
+	first error
+}
+
+func (d *droppedItems) note(err error) {
+	if d.n++; d.first == nil {
+		d.first = err
 	}
-	if len(b.Collectors) > 5000 {
-		return fmt.Errorf("flow batch is malformed")
+}
+
+// sanitizeFlowBatch bounds what one agent may report, in place. A batch that is structurally broken (too many
+// items, a window that cannot be) is refused, which ends the stream: that is a protocol violation. A single bad
+// item is not: a flow or pod flow that wire.Check refuses is dropped and counted, the rest of the batch is kept,
+// and the strings of the kept ones are cut (wire.Clip), so one odd edge never costs the 5000 good ones next to it.
+//
+// Flows with a NODE end (a node-level process or hostNetwork pod the agent could not pin to a pod) are well-formed
+// but are dropped and counted too: no dependency is derived from them (see observedTopology), so storing them would
+// only spend the edge budget.
+func sanitizeFlowBatch(b *continuumv1.FlowBatch) (d droppedItems, err error) {
+	if len(b.Flows) > maxFlowsPerBatch || len(b.PodFlows) > maxPodFlowsPerBatch || len(b.Collectors) > 5000 ||
+		b.WindowSeconds < 1 || b.WindowSeconds > 24*3600 {
+		return d, errors.New("flow batch is malformed")
 	}
-	if len(b.PodFlows) > maxPodFlowsPerBatch {
-		return fmt.Errorf("flow batch is malformed")
-	}
-	for _, c := range b.Collectors {
-		if c == nil || c.Node == "" || len(c.Node) > 253 || (c.Method != "ebpf" && c.Method != "conntrack") {
-			return fmt.Errorf("collector info is malformed")
+	keep := func(f *continuumv1.Flow) bool {
+		err := wire.Check(f)
+		if err == nil && (f.Src.Kind == continuumv1.FlowEndpoint_NODE || f.Dst.Kind == continuumv1.FlowEndpoint_NODE) {
+			err = errNodeLevel
 		}
+		if err != nil {
+			d.note(err)
+			return false
+		}
+		wire.Clip(f)
+		return true
 	}
-	for _, f := range b.Flows {
-		if f.Src == nil || f.Dst == nil || f.Port == 0 || f.Port > 65535 || (f.Protocol != "tcp" && f.Protocol != "udp") || (f.Method != "ebpf" && f.Method != "conntrack") ||
-			(f.Noise != "" && f.Noise != "dns" && f.Noise != "system") {
-			return fmt.Errorf("flow is malformed")
+	b.Flows = slices.DeleteFunc(b.Flows, func(f *continuumv1.Flow) bool { return !keep(f) })
+	b.PodFlows = slices.DeleteFunc(b.PodFlows, func(f *continuumv1.Flow) bool { return !keep(f) })
+	b.Collectors = slices.DeleteFunc(b.Collectors, func(c *continuumv1.CollectorInfo) bool {
+		bad := c == nil || c.Node == "" || len(c.Node) > wire.MaxName || (c.Method != "ebpf" && c.Method != "conntrack")
+		if bad {
+			d.note(errors.New("a collector report is malformed"))
 		}
-		if err := validateFlowEndpoints(f); err != nil {
-			return err
-		}
-	}
-	for _, f := range b.PodFlows {
-		if f == nil || f.Src == nil || f.Dst == nil || f.Port == 0 || f.Port > 65535 || (f.Protocol != "tcp" && f.Protocol != "udp") ||
-			len(f.SrcPod) > maxPodNameLen || len(f.DstPod) > maxPodNameLen {
-			return fmt.Errorf("pod flow is malformed")
-		}
-		if err := validateFlowEndpoints(f); err != nil {
-			return err
-		}
-	}
-	return nil
+		return bad
+	})
+	return d, nil
 }
 
 // boundFlowFacts nulls out a reported LinkSaturation.saturation_pct that falls outside what a
 // well-behaved collector ever computes it from (0-100 inclusive; see LinkSaturation.saturation_pct's
 // own doc comment: never negative, since it is a ratio against an unsigned throughput, and clamped to
 // 100 before the agent ever sends it) and returns how many entries, across every one of b's collectors,
-// it had to drop this way. A data-integrity backstop independent of validateFlowBatch's own shape
+// it had to drop this way. A data-integrity backstop independent of sanitizeFlowBatch's own shape
 // checks above, for a compromised or merely buggy collector that skipped its own clamp: Iface and
 // ThroughputBps on the same entry are left untouched, and the percentage is nulled - the same "not
 // reported" the field already uses when the interface's rated speed could not be read at all - never
@@ -136,67 +145,6 @@ func boundFlowFacts(b *continuumv1.FlowBatch) int {
 	return n
 }
 
-func validateFlowEndpoints(f *continuumv1.Flow) error {
-	for _, e := range []*continuumv1.FlowEndpoint{f.Src, f.Dst} {
-		switch e.Kind {
-		case continuumv1.FlowEndpoint_WORKLOAD, continuumv1.FlowEndpoint_NODE:
-			// A NODE endpoint is what the agent reports for a node-level process or a hostNetwork pod it cannot pin to a
-			// pod (resolve.go): its ref is the node's name, bounded like a workload key. Refusing it refused the whole
-			// batch it travelled in, so one kubelet connection stopped all of that cluster's flows from arriving.
-			if e.Ref == "" || len(e.Ref) > maxStr {
-				return fmt.Errorf("flow endpoint is malformed")
-			}
-		case continuumv1.FlowEndpoint_EXTERNAL:
-			if a, err := netip.ParseAddr(e.Ip); err != nil || a.String() != e.Ip || a.Is4In6() || a.IsLoopback() || a.IsUnspecified() || a.IsMulticast() {
-				return fmt.Errorf("flow endpoint is malformed")
-			}
-		default:
-			return fmt.Errorf("flow endpoint is malformed")
-		}
-	}
-	if f.Src.Kind == continuumv1.FlowEndpoint_EXTERNAL && f.Dst.Kind == continuumv1.FlowEndpoint_EXTERNAL {
-		return fmt.Errorf("flow has no workload end")
-	}
-	return nil
-}
-
-// validateFlowKey is the check a stored edge's identity must pass again when it is loaded.
-func validateFlowKey(f *continuumv1.Flow) error {
-	if f == nil || f.Src == nil || f.Dst == nil || f.Port == 0 || f.Port > 65535 || (f.Protocol != "tcp" && f.Protocol != "udp") {
-		return fmt.Errorf("a stored flow is malformed")
-	}
-	return validateFlowEndpoints(f)
-}
-
-// maxStoredDNSNames mirrors aggregate.go's own maxHeldDNSNames - a resolver edge can legitimately field
-// many different lookups over its life, but "recently asked about" is the point, not a full log.
-const maxStoredDNSNames = 8
-
-// mergeDNSNames folds add's distinct, non-empty names into cur, newest first, capped - the server-side
-// twin of aggregate.go's function of the same name and shape (a different package, and a different
-// struct's field, but the exact same list-vs-gauge reasoning: see model.Dependency.DnsQueryNames).
-func mergeDNSNames(cur, add []string) []string {
-	for _, n := range add {
-		if n == "" {
-			continue
-		}
-		found := false
-		for _, c := range cur {
-			if c == n {
-				found = true
-				break
-			}
-		}
-		if !found {
-			cur = append([]string{n}, cur...)
-		}
-	}
-	if len(cur) > maxStoredDNSNames {
-		cur = cur[:maxStoredDNSNames]
-	}
-	return cur
-}
-
 // satAdd adds without wrapping: a counter fed by a compromised agent sticks at the maximum instead of
 // rolling over to a small number that would hide the traffic (or, added to, make it look like none).
 func satAdd(a, b uint64) uint64 {
@@ -209,16 +157,14 @@ func satAdd(a, b uint64) uint64 {
 func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 	// One batch, one instant: every edge touched by this call - new or existing, however many flows the
 	// batch carries - shares the exact same timestamp, so there is no need for a fresh *timestamppb.
-	// Timestamp allocation per flow (two, previously, on a new edge's first report) when one, reused by
-	// every FirstSeen/LastSeen write this call makes, says the same thing. Nothing here ever mutates a
-	// Timestamp in place (every reader goes through AsTime()), so sharing the pointer across however many
-	// FlowEdges this call touches is safe.
+	// Timestamp allocation per flow. Nothing here ever mutates a Timestamp in place (every reader goes through
+	// AsTime()), so sharing the pointer across however many FlowEdges this call touches is safe.
 	nowPb := timestamppb.New(now)
 	for _, f := range b.Flows {
 		k := flowKey(f)
 		e := t.edges[k]
 		if e == nil {
-			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Noise: f.Noise, Method: f.Method, Iface: f.Iface, RttUs: f.RttUs, JitterUs: f.JitterUs, HandshakeUs: f.HandshakeUs, Cwnd: f.Cwnd, PacingBps: f.PacingBps, DnsRttUs: f.DnsRttUs, MssBytes: f.MssBytes, RcvWndBytes: f.RcvWndBytes, SndWndBytes: f.SndWndBytes, WmemQueuedBytes: f.WmemQueuedBytes, SndbufBytes: f.SndbufBytes, TlsHandshake: f.TlsHandshake}, FirstSeen: nowPb}
+			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Method: f.Method}, FirstSeen: nowPb}
 			t.edges[k] = e
 		}
 		e.LastSeen = nowPb
@@ -232,133 +178,22 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		e.MeshBypassSyns = satAdd(e.MeshBypassSyns, uint64(f.MeshBypassSyns))
 		e.FailedAttempts = satAdd(e.FailedAttempts, f.FailedAttempts)
 		e.WindowSeconds, e.WindowConnections, e.WindowBytes, e.WindowRetransmits, e.WindowRtoRetransmits, e.WindowSegsOut, e.WindowBufferDrops, e.WindowMeshBypassSyns, e.WindowFailedAttempts = b.WindowSeconds, f.Connections, satAdd(f.BytesOut, f.BytesIn), f.Retransmits, uint64(f.RtoRetransmits), uint64(f.SegsOut), uint64(f.BufferDrops), uint64(f.MeshBypassSyns), f.FailedAttempts
-		if f.BytesKnown {
-			e.Key.BytesKnown = true
-		}
-		if f.Method == "ebpf" {
-			e.Key.Method = "ebpf"
-		}
-		e.Key.Noise = f.Noise
-		// Iface and RttUs are gauges, not identity or running totals: a route can change and RTT drifts
-		// over a long-lived edge's life, so each report's non-empty/non-zero reading replaces the last
-		// rather than being merged with it (see flow.c's own put_iface comment for the same reasoning).
-		if f.Iface != "" {
-			e.Key.Iface = f.Iface
-		}
-		if f.RttUs != 0 {
-			e.Key.RttUs = f.RttUs
-		}
-		if f.JitterUs != 0 {
-			e.Key.JitterUs = f.JitterUs
-		}
-		if f.HandshakeUs != 0 {
-			e.Key.HandshakeUs = f.HandshakeUs
-		}
-		if f.Cwnd != 0 {
-			e.Key.Cwnd = f.Cwnd
-		}
-		if f.PacingBps != 0 {
-			e.Key.PacingBps = f.PacingBps
-		}
-		if f.DnsRttUs != 0 {
-			e.Key.DnsRttUs = f.DnsRttUs
-		}
-		if f.MssBytes != 0 {
-			e.Key.MssBytes = f.MssBytes // a gauge, same treatment as Cwnd/PacingBps above
-		}
-		// RcvWndBytes/SndWndBytes/WmemQueuedBytes/SndbufBytes are gauges too, but unlike MssBytes/Cwnd
-		// above 0 is a real, meaningful sample for all four (a zero window, or a drained queue) - that is
-		// exactly why they are `optional uint32` on continuumv1.Flow, so presence is read off the pointer,
-		// not the value: nil means this report carried no sample at all (leave e.Key's running gauge
-		// alone), non-nil (0 included) means a real sample that must replace it.
-		if f.RcvWndBytes != nil {
-			e.Key.RcvWndBytes = f.RcvWndBytes
-		}
-		if f.SndWndBytes != nil {
-			e.Key.SndWndBytes = f.SndWndBytes
-		}
-		if f.WmemQueuedBytes != nil {
-			e.Key.WmemQueuedBytes = f.WmemQueuedBytes
-		}
-		if f.SndbufBytes != nil {
-			e.Key.SndbufBytes = f.SndbufBytes
-		}
-		if f.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN {
-			e.Key.TlsHandshake = f.TlsHandshake // a gauge too, same treatment as SniHost below
-		}
-		if f.SniHost != "" {
-			e.Key.SniHost = f.SniHost // a gauge too, for the same reason as Iface/RttUs above
-		}
-		e.DnsQueryNames = mergeDNSNames(e.DnsQueryNames, f.DnsQueryNames)
+		// Everything about the edge that is a reading rather than a total follows the same rules as the agent's
+		// own aggregation across a window (wire.MergeGauges); the totals above are the server's, in its own width.
+		wire.MergeGauges(e.Key, f)
+		e.DnsQueryNames = wire.MergeDNSNames(e.DnsQueryNames, f.DnsQueryNames)
 	}
 	if over := len(t.edges) - maxFlowEdges; over > 0 { // forget the `over` edges unseen for longest
-		// Finds the `over` oldest entries in one O(n log over) pass instead of sort.Slice-ing the entire
-		// table in O(n log n): over is normally just however many edges this one batch pushed past the
-		// cap (often a handful), while n is the whole table, up to maxFlowEdges itself - at the cap, that
-		// was a full 20000-entry sort on every single apply() call for the sake of evicting a few. See
-		// oldestEdges' own doc for how the bounded heap gets there.
-		for _, k := range oldestEdges(t.edges, over) {
+		for _, k := range wire.Oldest(over, func(yield func(string, int64) bool) {
+			for k, e := range t.edges {
+				if !yield(k, e.LastSeen.AsTime().UnixNano()) {
+					return
+				}
+			}
+		}) {
 			delete(t.edges, k)
 		}
 	}
-}
-
-// edgeAge is one edge's cache key paired with when it was last seen - the only two fields oldestEdges
-// needs to pick evictions, so apply() never has to copy a whole *continuumv1.FlowEdge just to sort by one
-// of its fields.
-type edgeAge struct {
-	key string
-	at  time.Time
-}
-
-// ageHeap is a bounded max-heap of the oldest-looking edgeAges seen so far during a single linear scan: its
-// root (index 0) is always the entry with the LATEST `at` among those currently held. That sounds backwards
-// for a heap of "oldest" entries, but it's exactly what oldestEdges needs: once the heap holds `n` entries,
-// the single edge most likely to NOT belong in the final "n oldest" answer is whichever one is currently
-// the newest of the bunch, i.e. the root - so a new, genuinely older candidate only ever needs to evict that
-// one entry, never re-examine the rest.
-type ageHeap []edgeAge
-
-func (h ageHeap) Len() int           { return len(h) }
-func (h ageHeap) Less(i, j int) bool { return h[i].at.After(h[j].at) }
-func (h ageHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *ageHeap) Push(x any)        { *h = append(*h, x.(edgeAge)) }
-func (h *ageHeap) Pop() any {
-	old := *h
-	last := len(old) - 1
-	x := old[last]
-	*h = old[:last]
-	return x
-}
-
-// oldestEdges returns the keys of the n least-recently-seen edges in edges, without ever sorting the whole
-// map: it scans every entry exactly once, keeping only a bounded max-heap of size n (the n oldest seen so
-// far). Once that heap is full, each further candidate either stays out immediately (it's newer than
-// everything already kept - a single comparison against the heap's root) or swaps in for the current
-// newest kept entry. Both cases cost O(log n), so the whole scan is O(len(edges) * log n) - the same
-// eviction result sort.Slice would give, for less work whenever n (how many are actually being evicted)
-// is smaller than the table itself, which is the normal case here: n is usually just one batch's overflow,
-// not the whole multi-thousand-edge table.
-func oldestEdges(edges map[string]*continuumv1.FlowEdge, n int) []string {
-	if n <= 0 {
-		return nil
-	}
-	h := make(ageHeap, 0, n)
-	for k, e := range edges {
-		age := edgeAge{k, e.LastSeen.AsTime()}
-		switch {
-		case len(h) < n:
-			heap.Push(&h, age)
-		case age.at.Before(h[0].at):
-			heap.Pop(&h)
-			heap.Push(&h, age)
-		}
-	}
-	out := make([]string, len(h))
-	for i, a := range h {
-		out[i] = a.key
-	}
-	return out
 }
 
 func (t *flowTable) marshal() ([]byte, error) {
@@ -876,7 +711,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 		if e.Key.SniHost != "" {
 			d.SniHost = e.Key.SniHost
 		}
-		d.DnsQueryNames = mergeDNSNames(d.DnsQueryNames, e.DnsQueryNames)
+		d.DnsQueryNames = wire.MergeDNSNames(d.DnsQueryNames, e.DnsQueryNames)
 		if e.Key.Noise == "" {
 			d.Noise = ""
 		}
@@ -912,13 +747,9 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 				inbound = append(inbound, pending{c, e})
 				continue
 			}
-			// Known gap, not an oversight: resolve.go can now also produce Src.Kind == FlowEndpoint_NODE
-			// (a hostNetwork pod, or a bare node process, whose own cgroup id - see RawFlow.cgroup_id -
-			// either resolved to no known pod or was never captured at all; see resolve.go's own doc
-			// comment on that fallback). serviceOf below expects Ref to be a workload key, so a NODE-kind
-			// Src just never matches here and this row quietly produces no Dependency, the same net
-			// effect as resolve.go dropping it outright used to have - landing node-level attribution as
-			// a Dependency of its own here is future work, intentionally left undone rather than rushed.
+			// A NODE-kind source (a node-level process, or a hostNetwork pod resolve.go could not pin to a pod)
+			// is not a workload and never matches serviceOf. New ones are dropped, and counted, on arrival
+			// (sanitizeFlowBatch); a table stored by an older server may still hold some, which end up here.
 			from, ok := serviceOf(c.id, e.Key.Src.Ref)
 			if !ok {
 				continue
@@ -1015,12 +846,29 @@ type ObserverDoc struct {
 	Collectors []CollectorDoc `json:"collectors"`
 	// Lost counts observations the collectors had to discard since the server last started.
 	Lost uint64 `json:"lost"`
+	// Dropped counts the flows the server could not use and left out of otherwise accepted reports (malformed, or
+	// node-level traffic that cannot become a dependency), since the server last started.
+	Dropped uint64 `json:"dropped"`
 }
 
 type observerHealth struct {
 	at         time.Time
 	collectors []*continuumv1.CollectorInfo
 	lost       uint64
+	// dropped counts the items of accepted batches that sanitizeFlowBatch removed, since the server started;
+	// droppedLogged limits how often that is warned about.
+	dropped       uint64
+	droppedLogged time.Time
+}
+
+// noteDropped counts n dropped items and reports whether this is a time to log them (at most once per refusalEvery).
+func (o *observerHealth) noteDropped(n int, now time.Time) bool {
+	o.dropped += uint64(n)
+	if now.Sub(o.droppedLogged) < refusalEvery {
+		return false
+	}
+	o.droppedLogged = now
+	return true
 }
 
 func (o *observerHealth) note(b *continuumv1.FlowBatch, now time.Time) {
@@ -1032,7 +880,7 @@ func (o *observerHealth) doc(now time.Time) *ObserverDoc {
 	if o.at.IsZero() {
 		return nil
 	}
-	d := &ObserverDoc{LastReport: o.at.UTC().Format(time.RFC3339), Lost: o.lost, Collectors: []CollectorDoc{}}
+	d := &ObserverDoc{LastReport: o.at.UTC().Format(time.RFC3339), Lost: o.lost, Dropped: o.dropped, Collectors: []CollectorDoc{}}
 	// A collector list older than the reporting TTL says nothing about who is observed now.
 	if now.Sub(o.at) < 10*time.Minute {
 		for _, c := range o.collectors {

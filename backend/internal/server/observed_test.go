@@ -9,6 +9,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
+	"continuum/internal/flow/wire"
 	"continuum/internal/interpret"
 	"continuum/internal/model"
 	"continuum/internal/netid"
@@ -395,10 +396,12 @@ func TestObservedStaleAndUnknownWorkloads(t *testing.T) {
 	}
 }
 
-func TestFlowBatchValidationAndTable(t *testing.T) {
+// One bad flow, pod flow or collector report is dropped and counted; it does not cost the batch it travelled in (a
+// refusal ends the agent's stream). Only a batch that is broken as a whole is refused.
+func TestFlowBatchBadItemsAreDroppedNotTheBatch(t *testing.T) {
 	good := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
-	if err := validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{good}}); err != nil {
-		t.Fatal(err)
+	nodeEp := func(ref string) *continuumv1.FlowEndpoint {
+		return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_NODE, Ref: ref}
 	}
 	bad := map[string]*continuumv1.Flow{
 		"no src":           {Dst: wep("a/Deployment/x"), Port: 1, Protocol: "tcp", Method: "ebpf"},
@@ -411,58 +414,50 @@ func TestFlowBatchValidationAndTable(t *testing.T) {
 		"unresolved kind":  flowOf(wep("a"), &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_UNRESOLVED, Ip: "1.2.3.4"}, 1, 1),
 		"two outside ends": flowOf(xep("1.2.3.4"), xep("5.6.7.8"), 1, 1),
 		"empty ref":        flowOf(wep(""), xep("1.2.3.4"), 1, 1),
+		"nameless node":    flowOf(nodeEp(""), xep("93.184.216.34"), 443, 1),
+		"node-level flow":  flowOf(nodeEp("n1"), xep("93.184.216.34"), 443, 1), // well-formed, but no dependency can come of it
+		"src_pod too long": func() *continuumv1.Flow {
+			f := flowOf(wep("a"), xep("1.2.3.4"), 1, 1)
+			f.SrcPod = strings.Repeat("x", wire.MaxName+1)
+			return f
+		}(),
 	}
 	for name, f := range bad {
-		if validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f}}) == nil {
+		// the bad item travels with a good one, as a flow and as a pod flow
+		b := &continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{good, f}, PodFlows: []*continuumv1.Flow{f, good}}
+		d, err := sanitizeFlowBatch(b)
+		if err != nil || d.n != 2 || d.first == nil || len(b.Flows) != 1 || b.Flows[0] != good || len(b.PodFlows) != 1 || b.PodFlows[0] != good {
+			t.Errorf("%s: err %v, dropped %d (%v), %d flows, %d pod flows", name, err, d.n, d.first, len(b.Flows), len(b.PodFlows))
+		}
+	}
+	// A bad collector report goes the same way.
+	b := &continuumv1.FlowBatch{WindowSeconds: 60, Collectors: []*continuumv1.CollectorInfo{{Node: "n1", Method: "ebpf"}, {Node: "", Method: "ebpf"}, {Node: "n2", Method: "x"}, nil}}
+	if d, err := sanitizeFlowBatch(b); err != nil || d.n != 3 || len(b.Collectors) != 1 {
+		t.Errorf("collectors: err %v, dropped %d, kept %d", err, d.n, len(b.Collectors))
+	}
+	// Free text that is merely too long is cut, not a reason to drop.
+	long := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
+	long.SniHost, long.Iface, long.DnsQueryNames = strings.Repeat("s", 5000), strings.Repeat("i", 5000), make([]string, 100)
+	b = &continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{long}}
+	if d, err := sanitizeFlowBatch(b); err != nil || d.n != 0 || len(long.SniHost) > wire.MaxName || len(long.Iface) > wire.MaxIface || len(long.DnsQueryNames) > wire.MaxDNSNames {
+		t.Errorf("long text: err %v, dropped %d, sni %d iface %d names %d", err, d.n, len(long.SniHost), len(long.Iface), len(long.DnsQueryNames))
+	}
+	// A batch that is broken as a whole is refused.
+	for name, b := range map[string]*continuumv1.FlowBatch{
+		"window of zero seconds": {WindowSeconds: 0, Flows: []*continuumv1.Flow{good}},
+		"window over a day":      {WindowSeconds: 24*3600 + 1},
+		"too many flows":         {WindowSeconds: 60, Flows: make([]*continuumv1.Flow, maxFlowsPerBatch+1)},
+		"too many pod flows":     {WindowSeconds: 60, PodFlows: make([]*continuumv1.Flow, maxPodFlowsPerBatch+1)},
+		"too many collectors":    {WindowSeconds: 60, Collectors: make([]*continuumv1.CollectorInfo, 5001)},
+	} {
+		if _, err := sanitizeFlowBatch(b); err == nil {
 			t.Errorf("%s must be refused", name)
 		}
 	}
-	// A node-level process (kubelet, a hostNetwork pod) is reported as a NODE endpoint: that must be accepted, with a
-	// name, or one such connection makes the server refuse every flow of the batch ("flow endpoint is malformed").
-	nodeEp := func(ref string) *continuumv1.FlowEndpoint {
-		return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_NODE, Ref: ref}
-	}
-	if err := validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{flowOf(nodeEp("n1"), xep("93.184.216.34"), 443, 1)}}); err != nil {
-		t.Errorf("a flow from a node must be accepted: %v", err)
-	}
-	if validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{flowOf(nodeEp(""), xep("93.184.216.34"), 443, 1)}}) == nil {
-		t.Error("a node endpoint without a name must be refused")
-	}
-	if validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 0, Flows: []*continuumv1.Flow{good}}) == nil {
-		t.Error("a window of zero seconds must be refused")
-	}
+}
 
-	// pod_flows is validated the same way flows is (reusing validateFlowEndpoints), plus its own
-	// src_pod/dst_pod length bound and its own, separate per-batch cap.
-	goodPod := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
-	goodPod.SrcPod = "x-abc-1"
-	if err := validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: []*continuumv1.Flow{goodPod}}); err != nil {
-		t.Fatalf("a well-formed pod flow must be accepted: %v", err)
-	}
-	badPod := map[string]*continuumv1.Flow{
-		"no src": {Dst: wep("a/Deployment/x"), Port: 1, Protocol: "tcp"},
-		"port 0": flowOf(wep("a"), xep("1.2.3.4"), 0, 1),
-		"sctp":   {Src: wep("a"), Dst: xep("1.2.3.4"), Port: 1, Protocol: "sctp"},
-		"src_pod too long": func() *continuumv1.Flow {
-			f := flowOf(wep("a"), xep("1.2.3.4"), 1, 1)
-			f.SrcPod = strings.Repeat("x", maxPodNameLen+1)
-			return f
-		}(),
-		"dst_pod too long": func() *continuumv1.Flow {
-			f := flowOf(wep("a"), xep("1.2.3.4"), 1, 1)
-			f.DstPod = strings.Repeat("x", maxPodNameLen+1)
-			return f
-		}(),
-	}
-	for name, f := range badPod {
-		if validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: []*continuumv1.Flow{f}}) == nil {
-			t.Errorf("pod flow %s must be refused", name)
-		}
-	}
-	if validateFlowBatch(&continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: make([]*continuumv1.Flow, maxPodFlowsPerBatch+1)}) == nil {
-		t.Error("a pod_flows batch over its own cap must be refused")
-	}
-
+func TestFlowTableApplyAndPersistence(t *testing.T) {
+	good := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
 	// persistence round trip and the cap
 	tb := newFlowTable()
 	now := time.Now()
@@ -1051,42 +1046,5 @@ func TestExternalASNFallbackNamesAnAddressNoOtherTierCovers(t *testing.T) {
 	}
 	if !strings.Contains(signal, "AS64512") {
 		t.Errorf("evidence signal = %q, want it to cite the ASN (AS64512)", signal)
-	}
-}
-
-// Pins oldestEdges directly, independent of flowTable/apply plumbing: given a handful of ages, it must
-// return exactly the n least-recently-seen keys - not merely the right count, which is all the older
-// sort.Slice-based version's own test (TestFlowBatchValidationAndTable's cap check, above) ever verified.
-func TestOldestEdgesPicksTheLeastRecentlySeenKeys(t *testing.T) {
-	base := time.Now()
-	edges := map[string]*continuumv1.FlowEdge{
-		"newest":  {LastSeen: timestamppb.New(base.Add(5 * time.Minute))},
-		"oldest":  {LastSeen: timestamppb.New(base)},
-		"middle1": {LastSeen: timestamppb.New(base.Add(1 * time.Minute))},
-		"middle2": {LastSeen: timestamppb.New(base.Add(2 * time.Minute))},
-		"middle3": {LastSeen: timestamppb.New(base.Add(3 * time.Minute))},
-	}
-
-	got := oldestEdges(edges, 2)
-	want := map[string]bool{"oldest": true, "middle1": true}
-	if len(got) != 2 || !want[got[0]] || !want[got[1]] || got[0] == got[1] {
-		t.Fatalf("oldestEdges(edges, 2) = %v, want exactly {oldest, middle1} in either order", got)
-	}
-
-	// n covering the whole map: every key comes back, nothing is left out or duplicated.
-	all := oldestEdges(edges, len(edges))
-	if len(all) != len(edges) {
-		t.Fatalf("oldestEdges(edges, len(edges)) returned %d keys, want %d", len(all), len(edges))
-	}
-	seen := map[string]bool{}
-	for _, k := range all {
-		if seen[k] {
-			t.Fatalf("oldestEdges returned %q twice: %v", k, all)
-		}
-		seen[k] = true
-	}
-
-	if got := oldestEdges(edges, 0); len(got) != 0 {
-		t.Fatalf("oldestEdges(edges, 0) = %v, want none", got)
 	}
 }
