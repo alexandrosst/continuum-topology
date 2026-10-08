@@ -112,15 +112,23 @@ func (r *recorder) scan(ctx context.Context, now time.Time, periodic bool) {
 		r.h.Log.Error("history: could not encode a snapshot", "err", err)
 		return
 	}
+	// A failed write is retried by the next scan. The events are the log, so prev moves on only once they are
+	// stored: a failure before that diffs the same change again (nothing lost), one after it does not store
+	// them twice. A snapshot still owed is forced by forgetting the fingerprint.
 	if len(evs) > 0 {
 		if err := r.h.C.Store.AddEvents(ctx, r.h.C.OrgID, evs); err != nil {
 			r.h.Log.Error("history: could not store events", "err", err)
+			r.changed.Store(true)
+			return
 		}
 	}
 	save := r.prev == nil || len(evs) > 0 || fp != r.lastFP || now.Sub(r.lastSnap) >= heartbeatSnap
+	r.prev = &cur
 	if save {
 		if err := r.h.C.Store.AddHistory(ctx, r.h.C.OrgID, now, data); err != nil {
 			r.h.Log.Error("history: could not store a snapshot", "err", err)
+			r.lastFP = ""
+			r.changed.Store(true)
 			return
 		}
 		r.lastSnap, r.lastFP = now, fp
@@ -134,7 +142,6 @@ func (r *recorder) scan(ctx context.Context, now time.Time, periodic bool) {
 			}
 		}
 	}
-	r.prev = &cur
 }
 
 // eventLinker is what a store adds when it keeps a graph: the ability to connect a batch of events to

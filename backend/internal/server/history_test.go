@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -876,5 +877,88 @@ func TestDeciderClientRefusesLinkLocalAndRedirects(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("a redirect was followed: %d", resp.StatusCode)
+	}
+}
+
+// failHistory fails the event and snapshot writes while its flags are set.
+type failHistory struct {
+	store.Store
+	events, snapshots atomic.Bool
+}
+
+func (f *failHistory) AddEvents(ctx context.Context, org string, evs []store.Event) error {
+	if f.events.Load() {
+		return errors.New("database is locked")
+	}
+	return f.Store.AddEvents(ctx, org, evs)
+}
+
+func (f *failHistory) AddHistory(ctx context.Context, org string, at time.Time, data []byte) error {
+	if f.snapshots.Load() {
+		return errors.New("database is locked")
+	}
+	return f.Store.AddHistory(ctx, org, at, data)
+}
+
+// A write that fails while recording is retried by the next scan: a lost event write loses no event, and a
+// lost snapshot write does not store its events a second time.
+func TestRecorderLosesNoEventAndRepeatsNoneAfterAFailedWrite(t *testing.T) {
+	r := newHubRig(t)
+	id, _, _ := r.approvedAgent(t, fp)
+	f := &failHistory{Store: r.hub.C.Store}
+	r.hub.C.Store = f
+	setNodes := func(names ...string) {
+		r.hub.mu.Lock()
+		defer r.hub.mu.Unlock()
+		v := liveView(*r.now, names...)
+		r.hub.views[id] = v
+	}
+	scan := func() {
+		*r.now = r.now.Add(time.Minute)
+		r.hub.ScanNow(r.ctx)
+	}
+	nodeEvents := func() (n int) {
+		evs, _ := r.st.ListEvents(r.ctx, "org-1", store.EventQuery{Limit: 100})
+		for _, e := range evs {
+			if e.TargetKind == "node" {
+				n++
+			}
+		}
+		return n
+	}
+	snapshots := func() int {
+		pts, _ := r.st.ListHistory(r.ctx, "org-1", time.Time{}, time.Time{})
+		return len(pts)
+	}
+	setNodes("n1", "n2")
+	scan()
+	if snapshots() != 1 || nodeEvents() != 0 {
+		t.Fatalf("baseline: %d snapshots, %d node events", snapshots(), nodeEvents())
+	}
+
+	// The events cannot be written: nothing is stored, and once the database answers the change is still found.
+	f.events.Store(true)
+	setNodes("n1", "n2", "n3")
+	scan()
+	if nodeEvents() != 0 || snapshots() != 1 {
+		t.Fatalf("while events fail: %d node events, %d snapshots", nodeEvents(), snapshots())
+	}
+	f.events.Store(false)
+	scan()
+	if nodeEvents() != 1 || snapshots() != 2 {
+		t.Fatalf("after events recover: %d node events, %d snapshots, want 1 and 2", nodeEvents(), snapshots())
+	}
+
+	// The snapshot cannot be written: the events are, once; the snapshot follows, and the events are not repeated.
+	f.snapshots.Store(true)
+	setNodes("n1", "n2")
+	scan()
+	if nodeEvents() != 2 || snapshots() != 2 {
+		t.Fatalf("while snapshots fail: %d node events, %d snapshots, want 2 and 2", nodeEvents(), snapshots())
+	}
+	f.snapshots.Store(false)
+	scan()
+	if nodeEvents() != 2 || snapshots() != 3 {
+		t.Fatalf("after snapshots recover: %d node events, %d snapshots, want 2 and 3", nodeEvents(), snapshots())
 	}
 }
