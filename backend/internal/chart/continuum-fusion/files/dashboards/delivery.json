@@ -788,6 +788,176 @@
           "sort": "desc"
         }
       }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Gateway: data refused or failed, last 10 minutes",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min(sum({__name__=~\"otelcol_(receiver_refused|exporter_(send|enqueue)_failed)_.*_total\"}) - (sum({__name__=~\"otelcol_(receiver_refused|exporter_(send|enqueue)_failed)_.*_total\"} offset 10m) or vector(0)), 0) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "Records the central gateway refused (it was over its memory limit) or could not hand to Prometheus, Loki or Tempo. Anything above zero means a store is down, slow or too small, and data is being turned away or lost. Not narrowed by Cluster: the gateway serves all of them.",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Gateway: sending queue, share of capacity",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 33,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (exporter) (otelcol_exporter_queue_size / otelcol_exporter_queue_capacity)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "{{exporter}}"
+        }
+      ],
+      "description": "How full each of the gateway's three sending queues is. A queue that stays above a few percent means that store is not keeping up; at 100% the gateway blocks its senders.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "max": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Gateway: refused and failed, per interval",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 33,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min(sum({__name__=~\"otelcol_receiver_refused_.*_total\"}) - (sum({__name__=~\"otelcol_receiver_refused_.*_total\"} offset $__interval) or vector(0)), 0) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "refused (over its memory limit)"
+        },
+        {
+          "refId": "B",
+          "expr": "clamp_min(sum({__name__=~\"otelcol_exporter_(send|enqueue)_failed_.*_total\"}) - (sum({__name__=~\"otelcol_exporter_(send|enqueue)_failed_.*_total\"} offset $__interval) or vector(0)), 0) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "failed towards a store"
+        }
+      ],
+      "description": "Records the gateway turned away (otelcol_receiver_refused_*) and records it could not pass to Prometheus, Loki or Tempo (otelcol_exporter_send_failed_* and otelcol_exporter_enqueue_failed_*), per graph step. A counter restarts when the gateway does, so a restart shows as zero for that step.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     }
   ],
   "timepicker": {

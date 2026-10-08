@@ -1,6 +1,7 @@
 package chart
 
 import (
+	"encoding/json"
 	"regexp"
 	"strings"
 	"testing"
@@ -229,5 +230,58 @@ func TestFusionStoresAcceptTheLongestRangeAndIndexTheCluster(t *testing.T) {
 	}
 	if loki["pattern_ingester"].(map[string]any)["enabled"] != true {
 		t.Error("Drilldown > Logs needs Loki's pattern ingester")
+	}
+}
+
+// Nothing scrapes the gateway, so a store that is down or a queue that is full was invisible until data was already gone.
+// It pushes its own counters to Prometheus over OTLP, and the delivery dashboard shows them without narrowing by cluster
+// (the gateway serves all of them and its series carry no cluster id).
+func TestFusionGatewayReportsItsOwnHealth(t *testing.T) {
+	readers := func(extra ...string) []any {
+		tel, _ := sub(t, centralConfig(t, extra...), "service")["telemetry"].(map[string]any)
+		m, _ := tel["metrics"].(map[string]any)
+		r, _ := m["readers"].([]any)
+		return r
+	}
+	r := readers()
+	if len(r) != 1 {
+		t.Fatalf("the gateway has %d metric readers, want one pushing to Prometheus", len(r))
+	}
+	otlp := r[0].(map[string]any)["periodic"].(map[string]any)["exporter"].(map[string]any)["otlp"].(map[string]any)
+	if ep, _ := otlp["endpoint"].(string); !strings.HasPrefix(ep, "http://f-fusion-prometheus.") || !strings.HasSuffix(ep, ".svc:9090/api/v1/otlp/v1/metrics") {
+		t.Errorf("the gateway pushes its metrics to %v, not Prometheus' OTLP path", ep)
+	}
+	if got := readers("--set", "prometheus.enabled=false"); got != nil {
+		t.Errorf("without Prometheus the gateway still has readers: %v", got)
+	}
+	var d struct {
+		Panels []struct {
+			Title   string `json:"title"`
+			Targets []struct {
+				Expr string `json:"expr"`
+			} `json:"targets"`
+		} `json:"panels"`
+	}
+	if err := json.Unmarshal([]byte(fusionRender(t, "f").configs["f-fusion-grafana-dashboards"].Data["delivery.json"]), &d); err != nil {
+		t.Fatal(err)
+	}
+	var found int
+	for _, p := range d.Panels {
+		for _, q := range p.Targets {
+			if !strings.Contains(q.Expr, "otelcol_") {
+				continue
+			}
+			found++
+			if strings.Contains(q.Expr, "continuum_cluster_id") {
+				t.Errorf("%q narrows the gateway's own metrics by cluster, which they do not carry: %s", p.Title, q.Expr)
+			}
+			// rate() or increase() of a selector on several metric names collides on identical label sets.
+			if regexp.MustCompile(`(rate|increase)\(\{__name__=~`).MatchString(q.Expr) {
+				t.Errorf("%q takes rate() of several metric names, which Prometheus refuses: %s", p.Title, q.Expr)
+			}
+		}
+	}
+	if found < 3 {
+		t.Errorf("the delivery dashboard has %d gateway queries, want its health row", found)
 	}
 }

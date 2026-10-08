@@ -130,6 +130,23 @@ data:
         {{- include "fusion.centralExporterResilience" . | nindent 8 }}
       {{- end }}
     service:
+      {{- if .Values.prometheus.enabled }}
+      # The gateway's own counters (otelcol_exporter_send_failed_*, otelcol_exporter_queue_size, otelcol_receiver_refused_*)
+      # are how a store that is down, or a queue that is full, shows up before the data is gone. Nothing scrapes anything
+      # here, so the gateway pushes them to Prometheus over the same OTLP path as everything else.
+      telemetry:
+        resource:
+          service.name: {{ $name | quote }}
+        metrics:
+          level: normal
+          readers:
+            - periodic:
+                interval: 30000
+                exporter:
+                  otlp:
+                    protocol: http/protobuf
+                    endpoint: {{ printf "http://%s-prometheus.%s.svc:9090/api/v1/otlp/v1/metrics" $base .Release.Namespace | quote }}
+      {{- end }}
       extensions: {{ ternary (list "health_check" "file_storage/queue") (list "health_check") $q.persistent.enabled | toJson }}
       pipelines:
         {{- if .Values.prometheus.enabled }}
