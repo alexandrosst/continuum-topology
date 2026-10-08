@@ -289,6 +289,16 @@ func ChooseStep(tr TimeRange, requested time.Duration, target int) (time.Duratio
 	return step.Round(time.Second), nil
 }
 
+// NeedSelective refuses a filter that would read every series there is: Prometheus evaluates the selector before it applies
+// any limit, so a range read with only a category or a cluster to go by costs the whole TSDB. A metric name, a name pattern,
+// a service, namespace, pod or node, or an application (the Scope's focus) is enough.
+func (f MetricFilter) NeedSelective(s Scope) error {
+	if f.Name != "" || f.NameRegex != "" || f.Service != "" || f.Namespace != "" || f.Pod != "" || f.Node != "" || len(s.FocusServices) > 0 {
+		return nil
+	}
+	return badRequest("a range read needs a filter: name, metric, service, namespace, pod, node or application")
+}
+
 // MetricRange returns the values of every series matching the filter over the range, at most maxSeries of them (the
 // answer says when it left some out).
 func (c *Client) MetricRange(ctx context.Context, s Scope, f MetricFilter, tr TimeRange, step time.Duration, maxSeries int) (series []MetricSeries, truncated bool, err error) {

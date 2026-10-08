@@ -673,7 +673,12 @@ func (a *Admin) fusionMetricRange(w http.ResponseWriter, r *http.Request, c *fus
 		a.fusionErr(w, r, err)
 		return
 	}
-	series, truncated, err := c.MetricRange(r.Context(), scope, metricFilter(q), tr, step, limit)
+	f := metricFilter(q)
+	if err := f.NeedSelective(scope); err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	series, truncated, err := c.MetricRange(r.Context(), scope, f, tr, step, limit)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return

@@ -260,7 +260,7 @@ func fusionOps(a *Admin) []fusionOp {
 			Params: join(rng, fusionMetricFilter, []string{"limit"}), Notes: map[string]string{"limit": "The most series (default 200, at most 2000)."},
 			Excludes: map[string][]string{"name": {"metric"}}, Response: "SeriesList", Handler: a.fusionMetricSeries},
 		{Method: "GET", Path: "/metrics/range", Tag: "Metrics", Summary: "Read metric series over a range",
-			Description: "The samples of the series that match the filters, thinned to a sensible number of points, with each series' min, max, average and last value.",
+			Description: "The samples of the series that match the filters, thinned to a sensible number of points, with each series' min, max, average and last value. At least one of `name`, `metric`, `service`, `namespace`, `pod`, `node` or `application` is required: a range read of every series is refused.",
 			Params:      join(rng, fusionMetricFilter, []string{"step", "limit"}), Notes: map[string]string{"limit": "The most series (default 20, at most 100)."},
 			Excludes: map[string][]string{"name": {"metric"}}, Response: "MetricRange", Handler: a.fusionMetricRange},
 		{Method: "GET", Path: "/metrics/query", Tag: "Metrics", Summary: "Run a PromQL instant query",
