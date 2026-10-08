@@ -962,3 +962,49 @@ func TestRecorderLosesNoEventAndRepeatsNoneAfterAFailedWrite(t *testing.T) {
 		t.Fatalf("after snapshots recover: %d node events, %d snapshots, want 2 and 3", nodeEvents(), snapshots())
 	}
 }
+
+// A revoked agent's snapshots and in-memory view are kept while its last picture is still shown, and released
+// once it is not; the approved agent beside it is untouched.
+func TestRevokedAgentsAreReclaimedAfterTheirRetention(t *testing.T) {
+	r := newHubRig(t)
+	r.hub.TombstoneRetention = time.Hour
+	live, _, _ := r.approvedAgent(t, fp)
+	gone, _, _ := r.approvedAgent(t, "11111111-2222-4333-8444-555566667777")
+	for _, id := range []string{live, gone} {
+		r.hub.mu.Lock()
+		r.hub.views[id] = liveView(*r.now, "n1")
+		r.hub.mu.Unlock()
+		for _, k := range []string{id, flowsKey(id), consentKey(id)} {
+			if err := r.st.SaveSnapshot(r.ctx, k, []byte("{}"), *r.now); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := r.core.Revoke(r.ctx, "alex", gone, "reinstalled"); err != nil {
+		t.Fatal(err)
+	}
+	has := func(id string) (view bool, snaps int) {
+		r.hub.mu.Lock()
+		view = r.hub.views[id] != nil
+		r.hub.mu.Unlock()
+		for _, k := range []string{id, flowsKey(id), consentKey(id)} {
+			if _, _, err := r.st.LoadSnapshot(r.ctx, k); err == nil {
+				snaps++
+			}
+		}
+		return
+	}
+
+	r.hub.rec.prune(r.ctx, *r.now, Settings{})
+	if v, n := has(gone); !v || n != 3 {
+		t.Fatalf("within its retention a revoked agent keeps its view (%v) and snapshots (%d of 3)", v, n)
+	}
+	*r.now = r.now.Add(2 * time.Hour)
+	r.hub.rec.prune(r.ctx, *r.now, Settings{})
+	if v, n := has(gone); v || n != 0 {
+		t.Fatalf("past its retention a revoked agent keeps its view (%v) and snapshots (%d of 3)", v, n)
+	}
+	if v, n := has(live); !v || n != 3 {
+		t.Fatalf("an approved agent lost its view (%v) or snapshots (%d of 3)", !v, n)
+	}
+}

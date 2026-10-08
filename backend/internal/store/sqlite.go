@@ -1266,6 +1266,18 @@ func (s *SQLite) LoadSnapshot(ctx context.Context, agentID string) ([]byte, time
 	return d, fromMS(at), err
 }
 
+func (s *SQLite) DeleteSnapshots(ctx context.Context, keys ...string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	args := make([]any, len(keys))
+	for i, k := range keys {
+		args[i] = k
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM snapshots WHERE agent_id IN (?`+strings.Repeat(",?", len(keys)-1)+`)`, args...)
+	return err
+}
+
 // migrateTenancy turns a single-organisation database into a multi-tenant one. Before it, every user
 // belonged to exactly one organisation and carried a role of "admin" or "viewer"; now people are
 // global and hold a membership per organisation. The earliest administrator of each organisation

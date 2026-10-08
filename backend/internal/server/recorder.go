@@ -152,7 +152,30 @@ type eventLinker interface {
 	LinkEventChanges(ctx context.Context, org string, at time.Time, evs []store.Event) error
 }
 
+// reclaimRevoked releases what a revoked agent leaves behind once its last picture is no longer shown: its
+// view in memory and its snapshots (facts, flows, overrides) in the store. Every reinstall enrols a new agent,
+// so without this each one keeps up to three large blobs, and its facts in RAM until the next restart.
+func (r *recorder) reclaimRevoked(ctx context.Context) {
+	agents, err := r.h.C.Store.ListAgents(ctx, r.h.C.OrgID)
+	if err != nil {
+		return
+	}
+	var keys []string
+	r.h.mu.Lock()
+	for _, a := range agents {
+		if a.Status == store.StatusRevoked && a.RevokedAt != nil && !r.h.revokedWithinRetention(a) {
+			keys = append(keys, a.ID, flowsKey(a.ID), consentKey(a.ID))
+			delete(r.h.views, a.ID)
+		}
+	}
+	r.h.mu.Unlock()
+	if err := r.h.C.Store.DeleteSnapshots(ctx, keys...); err != nil {
+		r.h.Log.Error("history: could not remove a revoked agent's snapshots", "err", err)
+	}
+}
+
 func (r *recorder) prune(ctx context.Context, now time.Time, set Settings) {
+	r.reclaimRevoked(ctx)
 	pts, err := r.h.C.Store.ListHistory(ctx, r.h.C.OrgID, time.Time{}, time.Time{})
 	if err == nil {
 		if del := history.Retention(pts, now, set.RetentionDays, int64(set.MaxHistoryMB)<<20); len(del) > 0 {

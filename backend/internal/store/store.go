@@ -697,6 +697,8 @@ type Store interface {
 	// so the server can serve state immediately after a restart.
 	SaveSnapshot(ctx context.Context, agentID string, data []byte, now time.Time) error
 	LoadSnapshot(ctx context.Context, agentID string) ([]byte, time.Time, error)
+	// DeleteSnapshots removes the snapshots stored under these keys (missing ones are fine).
+	DeleteSnapshots(ctx context.Context, keys ...string) error
 
 	// Accounts are global; the name is unique across the whole server, ignoring case.
 	CreateUser(ctx context.Context, u User) error
