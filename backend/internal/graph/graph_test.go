@@ -509,6 +509,50 @@ func TestRecordDoesNotTouchAnEdgeItDidNotWrite(t *testing.T) {
 	}
 }
 
+// TestRecordLeavesAnEntityItDidNotWriteAlone: Record's entity sweep closes and marks gone every open
+// version a topology does not contain, which for the kinds RecordEntity writes (agent, application) is
+// all of them, since no topology ever carries those. Both Record and RecordCatchUp must leave them open.
+func TestRecordLeavesAnEntityItDidNotWriteAlone(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	e := estate()
+	record(t, db, org, t0, e)
+	if err := db.RecordEntity(ctx, org, t0.Add(time.Minute), "application", "app-1", "shop", "", "", map[string]any{"name": "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordEntity(ctx, org, t0.Add(time.Minute), "agent", "ag-1", "edge-collector", "approved", "c-1", map[string]any{"x": 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	record(t, db, org, t0.Add(2*time.Minute), e)
+	if _, _, err := db.RecordCatchUp(ctx, org, []CatchUpPoint{{At: t0.Add(3 * time.Minute), Topo: e, FP: "fp", Size: 10}}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, k := range [][2]string{{"application", "app-1"}, {"agent", "ag-1"}} {
+		res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (e:Entity {org:$org, kind:$kind, id:$id}) OPTIONAL MATCH (e)-[:HAS_VERSION]->(v:Version) WHERE v.validTo IS NULL
+RETURN e.gone IS NULL, count(v)`, map[string]any{"kind": k[0], "id": k[1]}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res[0].Rows) != 1 || res[0].Rows[0][0] != true || i64(res[0].Rows[0][1]) != 1 {
+			t.Errorf("%s %s should still be live with exactly one open version, got %v", k[0], k[1], res[0].Rows)
+		}
+	}
+	// And RecordEntity on the same document is still a no-op rather than a duplicate version.
+	if err := db.RecordEntity(ctx, org, t0.Add(4*time.Minute), "application", "app-1", "shop", "", "", map[string]any{"name": "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	tl, err := db.Timeline(ctx, org, "application", "app-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.Versions) != 1 {
+		t.Errorf("expected the one version, got %+v", tl.Versions)
+	}
+}
+
 func hasReached(rs []Reached, kind, id string) bool {
 	for _, r := range rs {
 		if r.Kind == kind && r.ID == id {

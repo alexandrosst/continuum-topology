@@ -304,6 +304,9 @@ func diffEntities(sc *Scope, at time.Time, t model.Topology, fp string, size int
 	for k, o := range open {
 		v, ok := vs[k]
 		kind, id := splitKey(k)
+		if !polledKind(kind) {
+			continue // written by RecordEntity, never in a topology: absent from vs does not mean gone
+		}
 		switch {
 		case !ok:
 			closeRows = append(closeRows, row{"kind": kind, "id": id})
@@ -406,8 +409,10 @@ WITH s MATCH (t:Tenant {id:$org}) MERGE (t)-[:HAS_SNAPSHOT]->(s)`, map[string]an
 
 	// Carried into open for the same reason as openEdge above.
 	for k := range open {
-		if _, ok := vs[k]; !ok {
-			delete(open, k)
+		if kind, _ := splitKey(k); polledKind(kind) {
+			if _, ok := vs[k]; !ok {
+				delete(open, k)
+			}
 		}
 	}
 	for k, v := range vs {
