@@ -24,8 +24,8 @@ import (
 // operator's accepted modalities (telemetry_intents is a new table, not a migration - see the schema string),
 // 9 an operator's optional heartbeat credential and last-seen time, 10 an operator's receiver auth mode
 // (bearer token or mTLS client certificate only), 11 an operator's own private CA (certificate and sealed key), 12 an operator's labels, 13 a telemetry intent's per-signal-type destinations, 14 an operator's advertised address, 15 how its Service was exposed, 16 when an operator's
-// certificates expire (and which expiry warning was already raised), 17 the ledger of certificates issued for operators.
-const SchemaVersion = 17
+// certificates expire (and which expiry warning was already raised), 17 the ledger of certificates issued for operators, 18 an index of the audit trail by organisation.
+const SchemaVersion = 18
 
 // ErrSchemaNewer is returned when the database was written by a newer version of the software.
 var ErrSchemaNewer = errors.New("the database was written by a newer version of Ikhnos")

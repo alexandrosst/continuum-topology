@@ -348,6 +348,10 @@ func OpenSQLite(path string) (*SQLite, error) {
 		db.Close()
 		return nil, fmt.Errorf("upgrading to the operator certificate ledger: %w", err)
 	}
+	if err := migrateAuditIndex(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("upgrading to the audit index: %w", err)
+	}
 	return &SQLite{db: db}, nil
 }
 
