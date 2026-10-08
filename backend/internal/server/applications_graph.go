@@ -21,23 +21,16 @@ type entityCloser interface {
 	CloseMissingEntities(ctx context.Context, org string, at time.Time, kind string, keepIDs []string) ([]string, error)
 }
 
-// memberLinker is what a store adds when it keeps a graph: the ability to keep one entity's own edges of
-// a relationship type in step with a set of member ids (see graph.DB.LinkEntities). A plain store does
-// not implement it, the same way entityRecorder is optional.
-type memberLinker interface {
-	LinkEntities(ctx context.Context, org string, at time.Time, relType, kind, id, targetKind string, targetIDs []string) error
-}
-
-// batchEntityRecorder is RecordEntities, the batch counterpart of entityRecorder (see graph.DB.
-// RecordEntities): one read-then-write round trip for every application in a workspace save, instead of
-// one pair per application. A plain store, or one that only implements the single-entity entityRecorder,
-// does not implement this - optional the same way entityRecorder itself is.
+// batchEntityRecorder is what a store adds when it keeps a graph: RecordEntities (see graph.DB.
+// RecordEntities), one read-then-write round trip for every application in a workspace save. A plain store
+// does not implement it, the same way entityRecorder is optional.
 type batchEntityRecorder interface {
 	RecordEntities(ctx context.Context, org string, at time.Time, kind string, recs []graph.EntityRecord) error
 }
 
-// batchMemberLinker is LinkEntitiesBatch, the batch counterpart of memberLinker (see graph.DB.
-// LinkEntitiesBatch). Optional the same way memberLinker itself is.
+// batchMemberLinker is LinkEntitiesBatch (see graph.DB.LinkEntitiesBatch): the ability to keep each of
+// several entities' edges of a relationship type in step with a set of member ids, in one round trip.
+// Optional the same way batchEntityRecorder is.
 type batchMemberLinker interface {
 	LinkEntitiesBatch(ctx context.Context, org string, at time.Time, relType, kind, targetKind string, sets []graph.MemberSet) error
 }
@@ -75,7 +68,7 @@ type applicationDoc struct {
 // durable (its own revision history already holds this document in full), so a graph outage only narrows
 // the timeline view of one application's history, never the save itself or what it changed.
 func (c *Core) recordApplicationsGraph(ctx context.Context, prevData, data []byte) {
-	er, ok := c.Store.(entityRecorder)
+	br, ok := c.Store.(batchEntityRecorder)
 	if !ok {
 		return
 	}
@@ -114,14 +107,10 @@ func (c *Core) recordApplicationsGraph(ctx context.Context, prevData, data []byt
 		}
 	}
 
-	// Batched when the store supports it (every production store does: see graph.DB.RecordEntities/
-	// LinkEntitiesBatch) - one read-then-write round trip for every application in this save, instead of
-	// one pair per application, which is what a workspace with several applications used to cost calling
-	// RecordEntity/LinkEntities in a loop. Falls back to the per-application loop for a store that only
-	// implements the single-entity interfaces (a lightweight test double, say).
-	recorded := recordApplicationsBatch(ctx, c, now, er, apps)
-	if !recorded {
-		return // the whole batch failed: best-effort, same as a single RecordEntity failure used to be
+	// One read-then-write round trip for every application in this save (graph.DB.RecordEntities and
+	// LinkEntitiesBatch), not one pair per application.
+	if !recordApplicationsBatch(ctx, c, now, br, apps) {
+		return // the whole batch failed: best-effort, already logged
 	}
 
 	for _, app := range apps {
@@ -148,30 +137,9 @@ func (c *Core) recordApplicationsGraph(ctx context.Context, prevData, data []byt
 }
 
 // recordApplicationsBatch versions every application in one read-then-write round trip (graph.DB.
-// RecordEntities) when the store supports it, then links each to its member services the same way
-// (LinkEntitiesBatch) - rather than a loop of individual RecordEntity/LinkEntities calls, each its own
-// pair of round trips. Falls back to the original per-application loop for a store that only implements
-// the single-entity interfaces. Returns false only when recording failed outright (nothing to link,
-// nothing to log events for - the caller treats that exactly as a single RecordEntity failure used to be
-// treated: best-effort, silent, logged once here already).
-func recordApplicationsBatch(ctx context.Context, c *Core, now time.Time, er entityRecorder, apps []workspace.ApplicationDoc) bool {
-	br, ok := c.Store.(batchEntityRecorder)
-	if !ok {
-		for _, app := range apps {
-			doc := applicationDoc{Name: app.Name, Description: app.Description, Origin: app.Origin, Confidence: app.Confidence, ServiceIDs: app.ServiceIDs}
-			if err := er.RecordEntity(ctx, c.OrgID, now, "application", app.ID, app.Name, "", "", doc); err != nil {
-				c.Log.Warn("history: could not record an application's state", "application", app.ID, "err", err)
-				continue
-			}
-			if linker, ok := c.Store.(memberLinker); ok {
-				if err := linker.LinkEntities(ctx, c.OrgID, now, "CONTAINS", "application", app.ID, "service", app.ServiceIDs); err != nil {
-					c.Log.Warn("history: could not link an application to its services", "application", app.ID, "err", err)
-				}
-			}
-		}
-		return true
-	}
-
+// RecordEntities), then links each to its member services the same way (LinkEntitiesBatch). Returns false
+// only when recording failed outright (nothing to link, nothing to log events for), which is logged here.
+func recordApplicationsBatch(ctx context.Context, c *Core, now time.Time, br batchEntityRecorder, apps []workspace.ApplicationDoc) bool {
 	recs := make([]graph.EntityRecord, len(apps))
 	for i, app := range apps {
 		recs[i] = graph.EntityRecord{ID: app.ID, Name: app.Name,
@@ -193,25 +161,19 @@ func recordApplicationsBatch(ctx context.Context, c *Core, now time.Time, er ent
 	return true
 }
 
-// retireClosedApplications closes a removed application's membership the same way LinkEntities(..., nil)
-// used to, one application at a time - batched via LinkEntitiesBatch when the store supports it.
+// retireClosedApplications closes each removed application's membership, in one round trip when the store
+// can (LinkEntitiesBatch).
 func retireClosedApplications(ctx context.Context, c *Core, now time.Time, closed []string) {
-	if linker, ok := c.Store.(batchMemberLinker); ok {
-		sets := make([]graph.MemberSet, len(closed))
-		for i, id := range closed {
-			sets[i] = graph.MemberSet{ID: id}
-		}
-		if err := linker.LinkEntitiesBatch(ctx, c.OrgID, now, "CONTAINS", "application", "service", sets); err != nil {
-			c.Log.Warn("history: could not retire removed applications' membership", "err", err)
-		}
+	linker, ok := c.Store.(batchMemberLinker)
+	if !ok {
 		return
 	}
-	if linker, ok := c.Store.(memberLinker); ok {
-		for _, id := range closed {
-			if err := linker.LinkEntities(ctx, c.OrgID, now, "CONTAINS", "application", id, "service", nil); err != nil {
-				c.Log.Warn("history: could not retire a removed application's membership", "application", id, "err", err)
-			}
-		}
+	sets := make([]graph.MemberSet, len(closed))
+	for i, id := range closed {
+		sets[i] = graph.MemberSet{ID: id}
+	}
+	if err := linker.LinkEntitiesBatch(ctx, c.OrgID, now, "CONTAINS", "application", "service", sets); err != nil {
+		c.Log.Warn("history: could not retire removed applications' membership", "err", err)
 	}
 }
 
