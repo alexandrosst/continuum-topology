@@ -27,11 +27,12 @@ func (e *env) approvedAgent(t *testing.T, fingerprint string) (string, *ecdsa.Pr
 		t.Fatal(err)
 	}
 	d, key := csr(t)
-	resp, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: 2})
+	hash, code := approvalFor(t, d)
+	resp, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, fingerprint[:8], 2); err != nil {
+	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, code, 2); err != nil {
 		t.Fatal(err)
 	}
 	p, err := e.core.Poll(e.ctx, "10.0.0.1", &continuumv1.PollRequest{AgentId: resp.AgentId, PollSecret: resp.PollSecret})
@@ -77,7 +78,7 @@ func TestEnrollRejectsOversizedVersionAndScrubsControlCharacters(t *testing.T) {
 	if kindOf(err) != KindInvalid {
 		t.Fatalf("long version: %v", err)
 	}
-	resp, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, AgentVersion: "1.0\n\x1b[31mred"})
+	resp, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, AgentVersion: "1.0\n\x1b[31mred", ApprovalCodeHash: hashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}

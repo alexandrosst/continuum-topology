@@ -1022,8 +1022,6 @@ type AgentDoc struct {
 	Scope *ScopeDoc `json:"scope,omitempty"`
 	// ClockSkewMs is the agent's clock minus the server's as the agent measured it; the UI warns when it is minutes.
 	ClockSkewMs int64 `json:"clockSkewMs,omitempty"`
-	// LegacyEnrollment marks a pending agent that came without an approval code (an older agent).
-	LegacyEnrollment bool `json:"legacyEnrollment,omitempty"`
 	// ApprovalAttemptsLeft is how many codes may still be tried for a pending agent that has one.
 	ApprovalAttemptsLeft *int `json:"approvalAttemptsLeft,omitempty"`
 	// PendingExpiresAt is when a pending enrollment expires if nobody approves it.
@@ -1238,11 +1236,8 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 			Reason: a.Reason, Modules: []ModuleDoc{}, ClockSkewMs: a.ClockSkewMs,
 		}
 		if a.Status == store.StatusPending {
-			d.LegacyEnrollment = len(a.ApprovalHash) == 0
-			if !d.LegacyEnrollment {
-				left := max(MaxApprovalAttempts-a.ApprovalAttempts, 0)
-				d.ApprovalAttemptsLeft = &left
-			}
+			left := max(MaxApprovalAttempts-a.ApprovalAttempts, 0)
+			d.ApprovalAttemptsLeft = &left
 			d.PendingExpiresAt = rfc(a.CreatedAt.Add(h.C.pendingTTL()))
 		}
 		d.ConnectingGeo = h.Geo.Locate(a.ConnectingIP)

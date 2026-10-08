@@ -55,7 +55,6 @@ const (
 	// be approved that the code does not yet know how to constrain.
 	ImplementedTier    = 2
 	TokenTTL           = time.Hour
-	MinConfirmChars    = 8
 	PollIntervalSecond = 3
 	// MaxApprovalAttempts is how many codes an administrator may type for one pending agent. The last wrong
 	// one rejects the enrollment: a 40-bit code cannot be guessed in five tries, and the agent starts over
@@ -93,10 +92,6 @@ type Core struct {
 	Decider *DeciderPolicy
 	// PendingTTL is how long an enrollment may wait to be approved (0: DefaultPendingTTL).
 	PendingTTL time.Duration
-	// RefuseLegacyApproval refuses to approve an agent that enrolled without an approval code (one that
-	// predates them). By default such an agent can still be approved by confirming its cluster
-	// fingerprint, and the UI and the audit trail mark it as a legacy enrollment.
-	RefuseLegacyApproval bool
 	// PollAfter is what pending agents are told to wait between polls (0: PollIntervalSecond, 3 seconds).
 	PollAfter time.Duration
 	// OnRevoke lets the sync hub drop a live stream at once.

@@ -306,7 +306,7 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 	// the flags changing to match (see SetMailerDefault, LoadMailConfig).
 	core.SetMailerDefault(mail)
 	core.LoadMailConfig(context.Background())
-	core.PendingTTL, core.RefuseLegacyApproval = *pendingTTL, *refuseLegacy
+	core.PendingTTL = *pendingTTL
 	core.TrustAgentProxy = agentBehindProxy
 	// Unlike Mailer, passkeys need no operator configuration - go-webauthn works out of the relying party
 	// info Admin derives from each request's own Host header, so the provider is simply always on.

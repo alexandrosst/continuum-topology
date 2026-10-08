@@ -154,14 +154,15 @@ func TestNobodyReachesAnotherOrganisation(t *testing.T) {
 		t.Fatalf("bob lists alice's token: %s", l)
 	}
 	d, _ := csr(t)
-	resp, err := a.base.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok.json(t)["token"].(string), CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1})
+	hash, code := approvalFor(t, d)
+	resp, err := a.base.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok.json(t)["token"].(string), CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, act := range []string{"approve", "reject", "revoke"} {
 		body := map[string]any{"reason": "no"}
 		if act == "approve" {
-			body = map[string]any{"confirm": fp[:8], "tier": 1}
+			body = map[string]any{"confirm": code, "tier": 1}
 		}
 		if c := a.do("POST", org(bOrg, "agents/"+resp.AgentId+"/"+act), body, withCookie(bob)).Code; c != 404 {
 			t.Errorf("bob %ss alice's agent: %d, want 404", act, c)
@@ -185,7 +186,7 @@ func TestNobodyReachesAnotherOrganisation(t *testing.T) {
 	btok := a.do("POST", org(bOrg, "tokens"), map[string]any{"name": "edge-b", "tier": 1}, withCookie(bob)).json(t)["token"].(string)
 	d2, _ := csr(t)
 	fp2 := "11111111-2222-4333-8444-555555555555"
-	r2, err := a.base.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: btok, CsrDer: d2, ClusterFingerprint: fp2, InstalledAccessTier: 1})
+	r2, err := a.base.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: btok, CsrDer: d2, ClusterFingerprint: fp2, InstalledAccessTier: 1, ApprovalCodeHash: hashFor(t, d2)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,11 +202,12 @@ func TestSameClusterCanBeRegisteredByTwoTenantsIndependently(t *testing.T) {
 	enrollAndApprove := func(cookie, org string) string {
 		tok := a.do("POST", "/api/v1/orgs/"+org+"/tokens", map[string]any{"name": "shared", "tier": 1}, withCookie(cookie)).json(t)["token"].(string)
 		d, _ := csr(t)
-		r, err := a.base.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1})
+		hash, code := approvalFor(t, d)
+		r, err := a.base.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, ApprovalCodeHash: hash})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if c := a.do("POST", "/api/v1/orgs/"+org+"/agents/"+r.AgentId+"/approve", map[string]any{"confirm": fp[:8], "tier": 1}, withCookie(cookie)).Code; c != 204 {
+		if c := a.do("POST", "/api/v1/orgs/"+org+"/agents/"+r.AgentId+"/approve", map[string]any{"confirm": code, "tier": 1}, withCookie(cookie)).Code; c != 204 {
 			t.Fatalf("approve in %s: %d", org, c)
 		}
 		return r.AgentId
@@ -418,7 +420,7 @@ func TestDeletingAnOrganisationErasesItsDataAndEndsItsAgents(t *testing.T) {
 	a.do("PUT", org(bOrg, "workspace"), []byte(`{"schemaVersion":3,"keep":true}`), withCookie(bob), withHeader("If-Match", "0"))
 	tok := a.do("POST", org(aOrg, "tokens"), map[string]any{"name": "edge", "tier": 1}, withCookie(alice)).json(t)["token"].(string)
 	d, _ := csr(t)
-	resp, err := a.base.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1})
+	resp, err := a.base.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, ApprovalCodeHash: hashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}

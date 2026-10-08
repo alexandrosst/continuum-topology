@@ -98,7 +98,8 @@ func TestAgentBehindProxyUsesTheDeclaredAddressNotTheTCPPeer(t *testing.T) {
 	secret, _, _ := r.core.CreateToken(ctx, "admin", "edge", 2)
 	d, _ := csr(t)
 	enr := continuumv1.NewEnrollmentClient(r.dialProxied(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", nil), "203.0.113.42"))
-	resp, err := enr.Enroll(ctx, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 2})
+	hash, _ := approvalFor(t, d)
+	resp, err := enr.Enroll(ctx, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,12 +135,13 @@ func TestTransportEnrollThenMutualTLS(t *testing.T) {
 	secret, _, _ := r.core.CreateToken(ctx, "admin", "edge", 2)
 	d, key := csr(t)
 	enr := continuumv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
-	resp, err := enr.Enroll(ctx, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 2})
+	hash, appr := approvalFor(t, d)
+	resp, err := enr.Enroll(ctx, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// 2. Human approval, then the agent collects its certificate.
-	if err := r.core.Approve(ctx, "alex", resp.AgentId, fp[:8], 2); err != nil {
+	if err := r.core.Approve(ctx, "alex", resp.AgentId, appr, 2); err != nil {
 		t.Fatal(err)
 	}
 	poll, err := enr.PollEnrollment(ctx, &continuumv1.PollRequest{AgentId: resp.AgentId, PollSecret: resp.PollSecret})

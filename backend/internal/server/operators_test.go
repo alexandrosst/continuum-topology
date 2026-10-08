@@ -21,7 +21,7 @@ const fp2 = "8f3c2a9e-2222-4222-8333-944455556677"
 func (e *env) approvedCluster(t *testing.T, fingerprint string) string {
 	t.Helper()
 	resp, _ := e.enroll(t, 2, fingerprint)
-	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, fingerprint, 1); err != nil {
+	if err := e.approve(resp.AgentId, 1); err != nil {
 		t.Fatal(err)
 	}
 	a, err := e.st.GetAgent(e.ctx, resp.AgentId)
@@ -36,7 +36,7 @@ func (e *env) approvedCluster(t *testing.T, fingerprint string) string {
 func (e *env) approvedAgentID(t *testing.T, fingerprint string) string {
 	t.Helper()
 	resp, _ := e.enroll(t, 2, fingerprint)
-	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, fingerprint, 1); err != nil {
+	if err := e.approve(resp.AgentId, 1); err != nil {
 		t.Fatal(err)
 	}
 	return resp.AgentId

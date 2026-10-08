@@ -207,7 +207,7 @@ func TestStateAndInfoCarryGeoOnlyWhenConfigured(t *testing.T) {
 			t.Fatal(err)
 		}
 		d, _ := csr(t)
-		resp, err := a.core.Enroll(a.ctx, ip, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0"})
+		resp, err := a.core.Enroll(a.ctx, ip, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: hashFor(t, d)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -339,7 +339,7 @@ func TestStateCarriesEstimatedGeoThroughTheFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	d, _ := csr(t)
-	resp, err := a.core.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0"})
+	resp, err := a.core.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: hashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +385,7 @@ func TestStateCarriesConnectingGeoReasonWithoutFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	d, _ := csr(t)
-	resp, err := a.core.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0"})
+	resp, err := a.core.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: hashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}

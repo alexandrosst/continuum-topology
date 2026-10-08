@@ -15,6 +15,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/approval"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 )
@@ -29,6 +30,8 @@ type env struct {
 	ctx  context.Context
 	// dbPath is the SQLite file behind st, for tests that must look at what is really stored.
 	dbPath string
+	// codes are the approval codes of the agents enroll made, by agent id: approve types them.
+	codes map[string]string
 }
 
 // newEnv is a server with one organisation, "org-1", owned by a user nobody signs in as.
@@ -61,7 +64,7 @@ func newEnvBare(t *testing.T) *env {
 	base := NewCore(st, ca, "", nil)
 	base.DefaultOrg = "org-1"
 	now := time.Now()
-	e := &env{base: base, st: st, now: &now, ctx: context.Background(), dbPath: dbPath}
+	e := &env{base: base, st: st, now: &now, ctx: context.Background(), dbPath: dbPath, codes: map[string]string{}}
 	base.Now = func() time.Time { return *e.now }
 	base.EnrollRL = NewLimiter(6000, 1000) // out of the way unless a test wants it
 	e.core = base.ForOrg("org-1")
@@ -85,11 +88,38 @@ func (e *env) enroll(t *testing.T, tier uint32, fingerprint string) (*continuumv
 		t.Fatal(err)
 	}
 	d, _ := csr(t)
-	resp, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: tier, AgentVersion: "0.1.0"})
+	hash, code := approvalFor(t, d)
+	resp, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: tier, AgentVersion: "0.1.0", ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
+	e.codes[resp.AgentId] = code
 	return resp, secret
+}
+
+// approvalFor makes an approval code for the key in csrDER and the hash the agent sends for it.
+func approvalFor(t *testing.T, csrDER []byte) (hash []byte, code string) {
+	t.Helper()
+	code, err := approval.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash, err = approval.Hash(code, csrDER); err != nil {
+		t.Fatal(err)
+	}
+	return hash, code
+}
+
+// hashFor is approvalFor when the code is not needed.
+func hashFor(t *testing.T, csrDER []byte) []byte {
+	t.Helper()
+	hash, _ := approvalFor(t, csrDER)
+	return hash
+}
+
+// approve is Approve with the code enroll made for that agent.
+func (e *env) approve(id string, tier int) error {
+	return e.core.Approve(e.ctx, "alex", id, e.codes[id], tier)
 }
 
 func kindOf(err error) Kind {
@@ -113,7 +143,7 @@ func TestEnrollApprovePollHappyPath(t *testing.T) {
 	if poll().State != continuumv1.PollResponse_PENDING {
 		t.Fatal("should be pending before approval")
 	}
-	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, fp[:8], 2); err != nil {
+	if err := e.approve(resp.AgentId, 2); err != nil {
 		t.Fatal(err)
 	}
 	p := poll()
@@ -143,7 +173,7 @@ func TestTokenIsSingleUseEvenUnderRace(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			d, _ := csr(t)
-			if _, err := e.core.Enroll(e.ctx, "10.0.0.2", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp}); err == nil {
+			if _, err := e.core.Enroll(e.ctx, "10.0.0.2", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)}); err == nil {
 				atomic.AddInt32(&wins, 1)
 			}
 		}()
@@ -163,17 +193,17 @@ func TestTokenExpiryUnknownAndMalformed(t *testing.T) {
 	secret, _, _ := e.core.CreateToken(e.ctx, "admin", "c", 1)
 	*e.now = e.now.Add(TokenTTL + time.Second)
 	d, _ := csr(t)
-	_, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp})
+	_, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)})
 	if kindOf(err) != KindUnauthenticated {
 		t.Fatalf("expired token: %v", err)
 	}
 	unknown, _ := NewTokenSecret()
-	_, err = e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: unknown, CsrDer: d, ClusterFingerprint: fp})
+	_, err = e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: unknown, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)})
 	if kindOf(err) != KindUnauthenticated {
 		t.Fatalf("unknown token: %v", err)
 	}
 	for _, bad := range []string{"", "cnt_", "short", "cnt_" + string(make([]byte, 43))} {
-		_, err = e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: bad, CsrDer: d, ClusterFingerprint: fp})
+		_, err = e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: bad, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)})
 		if kindOf(err) != KindUnauthenticated {
 			t.Fatalf("malformed %q: %v", bad, err)
 		}
@@ -195,7 +225,7 @@ func TestBadCSRDoesNotBurnTheToken(t *testing.T) {
 	if _, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: "bad fp!"}); kindOf(err) != KindInvalid {
 		t.Fatalf("bad fingerprint: %v", err)
 	}
-	if _, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp}); err != nil {
+	if _, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)}); err != nil {
 		t.Fatalf("token should still work after malformed attempts: %v", err)
 	}
 }
@@ -210,37 +240,19 @@ func TestPollNeedsTheSecretAndDoesNotRevealAgents(t *testing.T) {
 	}
 }
 
-func TestApprovalRequiresFingerprintConfirmation(t *testing.T) {
-	e := newEnv(t)
-	resp, _ := e.enroll(t, 2, fp)
-	for _, confirm := range []string{"", "8f3c", "deadbeef", fp + "x", "8F3C2A9E"} {
-		if err := e.core.Approve(e.ctx, "alex", resp.AgentId, confirm, 1); kindOf(err) != KindInvalid {
-			t.Fatalf("confirm %q accepted: %v", confirm, err)
-		}
-	}
-	if a, _ := e.st.GetAgent(e.ctx, resp.AgentId); a.Status != store.StatusPending {
-		t.Fatal("agent left pending state without a correct confirmation")
-	}
-	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, fp, 1); err != nil { // full value also works
-		t.Fatal(err)
-	}
-	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, fp, 1); kindOf(err) != KindConflict {
-		t.Fatalf("approving twice: %v", err)
-	}
-}
-
 func TestTierIsCappedByInstalledRBACTokenAndRelease(t *testing.T) {
 	e := newEnv(t)
 	resp, _ := e.enroll(t, 1, fp) // RBAC installed at tier 1
-	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, fp[:8], 2); kindOf(err) != KindInvalid {
+	if err := e.approve(resp.AgentId, 2); kindOf(err) != KindInvalid {
 		t.Fatalf("tier above installed RBAC was granted: %v", err)
 	}
 	// A cluster whose RBAC claims tier 4 still cannot be granted more than this release implements.
 	e2 := newEnv(t)
 	secret, _, _ := e2.core.CreateToken(e2.ctx, "a", "c", 2)
 	d, _ := csr(t)
-	r2, _ := e2.core.Enroll(e2.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 4})
-	if err := e2.core.Approve(e2.ctx, "alex", r2.AgentId, fp[:8], 3); kindOf(err) != KindInvalid {
+	hash, code := approvalFor(t, d)
+	r2, _ := e2.core.Enroll(e2.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 4, ApprovalCodeHash: hash})
+	if err := e2.core.Approve(e2.ctx, "alex", r2.AgentId, code, 3); kindOf(err) != KindInvalid {
 		t.Fatalf("unimplemented tier was granted: %v", err)
 	}
 	if _, _, err := e2.core.CreateToken(e2.ctx, "a", "c", 3); kindOf(err) != KindInvalid {
@@ -252,16 +264,16 @@ func TestOneLiveAgentPerClusterAndReplaceAfterRevoke(t *testing.T) {
 	e := newEnv(t)
 	a, _ := e.enroll(t, 2, fp)
 	b, _ := e.enroll(t, 2, fp)
-	if err := e.core.Approve(e.ctx, "alex", a.AgentId, fp, 1); err != nil {
+	if err := e.approve(a.AgentId, 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.core.Approve(e.ctx, "alex", b.AgentId, fp, 1); kindOf(err) != KindConflict {
+	if err := e.approve(b.AgentId, 1); kindOf(err) != KindConflict {
 		t.Fatalf("second live agent for the same cluster: %v", err)
 	}
 	if err := e.core.Revoke(e.ctx, "alex", a.AgentId, "replaced"); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.core.Approve(e.ctx, "alex", b.AgentId, fp, 1); err != nil {
+	if err := e.approve(b.AgentId, 1); err != nil {
 		t.Fatalf("replacement after revoke: %v", err)
 	}
 }
@@ -271,7 +283,7 @@ func TestRevokeStopsEverythingAndDropsTheStream(t *testing.T) {
 	var dropped string
 	e.core.OnRevoke = func(id string) { dropped = id }
 	resp, _ := e.enroll(t, 2, fp)
-	_ = e.core.Approve(e.ctx, "alex", resp.AgentId, fp, 2)
+	_ = e.approve(resp.AgentId, 2)
 	d, _ := csr(t)
 	if _, _, err := e.core.Renew(e.ctx, resp.AgentId, d); err != nil {
 		t.Fatalf("renew while approved: %v", err)
@@ -303,12 +315,12 @@ func TestRejectAndRenewDetails(t *testing.T) {
 	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, "not ours"); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, fp, 1); kindOf(err) != KindConflict {
+	if err := e.approve(resp.AgentId, 1); kindOf(err) != KindConflict {
 		t.Fatalf("approve after reject: %v", err)
 	}
 
 	r2, _ := e.enroll(t, 1, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
-	_ = e.core.Approve(e.ctx, "alex", r2.AgentId, "aaaaaaaa", 1)
+	_ = e.approve(r2.AgentId, 1)
 	d, _ := csr(t)
 	leaf, notAfter, err := e.core.Renew(e.ctx, r2.AgentId, d)
 	if err != nil {
@@ -335,7 +347,7 @@ func TestEnrollmentIsRateLimitedPerAddress(t *testing.T) {
 	var limited int
 	for i := 0; i < 10; i++ {
 		tok, _ := NewTokenSecret() // guessing tokens
-		if _, err := e.core.Enroll(e.ctx, "6.6.6.6", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp}); kindOf(err) == KindRateLimited {
+		if _, err := e.core.Enroll(e.ctx, "6.6.6.6", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)}); kindOf(err) == KindRateLimited {
 			limited++
 		}
 	}
@@ -343,7 +355,7 @@ func TestEnrollmentIsRateLimitedPerAddress(t *testing.T) {
 		t.Fatalf("only %d of 10 guesses were limited", limited)
 	}
 	tok, _ := NewTokenSecret()
-	if _, err := e.core.Enroll(e.ctx, "7.7.7.7", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp}); kindOf(err) == KindRateLimited {
+	if _, err := e.core.Enroll(e.ctx, "7.7.7.7", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)}); kindOf(err) == KindRateLimited {
 		t.Fatal("another address must not share the limit")
 	}
 }
@@ -351,8 +363,8 @@ func TestEnrollmentIsRateLimitedPerAddress(t *testing.T) {
 func TestAuditTrailAndSecretsNeverStored(t *testing.T) {
 	e := newEnv(t)
 	resp, secret := e.enroll(t, 1, fp)
-	_ = e.core.Approve(e.ctx, "alex", resp.AgentId, "wrongwrong", 1)
-	_ = e.core.Approve(e.ctx, "alex", resp.AgentId, fp, 1)
+	_ = e.core.Approve(e.ctx, "alex", resp.AgentId, "ZZZZ-ZZZZ", 1)
+	_ = e.approve(resp.AgentId, 1)
 	events, _ := e.st.ListAudit(e.ctx, "org-1", 50)
 	got := map[string]bool{}
 	for _, ev := range events {

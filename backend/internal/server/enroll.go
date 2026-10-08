@@ -52,8 +52,8 @@ func (c *Core) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollReq
 	if len(req.AgentVersion) > 64 || len(req.KubernetesVersion) > 64 {
 		return nil, errf(KindInvalid, "version string too long")
 	}
-	if n := len(req.ApprovalCodeHash); n != 0 && n != approval.HashLen {
-		return nil, errf(KindInvalid, "approval code hash is malformed")
+	if len(req.ApprovalCodeHash) != approval.HashLen {
+		return nil, errf(KindInvalid, "approval code hash is missing or malformed")
 	}
 	tier := int(req.InstalledAccessTier)
 	if tier > MaxTier {
@@ -94,12 +94,8 @@ func (c *Core) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollReq
 	if err != nil {
 		return nil, err
 	}
-	how := "with an approval code"
-	if len(a.ApprovalHash) == 0 {
-		how = "as a legacy enrollment, without an approval code"
-	}
 	c.auditOrg(ctx, tok.OrgID, "agent:"+a.ID, "agent-enrolled", "agent", a.ID,
-		fmt.Sprintf("%q from %s waiting for approval %s (installed tier %d, cluster %s)", tok.Label, ip, how, tier, shortFP(req.ClusterFingerprint)))
+		fmt.Sprintf("%q from %s waiting for approval (installed tier %d, cluster %s)", tok.Label, ip, tier, shortFP(req.ClusterFingerprint)))
 	return c.enrollResponse(a.ID, pollSecret), nil
 }
 
@@ -220,7 +216,6 @@ func (c *Core) Poll(ctx context.Context, ip string, req *continuumv1.PollRequest
 
 // Approve is the human decision. The approver types the approval code the agent printed in its own log,
 // which only someone who can read that cluster's pod log has. That defeats approving the wrong request.
-// (For an agent that enrolled without a code, proof is the start of the cluster fingerprint instead.)
 //
 // At most MaxApprovalAttempts codes are tried per pending agent, counted before the comparison is made so
 // that parallel guesses cannot exceed it; the last wrong one rejects the enrollment.
@@ -240,25 +235,10 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 	default:
 		return errf(KindConflict, "agent is %s, not pending", a.Status)
 	}
-	legacy := len(a.ApprovalHash) == 0
-	how := "approval code confirmed"
-	if legacy {
-		if c.RefuseLegacyApproval {
-			c.audit(ctx, actor, "approval-refused", "agent", a.ID, "legacy enrollment (no approval code) and this server refuses those")
-			return errf(KindForbidden, "this agent enrolled without an approval code (it is an older version) and this server refuses to approve those. Update the agent and enroll it again")
-		}
-		how = "LEGACY enrollment, no approval code: confirmed by cluster fingerprint only"
-	}
 	// A string that cannot be a code cannot be a guess either: say so without spending an attempt.
 	norm, wellFormed := approval.Normalize(proof)
-	if legacy {
-		wellFormed = len(proof) >= MinConfirmChars && len(proof) <= len(a.Fingerprint)
-	}
 	if !wellFormed {
 		left := max(MaxApprovalAttempts-a.ApprovalAttempts, 0)
-		if legacy {
-			return errWrongCode("type at least the first 8 characters of the cluster fingerprint", left, false)
-		}
 		return errWrongCode("that is not an approval code. It is 8 letters and digits, like K7QM-4TXD, and is printed in the agent's log", left, false)
 	}
 	n, err := c.Store.CountApprovalAttempt(ctx, a.ID)
@@ -271,13 +251,7 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 	if n > MaxApprovalAttempts {
 		return errWrongCode("too many wrong codes for this request", 0, true)
 	}
-	var ok bool
-	if legacy {
-		ok = subtle.ConstantTimeCompare([]byte(proof), []byte(a.Fingerprint[:len(proof)])) == 1
-	} else {
-		ok = approval.Matches(norm, a.CSR, a.ApprovalHash)
-	}
-	if !ok {
+	if !approval.Matches(norm, a.CSR, a.ApprovalHash) {
 		left := MaxApprovalAttempts - n
 		if left > 0 {
 			c.audit(ctx, actor, "approval-refused", "agent", a.ID, fmt.Sprintf("wrong approval code (attempt %d of %d)", n, MaxApprovalAttempts))
@@ -301,7 +275,7 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 	if err != nil {
 		return err
 	}
-	approvedDetail := fmt.Sprintf("%q at tier %d (%s)", a.Name, tier, how)
+	approvedDetail := fmt.Sprintf("%q at tier %d (approval code confirmed)", a.Name, tier)
 	if err := c.audited(ctx, actor, "agent-approved", "agent", a.ID, approvedDetail, func() error {
 		err := c.Store.ApproveAgent(ctx, a.ID, tier, actor, ClusterIDFor(c.OrgID, a.Fingerprint), leaf, notAfter, c.Now())
 		switch {

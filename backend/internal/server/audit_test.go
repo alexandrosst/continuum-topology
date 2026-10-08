@@ -32,7 +32,7 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 
 	pending, _ := a.enroll(t, 2, fp)
 	live, _ := a.enroll(t, 2, "11111111-2222-4333-8444-555566667777")
-	if r := a.do("POST", "/api/v1/agents/"+live.AgentId+"/approve", map[string]any{"confirm": "11111111", "tier": 2}, withCookie(owner)); r.Code != 204 {
+	if r := a.do("POST", "/api/v1/agents/"+live.AgentId+"/approve", map[string]any{"confirm": a.codes[live.AgentId], "tier": 2}, withCookie(owner)); r.Code != 204 {
 		t.Fatalf("approve (audit working): %d %s", r.Code, r.Body.String())
 	}
 	tokID := a.do("POST", "/api/v1/tokens", map[string]any{"name": "keep", "tier": 1}, withCookie(owner)).json(t)["meta"].(map[string]any)["id"].(string)
@@ -47,7 +47,7 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 			t.Errorf("%s: %d %s", what, r.Code, r.Body.String())
 		}
 	}
-	expect("approve", a.do("POST", "/api/v1/agents/"+pending.AgentId+"/approve", map[string]any{"confirm": fp[:8], "tier": 2}, withCookie(owner)))
+	expect("approve", a.do("POST", "/api/v1/agents/"+pending.AgentId+"/approve", map[string]any{"confirm": a.codes[pending.AgentId], "tier": 2}, withCookie(owner)))
 	expect("reject", a.do("POST", "/api/v1/agents/"+pending.AgentId+"/reject", map[string]any{"reason": "no"}, withCookie(owner)))
 	expect("revoke", a.do("POST", "/api/v1/agents/"+live.AgentId+"/revoke", map[string]any{"reason": "no"}, withCookie(owner)))
 	expect("create token", a.do("POST", "/api/v1/tokens", map[string]any{"name": "new", "tier": 1}, withCookie(owner)))

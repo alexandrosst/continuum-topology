@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agent"
 	agentcli "continuum/internal/cli/agent"
 	"continuum/internal/pki"
@@ -171,7 +170,7 @@ func TestApprovalByCodeEndToEndWithAWrongCodeFirst(t *testing.T) {
 		t.Fatal("the code reached the server's audit trail")
 	}
 	a := r.agents()[0]
-	if a.LegacyEnrollment || a.ApprovalAttemptsLeft == nil || *a.ApprovalAttemptsLeft != 5 {
+	if a.ApprovalAttemptsLeft == nil || *a.ApprovalAttemptsLeft != 5 {
 		t.Fatalf("the server must know this agent has a code: %+v", a)
 	}
 	if err := r.core.Approve(context.Background(), "test", agentID, "AAAA-AAAA", 2); err == nil {
@@ -570,25 +569,5 @@ func TestASmallClockDifferenceIsNotWarnedAbout(t *testing.T) {
 	})
 	if strings.Contains(buf.String(), "clock is") {
 		t.Fatalf("a 30 s difference is not worth a warning:\n%s", buf.String())
-	}
-}
-
-// ---- a legacy agent (no approval code) still enrolls and is approved by fingerprint ----
-
-func TestLegacyAgentStillEnrollsAndPollsForItsCertificate(t *testing.T) {
-	r := newERig(t, nil)
-	// An older agent's enrollment: no approval hash. Made directly, since the agent in this tree always sends one.
-	token := r.token("legacy")
-	d, _ := (func() ([]byte, error) { k, _ := agent.NewKey(); return agent.NewCSR(k) })()
-	resp, err := r.core.Enroll(context.Background(), "10.0.0.1", &continuumv1.EnrollRequest{Token: token, CsrDer: d, ClusterFingerprint: rigUID, InstalledAccessTier: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := r.agents()
-	if len(a) != 1 || !a[0].LegacyEnrollment {
-		t.Fatalf("%+v", a)
-	}
-	if err := r.core.Approve(context.Background(), "test", resp.AgentId, rigUID[:8], 2); err != nil {
-		t.Fatal(err)
 	}
 }

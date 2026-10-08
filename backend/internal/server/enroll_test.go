@@ -136,7 +136,7 @@ func TestApprovalCodeApprovesAndOnlyItsHashIsStored(t *testing.T) {
 		t.Fatalf("state = %v", p.State)
 	}
 	log := strings.Join(e.auditActions(t), "\n")
-	for _, want := range []string{"agent-enrolled", "with an approval code", "approval-refused: wrong approval code (attempt 1 of 5)", "agent-approved", "approval code confirmed"} {
+	for _, want := range []string{"agent-enrolled", "approval-refused: wrong approval code (attempt 1 of 5)", "agent-approved", "approval code confirmed"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("audit lacks %q:\n%s", want, log)
 		}
@@ -245,39 +245,28 @@ func TestAHashMadeForAnotherKeyDoesNotApprove(t *testing.T) {
 	}
 }
 
-func TestLegacyEnrollmentIsAllowedButFlagged(t *testing.T) {
+// An enrollment without an approval code hash cannot be approved by anything the enroller does not control, so it is
+// not accepted at all (it used to be approved by echoing the first characters of the cluster fingerprint it reported
+// itself).
+func TestEnrollWithoutAnApprovalCodeIsRefused(t *testing.T) {
 	e := newEnv(t)
-	resp, _ := e.enroll(t, 2, fp) // no approval hash: an older agent
-	hub := NewHub(e.core)
-	d, err := hub.State(e.ctx)
-	if err != nil || len(d.Agents) != 1 || !d.Agents[0].LegacyEnrollment || d.Agents[0].ApprovalAttemptsLeft != nil {
-		t.Fatalf("state: %+v %v", d.Agents, err)
-	}
-	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, fp[:8], 2); err != nil {
+	secret, _, err := e.core.CreateToken(e.ctx, "admin", "edge-patras", 2)
+	if err != nil {
 		t.Fatal(err)
 	}
-	log := strings.Join(e.auditActions(t), "\n")
-	if !strings.Contains(log, "legacy enrollment, without an approval code") || !strings.Contains(log, "LEGACY enrollment, no approval code") {
-		t.Errorf("audit must say it was legacy:\n%s", log)
+	d, _ := csr(t)
+	short, _ := approvalFor(t, d)
+	for _, hash := range [][]byte{nil, {}, short[:8]} {
+		_, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 2, ApprovalCodeHash: hash})
+		if kindOf(err) != KindInvalid {
+			t.Fatalf("hash of %d bytes: %v", len(hash), err)
+		}
 	}
-	e.chainOK(t)
-}
-
-func TestLegacyApprovalCanBeRefused(t *testing.T) {
-	e := newEnv(t)
-	e.core.RefuseLegacyApproval = true
-	resp, _ := e.enroll(t, 2, fp)
-	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, fp[:8], 2); kindOf(err) != KindForbidden {
-		t.Fatalf("err = %v", err)
+	if agents, _ := e.st.ListAgents(e.ctx, "org-1"); len(agents) != 0 {
+		t.Fatalf("%d agents were created", len(agents))
 	}
-	if a, _ := e.st.GetAgent(e.ctx, resp.AgentId); a.Status != store.StatusPending {
-		t.Fatal("must stay pending")
-	}
-	// A coded agent is unaffected.
-	c := e.enrollCoded(t, "aaaaaaaa-1111-4222-8333-944455556666")
-	if err := e.core.Approve(e.ctx, "alex", c.resp.AgentId, c.code, 2); err != nil {
-		t.Fatal(err)
-	}
+	// The refusals spent nothing: the token still enrolls an agent that has a code.
+	e.enrollCodedWith(t, secret, fp, nil, "")
 }
 
 // ---- token bound to a cluster ----
@@ -487,7 +476,7 @@ func TestStateShowsApprovalDetailsForPendingAgents(t *testing.T) {
 	_ = e.core.Approve(e.ctx, "alex", c.resp.AgentId, "ZZZZ-ZZZZ", 2)
 	d, _ := hub.State(e.ctx)
 	a := d.Agents[0]
-	if a.LegacyEnrollment || a.ApprovalAttemptsLeft == nil || *a.ApprovalAttemptsLeft != 4 || a.PendingExpiresAt == "" {
+	if a.ApprovalAttemptsLeft == nil || *a.ApprovalAttemptsLeft != 4 || a.PendingExpiresAt == "" {
 		t.Fatalf("%+v", a)
 	}
 }
