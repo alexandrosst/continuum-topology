@@ -140,8 +140,8 @@ func TestEveryStatementInThePackageIsTenantScopedOrDeliberatelyGlobal(t *testing
 			t.Errorf("%s runs statements on the raw client", f)
 		}
 	}
-	if global != 4 {
-		t.Errorf("found %d raw statements outside a tenant scope; expected the 4 known ones (schema, schema meta, ping, tenant ids). Review any new one.", global)
+	if global != 6 {
+		t.Errorf("found %d raw statements outside a tenant scope; expected the 6 known ones (schema, schema version, schema migration, schema meta, ping, tenant ids). Review any new one.", global)
 	}
 }
 
@@ -595,6 +595,131 @@ func TestRecordingOnlyLiveReadingsWritesNoNewVersions(t *testing.T) {
 		if d.RttMs != want || d.Stats == nil || d.Stats.LossPct == nil || *d.Stats.LossPct != 0.1+float64(i)*10 {
 			t.Errorf("moment %d: rtt/loss not restored: %+v %+v", i, d, d.Stats)
 		}
+	}
+}
+
+// openFlagMismatches counts versions and links whose open flag disagrees with validTo: every current
+// one must have open=true and every closed one none, whichever write path made or closed it.
+func openFlagMismatches(t *testing.T, db *DB, org string) int64 {
+	t.Helper()
+	q := []string{`MATCH (v:Version {org:$org}) WHERE (v.validTo IS NULL) <> (v.open IS NOT NULL) OR v.open = false RETURN count(v)`}
+	for _, rt := range relTypes {
+		q = append(q, fmt.Sprintf(`MATCH ()-[r:%s {org:$org}]->() WHERE (r.validTo IS NULL) <> (r.open IS NOT NULL) OR r.open = false RETURN count(r)`, rt))
+	}
+	var n int64
+	for _, s := range q {
+		res, err := db.C.Run(context.Background(), db.C.For(org).S(s, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		n += i64(res[0].Rows[0][0])
+	}
+	return n
+}
+
+// TestEveryWritePathKeepsTheOpenFlagInStepWithValidTo: Record reads what is open by the flag alone (an
+// index seek) instead of scanning all history for validTo IS NULL, so a path that forgot to set or clear
+// it would make Record see the wrong state.
+func TestEveryWritePathKeepsTheOpenFlagInStepWithValidTo(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+
+	record(t, db, org, at(0), estate())
+	e1 := estate()
+	e1.Services[0].Replicas = 9 // a new version
+	e1.Dependencies = e1.Dependencies[1:]
+	e1.Paths = nil // links and entities close
+	record(t, db, org, at(10), e1)
+	record(t, db, org, at(10), e1) // the same instant again replaces rather than breaks
+	if _, _, err := db.RecordCatchUp(ctx, org, []CatchUpPoint{{At: at(20), Topo: estate(), FP: "x", Size: 1}, {At: at(30), Topo: e1, FP: "y", Size: 1}}); err != nil {
+		t.Fatal(err)
+	}
+
+	type doc struct{ N int }
+	for i, cl := range []string{"c-1", "c-2", "c-1"} { // an agent that moves away and comes back
+		if err := db.RecordEntity(ctx, org, at(40+i), "agent", "ag-1", "a", "ok", cl, doc{i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, cl := range []string{"c-1", "c-2"} {
+		if err := db.RecordEntities(ctx, org, at(50+i), "agent", []EntityRecord{{ID: "ag-2", Name: "b", Cluster: cl, Doc: doc{i}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.RecordEntity(ctx, org, at(60), "application", "app-1", "shop", "", "", doc{1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordEntity(ctx, org, at(61), "application", "app-2", "other", "", "", doc{1}); err != nil {
+		t.Fatal(err)
+	}
+	for i, ids := range [][]string{{"s-1", "s-2"}, {"s-1"}} {
+		if err := db.LinkEntities(ctx, org, at(70+i), "CONTAINS", "application", "app-1", "service", ids); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.LinkEntitiesBatch(ctx, org, at(70+i), "CONTAINS", "application", "service", []MemberSet{{ID: "app-2", TargetIDs: ids}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.CloseMissingEntities(ctx, org, at(80), "application", []string{"app-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := openFlagMismatches(t, db, org); n != 0 {
+		t.Errorf("%d versions or links have an open flag that disagrees with validTo", n)
+	}
+	// And the agent that came back to c-1 has exactly one open cluster link, to c-1.
+	res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (:Entity {org:$org, kind:'agent', id:'ag-1'})-[r:IN_CLUSTER {org:$org}]->(c:Cluster) WHERE r.validTo IS NULL RETURN c.id`, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res[0].Rows) != 1 || str(res[0].Rows[0][0]) != "c-1" {
+		t.Errorf("an agent that returned to its first cluster should be linked to it again: %v", res[0].Rows)
+	}
+}
+
+// TestEnsureFlagsWhatWasOpenBeforeTheFlagExisted: a graph written by schema 2 has no open flag; Ensure
+// must set it on exactly the current versions and links, or Record would see an empty estate and write
+// every entity a second time.
+func TestEnsureFlagsWhatWasOpenBeforeTheFlagExisted(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	e := estate()
+	record(t, db, org, t0, e)
+	e.Services = e.Services[:1] // db goes: closed versions and links exist
+	e.Dependencies = e.Dependencies[1:]
+	record(t, db, org, t0.Add(time.Hour), e)
+
+	// Put the graph back as schema 2 left it.
+	sc := db.C.For(org)
+	stmts := []Stmt{
+		sc.S(`MATCH (v:Version {org:$org}) REMOVE v.open`, nil),
+		Global(`MERGE (m:SchemaMeta {id:'schema'}) SET m.version = 2`, nil),
+	}
+	for _, rt := range relTypes {
+		stmts = append(stmts, sc.S(fmt.Sprintf(`MATCH ()-[r:%s {org:$org}]->() REMOVE r.open`, rt), nil))
+	}
+	if _, err := db.C.Run(ctx, stmts...); err != nil {
+		t.Fatal(err)
+	}
+	if n := openFlagMismatches(t, db, org); n == 0 {
+		t.Fatal("setup did not remove the flags")
+	}
+
+	if err := db.C.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := openFlagMismatches(t, db, org); n != 0 {
+		t.Errorf("%d versions or links are still unflagged or wrongly flagged after Ensure", n)
+	}
+	// The next recording of the same estate finds nothing to write: all it adds is the snapshot.
+	before, _ := db.Stats(ctx, org)
+	record(t, db, org, t0.Add(2*time.Hour), e)
+	after, _ := db.Stats(ctx, org)
+	if after.Versions != before.Versions {
+		t.Errorf("recording an unchanged estate after the migration wrote %d versions", after.Versions-before.Versions)
 	}
 }
 

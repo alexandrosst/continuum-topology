@@ -285,10 +285,10 @@ func (d *DB) Record(ctx context.Context, org string, at time.Time, t model.Topol
 func (d *DB) openState(ctx context.Context, sc *Scope) (open map[string]string, openEdge map[string]bool, last time.Time, err error) {
 	reads := []Stmt{
 		sc.S(`MATCH (s:Snapshot {org:$org}) RETURN toString(s.at) ORDER BY s.at DESC LIMIT 1`, nil),
-		sc.S(`MATCH (v:Version {org:$org}) WHERE v.validTo IS NULL RETURN v.kind, v.id, v.hash`, nil),
+		sc.S(`MATCH (v:Version {org:$org, open:true}) RETURN v.kind, v.id, v.hash`, nil),
 	}
 	for _, rt := range relTypes {
-		reads = append(reads, sc.S(fmt.Sprintf(`MATCH ()-[r:%s {org:$org}]->() WHERE r.validTo IS NULL RETURN r.ekey`, rt), nil))
+		reads = append(reads, sc.S(fmt.Sprintf(`MATCH ()-[r:%s {org:$org, open:true}]->() RETURN r.ekey`, rt), nil))
 	}
 	res, err := d.C.Run(ctx, reads...)
 	if err != nil {
@@ -360,11 +360,11 @@ func diffEntities(sc *Scope, at time.Time, t model.Topology, fp string, size int
 		// A version that began at this very instant is being replaced within it: drop it rather than
 		// leave a zero-length version behind (the moment is recorded once).
 		w = append(w, sc.S(`UNWIND $rows AS row
-MATCH (v:Version {org:$org, kind:row.kind, id:row.id}) WHERE v.validTo IS NULL AND v.validFrom = datetime($at)
+MATCH (v:Version {org:$org, kind:row.kind, id:row.id, open:true}) WHERE v.validFrom = datetime($at)
 DETACH DELETE v`, map[string]any{"rows": closeRows, "at": atS}))
 		w = append(w, sc.S(`UNWIND $rows AS row
-MATCH (v:Version {org:$org, kind:row.kind, id:row.id}) WHERE v.validTo IS NULL
-SET v.validTo = datetime($at)`, map[string]any{"rows": closeRows, "at": atS}))
+MATCH (v:Version {org:$org, kind:row.kind, id:row.id, open:true})
+SET v.validTo = datetime($at), v.open = null`, map[string]any{"rows": closeRows, "at": atS}))
 	}
 	if len(goneRows) > 0 {
 		w = append(w, sc.S(`UNWIND $rows AS row
@@ -380,7 +380,7 @@ MATCH (e:Entity {org:$org, kind:row.kind, id:row.id}) SET e.gone = datetime($at)
 MERGE (e:Entity {org:$org, kind:row.kind, id:row.id})
 ON CREATE SET e.firstSeen = datetime($at)
 SET e:%s, e.name = row.name, e.status = row.status, e.cluster = row.cluster, e.gone = null
-CREATE (v:Version {org:$org, kind:row.kind, id:row.id, validFrom:datetime($at), hash:row.hash, doc:row.doc, name:row.name, status:row.status, cluster:row.cluster})
+CREATE (v:Version {org:$org, kind:row.kind, id:row.id, open:true, validFrom:datetime($at), hash:row.hash, doc:row.doc, name:row.name, status:row.status, cluster:row.cluster})
 CREATE (e)-[:HAS_VERSION]->(v)`, k.Label), map[string]any{"rows": rows, "at": atS}))
 	}
 	// Links.
@@ -405,14 +405,14 @@ CREATE (e)-[:HAS_VERSION]->(v)`, k.Label), map[string]any{"rows": rows, "at": at
 		sort.Slice(opening, func(i, j int) bool { return opening[i]["key"].(string) < opening[j]["key"].(string) })
 		if len(closing) > 0 {
 			w = append(w, sc.S(fmt.Sprintf(`UNWIND $rows AS row
-MATCH ()-[r:%s {org:$org, ekey:row.key}]->() WHERE r.validTo IS NULL
-SET r.validTo = datetime($at)`, rt), map[string]any{"rows": closing, "at": atS}))
+MATCH ()-[r:%s {org:$org, ekey:row.key, open:true}]->()
+SET r.validTo = datetime($at), r.open = null`, rt), map[string]any{"rows": closing, "at": atS}))
 		}
 		if len(opening) > 0 {
 			w = append(w, sc.S(fmt.Sprintf(`UNWIND $rows AS row
 MATCH (a:Entity {org:$org, kind:row.fk, id:row.fid})
 MATCH (b:Entity {org:$org, kind:row.tk, id:row.tid})
-CREATE (a)-[:%s {org:$org, ekey:row.key, validFrom:datetime($at), port:row.port, protocol:row.proto}]->(b)`, rt), map[string]any{"rows": opening, "at": atS}))
+CREATE (a)-[:%s {org:$org, ekey:row.key, open:true, validFrom:datetime($at), port:row.port, protocol:row.proto}]->(b)`, rt), map[string]any{"rows": opening, "at": atS}))
 		}
 		// Carried into openEdge so a later snapshot in the same chained batch diffs against this one's
 		// result rather than what was open before any of the batch was applied.
@@ -527,7 +527,7 @@ func (d *DB) RecordEntity(ctx context.Context, org string, at time.Time, kind, i
 	}
 	hash := hashDoc(raw)
 
-	res, err := d.C.Run(ctx, sc.S(`MATCH (v:Version {org:$org, kind:$kind, id:$id}) WHERE v.validTo IS NULL RETURN v.hash, v.cluster`, map[string]any{"kind": kind, "id": id}))
+	res, err := d.C.Run(ctx, sc.S(`MATCH (v:Version {org:$org, kind:$kind, id:$id, open:true}) RETURN v.hash, v.cluster`, map[string]any{"kind": kind, "id": id}))
 	if err != nil {
 		return err
 	}
@@ -542,16 +542,16 @@ func (d *DB) RecordEntity(ctx context.Context, org string, at time.Time, kind, i
 		// A version opened at this very instant is being replaced within it: drop it rather than leave a
 		// zero-length version behind, exactly as Record does for the kinds it polls.
 		w = append(w,
-			sc.S(`MATCH (v:Version {org:$org, kind:$kind, id:$id}) WHERE v.validTo IS NULL AND v.validFrom = datetime($at)
+			sc.S(`MATCH (v:Version {org:$org, kind:$kind, id:$id, open:true}) WHERE v.validFrom = datetime($at)
 DETACH DELETE v`, map[string]any{"kind": kind, "id": id, "at": atS}),
-			sc.S(`MATCH (v:Version {org:$org, kind:$kind, id:$id}) WHERE v.validTo IS NULL
-SET v.validTo = datetime($at)`, map[string]any{"kind": kind, "id": id, "at": atS}),
+			sc.S(`MATCH (v:Version {org:$org, kind:$kind, id:$id, open:true})
+SET v.validTo = datetime($at), v.open = null`, map[string]any{"kind": kind, "id": id, "at": atS}),
 		)
 	}
 	w = append(w, sc.S(fmt.Sprintf(`MERGE (e:Entity {org:$org, kind:$kind, id:$id})
 ON CREATE SET e.firstSeen = datetime($at)
 SET e:%s, e.name = $name, e.status = $status, e.cluster = $cluster, e.gone = null
-CREATE (v:Version {org:$org, kind:$kind, id:$id, validFrom:datetime($at), hash:$hash, doc:$doc, name:$name, status:$status, cluster:$cluster})
+CREATE (v:Version {org:$org, kind:$kind, id:$id, open:true, validFrom:datetime($at), hash:$hash, doc:$doc, name:$name, status:$status, cluster:$cluster})
 CREATE (e)-[:HAS_VERSION]->(v)`, label), map[string]any{"kind": kind, "id": id, "at": atS, "name": name, "status": status, "cluster": cluster, "hash": hash, "doc": string(raw)}))
 
 	if cluster != "" {
@@ -561,11 +561,11 @@ CREATE (e)-[:HAS_VERSION]->(v)`, label), map[string]any{"kind": kind, "id": id, 
 		ekey := edge{Type: "IN_CLUSTER", FK: kind, FID: id, TK: "cluster", TID: cluster}.ekey()
 		ep := map[string]any{"kind": kind, "id": id, "cluster": cluster, "ekey": ekey, "at": atS}
 		w = append(w,
-			sc.S(`MATCH (:Entity {org:$org, kind:$kind, id:$id})-[r:IN_CLUSTER {org:$org}]->() WHERE r.validTo IS NULL AND r.ekey <> $ekey
-SET r.validTo = datetime($at)`, ep),
+			sc.S(`MATCH (:Entity {org:$org, kind:$kind, id:$id})-[r:IN_CLUSTER {org:$org, open:true}]->() WHERE r.ekey <> $ekey
+SET r.validTo = datetime($at), r.open = null`, ep),
 			sc.S(`MATCH (a:Entity {org:$org, kind:$kind, id:$id})
 MATCH (b:Cluster:Entity {org:$org, kind:'cluster', id:$cluster})
-MERGE (a)-[r:IN_CLUSTER {org:$org, ekey:$ekey}]->(b)
+MERGE (a)-[r:IN_CLUSTER {org:$org, ekey:$ekey, open:true}]->(b)
 ON CREATE SET r.validFrom = datetime($at)`, ep),
 		)
 	}
@@ -594,7 +594,7 @@ func (d *DB) LinkEntities(ctx context.Context, org string, at time.Time, relType
 		e := edge{Type: relType, FK: kind, FID: id, TK: targetKind, TID: tid}
 		want[e.ekey()] = e
 	}
-	res, err := d.C.Run(ctx, sc.S(fmt.Sprintf(`MATCH (:Entity {org:$org, kind:$kind, id:$id})-[r:%s {org:$org}]->() WHERE r.validTo IS NULL RETURN r.ekey`, relType),
+	res, err := d.C.Run(ctx, sc.S(fmt.Sprintf(`MATCH (:Entity {org:$org, kind:$kind, id:$id})-[r:%s {org:$org, open:true}]->() RETURN r.ekey`, relType),
 		map[string]any{"kind": kind, "id": id}))
 	if err != nil {
 		return err
@@ -618,14 +618,14 @@ func (d *DB) LinkEntities(ctx context.Context, org string, at time.Time, relType
 	var w []Stmt
 	if len(closing) > 0 {
 		w = append(w, sc.S(fmt.Sprintf(`UNWIND $rows AS row
-MATCH ()-[r:%s {org:$org, ekey:row.key}]->() WHERE r.validTo IS NULL
-SET r.validTo = datetime($at)`, relType), map[string]any{"rows": closing, "at": ts(at)}))
+MATCH ()-[r:%s {org:$org, ekey:row.key, open:true}]->()
+SET r.validTo = datetime($at), r.open = null`, relType), map[string]any{"rows": closing, "at": ts(at)}))
 	}
 	if len(opening) > 0 {
 		w = append(w, sc.S(fmt.Sprintf(`UNWIND $rows AS row
 MATCH (a:Entity {org:$org, kind:row.fk, id:row.fid})
 MATCH (b:Entity {org:$org, kind:row.tk, id:row.tid})
-CREATE (a)-[:%s {org:$org, ekey:row.key, validFrom:datetime($at)}]->(b)`, relType), map[string]any{"rows": opening, "at": ts(at)}))
+CREATE (a)-[:%s {org:$org, ekey:row.key, open:true, validFrom:datetime($at)}]->(b)`, relType), map[string]any{"rows": opening, "at": ts(at)}))
 	}
 	if len(w) == 0 {
 		return nil
@@ -679,7 +679,7 @@ func (d *DB) RecordEntities(ctx context.Context, org string, at time.Time, kind 
 		ids = append(ids, r.ID)
 	}
 
-	res, err := d.C.Run(ctx, sc.S(`MATCH (v:Version {org:$org, kind:$kind}) WHERE v.validTo IS NULL AND v.id IN $ids RETURN v.id, v.hash, v.cluster`,
+	res, err := d.C.Run(ctx, sc.S(`MATCH (v:Version {org:$org, kind:$kind, open:true}) WHERE v.id IN $ids RETURN v.id, v.hash, v.cluster`,
 		map[string]any{"kind": kind, "ids": ids}))
 	if err != nil {
 		return err
@@ -714,11 +714,11 @@ func (d *DB) RecordEntities(ctx context.Context, org string, at time.Time, kind 
 	if len(toClose) > 0 {
 		w = append(w,
 			sc.S(`UNWIND $rows AS row
-MATCH (v:Version {org:$org, kind:$kind, id:row.id}) WHERE v.validTo IS NULL AND v.validFrom = datetime($at)
+MATCH (v:Version {org:$org, kind:$kind, id:row.id, open:true}) WHERE v.validFrom = datetime($at)
 DETACH DELETE v`, map[string]any{"kind": kind, "rows": toClose, "at": atS}),
 			sc.S(`UNWIND $rows AS row
-MATCH (v:Version {org:$org, kind:$kind, id:row.id}) WHERE v.validTo IS NULL
-SET v.validTo = datetime($at)`, map[string]any{"kind": kind, "rows": toClose, "at": atS}),
+MATCH (v:Version {org:$org, kind:$kind, id:row.id, open:true})
+SET v.validTo = datetime($at), v.open = null`, map[string]any{"kind": kind, "rows": toClose, "at": atS}),
 		)
 	}
 	// label is the same for every row of one kind (labelOf(kind) is a function of kind alone, like
@@ -727,17 +727,17 @@ SET v.validTo = datetime($at)`, map[string]any{"kind": kind, "rows": toClose, "a
 MERGE (e:Entity {org:$org, kind:$kind, id:row.id})
 ON CREATE SET e.firstSeen = datetime($at)
 SET e:%s, e.name = row.name, e.status = row.status, e.cluster = row.cluster, e.gone = null
-CREATE (v:Version {org:$org, kind:$kind, id:row.id, validFrom:datetime($at), hash:row.hash, doc:row.doc, name:row.name, status:row.status, cluster:row.cluster})
+CREATE (v:Version {org:$org, kind:$kind, id:row.id, open:true, validFrom:datetime($at), hash:row.hash, doc:row.doc, name:row.name, status:row.status, cluster:row.cluster})
 CREATE (e)-[:HAS_VERSION]->(v)`, label), map[string]any{"kind": kind, "at": atS, "rows": toCreate}))
 	if len(clusterRows) > 0 {
 		w = append(w,
 			sc.S(`UNWIND $rows AS row
-MATCH (:Entity {org:$org, kind:$kind, id:row.id})-[r:IN_CLUSTER {org:$org}]->() WHERE r.validTo IS NULL AND r.ekey <> row.ekey
-SET r.validTo = datetime($at)`, map[string]any{"kind": kind, "rows": clusterRows, "at": atS}),
+MATCH (:Entity {org:$org, kind:$kind, id:row.id})-[r:IN_CLUSTER {org:$org, open:true}]->() WHERE r.ekey <> row.ekey
+SET r.validTo = datetime($at), r.open = null`, map[string]any{"kind": kind, "rows": clusterRows, "at": atS}),
 			sc.S(`UNWIND $rows AS row
 MATCH (a:Entity {org:$org, kind:$kind, id:row.id})
 MATCH (b:Cluster:Entity {org:$org, kind:'cluster', id:row.cluster})
-MERGE (a)-[r:IN_CLUSTER {org:$org, ekey:row.ekey}]->(b)
+MERGE (a)-[r:IN_CLUSTER {org:$org, ekey:row.ekey, open:true}]->(b)
 ON CREATE SET r.validFrom = datetime($at)`, map[string]any{"kind": kind, "rows": clusterRows, "at": atS}),
 		)
 	}
@@ -779,7 +779,7 @@ func (d *DB) LinkEntitiesBatch(ctx context.Context, org string, at time.Time, re
 		want[s.ID] = m
 	}
 
-	res, err := d.C.Run(ctx, sc.S(fmt.Sprintf(`MATCH (a:Entity {org:$org, kind:$kind})-[r:%s {org:$org}]->() WHERE r.validTo IS NULL AND a.id IN $ids RETURN a.id, r.ekey`, relType),
+	res, err := d.C.Run(ctx, sc.S(fmt.Sprintf(`MATCH (a:Entity {org:$org, kind:$kind})-[r:%s {org:$org, open:true}]->() WHERE a.id IN $ids RETURN a.id, r.ekey`, relType),
 		map[string]any{"kind": kind, "ids": ids}))
 	if err != nil {
 		return err
@@ -807,14 +807,14 @@ func (d *DB) LinkEntitiesBatch(ctx context.Context, org string, at time.Time, re
 	var w []Stmt
 	if len(closing) > 0 {
 		w = append(w, sc.S(fmt.Sprintf(`UNWIND $rows AS row
-MATCH ()-[r:%s {org:$org, ekey:row.key}]->() WHERE r.validTo IS NULL
-SET r.validTo = datetime($at)`, relType), map[string]any{"rows": closing, "at": ts(at)}))
+MATCH ()-[r:%s {org:$org, ekey:row.key, open:true}]->()
+SET r.validTo = datetime($at), r.open = null`, relType), map[string]any{"rows": closing, "at": ts(at)}))
 	}
 	if len(opening) > 0 {
 		w = append(w, sc.S(fmt.Sprintf(`UNWIND $rows AS row
 MATCH (a:Entity {org:$org, kind:row.fk, id:row.fid})
 MATCH (b:Entity {org:$org, kind:row.tk, id:row.tid})
-CREATE (a)-[:%s {org:$org, ekey:row.key, validFrom:datetime($at)}]->(b)`, relType), map[string]any{"rows": opening, "at": ts(at)}))
+CREATE (a)-[:%s {org:$org, ekey:row.key, open:true, validFrom:datetime($at)}]->(b)`, relType), map[string]any{"rows": opening, "at": ts(at)}))
 	}
 	if len(w) == 0 {
 		return nil
@@ -835,8 +835,8 @@ func (d *DB) CloseMissingEntities(ctx context.Context, org string, at time.Time,
 	defer d.lock(org)()
 	sc := d.C.For(org)
 	res, err := d.C.Run(ctx, sc.S(`MATCH (e:Entity {org:$org, kind:$kind}) WHERE e.gone IS NULL AND NOT e.id IN $keep
-OPTIONAL MATCH (e)-[:HAS_VERSION]->(v:Version {org:$org}) WHERE v.validTo IS NULL
-SET e.gone = datetime($at), v.validTo = datetime($at)
+OPTIONAL MATCH (e)-[:HAS_VERSION]->(v:Version {org:$org, open:true})
+SET e.gone = datetime($at), v.validTo = datetime($at), v.open = null
 RETURN DISTINCT e.id`, map[string]any{"kind": kind, "keep": keepIDs, "at": ts(at)}))
 	if err != nil {
 		return nil, err
@@ -959,7 +959,13 @@ func (d *DB) AsOfEntities(ctx context.Context, org string, at time.Time) (time.T
 		return time.Time{}, nil, store.ErrNotFound
 	}
 
-	docs, err := d.C.Run(ctx, sc.S(`MATCH (v:Version {org:$org}) WHERE v.validFrom <= datetime($at) AND (v.validTo IS NULL OR v.validTo > datetime($at))
+	// Valid at `at` = opened by then and either still open or closed after it. Two seeks, one per half
+	// (the open flag, and the validTo index; hinted because the planner would otherwise take validFrom, which
+	// is the whole history for a recent `at`), not one scan of every version ever written.
+	docs, err := d.C.Run(ctx, sc.S(`MATCH (v:Version {org:$org, open:true}) USING INDEX v:Version(org, open) WHERE v.validFrom <= datetime($at)
+RETURN v.kind, v.id, v.name, v.status, v.cluster, v.doc
+UNION ALL
+MATCH (v:Version {org:$org}) USING INDEX v:Version(org, validTo) WHERE v.validTo > datetime($at) AND v.validFrom <= datetime($at)
 RETURN v.kind, v.id, v.name, v.status, v.cluster, v.doc`, map[string]any{"at": ts(at)}))
 	if err != nil {
 		return time.Time{}, nil, err

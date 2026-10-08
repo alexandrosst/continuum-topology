@@ -7,16 +7,19 @@ import (
 
 // SchemaVersion is bumped when the shape of the graph changes; Ensure applies what is missing.
 // 2: added entity_org, the dedicated (org) index on :Entity.
-const SchemaVersion = 2
+// 3: open:true on every current Version and temporal relationship (removed when it closes), indexed, so
+// "what is open" is a seek instead of a scan of all history; Ensure sets it on data written before.
+const SchemaVersion = 3
 
 // The graph, in one place:
 //
 //	(:Tenant {id, name})                              one organisation
 //	(:Entity {org, kind, id, name, status})           the identity of a cluster, node, namespace,
 //	   also labelled :Cluster :Node :Namespace :Service :ExternalEndpoint :Dependency :Path
-//	   -[:HAS_VERSION]-> (:Version {org, kind, id, validFrom, validTo, hash, doc})
-//	      one row per distinct state; validTo is null while it is current
-//	(:Entity)-[:IN_CLUSTER|RUNS_ON|CALLS|PATH_FROM|PATH_TO|CONTAINS {org, key, validFrom, validTo}]->(:Entity)
+//	   -[:HAS_VERSION]-> (:Version {org, kind, id, validFrom, validTo, open, hash, doc})
+//	      one row per distinct state; validTo is null and open is true while it is current (open is removed,
+//	      not set false, when it closes, so the (org, open) index holds only what is current)
+//	(:Entity)-[:IN_CLUSTER|RUNS_ON|CALLS|PATH_FROM|PATH_TO|CONTAINS {org, ekey, validFrom, validTo, open}]->(:Entity)
 //	   relationships are temporal too, so "what ran where on Tuesday" is a query. CONTAINS is the odd one
 //	   out: the other four are diffed against a full topology poll every time Record runs, but CONTAINS
 //	   (an application's member services) is written only through LinkEntities, the moment a workspace
@@ -55,6 +58,7 @@ var ddl = []string{
 	`CREATE INDEX entity_org IF NOT EXISTS FOR (e:Entity) ON (e.org)`,
 	`CREATE INDEX version_from IF NOT EXISTS FOR (v:Version) ON (v.org, v.validFrom)`,
 	`CREATE INDEX version_to IF NOT EXISTS FOR (v:Version) ON (v.org, v.validTo)`,
+	`CREATE INDEX version_open IF NOT EXISTS FOR (v:Version) ON (v.org, v.open)`,
 	`CREATE INDEX event_at IF NOT EXISTS FOR (e:Event) ON (e.org, e.at)`,
 	`CREATE INDEX event_target IF NOT EXISTS FOR (e:Event) ON (e.org, e.targetId)`,
 	`CREATE INDEX audit_at IF NOT EXISTS FOR (a:Audit) ON (a.org, a.at)`,
@@ -78,8 +82,17 @@ func init() {
 	for _, t := range relTypes {
 		ddl = append(ddl, fmt.Sprintf(`CREATE INDEX rel_%s_key IF NOT EXISTS FOR ()-[r:%s]-() ON (r.org, r.ekey)`, lower(t), t))
 		ddl = append(ddl, fmt.Sprintf(`CREATE INDEX rel_%s_open IF NOT EXISTS FOR ()-[r:%s]-() ON (r.org, r.validTo)`, lower(t), t))
+		ddl = append(ddl, fmt.Sprintf(`CREATE INDEX rel_%s_live IF NOT EXISTS FOR ()-[r:%s]-() ON (r.org, r.open)`, lower(t), t))
+		// Schema 2 -> 3: what was current before the flag existed.
+		migrate3 = append(migrate3, fmt.Sprintf(`MATCH ()-[r:%s]->() WHERE r.validTo IS NULL SET r.open = true`, t))
 	}
+	// Last: a query that names an index (AsOfEntities) fails while that index is still populating.
+	ddl = append(ddl, `CALL db.awaitIndexes(300)`)
 }
+
+// migrate3 flags what was already current when the graph was written before open existed. Each statement
+// is safe to run twice.
+var migrate3 = []string{`MATCH (v:Version) WHERE v.validTo IS NULL SET v.open = true`}
 
 func lower(s string) string {
 	b := []byte(s)
@@ -98,8 +111,26 @@ func (c *Client) Ensure(ctx context.Context) error {
 			return fmt.Errorf("preparing the graph: %w", err)
 		}
 	}
+	if v, err := c.schemaVersion(ctx); err != nil {
+		return err
+	} else if v < 3 {
+		for _, q := range migrate3 {
+			if _, err := c.Run(ctx, Global(q, nil)); err != nil {
+				return fmt.Errorf("migrating the graph: %w", err)
+			}
+		}
+	}
 	_, err := c.Run(ctx, Global(`MERGE (m:SchemaMeta {id:'schema'}) SET m.version = $v, m.updated = datetime()`, map[string]any{"v": SchemaVersion}))
 	return err
+}
+
+// schemaVersion is the version Ensure last completed (0 for a database it has never prepared).
+func (c *Client) schemaVersion(ctx context.Context) (int64, error) {
+	res, err := c.Run(ctx, Global(`MATCH (m:SchemaMeta {id:'schema'}) RETURN m.version`, nil))
+	if err != nil || len(res[0].Rows) == 0 {
+		return 0, err
+	}
+	return i64(res[0].Rows[0][0]), nil
 }
 
 // Ping checks that the database answers and the credentials work.
