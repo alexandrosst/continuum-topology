@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { StrictMode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { expiryText, FusionAccess, fusionStatusCurl } from '@/components/operators/FusionAccess'
+import { expiryText, FusionAccess, fusionDocsUrl, fusionStatusCurl } from '@/components/operators/FusionAccess'
 import { FusionPanel } from '@/components/operators/FusionPanel'
 import { isReloadHeld } from '@/lib/staleBuild'
 import type { CreatedFusionAccessToken, FusionAccessToken, FusionStatus } from '@/lib/api'
@@ -47,7 +47,23 @@ describe('expiryText', () => {
   })
 })
 
+describe('the API reference link', () => {
+  test('is the server\'s own docs page, however the address is written', () => {
+    expect(fusionDocsUrl('https://ikhnos.example')).toBe('https://ikhnos.example/api/v1/fusion/docs')
+    expect(fusionDocsUrl('https://ikhnos.example/')).toBe('https://ikhnos.example/api/v1/fusion/docs')
+  })
+})
+
 describe('FusionAccess', () => {
+  test('offers the API reference in a new tab, even before there is a token', async () => {
+    listFusionTokens.mockResolvedValue([])
+    render(<FusionAccess />)
+    const link = await screen.findByTestId('fusion-api-docs')
+    expect(link).toHaveAttribute('href', 'https://ikhnos.example/api/v1/fusion/docs')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noreferrer'))
+  })
+
   test('lists each token with what it may read, when it expires and when it was last used', async () => {
     listFusionTokens.mockResolvedValue([
       token(),

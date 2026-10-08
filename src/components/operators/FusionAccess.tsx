@@ -1,6 +1,7 @@
-import { KeyRound, Plus } from 'lucide-react'
+import { BookOpen, KeyRound, Plus } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CopyCommand } from '@/components/agents/AgentInsight'
+import { buttonClass } from '@/components/ui/buttonClass'
 import { ConfirmModal } from '@/components/forms'
 import { Button, CheckboxList, CopyValue, ErrorBanner, Field, ICON_SM, Input, Modal, Select, TagsInput } from '@/components/ui/primitives'
 import { shArg, shQuote } from '@/lib/install'
@@ -14,6 +15,11 @@ const SIGNALS: { value: FusionSignal; label: string; hint: string }[] = [
   { value: 'logs', label: 'Logs', hint: 'Loki - log lines, with their trace and span ids' },
   { value: 'traces', label: 'Traces', hint: 'Tempo - spans, and the trace joined to its logs and metrics' },
 ]
+
+/** Where the data API's reference page is: the same server, so the same address the rest of the app talks to. It needs no sign-in (it only describes the API). */
+export function fusionDocsUrl(base: string): string {
+  return `${base.replace(/\/+$/, '')}/api/v1/fusion/docs`
+}
 
 const EXPIRY_DAYS = [30, 90, 180, 365]
 
@@ -93,7 +99,10 @@ export function FusionAccess() {
         <span className="flex items-center gap-1.5 text-sm font-medium text-nb-200">
           <KeyRound size={ICON_SM} className="text-nb-500" aria-hidden /> Data access
         </span>
-        <span className="ml-auto">
+        <span className="ml-auto flex flex-wrap items-center gap-2">
+          <a className={buttonClass('secondary', 'sm')} href={fusionDocsUrl(conn()?.url || window.location.origin)} target="_blank" rel="noreferrer" data-testid="fusion-api-docs">
+            <BookOpen size={ICON_SM} aria-hidden /> API reference
+          </a>
           <Button size="sm" onClick={() => setCreating(true)} data-testid="fusion-token-new">
             <Plus size={ICON_SM} aria-hidden /> New access token
           </Button>
@@ -101,7 +110,8 @@ export function FusionAccess() {
       </div>
       <p className="mt-2 text-xs leading-relaxed text-nb-500">
         Another system reads what FUSION saved - metrics, logs and traces, separately or joined around a trace - with a token. A token is read-only, limited to
-        the signals and namespaces you give it, and expires. The stores themselves are never exposed; every read goes through this server.
+        the signals and namespaces you give it, and expires. The stores themselves are never exposed; every read goes through this server. The API reference
+        lists every call and lets you try it.
       </p>
       {error && <ErrorBanner className="mt-2">{error}</ErrorBanner>}
       {tokens && tokens.length === 0 && !error && <p className="mt-3 text-xs text-nb-500" data-testid="fusion-token-empty">No access tokens yet.</p>}
@@ -182,7 +192,8 @@ function NewTokenModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           </div>
           <p className="text-xs leading-relaxed text-nb-500">
             {expiryText(created.details.expiresAt)}. Read a trace with its logs and metrics joined:{' '}
-            <code className="font-mono text-nb-400">/api/v1/fusion/traces/&lt;trace-id&gt;?include=logs,metrics</code>
+            <code className="font-mono text-nb-400">/api/v1/fusion/traces/&lt;trace-id&gt;?fused=true</code>.{' '}
+            <a className="text-accent underline" href={fusionDocsUrl(base)} target="_blank" rel="noreferrer" data-testid="fusion-token-docs">Every call is in the API reference</a>.
           </p>
         </div>
       </Modal>
