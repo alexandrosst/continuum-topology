@@ -238,7 +238,7 @@ function NewTokenModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         </Field>
         {(namespaces.length > 0 || clusters.length > 0) && (
           <p className="text-xs leading-relaxed text-nb-500">
-            A token with a namespace or cluster limit can use the structured filters only. Raw PromQL, LogQL and TraceQL need a token with no such limit, because a limit cannot be enforced on a query written by hand.
+            A token with a namespace or cluster limit can use the structured filters only. Raw PromQL, LogQL and TraceQL, and the Prometheus, Loki and Tempo APIs themselves, need a token with no such limit, because a limit cannot be enforced on a query written by hand.
           </p>
         )}
         {error && <ErrorBanner>{error}</ErrorBanner>}

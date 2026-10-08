@@ -48,7 +48,7 @@ What the server does with the data matters too: the stores are reached over plai
 
 ## The calls
 
-All are `GET`, all take `from` and `to` (an RFC 3339 time, unix seconds, or `now-15m`; default the last hour, never more than 31 days) and answer JSON.
+All are `GET` (but the batch read, and the backends' own POST forms), all take `from` and `to` (an RFC 3339 time, unix seconds, or `now-15m`; default the last hour, never more than 31 days) and answer JSON.
 
 | Call | What it returns |
 | --- | --- |
@@ -61,7 +61,24 @@ All are `GET`, all take `from` and `to` (an RFC 3339 time, unix seconds, or `now
 | `/api/v1/fusion/traces` | A trace search: `service`, `namespace`, `cluster`, `name`, `status=error\|ok\|unset`, `min_duration`, `max_duration`, `limit`. With `q=` it takes TraceQL as written (unrestricted callers only). With `fused=true` every hit also comes back as a fused trace ([reading many](#reading-many-traces)). |
 | `/api/v1/fusion/traces/{id}` | One trace. With `fused=true` (or an `include` list) it is the fused object below. |
 | `POST /api/v1/fusion/traces/batch` | Up to 25 fused traces in one request ([reading many](#reading-many-traces)). |
+| `/api/v1/fusion/prometheus/...`, `/loki/...`, `/tempo/...` | Each store's own read API, unchanged ([the backends' own APIs](#the-backends-own-apis)). |
 | `/api/v1/fusion/openapi.json`, `/api/v1/fusion/docs` | The OpenAPI description of all of the above, and a page that renders it and lets you try each call ([the API page](#the-api-page-and-the-openapi-description)). No credential needed: they describe the API, they read nothing. |
+
+## The backends' own APIs
+
+Everything above is FUSION's own shape: one set of parameters (`from`, `to`, `service`, `namespace` ...), one error format, one access model, whichever store the data is in. For everything the three stores can do beyond that (aggregations, label and tag discovery, log volumes and patterns, TraceQL metrics, exemplars), FUSION also serves each store's **own read API, unchanged**, under its name:
+
+| Prefix | Serves | Example |
+| --- | --- | --- |
+| `/api/v1/fusion/prometheus/` | Prometheus' HTTP API: `query`, `query_range`, `query_exemplars`, `series`, `labels`, `label/{name}/values`, `metadata`, `status/tsdb`, `status/buildinfo` | `/api/v1/fusion/prometheus/api/v1/query?query=sum(up)` |
+| `/api/v1/fusion/loki/` | Loki's: `query`, `query_range`, `labels`, `label/{name}/values`, `series`, `index/stats`, `index/volume`, `index/volume_range`, `patterns`, `detected_labels`, `detected_fields` | `/api/v1/fusion/loki/loki/api/v1/query_range?query={service_name="web"}` |
+| `/api/v1/fusion/tempo/` | Tempo's: `api/traces/{id}`, `api/v2/traces/{id}`, `api/search`, `api/search/tags`, `api/v2/search/tags`, `api/search/tag/{tag}/values` (and v2), `api/metrics/query`, `api/metrics/query_range` | `/api/v1/fusion/tempo/api/search?q={ status = error }` |
+
+After the prefix the path, the parameters and the answer are the store's own, so a client written for the store works with only its address and a bearer token changed: a Grafana datasource of type Prometheus, Loki or Tempo with the URL `https://ikhnos.example/api/v1/fusion/prometheus` (or `/loki`, `/tempo`) and an `Authorization: Bearer <token>` header, `promtool`, `logcli`. A POST with a form (how Grafana sends queries) is accepted on the query endpoints. A bad query gets the store's own error, in its own format.
+
+What is *not* mirrored is as deliberate as what is. Only read endpoints are served: nothing that writes (remote write, OTLP and Loki push, delete, snapshot), administers (reload, quit, flush, config, ring) or tails exists at these addresses - there is no refusal to bypass, the route is simply not there (404). The same authentication, rate limit (a request is a request), 30-second timeout, 16 MiB answer cap and failure rules as the rest of the API apply, and a store's own text for a failure of the store (as opposed to a mistake in your query) is not passed on.
+
+**Who may use it.** The mirror forwards a query the caller wrote, and a query written by hand cannot be narrowed to a namespace or a cluster without understanding it, so it is for an administrator (a session or a personal access token) or a FUSION token with no namespace or cluster limit, for the signal in question (`prometheus` needs `metrics`, `loki` needs `logs`, `tempo` needs `traces`). A token that is limited keeps the structured calls above, where the limit is enforced; on the mirror it is refused with a 403 that says so. The token is what says that this caller may read what FUSION collected; the stores themselves are never exposed.
 
 ## The fused trace
 

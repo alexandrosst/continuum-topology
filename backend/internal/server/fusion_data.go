@@ -396,6 +396,9 @@ func (a *Admin) fusionErr(w http.ResponseWriter, r *http.Request, err error) {
 func (a *Admin) registerFusionData(api *http.ServeMux) {
 	for _, op := range fusionOps(a) {
 		api.Handle(op.Method+" "+fusionAPIPath+op.Path, a.fusionData(op.Handler))
+		if op.AlsoPost {
+			api.Handle("POST "+fusionAPIPath+op.Path, a.fusionData(op.Handler))
+		}
 	}
 	a.registerFusionDocs(api)
 }

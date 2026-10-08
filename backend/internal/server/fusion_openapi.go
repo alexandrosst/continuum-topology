@@ -56,7 +56,7 @@ func paramSchema(p fusionParam) obj {
 	if len(p.Enum) > 0 {
 		item["enum"] = p.Enum
 	}
-	if p.List {
+	if p.List || p.Multi {
 		return obj{"type": "array", "items": item}
 	}
 	return item
@@ -73,6 +73,9 @@ func openAPIParam(name, in string, p fusionParam, note string) obj {
 	}
 	if p.List {
 		o["style"], o["explode"] = "form", false
+	}
+	if p.Multi {
+		o["style"], o["explode"], o["x-multiline"] = "form", true, true
 	}
 	if p.Default != "" {
 		o["x-default"] = p.Default
@@ -139,6 +142,7 @@ func fusionOpenAPI() obj {
 				"**Credentials.** A FUSION access token (`cnf_...`, minted by an administrator, read-only, limited to the signals, namespaces and clusters it names, and it expires), sent as `Authorization: Bearer <token>`. An administrator of the organisation can also use a personal access token, or a signed-in browser session.\n\n" +
 				"**The fused object.** `GET /traces/{id}?fused=true` returns a trace whose spans carry the log lines written under their ids (an exact join) and the metric points of their own time, and whose resources carry the series of the same service, namespace and pod (associated, not proven: a metric sample carries no trace id). Add `include=context_logs,system_logs` for the lines around the trace that carry no trace id.\n\n" +
 				"**Reading many.** `GET /traces?fused=true` and `POST /traces/batch` read up to 25 traces in parallel inside a bounded share of the stores' capacity, so they do not hold up other reads; add `stream=true` to receive each trace as soon as it is ready.\n\n" +
+				"**The backends' own APIs.** `/prometheus/...`, `/loki/...` and `/tempo/...` serve each backend's read endpoints exactly as it answers them (same paths after the prefix, same format), so a Grafana datasource, `promtool` or `logcli` pointed at `/api/v1/fusion/prometheus` (or `/loki`, `/tempo`) with the token works unchanged. Nothing that writes or administers a backend is served. Only an administrator, or a token with no namespace or cluster limit, may use them.\n\n" +
 				"**Limits.** 600 reads a minute per credential (a bulk read of n traces counts as n), 30 seconds per request, 16 MiB per store answer."},
 		"servers":  []obj{{"url": "/"}},
 		"tags":     tags,

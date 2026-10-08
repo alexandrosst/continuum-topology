@@ -21,6 +21,7 @@ type fusionOp struct {
 	BodyExample  string            // a JSON example of it
 	Response     string            // name of the 200 response schema
 	Stream       bool              // can also answer application/x-ndjson
+	AlsoPost     bool              // a POST with a form is served too (the backend's own way of sending a long query)
 	Handler      fusionHandler
 }
 
@@ -32,11 +33,16 @@ type fusionParam struct {
 	Default string
 	Example string
 	Desc    string
+	// Multi is a parameter repeated to give several values (Prometheus' match[]); the page takes one per line.
+	Multi bool
 }
 
 var fusionPathParams = map[string]fusionParam{
 	"id":   {Type: "string", Example: "0af7651916cd43dd8448eb211c80319c", Desc: "The trace id: 32 hex characters (shorter ones are zero-padded)."},
 	"name": {Type: "string", Example: "checkout", Desc: "The application (service) name."},
+
+	"label": {Type: "string", Example: "service_name", Desc: "The label name."},
+	"tag":   {Type: "string", Example: "resource.service.name", Desc: "The tag name, with its scope: `resource.service.name`, `span.http.method`, or an intrinsic such as `name`."},
 }
 
 // The time range, the filters of each signal, and the fused read's options. A parameter is described here once, wherever
@@ -91,6 +97,19 @@ var fusionParams = map[string]fusionParam{
 	fusionapi.ParamSpanStatus:       {Type: "string", Enum: []string{"error", "ok", "unset"}, Desc: "Return only the spans with this status."},
 	fusionapi.ParamSpanMinDuration:  {Type: "string", Example: "100ms", Desc: "Return only the spans at least this long."},
 
+	// the backends' own parameters, for the native mirror (what each means is in that backend's HTTP API documentation)
+	"match[]":     {Type: "string", Multi: true, Example: `{service_name="checkout"}`, Desc: "A series selector; repeat it (one per line here) for several. Only series that match any of them are considered."},
+	"timeout":     {Type: "string", Example: "20s", Desc: "Evaluation timeout, as the backend reads it."},
+	"direction":   {Type: "string", Enum: []string{"forward", "backward"}, Default: "backward", Desc: "Which end of the range the `limit` keeps."},
+	"interval":    {Type: "string", Desc: "Return entries at this interval at most, as Loki reads it (a duration or seconds)."},
+	"since":       {Type: "string", Example: "1h", Desc: "How far back to look from now, as a duration: an alternative to `start`."},
+	"tags":        {Type: "string", Example: "service.name=checkout http.status_code=500", Desc: "Tempo's logfmt tag search: `key=value` pairs, space-separated."},
+	"minDuration": {Type: "string", Example: "100ms", Desc: "Only traces at least this long."},
+	"maxDuration": {Type: "string", Example: "5s", Desc: "Only traces at most this long."},
+	"spss":        {Type: "integer", Desc: "Spans to return per matching trace (Tempo)."},
+	"scope":       {Type: "string", Enum: []string{"span", "resource", "intrinsic"}, Desc: "Only the tags of this scope."},
+	"exemplars":   {Type: "integer", Desc: "How many exemplars a TraceQL metrics query returns."},
+
 	// bulk
 	"stream": {Type: "boolean", Default: "false", Desc: "Answer as newline-delimited JSON (`application/x-ndjson`), one line per trace as soon as it is read, instead of one JSON document at the end. Sending `Accept: application/x-ndjson` does the same."},
 	"ids":    {Type: "string", List: true, Desc: "In the body: the trace ids, a list of at most 25."},
@@ -109,7 +128,7 @@ func fusionOps(a *Admin) []fusionOp {
 		return out
 	}
 	fused := fusionapi.FuseParamNames
-	return []fusionOp{
+	ops := []fusionOp{
 		{Method: "GET", Path: "/status", Tag: "Service", Summary: "Is FUSION up, and what may I read?",
 			Description: "Whether the stores are running and what the credential you present may read: its signals, namespaces and clusters, and when it expires.",
 			Response:    "Status", Handler: a.fusionStatus},
@@ -154,4 +173,5 @@ func fusionOps(a *Admin) []fusionOp {
 			BodyExample: `{"ids": ["0af7651916cd43dd8448eb211c80319c"], "include": ["logs", "metrics"], "omit": ["events"], "log_severity": "error,warn"}`,
 			Response:    "BulkResult", Stream: true, Handler: a.fusionTraceBatch},
 	}
+	return append(ops, nativeOps(a)...)
 }

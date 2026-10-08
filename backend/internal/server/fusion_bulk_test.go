@@ -247,7 +247,7 @@ func TestTheOpenAPIDescriptionIsPublicAndCoversEveryRoute(t *testing.T) {
 			continue
 		}
 		// And the route is really served (anything but "no such route").
-		path := fusionAPIPath + strings.NewReplacer("{id}", testTraceID, "{name}", "cart").Replace(op.Path)
+		path := fusionAPIPath + strings.NewReplacer("{id}", testTraceID, "{name}", "cart", "{label}", "service_name", "{tag}", "resource.service.name").Replace(op.Path)
 		var rr resp
 		if op.Method == "POST" {
 			rr = d.post(path, map[string]any{"ids": []string{testTraceID}}, withCookie(d.admin))

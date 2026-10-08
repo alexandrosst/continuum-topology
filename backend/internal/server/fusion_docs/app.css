@@ -38,7 +38,7 @@ table{width:100%;border-collapse:collapse;margin:6px 0}
 th{font-size:12px;text-align:left;color:var(--muted);font-weight:600}
 td,th{padding:6px 8px 6px 0;vertical-align:top;border-bottom:1px solid var(--line)}
 td.pn{white-space:nowrap;font-weight:600;width:1%}
-td.pi{min-width:170px;width:260px}td.pi input[type=text],td.pi select{width:100%}
+td.pi{min-width:170px;width:260px}td.pi input[type=text],td.pi select,td.pi textarea{width:100%}
 .opt{display:inline-block;margin:0 10px 2px 0;white-space:nowrap;font-size:13px}
 .opt input{width:auto;margin-right:4px}
 .meta{font-size:12px;color:var(--muted)}

@@ -53,7 +53,11 @@
     var s = p.schema || {}, wrap = el('div');
     var isList = s.type === 'array', item = isList ? (s.items || {}) : s;
     wrap.get = function () { return ''; };
-    if (item.enum && isList) {
+    if (p['x-multiline']) {
+      var ta2 = el('textarea'); ta2.rows = 2; ta2.spellcheck = false; ta2.style.minHeight = '0';
+      if (p.example != null) ta2.placeholder = String(p.example);
+      wrap.appendChild(ta2); wrap.get = function () { return ta2.value; };
+    } else if (item.enum && isList) {
       var boxes = item.enum.map(function (v) {
         var l = el('label', 'opt'), c = el('input'); c.type = 'checkbox'; c.value = v;
         l.appendChild(c); l.appendChild(document.createTextNode(v)); wrap.appendChild(l); return c;
@@ -121,6 +125,7 @@
       for (var i = 0; i < inputs.length; i++) {
         var v = inputs[i].inp.get(), p = inputs[i].p;
         if (p['in'] === 'path') { if (!v) throw new Error(p.name + ' is required'); url = url.replace('{' + p.name + '}', encodeURIComponent(v)); }
+        else if (p['x-multiline']) v.split('\n').forEach(function (line) { if (line.trim()) qs.push(encodeURIComponent(p.name) + '=' + encodeURIComponent(line.trim())); });
         else if (v !== '') qs.push(encodeURIComponent(p.name) + '=' + encodeURIComponent(v));
       }
       return { url: url + (qs.length ? '?' + qs.join('&') : ''), qs: qs };

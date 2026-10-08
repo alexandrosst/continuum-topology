@@ -1,4 +1,5 @@
 {
+  "NativeResponse": {"type": "object", "description": "The backend's own answer, in its own format (for Prometheus and Loki a `status`/`data` envelope; for Tempo the trace or the search result), including its own error shape for a bad query."},
   "Error": {"type": "object", "properties": {"error": {"type": "string", "description": "What went wrong, in words."}}, "required": ["error"]},
   "Status": {"type": "object", "properties": {
     "fusion": {"type": "object", "description": "Whether the stores are up.", "properties": {"available": {"type": "boolean"}, "state": {"type": "string"}}},
