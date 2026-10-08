@@ -157,6 +157,8 @@ func (c *Core) CheckOperatorCerts(ctx context.Context) (int, error) {
 // clusters, the clusters of active telemetry intents that name it as a destination, and the operators that export
 // into it. These are the holders of client certificates that matter: a certificate issued to a sender that no longer
 // sends is not worth a warning. The sender names are the ones the ledger records (a cluster id, or an operator id).
+// A cluster counts only while one of its agents is approved, so revoking the agent ends the cluster's certificate
+// renewals (see RenewTelemetryCert) and the certificate ends within pki.OperatorTLSTTL.
 func (c *Core) operatorSenders(ctx context.Context) (map[string]map[string]bool, error) {
 	ops, err := c.Store.ListOperators(ctx, c.OrgID)
 	if err != nil {
@@ -170,9 +172,13 @@ func (c *Core) operatorSenders(ctx context.Context) (map[string]map[string]bool,
 	if err != nil {
 		return nil, err
 	}
-	clusterOf := make(map[string]string, len(agents))
+	clusterOf := make(map[string]string, len(agents)) // approved agents only
+	approved := map[string]bool{}                     // clusters with an approved agent
 	for _, a := range agents {
-		clusterOf[a.ID] = a.ClusterID
+		if a.Status == store.StatusApproved && a.ClusterID != "" {
+			clusterOf[a.ID] = a.ClusterID
+			approved[a.ClusterID] = true
+		}
 	}
 	out := map[string]map[string]bool{}
 	add := func(operator, sender string) {
@@ -189,7 +195,9 @@ func (c *Core) operatorSenders(ctx context.Context) (map[string]map[string]bool,
 			continue
 		}
 		for _, cl := range op.SourceClusterIDs {
-			add(op.ID, cl)
+			if approved[cl] {
+				add(op.ID, cl)
+			}
 		}
 		if op.Destination.Kind == store.DestinationOperator {
 			add(op.Destination.TargetOperatorID, op.ID)

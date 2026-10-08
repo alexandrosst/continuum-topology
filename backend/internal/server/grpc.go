@@ -423,6 +423,11 @@ func (e *enrollmentServer) Rejoin(ctx context.Context, r *continuumv1.RejoinRequ
 	return resp, toStatus(err)
 }
 
+func (e *enrollmentServer) RenewTelemetryCert(ctx context.Context, r *continuumv1.RenewTelemetryCertRequest) (*continuumv1.RenewTelemetryCertResponse, error) {
+	resp, err := e.c.RenewTelemetryCert(ctx, peerIP(ctx), r)
+	return resp, toStatus(err)
+}
+
 func (e *enrollmentServer) PollEnrollment(ctx context.Context, r *continuumv1.PollRequest) (*continuumv1.PollResponse, error) {
 	resp, err := e.c.Poll(ctx, peerIP(ctx), r)
 	return resp, toStatus(err)

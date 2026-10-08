@@ -477,12 +477,19 @@ func (ca *CA) IssueOperatorClientTLS(operatorID, orgID, sender string) (certPEM,
 	if operatorID == "" {
 		return nil, nil, errors.New("pki: operator id required")
 	}
+	subject := pkix.Name{CommonName: OperatorClientCN(operatorID, sender), Organization: []string{orgID}}
+	return ca.issueLeaf(subject, OperatorTLSTTL, x509.ExtKeyUsageClientAuth, nil)
+}
+
+// OperatorClientCN is the common name of the client certificate sender holds for operatorID. The server uses it
+// the other way round at renewal: a certificate whose name is not the one a current sender of that operator would
+// be given is not renewed.
+func OperatorClientCN(operatorID, sender string) string {
 	cn := operatorID + "-export"
 	if sender != "" {
 		cn += "-" + senderLabel(sender, maxCommonName-len(cn)-1)
 	}
-	subject := pkix.Name{CommonName: cn, Organization: []string{orgID}}
-	return ca.issueLeaf(subject, OperatorTLSTTL, x509.ExtKeyUsageClientAuth, nil)
+	return cn
 }
 
 // maxCommonName is the longest CN X.509 allows (RFC 5280 ub-common-name).
