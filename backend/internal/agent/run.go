@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"sync"
@@ -229,7 +230,7 @@ func Run(ctx context.Context, cfg Config) error {
 			a.log.Warn("disconnected, retrying", "err", err, "in", backoff, "hint", clockHint(err))
 		}
 		select {
-		case <-time.After(backoff):
+		case <-time.After(jittered(backoff)):
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -238,6 +239,12 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 	}
 	return ctx.Err()
+}
+
+// jittered spreads a wait by up to 20% either way, so agents that lost the server together (a restart, a deploy) do not
+// all come back in the same second, each with a full Sync.
+func jittered(d time.Duration) time.Duration {
+	return d - d/5 + rand.N(d*2/5+1)
 }
 
 type runner struct {

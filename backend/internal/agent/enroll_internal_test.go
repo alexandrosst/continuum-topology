@@ -143,3 +143,19 @@ func TestRevokedAgentAdviceKeepsTheInstallsOtherValues(t *testing.T) {
 		t.Fatalf("advice = %q", lines)
 	}
 }
+
+func TestReconnectWaitIsSpreadAroundTheBackoff(t *testing.T) {
+	for _, d := range []time.Duration{time.Second, 8 * time.Second, time.Minute} {
+		lo, hi := d, time.Duration(0)
+		for i := 0; i < 2000; i++ {
+			w := jittered(d)
+			lo, hi = min(lo, w), max(hi, w)
+		}
+		if lo < d*8/10 || hi > d*12/10 {
+			t.Fatalf("%s: waits range over %s..%s, want within 20%%", d, lo, hi)
+		}
+		if hi-lo < d/5 {
+			t.Fatalf("%s: waits range over only %s..%s, they are not spread", d, lo, hi)
+		}
+	}
+}
