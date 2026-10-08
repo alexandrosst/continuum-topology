@@ -508,3 +508,25 @@ func TestFusionDataExtendsTheWriteDeadlinePastItsBudget(t *testing.T) {
 		t.Fatalf("write deadline %v is not past the %v budget", rec.deadline, fusionRequestTimeout)
 	}
 }
+
+// A list says whether the store had more than it returned, and which limit and range it was cut with, so a caller never
+// takes a cut list for the whole.
+func TestListsEchoTheirLimitAndRange(t *testing.T) {
+	d := newDataRig(t)
+	for path, limit := range map[string]float64{
+		"/api/v1/fusion/metrics/names?limit=7":  7,
+		"/api/v1/fusion/metrics/series?limit=7": 7,
+		"/api/v1/fusion/logs?limit=7":           7,
+		"/api/v1/fusion/traces?limit=7":         7,
+	} {
+		j := d.get(path, withCookie(d.admin)).json(t)
+		if j["limit"] != limit || j["truncated"] != false || j["from"] == nil || j["to"] == nil {
+			t.Errorf("%s: %v", path, j)
+		}
+	}
+	for _, path := range []string{"/api/v1/fusion/applications", "/api/v1/fusion/services"} {
+		if j := d.get(path, withCookie(d.admin)).json(t); j["warnings"] == nil {
+			t.Errorf("%s has no warnings list: %v", path, j)
+		}
+	}
+}

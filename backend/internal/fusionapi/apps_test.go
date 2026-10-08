@@ -187,7 +187,7 @@ func TestServicesFocusAlsoSelectsPodMetricsByWorkload(t *testing.T) {
 		writeJSON(w, map[string]any{"status": "success", "data": []any{}})
 	}
 	c := f.client()
-	if _, err := c.Series(context.Background(), s, MetricFilter{}, rangeAll, 10); err != nil {
+	if _, _, err := c.Series(context.Background(), s, MetricFilter{}, rangeAll, 10); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.last("/api/v1/series")["match[]"]; len(got) != 4 {

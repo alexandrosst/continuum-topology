@@ -502,12 +502,12 @@ func (a *Admin) fusionApplications(w http.ResponseWriter, r *http.Request, c *fu
 		a.fusionErr(w, r, err)
 		return
 	}
-	svcs, sources, err := c.Applications(r.Context(), who.Scope, tr)
+	svcs, sources, warnings, err := c.Applications(r.Context(), who.Scope, tr)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"applications": fusionapi.DescribeGroups(groups, svcs), "sources": sources, "from": tr.From, "to": tr.To})
+	writeJSON(w, 200, map[string]any{"applications": fusionapi.DescribeGroups(groups, svcs), "sources": sources, "warnings": orEmpty(warnings), "from": tr.From, "to": tr.To})
 }
 
 // fusionServices lists the services that have telemetry (their service.name), each with its signals and the Ikhnos
@@ -523,7 +523,7 @@ func (a *Admin) fusionServices(w http.ResponseWriter, r *http.Request, c *fusion
 		a.fusionErr(w, r, err)
 		return
 	}
-	svcs, sources, err := c.Applications(r.Context(), scope, tr)
+	svcs, sources, warnings, err := c.Applications(r.Context(), scope, tr)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
@@ -548,7 +548,7 @@ func (a *Admin) fusionServices(w http.ResponseWriter, r *http.Request, c *fusion
 		}
 		out = append(out, item{sv, names})
 	}
-	writeJSON(w, 200, map[string]any{"services": out, "sources": sources, "from": tr.From, "to": tr.To})
+	writeJSON(w, 200, map[string]any{"services": out, "sources": sources, "warnings": orEmpty(warnings), "from": tr.From, "to": tr.To})
 }
 
 // fusionApplication is one Ikhnos application at a glance, named by its id or its name.
@@ -607,7 +607,7 @@ func (a *Admin) fusionMetricNames(w http.ResponseWriter, r *http.Request, c *fus
 		a.fusionErr(w, r, err)
 		return
 	}
-	names, err := c.MetricNames(r.Context(), scope, metricFilter(r.URL.Query()), tr, limit)
+	names, truncated, err := c.MetricNames(r.Context(), scope, metricFilter(r.URL.Query()), tr, limit)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
@@ -616,7 +616,7 @@ func (a *Admin) fusionMetricNames(w http.ResponseWriter, r *http.Request, c *fus
 	for _, n := range names {
 		cat[n] = fusionapi.MetricCategory(n)
 	}
-	writeJSON(w, 200, map[string]any{"names": orEmpty(names), "categories": cat})
+	writeJSON(w, 200, map[string]any{"names": orEmpty(names), "categories": cat, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
 }
 
 func (a *Admin) fusionMetricSeries(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
@@ -635,7 +635,7 @@ func (a *Admin) fusionMetricSeries(w http.ResponseWriter, r *http.Request, c *fu
 		a.fusionErr(w, r, err)
 		return
 	}
-	series, err := c.Series(r.Context(), scope, metricFilter(r.URL.Query()), tr, limit)
+	series, truncated, err := c.Series(r.Context(), scope, metricFilter(r.URL.Query()), tr, limit)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
@@ -643,7 +643,7 @@ func (a *Admin) fusionMetricSeries(w http.ResponseWriter, r *http.Request, c *fu
 	if series == nil {
 		series = []map[string]string{}
 	}
-	writeJSON(w, 200, map[string]any{"series": series})
+	writeJSON(w, 200, map[string]any{"series": series, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
 }
 
 func (a *Admin) fusionMetricRange(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
@@ -681,7 +681,7 @@ func (a *Admin) fusionMetricRange(w http.ResponseWriter, r *http.Request, c *fus
 	if series == nil {
 		series = []fusionapi.MetricSeries{}
 	}
-	writeJSON(w, 200, map[string]any{"series": series, "truncated": truncated, "stepSeconds": step.Seconds(), "from": tr.From, "to": tr.To})
+	writeJSON(w, 200, map[string]any{"series": series, "truncated": truncated, "limit": limit, "stepSeconds": step.Seconds(), "from": tr.From, "to": tr.To})
 }
 
 // fusionMetricRaw is PromQL as written, answered the way Prometheus itself answers.
@@ -739,7 +739,7 @@ func (a *Admin) fusionLogs(w http.ResponseWriter, r *http.Request, c *fusionapi.
 	if entries == nil {
 		entries = []fusionapi.LogEntry{}
 	}
-	writeJSON(w, 200, map[string]any{"entries": entries, "truncated": truncated})
+	writeJSON(w, 200, map[string]any{"entries": entries, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
 }
 
 func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
@@ -770,8 +770,9 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 		return
 	}
 	var traces []fusionapi.TraceSummary
+	var truncated bool
 	if raw := q.Get("q"); raw != "" {
-		traces, err = c.RawTraceSearch(r.Context(), who.Scope, raw, tr, limit)
+		traces, truncated, err = c.RawTraceSearch(r.Context(), who.Scope, raw, tr, limit)
 	} else {
 		var minD, maxD time.Duration
 		if minD, err = fusionapi.DurationParam(q.Get("min_duration")); err == nil {
@@ -783,7 +784,7 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 		}
 		if err == nil {
 			cats, _ := fusionapi.ParseCategories(q.Get("category")) // already checked by the route (checkQuery)
-			traces, err = c.SearchTraces(r.Context(), scope, fusionapi.TraceFilter{
+			traces, truncated, err = c.SearchTraces(r.Context(), scope, fusionapi.TraceFilter{
 				Service: q.Get("service"), Namespace: q.Get("namespace"), Cluster: q.Get("cluster"), Name: q.Get("name"), Status: q.Get("status"), Categories: cats,
 				MinDuration: minD, MaxDuration: maxD,
 			}, tr, limit)
@@ -796,8 +797,9 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 	if traces == nil {
 		traces = []fusionapi.TraceSummary{}
 	}
+	page := map[string]any{"traces": traces, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To}
 	if !fused {
-		writeJSON(w, 200, map[string]any{"traces": traces})
+		writeJSON(w, 200, page)
 		return
 	}
 	ids := make([]string, len(traces))
@@ -808,11 +810,13 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 		return
 	}
 	if stream {
-		a.streamBulk(w, r, c, who, ids, opts, map[string]any{"type": "traces", "traces": traces})
+		page["type"] = "traces"
+		a.streamBulk(w, r, c, who, ids, opts, page)
 		return
 	}
 	items := c.FuseMany(r.Context(), who.Scope, ids, opts, nil)
-	writeJSON(w, 200, map[string]any{"traces": traces, "results": nonNilItems(items), "summary": fusionapi.Summarise(items)})
+	page["results"], page["summary"] = nonNilItems(items), fusionapi.Summarise(items)
+	writeJSON(w, 200, page)
 }
 
 // fusionTrace is one trace; with fused=true (or an include list) it is the fused object: each span carrying its log

@@ -212,7 +212,7 @@ func TestMetricQueriesCarryTheScopeAndEscapeValues(t *testing.T) {
 		}
 	}
 	c := f.client()
-	series, err := c.Series(context.Background(), limited, MetricFilter{Service: `cart"} or {job=~".+`, Namespace: "shop"}, rangeAll, 100)
+	series, _, err := c.Series(context.Background(), limited, MetricFilter{Service: `cart"} or {job=~".+`, Namespace: "shop"}, rangeAll, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,11 +227,11 @@ func TestMetricQueriesCarryTheScopeAndEscapeValues(t *testing.T) {
 	}
 	// A scope that does not include metrics is refused without asking Prometheus.
 	var e *Error
-	if _, err := c.Series(context.Background(), Scope{Signals: []string{SignalLogs}}, MetricFilter{}, rangeAll, 10); !errors.As(err, &e) || e.Status != http.StatusForbidden {
+	if _, _, err := c.Series(context.Background(), Scope{Signals: []string{SignalLogs}}, MetricFilter{}, rangeAll, 10); !errors.As(err, &e) || e.Status != http.StatusForbidden {
 		t.Fatalf("scope without metrics: %v", err)
 	}
 	// A bad regular expression is refused here.
-	if _, err := c.Series(context.Background(), AllSignals(), MetricFilter{NameRegex: "(unclosed"}, rangeAll, 10); !errors.As(err, &e) || e.Status != http.StatusBadRequest {
+	if _, _, err := c.Series(context.Background(), AllSignals(), MetricFilter{NameRegex: "(unclosed"}, rangeAll, 10); !errors.As(err, &e) || e.Status != http.StatusBadRequest {
 		t.Fatalf("bad regex: %v", err)
 	}
 }
@@ -284,7 +284,7 @@ func TestRawQueriesNeedAnUnrestrictedScope(t *testing.T) {
 	if _, _, err := c.RawLogQuery(ctx, limited, `{a="b"}`, false, rangeAll, 10); !errors.As(err, &e) || e.Status != http.StatusForbidden {
 		t.Fatalf("raw LogQL with a limited scope: %v", err)
 	}
-	if _, err := c.RawTraceSearch(ctx, limited, `{ true }`, rangeAll, 10); !errors.As(err, &e) || e.Status != http.StatusForbidden {
+	if _, _, err := c.RawTraceSearch(ctx, limited, `{ true }`, rangeAll, 10); !errors.As(err, &e) || e.Status != http.StatusForbidden {
 		t.Fatalf("raw TraceQL with a limited scope: %v", err)
 	}
 	if len(f.reqs) != 0 {
@@ -338,7 +338,7 @@ func TestLogsBuildAScopedQueryAndDecodeStructuredMetadata(t *testing.T) {
 			t.Fatalf("LogQL %s lacks %s", query, want)
 		}
 	}
-	if q.Get("direction") != "forward" || q.Get("limit") != "100" || len(q.Get("start")) != 19 {
+	if q.Get("direction") != "forward" || q.Get("limit") != "101" || len(q.Get("start")) != 19 { // (one more than asked for tells a complete list from a cut one)
 		t.Fatalf("params = %v", q)
 	}
 	if f.lastHeader("/loki/api/v1/query_range", "X-Loki-Response-Encoding-Flags") != "categorize-labels" {
@@ -373,7 +373,7 @@ func TestTraceSearchBuildsScopedTraceQLAndHidesTheRoot(t *testing.T) {
 	}
 	c := f.client()
 	ctx := context.Background()
-	got, err := c.SearchTraces(ctx, limited, TraceFilter{Service: "cart", Status: "error", MinDuration: 250 * time.Millisecond, Name: "GET /cart"}, rangeAll, 20)
+	got, _, err := c.SearchTraces(ctx, limited, TraceFilter{Service: "cart", Status: "error", MinDuration: 250 * time.Millisecond, Name: "GET /cart"}, rangeAll, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,12 +391,12 @@ func TestTraceSearchBuildsScopedTraceQLAndHidesTheRoot(t *testing.T) {
 	if !got[0].Start.Equal(time.Unix(0, 1791200000010000000)) || got[0].DurationMs != 70 {
 		t.Fatalf("a limited scope's extent = %v %v", got[0].Start, got[0].DurationMs)
 	}
-	full, err := c.SearchTraces(ctx, AllSignals(), TraceFilter{}, rangeAll, 20)
+	full, _, err := c.SearchTraces(ctx, AllSignals(), TraceFilter{}, rangeAll, 20)
 	if err != nil || full[0].RootService != "gateway" || full[0].DurationMs != 120 || f.last("/api/search").Get("q") != "{ true }" {
 		t.Fatalf("%+v %v %q", full, err, f.last("/api/search").Get("q"))
 	}
 	var e *Error
-	if _, err := c.SearchTraces(ctx, AllSignals(), TraceFilter{Status: "bogus"}, rangeAll, 20); !errors.As(err, &e) || e.Status != http.StatusBadRequest {
+	if _, _, err := c.SearchTraces(ctx, AllSignals(), TraceFilter{Status: "bogus"}, rangeAll, 20); !errors.As(err, &e) || e.Status != http.StatusBadRequest {
 		t.Fatalf("bad status: %v", err)
 	}
 }
@@ -498,7 +498,7 @@ func TestApplicationsMergeTheThreeStores(t *testing.T) {
 		writeJSON(w, map[string]any{"tagValues": []any{map[string]any{"type": "string", "value": "cart"}, map[string]any{"type": "string", "value": "gateway"}}})
 	}
 	c := f.client()
-	apps, sources, err := c.Applications(context.Background(), AllSignals(), rangeAll)
+	apps, sources, _, err := c.Applications(context.Background(), AllSignals(), rangeAll)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +507,7 @@ func TestApplicationsMergeTheThreeStores(t *testing.T) {
 		t.Fatalf("apps %+v sources %v", apps, sources)
 	}
 	// The scope reaches every store's own listing call.
-	if _, _, err := c.Applications(context.Background(), limited, rangeAll); err != nil {
+	if _, _, _, err := c.Applications(context.Background(), limited, rangeAll); err != nil {
 		t.Fatal(err)
 	}
 	if m := f.last("/api/v1/label/service_name/values").Get("match[]"); !strings.Contains(m, `k8s_namespace_name=~"shop|pay"`) || !strings.Contains(m, `continuum_cluster_id=~"cl-1"`) {
@@ -520,14 +520,14 @@ func TestApplicationsMergeTheThreeStores(t *testing.T) {
 	if q := f.last("/api/search").Get("q"); !strings.Contains(q, `resource.k8s.namespace.name = "shop"`) {
 		t.Fatalf("traces listing was not scoped: %s", q)
 	}
-	if n := f.last("/api/search").Get("limit"); n != strconv.Itoa(scopedServiceSample) {
+	if n := f.last("/api/search").Get("limit"); n != strconv.Itoa(scopedServiceSample+1) {
 		t.Fatalf("service sample size = %s", n)
 	}
 	// Everything down reports unavailable, not an empty list.
 	f.pSrv.Close()
 	f.lSrv.Close()
 	f.tSrv.Close()
-	if _, _, err := c.Applications(context.Background(), AllSignals(), rangeAll); !IsUnavailable(err) {
+	if _, _, _, err := c.Applications(context.Background(), AllSignals(), rangeAll); !IsUnavailable(err) {
 		t.Fatalf("all stores down: %v", err)
 	}
 }
@@ -724,7 +724,7 @@ func TestStoreCallsInFlightAreCapped(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = c.MetricNames(context.Background(), AllSignals(), MetricFilter{}, rangeAll, 10)
+			_, _, _ = c.MetricNames(context.Background(), AllSignals(), MetricFilter{}, rangeAll, 10)
 		}()
 	}
 	wg.Wait()

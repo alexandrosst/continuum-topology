@@ -763,31 +763,37 @@ type Application struct {
 }
 
 // Applications lists the services that have telemetry in the range, each with the signal types it has. Signals the
-// Scope does not include are not looked at; a store that cannot be reached is reported in the returned sources.
-func (c *Client) Applications(ctx context.Context, s Scope, tr TimeRange) ([]Application, map[string]string, error) {
+// Scope does not include are not looked at; a store that cannot be reached is reported in the returned sources, and the
+// warnings say why a part failed and which lists were built from a sample (and so may miss services).
+func (c *Client) Applications(ctx context.Context, s Scope, tr TimeRange) ([]Application, map[string]string, []string, error) {
 	sources := map[string]string{SignalMetrics: SourceNotAllowed, SignalLogs: SourceNotAllowed, SignalTraces: SourceNotAllowed}
 	found := map[string]map[string]bool{}
+	var warnings []string
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	var firstErr error
-	run := func(signal string, list func() ([]string, error)) {
+	run := func(signal string, list func() ([]string, string, error)) {
 		if !s.Allows(signal) {
 			return
 		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			names, err := list()
+			names, sample, err := list()
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
 				sources[signal] = sourceState(err)
+				warnings = append(warnings, fmt.Sprintf("%s: %v", signal, err))
 				if firstErr == nil {
 					firstErr = err
 				}
 				return
 			}
 			sources[signal] = SourceOK
+			if sample != "" {
+				warnings = append(warnings, fmt.Sprintf("%s: the services are those of %s; one that is not in them may be missing", signal, sample))
+			}
 			for _, n := range names {
 				if found[n] == nil {
 					found[n] = map[string]bool{}
@@ -796,19 +802,19 @@ func (c *Client) Applications(ctx context.Context, s Scope, tr TimeRange) ([]App
 			}
 		}()
 	}
-	run(SignalMetrics, func() ([]string, error) { return c.metricServices(ctx, s, tr) })
-	run(SignalLogs, func() ([]string, error) { return c.logServices(ctx, s, tr) })
-	run(SignalTraces, func() ([]string, error) { return c.traceServices(ctx, s, tr) })
+	run(SignalMetrics, func() ([]string, string, error) { names, err := c.metricServices(ctx, s, tr); return names, "", err })
+	run(SignalLogs, func() ([]string, string, error) { return c.logServices(ctx, s, tr) })
+	run(SignalTraces, func() ([]string, string, error) { return c.traceServices(ctx, s, tr) })
 	wg.Wait()
 	if err := callerGone(ctx); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	ok := false
 	for _, v := range sources {
 		ok = ok || v == SourceOK
 	}
 	if !ok && firstErr != nil {
-		return nil, nil, firstErr // nothing could be read at all
+		return nil, nil, nil, firstErr // nothing could be read at all
 	}
 	var apps []Application
 	for name, sigs := range found {
@@ -821,7 +827,8 @@ func (c *Client) Applications(ctx context.Context, s Scope, tr TimeRange) ([]App
 		apps = append(apps, a)
 	}
 	sort.Slice(apps, func(i, j int) bool { return apps[i].Name < apps[j].Name })
-	return apps, sources, nil
+	sort.Strings(warnings) // (the reads finish in any order)
+	return apps, sources, warnings, nil
 }
 
 // metricServices lists the service names that have series in the range (inside the Scope).
@@ -847,16 +854,18 @@ func (c *Client) metricServices(ctx context.Context, s Scope, tr TimeRange) ([]s
 // things in each, ready to follow into a fused trace.
 type Overview struct {
 	// ID and Services are set for an Ikhnos application: its id and the service names its telemetry may carry.
-	ID          string            `json:"id,omitempty"`
-	Services    []string          `json:"services,omitempty"`
-	Name        string            `json:"name"`
-	Signals     []string          `json:"signals"`
-	Traces      []TraceSummary    `json:"traces"`      // the most recent
-	ErrorTraces []TraceSummary    `json:"errorTraces"` // the most recent with an error span
-	ErrorLogs   []LogEntry        `json:"errorLogs"`   // the most recent error-level lines
-	Metrics     []string          `json:"metrics"`     // metric names it reports
-	Sources     map[string]string `json:"sources"`
-	Warnings    []string          `json:"warnings,omitempty"`
+	ID          string         `json:"id,omitempty"`
+	Services    []string       `json:"services,omitempty"`
+	Name        string         `json:"name"`
+	Signals     []string       `json:"signals"`
+	Traces      []TraceSummary `json:"traces"`      // the most recent
+	ErrorTraces []TraceSummary `json:"errorTraces"` // the most recent with an error span
+	ErrorLogs   []LogEntry     `json:"errorLogs"`   // the most recent error-level lines
+	Metrics     []string       `json:"metrics"`     // metric names it reports
+	// MetricsTruncated says it reports more than are listed.
+	MetricsTruncated bool              `json:"metricsTruncated,omitempty"`
+	Sources          map[string]string `json:"sources"`
+	Warnings         []string          `json:"warnings,omitempty"`
 }
 
 // ServiceOverview reads the overview of one service.
@@ -914,11 +923,11 @@ func (c *Client) overview(ctx context.Context, s Scope, name, label string, tr T
 		}()
 	}
 	run(SignalTraces, func() (bool, error) {
-		recent, err := c.SearchTraces(ctx, s, TraceFilter{Service: name}, tr, 10)
+		recent, _, err := c.SearchTraces(ctx, s, TraceFilter{Service: name}, tr, 10)
 		if err != nil {
 			return false, err
 		}
-		failed, err := c.SearchTraces(ctx, s, TraceFilter{Service: name, Status: "error"}, tr, 5)
+		failed, _, err := c.SearchTraces(ctx, s, TraceFilter{Service: name, Status: "error"}, tr, 5)
 		if err != nil {
 			return false, err
 		}
@@ -942,12 +951,12 @@ func (c *Client) overview(ctx context.Context, s Scope, name, label string, tr T
 		return len(one) > 0, nil
 	})
 	run(SignalMetrics, func() (bool, error) {
-		names, err := c.MetricNames(ctx, s, MetricFilter{Service: name}, tr, 100)
+		names, truncated, err := c.MetricNames(ctx, s, MetricFilter{Service: name}, tr, 100)
 		if err != nil {
 			return false, err
 		}
 		mu.Lock()
-		o.Metrics = names
+		o.Metrics, o.MetricsTruncated = names, truncated
 		mu.Unlock()
 		return len(names) > 0, nil
 	})

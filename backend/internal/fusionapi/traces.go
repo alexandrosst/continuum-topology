@@ -479,38 +479,43 @@ type tempoSpanSet struct {
 	} `json:"spans"`
 }
 
-// SearchTraces lists traces with spans matching the filter that started in the range, newest first.
-func (c *Client) SearchTraces(ctx context.Context, s Scope, f TraceFilter, tr TimeRange, limit int) ([]TraceSummary, error) {
+// SearchTraces lists traces with spans matching the filter that started in the range, newest first, at most limit of them.
+// truncated says there were more.
+func (c *Client) SearchTraces(ctx context.Context, s Scope, f TraceFilter, tr TimeRange, limit int) ([]TraceSummary, bool, error) {
 	if err := s.needSignal(SignalTraces); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	q, err := f.traceQL(s)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	return c.tempoSearch(ctx, s, q, tr, limit)
 }
 
 // RawTraceSearch runs a TraceQL query exactly as written. Only a Scope with no namespace or cluster limit may.
-func (c *Client) RawTraceSearch(ctx context.Context, s Scope, query string, tr TimeRange, limit int) ([]TraceSummary, error) {
+func (c *Client) RawTraceSearch(ctx context.Context, s Scope, query string, tr TimeRange, limit int) ([]TraceSummary, bool, error) {
 	if err := s.needSignal(SignalTraces); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := s.needUnrestricted("a TraceQL query"); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if query == "" || len(query) > 4096 {
-		return nil, badRequest("q is required and at most 4096 characters")
+		return nil, false, badRequest("q is required and at most 4096 characters")
 	}
 	return c.tempoSearch(ctx, s, query, tr, limit)
 }
 
-func (c *Client) tempoSearch(ctx context.Context, s Scope, q string, tr TimeRange, limit int) ([]TraceSummary, error) {
+func (c *Client) tempoSearch(ctx context.Context, s Scope, q string, tr TimeRange, limit int) ([]TraceSummary, bool, error) {
 	var res tempoSearch
 	if err := c.get(ctx, storeTempo, c.Tempo, "/api/search", url.Values{
-		"q": {q}, "start": {unixSec(tr.From)}, "end": {unixSec(tr.To)}, "limit": {strconv.Itoa(limit)}, "spss": {"20"},
+		"q": {q}, "start": {unixSec(tr.From)}, "end": {unixSec(tr.To)}, "limit": {strconv.Itoa(limit + 1)}, "spss": {"20"}, // (one more: see MetricNames)
 	}, nil, &res); err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	truncated := len(res.Traces) > limit
+	if truncated {
+		res.Traces = res.Traces[:limit]
 	}
 	restricted := !s.Unrestricted()
 	out := make([]TraceSummary, 0, len(res.Traces))
@@ -556,20 +561,24 @@ func (c *Client) tempoSearch(ctx context.Context, s Scope, q string, tr TimeRang
 		}
 		out = append(out, sum)
 	}
-	return out, nil
+	return out, truncated, nil
 }
 
 // traceServices lists the service names with spans in the range (inside the Scope). A Scope with a limit cannot ask
 // Tempo for tag values restricted to it (the tag-values call does not promise to honour the query), so it reads the
-// services off a sample of the traces it may see instead: the list is then those of the newest traces, not all.
-func (c *Client) traceServices(ctx context.Context, s Scope, tr TimeRange) ([]string, error) {
+// services off a sample of the traces it may see instead: the list is then those of the newest traces, not all, and sample
+// says so (it is empty for a complete list).
+func (c *Client) traceServices(ctx context.Context, s Scope, tr TimeRange) (names []string, sample string, err error) {
 	if err := s.needSignal(SignalTraces); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if !s.Unrestricted() || len(s.FocusServices) > 0 {
-		hits, err := c.SearchTraces(ctx, s, TraceFilter{}, tr, scopedServiceSample)
+		hits, truncated, err := c.SearchTraces(ctx, s, TraceFilter{}, tr, scopedServiceSample)
 		if err != nil {
-			return nil, err
+			return nil, "", err
+		}
+		if truncated {
+			sample = fmt.Sprintf("the newest %d traces", scopedServiceSample)
 		}
 		seen := map[string]bool{}
 		var out []string
@@ -586,7 +595,7 @@ func (c *Client) traceServices(ctx context.Context, s Scope, tr TimeRange) ([]st
 			}
 		}
 		sort.Strings(out)
-		return out, nil
+		return out, sample, nil
 	}
 	q := url.Values{"start": {unixSec(tr.From)}, "end": {unixSec(tr.To)}}
 	var res struct {
@@ -595,7 +604,7 @@ func (c *Client) traceServices(ctx context.Context, s Scope, tr TimeRange) ([]st
 		} `json:"tagValues"`
 	}
 	if err := c.get(ctx, storeTempo, c.Tempo, "/api/v2/search/tag/resource."+attrService+"/values", q, nil, &res); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var out []string
 	for _, v := range res.TagValues {
@@ -603,7 +612,7 @@ func (c *Client) traceServices(ctx context.Context, s Scope, tr TimeRange) ([]st
 			out = append(out, v.Value)
 		}
 	}
-	return out, nil
+	return out, "", nil
 }
 
 // scopedServiceSample is how many traces a limited Scope's service listing reads.

@@ -34,7 +34,7 @@ func TestAFocusedUnrestrictedCallerStillSeesTheRootOfATrace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := f.client().SearchTraces(context.Background(), fs, TraceFilter{}, rangeAll, 20)
+	got, _, err := f.client().SearchTraces(context.Background(), fs, TraceFilter{}, rangeAll, 20)
 	if err != nil || len(got) != 1 || got[0].RootService != "gateway" || got[0].DurationMs != 120 {
 		t.Fatalf("a choice of application must not hide what an unrestricted caller may see: %+v %v", got, err)
 	}

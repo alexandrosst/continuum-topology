@@ -97,7 +97,7 @@ func TestAFusedSearchReadsEveryHitInFull(t *testing.T) {
 	}
 	// A fused search is a smaller page.
 	d.get("/api/v1/fusion/traces?fused=true&limit=100", withCookie(d.admin))
-	if !d.stores.askedAbout("limit=25") || d.stores.askedAbout("limit=100") {
+	if !d.stores.askedAbout("limit=26") || d.stores.askedAbout("limit=101") { // (one more than the page, to tell a cut list from a complete one)
 		t.Fatalf("the search limit was not cut to %d", fusionapi.MaxBatch)
 	}
 	// NDJSON: the hits first, then each trace, then a count.

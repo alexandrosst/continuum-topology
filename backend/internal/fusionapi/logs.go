@@ -3,6 +3,7 @@ package fusionapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -211,7 +212,8 @@ type lokiStreams struct {
 
 var lokiHeaders = map[string]string{"X-Loki-Response-Encoding-Flags": "categorize-labels"}
 
-// Logs returns the lines matching the filter in the range, at most limit of them. truncated says there were more.
+// Logs returns the lines matching the filter in the range, at most limit of them. truncated says there were more (a read
+// that returns exactly limit lines because that is all there are is not truncated).
 func (c *Client) Logs(ctx context.Context, s Scope, f LogFilter, tr TimeRange, limit int) (entries []LogEntry, truncated bool, err error) {
 	if err := s.needSignal(SignalLogs); err != nil {
 		return nil, false, err
@@ -244,7 +246,7 @@ func (c *Client) lokiQuery(ctx context.Context, s Scope, query string, backward 
 	}
 	var res lokiStreams
 	err := c.get(ctx, storeLoki, c.Loki, "/loki/api/v1/query_range", url.Values{
-		"query": {query}, "start": {unixNano(tr.From)}, "end": {unixNano(tr.To)}, "limit": {strconv.Itoa(limit)}, "direction": {dir},
+		"query": {query}, "start": {unixNano(tr.From)}, "end": {unixNano(tr.To)}, "limit": {strconv.Itoa(limit + 1)}, "direction": {dir}, // (one more: see MetricNames)
 	}, lokiHeaders, &res)
 	if err != nil {
 		return nil, false, err
@@ -271,12 +273,10 @@ func (c *Client) lokiQuery(ctx context.Context, s Scope, query string, backward 
 		}
 		return out[i].Time.Before(out[j].Time)
 	})
-	truncated := false
-	if len(out) >= limit {
-		truncated = true
-		out = out[:limit]
+	if len(out) > limit {
+		return out[:limit], true, nil
 	}
-	return out, truncated, nil
+	return out, false, nil
 }
 
 func lokiEntry(stream map[string]string, v []json.RawMessage) (LogEntry, bool) {
@@ -329,17 +329,24 @@ func firstNonEmpty(v ...string) string {
 	return ""
 }
 
-// logServices lists the service names that have logs in the range (inside the Scope).
-func (c *Client) logServices(ctx context.Context, s Scope, tr TimeRange) ([]string, error) {
+// scopedLogSample is how many lines a cluster-limited Scope's service listing reads.
+const scopedLogSample = 1000
+
+// logServices lists the service names that have logs in the range (inside the Scope). A Scope limited to clusters reads
+// them off a sample of the newest lines; sample says so (it is empty for a complete list).
+func (c *Client) logServices(ctx context.Context, s Scope, tr TimeRange) (names []string, sample string, err error) {
 	if err := s.needSignal(SignalLogs); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if len(s.clLimit()) > 0 {
 		// A cluster is structured metadata, which label-value calls cannot filter on: read the newest in-scope lines
 		// and take the services they came from.
-		lines, _, err := c.Logs(ctx, s, LogFilter{Backward: true}, tr, 1000)
+		lines, truncated, err := c.Logs(ctx, s, LogFilter{Backward: true}, tr, scopedLogSample)
 		if err != nil {
-			return nil, err
+			return nil, "", err
+		}
+		if truncated {
+			sample = fmt.Sprintf("the newest %d log lines", scopedLogSample)
 		}
 		seen := map[string]bool{}
 		var out []string
@@ -349,11 +356,11 @@ func (c *Client) logServices(ctx context.Context, s Scope, tr TimeRange) ([]stri
 				out = append(out, l.Service)
 			}
 		}
-		return out, nil
+		return out, sample, nil
 	}
 	sel, err := LogFilter{}.selector(s)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var res struct {
 		Data []string `json:"data"`
@@ -361,10 +368,10 @@ func (c *Client) logServices(ctx context.Context, s Scope, tr TimeRange) ([]stri
 	if err := c.get(ctx, storeLoki, c.Loki, "/loki/api/v1/label/"+lokiService+"/values", url.Values{
 		"query": {sel}, "start": {unixNano(tr.From)}, "end": {unixNano(tr.To)},
 	}, nil, &res); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if res.Data == nil {
-		return nil, errf(http.StatusBadGateway, "%s answered with something unexpected", storeLoki)
+		return nil, "", errf(http.StatusBadGateway, "%s answered with something unexpected", storeLoki)
 	}
-	return res.Data, nil
+	return res.Data, "", nil
 }
