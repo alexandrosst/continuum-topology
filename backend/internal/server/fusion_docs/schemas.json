@@ -38,6 +38,22 @@
     "metadata": {"type": "object", "additionalProperties": {"type": "string"}, "description": "The record's structured metadata."}}},
   "LogResult": {"type": "object", "properties": {"entries": {"type": "array", "items": {"$ref": "#/components/schemas/LogEntry"}}, "truncated": {"type": "boolean"}}},
   "SpanEvent": {"type": "object", "properties": {"time": {"type": "string", "format": "date-time"}, "name": {"type": "string"}, "attributes": {"type": "object"}}},
+  "QueryResult": {"type": "object", "description": "One of your promql queries: on a resource for its expansion there, in the fused object's `queries` for a query not about one resource, on a span cut to its time.", "properties": {
+    "name": {"type": "string"}, "query": {"type": "string", "description": "The expression as it was evaluated, variables replaced (not repeated on spans)."},
+    "series": {"type": "array", "items": {"$ref": "#/components/schemas/MetricSeries"}}, "truncated": {"type": "boolean"},
+    "error": {"type": "string", "description": "Why this query has no series; the others are not affected."}}},
+  "Neighbour": {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "kind": {"type": "string", "enum": ["service", "external"]},
+    "namespace": {"type": "string"}, "cluster": {"type": "string"}, "protocol": {"type": "string"}, "port": {"type": "integer"}, "confidence": {"type": "string"}, "stale": {"type": "boolean"}}},
+  "ResourceTopology": {"type": "object", "description": "Fused with topology: what Ikhnos knows about the service behind a resource, as of now (associated by name, namespace and cluster, not proven).", "properties": {
+    "service": {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "namespace": {"type": "string"}, "cluster": {"type": "string"}, "kind": {"type": "string"},
+      "image": {"type": "string"}, "status": {"type": "string"}, "replicas": {"type": "integer"}, "readyReplicas": {"type": "integer"}, "restarts": {"type": "integer"}}},
+    "calls": {"type": "array", "items": {"$ref": "#/components/schemas/Neighbour"}, "description": "Services and external addresses it was seen calling."},
+    "calledBy": {"type": "array", "items": {"$ref": "#/components/schemas/Neighbour"}, "description": "Services seen calling it."}}},
+  "ChangeEvent": {"type": "object", "description": "Something Ikhnos recorded about the estate near the trace.", "properties": {
+    "time": {"type": "string", "format": "date-time"}, "kind": {"type": "string", "description": "For example service-scaled, node-status, cluster-added."},
+    "targetKind": {"type": "string", "enum": ["cluster", "node", "service", "dependency", "agent"]}, "targetId": {"type": "string"}, "name": {"type": "string"},
+    "cluster": {"type": "string"}, "clusterName": {"type": "string"}, "detail": {"type": "string"}, "cause": {"type": "string"}, "severity": {"type": "string"},
+    "namespace": {"type": "string"}, "resource": {"type": "string", "description": "The key of the trace resource it is about, when it is about one."}}},
   "Span": {"type": "object", "properties": {
     "spanId": {"type": "string"}, "parentSpanId": {"type": "string"}, "name": {"type": "string"}, "kind": {"type": "string"},
     "service": {"type": "string"}, "namespace": {"type": "string"}, "pod": {"type": "string"}, "node": {"type": "string"}, "cluster": {"type": "string"},
@@ -46,12 +62,15 @@
     "status": {"type": "string", "enum": ["unset", "ok", "error"]}, "statusMessage": {"type": "string"}, "depth": {"type": "integer", "description": "0 for a root."},
     "attributes": {"type": "object"}, "events": {"type": "array", "items": {"$ref": "#/components/schemas/SpanEvent"}},
     "logs": {"type": "array", "items": {"$ref": "#/components/schemas/LogEntry"}, "description": "Fused: the lines written under this span's id (exact)."},
-    "metrics": {"type": "array", "items": {"$ref": "#/components/schemas/MetricSeries"}, "description": "Fused: the points of the resource's series inside this span's own time, widened by span_pad (associated, not proven)."}}},
+    "metrics": {"type": "array", "items": {"$ref": "#/components/schemas/MetricSeries"}, "description": "Fused: the points of the resource's series inside this span's own time, widened by span_pad (associated, not proven)."},
+    "queries": {"type": "array", "items": {"$ref": "#/components/schemas/QueryResult"}, "description": "Fused with promql_spans: your per-resource queries cut to this span's time."}}},
   "Resource": {"type": "object", "properties": {
     "key": {"type": "string"}, "service": {"type": "string"}, "namespace": {"type": "string"}, "pod": {"type": "string"}, "node": {"type": "string"}, "cluster": {"type": "string"},
     "attributes": {"type": "object"},
     "metrics": {"type": "array", "items": {"$ref": "#/components/schemas/MetricSeries"}, "description": "Fused: the series over the trace's whole time."}, "metricsTruncated": {"type": "boolean"},
-    "logs": {"type": "array", "items": {"$ref": "#/components/schemas/LogEntry"}, "description": "Fused with context_logs: lines this resource wrote around the trace that carry no trace id, oldest first."}, "logsTruncated": {"type": "boolean"}}},
+    "logs": {"type": "array", "items": {"$ref": "#/components/schemas/LogEntry"}, "description": "Fused with context_logs: lines this resource wrote around the trace that carry no trace id, oldest first."}, "logsTruncated": {"type": "boolean"},
+    "queries": {"type": "array", "items": {"$ref": "#/components/schemas/QueryResult"}, "description": "Fused with promql: your queries that name ${service} and the like, evaluated for this resource over the trace's window."},
+    "topology": {"$ref": "#/components/schemas/ResourceTopology"}}},
   "Trace": {"type": "object", "properties": {
     "traceId": {"type": "string"}, "start": {"type": "string", "format": "date-time"}, "end": {"type": "string", "format": "date-time"}, "durationMs": {"type": "number"},
     "services": {"type": "array", "items": {"type": "string"}}, "spanCount": {"type": "integer"}, "errorCount": {"type": "integer"},
@@ -67,6 +86,8 @@
     "systemLogs": {"type": "object", "description": "Fused with system_logs.", "properties": {
       "namespaces": {"type": "array", "items": {"type": "string"}}, "nodes": {"type": "array", "items": {"type": "string"}},
       "entries": {"type": "array", "items": {"$ref": "#/components/schemas/LogEntry"}}, "truncated": {"type": "boolean"}}},
+    "queries": {"type": "array", "items": {"$ref": "#/components/schemas/QueryResult"}, "description": "Fused with promql: your queries that are not about one resource, over the trace's window."},
+    "changes": {"type": "array", "items": {"$ref": "#/components/schemas/ChangeEvent"}, "description": "Fused with include=changes: events about the trace's services, nodes and clusters shortly before and after it, oldest first."},
     "spansOmitted": {"type": "integer", "description": "Spans the span_* filters left out; spanCount is that of the whole trace."},
     "sources": {"$ref": "#/components/schemas/Sources"},
     "joins": {"type": "object", "additionalProperties": {"type": "string"}, "description": "In words, how each requested signal was tied to the trace: logs by the ids they carry (exact), metrics by service, namespace, pod and time (associated, not proven)."},
@@ -84,11 +105,14 @@
     "results": {"type": "array", "items": {"$ref": "#/components/schemas/BulkItem"}}, "summary": {"$ref": "#/components/schemas/BulkSummary"}}},
   "BatchRequest": {"type": "object", "required": ["ids"], "description": "`ids` and any parameter of the fused read, as JSON: lists as arrays, durations as strings, numbers as numbers.", "properties": {
     "ids": {"type": "array", "maxItems": 25, "items": {"type": "string"}},
-    "include": {"type": "array", "items": {"type": "string", "enum": ["logs", "context_logs", "system_logs", "metrics", "all", "none"]}},
+    "include": {"type": "array", "items": {"type": "string", "enum": ["logs", "context_logs", "system_logs", "metrics", "topology", "changes", "all", "none"]}},
     "pad": {"type": "string"}, "span_pad": {"type": "string"}, "metric": {"type": "string"}, "metric_scope": {"type": "array", "items": {"type": "string", "enum": ["app", "pod", "node"]}},
     "max_logs": {"type": "integer"}, "max_context_logs": {"type": "integer"}, "max_system_logs": {"type": "integer"}, "max_series": {"type": "integer"}, "points": {"type": "integer"},
     "system_namespaces": {"type": "array", "items": {"type": "string"}}, "log_severity": {"type": "string"}, "log_contains": {"type": "string"},
     "omit": {"type": "array", "items": {"type": "string", "enum": ["attributes", "events"]}},
     "span_service": {"type": "string"}, "span_status": {"type": "string", "enum": ["error", "ok", "unset"]}, "span_min_duration": {"type": "string"},
+    "promql": {"description": "Your own queries: an object of name to expression, or a list of `name=expression` strings.", "oneOf": [{"type": "object", "additionalProperties": {"type": "string"}}, {"type": "array", "items": {"type": "string"}}]},
+    "promql_spans": {"type": "boolean"}, "promql_step": {"type": "string"}, "promql_pad": {"type": "string"}, "promql_services": {"type": "array", "items": {"type": "string"}},
+    "changes_before": {"type": "string"}, "max_changes": {"type": "integer"},
     "stream": {"type": "boolean"}}}
 }

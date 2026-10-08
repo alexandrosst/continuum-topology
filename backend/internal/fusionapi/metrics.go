@@ -261,6 +261,12 @@ func (c *Client) MetricRange(ctx context.Context, s Scope, f MetricFilter, tr Ti
 	if err != nil {
 		return nil, false, err
 	}
+	return decodeMatrix(data, s, maxSeries)
+}
+
+// decodeMatrix reads the "data" of a Prometheus range query into series, leaving out those the Scope may not see and
+// keeping at most maxSeries of them (sorted by name and labels, so the cut is stable).
+func decodeMatrix(data json.RawMessage, s Scope, maxSeries int) (series []MetricSeries, truncated bool, err error) {
 	var res struct {
 		ResultType string `json:"resultType"`
 		Result     []struct {

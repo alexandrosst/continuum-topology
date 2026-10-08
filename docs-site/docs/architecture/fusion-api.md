@@ -116,6 +116,48 @@ The same options narrow or shape the answer:
 - `omit=attributes,events` leaves the span and resource attributes, or the span events, out; most of a large trace's bytes are these.
 - `pad`, `span_pad`, `metric`, `max_logs`, `max_series` and `points` are as below.
 
+### Your own PromQL, topology and changes in the fused object
+
+These are added to the fused read (`GET /traces/{id}?...`, `GET /traces?fused=true`, `POST /traces/batch`) next to logs and metrics. Each reports itself in `sources`, `joins` and `warnings` like the rest.
+
+#### Your own PromQL (`promql`)
+
+`promql=<name>=<expression>`, repeated for up to five queries (in a batch body: an object of name to expression, or a list of `name=expression` strings). Giving `promql` implies `fused=true`; with `promql` alone, only your queries are added (no logs or metrics unless you also give `include`).
+
+A query may name the resource it is read for: `${service}`, `${namespace}`, `${pod}`, `${node}`, `${cluster}`. Such a query is evaluated once per resource of the trace with its values filled in, and the series sit on that resource (`resources[].queries`). With `promql_spans=true` they are also cut to each span's own time (plus `span_pad`), the same way `metrics` are (`spans[].queries`). A query that names none of them is evaluated once over the trace's time and sits in `queries` on the fused object. `${trace_id}` and `${range}` (the window's length as a PromQL duration, such as `154s`) are available to both kinds; `${service:re}` is the value escaped for use inside a regular expression; `$${` writes a literal `${`.
+
+```
+GET /api/v1/fusion/traces/<id>
+      ?promql=errors=sum(rate(http_server_errors_total{service_name="${service}",k8s_namespace_name="${namespace}"}[1m]))
+      &promql=cluster_load=avg(node_load1)
+      &promql_spans=true&promql_pad=10m
+```
+
+| Parameter | Meaning |
+| --- | --- |
+| `promql_spans` | also cut per-resource results to each span |
+| `promql_step` | seconds between points (default: chosen from `points`, at least one second) |
+| `promql_pad` | window around the trace for these queries (default `pad`, at most one hour) — a `rate(...[5m])` over a 200 ms trace needs more than the default |
+| `promql_services` | evaluate per-resource queries only for the resources of these services |
+| `max_series` | the most series per query result |
+
+Rules worth knowing:
+
+- Only a caller whose access is not limited to certain namespaces or clusters, and whose signals include `metrics`, can run queries. Anyone else gets `sources.promql = "not allowed"` and a warning; the query never reaches Prometheus. This is the same rule as `GET /metrics/query`: PromQL cannot be narrowed safely without parsing it.
+- A value is substituted only if it is made of letters, digits and `_ . : / @ + - = , space` (at most 253 characters). A service or pod name with a quote, a backslash, a brace or a control character is not substituted; that resource is skipped and the warning says why. Telemetry names are data from outside, so they cannot change the shape of your query.
+- A resource that lacks a value the query names (a service with no pod) is skipped, and the warning names it.
+- Identical expanded expressions are evaluated once, whatever the number of resources or queries that produced them. One read evaluates at most 60 distinct expressions.
+- A query that Prometheus refuses fails alone: its result carries `error`, the other queries and the trace come back, and `sources.promql` is `error`.
+- Like `metrics`, the join is associated, not proven: a metric sample carries no trace id.
+
+#### What Ikhnos knows (`include=topology`, `include=changes`)
+
+`topology` adds `resources[].topology`: the service as Ikhnos knows it (matched by name, namespace and cluster, falling back to its `app` label), the services and external addresses it was seen calling (`calls`) and the services seen calling it (`calledBy`). It is the topology as of now, not as of the trace, and says so in `joins`. DNS and system traffic is left out.
+
+`changes` adds `changes`: events Ikhnos recorded about the trace's services, nodes and clusters from `changes_before` (default 30 minutes) before the trace to `pad` after it — scalings, restarts, node and cluster events, each with its detail and cause when known. `max_changes` (default 50, at most 500) keeps the newest.
+
+Neither is a token signal. They follow the token's namespaces and clusters: a token limited to namespaces sees only neighbours in those namespaces (and no external addresses), and only the events of services in them. `include=all` now includes both. If the server has no topology to read, `sources` says `unavailable` and the trace still comes back.
+
 ### What the join rests on
 
 The join is only as good as the instrumentation behind it, and it is worth saying where it can come apart:

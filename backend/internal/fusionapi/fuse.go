@@ -61,6 +61,23 @@ type FuseOptions struct {
 	OmitEvents     bool
 	// Spans keeps only the spans that match (the trace's own totals stay those of the whole trace).
 	Spans SpanFilter
+
+	// PromQL are the caller's own queries (see promql.go). PromQLSpans also cuts the per-resource ones to each span's time.
+	// PromQLStep and PromQLPad override the step and the window (default: those of the metrics); PromQLServices limits
+	// the per-resource queries to resources of these services.
+	PromQL         []PromQuery
+	PromQLSpans    bool
+	PromQLStep     time.Duration
+	PromQLPad      time.Duration
+	PromQLServices []string
+
+	// Topology adds what each service calls and is called by; Changes the events around the trace (ChangesBefore before
+	// it, Pad after it, at most MaxChanges). Both come from Extras, which the server sets; without it they are unavailable.
+	Topology      bool
+	Changes       bool
+	ChangesBefore time.Duration
+	MaxChanges    int
+	Extras        Extras
 }
 
 // MetricViews picks which metric series a resource carries. None set means the default, App and Pod.
@@ -152,6 +169,24 @@ func (o *FuseOptions) defaults() error {
 	if len(o.SystemNamespaces) == 0 {
 		o.SystemNamespaces = []string{"kube-system"}
 	}
+	if o.PromQLPad < 0 || o.PromQLPad > maxPad {
+		return badRequest("promql_pad must be between 0 and %s", maxPad)
+	}
+	if o.PromQLStep < 0 || (o.PromQLStep > 0 && o.PromQLStep < time.Second) {
+		return badRequest("promql_step must be at least one second")
+	}
+	if o.ChangesBefore == 0 {
+		o.ChangesBefore = defaultChangesBefore
+	}
+	if o.ChangesBefore < 0 || o.ChangesBefore > maxChangesBefore {
+		return badRequest("changes_before must be between 0 and %s", maxChangesBefore)
+	}
+	if o.MaxChanges <= 0 {
+		o.MaxChanges = defaultMaxChanges
+	}
+	if o.MaxChanges > hardMaxChanges {
+		o.MaxChanges = hardMaxChanges
+	}
 	switch o.Spans.Status {
 	case "", "error", "ok", "unset":
 	default:
@@ -188,6 +223,10 @@ type Fused struct {
 	Logs FusedLogs `json:"logs"`
 	// SystemLogs is set when include=system_logs was asked for and the logs could be read.
 	SystemLogs *SystemLogs `json:"systemLogs,omitempty"`
+	// Queries are the caller's own queries that are not about one resource (promql); the others sit on the resources.
+	Queries []QueryResult `json:"queries,omitempty"`
+	// Changes are events Ikhnos recorded about the trace's services, nodes and clusters around the trace (include=changes).
+	Changes []ChangeEvent `json:"changes,omitempty"`
 	// SpansOmitted counts spans the span_* filters left out; the trace's spanCount is that of the whole trace.
 	SpansOmitted int               `json:"spansOmitted,omitempty"`
 	Sources      map[string]string `json:"sources"`
@@ -233,6 +272,11 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 	if opts.Metrics {
 		f.Joins[SignalMetrics] = "associated, not proven: series saved for the same service, namespace and pod; each resource carries them over the trace's time and each span the points inside its own time (plus span_pad either side); a metric sample carries no trace id"
 	}
+	if len(opts.PromQL) > 0 {
+		f.Sources[SourcePromQL] = SourceNotRequested
+		f.Joins[SourcePromQL] = "associated, not proven: your own queries, each evaluated for a resource with its service, namespace and pod filled in (or once for the trace), over the trace's time; a metric sample carries no trace id"
+	}
+	opts.ikhnosJoins(f)
 	window := TimeRange{From: tr.Start.Add(-opts.Pad), To: tr.End.Add(opts.Pad)}
 	if !window.From.Before(window.To) {
 		window.To = window.From.Add(time.Second)
@@ -384,9 +428,66 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 			}()
 		}
 	}
+
+	switch {
+	case len(opts.PromQL) == 0:
+	case !s.Allows(SignalMetrics):
+		setSource(SourcePromQL, SourceNotAllowed)
+	case !s.Unrestricted():
+		setSource(SourcePromQL, SourceNotAllowed)
+		note("promql: your own queries can only be run by a caller whose access is not limited to certain namespaces or clusters")
+	default:
+		qwin := window
+		if opts.PromQLPad > 0 {
+			qwin = TimeRange{From: tr.Start.Add(-opts.PromQLPad), To: tr.End.Add(opts.PromQLPad)}
+			if !qwin.From.Before(qwin.To) {
+				qwin.To = qwin.From.Add(time.Second)
+			}
+			if qwin.To.Sub(qwin.From) > MaxWindow {
+				qwin.From = qwin.To.Add(-MaxWindow)
+			}
+		}
+		qstep := opts.PromQLStep
+		if qstep == 0 {
+			var serr error
+			if qstep, serr = ChooseStep(qwin, 0, opts.Points); serr != nil {
+				wg.Wait()
+				return nil, serr
+			}
+		} else if _, serr := ChooseStep(qwin, qstep, opts.Points); serr != nil {
+			wg.Wait()
+			return nil, serr
+		}
+		setSource(SourcePromQL, SourceOK)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			global, warns, err := c.fusePromQL(ctx, s, tr, looked, opts, qwin, qstep)
+			mu.Lock()
+			f.Queries = global
+			f.Warnings = append(f.Warnings, warns...)
+			mu.Unlock()
+			if err != nil {
+				warn(SourcePromQL, err)
+			}
+		}()
+	}
+
+	if opts.Topology || opts.Changes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.fuseIkhnos(ctx, s, f, looked, opts, warn, setSource, note)
+		}()
+	}
 	wg.Wait()
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if len(opts.PromQL) > 0 && opts.PromQLSpans && f.Sources[SourcePromQL] != SourceNotAllowed {
+		if cut := attachSpanQueries(f, opts.SpanPad); cut {
+			f.Warnings = append(f.Warnings, fmt.Sprintf("promql: spans carry more than %d points between them; later spans keep each series' summary but not its points", maxSpanPoints))
+		}
 	}
 	if opts.Metrics && f.Sources[SignalMetrics] == SourceOK {
 		if cut := attachSpanMetrics(f, opts.SpanPad); cut {

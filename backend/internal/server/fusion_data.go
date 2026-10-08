@@ -606,6 +606,7 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 		a.fusionErr(w, r, err)
 		return
 	}
+	opts.Extras = a.fusionExtras()
 	stream, err := wantsStream(r)
 	if err != nil {
 		a.fusionErr(w, r, err)
@@ -670,6 +671,7 @@ func (a *Admin) fusionTrace(w http.ResponseWriter, r *http.Request, c *fusionapi
 		a.fusionErr(w, r, err)
 		return
 	}
+	opts.Extras = a.fusionExtras()
 	if !fused {
 		tr, err := c.Trace(r.Context(), who.Scope, id)
 		if err != nil {
@@ -711,6 +713,15 @@ func (a *Admin) fusionTraceBatch(w http.ResponseWriter, r *http.Request, c *fusi
 			a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "a batch is always fused; use include=none for the traces alone"})
 			return
 		}
+		if k == fusionapi.ParamPromQL { // queries hold commas, so they are not a comma-joined list
+			qs, err := promqlValues(v)
+			if err != nil {
+				a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("%s: %v", k, err)})
+				return
+			}
+			q[k] = qs
+			continue
+		}
 		str, err := paramString(v)
 		if err != nil {
 			a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("%s: %v", k, err)})
@@ -732,6 +743,7 @@ func (a *Admin) fusionTraceBatch(w http.ResponseWriter, r *http.Request, c *fusi
 		a.fusionErr(w, r, err)
 		return
 	}
+	opts.Extras = a.fusionExtras()
 	stream := false
 	if v := q.Get("stream"); v != "" {
 		if stream, err = fusionapi.ParseBool("stream", v, false); err != nil {
@@ -751,6 +763,43 @@ func (a *Admin) fusionTraceBatch(w http.ResponseWriter, r *http.Request, c *fusi
 	}
 	items := c.FuseMany(r.Context(), who.Scope, ids, opts, nil)
 	writeJSON(w, 200, map[string]any{"results": nonNilItems(items), "summary": fusionapi.Summarise(items)})
+}
+
+// promqlValues turns the promql field of a batch body into the repeated name=expression values the shared parser reads:
+// an object {"name": "expression"}, a list of "name=expression" strings, or one such string.
+func promqlValues(v any) ([]string, error) {
+	switch x := v.(type) {
+	case string:
+		return []string{x}, nil
+	case []any:
+		out := make([]string, len(x))
+		for i, e := range x {
+			s, ok := e.(string)
+			if !ok {
+				return nil, errors.New("a list holds only \"name=expression\" strings")
+			}
+			out[i] = s
+		}
+		return out, nil
+	case map[string]any:
+		names := make([]string, 0, len(x))
+		for n := range x {
+			names = append(names, n)
+		}
+		slices.Sort(names)
+		out := make([]string, 0, len(x))
+		for _, n := range names {
+			e, ok := x[n].(string)
+			if !ok {
+				return nil, errors.New("an object maps each query name to its expression")
+			}
+			out = append(out, n+"="+e)
+		}
+		return out, nil
+	case nil:
+		return nil, nil
+	}
+	return nil, errors.New("must be an object of name to expression, or a list of \"name=expression\" strings")
 }
 
 // paramString turns a JSON value from a batch body into the string the shared parser reads: lists are comma-joined.

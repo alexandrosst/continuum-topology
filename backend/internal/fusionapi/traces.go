@@ -47,6 +47,9 @@ type Span struct {
 	// margin either side (a fused read; see FuseOptions.SpanPad). Associated by service, namespace and pod and by time,
 	// not proven: a metric sample carries no trace or span id.
 	Metrics []MetricSeries `json:"metrics,omitempty"`
+	// Queries are the caller's own PromQL queries (a fused read's promql parameter) cut to this span's time, when
+	// promql_spans asked for it. Only queries evaluated per resource can be cut to a span.
+	Queries []QueryResult `json:"queries,omitempty"`
 }
 
 // Resource is what produced spans: a service in a pod in a namespace of a cluster. Metrics are the series saved for
@@ -64,6 +67,10 @@ type Resource struct {
 	// Logs are lines this resource wrote around the trace that carry no trace id (include=context_logs).
 	Logs          []LogEntry `json:"logs,omitempty"`
 	LogsTruncated bool       `json:"logsTruncated,omitempty"`
+	// Queries are the caller's own PromQL queries, evaluated for this resource over the trace's window (promql).
+	Queries []QueryResult `json:"queries,omitempty"`
+	// Topology is what Ikhnos knows about the service: what it calls and what calls it (include=topology).
+	Topology *ResourceTopology `json:"topology,omitempty"`
 }
 
 // Trace is one trace as Tempo has it: its spans in start order, and the resources behind them.

@@ -27,12 +27,20 @@ const (
 	ParamSpanService      = "span_service"
 	ParamSpanStatus       = "span_status"
 	ParamSpanMinDuration  = "span_min_duration"
+	ParamPromQL           = "promql"
+	ParamPromQLSpans      = "promql_spans"
+	ParamPromQLStep       = "promql_step"
+	ParamPromQLPad        = "promql_pad"
+	ParamPromQLServices   = "promql_services"
+	ParamChangesBefore    = "changes_before"
+	ParamMaxChanges       = "max_changes"
 )
 
 // FuseParamNames lists every parameter ParseFuseParams reads (the API description and its tests use it).
 var FuseParamNames = []string{ParamFused, ParamInclude, ParamPad, ParamSpanPad, ParamMetric, ParamMetricScope, ParamMaxLogs,
 	ParamMaxContextLogs, ParamMaxSystemLogs, ParamMaxSeries, ParamPoints, ParamSystemNamespaces, ParamLogSeverity, ParamLogContains,
-	ParamOmit, ParamSpanService, ParamSpanStatus, ParamSpanMinDuration}
+	ParamOmit, ParamSpanService, ParamSpanStatus, ParamSpanMinDuration, ParamPromQL, ParamPromQLSpans, ParamPromQLStep, ParamPromQLPad,
+	ParamPromQLServices, ParamChangesBefore, ParamMaxChanges}
 
 // Names the include list accepts.
 const (
@@ -40,6 +48,8 @@ const (
 	IncludeContextLogs = "context_logs"
 	IncludeSystemLogs  = "system_logs"
 	IncludeMetrics     = "metrics"
+	IncludeTopology    = "topology"
+	IncludeChanges     = "changes"
 	IncludeAll         = "all"
 	IncludeNone        = "none"
 )
@@ -70,8 +80,8 @@ func ParseBool(name, v string, def bool) (bool, error) {
 	return false, badRequest("%s must be true or false", name)
 }
 
-// ParseFuseParams reads what a fused read is asked for. fused says whether the caller wants one at all: fused=true, or
-// an include list. fused=true alone means include=logs,metrics.
+// ParseFuseParams reads what a fused read is asked for. fused says whether the caller wants one at all: fused=true, an
+// include list, or a promql query. fused=true alone means include=logs,metrics.
 func ParseFuseParams(q url.Values) (opts FuseOptions, fused bool, err error) {
 	explicit := q.Has(ParamFused)
 	fusedFlag, err := ParseBool(ParamFused, q.Get(ParamFused), false)
@@ -79,24 +89,34 @@ func ParseFuseParams(q url.Values) (opts FuseOptions, fused bool, err error) {
 		return opts, false, err
 	}
 	include := splitList(q.Get(ParamInclude))
+	asked := len(include) > 0 || hasPromQL(q)
 	if explicit && !fusedFlag {
-		if len(include) > 0 {
-			return opts, false, badRequest("include only applies to a fused read; drop fused=false or include")
+		if asked {
+			return opts, false, badRequest("include and promql only apply to a fused read; drop fused=false or them")
 		}
 		return opts, false, nil
 	}
-	if !fusedFlag && len(include) == 0 {
+	if !fusedFlag && !asked {
 		return opts, false, nil
 	}
 	opts, err = ParseFuseOptions(q)
 	return opts, err == nil, err
 }
 
+func hasPromQL(q url.Values) bool {
+	for _, v := range q[ParamPromQL] {
+		if strings.TrimSpace(v) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // ParseFuseOptions reads the options of a fused read whether or not fused was named (the batch route is always fused).
 // No include list means logs and metrics; include=none means neither, only the trace shaped by the other options.
 func ParseFuseOptions(q url.Values) (opts FuseOptions, err error) {
 	include := splitList(q.Get(ParamInclude))
-	if len(include) == 0 {
+	if len(include) == 0 && !hasPromQL(q) { // asking for nothing but your own queries gets just them
 		include = []string{IncludeLogs, IncludeMetrics}
 	}
 	for _, in := range include {
@@ -110,10 +130,15 @@ func ParseFuseOptions(q url.Values) (opts FuseOptions, err error) {
 			opts.SystemLogs = true
 		case IncludeMetrics:
 			opts.Metrics = true
+		case IncludeTopology:
+			opts.Topology = true
+		case IncludeChanges:
+			opts.Changes = true
 		case IncludeAll:
 			opts.Logs, opts.ContextLogs, opts.SystemLogs, opts.Metrics = true, true, true, true
+			opts.Topology, opts.Changes = true, true
 		default:
-			return opts, badRequest("include takes logs, context_logs, system_logs, metrics, all or none")
+			return opts, badRequest("include takes logs, context_logs, system_logs, metrics, topology, changes, all or none")
 		}
 	}
 	if opts.Pad, err = DurationParam(q.Get(ParamPad)); err != nil {
@@ -125,6 +150,25 @@ func ParseFuseOptions(q url.Values) (opts FuseOptions, err error) {
 	if opts.Spans.MinDuration, err = DurationParam(q.Get(ParamSpanMinDuration)); err != nil {
 		return opts, err
 	}
+	if opts.PromQL, err = ParsePromQueries(q[ParamPromQL]); err != nil {
+		return opts, err
+	}
+	if opts.PromQLSpans, err = ParseBool(ParamPromQLSpans, q.Get(ParamPromQLSpans), false); err != nil {
+		return opts, err
+	}
+	if opts.PromQLSpans && len(opts.PromQL) == 0 {
+		return opts, badRequest("promql_spans needs a promql query")
+	}
+	if opts.PromQLStep, err = DurationParam(q.Get(ParamPromQLStep)); err != nil {
+		return opts, err
+	}
+	if opts.PromQLPad, err = DurationParam(q.Get(ParamPromQLPad)); err != nil {
+		return opts, err
+	}
+	if opts.ChangesBefore, err = DurationParam(q.Get(ParamChangesBefore)); err != nil {
+		return opts, err
+	}
+	opts.PromQLServices = splitList(q.Get(ParamPromQLServices))
 	opts.MetricRegex = q.Get(ParamMetric)
 	opts.LogSeverity, opts.LogContains = q.Get(ParamLogSeverity), q.Get(ParamLogContains)
 	opts.Spans.Service, opts.Spans.Status = q.Get(ParamSpanService), q.Get(ParamSpanStatus)
@@ -134,7 +178,8 @@ func ParseFuseOptions(q url.Values) (opts FuseOptions, err error) {
 		dst *int
 		max int
 	}{{ParamMaxLogs, &opts.MaxLogs, hardMaxLogs}, {ParamMaxContextLogs, &opts.MaxContextLogs, hardMaxContextLogs},
-		{ParamMaxSystemLogs, &opts.MaxSystemLogs, hardMaxSystemLogs}, {ParamMaxSeries, &opts.MaxSeries, hardMaxSeries}, {ParamPoints, &opts.Points, 500}} {
+		{ParamMaxSystemLogs, &opts.MaxSystemLogs, hardMaxSystemLogs}, {ParamMaxSeries, &opts.MaxSeries, hardMaxSeries}, {ParamPoints, &opts.Points, 500},
+		{ParamMaxChanges, &opts.MaxChanges, hardMaxChanges}} {
 		if v := q.Get(p.key); v != "" {
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 1 {
