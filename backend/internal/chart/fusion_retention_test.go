@@ -77,8 +77,10 @@ func TestFusionRetentionIsTheChartsOwnWhenTheServerDoesNotManageIt(t *testing.T)
 		t.Errorf("retention = %q, want 30d", v)
 	}
 	for _, set := range []string{"obs-fusion-prometheus", "obs-fusion-loki", "obs-fusion-tempo"} {
-		if env := containerOf(t, r, set).Env; len(env) != 0 {
-			t.Errorf("%s has environment %v", set, env)
+		for _, e := range containerOf(t, r, set).Env {
+			if e.Name != "GOMEMLIMIT" {
+				t.Errorf("%s has environment %v besides GOMEMLIMIT", set, e)
+			}
 		}
 	}
 	if strings.Contains(strings.Join(containerOf(t, r, "obs-fusion-loki").Args, " "), "expand-env") {

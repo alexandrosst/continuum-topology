@@ -52,10 +52,30 @@ type Scope struct {
 	// that limits it.
 	Namespaces []string
 	Clusters   []string
-	// Services narrows the lists, searches and metric reads this package builds to telemetry whose service.name is one of these. It is
-	// not a right the caller lacks but a choice the caller made (an Ikhnos application, resolved to its services by the server), so it
-	// is not part of Unrestricted: it is applied only to the queries built from structured filters, and never to reading one trace.
-	Services []string
+	// The Focus fields narrow the lists, searches and metric reads this package builds to one Ikhnos application, resolved by the
+	// server to its services and the namespaces and clusters they run in. They are not rights the caller lacks but a choice the
+	// caller made, so they are kept apart from Namespaces and Clusters: Unrestricted, NamespaceVisible and ClusterVisible, and
+	// with them what a caller may see of a trace or send as a raw query, look at the rights alone. A focus is applied only to
+	// queries built from structured filters, never to reading one trace, and Scope.FocusOn keeps each inside the rights.
+	FocusServices   []string
+	FocusNamespaces []string
+	FocusClusters   []string
+}
+
+// nsLimit and clLimit are the namespaces and clusters a query this package builds is restricted to: the focus when there is
+// one (it lies inside the rights), else the rights.
+func (s Scope) nsLimit() []string {
+	if len(s.FocusNamespaces) > 0 {
+		return s.FocusNamespaces
+	}
+	return s.Namespaces
+}
+
+func (s Scope) clLimit() []string {
+	if len(s.FocusClusters) > 0 {
+		return s.FocusClusters
+	}
+	return s.Clusters
 }
 
 // AllSignals is the Scope of a caller who may read everything: a person signed in as an administrator.

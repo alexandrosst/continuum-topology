@@ -6,7 +6,7 @@
     "ikhnos"
   ],
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "graphTooltip": 1,
   "time": {
@@ -81,7 +81,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max((time() - max by (continuum_cluster_id, continuum_operator_id) (timestamp(last_over_time(k8s_node_condition_ready{continuum_cluster_id=~\"$cluster\"}[1d]))))) or vector(0)",
+          "expr": "max(time() - max by (continuum_cluster_id, continuum_operator_id) (max_over_time(timestamp(k8s_node_condition_ready{continuum_cluster_id=~\"$cluster\"})[1d:1m])))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -90,11 +90,10 @@
           "range": false
         }
       ],
-      "description": "How long ago the quietest cluster last sent a metric. Green under 3 minutes, amber under 15, red beyond.",
+      "description": "How long ago the quietest cluster last sent a metric (looking back one day, sampled by the minute). Green under 3 minutes, amber under 15, red beyond. Empty when no cluster has reported in the last day.",
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -309,7 +308,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(time() - max by (continuum_cluster_id, continuum_operator_id) (timestamp(last_over_time(k8s_node_condition_ready{continuum_cluster_id=~\"$cluster\"}[1d]))))",
+          "expr": "time() - max by (continuum_cluster_id, continuum_operator_id) (max_over_time(timestamp(k8s_node_condition_ready{continuum_cluster_id=~\"$cluster\"})[1d:1m]))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -400,7 +399,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count by (continuum_cluster_id) ({continuum_cluster_id=~\".+\", continuum_cluster_id=~\"$cluster\"})",
+          "expr": "count by (continuum_cluster_id) ({continuum_cluster_id=~\".+\", continuum_cluster_id=~\"$cluster\", __name__!=\"ikhnos_application_info\"})",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -692,7 +691,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (k8s_namespace_name) (count_over_time({k8s_namespace_name=~\".+\"}[$__interval]))",
+          "expr": "60 * sum by (k8s_namespace_name) (rate({k8s_namespace_name=~\".+\"} | continuum_cluster_id=~\"$cluster\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
@@ -751,7 +750,7 @@
           "query": "{} | rate() by (resource.service.name)"
         }
       ],
-      "description": "Traces that reached the store. Needs the trace store's metrics generator, which this chart turns on (tempo.traceqlMetrics).",
+      "description": "Traces that reached the store. Needs the trace store's metrics generator, which this chart turns on (tempo.traceqlMetrics). Not narrowed by cluster: a trace can cross clusters, and spans that did not pass an Ikhnos agent carry no cluster id.",
       "fieldConfig": {
         "defaults": {
           "noValue": "No traces have arrived yet",

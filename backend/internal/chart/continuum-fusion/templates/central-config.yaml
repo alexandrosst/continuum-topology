@@ -5,7 +5,7 @@
 {{- $d2c := .Values.central.deltaToCumulative }}
 {{- /* Metrics only reach Prometheus, so without it there is no metrics pipeline for the processor to sit in. */ -}}
 {{- $d2cOn := and $d2c.enabled .Values.prometheus.enabled }}
-{{- $metricsProcessors := list "memory_limiter" }}
+{{- $metricsProcessors := list "memory_limiter" "transform/provenance" }}
 {{- if $d2cOn }}{{ $metricsProcessors = append $metricsProcessors "delta_to_cumulative" }}{{ end }}
 {{- $metricsProcessors = append $metricsProcessors "batch" }}
 # The central gateway: mTLS in, three stores out. It is a plain OpenTelemetry Collector - no Kubernetes API
@@ -46,6 +46,26 @@ data:
         check_interval: 1s
         limit_percentage: 80
         spike_limit_percentage: 20
+      # Where the data came from (continuum.org.id, continuum.cluster.id, continuum.operator.id, ...) is stamped as a
+      # RESOURCE attribute by the agent and the regional operator, and that is the only place the stores and the
+      # dashboards read it from. A sender that also writes a continuum.* attribute on a data point, a log record or a
+      # span would otherwise land next to it as a second, conflicting value (a Prometheus label of the same name, a
+      # second Loki structured-metadata entry), so those are dropped here. This does NOT authenticate the resource
+      # level: any sender holding a certificate this gateway trusts can still claim any cluster there.
+      transform/provenance:
+        error_mode: ignore
+        metric_statements:
+          - context: datapoint
+            statements:
+              - delete_matching_keys(attributes, "^continuum\\..*")
+        log_statements:
+          - context: log
+            statements:
+              - delete_matching_keys(attributes, "^continuum\\..*")
+        trace_statements:
+          - context: span
+            statements:
+              - delete_matching_keys(attributes, "^continuum\\..*")
       {{- if $d2cOn }}
       # Prometheus ingests cumulative metrics only (a delta one is refused or dropped, depending on the version),
       # and a sender that exports delta temporality (some SDKs and statsd-style sources do) would otherwise lose its
@@ -94,13 +114,13 @@ data:
         {{- if .Values.loki.enabled }}
         logs:
           receivers: [otlp]
-          processors: [memory_limiter, batch]
+          processors: [memory_limiter, transform/provenance, batch]
           exporters: [otlphttp/logs]
         {{- end }}
         {{- if .Values.tempo.enabled }}
         traces:
           receivers: [otlp]
-          processors: [memory_limiter, batch]
+          processors: [memory_limiter, transform/provenance, batch]
           exporters: [otlp/traces]
         {{- end }}
 {{- end }}

@@ -76,6 +76,36 @@
     return wrap;
   }
 
+  // ---- parameters that make others do nothing ----
+  // A parameter that overrides others (x-excludes: `query` is sent to Loki as written, so the filters would not be used) or that
+  // needs a fused read (x-needs-fused) greys the ones it makes useless out while it is filled in. A control that already has a
+  // value is never disabled, so two can not lock each other; the server refuses a request that carries both.
+  function greyOut(inputs) {
+    var byName = {};
+    inputs.forEach(function (x) { byName[x.p.name] = x; x.raw = x.inp.get; });
+    function filled(n) { return byName[n] && byName[n].raw() !== ''; }
+    function refresh() {
+      var fused = filled('fused') ? byName.fused.raw() === 'true' : (filled('include') || filled('promql'));
+      inputs.forEach(function (x) {
+        var why = '';
+        var blockers = (x.p['x-excludes'] || []).filter(filled);
+        if (blockers.length) why = 'ignored while ' + blockers.join(', ') + ' is set';
+        else if (x.p['x-needs-fused'] && !fused) why = 'only applies to a fused read: set fused=true or an include list';
+        var off = why !== '' && x.raw() === '';
+        x.tr.className = off ? 'off' : '';
+        x.tr.title = off ? why : '';
+        Array.prototype.forEach.call(x.inp.querySelectorAll('input,select,textarea'), function (c) { c.disabled = off; });
+        x.inp.get = off ? function () { return ''; } : x.raw;
+      });
+    }
+    inputs.forEach(function (x) {
+      Array.prototype.forEach.call(x.inp.querySelectorAll('input,select,textarea'), function (c) {
+        c.addEventListener('input', refresh); c.addEventListener('change', refresh);
+      });
+    });
+    refresh();
+  }
+
   // ---- one route ----
   function renderOp(path, method, op) {
     var d = el('details', 'op'); d.id = 'op-' + op.operationId;
@@ -104,9 +134,10 @@
         if (p['x-default']) meta.push('default ' + p['x-default']);
         dd.appendChild(el('div', 'meta', meta.join(' · ')));
         tr.appendChild(dd); tb.appendChild(tr);
-        inputs.push({ p: p, inp: inp });
+        inputs.push({ p: p, inp: inp, tr: tr });
       });
       body.appendChild(tb);
+      greyOut(inputs);
     }
     var ta = null;
     if (op.requestBody) {
@@ -134,8 +165,8 @@
 
     curl.onclick = function () {
       try {
-        var b = build(), c = "curl -sS" + (method === 'post' ? " -X POST -H 'Content-Type: application/json' -d '" + (ta ? ta.value.replace(/'/g, "'\\''") : '{}') + "'" : '') +
-          " -H 'Authorization: Bearer $FUSION_TOKEN' '" + location.origin + b.url + "'";
+        var b = build(), c = "curl -sS" + (wantsStream() ? " -N" : "") + (method === 'post' ? " -X POST -H 'Content-Type: application/json' -d '" + (ta ? ta.value.replace(/'/g, "'\\''") : '{}') + "'" : '') +
+          ' -H "Authorization: Bearer $FUSION_TOKEN" \'' + (location.origin + b.url).replace(/'/g, "'\\''") + "'";
         if (navigator.clipboard) navigator.clipboard.writeText(c).then(function () { stat.className = 'status'; stat.textContent = 'curl copied'; });
         else { out.textContent = ''; var pre = el('pre', 'out', c); out.appendChild(pre); }
       } catch (e) { stat.className = 'status bad'; stat.textContent = e.message; }

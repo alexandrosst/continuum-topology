@@ -79,7 +79,7 @@ func TestFusionPrometheusRetentionSizeCanBeOverriddenOrTurnedOff(t *testing.T) {
 }
 
 func TestFusionPrometheusStorageStillAcceptsEverythingTheSchemaDoes(t *testing.T) {
-	for _, q := range []string{"10", "10K", "10M", "10T", "10Ki", "0.5Gi"} {
+	for _, q := range []string{"10", "10k", "10M", "10T", "10Ki", "0.5Gi"} {
 		if out, err := fusionTemplate(t, "f", "--set-string", "prometheus.storage="+q); err != nil {
 			t.Errorf("storage %s: %v\n%s", q, err, out)
 		}
@@ -101,7 +101,7 @@ func centralPipelines(t *testing.T, extra ...string) map[string][]string {
 // the batch.
 func TestFusionCentralConvertsDeltaMetricsBeforeBatching(t *testing.T) {
 	p := centralPipelines(t)
-	want := []string{"memory_limiter", "delta_to_cumulative", "batch"}
+	want := []string{"memory_limiter", "transform/provenance", "delta_to_cumulative", "batch"}
 	if got := p["metrics"]; strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("metrics processors = %v, want %v", got, want)
 	}
@@ -120,7 +120,7 @@ func TestFusionCentralConvertsDeltaMetricsBeforeBatching(t *testing.T) {
 	}
 
 	off := centralPipelines(t, "--set", "central.deltaToCumulative.enabled=false")
-	if got := off["metrics"]; strings.Join(got, ",") != "memory_limiter,batch" {
+	if got := off["metrics"]; strings.Join(got, ",") != "memory_limiter,transform/provenance,batch" {
 		t.Errorf("with the conversion off, metrics processors = %v", got)
 	}
 	if _, ok := sub(t, centralConfig(t, "--set", "central.deltaToCumulative.enabled=false"), "processors")["delta_to_cumulative"]; ok {

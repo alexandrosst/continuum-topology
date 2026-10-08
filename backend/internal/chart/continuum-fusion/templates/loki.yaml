@@ -54,9 +54,19 @@ spec:
             {{- if .Values.switch.managed }}
             # The retention comes from the settings ConfigMap the server changes (see fusion.settingsName).
             - -config.expand-env=true
+            {{- end }}
+          {{- $gml := include "fusion.gomemlimit" $l.resources }}
+          {{- if or .Values.switch.managed $gml }}
           env:
+            {{- if .Values.switch.managed }}
             {{- include "fusion.settingEnv" (dict "root" . "name" "LOKI_RETENTION" "key" "loki.retention") | nindent 12 }}
             {{- end }}
+            {{- if $gml }}
+            # 80% of the memory limit, so the Go runtime collects harder before the container is OOM-killed.
+            - name: GOMEMLIMIT
+              value: {{ $gml | quote }}
+            {{- end }}
+          {{- end }}
           ports:
             - {name: http, containerPort: 3100, protocol: TCP}
           readinessProbe:

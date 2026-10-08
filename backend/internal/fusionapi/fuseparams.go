@@ -94,13 +94,24 @@ func ParseFuseParams(q url.Values) (opts FuseOptions, fused bool, err error) {
 		if asked {
 			return opts, false, badRequest("include and promql only apply to a fused read; drop fused=false or them")
 		}
-		return opts, false, nil
+		return opts, false, needsFused(q)
 	}
 	if !fusedFlag && !asked {
-		return opts, false, nil
+		return opts, false, needsFused(q)
 	}
 	opts, err = ParseFuseOptions(q)
 	return opts, err == nil, err
+}
+
+// needsFused refuses the options of a fused read when the read is not one: they would be dropped without a word, and the answer
+// would look as if they had been applied (omit=events on a trace that still has its events).
+func needsFused(q url.Values) error {
+	for _, n := range FuseParamNames {
+		if n != ParamFused && q.Has(n) {
+			return badRequest("%s only applies to a fused read; add fused=true or an include list", n)
+		}
+	}
+	return nil
 }
 
 func hasPromQL(q url.Values) bool {

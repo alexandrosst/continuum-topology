@@ -22,8 +22,9 @@ import (
 //	up * on(service_name, k8s_namespace_name) group_left(application) ikhnos_application_info{application="Shop"}
 //
 // It is written again every minute from what Ikhnos knows at that moment (an application edited in the UI changes the
-// series within a minute, and one deleted stops being written and falls out of Prometheus' five-minute lookback), so it
-// is a view of the present and the history of an application's membership is not kept in it.
+// series within a minute, and one deleted stops being written and falls out of Prometheus' five-minute lookback), so a
+// query for "now" sees the present membership. The samples themselves are kept for the retention period like any other,
+// so a query over a past range sees the membership of that time, as far back as the series was written.
 
 // AppInfoMetric is the name of the info series.
 const AppInfoMetric = "ikhnos_application_info"

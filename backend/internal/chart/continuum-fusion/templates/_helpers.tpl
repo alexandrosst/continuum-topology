@@ -155,8 +155,8 @@ affinity: {{- toYaml . | nindent 2 }}
 {{- else if .Values.persistence.enabled -}}
 {{- $q := toString $p.storage -}}
 {{- $n := float64 (regexFind "^[0-9]+(\\.[0-9]+)?" $q) -}}
-{{- $suf := regexFind "(Ki|Mi|Gi|Ti|K|M|G|T)$" $q -}}
-{{- $scale := dict "" 1.0 "Ki" 1024.0 "Mi" 1048576.0 "Gi" 1073741824.0 "Ti" 1099511627776.0 "K" 1000.0 "M" 1000000.0 "G" 1000000000.0 "T" 1000000000000.0 -}}
+{{- $suf := regexFind "(Ki|Mi|Gi|Ti|k|M|G|T)$" $q -}}
+{{- $scale := dict "" 1.0 "Ki" 1024.0 "Mi" 1048576.0 "Gi" 1073741824.0 "Ti" 1099511627776.0 "k" 1000.0 "M" 1000000.0 "G" 1000000000.0 "T" 1000000000000.0 -}}
 {{- $mib := int64 (floor (divf (mulf $n (get $scale $suf)) 1048576.0)) -}}
 {{- printf "%dMB" (max 1 (div (mul $mib 85) 100)) -}}
 {{- end -}}
@@ -164,9 +164,15 @@ affinity: {{- toYaml . | nindent 2 }}
 
 {{/* What each of the gateway's exporters does while its store is down (a restart of Prometheus, Loki or Tempo, a
      volume that is not yet bound): retry for central.queue.retryMaxElapsedTime and hold up to central.queue.size
-     batches meanwhile, instead of the collector's defaults (retry for 5 minutes, then drop). When the queue is full
-     the exporter refuses, memory_limiter pushes back through the receiver and the senders' own queues take over, so
-     nothing here grows without bound. With central.queue.persistent.enabled the queue is also on an emptyDir
+     requests meanwhile, instead of the collector's defaults (retry for 5 minutes, then drop).
+     block_on_overflow is what makes a full queue push back. Without it (the collector's default) a full queue REJECTS
+     the batch and the batch processor in front of the exporter only logs "sending queue is full": the receiver has
+     already answered 200 to the sender, so the data is lost and nobody upstream knows. With it the batch processor
+     waits for room, memory_limiter refuses at the receiver, and the senders' own queues take over.
+     sending_queue.batch cuts a request into pieces of at most central.queue.maxRequestBytes serialized bytes (min_size
+     1: nothing is held back, that is the batch processor's job): the batch processor only counts items, and 4096 log
+     records of 2 KiB are 8 MiB, past the 4 MiB Loki and Tempo accept, so the whole batch would be refused for good
+     and dropped. 0 turns the cut off. With central.queue.persistent.enabled the queue is also on an emptyDir
      (file_storage/queue), which survives a container restart but not a rescheduled pod. Emits at column 0. */}}
 {{- define "fusion.centralExporterResilience" -}}
 {{- $q := .Values.central.queue -}}
@@ -178,6 +184,14 @@ retry_on_failure:
 sending_queue:
   enabled: true
   queue_size: {{ $q.size }}
+  block_on_overflow: true
+  {{- if $q.maxRequestBytes }}
+  batch:
+    sizer: bytes
+    min_size: 1
+    max_size: {{ int $q.maxRequestBytes }}
+    flush_timeout: 1s
+  {{- end }}
   {{- if $q.persistent.enabled }}
   storage: file_storage/queue
   {{- end }}

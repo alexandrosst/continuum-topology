@@ -41,7 +41,7 @@ func TestTheApplicationFilterNarrowsEveryStructuredReadAndNothingElse(t *testing
 		"/api/v1/fusion/metrics/series?application=shop",
 		"/api/v1/fusion/metrics/names?application=app-1",
 		"/api/v1/fusion/metrics/range?application=Shop&from=now-10m",
-		"/api/v1/fusion/applications?application=SHOP",
+		"/api/v1/fusion/services?application=SHOP",
 		"/api/v1/fusion/logs?application=shop",
 	} {
 		before := d.stores.count()
@@ -107,27 +107,119 @@ func TestTheApplicationFilterRefusesWhatItCannotCarryAndWhatIsNotThere(t *testin
 	}
 }
 
-func TestTheGroupsRouteListsApplicationsWithinTheCallersScope(t *testing.T) {
+func TestApplicationsAreTheIkhnosOnesNotTheServicesTelemetryNames(t *testing.T) {
 	d := newDataRig(t)
 	d.a.extras = appExtras{shopGroups()}
-	j := d.get("/api/v1/fusion/groups", withCookie(d.admin)).json(t)
-	gs := j["groups"].([]any)
-	if len(gs) != 2 {
+	j := d.get("/api/v1/fusion/applications", withCookie(d.admin)).json(t)
+	apps := j["applications"].([]any)
+	if len(apps) != 2 {
 		t.Fatalf("%v", j)
 	}
-	shop := gs[0].(map[string]any)
-	if shop["name"] != "Shop" || len(shop["serviceNames"].([]any)) != 3 || shop["namespaces"].([]any)[0] != "shop" || len(shop["services"].([]any)) != 2 {
+	pay, shop := apps[0].(map[string]any), apps[1].(map[string]any) // sorted by name
+	if shop["name"] != "Shop" || shop["id"] != "app-1" || len(shop["services"].([]any)) != 2 || shop["namespaces"].([]any)[0] != "shop" {
 		t.Fatalf("%v", shop)
 	}
-	tok, _ := d.mint(t, map[string]any{"name": "pay-only", "namespaces": []string{"pay"}})
-	gs = d.get("/api/v1/fusion/groups", bearer(tok)).json(t)["groups"].([]any)
-	if len(gs) != 1 || gs[0].(map[string]any)["name"] != "Pay" {
-		t.Fatalf("a token sees only what is in its scope: %v", gs)
+	if pay["name"] != "Pay" {
+		t.Fatalf("%v", pay)
 	}
-	// no provider, no pretending
-	d2 := newDataRig(t)
-	if r := d2.get("/api/v1/fusion/groups", withCookie(d2.admin)); r.Code != 503 && r.Code != 200 {
-		t.Fatalf("%d", r.Code)
+	// "cart" has telemetry in the fake stores; the application it belongs to says so, and no service is listed as an application
+	cart := shop["services"].([]any)[0].(map[string]any)
+	if cart["name"] != "cart" || len(cart["signals"].([]any)) == 0 || len(shop["signals"].([]any)) == 0 {
+		t.Fatalf("%v", cart)
+	}
+	for _, a := range apps {
+		if n := a.(map[string]any)["name"]; n == "cart" || n == "audit" || n == "gateway" {
+			t.Fatalf("a service is listed as an application: %v", a)
+		}
+	}
+	// the services as telemetry names them, with the applications each is in
+	sv := d.get("/api/v1/fusion/services", withCookie(d.admin)).json(t)["services"].([]any)
+	found := false
+	for _, e := range sv {
+		m := e.(map[string]any)
+		if m["name"] == "cart" {
+			found = true
+			if as := m["applications"].([]any); len(as) != 1 || as[0] != "Shop" {
+				t.Fatalf("%v", m)
+			}
+		}
+		if m["applications"] == nil {
+			t.Fatalf("applications must be [] and not null: %v", m)
+		}
+	}
+	if !found {
+		t.Fatalf("%v", sv)
+	}
+	// one application and one service at a glance, by id or by name
+	for path, name := range map[string]string{"/api/v1/fusion/applications/app-1": "Shop", "/api/v1/fusion/applications/shop": "Shop", "/api/v1/fusion/services/cart": "cart"} {
+		o := d.get(path, withCookie(d.admin))
+		if o.Code != 200 || o.json(t)["name"] != name {
+			t.Errorf("%s: %d %s", path, o.Code, o.Body.String())
+		}
+	}
+	if r := d.get("/api/v1/fusion/applications/cart", withCookie(d.admin)); r.Code != 404 {
+		t.Errorf("a service is not an application: %d", r.Code)
+	}
+	// a limited token sees an application only through its services in its scope, and learns nothing about the rest
+	tok, _ := d.mint(t, map[string]any{"name": "pay-only", "namespaces": []string{"pay"}})
+	apps = d.get("/api/v1/fusion/applications", bearer(tok)).json(t)["applications"].([]any)
+	if len(apps) != 1 || apps[0].(map[string]any)["name"] != "Pay" {
+		t.Fatalf("a token sees only what is in its scope: %v", apps)
+	}
+	for _, ref := range []string{"shop", "app-1", "nope"} {
+		r := d.get("/api/v1/fusion/applications/"+ref, bearer(tok))
+		if r.Code != 404 || !strings.Contains(r.Body.String(), "no application") {
+			t.Errorf("%s: %d %s", ref, r.Code, r.Body.String())
+		}
+	}
+}
+
+func TestAFocusedAdministratorStillSeesTheRootOfATrace(t *testing.T) {
+	d := newDataRig(t)
+	d.a.extras = appExtras{shopGroups()}
+	plain := d.get("/api/v1/fusion/traces", withCookie(d.admin)).json(t)["traces"].([]any)[0].(map[string]any)
+	focused := d.get("/api/v1/fusion/traces?application=shop", withCookie(d.admin)).json(t)["traces"].([]any)[0].(map[string]any)
+	if plain["rootService"] == "" || focused["rootService"] != plain["rootService"] || focused["durationMs"] != plain["durationMs"] {
+		t.Fatalf("an administrator must not lose the root by choosing an application:\nplain   %v\nfocused %v", plain, focused)
+	}
+}
+
+func TestParametersTheRouteDoesNotTakeAreRefused(t *testing.T) {
+	d := newDataRig(t)
+	d.a.extras = appExtras{shopGroups()}
+	for path, why := range map[string]string{
+		"/api/v1/fusion/logs?servce=cart":                              "a typo is told, not dropped",
+		"/api/v1/fusion/logs?query=%7Ba%3D%22b%22%7D&service=cart":     "query overrides the filters",
+		"/api/v1/fusion/logs?query=%7Ba%3D%22b%22%7D&application=shop": "query overrides the application",
+		"/api/v1/fusion/traces?q=%7B%7D&status=error":                  "q overrides the filters",
+		"/api/v1/fusion/metrics/names?name=up&metric=u.*":              "name and metric",
+		"/api/v1/fusion/metrics/query?query=up&application=shop":       "the PromQL route takes no application",
+		"/api/v1/fusion/applications?application=shop":                 "the list of applications takes none",
+		"/api/v1/fusion/traces?omit=events":                            "shaping options need a fused read",
+		"/api/v1/fusion/traces/" + testTraceID + "?span_service=audit": "so does a single trace",
+		"/api/v1/fusion/logs?application=":                             "an empty application is a mistake, not no filter",
+	} {
+		if r := d.get(path, withCookie(d.admin)); r.Code != 400 {
+			t.Errorf("%s (%s): %d %s", path, why, r.Code, r.Body.String())
+		}
+	}
+	for _, path := range []string{"/api/v1/fusion/logs?service=cart&severity=error", "/api/v1/fusion/traces?fused=true&omit=events",
+		"/api/v1/fusion/metrics/names?metric=u.*", "/api/v1/fusion/prometheus/api/v1/query?query=up&anything=goes"} {
+		if r := d.get(path, withCookie(d.admin)); r.Code == 400 {
+			t.Errorf("%s: %s", path, r.Body.String())
+		}
+	}
+}
+
+func TestACookieDoesNotBeatTheTokenYouTyped(t *testing.T) {
+	d := newDataRig(t)
+	limited, _ := d.mint(t, map[string]any{"name": "shop-only", "namespaces": []string{"shop"}})
+	j := d.get("/api/v1/fusion/status", withCookie(d.admin), bearer(limited)).json(t)["access"].(map[string]any)
+	if j["kind"] != "token" || j["rawQueries"] != false {
+		t.Fatalf("the explicit credential must decide: %v", j)
+	}
+	if r := d.get("/api/v1/fusion/status", withCookie(d.admin), bearer("cnf_garbage")); r.Code != 401 {
+		t.Fatalf("a bad token is not rescued by the cookie: %d", r.Code)
 	}
 }
 

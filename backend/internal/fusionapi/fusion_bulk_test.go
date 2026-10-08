@@ -58,9 +58,12 @@ func TestParseFuseParams(t *testing.T) {
 			t.Errorf("%q was accepted", bad)
 		}
 	}
-	// fused=false switches it off even with the other options given.
-	if _, fused, err := parse("fused=false&pad=5m"); fused || err != nil {
+	// fused=false switches a fused read off; an option that only shapes one is then refused rather than ignored.
+	if _, fused, err := parse("fused=false"); fused || err != nil {
 		t.Fatalf("fused=false: %v %v", fused, err)
+	}
+	if _, _, err := parse("fused=false&pad=5m"); err == nil {
+		t.Fatal("pad with fused=false was accepted although it would do nothing")
 	}
 	// The names the parser reads are the names the API documents.
 	for _, n := range FuseParamNames {

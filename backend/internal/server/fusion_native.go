@@ -25,7 +25,7 @@ const nativeNote = "\n\nAnswered exactly as %[1]s answers it (its own format and
 func (a *Admin) nativeOp(store, tag, name string, path, summary string, pathParams, params []string, post bool, notes map[string]string) fusionOp {
 	return fusionOp{Method: "GET", Path: "/" + store + path, Tag: tag, Summary: summary,
 		Description: strings.TrimSpace(fmt.Sprintf(nativeNote, name, store)),
-		PathParams:  pathParams, Params: params, Notes: notes, Response: "NativeResponse", AlsoPost: post, Handler: a.fusionNative(store, path, pathParams)}
+		PathParams:  pathParams, Params: params, Notes: notes, Response: "NativeResponse", AlsoPost: post, Open: true, Handler: a.fusionNative(store, path, pathParams)}
 }
 
 // fusionNative forwards one mirrored route to its store.

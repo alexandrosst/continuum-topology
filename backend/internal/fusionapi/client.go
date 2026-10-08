@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -224,6 +225,10 @@ func parseTime(s string, now time.Time) (time.Time, error) {
 		return now.Add(-d), nil
 	}
 	if f, err := strconv.ParseFloat(s, 64); err == nil && f > 0 {
+		switch {
+		case math.IsInf(f, 0) || math.IsNaN(f) || f >= 1e12:
+			return time.Time{}, errors.New("not a time in unix seconds (a value this large looks like milliseconds; divide by 1000)")
+		}
 		return time.Unix(0, int64(f*1e9)), nil
 	}
 	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {

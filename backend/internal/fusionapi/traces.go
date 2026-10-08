@@ -98,7 +98,7 @@ const MaxSpans = 5000
 type otlpValue struct {
 	String *string                       `json:"stringValue"`
 	Int    *json.Number                  `json:"intValue"`
-	Double *float64                      `json:"doubleValue"`
+	Double json.RawMessage               `json:"doubleValue"` // a number, or the string "NaN", "Infinity" or "-Infinity"
 	Bool   *bool                         `json:"boolValue"`
 	Bytes  *string                       `json:"bytesValue"`
 	Array  *struct{ Values []otlpValue } `json:"arrayValue"`
@@ -119,8 +119,16 @@ func (v otlpValue) any() any {
 			return n
 		}
 		return v.Int.String()
-	case v.Double != nil:
-		return *v.Double
+	case len(v.Double) > 0 && string(v.Double) != "null":
+		var f float64
+		if json.Unmarshal(v.Double, &f) == nil {
+			return f
+		}
+		var s string // a non-finite value cannot be a JSON number, and must not be one in the answer either
+		if json.Unmarshal(v.Double, &s) == nil {
+			return s
+		}
+		return string(v.Double)
 	case v.Bool != nil:
 		return *v.Bool
 	case v.Bytes != nil:
@@ -256,7 +264,7 @@ func strAttr(m map[string]any, k string) string {
 
 // buildTrace turns Tempo's resource spans into a Trace, keeping only what the Scope may see.
 func buildTrace(id string, rss []otlpResourceSpans, s Scope) *Trace {
-	tr := &Trace{TraceID: id}
+	tr := &Trace{TraceID: id, Services: []string{}, Roots: []string{}}
 	resIdx := map[string]*Resource{}
 	services := map[string]bool{}
 	for _, rs := range rss {
@@ -420,19 +428,19 @@ func (f TraceFilter) traceQL(s Scope) (string, error) {
 		return "", badRequest("status must be error, ok or unset")
 	}
 	if f.MinDuration > 0 {
-		c = append(c, "duration >= "+f.MinDuration.String())
+		c = append(c, "traceDuration >= "+f.MinDuration.String())
 	}
 	if f.MaxDuration > 0 {
-		c = append(c, "duration <= "+f.MaxDuration.String())
+		c = append(c, "traceDuration <= "+f.MaxDuration.String())
 	}
-	if len(s.Namespaces) > 0 {
-		c = append(c, anyOf("resource."+attrNamespace, s.Namespaces))
+	if ns := s.nsLimit(); len(ns) > 0 {
+		c = append(c, anyOf("resource."+attrNamespace, ns))
 	}
-	if len(s.Clusters) > 0 {
-		c = append(c, anyOf("resource."+attrCluster, s.Clusters))
+	if cl := s.clLimit(); len(cl) > 0 {
+		c = append(c, anyOf("resource."+attrCluster, cl))
 	}
-	if len(s.Services) > 0 {
-		c = append(c, anyOf("resource."+attrService, s.Services))
+	if len(s.FocusServices) > 0 {
+		c = append(c, anyOf("resource."+attrService, s.FocusServices))
 	}
 	if len(c) == 0 {
 		return "{ true }", nil
@@ -556,7 +564,7 @@ func (c *Client) traceServices(ctx context.Context, s Scope, tr TimeRange) ([]st
 	if err := s.needSignal(SignalTraces); err != nil {
 		return nil, err
 	}
-	if !s.Unrestricted() || len(s.Services) > 0 {
+	if !s.Unrestricted() || len(s.FocusServices) > 0 {
 		hits, err := c.SearchTraces(ctx, s, TraceFilter{}, tr, scopedServiceSample)
 		if err != nil {
 			return nil, err
@@ -566,7 +574,7 @@ func (c *Client) traceServices(ctx context.Context, s Scope, tr TimeRange) ([]st
 		for _, h := range hits {
 			for _, svc := range h.Services {
 				// A trace that touches the focused services also names the ones it passed through; those are not the focus.
-				if len(s.Services) > 0 && !slices.Contains(s.Services, svc) {
+				if len(s.FocusServices) > 0 && !slices.Contains(s.FocusServices, svc) {
 					continue
 				}
 				if !seen[svc] {

@@ -112,7 +112,14 @@ func fusionOpenAPI() obj {
 			params = append(params, openAPIParam(n, "path", fusionPathParams[n], ""))
 		}
 		for _, n := range op.Params {
-			params = append(params, openAPIParam(n, "query", fusionParams[n], op.Notes[n]))
+			pm := openAPIParam(n, "query", fusionParams[n], op.Notes[n])
+			if ex := op.excluded(n); len(ex) > 0 { // the page greys the others out while this one is filled in
+				pm["x-excludes"] = ex
+			}
+			if op.Body == "" && fusedOptionNeedsFused(op, n) {
+				pm["x-needs-fused"] = true // it does nothing unless fused=true, an include list or promql is given
+			}
+			params = append(params, pm)
 		}
 		ok := obj{"description": "OK", "content": obj{"application/json": obj{"schema": obj{"$ref": "#/components/schemas/" + op.Response}}}}
 		if op.Stream {

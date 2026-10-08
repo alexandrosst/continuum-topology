@@ -61,3 +61,5 @@ table,tbody,tr,td{display:block;width:100%}tr:first-child{display:none}
 tr{padding:8px 0;border-bottom:1px solid var(--line)}td{border:0;padding:2px 0}td.pn,td.pi{width:100%;min-width:0}
 .op>summary{padding:10px}.body{padding:2px 10px 14px}
 }
+tr.off td.pn,tr.off td.pi,tr.off td:last-child{opacity:.45}
+tr.off input,tr.off select,tr.off textarea{cursor:not-allowed}

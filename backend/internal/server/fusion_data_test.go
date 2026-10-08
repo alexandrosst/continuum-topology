@@ -367,16 +367,20 @@ func TestAnAdministratorHasTheFullRead(t *testing.T) {
 			t.Errorf("%s: %d %s", path, r.Code, r.Body.String())
 		}
 	}
-	// A raw PromQL answer comes back in Prometheus' own shape.
-	r := d.get("/api/v1/fusion/metrics/query?query=up&evil=1", withCookie(d.admin))
+	// A raw PromQL answer comes back in Prometheus' own shape, and a parameter the route does not take is refused
+	// before anything is sent to the store.
+	r := d.get("/api/v1/fusion/metrics/query?query=up", withCookie(d.admin))
 	if r.Code != 200 || r.json(t)["status"] != "success" || r.json(t)["data"].(map[string]any)["resultType"] != "vector" {
 		t.Fatalf("raw query: %d %s", r.Code, r.Body.String())
+	}
+	if r := d.get("/api/v1/fusion/metrics/query?query=up&evil=1", withCookie(d.admin)); r.Code != 400 {
+		t.Fatalf("an unknown parameter was accepted: %d %s", r.Code, r.Body.String())
 	}
 	if d.stores.askedAbout("evil") {
 		t.Fatal("an unknown parameter reached Prometheus")
 	}
-	// The overview of one application.
-	if r := d.get("/api/v1/fusion/applications/cart", withCookie(d.admin)); r.Code != 200 || r.json(t)["name"] != "cart" {
+	// The overview of one service.
+	if r := d.get("/api/v1/fusion/services/cart", withCookie(d.admin)); r.Code != 200 || r.json(t)["name"] != "cart" {
 		t.Fatalf("overview: %d %s", r.Code, r.Body.String())
 	}
 }

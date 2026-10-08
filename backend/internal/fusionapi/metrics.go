@@ -74,6 +74,11 @@ func (f MetricFilter) matchers(s Scope) ([]string, error) {
 	default:
 		m = append(m, lblName+`=~".+"`)
 	}
+	if f.Name != AppInfoMetric {
+		// The series the server writes to say which services are in which application is not telemetry: it would make every
+		// service of an application look like it reports a metric of that name.
+		m = append(m, lblName+"!="+quote(AppInfoMetric))
+	}
 	for _, p := range []struct{ name, label, val string }{
 		{"service", lblService, f.Service}, {"namespace", lblNamespace, f.Namespace}, {"pod", lblPod, f.Pod},
 		{"node", lblNode, f.Node}, {"cluster", lblCluster, f.Cluster},
@@ -89,14 +94,14 @@ func (f MetricFilter) matchers(s Scope) ([]string, error) {
 	if f.NoPod {
 		m = append(m, lblPod+`=""`)
 	}
-	if len(s.Namespaces) > 0 {
-		m = append(m, lblNamespace+"=~"+quote(regexAny(s.Namespaces)))
+	if ns := s.nsLimit(); len(ns) > 0 {
+		m = append(m, lblNamespace+"=~"+quote(regexAny(ns)))
 	}
-	if len(s.Clusters) > 0 {
-		m = append(m, lblCluster+"=~"+quote(regexAny(s.Clusters)))
+	if cl := s.clLimit(); len(cl) > 0 {
+		m = append(m, lblCluster+"=~"+quote(regexAny(cl)))
 	}
-	if len(s.Services) > 0 {
-		m = append(m, lblService+"=~"+quote(regexAny(s.Services)))
+	if len(s.FocusServices) > 0 {
+		m = append(m, lblService+"=~"+quote(regexAny(s.FocusServices)))
 	}
 	return m, nil
 }
@@ -233,7 +238,10 @@ const (
 func ChooseStep(tr TimeRange, requested time.Duration, target int) (time.Duration, error) {
 	span := tr.To.Sub(tr.From)
 	if requested > 0 {
-		if requested < time.Second || int(span/requested) > maxPoints {
+		if requested < time.Second {
+			return 0, badRequest("step must be at least one second")
+		}
+		if int(span/requested) > maxPoints {
 			return 0, badRequest("step gives more than %d points over this range; use a larger step or a shorter range", maxPoints)
 		}
 		return requested, nil
@@ -379,13 +387,20 @@ func (c *Client) RawMetricQuery(ctx context.Context, s Scope, endpoint string, p
 }
 
 // DurationParam reads a duration parameter written as Go ("30s", "2m") or as plain seconds.
+// maxDurationSeconds keeps a duration given as plain seconds far below what time.Duration can hold (about 292 years), where
+// the conversion would wrap around to a negative one.
+const maxDurationSeconds = 366 * 86400
+
 func DurationParam(s string) (time.Duration, error) {
 	if s == "" {
 		return 0, nil
 	}
 	if f, err := strconv.ParseFloat(s, 64); err == nil {
-		if f < 0 {
+		if f < 0 || math.IsNaN(f) {
 			return 0, badRequest("a duration cannot be negative")
+		}
+		if f > maxDurationSeconds {
+			return 0, badRequest("a duration cannot be longer than %d days", int(maxDurationSeconds/86400))
 		}
 		return time.Duration(f * float64(time.Second)), nil
 	}

@@ -229,6 +229,7 @@ func TestABulkReadIsChargedPerTrace(t *testing.T) {
 
 func TestTheOpenAPIDescriptionIsPublicAndCoversEveryRoute(t *testing.T) {
 	d := newDataRig(t)
+	d.a.extras = appExtras{shopGroups()}
 	r := d.get("/api/v1/fusion/openapi.json")
 	if r.Code != 200 || !strings.HasPrefix(r.Header().Get("Content-Type"), "application/json") {
 		t.Fatalf("%d %s", r.Code, r.Header().Get("Content-Type"))
@@ -247,7 +248,7 @@ func TestTheOpenAPIDescriptionIsPublicAndCoversEveryRoute(t *testing.T) {
 			continue
 		}
 		// And the route is really served (anything but "no such route").
-		path := fusionAPIPath + strings.NewReplacer("{id}", testTraceID, "{name}", "cart", "{label}", "service_name", "{tag}", "resource.service.name").Replace(op.Path)
+		path := fusionAPIPath + strings.NewReplacer("{id}", testTraceID, "{name}", "Shop", "{label}", "service_name", "{tag}", "resource.service.name").Replace(op.Path)
 		var rr resp
 		if op.Method == "POST" {
 			rr = d.post(path, map[string]any{"ids": []string{testTraceID}}, withCookie(d.admin))

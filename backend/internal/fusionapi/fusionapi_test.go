@@ -378,7 +378,7 @@ func TestTraceSearchBuildsScopedTraceQLAndHidesTheRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := f.last("/api/search").Get("q")
-	for _, want := range []string{`resource.service.name = "cart"`, `name = "GET /cart"`, `status = error`, `duration >= 250ms`,
+	for _, want := range []string{`resource.service.name = "cart"`, `name = "GET /cart"`, `status = error`, `traceDuration >= 250ms`,
 		`(resource.k8s.namespace.name = "shop" || resource.k8s.namespace.name = "pay")`, `(resource.continuum.cluster.id = "cl-1")`} {
 		if !strings.Contains(q, want) {
 			t.Fatalf("TraceQL %s lacks %s", q, want)

@@ -39,6 +39,12 @@ data:
     limits_config:
       # OTLP carries most of a log's context as structured metadata; this must be on for the OTLP endpoint.
       allow_structured_metadata: true
+      # Loki's defaults (4 MB/s per tenant, a 6 MB burst, 5000 active streams) are sized for one small app; this is every
+      # pod of every connected cluster behind one tenant, so a busy minute would be answered with 429s the gateway
+      # retries and finally drops. Streams here are service x namespace x pod-level labels, hence the high ceiling.
+      ingestion_rate_mb: 32
+      ingestion_burst_size_mb: 64
+      max_global_streams_per_user: 100000
       {{- if .Values.switch.managed }}
       retention_period: ${LOKI_RETENTION}
       {{- else }}

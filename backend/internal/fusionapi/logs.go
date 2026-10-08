@@ -105,11 +105,11 @@ func (f LogFilter) selector(s Scope) (string, error) {
 			return "", err
 		}
 		sel = append(sel, lokiService+"="+quote(f.Service))
-	} else if len(s.Services) == 0 {
+	} else if len(s.FocusServices) == 0 {
 		sel = append(sel, lokiService+`=~".+"`)
 	}
-	if len(s.Services) > 0 {
-		sel = append(sel, lokiService+"=~"+quote(regexAny(s.Services)))
+	if len(s.FocusServices) > 0 {
+		sel = append(sel, lokiService+"=~"+quote(regexAny(s.FocusServices)))
 	}
 	for _, p := range []struct{ name, label, val string }{{"namespace", lokiNamespace, f.Namespace}, {"pod", lokiPod, f.Pod}} {
 		if p.val == "" {
@@ -128,8 +128,8 @@ func (f LogFilter) selector(s Scope) (string, error) {
 		}
 		sel = append(sel, lokiNamespace+"=~"+quote(regexAny(f.Namespaces)))
 	}
-	if len(s.Namespaces) > 0 {
-		sel = append(sel, lokiNamespace+"=~"+quote(regexAny(s.Namespaces)))
+	if ns := s.nsLimit(); len(ns) > 0 {
+		sel = append(sel, lokiNamespace+"=~"+quote(regexAny(ns)))
 	}
 	return "{" + strings.Join(sel, ",") + "}", nil
 }
@@ -178,8 +178,8 @@ func (f LogFilter) pipeline(s Scope, q string) (string, error) {
 		}
 		q += " | " + lokiCluster + "=" + quote(f.Cluster)
 	}
-	if len(s.Clusters) > 0 {
-		q += " | " + lokiCluster + "=~" + quote(regexAny(s.Clusters))
+	if cl := s.clLimit(); len(cl) > 0 {
+		q += " | " + lokiCluster + "=~" + quote(regexAny(cl))
 	}
 	return q, nil
 }
@@ -321,7 +321,7 @@ func (c *Client) logServices(ctx context.Context, s Scope, tr TimeRange) ([]stri
 	if err := s.needSignal(SignalLogs); err != nil {
 		return nil, err
 	}
-	if len(s.Clusters) > 0 {
+	if len(s.clLimit()) > 0 {
 		// A cluster is structured metadata, which label-value calls cannot filter on: read the newest in-scope lines
 		// and take the services they came from.
 		lines, _, err := c.Logs(ctx, s, LogFilter{Backward: true}, tr, 1000)

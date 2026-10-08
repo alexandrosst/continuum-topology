@@ -6,7 +6,7 @@
     "ikhnos"
   ],
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "graphTooltip": 1,
   "time": {
@@ -162,7 +162,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(k8s_node_condition_ready{continuum_cluster_id=~\"$cluster\", k8s_node_name=~\"$node\"}) or vector(0)",
+          "expr": "count(k8s_node_condition_ready{continuum_cluster_id=~\"$cluster\", k8s_node_name=~\"$node\"} == 1) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -214,7 +214,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(k8s_node_condition_ready{continuum_cluster_id=~\"$cluster\", k8s_node_name=~\"$node\"} == 0) or vector(0)",
+          "expr": "count(k8s_node_condition_ready{continuum_cluster_id=~\"$cluster\", k8s_node_name=~\"$node\"} != 1) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"

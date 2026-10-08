@@ -292,8 +292,10 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 		}
 		// "All" must match a series that has no such label at all (an install that never set a cluster id), and must be
 		// usable in a Loki stream selector, which refuses a matcher that can match the empty string on its own.
+		// The one exception is the Applications dashboard's service: All must be exactly the application's own services
+		// (Grafana expands it to the list), not every service there is.
 		for _, v := range d.Templating.List {
-			if v.IncludeAll && v.AllValue == "" {
+			if v.IncludeAll && v.AllValue == "" && !(name == "applications" && v.Name == "service") {
 				t.Errorf("%s: variable %q has no All value", name, v.Name)
 			}
 		}
@@ -369,8 +371,11 @@ func TestFusionApplicationsDashboardFollowsTheInfoSeries(t *testing.T) {
 		if v.Name == "application" && (v.Multi || v.IncludeAll) {
 			t.Error("one application at a time: a service in two applications would make the labels ambiguous")
 		}
-		if v.Name == "service" && v.AllValue != ".+" {
-			t.Errorf("service All = %q; a Loki selector needs one that cannot be empty", v.AllValue)
+		if v.Name == "service" && v.AllValue != "" {
+			t.Errorf("service All = %q: it must expand to the application's own services, or choosing All shows every service", v.AllValue)
+		}
+		if (v.Name == "namespace" || v.Name == "cluster") && v.AllValue != ".*" {
+			t.Errorf("%s All = %q: a member Ikhnos knows no namespace or cluster for is written without that label, and .+ would hide it", v.Name, v.AllValue)
 		}
 	}
 	for n, seen := range want {
@@ -381,12 +386,96 @@ func TestFusionApplicationsDashboardFollowsTheInfoSeries(t *testing.T) {
 	for _, p := range d.Panels {
 		for _, q := range p.Targets {
 			e := q.Expr + q.Query
-			if strings.Contains(e, "$application") && !strings.Contains(e, "ikhnos_application_info") {
+			if strings.Contains(e, "application") && !strings.Contains(e, "ikhnos_application_info") {
 				t.Errorf("panel %q filters telemetry by an application label, which telemetry does not carry: %s", p.Title, e)
+			}
+			if strings.Contains(e, `"$application"`) {
+				t.Errorf("panel %q puts the application name in a quoted matcher unescaped (a name with a quote breaks the query): use ${application:doublequote}: %s", p.Title, e)
+			}
+			if strings.Contains(e, ":regex}") {
+				t.Errorf("panel %q formats a variable as a regex inside TraceQL, whose strings reject the escapes: use :pipe: %s", p.Title, e)
 			}
 		}
 	}
 	if len(d.Panels) < 12 {
 		t.Errorf("%d panels", len(d.Panels))
+	}
+}
+
+// Findings of the dashboard review, each one a query that returned something other than what its title says.
+func TestFusionDashboardQueriesMeanWhatTheirTitlesSay(t *testing.T) {
+	r := fusionRender(t, "f")
+	exprs := map[string][]string{}
+	titles := map[string]string{}
+	for _, name := range []string{"applications", "clusters", "delivery", "workloads"} {
+		var d struct {
+			Panels []struct {
+				ID      int    `json:"id"`
+				Title   string `json:"title"`
+				Targets []struct {
+					Expr  string `json:"expr"`
+					Query string `json:"query"`
+				} `json:"targets"`
+			} `json:"panels"`
+		}
+		if err := json.Unmarshal([]byte(r.configs["f-fusion-grafana-dashboards"].Data[name+".json"]), &d); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range d.Panels {
+			for _, q := range p.Targets {
+				exprs[name] = append(exprs[name], q.Expr+q.Query)
+				titles[q.Expr+q.Query] = p.Title
+			}
+			if strings.Contains(p.Title, "per minute") {
+				for _, q := range p.Targets {
+					e := q.Expr + q.Query
+					if strings.Contains(e, "count_over_time") && strings.Contains(e, "$__interval") {
+						t.Errorf("%s: %q counts lines per step, not per minute, so its numbers change with the zoom: %s", name, p.Title, e)
+					}
+				}
+			}
+		}
+	}
+	for _, e := range exprs["delivery"] {
+		// timestamp() of a range function is the evaluation time, so this was always "0 seconds since data".
+		if strings.Contains(e, "timestamp(last_over_time") {
+			t.Errorf("delivery: %q asks timestamp(last_over_time(...)), which is the time of the query: %s", titles[e], e)
+		}
+	}
+	for _, e := range exprs["clusters"] {
+		if strings.Contains(e, "k8s_node_condition_ready") && strings.Contains(e, "sum(") {
+			t.Errorf("clusters: %q sums a condition that is -1 when unknown: %s", titles[e], e)
+		}
+		if strings.Contains(e, "k8s_node_condition_ready") && strings.Contains(e, "== 0") {
+			t.Errorf("clusters: %q misses nodes whose Ready is unknown: %s", titles[e], e)
+		}
+	}
+	// A query that goes into a stat panel with "or vector(0)" shows a healthy 0 when there is nothing to measure; the
+	// freshness stat must show "No data" instead.
+	for _, e := range exprs["delivery"] {
+		if titles[e] == "Slowest cluster, seconds since data" && strings.Contains(e, "vector(0)") {
+			t.Errorf("a silent cluster set shows as 0 seconds, i.e. perfectly fresh: %s", e)
+		}
+	}
+	// Telemetry of an application's services is narrowed by the cluster choice in Loki and in every pod query.
+	for _, e := range exprs["applications"] {
+		switch {
+		case strings.Contains(e, "k8s_pod_") || strings.Contains(e, "k8s_container_"):
+			for _, kind := range []string{"deployment", "statefulset", "daemonset"} {
+				if !strings.Contains(e, "k8s_"+kind+"_name") {
+					t.Errorf("applications: %q does not look for %ss: %s", titles[e], kind, e)
+				}
+			}
+		case strings.Contains(e, "service_name=~"):
+			if !strings.Contains(e, "continuum_cluster_id=~") {
+				t.Errorf("applications: %q ignores the cluster choice: %s", titles[e], e)
+			}
+		}
+	}
+	// The Pods table joins four queries: on one key that includes the cluster, not on the pod name alone.
+	for _, e := range exprs["workloads"] {
+		if strings.Contains(titles[e], "Pods") && strings.Contains(e, "sum by (k8s_pod_name)") {
+			t.Errorf("workloads: the Pods table joins on the pod name, which two clusters can share: %s", e)
+		}
 	}
 }

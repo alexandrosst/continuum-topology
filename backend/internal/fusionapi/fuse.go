@@ -252,6 +252,13 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 			return nil, err
 		}
 	}
+	if opts.SystemLogs {
+		for _, ns := range opts.SystemNamespaces {
+			if err := checkValue("system_namespaces", ns); err != nil {
+				return nil, err
+			}
+		}
+	}
 	tr, err := c.Trace(ctx, s, id)
 	if err != nil {
 		return nil, err
@@ -352,12 +359,19 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 		setSource(SourceContextLogs, SourceNotAllowed)
 	default:
 		setSource(SourceContextLogs, SourceOK)
+		sem := make(chan struct{}, fuseConcurrency) // a trace of many resources must not take every slot the stores share
 		for _, r := range looked {
 			r := r
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				lines, truncated, err := c.Logs(ctx, s, LogFilter{Service: r.Service, Namespace: r.Namespace, Pod: r.Pod, NoTrace: true,
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					return
+				}
+				lines, truncated, err := c.Logs(ctx, s, LogFilter{Service: r.Service, Namespace: r.Namespace, Pod: r.Pod, Cluster: r.Cluster, NoTrace: true,
 					Severity: opts.LogSeverity, Contains: opts.LogContains, Backward: true}, window, opts.MaxContextLogs)
 				if err != nil {
 					warn(SourceContextLogs, err)
@@ -659,10 +673,10 @@ func (c *Client) resourceMetrics(ctx context.Context, s Scope, r *Resource, opts
 	var filters []MetricFilter
 	views := opts.MetricViews.orDefault()
 	if views.App && r.Service != "" {
-		filters = append(filters, MetricFilter{NameRegex: opts.MetricRegex, Service: r.Service, Namespace: r.Namespace})
+		filters = append(filters, MetricFilter{NameRegex: opts.MetricRegex, Service: r.Service, Namespace: r.Namespace, Cluster: r.Cluster})
 	}
 	if views.Pod && r.Pod != "" {
-		filters = append(filters, MetricFilter{NameRegex: opts.MetricRegex, Pod: r.Pod, Namespace: r.Namespace})
+		filters = append(filters, MetricFilter{NameRegex: opts.MetricRegex, Pod: r.Pod, Namespace: r.Namespace, Cluster: r.Cluster})
 	}
 	if views.Node && r.Node != "" {
 		filters = append(filters, MetricFilter{NameRegex: opts.MetricRegex, Node: r.Node, Cluster: r.Cluster, NoPod: true})
@@ -784,6 +798,9 @@ func (c *Client) metricServices(ctx context.Context, s Scope, tr TimeRange) ([]s
 // Overview is one application at a glance: which signals it has and a few of the most recent and most interesting
 // things in each, ready to follow into a fused trace.
 type Overview struct {
+	// ID and Services are set for an Ikhnos application: its id and the service names its telemetry may carry.
+	ID          string            `json:"id,omitempty"`
+	Services    []string          `json:"services,omitempty"`
 	Name        string            `json:"name"`
 	Signals     []string          `json:"signals"`
 	Traces      []TraceSummary    `json:"traces"`      // the most recent
@@ -794,12 +811,33 @@ type Overview struct {
 	Warnings    []string          `json:"warnings,omitempty"`
 }
 
-// ApplicationOverview reads the overview of one service.
-func (c *Client) ApplicationOverview(ctx context.Context, s Scope, name string, tr TimeRange) (*Overview, error) {
-	if err := checkValue("application", name); err != nil {
+// ServiceOverview reads the overview of one service.
+func (c *Client) ServiceOverview(ctx context.Context, s Scope, name string, tr TimeRange) (*Overview, error) {
+	if err := checkValue("service", name); err != nil {
 		return nil, err
 	}
-	o := &Overview{Name: name, Sources: map[string]string{SignalMetrics: SourceNotAllowed, SignalLogs: SourceNotAllowed, SignalTraces: SourceNotAllowed},
+	return c.overview(ctx, s, name, name, tr)
+}
+
+// ApplicationOverview reads the overview of one Ikhnos application: the same things as for a service, over all of its
+// services (the focus the Scope gets from the application).
+func (c *Client) ApplicationOverview(ctx context.Context, s Scope, g *AppGroup, tr TimeRange) (*Overview, error) {
+	fs, err := s.FocusOn(g)
+	if err != nil {
+		return nil, err
+	}
+	o, err := c.overview(ctx, fs, "", g.Name, tr)
+	if err != nil {
+		return nil, err
+	}
+	o.ID, o.Services = g.ID, fs.FocusServices
+	return o, nil
+}
+
+// overview reads what a service (or, with no service named, whatever the Scope's focus selects) has. label is what the
+// answer is called.
+func (c *Client) overview(ctx context.Context, s Scope, name, label string, tr TimeRange) (*Overview, error) {
+	o := &Overview{Name: label, Sources: map[string]string{SignalMetrics: SourceNotAllowed, SignalLogs: SourceNotAllowed, SignalTraces: SourceNotAllowed},
 		Traces: []TraceSummary{}, ErrorTraces: []TraceSummary{}, ErrorLogs: []LogEntry{}, Metrics: []string{}}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -888,7 +926,7 @@ func (c *Client) ApplicationOverview(ctx context.Context, s Scope, name string, 
 		}
 	}
 	if len(o.Signals) == 0 && firstErr == nil {
-		return nil, errf(http.StatusNotFound, "no telemetry for %q in this range", name)
+		return nil, errf(http.StatusNotFound, "no telemetry for %q in this range", label)
 	}
 	return o, nil
 }

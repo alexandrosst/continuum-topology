@@ -95,7 +95,7 @@ func (c *Client) VolumeUsage(ctx context.Context, s Scope, claims []string) (map
 	if len(quoted) == 0 {
 		return nil, nil
 	}
-	sel := `{k8s_persistentvolumeclaim_name=~"` + strings.Join(quoted, "|") + `"}`
+	sel := `{k8s_persistentvolumeclaim_name=~` + quote(strings.Join(quoted, "|")) + `}`
 	q := `max by (k8s_persistentvolumeclaim_name, k8s_namespace_name) (k8s_volume_capacity_bytes` + sel + ` - k8s_volume_available_bytes` + sel + `)`
 	data, err := c.RawMetricQuery(ctx, s, "query", url.Values{"query": {q}})
 	if err != nil {

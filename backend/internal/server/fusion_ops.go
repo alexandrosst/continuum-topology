@@ -1,6 +1,14 @@
 package server
 
-import "continuum/internal/fusionapi"
+import (
+	"fmt"
+	"net/http"
+	"net/url"
+	"slices"
+	"strings"
+
+	"continuum/internal/fusionapi"
+)
 
 // The data API, described once. Every route, and every parameter it takes, is an entry here; the router is built from
 // this table (registerFusionData) and so is the OpenAPI description served beside the API (fusion_openapi.go), which
@@ -22,7 +30,93 @@ type fusionOp struct {
 	Response     string            // name of the 200 response schema
 	Stream       bool              // can also answer application/x-ndjson
 	AlsoPost     bool              // a POST with a form is served too (the backend's own way of sending a long query)
-	Handler      fusionHandler
+	// Open routes forward whatever they are sent to the backend, so they cannot say which parameters they take; every other route
+	// refuses a parameter it does not list, so a typo is told and not silently dropped.
+	Open bool
+	// Excludes says which parameters a given one overrides: sent together, the override would make the others do nothing, which
+	// is refused. `query` is sent to Loki as written, so the filters that would have built a query are not used.
+	Excludes map[string][]string
+	Handler  fusionHandler
+}
+
+// excluded is every parameter a route cannot take together with name, in either direction.
+func (op fusionOp) excluded(name string) []string {
+	set := map[string]bool{}
+	for _, e := range op.Excludes[name] {
+		set[e] = true
+	}
+	for k, es := range op.Excludes {
+		for _, e := range es {
+			if e == name {
+				set[k] = true
+			}
+		}
+	}
+	var out []string
+	for _, p := range op.Params { // in the order the route lists them
+		if set[p] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// checkQuery refuses a query string the route does not take: a parameter it does not list, an empty value where one is
+// given on purpose, or two parameters of which one would make the other do nothing.
+func (op fusionOp) checkQuery(q url.Values) error {
+	if op.Open {
+		return nil
+	}
+	allowed := map[string]bool{}
+	for _, p := range op.Params {
+		allowed[p] = true
+	}
+	if op.Body != "" { // a batch takes its options in the body, and as defaults in the query string
+		for _, p := range fusionapi.FuseParamNames {
+			allowed[p] = true
+		}
+	}
+	for k := range q {
+		if !allowed[k] {
+			return &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("this route does not take %q; it takes %s", printable(k, 40), takes(op))}
+		}
+	}
+	for k := range q {
+		for _, e := range op.excluded(k) {
+			if q.Has(e) {
+				return &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("%s and %s cannot be used together: %s", k, e, op.whyExcluded(k, e))}
+			}
+		}
+	}
+	return nil
+}
+
+// fusedOptionNeedsFused is whether a parameter shapes a fused read on a route that reads one only when asked to.
+func fusedOptionNeedsFused(op fusionOp, name string) bool {
+	if name == fusionapi.ParamFused || name == fusionapi.ParamInclude || name == fusionapi.ParamPromQL {
+		return false
+	}
+	has := false
+	for _, p := range op.Params {
+		has = has || p == fusionapi.ParamFused
+	}
+	return has && slices.Contains(fusionapi.FuseParamNames, name)
+}
+
+func (op fusionOp) whyExcluded(a, b string) string {
+	for _, raw := range []string{"query", "q"} {
+		if a == raw || b == raw {
+			return "`" + raw + "` is sent to the store as written, so the filters would not be used"
+		}
+	}
+	return "one would make the other do nothing"
+}
+
+func takes(op fusionOp) string {
+	if len(op.Params) == 0 {
+		return "no parameters"
+	}
+	return strings.Join(op.Params, ", ")
 }
 
 // fusionParam is one parameter, shared by every route that takes it.
@@ -39,7 +133,7 @@ type fusionParam struct {
 
 var fusionPathParams = map[string]fusionParam{
 	"id":   {Type: "string", Example: "0af7651916cd43dd8448eb211c80319c", Desc: "The trace id: 32 hex characters (shorter ones are zero-padded)."},
-	"name": {Type: "string", Example: "checkout", Desc: "The application (service) name."},
+	"name": {Type: "string", Example: "checkout", Desc: "The application (its id or name) on `/applications/{name}`; the service (its `service.name`) on `/services/{name}`."},
 
 	"label": {Type: "string", Example: "service_name", Desc: "The label name."},
 	"tag":   {Type: "string", Example: "resource.service.name", Desc: "The tag name, with its scope: `resource.service.name`, `span.http.method`, or an intrinsic such as `name`."},
@@ -140,25 +234,29 @@ func fusionOps(a *Admin) []fusionOp {
 		{Method: "GET", Path: "/status", Tag: "Service", Summary: "Is FUSION up, and what may I read?",
 			Description: "Whether the stores are running and what the credential you present may read: its signals, namespaces and clusters, and when it expires.",
 			Response:    "Status", Handler: a.fusionStatus},
-		{Method: "GET", Path: "/applications", Tag: "Applications", Summary: "List the applications that have telemetry",
-			Description: "Every service FUSION has data for in the range, with which signals (metrics, logs, traces) it has.",
-			Params:      join(rng, []string{"application"}), Response: "ApplicationList", Handler: a.fusionApplications},
-		{Method: "GET", Path: "/groups", Tag: "Applications", Summary: "List the Ikhnos applications you can filter by",
-			Description: "The applications Ikhnos groups services into - made by a person or found by discovery - each with its services (name, namespace, cluster) and the service names its telemetry may carry. Pass an `id` or `name` as `application` to the list routes to read only that application. A token limited to certain namespaces or clusters sees only the services in them.",
-			Response:    "GroupList", Handler: a.fusionGroups},
-		{Method: "GET", Path: "/applications/{name}", Tag: "Applications", Summary: "One application at a glance",
-			Description: "The signals the application has, its most recent traces and failing traces, its latest error logs and the metric names it reports: the places to go on from.",
+		{Method: "GET", Path: "/applications", Tag: "Applications", Summary: "List the Ikhnos applications",
+			Description: "The applications Ikhnos groups services into (made by a person or found by discovery), each with its services and which signals (metrics, logs, traces) FUSION has for them in the range. Pass an application's `id` or `name` as `application` to the reads below to read only that application. A token limited to certain namespaces or clusters sees only the services of an application in them, and no application with none there. The services as telemetry names them are listed by `/services`.",
+			Params:      rng, Response: "ApplicationList", Handler: a.fusionApplications},
+		{Method: "GET", Path: "/applications/{name}", Tag: "Applications", Summary: "One Ikhnos application at a glance",
+			Description: "The signals the application has across all of its services, its most recent traces and failing traces, its latest error logs and the metric names it reports: the places to go on from. `name` is the application's id or name.",
 			PathParams:  []string{"name"}, Params: rng, Response: "Overview", Handler: a.fusionApplication},
+		{Method: "GET", Path: "/services", Tag: "Services", Summary: "List the services that have telemetry",
+			Description: "Every service FUSION has data for in the range (its `service.name`), with which signals it has and the Ikhnos applications it is in. This includes infrastructure that reports under a name of its own, such as an exporter or an energy meter; `applications` is empty for those.",
+			Params:      join(rng, []string{"application"}), Response: "ServiceList", Handler: a.fusionServices},
+		{Method: "GET", Path: "/services/{name}", Tag: "Services", Summary: "One service at a glance",
+			Description: "The signals the service has, its most recent traces and failing traces, its latest error logs and the metric names it reports.",
+			PathParams:  []string{"name"}, Params: rng, Response: "Overview", Handler: a.fusionService},
 
 		{Method: "GET", Path: "/metrics/names", Tag: "Metrics", Summary: "List metric names",
 			Params: join(rng, fusionMetricFilter, []string{"limit"}), Notes: map[string]string{"limit": "The most names (default 500, at most 5000)."},
-			Response: "NameList", Handler: a.fusionMetricNames},
+			Excludes: map[string][]string{"name": {"metric"}}, Response: "NameList", Handler: a.fusionMetricNames},
 		{Method: "GET", Path: "/metrics/series", Tag: "Metrics", Summary: "List the series (label sets) that match",
 			Params: join(rng, fusionMetricFilter, []string{"limit"}), Notes: map[string]string{"limit": "The most series (default 200, at most 2000)."},
-			Response: "SeriesList", Handler: a.fusionMetricSeries},
+			Excludes: map[string][]string{"name": {"metric"}}, Response: "SeriesList", Handler: a.fusionMetricSeries},
 		{Method: "GET", Path: "/metrics/range", Tag: "Metrics", Summary: "Read metric series over a range",
 			Description: "The samples of the series that match the filters, thinned to a sensible number of points, with each series' min, max, average and last value.",
-			Params:      join(rng, fusionMetricFilter, []string{"step", "limit"}), Response: "MetricRange", Handler: a.fusionMetricRange},
+			Params:      join(rng, fusionMetricFilter, []string{"step", "limit"}), Notes: map[string]string{"limit": "The most series (default 20, at most 100)."},
+			Excludes: map[string][]string{"name": {"metric"}}, Response: "MetricRange", Handler: a.fusionMetricRange},
 		{Method: "GET", Path: "/metrics/query", Tag: "Metrics", Summary: "Run a PromQL instant query",
 			Description: "PromQL as written, answered the way Prometheus answers. Only for a caller whose access is not limited to certain namespaces or clusters.",
 			Params:      []string{"query", "time"}, Response: "PromResult", Handler: a.fusionMetricRaw("query")},
@@ -169,11 +267,15 @@ func fusionOps(a *Admin) []fusionOp {
 		{Method: "GET", Path: "/logs", Tag: "Logs", Summary: "Search log lines",
 			Description: "Lines matching every filter given, in the range. A line carries the trace and span id it was written under, so `trace_id` finds everything a request logged.",
 			Params:      join(rng, []string{"service", "namespace", "pod", "cluster", "application", "trace_id", "span_id", "severity", "contains", "order", "limit", "query"}),
+			Notes:       map[string]string{"limit": "The most lines (default 200, at most 2000)."},
+			Excludes:    map[string][]string{"query": {"service", "namespace", "pod", "cluster", "application", "trace_id", "span_id", "severity", "contains"}},
 			Response:    "LogResult", Handler: a.fusionLogs},
 
 		{Method: "GET", Path: "/traces", Tag: "Traces", Summary: "Search traces — optionally fused",
 			Description: "Traces matching the filters, newest first. With `fused=true` each hit is also read in full and joined to its logs and metrics (the options below apply to every hit); that returns up to 25 traces, read in parallel, and with `stream=true` they arrive one by one as they are ready.",
 			Params:      join(rng, []string{"service", "namespace", "cluster", "application", "name", "status", "min_duration", "max_duration", "limit", "q"}, fused, []string{"stream"}),
+			Notes:       map[string]string{"limit": "The most traces (default 20, at most 100; a fused search defaults to 10 and takes at most 25)."},
+			Excludes:    map[string][]string{"q": {"service", "namespace", "cluster", "application", "name", "status", "min_duration", "max_duration"}},
 			Response:    "TraceList", Stream: true, Handler: a.fusionTraces},
 		{Method: "GET", Path: "/traces/{id}", Tag: "Traces", Summary: "One trace — optionally fused",
 			Description: "The trace as Tempo has it. With `fused=true` (or an `include` list) it is the fused object: every span carries the log lines written under its id and the metric points of its own time; every resource carries its metric series and optionally the lines it wrote without a trace id; and `system_logs` adds the system namespaces' lines on the trace's nodes. `sources` says what could be read, `joins` how each signal was tied to the trace, `warnings` what went wrong.",

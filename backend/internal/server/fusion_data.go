@@ -345,9 +345,9 @@ func (a *Admin) fusionCaller(r *http.Request) (fusionCaller, error) {
 	deny := errf(KindUnauthenticated, "sign in required")
 	var p Principal
 	var err error
-	if secret, ok := sessionCookie(r); ok {
-		p, err = a.C.Authenticate(ctx, secret)
-	} else if secret, ok := bearerToken(r); ok {
+	// A credential given on purpose beats one the browser sends along: someone trying a token on the docs page, signed in as
+	// an administrator, must be reading with the token's rights and not the administrator's.
+	if secret, ok := bearerToken(r); ok {
 		if looksLikeFusionToken(secret) {
 			tok, err := a.C.AuthenticateFusionToken(ctx, secret)
 			if err != nil || tok.OrgID != a.fusionOrg() {
@@ -358,6 +358,8 @@ func (a *Admin) fusionCaller(r *http.Request) (fusionCaller, error) {
 				Scope: fusionapi.Scope{Signals: tok.Signals, Namespaces: tok.Namespaces, Clusters: tok.Clusters}}, nil
 		}
 		p, err = a.C.AuthenticateAPIToken(ctx, secret)
+	} else if secret, ok := sessionCookie(r); ok {
+		p, err = a.C.Authenticate(ctx, secret)
 	} else {
 		return fusionCaller{}, deny
 	}
@@ -395,12 +397,24 @@ func (a *Admin) fusionErr(w http.ResponseWriter, r *http.Request, err error) {
 // exist without being documented.
 func (a *Admin) registerFusionData(api *http.ServeMux) {
 	for _, op := range fusionOps(a) {
-		api.Handle(op.Method+" "+fusionAPIPath+op.Path, a.fusionData(op.Handler))
+		h := a.fusionChecked(op)
+		api.Handle(op.Method+" "+fusionAPIPath+op.Path, a.fusionData(h))
 		if op.AlsoPost {
-			api.Handle("POST "+fusionAPIPath+op.Path, a.fusionData(op.Handler))
+			api.Handle("POST "+fusionAPIPath+op.Path, a.fusionData(h))
 		}
 	}
 	a.registerFusionDocs(api)
+}
+
+// fusionChecked refuses a query string the route does not take (fusionOp.checkQuery) before its handler runs.
+func (a *Admin) fusionChecked(op fusionOp) fusionHandler {
+	return func(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+		if err := op.checkQuery(r.URL.Query()); err != nil {
+			a.fusionErr(w, r, err)
+			return
+		}
+		op.Handler(w, r, c, who)
+	}
 }
 
 func (a *Admin) fusionStatus(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
@@ -434,32 +448,33 @@ func fusionRange(r *http.Request, now time.Time) (fusionapi.TimeRange, error) {
 // now, so changing an application changes what it shows without touching any stored telemetry. The caller's own Scope
 // (who.Scope) is what everything not narrowed keeps using: reading one trace, and the fused joins around a search hit.
 func (a *Admin) fusionScope(r *http.Request, who fusionCaller) (fusionapi.Scope, error) {
-	ref := r.URL.Query().Get("application")
-	if ref == "" {
+	q := r.URL.Query()
+	if !q.Has("application") {
 		return who.Scope, nil
 	}
-	ex := a.fusionExtras()
-	if ex == nil {
-		return fusionapi.Scope{}, &fusionapi.Error{Status: http.StatusServiceUnavailable, Msg: "this server does not know the applications"}
-	}
-	groups, err := ex.Applications(r.Context())
+	groups, err := a.fusionGroups(r, who)
 	if err != nil {
 		return fusionapi.Scope{}, err
 	}
-	g, err := fusionapi.FindGroup(groups, ref)
+	g, err := fusionapi.FindGroup(groups, q.Get("application"))
 	if err != nil {
 		return fusionapi.Scope{}, err
 	}
 	return who.Scope.FocusOn(g)
 }
 
-// fusionNoApplication refuses the application filter on a read that cannot carry it: a query written by the caller is sent
-// as it is, so there is nothing to add the application's services to.
-func fusionNoApplication(r *http.Request) error {
-	if r.URL.Query().Has("application") {
-		return &fusionapi.Error{Status: http.StatusBadRequest, Msg: "application narrows the structured filters; it cannot be combined with a query written as PromQL, LogQL or TraceQL (add the application's services to your own query)"}
+// fusionGroups are the Ikhnos applications the caller may know of: each with only the services in the caller's namespaces
+// and clusters, and only those that have any (fusionapi.VisibleGroups).
+func (a *Admin) fusionGroups(r *http.Request, who fusionCaller) ([]fusionapi.AppGroup, error) {
+	ex := a.fusionExtras()
+	if ex == nil {
+		return nil, &fusionapi.Error{Status: http.StatusServiceUnavailable, Msg: "this server does not know the applications"}
 	}
-	return nil
+	groups, err := ex.Applications(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	return fusionapi.VisibleGroups(groups, who.Scope), nil
 }
 
 func metricFilter(q url.Values) fusionapi.MetricFilter {
@@ -467,7 +482,31 @@ func metricFilter(q url.Values) fusionapi.MetricFilter {
 		Pod: q.Get("pod"), Node: q.Get("node"), Cluster: q.Get("cluster")}
 }
 
+// fusionApplications lists the Ikhnos applications, each with its services and which signals FUSION has for them in the range.
+// An application here is what Ikhnos calls one (a group of services); the services themselves, as the telemetry names them, are
+// listed by fusionServices.
 func (a *Admin) fusionApplications(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+	tr, err := fusionRange(r, a.C.Now())
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	groups, err := a.fusionGroups(r, who)
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	svcs, sources, err := c.Applications(r.Context(), who.Scope, tr)
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"applications": fusionapi.DescribeGroups(groups, svcs), "sources": sources, "from": tr.From, "to": tr.To})
+}
+
+// fusionServices lists the services that have telemetry (their service.name), each with its signals and the Ikhnos
+// applications it is in. These are what the telemetry itself calls an application, which is not what Ikhnos does.
+func (a *Admin) fusionServices(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
 	tr, err := fusionRange(r, a.C.Now())
 	if err != nil {
 		a.fusionErr(w, r, err)
@@ -478,24 +517,67 @@ func (a *Admin) fusionApplications(w http.ResponseWriter, r *http.Request, c *fu
 		a.fusionErr(w, r, err)
 		return
 	}
-	apps, sources, err := c.Applications(r.Context(), scope, tr)
+	svcs, sources, err := c.Applications(r.Context(), scope, tr)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
 	}
-	if apps == nil {
-		apps = []fusionapi.Application{}
+	type item struct {
+		fusionapi.Application
+		Applications []string `json:"applications"`
 	}
-	writeJSON(w, 200, map[string]any{"applications": apps, "sources": sources, "from": tr.From, "to": tr.To})
+	in := map[string][]string{}
+	if groups, err := a.fusionGroups(r, who); err == nil { // best effort: the list is useful without it
+		for _, g := range groups {
+			for _, n := range g.ServiceNames() {
+				in[n] = append(in[n], g.Name)
+			}
+		}
+	}
+	out := make([]item, 0, len(svcs))
+	for _, sv := range svcs {
+		names := in[sv.Name]
+		if names == nil {
+			names = []string{}
+		}
+		out = append(out, item{sv, names})
+	}
+	writeJSON(w, 200, map[string]any{"services": out, "sources": sources, "from": tr.From, "to": tr.To})
 }
 
+// fusionApplication is one Ikhnos application at a glance, named by its id or its name.
 func (a *Admin) fusionApplication(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
 	tr, err := fusionRange(r, a.C.Now())
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
 	}
-	o, err := c.ApplicationOverview(r.Context(), who.Scope, r.PathValue("name"), tr)
+	groups, err := a.fusionGroups(r, who)
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	g, err := fusionapi.FindGroup(groups, r.PathValue("name"))
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	o, err := c.ApplicationOverview(r.Context(), who.Scope, g, tr)
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	writeJSON(w, 200, o)
+}
+
+// fusionService is one service at a glance, by the service.name its telemetry carries.
+func (a *Admin) fusionService(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+	tr, err := fusionRange(r, a.C.Now())
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	o, err := c.ServiceOverview(r.Context(), who.Scope, r.PathValue("name"), tr)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
@@ -595,10 +677,6 @@ func (a *Admin) fusionMetricRange(w http.ResponseWriter, r *http.Request, c *fus
 // fusionMetricRaw is PromQL as written, answered the way Prometheus itself answers.
 func (a *Admin) fusionMetricRaw(endpoint string) fusionHandler {
 	return func(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
-		if err := fusionNoApplication(r); err != nil {
-			a.fusionErr(w, r, err)
-			return
-		}
 		data, err := c.RawMetricQuery(r.Context(), who.Scope, endpoint, r.URL.Query())
 		if err != nil {
 			a.fusionErr(w, r, err)
@@ -634,9 +712,7 @@ func (a *Admin) fusionLogs(w http.ResponseWriter, r *http.Request, c *fusionapi.
 	var entries []fusionapi.LogEntry
 	var truncated bool
 	if raw := q.Get("query"); raw != "" {
-		if err = fusionNoApplication(r); err == nil {
-			entries, truncated, err = c.RawLogQuery(r.Context(), who.Scope, raw, backward, tr, limit)
-		}
+		entries, truncated, err = c.RawLogQuery(r.Context(), who.Scope, raw, backward, tr, limit)
 	} else if scope, serr := a.fusionScope(r, who); serr != nil {
 		err = serr
 	} else {
@@ -684,9 +760,7 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 	}
 	var traces []fusionapi.TraceSummary
 	if raw := q.Get("q"); raw != "" {
-		if err = fusionNoApplication(r); err == nil {
-			traces, err = c.RawTraceSearch(r.Context(), who.Scope, raw, tr, limit)
-		}
+		traces, err = c.RawTraceSearch(r.Context(), who.Scope, raw, tr, limit)
 	} else {
 		var minD, maxD time.Duration
 		if minD, err = fusionapi.DurationParam(q.Get("min_duration")); err == nil {
@@ -954,48 +1028,4 @@ func (a *Admin) streamBulk(w http.ResponseWriter, r *http.Request, c *fusionapi.
 		fusionapi.BulkSummary
 	}{"summary", fusionapi.Summarise(items)})
 	flush()
-}
-
-// fusionGroups lists the Ikhnos applications the application filter accepts, each with the services it is made of, the
-// namespaces and clusters they run in, and the service names its telemetry may carry. A caller limited to certain
-// namespaces or clusters sees only the applications that have a service in them, and only those services.
-func (a *Admin) fusionGroups(w http.ResponseWriter, r *http.Request, _ *fusionapi.Client, who fusionCaller) {
-	ex := a.fusionExtras()
-	if ex == nil {
-		a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusServiceUnavailable, Msg: "this server does not know the applications"})
-		return
-	}
-	groups, err := ex.Applications(r.Context())
-	if err != nil {
-		a.fusionErr(w, r, err)
-		return
-	}
-	type view struct {
-		ID           string                `json:"id"`
-		Name         string                `json:"name"`
-		Description  string                `json:"description,omitempty"`
-		Services     []fusionapi.AppMember `json:"services"`
-		ServiceNames []string              `json:"serviceNames"`
-		Namespaces   []string              `json:"namespaces"`
-		Clusters     []string              `json:"clusters"`
-	}
-	out := []view{}
-	for _, g := range groups {
-		kept := g
-		kept.Members = nil
-		for _, m := range g.Members {
-			if who.Scope.NamespaceVisible(m.Namespace) && who.Scope.ClusterVisible(m.Cluster) {
-				kept.Members = append(kept.Members, m)
-			}
-		}
-		if len(kept.Members) == 0 && len(g.Members) > 0 {
-			continue // nothing of it is in the caller's scope
-		}
-		if kept.Members == nil {
-			kept.Members = []fusionapi.AppMember{}
-		}
-		out = append(out, view{ID: g.ID, Name: g.Name, Description: g.Description, Services: kept.Members, ServiceNames: orEmpty(kept.ServiceNames()),
-			Namespaces: orEmpty(kept.Namespaces()), Clusters: orEmpty(kept.Clusters())})
-	}
-	writeJSON(w, 200, map[string]any{"groups": out})
 }

@@ -70,15 +70,20 @@ central:
     annotations: {}
     loadBalancerSourceRanges: []   # LoadBalancer only
   # What each exporter does while its store is unreachable (Prometheus, Loki or Tempo restarting, a volume not yet
-  # bound): retry for retryMaxElapsedTime, holding up to `size` batches meanwhile. A full queue makes the exporter
-  # refuse and the backpressure reaches the senders, whose own queues hold the data, so nothing here grows without
-  # bound. One entry is one batch (up to batch.sendBatchMaxSize items): raise `size` together with the memory limit.
+  # bound): retry for retryMaxElapsedTime, holding up to `size` requests meanwhile. A full queue blocks the batch
+  # processor (block_on_overflow), memory_limiter then refuses at the receiver and the backpressure reaches the senders,
+  # whose own queues hold the data, so nothing here is dropped silently and nothing grows without bound. One entry is
+  # one request of at most maxRequestBytes: raise `size` together with the memory limit.
+  # maxRequestBytes cuts a request into pieces of at most that many serialized bytes, because the batch processor only
+  # counts items and 4096 log records of 2 KiB are 8 MiB, past the 4 MiB Loki and Tempo accept (such a batch is refused
+  # whole and dropped). 0 turns the cut off.
   # `persistent` also writes the queue to an emptyDir, so it survives a container restart (not a rescheduled pod; it
   # counts against the node's ephemeral storage up to sizeLimit). Off by default, and only worth it once the gateway
   # is the thing whose restart you cannot afford to lose a minute of data across.
   queue:
     size: 256
     retryMaxElapsedTime: 30m
+    maxRequestBytes: 3145728
     persistent:
       enabled: false
       sizeLimit: 1Gi

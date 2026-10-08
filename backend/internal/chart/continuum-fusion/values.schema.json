@@ -81,7 +81,7 @@
         },
         "storage": {
           "type": "string",
-          "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|K|M|G|T)?$"
+          "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|k|M|G|T)?$"
         },
         "resources": {
           "type": "object"
@@ -91,7 +91,12 @@
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "allOf": [
+            {"contains": {"const": "service.name"}},
+            {"contains": {"const": "k8s.namespace.name"}},
+            {"contains": {"const": "continuum.cluster.id"}}
+          ]
         },
         "webPrefix": {
           "type": "string",
@@ -148,7 +153,7 @@
         },
         "storage": {
           "type": "string",
-          "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|K|M|G|T)?$"
+          "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|k|M|G|T)?$"
         },
         "resources": {
           "type": "object"
@@ -193,7 +198,7 @@
         },
         "storage": {
           "type": "string",
-          "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|K|M|G|T)?$"
+          "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|k|M|G|T)?$"
         },
         "resources": {
           "type": "object"
@@ -318,6 +323,10 @@
               "type": "string",
               "pattern": "^[0-9]+(ms|s|m|h)$"
             },
+            "maxRequestBytes": {
+              "type": "integer",
+              "minimum": 0
+            },
             "persistent": {
               "type": "object",
               "additionalProperties": false,
@@ -404,7 +413,7 @@
         },
         "storage": {
           "type": "string",
-          "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|K|M|G|T)?$"
+          "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|k|M|G|T)?$"
         },
         "resources": {
           "type": "object"

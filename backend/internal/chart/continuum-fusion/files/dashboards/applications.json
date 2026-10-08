@@ -1,12 +1,12 @@
 {
   "uid": "ikhnos-applications",
   "title": "Applications",
-  "description": "One Ikhnos application at a glance: the services it is made of, and their pods, traces and logs. Pick the application; its services, namespaces and clusters come from what Ikhnos groups into it.",
+  "description": "One Ikhnos application at a glance: the services it is made of, and their pods, traces and logs. Pick the application; its services, namespaces and clusters come from what Ikhnos groups into it. Pods are matched by the name of their Deployment, StatefulSet or DaemonSet being one of the application's services. Traces and logs are matched by service name; service x namespace x cluster is a cross product, so an application that runs two services in different namespaces also shows the pairing that does not exist.",
   "tags": [
     "ikhnos"
   ],
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "graphTooltip": 1,
   "time": {
@@ -45,15 +45,14 @@
           "uid": "fusion-metrics"
         },
         "query": {
-          "query": "label_values(ikhnos_application_info{application=\"$application\"}, service_name)",
+          "query": "label_values(ikhnos_application_info{application=${application:doublequote}}, service_name)",
           "refId": "v-service"
         },
-        "definition": "label_values(ikhnos_application_info{application=\"$application\"}, service_name)",
+        "definition": "label_values(ikhnos_application_info{application=${application:doublequote}}, service_name)",
         "refresh": 2,
         "sort": 1,
         "multi": true,
         "includeAll": true,
-        "allValue": ".+",
         "current": {
           "selected": true,
           "text": [
@@ -62,7 +61,8 @@
           "value": [
             "$__all"
           ]
-        }
+        },
+        "description": "The services Ikhnos lists for this application. All means exactly these, not every service there is."
       },
       {
         "name": "namespace",
@@ -73,15 +73,15 @@
           "uid": "fusion-metrics"
         },
         "query": {
-          "query": "label_values(ikhnos_application_info{application=\"$application\"}, k8s_namespace_name)",
+          "query": "label_values(ikhnos_application_info{application=${application:doublequote}}, k8s_namespace_name)",
           "refId": "v-namespace"
         },
-        "definition": "label_values(ikhnos_application_info{application=\"$application\"}, k8s_namespace_name)",
+        "definition": "label_values(ikhnos_application_info{application=${application:doublequote}}, k8s_namespace_name)",
         "refresh": 2,
         "sort": 1,
         "multi": true,
         "includeAll": true,
-        "allValue": ".+",
+        "allValue": ".*",
         "current": {
           "selected": true,
           "text": [
@@ -101,10 +101,10 @@
           "uid": "fusion-metrics"
         },
         "query": {
-          "query": "label_values(ikhnos_application_info{application=\"$application\"}, continuum_cluster_id)",
+          "query": "label_values(ikhnos_application_info{application=${application:doublequote}}, continuum_cluster_id)",
           "refId": "v-cluster"
         },
-        "definition": "label_values(ikhnos_application_info{application=\"$application\"}, continuum_cluster_id)",
+        "definition": "label_values(ikhnos_application_info{application=${application:doublequote}}, continuum_cluster_id)",
         "refresh": 2,
         "sort": 1,
         "multi": true,
@@ -142,7 +142,7 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Service names listed",
+      "title": "Pods not ready",
       "datasource": {
         "type": "prometheus",
         "uid": "fusion-metrics"
@@ -156,7 +156,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(ikhnos_application_info{application=\"$application\"}) or vector(0)",
+          "expr": "count(count by (continuum_cluster_id, k8s_namespace_name, k8s_pod_name) ((k8s_container_ready{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"} or k8s_container_ready{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_statefulset_name=~\"$service\"} or k8s_container_ready{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_daemonset_name=~\"$service\"}) == 0)) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -165,7 +165,7 @@
           "range": false
         }
       ],
-      "description": "The service names Ikhnos lists for this application, one per name its telemetry may carry (a service can be listed under its workload name and its app label).",
+      "description": "Pods of those workloads with a container that is not ready. A pod counts once however many containers it has.",
       "fieldConfig": {
         "defaults": {
           "noValue": "0",
@@ -175,6 +175,10 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
               }
             ]
           }
@@ -209,7 +213,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"} == 2) or vector(0)",
+          "expr": "count((k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"} or k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_statefulset_name=~\"$service\"} or k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_daemonset_name=~\"$service\"}) == 2) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -262,7 +266,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"} != 2) or vector(0)",
+          "expr": "count((k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"} or k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_statefulset_name=~\"$service\"} or k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_daemonset_name=~\"$service\"}) < 2 or (k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"} or k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_statefulset_name=~\"$service\"} or k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_daemonset_name=~\"$service\"}) > 3) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -271,7 +275,7 @@
           "range": false
         }
       ],
-      "description": "Pods of those workloads that are pending, failed or unknown.",
+      "description": "Pods of those workloads that are pending, failed or unknown (a finished Job pod is not counted).",
       "fieldConfig": {
         "defaults": {
           "noValue": "0",
@@ -281,6 +285,10 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
               }
             ]
           }
@@ -315,7 +323,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "round(sum(increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"}[1h]))) or vector(0)",
+          "expr": "round(sum((increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"}[1h]) or increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_statefulset_name=~\"$service\"}[1h]) or increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_daemonset_name=~\"$service\"}[1h])))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -368,7 +376,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"}) or vector(0)",
+          "expr": "sum((k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"} or k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_statefulset_name=~\"$service\"} or k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_daemonset_name=~\"$service\"})) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -421,7 +429,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"}) or vector(0)",
+          "expr": "sum((k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"} or k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_statefulset_name=~\"$service\"} or k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_daemonset_name=~\"$service\"})) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -475,7 +483,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ikhnos_application_info{application=\"$application\"}",
+          "expr": "ikhnos_application_info{application=${application:doublequote}}",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -542,10 +550,10 @@
           },
           "queryType": "traceql",
           "metricsQueryType": "range",
-          "query": "{ resource.service.name =~ \"${service:regex}\" } | rate() by (resource.service.name)"
+          "query": "{ resource.service.name =~ \"${service:pipe}\" } | rate() by (resource.service.name)"
         }
       ],
-      "description": "Traces of the application's services that reached the store. Needs the trace store's metrics generator, which this chart turns on (tempo.traceqlMetrics).",
+      "description": "Traces of the application's services that reached the store. Needs the trace store's metrics generator, which this chart turns on (tempo.traceqlMetrics). Traces are matched by service name only: a trace can cross clusters, and spans that did not pass an Ikhnos agent carry no cluster id, so the cluster choice does not narrow them.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -588,12 +596,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (k8s_namespace_name, k8s_pod_name) (k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"})",
+          "expr": "sum by (continuum_cluster_id, k8s_namespace_name, k8s_pod_name) ((k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"} or k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_statefulset_name=~\"$service\"} or k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_daemonset_name=~\"$service\"}))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{k8s_namespace_name}}/{{k8s_pod_name}}"
+          "legendFormat": "{{continuum_cluster_id}}/{{k8s_namespace_name}}/{{k8s_pod_name}}"
         }
       ],
       "description": "Cores in use.",
@@ -639,12 +647,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (k8s_namespace_name, k8s_pod_name) (k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"})",
+          "expr": "sum by (continuum_cluster_id, k8s_namespace_name, k8s_pod_name) ((k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_deployment_name=~\"$service\"} or k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_statefulset_name=~\"$service\"} or k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_namespace_name=~\"$namespace\", k8s_daemonset_name=~\"$service\"}))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{k8s_namespace_name}}/{{k8s_pod_name}}"
+          "legendFormat": "{{continuum_cluster_id}}/{{k8s_namespace_name}}/{{k8s_pod_name}}"
         }
       ],
       "description": "Working set.",
@@ -690,7 +698,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (service_name) (count_over_time({service_name=~\"$service\", k8s_namespace_name=~\"$namespace\"} [1m]))",
+          "expr": "60 * sum by (service_name) (rate({service_name=~\"$service\", k8s_namespace_name=~\"$namespace\"} | continuum_cluster_id=~\"$cluster\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
@@ -727,7 +735,7 @@
     {
       "id": 12,
       "type": "timeseries",
-      "title": "Log lines that mention an error",
+      "title": "Log lines that mention an error, per minute",
       "datasource": {
         "type": "loki",
         "uid": "fusion-logs"
@@ -741,7 +749,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (service_name) (count_over_time({service_name=~\"$service\", k8s_namespace_name=~\"$namespace\"} |~ \"(?i)(error|exception|fatal|panic)\" [$__interval]))",
+          "expr": "60 * sum by (service_name) (rate({service_name=~\"$service\", k8s_namespace_name=~\"$namespace\"} |~ \"(?i)(error|exception|fatal|panic)\" | continuum_cluster_id=~\"$cluster\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
@@ -798,10 +806,10 @@
           },
           "queryType": "traceql",
           "metricsQueryType": "range",
-          "query": "{ resource.service.name =~ \"${service:regex}\" && status = error } | rate() by (resource.service.name)"
+          "query": "{ resource.service.name =~ \"${service:pipe}\" && status = error } | rate() by (resource.service.name)"
         }
       ],
-      "description": "Spans that ended in an error.",
+      "description": "Spans that ended in an error. Traces are matched by service name only: a trace can cross clusters, and spans that did not pass an Ikhnos agent carry no cluster id, so the cluster choice does not narrow them.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -849,12 +857,12 @@
             "uid": "fusion-traces"
           },
           "queryType": "traceql",
-          "query": "{ resource.service.name =~ \"${service:regex}\" }",
+          "query": "{ resource.service.name =~ \"${service:pipe}\" }",
           "limit": 20,
           "tableType": "traces"
         }
       ],
-      "description": "The latest traces that touched any of the application's services. Open one to follow it to its logs and metrics.",
+      "description": "The latest traces that touched any of the application's services. Open one to follow it to its logs and metrics. Traces are matched by service name only: a trace can cross clusters, and spans that did not pass an Ikhnos agent carry no cluster id, so the cluster choice does not narrow them.",
       "fieldConfig": {
         "defaults": {},
         "overrides": []
@@ -880,7 +888,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{service_name=~\"$service\", k8s_namespace_name=~\"$namespace\"}",
+          "expr": "{service_name=~\"$service\", k8s_namespace_name=~\"$namespace\"} | continuum_cluster_id=~\"$cluster\"",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
