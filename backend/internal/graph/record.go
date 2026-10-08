@@ -76,13 +76,17 @@ type ver struct {
 func vkey(kind, id string) string { return kind + "\x00" + id }
 
 // counters are the volatile numbers that change on every window and would otherwise make every
-// snapshot a new version of every dependency. They live on the snapshot instead.
+// snapshot a new version of every dependency. They live on the snapshot instead. Only what a history
+// reader draws is kept (traffic, round-trip time, loss); the rest of a dependency's live gauges are
+// dropped by extract, not versioned.
 type counters struct {
-	Bytes uint64  `json:"b,omitempty"`
-	Conns uint64  `json:"c,omitempty"`
-	Bps   float64 `json:"r,omitempty"`
-	Cpm   float64 `json:"m,omitempty"`
-	Win   int32   `json:"w,omitempty"`
+	Bytes uint64   `json:"b,omitempty"`
+	Conns uint64   `json:"c,omitempty"`
+	Bps   float64  `json:"r,omitempty"`
+	Cpm   float64  `json:"m,omitempty"`
+	Win   int32    `json:"w,omitempty"`
+	Rtt   float64  `json:"t,omitempty"`
+	Loss  *float64 `json:"l,omitempty"`
 }
 
 type pathQuality struct {
@@ -131,6 +135,11 @@ func extract(t model.Topology) (vs map[string]ver, es map[string]edge, tr map[st
 	for _, n := range t.Nodes {
 		n.LastSeen, n.Revision = "", 0
 		n.ClearObservation()
+		// Live readings, not facts about the node: each would make every recording a new version.
+		n.PodCount, n.Requested = nil, nil
+		n.CPUPressurePct, n.MemoryPressurePct, n.IOPressurePct, n.HostWatts = nil, nil, nil, nil
+		n.OomKillCount, n.LinkSaturation = nil, nil
+		n.SnatExhaustion, n.CpuFreqChangeCount, n.ThermalTripCount = 0, 0, 0
 		put("node", n.ID, n.Name, n.Status, n.ClusterID, n)
 	}
 	for _, n := range t.Namespaces {
@@ -141,6 +150,12 @@ func extract(t model.Topology) (vs map[string]ver, es map[string]edge, tr map[st
 	for _, s := range t.Services {
 		s.LastSeen, s.Revision = "", 0
 		s.ClearObservation()
+		// A pod's per-window traffic is a reading, not a fact; the pod list itself (phase, restarts) stays.
+		// The slice is copied: s.Pods is shared with the topology the caller holds.
+		s.Pods = append([]model.Pod(nil), s.Pods...)
+		for i := range s.Pods {
+			s.Pods[i].Traffic = nil
+		}
 		put("service", s.ID, s.Name, s.Status, s.ClusterID, s)
 	}
 	for _, e := range t.ExternalEndpoints {
@@ -153,14 +168,21 @@ func extract(t model.Topology) (vs map[string]ver, es map[string]edge, tr map[st
 		put("external", e.ID, name, "", "", e)
 	}
 	for _, d := range t.Dependencies {
-		if d.Bytes > 0 || d.Connections > 0 || d.Stats != nil {
-			c := counters{Bytes: d.Bytes, Conns: d.Connections}
+		if d.Bytes > 0 || d.Connections > 0 || d.Stats != nil || d.RttMs > 0 {
+			c := counters{Bytes: d.Bytes, Conns: d.Connections, Rtt: d.RttMs}
 			if d.Stats != nil {
-				c.Bps, c.Cpm, c.Win = d.Stats.BytesPerSec, d.Stats.ConnectionsPerMin, d.Stats.WindowSec
+				c.Bps, c.Cpm, c.Win, c.Loss = d.Stats.BytesPerSec, d.Stats.ConnectionsPerMin, d.Stats.WindowSec, d.Stats.LossPct
 			}
 			tr[d.ID] = c
 		}
 		d.LastSeen, d.Bytes, d.Connections, d.Stats = "", 0, 0, nil
+		// The kernel's live readings for the edge: they move on every window and are not part of what the
+		// dependency is. (Snapshot counters above keep the two a history reader draws.)
+		d.Retransmits, d.RtoRetransmits, d.FailedAttempts, d.BufferDrops = 0, 0, 0, 0
+		d.RttMs, d.JitterMs, d.HandshakeMs, d.DnsRttMs = 0, 0, 0, 0
+		d.CwndSegments, d.PacingBps, d.MssBytes = 0, 0, 0
+		d.RcvWndBytes, d.SndWndBytes, d.WmemQueuedBytes, d.SndbufBytes = nil, nil, nil, nil
+		d.DnsQueryNames = nil
 		name := d.Label
 		if name == "" {
 			name = d.From + " → " + d.To
@@ -1025,9 +1047,9 @@ RETURN toString(s.at), s.bytes, s.traffic, s.paths ORDER BY s.at DESC LIMIT 1`, 
 					x.LastSeen = seen
 				}
 				if c, ok := tr[x.ID]; ok {
-					x.Bytes, x.Connections = c.Bytes, c.Conns
-					if c.Bps > 0 || c.Cpm > 0 || c.Win > 0 {
-						x.Stats = &model.DependencyStats{BytesPerSec: c.Bps, ConnectionsPerMin: c.Cpm, WindowSec: c.Win}
+					x.Bytes, x.Connections, x.RttMs = c.Bytes, c.Conns, c.Rtt
+					if c.Bps > 0 || c.Cpm > 0 || c.Win > 0 || c.Loss != nil {
+						x.Stats = &model.DependencyStats{BytesPerSec: c.Bps, ConnectionsPerMin: c.Cpm, WindowSec: c.Win, LossPct: c.Loss}
 					}
 				}
 				t.Dependencies = append(t.Dependencies, x)

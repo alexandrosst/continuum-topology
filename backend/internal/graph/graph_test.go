@@ -509,6 +509,95 @@ func TestRecordDoesNotTouchAnEdgeItDidNotWrite(t *testing.T) {
 	}
 }
 
+// volatileEstate is estate() with the live readings a tier-2 agent and the flow collector attach filled in;
+// bump moves every one of them, the way the next window would.
+func volatileEstate(bump float64) model.Topology {
+	e := estate()
+	f := func(v float64) *float64 { x := v + bump; return &x }
+	u := func(v uint32) *uint32 { x := v + uint32(bump); return &x }
+	n := int32(3 + bump)
+	e.Nodes[0].PodCount = &n
+	e.Nodes[0].Requested = &model.Resources{}
+	e.Nodes[0].CPUPressurePct, e.Nodes[0].MemoryPressurePct, e.Nodes[0].IOPressurePct, e.Nodes[0].HostWatts = f(1), f(2), f(3), f(4)
+	om := uint64(7 + bump)
+	e.Nodes[0].OomKillCount = &om
+	e.Nodes[0].LinkSaturation = []model.LinkSaturation{{Iface: "eth0", ThroughputBps: uint64(100 + bump)}}
+	e.Nodes[0].SnatExhaustion, e.Nodes[0].CpuFreqChangeCount, e.Nodes[0].ThermalTripCount = uint64(bump), uint64(bump), uint64(bump)
+	e.Services[0].Pods = []model.Pod{{Name: "web-0", Phase: "Running", Ready: true, Traffic: []model.PodPeer{{Peer: "s-2", PeerKind: "service", Direction: "out", Port: 5432, Connections: uint64(bump)}}}}
+	d := &e.Dependencies[0]
+	d.Retransmits, d.RtoRetransmits, d.FailedAttempts, d.BufferDrops = uint64(bump), uint64(bump), uint64(bump), uint64(bump)
+	d.RttMs, d.JitterMs, d.HandshakeMs, d.DnsRttMs = 5+bump, bump, bump, bump
+	d.CwndSegments, d.PacingBps, d.MssBytes = uint32(bump), uint64(bump), uint32(bump)
+	d.RcvWndBytes, d.SndWndBytes, d.WmemQueuedBytes, d.SndbufBytes = u(1), u(2), u(3), u(4)
+	d.DnsQueryNames = []string{fmt.Sprintf("a%v.example", bump)}
+	d.Stats.LossPct = f(0.1)
+	return e
+}
+
+// TestVolatileReadingsAreNotVersioned: pod traffic, node pressure and counters, a dependency's kernel
+// gauges move on every window. They must neither change an entity's hash (a new Version per entity per
+// recording) nor be stored in its document; the two a history reader draws (round-trip time, loss) ride on
+// the snapshot with the other counters.
+func TestVolatileReadingsAreNotVersioned(t *testing.T) {
+	a, _, tra, _ := extract(volatileEstate(0))
+	b, _, trb, _ := extract(volatileEstate(10))
+	if len(a) == 0 || len(a) != len(b) {
+		t.Fatalf("extract found %d and %d entities", len(a), len(b))
+	}
+	for k, va := range a {
+		if vb := b[k]; va.Hash != vb.Hash {
+			t.Errorf("%s changed with nothing but live readings changing:\n%s\n%s", k, va.Doc, vb.Doc)
+		}
+	}
+	if tra["d-1"].Rtt != 5 || trb["d-1"].Rtt != 15 || trb["d-1"].Loss == nil || *trb["d-1"].Loss != 10.1 {
+		t.Errorf("rtt and loss should ride on the snapshot counters: %+v / %+v", tra["d-1"], trb["d-1"])
+	}
+	// A real change to the same service still counts.
+	e := volatileEstate(0)
+	e.Services[0].Pods[0].Ready = false
+	c, _, _, _ := extract(e)
+	if c[vkey("service", "s-1")].Hash == a[vkey("service", "s-1")].Hash {
+		t.Error("a pod going not-ready is a fact and must make a new version")
+	}
+	// extract must not edit the topology it was given (the live hub's state shares these slices).
+	e = volatileEstate(0)
+	extract(e)
+	if len(e.Services[0].Pods[0].Traffic) != 1 || e.Dependencies[0].RttMs != 5 {
+		t.Errorf("extract wrote into its input: %+v", e.Services[0].Pods[0])
+	}
+}
+
+// TestRecordingOnlyLiveReadingsWritesNoNewVersions is the same through the database, and checks the
+// round-trip time and loss come back with the moment they were recorded at.
+func TestRecordingOnlyLiveReadingsWritesNoNewVersions(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	record(t, db, org, t0, volatileEstate(0))
+	before, err := db.Stats(ctx, org)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record(t, db, org, t0.Add(time.Hour), volatileEstate(10))
+	after, err := db.Stats(ctx, org)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Versions != before.Versions || after.Snapshots != before.Snapshots+1 {
+		t.Errorf("versions %d -> %d, snapshots %d -> %d: only the snapshot should be new", before.Versions, after.Versions, before.Snapshots, after.Snapshots)
+	}
+	for i, want := range []float64{5, 15} {
+		s, err := db.AsOf(ctx, org, t0.Add(time.Duration(i)*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		d := s.Topology.Dependencies[0]
+		if d.RttMs != want || d.Stats == nil || d.Stats.LossPct == nil || *d.Stats.LossPct != 0.1+float64(i)*10 {
+			t.Errorf("moment %d: rtt/loss not restored: %+v %+v", i, d, d.Stats)
+		}
+	}
+}
+
 // TestRecordLeavesAnEntityItDidNotWriteAlone: Record's entity sweep closes and marks gone every open
 // version a topology does not contain, which for the kinds RecordEntity writes (agent, application) is
 // all of them, since no topology ever carries those. Both Record and RecordCatchUp must leave them open.
