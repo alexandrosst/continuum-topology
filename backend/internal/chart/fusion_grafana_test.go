@@ -299,10 +299,10 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 		}
 		// "All" must match a series that has no such label at all (an install that never set a cluster id), and must be
 		// usable in a Loki stream selector, which refuses a matcher that can match the empty string on its own.
-		// The one exception is the Applications dashboard's service: All must be exactly the application's own services
-		// (Grafana expands it to the list), not every service there is.
+		// The exception is the derived service and member variables (hidden, or the Applications dashboard's own pickers): All
+		// must be exactly the application's own members (Grafana expands it to the list), not every service there is.
 		for _, v := range d.Templating.List {
-			if v.IncludeAll && v.AllValue == "" && !(name == "applications" && (v.Name == "service" || v.Name == "member")) {
+			if v.IncludeAll && v.AllValue == "" && !(v.Name == "service" || v.Name == "member") {
 				t.Errorf("%s: variable %q has no All value", name, v.Name)
 			}
 		}
@@ -539,6 +539,90 @@ func TestFusionDashboardsRefreshAndCategories(t *testing.T) {
 	for _, row := range []string{"System", "Kubernetes", "Application"} {
 		if !strings.Contains(raw, `"title": "`+row) {
 			t.Errorf("categories.json has no %s row", row)
+		}
+	}
+}
+
+// The Application picker on Workloads and Telemetry by category is one more filter: with "All applications" (the default)
+// every query must mean what it meant before, and with one application it must keep exactly that application's members.
+// The tests below hold the shape that guarantees it; the results were checked against live stores.
+func TestFusionApplicationPickerLeavesAllAsItWas(t *testing.T) {
+	r := fusionRender(t, "f")
+	type variable struct {
+		Name       string `json:"name"`
+		AllValue   string `json:"allValue"`
+		IncludeAll bool   `json:"includeAll"`
+		Multi      bool   `json:"multi"`
+		Hide       int    `json:"hide"`
+		Query      struct {
+			Query string `json:"query"`
+		} `json:"query"`
+	}
+	type panel struct {
+		ID      int    `json:"id"`
+		Type    string `json:"type"`
+		Title   string `json:"title"`
+		Targets []struct {
+			Expr  string `json:"expr"`
+			Query string `json:"query"`
+		} `json:"targets"`
+	}
+	type dashboard struct {
+		Panels     []panel `json:"panels"`
+		Templating struct {
+			List []variable `json:"list"`
+		} `json:"templating"`
+	}
+	const (
+		absent = "absent(ikhnos_application_info{application=${application:doublequote}})"
+		join   = "and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}"
+	)
+	// Panels that must follow the picker (and, for the others, must not).
+	follows := map[string][]int{
+		"workloads":  {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
+		"categories": {10, 11, 13, 15, 16, 17, 21, 22, 23, 24, 25, 26, 27, 28},
+	}
+	for name, ids := range follows {
+		var d dashboard
+		if err := json.Unmarshal([]byte(r.configs["f-fusion-grafana-dashboards"].Data[name+".json"]), &d); err != nil {
+			t.Fatal(err)
+		}
+		vars := map[string]variable{}
+		for _, v := range d.Templating.List {
+			vars[v.Name] = v
+		}
+		app := vars["application"]
+		if app.Multi || !app.IncludeAll || app.AllValue != `"__all__"` || app.Hide != 0 || vars["member"].Hide == 0 || vars["service"].Hide == 0 {
+			t.Errorf("%s: the picker must be one visible single choice whose All is the quoted marker no application has, with the member and service lookups hidden: %+v", name, app)
+		}
+		if d.Templating.List[0].Name != "application" {
+			t.Errorf("%s: the Application picker should come first", name)
+		}
+		want := map[int]bool{}
+		for _, id := range ids {
+			want[id] = true
+		}
+		for _, p := range d.Panels {
+			if p.Type == "row" {
+				continue
+			}
+			for _, q := range p.Targets {
+				e := q.Expr + q.Query
+				follow := want[p.ID]
+				if got := strings.Contains(e, "ikhnos_application_info") || strings.Contains(e, "ikhnos_member") || strings.Contains(e, "${service:pipe}"); got != follow {
+					t.Errorf("%s: panel %d %q follows the picker = %v, want %v", name, p.ID, p.Title, got, follow)
+				}
+				if strings.Contains(e, "ikhnos_application_info") && (!strings.Contains(e, join) || !strings.Contains(e, " and on() "+absent)) {
+					t.Errorf("%s: %q must join on the exact member and keep today's selection when no application is chosen: %s", name, p.Title, e)
+				}
+				if strings.Contains(e, "ikhnos_member") && !strings.Contains(e, `| ikhnos_scope="" or ikhnos_member=~"${member:pipe}"`) {
+					t.Errorf("%s: %q must let everything through when no application is chosen: %s", name, p.Title, e)
+				}
+			}
+		}
+		// The service lookup answers .* with All applications, which is what the trace filter relies on.
+		if !strings.Contains(vars["service"].Query.Query, `".*"`) || !strings.Contains(vars["service"].Query.Query, absent) {
+			t.Errorf("%s: the service lookup does not answer .* when no application is chosen: %s", name, vars["service"].Query.Query)
 		}
 	}
 }

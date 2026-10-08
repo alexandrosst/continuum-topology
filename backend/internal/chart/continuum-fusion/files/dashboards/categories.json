@@ -39,10 +39,35 @@
   },
   "uid": "ikhnos-categories",
   "title": "Telemetry by category",
-  "version": 1,
-  "description": "What FUSION holds, grouped by what it is about: the machines and the telemetry pipeline (system), the cluster's own objects (Kubernetes) and what applications report about themselves (application). The category is decided from the metric's name and from the namespace of a log line or span, the same rule the FUSION API's `category` filter uses, so what is listed here is what that filter returns.",
+  "version": 2,
+  "description": "What FUSION holds, grouped by what it is about: the machines and the telemetry pipeline (system), the cluster's own objects (Kubernetes) and what applications report about themselves (application). The category is decided from the metric's name and from the namespace of a log line or span, the same rule the FUSION API's `category` filter uses, so what is listed here is what that filter returns. Pick an application to narrow the Kubernetes pods and the Application row to its services.",
   "templating": {
     "list": [
+      {
+        "name": "application",
+        "label": "Application",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fusion-metrics"
+        },
+        "query": {
+          "query": "label_values(ikhnos_application_info, application)",
+          "refId": "v-application"
+        },
+        "definition": "label_values(ikhnos_application_info, application)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": true,
+        "allValue": "\"__all__\"",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "description": "Narrows the pod panels of the Kubernetes row and everything in the Application row to the services of one Ikhnos application (a service in one namespace of one cluster; traces are matched by service name only). All applications (the default) leaves everything as it was. The System row, the node and kube-system panels never follow it."
+      },
       {
         "name": "cluster",
         "label": "Cluster",
@@ -70,6 +95,65 @@
             "$__all"
           ]
         }
+      },
+      {
+        "name": "member",
+        "label": "Members (derived)",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fusion-metrics"
+        },
+        "query": {
+          "query": "label_values(ikhnos_application_info{application=${application:doublequote}}, member)",
+          "refId": "v-member"
+        },
+        "definition": "label_values(ikhnos_application_info{application=${application:doublequote}}, member)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "description": "The services of the chosen application, each as service/namespace/cluster. Empty with All applications. Not meant to be changed.",
+        "hide": 2
+      },
+      {
+        "name": "service",
+        "label": "Service names (derived)",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fusion-metrics"
+        },
+        "query": {
+          "query": "query_result(label_replace(vector(1) and on() absent(ikhnos_application_info{application=${application:doublequote}}), \"service_name\", \".*\", \"\", \"\") or group by (service_name) (ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}))",
+          "refId": "v-service"
+        },
+        "definition": "query_result(label_replace(vector(1) and on() absent(ikhnos_application_info{application=${application:doublequote}}), \"service_name\", \".*\", \"\", \"\") or group by (service_name) (ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}))",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "description": "The service names of the chosen application; with All applications the single value .* (anything). Not meant to be changed.",
+        "hide": 2,
+        "regex": "/service_name=\"([^\"]*)\"/"
       }
     ]
   },
@@ -484,7 +568,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(k8s_pod_phase{continuum_cluster_id=~\"$cluster\"} == 2) or vector(0)",
+          "expr": "count((((label_replace(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_pod_phase{continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))) == 2) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -537,7 +621,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(k8s_pod_phase{continuum_cluster_id=~\"$cluster\"} < 2 or k8s_pod_phase{continuum_cluster_id=~\"$cluster\"} > 3) or vector(0)",
+          "expr": "count((((label_replace(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_pod_phase{continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))) < 2 or (((label_replace(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_phase{continuum_cluster_id=~\"$cluster\", k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_pod_phase{continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))) > 3) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -651,7 +735,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "round(sum(increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\"}[1h]))) or vector(0)",
+          "expr": "round(sum((((label_replace(increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_deployment_name=~\"$service\"}[1h]), \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_statefulset_name=~\"$service\"}[1h]), \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_daemonset_name=~\"$service\"}[1h]), \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\"}[1h]) and on() absent(ikhnos_application_info{application=${application:doublequote}}))))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -761,7 +845,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (continuum_cluster_id, k8s_namespace_name) (k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\"})",
+          "expr": "sum by (continuum_cluster_id, k8s_namespace_name) ((((label_replace(k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\", k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_pod_cpu_usage{continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -811,7 +895,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (continuum_cluster_id, k8s_namespace_name) (k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\"})",
+          "expr": "sum by (continuum_cluster_id, k8s_namespace_name) ((((label_replace(k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\", k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (k8s_pod_memory_working_set_bytes{continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -862,7 +946,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "round(sum by (continuum_cluster_id, k8s_namespace_name) (increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\"}[$__rate_interval])))",
+          "expr": "round(sum by (continuum_cluster_id, k8s_namespace_name) ((((label_replace(increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_deployment_name=~\"$service\"}[$__rate_interval]), \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_statefulset_name=~\"$service\"}[$__rate_interval]), \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\", k8s_daemonset_name=~\"$service\"}[$__rate_interval]), \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or (increase(k8s_container_restarts{continuum_cluster_id=~\"$cluster\"}[$__rate_interval]) and on() absent(ikhnos_application_info{application=${application:doublequote}})))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1012,7 +1096,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(count by (service_name) ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", continuum_cluster_id=~\"$cluster\"}))",
+          "expr": "count(count by (service_name) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", continuum_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}})))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1065,7 +1149,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", continuum_cluster_id=~\"$cluster\"})",
+          "expr": "count((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name=~\"$service\", continuum_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1118,7 +1202,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count by (service_name, __name__) ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", continuum_cluster_id=~\"$cluster\"})",
+          "expr": "count by (service_name, __name__) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", continuum_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1169,7 +1253,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count by (service_name) ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", continuum_cluster_id=~\"$cluster\"})",
+          "expr": "count by (service_name) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", continuum_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|dcgm_.*|otelcol_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", continuum_cluster_id=~\"$cluster\"} and on() absent(ikhnos_application_info{application=${application:doublequote}}))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1219,7 +1303,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "60 * sum by (service_name) (rate({service_name=~\".+\", k8s_namespace_name!~\"kube-system|kube-public|kube-node-lease\", k8s_namespace_name!=\"\"} | continuum_cluster_id=~\"$cluster\" [$__interval]))",
+          "expr": "60 * sum by (service_name) (rate({service_name=~\".+\", k8s_namespace_name!~\"kube-system|kube-public|kube-node-lease\", k8s_namespace_name!=\"\"} | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"${member:pipe}\" | ikhnos_scope=\"\" or ikhnos_member=~\"${member:pipe}\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
@@ -1270,7 +1354,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "60 * sum by (service_name) (rate({service_name=~\".+\", k8s_namespace_name!~\"kube-system|kube-public|kube-node-lease\", k8s_namespace_name!=\"\"} |~ \"(?i)(error|exception|fatal|panic)\" | continuum_cluster_id=~\"$cluster\" [$__interval]))",
+          "expr": "60 * sum by (service_name) (rate({service_name=~\".+\", k8s_namespace_name!~\"kube-system|kube-public|kube-node-lease\", k8s_namespace_name!=\"\"} |~ \"(?i)(error|exception|fatal|panic)\" | continuum_cluster_id=~\"$cluster\" | label_format ikhnos_member=\"{{.service_name}}/{{.k8s_namespace_name}}/{{.continuum_cluster_id}}\", ikhnos_scope=\"${member:pipe}\" | ikhnos_scope=\"\" or ikhnos_member=~\"${member:pipe}\" [$__interval]))",
           "datasource": {
             "type": "loki",
             "uid": "fusion-logs"
@@ -1326,7 +1410,7 @@
             "uid": "fusion-traces"
           },
           "queryType": "traceql",
-          "query": "{ resource.k8s.namespace.name != \"kube-system\" && resource.k8s.namespace.name != \"kube-public\" && resource.k8s.namespace.name != \"kube-node-lease\" } | rate() by (resource.service.name)",
+          "query": "{ resource.k8s.namespace.name != \"kube-system\" && resource.k8s.namespace.name != \"kube-public\" && resource.k8s.namespace.name != \"kube-node-lease\" && resource.service.name =~ \"${service:pipe}\" } | rate() by (resource.service.name)",
           "metricsQueryType": "range",
           "legendFormat": "{{resource.service.name}}"
         }
@@ -1379,7 +1463,7 @@
             "uid": "fusion-traces"
           },
           "queryType": "traceql",
-          "query": "{ resource.k8s.namespace.name != \"kube-system\" && resource.k8s.namespace.name != \"kube-public\" && resource.k8s.namespace.name != \"kube-node-lease\" }",
+          "query": "{ resource.k8s.namespace.name != \"kube-system\" && resource.k8s.namespace.name != \"kube-public\" && resource.k8s.namespace.name != \"kube-node-lease\" && resource.service.name =~ \"${service:pipe}\" }",
           "limit": 20,
           "tableType": "traces"
         }
