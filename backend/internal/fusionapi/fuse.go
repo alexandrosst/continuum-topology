@@ -34,13 +34,21 @@ type FuseOptions struct {
 	MaxSeries int
 	// Points is the target number of samples per series (default 60).
 	Points int
+	// SpanPad widens each span's own time when its metrics are cut out of its resource's series (default 30 seconds).
+	// Samples arrive every 30 to 60 seconds, so a span that lasts milliseconds would otherwise often have none.
+	SpanPad time.Duration
 }
 
 const (
-	defaultPad       = 2 * time.Minute
-	maxPad           = time.Hour
-	defaultMaxLogs   = 500
-	hardMaxLogs      = 2000
+	defaultPad     = 2 * time.Minute
+	maxPad         = time.Hour
+	defaultMaxLogs = 500
+	hardMaxLogs    = 2000
+	defaultSpanPad = 30 * time.Second
+	// maxSpanPoints is the most metric points all the spans of one fused read carry between them. Spans of one resource
+	// that overlap in time repeat the same samples, so a trace with thousands of spans would otherwise multiply the answer;
+	// past it a span keeps each series' min, max, average and last value but not its points.
+	maxSpanPoints    = 20000
 	defaultMaxSeries = 15
 	hardMaxSeries    = 100
 	fuseConcurrency  = 4
@@ -54,6 +62,12 @@ func (o *FuseOptions) defaults() error {
 	}
 	if o.Pad < 0 || o.Pad > maxPad {
 		return badRequest("pad must be between 0 and %s", maxPad)
+	}
+	if o.SpanPad == 0 {
+		o.SpanPad = defaultSpanPad
+	}
+	if o.SpanPad < 0 || o.SpanPad > maxPad {
+		return badRequest("span_pad must be between 0 and %s", maxPad)
 	}
 	if o.MaxLogs <= 0 {
 		o.MaxLogs = defaultMaxLogs
@@ -116,7 +130,7 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 		f.Joins[SignalLogs] = "exact: log records that carry this trace's id, each placed on the span whose id it carries"
 	}
 	if opts.Metrics {
-		f.Joins[SignalMetrics] = "associated, not proven: series saved for the same service, namespace and pod around the trace's time; a metric sample carries no trace id"
+		f.Joins[SignalMetrics] = "associated, not proven: series saved for the same service, namespace and pod; each resource carries them over the trace's time and each span the points inside its own time (plus span_pad either side); a metric sample carries no trace id"
 	}
 	window := TimeRange{From: tr.Start.Add(-opts.Pad), To: tr.End.Add(opts.Pad)}
 	if !window.From.Before(window.To) {
@@ -208,7 +222,50 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if opts.Metrics && f.Sources[SignalMetrics] == SourceOK {
+		if cut := attachSpanMetrics(f, opts.SpanPad); cut {
+			f.Warnings = append(f.Warnings, fmt.Sprintf("metrics: spans carry more than %d points between them; later spans keep each series' summary but not its points", maxSpanPoints))
+		}
+	}
 	return f, nil
+}
+
+// attachSpanMetrics gives each span the part of its resource's series that falls inside the span's own time widened by
+// pad either side. It reads nothing more from the store: the resource's series, already fetched over the whole trace,
+// are cut. A series with no point in a span's window is left off that span. It reports whether the point budget ran out.
+func attachSpanMetrics(f *Fused, pad time.Duration) (budgetHit bool) {
+	byKey := make(map[string]*Resource, len(f.Resources))
+	for _, r := range f.Resources {
+		byKey[r.Key] = r
+	}
+	budget := maxSpanPoints
+	for _, sp := range f.Spans {
+		r := byKey[sp.Resource]
+		if r == nil {
+			continue
+		}
+		from, to := float64(sp.Start.Add(-pad).UnixNano())/1e9, float64(sp.End.Add(pad).UnixNano())/1e9
+		for _, m := range r.Metrics {
+			var in []Point
+			for _, p := range m.Points {
+				if p[0] >= from && p[0] <= to {
+					in = append(in, p)
+				}
+			}
+			if len(in) == 0 {
+				continue
+			}
+			cut := MetricSeries{Name: m.Name, Labels: m.Labels, Points: in}
+			cut.summarise()
+			if len(in) > budget {
+				cut.Points, budgetHit = nil, true
+			} else {
+				budget -= len(in)
+			}
+			sp.Metrics = append(sp.Metrics, cut)
+		}
+	}
+	return budgetHit
 }
 
 // attachLogs puts each line on the span it names and the rest in f.Logs.Unmatched.

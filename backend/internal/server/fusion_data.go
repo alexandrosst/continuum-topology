@@ -669,7 +669,12 @@ func (a *Admin) fusionTrace(w http.ResponseWriter, r *http.Request, c *fusionapi
 		a.fusionErr(w, r, err)
 		return
 	}
-	opts.Pad, opts.MetricRegex = pad, q.Get("metric")
+	spanPad, err := fusionapi.DurationParam(q.Get("span_pad"))
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	opts.Pad, opts.SpanPad, opts.MetricRegex = pad, spanPad, q.Get("metric")
 	for _, p := range []struct {
 		key string
 		dst *int

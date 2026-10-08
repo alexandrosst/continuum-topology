@@ -43,6 +43,10 @@ type Span struct {
 	Events        []SpanEvent    `json:"events,omitempty"`
 	// Logs are the log lines saved with this span's id (filled in by a fused read).
 	Logs []LogEntry `json:"logs,omitempty"`
+	// Metrics are the points of the series saved for this span's resource that fall inside the span's own time, plus a
+	// margin either side (a fused read; see FuseOptions.SpanPad). Associated by service, namespace and pod and by time,
+	// not proven: a metric sample carries no trace or span id.
+	Metrics []MetricSeries `json:"metrics,omitempty"`
 }
 
 // Resource is what produced spans: a service in a pod in a namespace of a cluster. Metrics are the series saved for

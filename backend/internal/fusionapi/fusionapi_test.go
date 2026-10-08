@@ -761,3 +761,94 @@ func TestHeadMaxTimeIsTheNewestStoredSampleAndEmptyMeansNone(t *testing.T) {
 		t.Fatalf("a limited scope must not read it: %v", err)
 	}
 }
+
+// Each span carries the part of its resource's series that falls inside its own time, widened by span_pad. The cut is made
+// from what was already read for the resource: no extra store call, and a series with nothing in a span's window is left
+// off that span.
+func TestFuseTraceCutsEachResourcesSeriesToEachSpansOwnTime(t *testing.T) {
+	f := newFake(t)
+	f.tempo = func(w http.ResponseWriter, r *http.Request) { writeJSON(w, tempoTrace()) }
+	f.loki = func(w http.ResponseWriter, r *http.Request) { writeJSON(w, lokiResult()) }
+	base := float64(time.Date(2026, 10, 5, 11, 30, 0, 0, time.UTC).Unix())
+	f.prom = func(w http.ResponseWriter, r *http.Request) {
+		// Samples every 20 s from a minute before the trace to a minute after it, 1, 2, 3 ...
+		var vals [][]any
+		for i := 0; i <= 9; i++ {
+			vals = append(vals, []any{base - 60 + float64(i)*20, strconv.Itoa(i + 1)})
+		}
+		writeJSON(w, map[string]any{"status": "success", "data": map[string]any{"resultType": "matrix", "result": []any{
+			map[string]any{"metric": map[string]string{"__name__": "cpu", "k8s_namespace_name": "shop"}, "values": vals},
+		}}})
+	}
+	got, err := f.client().FuseTrace(context.Background(), AllSignals(), traceHex, FuseOptions{Metrics: true, SpanPad: 25 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Sources[SignalMetrics] != SourceOK {
+		t.Fatalf("sources = %v warnings = %v", got.Sources, got.Warnings)
+	}
+	var cart *Span
+	for _, sp := range got.Spans {
+		if sp.Name == "GET /cart" {
+			cart = sp
+		}
+	}
+	// The span lasts 90 ms from `base`; with 25 s either side its window is base-25 .. base+25, which holds the samples at
+	// base-20, base and base+20 (values 3, 4, 5).
+	if cart == nil || len(cart.Metrics) != 1 {
+		t.Fatalf("cart metrics = %+v", cart)
+	}
+	m := cart.Metrics[0]
+	if m.Name != "cpu" || len(m.Points) != 3 || m.Min != 3 || m.Max != 5 || m.Last != 5 || m.Avg != 4 {
+		t.Fatalf("the span's cut = %+v", m)
+	}
+	// The resource still has the whole series over the trace's window.
+	for _, r := range got.Resources {
+		if r.Key == cart.Resource && len(r.Metrics) == 0 {
+			t.Fatalf("the resource lost its series: %+v", r)
+		}
+	}
+	// Not asked for: no span carries metrics.
+	plain, err := f.client().FuseTrace(context.Background(), AllSignals(), traceHex, FuseOptions{Logs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sp := range plain.Spans {
+		if len(sp.Metrics) != 0 {
+			t.Fatalf("span %s has metrics that were not asked for", sp.Name)
+		}
+	}
+}
+
+// Spans of one resource that overlap repeat the same samples; past the budget a span keeps each series' summary and drops
+// its points, and the read says so.
+func TestSpanMetricsStayWithinAPointBudget(t *testing.T) {
+	r := &Resource{Key: "k", Metrics: []MetricSeries{{Name: "m", Points: func() []Point {
+		var p []Point
+		for i := 0; i < 100; i++ {
+			p = append(p, Point{float64(1000 + i), float64(i)})
+		}
+		return p
+	}()}}}
+	f := &Fused{Trace: &Trace{Resources: []*Resource{r}}}
+	start := time.Unix(1000, 0)
+	for i := 0; i < maxSpanPoints/100+5; i++ {
+		f.Spans = append(f.Spans, &Span{Resource: "k", Start: start, End: start.Add(100 * time.Second)})
+	}
+	if !attachSpanMetrics(f, 0) {
+		t.Fatal("the budget was not reported as reached")
+	}
+	points, summaryOnly := 0, 0
+	for _, sp := range f.Spans {
+		if len(sp.Metrics) != 1 || sp.Metrics[0].Max == 0 {
+			t.Fatalf("a span lost its summary: %+v", sp.Metrics)
+		}
+		points += len(sp.Metrics[0].Points)
+		if sp.Metrics[0].Points == nil {
+			summaryOnly++
+		}
+	}
+	if points > maxSpanPoints || summaryOnly == 0 {
+		t.Fatalf("points = %d (budget %d), summary-only spans = %d", points, maxSpanPoints, summaryOnly)
+	}
+}
