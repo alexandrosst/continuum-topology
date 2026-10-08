@@ -50,12 +50,12 @@ If that residual risk is more than you want, set `grafana.enabled=false` in the 
 
 The three stores authenticate nothing, so the network is the only thing between them and every other pod. `networkPolicy.enabled` is now **true by default** (it used to be off) and installs two policies:
 
-- **The stores** accept connections only from the other pods of the same release (the central operator, Grafana, and the Ikhnos server when it is installed together with FUSION) and from whatever `networkPolicy.allowedIngress` names. The default entry admits pods labelled `app.kubernetes.io/name: continuum-regional-operator` in any namespace, because a regional operator can be routed straight to a store.
+- **The stores** accept connections only from the other pods of the same release (the central operator, Grafana, and the Ikhnos server when it is installed together with FUSION) and from whatever `networkPolicy.allowedIngress` names, which is **nothing by default**. A regional operator sends to the central operator, which is in the release, so it needs no entry; no pod of another release or namespace reaches a store, whatever labels it carries (an earlier default admitted any pod labelled `app.kubernetes.io/name: continuum-regional-operator` in any namespace, and a label is something anyone who can create a pod can set).
 - **Grafana** accepts connections only from the same release: that is, from the server's proxy. Nothing else in the cluster can reach it, so nothing else can present that trusted header.
 
 The server chart's own egress policy already lets the server pod reach the stores' query ports (9090, 3100, 3200) and Grafana (3000).
 
-**Upgrading.** If something other than a regional operator wrote to a store directly (a hand-made collector, a test pod), it is now refused. Add it to `networkPolicy.allowedIngress` (the same shape as a NetworkPolicy `from` entry), or set `networkPolicy.enabled=false` and accept the old exposure. A cluster whose network plugin does not enforce NetworkPolicy ignores all of this, exactly as before.
+**Upgrading.** If something wrote to a store directly (a regional operator with an export route pointing at Prometheus, Loki or Tempo, a hand-made collector, a test pod), it is now refused. Name it in `networkPolicy.allowedIngress` (the same shape as a NetworkPolicy `from` entry), with its namespace and its pod label, for example `[{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: operators}}, podSelector: {matchLabels: {app.kubernetes.io/name: continuum-regional-operator}}}]`, or set `networkPolicy.enabled=false` and accept the exposure. A cluster whose network plugin does not enforce NetworkPolicy ignores all of this.
 
 ## Permissions the server needs
 

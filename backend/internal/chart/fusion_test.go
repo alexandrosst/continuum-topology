@@ -379,19 +379,19 @@ func TestFusionRefusesRetentionsTheStoresCannotApply(t *testing.T) {
 	}
 }
 
-// The stores authenticate nothing, so isolating them is on by default: the other pods of the release and the regional
-// operators may reach them, nobody else. Grafana, which trusts the server's say-so about who is signed in, gets a policy of
+// The stores authenticate nothing, so isolating them is on by default: only the other pods of the release may reach them,
+// whatever labels a pod elsewhere carries; an operator routed straight to a store is named in allowedIngress. Grafana, which trusts the server's say-so about who is signed in, gets a policy of
 // its own that only this release's pods pass - the regional operators do not.
-func TestFusionNetworkPolicyIsOnByDefaultAndAdmitsTheOperator(t *testing.T) {
+func TestFusionNetworkPolicyIsOnByDefaultAndAdmitsOnlyTheRelease(t *testing.T) {
 	r := fusionRender(t, "f")
 	p, ok := r.policies["f-fusion"]
 	if !ok {
 		t.Fatal("no NetworkPolicy by default")
 	}
 	from := p.Spec.Ingress[0].From
-	if len(from) != 2 || from[0].PodSelector == nil || from[1].PodSelector == nil || from[1].NamespaceSelector == nil ||
-		from[1].PodSelector.MatchLabels["app.kubernetes.io/name"] != "continuum-regional-operator" {
-		t.Errorf("default ingress sources = %+v, want the release's own pods and the regional operators", from)
+	if len(from) != 1 || from[0].PodSelector == nil || from[0].NamespaceSelector != nil ||
+		from[0].PodSelector.MatchLabels["app.kubernetes.io/instance"] != "f" {
+		t.Errorf("default ingress sources = %+v, want only the release's own pods (a label anyone can set must not admit a pod)", from)
 	}
 	g, ok := r.policies["f-fusion-grafana"]
 	if !ok {

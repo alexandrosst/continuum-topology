@@ -220,15 +220,15 @@ grafana:
 
 # Isolates the stores' pods. On by default: the stores authenticate nothing, so this is the only thing between them and
 # every other pod in the cluster. Allowed in: the other pods of this release (the central gateway, Grafana and, when
-# installed with the Ikhnos server, the server itself) and whatever allowedIngress names. The default lets the regional
-# operators through, matched by their chart's pod label, since one can be routed straight to a store. A cluster whose
-# network plugin does not enforce NetworkPolicy ignores this; nothing then restricts the stores but their being internal.
+# installed with the Ikhnos server, the server itself) and whatever allowedIngress names - nothing by default, so no pod of
+# another release or namespace reaches a store, whatever labels it carries. Regional operators send to the central gateway,
+# which is in this release; only one routed straight to a store (an export route pointing at Prometheus, Loki or Tempo)
+# needs an entry, and it should name the operator's own namespace. A cluster whose network plugin does not enforce
+# NetworkPolicy ignores this; nothing then restricts the stores but their being internal.
 networkPolicy:
   enabled: true
-  # [{namespaceSelector: {matchLabels: {...}}, podSelector: {matchLabels: {...}}}] - the same shape as a
-  # NetworkPolicy "from" entry. Replace it to tighten the default (to one namespace, say); [] allows only this release.
-  allowedIngress:
-    - namespaceSelector: {}
-      podSelector:
-        matchLabels:
-          app.kubernetes.io/name: continuum-regional-operator
+  # [{namespaceSelector: {matchLabels: {...}}, podSelector: {matchLabels: {...}}}] - the same shape as a NetworkPolicy
+  # "from" entry. For an operator routed straight to a store, name its namespace and its pod label, for example:
+  #   - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: operators}}
+  #     podSelector: {matchLabels: {app.kubernetes.io/name: continuum-regional-operator}}
+  allowedIngress: []

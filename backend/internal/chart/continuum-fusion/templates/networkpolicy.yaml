@@ -3,8 +3,8 @@
 #
 # One policy over the three stores of this release. Ingress only: a store's own egress needs nothing but its volume.
 # Allowed in: the other pods of this release (the central gateway, Grafana, and - because it is installed in the same
-# release - the Ikhnos server reading the shared API) and whatever allowedIngress names. The default allowedIngress is the
-# regional operators, which can be pointed straight at a store; they are matched by the chart's own pod label.
+# release - the Ikhnos server reading the shared API) and whatever allowedIngress names, which is nothing by default: a
+# regional operator sends to the central gateway, so only one routed straight to a store needs an entry.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
