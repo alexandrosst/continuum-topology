@@ -29,10 +29,17 @@ type Client struct {
 	// crowd the stores out for everyone else.
 	semOnce sync.Once
 	sem     chan struct{}
+	// bulkSem is the lane bulk reads (see WithBulk) pass through before the shared one, so they can never hold more than
+	// maxBulkUpstream of the maxUpstream slots and a single read always finds room.
+	bulkSem chan struct{}
 }
 
-// maxUpstream is the most store calls one Client has in flight at a time.
-const maxUpstream = 8
+const (
+	// maxUpstream is the most store calls one Client has in flight at a time.
+	maxUpstream = 8
+	// maxBulkUpstream is the most of them a bulk read may hold.
+	maxBulkUpstream = 5
+)
 
 const defaultMaxBytes = 16 << 20
 
@@ -69,7 +76,18 @@ func (c *Client) get(ctx context.Context, store, base, path string, q url.Values
 	if base == "" {
 		return errf(http.StatusServiceUnavailable, "%s is not configured on this server", store)
 	}
-	c.semOnce.Do(func() { c.sem = make(chan struct{}, maxUpstream) })
+	c.semOnce.Do(func() {
+		c.sem = make(chan struct{}, maxUpstream)
+		c.bulkSem = make(chan struct{}, maxBulkUpstream)
+	})
+	if isBulk(ctx) { // wait in the bulk lane first, so a queue of bulk calls never sits in the shared one
+		select {
+		case c.bulkSem <- struct{}{}:
+			defer func() { <-c.bulkSem }()
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	select {
 	case c.sem <- struct{}{}:
 		defer func() { <-c.sem }()

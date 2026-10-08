@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FUSION data API</title>
+<link rel="stylesheet" href="docs/app.css">
+</head>
+<body>
+<header>
+  <div class="brand"><h1 id="title">FUSION data API</h1><span id="version" class="chip"></span></div>
+  <form id="auth" autocomplete="off">
+    <label for="token">Access token</label>
+    <input id="token" type="password" placeholder="cnf_…  (leave empty to use your signed-in session)" spellcheck="false" autocomplete="off">
+    <button type="submit">Check</button>
+    <span id="who" class="who" aria-live="polite"></span>
+  </form>
+</header>
+<div class="layout">
+  <nav id="nav" aria-label="Routes"></nav>
+  <main>
+    <section id="intro"></section>
+    <section id="ops"></section>
+    <section id="schemas"><h2>Objects</h2><p class="muted">What the answers are made of.</p><div id="schemaList"></div></section>
+  </main>
+</div>
+<noscript><p>This page needs JavaScript. The description it shows is at <a href="openapi.json">openapi.json</a>.</p></noscript>
+<script src="docs/app.js"></script>
+</body>
+</html>

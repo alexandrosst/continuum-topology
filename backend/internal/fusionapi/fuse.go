@@ -19,6 +19,10 @@ const (
 	SourceNotAllowed   = "not allowed" // the token's scope does not include this signal
 	SourceUnavailable  = "unavailable" // the store could not be reached: FUSION off or starting
 	SourceError        = "error"
+
+	// The keys of Fused.Sources beyond the three signals, for the log reads that are not tied to a span.
+	SourceContextLogs = "contextLogs"
+	SourceSystemLogs  = "systemLogs"
 )
 
 // FuseOptions say what to join to a trace.
@@ -37,6 +41,50 @@ type FuseOptions struct {
 	// SpanPad widens each span's own time when its metrics are cut out of its resource's series (default 30 seconds).
 	// Samples arrive every 30 to 60 seconds, so a span that lasts milliseconds would otherwise often have none.
 	SpanPad time.Duration
+
+	// ContextLogs also reads, for each resource, the lines it wrote around the trace that carry no trace id (the
+	// context a failing request sat in). They sit on the resource. MaxContextLogs is the most per resource (default 50).
+	ContextLogs    bool
+	MaxContextLogs int
+	// SystemLogs also reads the lines of the system namespaces (SystemNamespaces, default kube-system) on the nodes the
+	// trace ran on, over the same window. They sit on the fused object. MaxSystemLogs is the most in all (default 100).
+	SystemLogs       bool
+	SystemNamespaces []string
+	MaxSystemLogs    int
+	// LogSeverity ("error" or "error,warn") and LogContains narrow every log read of this fused read.
+	LogSeverity string
+	LogContains string
+	// MetricViews says which series are read for a resource: the service's own, its pod's, its node's.
+	MetricViews MetricViews
+	// OmitAttributes and OmitEvents leave the span and resource attributes, or the span events, out of the answer.
+	OmitAttributes bool
+	OmitEvents     bool
+	// Spans keeps only the spans that match (the trace's own totals stay those of the whole trace).
+	Spans SpanFilter
+}
+
+// MetricViews picks which metric series a resource carries. None set means the default, App and Pod.
+type MetricViews struct{ App, Pod, Node bool }
+
+func (v MetricViews) orDefault() MetricViews {
+	if !v.App && !v.Pod && !v.Node {
+		return MetricViews{App: true, Pod: true}
+	}
+	return v
+}
+
+// SpanFilter narrows the spans a fused read returns. Every field is optional and combines with AND.
+type SpanFilter struct {
+	Service     string
+	Status      string // error | ok | unset
+	MinDuration time.Duration
+}
+
+func (f SpanFilter) active() bool { return f.Service != "" || f.Status != "" || f.MinDuration > 0 }
+
+func (f SpanFilter) keeps(sp *Span) bool {
+	return (f.Service == "" || sp.Service == f.Service) && (f.Status == "" || sp.Status == f.Status) &&
+		sp.DurationMs >= float64(f.MinDuration)/float64(time.Millisecond)
 }
 
 const (
@@ -48,10 +96,15 @@ const (
 	// maxSpanPoints is the most metric points all the spans of one fused read carry between them. Spans of one resource
 	// that overlap in time repeat the same samples, so a trace with thousands of spans would otherwise multiply the answer;
 	// past it a span keeps each series' min, max, average and last value but not its points.
-	maxSpanPoints    = 20000
-	defaultMaxSeries = 15
-	hardMaxSeries    = 100
-	fuseConcurrency  = 4
+	maxSpanPoints         = 20000
+	defaultMaxContextLogs = 50
+	hardMaxContextLogs    = 500
+	defaultMaxSystemLogs  = 100
+	hardMaxSystemLogs     = 1000
+	maxSystemNodes        = 5
+	defaultMaxSeries      = 15
+	hardMaxSeries         = 100
+	fuseConcurrency       = 4
 	// maxFusedResources is the most resources one fused read looks up metrics for; a trace with more says so.
 	maxFusedResources = 20
 )
@@ -84,6 +137,26 @@ func (o *FuseOptions) defaults() error {
 	if o.Points <= 0 {
 		o.Points = 60
 	}
+	if o.MaxContextLogs <= 0 {
+		o.MaxContextLogs = defaultMaxContextLogs
+	}
+	if o.MaxContextLogs > hardMaxContextLogs {
+		o.MaxContextLogs = hardMaxContextLogs
+	}
+	if o.MaxSystemLogs <= 0 {
+		o.MaxSystemLogs = defaultMaxSystemLogs
+	}
+	if o.MaxSystemLogs > hardMaxSystemLogs {
+		o.MaxSystemLogs = hardMaxSystemLogs
+	}
+	if len(o.SystemNamespaces) == 0 {
+		o.SystemNamespaces = []string{"kube-system"}
+	}
+	switch o.Spans.Status {
+	case "", "error", "ok", "unset":
+	default:
+		return badRequest("span_status must be error, ok or unset")
+	}
 	return nil
 }
 
@@ -95,6 +168,16 @@ type FusedLogs struct {
 	// Unmatched carries a trace id but no span id, or the id of a span this read does not have.
 	Unmatched []LogEntry `json:"unmatched,omitempty"`
 	Truncated bool       `json:"truncated,omitempty"`
+	// OnFilteredSpans counts lines that sit on spans span_* filters left out of the answer (they are in Total and Matched).
+	OnFilteredSpans int `json:"onFilteredSpans,omitempty"`
+}
+
+// SystemLogs are the lines of the system namespaces on the nodes a trace ran on.
+type SystemLogs struct {
+	Namespaces []string   `json:"namespaces"`
+	Nodes      []string   `json:"nodes"`
+	Entries    []LogEntry `json:"entries"`
+	Truncated  bool       `json:"truncated,omitempty"`
 }
 
 // Fused is a trace with the logs and metrics saved around it: each span carries the log lines written under its id,
@@ -102,8 +185,12 @@ type FusedLogs struct {
 // not be read is named in Sources and Warnings; the trace itself always comes back or the whole read fails.
 type Fused struct {
 	*Trace
-	Logs    FusedLogs         `json:"logs"`
-	Sources map[string]string `json:"sources"`
+	Logs FusedLogs `json:"logs"`
+	// SystemLogs is set when include=system_logs was asked for and the logs could be read.
+	SystemLogs *SystemLogs `json:"systemLogs,omitempty"`
+	// SpansOmitted counts spans the span_* filters left out; the trace's spanCount is that of the whole trace.
+	SpansOmitted int               `json:"spansOmitted,omitempty"`
+	Sources      map[string]string `json:"sources"`
 	// Joins says in words how each requested signal was tied to the trace, because the two are not alike: a log line
 	// carries the trace and span id, a metric sample carries neither.
 	Joins    map[string]string `json:"joins,omitempty"`
@@ -120,6 +207,12 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 			return nil, err
 		}
 	}
+	// A bad log filter is the caller's mistake, whatever the stores are doing: say so before reading anything.
+	if opts.Logs || opts.ContextLogs || opts.SystemLogs {
+		if _, err := (LogFilter{Severity: opts.LogSeverity, Contains: opts.LogContains}).logQL(s); err != nil {
+			return nil, err
+		}
+	}
 	tr, err := c.Trace(ctx, s, id)
 	if err != nil {
 		return nil, err
@@ -128,6 +221,14 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 	f.Joins = map[string]string{}
 	if opts.Logs {
 		f.Joins[SignalLogs] = "exact: log records that carry this trace's id, each placed on the span whose id it carries"
+	}
+	if opts.ContextLogs {
+		f.Sources[SourceContextLogs] = SourceNotRequested
+		f.Joins[SourceContextLogs] = "associated, not proven: lines with no trace id from the same service, namespace and pod, in the trace's window (padded by pad); on the resource, not on a span"
+	}
+	if opts.SystemLogs {
+		f.Sources[SourceSystemLogs] = SourceNotRequested
+		f.Joins[SourceSystemLogs] = "associated, not proven: lines of " + strings.Join(opts.SystemNamespaces, ", ") + " on the nodes the trace's pods ran on, in the trace's window (padded by pad)"
 	}
 	if opts.Metrics {
 		f.Joins[SignalMetrics] = "associated, not proven: series saved for the same service, namespace and pod; each resource carries them over the trace's time and each span the points inside its own time (plus span_pad either side); a metric sample carries no trace id"
@@ -142,6 +243,15 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 	}
 
 	var mu sync.Mutex
+	setSource := func(signal, state string) {
+		mu.Lock()
+		defer mu.Unlock()
+		// A source that already failed stays failed: later goroutines of the same signal only ever add to it.
+		if cur := f.Sources[signal]; cur == SourceError || cur == SourceUnavailable {
+			return
+		}
+		f.Sources[signal] = state
+	}
 	warn := func(signal string, err error) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -152,17 +262,35 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 		}
 		f.Warnings = append(f.Warnings, fmt.Sprintf("%s: %v", signal, err))
 	}
+	note := func(format string, a ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		f.Warnings = append(f.Warnings, fmt.Sprintf(format, a...))
+	}
 	var wg sync.WaitGroup
+
+	// The resources worth a lookup of their own: those with a service or a pod, at most maxFusedResources.
+	var looked []*Resource
+	for _, r := range tr.Resources {
+		if r.Service == "" && r.Pod == "" {
+			continue
+		}
+		if len(looked) == maxFusedResources {
+			note("the trace has more than %d resources; the rest have no metrics or context logs here", maxFusedResources)
+			break
+		}
+		looked = append(looked, r)
+	}
 
 	switch {
 	case !opts.Logs:
 	case !s.Allows(SignalLogs):
-		f.Sources[SignalLogs] = SourceNotAllowed
+		setSource(SignalLogs, SourceNotAllowed)
 	default:
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			lines, truncated, err := c.Logs(ctx, s, LogFilter{TraceID: tr.TraceID}, window, opts.MaxLogs)
+			lines, truncated, err := c.Logs(ctx, s, LogFilter{TraceID: tr.TraceID, Severity: opts.LogSeverity, Contains: opts.LogContains}, window, opts.MaxLogs)
 			if err != nil {
 				warn(SignalLogs, err)
 				return
@@ -175,38 +303,76 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 	}
 
 	switch {
-	case !opts.Metrics:
-	case !s.Allows(SignalMetrics):
-		mu.Lock() // the logs goroutine may already be writing Sources
-		f.Sources[SignalMetrics] = SourceNotAllowed
-		mu.Unlock()
+	case !opts.ContextLogs:
+	case !s.Allows(SignalLogs):
+		setSource(SourceContextLogs, SourceNotAllowed)
 	default:
-		mu.Lock()
-		f.Sources[SignalMetrics] = SourceOK
-		mu.Unlock()
-		step, err := ChooseStep(window, 0, opts.Points)
-		if err != nil {
-			wg.Wait() // the logs read, if started, must not outlive this call
-			return nil, err
-		}
-		sem := make(chan struct{}, fuseConcurrency)
-		looked := 0
-		for _, r := range tr.Resources {
+		setSource(SourceContextLogs, SourceOK)
+		for _, r := range looked {
 			r := r
-			if r.Service == "" && r.Pod == "" {
-				continue
-			}
-			if looked++; looked > maxFusedResources {
-				mu.Lock()
-				f.Warnings = append(f.Warnings, fmt.Sprintf("metrics: the trace has more than %d resources; the rest have no metrics here", maxFusedResources))
-				mu.Unlock()
-				break
-			}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				sem <- struct{}{}
-				defer func() { <-sem }()
+				lines, truncated, err := c.Logs(ctx, s, LogFilter{Service: r.Service, Namespace: r.Namespace, Pod: r.Pod, NoTrace: true,
+					Severity: opts.LogSeverity, Contains: opts.LogContains, Backward: true}, window, opts.MaxContextLogs)
+				if err != nil {
+					warn(SourceContextLogs, err)
+					return
+				}
+				reverseLogs(lines) // newest first out of the store; a resource's lines read oldest first
+				mu.Lock()
+				r.Logs, r.LogsTruncated = lines, truncated
+				mu.Unlock()
+			}()
+		}
+	}
+
+	switch {
+	case !opts.SystemLogs:
+	case !s.Allows(SignalLogs):
+		setSource(SourceSystemLogs, SourceNotAllowed)
+	default:
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sl, warns, err := c.systemLogs(ctx, s, tr, opts, window)
+			if err != nil {
+				warn(SourceSystemLogs, err)
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			f.Sources[SourceSystemLogs] = SourceOK
+			f.SystemLogs = sl
+			for _, w := range warns {
+				f.Warnings = append(f.Warnings, w)
+			}
+		}()
+	}
+
+	switch {
+	case !opts.Metrics:
+	case !s.Allows(SignalMetrics):
+		setSource(SignalMetrics, SourceNotAllowed)
+	default:
+		setSource(SignalMetrics, SourceOK)
+		step, err := ChooseStep(window, 0, opts.Points)
+		if err != nil {
+			wg.Wait() // the log reads, if started, must not outlive this call
+			return nil, err
+		}
+		sem := make(chan struct{}, fuseConcurrency)
+		for _, r := range looked {
+			r := r
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					return
+				}
 				series, truncated, err := c.resourceMetrics(ctx, s, r, opts, window, step)
 				if err != nil {
 					warn(SignalMetrics, err)
@@ -227,7 +393,108 @@ func (c *Client) FuseTrace(ctx context.Context, s Scope, id string, opts FuseOpt
 			f.Warnings = append(f.Warnings, fmt.Sprintf("metrics: spans carry more than %d points between them; later spans keep each series' summary but not its points", maxSpanPoints))
 		}
 	}
+	shape(f, opts)
 	return f, nil
+}
+
+// shape applies the options that only narrow the answer: the span filter and the attributes and events left out.
+func shape(f *Fused, opts FuseOptions) {
+	if opts.Spans.active() {
+		kept := f.Spans[:0:0]
+		for _, sp := range f.Spans {
+			if opts.Spans.keeps(sp) {
+				kept = append(kept, sp)
+				continue
+			}
+			f.SpansOmitted++
+			f.Logs.OnFilteredSpans += len(sp.Logs)
+		}
+		f.Spans = kept
+	}
+	for _, sp := range f.Spans {
+		if opts.OmitAttributes {
+			sp.Attributes = nil
+		}
+		if opts.OmitEvents {
+			sp.Events = nil
+		}
+	}
+	if opts.OmitAttributes {
+		for _, r := range f.Resources {
+			r.Attributes = nil
+		}
+	}
+}
+
+func reverseLogs(l []LogEntry) {
+	for i, j := 0, len(l)-1; i < j; i, j = i+1, j-1 {
+		l[i], l[j] = l[j], l[i]
+	}
+}
+
+// systemLogs reads the system namespaces' lines on the nodes the trace ran on (one read per cluster and node, at most
+// maxSystemNodes), newest MaxSystemLogs of them in all, oldest first.
+func (c *Client) systemLogs(ctx context.Context, s Scope, tr *Trace, opts FuseOptions, window TimeRange) (*SystemLogs, []string, error) {
+	type loc struct{ cluster, node string }
+	var locs []loc
+	seen := map[loc]bool{}
+	for _, r := range tr.Resources {
+		l := loc{r.Cluster, r.Node}
+		if r.Node != "" && !seen[l] {
+			seen[l] = true
+			locs = append(locs, l)
+		}
+	}
+	sl := &SystemLogs{Namespaces: opts.SystemNamespaces, Nodes: []string{}, Entries: []LogEntry{}}
+	var warns []string
+	visible := false
+	for _, ns := range opts.SystemNamespaces {
+		visible = visible || s.NamespaceVisible(ns)
+	}
+	if !visible {
+		return sl, []string{"system_logs: this token cannot read the system namespaces (" + strings.Join(opts.SystemNamespaces, ", ") + ")"}, nil
+	}
+	if len(locs) == 0 {
+		return sl, []string{"system_logs: the trace does not say which node its pods ran on"}, nil
+	}
+	if len(locs) > maxSystemNodes {
+		warns = append(warns, fmt.Sprintf("system_logs: the trace ran on %d nodes; the first %d are read", len(locs), maxSystemNodes))
+		locs = locs[:maxSystemNodes]
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var firstErr error
+	for _, l := range locs {
+		l := l
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			lines, trunc, err := c.Logs(ctx, s, LogFilter{Namespaces: opts.SystemNamespaces, Node: l.node, Cluster: l.cluster,
+				Severity: opts.LogSeverity, Contains: opts.LogContains, Backward: true}, window, opts.MaxSystemLogs)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				return
+			}
+			sl.Nodes = append(sl.Nodes, l.node)
+			sl.Entries = append(sl.Entries, lines...)
+			sl.Truncated = sl.Truncated || trunc
+		}()
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return nil, nil, firstErr
+	}
+	sort.Strings(sl.Nodes)
+	sort.SliceStable(sl.Entries, func(i, j int) bool { return sl.Entries[i].Time.After(sl.Entries[j].Time) })
+	if len(sl.Entries) > opts.MaxSystemLogs {
+		sl.Entries, sl.Truncated = sl.Entries[:opts.MaxSystemLogs], true
+	}
+	reverseLogs(sl.Entries)
+	return sl, warns, nil
 }
 
 // attachSpanMetrics gives each span the part of its resource's series that falls inside the span's own time widened by
@@ -289,11 +556,15 @@ func attachLogs(f *Fused, lines []LogEntry, truncated bool) {
 // and namespace, and what was reported about its pod (the infrastructure view, which usually carries no service name).
 func (c *Client) resourceMetrics(ctx context.Context, s Scope, r *Resource, opts FuseOptions, window TimeRange, step time.Duration) ([]MetricSeries, bool, error) {
 	var filters []MetricFilter
-	if r.Service != "" {
+	views := opts.MetricViews.orDefault()
+	if views.App && r.Service != "" {
 		filters = append(filters, MetricFilter{NameRegex: opts.MetricRegex, Service: r.Service, Namespace: r.Namespace})
 	}
-	if r.Pod != "" {
+	if views.Pod && r.Pod != "" {
 		filters = append(filters, MetricFilter{NameRegex: opts.MetricRegex, Pod: r.Pod, Namespace: r.Namespace})
+	}
+	if views.Node && r.Node != "" {
+		filters = append(filters, MetricFilter{NameRegex: opts.MetricRegex, Node: r.Node, Cluster: r.Cluster, NoPod: true})
 	}
 	var out []MetricSeries
 	seen := map[string]bool{}

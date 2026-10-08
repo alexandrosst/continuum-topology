@@ -49,6 +49,8 @@ type MetricFilter struct {
 	Pod       string `json:"pod,omitempty"`
 	Node      string `json:"node,omitempty"`
 	Cluster   string `json:"cluster,omitempty"`
+	// NoPod keeps only series that name no pod: with Node, what was reported about the node itself.
+	NoPod bool `json:"noPod,omitempty"`
 }
 
 // matchers builds the label matchers of a selector: the filter's own, then the Scope's, each as its own matcher so a
@@ -83,6 +85,9 @@ func (f MetricFilter) matchers(s Scope) ([]string, error) {
 			return nil, err
 		}
 		m = append(m, p.label+"="+quote(p.val))
+	}
+	if f.NoPod {
+		m = append(m, lblPod+`=""`)
 	}
 	if len(s.Namespaces) > 0 {
 		m = append(m, lblNamespace+"=~"+quote(regexAny(s.Namespaces)))

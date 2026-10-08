@@ -61,6 +61,9 @@ type Resource struct {
 	Attributes       map[string]any `json:"attributes,omitempty"`
 	Metrics          []MetricSeries `json:"metrics,omitempty"`
 	MetricsTruncated bool           `json:"metricsTruncated,omitempty"`
+	// Logs are lines this resource wrote around the trace that carry no trace id (include=context_logs).
+	Logs          []LogEntry `json:"logs,omitempty"`
+	LogsTruncated bool       `json:"logsTruncated,omitempty"`
 }
 
 // Trace is one trace as Tempo has it: its spans in start order, and the resources behind them.

@@ -58,14 +58,16 @@ All are `GET`, all take `from` and `to` (an RFC 3339 time, unix seconds, or `now
 | `/api/v1/fusion/metrics/names`, `/series`, `/range` | Metric names, series label sets, and series values over the range, filtered by `name`, `metric` (a regular expression over the name), `service`, `namespace`, `pod`, `node`, `cluster`. `/range` takes `step` and `limit`. |
 | `/api/v1/fusion/metrics/query`, `/query_range` | PromQL as written, answered in Prometheus' own shape. Unrestricted callers only. |
 | `/api/v1/fusion/logs` | Log lines, with `service`, `namespace`, `pod`, `cluster`, `trace_id`, `span_id`, `severity`, `contains`, `order=newest\|oldest`, `limit`. With `query=` it takes LogQL as written (unrestricted callers only). |
-| `/api/v1/fusion/traces` | A trace search: `service`, `namespace`, `cluster`, `name`, `status=error\|ok\|unset`, `min_duration`, `max_duration`, `limit`. With `q=` it takes TraceQL as written (unrestricted callers only). |
-| `/api/v1/fusion/traces/{id}` | One trace. With `include=logs,metrics` it is the fused object below. |
+| `/api/v1/fusion/traces` | A trace search: `service`, `namespace`, `cluster`, `name`, `status=error\|ok\|unset`, `min_duration`, `max_duration`, `limit`. With `q=` it takes TraceQL as written (unrestricted callers only). With `fused=true` every hit also comes back as a fused trace ([reading many](#reading-many-traces)). |
+| `/api/v1/fusion/traces/{id}` | One trace. With `fused=true` (or an `include` list) it is the fused object below. |
+| `POST /api/v1/fusion/traces/batch` | Up to 25 fused traces in one request ([reading many](#reading-many-traces)). |
+| `/api/v1/fusion/openapi.json`, `/api/v1/fusion/docs` | The OpenAPI description of all of the above, and a page that renders it and lets you try each call ([the API page](#the-api-page-and-the-openapi-description)). No credential needed: they describe the API, they read nothing. |
 
 ## The fused trace
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://ikhnos.example/api/v1/fusion/traces/0af7651916cd43dd8448eb211c80319c?include=logs,metrics"
+  "https://ikhnos.example/api/v1/fusion/traces/0af7651916cd43dd8448eb211c80319c?fused=true"
 ```
 
 The answer is the trace (`traceId`, `start`, `end`, `durationMs`, `services`, `spanCount`, `errorCount`, `roots`) with:
@@ -74,9 +76,28 @@ The answer is the trace (`traceId`, `start`, `end`, `durationMs`, `services`, `s
 - `resources`, one per service-in-a-pod, each with its `metrics`: the series saved for the same service and namespace (what the application itself reported) and for the same pod and namespace (what was reported about the pod), over the trace's time plus a margin, each as `points` of `[unix seconds, value]` and a `min`, `max`, `avg`, `last`.
 - `logs`: how many lines were found (`total`), how many landed on a span (`matched`), and `unmatched`, the lines that carry the trace id but no span id or the id of a span this read does not have.
 - `joins`: in words, how each requested signal was tied to the trace. Logs are `exact` (the record carries the ids); metrics are `associated, not proven`.
-- `sources`: for each of `traces`, `logs` and `metrics`, one of `ok`, `not requested`, `not allowed` (the token's scope does not include it) or `unavailable` (the store could not be reached); `warnings` says why. **A store that is down does not fail the read**: the trace comes back and the missing part is named. Only a trace that cannot be read at all fails.
+- `sources`: for each of `traces`, `logs` and `metrics` (and `contextLogs` and `systemLogs` when asked for), one of `ok`, `not requested`, `not allowed` (the token's scope does not include it), `unavailable` (the store could not be reached) or `error`; `warnings` says why. **A store that is down does not fail the read**: the trace comes back and the missing part is named. Only a trace that cannot be read at all fails.
 
 `pad` (the margin around the trace, default two minutes, at most an hour), `span_pad` (the margin around each span when its metrics are cut out, default 30 seconds, at most an hour: samples arrive every 30 to 60 seconds, so a span of a few milliseconds would often have none without it), `metric` (a regular expression over metric names, default all), `max_logs` (default 500, at most 2000), `max_series` (per resource, default 15, at most 100) and `points` (per series, default 60) shape it. A trace returns at most 5000 spans, and says when it had more. The spans of one fused read carry at most 20000 metric points between them (overlapping spans of one pod repeat the same samples); past that a span keeps each series' summary but not its points, and `warnings` says so. The per-span metrics are cut from what was already read for the resource, so they cost no extra store call.
+
+### Choosing what it carries
+
+`fused=true` alone is `include=logs,metrics`. Giving `include` (a comma-separated list) says exactly what to join, and implies `fused=true`; `fused=false` with an `include` is refused rather than guessed at.
+
+| `include` | What is joined | How |
+| --- | --- | --- |
+| `logs` | The lines that carry the trace's id, each on the span whose id it carries. | Exact. |
+| `context_logs` | For each resource, the lines it wrote around the trace that carry **no** trace id (the connection pool warning that came just before the failure). On `resources[].logs`, oldest first, `max_context_logs` per resource (default 50). | Associated: same service, namespace and pod, in the trace's window. |
+| `system_logs` | The lines of the system namespaces (`system_namespaces`, default `kube-system`) on the nodes the trace's pods ran on, in `systemLogs`, `max_system_logs` of them (default 100). One read per node, at most five nodes. | Associated: same node, in the trace's window. A token whose namespaces exclude the system ones gets a warning, not a read. |
+| `metrics` | The series of each resource, and of each span's own time. | Associated. `metric_scope` says whose: `app` (what the service reported), `pod` (what was reported about its pod) and `node` (series that name the node and no pod). Default `app,pod`. |
+| `all`, `none` | Everything above; or nothing, which is the trace alone, shaped by the options below. | |
+
+The same options narrow or shape the answer:
+
+- `log_severity` (`error` or `error,warn`) and `log_contains` apply to every log read of the fused object, so a read for failures can leave the `info` lines out.
+- `span_service`, `span_status` and `span_min_duration` return only the spans that match, for a long trace of which you want the failing part. The trace's own totals (`spanCount`, `errorCount`) stay those of the whole trace, `spansOmitted` says how many were left out, and `logs.onFilteredSpans` how many of the matched lines sat on them.
+- `omit=attributes,events` leaves the span and resource attributes, or the span events, out; most of a large trace's bytes are these.
+- `pad`, `span_pad`, `metric`, `max_logs`, `max_series` and `points` are as below.
 
 ### What the join rests on
 
@@ -87,9 +108,34 @@ The join is only as good as the instrumentation behind it, and it is worth sayin
 - **An application is a `service.name`**, as the telemetry reports it. It is not (yet) the same thing as an application in the topology graph, which is built from discovery; matching the two is a separate piece of work.
 - **Clocks.** Spans, log lines and samples are stamped by the nodes that produced them. The margin around the trace absorbs ordinary skew, not a node whose clock is minutes out.
 
+## Reading many traces
+
+```bash
+# the ten newest failing traces of one service, each in full
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://ikhnos.example/api/v1/fusion/traces?service=checkout&status=error&fused=true&limit=10&include=logs&omit=events"
+
+# these specific traces, with the options stated once for all of them
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"ids": ["0af7651916cd43dd8448eb211c80319c", "..."], "include": ["logs", "context_logs"], "log_severity": "error,warn"}' \
+  "https://ikhnos.example/api/v1/fusion/traces/batch"
+```
+
+`GET /traces?fused=true` searches and then reads every hit as a fused trace (a smaller page: 10 by default, at most 25). `POST /traces/batch` takes up to 25 `ids` and every fused option in the JSON body (lists as arrays); options given in the query string are defaults the body overrides. Both answer `{"results": [...], "summary": {requested, ok, failed}}` with the results in the order asked (the search also returns its `traces`). Each result has its own `status`: one trace that is missing, malformed or hidden from the token does not fail the others.
+
+**Streaming.** With `stream=true` (or `Accept: application/x-ndjson`) the answer is newline-delimited JSON, flushed as it goes: for a search first a line with the hits, then one `{"type": "result", ...}` line per trace *as soon as it is read*, in the order they finish, then `{"type": "summary", ...}`. A caller can start on the first trace while the rest are still being read, and if the 30 seconds run out it has lost only the traces not yet done.
+
+**Why it does not block anyone.** Three limits work together. One request reads at most three traces at once. Every store call a bulk read makes waits in a bulk lane of five of the server's eight store-call slots before it takes one, so any number of bulk requests together leave three slots free and a single read never queues behind them. And a bulk read of *n* traces costs *n* reads against the caller's rate limit (600 a minute), so it cannot be used to go round it. When the 30 seconds end, the traces not yet started come back with status `504` and a message, instead of the request failing as a whole.
+
+## The API page and the OpenAPI description
+
+`/api/v1/fusion/openapi.json` is an OpenAPI 3.0 description of every route, parameter and answer, and `/api/v1/fusion/docs` is a page built from it: the routes grouped, each with a form for its parameters (checkboxes for `include`, `omit` and `metric_scope`), a field for your token (kept for the browser session only; leave it empty to use your signed-in session), a Send button that calls the real API and shows the status, time and size, a *Copy as curl*, and, for `stream=true`, each line as it arrives with the time it arrived at. It also shows the shape of each object (the fused trace, a span, a resource, a log entry). The page is served with a policy that lets it run only its own script and call this server; it loads nothing from anywhere else.
+
+The description is generated from the same table the router is built from, so a route cannot exist without being described, and a test checks that every query parameter the handlers read is described and that every route is served. Point a client generator at `openapi.json` to get a typed client.
+
 ## Limits and errors
 
-A store answer larger than 16 MiB is refused (narrow the range or the filters). A request takes at most 30 seconds. The server keeps at most 8 calls to the stores in flight at once, across all callers. A fused read looks metrics up for at most 20 resources of a trace, and clamps the window it searches to 31 days; either is reported in the read's `warnings`. When a store itself fails, the caller is told which store and the status, not the store's own error text. Failures use the usual statuses:
+A store answer larger than 16 MiB is refused (narrow the range or the filters). A request takes at most 30 seconds. The server keeps at most 8 calls to the stores in flight at once, across all callers, and bulk reads no more than 5 of them. A fused read looks metrics up for at most 20 resources of a trace, and clamps the window it searches to 31 days; either is reported in the read's `warnings`. When a store itself fails, the caller is told which store and the status, not the store's own error text. Failures use the usual statuses:
 
 | Status | Meaning |
 | --- | --- |
@@ -104,4 +150,4 @@ A store answer larger than 16 MiB is refused (narrow the range or the filters). 
 
 ## Not in this release
 
-There is no streaming or push: a caller polls. There is no write path of any kind through this API (FUSION is filled by the central operator and nothing else). Token scopes name namespaces and clusters, not individual services or label sets. A limited token's application list is a sample, not a census: for logs it comes from the most recent log lines (Loki cannot filter a label-value call by structured metadata), and for traces from the services of its 200 most recent traces (Tempo's tag-values call does not promise to honour a scope), so a quiet service can be missing from it.
+There is no push: a caller polls (a bulk read can stream its results, but each request is still a request). There is no write path of any kind through this API (FUSION is filled by the central operator and nothing else). Token scopes name namespaces and clusters, not individual services or label sets. A limited token's application list is a sample, not a census: for logs it comes from the most recent log lines (Loki cannot filter a label-value call by structured metadata), and for traces from the services of its 200 most recent traces (Tempo's tag-values call does not promise to honour a scope), so a quiet service can be missing from it.

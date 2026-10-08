@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -389,23 +391,13 @@ func (a *Admin) fusionErr(w http.ResponseWriter, r *http.Request, err error) {
 	}
 }
 
+// registerFusionData mounts the data API from the one table that also describes it (fusion_ops.go), so a route cannot
+// exist without being documented.
 func (a *Admin) registerFusionData(api *http.ServeMux) {
-	const p = "/api/v1/fusion"
-	for pattern, h := range map[string]fusionHandler{
-		"GET " + p + "/status":              a.fusionStatus,
-		"GET " + p + "/applications":        a.fusionApplications,
-		"GET " + p + "/applications/{name}": a.fusionApplication,
-		"GET " + p + "/metrics/names":       a.fusionMetricNames,
-		"GET " + p + "/metrics/series":      a.fusionMetricSeries,
-		"GET " + p + "/metrics/range":       a.fusionMetricRange,
-		"GET " + p + "/metrics/query":       a.fusionMetricRaw("query"),
-		"GET " + p + "/metrics/query_range": a.fusionMetricRaw("query_range"),
-		"GET " + p + "/logs":                a.fusionLogs,
-		"GET " + p + "/traces":              a.fusionTraces,
-		"GET " + p + "/traces/{id}":         a.fusionTrace,
-	} {
-		api.Handle(pattern, a.fusionData(h))
+	for _, op := range fusionOps(a) {
+		api.Handle(op.Method+" "+fusionAPIPath+op.Path, a.fusionData(op.Handler))
 	}
+	a.registerFusionDocs(api)
 }
 
 func (a *Admin) fusionStatus(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
@@ -606,7 +598,21 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 		a.fusionErr(w, r, err)
 		return
 	}
-	limit, err := fusionapi.Limit(q.Get("limit"), 20, 100)
+	opts, fused, err := fusionapi.ParseFuseParams(q)
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	stream, err := wantsStream(r)
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	def, max := 20, 100
+	if fused { // each hit is read in full, so a fused search is a smaller page
+		def, max = 10, fusionapi.MaxBatch
+	}
+	limit, err := fusionapi.Limit(q.Get("limit"), def, max)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
@@ -633,27 +639,33 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 	if traces == nil {
 		traces = []fusionapi.TraceSummary{}
 	}
-	writeJSON(w, 200, map[string]any{"traces": traces})
+	if !fused {
+		writeJSON(w, 200, map[string]any{"traces": traces})
+		return
+	}
+	ids := make([]string, len(traces))
+	for i, t := range traces {
+		ids[i] = t.TraceID
+	}
+	if len(ids) > 0 && !a.fusionBulkAllowed(w, who, len(ids)) {
+		return
+	}
+	if stream {
+		a.streamBulk(w, r, c, who, ids, opts, map[string]any{"type": "traces", "traces": traces})
+		return
+	}
+	items := c.FuseMany(r.Context(), who.Scope, ids, opts, nil)
+	writeJSON(w, 200, map[string]any{"traces": traces, "results": nonNilItems(items), "summary": fusionapi.Summarise(items)})
 }
 
-// fusionTrace is one trace; with include=logs,metrics it is the fused object, each span carrying its log lines and
-// each resource its metric series.
+// fusionTrace is one trace; with fused=true (or an include list) it is the fused object: each span carrying its log
+// lines and each resource its metric series, and whatever else the options ask for.
 func (a *Admin) fusionTrace(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
-	q := r.URL.Query()
 	id := r.PathValue("id")
-	var opts fusionapi.FuseOptions
-	fused := false
-	for _, part := range strings.Split(q.Get("include"), ",") {
-		switch strings.TrimSpace(part) {
-		case "":
-		case "logs":
-			opts.Logs, fused = true, true
-		case "metrics":
-			opts.Metrics, fused = true, true
-		default:
-			a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "include takes logs and/or metrics"})
-			return
-		}
+	opts, fused, err := fusionapi.ParseFuseParams(r.URL.Query())
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
 	}
 	if !fused {
 		tr, err := c.Trace(r.Context(), who.Scope, id)
@@ -664,35 +676,163 @@ func (a *Admin) fusionTrace(w http.ResponseWriter, r *http.Request, c *fusionapi
 		writeJSON(w, 200, tr)
 		return
 	}
-	pad, err := fusionapi.DurationParam(q.Get("pad"))
-	if err != nil {
-		a.fusionErr(w, r, err)
-		return
-	}
-	spanPad, err := fusionapi.DurationParam(q.Get("span_pad"))
-	if err != nil {
-		a.fusionErr(w, r, err)
-		return
-	}
-	opts.Pad, opts.SpanPad, opts.MetricRegex = pad, spanPad, q.Get("metric")
-	for _, p := range []struct {
-		key string
-		dst *int
-		max int
-	}{{"max_logs", &opts.MaxLogs, 2000}, {"max_series", &opts.MaxSeries, 100}, {"points", &opts.Points, 500}} {
-		if v := q.Get(p.key); v != "" {
-			n, err := fusionapi.Limit(v, 0, p.max)
-			if err != nil {
-				a.fusionErr(w, r, err)
-				return
-			}
-			*p.dst = n
-		}
-	}
 	f, err := c.FuseTrace(r.Context(), who.Scope, id, opts)
 	if err != nil {
 		a.fusionErr(w, r, err)
 		return
 	}
 	writeJSON(w, 200, f)
+}
+
+// maxBatchBody bounds a batch request: 25 ids and some options are far smaller.
+const maxBatchBody = 64 << 10
+
+// fusionTraceBatch reads many traces in one request. The body names the ids and any option the single read takes
+// (include, pad, metric, omit, span_status ...), so a script states once what it wants from all of them.
+func (a *Admin) fusionTraceBatch(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBatchBody)
+	dec := json.NewDecoder(r.Body)
+	dec.UseNumber()
+	var body map[string]any
+	if err := dec.Decode(&body); err != nil {
+		a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "the body must be a JSON object such as {\"ids\": [\"<trace id>\"], \"include\": [\"logs\", \"metrics\"]}"})
+		return
+	}
+	q := r.URL.Query() // options given in the query string are defaults the body overrides
+	for k, v := range body {
+		if k != "ids" && k != "stream" && !slices.Contains(fusionapi.FuseParamNames, k) {
+			a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("unknown field %q", printable(k, 40))})
+			return
+		}
+		if k == "fused" {
+			a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "a batch is always fused; use include=none for the traces alone"})
+			return
+		}
+		str, err := paramString(v)
+		if err != nil {
+			a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("%s: %v", k, err)})
+			return
+		}
+		q.Set(k, str)
+	}
+	if q.Has("fused") {
+		a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "a batch is always fused; use include=none for the traces alone"})
+		return
+	}
+	ids, err := fusionapi.NormalizeIDs(strings.Split(q.Get("ids"), ","))
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	opts, err := fusionapi.ParseFuseOptions(q)
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	stream := false
+	if v := q.Get("stream"); v != "" {
+		if stream, err = fusionapi.ParseBool("stream", v, false); err != nil {
+			a.fusionErr(w, r, err)
+			return
+		}
+	} else if stream, err = wantsStream(r); err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	if !a.fusionBulkAllowed(w, who, len(ids)) {
+		return
+	}
+	if stream {
+		a.streamBulk(w, r, c, who, ids, opts, nil)
+		return
+	}
+	items := c.FuseMany(r.Context(), who.Scope, ids, opts, nil)
+	writeJSON(w, 200, map[string]any{"results": nonNilItems(items), "summary": fusionapi.Summarise(items)})
+}
+
+// paramString turns a JSON value from a batch body into the string the shared parser reads: lists are comma-joined.
+func paramString(v any) (string, error) {
+	switch x := v.(type) {
+	case string:
+		return x, nil
+	case bool:
+		return strconv.FormatBool(x), nil
+	case json.Number:
+		return x.String(), nil
+	case []any:
+		parts := make([]string, len(x))
+		for i, e := range x {
+			s, ok := e.(string)
+			if !ok {
+				return "", errors.New("a list holds only strings")
+			}
+			parts[i] = s
+		}
+		return strings.Join(parts, ","), nil
+	case nil:
+		return "", nil
+	}
+	return "", errors.New("must be a string, number, boolean or list of strings")
+}
+
+func nonNilItems(items []fusionapi.BulkItem) []fusionapi.BulkItem {
+	if items == nil {
+		return []fusionapi.BulkItem{}
+	}
+	return items
+}
+
+// fusionBulkAllowed charges the caller's rate limit for the traces beyond the first: reading 25 is 25 reads, whatever
+// the number of requests.
+func (a *Admin) fusionBulkAllowed(w http.ResponseWriter, who fusionCaller, n int) bool {
+	for i := 1; i < n; i++ {
+		if !a.fusionRL.Allow(who.Kind + "|" + who.ID) {
+			w.Header().Set("Retry-After", "5")
+			writeErr(w, http.StatusTooManyRequests, "too many requests, slow down; read fewer traces at a time")
+			return false
+		}
+	}
+	return true
+}
+
+// wantsStream says whether the caller asked for NDJSON: stream=true, or an Accept header that names it.
+func wantsStream(r *http.Request) (bool, error) {
+	if v := r.URL.Query().Get("stream"); v != "" {
+		return fusionapi.ParseBool("stream", v, false)
+	}
+	return strings.Contains(r.Header.Get("Accept"), "application/x-ndjson"), nil
+}
+
+// streamBulk answers a bulk read as newline-delimited JSON: an optional first line (the search hits), then one line per
+// trace as soon as it is read - in the order they finish, not the order asked - and a last line that counts them. A
+// caller can start on the first trace while the rest are still being read, and a deadline costs it only the traces not
+// yet done. The status is 200 once the first line is out; each line carries its own status.
+func (a *Admin) streamBulk(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller, ids []string, opts fusionapi.FuseOptions, head any) {
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("X-Accel-Buffering", "no") // a reverse proxy must pass lines on as they come
+	w.WriteHeader(http.StatusOK)
+	enc := json.NewEncoder(w)
+	fl, _ := w.(http.Flusher)
+	flush := func() {
+		if fl != nil {
+			fl.Flush()
+		}
+	}
+	if head != nil {
+		_ = enc.Encode(head)
+		flush()
+	}
+	type line struct {
+		Type string `json:"type"`
+		fusionapi.BulkItem
+	}
+	items := c.FuseMany(r.Context(), who.Scope, ids, opts, func(it fusionapi.BulkItem) { // (called one at a time)
+		_ = enc.Encode(line{Type: "result", BulkItem: it})
+		flush()
+	})
+	_ = enc.Encode(struct {
+		Type string `json:"type"`
+		fusionapi.BulkSummary
+	}{"summary", fusionapi.Summarise(items)})
+	flush()
 }
