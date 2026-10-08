@@ -1145,6 +1145,11 @@ func (a *Admin) listAPITokens(w http.ResponseWriter, r *http.Request) {
 // createAPIToken is the one response that ever carries the raw secret: the caller must save it now,
 // exactly like a freshly created invitation link.
 func (a *Admin) createAPIToken(w http.ResponseWriter, r *http.Request) {
+	// A token that could mint more tokens would let one stolen secret outlive its own revocation.
+	if _, ok := sessionCookie(r); !ok {
+		writeErr(w, http.StatusForbidden, "create a token from a signed-in browser session, not with another token")
+		return
+	}
 	var req struct {
 		Name string `json:"name"`
 	}

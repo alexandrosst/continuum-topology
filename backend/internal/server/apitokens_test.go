@@ -112,3 +112,38 @@ func TestAPITokenListingRequiresASession(t *testing.T) {
 		t.Fatalf("unauthenticated create: %d %s", r.Code, r.Body.String())
 	}
 }
+
+// A stolen personal token must not be able to mint copies of itself.
+func TestAPITokenCannotMintAnotherToken(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "jamie", RoleViewer)
+	secret := a.do("POST", "/api/v1/auth/tokens", map[string]string{"name": "first"}, withCookie(cookie)).json(t)["token"].(string)
+	bearer := withHeader("Authorization", "Bearer "+secret)
+	if r := a.do("GET", "/api/v1/auth/tokens", nil, bearer); r.Code != 200 {
+		t.Fatalf("a token lists its owner's tokens: %d %s", r.Code, r.Body.String())
+	}
+	if r := a.do("POST", "/api/v1/auth/tokens", map[string]string{"name": "copy"}, bearer); r.Code != 403 {
+		t.Fatalf("a token minted a token: %d %s", r.Code, r.Body.String())
+	}
+	if got := a.do("GET", "/api/v1/auth/tokens", nil, withCookie(cookie)).jsonArray(t); len(got) != 1 {
+		t.Fatalf("tokens after the refused copy: %v", got)
+	}
+}
+
+// Offline recovery ends the account's personal tokens along with its sessions (and it re-enables a disabled
+// account, so they must not wake up with it).
+func TestOfflineRecoveryRevokesPersonalTokens(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "jamie", RoleViewer)
+	secret := a.do("POST", "/api/v1/auth/tokens", map[string]string{"name": "ci"}, withCookie(cookie)).json(t)["token"].(string)
+	bearer := withHeader("Authorization", "Bearer "+secret)
+	if r := a.do("GET", "/api/v1/info", nil, bearer); r.Code != 200 {
+		t.Fatalf("the token before recovery: %d %s", r.Code, r.Body.String())
+	}
+	if _, err := a.base.RecoverPassword(a.ctx, "jamie"); err != nil {
+		t.Fatal(err)
+	}
+	if r := a.do("GET", "/api/v1/info", nil, bearer); r.Code != 401 {
+		t.Fatalf("the token after recovery: %d %s", r.Code, r.Body.String())
+	}
+}

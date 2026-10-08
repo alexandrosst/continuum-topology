@@ -1322,6 +1322,12 @@ func (c *Core) RecoverPassword(ctx context.Context, username string) (string, er
 		}
 		_ = c.Store.SetDisabled(ctx, u.ID, nil)
 		_ = c.Store.DeleteUserSessions(ctx, u.ID, nil)
+		// Recovery is what follows a suspected compromise (and it re-enables a disabled account), so a personal
+		// token minted before it must not come back to life with the account.
+		toks, _ := c.Store.ListAPITokens(ctx, u.ID)
+		for _, t := range toks {
+			_ = c.Store.RevokeAPIToken(ctx, u.ID, t.ID)
+		}
 	}
 	c.auditUser(ctx, u, "password-recovered", "server command line", "")
 	return pw, nil
