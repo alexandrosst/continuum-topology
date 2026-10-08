@@ -51,10 +51,10 @@ type AppInfoSeries struct {
 }
 
 // AppInfoSeriesOf lists the series for the groups: one per service name the telemetry of a member may carry (its name and
-// its aliases) in each namespace and cluster it runs in, sorted, without repeats and at most maxAppInfoSeries.
-func AppInfoSeriesOf(groups []AppGroup) []AppInfoSeries {
+// its aliases) in each namespace and cluster it runs in, sorted, without repeats and at most maxAppInfoSeries. truncated says
+// there were more, which are left out.
+func AppInfoSeriesOf(groups []AppGroup) (out []AppInfoSeries, truncated bool) {
 	seen := map[AppInfoSeries]bool{}
-	var out []AppInfoSeries
 	for _, g := range groups {
 		for _, m := range g.Members {
 			for _, n := range append([]string{m.Name}, m.Aliases...) {
@@ -83,9 +83,9 @@ func AppInfoSeriesOf(groups []AppGroup) []AppInfoSeries {
 		return a.Cluster < b.Cluster
 	})
 	if len(out) > maxAppInfoSeries {
-		out = out[:maxAppInfoSeries]
+		out, truncated = out[:maxAppInfoSeries], true
 	}
-	return out
+	return out, truncated
 }
 
 // EncodeAppInfo writes the series as an OTLP/HTTP metrics request body (protobuf), a gauge of value 1 stamped at. It is
@@ -142,29 +142,30 @@ func keyValue(k, v string) []byte {
 	return protowire.AppendBytes(kv, any)
 }
 
-// PushAppInfo writes the info series for the groups into Prometheus' OTLP receiver and reports how many series it sent.
-func (c *Client) PushAppInfo(ctx context.Context, groups []AppGroup) (int, error) {
+// PushAppInfo writes the info series for the groups into Prometheus' OTLP receiver and reports how many series it sent, and
+// whether it left some out (more than maxAppInfoSeries).
+func (c *Client) PushAppInfo(ctx context.Context, groups []AppGroup) (sent int, truncated bool, err error) {
 	if c.Prometheus == "" {
-		return 0, errf(http.StatusServiceUnavailable, "%s is not configured", storeProm)
+		return 0, false, errf(http.StatusServiceUnavailable, "%s is not configured", storeProm)
 	}
-	series := AppInfoSeriesOf(groups)
+	series, truncated := AppInfoSeriesOf(groups)
 	if len(series) == 0 {
-		return 0, nil // nothing to say; what was said before ages out
+		return 0, false, nil // nothing to say; what was said before ages out
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Prometheus+"/api/v1/otlp/v1/metrics", bytes.NewReader(EncodeAppInfo(series, c.now())))
 	if err != nil {
-		return 0, err
+		return 0, truncated, err
 	}
 	req.Header.Set("Content-Type", "application/x-protobuf")
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return 0, errf(http.StatusServiceUnavailable, "%s could not be reached: %v", storeProm, err)
+		return 0, truncated, errf(http.StatusServiceUnavailable, "%s could not be reached: %v", storeProm, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return 0, errf(http.StatusBadGateway, "%s refused the application series (%d): %s", storeProm, resp.StatusCode, upstreamMessage(body))
+		return 0, truncated, errf(http.StatusBadGateway, "%s refused the application series (%d): %s", storeProm, resp.StatusCode, upstreamMessage(body))
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
-	return len(series), nil
+	return len(series), truncated, nil
 }

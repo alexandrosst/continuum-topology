@@ -270,21 +270,21 @@ func TestTheApplicationSeriesAreWrittenOnlyWhileFusionRuns(t *testing.T) {
 	d.a.extras = appExtras{shopGroups()}
 	k := d.a.Fusion.Kube.(*fakeKube)
 	// FUSION off: nothing is written, and that is not an error
-	if n, err := d.a.PushApplicationInfo(context.Background()); n != 0 || err != nil || d.stores.count() != 0 {
+	if n, _, err := d.a.PushApplicationInfo(context.Background()); n != 0 || err != nil || d.stores.count() != 0 {
 		t.Fatalf("n=%d err=%v asked=%v", n, err, d.stores.asked)
 	}
 	for _, n := range fusionNames {
 		k.replicas[n] = 1
 	}
 	k.allReady()
-	n, err := d.a.PushApplicationInfo(context.Background())
+	n, _, err := d.a.PushApplicationInfo(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n != 4 || !d.stores.askedAbout("prom /api/v1/otlp/v1/metrics") {
 		t.Fatalf("n=%d asked=%v", n, d.stores.asked)
 	}
-	if n, err := (*Admin)(nil).PushApplicationInfo(context.Background()); n != 0 || err != nil {
+	if n, _, err := (*Admin)(nil).PushApplicationInfo(context.Background()); n != 0 || err != nil {
 		t.Fatal("no admin, no series")
 	}
 }

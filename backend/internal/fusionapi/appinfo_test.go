@@ -3,6 +3,7 @@ package fusionapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +24,7 @@ func infoGroups() []AppGroup {
 }
 
 func TestInfoSeriesAreOnePerServiceNameAndSorted(t *testing.T) {
-	got := AppInfoSeriesOf(infoGroups())
+	got, _ := AppInfoSeriesOf(infoGroups())
 	want := []AppInfoSeries{
 		{"Shop", "app-1", "cart", "shop", "cl-1"}, {"Shop", "app-1", "cart-app", "shop", "cl-1"}, {"Shop", "app-1", "web", "shop", ""},
 		{"Pay", "app-2", "pay", "pay", "cl-2"},
@@ -64,7 +65,7 @@ func readMsg(t *testing.T, b []byte) map[protowire.Number][][]byte {
 
 func TestTheEncodedRequestIsTheOTLPMetricShape(t *testing.T) {
 	at := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	req := readMsg(t, EncodeAppInfo(AppInfoSeriesOf(infoGroups()), at))
+	req := readMsg(t, EncodeAppInfo(mustSeries(infoGroups()), at))
 	rm := readMsg(t, req[1][0])
 	sm := readMsg(t, rm[2][0])
 	metric := readMsg(t, sm[2][0])
@@ -108,19 +109,19 @@ func TestPushSendsProtobufAndReportsRefusals(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &Client{Prometheus: srv.URL}
-	n, err := c.PushAppInfo(context.Background(), infoGroups())
+	n, _, err := c.PushAppInfo(context.Background(), infoGroups())
 	if err != nil || n != 4 || gotType != "application/x-protobuf" || gotPath != "/api/v1/otlp/v1/metrics" || gotLen == 0 {
 		t.Fatalf("%d %v %q %q %d", n, err, gotType, gotPath, gotLen)
 	}
 	gotLen = 0
-	if n, err := c.PushAppInfo(context.Background(), nil); n != 0 || err != nil || gotLen != 0 {
+	if n, _, err := c.PushAppInfo(context.Background(), nil); n != 0 || err != nil || gotLen != 0 {
 		t.Fatalf("nothing to say sends nothing: %d %v %d", n, err, gotLen)
 	}
 	status = 404
-	if _, err := c.PushAppInfo(context.Background(), infoGroups()); err == nil || statusOf(err) != http.StatusBadGateway {
+	if _, _, err := c.PushAppInfo(context.Background(), infoGroups()); err == nil || statusOf(err) != http.StatusBadGateway {
 		t.Fatalf("a refusal is reported: %v", err)
 	}
-	if _, err := (&Client{}).PushAppInfo(context.Background(), infoGroups()); !IsUnavailable(err) {
+	if _, _, err := (&Client{}).PushAppInfo(context.Background(), infoGroups()); !IsUnavailable(err) {
 		t.Fatalf("no Prometheus: %v", err)
 	}
 }
@@ -133,7 +134,7 @@ func TestInfoSeriesAreAcceptedByARealPrometheus(t *testing.T) {
 		t.Skip("INFO_LIVE_PROMETHEUS is not set")
 	}
 	c := &Client{Prometheus: base}
-	if n, err := c.PushAppInfo(context.Background(), infoGroups()); err != nil || n != 4 {
+	if n, _, err := c.PushAppInfo(context.Background(), infoGroups()); err != nil || n != 4 {
 		t.Fatalf("%d %v", n, err)
 	}
 	time.Sleep(time.Second)
@@ -169,12 +170,39 @@ func TestInfoSeriesAreAcceptedByARealPrometheus(t *testing.T) {
 // Ikhnos does not know is empty, never a wildcard.
 func TestMemberNamesOneServiceInOneNamespaceOfOneCluster(t *testing.T) {
 	got := map[string]bool{}
-	for _, s := range AppInfoSeriesOf(infoGroups()) {
+	for _, s := range mustSeries(infoGroups()) {
 		got[s.Member()] = true
 	}
 	for _, want := range []string{"cart/shop/cl-1", "cart-app/shop/cl-1", "web/shop/", "pay/pay/cl-2"} {
 		if !got[want] {
 			t.Errorf("no member %q in %v", want, got)
 		}
+	}
+}
+
+func mustSeries(groups []AppGroup) []AppInfoSeries {
+	s, _ := AppInfoSeriesOf(groups)
+	return s
+}
+
+// More series than one push carries are cut, and the cut is reported rather than silent.
+func TestAppInfoSaysWhenItLeftSeriesOut(t *testing.T) {
+	var members []AppMember
+	for i := 0; i < maxAppInfoSeries+1; i++ {
+		members = append(members, AppMember{Name: fmt.Sprintf("svc-%05d", i), Namespace: "shop", Cluster: "c1"})
+	}
+	g := []AppGroup{{ID: "a1", Name: "Shop", Members: members}}
+	series, cut := AppInfoSeriesOf(g)
+	if !cut || len(series) != maxAppInfoSeries {
+		t.Fatalf("%d series, truncated %v", len(series), cut)
+	}
+	if series, cut = AppInfoSeriesOf(g[:0]); cut || len(series) != 0 {
+		t.Fatalf("no groups: %d series, truncated %v", len(series), cut)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer srv.Close()
+	n, cut, err := (&Client{Prometheus: srv.URL}).PushAppInfo(context.Background(), g)
+	if err != nil || !cut || n != maxAppInfoSeries {
+		t.Fatalf("push: %d %v %v", n, cut, err)
 	}
 }
