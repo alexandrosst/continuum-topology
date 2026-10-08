@@ -241,6 +241,7 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/agents/{id}/approve", adminRole, a.approve)
 	route("POST "+o+"/agents/{id}/reject", adminRole, a.reject)
 	route("POST "+o+"/agents/{id}/revoke", adminRole, a.revoke)
+	// Narrowing an agent's tier or consent is an editor's; widening either is an administrator's, like approving (checked in the hub).
 	route("POST "+o+"/agents/{id}/tier", editorRole, a.setAgentTier)
 	route("POST "+o+"/agents/{id}/consent", editorRole, a.setAgentConsent)
 
@@ -275,9 +276,9 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/operators/{id}/revoke", adminRole, a.revokeOperator)
 	route("DELETE "+o+"/operators/{id}", adminRole, a.deleteOperator)
 
-	// A telemetry intent narrows what one agent's bundled local operator collects and where it exports
-	// to - the same kind of narrowing action as an agent's own tier/consent, so it takes editorRole rather
-	// than the adminRole a regional operator's receiver credential needs.
+	// A telemetry intent only declares what one agent's bundled local operator should collect and where to
+	// export it; the credentials and the install command come from /command below (adminRole) and the cluster's
+	// owner still has to run it, so declaring takes editorRole rather than the adminRole an operator needs.
 	route("GET "+o+"/telemetry-intents", editorRole, a.listTelemetryIntents)
 	route("POST "+o+"/telemetry-intents", editorRole, a.createTelemetryIntent)
 	route("GET "+o+"/telemetry-intents/{id}", editorRole, a.getTelemetryIntent)

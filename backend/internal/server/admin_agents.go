@@ -96,7 +96,7 @@ func (a *Admin) setAgentTier(w http.ResponseWriter, r *http.Request) {
 }
 
 // setAgentConsent replaces the overrides on an agent: the optional collectors it is asked to stop and the namespaces it is asked to
-// leave out. It can only reduce what is shared.
+// leave out. An editor may add to them; lifting one takes an administrator.
 func (a *Admin) setAgentConsent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PausedCollectors   []string `json:"pausedCollectors"`

@@ -222,10 +222,18 @@ func (h *Hub) ConsentDocFor(id string) *ConsentDoc {
 	return v.consentDoc()
 }
 
+// mayWiden reports whether the caller may grant an agent more than it has now (a higher tier, a pause or an exclusion
+// lifted). That is the administrator's decision, like approving it; an editor may only narrow. A context with no
+// signed-in caller (the server itself, a test) is trusted.
+func mayWiden(ctx context.Context) bool {
+	p, ok := ctx.Value(ctxPrincipal{}).(Principal)
+	return !ok || roleRank[p.Role] >= roleRank[RoleAdmin]
+}
+
 // SetAgentTier changes what a human approved for an agent that is already approved. Anything up to the ceiling the agent's
-// install has is allowed, narrower or wider than before (widening goes back up to what the owner installed, never past it);
-// a tier above the ceiling is refused with the exact command the cluster's owner has to run to raise it.
-// upgradeCmd builds that command for a tier.
+// install has is allowed, narrower or wider than before (widening goes back up to what the owner installed, never past it,
+// and takes an administrator); a tier above the ceiling is refused with the exact command the cluster's owner has to run to
+// raise it. upgradeCmd builds that command for a tier.
 func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int, upgradeCmd func(tier int) string) (store.Agent, error) {
 	a, err := h.C.agentInOrg(ctx, agentID)
 	if err != nil {
@@ -244,6 +252,9 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	}
 	if tier == a.AccessTier {
 		return a, nil
+	}
+	if tier > a.AccessTier && !mayWiden(ctx) {
+		return a, errf(KindForbidden, "raising an agent's access takes an administrator, as approving it did; narrowing it does not")
 	}
 	if tier > ImplementedTier {
 		return a, errf(KindInvalid, "access tier %d is not available in this release (the highest is %d)", tier, ImplementedTier)
@@ -281,7 +292,7 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	return a, nil
 }
 
-// SetConsent replaces an agent's overrides.
+// SetConsent replaces an agent's overrides. Lifting a pause or an exclusion widens what is shared, so it takes an administrator.
 func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent) (Consent, error) {
 	a, err := h.C.agentInOrg(ctx, agentID)
 	if err != nil {
@@ -295,6 +306,9 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 		return Consent{}, err
 	}
 	cur := h.consentOf(a.ID)
+	if consentNarrows(next, cur) && !mayWiden(ctx) { // cur has a pause or exclusion that next lifts
+		return Consent{}, errf(KindForbidden, "lifting a pause or an exclusion takes an administrator; adding one does not")
+	}
 	if strings.Join(cur.Paused, ",") == strings.Join(next.Paused, ",") && strings.Join(cur.Excluded, ",") == strings.Join(next.Excluded, ",") {
 		return cur, nil
 	}

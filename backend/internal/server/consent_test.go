@@ -44,6 +44,7 @@ func agentDoc(t *testing.T, a *adminRig, cookie, id string) AgentDoc {
 func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	a := newAdminRig(t)
 	_, editor := a.user(t, "edith", RoleEditor)
+	_, admin := a.user(t, "adam", RoleAdmin)
 	_, viewer := a.user(t, "vic", RoleViewer)
 	id, _, _ := a.approvedAgent(t, fp) // approved at 2, installed at 2
 
@@ -64,16 +65,22 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	if got, _ := a.st.GetAgent(a.ctx, id); got.AccessTier != 0 {
 		t.Fatalf("tier is %d after narrowing", got.AccessTier)
 	}
-	// Widening back up to what the install allows is allowed.
-	if r := tier(editor, 2); r.Code != 200 {
+	// Widening back up to what the install allows takes an administrator, as approving did.
+	if r := tier(editor, 2); r.Code != 403 {
+		t.Fatalf("an editor widened a tier: %d %s", r.Code, r.Body.String())
+	}
+	if got, _ := a.st.GetAgent(a.ctx, id); got.AccessTier != 0 {
+		t.Fatalf("the refused widening changed the tier to %d", got.AccessTier)
+	}
+	if r := tier(admin, 2); r.Code != 200 {
 		t.Fatalf("widen to the installed tier: %d %s", r.Code, r.Body.String())
 	}
 	evs, _ := a.st.ListAudit(a.ctx, "org-1", 50)
 	var narrowed, widened bool
 	for _, e := range evs {
-		if e.Action == "agent-tier-changed" && e.Actor == "edith" && e.TargetID == id {
-			narrowed = narrowed || strings.Contains(e.Detail, "access tier 2 (services) to 0 (registered only)")
-			widened = widened || strings.Contains(e.Detail, "access tier 0 (registered only) to 2 (services)")
+		if e.Action == "agent-tier-changed" && e.TargetID == id {
+			narrowed = narrowed || e.Actor == "edith" && strings.Contains(e.Detail, "access tier 2 (services) to 0 (registered only)")
+			widened = widened || e.Actor == "adam" && strings.Contains(e.Detail, "access tier 0 (registered only) to 2 (services)")
 		}
 	}
 	if !narrowed || !widened {
@@ -92,7 +99,7 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	if err := a.st.SetAccessTier(a.ctx, id, 1); err != nil {
 		t.Fatal(err)
 	}
-	r := tier(editor, 2)
+	r := tier(admin, 2)
 	if r.Code != 400 {
 		t.Fatalf("over the ceiling: %d %s", r.Code, r.Body.String())
 	}
@@ -109,7 +116,7 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	// A tier past MaxTier and one merely past ImplementedTier (3, already covered by "over the ceiling" above via
 	// InstalledTier=1) must read the same way: SetAgentTier used to have its own, differently-worded, differently
 	// numbered ceiling for anything above MaxTier, which drifted from the ImplementedTier message right below it.
-	r9 := tier(editor, 9)
+	r9 := tier(admin, 9)
 	if r9.Code != 400 {
 		t.Fatalf("tier 9: %d %s", r9.Code, r9.Body.String())
 	}
@@ -191,8 +198,14 @@ func TestNarrowingConsentDropsWhatTheServerAlreadyHolds(t *testing.T) {
 		t.Fatalf("after pausing the node probe the server still holds the machine id %q", mid)
 	}
 
-	// Widening again has nothing to drop, and does not bring back what was dropped: only the agent can say it again.
-	save(map[string]any{})
+	// Widening again takes an administrator. It has nothing to drop, and does not bring back what was dropped: only the agent can say it again.
+	if r := a.do("POST", "/api/v1/agents/"+id+"/consent", map[string]any{}, withCookie(editor)); r.Code != 403 {
+		t.Fatalf("an editor lifted a pause and an exclusion: %d %s", r.Code, r.Body.String())
+	}
+	_, admin := a.user(t, "adam", RoleAdmin)
+	if r := a.do("POST", "/api/v1/agents/"+id+"/consent", map[string]any{}, withCookie(admin)); r.Code != 200 {
+		t.Fatalf("%d %s", r.Code, r.Body.String())
+	}
 	if ns, _, _ := held(); strings.Join(ns, ",") != "batch" {
 		t.Fatalf("widening changed what is held: %v", ns)
 	}
@@ -927,6 +940,7 @@ func TestHelloNamespaceIsRecordedAndUsedInGeneratedCommands(t *testing.T) {
 	admin := &Admin{P: p, C: e.base, AgentAddr: "x:1", ChartRef: "chart"}
 	a := &adminRig{env: e, h: admin.Handler(), a: admin}
 	_, editor := a.user(t, "edith", RoleEditor)
+	_, adm := a.user(t, "adam", RoleAdmin)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -961,7 +975,7 @@ func TestHelloNamespaceIsRecordedAndUsedInGeneratedCommands(t *testing.T) {
 	}
 
 	// Widening back to the ceiling closes the gap: nothing left to harden.
-	if resp := a.do("POST", "/api/v1/agents/"+id+"/tier", map[string]any{"tier": 2}, withCookie(editor)); resp.Code != 200 {
+	if resp := a.do("POST", "/api/v1/agents/"+id+"/tier", map[string]any{"tier": 2}, withCookie(adm)); resp.Code != 200 {
 		t.Fatalf("widen: %d %s", resp.Code, resp.Body.String())
 	}
 	if polled = agentDoc(t, a, editor, id); polled.HardenHelm != "" {
