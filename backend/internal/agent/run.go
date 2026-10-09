@@ -126,7 +126,7 @@ type Config struct {
 	// Both are served on ProbeListen (empty: do not listen).
 	Flows       *flow.Pipeline
 	ProbeListen string
-	FlowWindow  time.Duration // how often observed traffic is sent up (default 60 s)
+	FlowWindow  time.Duration // how often observed traffic is sent up (default 15 s)
 
 	// Measure allows the agent to time TCP connections to the addresses the server names. Off by
 	// default: the agent otherwise never opens a connection the cluster did not already make itself.
@@ -145,7 +145,7 @@ type Config struct {
 
 	// ProbeInterval and FlowInterval are how often the node probe and the flow collectors were told to report (the chart's
 	// nodeProbe.interval and flowObserver.interval). The agent calls a collector silent after three of its own intervals
-	// without a word, so it needs to know them (0: the chart's defaults, 3 minutes and 30 seconds).
+	// without a word, so it needs to know them (0: the chart's defaults, 3 minutes and 10 seconds).
 	ProbeInterval, FlowInterval time.Duration
 
 	// CollectorStartupGrace overrides the flat startup floor diag.go's silent() gives a collector that has never
@@ -182,7 +182,7 @@ func Run(ctx context.Context, cfg Config) error {
 		cfg.Resync = 15 * time.Minute
 	}
 	if cfg.FlowWindow == 0 {
-		cfg.FlowWindow = 60 * time.Second
+		cfg.FlowWindow = 15 * time.Second
 	}
 	a := &runner{cfg: cfg, log: cfg.Log, root: ctx, started: time.Now(), probs: newProblemSet(), dg: newDiagState()}
 	if cfg.ExportHealth != nil {

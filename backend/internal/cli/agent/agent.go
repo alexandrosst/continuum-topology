@@ -60,7 +60,7 @@ func Main(args []string) int {
 	probeSecretFile := fs.String("probe-secret-file", cli.Env("CONTINUUM_PROBE_SECRET_FILE", ""), "file holding the secret shared with the node probes")
 	healthListen := fs.String("health-listen", cli.Env("CONTINUUM_HEALTH_LISTEN", ""), "address to serve /healthz (liveness) and /readyz (readiness) on, e.g. :8082 (empty: off)")
 	measureOn := fs.Bool("measure", cli.Env("CONTINUUM_MEASURE", "") == "true", "allow timing TCP connections to the addresses the server names (to learn how far away other places are); off by default")
-	flowWindow := fs.Duration("flow-window", 0, "development only: how often observed traffic is sent to the server (default 60s)")
+	flowWindow := fs.Duration("flow-window", envDuration("CONTINUUM_FLOW_WINDOW"), "how often observed traffic is sent to the server (the chart's flowObserver.window; default 15s)")
 	revokedHold := fs.Duration("revoked-hold", 0, "development only: how long a restarted agent whose identity was revoked waits before it exits with code 3 (default: a random 5 to 10 minutes; negative: do not wait)")
 	flowSecretFile := fs.String("flow-secret-file", cli.Env("CONTINUUM_FLOW_SECRET_FILE", ""), "file holding the secret shared with the node flow collectors (needs --probe-listen)")
 	rbacMode := fs.String("rbac-mode", cli.Env("CONTINUUM_RBAC_MODE", "cluster"), "how tier 2's installed RBAC was granted: cluster (one ClusterRole, default) or namespaced (a Role per namespace in --scope-namespaces instead). Must match the chart's rbac.mode; the chart sets this automatically")
@@ -68,7 +68,7 @@ func Main(args []string) int {
 	scopeExclude := fs.String("scope-exclude", cli.Env("CONTINUUM_SCOPE_EXCLUDE", ""), "never report these namespaces, comma separated")
 	scopeLabel := fs.String("scope-label", cli.Env("CONTINUUM_SCOPE_LABEL", ""), "report only namespaces matching this label selector, e.g. continuum.io/observe=true (only labels the agent keeps, such as continuum.io/*)")
 	probeEvery := fs.Duration("probe-interval", envDuration("CONTINUUM_PROBE_INTERVAL"), "how often the node probes were told to report (the chart's nodeProbe.interval); the agent calls them silent after three of these without a word (default 3m)")
-	flowEvery := fs.Duration("flow-interval", envDuration("CONTINUUM_FLOW_INTERVAL"), "how often the flow collectors were told to report (the chart's flowObserver.interval; default 30s)")
+	flowEvery := fs.Duration("flow-interval", envDuration("CONTINUUM_FLOW_INTERVAL"), "how often the flow collectors were told to report (the chart's flowObserver.interval; default 10s)")
 	measurePorts := fs.String("measure-allow-ports", cli.Env("CONTINUUM_MEASURE_ALLOW_PORTS", ""), "comma separated control-plane ports (etcd, kubelet, ...) that connection timing may use anyway; refused by default")
 	measureCIDRs := fs.String("measure-allow-cidrs", cli.Env("CONTINUUM_MEASURE_ALLOW_CIDRS", ""), "comma separated ranges in which connection timing may reach the API server's address anyway; refused by default")
 	if code, done := cli.Parse(fs, args); done {

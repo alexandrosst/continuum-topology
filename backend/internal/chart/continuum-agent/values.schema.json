@@ -488,6 +488,9 @@
         "interval": {
           "type": "string"
         },
+        "window": {
+          "type": "string"
+        },
         "liveBytes": {
           "type": "boolean"
         },

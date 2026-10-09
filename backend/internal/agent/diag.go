@@ -53,7 +53,7 @@ const (
 	collectorMeasure = "measure"
 
 	defaultProbeEvery = 3 * time.Minute // the chart's nodeProbe.interval
-	defaultFlowEvery  = 30 * time.Second
+	defaultFlowEvery  = 10 * time.Second
 	// silentAfterIntervals is how many of a collector's own intervals may pass without a word before it is called silent.
 	silentAfterIntervals = 3
 	// collectorStartupGrace is the flat floor applied instead of silentAfterIntervals*every when a collector has never

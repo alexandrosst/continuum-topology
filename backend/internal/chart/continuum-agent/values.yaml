@@ -316,7 +316,12 @@ flowObserver:
   # auto | ebpf | conntrack. auto tries eBPF and falls back to conntrack; forcing a method that the
   # node cannot run leaves that node unobserved instead of silently using another one.
   method: auto
-  interval: 30s
+  # How often each node's collector reports what it saw to the agent, and how often the agent forwards it to the server.
+  # A new dependency shows up after about interval/2 + window/2 on average (and at most interval + window), plus the
+  # dashboard's few seconds of polling. Shorter is quicker and costs a little more traffic: a report holds at most 1500
+  # flows. Keep window >= interval, or some reports are forwarded alone.
+  interval: 10s
+  window: 15s
   # Count the bytes of connections while they are open (eBPF only), so a database connection that lives
   # for weeks shows its traffic now and not when it finally closes. This runs the collector in the
   # host's PID namespace (hostPID), which the kernel needs in order to walk other pods' sockets. Set false

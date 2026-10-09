@@ -40,7 +40,7 @@ func Main(args []string) int {
 	table := fs.String("conntrack-table", cli.Env("CONTINUUM_FLOW_CONNTRACK", conntrack.DefaultTable), "the connection-tracking table")
 	live := fs.Bool("live", cli.Env("CONTINUUM_FLOW_LIVE", "") == "true", "count the bytes of connections that are still open (eBPF only; needs the host's process namespace, or it sees only its own)")
 	names := fs.Bool("names", cli.Env("CONTINUUM_FLOW_NAMES", "") == "true", "capture the DNS query name and TLS SNI hostname each connection carries in the clear (eBPF only; needs CAP_NET_ADMIN; off by default)")
-	every := fs.Duration("interval", 30*time.Second, "how often to report")
+	every := fs.Duration("interval", 10*time.Second, "how often to report")
 	print := fs.Duration("print", 0, "observe for this long, print the report and exit; sends nothing")
 	if code, done := cli.Parse(fs, args); done {
 		return code

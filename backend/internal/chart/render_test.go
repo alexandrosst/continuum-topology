@@ -154,7 +154,7 @@ func TestOneImageThreeRoles(t *testing.T) {
 	}{
 		"agent": {agent.Spec.Containers[0].Args, []string{"agent"}},
 		"probe": {probe.Spec.Containers[0].Args, []string{"probe", "--interval=3m"}},
-		"flow":  {flow.Spec.Containers[0].Args, []string{"flow", "--interval=30s", "--method=auto"}},
+		"flow":  {flow.Spec.Containers[0].Args, []string{"flow", "--interval=10s", "--method=auto"}},
 	} {
 		if strings.Join(c.got, " ") != strings.Join(c.want, " ") {
 			t.Errorf("%s args = %v, want %v", name, c.got, c.want)
@@ -494,4 +494,27 @@ func TestSchemaAcceptsTheInstallCommandAndCatchesTypos(t *testing.T) {
 			t.Errorf("%v failed, but not on the schema:\n%s", bad, out)
 		}
 	}
+}
+
+// How quickly a new dependency shows up is set by two settings: how often each node's collector reports (the collector's
+// own --interval) and how often the agent forwards what it holds (CONTINUUM_FLOW_WINDOW). Both are chart values, and the
+// agent is told its collectors' interval too, so it can tell a quiet collector from a silent one.
+func TestFlowTimingIsAChartValue(t *testing.T) {
+	check := func(name string, sets []string, interval, window string) {
+		t.Helper()
+		r := render(t, append([]string{"--set", "flowObserver.enabled=true"}, sets...)...)
+		agent := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
+		flow := r.daemonsets["continuum-flow-collector"].Spec.Template.Spec.Containers[0]
+		if got, _ := env(agent, "CONTINUUM_FLOW_WINDOW"); got != window {
+			t.Errorf("%s: CONTINUUM_FLOW_WINDOW = %q, want %q", name, got, window)
+		}
+		if got, _ := env(agent, "CONTINUUM_FLOW_INTERVAL"); got != interval {
+			t.Errorf("%s: CONTINUUM_FLOW_INTERVAL = %q, want %q", name, got, interval)
+		}
+		if got := strings.Join(flow.Args, " "); !strings.Contains(got, "--interval="+interval) {
+			t.Errorf("%s: collector args %q do not carry --interval=%s", name, got, interval)
+		}
+	}
+	check("defaults", nil, "10s", "15s")
+	check("set", []string{"--set", "flowObserver.interval=5s", "--set", "flowObserver.window=30s"}, "5s", "30s")
 }

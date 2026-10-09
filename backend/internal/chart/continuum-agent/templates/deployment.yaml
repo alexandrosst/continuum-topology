@@ -133,6 +133,7 @@ spec:
             {{- if .Values.flowObserver.enabled }}
             - {name: CONTINUUM_FLOW_SECRET_FILE, value: /flows/secret}
             - {name: CONTINUUM_FLOW_INTERVAL, value: {{ .Values.flowObserver.interval | quote }}}
+            - {name: CONTINUUM_FLOW_WINDOW, value: {{ .Values.flowObserver.window | quote }}}
             {{- end }}
             {{- with .Values.proxy }}
             {{- if or .httpProxy .httpsProxy }}
