@@ -5,7 +5,8 @@
  * "view" turns entities into boxes and edges, so adding a new plane (network,
  * data-flow, cost…) means adding a branch here + optionally a node component.
  */
-import { ageLabel, callerIfaceSpeedMbps, placeLabel, recentlyScaledPods } from './present'
+import { callerIfaceSpeedMbps, placeLabel } from './present'
+import { buildPodsView, type PodsView } from './pods'
 import { MarkerType, Position, type Edge, type Node } from '@xyflow/react'
 import { isObserved } from './observed'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
@@ -24,8 +25,6 @@ import {
   type MachineKind,
   type MachineNode,
   type Path,
-  type Pod,
-  type PodPeer,
   type Service,
   type ServiceKind,
   type Site,
@@ -98,32 +97,10 @@ export type CardData = {
    *  MachineNode.networkInterfaces' speedMbps, not any one interface in particular - which one is fastest
    *  is a detail the Inspector's own per-interface list already covers). */
   hardware?: { hasBattery?: boolean; nicMbps?: number }
-  /** `service` cards only: one dot per current replica, so a scaling event (a pod younger than its
-   *  siblings) is visible without opening the Inspector, rather than flattened into the `meta` replica
-   *  count. Absent/empty means no per-pod facts were collected for this service (older agent tier, or no
-   *  pods up) - the card then falls back to just the replica count, same as before this existed. */
-  pods?: { id: string; ready: boolean; recent: boolean }[]
-  /** How many more live replicas exist beyond the ones in `pods` above - the dot strip caps at
-   *  POD_DOT_LIMIT (a not-ready or just-scaled pod is never the one dropped) so it can never wrap past
-   *  the one row the card reserves height for, the same reasoning CHIP_LIMIT already follows for the
-   *  machine card's hosted-service chips. */
-  podsOverflow?: number
-  /** `service` cards only: every live replica grouped by the node it's scheduled on, for the card's own
-   *  expand-in-place pod view (ServiceCard's "N pods on M nodes" toggle - see its own doc comment).
-   *  Deliberately NOT capped the way `pods` above is: expanding is an explicit, one-card-at-a-time action
-   *  triggered by a person who already asked to see everything, not something that has to fit a
-   *  permanently-reserved row the way the collapsed dot strip does. A replica with no known node (not yet
-   *  scheduled, or its node fell outside this topology's own scope) groups under nodeId `''`, named "not
-   *  scheduled" rather than silently dropped. Absent under the same condition `pods` is: no per-pod facts
-   *  collected at all (older agent tier, or no pods up). Each pod also carries `traffic` straight through
-   *  from Pod.traffic unchanged (see its own doc comment in types.ts) - a point-in-time breakdown meant to
-   *  be shown only once that one specific pod is picked within this already-expanded panel, never drawn
-   *  as its own canvas edges. Each entry's `peer` is overwritten here with a display label (the owning
-   *  Service's own name when it could be found, the raw Service id as a fallback, or the bare external
-   *  address unchanged) rather than left as the id PodPeer.peer carries off the wire - the same
-   *  place/pattern nodeName above already resolves a pod's nodeId, so the card component itself never
-   *  needs a services lookup of its own. */
-  podGroups?: { nodeId: string; nodeName: string; pods: { id: string; ready: boolean; recent: boolean; restarts?: number; title: string; traffic?: PodPeer[] }[] }[]
+  /** `service` cards only: the pod rail, the "27/30 ready" summary and the popover's rows (see lib/pods.ts).
+   *  Absent when no per-pod facts were collected (older agent tier, or no pods up): the card then keeps just
+   *  the replica count and, if some are not ready, the "x/y ready" chip. */
+  pods?: PodsView
 }
 
 export type GroupNode = Node<GroupData, 'boundary'>
@@ -1102,14 +1079,13 @@ function tierLabel(t: Tier) {
 }
 
 function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string | undefined, mesh: boolean | undefined, nodeById: Map<string, MachineNode>, serviceById: Map<string, Service>): Item {
-  const notReady = w.readyReplicas !== undefined && w.readyReplicas < w.replicas
-  const podInfo = podDots(w.pods)
-  // One row of small chips under the name; a second for the per-pod dot strip, whichever combination of
-  // the two is actually present (mirrors the machine card's own hint/notReady/mesh/hardware row). The dot
-  // strip is capped at POD_DOT_LIMIT (see podDots), so - unlike a plain `×N` count - it always fits this
-  // one reserved row no matter how many replicas a service actually has.
+  const pods = buildPodsView(w.pods, w.name, nodeById, serviceById)
+  // With per-pod facts the pod summary says it ("27/30 ready"), so the chip is only for a service without them.
+  const notReady = !pods && w.readyReplicas !== undefined && w.readyReplicas < w.replicas
+  // One row of small chips under the name; a second for the pod rail (capped, so it always fits its row),
+  // whichever combination of the two is present (mirrors the machine card's own hint/notReady/mesh row).
   const badgeRow = !!(hint || notReady || (mesh && w.mesh))
-  const podsRow = !!podInfo
+  const podsRow = !!pods
   const extraRows = (badgeRow ? 1 : 0) + (podsRow ? 1 : 0)
   return {
     id: cardId(w.id),
@@ -1129,73 +1105,9 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string 
       hint,
       notReady: notReady ? `${w.readyReplicas}/${w.replicas} ready` : undefined,
       mesh: mesh && w.mesh ? meshChip(w) : undefined,
-      pods: podInfo?.dots,
-      podsOverflow: podInfo && podInfo.overflow > 0 ? podInfo.overflow : undefined,
-      podGroups: podGroupsFor(w.pods, nodeById, serviceById),
+      pods,
     },
   }
-}
-
-// Past this many replicas, the dot strip stops growing and folds the rest into a "+N" badge (see
-// CardData.podsOverflow) - mirrors CHIP_LIMIT's role for the machine card's hosted-service chips, and
-// keeps the strip within the one row serviceItem() above reserves height for regardless of replica count.
-const POD_DOT_LIMIT = 16
-
-function podDots(pods: Pod[] | undefined): { dots: NonNullable<CardData['pods']>; overflow: number } | undefined {
-  if (!pods || pods.length === 0) return undefined
-  const recent = recentlyScaledPods(pods)
-  const dots = pods.map((p, i) => ({ id: p.name || `${i}`, ready: !!p.ready, recent: recent.has(p.name) }))
-  if (dots.length <= POD_DOT_LIMIT) return { dots, overflow: 0 }
-  // Over the cap: a not-ready or just-scaled replica - exactly what this feature exists to surface - is
-  // never the one that gets folded into the overflow count, even if that means an unremarkable healthy
-  // replica is.
-  const notable = dots.filter((d) => !d.ready || d.recent)
-  const rest = dots.filter((d) => d.ready && !d.recent)
-  const shown = notable.length >= POD_DOT_LIMIT ? notable.slice(0, POD_DOT_LIMIT) : notable.concat(rest.slice(0, POD_DOT_LIMIT - notable.length))
-  return { dots: shown, overflow: dots.length - shown.length }
-}
-
-/** `serviceItem`'s own `podGroups` builder - every one of `pods` (the FULL, uncapped list; see podDots'
- *  own doc comment for why the dot strip caps but this never does) bucketed by `nodeId`, with each node's
- *  own display name resolved once from `nodeById` (built once per buildGraph/buildChainGraph call, not
- *  re-scanned per service - the same O(n) indexing discipline buildGraph's own header comment already
- *  established for clusters/services/sites). A pod with no `nodeId` at all (not yet scheduled, or its node
- *  fell outside this topology's own scope - Pod.nodeId's own doc comment) still gets a group, keyed `''`
- *  and named "not scheduled", rather than silently vanishing from the count the toggle label shows. */
-function podGroupsFor(pods: Pod[] | undefined, nodeById: Map<string, MachineNode>, serviceById: Map<string, Service>): NonNullable<CardData['podGroups']> | undefined {
-  if (!pods || pods.length === 0) return undefined
-  const recent = recentlyScaledPods(pods)
-  // A service-kind peer's `peer` is a Service id (see PodPeer's own doc comment in types.ts) - resolved
-  // to that service's name here, once per pod rather than once per render, the same place nodeName right
-  // below already resolves a pod's own nodeId. An external peer, or a service id this topology no longer
-  // has (the peer workload was deleted since the agent's last flow report), keeps whatever PodPeer itself
-  // already carries rather than showing nothing.
-  const peerLabel = (p: PodPeer): string => (p.peerKind === 'service' ? serviceById.get(p.peer)?.name ?? p.peer : p.peer)
-  const resolveTraffic = (traffic: PodPeer[] | undefined): PodPeer[] | undefined => traffic?.map((t) => ({ ...t, peer: peerLabel(t) }))
-  const byNode = new Map<string, { nodeName: string; pods: NonNullable<CardData['podGroups']>[number]['pods'] }>()
-  for (const p of pods) {
-    const nodeId = p.nodeId ?? ''
-    const nodeName = p.nodeId ? nodeById.get(p.nodeId)?.name ?? p.nodeId : 'not scheduled'
-    let g = byNode.get(nodeId)
-    if (!g) {
-      g = { nodeName, pods: [] }
-      byNode.set(nodeId, g)
-    }
-    const isRecent = recent.has(p.name)
-    const title = [
-      p.name,
-      !p.ready ? `${p.phase}, not ready` : p.phase,
-      p.createdAt ? `${ageLabel(p.createdAt)} old` : undefined,
-      p.restarts ? `${p.restarts} restart${p.restarts === 1 ? '' : 's'}` : undefined,
-      isRecent ? 'recently added (scaling)' : undefined,
-    ]
-      .filter(Boolean)
-      .join(' · ')
-    g.pods.push({ id: p.name, ready: !!p.ready, recent: isRecent, restarts: p.restarts, title, traffic: resolveTraffic(p.traffic) })
-  }
-  // Nodes ordered by name for a stable, predictable group order rather than whatever order pods happened
-  // to be reported in.
-  return [...byNode.entries()].map(([nodeId, g]) => ({ nodeId, nodeName: g.nodeName, pods: g.pods })).sort((a, b) => a.nodeName.localeCompare(b.nodeName))
 }
 
 function groupMesh(m: NonNullable<Cluster['mesh']>): NonNullable<GroupData['mesh']> {

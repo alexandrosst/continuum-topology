@@ -1699,183 +1699,29 @@ test("edge interface capacity reaches EdgeData alongside its throughput, never g
   assert.equal(g3.edges.find((e) => e.id === 'dep-iface')?.data?.ifaceSpeedMbps, undefined)
 })
 
-test("service card: per-pod dots surface ready state and a recent-scaling-event flag, derived purely from each pod's own createdAt", () => {
+test('service card: the pod rail reserves one row, and its summary replaces the "x/y ready" chip', () => {
   const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
-
-  // No per-pod facts at all (older agent tier, or genuinely no pods up): unchanged from before this existed.
-  const none = buildGraph(seed, opts)
-  const gwNone = none.nodes.find((n) => n.id === cardId('w-gw'))!
-  assert.equal((gwNone.data as { pods?: unknown }).pods, undefined)
-  assert.equal(Number(gwNone.style?.height), APP_CARD.h, 'no pods row reserved when there are no per-pod facts')
-
-  const now = Date.now()
-  const old = new Date(now - 20 * 60 * 1000).toISOString() // 20 minutes old - well outside the scaling window
-  const brandNew = new Date(now - 60 * 1000).toISOString() // 1 minute old - inside the scaling window
-
-  // Two long-lived pods: nothing reads as a scaling event just because pods exist.
-  const steady = {
+  const withPods = (pods?: { name: string; phase: string; ready: boolean; nodeId?: string }[]) => ({
     ...seed,
-    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: [
-      { name: 'gw-1', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old },
-      { name: 'gw-2', nodeId: 'n-c3', phase: 'Running', ready: true, createdAt: old },
-    ] } : s)),
-  }
-  const gSteady = buildGraph(steady, opts)
-  const gwSteady = gSteady.nodes.find((n) => n.id === cardId('w-gw'))!
-  const steadyPods = (gwSteady.data as { pods?: { id: string; ready: boolean; recent: boolean }[] }).pods!
-  assert.equal(steadyPods.length, 2)
-  assert.ok(steadyPods.every((p) => p.ready && !p.recent), 'both pods the same age: nothing reads as a scaling event')
-  assert.equal(Number(gwSteady.style?.height), APP_CARD.h + 24, 'the pods row reserves its own height, same as the hint/notReady/mesh row already does')
+    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, replicas: 2, readyReplicas: 1, pods } : s)),
+  })
+  const card = (g: ReturnType<typeof buildGraph>) => g.nodes.find((n) => n.id === cardId('w-gw'))!
 
-  // One old pod plus one brand-new, not-ready one, spanning well past the scaling-event window: only the new
-  // one is flagged as recent, and its not-ready state is carried through distinctly from that flag.
-  const scaling = {
-    ...seed,
-    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: [
-      { name: 'gw-1', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old },
-      { name: 'gw-2', nodeId: 'n-c3', phase: 'Pending', ready: false, createdAt: brandNew },
-    ] } : s)),
-  }
-  const gScaling = buildGraph(scaling, opts)
-  const gwScaling = gScaling.nodes.find((n) => n.id === cardId('w-gw'))!
-  const scalingPods = (gwScaling.data as { pods?: { id: string; ready: boolean; recent: boolean }[] }).pods!
-  const byId = new Map(scalingPods.map((p) => [p.id, p]))
-  assert.equal(byId.get('gw-1')?.recent, false, 'the old pod is not the new one')
-  assert.equal(byId.get('gw-2')?.recent, true, 'brand new relative to its older sibling: this is the scaling event')
-  assert.equal(byId.get('gw-2')?.ready, false, 'not-ready is carried through distinctly from the recency flag')
+  // No per-pod facts (older agent tier, or none up): no rail and no row for it; the chip says what is not ready.
+  const none = card(buildGraph(withPods(), opts))
+  assert.equal(none.data.pods, undefined)
+  assert.equal(none.data.notReady, '1/2 ready')
 
-  // No spread at all between pods created within the window of each other (e.g. a fresh rollout where every
-  // pod is new): none of them reads as a scaling event, since there's no older sibling to be new relative to.
-  const freshRollout = {
-    ...seed,
-    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: [
-      { name: 'gw-1', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: brandNew },
-      { name: 'gw-2', nodeId: 'n-c3', phase: 'Running', ready: true, createdAt: brandNew },
-    ] } : s)),
-  }
-  const gFresh = buildGraph(freshRollout, opts)
-  const freshPods = (gFresh.nodes.find((n) => n.id === cardId('w-gw'))!.data as { pods?: { recent: boolean }[] }).pods!
-  assert.ok(freshPods.every((p) => !p.recent), 'everything came up together - no older sibling means no scaling event to flag')
-})
-
-test('service card: the per-pod dot strip caps at a fixed size so it can never outgrow the one row the card reserves for it, keeping not-ready/recent pods visible over plain healthy ones', () => {
-  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
-  const now = Date.now()
-  const old = new Date(now - 20 * 60 * 1000).toISOString()
-  const brandNew = new Date(now - 60 * 1000).toISOString()
-
-  // Way over the cap, all healthy and all the same age: the strip still caps, and reports how many were
-  // folded into the overflow count rather than silently dropping them with no trace.
-  const manyHealthy = {
-    ...seed,
-    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: Array.from({ length: 40 }, (_, i) => (
-      { name: `gw-${i}`, nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old }
-    )) } : s)),
-  }
-  const g = buildGraph(manyHealthy, opts)
-  const card = g.nodes.find((n) => n.id === cardId('w-gw'))!
-  const data = card.data as { pods?: { id: string; ready: boolean; recent: boolean }[]; podsOverflow?: number }
-  assert.ok(data.pods!.length < 40, 'the strip does not just render all 40 dots unbounded')
-  assert.equal(data.pods!.length + (data.podsOverflow ?? 0), 40, 'every pod is accounted for: either shown or counted in the overflow')
-  assert.ok((data.podsOverflow ?? 0) > 0, 'over the cap, the overflow count is actually set')
-  // The card's own reserved height is unaffected by replica count - this is exactly what keeps the strip
-  // from wrapping past the one row serviceItem() reserves for it, at any pod count.
-  assert.equal(Number(card.style?.height), APP_CARD.h + 24)
-
-  // Over the cap AND a handful of not-ready/recent pods mixed in with many healthy ones: the notable ones
-  // must survive the cap, even though that means some plain-healthy ones get folded into the overflow
-  // count instead - otherwise the one thing this feature exists to surface could be the first casualty of
-  // its own display limit.
-  const mixed = {
-    ...seed,
-    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: [
-      ...Array.from({ length: 30 }, (_, i) => ({ name: `gw-healthy-${i}`, nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old })),
-      { name: 'gw-notready', nodeId: 'n-c2', phase: 'Pending', ready: false, createdAt: old },
-      { name: 'gw-scaled', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: brandNew },
-    ] } : s)),
-  }
-  const g2 = buildGraph(mixed, opts)
-  const data2 = (g2.nodes.find((n) => n.id === cardId('w-gw'))!.data as { pods?: { id: string; ready: boolean; recent: boolean }[] })
-  const ids2 = new Set(data2.pods!.map((p) => p.id))
-  assert.ok(ids2.has('gw-notready'), 'a not-ready pod survives the cap even when it would otherwise be crowded out')
-  assert.ok(ids2.has('gw-scaled'), 'the scaling-event pod survives the cap even when it would otherwise be crowded out')
-})
-
-test("service card: podGroups buckets every live replica by node, uncapped, for the card's expand-in-place pod view", () => {
-  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
-
-  // No per-pod facts at all: no groups either - the same "absent" convention pods/podsOverflow already follow.
-  const none = buildGraph(seed, opts)
-  const gwNone = none.nodes.find((n) => n.id === cardId('w-gw'))!
-  assert.equal((gwNone.data as { podGroups?: unknown }).podGroups, undefined)
-
-  const now = Date.now()
-  const old = new Date(now - 20 * 60 * 1000).toISOString()
-  const brandNew = new Date(now - 60 * 1000).toISOString()
-
-  const grouped = {
-    ...seed,
-    services: seed.services.map((s) => (s.id === 'w-gw' ? { ...s, pods: [
-      { name: 'gw-1', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old, traffic: [
-        { peer: 'w-orch', peerKind: 'service', direction: 'out', port: 9000, protocol: 'tcp', connections: 3 },
-        { peer: 'w-ghost-service', peerKind: 'service', direction: 'out', port: 80, protocol: 'tcp', connections: 1 },
-        { peer: '93.184.216.34', peerKind: 'external', direction: 'out', port: 443, protocol: 'tcp', connections: 2 },
-      ] },
-      { name: 'gw-2', nodeId: 'n-c2', phase: 'Running', ready: true, createdAt: old, restarts: 2 },
-      { name: 'gw-3', nodeId: 'n-c3', phase: 'Pending', ready: false, createdAt: brandNew },
-      { name: 'gw-4', phase: 'Pending', ready: false, createdAt: brandNew },
-      // A nodeId outside this topology's own scope (deleted node, or just never reported here) - the
-      // doc comment on podGroupsFor covers this case too: still a real group, not silently dropped, named
-      // from the raw nodeId since there is nothing else to resolve it to. Picked to sort after "not
-      // scheduled" (unlike the real node names above, which all sort before it) so the sort-order
-      // assertion below is pinned by an actual comparison, not a coincidence of this fixture's names.
-      { name: 'gw-5', nodeId: 'zzz-ghost', phase: 'Running', ready: true, createdAt: old },
-    ] } : s)),
-  }
-  const g = buildGraph(grouped, opts)
-  const card = g.nodes.find((n) => n.id === cardId('w-gw'))!
-  type PodTraffic = { peer: string; peerKind: 'service' | 'external'; direction: 'out' | 'in'; port: number; protocol: string; connections: number }
-  type PodGroup = { nodeId: string; nodeName: string; pods: { id: string; ready: boolean; recent: boolean; restarts?: number; title: string; traffic?: PodTraffic[] }[] }
-  const groups = (card.data as { podGroups?: PodGroup[] }).podGroups!
-
-  // podGroups never caps or drops anything the way the collapsed strip's `pods`/`podsOverflow` do - every
-  // one of the 5 pods above is accounted for across the groups, however many there are.
-  assert.equal(groups.reduce((n, gr) => n + gr.pods.length, 0), 5)
-
-  // Sorted by resolved node name; a pod with no nodeId lands in its own "not scheduled" group rather than
-  // being dropped, and a nodeId this topology doesn't recognize falls back to the raw id (gw-5's
-  // 'zzz-ghost') instead of vanishing or crashing - and, sorting after "not scheduled" here, proves the
-  // ordering is a real localeCompare over whatever names are present, not a hardcoded "unscheduled last".
-  assert.deepEqual(groups.map((gr) => gr.nodeName), ['eks-worker-1', 'eks-worker-2', 'not scheduled', 'zzz-ghost'])
-  assert.deepEqual(groups.map((gr) => gr.nodeId), ['n-c2', 'n-c3', '', 'zzz-ghost'])
-
-  const onC2 = groups.find((gr) => gr.nodeId === 'n-c2')!
-  assert.deepEqual(onC2.pods.map((p) => p.id), ['gw-1', 'gw-2'])
-  assert.ok(onC2.pods.every((p) => p.ready && !p.recent))
-  const gw2 = onC2.pods.find((p) => p.id === 'gw-2')!
-  assert.equal(gw2.restarts, 2)
-  assert.ok(gw2.title.includes('2 restarts'), 'the per-pod title surfaces the restart count')
-
-  // gw-1's own traffic breakdown: a service-kind peer resolves to that service's real name (w-orch ->
-  // "orchestrator") rather than staying the bare id a person would have to look up themselves; a
-  // service id this topology no longer recognizes (the peer workload was deleted since the agent's last
-  // report) falls back to the raw id instead of vanishing or showing nothing; and an external peer is
-  // never touched, since there is no service to resolve it against in the first place.
-  const gw1 = onC2.pods.find((p) => p.id === 'gw-1')!
-  assert.deepEqual(gw1.traffic?.map((t) => t.peer), ['orchestrator', 'w-ghost-service', '93.184.216.34'])
-  assert.deepEqual(gw1.traffic?.map((t) => t.peerKind), ['service', 'service', 'external'])
-  assert.equal(gw2.traffic, undefined, "a pod this batch said nothing about keeps a nil/absent traffic, not an empty-but-present array")
-
-  const onC3 = groups.find((gr) => gr.nodeId === 'n-c3')!
-  assert.equal(onC3.pods.length, 1)
-  assert.equal(onC3.pods[0].ready, false)
-  assert.equal(onC3.pods[0].recent, true)
-  assert.ok(onC3.pods[0].title.includes('not ready'))
-  assert.ok(onC3.pods[0].title.includes('recently added'))
-
-  const unscheduled = groups.find((gr) => gr.nodeId === '')!
-  assert.equal(unscheduled.nodeName, 'not scheduled')
-  assert.deepEqual(unscheduled.pods.map((p) => p.id), ['gw-4'])
+  // With them: the rail carries the summary (so no chip) and takes the one row the chip would have.
+  const pods = [
+    { name: 'gw-1', nodeId: 'n-c2', phase: 'Running', ready: true },
+    { name: 'gw-2', nodeId: 'n-c3', phase: 'Pending', ready: false },
+  ]
+  const some = card(buildGraph(withPods(pods), opts))
+  assert.equal(some.data.pods?.ready, 1)
+  assert.equal(some.data.pods?.total, 2)
+  assert.equal(some.data.notReady, undefined)
+  assert.equal(Number(some.style?.height), Number(none.style?.height))
 })
 
 test('resyncNodes: a node mid-drag is left untouched, others keep position until re-parented', () => {

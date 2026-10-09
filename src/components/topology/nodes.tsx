@@ -7,7 +7,6 @@ import {
   Box,
   Cable,
   Camera,
-  ChevronRight,
   Clock,
   Cog,
   Cpu,
@@ -26,7 +25,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { ICON_MD, ICON_SM, TIER_ICON } from '@/components/ui/primitives'
-import { memo, useState, type ComponentProps, type ReactNode } from 'react'
+import { memo, useCallback, useState, type ComponentProps, type ReactNode } from 'react'
+import { PodPopover, PodRail } from '@/components/topology/Pods'
 import { LoadRow, peakLoad } from '@/components/topology/Load'
 import { DistroIcon, Flag } from '@/components/ui/brand'
 import { SIDES, type CardNode, type GroupNode, type NamespaceNode } from '@/lib/graph'
@@ -75,18 +75,6 @@ const NEUTRAL_TONE = 'bg-nb-900 text-nb-400'
  *  for the fastest one, so the friendlier unit wins here. */
 function nicSpeedLabel(mbps: number) {
   return mbps >= 1000 ? `${Number((mbps / 1000).toFixed(1))} Gbps` : `${mbps} Mbps`
-}
-
-/** A pod's own generated suffix (the part after its last `-`: the ReplicaSet/StatefulSet ordinal or random
- *  hash Kubernetes appends) stands in for its full name on a chip, where there is no room for
- *  "checkout-7f9c8-a1b2c" - `title` on the chip still carries the whole thing. Falls back to the last few
- *  characters of the whole name on anything unusually shaped (no `-` at all, or a suffix so long it
- *  wouldn't read as a short tag anyway), rather than assuming every pod name follows the controller-style
- *  convention. */
-function shortPodName(name: string): string {
-  const i = name.lastIndexOf('-')
-  const suffix = i >= 0 ? name.slice(i + 1) : ''
-  return suffix.length > 0 && suffix.length <= 8 ? suffix : name.slice(-6)
 }
 
 /** One shared shape for every small text pill on a node (a cluster's mesh state, its detected networking,
@@ -272,19 +260,10 @@ export const WORKLOAD_ICON: Record<ServiceKind, LucideIcon> = {
 
 export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) {
   const isMachine = data.kind === 'machine'
-  // Per-pod expand-in-place (the "N pods on M nodes" row below): local, transient UI state, not store
-  // state - nothing else on the canvas needs to know a given card is expanded, and it should not survive
-  // this card's own data changing identity (a fresh poll's new CardData resets it, same as any other
-  // uncontrolled toggle). Collapsing back to the plain dot strip when there is nothing to expand (an
-  // older agent tier's cards, or a service with zero pods) is handled below by simply never rendering the
-  // toggle/panel at all - this state is simply unused then.
-  const [podsExpanded, setPodsExpanded] = useState(false)
-  // Which single pod's own traffic breakdown is open, within the panel above - at most one at a time,
-  // and independent of podsExpanded itself: collapsing the whole panel and reopening it, or this card's
-  // data changing identity on a fresh poll, both reset it the same uncontrolled way podsExpanded resets
-  // (see its own comment just above). A pod id rather than a boolean, since only one chip's traffic ever
-  // shows at once and nothing else on this card needs to know which.
-  const [expandedPodId, setExpandedPodId] = useState<string | null>(null)
+  // The pod popover is local, transient UI state: nothing else on the canvas needs to know a card has it open.
+  const [podsOpen, setPodsOpen] = useState(false)
+  const [podsAnchor, setPodsAnchor] = useState<HTMLElement | null>(null)
+  const closePods = useCallback(() => setPodsOpen(false), [])
   const Icon =
     data.kind === 'device'
       ? DEVICE_ICON[data.deviceKind ?? 'other']
@@ -301,11 +280,7 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
     <div
       data-far={far ? '1' : undefined}
       className={clsx(
-        // relative: the expanded pod panel below anchors to this box with `absolute`, not to some
-        // further ancestor - and, being `absolute`, it is removed from normal flow entirely, so it never
-        // changes this card's own measured size (what the canvas layout/packing and edge-routing math
-        // both read) just because it's open.
-        'relative flex h-full w-full flex-col justify-center gap-2 rounded-xl border bg-nb-925 px-3.5 py-2.5 transition-colors',
+        'flex h-full w-full flex-col justify-center gap-2 rounded-xl border bg-nb-925 px-3.5 py-2.5 transition-colors',
         // inset, not outward - see the identical note on the group/boundary box above: an outward ring
         // here would bleed past this card's own true boundary and sit on top of any edge arrowhead
         // pointing at it, since edges always render beneath every node regardless of z-index.
@@ -363,149 +338,12 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
         </div>
       )}
 
-      {!far && data.pods && data.pods.length > 0 && (() => {
-        const groups = data.podGroups
-        const expandable = !!groups && groups.length > 0
-        const totalPods = groups?.reduce((n, g) => n + g.pods.length, 0) ?? 0
-        return (
-          <div className="relative">
-            {/* Always a <button>, disabled (same idiom LinkRow elsewhere in this app already uses for "no
-                handler for this one") when there's nothing to expand into - podGroups absent shouldn't
-                happen alongside a non-empty `pods`, but an older/stale poll is worth covering defensively
-                without a second, duplicated markup branch. Disabled means its own onClick below never
-                fires, so there's no need to re-guard inside it. This is the exact same dot strip that
-                always rendered here, just now also the toggle - no separate control added next to it. */}
-            <button
-              type="button"
-              disabled={!expandable}
-              onClick={(e) => { e.stopPropagation(); setPodsExpanded((v) => !v) }}
-              aria-expanded={expandable ? podsExpanded : undefined}
-              className={clsx('flex w-full flex-wrap items-center gap-1 text-left', expandable && 'cursor-pointer')}
-              data-testid="pod-dots"
-            >
-              {data.pods.map((p) => (
-                <span
-                  key={p.id}
-                  className={clsx(
-                    // Ready uses the same green as the card's own status dot above it (STATUS_COLOR.healthy) -
-                    // not a plain neutral gray - so "these replicas are fine" reads as the same colour language
-                    // in both places. The ring is `info` (not `accent`, already overloaded for selection and
-                    // placement hints elsewhere on this card) so a selected card with a freshly-scaled pod
-                    // doesn't show one colour meaning two unrelated things at once.
-                    'size-2 rounded-full',
-                    p.ready ? 'bg-ok' : 'bg-warn',
-                    p.recent && 'ring-2 ring-info/70 ring-offset-1 ring-offset-nb-925',
-                  )}
-                  title={`${p.id}${p.ready ? '' : ' · not ready'}${p.recent ? ' · recently added (scaling)' : ''}`}
-                />
-              ))}
-              {!!data.podsOverflow && (
-                <span
-                  className="rounded-full bg-nb-900 px-1 text-[9px] leading-[14px] text-nb-400"
-                  title={`${data.podsOverflow} more pod${data.podsOverflow === 1 ? '' : 's'} not shown`}
-                >
-                  +{data.podsOverflow}
-                </span>
-              )}
-              {expandable && (
-                <span className="ml-0.5 flex items-center gap-0.5 text-[10px] text-nb-500">
-                  <ChevronRight size={10} className={clsx('transition-transform duration-150', podsExpanded && 'rotate-90')} />
-                  {totalPods} pod{totalPods === 1 ? '' : 's'} on {groups!.length} node{groups!.length === 1 ? '' : 's'}
-                </span>
-              )}
-            </button>
-            {/* The expand panel itself: absolute (see the card root's own "relative" note above) so it
-                never affects this card's measured box, and z-30 - same layer the Inspector's mobile sheet
-                uses - so it reliably draws over every other card/group box it might otherwise overlap,
-                since this is a transient, person-initiated reveal rather than a permanent layout change.
-                No onClick/stopPropagation of its own: a click on a node-name button below needs to keep
-                bubbling all the way up to TopologyPage's onNodeClick, which is the one place that actually
-                has the selection setters to act on it (see that button's own data-select-node attribute
-                and TopologyPage's onNodeClick, which checks for it the same way it already does for the
-                local-telemetry antenna badge) - Card itself has no such access. A click on anything else in
-                here (a plain pod chip, empty panel space) harmlessly falls through to that same handler's
-                default "select this card" behaviour, which is already a no-op if this card is what's
-                selected. */}
-            {expandable && podsExpanded && (
-              <div
-                className="absolute inset-x-0 top-full z-30 mt-1.5 flex flex-col gap-1.5 rounded-lg border border-nb-800 bg-nb-920 p-2 shadow-xl"
-                data-testid="pod-groups"
-              >
-                {groups!.map((g) => (
-                  <div key={g.nodeId || 'unscheduled'}>
-                    {g.nodeId ? (
-                      <button
-                        type="button"
-                        data-select-node={g.nodeId}
-                        className="truncate text-[10px] text-info underline-offset-2 hover:underline"
-                        title={g.nodeName}
-                      >
-                        {g.nodeName}
-                      </button>
-                    ) : (
-                      <span className="truncate text-[10px] text-nb-500">{g.nodeName}</span>
-                    )}
-                    <div className="mt-0.5 flex flex-wrap gap-1">
-                      {g.pods.map((p) => {
-                        const hasTraffic = !!p.traffic && p.traffic.length > 0
-                        return (
-                          // A plain, disabled chip (same idiom as the outer pod-dots toggle just above)
-                          // when this pod has no traffic breakdown to show - tier below 2, no flow report
-                          // yet, or every one of its connections currently goes through a Service address
-                          // (see model.Pod.Traffic's own doc comment) - rather than a button that opens an
-                          // empty panel. stopPropagation keeps this click from also toggling this card's
-                          // selection the way a plain chip click already harmlessly falls through to.
-                          <button
-                            key={p.id}
-                            type="button"
-                            disabled={!hasTraffic}
-                            onClick={(e) => { e.stopPropagation(); setExpandedPodId((v) => (v === p.id ? null : p.id)) }}
-                            aria-expanded={hasTraffic ? expandedPodId === p.id : undefined}
-                            title={p.title}
-                            data-testid="pod-chip"
-                            className={clsx(
-                              'inline-flex items-center gap-1 rounded-full border bg-nb-900 px-1.5 py-px font-mono text-[10px] text-nb-300',
-                              p.recent ? 'border-info/60' : 'border-nb-800',
-                              hasTraffic && 'cursor-pointer',
-                              expandedPodId === p.id && 'ring-1 ring-info/60',
-                            )}
-                          >
-                            <span className={clsx('size-1.5 shrink-0 rounded-full', p.ready ? 'bg-ok' : 'bg-warn')} />
-                            {shortPodName(p.id)}
-                            {!!p.restarts && <span className="text-nb-500">·{p.restarts}</span>}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ))}
-                {/* This one pod's own traffic breakdown, scoped to whichever chip was just clicked above -
-                    never drawn as canvas edges, and gone the moment a different pod is picked or this
-                    whole panel collapses (expandedPodId/podsExpanded are both plain, uncontrolled state;
-                    see their own comments). Looked up across every group, not just one, since the clicked
-                    pod could be on any node. */}
-                {(() => {
-                  const selected = groups!.flatMap((g) => g.pods).find((p) => p.id === expandedPodId)
-                  if (!selected?.traffic?.length) return null
-                  return (
-                    <div className="flex flex-col gap-1 border-t border-nb-850 pt-1.5" data-testid="pod-traffic">
-                      <span className="truncate font-mono text-[10px] text-nb-400">{shortPodName(selected.id)}'s own traffic right now</span>
-                      {selected.traffic.map((t, i) => (
-                        <div key={i} className="flex items-center gap-1 truncate text-[10px] text-nb-300">
-                          <span className="shrink-0 text-nb-500">{t.direction === 'out' ? '→' : '←'}</span>
-                          <span className="truncate" title={t.peer}>{t.peer}</span>
-                          <span className="shrink-0 text-nb-500">:{t.port}/{t.protocol}</span>
-                          <span className="ml-auto shrink-0 text-nb-500">{t.connections} conn</span>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })()}
-              </div>
-            )}
-          </div>
-        )
-      })()}
+      {data.pods && (
+        <>
+          <PodRail pods={data.pods} far={far} open={podsOpen} onToggle={() => setPodsOpen((v) => !v)} buttonRef={setPodsAnchor} />
+          {podsOpen && podsAnchor && <PodPopover pods={data.pods} name={data.title} anchor={podsAnchor} onClose={closePods} />}
+        </>
+      )}
 
       {!far && data.chips && (
         <div className="flex flex-wrap gap-1.5 border-t border-nb-850 pt-2">

@@ -12,6 +12,7 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
+  useStoreApi,
   type Edge,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -25,6 +26,7 @@ import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
 import { ClusterForm, DeviceForm, NodeForm, ServiceForm } from '@/components/forms'
 import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
 import Inspector, { type Selection } from '@/components/topology/Inspector'
+import { PodLegend } from '@/components/topology/Pods'
 // Lazily loaded, not a plain top-level import: MapView pulls in d3-geo, topojson-client and the
 // placement-suggestion engine (usePlacementSuggestions) at its own module top level - real weight
 // (~45KB gzipped) that a static import would put on every single visit to this page, Topology being
@@ -118,7 +120,18 @@ type MenuKey = 'filter' | 'views' | 'options' | 'add' | 'scope'
 
 function Canvas() {
   const topology = useTopology()
-  const { fitView, getNodes } = useReactFlow()
+  const { fitView, getNodes, setViewport } = useReactFlow()
+  const store = useStoreApi()
+  // Fit the whole graph, but never below FIT_MIN_ZOOM: a graph bigger than the window then starts at its top
+  // left (cropping only the far side, which scrolls into view) instead of cropping both ends equally.
+  const fit = useCallback((duration: number) => {
+    const { width, height } = store.getState()
+    const bounds = getNodesBounds(getNodes())
+    // Nothing measured yet: let React Flow wait for it.
+    if (!width || !height || !bounds.width) { void fitView({ ...FIT_VIEW_OPTIONS, duration }); return }
+    const v = getViewportForBounds(bounds, width, height, FIT_MIN_ZOOM, 1.75, FIT_PADDING)
+    void setViewport({ ...v, x: Math.max(v.x, width * 0.04 - bounds.x * v.zoom), y: Math.max(v.y, height * 0.04 - bounds.y * v.zoom) }, { duration })
+  }, [store, fitView, getNodes, setViewport])
   const [sp, setSp] = useSearchParams()
   const connect = useConnectFlow()
   const telemetry = useTelemetryFlow()
@@ -464,9 +477,9 @@ function Canvas() {
     // survive this component's own remount, and only a full page reload should reset it.
     const animate = !hasEverFit
     hasEverFit = true
-    const t = setTimeout(() => fitView({ padding: FIT_PADDING, duration: animate ? 300 : 0 }), animate ? 60 : 0)
+    const t = setTimeout(() => fit(animate ? 300 : 0), animate ? 60 : 0)
     return () => clearTimeout(t)
-  }, [shape, fitView])
+  }, [shape, fit])
 
   // Edge styling for the current selection (color, width, dashing, opacity, and whether the label is shown
   // for a reason other than hover - selection/showLabels). Deliberately NOT keyed on `hoverEdge`: see `edges`
@@ -908,7 +921,7 @@ function Canvas() {
                 // The `shape` effect above only re-fits when node ids/sizes change, which a layout reset
                 // never does (same nodes, new positions) - without this, a reset whose new positions happen
                 // to land outside the current viewport looked like the button did nothing at all.
-                fitView({ padding: FIT_PADDING, duration: 200 })
+                fit(200)
               }}
               title="Reset the canvas layout - snaps every entity back to its computed position. Your view options (filters, grouping, toggles) are untouched."
               data-testid="reset-layout"
@@ -1247,6 +1260,12 @@ function Canvas() {
                       )}
                     </>
                   )}
+                  {graph.nodes.some((n) => n.type === 'card' && n.data.pods) && (
+                    <>
+                      <span className="h-3 w-px bg-nb-800" />
+                      <PodLegend />
+                    </>
+                  )}
                   {localOperatorByCluster.size > 0 && (
                     <>
                       <span className="h-3 w-px bg-nb-800" />
@@ -1300,7 +1319,10 @@ function Canvas() {
 
 /** Leaves room under the graph for the legend. */
 const FIT_PADDING = { top: '4%', left: '4%', right: '4%', bottom: '72px' } as const
-const FIT_VIEW_OPTIONS = { padding: FIT_PADDING }
+// Fitting a big graph into the window never zooms out past 0.5: below that even the far presentation's names
+// are too small to read. A graph that does not fit then runs past the window; pan or zoom out to see it all.
+const FIT_MIN_ZOOM = 0.5
+const FIT_VIEW_OPTIONS = { padding: FIT_PADDING, minZoom: FIT_MIN_ZOOM }
 const PRO_OPTIONS = { hideAttribution: true }
 // Whether the canvas has already animated its initial fitView once this session - see the effect above.
 let hasEverFit = false
