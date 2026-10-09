@@ -175,7 +175,7 @@ export default function PipelinePage() {
     <>
       <PageHeader
         title="Pipeline"
-        description="How telemetry gets from your clusters to FUSION, and whether each step is working."
+        description="From your clusters to FUSION, and whether each step works."
         actions={
           <>
             {admin && <Button onClick={() => setCreating(true)} data-testid="operator-open"><Plus size={ICON_SM} /> New operator</Button>}
@@ -193,7 +193,7 @@ export default function PipelinePage() {
       ) : empty ? (
         <EmptyState
           title="Nothing is sending telemetry yet"
-          description="Set up telemetry on a connected cluster to see the path its data takes, from the discovery agent to FUSION, and whether each step is working."
+          description="Set up telemetry on a connected cluster to see the path its data takes to FUSION."
           action={canConsent ? <Button onClick={() => telemetry.start()} data-testid="telemetry-setup-empty"><Radio size={ICON_SM} /> Set up telemetry</Button> : undefined}
         />
       ) : (

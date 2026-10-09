@@ -69,7 +69,7 @@ export default function FusionPage() {
     ) : status.state === 'off' ? (
       <EmptyState
         title="FUSION is off"
-        description="Nothing is running and nothing is being saved. Anything already saved stays on its volumes, and comes back when it is turned on."
+        description="Nothing is running or saved. Earlier data comes back when it is turned on."
         action={<Button variant="primary" onClick={() => void fusion.enable().catch(() => undefined)} disabled={fusion.busy} data-testid="fusion-enable">{fusion.busy ? 'Starting…' : 'Turn on FUSION'}</Button>}
       />
     ) : (
@@ -80,7 +80,7 @@ export default function FusionPage() {
     <>
       <PageHeader
         title="FUSION"
-        description="Prometheus for metrics, Loki for logs and Tempo for traces, with Grafana in front and a data API for other systems."
+        description="Prometheus, Loki and Tempo, with Grafana and a data API."
         actions={on ? <OpenPages links={status.links} opening={page.opening} onOpen={(p) => void page.open(p)} /> : undefined}
       />
       <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -108,7 +108,7 @@ export default function FusionPage() {
             element={
               status.data ? (
                 <>
-                  <FusionSection title="Grafana and Prometheus" description="They open through this server, so they need your sign-in and nothing extra is exposed. Loki and Tempo have no page of their own; Grafana is already connected to them." testId="fusion-links-note" />
+                  <FusionSection title="Grafana and Prometheus" description="They open through this server with your sign-in. Loki and Tempo have no page; Grafana reads them." testId="fusion-links-note" />
                   <FusionAccess />
                 </>
               ) : (

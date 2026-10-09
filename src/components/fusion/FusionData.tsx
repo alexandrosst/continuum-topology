@@ -38,7 +38,7 @@ export function FusionData() {
   return (
     <>
       {warnings.map((w) => <ErrorBanner key={w} className="mb-4">{w}</ErrorBanner>)}
-      <FusionSection title="Applications" description="The applications Ikhnos knows, and which signals FUSION received for their services in the last 24 hours." testId="fusion-applications">
+      <FusionSection title="Applications" description="Signals FUSION received for each application in the last 24 hours." testId="fusion-applications">
         <ul className={ROWS}>
           {apps.applications.map((a) => (
             <li key={a.id} className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-3" data-testid={`fusion-app-${a.name}`}>
@@ -57,7 +57,7 @@ export function FusionData() {
       </FusionSection>
 
       {loose.length > 0 && (
-        <FusionSection title="Other services" description="Services with data that are in no application: infrastructure that reports under a name of its own, or a service nobody has grouped yet." testId="fusion-services">
+        <FusionSection title="Other services" description="Services with data that are in no application." testId="fusion-services">
           <ul className={ROWS}>
             {loose.slice(0, SHOWN_SERVICES).map((s) => (
               <li key={s.name} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 px-4 py-3">

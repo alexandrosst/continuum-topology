@@ -65,7 +65,7 @@ export function useFusionRetention(state: string, enabled = true) {
   return { doc, error, accept }
 }
 
-const WHAT = 'How long each store keeps what it saved, and the volume it keeps it on. A longer retention takes more room, so the volume can be grown with it.'
+const WHAT = 'How long each store keeps data, and the size of its volume.'
 
 export function FusionRetentionCard({ retention: { doc, error, accept } }: { retention: ReturnType<typeof useFusionRetention> }) {
   const [editing, setEditing] = useState(false)

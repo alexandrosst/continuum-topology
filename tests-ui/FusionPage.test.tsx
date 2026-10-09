@@ -130,7 +130,7 @@ describe('FusionPage', () => {
     retention = retentionOf(store('metrics'), store('logs', { days: 30, usedBytes: 9.2 * GIB, bytesPerDay: GIB, usedSource: 'volume' }), store('traces'))
     renderAt()
     const parts = await screen.findByTestId('fusion-parts')
-    expect(within(parts).getByRole('meter', { name: 'Prometheus disk use' })).toHaveAttribute('aria-valuetext', '1 GiB of 10 GiB used')
+    expect(await within(parts).findByRole('meter', { name: 'Prometheus disk use' })).toHaveAttribute('aria-valuetext', '1 GiB of 10 GiB used')
     expect(within(parts).getByRole('meter', { name: 'Loki disk use' })).toHaveAttribute('aria-valuenow', '92')
     expect(screen.getByTestId('fusion-fills-logs')).toHaveTextContent('fills in about 1 day')
     expect(screen.queryByTestId('fusion-fills-metrics')).not.toBeInTheDocument()
@@ -156,7 +156,7 @@ describe('FusionPage', () => {
   test('an exposed central operator says where other clusters reach it', async () => {
     status = running({ central: { ...central, exposed: true, endpoint: 'fusion.example.com:4317' } })
     renderAt()
-    expect(await screen.findByTestId('fusion-exposure')).toHaveTextContent('reachable from other clusters at fusion.example.com:4317')
+    expect(await screen.findByTestId('fusion-exposure')).toHaveTextContent('Reachable from other clusters at fusion.example.com:4317')
   })
 
   test('FUSION off is one message with one way forward, on every section that needs it running', async () => {

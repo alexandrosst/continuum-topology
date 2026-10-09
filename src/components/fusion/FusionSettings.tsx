@@ -16,7 +16,7 @@ export function FusionSettings({ fusion, retention }: { fusion: ReturnType<typeo
       {status?.available && (
         <FusionSection
           title={on ? 'Turn FUSION off' : 'Turn FUSION on'}
-          description={on ? 'Stops the central operator and the three stores. What they saved stays on their volumes.' : 'Starts the three stores and the central operator. What was saved before comes back with them.'}
+          description={on ? 'Stops the stores. What they saved stays on their volumes.' : 'Starts the stores. What was saved before comes back.'}
           actions={
             on ? (
               <Button onClick={() => setConfirmOff(true)} disabled={busy} data-testid="fusion-disable">Turn off</Button>

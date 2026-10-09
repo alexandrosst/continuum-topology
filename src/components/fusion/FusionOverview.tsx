@@ -11,11 +11,11 @@ import { type FusionComponent, type FusionRetention } from '@/lib/api'
 import { fusionSentence, type FusionProblem, partHealth } from '@/lib/fusionStatus'
 
 const PART_NOTE: Record<FusionComponent['component'], string> = {
-  central: 'gateway into FUSION: the one door in',
+  central: 'the way in',
   metrics: 'metrics',
   logs: 'logs',
   traces: 'traces',
-  grafana: 'dashboards, already connected to the three stores',
+  grafana: 'dashboards',
 }
 
 /** The one thing to do about a problem, as the kind of control it is. */
@@ -40,7 +40,7 @@ export function FusionOverview({ fusion, problems, retention, now }: { fusion: R
           <div className="rounded-xl border border-nb-850 bg-nb-925 px-5 py-4 text-sm text-nb-400" data-testid="fusion-status">
             {/* The one spinner of the page: the parts below show a still glyph. */}
             <Waiting testId="fusion-waiting"><span>{sentence.text}</span></Waiting>
-            <p className="mt-1 text-xs text-nb-500">Usually under two minutes - you can leave this page; collectors keep buffering and catch up.</p>
+            <p className="mt-1 text-xs text-nb-500">Usually under two minutes. You can leave this page.</p>
           </div>
         ) : problems.length === 0 ? (
           <div className="flex items-center gap-2 rounded-xl border border-nb-850 bg-nb-925 px-5 py-4 text-sm text-nb-400" data-testid="fusion-fine">
@@ -66,7 +66,7 @@ export function FusionOverview({ fusion, problems, retention, now }: { fusion: R
       </FusionSection>
 
       {parts.length > 0 && (
-        <FusionSection title="Stores and central operator" description="Metrics, logs and traces each have a store; every sender goes through the central operator." testId="fusion-stores">
+        <FusionSection title="Stores and central operator" testId="fusion-stores">
           <ul className={ROWS} data-testid="fusion-parts">
             {parts.map((c) => {
               const s = store(c)
@@ -86,7 +86,7 @@ export function FusionOverview({ fusion, problems, retention, now }: { fusion: R
           {status.central && (
             <p className="mt-3 max-w-3xl text-xs leading-relaxed text-nb-500" data-testid="fusion-exposure">
               {status.central.exposed ? (
-                <>The central operator is reachable from other clusters at <code className="font-mono text-nb-400">{status.central.endpoint}</code>. Anything that sends needs a client certificate from it; the three stores are never exposed.</>
+                <>Reachable from other clusters at <code className="font-mono text-nb-400">{status.central.endpoint}</code>.</>
               ) : (
                 <>The central operator is reachable inside this cluster only (<code className="font-mono text-nb-400">{status.central.endpoint}</code>), so a regional operator in another cluster cannot send to it yet. To allow that, expose the central operator and record its address: <span className="text-nb-400">Address</span> on its row in Pipeline.</>
               )}
