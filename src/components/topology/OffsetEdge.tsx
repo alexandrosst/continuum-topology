@@ -241,6 +241,66 @@ export function roundedPolylinePath(points: { x: number; y: number }[], radius: 
   return d
 }
 
+/** How far a squared route runs out of a box before it turns (px): inside the gap between rows of cards, so the first
+ *  turn never clips a neighbour. */
+const ELBOW_STUB = 22
+/** Clear space kept between a squared route and any box it passes. */
+const ELBOW_CLEARANCE = 8
+
+type Pt = { x: number; y: number }
+const flip = (pts: Pt[]): Pt[] => pts.map((p) => ({ x: p.y, y: p.x }))
+const flip1 = (v: Pt): Pt => ({ x: v.y, y: v.x })
+const flip1R = (o: PathObstacle): PathObstacle => ({ x: o.y, y: o.x, w: o.h, h: o.w })
+
+/** How many boxes the axis-aligned legs of a route run through. */
+function routeHits(points: Pt[], obstacles: PathObstacle[]): number {
+  const c = ELBOW_CLEARANCE / 2
+  let n = 0
+  for (const o of obstacles) {
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1]
+      const b = points[i]
+      if (Math.min(a.x, b.x) < o.x + o.w + c && Math.max(a.x, b.x) > o.x - c && Math.min(a.y, b.y) < o.y + o.h + c && Math.max(a.y, b.y) > o.y - c) {
+        n++
+        break
+      }
+    }
+  }
+  return n
+}
+
+/** A squared route that runs through a box it should go around (a long vertical leg down a column of cards, say) is replaced
+ *  by one that steps out of the source, runs along a free channel between boxes and steps into the target: the channel is
+ *  tried at the sides of every box in the way, and the route with the fewest boxes crossed wins (the shortest on a tie), the
+ *  given one if nothing is better. Two vertical ends only; the horizontal case calls it with the axes swapped. */
+function clearJog(points: Pt[], sourceNormal: Pt, targetNormal: Pt, obstacles: PathObstacle[]): Pt[] {
+  if (points.length !== 4 || obstacles.length === 0) return points
+  let best = points
+  let bestHits = routeHits(points, obstacles)
+  if (bestHits === 0) return points
+  const [a, , , b] = points
+  const ya = a.y + (sourceNormal.y || -1) * ELBOW_STUB
+  const yb = b.y + (targetNormal.y || -1) * ELBOW_STUB
+  const length = (r: Pt[]) => r.reduce((sum, p, i) => (i ? sum + Math.abs(p.x - r[i - 1].x) + Math.abs(p.y - r[i - 1].y) : 0), 0)
+  let bestLen = length(points)
+  const channels = new Set<number>([(a.x + b.x) / 2])
+  for (const o of obstacles) {
+    channels.add(o.x - ELBOW_CLEARANCE)
+    channels.add(o.x + o.w + ELBOW_CLEARANCE)
+  }
+  for (const cx of channels) {
+    const route = [a, { x: a.x, y: ya }, { x: cx, y: ya }, { x: cx, y: yb }, { x: b.x, y: yb }, b]
+    const hits = routeHits(route, obstacles)
+    const len = length(route)
+    if (hits < bestHits || (hits === bestHits && len < bestLen)) {
+      best = route
+      bestHits = hits
+      bestLen = len
+    }
+  }
+  return best
+}
+
 /** The "squared but soft" alternative to curvedPath, added per the UI/UX pass's arrow-style review: two
  *  or three axis-aligned legs joined by short rounded jogs between the two anchors, the same general shape
  *  React Flow's own built-in `smoothstep` edge type draws - except computed from OffsetEdge's own
@@ -279,15 +339,16 @@ export function elbowPath(
   y2: number,
   sourceNormal: { x: number; y: number },
   targetNormal: { x: number; y: number },
+  obstacles: PathObstacle[] = [],
   radius = 14,
 ): { path: string; labelX: number; labelY: number } {
   const sourceVertical = sourceNormal.x === 0
   const targetVertical = targetNormal.x === 0
   const points =
     sourceVertical && targetVertical
-      ? [{ x: x1, y: y1 }, { x: x1, y: (y1 + y2) / 2 }, { x: x2, y: (y1 + y2) / 2 }, { x: x2, y: y2 }]
+      ? clearJog([{ x: x1, y: y1 }, { x: x1, y: (y1 + y2) / 2 }, { x: x2, y: (y1 + y2) / 2 }, { x: x2, y: y2 }], sourceNormal, targetNormal, obstacles)
       : !sourceVertical && !targetVertical
-        ? [{ x: x1, y: y1 }, { x: (x1 + x2) / 2, y: y1 }, { x: (x1 + x2) / 2, y: y2 }, { x: x2, y: y2 }]
+        ? flip(clearJog(flip([{ x: x1, y: y1 }, { x: (x1 + x2) / 2, y: y1 }, { x: (x1 + x2) / 2, y: y2 }, { x: x2, y: y2 }]), flip1(sourceNormal), flip1(targetNormal), obstacles.map(flip1R)))
         : sourceVertical
           ? // Leaves vertically (along sourceNormal), arrives horizontally (along targetNormal): a single
             // bend at the point directly below/above the source and level with the target.
@@ -295,8 +356,9 @@ export function elbowPath(
           : // The mirror: leaves horizontally, arrives vertically - single bend level with the source and
             // directly above/below the target.
             [{ x: x1, y: y1 }, { x: x2, y: y1 }, { x: x2, y: y2 }]
-  const mid = points.length === 4 ? points[1] : undefined
-  const mid2 = points.length === 4 ? points[2] : undefined
+  const jog = points.length === 4 ? 1 : points.length === 6 ? 2 : 0
+  const mid = jog ? points[jog] : undefined
+  const mid2 = jog ? points[jog + 1] : undefined
   // For the 4-point jog shape, the label sits on the short middle leg - the one part of the path that's
   // never right on top of either box, unlike curvedPath's true midpoint label placement. The 3-point single-
   // bend shape has no such middle leg (the two legs meet directly at the bend), so the label instead goes on
@@ -585,7 +647,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
 
   const edgeStyle = useContext(EdgeStyleContext)
   const { path, labelX, labelY } =
-    edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
+    edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal, obstacles) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
   // An "overlay" cluster link (joined through a tunnel, not a flat shared subnet) gets a second, wider,
   // low-opacity path drawn behind the real one - a "pipe" the already-dashed line now visibly runs
   // through, rather than just another plain line. Non-interactive (pointerEvents: 'none') so hovering or

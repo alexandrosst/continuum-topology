@@ -289,6 +289,48 @@ describe('elbowPath (the opt-in squared-but-soft alternative to curvedPath)', ()
     expect(labelX).toBeCloseTo(150, 5)
     expect(labelY).toBeCloseTo(200, 5)
   })
+  describe('with boxes in the way', () => {
+    // Every vertex of the route, read back out of the SVG path (corners are rounded, so only the straight parts matter: the
+    // first and last of each leg are enough to see which boxes the legs run through).
+    const legs = (path: string) => {
+      const nums = path.match(/-?[\d.]+/g)!.map(Number)
+      const pts: { x: number; y: number }[] = []
+      for (let i = 0; i < nums.length; i += 2) pts.push({ x: nums[i], y: nums[i + 1] })
+      return pts
+    }
+    const crosses = (pts: { x: number; y: number }[], o: { x: number; y: number; w: number; h: number }) => {
+      // Straight legs only: the rounded corners add `Q` control points that sit on the vertices, so consecutive points are the legs.
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1]
+        const b = pts[i]
+        if (Math.min(a.x, b.x) < o.x + o.w && Math.max(a.x, b.x) > o.x && Math.min(a.y, b.y) < o.y + o.h && Math.max(a.y, b.y) > o.y) return true
+      }
+      return false
+    }
+
+    test('a box straight down the vertical leg is gone around, through a gap beside it', () => {
+      const wall = { x: -60, y: 80, w: 120, h: 80 } // sits across x=0, between the two rows
+      const plain = elbowPath(0, 0, 0, 300, outDown, outUp)
+      expect(crosses(legs(plain.path), wall)).toBe(true) // what the unaware route did
+      const { path, labelX } = elbowPath(0, 0, 0, 300, outDown, outUp, [wall])
+      expect(crosses(legs(path), wall)).toBe(false)
+      expect(path.startsWith('M0,0 ')).toBe(true)
+      expect(path.endsWith('L0,300')).toBe(true) // still ends exactly on the anchor
+      expect(Math.abs(labelX)).toBeGreaterThan(60) // the label rides the channel, not the box
+    })
+
+    test('the horizontal case is the same, with the axes swapped', () => {
+      const wall = { x: 80, y: -60, w: 80, h: 120 }
+      const { path } = elbowPath(0, 0, 300, 0, outRight, outLeft, [wall])
+      expect(crosses(legs(path), wall)).toBe(false)
+      expect(path.endsWith('L300,0')).toBe(true)
+    })
+
+    test('a route nothing is in the way of is left exactly as it was', () => {
+      const away = { x: 500, y: 0, w: 50, h: 50 }
+      expect(elbowPath(0, 0, 300, 200, outDown, outUp, [away])).toEqual(elbowPath(0, 0, 300, 200, outDown, outUp))
+    })
+  })
 })
 
 
