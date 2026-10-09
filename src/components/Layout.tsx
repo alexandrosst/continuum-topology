@@ -12,6 +12,7 @@ import ErrorBoundary from '@/components/ErrorBoundary'
 import HistoryBanner from '@/components/HistoryBanner'
 import KeyboardShortcutsModal from '@/components/KeyboardShortcutsModal'
 import SampleBanner from '@/components/SampleBanner'
+import { pollEvery } from '@/lib/pollRate'
 import { prefetchRoute } from '@/lib/routeLoaders'
 import { resumeServer, useServer } from '@/store/server'
 import { useRawTopology } from '@/store/topology'
@@ -140,23 +141,24 @@ function NavIndicator({ containerRef, activeTo }: { containerRef: RefObject<HTML
   )
 }
 
-/** Keeps the topology in step with the server while a connection is open. Faster while something waits for approval. */
+/** Keeps the topology in step with the server while a connection is open. Faster while something waits for approval, or a cluster was just changed (see boostPolling). */
 function useServerPolling() {
   const status = useServer((s) => s.status)
   const waiting = useServer((s) => s.state?.agents?.some((a) => a.status === 'pending') ?? false)
+  const boosted = useServer((s) => s.boosted)
   useEffect(() => {
     void resumeServer()
   }, [])
   useEffect(() => {
     if (status !== 'connected') return
     const tick = () => document.visibilityState === 'visible' && void useServer.getState().refresh()
-    const id = setInterval(tick, waiting ? 2000 : 5000)
+    const id = setInterval(tick, pollEvery(waiting, boosted))
     document.addEventListener('visibilitychange', tick)
     return () => {
       clearInterval(id)
       document.removeEventListener('visibilitychange', tick)
     }
-  }, [status, waiting])
+  }, [status, waiting, boosted])
 }
 
 export default function Layout() {

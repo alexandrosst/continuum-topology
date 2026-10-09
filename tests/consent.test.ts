@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { BOOST_MS, FAST_MS, POLL_MS, pollEvery } from '../src/lib/pollRate'
 import {
   collectorState,
   consentChange,
@@ -186,4 +187,12 @@ test('helmUpgradeCommand names the agent\'s own release and namespace, and never
     'helm upgrade agent-eu ./continuum-agent-0.4.0.tgz --namespace obs --reset-then-reuse-values --set access.tier=2',
   )
   assert.ok(!/--reuse-values/.test(helmUpgradeCommand(undefined, 1)))
+})
+
+test('the state is read every 5 s, every 2 s while an approval waits or a cluster was just changed (for two minutes)', () => {
+  assert.equal(pollEvery(false, false), POLL_MS)
+  assert.equal(pollEvery(true, false), FAST_MS)
+  assert.equal(pollEvery(false, true), FAST_MS)
+  assert.ok(FAST_MS < POLL_MS)
+  assert.equal(BOOST_MS, 120_000)
 })

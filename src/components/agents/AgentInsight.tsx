@@ -192,7 +192,11 @@ export function CopyCommand({ text, stale = false, multiline = false, testId = '
         aria-label={label}
         disabled={stale}
         // Where the browser will not copy (no Clipboard API on a plain-http page), the command is left selected and the person told to press Ctrl+C.
-        onClick={() => void copy(text, code.current)}
+        // What is run next changes the cluster (a collector, telemetry): the state is read faster for a while, so the result shows up sooner.
+        onClick={() => {
+          void copy(text, code.current)
+          void useServer.getState().boostPolling()
+        }}
       >
         {state === 'copied' ? <Check size={ICON_MD} aria-hidden /> : <Copy size={ICON_MD} aria-hidden />}
       </button>
@@ -264,7 +268,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
       if (change.tier) await api.setAgentTier(c, agent.id, tier)
       if (change.overrides) await api.setAgentConsent(c, agent.id, { pausedCollectors: paused, excludedNamespaces: parsed.names })
       setSaved(true)
-      await server.refresh()
+      await (stored.pausedCollectors.some((id) => !paused.includes(id)) ? server.boostPolling() : server.refresh()) // a resumed collector starts sending within a window
     } catch (e) {
       if (e instanceof ApiError) {
         setError(e.message.split('\n')[0])

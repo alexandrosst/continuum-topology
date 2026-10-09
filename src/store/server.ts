@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 import { api, ApiError, atLeast, probe, twoFactorPending, type Conn, type InvitePreview, type OrgRef, type Registration, type Role, type ServerInfo, type Session, type TwoFactorMethod, type User } from '@/lib/api'
 import { mergeDiscovered, type ServerState } from '@/lib/discovered'
+import { BOOST_MS } from '@/lib/pollRate'
 import { createPasskey, getPasskey, passkeyErrorMessage } from '@/lib/webauthn'
 import { useHistoryView } from './history'
 import { useObserved } from './observed'
@@ -67,6 +68,9 @@ interface ServerStore {
   /** Set alongside pendingLogin: which methods this account can complete the sign-in with. */
   pendingMethods: TwoFactorMethod[]
 
+  /** True for a couple of minutes after a change in a cluster that should show up soon (see `boostPolling`). */
+  boosted: boolean
+
   connect: (url: string) => Promise<boolean>
   signIn: (username: string, password: string) => Promise<boolean>
   /** Finishes a sign-in that stopped at status 'twofactor': code is a 6-digit authenticator code, a recovery code, or an emailed code. */
@@ -114,6 +118,8 @@ interface ServerStore {
   /** Stop using the server without signing out (its session stays valid); the browser keeps working alone. */
   disconnect: () => void
   refresh: () => Promise<void>
+  /** Reads the state now and keeps reading it faster for a couple of minutes: after a collector was resumed or telemetry turned on, what changes in the cluster arrives within a window or two. */
+  boostPolling: () => Promise<void>
   /** Re-read the organisation's info (what the install command uses changes when Settings → Installation is saved). */
   reloadInfo: () => Promise<void>
   conn: () => Conn | null
@@ -133,6 +139,7 @@ const messageOf = (e: unknown) => (e instanceof Error ? e.message : 'Something w
 // single stall used to leave every later tick piling another request on top, forever, for the rest of the
 // session: idle network waits, no CPU cost, no error, which is exactly what makes it easy to miss.
 let refreshing: Promise<void> | undefined
+let boostTimer: ReturnType<typeof setTimeout> | undefined
 
 export const useServer = create<ServerStore>((set, get) => {
   const wipeLocal = () => {
@@ -205,6 +212,7 @@ export const useServer = create<ServerStore>((set, get) => {
     url: read(URL_KEY),
     status: 'disconnected',
     checked: false,
+    boosted: false,
     orgs: [],
     registration: 'open',
     pendingMethods: [],
@@ -576,6 +584,13 @@ export const useServer = create<ServerStore>((set, get) => {
       } catch {
         // the copy already held stays; the next poll or sign-in reads it again
       }
+    },
+
+    boostPolling: () => {
+      clearTimeout(boostTimer)
+      set({ boosted: true })
+      boostTimer = setTimeout(() => set({ boosted: false }), BOOST_MS)
+      return get().refresh()
     },
 
     refresh: () => {
