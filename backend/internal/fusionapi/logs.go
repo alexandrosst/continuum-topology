@@ -13,19 +13,12 @@ import (
 	"time"
 )
 
-// Loki's own names for what OTLP resource and log-record attributes become: index labels for the common ones
-// (service.name, k8s.namespace.name, k8s.pod.name) and structured metadata for the rest, all with dots turned into
-// underscores. trace_id and span_id are the log record's own fields, kept as structured metadata - the join keys to
-// Tempo.
+// What Loki calls the log record's own fields, kept as structured metadata: trace_id and span_id are the join keys to Tempo.
+// The labels of the resource are the vocabulary's (vocab.go), which also says which of them are index labels.
 const (
-	lokiService   = "service_name"
-	lokiNamespace = "k8s_namespace_name"
-	lokiPod       = "k8s_pod_name"
-	lokiCluster   = "continuum_cluster_id"
-	lokiTraceID   = "trace_id"
-	lokiSpanID    = "span_id"
-	lokiSeverity  = "severity_text"
-	lokiNode      = "k8s_node_name"
+	lokiTraceID  = "trace_id"
+	lokiSpanID   = "span_id"
+	lokiSeverity = "severity_text"
 )
 
 // LogEntry is one log line with the context it was saved with.
@@ -113,21 +106,21 @@ func (f LogFilter) selector(s Scope) (string, error) {
 		if err := checkValue("service", f.Service); err != nil {
 			return "", err
 		}
-		sel = append(sel, lokiService+"="+quote(f.Service))
+		sel = append(sel, lblService+"="+quote(f.Service))
 	case len(f.Services) > 0:
 		for _, n := range f.Services {
 			if err := checkValue("service", n); err != nil {
 				return "", err
 			}
 		}
-		sel = append(sel, lokiService+"=~"+quote(regexAny(f.Services)))
+		sel = append(sel, lblService+"=~"+quote(regexAny(f.Services)))
 	case len(s.FocusServices) == 0:
-		sel = append(sel, lokiService+`=~".+"`)
+		sel = append(sel, lblService+`=~".+"`)
 	}
 	if len(s.FocusServices) > 0 {
-		sel = append(sel, lokiService+"=~"+quote(regexAny(s.FocusServices)))
+		sel = append(sel, lblService+"=~"+quote(regexAny(s.FocusServices)))
 	}
-	eq, err := eqMatchers([]eqFilter{{"namespace", lokiNamespace, f.Namespace}, {"pod", lokiPod, f.Pod}}, func(l, v string) string { return l + "=" + v })
+	eq, err := eqMatchers([]eqFilter{{"namespace", lblNamespace, f.Namespace}, {"pod", lblPod, f.Pod}}, func(l, v string) string { return l + "=" + v })
 	if err != nil {
 		return "", err
 	}
@@ -138,12 +131,12 @@ func (f LogFilter) selector(s Scope) (string, error) {
 				return "", err
 			}
 		}
-		sel = append(sel, lokiNamespace+"=~"+quote(regexAny(f.Namespaces)))
+		sel = append(sel, lblNamespace+"=~"+quote(regexAny(f.Namespaces)))
 	}
 	if ns := s.nsLimit(); len(ns) > 0 {
-		sel = append(sel, lokiNamespace+"=~"+quote(regexAny(ns)))
+		sel = append(sel, lblNamespace+"=~"+quote(regexAny(ns)))
 	}
-	sel = append(sel, logCategoryMatchers(lokiNamespace, f.Categories)...)
+	sel = append(sel, logCategoryMatchers(lblNamespace, f.Categories)...)
 	return "{" + strings.Join(sel, ",") + "}", nil
 }
 
@@ -176,7 +169,7 @@ func (f LogFilter) pipeline(s Scope, q string) (string, error) {
 		if err := checkValue("node", f.Node); err != nil {
 			return "", err
 		}
-		q += " | " + lokiNode + "=" + quote(f.Node)
+		q += " | " + lblNode + "=" + quote(f.Node)
 	}
 	if f.Severity != "" {
 		re, err := severityRegex(f.Severity)
@@ -189,10 +182,10 @@ func (f LogFilter) pipeline(s Scope, q string) (string, error) {
 		if err := checkValue("cluster", f.Cluster); err != nil {
 			return "", err
 		}
-		q += " | " + lokiCluster + "=" + quote(f.Cluster)
+		q += " | " + lblCluster + "=" + quote(f.Cluster)
 	}
 	if cl := s.clLimit(); len(cl) > 0 {
-		q += " | " + lokiCluster + "=~" + quote(regexAny(cl))
+		q += " | " + lblCluster + "=~" + quote(regexAny(cl))
 	}
 	return q, nil
 }
@@ -313,7 +306,7 @@ func lokiEntry(stream map[string]string, v []json.RawMessage) (LogEntry, bool) {
 		Time: time.Unix(0, n).UTC(), Line: line,
 		Severity: firstNonEmpty(get(lokiSeverity), get("detected_level"), get("level")),
 		TraceID:  get(lokiTraceID), SpanID: get(lokiSpanID),
-		Service: stream[lokiService], Namespace: stream[lokiNamespace], Pod: stream[lokiPod], Cluster: get(lokiCluster),
+		Service: stream[lblService], Namespace: stream[lblNamespace], Pod: stream[lblPod], Cluster: get(lblCluster),
 		Labels: stream,
 	}
 	e.Category = LogCategory(e.Namespace)
@@ -368,7 +361,7 @@ func (c *Client) logServices(ctx context.Context, s Scope, tr TimeRange) (names 
 	var res struct {
 		Data []string `json:"data"`
 	}
-	if err := c.get(ctx, storeLoki, c.Loki, "/loki/api/v1/label/"+lokiService+"/values", url.Values{
+	if err := c.get(ctx, storeLoki, c.Loki, "/loki/api/v1/label/"+lblService+"/values", url.Values{
 		"query": {sel}, "start": {unixNano(tr.From)}, "end": {unixNano(tr.To)},
 	}, nil, &res); err != nil {
 		return nil, "", err

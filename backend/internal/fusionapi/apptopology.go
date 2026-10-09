@@ -299,9 +299,6 @@ func BuildAppTopology(g *AppGroup, v *TopologyView, s Scope, noise bool) *AppTop
 	return t
 }
 
-// workloadLabel is the label that names a workload of this kind in the metrics the cluster's own objects report.
-var workloadLabel = map[string]string{"Deployment": "k8s_deployment_name", "StatefulSet": "k8s_statefulset_name", "DaemonSet": "k8s_daemonset_name"}
-
 func healthOf(c AppHealthCounts, notReady []string) (status, reason string) {
 	known := c.Total - c.Unknown
 	switch {

@@ -15,19 +15,8 @@ import (
 	"time"
 )
 
-// Prometheus names a series' labels after the resource attributes the FUSION chart promotes, with dots turned into
-// underscores (OTLP's own translation): service.name is service_name, and so on.
-const (
-	lblName      = "__name__"
-	lblService   = "service_name"
-	lblNamespace = "k8s_namespace_name"
-	lblPod       = "k8s_pod_name"
-	lblNode      = "k8s_node_name"
-	lblCluster   = "continuum_cluster_id"
-)
-
-// The labels that name the workload a pod belongs to. A pod's metrics carry no service name, only these.
-var lblWorkloads = []string{"k8s_deployment_name", "k8s_statefulset_name", "k8s_daemonset_name"}
+// lblName is Prometheus' label for a series' metric name; the others are the vocabulary's (vocab.go).
+const lblName = "__name__"
 
 // Point is one sample, [unix seconds, value] in JSON.
 type Point [2]float64

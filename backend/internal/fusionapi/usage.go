@@ -112,14 +112,14 @@ func (c *Client) VolumeUsage(ctx context.Context, s Scope, claims []string) (map
 	}
 	out := map[string]VolumeUse{}
 	for _, r := range d.Result {
-		name := r.Metric["k8s_persistentvolumeclaim_name"]
+		name := r.Metric[lblVolumeClaim]
 		str, _ := r.Value[1].(string)
 		v, err := strconv.ParseFloat(str, 64)
 		if name == "" || err != nil || v < 0 {
 			continue
 		}
 		if cur, ok := out[name]; !ok || int64(v) > cur.Used {
-			out[name] = VolumeUse{Namespace: r.Metric["k8s_namespace_name"], Used: int64(v)}
+			out[name] = VolumeUse{Namespace: r.Metric[lblNamespace], Used: int64(v)}
 		}
 	}
 	return out, nil

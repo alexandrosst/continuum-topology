@@ -146,7 +146,7 @@ func TestCategoryReachesLogSelectorAndEntries(t *testing.T) {
 		t.Errorf("%q %v", sel, err)
 	}
 	for ns, want := range map[string]string{"kube-system": CategoryKubernetes, "shop": CategoryApplication, "": CategorySystem} {
-		e, ok := lokiEntry(map[string]string{lokiNamespace: ns, lokiService: "x"}, []json.RawMessage{json.RawMessage(`"1000"`), json.RawMessage(`"line"`)})
+		e, ok := lokiEntry(map[string]string{lblNamespace: ns, lblService: "x"}, []json.RawMessage{json.RawMessage(`"1000"`), json.RawMessage(`"line"`)})
 		if !ok || e.Category != want {
 			t.Errorf("namespace %q: %+v %v", ns, e, ok)
 		}

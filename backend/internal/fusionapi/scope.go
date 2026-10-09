@@ -30,17 +30,6 @@ const (
 // Signals is every signal type, in the order the stores are listed everywhere.
 var Signals = []string{SignalMetrics, SignalLogs, SignalTraces}
 
-// The resource attributes a Scope is matched against. They are the same ones the FUSION chart promotes to labels in
-// Prometheus (prometheus.promoteResourceAttributes) and Loki keeps as an index label or structured metadata.
-const (
-	attrNamespace = "k8s.namespace.name"
-	attrCluster   = "continuum.cluster.id"
-	attrService   = "service.name"
-	attrPod       = "k8s.pod.name"
-	attrNode      = "k8s.node.name"
-	attrInstance  = "service.instance.id"
-)
-
 // Scope is what a caller may read. The zero value is a caller who may read nothing; use AllSignals for the full
 // read.
 type Scope struct {
