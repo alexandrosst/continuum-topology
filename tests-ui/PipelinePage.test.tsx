@@ -267,6 +267,8 @@ describe('PipelinePage', () => {
     // A line between every two nodes, each with a freshness meter that says its value in words.
     expect(within(path).getAllByRole('meter').length).toBeGreaterThan(0)
     for (const m of within(path).getAllByRole('meter')) expect(m).toHaveAttribute('aria-valuetext', expect.stringMatching(/^Last data /))
+    // Only a line something is flowing through moves (the reduced-motion rule for these classes is pinned in pipelineFlow.test); every other one is still.
+    for (const link of path.querySelectorAll('[data-link]')) expect(!!link.querySelector('.flow-dash-bg, .flow-dash-bg-v')).toBe(link.getAttribute('data-link') === 'flowing')
   })
 
   test('with FUSION off there is no FUSION hop figure but "Off", and the central operator is not a row', async () => {
