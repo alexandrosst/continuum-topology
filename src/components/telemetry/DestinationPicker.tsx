@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { Activity, FileText, Plus, Search, Waypoints, type LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { FusionDot } from '@/components/operators/FusionPanel'
+import { FusionDot } from '@/components/fusion/useFusion'
 import { OperatorHealth } from '@/components/operators/OperatorHealth'
 import { Button, ICON_SM, Input } from '@/components/ui/primitives'
 import { destinationGroup, GROUP_TITLE, destinationKey, searchDestinations, type DestinationCatalog, type DestinationCatalogEntry, type DestinationGroup, type layoutDestinations } from '@/lib/destinationCatalog'

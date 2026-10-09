@@ -1,7 +1,7 @@
 import { ChevronRight } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import OperatorCreated from '@/components/operators/OperatorCreated'
-import { type useFusion } from '@/components/operators/FusionPanel'
+import { type useFusion } from '@/components/fusion/useFusion'
 import { HEARTBEAT_WHAT } from '@/components/operators/HeartbeatCommands'
 import { EXPOSURE_OPTIONS } from '@/components/operators/OperatorAddress'
 import DestinationPicker, { useEnableAndUse } from '@/components/telemetry/DestinationPicker'

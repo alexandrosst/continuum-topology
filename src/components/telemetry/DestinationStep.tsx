@@ -1,6 +1,6 @@
 import { Layers } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { FusionDot } from '@/components/operators/FusionPanel'
+import { FusionDot } from '@/components/fusion/useFusion'
 import { OperatorHealth } from '@/components/operators/OperatorHealth'
 import { Button, Field, ICON_SM, InfoTip, Input, SectionLabel, Select, Waiting } from '@/components/ui/primitives'
 import { applyDestination, defaultDestination, destinationEndpoint, destinationIsPlain, destinationKey, destinationNeedsCredential, layoutDestinations, type DestinationCatalog, type DestinationCatalogEntry } from '@/lib/destinationCatalog'

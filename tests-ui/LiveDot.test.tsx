@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
-import { FusionDot } from '@/components/operators/FusionPanel'
+import { FusionDot } from '@/components/fusion/useFusion'
 import { LiveDot, type LiveKind, Waiting } from '@/components/ui/primitives'
 
 function dot(kind: LiveKind) {

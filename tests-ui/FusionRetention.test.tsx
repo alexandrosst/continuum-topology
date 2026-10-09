@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { FusionRetentionCard } from '@/components/operators/FusionRetention'
+import { FusionRetentionCard } from '@/components/fusion/FusionRetention'
 import type { FusionRetention, FusionRetentionStore } from '@/lib/api'
 import { daysThatFit, formatBytes, formChanges, fullness, formError, GIB, initialForm, neededGiB, restartedBy, retentionVerdict, usageText } from '@/lib/fusionRetention'
 

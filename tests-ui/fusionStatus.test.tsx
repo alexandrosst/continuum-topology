@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { FusionPanel, partState, POLL_RUNNING_MS, POLL_SETTLING_MS, useFusion } from '@/components/operators/FusionPanel'
+import { FusionPanel, partState, POLL_RUNNING_MS, POLL_SETTLING_MS, useFusion } from '@/components/fusion/useFusion'
 import type { FusionStatus } from '@/lib/api'
 import { fusionLabel, fusionSentence, fusionUsable, type FusionKind } from '@/lib/fusionStatus'
 

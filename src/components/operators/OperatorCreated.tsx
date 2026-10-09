@@ -1,7 +1,7 @@
 import { Plug } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { CopyCommand } from '@/components/agents/AgentInsight'
-import { FusionDot } from '@/components/operators/FusionPanel'
+import { FusionDot } from '@/components/fusion/useFusion'
 import { HeartbeatCommands } from '@/components/operators/HeartbeatCommands'
 import { FindTheAddress } from '@/components/operators/OperatorAddress'
 import { Button, ICON_SM, Modal, RunStep } from '@/components/ui/primitives'

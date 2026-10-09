@@ -2,8 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { StrictMode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { expiryText, FusionAccess, fusionDocsUrl, fusionStatusCurl } from '@/components/operators/FusionAccess'
-import { FusionPanel } from '@/components/operators/FusionPanel'
+import { expiryText, FusionAccess, fusionDocsUrl, fusionStatusCurl } from '@/components/fusion/FusionAccess'
+import { FusionPanel } from '@/components/fusion/useFusion'
 import { isReloadHeld } from '@/lib/staleBuild'
 import type { CreatedFusionAccessToken, FusionAccessToken, FusionStatus } from '@/lib/api'
 
