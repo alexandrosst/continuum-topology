@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest'
-import { applyDestination, buildDestinationCatalog, destinationGroup, destinationKey, destinationNeedsCredential, layoutDestinations, searchDestinations } from '@/lib/destinationCatalog'
+import { applyDestination, buildDestinationCatalog, defaultDestination, destinationGroup, destinationKey, destinationNeedsCredential, fusionForCatalog, layoutDestinations, searchDestinations } from '@/lib/destinationCatalog'
 import { detectBackends, imageRepository } from '@/lib/detectBackends'
-import { emptyTelemetry } from '@/lib/install'
+import type { FusionStatus } from '@/lib/api'
+import { emptyTelemetry, type Modality } from '@/lib/install'
 import type { QuickStartBackend } from '@/lib/history'
 import type { RegionalOperator, Service } from '@/lib/types'
 
@@ -55,7 +56,7 @@ describe('buildDestinationCatalog: regional operators', () => {
     const op = entries.find((e) => e.kind === 'operator')
     expect(op).toBeDefined()
     expect(op!.compatible).toBe(false)
-    expect(op).toMatchObject({ reason: expect.stringContaining('traces') })
+    expect(op).toMatchObject({ reason: 'Does not accept metrics.' })
   })
 
   test('an operator restricted to traces stays compatible once only traces is enabled', () => {
@@ -111,7 +112,7 @@ describe('buildDestinationCatalog: external presets', () => {
     const jaeger = entries.find((e) => e.kind === 'external-preset' && e.id === 'jaeger')
     expect(jaeger).toBeDefined()
     expect(jaeger!.compatible).toBe(false)
-    expect(jaeger!.reason).toBe('Takes traces only, not metrics.')
+    expect(jaeger!.reason).toBe('Does not accept metrics.')
   })
 
   test('Jaeger is offered once only traces is enabled, and every preset entry reports compatible: true', () => {
@@ -135,7 +136,7 @@ describe('buildDestinationCatalog: already quick-started backends', () => {
       quickStartBackends: [backend({ modality: 'traces' })],
       isAdmin: false,
     })
-    expect(entries.find((e) => e.kind === 'quickstart')).toMatchObject({ compatible: false, reason: 'Takes traces only, not metrics.' })
+    expect(entries.find((e) => e.kind === 'quickstart')).toMatchObject({ compatible: false, reason: 'Does not accept metrics.' })
   })
 
   test('a saved backend whose modality is enabled, alone, is compatible and carries its computed endpoint', () => {
@@ -328,7 +329,7 @@ describe('Zipkin', () => {
     // With metrics also on it is greyed out, with the reason, like Jaeger.
     const mixed = buildDestinationCatalog({ operators: [], enabledModalities: new Set(['traces', 'metrics']), quickStartBackends: [], isAdmin: false }).entries.find((e) => e.id === 'zipkin')!
     expect(mixed.compatible).toBe(false)
-    expect(mixed.reason).toMatch(/traces only, not metrics/)
+    expect(mixed.reason).toBe('Does not accept metrics.')
   })
 
   test('a quick-started Zipkin exports natively: its own host:port and the zipkin protocol', () => {
@@ -365,7 +366,7 @@ describe('buildDestinationCatalog: found in the cluster', () => {
 
   test('it is greyed out, with a reason, when it cannot carry everything turned on', () => {
     const entry = catalog(['logs', 'metrics']).entries.find((e) => e.kind === 'detected')!
-    expect(entry).toMatchObject({ compatible: false, reason: 'Takes logs only, not metrics.' })
+    expect(entry).toMatchObject({ compatible: false, reason: 'Does not accept metrics.' })
   })
 
   test('picking it sets a plain in-cluster connection with no credential; a lone detected one is never auto-picked as "own"', () => {
@@ -406,6 +407,40 @@ describe('searchDestinations', () => {
     const r = searchDestinations(catalog, 'prometheus')
     expect(r.usable).toEqual([])
     expect(r.unavailable.map(destinationKey)).toEqual(['external-preset-prometheus'])
-    expect(r.unavailable[0].reason).toBe('Takes metrics only, not logs.')
+    expect(r.unavailable[0].reason).toBe('Does not accept logs.')
+  })
+})
+
+describe('cannotCarry: the one sentence a disabled destination carries', () => {
+  test('names every chosen signal type it does not take, in the product order, and nothing it does take', () => {
+    const entry = buildDestinationCatalog({ enabledModalities: new Set<Modality>(['traces', 'metrics', 'logs']), isAdmin: true, operators: [] }).entries.find((e) => e.kind === 'external-preset' && e.preset.modalities?.length === 1 && e.preset.modalities[0] === 'traces')
+    expect(entry?.compatible).toBe(false)
+    expect(entry?.reason).toBe('Does not accept metrics or logs.')
+  })
+})
+
+describe('defaultDestination: what a wizard that was not told picks on its own', () => {
+  const fusionStatus = (state: 'running' | 'off'): FusionStatus => ({ available: true, state, components: [{ component: 'central', label: 'Central', desired: state === 'off' ? 0 : 1, ready: state === 'off' ? 0 : 1 }] })
+  const fusionOf = (state: 'running' | 'off') => fusionForCatalog({ status: fusionStatus(state), operators: [], destinations: [], isAdmin: true })
+  const base = { enabledModalities: new Set<Modality>(['metrics']), isAdmin: true }
+  const pick = (c: ReturnType<typeof buildDestinationCatalog>, clusterId?: string) => defaultDestination(layoutDestinations(c, { clusterId }))
+
+  test('the operator that already receives this cluster is the default, and only when there is exactly one such', () => {
+    const op = (id: string, clusters: string[]) => operator({ id, sourceClusterIds: clusters })
+    const one = buildDestinationCatalog({ ...base, operators: [op('a', ['c1']), op('b', [])] })
+    expect(pick(one, 'c1')).toMatchObject({ kind: 'operator', id: 'a' })
+    const two = buildDestinationCatalog({ ...base, operators: [op('a', ['c1']), op('b', ['c1'])] })
+    expect(pick(two, 'c1')).toBeUndefined()
+  })
+
+  test('with nothing recommended, the only destination the organisation has is the default; two are a choice, not a guess', () => {
+    expect(pick(buildDestinationCatalog({ ...base, operators: [operator({ id: 'a' })] }))).toMatchObject({ id: 'a' })
+    expect(pick(buildDestinationCatalog({ ...base, operators: [operator({ id: 'a' }), operator({ id: 'b' })] }))).toBeUndefined()
+    expect(pick(buildDestinationCatalog({ ...base, operators: [] }))).toBeUndefined()
+  })
+
+  test('a running FUSION is the default when nothing else receives the cluster; an off one is never picked on anyone\'s behalf', () => {
+    expect(pick(buildDestinationCatalog({ ...base, operators: [], fusion: fusionOf('running') }), 'c1')).toMatchObject({ kind: 'fusion' })
+    expect(pick(buildDestinationCatalog({ ...base, operators: [], fusion: fusionOf('off') }), 'c1')).toBeUndefined()
   })
 })

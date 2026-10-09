@@ -181,11 +181,11 @@ export function operatorReceiverEndpoint(op: { id: string }): string {
   return `${op.id}.continuum-system.svc:4317`
 }
 
-/** "Takes traces only, not metrics + logs." - the one sentence every greyed-out destination carries. */
+/** "Does not accept logs or traces." - the one sentence every disabled destination carries: exactly what it cannot take of what was chosen. */
 function cannotCarry(accepts: Modality[], enabled: Set<Modality>): string | undefined {
-  const missing = [...enabled].filter((m) => !accepts.includes(m))
+  const missing = ALL_MODALITIES.filter((m) => enabled.has(m) && !accepts.includes(m))
   if (missing.length === 0) return undefined
-  return `Takes ${accepts.join(' + ')} only, not ${missing.join(' + ')}.`
+  return `Does not accept ${missing.join(' or ')}.`
 }
 
 /**
@@ -467,6 +467,16 @@ export function isRecommended(e: DestinationCatalogEntry, clusterId?: string, en
     return !!clusterId && !entries.some((o) => o.kind === 'operator' && o.operator.sourceClusterIds.includes(clusterId))
   }
   return false
+}
+
+/**
+ * The destination to start from when nothing was chosen: the one entry recommended for this cluster, or else the only thing the
+ * organisation has that fits. Never a guess among several, and never a destination that cannot be sent to yet.
+ */
+export function defaultDestination(layout: ReturnType<typeof layoutDestinations>): DestinationCatalogEntry | undefined {
+  const picks = layout.all.filter((e) => layout.recommended.has(destinationKey(e)) && !(e.kind === 'fusion' && !e.fusion.usable))
+  if (picks.length === 1) return picks[0]
+  return layout.known.length === 1 && layout.own.length === 1 ? layout.own[0] : undefined
 }
 
 /** What the search box matches an entry against: its name, address, kind of thing it is and the signals it takes. */
