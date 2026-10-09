@@ -1,5 +1,5 @@
 import { lazy, useEffect } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Layout from '@/components/Layout'
 import { prefetchAllRoutesWhenIdle, routeLoaders } from '@/lib/routeLoaders'
 
@@ -7,7 +7,8 @@ import { prefetchAllRoutesWhenIdle, routeLoaders } from '@/lib/routeLoaders'
 // Built from routeLoaders (not `lazy(() => import(...))` inlined here) so Layout's nav can reuse the exact
 // same loader to prefetch a page's chunk on hover/focus - see routeLoaders.ts for why.
 const AgentsPage = lazy(routeLoaders['/agents'])
-const RegionalOperatorsPage = lazy(routeLoaders['/operators'])
+const PipelinePage = lazy(routeLoaders['/pipeline'])
+const FusionPage = lazy(routeLoaders['/fusion'])
 const ActivityPage = lazy(routeLoaders['/activity'])
 const ApplicationsPage = lazy(routeLoaders['/applications'])
 const ClustersPage = lazy(routeLoaders['/clusters'])
@@ -23,6 +24,12 @@ const SitesPage = lazy(routeLoaders['/sites'])
 const TopologyPage = lazy(routeLoaders['/topology'])
 const TeamPage = lazy(routeLoaders['/team'])
 const ServicesPage = lazy(routeLoaders['/services'])
+
+/** The old /operators address keeps working: the page is now the Pipeline, and ?cat= carries over. */
+function OperatorsRedirect() {
+  const { search } = useLocation()
+  return <Navigate to={`/pipeline${search}`} replace />
+}
 
 export default function App() {
   // Hover/focus prefetch (Layout's NavItem) covers most navigations, but not a click that lands before
@@ -69,7 +76,9 @@ export default function App() {
           <Route path="/sites" element={<SitesPage />} />
           <Route path="/discovery" element={<DiscoveryPage />} />
           <Route path="/agents" element={<AgentsPage />} />
-          <Route path="/operators" element={<RegionalOperatorsPage />} />
+          <Route path="/pipeline" element={<PipelinePage />} />
+          <Route path="/fusion/*" element={<FusionPage />} />
+          <Route path="/operators" element={<OperatorsRedirect />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/system-health" element={<SystemHealthPage />} />
           <Route path="/placement" element={<PlacementPage />} />
