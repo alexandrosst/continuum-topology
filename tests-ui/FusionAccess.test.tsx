@@ -3,9 +3,8 @@ import { StrictMode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { expiryText, FusionAccess, fusionDocsUrl, fusionStatusCurl } from '@/components/fusion/FusionAccess'
-import { FusionPanel } from '@/components/fusion/useFusion'
 import { isReloadHeld } from '@/lib/staleBuild'
-import type { CreatedFusionAccessToken, FusionAccessToken, FusionStatus } from '@/lib/api'
+import type { CreatedFusionAccessToken, FusionAccessToken } from '@/lib/api'
 
 const listFusionTokens = vi.fn()
 const createFusionToken = vi.fn()
@@ -151,28 +150,10 @@ describe('FusionAccess', () => {
     await user.click(await screen.findByRole('button', { name: 'Revoke Decision engine' }))
     expect(revokeFusionToken).not.toHaveBeenCalled()
     expect(screen.getByText(/stops being able to read FUSION at once/)).toBeInTheDocument()
+    expect(screen.getByText(/It has never been used\./)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Revoke' }))
     await waitFor(() => expect(revokeFusionToken).toHaveBeenCalledWith(expect.anything(), 'fk-1'))
     expect(await screen.findByTestId('fusion-token-empty')).toBeInTheDocument()
-  })
-})
-
-describe('the FUSION card', () => {
-  const fusion = (status: FusionStatus) => ({ status, busy: false, error: '', refresh: vi.fn(), enable: vi.fn(), disable: vi.fn() }) as never
-
-  test('offers access only where the server serves the data API', async () => {
-    listFusionTokens.mockResolvedValue([])
-    const off: FusionStatus = { available: true, state: 'off', data: false }
-    const { rerender } = render(<FusionPanel fusion={fusion(off)} />)
-    expect(screen.queryByTestId('fusion-access')).not.toBeInTheDocument()
-    rerender(<FusionPanel fusion={fusion({ ...off, data: true })} />)
-    expect(await screen.findByTestId('fusion-access')).toBeInTheDocument()
-  })
-
-  test('is there even when the switch is not available to this server', async () => {
-    listFusionTokens.mockResolvedValue([])
-    render(<FusionPanel fusion={fusion({ available: false, state: 'off', reason: 'not-configured', message: 'No switch.', data: true })} />)
-    expect(await screen.findByTestId('fusion-access')).toBeInTheDocument()
   })
 })
 
@@ -195,11 +176,11 @@ describe('a token that is shown once', () => {
     await user.click(await screen.findByTestId('fusion-token-new'))
     await user.type(screen.getByTestId('fusion-token-name'), 'Shop dashboard')
     await user.click(screen.getByTestId('fusion-token-create'))
-    const dialog = await screen.findByRole('dialog', { name: 'Access token created' })
+    const dialog = await screen.findByRole('dialog', { name: 'API token created' })
     expect(isReloadHeld()).toBe(true)
     await user.keyboard('{Escape}')
     fireEvent.mouseDown(dialog.parentElement!)
-    expect(screen.getByRole('dialog', { name: 'Access token created' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'API token created' })).toBeInTheDocument()
     expect(screen.getByText('cnf_SECRETSECRETSECRET')).toBeInTheDocument()
     await user.click(screen.getByTestId('fusion-token-done'))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -215,15 +196,15 @@ describe('a token that is shown once', () => {
     await user.click(await screen.findByTestId('fusion-token-new'))
     await user.type(screen.getByTestId('fusion-token-name'), 'Shop dashboard')
     await user.click(screen.getByTestId('fusion-token-create'))
-    const dialog = screen.getByRole('dialog', { name: 'New access token' })
+    const dialog = screen.getByRole('dialog', { name: 'New API token' })
     await user.keyboard('{Escape}')
     fireEvent.mouseDown(dialog.parentElement!)
-    expect(screen.getByRole('dialog', { name: 'New access token' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'New API token' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
     await user.click(screen.getByTestId('fusion-token-create')) // a second press while it runs
     expect(createFusionToken).toHaveBeenCalledTimes(1)
     finish(created)
-    expect(await screen.findByRole('dialog', { name: 'Access token created' })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: 'API token created' })).toBeInTheDocument()
   })
 
   test('before anything is sent the form closes the ordinary ways', async () => {

@@ -65,7 +65,6 @@ const enableFusion = vi.fn(async () => (fusionStatus = fusionStarting()))
 const disableFusion = vi.fn(async () => (fusionStatus = fusionOff()))
 const revokeOperator = vi.fn(async (..._a: unknown[]): Promise<OperatorRemoval | undefined> => undefined)
 const deleteOperator = vi.fn(async (..._a: unknown[]): Promise<OperatorRemoval | undefined> => undefined)
-const openFusionPage = vi.fn(async (_c: unknown, page: string): Promise<{ path: string }> => ({ path: `/fusion/${page === 'grafana' ? 'grafana' : 'prometheus'}/?ikhnos_ticket=t1` }))
 const listOperatorCertificates = vi.fn(async (_c: unknown, _id: string): Promise<{ certificates: IssuedCertificate[] }> => ({ certificates: [] }))
 const setOperatorAddress = vi.fn(async (_c: unknown, _id: string, _address: string): Promise<RegionalOperator> => ({} as RegionalOperator))
 
@@ -97,7 +96,6 @@ vi.mock('@/lib/api', async (importOriginal) => {
       reinstallOperator: (...a: Parameters<typeof reinstallOperator>) => reinstallOperator(...a),
       enableOperatorHeartbeat: (...a: Parameters<typeof enableOperatorHeartbeat>) => enableOperatorHeartbeat(...a),
       getFusion: () => getFusion(),
-      openFusionPage: (...a: Parameters<typeof openFusionPage>) => openFusionPage(...a),
       enableFusion: () => enableFusion(),
       disableFusion: () => disableFusion(),
       revokeOperator: (...a: Parameters<typeof revokeOperator>) => revokeOperator(...a),
@@ -125,7 +123,6 @@ beforeEach(() => {
   revokeOperator.mockResolvedValue(undefined)
   deleteOperator.mockReset()
   deleteOperator.mockResolvedValue(undefined)
-  openFusionPage.mockClear()
   listOperatorCertificates.mockReset()
   listOperatorCertificates.mockResolvedValue({ certificates: [] })
   setOperatorAddress.mockReset()

@@ -1,11 +1,12 @@
 import clsx from 'clsx'
-import { HardDrive } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ConfirmModal } from '@/components/forms'
+import { FusionSection, ROWS } from '@/components/fusion/FusionSection'
 import { buttonClass } from '@/components/ui/buttonClass'
-import { Button, ErrorBanner, Field, ICON_SM, Input, Modal } from '@/components/ui/primitives'
+import { Button, ErrorBanner, Field, Input, Modal } from '@/components/ui/primitives'
 import { api, ApiError, type FusionRetention, type FusionRetentionStore } from '@/lib/api'
 import {
-  daysText, daysThatFit, formatBytes, formChanges, formError, fullness, fullnessAdvice, initialForm, restartedBy, retentionVerdict, type RetentionFormState,
+  daysText, daysThatFit, formatBytes, formChanges, formError, fullness, fullnessAdvice, initialForm, restartedBy, retentionVerdict, type RetentionFormState, shortened,
   usageText, volumeGiB,
 } from '@/lib/fusionRetention'
 import { useVisiblePolling } from '@/lib/usePolling'
@@ -19,15 +20,14 @@ const POLL_STEADY_MS = 60_000
 
 /**
  * How long FUSION keeps what it saved, and how big the volumes holding it are, with a way to change both. A longer retention may need a bigger
- * volume, so the two are set together: the card shows what each store takes now and how fast it grows, and says whether the retention asked for
+ * volume, so the two are set together: the block shows what each store takes now and how fast it grows, and says whether the retention asked for
  * fits. Growing a volume asks the cluster to expand it (which needs a storage class that allows expansion); the server does that first and
- * changes the retention only if it worked. `state` is FUSION's own state, which makes the card read again when it changes.
+ * changes the retention only if it worked. `state` is FUSION's own state, which makes it read again when it changes.
  */
-export function FusionRetentionCard({ state }: { state: string }) {
+export function useFusionRetention(state: string, enabled = true) {
   const conn = useServer((s) => s.conn)
   const [doc, setDoc] = useState<FusionRetention | null>(null)
   const [error, setError] = useState('')
-  const [editing, setEditing] = useState(false)
   const alive = useRef(true)
   const newest = useRef(0)
   // Set back to true on every mount (StrictMode mounts twice; see FusionAccess).
@@ -38,7 +38,7 @@ export function FusionRetentionCard({ state }: { state: string }) {
 
   const load = useCallback(async () => {
     const c = conn()
-    if (!c) return
+    if (!c || !enabled) return
     const mine = ++newest.current
     try {
       const d = await api.getFusionRetention(c)
@@ -49,71 +49,54 @@ export function FusionRetentionCard({ state }: { state: string }) {
     } catch (e) {
       if (alive.current && mine === newest.current) setError(e instanceof ApiError ? e.message : 'Could not read the retention.')
     }
-  }, [conn])
+  }, [conn, enabled])
   useEffect(() => {
     void load()
   }, [load, state])
 
   const growing = !!doc?.stores.some((s) => s.resizing)
   useVisiblePolling(() => void load(), doc?.available ? (growing ? POLL_GROWING_MS : POLL_STEADY_MS) : null)
+  /** The server's answer to a change is the freshest there is: reads that left before it are older. */
+  const accept = (d: FusionRetention) => {
+    newest.current++
+    setDoc(d)
+  }
+  return { doc, error, accept }
+}
+
+const WHAT = 'How long each store keeps what it saved, and the volume it keeps it on. A longer retention takes more room, so the volume can be grown with it.'
+
+export function FusionRetentionCard({ retention: { doc, error, accept } }: { retention: ReturnType<typeof useFusionRetention> }) {
+  const [editing, setEditing] = useState(false)
 
   if (!doc) {
-    return error ? <ErrorBanner className="mt-4">{error}</ErrorBanner> : null
+    return error ? <ErrorBanner className="mb-8">{error}</ErrorBanner> : null
   }
   if (!doc.available) {
     if (QUIET.has(doc.reason ?? '')) return null
     return (
-      <section className="mt-4 border-t border-nb-850 pt-4" data-testid="fusion-retention" data-available="false">
-        <Heading />
-        <p className="mt-2 text-xs leading-relaxed text-nb-500" data-testid="fusion-retention-unavailable">{doc.message}</p>
-      </section>
+      <FusionSection title="Retention" description={WHAT} testId="fusion-retention">
+        <p className="text-sm text-nb-500" data-testid="fusion-retention-unavailable">{doc.message}</p>
+      </FusionSection>
     )
   }
   return (
-    <section className="mt-4 border-t border-nb-850 pt-4" data-testid="fusion-retention" data-available="true">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Heading />
-        <span className="ml-auto">
-          <Button size="sm" onClick={() => setEditing(true)} data-testid="fusion-retention-change">Change retention</Button>
-        </span>
-      </div>
-      <p className="mt-2 text-xs leading-relaxed text-nb-500">
-        How long each store keeps what it saved. A longer retention takes more room, so the volume can be grown with it; the card says whether the
-        retention you choose fits.
-      </p>
-      <ul className="mt-3 divide-y divide-nb-850 rounded-md border border-nb-850 text-xs" data-testid="fusion-retention-list">
+    <FusionSection title="Retention" description={WHAT} testId="fusion-retention" actions={<Button size="sm" onClick={() => setEditing(true)} data-testid="fusion-retention-change">Change retention</Button>}>
+      <ul className={ROWS} data-testid="fusion-retention-list">
         {doc.stores.map((s) => <StoreRow key={s.component} s={s} />)}
       </ul>
       {doc.warnings?.map((w) => <ErrorBanner key={w} className="mt-2">{w}</ErrorBanner>)}
       {error && <ErrorBanner className="mt-2">{error}</ErrorBanner>}
-      {editing && (
-        <RetentionModal
-          doc={doc}
-          onClose={() => setEditing(false)}
-          onSaved={(d) => {
-            newest.current++
-            setDoc(d)
-            setEditing(false)
-          }}
-        />
-      )}
-    </section>
-  )
-}
-
-function Heading() {
-  return (
-    <span className="flex items-center gap-1.5 text-sm font-medium text-nb-200">
-      <HardDrive size={ICON_SM} className="text-nb-500" aria-hidden /> Retention
-    </span>
+      {editing && <RetentionModal doc={doc} onClose={() => setEditing(false)} onSaved={(d) => { accept(d); setEditing(false) }} />}
+    </FusionSection>
   )
 }
 
 function StoreRow({ s }: { s: FusionRetentionStore }) {
   const sizeShort = s.sizeLimitDays !== undefined && s.sizeLimitDays < s.days
   return (
-    <li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2" data-testid={`fusion-retention-${s.component}`}>
-      <span className="w-20 shrink-0 text-nb-300">{s.label}</span>
+    <li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-3" data-testid={`fusion-retention-${s.component}`}>
+      <span className="w-24 shrink-0 text-nb-300">{s.label}</span>
       <span className="text-nb-200" data-testid={`fusion-retention-days-${s.component}`}>
         keeps {daysText(s.days)}
         {!s.exactDays && <span className="ml-1 text-nb-500">({s.value})</span>}
@@ -133,22 +116,22 @@ function StoreRow({ s }: { s: FusionRetentionStore }) {
         )}
       </span>
       {fullness(s) && (
-        <span className={clsx('w-full', fullness(s)!.level === 'critical' ? 'text-bad' : 'text-warn')} data-testid={`fusion-retention-full-${s.component}`}>
+        <span className={clsx('w-full text-xs', fullness(s)!.level === 'critical' ? 'text-bad' : 'text-warn')} data-testid={`fusion-retention-full-${s.component}`}>
           {fullnessAdvice(s)}
         </span>
       )}
       {s.volumeKnown && s.canGrow === false && (
-        <span className="w-full text-nb-500" data-testid={`fusion-retention-fixed-${s.component}`}>
+        <span className="w-full text-xs text-nb-500" data-testid={`fusion-retention-fixed-${s.component}`}>
           This volume cannot be grown ({s.growNote ?? 'the cluster refuses'}), so only the days can be changed.
         </span>
       )}
       {s.sizeNotEnforced && (
-        <span className="w-full text-nb-500" data-testid={`fusion-retention-nominal-${s.component}`}>
+        <span className="w-full text-xs text-nb-500" data-testid={`fusion-retention-nominal-${s.component}`}>
           This storage does not enforce the volume&apos;s size: {formatBytes(s.volumeBytes)} is what was asked for, and the node&apos;s disk is the real limit.
         </span>
       )}
       {sizeShort && (
-        <span className="w-full text-warn" data-testid={`fusion-retention-sizecap-${s.component}`}>
+        <span className="w-full text-xs text-warn" data-testid={`fusion-retention-sizecap-${s.component}`}>
           Its size limit keeps only about {daysText(Math.max(1, Math.floor(s.sizeLimitDays!)))} at today&apos;s growth, fewer than the {daysText(s.days)} set. Grow the volume to keep more.
         </span>
       )}
@@ -165,6 +148,9 @@ function RetentionModal({ doc, onClose, onSaved }: { doc: FusionRetention; onClo
   const problem = doc.stores.map((s) => formError(s, form[s.component])).find((e) => e !== '') ?? ''
   const nothing = Object.keys(changes).length === 0
   const restarts = doc.running ? restartedBy(doc.stores, changes) : []
+  // Shortening a retention deletes what is older than the new setting, for good: said, and asked about, before it is done.
+  const cut = shortened(doc.stores, changes)
+  const [confirming, setConfirming] = useState(false)
 
   const set = (c: FusionRetentionStore['component'], field: 'days' | 'gib', v: string) =>
     setForm((f) => ({ ...f, [c]: { ...f[c], [field]: v } }))
@@ -184,6 +170,7 @@ function RetentionModal({ doc, onClose, onSaved }: { doc: FusionRetention; onClo
   }
 
   return (
+    <>
     <Modal
       open
       onClose={onClose}
@@ -194,7 +181,7 @@ function RetentionModal({ doc, onClose, onSaved }: { doc: FusionRetention; onClo
       footer={
         <>
           <Button onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button variant="primary" onClick={() => void save()} disabled={busy || nothing || problem !== ''} data-testid="fusion-retention-save">
+          <Button variant="primary" onClick={() => (cut.length > 0 ? setConfirming(true) : void save())} disabled={busy || nothing || problem !== ''} data-testid="fusion-retention-save">
             {busy ? 'Saving…' : 'Save'}
           </Button>
         </>
@@ -272,5 +259,15 @@ function RetentionModal({ doc, onClose, onSaved }: { doc: FusionRetention; onClo
         {error && <ErrorBanner data-testid="fusion-retention-save-error">{error}</ErrorBanner>}
       </div>
     </Modal>
+    {confirming && (
+      <ConfirmModal
+        title="Delete older data?"
+        message={cut.map((c) => `${c.label} will keep ${daysText(c.to)} instead of ${daysText(c.from)}: what is older than ${daysText(c.to)} is deleted as the store cleans up, in the background, and cannot be brought back.`).join(' ')}
+        confirmLabel="Keep fewer days"
+        onConfirm={() => void save()}
+        onClose={() => setConfirming(false)}
+      />
+    )}
+    </>
   )
 }

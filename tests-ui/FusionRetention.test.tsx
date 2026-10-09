@@ -1,9 +1,14 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { FusionRetentionCard } from '@/components/fusion/FusionRetention'
+import { FusionRetentionCard, useFusionRetention } from '@/components/fusion/FusionRetention'
 import type { FusionRetention, FusionRetentionStore } from '@/lib/api'
-import { daysThatFit, formatBytes, formChanges, fullness, formError, GIB, initialForm, neededGiB, restartedBy, retentionVerdict, usageText } from '@/lib/fusionRetention'
+import { daysThatFit, formatBytes, formChanges, fullness, formError, GIB, initialForm, neededGiB, restartedBy, retentionVerdict, shortened, usageText } from '@/lib/fusionRetention'
+
+/** The card as the Settings tab uses it: the hook reads, the card shows. */
+function Card({ state }: { state: string }) {
+  return <FusionRetentionCard retention={useFusionRetention(state)} />
+}
 
 const getRetention = vi.fn()
 const setRetention = vi.fn()
@@ -84,6 +89,14 @@ describe('the numbers behind the card', () => {
   })
 })
 
+describe('shortened', () => {
+  test('names each store that would keep fewer days, and nothing for a longer or unchanged retention', () => {
+    const ss = stores()
+    expect(shortened(ss, { metrics: { days: 7 }, logs: { days: 7 }, traces: { days: 30 } })).toEqual([{ label: 'Prometheus', from: 15, to: 7 }])
+    expect(shortened(ss, { metrics: { volumeGiB: 20 } })).toEqual([])
+  })
+})
+
 describe('a volume that is nearly full or cannot grow', () => {
   test('nearly full is told from the kubelet\'s count of the volume, at 85% and 95%', () => {
     const base = store({ usedSource: 'volume' })
@@ -104,7 +117,7 @@ describe('a volume that is nearly full or cannot grow', () => {
 
   test('the card says so on the row: nearly full, fixed, and not enforced', async () => {
     getRetention.mockResolvedValue(doc([store({ usedBytes: 9 * GIB, usedSource: 'volume', canGrow: false, growNote: 'its storage class does not allow volumes to be grown', sizeNotEnforced: true, storageClass: 'local-path' })]))
-    render(<FusionRetentionCard state="running" />)
+    render(<Card state="running" />)
     expect(await screen.findByTestId('fusion-retention-full-logs')).toHaveTextContent("Loki's volume is 90% full. This volume cannot be grown, so lower the days it keeps.")
     expect(screen.getByTestId('fusion-retention-fixed-logs')).toHaveTextContent('only the days can be changed')
     expect(screen.getByTestId('fusion-retention-nominal-logs')).toHaveTextContent("node's disk is the real limit")
@@ -114,7 +127,7 @@ describe('a volume that is nearly full or cannot grow', () => {
     const user = userEvent.setup()
     getRetention.mockResolvedValue(doc([store({ bytesPerDay: GIB, usedBytes: 3 * GIB, usedSource: 'volume', dataDays: 3, canGrow: false, growNote: 'x' })]))
     setRetention.mockResolvedValue(doc([store({ days: 8 })]))
-    render(<FusionRetentionCard state="running" />)
+    render(<Card state="running" />)
     await user.click(await screen.findByTestId('fusion-retention-change'))
     expect(screen.getByTestId('fusion-retention-input-gib-logs')).toBeDisabled()
     const days = screen.getByTestId('fusion-retention-input-days-logs')
@@ -131,7 +144,7 @@ describe('a volume that is nearly full or cannot grow', () => {
 describe('FusionRetentionCard', () => {
   test('shows each store\'s retention, volume and use', async () => {
     getRetention.mockResolvedValue(doc(stores()))
-    render(<FusionRetentionCard state="running" />)
+    render(<Card state="running" />)
     const loki = await screen.findByTestId('fusion-retention-logs')
     expect(within(loki).getByText('keeps 7 days')).toBeInTheDocument()
     expect(loki).toHaveTextContent('10 GiB volume (fast), 3 GiB used, about 512 MiB a day')
@@ -141,30 +154,30 @@ describe('FusionRetentionCard', () => {
 
   test('a retention that is not whole days is shown as it is set', async () => {
     getRetention.mockResolvedValue(doc([store({ value: '36h', days: 2, exactDays: false })]))
-    render(<FusionRetentionCard state="running" />)
+    render(<Card state="running" />)
     expect(await screen.findByTestId('fusion-retention-logs')).toHaveTextContent(/keeps 2 days\s*\(36h\)/)
   })
 
   test('warns when Prometheus\' size limit keeps fewer days than the retention', async () => {
     getRetention.mockResolvedValue(doc([store({ component: 'metrics', label: 'Prometheus', days: 15, sizeLimitDays: 8.4, sizeLimitBytes: 8 * GIB })]))
-    render(<FusionRetentionCard state="running" />)
+    render(<Card state="running" />)
     expect(await screen.findByTestId('fusion-retention-sizecap-metrics')).toHaveTextContent('only about 8 days')
   })
 
   test('shows a volume that is still being grown', async () => {
     getRetention.mockResolvedValue(doc([store({ volumeBytes: 20 * GIB, resizing: true, resizeNote: 'waiting for the file system' })]))
-    render(<FusionRetentionCard state="running" />)
+    render(<Card state="running" />)
     expect(await screen.findByTestId('fusion-retention-growing-logs')).toHaveTextContent('growing to 20 GiB - waiting for the file system')
   })
 
   test('explains when the server does not manage FUSION, and says nothing for another organisation', async () => {
     getRetention.mockResolvedValueOnce({ available: false, reason: 'unmanaged', message: 'Set it with Helm values.', running: true, stores: [] })
-    const { unmount } = render(<FusionRetentionCard state="running" />)
+    const { unmount } = render(<Card state="running" />)
     expect(await screen.findByTestId('fusion-retention-unavailable')).toHaveTextContent('Set it with Helm values.')
     expect(screen.queryByTestId('fusion-retention-change')).not.toBeInTheDocument()
     unmount()
     getRetention.mockResolvedValueOnce({ available: false, reason: 'other-org', message: 'x', running: false, stores: [] })
-    const { container } = render(<FusionRetentionCard state="off" />)
+    const { container } = render(<Card state="off" />)
     await waitFor(() => expect(getRetention).toHaveBeenCalledTimes(2))
     expect(container).toBeEmptyDOMElement()
   })
@@ -174,7 +187,7 @@ describe('FusionRetentionCard', () => {
     getRetention.mockResolvedValue(doc(stores()))
     const after = doc(stores().map((s) => (s.component === 'metrics' ? { ...s, days: 30, value: '30d', volumeBytes: 36 * GIB, resizing: true } : s)))
     setRetention.mockResolvedValue(after)
-    render(<FusionRetentionCard state="running" />)
+    render(<Card state="running" />)
     await user.click(await screen.findByTestId('fusion-retention-change'))
     const save = screen.getByTestId('fusion-retention-save')
     expect(save).toBeDisabled() // nothing changed yet
@@ -199,7 +212,7 @@ describe('FusionRetentionCard', () => {
   test('will not shrink a volume or save a retention out of range', async () => {
     const user = userEvent.setup()
     getRetention.mockResolvedValue(doc(stores()))
-    render(<FusionRetentionCard state="running" />)
+    render(<Card state="running" />)
     await user.click(await screen.findByTestId('fusion-retention-change'))
     const gib = screen.getByTestId('fusion-retention-input-gib-logs')
     await user.clear(gib)
@@ -220,7 +233,7 @@ describe('FusionRetentionCard', () => {
     getRetention.mockResolvedValue(doc(stores()))
     const { ApiError } = await import('@/lib/api')
     setRetention.mockRejectedValue(new ApiError(409, "Loki's volume cannot be grown: its storage class (fast) does not allow volume expansion."))
-    render(<FusionRetentionCard state="running" />)
+    render(<Card state="running" />)
     await user.click(await screen.findByTestId('fusion-retention-change'))
     const gib = screen.getByTestId('fusion-retention-input-gib-logs')
     await user.clear(gib)
@@ -234,7 +247,7 @@ describe('FusionRetentionCard', () => {
     const user = userEvent.setup()
     getRetention.mockResolvedValue(doc([store({ volumeKnown: false, volumeBytes: 0, capacityBytes: 0 })]))
     setRetention.mockResolvedValue(doc([store({ days: 14 })]))
-    render(<FusionRetentionCard state="running" />)
+    render(<Card state="running" />)
     await user.click(await screen.findByTestId('fusion-retention-change'))
     expect(screen.queryByTestId('fusion-retention-input-gib-logs')).not.toBeInTheDocument()
     const days = screen.getByTestId('fusion-retention-input-days-logs')
@@ -242,5 +255,23 @@ describe('FusionRetentionCard', () => {
     await user.type(days, '14')
     await user.click(screen.getByTestId('fusion-retention-save'))
     expect(setRetention).toHaveBeenCalledWith(expect.anything(), { logs: { days: 14 } })
+  })
+
+  test('shortening a retention asks first, says what is deleted, and saves only when confirmed', async () => {
+    const user = userEvent.setup()
+    getRetention.mockResolvedValue(doc(stores()))
+    setRetention.mockResolvedValue(doc(stores().map((s) => (s.component === 'metrics' ? { ...s, days: 7, value: '7d' } : s))))
+    render(<Card state="running" />)
+    await user.click(await screen.findByTestId('fusion-retention-change'))
+    const days = screen.getByTestId('fusion-retention-input-days-metrics')
+    await user.clear(days)
+    await user.type(days, '7')
+    await user.click(screen.getByTestId('fusion-retention-save'))
+    const confirm = await screen.findByRole('dialog', { name: 'Delete older data?' })
+    expect(confirm).toHaveTextContent('Prometheus will keep 7 days instead of 15 days')
+    expect(confirm).toHaveTextContent('cannot be brought back')
+    expect(setRetention).not.toHaveBeenCalled()
+    await user.click(within(confirm).getByRole('button', { name: 'Keep fewer days' }))
+    expect(setRetention).toHaveBeenCalledWith(expect.anything(), { metrics: { days: 7 } })
   })
 })

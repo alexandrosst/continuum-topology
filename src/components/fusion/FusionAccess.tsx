@@ -1,9 +1,10 @@
-import { BookOpen, KeyRound, Plus } from 'lucide-react'
+import { BookOpen, Plus } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CopyCommand } from '@/components/agents/AgentInsight'
-import { buttonClass } from '@/components/ui/buttonClass'
 import { ConfirmModal } from '@/components/forms'
-import { Button, CheckboxList, CopyValue, ErrorBanner, Field, ICON_SM, Input, Modal, Select, TagsInput } from '@/components/ui/primitives'
+import { FusionSection, ROWS } from '@/components/fusion/FusionSection'
+import { buttonClass } from '@/components/ui/buttonClass'
+import { Button, CheckboxList, CopyValue, ErrorBanner, Field, ICON_SM, Input, Modal, Pill, Select, TagsInput } from '@/components/ui/primitives'
 import { shArg, shQuote } from '@/lib/install'
 import { useHoldReload } from '@/lib/useHoldReload'
 import { api, ApiError, type CreatedFusionAccessToken, type FusionAccessToken, type FusionSignal } from '@/lib/api'
@@ -38,17 +39,15 @@ export function expiryText(iso: string, now = Date.now()): string {
   return days <= 1 ? 'expires today' : `expires in ${days} days`
 }
 
-const chip = 'inline-flex items-center rounded border border-nb-800 px-1.5 py-px text-[11px] leading-4 text-nb-400'
-
 function scopeChips(t: FusionAccessToken) {
   const signals = t.signals.length === SIGNALS.length ? 'all signals' : t.signals.join(' + ')
   return [signals, t.namespaces.length ? `namespaces: ${t.namespaces.join(', ')}` : 'all namespaces', ...(t.clusters.length ? [`clusters: ${t.clusters.join(', ')}`] : [])]
 }
 
 /**
- * Who else may read what FUSION saved: the access tokens the shared data API accepts. A token is read-only, limited to
+ * Who else may read what FUSION saved: the API tokens the shared data API accepts. A token is read-only, limited to
  * the signal types and namespaces it is given, and expires; its secret is shown once, when it is made. Shown on the
- * FUSION card of the server's main organisation, whatever state the switch is in (the API says plainly when the stores
+ * Access tab of the server's main organisation, whatever state the switch is in (the API says plainly when the stores
  * are off).
  */
 export function FusionAccess() {
@@ -75,7 +74,7 @@ export function FusionAccess() {
         setError('')
       }
     } catch (e) {
-      if (alive.current) setError(e instanceof ApiError ? e.message : 'Could not load the access tokens.')
+      if (alive.current) setError(e instanceof ApiError ? e.message : 'Could not load the API tokens.')
     }
   }, [conn])
   useEffect(() => {
@@ -94,37 +93,33 @@ export function FusionAccess() {
   }
 
   return (
-    <section className="mt-4 border-t border-nb-850 pt-4" data-testid="fusion-access">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="flex items-center gap-1.5 text-sm font-medium text-nb-200">
-          <KeyRound size={ICON_SM} className="text-nb-500" aria-hidden /> Data access
-        </span>
-        <span className="ml-auto flex flex-wrap items-center gap-2">
-          <a className={buttonClass('secondary', 'sm')} href={fusionDocsUrl(conn()?.url || window.location.origin)} target="_blank" rel="noreferrer" data-testid="fusion-api-docs">
+    <FusionSection
+      title="API tokens"
+      description="Another system reads what FUSION saved with a token: read-only, limited to the signals and namespaces you give it, and expiring. The stores are never exposed; every read goes through this server."
+      testId="fusion-access"
+      actions={
+        <>
+          <a className={buttonClass('secondary')} href={fusionDocsUrl(conn()?.url || window.location.origin)} target="_blank" rel="noreferrer" data-testid="fusion-api-docs">
             <BookOpen size={ICON_SM} aria-hidden /> API reference
           </a>
-          <Button size="sm" onClick={() => setCreating(true)} data-testid="fusion-token-new">
-            <Plus size={ICON_SM} aria-hidden /> New access token
+          <Button variant="primary" onClick={() => setCreating(true)} data-testid="fusion-token-new">
+            <Plus size={ICON_SM} aria-hidden /> New API token
           </Button>
-        </span>
-      </div>
-      <p className="mt-2 text-xs leading-relaxed text-nb-500">
-        Another system reads what FUSION saved - metrics, logs and traces, separately or joined around a trace - with a token. A token is read-only, limited to
-        the signals and namespaces you give it, and expires. The stores themselves are never exposed; every read goes through this server. The API reference
-        lists every call and lets you try it.
-      </p>
-      {error && <ErrorBanner className="mt-2">{error}</ErrorBanner>}
-      {tokens && tokens.length === 0 && !error && <p className="mt-3 text-xs text-nb-500" data-testid="fusion-token-empty">No access tokens yet.</p>}
+        </>
+      }
+    >
+      {error && <ErrorBanner className="mb-3">{error}</ErrorBanner>}
+      {tokens && tokens.length === 0 && !error && <p className="rounded-xl border border-dashed border-nb-850 px-5 py-8 text-center text-sm text-nb-500" data-testid="fusion-token-empty">No API tokens yet.</p>}
       {tokens && tokens.length > 0 && (
-        <ul className="mt-3 divide-y divide-nb-850 rounded-md border border-nb-850" data-testid="fusion-token-list">
+        <ul className={ROWS} data-testid="fusion-token-list">
           {tokens.map((t) => (
-            <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2" data-testid={`fusion-token-${t.id}`}>
+            <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3" data-testid={`fusion-token-${t.id}`}>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm text-nb-200">{t.name}</div>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {scopeChips(t).map((c) => <span key={c} className={chip}>{c}</span>)}
+                <div className="truncate text-nb-300">{t.name}</div>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {scopeChips(t).map((c) => <Pill key={c} className="text-xs text-nb-400">{c}</Pill>)}
                 </div>
-                <div className="mt-1 text-[11px] text-nb-500">
+                <div className="mt-1.5 text-xs text-nb-500">
                   {expiryText(t.expiresAt)}, {t.lastUsedAt ? `last used ${ago(t.lastUsedAt)}` : 'never used'}
                 </div>
               </div>
@@ -137,13 +132,13 @@ export function FusionAccess() {
       {revoking && (
         <ConfirmModal
           title={`Revoke ${revoking.name}?`}
-          message="Whatever uses this token stops being able to read FUSION at once. This cannot be undone; make a new token to give it access again."
+          message={`${revoking.lastUsedAt ? `It was last used ${ago(revoking.lastUsedAt)}.` : 'It has never been used.'} Whatever uses this token stops being able to read FUSION at once. This cannot be undone; make a new token to give it access again.`}
           confirmLabel="Revoke"
           onConfirm={() => void revoke(revoking)}
           onClose={() => setRevoking(null)}
         />
       )}
-    </section>
+    </FusionSection>
   )
 }
 
@@ -178,7 +173,7 @@ function NewTokenModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   if (created) {
     const base = conn()?.url || window.location.origin
     return (
-      <Modal open onClose={onClose} dismissible={false} title="Access token created" width="max-w-lg" footer={<Button variant="primary" onClick={onClose} data-testid="fusion-token-done">Done</Button>}>
+      <Modal open onClose={onClose} dismissible={false} title="API token created" width="max-w-lg" footer={<Button variant="primary" onClick={onClose} data-testid="fusion-token-done">Done</Button>}>
         <div className="space-y-3">
           <div className="space-y-2 rounded-md border border-accent/30 bg-accent-soft p-3" data-testid="fusion-token-secret">
             <p className="text-xs text-nb-300">
@@ -206,7 +201,7 @@ function NewTokenModal({ onClose, onCreated }: { onClose: () => void; onCreated:
       onClose={onClose}
       // Once the request is out the token exists and is on its way to this dialog: closing now would lose it.
       dismissible={!busy}
-      title="New access token"
+      title="New API token"
       description="A read-only credential for another system. It sees only what you allow here."
       width="max-w-lg"
       footer={
