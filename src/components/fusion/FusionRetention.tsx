@@ -2,12 +2,13 @@ import clsx from 'clsx'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ConfirmModal } from '@/components/forms'
 import { FusionSection, ROWS } from '@/components/fusion/FusionSection'
+import { DiskBar, FillsIn, KeptBar } from '@/components/fusion/StoreBars'
 import { buttonClass } from '@/components/ui/buttonClass'
 import { Button, ErrorBanner, Field, Input, Modal } from '@/components/ui/primitives'
 import { api, ApiError, type FusionRetention, type FusionRetentionStore } from '@/lib/api'
 import {
   daysText, daysThatFit, formatBytes, formChanges, formError, fullness, fullnessAdvice, initialForm, restartedBy, retentionVerdict, type RetentionFormState, shortened,
-  usageText, volumeGiB,
+  sizeCapped, volumeGiB,
 } from '@/lib/fusionRetention'
 import { useVisiblePolling } from '@/lib/usePolling'
 import { useServer } from '@/store/server'
@@ -93,28 +94,21 @@ export function FusionRetentionCard({ retention: { doc, error, accept } }: { ret
 }
 
 function StoreRow({ s }: { s: FusionRetentionStore }) {
-  const sizeShort = s.sizeLimitDays !== undefined && s.sizeLimitDays < s.days
   return (
-    <li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-3" data-testid={`fusion-retention-${s.component}`}>
+    <li className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-4 py-3" data-testid={`fusion-retention-${s.component}`}>
       <span className="w-24 shrink-0 text-nb-300">{s.label}</span>
-      <span className="text-nb-200" data-testid={`fusion-retention-days-${s.component}`}>
+      <span className="w-28 text-nb-200" data-testid={`fusion-retention-days-${s.component}`}>
         keeps {daysText(s.days)}
         {!s.exactDays && <span className="ml-1 text-nb-500">({s.value})</span>}
       </span>
-      <span className="min-w-0 flex-1 text-nb-500">
-        {s.volumeKnown ? (
-          <>
-            {formatBytes(s.volumeBytes)} volume{s.storageClass ? ` (${s.storageClass})` : ''}, {usageText(s)}
-          </>
-        ) : (
-          'volume not readable'
-        )}
-        {s.resizing && (
-          <span className="ml-2 text-warn" data-testid={`fusion-retention-growing-${s.component}`}>
-            growing to {formatBytes(s.volumeBytes)}{s.resizeNote ? ` - ${s.resizeNote}` : ''}
-          </span>
-        )}
-      </span>
+      <KeptBar s={s} />
+      {s.volumeKnown ? <DiskBar s={s} /> : <span className="text-xs text-nb-500">volume not readable</span>}
+      <FillsIn s={s} />
+      {s.resizing && (
+        <span className="text-xs text-warn" data-testid={`fusion-retention-growing-${s.component}`}>
+          growing to {formatBytes(s.volumeBytes)}{s.resizeNote ? ` - ${s.resizeNote}` : ''}
+        </span>
+      )}
       {fullness(s) && (
         <span className={clsx('w-full text-xs', fullness(s)!.level === 'critical' ? 'text-bad' : 'text-warn')} data-testid={`fusion-retention-full-${s.component}`}>
           {fullnessAdvice(s)}
@@ -130,7 +124,7 @@ function StoreRow({ s }: { s: FusionRetentionStore }) {
           This storage does not enforce the volume&apos;s size: {formatBytes(s.volumeBytes)} is what was asked for, and the node&apos;s disk is the real limit.
         </span>
       )}
-      {sizeShort && (
+      {sizeCapped(s) && (
         <span className="w-full text-xs text-warn" data-testid={`fusion-retention-sizecap-${s.component}`}>
           Its size limit keeps only about {daysText(Math.max(1, Math.floor(s.sizeLimitDays!)))} at today&apos;s growth, fewer than the {daysText(s.days)} set. Grow the volume to keep more.
         </span>

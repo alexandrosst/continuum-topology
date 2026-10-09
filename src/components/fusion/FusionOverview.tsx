@@ -4,10 +4,10 @@ import { Link } from 'react-router-dom'
 import { type useFusion } from '@/components/fusion/useFusion'
 import { FusionSection, ROWS } from '@/components/fusion/FusionSection'
 import { StatusChip } from '@/components/fusion/StatusChip'
+import { DiskBar, FillsIn } from '@/components/fusion/StoreBars'
 import { buttonClass } from '@/components/ui/buttonClass'
 import { Button, CopyButton, ICON_MD, Waiting } from '@/components/ui/primitives'
 import { type FusionComponent, type FusionRetention } from '@/lib/api'
-import { formatBytes } from '@/lib/fusionRetention'
 import { fusionSentence, type FusionProblem, partHealth } from '@/lib/fusionStatus'
 
 const PART_NOTE: Record<FusionComponent['component'], string> = {
@@ -75,10 +75,10 @@ export function FusionOverview({ fusion, problems, retention, now }: { fusion: R
                   <span className="flex-1 text-nb-300 sm:w-36 sm:flex-none">{c.label}</span>
                   <span className="order-3 w-full min-w-0 text-nb-500 sm:order-none sm:w-auto sm:flex-1">
                     {PART_NOTE[c.component]}
-                    {s?.volumeKnown && s.usedBytes !== undefined && <span className="ml-2 text-nb-400">{formatBytes(s.usedBytes)} of {formatBytes(s.volumeBytes)} used</span>}
                     {c.reason && c.ready < c.desired && <span className="ml-2 text-nb-400" data-testid={`fusion-reason-${c.component}`}>{c.reason}</span>}
                   </span>
-                  <StatusChip status={partHealth(c, sentence.kind, problems)} data-testid={`fusion-part-${c.component}`} />
+                  {s && <span className="order-3 flex w-full flex-wrap items-center gap-x-4 gap-y-1 sm:order-none sm:w-auto"><FillsIn s={s} /><DiskBar s={s} /></span>}
+                  <span className="ml-auto sm:ml-0 sm:flex sm:w-32 sm:justify-end"><StatusChip status={partHealth(c, sentence.kind, problems)} data-testid={`fusion-part-${c.component}`} /></span>
                 </li>
               )
             })}

@@ -126,6 +126,16 @@ describe('FusionPage', () => {
     expect(screen.getByTestId('fusion-state')).toHaveTextContent('Needs attention')
   })
 
+  test('each store row on the Overview has its disk as a bar with the figure in words, and says when it will fill only when the figures support it', async () => {
+    retention = retentionOf(store('metrics'), store('logs', { days: 30, usedBytes: 9.2 * GIB, bytesPerDay: GIB, usedSource: 'volume' }), store('traces'))
+    renderAt()
+    const parts = await screen.findByTestId('fusion-parts')
+    expect(within(parts).getByRole('meter', { name: 'Prometheus disk use' })).toHaveAttribute('aria-valuetext', '1 GiB of 10 GiB used')
+    expect(within(parts).getByRole('meter', { name: 'Loki disk use' })).toHaveAttribute('aria-valuenow', '92')
+    expect(screen.getByTestId('fusion-fills-logs')).toHaveTextContent('fills in about 1 day')
+    expect(screen.queryByTestId('fusion-fills-metrics')).not.toBeInTheDocument()
+  })
+
   test('no data for a while points at the pipeline', async () => {
     status = running({ lastDataAt: new Date(Date.now() - 30 * 60_000).toISOString() })
     renderAt()

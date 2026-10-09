@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { FusionRetentionCard, useFusionRetention } from '@/components/fusion/FusionRetention'
 import type { FusionRetention, FusionRetentionStore } from '@/lib/api'
-import { daysThatFit, formatBytes, formChanges, fullness, formError, GIB, initialForm, neededGiB, restartedBy, retentionVerdict, shortened, usageText } from '@/lib/fusionRetention'
+import { daysThatFit, formatBytes, formChanges, fullness, formError, GIB, initialForm, neededGiB, restartedBy, retentionVerdict, shortened, diskBar, fillsInDays, keptBar } from '@/lib/fusionRetention'
 
 /** The card as the Settings tab uses it: the hook reads, the card shows. */
 function Card({ state }: { state: string }) {
@@ -63,10 +63,33 @@ describe('the numbers behind the card', () => {
     expect(retentionVerdict(tempo!, 7, 10).tone).toBe('muted')
   })
 
-  test('use is described, or said not to be measured', () => {
-    const [prom, , tempo] = stores()
-    expect(usageText(prom!)).toBe('4 GiB used, about 1 GiB a day')
-    expect(usageText(tempo!)).toBe('use not measured')
+  test('use is a bar of the volume, green until 85% and 95%, and nothing while it is not measured', () => {
+    const [prom, loki, tempo] = stores()
+    expect(diskBar(prom!)).toEqual({ pct: 40, tone: 'ok', text: '4 GiB of 10 GiB' })
+    expect(diskBar({ ...loki!, usedBytes: 8.7 * GIB })).toMatchObject({ tone: 'warn' })
+    expect(diskBar({ ...loki!, usedBytes: 9.8 * GIB })).toMatchObject({ tone: 'bad' })
+    // Prometheus' own count of its data is not the volume's: it deletes its oldest blocks first, so it never colours the bar.
+    expect(diskBar({ ...prom!, usedBytes: 9.8 * GIB })).toMatchObject({ tone: 'ok' })
+    expect(diskBar(tempo!)).toBeNull()
+    expect(diskBar({ ...loki!, volumeKnown: false })).toBeNull()
+  })
+
+  test('retention is a bar of the days of data held against the days kept, amber while the size limit caps it', () => {
+    const [prom, loki, tempo] = stores()
+    expect(keptBar(loki!)).toEqual({ pct: (6 / 7) * 100, tone: 'neutral', text: '6 of 7 days held' })
+    expect(keptBar({ ...loki!, dataDays: 30 })).toMatchObject({ pct: 100, text: '7 of 7 days held' })
+    expect(keptBar({ ...prom!, sizeLimitDays: 3 })).toMatchObject({ tone: 'warn' })
+    expect(keptBar(tempo!)).toBeNull()
+  })
+
+  test('"fills in about N days" only when the retention asks for more than the volume holds, and the volume\'s use is counted whole', () => {
+    const [prom, loki] = stores()
+    const over = { ...loki!, days: 30, usedBytes: 7 * GIB, bytesPerDay: GIB } // 30 GiB / 0.87 > 10 GiB
+    expect(fillsInDays(over)).toBe(3) // 3 GiB of room at 1 GiB a day
+    expect(fillsInDays({ ...over, days: 7 })).toBeNull() // 7 days fit: old data is cleaned up as fast as new arrives
+    expect(fillsInDays({ ...over, usedBytes: 10 * GIB })).toBeNull() // already full: that is the other warning
+    expect(fillsInDays({ ...over, bytesPerDay: undefined })).toBeNull()
+    expect(fillsInDays({ ...prom!, days: 365 })).toBeNull() // Prometheus' figure is its data, not the volume
   })
 
   test('only what differs is sent, and volumes only grow', () => {
@@ -147,9 +170,12 @@ describe('FusionRetentionCard', () => {
     render(<Card state="running" />)
     const loki = await screen.findByTestId('fusion-retention-logs')
     expect(within(loki).getByText('keeps 7 days')).toBeInTheDocument()
-    expect(loki).toHaveTextContent('10 GiB volume (fast), 3 GiB used, about 512 MiB a day')
+    expect(within(loki).getByRole('meter', { name: 'Loki disk use' })).toHaveAttribute('aria-valuetext', '3 GiB of 10 GiB used')
+    expect(within(loki).getByRole('meter', { name: 'Loki data held' })).toHaveAttribute('aria-valuetext', '6 of 7 days held')
+    expect(screen.getByTestId('fusion-disk-logs')).toHaveAttribute('title', 'fast, about 512 MiB a day')
     expect(screen.getByTestId('fusion-retention-metrics')).toHaveTextContent('keeps 15 days')
-    expect(screen.getByTestId('fusion-retention-traces')).toHaveTextContent('use not measured')
+    expect(screen.getByTestId('fusion-retention-traces').querySelector('[role=meter]')).toBeNull()
+    expect(screen.queryByTestId('fusion-fills-logs')).not.toBeInTheDocument()
   })
 
   test('a retention that is not whole days is shown as it is set', async () => {

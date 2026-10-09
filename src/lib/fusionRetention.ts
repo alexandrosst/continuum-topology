@@ -82,11 +82,38 @@ export function fullnessAdvice(s: FusionRetentionStore): string {
     : `${lead} Lower the days it keeps or grow the volume.`
 }
 
-/** What the card says about use, in a few words. */
-export function usageText(s: FusionRetentionStore): string {
-  if (s.usedBytes === undefined) return 'use not measured'
-  const used = `${formatBytes(s.usedBytes)} used`
-  return s.bytesPerDay !== undefined ? `${used}, about ${formatBytes(s.bytesPerDay)} a day` : used
+/** A figure as a bar: how much of the whole it is, which of the bar tones it takes, and the figure in a few words. */
+export interface StoreBar {
+  pct: number
+  tone: 'ok' | 'warn' | 'bad' | 'neutral'
+  text: string
+}
+
+/** Prometheus' own size limit keeps fewer days than the retention asks for: it drops the oldest blocks first. */
+export const sizeCapped = (s: FusionRetentionStore): boolean => s.sizeLimitDays !== undefined && s.sizeLimitDays < s.days
+
+/** How much of the volume is used: green, amber from 85% and red from 95% (the marks `fullness` is told by). Null when use or volume is not known. */
+export function diskBar(s: FusionRetentionStore): StoreBar | null {
+  if (s.usedBytes === undefined || !s.volumeKnown || s.volumeBytes <= 0) return null
+  const f = fullness(s)
+  return { pct: Math.min(100, (s.usedBytes / s.volumeBytes) * 100), tone: f ? (f.level === 'critical' ? 'bad' : 'warn') : 'ok', text: `${formatBytes(s.usedBytes)} of ${formatBytes(s.volumeBytes)}` }
+}
+
+/** How much of the retention window holds data: the days of data the store has, of the days it keeps. Amber while its size limit caps the days
+ *  below the setting. Null until the days of data are known. */
+export function keptBar(s: FusionRetentionStore): StoreBar | null {
+  if (s.dataDays === undefined || s.days <= 0) return null
+  const held = Math.min(s.dataDays, s.days)
+  return { pct: (held / s.days) * 100, tone: sizeCapped(s) ? 'warn' : 'neutral', text: `${trim(held)} of ${daysText(s.days)} held` }
+}
+
+/** In about how many days the volume fills, from what is on it and what is added a day: only for a volume whose use is counted whole, and only
+ *  when the retention asks for more than the volume holds (otherwise old data is cleaned up as fast as new arrives, and it never fills). */
+export function fillsInDays(s: FusionRetentionStore): number | null {
+  const need = neededBytes(s, s.days)
+  if (need === null || need <= s.volumeBytes || !s.volumeKnown || s.usedSource !== 'volume' || s.usedBytes === undefined || s.bytesPerDay === undefined) return null
+  const room = s.volumeBytes - s.usedBytes
+  return room > 0 ? Math.max(1, Math.round(room / s.bytesPerDay)) : null
 }
 
 export interface RetentionForm {
