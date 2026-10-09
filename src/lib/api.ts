@@ -194,7 +194,7 @@ export interface FusionStatus {
   /** When FUSION last received data (RFC 3339); absent while unknown or before the first. */
   lastDataAt?: string
   components?: FusionComponent[]
-  central?: { operatorId: string; endpoint: string; exposed: boolean; exists: boolean; service?: string; namespace?: string }
+  central?: { operatorId: string; endpoint: string; exposed: boolean; exists: boolean; service?: string; namespace?: string; /** Doubts about the address recorded for the gateway (a private address, the plain-HTTP port ...), in words. */ warnings?: string[] }
   /** Whether this server serves the shared data API (and its access tokens) for this organisation. */
   data?: boolean
   /** Same-origin paths of the web pages FUSION serves through this server, present only for a page that is up right now. */
@@ -202,6 +202,36 @@ export interface FusionStatus {
 }
 
 export type FusionSignal = 'metrics' | 'logs' | 'traces'
+
+/** One service of an Ikhnos application, with the signals FUSION has for it (GET /fusion/applications). */
+export interface FusionApplicationService {
+  name: string
+  namespace?: string
+  cluster?: string
+  signals: FusionSignal[]
+}
+/** An Ikhnos application as the data API lists it: what it is made of and which signals FUSION holds for it in the range. */
+export interface FusionApplication {
+  id: string
+  name: string
+  description?: string
+  services: FusionApplicationService[]
+  signals: FusionSignal[]
+  namespaces: string[]
+  clusters: string[]
+  /** Members Ikhnos has an id for but cannot tie to a running service. */
+  unresolvedMembers?: number
+}
+/** Every service FUSION has data for (its service.name), with the applications it is in; empty for infrastructure that reports under its own name. */
+export interface FusionServiceItem {
+  name: string
+  signals: FusionSignal[]
+  applications: string[]
+}
+/** What each store answered: `ok`, or why it could not be read (`unavailable`, `error`). */
+export type FusionSources = Record<FusionSignal, string>
+export interface FusionApplications { applications: FusionApplication[]; sources: FusionSources; warnings: string[] }
+export interface FusionServices { services: FusionServiceItem[]; sources: FusionSources; warnings: string[] }
 
 /** One store's retention and the volume it lives on (GET /fusion/retention). Sizes are bytes. */
 export interface FusionRetentionStore {
@@ -755,6 +785,9 @@ export const api = {
   listFusionTokens: (c: Conn) => call<FusionAccessToken[]>(c, 'GET', '/api/v1/fusion/tokens'),
   createFusionToken: (c: Conn, req: NewFusionAccessToken) => call<CreatedFusionAccessToken>(c, 'POST', '/api/v1/fusion/tokens', req),
   revokeFusionToken: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/fusion/tokens/${encodeURIComponent(id)}`),
+  /** What FUSION holds, by Ikhnos application and by service, over the last day. */
+  getFusionApplications: (c: Conn) => call<FusionApplications>(c, 'GET', '/api/v1/fusion/applications?from=now-24h'),
+  getFusionServices: (c: Conn) => call<FusionServices>(c, 'GET', '/api/v1/fusion/services?from=now-24h'),
   getFusionRetention: (c: Conn) => call<FusionRetention>(c, 'GET', '/api/v1/fusion/retention'),
   setFusionRetention: (c: Conn, req: FusionRetentionRequest) => call<FusionRetention>(c, 'PUT', '/api/v1/fusion/retention', req),
   /** `force` is the explicit "yes, what depends on it breaks": without it the server answers 409 while anything does (see RegionalOperator.usedBy). */

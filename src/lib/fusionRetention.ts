@@ -140,3 +140,11 @@ export function restartedBy(stores: FusionRetentionStore[], req: FusionRetention
     })
     .map((s) => s.label)
 }
+
+/** The stores a request makes keep fewer days than they do now: what is deleted, and the setting it is deleted down to. */
+export function shortened(stores: FusionRetentionStore[], req: FusionRetentionRequest): { label: string; from: number; to: number }[] {
+  return stores.flatMap((s) => {
+    const to = req[s.component]?.days
+    return to !== undefined && to < s.days ? [{ label: s.label, from: s.days, to }] : []
+  })
+}

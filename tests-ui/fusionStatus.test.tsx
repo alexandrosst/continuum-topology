@@ -1,8 +1,8 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { FusionPanel, partState, POLL_RUNNING_MS, POLL_SETTLING_MS, useFusion } from '@/components/fusion/useFusion'
-import type { FusionStatus } from '@/lib/api'
-import { fusionLabel, fusionSentence, fusionUsable, type FusionKind } from '@/lib/fusionStatus'
+import { POLL_RUNNING_MS, POLL_SETTLING_MS, useFusion } from '@/components/fusion/useFusion'
+import type { FusionRetention, FusionStatus } from '@/lib/api'
+import { fusionHealth, fusionLabel, fusionProblems, fusionSentence, fusionUsable, lastDataText, partHealth, type FusionKind } from '@/lib/fusionStatus'
 
 const parts = (ready: number[]) =>
   (['metrics', 'logs', 'traces', 'central'] as const).map((component, i) => ({ component, label: component, desired: 1, ready: ready[i] }))
@@ -47,13 +47,95 @@ describe('fusionLabel', () => {
   })
 })
 
-describe('partState', () => {
-  const part = { component: 'logs' as const, label: 'Logs', desired: 1, ready: 0 }
-  test('a part that is not ready reads Starting while FUSION is coming up, and Not ready once FUSION needs attention', () => {
-    expect(partState(part, 'starting').text).toBe('Starting')
-    expect(partState(part, 'attention').text).toBe('Not ready')
-    expect(partState({ ...part, ready: 1 }, 'attention').text).toBe('Up')
-    expect(partState({ ...part, desired: 0 }, 'running').text).toBe('Off')
+const NOW = Date.parse('2026-10-05T12:00:00Z')
+const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString()
+const MIN = 60_000
+
+describe('lastDataText', () => {
+  test('says when data last arrived, or that none has', () => {
+    expect(lastDataText({ available: true, state: 'running', lastDataAt: iso(12_000) }, NOW)).toBe('Last data 12 s ago')
+    expect(lastDataText({ available: true, state: 'running' }, NOW)).toBe('No data yet')
+  })
+})
+
+const store = (over: Partial<FusionRetention['stores'][number]> = {}) =>
+  ({ component: 'metrics', label: 'Metrics', days: 15, volumeKnown: true, volumeBytes: 10 * 2 ** 30, usedBytes: 1 * 2 ** 30, canGrow: true, ...over }) as FusionRetention['stores'][number]
+const retentionOf = (...stores: FusionRetention['stores']): FusionRetention => ({ available: true, stores }) as FusionRetention
+const running = (over: Partial<FusionStatus> = {}): FusionStatus => ({ available: true, state: 'running', lastDataAt: iso(10_000), since: iso(60 * MIN), components: parts([1, 1, 1, 1]), ...over })
+
+describe('fusionProblems', () => {
+  test('a healthy FUSION has none', () => {
+    expect(fusionProblems(running(), retentionOf(store()), NOW)).toEqual([])
+    expect(fusionProblems(null, null, NOW)).toEqual([])
+    expect(fusionProblems({ available: true, state: 'off' }, null, NOW)).toEqual([])
+  })
+
+  test('a part that is down says why and what to try, and offers the kubectl command for the namespace', () => {
+    const status: FusionStatus = {
+      available: true, state: 'attention', central: { namespace: 'ikhnos-fusion' } as never,
+      components: [{ component: 'logs', label: 'Logs', desired: 1, ready: 0, reason: 'Waiting for a volume' }, ...parts([1, 1, 1, 1]).filter((c) => c.component !== 'logs')],
+    }
+    const [p] = fusionProblems(status, null, NOW)
+    expect(p).toMatchObject({ id: 'down-logs', part: 'logs', health: 'broken', title: 'Logs is not running' })
+    expect(p.detail).toContain('Waiting for a volume.')
+    expect(p.detail).toContain('Logs are not being stored.')
+    expect(p.detail).toContain('storage class')
+    expect(p.action).toEqual({ kind: 'copy', label: 'Copy the kubectl command', text: 'kubectl -n ikhnos-fusion get pods' })
+  })
+
+  test('needing attention with no part at fault falls back to the server message and offers to look again', () => {
+    const [p] = fusionProblems({ available: true, state: 'attention', message: 'Stuck.', components: parts([1, 1, 1, 1]) }, null, NOW)
+    expect(p).toMatchObject({ health: 'attention', title: 'Stuck.', action: { kind: 'refresh' } })
+  })
+
+  test('a volume that is nearly full, or cannot hold the retention, offers the retention', () => {
+    const full = fusionProblems(running(), retentionOf(store({ usedBytes: 9.5 * 2 ** 30, usedSource: 'volume', canGrow: false })), NOW)
+    expect(full).toHaveLength(1)
+    expect(full[0]).toMatchObject({ id: 'disk-metrics', health: 'attention', action: { kind: 'link', to: '/fusion/settings' } })
+    expect(full[0].title).toMatch(/Metrics's volume is \d+% full/)
+    expect(full[0].detail).toContain('cannot be grown')
+  })
+
+  test('no data for minutes, or none since it started, is a problem that points at the pipeline', () => {
+    expect(fusionProblems(running({ lastDataAt: iso(2 * MIN) }), null, NOW)).toEqual([])
+    const stale = fusionProblems(running({ lastDataAt: iso(20 * MIN) }), null, NOW)
+    expect(stale[0]).toMatchObject({ id: 'no-data', health: 'attention', action: { kind: 'link', to: '/pipeline' } })
+    expect(stale[0].title).toMatch(/^No new data: the last data arrived /)
+    expect(fusionProblems(running({ lastDataAt: undefined, since: iso(5 * MIN) }), null, NOW)).toEqual([])
+    expect(fusionProblems(running({ lastDataAt: undefined, since: iso(30 * MIN) }), null, NOW)[0].title).toBe('No data has arrived yet')
+  })
+
+  test('the central address warnings are shown, and a broken part sorts before a warning', () => {
+    const status: FusionStatus = {
+      ...running({ lastDataAt: iso(20 * MIN) }), state: 'attention', central: { namespace: 'n', warnings: ['The address is not reachable.'] } as never,
+      components: [{ component: 'traces', label: 'Traces', desired: 1, ready: 0 }, ...parts([1, 1, 1, 1]).filter((c) => c.component !== 'traces')],
+    }
+    const ids = fusionProblems(status, null, NOW).map((p) => p.id)
+    expect(ids[0]).toBe('down-traces')
+    expect(ids).toContain('central-address')
+  })
+})
+
+describe('fusionHealth and partHealth', () => {
+  test('are Healthy, Needs attention, Not working or Unknown, and Starting or Off where that is not a verdict', () => {
+    expect(fusionHealth(null, [])).toBe('unknown')
+    expect(fusionHealth({ available: false, state: 'off' }, [])).toBe('unknown')
+    expect(fusionHealth({ available: true, state: 'off' }, [])).toBe('off')
+    expect(fusionHealth({ available: true, state: 'starting' }, [])).toBe('starting')
+    expect(fusionHealth(running(), [])).toBe('healthy')
+    const warn = { id: 'x', health: 'attention', title: '', detail: '', action: { kind: 'refresh', label: '' } } as const
+    expect(fusionHealth(running(), [warn])).toBe('attention')
+    expect(fusionHealth(running(), [warn, { ...warn, health: 'broken' }])).toBe('broken')
+  })
+
+  test('a part that is not ready reads Starting while FUSION comes up and Not working once FUSION needs attention', () => {
+    const part = { component: 'logs' as const, label: 'Logs', desired: 1, ready: 0 }
+    expect(partHealth(part, 'starting', [])).toBe('starting')
+    expect(partHealth(part, 'attention', [])).toBe('broken')
+    expect(partHealth({ ...part, ready: 1 }, 'running', [])).toBe('healthy')
+    expect(partHealth({ ...part, desired: 0 }, 'running', [])).toBe('off')
+    const own = { id: 'disk-logs', part: 'logs', health: 'attention', title: '', detail: '', action: { kind: 'refresh', label: '' } } as const
+    expect(partHealth({ ...part, ready: 1 }, 'running', [own])).toBe('attention')
   })
 })
 
@@ -66,53 +148,11 @@ vi.mock('@/lib/api', async (importOriginal) => {
   return { ...actual, api: { ...actual.api, getFusion: () => getFusion() } }
 })
 
-const fusionOf = (status: FusionStatus | null) => ({ status, busy: false, error: '', refresh: vi.fn(), enable: vi.fn(), disable: vi.fn() }) as never
-
-describe('FusionPanel', () => {
-  test('a part that is not ready says why, and the only spinner is the one in the header while FUSION starts', () => {
-    const status: FusionStatus = {
-      available: true,
-      state: 'starting',
-      components: [
-        { component: 'metrics', label: 'Metrics', desired: 1, ready: 0, reason: 'Pulling the image' },
-        { component: 'logs', label: 'Logs', desired: 1, ready: 0 },
-        { component: 'traces', label: 'Traces', desired: 1, ready: 1, reason: 'stale text on a part that is up' },
-        { component: 'central', label: 'Central', desired: 1, ready: 0, reason: 'Waiting for a volume' },
-      ],
-    }
-    render(<FusionPanel fusion={fusionOf(status)} />)
-    expect(screen.getByTestId('fusion-reason-metrics')).toHaveTextContent('Pulling the image')
-    expect(screen.getByTestId('fusion-reason-central')).toHaveTextContent('Waiting for a volume')
-    expect(screen.queryByTestId('fusion-reason-logs')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('fusion-reason-traces')).not.toBeInTheDocument()
-    expect(screen.getAllByRole('status')).toHaveLength(1)
-    expect(screen.getByTestId('fusion-waiting')).toBeInTheDocument()
-  })
-
-  test('needing attention words a stuck part as Not ready, not Starting', () => {
-    render(<FusionPanel fusion={fusionOf({ available: true, state: 'attention', message: 'A volume cannot be bound.', components: [{ component: 'logs', label: 'Logs', desired: 1, ready: 0 }] })} />)
-    expect(screen.getByTestId('fusion-part-logs')).toHaveTextContent('Not ready')
-    expect(screen.queryByTestId('fusion-waiting')).not.toBeInTheDocument()
-  })
-
-  test('running names the last data, and no spinner is on screen', () => {
-    render(<FusionPanel fusion={fusionOf({ available: true, state: 'running', lastDataAt: new Date(Date.now() - 12_000).toISOString(), components: parts([1, 1, 1, 1]) })} />)
-    expect(screen.getByTestId('fusion-status')).toHaveTextContent(/Running - last data \d+ s ago/)
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
-  })
-
-  test('shows a skeleton of the same height until the first answer', () => {
-    render(<FusionPanel fusion={fusionOf(null)} />)
-    expect(screen.getByRole('status', { name: 'Checking FUSION' })).toBeInTheDocument()
-    expect(screen.queryByTestId('fusion-enable')).not.toBeInTheDocument()
-  })
-})
-
 function Probe() {
   const f = useFusion()
   return (
     <>
-      <FusionPanel fusion={f} />
+      <p data-testid="fusion-status">{fusionSentence(f.status).text}</p>
       <button type="button" data-testid="reread" onClick={() => void f.refresh()} />
     </>
   )
