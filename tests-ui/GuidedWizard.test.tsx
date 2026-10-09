@@ -54,7 +54,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   }
 })
 
-// The create dialog itself is covered by RegionalOperatorsPage's tests. Here it is the real one unless a test asks for a stand-in that
+// The create dialog itself is covered by PipelinePage's tests. Here it is the real one unless a test asks for a stand-in that
 // reports one creation at once, which is all this wizard has to react to.
 let fakeCreated: RegionalOperator | undefined
 vi.mock('@/components/operators/CreateOperatorModal', async (importOriginal) => {

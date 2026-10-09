@@ -1350,10 +1350,10 @@ export function EmptyState({ title, description, action }: { title: string; desc
  * `cols` (a width class per column, e.g. `['w-48', 'w-36', '']`; an empty string takes the rest) fixes the layout,
  * so two tables on one page line their columns up.
  */
-export function Table({ children, cols, ...p }: ComponentProps<'div'> & { children: ReactNode; cols?: string[] }) {
+export function Table({ children, cols, stack, ...p }: ComponentProps<'div'> & { children: ReactNode; cols?: string[]; /** Below the md breakpoint each row becomes a block of its own (a card) instead of a row to scroll sideways: the header goes, and the row lays out its own cells. */ stack?: boolean }) {
   return (
     <div {...p} className="relative overflow-x-auto rounded-xl border border-nb-850 bg-nb-925">
-      <table className={clsx('w-full text-left text-sm', cols && 'table-fixed')}>
+      <table className={clsx('w-full text-left text-sm', cols && 'table-fixed', stack && 'max-md:block max-md:[&_thead]:hidden max-md:[&_tbody]:block max-md:[&_tr]:block')}>
         {cols && (
           <colgroup>
             {cols.map((c, i) => <col key={i} className={c} />)}
@@ -1465,6 +1465,7 @@ export function StatTile({
   tone,
   bordered = true,
   className,
+  children,
   'data-testid': testId,
 }: {
   label: string
@@ -1473,6 +1474,8 @@ export function StatTile({
   tone?: 'ok' | 'warn'
   bordered?: boolean
   className?: string
+  /** Something to show under the figure, such as a status chip. */
+  children?: ReactNode
   'data-testid'?: string
 }) {
   const flash = useFlash(value)
@@ -1484,6 +1487,7 @@ export function StatTile({
       <div className="text-xs text-nb-500">{label}</div>
       <div className={clsx('mt-1 text-2xl font-medium tabular-nums', tone === 'warn' ? 'text-warn' : tone === 'ok' ? 'text-ok' : 'text-nb-300', flash && 'fade-in')}>{value}</div>
       {sub && <div className="mt-0.5 text-xs tabular-nums text-nb-500">{sub}</div>}
+      {children && <div className="mt-2">{children}</div>}
     </div>
   )
 }

@@ -960,7 +960,7 @@ export interface Topology {
   siteLinks: SiteLink[]
   externalEndpoints: ExternalEndpoint[]
   /** Regional operators active in the org - only present when the caller has fetched them (an admin-only
-   *  view; see RegionalOperatorsPage / TopologyPage). Optional so every other Topology producer (seed data,
+   *  view; see PipelinePage / TopologyPage). Optional so every other Topology producer (seed data,
    *  history snapshots, tests) is unaffected. */
   operators?: RegionalOperator[]
   /** Discovery agents, one per cluster that has one - unlike operators above, this IS part of the

@@ -346,7 +346,7 @@ function SavedBackend({ backend, admin, busy, canUse, gatewayStatus, minting, on
 
 /**
  * The gateway token's plaintext, shown exactly once - same "shown only now, gone forever" convention as
- * RegionalOperatorsPage's own OperatorCreated dialog for the receiver token. Alongside it, the Part C
+ * PipelinePage's own OperatorCreated dialog for the receiver token. Alongside it, the Part C
  * manifest that checks that exact token, as a second `kubectl apply` command block next to the backend's
  * own `helm install` one, and the gateway's own port-forward line in place of the raw tool's.
  */

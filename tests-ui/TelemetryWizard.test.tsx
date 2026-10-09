@@ -5,7 +5,7 @@ import { describe, expect, test, vi } from 'vitest'
 import TelemetryWizard from '@/components/telemetry/TelemetryWizard'
 import type { Agent, Cluster } from '@/lib/types'
 
-// Same recipe as RegionalOperatorsPage.test.tsx: the shared stores this component reads from are faked
+// Same recipe as PipelinePage.test.tsx: the shared stores this component reads from are faked
 // here, so the test exercises the wizard's own pick/configure logic without a real server or seeded stores.
 const cl = (over: Partial<Cluster> = {}) => ({ id: 'c1', name: 'edge-1', tier: 'edge', source: 'discovered', state: 'live', orgId: 'o', ...over }) as Cluster
 const ag = (over: Partial<Agent> = {}) => ({ id: 'a1', clusterId: 'c1', status: 'approved', accessTier: 2, name: 'edge-1', version: '1.0.0', modules: [], fingerprint: 'x', ...over }) as Agent

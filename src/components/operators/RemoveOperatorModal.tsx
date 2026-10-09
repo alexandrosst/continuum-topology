@@ -17,23 +17,23 @@ export function usedByLines(u: OperatorUsedBy | undefined): string[] {
 
 const COPY = {
   revoke: {
-    title: (n: string) => `Revoke ${n}?`,
-    confirm: 'Revoke',
-    body: 'This only marks it revoked here - there is no channel back to the deployed collector, so its receiver keeps accepting what it accepted before (a bearer token until you delete the Kubernetes Secret holding it, a client certificate until you uninstall the release). Its health reports are refused from now on. The record stays for the audit trail; delete it separately if you want it gone entirely.',
-    failure: 'Could not revoke the operator.',
-    done: 'Revoked',
+    title: (n: string) => `Disconnect ${n}?`,
+    confirm: 'Disconnect',
+    body: 'This only marks it disconnected here - there is no channel back to the deployed collector, so its receiver keeps accepting what it accepted before (a bearer token until you delete the Kubernetes Secret holding it, a client certificate until you uninstall the release). Its health reports are refused from now on. The record stays for the audit trail; use Stop and remove to take it off this list as well.',
+    failure: 'Could not disconnect the operator.',
+    done: 'Disconnected',
   },
   delete: {
-    title: (n: string) => `Delete ${n}?`,
-    confirm: 'Delete',
-    body: 'Removes the record for good. If it is still active, revoke it first (or the source clusters keep exporting to a receiver that no longer exists).',
-    failure: 'Could not delete the operator.',
-    done: 'Deleted',
+    title: (n: string) => `Stop and remove ${n}?`,
+    confirm: 'Stop and remove',
+    body: 'Removes the record for good. If it is still connected, disconnect it first (or the source clusters keep exporting to a receiver that no longer exists).',
+    failure: 'Could not remove the operator.',
+    done: 'Removed',
   },
 } as const
 
 /**
- * Revoking or deleting an operator, said plainly: what depends on it is listed, and going ahead while anything does needs an explicit
+ * Disconnecting or removing an operator, said plainly: what depends on it is listed, and going ahead while anything does needs an explicit
  * tick (the server's `force`), so nobody breaks a working path by clicking through. Neither action reaches the deployed collector, so
  * once it is done the command that removes it is shown - the server gives it, this page only displays it.
  */

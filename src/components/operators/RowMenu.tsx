@@ -10,13 +10,13 @@ export interface RowMenuItem {
   label: ReactNode
   onSelect: () => void
   danger?: boolean
-  /** Shown but not choosable (a renewal is already running); `title` says why. */
+  /** Shown but not choosable (a renewal is already running); `title` says why, under the label as well as on hover. */
   disabled?: boolean
   title?: string
   testId?: string
 }
 
-const PANEL_HEIGHT = 44 + 36 * 6
+const PANEL_HEIGHT = 12 + 36 * 10
 
 /**
  * A row's actions in a MenuPanel. A table scrolls sideways inside its own box, which would cut a menu that hangs from a cell, so the
@@ -77,6 +77,7 @@ export default function RowMenu({ ariaLabel, items, children, testId }: { ariaLa
                 }}
               >
                 {it.label}
+                {it.disabled && it.title && <span className="mt-0.5 block text-xs font-normal text-nb-500">{it.title}</span>}
               </button>
             ))}
           </MenuPanel>

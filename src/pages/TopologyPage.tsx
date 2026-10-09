@@ -126,7 +126,7 @@ function Canvas() {
   // a missing one silently (see Layout.tsx's comment for why this no longer runs on every route).
   useAutoPlaceClusters()
 
-  // Regional operators aren't part of the central topology store (see RegionalOperatorsPage's own note): read through the shared, polled
+  // Regional operators aren't part of the central topology store (see PipelinePage's own note): read through the shared, polled
   // hook, so an operator made (or revoked) while the canvas is open gets its arrow without a refresh. An unchanged answer keeps the
   // same array, so a poll that found nothing new does not lay the canvas out again.
   const isAdmin = useServer((s) => s.isAdmin)
@@ -273,7 +273,7 @@ function Canvas() {
   // Local operators: cluster id → the summary the canvas badge needs (nodes.tsx's antenna badge on the
   // cluster's own group box - see graph.ts's `localTelemetry`). A local operator is just an already-approved
   // agent with telemetry signals turned on, so this is a view over `agents`, not a fetch of its own; mirrors
-  // RegionalOperatorsPage's own `localRows` derivation. Only the first approved agent per cluster counts -
+  // operatorsView's joinLocal. Only the first approved agent per cluster counts -
   // today's model is one discovery agent per cluster, so this never has to merge two operators' worth of
   // signals into one badge.
   const rawAgents = useServer((s) => s.state?.agents)

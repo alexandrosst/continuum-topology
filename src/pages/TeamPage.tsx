@@ -113,7 +113,7 @@ export default function TeamPage() {
   const [invites, setInvites] = useState<Invite[]>([])
   // Without this, the member/invite fetch this page fires on every mount left a brief but real window
   // where `members` was still its initial `[]` - reading, wrongly, as "this org has no one in it" rather
-  // than "still loading", exactly the scenario RegionalOperatorsPage's own operatorsLoaded flag exists to
+  // than "still loading", exactly the scenario PipelinePage's own operatorsLoaded flag exists to
   // avoid for the identical kind of org-scoped fetch.
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')

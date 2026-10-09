@@ -4,22 +4,22 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import { isReloadHeld } from '@/lib/staleBuild'
-import RegionalOperatorsPage from '@/pages/RegionalOperatorsPage'
+import PipelinePage from '@/pages/PipelinePage'
 import type { CreatedOperator, FusionStatus, IssuedCertificate, OperatorHeartbeatEnabled, OperatorRemoval } from '@/lib/api'
 import type { Agent, Cluster, OperatorDestinationEntry, RegionalOperator, TelemetryIntent } from '@/lib/types'
 
 function renderPage() {
   return render(
     <MemoryRouter>
-      <RegionalOperatorsPage />
+      <PipelinePage />
     </MemoryRouter>,
   )
 }
 
-const cl = (over: Partial<Cluster> = {}) => ({ id: 'c1', name: 'edge-1', source: 'discovered', state: 'live', orgId: 'o', ...over }) as Cluster
-const ag = (over: Partial<Agent> = {}) => ({ id: 'a1', clusterId: 'c1', status: 'approved', ...over }) as Agent
+const cl = (over: Partial<Cluster> = {}) => ({ id: 'c1', name: 'edge-1', source: 'discovered', state: 'live', tier: 'cloud', orgId: 'o', ...over }) as Cluster
+const ag = (over: Partial<Agent> = {}) => ({ id: 'a1', name: 'edge-agent', clusterId: 'c1', status: 'approved', ...over }) as Agent
 
-// A page test: everything RegionalOperatorsPage reads from the shared stores or the API is faked here,
+// A page test: everything PipelinePage reads from the shared stores or the API is faked here,
 // the same way tests-ui/NamespacesPage.test.tsx exercises its own page in isolation.
 let topologyState: { agents: Agent[]; clusters: Cluster[] }
 let admin = true
@@ -162,6 +162,13 @@ async function confirmRenew(user: User) {
   await user.click(within(dialog).getByRole('button', { name: 'Renew' }))
 }
 
+/** A failing certificate renewal's own way in: the problem's "What to do", then the one button it offers. */
+async function renewFromWhatToDo(user: User, rowId: string) {
+  await user.click(await screen.findByTestId(`component-todo-${rowId}`))
+  await user.click(await screen.findByTestId('what-to-do-action'))
+  await confirmRenew(user)
+}
+
 /** The create dialog, step by step. */
 async function toDestination(user: User, name = 'athens-regional') {
   await user.click(screen.getByTestId('operator-open'))
@@ -181,12 +188,233 @@ async function fillCreateForm(user: User) {
   await user.click(screen.getByTestId('operator-next'))
 }
 
-describe('RegionalOperatorsPage', () => {
-  test('non-administrators see a restricted message instead of the table, and nothing is loaded', () => {
+describe('PipelinePage', () => {
+  test('administrators only: a non-administrator sees the agents and local operators, no regional ones, and no operator is loaded', async () => {
     admin = false
     renderPage()
-    expect(screen.getByText('Administrators only')).toBeInTheDocument()
+    expect(await screen.findByTestId('component-agent:a1')).toBeInTheDocument()
+    expect(screen.getByText('Regional operators are only shown to organisation administrators.')).toBeInTheDocument()
+    expect(screen.queryByTestId('operator-open')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('hop-regional')).not.toBeInTheDocument()
     expect(listOperators).not.toHaveBeenCalled()
+  })
+
+  test('while the operators are still being read there is a skeleton, not a misleading empty page', async () => {
+    let resolve!: (ops: RegionalOperator[]) => void
+    listOperators.mockImplementation(() => new Promise<RegionalOperator[]>((r) => { resolve = r }))
+    renderPage()
+    expect(screen.queryByText('Nothing is sending telemetry yet')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('status', { name: 'Loading' }).length).toBeGreaterThan(0)
+    resolve([op()])
+    expect(await screen.findByTestId('operator-athens-regional')).toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument()
+  })
+
+  test('with nothing at all the page says so and offers the wizard; the header still holds the one primary button', async () => {
+    const user = userEvent.setup()
+    topologyState = { agents: [], clusters: [] }
+    renderPage()
+    expect(await screen.findByText('Nothing is sending telemetry yet')).toBeInTheDocument()
+    expect(screen.getByTestId('operator-open')).toHaveTextContent('New operator')
+    expect(screen.getByTestId('telemetry-setup')).toHaveTextContent('Set up telemetry')
+    const primaries = screen.getAllByRole('button').filter((b) => b.className.includes('bg-accent'))
+    expect(primaries).toEqual([screen.getByTestId('telemetry-setup')])
+    // The empty state offers the same action, quietly.
+    await user.click(screen.getByTestId('telemetry-setup-empty'))
+    expect(telemetryStart).toHaveBeenCalledWith()
+  })
+
+  test('a viewer who cannot edit has no Set up telemetry, and the menu item that changes what a collector sends says why it is dimmed', async () => {
+    canEditFlag = false
+    const user = userEvent.setup()
+    topologyState = { agents: [ag({ diagnostics: { installedTelemetry: ['resourceUsage'], reportedAt: minutesAgo(1) } } as Partial<Agent>)], clusters: [cl()] }
+    renderPage()
+    await screen.findByTestId('component-local:a1')
+    expect(screen.queryByTestId('telemetry-setup')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('component-menu-local:a1'))
+    const item = screen.getByTestId('local-configure-edge-agent collector')
+    expect(item).toBeDisabled()
+    expect(within(item).getByText('Changing telemetry needs permission to edit')).toBeInTheDocument()
+  })
+
+  test('everything is one table: agents, local, regional and the central operator, each with its kind, and the filter chips show one kind with its count', async () => {
+    const user = userEvent.setup()
+    fusionStatus = fusionRunning()
+    listOperators.mockResolvedValue([op(), centralOp()])
+    topologyState = { agents: [ag({ diagnostics: { installedTelemetry: ['resourceUsage'], reportedAt: minutesAgo(1) } } as Partial<Agent>)], clusters: [cl()] }
+    renderPage()
+    await screen.findByTestId('operator-athens-regional')
+    for (const id of ['component-agent:a1', 'component-local:a1', 'operator-athens-regional', 'operator-Central (FUSION)']) expect(screen.getByTestId(id)).toBeInTheDocument()
+    expect(screen.getByTestId('component-agent:a1')).toHaveAttribute('data-kind', 'agent')
+    expect(screen.getByTestId('pipeline-filter-all')).toHaveTextContent('All 4')
+    await user.click(screen.getByTestId('pipeline-filter-regional'))
+    expect(screen.getByTestId('pipeline-filter-regional')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('operator-athens-regional')).toBeInTheDocument()
+    expect(screen.queryByTestId('component-agent:a1')).not.toBeInTheDocument()
+    // The path's own tile is the same filter.
+    await user.click(screen.getByRole('button', { name: 'Discovery agents: show them in the table' }))
+    expect(screen.getByTestId('component-agent:a1')).toBeInTheDocument()
+    expect(screen.queryByTestId('operator-athens-regional')).not.toBeInTheDocument()
+  })
+
+  test('the data path has one tile per hop with its count of healthy ones, and FUSION last once it is on', async () => {
+    fusionStatus = fusionRunning()
+    listOperators.mockResolvedValue([op({ health: { state: 'online', lastSeenAt: minutesAgo(1), reporting: true } }), centralOp({ health: { state: 'online', reporting: false, lastSeenAt: minutesAgo(1) } })])
+    renderPage()
+    const path = await screen.findByTestId('pipeline-path')
+    await waitFor(() => expect(within(path).getByTestId('hop-fusion')).toHaveTextContent('On'))
+    expect(within(path).getByTestId('hop-regional')).toHaveTextContent('1 of 1')
+    expect(within(path).getByTestId('hop-central')).toHaveTextContent('Healthy')
+    expect(within(path).getByTestId('hop-fusion')).toHaveTextContent('Healthy')
+    expect(within(path).getAllByRole('listitem').map((i) => i.getAttribute('data-testid')).filter(Boolean)).toEqual(['hop-agent', 'hop-local', 'hop-regional', 'hop-central', 'hop-fusion'])
+  })
+
+  test('with FUSION off there is no FUSION hop figure but "Off", and the central operator is not a row', async () => {
+    renderPage()
+    expect(await screen.findByTestId('hop-fusion')).toHaveTextContent('Off')
+    expect(screen.queryByTestId('hop-central')?.textContent).toMatch(/^Central operator0/)
+  })
+
+  test('nothing is wrong: no "What needs attention"; something is wrong: one sentence per problem and a What to do that opens numbered steps with the exact command', async () => {
+    const user = userEvent.setup()
+    listOperators.mockResolvedValue([op({ health: { state: 'online', lastSeenAt: minutesAgo(1), reporting: true } })])
+    topologyState = { agents: [ag({ connected: true, lastHeartbeat: minutesAgo(0) })], clusters: [cl()] }
+    const { unmount } = renderPage()
+    await screen.findByTestId('operator-athens-regional')
+    expect(screen.queryByTestId('pipeline-attention')).not.toBeInTheDocument()
+    unmount()
+
+    topologyState = { agents: [ag({ connected: false, lastHeartbeat: minutesAgo(130), namespace: 'continuum-system', releaseName: 'continuum-agent' })], clusters: [cl()] }
+    renderPage()
+    const strip = await screen.findByTestId('pipeline-attention')
+    expect(strip).toHaveTextContent('edge-agent. Has not reported for 2 h 10 min')
+    await user.click(within(strip).getByRole('button', { name: 'What to do about edge-agent' }))
+    const dialog = screen.getByRole('dialog', { name: 'What to do about edge-agent' })
+    expect(within(dialog).getByTestId('what-to-do-steps').children).toHaveLength(2)
+    expect(within(dialog).getByTestId('what-to-do-command-1')).toHaveTextContent('kubectl get pods --namespace continuum-system')
+    await user.click(within(dialog).getByTestId('what-to-do-action'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  test('the same sentence and the same What to do are on the row itself, whose state is a glyph, a word and a colour', async () => {
+    topologyState = { agents: [ag({ connected: false, lastHeartbeat: minutesAgo(130) })], clusters: [cl()] }
+    renderPage()
+    const row = await screen.findByTestId('component-agent:a1')
+    expect(row).toHaveAttribute('data-state', 'down')
+    expect(within(row).getByText('Not working')).toBeInTheDocument()
+    expect(within(row).getByTestId('component-reason-agent:a1')).toHaveTextContent('Has not reported for 2 h 10 min')
+    expect(within(row).getByRole('button', { name: 'What to do about edge-agent' })).toBeInTheDocument()
+  })
+
+  test('every row has the same menu button in the same cell, named for it; Escape closes the menu', async () => {
+    listOperators.mockResolvedValue([op({ id: 'op-a', name: 'one' }), centralOp()])
+    topologyState = { agents: [ag({ diagnostics: { installedTelemetry: ['resourceUsage'], reportedAt: minutesAgo(1) } } as Partial<Agent>)], clusters: [cl()] }
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByTestId('operator-one')
+    for (const name of ['edge-agent', 'edge-agent collector', 'one', 'Central operator']) {
+      const row = screen.getAllByRole('row').find((r) => within(r).queryByRole('button', { name: `Actions for ${name}` }))
+      expect(row, name).toBeDefined()
+      expect(row!.lastElementChild).toContainElement(screen.getByRole('button', { name: `Actions for ${name}` }))
+    }
+    const button = screen.getByRole('button', { name: 'Actions for one' })
+    await user.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    expect(within(screen.getByRole('menu', { name: 'Actions for one' })).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Connect edge-1…', 'Reachable at…', 'Issued certificates', 'Renew certificates…', 'Enable health reporting', 'Disconnect…', 'Stop and remove…'])
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('component-menu-agent:a1'))
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Open in Agents'])
+  })
+
+  test('the central operator is managed by FUSION: Reachable at and Open FUSION, no disconnect, no remove, no certificates to renew', async () => {
+    fusionStatus = fusionRunning()
+    listOperators.mockResolvedValue([centralOp({ health: { state: 'online', reporting: false, lastSeenAt: minutesAgo(1) } })])
+    const user = userEvent.setup()
+    renderPage()
+    const row = await screen.findByTestId('operator-Central (FUSION)')
+    expect(within(row).getByText('Healthy')).toBeInTheDocument()
+    await user.click(within(row).getByTestId('operator-menu-Central (FUSION)'))
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Reachable at…', 'Open FUSION'])
+  })
+
+  test('a disconnected operator is Not working with its reason, is not counted, offers no What to do, and can only be removed', async () => {
+    listOperators.mockResolvedValue([op({ status: 'revoked', reason: 'replaced' })])
+    const user = userEvent.setup()
+    renderPage()
+    const row = await screen.findByTestId('operator-athens-regional')
+    expect(row).toHaveAttribute('data-state', 'down')
+    expect(within(row).getByTestId('component-reason-regional:op-1')).toHaveTextContent('Disconnected: replaced')
+    expect(within(row).queryByRole('button', { name: /What to do/ })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pipeline-attention')).not.toBeInTheDocument()
+    expect(screen.getByTestId('hop-regional')).toHaveTextContent('0')
+    await user.click(screen.getByTestId('operator-menu-athens-regional'))
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Stop and remove…'])
+  })
+
+  test('the certificate column says Renewing automatically with the next date; only a failing renewal or an ended certificate is anything else', async () => {
+    listOperators.mockResolvedValue([
+      op({ id: 'op-a', name: 'fine-op', certState: 'ok', certs: { receiverNotAfter: daysFromNow(25) } }),
+      op({ id: 'op-b', name: 'soon-op', certState: 'renewal-failing', certs: { receiverNotAfter: daysFromNow(12) } }),
+      op({ id: 'op-c', name: 'late-op', certState: 'expired', certs: { receiverNotAfter: daysFromNow(-3) } }),
+      op({ id: 'op-d', name: 'old-op' }),
+    ])
+    renderPage()
+    const cell = (name: string) => within(screen.getByTestId(`operator-${name}`)).getAllByRole('cell')[3]
+    await screen.findByTestId('operator-fine-op')
+    expect(cell('fine-op')).toHaveTextContent(/Renewing automatically\s*next \w+ \d+/)
+    expect(cell('soon-op')).toHaveTextContent('Renewal failing')
+    expect(cell('soon-op').querySelector('.text-warn')).not.toBeNull()
+    expect(cell('late-op')).toHaveTextContent('Expired')
+    expect(cell('late-op').querySelector('.text-bad')).not.toBeNull()
+    expect(cell('old-op')).toHaveTextContent('—')
+    expect(screen.getByTestId('component-reason-regional:op-b')).toHaveTextContent('Certificate renewal is failing')
+  })
+
+  test('where an operator sends is a column: FUSION by that name, another operator by its name; its address has a copy button, and a missing one is something to do', async () => {
+    const user = userEvent.setup()
+    listOperators.mockResolvedValue([
+      op({ id: 'op-a', name: 'athens', destination: { kind: 'operator', endpoint: '', targetOperatorId: 'op-central' }, addressState: 'set', address: 'otlp.eu.example.com:4317', reachableFromOtherClusters: true }),
+      op({ id: 'op-b', name: 'beta', destination: { kind: 'operator', endpoint: '', targetOperatorId: 'op-athens' }, exposure: 'loadbalancer', addressState: 'pending' }),
+      op({ id: 'op-athens', name: 'the-hub' }),
+    ])
+    renderPage()
+    const row = await screen.findByTestId('operator-athens')
+    expect(within(row).getAllByRole('cell')[4]).toHaveTextContent(/FUSION$/)
+    expect(within(screen.getByTestId('operator-beta')).getAllByRole('cell')[4]).toHaveTextContent('the-hub')
+    expect(within(row).getByRole('button', { name: 'Copy the address of athens' })).toBeInTheDocument()
+    // A Service with no recorded address is a problem with one thing to do, and it opens the dialog that records it.
+    const strip = screen.getByTestId('pipeline-attention')
+    expect(strip).toHaveTextContent('beta. Clusters elsewhere cannot send to it yet')
+    await user.click(within(strip).getByRole('button', { name: 'What to do about beta' }))
+    await user.click(screen.getByRole('button', { name: 'Record the address' }))
+    expect(screen.getByTestId('operator-address-input')).toBeInTheDocument()
+  })
+
+  test('Connect <cluster> is a menu item for each source cluster with an agent, starting the wizard with the operator chosen', async () => {
+    topologyState = { agents: [ag(), ag({ id: 'a2', clusterId: 'c2', name: 'agent-2' }), ag({ id: 'a3', clusterId: 'c3', status: 'pending' })], clusters: [cl(), cl({ id: 'c2', name: 'edge-2' }), cl({ id: 'c3', name: 'edge-3' })] }
+    listOperators.mockResolvedValue([op({ sourceClusterIds: ['c1', 'c2', 'c3'] })])
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByTestId('operator-menu-athens-regional'))
+    expect(screen.getAllByRole('menuitem').slice(0, 2).map((i) => i.textContent)).toEqual(['Connect edge-1…', 'Connect edge-2…'])
+    await user.click(screen.getByRole('menuitem', { name: 'Connect edge-2…' }))
+    expect(telemetryStart).toHaveBeenCalledWith('a2', undefined, 'op-1')
+  })
+
+  test('an operator reads as Healthy only when it reports being online; one that does not report health is Unknown, in words', async () => {
+    listOperators.mockResolvedValue([
+      op({ id: 'op-a', name: 'online-op', health: { state: 'online', lastSeenAt: minutesAgo(1), reporting: true } }),
+      op({ id: 'op-b', name: 'offline-op', health: { state: 'offline', lastSeenAt: minutesAgo(20), reporting: true } }),
+      op({ id: 'op-c', name: 'quiet-op' }),
+    ])
+    renderPage()
+    await screen.findByTestId('operator-online-op')
+    expect(screen.getByTestId('operator-online-op')).toHaveAttribute('data-state', 'healthy')
+    expect(screen.getByTestId('operator-offline-op')).toHaveAttribute('data-state', 'down')
+    expect(screen.getByTestId('component-reason-regional:op-b')).toHaveTextContent('Offline, last heard from 20 min ago')
+    expect(screen.getByTestId('operator-quiet-op')).toHaveAttribute('data-state', 'unknown')
+    expect(screen.getByTestId('component-reason-regional:op-c')).toHaveTextContent('Health reporting is off')
   })
 
   test('only clusters with a currently-approved agent are offered as source clusters', async () => {
@@ -325,44 +553,9 @@ describe('RegionalOperatorsPage', () => {
     expect(text.indexOf('op-2-receiver-tls')).toBeLessThan(text.indexOf('INSTALL-CMD'))
   })
 
-  test('while listOperators is still in flight, shows a loading skeleton instead of the misleading "No regional operators yet" empty state', async () => {
-    let resolve!: (ops: RegionalOperator[]) => void
-    const pending = new Promise<RegionalOperator[]>((r) => { resolve = r })
-    listOperators.mockImplementation(() => pending)
-    renderPage()
-
-    // The fetch has not settled: the real table (and its wrong-until-loaded "empty" reading) must not render - only a placeholder.
-    expect(screen.queryByText('No regional operators yet')).not.toBeInTheDocument()
-    expect(screen.getAllByRole('status', { name: 'Loading' }).length).toBeGreaterThan(0)
-
-    resolve([op({ name: 'athens-regional', id: 'op-1' })])
-
-    await waitFor(() => expect(screen.getByText('athens-regional')).toBeInTheDocument())
-    expect(screen.queryByText('No regional operators yet')).not.toBeInTheDocument()
-    expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument()
-  })
-
-  test('with no operators the empty state offers the same action, quietly: the header still holds the one primary', async () => {
-    renderPage()
-    expect(await screen.findByText('No regional operators yet')).toBeInTheDocument()
-    expect(screen.getByTestId('operator-open')).toHaveTextContent('New operator')
-    expect(screen.getByTestId('operator-open-empty')).toHaveTextContent('New operator')
-    const primaries = screen.getAllByRole('button').filter((b) => b.className.includes('bg-accent'))
-    expect(primaries).toEqual([screen.getByTestId('operator-open')])
-  })
-
-  test('with operators the header holds the one primary button, and nothing else on the page is primary', async () => {
-    listOperators.mockResolvedValue([op()])
-    renderPage()
-    await screen.findByTestId('operator-athens-regional')
-    expect(screen.getAllByTestId('operator-open')).toHaveLength(1)
-    const primaries = screen.getAllByRole('button').filter((b) => b.className.includes('bg-accent'))
-    expect(primaries).toHaveLength(1)
-    expect(primaries[0]).toBe(screen.getByTestId('operator-open'))
-  })
 })
 
-describe('RegionalOperatorsPage - the destination is picked from a list', () => {
+describe('PipelinePage - the destination is picked from a list', () => {
   test('FUSION is the first entry, under "This server", ahead of the other operators', async () => {
     fusionStatus = fusionRunning()
     listOperators.mockResolvedValue([op({ id: 'op-eu', name: 'eu-hub', destination: { kind: 'external', endpoint: 'x:4317' } })])
@@ -533,111 +726,7 @@ describe('RegionalOperatorsPage - the destination is picked from a list', () => 
   })
 })
 
-describe('RegionalOperatorsPage - FUSION on the page', () => {
-  test('a change of FUSION\'s state is announced by a live region that carries only the state\'s word', async () => {
-    fusionStatus = fusionStarting()
-    renderPage()
-    const live = await screen.findByTestId('fusion-live')
-    expect(live).toHaveAttribute('aria-live', 'polite')
-    expect(live).toHaveTextContent('FUSION: Starting')
-  })
-
-  test('the Regional tab shows FUSION with its four parts, and the switch', async () => {
-    fusionStatus = fusionStarting()
-    const user = userEvent.setup()
-    renderPage()
-    const panel = await screen.findByTestId('fusion-parts')
-    expect(within(panel).getByTestId('fusion-part-metrics')).toHaveTextContent('Up')
-    expect(within(panel).getByTestId('fusion-part-central')).toHaveTextContent('Starting')
-    expect(screen.getByTestId('fusion-status')).toHaveTextContent('Starting - 2 of 4 parts are up.')
-    expect(screen.getByTestId('fusion-exposure')).toHaveTextContent('inside this cluster only')
-
-    // Turning it off asks first.
-    await user.click(screen.getByTestId('fusion-disable'))
-    expect(disableFusion).not.toHaveBeenCalled()
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Turn off' }))
-    await waitFor(() => expect(disableFusion).toHaveBeenCalled())
-    expect(await screen.findByTestId('fusion-enable')).toBeInTheDocument()
-  })
-
-  test('enabling or disabling FUSION reads the operators again: the central operator comes and goes with it', async () => {
-    const user = userEvent.setup()
-    renderPage()
-    await user.click(await screen.findByTestId('fusion-enable'))
-    await waitFor(() => expect(enableFusion).toHaveBeenCalled())
-    listOperators.mockClear()
-    listOperators.mockResolvedValue([centralOp()])
-    await user.click(await screen.findByTestId('fusion-disable'))
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Turn off' }))
-    await waitFor(() => expect(disableFusion).toHaveBeenCalled())
-    await waitFor(() => expect(listOperators).toHaveBeenCalled())
-  })
-
-  test('the panel opens Grafana and Prometheus in a new tab once they are up, and shows them waiting before that', async () => {
-    fusionStatus = { ...fusionStarting(), components: [...parts(1, 1), { component: 'grafana' as const, label: 'Grafana', desired: 1, ready: 0 }].map((c, i) => (i === 2 ? { ...c, ready: 0 } : c)) }
-    const { unmount } = renderPage()
-    const grafana = await screen.findByTestId('fusion-open-grafana')
-    expect(grafana).toHaveAttribute('aria-disabled', 'true')
-    expect(grafana).not.toHaveAttribute('href')
-    expect(screen.getByTestId('fusion-waiting')).toBeInTheDocument()
-    unmount()
-
-    fusionStatus = { ...fusionRunning(), links: { prometheus: '/fusion/prometheus/', grafana: '/fusion/grafana/' } }
-    renderPage()
-    const g = await screen.findByTestId('fusion-open-grafana')
-    expect(g).not.toHaveAttribute('aria-disabled')
-    // The tab opens inside the click and is sent to the ticketed address once the server has given it.
-    const tab = { location: { href: '' }, close: vi.fn(), opener: {} as unknown }
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
-    const user = userEvent.setup()
-    await user.click(g)
-    expect(openSpy).toHaveBeenCalledWith('', '_blank')
-    await waitFor(() => expect(tab.location.href).toBe('/fusion/grafana/?ikhnos_ticket=t1'))
-    expect(openFusionPage).toHaveBeenCalledWith(expect.anything(), 'grafana')
-    expect(tab.opener).toBeNull()
-    await user.click(screen.getByTestId('fusion-open-prometheus'))
-    await waitFor(() => expect(tab.location.href).toBe('/fusion/prometheus/?ikhnos_ticket=t1'))
-    openSpy.mockRestore()
-    expect(screen.queryByTestId('fusion-waiting')).not.toBeInTheDocument()
-    expect(screen.getByTestId('fusion-links-note')).toHaveTextContent('open through this server')
-  })
-
-  test('opening a page says why when the server refuses, closes the empty tab, and says when the browser blocks the tab', async () => {
-    fusionStatus = { ...fusionRunning(), links: { prometheus: '/fusion/prometheus/', grafana: '/fusion/grafana/' } }
-    renderPage()
-    const user = userEvent.setup()
-    const tab = { location: { href: '' }, close: vi.fn(), opener: {} as unknown }
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
-    openFusionPage.mockRejectedValueOnce(new ApiError(409, 'Grafana is not running yet'))
-    await user.click(await screen.findByTestId('fusion-open-grafana'))
-    expect(await screen.findByTestId('fusion-open-error')).toHaveTextContent('Grafana is not running yet')
-    expect(tab.close).toHaveBeenCalled()
-    expect(tab.location.href).toBe('')
-    openSpy.mockReturnValue(null)
-    await user.click(screen.getByTestId('fusion-open-prometheus'))
-    expect(await screen.findByTestId('fusion-open-error')).toHaveTextContent('blocked the new tab')
-    expect(openFusionPage).toHaveBeenCalledTimes(1)
-    openSpy.mockRestore()
-  })
-
-  test('an exposed central operator says where other clusters reach it', async () => {
-    fusionStatus = { ...fusionRunning(), central: { ...central, exposed: true, endpoint: 'fusion.example.com:4317' } }
-    renderPage()
-    expect(await screen.findByTestId('fusion-exposure')).toHaveTextContent('reachable from other clusters at fusion.example.com:4317')
-  })
-
-  test('there is one spinner on the page while FUSION starts, and none in the table rows', async () => {
-    fusionStatus = fusionStarting()
-    listOperators.mockResolvedValue([
-      op({ id: 'op-a', name: 'waiting-op', health: { state: 'waiting', reporting: true } }),
-      centralOp({ health: { state: 'starting', reporting: false } }),
-    ])
-    renderPage()
-    await screen.findByTestId('operator-waiting-op')
-    expect(screen.getAllByRole('status')).toHaveLength(1)
-    expect(within(screen.getByTestId('operator-waiting-op')).getByTestId('operator-health')).toHaveTextContent('Waiting for first heartbeat')
-  })
-
+describe('PipelinePage - certificates', () => {
   test('the issued certificates are listed by who holds them, with the cluster named, and the empty case says why', async () => {
     listOperators.mockResolvedValue([op()])
     const cert = (over: Partial<IssuedCertificate>): IssuedCertificate => ({
@@ -661,144 +750,14 @@ describe('RegionalOperatorsPage - FUSION on the page', () => {
     expect(await screen.findByTestId('operator-certs-empty')).toHaveTextContent('Nothing recorded yet')
   })
 
-  test('the central operator is listed as managed by FUSION: one action, no revoke, no delete, and its state follows FUSION', async () => {
-    fusionStatus = fusionRunning()
-    listOperators.mockResolvedValue([centralOp()])
-    const user = userEvent.setup()
-    renderPage()
-    const row = await screen.findByTestId('operator-Central (FUSION)')
-    expect(within(row).getByTestId('operator-central-state')).toHaveTextContent('Running')
-    await user.click(within(row).getByTestId('operator-menu-Central (FUSION)'))
-    expect(screen.getByTestId('operator-address-open-Central (FUSION)')).toBeInTheDocument()
-    expect(screen.queryByTestId('operator-revoke-Central (FUSION)')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('operator-delete-Central (FUSION)')).not.toBeInTheDocument()
-    expect(within(row).queryByText('Active')).not.toBeInTheDocument()
-  })
-
-  test('the table names an operator that sends to the central operator as FUSION, not by an empty endpoint', async () => {
-    listOperators.mockResolvedValue([op({ name: 'athens', destination: { kind: 'operator', endpoint: '', targetOperatorId: 'op-central' } }), op({ id: 'op-2', name: 'beta', destination: { kind: 'operator', endpoint: '', targetOperatorId: 'op-athens' } }), op({ id: 'op-athens', name: 'the-hub' })])
-    renderPage()
-    expect(await screen.findByTestId('operator-destination-athens')).toHaveTextContent(/^FUSION$/)
-    expect(screen.getByTestId('operator-destination-beta')).toHaveTextContent('the-hub')
-  })
 })
 
-describe('RegionalOperatorsPage - the table', () => {
-  test('the status says Online, Offline with when, or not reported - in words, and with no neutral Active pill', async () => {
-    listOperators.mockResolvedValue([
-      op({ id: 'op-a', name: 'online-op', health: { state: 'online', lastSeenAt: minutesAgo(1), reporting: true } }),
-      op({ id: 'op-b', name: 'offline-op', health: { state: 'offline', lastSeenAt: minutesAgo(20), reporting: true } }),
-      op({ id: 'op-c', name: 'quiet-op' }),
-      op({ id: 'op-d', name: 'gone-op', status: 'revoked', reason: 'replaced' }),
-    ])
-    renderPage()
-    const health = async (name: string) => within(await screen.findByTestId(`operator-${name}`)).getByTestId('operator-health')
-    expect(await health('online-op')).toHaveTextContent(/^Online$/)
-    expect(await health('online-op')).toHaveAttribute('data-health', 'online')
-    expect(await health('offline-op')).toHaveTextContent('Offline, last seen 20 min ago')
-    expect(await health('quiet-op')).toHaveTextContent('Health not reported')
-    expect(screen.queryByText('Active')).not.toBeInTheDocument()
-    expect(within(screen.getByTestId('operator-gone-op')).getByText('Revoked: replaced')).toBeInTheDocument()
-    expect(within(screen.getByTestId('operator-gone-op')).queryByTestId('operator-health')).not.toBeInTheDocument()
-  })
-
-  test('an operator from an older server (no health, no receiverAuth) reads as not reported', async () => {
-    const { health: _h, receiverAuth: _r, ...legacy } = op({ name: 'legacy-op' })
-    listOperators.mockResolvedValue([legacy as RegionalOperator])
-    renderPage()
-    expect(within(await screen.findByTestId('operator-legacy-op')).getByTestId('operator-health')).toHaveTextContent('Health not reported')
-  })
-
-  test('Created is relative, with the exact time in a tooltip', async () => {
-    listOperators.mockResolvedValue([op({ createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString() })])
-    renderPage()
-    const row = await screen.findByTestId('operator-athens-regional')
-    expect(within(row).getByText('3 days ago')).toHaveAttribute('title')
-  })
-
-  test('the row actions are in one menu whose name carries the operator, and Escape closes it', async () => {
-    listOperators.mockResolvedValue([op({ id: 'op-a', name: 'one' }), op({ id: 'op-b', name: 'two' })])
-    const user = userEvent.setup()
-    renderPage()
-    const button = await screen.findByRole('button', { name: 'Actions for two' })
-    expect(screen.getByRole('button', { name: 'Actions for one' })).toBeInTheDocument()
-    expect(button).toHaveAttribute('aria-expanded', 'false')
-    await user.click(button)
-    expect(button).toHaveAttribute('aria-expanded', 'true')
-    const menu = screen.getByRole('menu', { name: 'Actions for two' })
-    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Reachable at…', 'Enable health reporting', 'Issued certificates', 'Renew certificates…', 'Revoke…', 'Delete…'])
-    await user.keyboard('{Escape}')
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-    // Nothing but the menu button sits in the actions cell: the row is not a row of buttons.
-    expect(within(screen.getByTestId('operator-two')).getAllByRole('button').filter((b) => b.getAttribute('aria-label')?.startsWith('Actions'))).toHaveLength(1)
-  })
-
-  test('a revoked operator can only be deleted', async () => {
-    listOperators.mockResolvedValue([op({ status: 'revoked' })])
-    const user = userEvent.setup()
-    renderPage()
-    await user.click(await screen.findByTestId('operator-menu-athens-regional'))
-    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Delete…'])
-  })
-
-  test('the address cell: a recorded address with a copy button, "Needs an address" in amber, and this cluster only', async () => {
-    listOperators.mockResolvedValue([
-      op({ id: 'op-a', name: 'local-op', addressState: 'none' }),
-      op({ id: 'op-b', name: 'hub-op', address: 'otlp.eu.example.com:4317', reachableFromOtherClusters: true, addressState: 'set' }),
-      op({ id: 'op-c', name: 'lb-op', exposure: 'loadbalancer', addressState: 'pending' }),
-      op({ id: 'op-d', name: 'gone-op', status: 'revoked' }),
-    ])
-    const user = userEvent.setup()
-    renderPage()
-    expect(await screen.findByTestId('operator-address-local-op')).toHaveTextContent('This cluster only')
-    expect(screen.getByTestId('operator-address-hub-op')).toHaveTextContent('otlp.eu.example.com:4317')
-    expect(within(screen.getByTestId('operator-address-hub-op')).getByRole('button', { name: 'Copy the address of hub-op' })).toBeInTheDocument()
-    expect(screen.getByTestId('operator-address-hub-op')).toHaveAttribute('data-address', 'set')
-    const pending = screen.getByTestId('operator-address-lb-op')
-    expect(pending).toHaveAttribute('data-address', 'pending')
-    expect(within(pending).getByRole('button', { name: 'Needs an address' })).toHaveClass('text-warn')
-    expect(screen.queryByTestId('operator-address-gone-op')).not.toBeInTheDocument()
-    // The amber text is the way to the dialog that records it.
-    await user.click(within(pending).getByRole('button', { name: 'Needs an address' }))
-    expect(screen.getByTestId('operator-address-input')).toBeInTheDocument()
-  })
-
-  test('an older server (no addressState) still reads: a recorded address, or what was installed', async () => {
-    listOperators.mockResolvedValue([
-      op({ id: 'op-b', name: 'hub-op', address: 'otlp.eu.example.com:4317', reachableFromOtherClusters: true }),
-      op({ id: 'op-c', name: 'lb-op', exposure: 'loadbalancer' }),
-      op({ id: 'op-e', name: 'own-op', exposure: 'cluster' }),
-    ])
-    renderPage()
-    expect(await screen.findByTestId('operator-address-hub-op')).toHaveTextContent('otlp.eu.example.com:4317')
-    expect(screen.getByTestId('operator-address-lb-op')).toHaveTextContent('Needs an address')
-    expect(screen.getByTestId('operator-address-own-op')).toHaveTextContent('This cluster only')
-  })
-
-  test('certificates that are running out say how long, in amber, and expired ones in red, each with a way to renew them', async () => {
-    listOperators.mockResolvedValue([
-      op({ id: 'op-a', name: 'fine-op', certState: 'ok', certs: { receiverNotAfter: daysFromNow(300) } }),
-      op({ id: 'op-b', name: 'soon-op', certState: 'renewal-failing', certs: { receiverNotAfter: daysFromNow(40), clientNotAfter: daysFromNow(12) } }),
-      op({ id: 'op-c', name: 'late-op', certState: 'expired', certs: { receiverNotAfter: daysFromNow(-3) } }),
-      op({ id: 'op-d', name: 'old-op' }),
-    ])
-    renderPage()
-    expect(await screen.findByTestId('operator-cert-soon-op')).toHaveTextContent('Certificate renewal is failing')
-    expect(screen.getByTestId('operator-cert-soon-op')).toHaveClass('text-warn')
-    expect(screen.getByTestId('operator-cert-late-op')).toHaveTextContent('Certificate expired')
-    expect(screen.getByTestId('operator-cert-late-op')).toHaveClass('text-bad')
-    expect(screen.queryByTestId('operator-cert-fine-op')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('operator-cert-old-op')).not.toBeInTheDocument()
-    expect(screen.getByTestId('operator-cert-renew-soon-op')).toBeInTheDocument()
-    expect(screen.queryByTestId('operator-cert-renew-fine-op')).not.toBeInTheDocument()
-  })
-
+describe('PipelinePage - the table', () => {
   test('Renew certificates asks the server to install again and shows what it returns on the same screen as a new operator', async () => {
     listOperators.mockResolvedValue([op({ certState: 'renewal-failing', certs: { receiverNotAfter: daysFromNow(10) } })])
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByTestId('operator-cert-renew-athens-regional'))
-    await confirmRenew(user)
+    await renewFromWhatToDo(user, 'regional:op-1')
     await waitFor(() => expect(reinstallOperator).toHaveBeenCalledWith({ url: '', org: 'o' }, 'op-1'))
     const dialog = await screen.findByRole('dialog', { name: 'Renew certificates for athens-regional' })
     const text = within(dialog).getByTestId('operator-created-steps').textContent ?? ''
@@ -823,8 +782,7 @@ describe('RegionalOperatorsPage - the table', () => {
     listOperators.mockResolvedValue([op({ certState: 'renewal-failing', certs: { receiverNotAfter: daysFromNow(10) } })])
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByTestId('operator-cert-renew-athens-regional'))
-    await confirmRenew(user)
+    await renewFromWhatToDo(user, 'regional:op-1')
     const dialog = await screen.findByRole('dialog', { name: 'Renew certificates for athens-regional' })
     const text = within(dialog).getByTestId('operator-created-steps').textContent ?? ''
     expect(text.indexOf('HB-CA-SECRET-CMD')).toBeGreaterThan(-1)
@@ -843,33 +801,6 @@ describe('RegionalOperatorsPage - the table', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  test('Connect <cluster> in the Sources cell starts the wizard for that cluster\'s agent with the operator chosen', async () => {
-    listOperators.mockResolvedValue([op()])
-    const user = userEvent.setup()
-    renderPage()
-    await user.click(await screen.findByRole('button', { name: 'Connect edge-1' }))
-    expect(telemetryStart).toHaveBeenCalledWith('a1', undefined, 'op-1')
-  })
-
-  test('with several sources the cell offers one Connect menu, one entry per cluster with an agent', async () => {
-    topologyState = { agents: [ag(), ag({ id: 'a2', clusterId: 'c2' }), ag({ id: 'a3', clusterId: 'c3', status: 'pending' })], clusters: [cl(), cl({ id: 'c2', name: 'edge-2' }), cl({ id: 'c3', name: 'edge-3' })] }
-    listOperators.mockResolvedValue([op({ sourceClusterIds: ['c1', 'c2', 'c3'] })])
-    const user = userEvent.setup()
-    renderPage()
-    await user.click(await screen.findByRole('button', { name: 'Connect a cluster to athens-regional' }))
-    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Connect edge-1', 'Connect edge-2'])
-    await user.click(screen.getByRole('menuitem', { name: 'Connect edge-2' }))
-    expect(telemetryStart).toHaveBeenCalledWith('a2', undefined, 'op-1')
-  })
-
-  test('someone who cannot edit gets no Connect', async () => {
-    canEditFlag = false
-    listOperators.mockResolvedValue([op()])
-    renderPage()
-    await screen.findByTestId('operator-athens-regional')
-    expect(screen.queryByRole('button', { name: /Connect/ })).not.toBeInTheDocument()
-  })
-
   test('a list that is read again shows what changed without a reload: a new operator, and a health that flipped', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
@@ -879,14 +810,14 @@ describe('RegionalOperatorsPage - the table', () => {
       listOperators.mockResolvedValue([op({ id: 'op-a', name: 'first-op', health: { state: 'online', lastSeenAt: minutesAgo(0), reporting: true } }), op({ id: 'op-b', name: 'second-op' })])
       await vi.advanceTimersByTimeAsync(13_000)
       expect(await screen.findByTestId('operator-second-op')).toBeInTheDocument()
-      expect(within(screen.getByTestId('operator-first-op')).getByTestId('operator-health')).toHaveTextContent('Online')
+      expect(screen.getByTestId('operator-first-op')).toHaveAttribute('data-state', 'healthy')
     } finally {
       vi.useRealTimers()
     }
   })
 })
 
-describe('RegionalOperatorsPage - revoking and deleting', () => {
+describe('PipelinePage - revoking and deleting', () => {
   test('an operator nothing depends on is revoked on one confirmation, with no acknowledgement to tick', async () => {
     listOperators.mockResolvedValue([op()])
     const user = userEvent.setup()
@@ -966,7 +897,7 @@ describe('RegionalOperatorsPage - revoking and deleting', () => {
   })
 })
 
-describe('RegionalOperatorsPage - Local tab', () => {
+describe('PipelinePage - local operators', () => {
   const installedAgent = (over: Record<string, unknown> = {}) =>
     ag({ name: 'edge-agent', diagnostics: { installedTelemetry: ['resourceUsage', 'systemLogs'], reportedAt: '2026-01-02T00:00:00Z', ...over } } as Partial<Agent>)
   const intent = (over: Partial<TelemetryIntent> = {}): TelemetryIntent => ({
@@ -976,138 +907,75 @@ describe('RegionalOperatorsPage - Local tab', () => {
     createdAt: '2026-01-01T00:00:00Z', createdBy: 'me', ...over,
   })
 
-  test('with no approved agent reporting any telemetry signal, the Local tab shows its own empty state', async () => {
-    const user = userEvent.setup()
+
+  test('a local operator is an agent with telemetry running: its collector row says where it sends, and its agent being offline makes it Unknown, with the reason', async () => {
+    listTelemetryIntents.mockResolvedValue([intent()])
+    listOperators.mockResolvedValue([op({ id: 'op-eu', name: 'EU hub' })])
+    topologyState = { agents: [installedAgent({ exportHealth: { podsReached: 1, podsFailed: 0, routes: [{ exporter: 'otlp', signal: 'metrics', state: 'exporting', sent: 5, failed: 0, lastSentAt: minutesAgo(0) }, { exporter: 'otlp', signal: 'logs', state: 'exporting', sent: 5, failed: 0, lastSentAt: minutesAgo(0) }] } })], clusters: [cl()] }
+    const { unmount } = renderPage()
+    const row = await screen.findByTestId('component-local:a1')
+    await waitFor(() => expect(within(row).getAllByRole('cell')[4]).toHaveTextContent('EU hub'))
+    expect(row).toHaveAttribute('data-kind', 'local')
+    expect(row).toHaveAttribute('data-state', 'healthy')
+    expect(within(row).getAllByRole('cell')[5]).toHaveTextContent(/s ago$/)
+    unmount()
+
+    topologyState = { agents: [{ ...installedAgent(), connected: false, lastHeartbeat: minutesAgo(125) } as Agent], clusters: [cl()] }
     renderPage()
-    await user.click(await screen.findByTestId('operators-local'))
-    expect(screen.getByText('No local operators running yet')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Configure telemetry/ })).toBeInTheDocument()
+    const offline = await screen.findByTestId('component-local:a1')
+    expect(offline).toHaveAttribute('data-state', 'unknown')
+    expect(within(offline).getByTestId('component-reason-local:a1')).toHaveTextContent('Its agent has not reported for 2 h 5 min')
+    expect(within(offline).queryByRole('button', { name: /What to do/ })).not.toBeInTheDocument()
   })
 
-  test('an approved agent with installed signals lists as a local operator, with a Configure action named for its cluster', async () => {
+  test('a collector whose route is failing is Not working, and its What to do offers the wizard to change what it sends', async () => {
     const user = userEvent.setup()
-    admin = false // regional operators stay admin-only; the local tab must not depend on that
-    topologyState = { agents: [installedAgent()], clusters: [cl()] }
+    listTelemetryIntents.mockResolvedValue([intent({ destination: { kind: 'external', endpoint: 'otel.example.com:4317' } })])
+    topologyState = { agents: [installedAgent({ exportHealth: { podsReached: 1, podsFailed: 0, routes: [{ exporter: 'otlp', signal: 'metrics', state: 'failing', sent: 0, failed: 3 }] } })], clusters: [cl()] }
     renderPage()
-    await user.click(await screen.findByTestId('operators-local'))
-    expect(screen.getByTestId('local-operator-edge-agent')).toBeInTheDocument()
-    expect(screen.getByText('Resource usage')).toBeInTheDocument()
-    expect(screen.getByText('System logs')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Configure edge-1' }))
+    const row = await screen.findByTestId('component-local:a1')
+    expect(row).toHaveAttribute('data-state', 'down')
+    expect(within(row).getByTestId('component-reason-local:a1')).toHaveTextContent('Sending to otel.example.com:4317 is failing.')
+    await user.click(within(row).getByRole('button', { name: 'What to do about edge-agent collector' }))
+    await user.click(screen.getByRole('button', { name: 'Change what it sends' }))
     expect(telemetryStart).toHaveBeenCalledWith('a1')
   })
 
-  test('the Configure action is hidden for a viewer who cannot edit', async () => {
-    const user = userEvent.setup()
-    canEditFlag = false
-    topologyState = { agents: [installedAgent({ installedTelemetry: ['resourceUsage'] })], clusters: [cl()] }
-    renderPage()
-    await user.click(await screen.findByTestId('operators-local'))
-    expect(screen.getByTestId('local-operator-edge-agent')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Configure/ })).not.toBeInTheDocument()
-  })
-
-  test('the destination comes from the agent\'s request: the operator\'s name with its health, from the full list for an administrator', async () => {
-    listTelemetryIntents.mockResolvedValue([intent()])
-    listOperators.mockResolvedValue([op({ id: 'op-eu', name: 'EU hub', health: { state: 'online', lastSeenAt: minutesAgo(1), reporting: true } })])
-    topologyState = { agents: [installedAgent()], clusters: [cl()] }
-    const user = userEvent.setup()
-    renderPage()
-    await user.click(await screen.findByTestId('operators-local'))
-    const cell = await screen.findByTestId('local-destination-edge-agent')
-    await waitFor(() => expect(cell).toHaveTextContent('EU hub'))
-    expect(within(cell).getByTestId('operator-health')).toHaveTextContent('Online')
-  })
-
-  test('someone who is not an administrator gets the same from the read model', async () => {
+  test('someone who is not an administrator gets the destination from the read model, and no operator is loaded', async () => {
     admin = false
     listTelemetryIntents.mockResolvedValue([intent()])
     listOperatorDestinations.mockResolvedValue([{ id: 'op-eu', name: 'EU hub', kind: 'regional', status: 'active', health: { state: 'online', lastSeenAt: minutesAgo(1) }, addressState: 'none', reachableFromOtherClusters: false, recommended: false, usedBy: 0 }])
     topologyState = { agents: [installedAgent()], clusters: [cl()] }
-    const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByTestId('operators-local'))
-    const cell = await screen.findByTestId('local-destination-edge-agent')
-    await waitFor(() => expect(cell).toHaveTextContent('EU hub'))
+    const row = await screen.findByTestId('component-local:a1')
+    await waitFor(() => expect(within(row).getAllByRole('cell')[4]).toHaveTextContent('EU hub'))
     expect(listOperators).not.toHaveBeenCalled()
   })
 
-  test('an external destination is shown as its endpoint', async () => {
-    listTelemetryIntents.mockResolvedValue([intent({ destination: { kind: 'external', endpoint: 'otel.example.com:4317' } })])
-    topologyState = { agents: [installedAgent()], clusters: [cl()] }
-    const user = userEvent.setup()
-    renderPage()
-    await user.click(await screen.findByTestId('operators-local'))
-    expect(await screen.findByTestId('local-destination-edge-agent')).toHaveTextContent('otel.example.com:4317')
-  })
-
-  test('the data dot says whether the destination is accepting data, in words', async () => {
-    topologyState = {
-      agents: [
-        installedAgent({ exportHealth: { podsReached: 1, podsFailed: 0, routes: [{ exporter: 'otlp', signal: 'metrics', state: 'exporting', sent: 5, failed: 0 }, { exporter: 'otlp', signal: 'logs', state: 'failing', sent: 0, failed: 3 }] } }),
-        ag({ id: 'a2', clusterId: 'c2', name: 'quiet-agent', diagnostics: { installedTelemetry: ['resourceUsage'], reportedAt: '2026-01-02T00:00:00Z' } } as Partial<Agent>),
-      ],
-      clusters: [cl(), cl({ id: 'c2', name: 'edge-2' })],
-    }
-    const user = userEvent.setup()
-    renderPage()
-    await user.click(await screen.findByTestId('operators-local'))
-    expect(screen.getByTestId('local-data-edge-agent')).toHaveTextContent('Failing')
-    expect(screen.getByTestId('local-data-edge-agent')).toHaveAttribute('data-state', 'offline')
-    expect(screen.getByTestId('local-data-quiet-agent')).toHaveTextContent('Not reported')
-  })
-
-  test('an agent asked for telemetry that has not reported it yet is a row with a hollow ring, under one waiting banner - the only spinner', async () => {
-    listTelemetryIntents.mockResolvedValue([intent()])
-    topologyState = { agents: [ag({ name: 'edge-agent' })], clusters: [cl()] }
-    const user = userEvent.setup()
-    renderPage()
-    await user.click(await screen.findByTestId('operators-local'))
-    const row = await screen.findByTestId('local-operator-edge-agent')
-    expect(within(row).getByTestId('local-data-edge-agent')).toHaveTextContent('Nothing reported running yet')
-    expect(within(row).getByTestId('local-data-edge-agent')).toHaveAttribute('data-state', 'starting')
-    expect(within(row).getByText('Resource usage')).toBeInTheDocument()
-    expect(screen.getByTestId('local-waiting')).toHaveTextContent('Waiting for 1 cluster to report')
-    expect(screen.getAllByRole('status')).toHaveLength(1)
-  })
-
-  test('once every agent has reported, the waiting banner is gone', async () => {
-    listTelemetryIntents.mockResolvedValue([intent()])
-    topologyState = { agents: [installedAgent()], clusters: [cl()] }
-    const user = userEvent.setup()
-    renderPage()
-    await user.click(await screen.findByTestId('operators-local'))
-    await screen.findByTestId('local-operator-edge-agent')
-    expect(screen.queryByTestId('local-waiting')).not.toBeInTheDocument()
-  })
-
-  test('a drifted chip shows when what the agent runs is not what was asked of it, and not when they agree', async () => {
-    listTelemetryIntents.mockResolvedValue([intent({ signals: [{ id: 'resourceUsage', source: 'builtin' }, { id: 'traces', source: 'builtin' }] })])
-    topologyState = { agents: [installedAgent()], clusters: [cl()] }
-    const user = userEvent.setup()
+  test('an agent asked for telemetry that has not reported it yet is Unknown for the first hour, and Needs attention after that', async () => {
+    listTelemetryIntents.mockResolvedValue([intent({ createdAt: minutesAgo(5) })])
+    topologyState = { agents: [ag()], clusters: [cl()] }
     const { unmount } = renderPage()
-    await user.click(await screen.findByTestId('operators-local'))
-    expect(await screen.findByTestId('local-drifted-edge-agent')).toHaveTextContent('Drifted')
+    expect(await screen.findByTestId('component-local:a1')).toHaveAttribute('data-state', 'unknown')
+    expect(screen.getByTestId('component-reason-local:a1')).toHaveTextContent('Asked to run telemetry. Nothing is reported running yet.')
     unmount()
 
-    listTelemetryIntents.mockResolvedValue([intent()])
+    listTelemetryIntents.mockResolvedValue([intent({ createdAt: minutesAgo(180) })])
     renderPage()
-    await user.click(await screen.findByTestId('operators-local'))
-    await screen.findByTestId('local-operator-edge-agent')
-    await waitFor(() => expect(screen.queryByTestId('local-drifted-edge-agent')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('component-local:a1')).toHaveAttribute('data-state', 'attention'))
+    expect(screen.getByTestId('component-reason-local:a1')).toHaveTextContent('the command may not have been run')
   })
 
-  test('a revoked request is not what was asked, and an agent with only that is not listed', async () => {
+  test('a revoked request is not what was asked, and an agent with only that has no collector row', async () => {
     listTelemetryIntents.mockResolvedValue([intent({ status: 'revoked' })])
-    topologyState = { agents: [ag({ name: 'edge-agent' })], clusters: [cl()] }
-    const user = userEvent.setup()
+    topologyState = { agents: [ag()], clusters: [cl()] }
     renderPage()
-    await user.click(await screen.findByTestId('operators-local'))
-    expect(await screen.findByText('No local operators running yet')).toBeInTheDocument()
+    await screen.findByTestId('component-agent:a1')
+    expect(screen.queryByTestId('component-local:a1')).not.toBeInTheDocument()
   })
 })
 
-describe('RegionalOperatorsPage - health reporting', () => {
+describe('PipelinePage - health reporting', () => {
   test('the action says Enable for a non-reporting operator and Rotate for a reporting one', async () => {
     listOperators.mockResolvedValue([
       op({ id: 'op-a', name: 'quiet-op' }),
@@ -1202,7 +1070,7 @@ describe('RegionalOperatorsPage - health reporting', () => {
   })
 })
 
-describe('RegionalOperatorsPage - creating with and without health reporting', () => {
+describe('PipelinePage - creating with and without health reporting', () => {
   test('the checkbox is on by default, explains itself, and the request carries heartbeat: true', async () => {
     const user = userEvent.setup()
     renderPage()
@@ -1284,7 +1152,7 @@ describe('RegionalOperatorsPage - creating with and without health reporting', (
   })
 })
 
-describe('RegionalOperatorsPage - explanatory notes', () => {
+describe('PipelinePage - explanatory notes', () => {
   test('the access note no longer says it never dials the server or always has a token', async () => {
     renderPage()
     const note = await screen.findByTestId('operator-access-note')
@@ -1297,7 +1165,7 @@ describe('RegionalOperatorsPage - explanatory notes', () => {
   })
 })
 
-describe('RegionalOperatorsPage - where other clusters reach an operator', () => {
+describe('PipelinePage - where other clusters reach an operator', () => {
   test('choosing a load balancer sends it, and the created screen says how to read the address and where to record it', async () => {
     const user = userEvent.setup()
     renderPage()
@@ -1367,7 +1235,7 @@ describe('RegionalOperatorsPage - where other clusters reach an operator', () =>
     listOperators.mockResolvedValue([centralOp()])
     const user = userEvent.setup()
     renderPage()
-    expect(await screen.findByTestId('operator-address-Central (FUSION)')).toHaveTextContent('This cluster only')
+    await screen.findByTestId('operator-Central (FUSION)')
     await rowAction(user, 'Central (FUSION)', 'address-open')
     expect(screen.getByTestId('operator-address-central')).toHaveTextContent('fusion.central.service.type')
     expect(screen.getByTestId('operator-address-find-lb')).toHaveTextContent('kubectl get svc continuum-fusion-central --namespace continuum')
@@ -1417,19 +1285,10 @@ describe('RegionalOperatorsPage - where other clusters reach an operator', () =>
   })
 })
 
-describe('operatorServiceName', () => {
-  test('follows the chart: the release name plus -regional-operator, unless it already says so', async () => {
-    const { operatorServiceName } = await import('@/components/operators/OperatorAddress')
-    expect(operatorServiceName('op-abc')).toBe('op-abc-regional-operator')
-    expect(operatorServiceName('eu-regional-operator')).toBe('eu-regional-operator')
-    expect(operatorServiceName('x'.repeat(70))).toHaveLength(63)
-  })
-})
-
 /** The dialog's own backdrop: the element a click outside the box lands on. */
 const backdropOf = (dialog: HTMLElement) => dialog.parentElement!
 
-describe('RegionalOperatorsPage - renewing certificates asks first', () => {
+describe('PipelinePage - renewing certificates asks first', () => {
   test('nothing is renewed until it is confirmed; the question names what is replaced and that the operator must be updated', async () => {
     listOperators.mockResolvedValue([op({ receiverAuth: 'bearer', health: { state: 'online', lastSeenAt: minutesAgo(1), reporting: true } })])
     const user = userEvent.setup()
@@ -1464,21 +1323,24 @@ describe('RegionalOperatorsPage - renewing certificates asks first', () => {
     ])
     const user = userEvent.setup()
     renderPage()
-    await user.click(await screen.findByTestId('operator-cert-renew-one'))
+    await rowAction(user, 'one', 'renew')
     await confirmRenew(user)
     await waitFor(() => expect(reinstallOperator).toHaveBeenCalledTimes(1))
-    expect(screen.getByTestId('operator-cert-renew-two')).toBeDisabled()
-    expect(screen.getByTestId('operator-cert-renew-one')).toBeDisabled()
     await user.click(screen.getByTestId('operator-menu-two'))
     const item = await screen.findByTestId('operator-renew-two')
     expect(item).toBeDisabled()
     expect(item).toHaveAttribute('title', 'Another renewal is in progress')
+    expect(within(item).getByText('Another renewal is in progress')).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await user.click(screen.getByTestId('attention-todo-regional:op-b'))
+    expect(screen.getByTestId('what-to-do-action')).toBeDisabled()
+    await user.keyboard('{Escape}')
     finish({ operator: { id: 'op-a', name: 'one', status: 'active', sourceClusterIds: [], receiverAuth: 'mtls' } as CreatedOperator['operator'], install: 'X', reminders: [] })
     await screen.findByRole('dialog', { name: 'Renew certificates for one' })
   })
 })
 
-describe('RegionalOperatorsPage - a secret shown once cannot be lost to a stray click', () => {
+describe('PipelinePage - a secret shown once cannot be lost to a stray click', () => {
   test('the created screen ignores Escape and a click outside, holds the page from reloading, and Done is the way out', async () => {
     const user = userEvent.setup()
     renderPage()
@@ -1549,7 +1411,7 @@ describe('RegionalOperatorsPage - a secret shown once cannot be lost to a stray 
   })
 })
 
-describe('RegionalOperatorsPage - Enter in the create form', () => {
+describe('PipelinePage - Enter in the create form', () => {
   test('Enter in a label or a processor field creates nothing; Enter in the name field still moves to the next step', async () => {
     const user = userEvent.setup()
     renderPage()
@@ -1578,13 +1440,12 @@ describe('RegionalOperatorsPage - Enter in the create form', () => {
   })
 })
 
-describe('RegionalOperatorsPage - a list that did not load, and an action that failed', () => {
-  test('a first load that fails shows the error and not "No regional operators yet"', async () => {
+describe('PipelinePage - a list that did not load, and an action that failed', () => {
+  test('a first load that fails shows the error and not "Nothing is sending telemetry yet"', async () => {
     listOperators.mockRejectedValue(new ApiError(500, 'the server could not read operators'))
     renderPage()
     expect(await screen.findByText('the server could not read operators')).toBeInTheDocument()
-    expect(screen.queryByText('No regional operators yet')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('operators-table')).not.toBeInTheDocument()
+    expect(screen.queryByText('Nothing is sending telemetry yet')).not.toBeInTheDocument()
   })
 
   test('a failed action is dismissable and goes away with the next one that works', async () => {
@@ -1606,25 +1467,5 @@ describe('RegionalOperatorsPage - a list that did not load, and an action that f
     await confirmRenew(user)
     await screen.findByRole('dialog', { name: 'Renew certificates for athens-regional' })
     expect(screen.queryByText('this operator is revoked')).not.toBeInTheDocument()
-  })
-})
-
-describe('RegionalOperatorsPage - opening a FUSION page', () => {
-  test('a double click mints one ticket and opens one tab', async () => {
-    fusionStatus = { ...fusionRunning(), links: { prometheus: '/fusion/prometheus/', grafana: '/fusion/grafana/' } }
-    let finish: (r: { path: string }) => void = () => undefined
-    openFusionPage.mockImplementationOnce(() => new Promise<{ path: string }>((r) => { finish = r }))
-    const tab = { location: { href: '' }, close: vi.fn(), opener: {} as unknown }
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
-    renderPage()
-    const user = userEvent.setup()
-    await user.dblClick(await screen.findByTestId('fusion-open-grafana'))
-    expect(openSpy).toHaveBeenCalledTimes(1)
-    expect(openFusionPage).toHaveBeenCalledTimes(1)
-    expect(screen.getByTestId('fusion-open-prometheus')).toBeDisabled() // the other page waits for it too
-    finish({ path: '/fusion/grafana/?ikhnos_ticket=t1' })
-    await waitFor(() => expect(tab.location.href).toBe('/fusion/grafana/?ikhnos_ticket=t1'))
-    await waitFor(() => expect(screen.getByTestId('fusion-open-grafana')).toBeEnabled())
-    openSpy.mockRestore()
   })
 })
