@@ -16,7 +16,7 @@ export function PlatformSubtitle({ part }: { part: PlatformEntity }) {
   const Icon = PLATFORM_ICON[part.kind]
   return (
     <span className="flex flex-wrap items-center gap-2">
-      <Pill><Icon size={ICON_SM} aria-hidden /> {KIND_WORD[part.kind]}</Pill>
+      {KIND_WORD[part.kind] !== part.name && <Pill><Icon size={ICON_SM} aria-hidden /> {KIND_WORD[part.kind]}</Pill>}
       <span className="inline-flex items-center gap-1.5 text-sm text-nb-300">
         <StatusGlyph status={part.status} />
         {PLATFORM_STATUS_WORD[part.status]}
