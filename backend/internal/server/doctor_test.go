@@ -15,9 +15,11 @@ import (
 // stage holds the rest to; to add a label, add it there and let the failing stage say which chart value or query to change.
 //
 //	stage 0  the table against the FUSION chart's values and the dashboards          (doctor_vocab_test.go)
+//	stage 1  every endpoint the agent sends is stored or counted as dropped          (doctor_agent_test.go)
 //	stage 4  what the API asks the stores, and what the dashboards join on           (doctor_queries_test.go)
 func TestDoctor(t *testing.T) {
 	t.Run("stage 0: the vocabulary is what the chart promotes and the dashboards select", doctorVocabulary)
+	t.Run("stage 1: every kind of endpoint an agent sends is stored or counted as dropped", doctorAgentToServer)
 	t.Run("stage 4: the API and the dashboards ask the stores for the same things", doctorQueries)
 }
 
