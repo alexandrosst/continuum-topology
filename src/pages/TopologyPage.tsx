@@ -48,7 +48,7 @@ import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu from '@/components/topology/FilterMenu'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { applyFilter, encodeList, filterActive, hopNeighborhood, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
-import { applyGraphUpdate, buildGraph, cardId, groupId, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
+import { applyGraphUpdate, buildGraph, cardId, groupId, sameLayout, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
@@ -433,9 +433,12 @@ function Canvas() {
   // Every filter and view toggle on this page goes through the URL's search params, and a poll never
   // touches them, so "did `sp` itself change since last render" is exactly that distinction.
   const prevSpRef = useRef(sp)
+  const prevGraphRef = useRef(graph)
   useEffect(() => {
-    const explicit = prevSpRef.current !== sp
+    // A toggle that leaves every box where it was (DNS & system traffic only adds or removes lines) is not a relayout: what is on the canvas stays.
+    const explicit = prevSpRef.current !== sp && !sameLayout(prevGraphRef.current.nodes, graph.nodes)
     prevSpRef.current = sp
+    prevGraphRef.current = graph
     setNodes((prev) => applyGraphUpdate(prev, graph.nodes, highlightedIds, explicit))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, setNodes])

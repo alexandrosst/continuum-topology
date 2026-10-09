@@ -8,6 +8,7 @@
 import { callerIfaceSpeedMbps, placeLabel } from './present'
 import { buildPodsView, type PodsView } from './pods'
 import { MarkerType, Position, type Edge, type Node } from '@xyflow/react'
+import { deepEqual } from './discovered'
 import { isObserved } from './observed'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
 import { clusterLoad, pathQuality, type ClusterLoad, type PathQuality } from './metrics'
@@ -1272,13 +1273,25 @@ export function selectedServiceIds(nodes: TopoNode[], selectedIds: string[]): st
  * single-click one, since a freshly computed `next` has `.selected` unset on everything. */
 export function resyncNodes(prev: TopoNode[], next: TopoNode[], highlighted: ReadonlySet<string>): TopoNode[] {
   const prevById = new Map(prev.map((n) => [n.id, n]))
-  return next.map((n) => {
+  return keepSameNodes(prev, next.map((n) => {
     const old = prevById.get(n.id)
     if (old?.dragging) return old
     const keepOldPosition = old && old.parentId === n.parentId
-    return { ...n, position: keepOldPosition ? old.position : n.position, selected: highlighted.has(n.id) }
-  })
+    return keepNode(old, { ...n, position: keepOldPosition ? old.position : n.position, selected: highlighted.has(n.id) })
+  }))
 }
+
+/** The node already on the canvas when the fresh one sets nothing differently (React Flow's own measured size and the like are not compared), else the fresh one. */
+function keepNode(old: TopoNode | undefined, fresh: TopoNode): TopoNode {
+  return old && (Object.keys(fresh) as (keyof TopoNode)[]).every((k) => deepEqual(old[k], fresh[k])) ? old : fresh
+}
+
+/** `prev` itself when `next` is the same nodes in the same order: a layout that changed nothing then costs React Flow no measuring and no new node list for every edge to route around. */
+const keepSameNodes = (prev: TopoNode[], next: TopoNode[]) => (next.length === prev.length && next.every((n, i) => n === prev[i]) ? prev : next)
+
+/** Whether two layouts put every box in the same place at the same size: what a toggle that only adds or removes lines (DNS & system traffic) leaves alone. */
+export const sameLayout = (a: TopoNode[], b: TopoNode[]) =>
+  a.length === b.length && a.every((n, i) => n.id === b[i].id && n.parentId === b[i].parentId && n.position.x === b[i].position.x && n.position.y === b[i].position.y && n.style?.width === b[i].style?.width && n.style?.height === b[i].style?.height)
 
 /**
  * Sync `.selected` on the CURRENT nodes to match `highlighted`, and nothing else - the lighter-weight
@@ -1359,11 +1372,11 @@ export function syncPickEligibility(nodes: TopoNode[], eligible: ReadonlySet<str
 export function applyGraphUpdate(prev: TopoNode[], next: TopoNode[], highlighted: ReadonlySet<string>, explicit: boolean): TopoNode[] {
   if (!explicit) return resyncNodes(prev, next, highlighted)
   const prevById = new Map(prev.map((n) => [n.id, n]))
-  return next.map((n) => {
+  return keepSameNodes(prev, next.map((n) => {
     const old = prevById.get(n.id)
     if (old?.dragging) return old
-    return { ...n, selected: highlighted.has(n.id) }
-  })
+    return keepNode(old, { ...n, selected: highlighted.has(n.id) })
+  }))
 }
 
 function makeEdge(

@@ -14,7 +14,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { applyGraphUpdate, APP_CARD, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
+import { applyGraphUpdate, APP_CARD, sameLayout, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterLink, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type Service, type Suggestion } from '../src/lib/types'
@@ -1893,6 +1893,28 @@ test('applyGraphUpdate: an explicit change still leaves a node React Flow is act
   const filtered = applyGraphUpdate(prev, freshlyPacked, new Set(), true)
   assert.equal(filtered.find((n) => n.id === 'c:svc-a'), dragging, 'the dragging node comes back as the exact same object, position and all')
   assert.deepEqual(filtered.find((n) => n.id === 'c:svc-b')!.position, { x: 50, y: 5 }, 'every other survivor still gets the fresh explicit layout')
+})
+
+test('applyGraphUpdate and resyncNodes keep the very same nodes when the fresh layout changes nothing, and sameLayout tells a lines-only toggle from a relayout', () => {
+  const node = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, type: 'card', position: { x: 5, y: 5 }, parentId: 'g:cl-a', style: { width: 100, height: 40 }, data: { label: id }, ...overrides }) as unknown as ReturnType<typeof buildGraph>['nodes'][number]
+  // On the canvas React Flow has added its own measured size; the freshly built node never carries it.
+  const onCanvas = [{ ...node('c:a'), selected: false, measured: { width: 100, height: 40 } }, { ...node('c:b', { position: { x: 60, y: 5 } }), selected: false, measured: { width: 100, height: 40 } }]
+  const same = [node('c:a'), node('c:b', { position: { x: 60, y: 5 } })]
+  assert.equal(applyGraphUpdate(onCanvas, same, new Set(), true), onCanvas, 'an explicit pass that changes nothing returns the canvas list itself')
+  assert.equal(resyncNodes(onCanvas, same, new Set()), onCanvas, 'so does a poll')
+  const moved = applyGraphUpdate(onCanvas, [node('c:a'), node('c:b', { position: { x: 70, y: 5 } })], new Set(), true)
+  assert.equal(moved[0], onCanvas[0], 'a node that did not change keeps its object')
+  assert.notEqual(moved[1], onCanvas[1], 'one that moved is replaced')
+  assert.deepEqual(moved[1].position, { x: 70, y: 5 })
+  const selected = resyncNodes(onCanvas, same, new Set(['c:a']))
+  assert.equal(selected[0].selected, true, 'a changed highlight still lands')
+  assert.equal(selected[1], onCanvas[1])
+  assert.equal(sameLayout(onCanvas, same), true, 'the same boxes at the same size: only lines changed')
+  assert.equal(sameLayout(onCanvas, [same[0], node('c:b', { position: { x: 70, y: 5 } })]), false, 'a box that moved')
+  assert.equal(sameLayout(onCanvas, [same[0], node('c:b', { position: { x: 60, y: 5 }, style: { width: 120, height: 40 } })]), false, 'a box that grew')
+  assert.equal(sameLayout(onCanvas, [same[0]]), false, 'a box that went')
+  assert.equal(sameLayout(onCanvas, [same[0], node('c:b', { position: { x: 60, y: 5 }, parentId: 'g:cl-b' })]), false, 'a box under another parent')
 })
 
 test('mesh: anyMesh looks at live clusters only, and the saved-view URL keeps the option', () => {
