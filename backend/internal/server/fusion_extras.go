@@ -176,16 +176,19 @@ func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
 // annotateApplications names, on each service of the view, the applications it is in: those with a member of the
 // service's key.
 func annotateApplications(v *fusionapi.TopologyView, groups []fusionapi.AppGroup) {
-	in := map[model.ServiceKey][]string{}
+	in := map[model.ServiceKey][]fusionapi.AppGroup{}
 	for _, g := range groups {
 		for _, m := range g.Members {
-			if k := m.Key(); !slices.Contains(in[k], g.Name) {
-				in[k] = append(in[k], g.Name)
+			if k := m.Key(); !slices.ContainsFunc(in[k], func(o fusionapi.AppGroup) bool { return o.ID == g.ID }) {
+				in[k] = append(in[k], g)
 			}
 		}
 	}
 	for i := range v.Services {
-		v.Services[i].Applications = append(v.Services[i].Applications, in[v.Services[i].Key()]...)
+		for _, g := range in[v.Services[i].Key()] {
+			v.Services[i].Applications = append(v.Services[i].Applications, g.Name)
+			v.Services[i].AppIDs = append(v.Services[i].AppIDs, g.ID)
+		}
 	}
 }
 
@@ -200,8 +203,11 @@ func topologyView(doc StateDoc) *fusionapi.TopologyView {
 		v.Services = append(v.Services, fusionapi.TopoService{ID: s.ID, Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID,
 			Kind: s.Kind, Image: s.Image, Status: s.Status, Replicas: int(s.Replicas), Ready: int(s.ReadyReplicas), Restarts: int(s.Restarts), Labels: s.Labels})
 	}
+	for _, n := range topo.Nodes {
+		v.Nodes = append(v.Nodes, fusionapi.TopoNode{ID: n.ID, Name: n.Name, Cluster: n.ClusterID})
+	}
 	for _, d := range topo.Dependencies {
-		v.Links = append(v.Links, fusionapi.TopoLink{From: d.From, To: d.To, FromKind: d.FromKind, ToKind: d.ToKind, Protocol: d.Protocol,
+		v.Links = append(v.Links, fusionapi.TopoLink{ID: d.ID, From: d.From, To: d.To, FromKind: d.FromKind, ToKind: d.ToKind, Protocol: d.Protocol,
 			Port: d.Port, Confidence: d.Confidence, Stale: d.Stale, Noise: d.Noise})
 	}
 	for _, x := range topo.ExternalEndpoints {
@@ -217,12 +223,12 @@ func topologyView(doc StateDoc) *fusionapi.TopologyView {
 	return v
 }
 
-func (e fusionExtras) Changes(ctx context.Context, since, until time.Time, clusters []string, limit int) ([]fusionapi.ChangeEvent, error) {
+func (e fusionExtras) Changes(ctx context.Context, since, until time.Time, clusters, targetIDs []string, limit int) ([]fusionapi.ChangeEvent, error) {
 	t, err := e.tenant(ctx)
 	if err != nil {
 		return nil, err
 	}
-	q := store.EventQuery{Since: since, Until: until, Limit: limit}
+	q := store.EventQuery{Since: since, Until: until, TargetIDs: targetIDs, Limit: limit}
 	if len(clusters) == 1 {
 		q.ClusterID = clusters[0]
 	}

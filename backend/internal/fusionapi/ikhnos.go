@@ -28,18 +28,23 @@ type Extras interface {
 	// services in each, as of the last saved workspace.
 	Applications(ctx context.Context) ([]AppGroup, error)
 	// Changes lists events recorded between since and until, newest last, at most limit of them. clusters narrows them to
-	// those Ikhnos cluster ids when it is not empty.
-	Changes(ctx context.Context, since, until time.Time, clusters []string, limit int) ([]ChangeEvent, error)
+	// those Ikhnos cluster ids, and targetIDs to the events about those ids (services, dependencies, applications, nodes,
+	// clusters), when they are not empty.
+	Changes(ctx context.Context, since, until time.Time, clusters, targetIDs []string, limit int) ([]ChangeEvent, error)
 }
 
 // TopologyView is the part of the estate the fused read joins: services and the traffic seen between them.
 type TopologyView struct {
 	At       time.Time
 	Services []TopoService
+	Nodes    []TopoNode
 	Links    []TopoLink
 	// Externals names the addresses outside the clusters that services were seen talking to, by id.
 	Externals map[string]string
 }
+
+// TopoNode is one node of the topology.
+type TopoNode struct{ ID, Name, Cluster string }
 
 // TopoService is one service of the topology.
 type TopoService struct {
@@ -54,8 +59,9 @@ type TopoService struct {
 	Ready     int               `json:"readyReplicas"`
 	Restarts  int               `json:"restarts,omitempty"`
 	Labels    map[string]string `json:"-"`
-	// Applications names the Ikhnos applications this service is in.
+	// Applications names the Ikhnos applications this service is in, AppIDs says which they are.
 	Applications []string `json:"applications,omitempty"`
+	AppIDs       []string `json:"-"`
 }
 
 // Key is the identity telemetry knows the service by.
@@ -131,6 +137,7 @@ func (g AppGroup) distinct(f func(AppMember) string) []string {
 
 // TopoLink is traffic seen from one entity to another.
 type TopoLink struct {
+	ID               string // the dependency's id, which events about it carry
 	From, To         string // topology ids
 	FromKind, ToKind string // service | external
 	Protocol         string
@@ -188,42 +195,63 @@ const (
 	maxNeighbours        = 50
 )
 
-// matchService finds the topology service behind a resource: the name must match, and so must the namespace and cluster
-// when the resource has them. Telemetry names a service by its service.name, which for a deployed workload is usually its
-// name or its app label; the name wins over the label.
-func (v *TopologyView) matchService(r *Resource) *TopoService {
+// matchService finds the topology service behind a resource by its name (failing that, its app label) and the namespace
+// and cluster it carries. One that names no namespace or cluster matches by the rest only when that leaves a single service;
+// with several it matches none, and ambiguous says so, rather than the match being whichever service came first. A resource
+// that does carry its whole key can only fit the services of that key.
+func (v *TopologyView) matchService(r *Resource) (sv *TopoService, ambiguous bool) {
 	if r.Service == "" {
-		return nil
+		return nil, false
 	}
-	fits := func(sv *TopoService) bool {
-		return (r.Namespace == "" || sv.Namespace == r.Namespace) && (r.Cluster == "" || sv.Cluster == r.Cluster)
-	}
-	var byLabel *TopoService
+	var byName, byLabel []*TopoService
 	for i := range v.Services {
-		sv := &v.Services[i]
-		if !fits(sv) {
+		c := &v.Services[i]
+		if (r.Namespace != "" && c.Namespace != r.Namespace) || (r.Cluster != "" && c.Cluster != r.Cluster) {
 			continue
 		}
-		if sv.Name == r.Service {
-			return sv
-		}
-		if byLabel == nil && (sv.Labels["app"] == r.Service || sv.Labels["app.kubernetes.io/name"] == r.Service) {
-			byLabel = sv
+		if c.Name == r.Service {
+			byName = append(byName, c)
+		} else if c.Labels["app"] == r.Service || c.Labels["app.kubernetes.io/name"] == r.Service {
+			byLabel = append(byLabel, c)
 		}
 	}
-	return byLabel
+	for _, found := range [][]*TopoService{byName, byLabel} { // the name wins over the label
+		switch len(found) {
+		case 0:
+		case 1:
+			return found[0], false
+		default:
+			return nil, true
+		}
+	}
+	return nil, false
+}
+
+func (v *TopologyView) byID() map[string]*TopoService {
+	m := make(map[string]*TopoService, len(v.Services))
+	for i := range v.Services {
+		m[v.Services[i].ID] = &v.Services[i]
+	}
+	return m
+}
+
+// endVisible says whether the Scope may see one end of a link: a service in a namespace and cluster it may see, or an address
+// outside the clusters, which has neither to check and so is for an unrestricted Scope only.
+func endVisible(s Scope, byID map[string]*TopoService, id, kind string) bool {
+	if kind == "external" {
+		return s.Unrestricted()
+	}
+	o := byID[id]
+	return o != nil && s.NamespaceVisible(o.Namespace) && s.ClusterVisible(o.Cluster)
 }
 
 // topologyFor builds a resource's neighbours, leaving out what the Scope may not see.
 func (v *TopologyView) topologyFor(s Scope, r *Resource) *ResourceTopology {
-	sv := v.matchService(r)
+	sv, _ := v.matchService(r)
 	if sv == nil {
 		return nil
 	}
-	byID := make(map[string]*TopoService, len(v.Services))
-	for i := range v.Services {
-		byID[v.Services[i].ID] = &v.Services[i]
-	}
+	byID := v.byID()
 	neighbour := func(id, kind string, l TopoLink) (Neighbour, bool) {
 		n := Neighbour{ID: id, Kind: kind, Protocol: l.Protocol, Port: l.Port, Confidence: l.Confidence, Stale: l.Stale}
 		if kind == "external" {
@@ -231,14 +259,10 @@ func (v *TopologyView) topologyFor(s Scope, r *Resource) *ResourceTopology {
 			if n.Name == "" {
 				n.Name = id
 			}
-			return n, s.Unrestricted() // an address outside the clusters has no namespace or cluster to check against
+		} else if o := byID[id]; o != nil {
+			n.Name, n.Namespace, n.Cluster = o.Name, o.Namespace, o.Cluster
 		}
-		o := byID[id]
-		if o == nil {
-			return n, false
-		}
-		n.Name, n.Namespace, n.Cluster = o.Name, o.Namespace, o.Cluster
-		return n, s.NamespaceVisible(o.Namespace) && s.ClusterVisible(o.Cluster)
+		return n, endVisible(s, byID, id, kind)
 	}
 	rt := &ResourceTopology{Service: sv, Calls: []Neighbour{}, CalledBy: []Neighbour{}}
 	for _, l := range v.Links {
@@ -269,38 +293,94 @@ func (v *TopologyView) topologyFor(s Scope, r *Resource) *ResourceTopology {
 	return rt
 }
 
-// attachTopology puts each resource's neighbours on it. Returns how many resources the topology knew.
-func attachTopology(v *TopologyView, s Scope, looked []*Resource) (matched int) {
+// attachTopology puts each resource's neighbours on it. Returns how many resources the topology knew, and how many it could
+// not tell from several services.
+func attachTopology(v *TopologyView, s Scope, looked []*Resource) (matched, ambiguous int) {
 	for _, r := range looked {
 		if rt := v.topologyFor(s, r); rt != nil {
 			r.Topology = rt
 			matched++
+		} else if _, amb := v.matchService(r); amb {
+			ambiguous++
 		}
 	}
-	return matched
+	return matched, ambiguous
 }
 
-// relevantChanges keeps the events that are about the trace: those of its services (matched through the topology), of the
-// nodes its pods ran on, and of its clusters. A Scope limited to namespaces sees only the events of services in them.
-func relevantChanges(evs []ChangeEvent, v *TopologyView, s Scope, tr *Trace) []ChangeEvent {
-	svcByID := map[string]*Resource{}
-	svcNS := map[string]string{}
+// touched is what a trace is about in the topology, by the ids that events about it carry.
+type touched struct {
+	services map[string]*Resource // service id
+	deps     map[string]*Resource // dependency id: a link of one of the services
+	apps     map[string]*Resource // application id
+	nodes    map[string]*Resource // node id, and node name for a node the topology does not know
+	clusters map[string]bool
+	ns       map[string]string // service id -> namespace
+}
+
+func touchedBy(v *TopologyView, tr *Trace) touched {
+	t := touched{map[string]*Resource{}, map[string]*Resource{}, map[string]*Resource{}, map[string]*Resource{}, map[string]bool{}, map[string]string{}}
+	for _, r := range tr.Resources {
+		if v != nil {
+			if sv, _ := v.matchService(r); sv != nil {
+				t.services[sv.ID], t.ns[sv.ID] = r, sv.Namespace
+				for _, a := range sv.AppIDs {
+					t.apps[a] = r
+				}
+			}
+			for _, n := range v.Nodes {
+				if r.Node != "" && n.Name == r.Node && (r.Cluster == "" || n.Cluster == r.Cluster) {
+					t.nodes[n.ID] = r
+				}
+			}
+		}
+		if r.Node != "" {
+			t.nodes[r.Node] = r
+		}
+		if r.Cluster != "" {
+			t.clusters[r.Cluster] = true
+		}
+	}
 	if v != nil {
-		for _, r := range tr.Resources {
-			if sv := v.matchService(r); sv != nil {
-				svcByID[sv.ID] = r
-				svcNS[sv.ID] = sv.Namespace
+		for _, l := range v.Links {
+			if l.Noise != "" || l.ID == "" {
+				continue
+			}
+			if r := t.services[l.From]; r != nil {
+				t.deps[l.ID] = r
+			} else if r := t.services[l.To]; r != nil {
+				t.deps[l.ID] = r
 			}
 		}
 	}
-	nodes := map[string]*Resource{}
-	clusters := map[string]bool{}
-	for _, r := range tr.Resources {
-		if r.Node != "" {
-			nodes[r.Node] = r
+	return t
+}
+
+// ids are the targets events about the trace are about: all of them but the nodes the topology does not know by id.
+func (t touched) ids() []string {
+	var out []string
+	for _, m := range []map[string]*Resource{t.services, t.deps, t.apps, t.nodes} {
+		for id := range m {
+			out = append(out, id)
 		}
-		if r.Cluster != "" {
-			clusters[r.Cluster] = true
+	}
+	for c := range t.clusters {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// relevantChanges keeps the events that are about the trace: those of its services (matched through the topology), of the
+// traffic seen to and from them, of the applications they are in, of the nodes its pods ran on, and of its clusters. A Scope
+// limited to namespaces sees only the events of services in them, and of links between what it may see.
+func relevantChanges(evs []ChangeEvent, v *TopologyView, s Scope, tr *Trace) []ChangeEvent {
+	t := touchedBy(v, tr)
+	var byID map[string]*TopoService
+	var link map[string]TopoLink
+	if v != nil {
+		byID, link = v.byID(), map[string]TopoLink{}
+		for _, l := range v.Links {
+			link[l.ID] = l
 		}
 	}
 	limited := len(s.Namespaces) > 0
@@ -311,28 +391,40 @@ func relevantChanges(evs []ChangeEvent, v *TopologyView, s Scope, tr *Trace) []C
 		}
 		switch e.TargetKind {
 		case "service":
-			r, ok := svcByID[e.TargetID]
+			r, ok := t.services[e.TargetID]
 			if !ok {
 				continue
 			}
-			e.Namespace, e.Resource = svcNS[e.TargetID], r.Key
+			e.Namespace, e.Resource = t.ns[e.TargetID], r.Key
 			if !s.NamespaceVisible(e.Namespace) {
 				continue
 			}
+		case "dependency":
+			r, ok := t.deps[e.TargetID]
+			if !ok || !endVisible(s, byID, link[e.TargetID].From, link[e.TargetID].FromKind) || !endVisible(s, byID, link[e.TargetID].To, link[e.TargetID].ToKind) {
+				continue
+			}
+			e.Resource = r.Key
+		case "application":
+			r, ok := t.apps[e.TargetID]
+			if !ok || limited { // it holds services the Scope may not see
+				continue
+			}
+			e.Resource = r.Key
 		case "node":
 			if limited {
 				continue
 			}
-			r := nodes[e.Name]
+			r := t.nodes[e.TargetID]
 			if r == nil {
-				r = nodes[e.TargetID]
+				r = t.nodes[e.Name]
 			}
 			if r == nil {
 				continue
 			}
 			e.Resource = r.Key
 		case "cluster":
-			if limited || !clusters[e.TargetID] && !clusters[e.Cluster] {
+			if limited || !t.clusters[e.TargetID] && !t.clusters[e.Cluster] {
 				continue
 			}
 		default:
@@ -370,7 +462,11 @@ func (c *Client) fuseIkhnos(ctx context.Context, s Scope, f *Fused, looked []*Re
 	}
 	if opts.Topology {
 		setSource(SourceTopology, SourceOK)
-		if n := attachTopology(view, s, looked); n == 0 && len(looked) > 0 {
+		n, amb := attachTopology(view, s, looked)
+		if amb > 0 {
+			note("topology: %d resource(s) were left unmatched because several services of Ikhnos have their name and they carry no namespace or cluster to tell them apart", amb)
+		}
+		if n == 0 && amb == 0 && len(looked) > 0 {
 			note("topology: none of the trace's services is known to Ikhnos by that name, namespace and cluster")
 		}
 	}
@@ -387,8 +483,12 @@ func (c *Client) fuseIkhnos(ctx context.Context, s Scope, f *Fused, looked []*Re
 			clusters = append(clusters, r.Cluster)
 		}
 	}
-	// A few more than asked for are read: the events of other services of the cluster are dropped afterwards.
-	evs, err := opts.Extras.Changes(ctx, since, until, clusters, 2000)
+	ids := touchedBy(view, f.Trace).ids()
+	if len(ids) == 0 {
+		return // nothing of the trace is known to have events
+	}
+	// Only the events about the trace's own targets are read; what is left to drop afterwards is what the Scope may not see.
+	evs, err := opts.Extras.Changes(ctx, since, until, clusters, ids, 2000)
 	if err != nil {
 		warn(SourceChanges, err)
 		return
@@ -406,10 +506,10 @@ func (c *Client) fuseIkhnos(ctx context.Context, s Scope, f *Fused, looked []*Re
 func (o *FuseOptions) ikhnosJoins(f *Fused) {
 	if o.Topology {
 		f.Sources[SourceTopology] = SourceNotRequested
-		f.Joins[SourceTopology] = "associated, not proven: the service Ikhnos knows by the same name, namespace and cluster, and the traffic it has seen to and from it as of now (the topology is not kept per trace)"
+		f.Joins[SourceTopology] = "associated, not proven: the service Ikhnos knows by the same name, namespace and cluster, and the traffic it has seen to and from it as of now (the topology is not kept per trace). A resource that carries no namespace or cluster matches only when exactly one service has its name; when several do it has no match, and a warning says so"
 	}
 	if o.Changes {
 		f.Sources[SourceChanges] = SourceNotRequested
-		f.Joins[SourceChanges] = fmt.Sprintf("associated, not proven: events Ikhnos recorded about the trace's services, nodes and clusters from %s before the trace to %s after it", o.ChangesBefore, o.Pad)
+		f.Joins[SourceChanges] = fmt.Sprintf("associated, not proven: events Ikhnos recorded about the trace's services, the traffic seen to and from them, the applications they are in, and its nodes and clusters, from %s before the trace to %s after it", o.ChangesBefore, o.Pad)
 	}
 }

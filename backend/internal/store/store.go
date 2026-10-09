@@ -862,7 +862,8 @@ type EventQuery struct {
 	Kind         string
 	ClusterID    string
 	TargetID     string
-	Limit        int // default 200, at most 2000
+	TargetIDs    []string // events about any of these
+	Limit        int      // default 200, at most 2000
 }
 
 // ClientCAScope says which CA a receiver trusts for client certificates: ClientCAScopeOperator, ClientCAScopeOrg,

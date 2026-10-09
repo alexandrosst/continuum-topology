@@ -1708,6 +1708,13 @@ func TestEventsKeepTheirOrderFiltersAndPruning(t *testing.T) {
 	if l, _ := db.Events(ctx, org, store.EventQuery{Limit: 2}); len(l) != 2 {
 		t.Errorf("limit: %d", len(l))
 	}
+	// t0 is the target of events 0, 3, 6 and 9, t1 of 1, 4 and 7, t2 of 2, 5 and 8.
+	if g, _ := db.Events(ctx, org, store.EventQuery{TargetIDs: []string{"t0", "t2", "nobody"}}); len(g) != 7 {
+		t.Errorf("target ids: %v", names(g))
+	}
+	if g, _ := db.Events(ctx, org, store.EventQuery{TargetIDs: []string{"t0", "t1"}, Kind: "b"}); len(g) != 4 {
+		t.Errorf("target ids and kind: %v", names(g))
+	}
 	if err := db.PruneEvents(ctx, org, t0.Add(2*time.Minute), 100); err != nil {
 		t.Fatal(err)
 	}

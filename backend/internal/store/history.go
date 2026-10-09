@@ -133,6 +133,12 @@ func (s *SQLite) ListEvents(ctx context.Context, org string, q EventQuery) ([]Ev
 		where = append(where, "target_id=?")
 		args = append(args, q.TargetID)
 	}
+	if len(q.TargetIDs) > 0 {
+		where = append(where, "target_id IN (?"+strings.Repeat(",?", len(q.TargetIDs)-1)+")")
+		for _, id := range q.TargetIDs {
+			args = append(args, id)
+		}
+	}
 	args = append(args, q.Limit)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, at, kind, target_kind, target_id, name, cluster_id, cluster_name, detail, cause, severity FROM events WHERE `+

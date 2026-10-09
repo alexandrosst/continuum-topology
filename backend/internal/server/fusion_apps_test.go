@@ -18,7 +18,7 @@ func (e appExtras) Topology(context.Context) (*fusionapi.TopologyView, error) {
 	return &fusionapi.TopologyView{}, nil
 }
 func (e appExtras) Applications(context.Context) ([]fusionapi.AppGroup, error) { return e.groups, nil }
-func (e appExtras) Changes(context.Context, time.Time, time.Time, []string, int) ([]fusionapi.ChangeEvent, error) {
+func (e appExtras) Changes(context.Context, time.Time, time.Time, []string, []string, int) ([]fusionapi.ChangeEvent, error) {
 	return nil, nil
 }
 
@@ -277,6 +277,9 @@ func TestAServiceIsAnnotatedByItsKeyNotItsId(t *testing.T) {
 		{ID: "app-1", Name: "Shop", Members: []fusionapi.AppMember{{ID: "svc-by-hand", Name: "cart", Namespace: "shop", Cluster: "cl-1"}, {ID: "sv-1", Name: "cart", Namespace: "shop", Cluster: "cl-1"}}},
 		{ID: "app-2", Name: "Pay", Members: []fusionapi.AppMember{{ID: "sv-1", Name: "cart", Namespace: "shop", Cluster: "cl-1"}}}})
 	if got := v.Services[0].Applications; len(got) != 2 || got[0] != "Shop" || got[1] != "Pay" {
+		t.Errorf("%v", got)
+	}
+	if got := v.Services[0].AppIDs; len(got) != 2 || got[0] != "app-1" || got[1] != "app-2" {
 		t.Errorf("%v", got)
 	}
 	if got := v.Services[1].Applications; len(got) != 0 {

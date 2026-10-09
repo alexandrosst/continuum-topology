@@ -111,13 +111,17 @@ func anyStrings(v any) []string {
 func TestTheTopologyViewCarriesWhatTheFusedReadJoins(t *testing.T) {
 	doc := StateDoc{GeneratedAt: "2026-10-05T12:00:00Z", Topology: model.Topology{
 		Services: []model.Service{{ID: "s1", Name: "cart", Namespace: "shop", ClusterID: "cl-1", Kind: "Deployment", Replicas: 3, ReadyReplicas: 2, Restarts: 5, Labels: map[string]string{"app": "cart"}}},
-		Dependencies: []model.Dependency{{From: "s1", FromKind: "service", To: "x1", ToKind: "external", Protocol: "tcp", Port: 443, Confidence: "high", Noise: ""},
+		Nodes:    []model.Node{{ID: "n1", Name: "node-a", ClusterID: "cl-1"}},
+		Dependencies: []model.Dependency{{ID: "d1", From: "s1", FromKind: "service", To: "x1", ToKind: "external", Protocol: "tcp", Port: 443, Confidence: "high", Noise: ""},
 			{From: "s1", FromKind: "service", To: "s9", ToKind: "service", Noise: "dns"}},
 		ExternalEndpoints: []model.ExternalEndpoint{{ID: "x1", Host: "198.51.100.7", Port: 443}, {ID: "x2", Host: "h", Name: "GitHub"}},
 	}}
 	v := topologyView(doc)
 	if len(v.Services) != 1 || v.Services[0].Replicas != 3 || v.Services[0].Ready != 2 || v.Services[0].Restarts != 5 || v.Services[0].Cluster != "cl-1" || v.Services[0].Labels["app"] != "cart" {
 		t.Fatalf("%+v", v.Services)
+	}
+	if len(v.Nodes) != 1 || v.Nodes[0].ID != "n1" || v.Nodes[0].Name != "node-a" || v.Nodes[0].Cluster != "cl-1" || v.Links[0].ID != "d1" {
+		t.Fatalf("%+v %+v", v.Nodes, v.Links)
 	}
 	if len(v.Links) != 2 || v.Links[0].Port != 443 || v.Links[1].Noise != "dns" || v.Externals["x1"] != "198.51.100.7:443" || v.Externals["x2"] != "GitHub" || v.At.IsZero() {
 		t.Fatalf("%+v %v", v.Links, v.Externals)
@@ -138,12 +142,16 @@ func TestChangesComeFromTheEventStoreNarrowedToTheClusters(t *testing.T) {
 	if ex == nil {
 		t.Fatal("a platform has extras")
 	}
-	got, err := ex.Changes(context.Background(), at.Add(-time.Hour), at.Add(time.Hour), []string{"cl-1"}, 100)
+	got, err := ex.Changes(context.Background(), at.Add(-time.Hour), at.Add(time.Hour), []string{"cl-1"}, nil, 100)
 	if err != nil || len(got) != 1 || got[0].Kind != "service-scaled" || got[0].Cluster != "cl-1" || got[0].Cause != "autoscaler" || got[0].Detail != "2 to 3" {
 		t.Fatalf("%+v %v", got, err)
 	}
-	if all, _ := ex.Changes(context.Background(), at.Add(-time.Hour), at.Add(time.Hour), nil, 100); len(all) != 2 {
+	if all, _ := ex.Changes(context.Background(), at.Add(-time.Hour), at.Add(time.Hour), nil, nil, 100); len(all) != 2 {
 		t.Fatalf("%+v", all)
+	}
+	// Asked for the events about some targets, the store reads those and no others.
+	if some, _ := ex.Changes(context.Background(), at.Add(-time.Hour), at.Add(time.Hour), nil, []string{"n1", "nothing"}, 100); len(some) != 1 || some[0].TargetID != "n1" {
+		t.Fatalf("%+v", some)
 	}
 	if (&Admin{}).fusionExtras() != nil {
 		t.Fatal("a server with no platform has no extras")

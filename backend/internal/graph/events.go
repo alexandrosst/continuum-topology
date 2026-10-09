@@ -72,6 +72,10 @@ func (d *DB) Events(ctx context.Context, org string, q store.EventQuery) ([]stor
 		and("e.targetId = $target")
 		p["target"] = q.TargetID
 	}
+	if len(q.TargetIDs) > 0 {
+		and("e.targetId IN $ids")
+		p["ids"] = q.TargetIDs
+	}
 	res, err := d.C.Run(ctx, d.C.For(org).S(`MATCH (e:Event {org:$org})`+where+`
 RETURN e.id, toString(e.at), e.kind, e.targetKind, e.targetId, e.name, e.clusterId, e.clusterName, e.detail, e.cause, e.severity
 ORDER BY e.at DESC, e.id DESC LIMIT $limit`, p))

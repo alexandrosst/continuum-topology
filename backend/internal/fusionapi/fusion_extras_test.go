@@ -263,12 +263,13 @@ type fakeExtras struct {
 	since  time.Time
 	until  time.Time
 	cls    []string
+	ids    []string
 }
 
 func (f *fakeExtras) Topology(context.Context) (*TopologyView, error)  { return f.view, f.err }
 func (f *fakeExtras) Applications(context.Context) ([]AppGroup, error) { return f.groups, f.err }
-func (f *fakeExtras) Changes(_ context.Context, since, until time.Time, clusters []string, _ int) ([]ChangeEvent, error) {
-	f.since, f.until, f.cls = since, until, clusters
+func (f *fakeExtras) Changes(_ context.Context, since, until time.Time, clusters, ids []string, _ int) ([]ChangeEvent, error) {
+	f.since, f.until, f.cls, f.ids = since, until, clusters, ids
 	return f.events, f.err
 }
 
@@ -380,6 +381,105 @@ func TestFuseTraceJoinsChangesAroundTheTrace(t *testing.T) {
 	got, _ = f.client().FuseTrace(context.Background(), AllSignals(), traceHex, FuseOptions{Changes: true, Extras: ex, MaxChanges: 1})
 	if len(got.Changes) != 1 || got.Changes[0].Kind != "node-status" || !strings.Contains(strings.Join(got.Warnings, " "), "newest") {
 		t.Fatalf("%+v %v", got.Changes, got.Warnings)
+	}
+}
+
+// A resource that does not say its namespace or cluster is not a wildcard for every service of that name: it matches only
+// when it is the one, and when several fit it matches none rather than whichever came first.
+func TestAResourceWithoutNamespaceOrClusterMatchesOnlyWhenItIsUnique(t *testing.T) {
+	v := testView() // cart runs in shop on cl-1 and on cl-2
+	for _, c := range []struct {
+		r    Resource
+		want string
+		amb  bool
+	}{
+		{Resource{Service: "cart", Namespace: "shop", Cluster: "cl-1"}, "s-cart", false},
+		{Resource{Service: "cart", Namespace: "shop", Cluster: "cl-2"}, "s-cart-other", false},
+		{Resource{Service: "cart", Namespace: "shop"}, "", true},
+		{Resource{Service: "cart"}, "", true},
+		{Resource{Service: "cart", Cluster: "cl-2"}, "s-cart-other", false},
+		{Resource{Service: "billing"}, "s-billing", false},
+		{Resource{Service: "cart", Namespace: "pay"}, "", false},
+	} {
+		sv, amb := v.matchService(&c.r)
+		got := ""
+		if sv != nil {
+			got = sv.ID
+		}
+		if got != c.want || amb != c.amb {
+			t.Errorf("%+v matched %q (ambiguous %v), want %q (%v)", c.r, got, amb, c.want, c.amb)
+		}
+	}
+	// The name wins over a label, but only a label that is not shared with another service of the name.
+	v.Services = append(v.Services, TopoService{ID: "s-lab1", Name: "a", Labels: map[string]string{"app": "shared"}}, TopoService{ID: "s-lab2", Name: "b", Labels: map[string]string{"app": "shared"}})
+	if sv, amb := v.matchService(&Resource{Service: "shared"}); sv != nil || !amb {
+		t.Errorf("two services with the label: %v %v", sv, amb)
+	}
+}
+
+func TestTheJoinsSayWhenAResourceCouldNotBeTold(t *testing.T) {
+	f := newFake(t)
+	trace := tempoTrace()
+	trace["trace"].(map[string]any)["resourceSpans"].([]any)[1].(map[string]any)["resource"].(map[string]any)["attributes"] =
+		[]any{kv("service.name", "billing"), kv("k8s.pod.name", "billing-7")} // no namespace or cluster
+	f.tempo = func(w http.ResponseWriter, r *http.Request) { writeJSON(w, trace) }
+	v := testView()
+	v.Services = append(v.Services, TopoService{ID: "s-billing-2", Name: "billing", Namespace: "other", Cluster: "cl-1"})
+	got, err := f.client().FuseTrace(context.Background(), AllSignals(), traceHex, FuseOptions{Topology: true, Extras: &fakeExtras{view: v}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.Joins[SourceTopology], "several do it has no match") {
+		t.Errorf("joins: %s", got.Joins[SourceTopology])
+	}
+	if !strings.Contains(strings.Join(got.Warnings, " "), "left unmatched") {
+		t.Errorf("warnings: %v", got.Warnings)
+	}
+	for _, r := range got.Resources {
+		if r.Service == "billing" && r.Topology != nil {
+			t.Errorf("an ambiguous resource took %+v", r.Topology.Service)
+		}
+	}
+}
+
+// The events about the traffic a trace's services have and the applications they are in explain a trace as much as their
+// own scalings do, and only the events about the trace's own targets are asked for.
+func TestChangesIncludeTheTrafficAndTheApplicationsOfTheTrace(t *testing.T) {
+	f := newFake(t)
+	f.tempo = func(w http.ResponseWriter, r *http.Request) { writeJSON(w, tempoTraceOnNode()) }
+	v := testView()
+	v.Links[0].ID, v.Links[1].ID, v.Links[4].ID = "dep-cart-billing", "dep-cart-ledger", "dep-web-cart"
+	v.Nodes = []TopoNode{{ID: "node-1", Name: "node-a", Cluster: "cl-1"}}
+	v.Services[0].Applications, v.Services[0].AppIDs = []string{"Shop"}, []string{"app-shop"}
+	at := time.Date(2026, 10, 5, 11, 20, 0, 0, time.UTC)
+	ex := &fakeExtras{view: v, events: []ChangeEvent{
+		{Time: at, Kind: "dependency-seen", TargetKind: "dependency", TargetID: "dep-cart-billing", Cluster: "cl-1"},
+		{Time: at, Kind: "dependency-seen", TargetKind: "dependency", TargetID: "dep-elsewhere", Cluster: "cl-1"},
+		{Time: at, Kind: "dependency-quiet", TargetKind: "dependency", TargetID: "dep-cart-ledger", Cluster: "cl-1"}, // to a namespace shop's token may not see
+		{Time: at, Kind: "application-membership", TargetKind: "application", TargetID: "app-shop", Name: "Shop"},
+		{Time: at, Kind: "application-added", TargetKind: "application", TargetID: "app-other", Name: "Other"},
+	}}
+	got, err := f.client().FuseTrace(context.Background(), AllSignals(), traceHex, FuseOptions{Topology: true, Changes: true, Extras: ex})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, c := range got.Changes {
+		kinds = append(kinds, c.Kind+":"+c.TargetID)
+		if c.Resource == "" {
+			t.Errorf("%+v does not say which resource it is about", c)
+		}
+	}
+	if strings.Join(kinds, " ") != "dependency-seen:dep-cart-billing dependency-quiet:dep-cart-ledger application-membership:app-shop" {
+		t.Errorf("kept %v", kinds)
+	}
+	if got := strings.Join(ex.ids, " "); got != "app-shop cl-1 dep-cart-billing dep-cart-ledger dep-web-cart node-1 node-a node-b s-billing s-cart" {
+		t.Errorf("asked for %v", ex.ids)
+	}
+	// A token for one namespace sees neither the traffic into one it may not see nor an application that spans them.
+	got, _ = f.client().FuseTrace(context.Background(), Scope{Signals: Signals, Namespaces: []string{"shop"}}, traceHex, FuseOptions{Topology: true, Changes: true, Extras: ex})
+	if len(got.Changes) != 0 {
+		t.Errorf("%+v", got.Changes)
 	}
 }
 
