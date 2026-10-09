@@ -35,6 +35,9 @@ data:
               cert_file: /receiver-tls/tls.crt
               key_file: /receiver-tls/tls.key
               client_ca_file: /receiver-tls/ca.crt
+              # The server rewrites this Secret (ca.crt too) in place; without this the CA is read once, at start, and a
+              # sender signed by a later one is refused ("bad certificate") until the pod restarts.
+              client_ca_file_reload: true
               # The server renews the gateway's certificate in place (see FusionControl.Renew); this is how a running
               # gateway picks the new one up without a restart.
               reload_interval: 5m

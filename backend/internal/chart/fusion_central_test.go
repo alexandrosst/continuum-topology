@@ -125,13 +125,15 @@ func TestFusionNetworkPolicyLeavesTheGatewayReachable(t *testing.T) {
 	}
 }
 
-// The gateway reloads its certificate files (the server renews them in place), and an exposed gateway publishes only
+// The gateway reloads its certificate files and the CA it trusts (the server renews them in place), and an exposed gateway publishes only
 // the gRPC port other clusters use, keeping the keep-it-private settings.
 func TestFusionCentralReloadsItsCertificateAndPublishesOnlyGRPCWhenExposed(t *testing.T) {
 	cfg := centralConfig(t)
 	grpc := cfg["receivers"].(map[string]any)["otlp"].(map[string]any)["protocols"].(map[string]any)["grpc"].(map[string]any)
 	if tls, _ := grpc["tls"].(map[string]any); tls["reload_interval"] != "5m" {
 		t.Errorf("the gateway does not reload its certificate: %v", tls)
+	} else if tls["client_ca_file_reload"] != true {
+		t.Errorf("the gateway reads the CA that signs its senders once, at start; the server rewrites that Secret: %v", tls)
 	}
 	ports := func(r fusionRendered) string {
 		var out []string
