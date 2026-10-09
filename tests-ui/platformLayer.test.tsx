@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { buildPlatform, onlyProblems, shortAge, type PlatformInput } from '@/lib/platformLayer'
+import { buildPlatform, shortAge, type PlatformInput } from '@/lib/platformLayer'
 import type { Agent, RegionalOperator, TelemetryIntent } from '@/lib/types'
 
 const NOW = Date.parse('2026-10-09T12:00:00Z')
@@ -44,9 +44,9 @@ describe('buildPlatform', () => {
     const m = buildPlatform(base(), NOW)
     expect(m.entities.map((e) => e.id)).toEqual(['agent:ag-a', 'local:ag-a', 'agent:ag-k', 'local:ag-k', 'regional:op-eu', 'central', 'fusion'])
     expect(m.entities.every((e) => e.status === 'healthy')).toBe(true)
-    expect(m.edges.map((e) => `${e.from}>${e.to}`)).toEqual(['local:ag-a>regional:op-eu', 'local:ag-k>regional:op-eu', 'regional:op-eu>central', 'central>fusion'])
-    // The hop shows the age of the last data it carried when something knows it: a local operator's own counters, and FUSION's.
-    expect(m.edges.map((e) => e.age)).toEqual(['2 s', '5 s', undefined, '8 s'])
+    expect(m.edges.map((e) => `${e.from}>${e.to}`)).toEqual(['agent:ag-a>local:ag-a', 'agent:ag-k>local:ag-k', 'local:ag-a>regional:op-eu', 'local:ag-k>regional:op-eu', 'regional:op-eu>central', 'central>fusion'])
+    // The hop shows the age of the last data it carried when something knows it: an agent's last report, a local operator's own counters, and FUSION's.
+    expect(m.edges.map((e) => e.age)).toEqual(['20 s', '20 s', '2 s', '5 s', undefined, '8 s'])
     expect(ent(m, 'local:ag-a').detail).toBe('Metrics')
     expect(ent(m, 'fusion').sentence).toBe('Running, last data just now.')
   })
@@ -54,6 +54,9 @@ describe('buildPlatform', () => {
   test('an agent that is not connected is Not working; its local operator is Unknown, with the reason, not claimed healthy', () => {
     const m = buildPlatform(base({ agents: [agent('ag-a', 'cl-a'), agent('ag-k', 'cl-k', { connected: false, lastHeartbeat: ago(7680) })] }), NOW)
     expect(ent(m, 'agent:ag-k')).toMatchObject({ status: 'down', todo: expect.any(String) })
+    // The hop out of an agent that is not working is as bad as it is, and each part keeps its own list of what it sends to.
+    expect(m.edges.find((e) => e.id === 'agent:ag-k>local:ag-k')).toMatchObject({ status: 'down', age: '2 h' })
+    expect(ent(m, 'local:ag-k').sendsTo.map((t) => t.id)).toEqual(['regional:op-eu'])
     expect(ent(m, 'local:ag-k')).toMatchObject({ status: 'unknown', sentence: 'Not known: its agent has not reported for 2 h.' })
     expect(ent(m, 'agent:ag-a').status).toBe('healthy')
   })
@@ -89,42 +92,35 @@ describe('buildPlatform', () => {
     expect(ent(m, 'regional:op-eu')).toMatchObject({ status: 'attention', todo: 'Record its address in the Pipeline.' })
   })
 
-  test('FUSION and the central operator are drawn only while FUSION is on', () => {
-    const off = buildPlatform(base({ operators: [op('op-eu', { sourceClusterIds: ['cl-a'] }), central({ health: { state: 'off', reporting: false } })] }), NOW)
+  test('FUSION and the central operator are drawn only while FUSION is on; when it is off and the person may know, FUSION is there as Not turned on', () => {
+    const operators = [op('op-eu', { sourceClusterIds: ['cl-a'] }), central({ health: { state: 'off', reporting: false } })]
+    const off = buildPlatform(base({ operators }), NOW)
     expect(off.entities.map((e) => e.kind)).not.toContain('fusion')
     expect(off.entities.map((e) => e.kind)).not.toContain('central')
+    const shown = buildPlatform(base({ operators, showFusionOff: true }), NOW)
+    expect(ent(shown, 'fusion')).toMatchObject({ off: true, status: 'unknown', detail: 'Not turned on', todo: expect.any(String) })
+    expect(shown.entities.map((e) => e.kind)).not.toContain('central')
+    expect(shown.edges.some((e) => e.to === 'fusion')).toBe(false)
     const starting = buildPlatform(base({ operators: [op('op-eu', { sourceClusterIds: ['cl-a'] }), central({ health: { state: 'starting', reporting: false } })] }), NOW)
     expect(ent(starting, 'fusion')).toMatchObject({ status: 'attention', sentence: 'Starting.' })
   })
 
   test('local operators that send to the central operator directly, or to an address of the organisation’s own, are told apart', () => {
     const m = buildPlatform(base({ intents: [intent('ag-a', 'op-central'), intent('ag-k', 'ext:otel.corp.example:4317')], operators: [central()] }), NOW)
-    expect(m.edges.map((e) => `${e.from}>${e.to}`)).toEqual(['local:ag-a>central', 'central>fusion'])
+    expect(m.edges.map((e) => `${e.from}>${e.to}`)).toEqual(['agent:ag-a>local:ag-a', 'agent:ag-k>local:ag-k', 'local:ag-a>central', 'central>fusion'])
     expect(ent(m, 'local:ag-k')).toMatchObject({ elsewhere: 'otel.corp.example:4317', sendsTo: [] })
   })
 
-  test('a regional operator whose clusters are not on the canvas is left out, and FUSION with it when nothing shown reaches it', () => {
+  test('a regional operator whose clusters are not shown is left out', () => {
     const only = { clusters: [{ id: 'cl-a', name: 'atlas' }], agents: [agent('ag-a', 'cl-a')], rawAgents: [report('ag-a', 'exporting')], intents: [intent('ag-a', 'op-eu')] }
-    const others = [op('op-eu', { sourceClusterIds: ['cl-a'] }), op('op-ap', { sourceClusterIds: ['cl-x'] }), central()]
-    const m = buildPlatform({ ...only, operators: others, scoped: true }, NOW)
+    const m = buildPlatform({ ...only, operators: [op('op-eu', { sourceClusterIds: ['cl-a'] }), op('op-ap', { sourceClusterIds: ['cl-x'] }), central()] }, NOW)
     expect(m.entities.filter((e) => e.kind === 'regional').map((e) => e.name)).toEqual(['eu'])
-    const lonely = buildPlatform({ ...only, intents: [intent('ag-a', 'ext:x:1')], operators: [others[1], others[2]], scoped: true }, NOW)
-    expect(lonely.entities.map((e) => e.kind)).not.toContain('fusion')
   })
 
   test('someone who may not list operators still sees their agents and local operators, without a destination', () => {
     const m = buildPlatform(base({ operators: [] }), NOW)
     expect(m.entities.map((e) => e.kind)).toEqual(['agent', 'local', 'agent', 'local'])
-    expect(m.edges).toEqual([])
-  })
-})
-
-describe('onlyProblems', () => {
-  test('keeps what needs attention or is not working, and what it is joined to', () => {
-    const m = buildPlatform(base({ rawAgents: [report('ag-a', 'exporting'), report('ag-k', 'silent', 840)] }), NOW)
-    expect(onlyProblems(m).entities.map((e) => e.id)).toEqual(['local:ag-k', 'regional:op-eu'])
-    expect(onlyProblems(m).edges.map((e) => e.id)).toEqual(['local:ag-k>regional:op-eu'])
-    expect(onlyProblems(buildPlatform(base(), NOW)).entities).toEqual([])
+    expect(m.edges.map((e) => e.id)).toEqual(['agent:ag-a>local:ag-a', 'agent:ag-k>local:ag-k'])
   })
 })
 

@@ -1,35 +1,18 @@
-import { ReactFlow, ReactFlowProvider } from '@xyflow/react'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { PlatformNode, StatusGlyph } from '@/components/topology/PlatformNode'
-import { PLATFORM_STATUS_WORD, type PlatformStatus } from '@/lib/platformLayer'
-import { platformNode } from '@/lib/platformLayerGraph'
-import type { PlatformEntity } from '@/lib/platformLayer'
-
-class NoObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-vi.stubGlobal('ResizeObserver', NoObserver)
+import { PLATFORM_STATUS_WORD, type PlatformEntity, type PlatformStatus } from '@/lib/platformLayer'
 
 const entity = (over: Partial<PlatformEntity> = {}): PlatformEntity => ({ id: 'local:a', kind: 'local', name: 'Local operator', detail: 'Metrics', status: 'healthy', sentence: '', sendsTo: [], ...over })
 
-function renderNode(e: PlatformEntity) {
-  const n = platformNode(e, 'edge', { x: 0, y: 0 })
-  render(
-    <ReactFlowProvider>
-      <div style={{ width: 600, height: 300 }}>
-        <ReactFlow nodes={[n]} edges={[]} nodeTypes={{ platform: PlatformNode }} fitView />
-      </div>
-    </ReactFlowProvider>,
-  )
+function renderNode(e: PlatformEntity, onClick = () => {}) {
+  render(<PlatformNode entity={e} label={`${e.name}: label`} onClick={onClick} />)
+  return screen.getByTestId('platform-node')
 }
 
 describe('PlatformNode', () => {
   test('is a node in the same language as the cards: title, the line under it, and its state as a glyph with a name', () => {
-    renderNode(entity())
-    const node = screen.getByTestId('platform-node')
+    const node = renderNode(entity())
     expect(node).toHaveAttribute('data-platform', 'local')
     expect(node.textContent).toContain('Local operator')
     expect(node.textContent).toContain('Metrics')
@@ -37,9 +20,24 @@ describe('PlatformNode', () => {
   })
 
   test('anything but Healthy is written under the name as well as drawn', () => {
-    renderNode(entity({ status: 'attention' }))
-    expect(screen.getByTestId('platform-node').textContent).toContain('Needs attention')
-    expect(screen.getByTestId('platform-node').querySelector('svg[data-status="attention"]')?.getAttribute('aria-label')).toBe('Needs attention')
+    const node = renderNode(entity({ status: 'attention' }))
+    expect(node.textContent).toContain('Needs attention')
+    expect(node.querySelector('svg[data-status="attention"]')?.getAttribute('aria-label')).toBe('Needs attention')
+  })
+
+  test('a part that is not turned on says so, quietly, instead of Unknown', () => {
+    const node = renderNode(entity({ kind: 'fusion', name: 'FUSION', detail: 'Not turned on', status: 'unknown', off: true }))
+    expect(node.textContent).toContain('Not turned on')
+    expect(node.textContent).not.toContain('Unknown')
+    expect(node.className).toContain('border-dashed')
+  })
+
+  test('is a button with the name it is given, and a click selects it', () => {
+    const onClick = vi.fn()
+    renderNode(entity(), onClick)
+    const button = screen.getByRole('button', { name: 'Local operator: label' })
+    fireEvent.click(button)
+    expect(onClick).toHaveBeenCalledOnce()
   })
 })
 

@@ -46,6 +46,8 @@ export interface PlatformEntity {
   lastHeartbeatAt?: string
   /** What a local operator collects, by signal type. */
   collecting?: Modality[]
+  /** A part that is not turned on (FUSION, when it is off): nothing to report, so it is Unknown, and drawn quietly. */
+  off?: boolean
   /** The agent behind an agent or local operator row. */
   agentId?: string
   /** Where it sends: the platform parts it is joined to, and, for a destination that is no platform part, its address. */
@@ -76,8 +78,8 @@ export interface PlatformInput {
   intents: TelemetryIntent[]
   /** The organisation's operators, the central one included. Empty for someone who may not list them. */
   operators: RegionalOperator[]
-  /** Only some clusters are on the canvas (a filter is on): FUSION is then drawn only where something shown reaches it. */
-  scoped?: boolean
+  /** Draw FUSION as "Not turned on" when it is off. Only for someone who may list the operators: for anyone else it is not known. */
+  showFusionOff?: boolean
 }
 
 /** Two missed reports: the same line the Agents page draws between "connected" and "late". */
@@ -185,15 +187,15 @@ export function buildPlatform(input: PlatformInput, now: number): PlatformModel 
     if (a.status !== 'approved' || !a.clusterId || !clusterName.has(a.clusterId)) continue
     const installed = extrasOf(input.rawAgents, a.id).diagnostics?.installedTelemetry ?? []
     const intent = intentOf(a.id)
-    const base = { clusterId: a.clusterId, clusterName: clusterName.get(a.clusterId), agentId: a.id, sendsTo: [] }
-    const agent: PlatformEntity = { ...base, id: `agent:${a.id}`, kind: 'agent', name: 'Discovery agent', detail: a.version ? `v${a.version}` : 'Agent', version: a.version, lastHeartbeatAt: a.lastHeartbeat, ...agentState(a, now) }
+    const base = { clusterId: a.clusterId, clusterName: clusterName.get(a.clusterId), agentId: a.id }
+    const agent: PlatformEntity = { ...base, id: `agent:${a.id}`, kind: 'agent', name: 'Discovery agent', sendsTo: [], detail: a.version ? `v${a.version}` : 'Agent', version: a.version, lastHeartbeatAt: a.lastHeartbeat, ...agentState(a, now) }
     entities.push(agent)
     if (installed.length === 0 && !intent) continue
     const { operatorIds, elsewhere } = destinationsOf(intent)
     const asked = new Set((intent?.signals.map((x) => x.id) ?? installed).map((id) => MODALITY_OF.get(id)))
     const collecting = MODALITIES.filter((m) => asked.has(m))
     const local: PlatformEntity = {
-      ...base, id: `local:${a.id}`, kind: 'local', name: 'Local operator', detail: collecting.map((m) => MODALITY_WORD[m]).join(', ') || 'Collector', collecting, elsewhere,
+      ...base, id: `local:${a.id}`, kind: 'local', name: 'Local operator', sendsTo: [], detail: collecting.map((m) => MODALITY_WORD[m]).join(', ') || 'Collector', collecting, elsewhere,
       ...localState(a, input.rawAgents, installed, agent, now),
     }
     entities.push(local)
@@ -211,8 +213,7 @@ export function buildPlatform(input: PlatformInput, now: number): PlatformModel 
   }
   const central = operators.get(CENTRAL_OPERATOR_ID)
   const fusionOn = !!central && central.health?.state !== 'off' && central.health?.state !== 'unknown'
-  const reachesCentral = senders.some((s) => s.targets.includes(CENTRAL_OPERATOR_ID)) || [...operatorOf.values()].some((o) => o.destination.targetOperatorId === CENTRAL_OPERATOR_ID)
-  if (central && fusionOn && (reachesCentral || !input.scoped)) {
+  if (central && fusionOn) {
     const state = operatorState(central, now)
     const lastDataAt = central.health?.lastSeenAt
     entities.push({ id: 'central', kind: 'central', name: 'Central operator', detail: 'Gateway into FUSION', sendsTo: [], ...state })
@@ -221,6 +222,8 @@ export function buildPlatform(input: PlatformInput, now: number): PlatformModel 
       sentence: central.health?.state === 'online' ? `Running${lastDataAt ? `, last data ${ago(lastDataAt, now)}` : ', waiting for its first data'}.` : state.sentence,
       todo: state.status === 'healthy' ? undefined : (state.todo ?? 'Open FUSION to see what it reports.'),
     })
+  } else if (input.showFusionOff) {
+    entities.push({ id: 'fusion', kind: 'fusion', name: 'FUSION', detail: 'Not turned on', off: true, sendsTo: [], status: 'unknown', sentence: 'Not turned on.', todo: 'Turn it on in FUSION to keep what the operators collect.' })
   }
 
   // The hops.
@@ -230,6 +233,11 @@ export function buildPlatform(input: PlatformInput, now: number): PlatformModel 
     if (!to) return
     from.sendsTo.push({ id: to.id, name: to.name })
     edges.push({ id: `${from.id}>${to.id}`, from: from.id, to: to.id, status: from.status, ...extra })
+  }
+  for (const { local } of senders) {
+    // The agent runs the local operator: this hop carries the agent's state, and how long ago it last reported.
+    const agent = byId.get(`agent:${local.agentId}`)!
+    join(agent, local.id, { lastDataAt: agent.lastHeartbeatAt, age: shortAge(agent.lastHeartbeatAt, now) })
   }
   for (const { local, targets } of senders) {
     const ids = targets.map(entityIdOf).filter((id) => byId.has(id))
@@ -242,18 +250,6 @@ export function buildPlatform(input: PlatformInput, now: number): PlatformModel 
     else if (op.destination.kind === 'external') byId.get(id)!.elsewhere = op.destination.endpoint
   }
   const fusion = byId.get('fusion')
-  if (fusion) join(byId.get('central')!, 'fusion', { lastDataAt: fusion.lastDataAt, age: shortAge(fusion.lastDataAt, now) })
+  if (fusion && !fusion.off) join(byId.get('central')!, 'fusion', { lastDataAt: fusion.lastDataAt, age: shortAge(fusion.lastDataAt, now) })
   return { entities, edges }
-}
-
-/** "Problems only": what needs attention or is not working, and the parts it is joined to, so the hop that matters is still a line
- *  between two things. */
-export function onlyProblems(model: PlatformModel): PlatformModel {
-  const bad = new Set(model.entities.filter((e) => e.status === 'attention' || e.status === 'down').map((e) => e.id))
-  const keep = new Set(bad)
-  for (const e of model.edges) {
-    if (bad.has(e.from)) keep.add(e.to)
-    if (bad.has(e.to)) keep.add(e.from)
-  }
-  return { entities: model.entities.filter((e) => keep.has(e.id)), edges: model.edges.filter((e) => keep.has(e.from) && keep.has(e.to)) }
 }

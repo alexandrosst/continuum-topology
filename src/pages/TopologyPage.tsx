@@ -17,7 +17,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
 import { toPng } from 'html-to-image'
-import { Funnel, Boxes, ChevronDown, Download, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, X } from 'lucide-react'
+import { Funnel, Boxes, ChevronDown, Download, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, TriangleAlert, X } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -39,8 +39,7 @@ import ScopeFromSelection from '@/components/topology/ScopeFromSelection'
 import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
 import { nodeTypes } from '@/components/topology/nodes'
-import { PlatformNode, StatusGlyph } from '@/components/topology/PlatformNode'
-import { usePlatformLayer } from '@/components/topology/usePlatformLayer'
+import TelemetryTab from '@/components/topology/TelemetryTab'
 import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
 import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock } from '@/components/ui/primitives'
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
@@ -49,8 +48,6 @@ import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { applyFilter, encodeList, filterActive, hopNeighborhood, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
 import { applyGraphUpdate, buildGraph, cardId, groupId, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
-import { PLATFORM_STATUS_WORD, type PlatformStatus } from '@/lib/platformLayer'
-import { platformNodeId } from '@/lib/platformLayerGraph'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
 import { usePlan } from '@/lib/placement/usePlacement'
@@ -71,11 +68,12 @@ const CLUSTER_LINK_COLOR: Record<ClusterLink['kind'], string> = {
   subnet: '#a3e635',
 }
 
-type Mode = ViewKind | 'map'
+type Mode = ViewKind | 'map' | 'telemetry'
 const VIEWS: { value: Mode; label: string; hint: string }[] = [
   { value: 'application', label: 'Application', hint: 'Microservices and the clusters they run in' },
   { value: 'infrastructure', label: 'Infrastructure', hint: 'Nodes (VMs / machines) grouped by cluster' },
   { value: 'map', label: 'Map', hint: 'Where your sites are in the world' },
+  { value: 'telemetry', label: 'Telemetry', hint: 'The path telemetry takes from each cluster to FUSION' },
 ]
 
 // `lens`, when true, marks a control that changes what the canvas is actually interpreting or
@@ -129,9 +127,12 @@ function Canvas() {
   // a missing one silently (see Layout.tsx's comment for why this no longer runs on every route).
   useAutoPlaceClusters()
 
-  const mode: Mode = sp.get('view') === 'infrastructure' ? 'infrastructure' : sp.get('view') === 'map' ? 'map' : 'application'
+  const mode: Mode = VIEWS.find((v) => v.value === sp.get('view'))?.value ?? 'application'
   const isMap = mode === 'map'
-  const view: ViewKind = isMap ? 'application' : mode
+  const isTelemetry = mode === 'telemetry'
+  // Application, Infrastructure: the two tabs drawn on the canvas, with its options.
+  const isCanvas = !isMap && !isTelemetry
+  const view: ViewKind = isMap || isTelemetry ? 'application' : mode
   const groupBy: GroupBy = sp.get('group') === 'tier' ? 'tier' : 'cluster'
   const servicesOnNodes = sp.get('services') === '1'
   const links = sp.get('links') !== '0'
@@ -160,15 +161,10 @@ function Canvas() {
   // the always-on category coloring rather than a replacement for it. Meaningless with cluster links
   // hidden altogether, so it only ever applies alongside showClusterLinks.
   const showHealthLens = sp.get('health') === '1' && showClusterLinks
-  // The platform layer (lib/platformLayer.ts): each cluster's Discovery agent and Local operator, and the Regional operators, the
-  // Central operator and FUSION they send to. Off by default, like every other extra-detail toggle here. It is laid out with the
-  // cluster boxes, so it needs them (grouped by cluster, not as a chain).
-  const platformAsked = sp.get('platform') === '1'
-  const platformFits = groupBy === 'cluster' && !showChain
-  const showPlatform = platformAsked && platformFits
-  const platformProblems = showPlatform && sp.get('platformProblems') === '1'
+  // The Telemetry tab's own filter: only the lanes where something needs attention or is not working.
+  const problemsOnly = isTelemetry && sp.get('problems') === '1'
   // How many options differ from the defaults, so a hidden option is never a mystery.
-  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow', !showClusterLinks, showHealthLens, showPlatform].filter(Boolean).length
+  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow', !showClusterLinks, showHealthLens].filter(Boolean).length
   const setParam = (k: string, v: string | null) =>
     setSp((p) => {
       const n = new URLSearchParams(p)
@@ -345,16 +341,13 @@ function Canvas() {
     () => (hops !== undefined && focusId ? hopNeighborhood(filteredByAttrs, focusId, hops) : filteredByAttrs),
     [filteredByAttrs, hops, focusId],
   )
-  // Only the clusters on the canvas get their agent and operator: a filter, or a neighbourhood, takes the rest of the layer with it.
-  const platformClusters = useMemo(() => shown.clusters.map((c) => ({ id: c.id, name: c.name })), [shown.clusters])
-  const platform = usePlatformLayer({ enabled: showPlatform, clusters: platformClusters, agents, scoped: filtering || (hops !== undefined && !!focusId), problemsOnly: platformProblems })
   const graph = useMemo(
     () =>
       buildGraph(shown, {
         view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, chain: showChain, paths, hints, localOperators: localOperatorByCluster,
-        clusterLinks: showClusterLinks ? clusterLinks : [], platform,
+        clusterLinks: showClusterLinks ? clusterLinks : [],
       }),
-    [shown, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks, showClusterLinks, platform],
+    [shown, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks, showClusterLinks],
   )
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
 
@@ -397,7 +390,6 @@ function Canvas() {
     if (selection.kind === 'cluster') return groupBy === 'cluster' ? groupId(selection.id) : null
     if (selection.kind === 'tier') return groupId(selection.id)
     if (selection.kind === 'site') return groupId(`dev:${selection.id}`)
-    if (selection.kind === 'platform') return platformNodeId(selection.id)
     return cardId(selection.id)
   }, [selection, groupBy])
 
@@ -486,7 +478,7 @@ function Canvas() {
         ? selection.id
         : selection?.kind === 'cluster' && groupBy === 'cluster'
           ? selection.id
-          : selection?.kind === 'tier' || selection?.kind === 'platform'
+          : selection?.kind === 'tier'
             ? selection.id
             : null
     const pickedEdge = selection?.kind === 'dependency' ? selection.id : null
@@ -495,8 +487,7 @@ function Canvas() {
     return graph.edges.map((e) => {
       const hot = related(e)
       const dim = anyRelated && !hot
-      // The few platform hops always carry their age: it is what they are for.
-      const showLabel = showLabels || hot || !!e.data?.platform
+      const showLabel = showLabels || hot
       const q = e.data?.quality
       const band = q ? lossBand(q.lossPct) : 'ok'
       // A link that loses connection attempts is coloured by how badly; otherwise grey, or orange when it is the focus.
@@ -510,13 +501,12 @@ function Canvas() {
       // category colour rather than a fabricated "healthy" green.
       const clHealthBand = showHealthLens && cl?.avgLossPct !== undefined ? lossBand(cl.avgLossPct) : null
       const clHealthColor = clHealthBand === 'hot' ? '#f87171' : clHealthBand === 'warn' ? '#fbbf24' : clHealthBand === 'ok' ? '#34d399' : null
-      const pl = e.data?.platform
-      const stroke = hot ? '#f68330' : pl ? PLATFORM_EDGE_COLOR[pl.status] : clHealthColor ?? (cl ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? '#f87171' : band === 'warn' ? '#fbbf24' : e.data?.crossGroup ? '#98a4ae' : '#6f7b85')
+      const stroke = hot ? '#f68330' : clHealthColor ?? (cl ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? '#f87171' : band === 'warn' ? '#fbbf24' : e.data?.crossGroup ? '#98a4ae' : '#6f7b85')
       // Seen in traffic: solid, and a touch thicker the busier it is. Only declared (or gone quiet): dotted and
       // thin. Kept close to the declared baseline (1.2) rather than scaling up hard - a busy link should read as
       // "more traffic" without out-weighing the 2.4px used for the current selection/focus.
       const seen = !!e.data?.observed && !e.data?.stale
-      const width = hot ? 2.4 : cl || pl ? 1.8 : e.data?.aggregated ? 2 : seen ? 1.2 + 1.0 * (e.data?.weight ?? 0.15) : 1.2
+      const width = hot ? 2.4 : cl ? 1.8 : e.data?.aggregated ? 2 : seen ? 1.2 + 1.0 * (e.data?.weight ?? 0.15) : 1.2
       // A seen edge with no `via` at all can't happen (isObserved only ever sets true alongside via), so
       // this only ever fires for a real conntrack-only edge - one whose traffic numbers, if it shows any,
       // are connection counts only (see EdgeData.via's own comment): a long, open dash reads as "mostly
@@ -533,7 +523,7 @@ function Canvas() {
           // and dashed for "overlay" (traffic actually travels through a tunnel interface to get there) -
           // a deliberate, different dash from the traffic seen/not-seen convention below, since this was
           // never a question of whether anything was observed.
-          strokeDasharray: pl ? '4 4' : cl ? (cl.kind === 'overlay' ? '6 4' : undefined) : !e.data?.aggregated && !seen ? '2 5' : conntrackOnly ? '8 4' : undefined,
+          strokeDasharray: cl ? (cl.kind === 'overlay' ? '6 4' : undefined) : !e.data?.aggregated && !seen ? '2 5' : conntrackOnly ? '8 4' : undefined,
           // Busier links run their dashes faster (a quiet one takes 2.4 s for a period, the busiest 0.7 s).
           animationDuration: e.className === 'edge-animated' ? `${(2.4 - 1.7 * (e.data?.weight ?? 0)).toFixed(2)}s` : undefined,
         },
@@ -581,7 +571,6 @@ function Canvas() {
       if (d.extra) return null
       return { kind: d.groupBy === 'cluster' ? 'cluster' : 'tier', id: d.entityId }
     }
-    if (d.kind === 'platform') return { kind: 'platform', id: d.entityId }
     if (d.kind === 'namespace') return null // a visual grouping only, nothing to inspect on its own
     return { kind: d.kind === 'machine' ? 'node' : d.kind, id: d.entityId }
   }
@@ -658,6 +647,7 @@ function Canvas() {
   }
 
   const empty = clusters.length === 0
+  const liveClusters = useMemo(() => clusters.filter((c) => !c.deletedAt), [clusters])
   const closeForm = () => setForm(null)
 
   return (
@@ -686,7 +676,7 @@ function Canvas() {
                 setSelection(null)
               }}
               className={clsx(
-                'rounded-md px-3.5 py-1.5 text-sm',
+                'rounded-md px-2.5 py-1.5 text-sm sm:px-3.5',
                 PRESS_CLASS,
                 mode === v.value ? 'bg-nb-850 text-nb-300' : 'text-nb-400 hover:text-nb-300',
               )}
@@ -734,13 +724,24 @@ function Canvas() {
               )}
             </div>
           )}
+          {isTelemetry ? (
+            <Button
+              variant={problemsOnly ? 'primary' : undefined}
+              onClick={() => { setParam('problems', problemsOnly ? null : '1'); setSelection(null) }}
+              aria-pressed={problemsOnly}
+              title="Show only the clusters where something needs attention or is not working"
+              data-testid="problems-only"
+            >
+              <TriangleAlert size={ICON_SM} /> <span className="hidden sm:inline">Problems only</span>
+            </Button>
+          ) : (
+            <>
           <FilterMenu
             open={openMenu === 'filter'}
             onOpenChange={(o) => setOpenMenu(o ? 'filter' : null)}
             filter={filter}
             clusters={clusters.filter((c) => !c.deletedAt)}
             applications={applications.filter((a) => !a.deletedAt)}
-            platform={showPlatform ? { problemsOnly: platformProblems, onChange: (v) => { setParam('platformProblems', v ? '1' : null); if (selection?.kind === 'platform') setSelection(null) } } : undefined}
             onChange={(f) => {
               setSp((p) => {
                 const n = new URLSearchParams(p)
@@ -762,7 +763,9 @@ function Canvas() {
               setSelection(null)
             }}
           />
-          {!isMap && (
+            </>
+          )}
+          {isCanvas && (
             <div className="relative">
               <Button onClick={() => toggleMenu('options')} aria-expanded={openMenu === 'options'} aria-haspopup="true" data-testid="view-options">
                 <SlidersHorizontal size={ICON_SM} /> <span className="hidden sm:inline">Options</span>
@@ -805,19 +808,6 @@ function Canvas() {
                   label="Cluster links"
                   title="Clusters confirmed joined by an overlay/tunnel, or sitting on the same flat subnet"
                 />
-                <Toggle
-                  checked={showPlatform}
-                  disabled={!platformFits}
-                  onChange={(v) => {
-                    setParam('platform', v ? '1' : null)
-                    if (!v) setParam('platformProblems', null)
-                    // Hiding the layer removes the selected part from the canvas, same reasoning as hiding devices just above.
-                    if (!v && selection?.kind === 'platform') setSelection(null)
-                  }}
-                  label="Platform"
-                  title={platformFits ? 'The Discovery agent and Local operator in each cluster, and the Regional operators, Central operator and FUSION they send to' : 'Only available grouped by cluster, without chain layout'}
-                />
-                {!platformFits && <p className="-mt-0.5 px-2 pb-1 pl-[46px] text-[11px] text-nb-500">Only available grouped by cluster</p>}
 
                 {/* Lenses: unlike every toggle above (which only ever decides whether something already
                     computed gets drawn), each of these changes what the canvas itself is interpreting -
@@ -912,7 +902,7 @@ function Canvas() {
             </div>
           )}
 
-          {!isMap && (
+          {isCanvas && (
             <Button
               onClick={() => {
                 setNodes(graph.nodes)
@@ -928,7 +918,7 @@ function Canvas() {
             </Button>
           )}
 
-          {!isMap && (
+          {isCanvas && (
             <Button
               onClick={exportPng}
               disabled={exportingPng}
@@ -939,7 +929,7 @@ function Canvas() {
             </Button>
           )}
 
-          {!isMap && (
+          {isCanvas && (
             <Button
               variant={pickMode ? 'primary' : undefined}
               onClick={() => setPickMode((v) => !v)}
@@ -979,6 +969,18 @@ function Canvas() {
         </div>
       </div>
 
+      {isTelemetry ? (
+        <TelemetryTab
+          clusters={liveClusters}
+          agents={agents}
+          problemsOnly={problemsOnly}
+          selection={selection}
+          onSelect={select}
+          onShowAll={() => setParam('problems', null)}
+          onConnect={connect.start}
+          onClose={() => setSelection(null)}
+        />
+      ) : (
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1" ref={setHost}>
           {!empty && nothingMatches ? (
@@ -1028,7 +1030,7 @@ function Canvas() {
               className={pickMode ? 'topology-pick-mode' : undefined}
               nodes={nodes}
               edges={edges}
-              nodeTypes={NODE_TYPES}
+              nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
               onNodesChange={onNodesChange}
               onSelectionChange={onSelectionChange}
@@ -1206,25 +1208,7 @@ function Canvas() {
                       )}
                     </>
                   )}
-                  {/* Only while the layer is on, like every entry here: the dashed line is the telemetry hop, joining the
-                      parts of the platform in the order data travels. Its colour is the sender's state. */}
-                  {platform && platform.entities.length > 0 && (
-                    <>
-                      <span className="h-3 w-px bg-nb-800" />
-                      <span className="flex items-center gap-1.5" title="The telemetry pipeline: Discovery agent and Local operator in each cluster, then Regional operator, Central operator and FUSION. A dashed line carries data from one to the next; the time on it is when data last arrived.">
-                        <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#6f7b85" strokeWidth="1.4" strokeDasharray="4 4" /></svg>
-                        Telemetry
-                      </span>
-                      {PLATFORM_STATES.map((status) => (
-                        <span key={status} className="flex items-center gap-1.5">
-                          <StatusGlyph status={status} />
-                          {PLATFORM_STATUS_WORD[status]}
-                        </span>
-                      ))}
-                    </>
-                  )}
-                  {/* Same "only explain what's actually on the canvas" rule as the platform entry just above.
-                      Both swatches are confirmed from real kernel-reported routing/address data on both
+                  {/* Only explain what's actually on the canvas. Both swatches are confirmed from real kernel-reported routing/address data on both
                       sides (see ClusterLink's own doc) - never a guess from naming or a declared exposure
                       flag, which is worth saying here since every other colour on this canvas means either
                       "seen in traffic" or "inferred from configuration". */}
@@ -1289,8 +1273,9 @@ function Canvas() {
           )}
         </div>
 
-        <Inspector selection={selection} platform={platform} onSelect={select} onEdit={editSelection} onClose={() => setSelection(null)} />
+        <Inspector selection={selection} onSelect={select} onEdit={editSelection} onClose={() => setSelection(null)} />
       </div>
+      )}
 
       {form?.type === 'cluster' && <ClusterForm initial={clusters.find((c) => c.id === form.id) ?? null} onClose={closeForm} />}
       {form?.type === 'node' && (
@@ -1313,11 +1298,6 @@ function Canvas() {
     </div>
   )
 }
-
-const NODE_TYPES = { ...nodeTypes, platform: PlatformNode }
-const PLATFORM_STATES: PlatformStatus[] = ['healthy', 'attention', 'down', 'unknown']
-/** The colour of a platform hop is its sender's state; a healthy one stays the neutral grey of the other lines. */
-const PLATFORM_EDGE_COLOR: Record<PlatformStatus, string> = { healthy: '#6f7b85', attention: '#fbbf24', down: '#f87171', unknown: '#6f7b85' }
 
 /** Leaves room under the graph for the legend. */
 const FIT_PADDING = { top: '4%', left: '4%', right: '4%', bottom: '72px' } as const
