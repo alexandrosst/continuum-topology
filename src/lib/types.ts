@@ -1235,8 +1235,9 @@ export interface OperatorCerts {
   caNotAfter?: string
 }
 
-/** 'expiring' = any of them within 60 days, 'expired' = one is past. Absent for an operator with no certificate information. */
-export type CertState = 'ok' | 'expiring' | 'expired'
+/** Operator certificates last 30 days and renew themselves. 'renewal-failing' = the soonest one is past the day it should have been renewed by
+ *  and still runs, 'expired' = one has run out. Absent for an operator with no certificate information. */
+export type CertState = 'ok' | 'renewal-failing' | 'expired'
 
 /** What still depends on an operator: revoking or deleting it breaks these, so the server asks for `force`. Absent when nothing does. */
 export interface OperatorUsedBy {
@@ -1323,6 +1324,8 @@ export interface RegionalOperator {
   /** The certificates behind its mutual TLS, with their expiry. Absent for a bearer or older operator. */
   certs?: OperatorCerts
   certState?: CertState
+  /** The day renewal should have happened by; present with 'renewal-failing' and 'expired'. */
+  certStateSince?: string
   /** Whether other clusters have an address to dial - see AddressState. Absent on an older server (read as unknown). */
   addressState?: AddressState
   usedBy?: OperatorUsedBy

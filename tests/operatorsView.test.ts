@@ -5,16 +5,12 @@ import type { TelemetryIntent } from '../src/lib/types'
 
 const NOW = Date.parse('2026-10-06T12:00:00Z')
 
-test('certChip: nothing while the certificates are fine, amber with the days left of the soonest one, red once one has run out', () => {
-  assert.equal(certChip({ certState: 'ok' }, NOW), undefined)
-  assert.equal(certChip({}, NOW), undefined)
-  assert.deepEqual(certChip({ certState: 'expired' }, NOW), { tone: 'bad', text: 'Certificate expired' })
-  assert.deepEqual(
-    certChip({ certState: 'expiring', certs: { receiverNotAfter: '2026-12-01T00:00:00Z', clientNotAfter: '2026-10-26T12:00:00Z' } }, NOW),
-    { tone: 'warn', text: 'Certificate expires in 20 days' },
-  )
-  assert.equal(certChip({ certState: 'expiring', certs: { caNotAfter: '2026-10-07T00:00:00Z' } }, NOW)?.text, 'Certificate expires in 1 day')
-  assert.equal(certChip({ certState: 'expiring' }, NOW)?.text, 'Certificate expires soon')
+test('certChip: nothing while the certificates renew on their own, amber when renewal is failing, red once one has run out', () => {
+  assert.equal(certChip({ certState: 'ok' }), undefined)
+  assert.equal(certChip({}), undefined)
+  assert.deepEqual(certChip({ certState: 'expired' }), { tone: 'bad', text: 'Certificate expired' })
+  assert.equal(certChip({ certState: 'renewal-failing' })?.tone, 'warn')
+  assert.match(certChip({ certState: 'renewal-failing', certs: { receiverNotAfter: '2026-12-01T00:00:00Z' } })?.text ?? '', /^Certificate renewal is failing \(valid until /)
 })
 
 test('addressCell: a recorded address, "Needs an address" while an exposed one has none, otherwise its own cluster only', () => {

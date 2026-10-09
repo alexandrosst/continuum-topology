@@ -4,7 +4,7 @@ import { api, ApiError, type IssuedCertificate } from '@/lib/api'
 import type { RegionalOperator } from '@/lib/types'
 import { useServer } from '@/store/server'
 
-const STATE_WORD = { ok: 'Valid', expiring: 'Ends soon', expired: 'Ended' } as const
+const STATE_WORD = { ok: 'Valid', expired: 'Ended' } as const
 
 /** The holder in words a person recognises: the cluster's name when it is known, otherwise what the server recorded. */
 export function holderOf(c: IssuedCertificate, clusterName: (id: string) => string): string {
@@ -52,7 +52,7 @@ export default function OperatorCertificatesModal({ operator, clusterName, onClo
                 <td className="py-1.5 pr-3">{holderOf(c, clusterName)}</td>
                 <td className="py-1.5 pr-3 text-nb-400">{c.issuedAt.slice(0, 10)}<span className="text-nb-500"> by {c.issuedBy}</span></td>
                 <td className="py-1.5 pr-3 text-nb-300">{c.notAfter.slice(0, 10)}</td>
-                <td className={c.state === 'ok' ? 'py-1.5 text-nb-300' : c.state === 'expiring' ? 'py-1.5 text-warn' : 'py-1.5 text-bad'}>{STATE_WORD[c.state]}</td>
+                <td className={c.state === 'ok' ? 'py-1.5 text-nb-300' : 'py-1.5 text-bad'}>{STATE_WORD[c.state]}</td>
               </tr>
             ))}
           </tbody>

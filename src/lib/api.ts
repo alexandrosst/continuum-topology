@@ -143,7 +143,7 @@ export interface IssuedCertificate {
   issuedAt: string
   notBefore: string
   notAfter: string
-  state: 'ok' | 'expiring' | 'expired'
+  state: 'ok' | 'expired'
 }
 
 export interface OperatorRemoval {

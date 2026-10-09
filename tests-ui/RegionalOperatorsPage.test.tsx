@@ -643,7 +643,7 @@ describe('RegionalOperatorsPage - FUSION on the page', () => {
     const cert = (over: Partial<IssuedCertificate>): IssuedCertificate => ({
       serial: 'aa', kind: 'client', subject: 'op-1-export-c1', sender: 'c1', issuedBy: 'alex', issuedAt: '2026-01-02T10:00:00Z', notBefore: '2026-01-02T09:55:00Z', notAfter: '2027-01-02T10:00:00Z', state: 'ok', ...over,
     })
-    listOperatorCertificates.mockResolvedValueOnce({ certificates: [cert({}), cert({ serial: 'bb', kind: 'receiver', sender: undefined, subject: 'op-1', state: 'expiring', notAfter: '2026-11-01T00:00:00Z' })] })
+    listOperatorCertificates.mockResolvedValueOnce({ certificates: [cert({}), cert({ serial: 'bb', kind: 'receiver', sender: undefined, subject: 'op-1', state: 'expired', notAfter: '2026-11-01T00:00:00Z' })] })
     renderPage()
     const user = userEvent.setup()
     await rowAction(user, 'athens-regional', 'certs')
@@ -652,7 +652,7 @@ describe('RegionalOperatorsPage - FUSION on the page', () => {
     expect(within(screen.getByTestId('operator-cert-aa')).getByText('edge-1')).toBeInTheDocument()
     expect(within(screen.getByTestId('operator-cert-aa')).getByText('Valid')).toBeInTheDocument()
     expect(within(screen.getByTestId('operator-cert-bb')).getByText('The operator (its receiver)')).toBeInTheDocument()
-    expect(within(screen.getByTestId('operator-cert-bb')).getByText('Ends soon')).toBeInTheDocument()
+    expect(within(screen.getByTestId('operator-cert-bb')).getByText('Ended')).toBeInTheDocument()
     expect(table.textContent).not.toMatch(/PRIVATE KEY|BEGIN CERTIFICATE/)
     await user.click(screen.getByTestId('operator-certs-done'))
     await waitFor(() => expect(screen.queryByTestId('operator-certs-table')).not.toBeInTheDocument())
@@ -778,12 +778,12 @@ describe('RegionalOperatorsPage - the table', () => {
   test('certificates that are running out say how long, in amber, and expired ones in red, each with a way to renew them', async () => {
     listOperators.mockResolvedValue([
       op({ id: 'op-a', name: 'fine-op', certState: 'ok', certs: { receiverNotAfter: daysFromNow(300) } }),
-      op({ id: 'op-b', name: 'soon-op', certState: 'expiring', certs: { receiverNotAfter: daysFromNow(40), clientNotAfter: daysFromNow(12) } }),
+      op({ id: 'op-b', name: 'soon-op', certState: 'renewal-failing', certs: { receiverNotAfter: daysFromNow(40), clientNotAfter: daysFromNow(12) } }),
       op({ id: 'op-c', name: 'late-op', certState: 'expired', certs: { receiverNotAfter: daysFromNow(-3) } }),
       op({ id: 'op-d', name: 'old-op' }),
     ])
     renderPage()
-    expect(await screen.findByTestId('operator-cert-soon-op')).toHaveTextContent('Certificate expires in 12 days')
+    expect(await screen.findByTestId('operator-cert-soon-op')).toHaveTextContent('Certificate renewal is failing')
     expect(screen.getByTestId('operator-cert-soon-op')).toHaveClass('text-warn')
     expect(screen.getByTestId('operator-cert-late-op')).toHaveTextContent('Certificate expired')
     expect(screen.getByTestId('operator-cert-late-op')).toHaveClass('text-bad')
@@ -794,7 +794,7 @@ describe('RegionalOperatorsPage - the table', () => {
   })
 
   test('Renew certificates asks the server to install again and shows what it returns on the same screen as a new operator', async () => {
-    listOperators.mockResolvedValue([op({ certState: 'expiring', certs: { receiverNotAfter: daysFromNow(10) } })])
+    listOperators.mockResolvedValue([op({ certState: 'renewal-failing', certs: { receiverNotAfter: daysFromNow(10) } })])
     const user = userEvent.setup()
     renderPage()
     await user.click(await screen.findByTestId('operator-cert-renew-athens-regional'))
@@ -820,7 +820,7 @@ describe('RegionalOperatorsPage - the table', () => {
       restartCommand: 'RESTART-CMD',
       reminders: [] as string[],
     })
-    listOperators.mockResolvedValue([op({ certState: 'expiring', certs: { receiverNotAfter: daysFromNow(10) } })])
+    listOperators.mockResolvedValue([op({ certState: 'renewal-failing', certs: { receiverNotAfter: daysFromNow(10) } })])
     const user = userEvent.setup()
     renderPage()
     await user.click(await screen.findByTestId('operator-cert-renew-athens-regional'))
@@ -1459,8 +1459,8 @@ describe('RegionalOperatorsPage - renewing certificates asks first', () => {
     let finish: (c: CreatedOperator) => void = () => undefined
     reinstallOperator.mockImplementationOnce(() => new Promise<CreatedOperator>((r) => { finish = r }))
     listOperators.mockResolvedValue([
-      op({ id: 'op-a', name: 'one', certState: 'expiring', certs: { receiverNotAfter: daysFromNow(10) } }),
-      op({ id: 'op-b', name: 'two', certState: 'expiring', certs: { receiverNotAfter: daysFromNow(10) } }),
+      op({ id: 'op-a', name: 'one', certState: 'renewal-failing', certs: { receiverNotAfter: daysFromNow(10) } }),
+      op({ id: 'op-b', name: 'two', certState: 'renewal-failing', certs: { receiverNotAfter: daysFromNow(10) } }),
     ])
     const user = userEvent.setup()
     renderPage()

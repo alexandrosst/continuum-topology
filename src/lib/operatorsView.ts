@@ -1,17 +1,13 @@
 import { extrasOf, type AgentDiagnostics } from './consent'
 import type { OperatorDestination, RegionalOperator, TelemetryIntent } from './types'
 
-const DAY = 86_400_000
-
-/** The certificate chip of an operator row: nothing while they are fine, amber in the 60 days before they run out (the server
- *  says when that is: `certState`), red once one has. The number is read off the soonest date, so it is the one that matters. */
-export function certChip(op: Pick<RegionalOperator, 'certs' | 'certState'>, now = Date.now()): { tone: 'warn' | 'bad'; text: string } | undefined {
-  if (op.certState === 'expired') return { tone: 'bad', text: 'Certificate expired' }
-  if (op.certState !== 'expiring') return undefined
+/** The certificate chip of an operator row: nothing while they renew on their own (`certState` ok), amber while renewal is failing
+ *  and they still run, red once one has run out. The date is the soonest one, so it is the one that matters. */
+export function certChip(op: Pick<RegionalOperator, 'certs' | 'certState'>): { tone: 'warn' | 'bad'; text: string } | undefined {
+  if (op.certState !== 'renewal-failing' && op.certState !== 'expired') return undefined
   const dates = [op.certs?.receiverNotAfter, op.certs?.clientNotAfter, op.certs?.caNotAfter].filter((d): d is string => !!d).map((d) => Date.parse(d)).filter((t) => !Number.isNaN(t))
-  if (dates.length === 0) return { tone: 'warn', text: 'Certificate expires soon' }
-  const days = Math.max(0, Math.ceil((Math.min(...dates) - now) / DAY))
-  return { tone: 'warn', text: `Certificate expires in ${days} ${days === 1 ? 'day' : 'days'}` }
+  const until = dates.length > 0 ? ` (valid until ${new Date(Math.min(...dates)).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })})` : ''
+  return op.certState === 'expired' ? { tone: 'bad', text: 'Certificate expired' } : { tone: 'warn', text: `Certificate renewal is failing${until}` }
 }
 
 /** What an operator row says about where other clusters reach it. */
