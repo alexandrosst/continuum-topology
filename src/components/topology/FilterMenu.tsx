@@ -28,7 +28,6 @@ export default function FilterMenu({
   clusters,
   applications,
   onChange,
-  platform,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -36,10 +35,8 @@ export default function FilterMenu({
   clusters: Cluster[]
   applications: Application[]
   onChange: (f: Filter) => void
-  /** Only while the platform layer is on: a filter of its own, for the parts of the layer that are not working. */
-  platform?: { problemsOnly: boolean; onChange: (v: boolean) => void }
 }) {
-  const count = filter.clusters.length + filter.apps.length + filter.kinds.length + (platform?.problemsOnly ? 1 : 0)
+  const count = filter.clusters.length + filter.apps.length + filter.kinds.length
 
   const toggle = (key: 'clusters' | 'apps' | 'kinds', id: string) => {
     const cur = filter[key]
@@ -89,16 +86,6 @@ export default function FilterMenu({
           {list('apps', [...applications.map((a) => ({ id: a.id, name: a.name })), { id: NO_APP, name: 'No application', hint: 'unassigned' }], '')}
           <div className="px-3 pb-1 pt-3 text-xs uppercase tracking-wide text-nb-500">Kind</div>
           {list('kinds', SERVICE_KINDS.map((k) => ({ id: k, name: k, hint: KIND_HINT[k] })), '')}
-          {platform && (
-            <>
-              <div className="px-3 pb-1 pt-3 text-xs uppercase tracking-wide text-nb-500">Platform</div>
-              <label className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm text-nb-300 hover:bg-nb-940">
-                <input type="checkbox" className="accent-[var(--color-accent,#f68330)]" checked={platform.problemsOnly} onChange={(e) => platform.onChange(e.target.checked)} data-testid="filter-platform-problems" />
-                <span className="min-w-0 flex-1 truncate">Problems only</span>
-                <span className="shrink-0 text-xs text-nb-500">hides what is healthy</span>
-              </label>
-            </>
-          )}
         </div>
         <p className="border-t border-nb-850 px-3 py-2 text-xs text-nb-500">Nothing ticked in a list means all of it. A dependency is shown only if both ends are.</p>
       </MenuPanel>

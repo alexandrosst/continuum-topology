@@ -16,7 +16,6 @@ import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
 import { applyGraphUpdate, APP_CARD, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
-import type { PlatformEntity, PlatformModel } from '../src/lib/platformLayer'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterLink, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type Service, type Suggestion } from '../src/lib/types'
 
@@ -1565,66 +1564,6 @@ test('a card\'s own drag extent keeps it inside its parent box\'s PAD/HEADER mar
     const [[left, top], [right, bottom]] = ext as [[number, number], [number, number]]
     assert.ok(right > left && bottom > top, `${node.id}'s card extent is a real box, not inverted`)
   }
-})
-
-/** A platform layer for the seed's two far-edge clusters: an agent and a local operator in each, one regional operator, the central operator and FUSION. */
-const platformModel = (): PlatformModel => {
-  const part = (id: string, kind: PlatformEntity['kind'], name: string, over: Partial<PlatformEntity> = {}): PlatformEntity => ({ id, kind, name, detail: '', status: 'healthy', sentence: 'Fine.', sendsTo: [], ...over })
-  return {
-    entities: [
-      part('agent:a', 'agent', 'Discovery agent', { clusterId: 'cl-edge-a' }),
-      part('local:a', 'local', 'Local operator', { clusterId: 'cl-edge-a' }),
-      part('agent:b', 'agent', 'Discovery agent', { clusterId: 'cl-edge-b' }),
-      part('local:b', 'local', 'Local operator', { clusterId: 'cl-edge-b', status: 'attention' }),
-      part('regional:op-1', 'regional', 'Athens aggregator'),
-      part('central', 'central', 'Central operator'),
-      part('fusion', 'fusion', 'FUSION'),
-    ],
-    edges: [
-      { id: 'local:a>regional:op-1', from: 'local:a', to: 'regional:op-1', status: 'healthy', age: '2 s' },
-      { id: 'local:b>regional:op-1', from: 'local:b', to: 'regional:op-1', status: 'attention', age: '14 min' },
-      { id: 'regional:op-1>central', from: 'regional:op-1', to: 'central', status: 'healthy' },
-      { id: 'central>fusion', from: 'central', to: 'fusion', status: 'healthy', age: '8 s' },
-    ],
-  }
-}
-
-test('platform layer: off it adds no node and no edge; on, each cluster box holds its agent and local operator', () => {
-  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
-  const off = buildGraph(seed, opts)
-  assert.ok(!off.nodes.some((n) => n.type === 'platform'), 'nothing of the layer without it')
-  assert.ok(!off.edges.some((e) => e.data?.platform))
-  const on = buildGraph(seed, { ...opts, platform: platformModel() })
-  const inA = on.nodes.filter((n) => n.type === 'platform' && n.parentId === groupId('cl-edge-a'))
-  assert.deepEqual(inA.map((n) => n.id).sort(), ['p:agent:a', 'p:local:a'])
-  const box = on.nodes.find((n) => n.id === groupId('cl-edge-a'))!
-  const [agent, local] = inA
-  assert.ok(Number(local.position.x) >= Number(agent.position.x) + 200, 'side by side, not on top of each other')
-  assert.ok(Number(agent.position.y) + 56 <= Number(box.style?.height), 'inside the box it grew by one row')
-  assert.ok(agent.extent, 'dragged only within its cluster, like a card')
-})
-
-test('platform layer: regional operators, the central operator and FUSION stand right of every cluster, in that order, joined by dashed-telemetry hops with their age', () => {
-  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false, platform: platformModel() }
-  const g = buildGraph(seed, opts)
-  const x = (id: string) => Number(g.nodes.find((n) => n.id === id)!.position.x)
-  const clustersRight = Math.max(...g.nodes.filter((n) => n.data.kind === 'group').map((n) => Number(n.position.x) + Number(n.style?.width)))
-  assert.ok(x('p:regional:op-1') > clustersRight, 'outside the cluster boxes')
-  assert.ok(x('p:central') > x('p:regional:op-1') && x('p:fusion') > x('p:central'), 'local -> regional -> central -> FUSION, left to right')
-  const hops = g.edges.filter((e) => e.data?.platform)
-  assert.equal(hops.length, 4)
-  const hop = hops.find((e) => e.id === 'pl:local:b>regional:op-1')!
-  assert.equal(hop.source, 'p:local:b')
-  assert.equal(hop.target, 'p:regional:op-1')
-  assert.equal(hop.label, '14 min')
-  assert.equal(hop.data?.platform?.status, 'attention')
-  assert.ok(hop.markerEnd, 'an arrowhead, like every line that has a direction')
-  assert.equal(hops.find((e) => e.id === 'pl:regional:op-1>central')!.label, '', 'a hop with no time of its own says none')
-})
-
-test('platform layer: grouped by tier it is left out, because it needs the cluster boxes', () => {
-  const g = buildGraph(seed, { view: 'application' as const, groupBy: 'tier' as const, servicesOnNodes: false, links: true, devices: false, platform: platformModel() })
-  assert.ok(!g.nodes.some((n) => n.type === 'platform'))
 })
 
 test("service card: a shorter card sharing a packed row with a taller one keeps its own height, not the row's tallest", () => {

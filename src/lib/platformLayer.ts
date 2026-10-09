@@ -1,12 +1,11 @@
 /**
- * The platform layer of the topology: the telemetry pipeline drawn next to the clusters it serves. Each cluster has its Discovery
- * agent and, when telemetry is installed, its Local operator; Regional operators, the Central operator and FUSION sit outside the
- * clusters, joined local -> regional -> central -> FUSION.
+ * The telemetry platform: each cluster's Discovery agent and, when telemetry is installed, its Local operator; the Regional operators,
+ * the Central operator and FUSION they send to, joined agent -> local -> regional -> central -> FUSION.
  *
  * Everything here is derived from what the app already loads (approved agents and their reports, telemetry intents, the operators
  * the server lists - the central one included, whose health is FUSION's own state), and nothing is invented: a time that is not
- * known is left out, a state that cannot be known is "Unknown". The result is plain data: graph.ts places it, the canvas draws it,
- * the Inspector describes it.
+ * known is left out, a state that cannot be known is "Unknown". The result is plain data: telemetryLanes.ts places it for the
+ * Telemetry tab, the Inspector describes it.
  */
 import { extrasOf } from './consent'
 import { exportReach, exportRows } from './exportHealth'

@@ -10,8 +10,6 @@ import { MarkerType, Position, type Edge, type Node } from '@xyflow/react'
 import { isObserved } from './observed'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
 import { clusterLoad, pathQuality, type ClusterLoad, type PathQuality } from './metrics'
-import type { PlatformEntity, PlatformModel, PlatformStatus } from './platformLayer'
-import { layoutOutside, PLATFORM_NODE, platformNode, platformNodeId, reserveStrip, stripPosition, type PlatformNode } from './platformLayerGraph'
 import {
   DEVICE_KINDS,
   TIER_ORDER,
@@ -144,7 +142,7 @@ export type NamespaceData = {
 }
 export type NamespaceNode = Node<NamespaceData, 'namespace'>
 
-export type TopoNode = GroupNode | CardNode | NamespaceNode | PlatformNode
+export type TopoNode = GroupNode | CardNode | NamespaceNode
 
 export type EdgeData = {
   crossGroup: boolean
@@ -239,9 +237,6 @@ export type EdgeData = {
    *  which stay exclusive to the standalone ClusterLink edge (an aggregate across every dependency
    *  crossing it, not a fact about this one dependency alone). */
   tunnelLink?: { fromCluster: string; toCluster: string; via: string; redundancy: number; encryption?: ClusterLink['encryption'] }
-  /** Set only on a hop of the platform layer (a telemetry line, not a call): how that hop is doing. `from`/`to` are then the two
-   *  PlatformEntity ids, and the label is the age of the last data it carried, when known. */
-  platform?: { status: PlatformStatus }
 }
 export type TopoEdge = Edge<EdgeData>
 
@@ -275,9 +270,6 @@ export interface GraphOptions {
    *  poll (see ClusterLink's own doc), passed in the same way `paths` is rather than living on Topology
    *  itself, since neither is ever part of the stored workspace. */
   clusterLinks?: ClusterLink[]
-  /** The telemetry platform (agents, operators, FUSION), drawn with the clusters and joined to them. Off when absent; only meaningful
-   *  grouped by cluster, since its first nodes live inside a cluster's box. */
-  platform?: PlatformModel
 }
 
 export const groupId = (key: string) => `g:${key}`
@@ -358,8 +350,6 @@ interface GroupAcc {
   /** Device / external groups: what to show in the header. */
   extra?: { kind: 'devices' | 'external'; entityId: string; title: string; subtitle: string; country?: string; status?: Status }
   items: Item[]
-  /** A cluster's platform nodes (its Discovery agent and Local operator), laid out as one row under its cards. */
-  platform?: PlatformEntity[]
 }
 
 interface PlacedChild {
@@ -385,8 +375,6 @@ interface Placed {
   children: PlacedChild[]
   /** Set instead of (never alongside) `children` when this group nests its items under namespace sub-boxes. */
   nsBoxes?: NsBox[]
-  /** Where the row of platform nodes starts, when the cluster has any. */
-  stripY?: number
 }
 
 /** One row of cards, left to right, wrapping at `cols`: shared by a cluster box and a namespace sub-box. */
@@ -551,13 +539,6 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     }
   }
 
-  // The platform layer: each cluster's own agent and local operator go in its box. (Only when grouped by cluster: a tier box mixes clusters.)
-  const inCluster = o.platform && o.groupBy === 'cluster' ? o.platform.entities.filter((e) => e.clusterId && groups.has(e.clusterId)) : []
-  for (const e of inCluster) {
-    const g = groups.get(e.clusterId!)!
-    g.platform = [...(g.platform ?? []), e]
-  }
-
   /* 2. Lay out: tiers are rows (cloud on top → far edge at the bottom), groups sit side by side. */
   const rows = new Map<number, GroupAcc[]>()
   ;[...groups.values()]
@@ -579,14 +560,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     const { w, h, children } = packItems(g.items, HEADER)
     return { g, w: Math.max(w || 248, 248, MIN_GROUP_HEADER_WIDTH), h: n === 0 ? HEADER + 52 : h, children }
   }
-  const layoutGroup = (g: GroupAcc): Placed => {
-    const cards = layoutCards(g)
-    if (!g.platform?.length) return cards
-    const strip = reserveStrip(cards, g.platform.length, PAD, HEADER, g.items.length > 0)
-    return { ...cards, w: strip.w, h: strip.h, stripY: strip.y }
-  }
-
-  const placedRows = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, gs]) => gs.map(layoutGroup))
+  const placedRows = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, gs]) => gs.map(layoutCards))
   const rowWidths = placedRows.map((r) => r.reduce((s, p) => s + p.w, 0) + (r.length - 1) * GROUP_GAP_X)
   const maxW = Math.max(0, ...rowWidths)
 
@@ -700,22 +674,10 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
           abs.set(c.item.id, { x: x + c.x, y: y + c.y, w: c.item.w, h: c.h })
         }
       }
-      g.platform?.forEach((e, i) => {
-        const pos = stripPosition(i, PAD, p.stripY!)
-        nodes.push(platformNode(e, g.tier, { ...pos, parentId: gid, extent: [[PAD, p.stripY!], [p.w - PAD, p.h - PAD]] }))
-        abs.set(platformNodeId(e.id), { x: x + pos.x, y: y + pos.y, w: PLATFORM_NODE.w, h: PLATFORM_NODE.h })
-      })
       x += p.w + GROUP_GAP_X
     }
     y += Math.max(...row.map((p) => p.h)) + ROW_GAP
   })
-
-  // ...and the platform nodes outside the clusters, in columns to their right.
-  if (o.platform && o.groupBy === 'cluster' && inCluster.length + o.platform.entities.filter((e) => !e.clusterId).length > 0) {
-    const outside = layoutOutside(o.platform, abs, maxW)
-    nodes.push(...outside.nodes)
-    for (const [id, box] of outside.boxes) abs.set(id, box)
-  }
 
   /* 3. Edges. */
   const edges: TopoEdge[] = []
@@ -804,14 +766,6 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         stats: bytesPerSec > 0 ? { bytesPerSec } : undefined,
       }))
     }
-  }
-
-  // The platform layer's hops: telemetry lines, not calls, so they say how the hop is doing and how long ago data last crossed it.
-  for (const e of o.platform?.edges ?? []) {
-    const from = platformNodeId(e.from)
-    const to = platformNodeId(e.to)
-    if (!abs.has(from) || !abs.has(to)) continue
-    edges.push(makeEdge(`pl:${e.id}`, from, to, abs, { label: e.age ?? '', cross: true, aggregated: false, groupLevel: true, from: e.from, to: e.to, platform: { status: e.status } }))
   }
 
   // Cluster links: a confirmed overlay/subnet relationship, drawn directly between the two clusters' own
@@ -1538,7 +1492,6 @@ function makeEdge(
     /** See EdgeData.tunnelLink's own doc - mutually exclusive with clusterLink above. */
     tunnelLink?: { fromCluster: string; toCluster: string; via: string; redundancy: number; encryption?: ClusterLink['encryption'] }
     protocols?: Record<string, number>
-    platform?: { status: PlatformStatus }
   },
 ): TopoEdge {
   const [ss, ts] = pickSides(abs.get(source)!, abs.get(target)!)
@@ -1568,7 +1521,7 @@ function makeEdge(
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,
     markerEnd: d.aggregated || d.clusterLink ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, ifaceSpeedMbps: d.ifaceSpeedMbps, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, dnsRttMs: d.dnsRttMs, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink, tunnelLink: d.tunnelLink, protocols: d.protocols, platform: d.platform },
+    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, ifaceSpeedMbps: d.ifaceSpeedMbps, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, dnsRttMs: d.dnsRttMs, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink, tunnelLink: d.tunnelLink, protocols: d.protocols },
   }
 }
 
