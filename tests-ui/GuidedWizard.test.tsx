@@ -384,6 +384,16 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('Another OTLP endpoint')
   })
 
+  test('an install that already sends to an operator\'s advertised address opens with that operator picked, not "Another OTLP endpoint"', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    listOperators.mockResolvedValue([operator({ id: 'op-a', name: 'A operator', endpoint: 'otlp.a.example.com:4317', address: 'otlp.a.example.com:4317', reachableFromOtherClusters: true }), operator({ id: 'op-b', name: 'B operator' })])
+    renderWizard({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'otlp.a.example.com:4317' })
+    await user.click(screen.getByTestId('t-guided-continue'))
+    await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('A operator'))
+    expect(await screen.findByTestId('t-guided-destination-operator-op-a')).toHaveAttribute('aria-checked', 'true')
+  })
+
   test('two regional operators are not auto-picked: the person chooses', async () => {
     const user = userEvent.setup()
     role = 'admin'

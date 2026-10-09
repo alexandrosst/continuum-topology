@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { FusionDot } from '@/components/operators/FusionPanel'
 import { OperatorHealth } from '@/components/operators/OperatorHealth'
 import { Button, Field, ICON_SM, InfoTip, Input, SectionLabel, Select, Waiting } from '@/components/ui/primitives'
-import { applyDestination, defaultDestination, destinationEndpoint, destinationIsPlain, destinationKey, destinationNeedsCredential, layoutDestinations, type DestinationCatalog } from '@/lib/destinationCatalog'
+import { applyDestination, defaultDestination, destinationEndpoint, destinationIsPlain, destinationKey, destinationNeedsCredential, layoutDestinations, type DestinationCatalog, type DestinationCatalogEntry } from '@/lib/destinationCatalog'
 import { fusionLabel } from '@/lib/fusionStatus'
 import { exportProtocolLabel, type TelemetryInput } from '@/lib/install'
 import { operatorLiveness, receiverAuthOf } from '@/lib/operatorHealth'
@@ -71,7 +71,13 @@ export default function DestinationStep({
   const layout = layoutDestinations(catalog, { clusterId })
   const endpointSet = value.exportEndpoint.trim() !== ''
   // An install that sends to a regional operator or FUSION says which (its intent names it): that is a match even when the address it dials differs.
-  const matched = layout.all.find((e) => destinationEndpoint(e) === value.exportEndpoint) ?? (value.exportOperatorId ? layout.all.find((e) => (e.kind === 'operator' || e.kind === 'fusion') && e.id === value.exportOperatorId) : undefined)
+  // The address an install reports is the one its command dialled: the operator's advertised address when it has one, not the placeholder name.
+  const isOp = (e: DestinationCatalogEntry): e is Extract<DestinationCatalogEntry, { kind: 'operator' | 'fusion' }> => e.kind === 'operator' || e.kind === 'fusion'
+  const ep = value.exportEndpoint.trim()
+  const matched =
+    layout.all.find((e) => destinationEndpoint(e) === value.exportEndpoint) ??
+    (value.exportOperatorId ? layout.all.find((e) => isOp(e) && e.id === value.exportOperatorId) : undefined) ??
+    (ep ? layout.all.find((e) => isOp(e) && e.operator.endpoint === ep) : undefined)
   const activeKey = choice ?? (endpointSet ? (matched ? destinationKey(matched) : 'custom') : null)
   const selected = activeKey && activeKey !== 'custom' ? catalog.entries.find((e) => destinationKey(e) === activeKey) : undefined
 
