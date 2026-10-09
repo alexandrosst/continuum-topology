@@ -76,6 +76,8 @@ type AppGroup struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description,omitempty"`
 	Members     []AppMember `json:"services"`
+	// Origin and Confidence say how the application came to be (a person, or discovery).
+	Origin, Confidence string `json:"-"`
 	// Unresolved counts the members Ikhnos has an id for but cannot tie to a service (a cluster that is not connected, a
 	// service that has gone): they cannot be matched with telemetry, so they are not in Members.
 	Unresolved int `json:"-"`
@@ -145,6 +147,19 @@ type TopoLink struct {
 	Confidence       string
 	Stale            bool
 	Noise            string // dns | system: machinery rather than the applications' own
+	CrossCluster     bool   // the two ends are in different clusters
+	Traffic          LinkTraffic
+}
+
+// LinkTraffic is what was measured on a link, as of the topology it comes from. A zero is "not measured" as often as it is "none":
+// only eBPF sees retransmits and round trips.
+type LinkTraffic struct {
+	Bytes             uint64  `json:"bytes"`
+	Connections       uint64  `json:"connections"`
+	BytesPerSec       float64 `json:"bytesPerSec"`
+	ConnectionsPerMin float64 `json:"connectionsPerMin"`
+	RttMs             float64 `json:"rttMs"`
+	RetransmitsPerMin float64 `json:"retransmitsPerMin"`
 }
 
 // ChangeEvent is something that happened to part of the estate.

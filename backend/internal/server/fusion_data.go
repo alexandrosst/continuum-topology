@@ -576,6 +576,84 @@ func (a *Admin) fusionApplication(w http.ResponseWriter, r *http.Request, c *fus
 	writeJSON(w, 200, o)
 }
 
+// topologyAter is what the extras add when the server remembers the past (fusionExtras.TopologyAt).
+type topologyAter interface {
+	TopologyAt(ctx context.Context, appID string, at time.Time) (*fusionapi.TopologyView, []fusionapi.AppMember, error)
+}
+
+// fusionAppTopology is one application's services and the traffic between them and the rest of the estate, now or (at=) as of a
+// past moment, with what changed around them in the window before it.
+func (a *Admin) fusionAppTopology(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+	q := r.URL.Query()
+	window, err := fusionapi.DurationParam(q.Get("window"))
+	if err == nil && (window < 0 || window > fusionapi.MaxTopologyWindow) {
+		err = &fusionapi.Error{Status: 400, Msg: "window can be at most 7d"}
+	}
+	if window == 0 {
+		window = fusionapi.DefaultTopologyWindow
+	}
+	var noise bool
+	if err == nil {
+		noise, err = fusionapi.ParseBool("noise", q.Get("noise"), false)
+	}
+	var at time.Time
+	if err == nil && q.Has("at") {
+		if at, err = time.Parse(time.RFC3339, q.Get("at")); err != nil {
+			err = &fusionapi.Error{Status: 400, Msg: "at must be an RFC 3339 time"}
+		}
+	}
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	groups, err := a.fusionGroups(r, who)
+	var g *fusionapi.AppGroup
+	if err == nil {
+		g, err = fusionapi.FindGroup(groups, r.PathValue("name"))
+	}
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	ex, until := a.fusionExtras(), a.C.Now()
+	var v *fusionapi.TopologyView
+	if !at.IsZero() {
+		h, ok := ex.(topologyAter)
+		if !ok {
+			a.fusionErr(w, r, &fusionapi.Error{Status: 404, Msg: "history is not enabled on this server: it needs the graph database"})
+			return
+		}
+		var members []fusionapi.AppMember
+		if v, members, err = h.TopologyAt(r.Context(), g.ID, at); err == nil {
+			then := *g
+			then.Members, then.Unresolved = members, 0
+			if vis := fusionapi.VisibleGroups([]fusionapi.AppGroup{then}, who.Scope); len(vis) > 0 { // as the caller may see it, then
+				g, until = &vis[0], at
+			} else {
+				err = &fusionapi.Error{Status: 404, Msg: "the application had no services you may see at that time"}
+			}
+		}
+	} else {
+		v, err = ex.Topology(r.Context())
+	}
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	t := fusionapi.BuildAppTopology(g, v, who.Scope, noise)
+	if !at.IsZero() {
+		snap := v.At
+		t.Source, t.AsOf, t.SnapshotAt = "history", at, &snap
+	}
+	evs, err := ex.Changes(r.Context(), until.Add(-window), until, nil, t.Targets(), fusionapi.MaxAppChanges+1)
+	if err != nil {
+		a.fusionErr(w, r, err)
+		return
+	}
+	t.AddChanges(evs)
+	writeJSON(w, 200, t)
+}
+
 // fusionService is one service at a glance, by the service.name its telemetry carries.
 func (a *Admin) fusionService(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
 	tr, err := fusionRange(r, a.C.Now())

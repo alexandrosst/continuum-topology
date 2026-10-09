@@ -31,6 +31,40 @@
     "metrics": {"type": "array", "items": {"type": "string"}, "description": "Metric names it reports."},
     "metricsTruncated": {"type": "boolean", "description": "It reports more metric names than are listed."},
     "sources": {"$ref": "#/components/schemas/Sources"}, "warnings": {"type": "array", "items": {"type": "string"}}}},
+  "LinkTraffic": {"type": "object", "description": "What was measured on a link. A zero is as often \"not measured\" as \"none\": only eBPF sees round trips and retransmits.", "properties": {
+    "bytes": {"type": "integer"}, "connections": {"type": "integer"}, "bytesPerSec": {"type": "number"}, "connectionsPerMin": {"type": "number"}, "rttMs": {"type": "number"}, "retransmitsPerMin": {"type": "number"}}},
+  "ApplicationTopology": {"type": "object", "description": "One application's services, the traffic around them and what changed. Pointers, not telemetry: read that with `application` on the other routes.", "properties": {
+    "application": {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "description": {"type": "string"}, "origin": {"type": "string"}, "confidence": {"type": "string"}}},
+    "asOf": {"type": "string", "format": "date-time", "description": "The moment the answer describes: the topology's own for a live read, `at` for a past one."},
+    "source": {"type": "string", "enum": ["live", "history"]},
+    "snapshotAt": {"type": "string", "format": "date-time", "description": "History only: when the recording the answer is drawn from was made (the newest at or before `at`)."},
+    "health": {"type": "object", "properties": {
+      "status": {"type": "string", "enum": ["healthy", "degraded", "down", "unknown"], "description": "Worst-case roll-up of the services' replicas: down when none has a replica ready, degraded when some are not fully ready, unknown when none is in the topology."},
+      "reason": {"type": "string"},
+      "services": {"type": "object", "properties": {"total": {"type": "integer"}, "healthy": {"type": "integer"}, "degraded": {"type": "integer"}, "down": {"type": "integer"}, "unknown": {"type": "integer"}}},
+      "restarts": {"type": "integer"}, "staleLinks": {"type": "integer"}}},
+    "services": {"type": "array", "items": {"type": "object", "properties": {
+      "key": {"type": "string", "description": "`name/namespace/cluster`: the identity telemetry knows the service by, and the `member` label of the application info series."},
+      "id": {"type": "string", "description": "The service's id in Ikhnos."}, "name": {"type": "string"}, "namespace": {"type": "string"}, "cluster": {"type": "string"}, "kind": {"type": "string"},
+      "image": {"type": "string"}, "status": {"type": "string"}, "replicas": {"type": "integer"}, "readyReplicas": {"type": "integer"}, "restarts": {"type": "integer"},
+      "telemetry": {"type": "object", "properties": {"member": {"type": "string"}, "filter": {"type": "object", "description": "The label values its telemetry carries.", "properties": {
+        "continuum_cluster_id": {"type": "string"}, "k8s_namespace_name": {"type": "string"}, "service_name": {"type": "array", "items": {"type": "string"}, "description": "Its name and its aliases."},
+        "workload": {"type": "object", "additionalProperties": {"type": "string"}, "description": "For the metrics the cluster reports about the workload itself, the label that names it (`k8s_deployment_name`, `k8s_statefulset_name` or `k8s_daemonset_name`)."}}}}}}}},
+    "links": {"type": "array", "description": "Live links first, the busiest first.", "items": {"type": "object", "properties": {
+      "from": {"type": "string", "description": "A service's key, or the id of an address in `externals`."}, "fromKind": {"type": "string", "enum": ["service", "external"]},
+      "to": {"type": "string"}, "toKind": {"type": "string", "enum": ["service", "external"]},
+      "direction": {"type": "string", "enum": ["internal", "outbound", "inbound"], "description": "Between two services of the application, from one to something else, or from something else to one."},
+      "port": {"type": "integer"}, "protocol": {"type": "string"}, "confidence": {"type": "string"}, "stale": {"type": "boolean"}, "crossCluster": {"type": "boolean"},
+      "traffic": {"$ref": "#/components/schemas/LinkTraffic"}}}},
+    "neighbours": {"type": "array", "description": "The services outside the application that have traffic with it.", "items": {"type": "object", "properties": {
+      "key": {"type": "string"}, "id": {"type": "string"}, "name": {"type": "string"}, "namespace": {"type": "string"}, "cluster": {"type": "string"},
+      "applications": {"type": "array", "items": {"type": "string"}, "description": "The applications it is in (empty in a past answer)."}}}},
+    "externals": {"type": "array", "description": "Addresses outside the clusters its services talk to. Only for a token that is not limited to certain namespaces or clusters.", "items": {"type": "object", "properties": {
+      "id": {"type": "string"}, "name": {"type": "string"}, "port": {"type": "integer"}, "protocol": {"type": "string"}, "calledBy": {"type": "array", "items": {"type": "string"}, "description": "Keys of its services that call it."}}}},
+    "changes": {"type": "array", "description": "Newest first: events about the application, its services and the links shown.", "items": {"$ref": "#/components/schemas/ChangeEvent"}},
+    "unresolvedMembers": {"type": "integer", "description": "Members Ikhnos has an id for but cannot tie to a running service."},
+    "truncated": {"type": "object", "description": "Which parts were cut at their maximum: 2000 links, 200 neighbours, 50 addresses, 100 events.", "properties": {
+      "links": {"type": "boolean"}, "neighbours": {"type": "boolean"}, "externals": {"type": "boolean"}, "changes": {"type": "boolean"}}}}},
   "Sources": {"type": "object", "additionalProperties": {"type": "string", "enum": ["ok", "not requested", "not allowed", "unavailable", "error"]},
     "description": "What became of each part of a read: ok; not requested; not allowed (the credential does not include that signal); unavailable (the store is off or starting); error."},
   "NameList": {"type": "object", "properties": {"names": {"type": "array", "items": {"type": "string"}}, "categories": {"type": "object", "additionalProperties": {"type": "string", "enum": ["system", "kubernetes", "application"]}, "description": "The category of each name (system, kubernetes or application)."},
@@ -65,7 +99,7 @@
     "calledBy": {"type": "array", "items": {"$ref": "#/components/schemas/Neighbour"}, "description": "Services seen calling it."}}},
   "ChangeEvent": {"type": "object", "description": "Something Ikhnos recorded about the estate near the trace.", "properties": {
     "time": {"type": "string", "format": "date-time"}, "kind": {"type": "string", "description": "For example service-scaled, node-status, cluster-added."},
-    "targetKind": {"type": "string", "enum": ["cluster", "node", "service", "dependency", "agent"]}, "targetId": {"type": "string"}, "name": {"type": "string"},
+    "targetKind": {"type": "string", "enum": ["cluster", "node", "service", "dependency", "application", "agent"]}, "targetId": {"type": "string"}, "name": {"type": "string"},
     "cluster": {"type": "string"}, "clusterName": {"type": "string"}, "detail": {"type": "string"}, "cause": {"type": "string"}, "severity": {"type": "string"},
     "namespace": {"type": "string"}, "resource": {"type": "string", "description": "The key of the trace resource it is about, when it is about one."}}},
   "Span": {"type": "object", "properties": {

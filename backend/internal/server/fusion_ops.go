@@ -138,7 +138,7 @@ type fusionParam struct {
 
 var fusionPathParams = map[string]fusionParam{
 	"id":   {Type: "string", Example: "0af7651916cd43dd8448eb211c80319c", Desc: "The trace id: 32 hex characters (shorter ones are zero-padded)."},
-	"name": {Type: "string", Example: "checkout", Desc: "The application (its id or name) on `/applications/{name}`; the service (its `service.name`) on `/services/{name}`."},
+	"name": {Type: "string", Example: "checkout", Desc: "The application (its id or name) on `/applications/{name}` and `/applications/{name}/topology`; the service (its `service.name`) on `/services/{name}`."},
 
 	"label": {Type: "string", Example: "service_name", Desc: "The label name."},
 	"tag":   {Type: "string", Example: "resource.service.name", Desc: "The tag name, with its scope: `resource.service.name`, `span.http.method`, or an intrinsic such as `name`."},
@@ -150,6 +150,11 @@ var fusionParams = map[string]fusionParam{
 	// time
 	"from": {Type: "string", Default: "to − 1h", Example: "now-15m", Desc: "Start of the range: an RFC 3339 time, unix seconds, or `now-<duration>` such as `now-15m` or `now-7d` (durations take s, m, h, d and w)."},
 	"to":   {Type: "string", Default: "now", Example: "now", Desc: "End of the range, in the same forms as `from`. The range can be at most 31 days, but a trace search reads at most 7 days and a log read at most 30 days at a time."},
+
+	// the topology of an application
+	"at":     {Type: "string", Example: "2026-10-05T11:30:00Z", Desc: "An RFC 3339 time: answer as the estate was then instead of now: the services, links and traffic of the newest recording at or before it (`snapshotAt`), and the services the application had at that moment. Needs the graph database."},
+	"window": {Type: "string", Default: "24h", Example: "6h", Desc: "How far before now (or before `at`) to look for what changed, at most 7d."},
+	"noise":  {Type: "boolean", Default: "false", Desc: "Include the machinery links (DNS, system) that are left out by default."},
 
 	// shared filters
 	"limit":       {Type: "integer", Example: "50", Desc: "The most results to return. Larger values are cut to the route's maximum, which each route states."},
@@ -246,6 +251,9 @@ func fusionOps(a *Admin) []fusionOp {
 		{Method: "GET", Path: "/applications/{name}", Tag: "Applications", Summary: "One Ikhnos application at a glance",
 			Description: "The signals the application has across all of its services, its most recent traces and failing traces, its latest error logs and the metric names it reports: the places to go on from. `name` is the application's id or name.",
 			PathParams:  []string{"name"}, Params: rng, Response: "Overview", Handler: a.fusionApplication},
+		{Method: "GET", Path: "/applications/{name}/topology", Tag: "Applications", Summary: "The topology of one Ikhnos application",
+			Description: "The application's services with their health, the traffic between them and with everything else (the other services and addresses outside the clusters), and what Ikhnos recorded about all of that in the window before. Each service carries the labels its telemetry is found by (`telemetry.filter`), so the telemetry itself is read with `application` on the other routes: this answer is pointers, not data. Without `at` it is the estate now; with it, as the graph database remembered it at that moment (and `history is not enabled` without one). A token limited to certain namespaces or clusters sees only the services, neighbours and links it may see, and no addresses outside the clusters. `name` is the application's id or name.",
+			PathParams:  []string{"name"}, Params: []string{"at", "window", "noise"}, Response: "ApplicationTopology", Handler: a.fusionAppTopology},
 		{Method: "GET", Path: "/services", Tag: "Services", Summary: "List the services that have telemetry",
 			Description: "Every service FUSION has data for in the range (its `service.name`), with which signals it has and the Ikhnos applications it is in. This includes infrastructure that reports under a name of its own, such as an exporter or an energy meter; `applications` is empty for those.",
 			Params:      join(rng, []string{"application"}), Response: "ServiceList", Handler: a.fusionServices},

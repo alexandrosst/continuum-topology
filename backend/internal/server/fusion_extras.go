@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/history"
 	"continuum/internal/model"
 	"continuum/internal/store"
 	"continuum/internal/workspace"
@@ -53,6 +55,45 @@ func (e fusionExtras) Topology(ctx context.Context) (*fusionapi.TopologyView, er
 	groups, _ := e.Applications(ctx)
 	annotateApplications(v, groups)
 	return v, nil
+}
+
+// TopologyAt is the estate as the graph remembered it at a moment, and the services that were in the application then: the topology
+// of the newest recording at or before the moment, and the application's members as of the moment itself (so a service that
+// joined after that recording is a member the topology does not have). Only a store with a graph
+// database remembers membership, so without one this says history is not enabled.
+func (e fusionExtras) TopologyAt(ctx context.Context, appID string, at time.Time) (*fusionapi.TopologyView, []fusionapi.AppMember, error) {
+	t, err := e.tenant(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return topologyAt(ctx, t.C, appID, at)
+}
+
+func topologyAt(ctx context.Context, c *Core, appID string, at time.Time) (*fusionapi.TopologyView, []fusionapi.AppMember, error) {
+	g, ok := c.Store.(GraphAPI)
+	if !ok {
+		return nil, nil, &fusionapi.Error{Status: 404, Msg: "history is not enabled on this server: it needs the graph database"}
+	}
+	p, data, err := c.Store.GetHistory(ctx, c.OrgID, at)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil, &fusionapi.Error{Status: 404, Msg: "nothing was recorded at or before that time"}
+	}
+	topo, derr := history.Decode(data)
+	if err != nil || derr != nil {
+		return nil, nil, &fusionapi.Error{Status: 503, Msg: "the recorded topology is not available"}
+	}
+	_, reached, err := g.Dependencies(ctx, c.OrgID, at, "application", appID, 1) // what it CONTAINS, at the very moment: it changes when a person saves, not when the estate is recorded
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, nil, &fusionapi.Error{Status: 503, Msg: "the recorded applications are not available"}
+	}
+	members := []fusionapi.AppMember{}
+	for _, r := range reached {
+		var s model.Service
+		if r.Kind == "service" && json.Unmarshal(r.Doc, &s) == nil {
+			members = append(members, fusionapi.AppMember{ID: r.ID, Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID, Kind: s.Kind})
+		}
+	}
+	return topologyView(StateDoc{GeneratedAt: p.At.UTC().Format(time.RFC3339), Topology: topo}), members, nil
 }
 
 // appGroupTTL is how long the applications are reused: an application edited in Ikhnos shows in the API within this.
@@ -144,7 +185,7 @@ func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
 	apps := workspace.Applications(d, hintsOf(doc))
 	out := make([]fusionapi.AppGroup, 0, len(apps))
 	for _, a := range apps {
-		g := fusionapi.AppGroup{ID: a.ID, Name: a.Name, Description: a.Description, Members: []fusionapi.AppMember{}}
+		g := fusionapi.AppGroup{ID: a.ID, Name: a.Name, Description: a.Description, Origin: a.Origin, Confidence: a.Confidence, Members: []fusionapi.AppMember{}}
 		if g.Name == "" {
 			g.Name = a.ID
 		}
@@ -207,8 +248,13 @@ func topologyView(doc StateDoc) *fusionapi.TopologyView {
 		v.Nodes = append(v.Nodes, fusionapi.TopoNode{ID: n.ID, Name: n.Name, Cluster: n.ClusterID})
 	}
 	for _, d := range topo.Dependencies {
-		v.Links = append(v.Links, fusionapi.TopoLink{ID: d.ID, From: d.From, To: d.To, FromKind: d.FromKind, ToKind: d.ToKind, Protocol: d.Protocol,
-			Port: d.Port, Confidence: d.Confidence, Stale: d.Stale, Noise: d.Noise})
+		l := fusionapi.TopoLink{ID: d.ID, From: d.From, To: d.To, FromKind: d.FromKind, ToKind: d.ToKind, Protocol: d.Protocol,
+			Port: d.Port, Confidence: d.Confidence, Stale: d.Stale, Noise: d.Noise, CrossCluster: d.CrossCluster,
+			Traffic: fusionapi.LinkTraffic{Bytes: d.Bytes, Connections: d.Connections, RttMs: d.RttMs}}
+		if d.Stats != nil {
+			l.Traffic.BytesPerSec, l.Traffic.ConnectionsPerMin, l.Traffic.RetransmitsPerMin = d.Stats.BytesPerSec, d.Stats.ConnectionsPerMin, d.Stats.RetransmitsPerMin
+		}
+		v.Links = append(v.Links, l)
 	}
 	for _, x := range topo.ExternalEndpoints {
 		name := x.Name
