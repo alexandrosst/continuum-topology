@@ -132,6 +132,7 @@ func (r *recorder) scan(ctx context.Context, now time.Time, periodic bool) {
 			return
 		}
 		r.lastSnap, r.lastFP = now, fp
+		r.h.C.linkApplications(ctx, now, doc)
 		// Now that both the events and the version they go with are written, connect them: the graph's own
 		// record of what an event explains, not just that the UI happened to show them at the same moment.
 		if len(evs) > 0 {

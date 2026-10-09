@@ -196,6 +196,13 @@ func NewHub(c *Core) *Hub {
 	c.OnWorkspace = h.workspaceChanged
 	c.OnRevoke = h.Drop
 	c.OnSettings = h.settingsChanged
+	c.AppHints = func(ctx context.Context) map[string]string {
+		doc, err := h.State(ctx)
+		if err != nil {
+			return nil
+		}
+		return hintsOf(doc)
+	}
 	return h
 }
 

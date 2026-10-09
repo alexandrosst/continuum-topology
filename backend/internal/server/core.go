@@ -100,6 +100,9 @@ type Core struct {
 	OnSettings func(Settings)
 	// OnWorkspace tells the hub the declared layer was saved, so the effective model is recomputed.
 	OnWorkspace func(rev int64)
+	// AppHints gives, by service id, the application each discovered service's own labels suggest (the hub sets it); nil
+	// means none. The graph needs it to record the same membership the API shows.
+	AppHints func(ctx context.Context) map[string]string
 	// OnOrgDeleted lets the platform stop the organisation's hub once its data is gone.
 	OnOrgDeleted func(org string)
 	// TrustAgentProxy is set when an L4 load balancer or reverse proxy sits in front of the agent
@@ -153,7 +156,7 @@ func (c *Core) ForOrg(org string) *Core {
 	n.OrgID = org
 	n.settings = &settingsHolder{}
 	n.trafficCache = &trafficCache{}
-	n.OnRevoke, n.OnSettings, n.OnWorkspace = nil, nil, nil
+	n.OnRevoke, n.OnSettings, n.OnWorkspace, n.AppHints = nil, nil, nil, nil
 	return &n
 }
 

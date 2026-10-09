@@ -232,10 +232,7 @@ func TestPeek(t *testing.T) {
 }
 
 func TestApplicationsResolvesMembersFromRefsAndFromInlineManualServices(t *testing.T) {
-	apps, err := Applications([]byte(oldDoc))
-	if err != nil {
-		t.Fatal(err)
-	}
+	apps := applicationsOf(t, oldDoc, nil)
 	if len(apps) != 1 || apps[0].ID != "app-1" {
 		t.Fatalf("apps = %+v", apps)
 	}
@@ -252,22 +249,42 @@ func TestApplicationsResolvesMembersFromRefsAndFromInlineManualServices(t *testi
 	doc := `{"schemaVersion":4,
 		"applications":[{"id":"app-2","name":"Manual App"}],
 		"services":[{"id":"sv-m","source":"manual","applicationId":"app-2","name":"hand-run"}]}`
-	apps2, err := Applications([]byte(doc))
-	if err != nil {
-		t.Fatal(err)
-	}
+	apps2 := applicationsOf(t, doc, nil)
 	if len(apps2) != 1 || apps2[0].ID != "app-2" || !equalStrings(apps2[0].ServiceIDs, []string{"sv-m"}) {
 		t.Fatalf("manual membership not resolved: %+v", apps2)
 	}
 }
 
 func TestApplicationsWithNoApplicationsIsEmptyNotNil(t *testing.T) {
-	apps, err := Applications([]byte(`{"schemaVersion":4}`))
+	if apps := applicationsOf(t, `{"schemaVersion":4}`, nil); len(apps) != 0 {
+		t.Errorf("apps = %+v", apps)
+	}
+}
+
+func applicationsOf(t *testing.T, doc string, hints map[string]string) []ApplicationDoc {
+	t.Helper()
+	d, err := Parse([]byte(doc))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(apps) != 0 {
-		t.Errorf("apps = %+v", apps)
+	return Applications(d, hints)
+}
+
+// A deleted application is not an application, a deleted service record is no member, and a service a person put
+// in an application is not taken by the application its labels suggest; otherwise the labels decide, once the
+// application they name exists.
+func TestApplicationsSkipWhatWasDeletedAndTakeAcceptedHints(t *testing.T) {
+	doc := `{"schemaVersion":4,
+		"applications":[{"id":"app-a","name":"A"},{"id":"app-b","name":"B"},{"id":"app-old","name":"Old","deletedAt":"2026-10-01T00:00:00Z"}],
+		"refs":{"sv-ref":{"kind":"service","applicationId":"app-a"},"sv-moved":{"kind":"service","applicationId":"app-b"},"sv-ref-old":{"kind":"service","applicationId":"app-old"}},
+		"services":[{"id":"svc-hand","source":"manual","applicationId":"app-a","name":"hand"},{"id":"svc-dead","source":"manual","applicationId":"app-a","name":"dead","deletedAt":"2026-10-01T00:00:00Z"}]}`
+	hints := map[string]string{"sv-hint": "app-a", "sv-moved": "app-a", "sv-nowhere": "app-unknown", "sv-old": "app-old", "sv-ref": "app-a"}
+	got := map[string][]string{}
+	for _, a := range applicationsOf(t, doc, hints) {
+		got[a.ID] = a.ServiceIDs
+	}
+	if len(got) != 2 || !equalStrings(got["app-a"], []string{"sv-hint", "sv-ref", "svc-hand"}) || !equalStrings(got["app-b"], []string{"sv-moved"}) {
+		t.Errorf("%v", got)
 	}
 }
 

@@ -72,12 +72,16 @@ func (c *Core) recordApplicationsGraph(ctx context.Context, prevData, data []byt
 	if !ok {
 		return
 	}
-	apps, err := workspace.Applications(data)
+	var hints map[string]string // what the topology adds to the saved membership (see workspace.Applications)
+	if c.AppHints != nil {
+		hints = c.AppHints(ctx)
+	}
+	apps, err := applicationsIn(data, hints)
 	if err != nil {
 		c.Log.Warn("history: could not read applications from the saved workspace", "err", err)
 		return
 	}
-	prevApps, _ := workspace.Applications(prevData) // best-effort: nothing before, or unreadable, just means every app below looks newly created
+	prevApps, _ := applicationsIn(prevData, hints) // best-effort: nothing before, or unreadable, just means every app below looks newly created
 	prevByID := make(map[string]workspace.ApplicationDoc, len(prevApps))
 	for _, p := range prevApps {
 		prevByID[p.ID] = p
@@ -149,16 +153,49 @@ func recordApplicationsBatch(ctx context.Context, c *Core, now time.Time, br bat
 		c.Log.Warn("history: could not record applications' state", "err", err)
 		return false
 	}
-	if linker, ok := c.Store.(batchMemberLinker); ok {
-		sets := make([]graph.MemberSet, len(apps))
-		for i, app := range apps {
-			sets[i] = graph.MemberSet{ID: app.ID, TargetIDs: app.ServiceIDs}
-		}
-		if err := linker.LinkEntitiesBatch(ctx, c.OrgID, now, "CONTAINS", "application", "service", sets); err != nil {
-			c.Log.Warn("history: could not link applications to their services", "err", err)
-		}
-	}
+	c.linkApplicationMembers(ctx, now, apps)
 	return true
+}
+
+// applicationsIn is the applications of a saved workspace document, by the one definition of membership.
+func applicationsIn(data []byte, hints map[string]string) ([]workspace.ApplicationDoc, error) {
+	d, err := workspace.Parse(data)
+	if err != nil {
+		return nil, err
+	}
+	return workspace.Applications(d, hints), nil
+}
+
+// linkApplicationMembers keeps each application's CONTAINS links in step with its members. It is idempotent and writes
+// only the difference, so it is also what the recorder's scan calls (linkApplications).
+func (c *Core) linkApplicationMembers(ctx context.Context, now time.Time, apps []workspace.ApplicationDoc) {
+	linker, ok := c.Store.(batchMemberLinker)
+	if !ok {
+		return
+	}
+	sets := make([]graph.MemberSet, len(apps))
+	for i, app := range apps {
+		sets[i] = graph.MemberSet{ID: app.ID, TargetIDs: app.ServiceIDs}
+	}
+	if err := linker.LinkEntitiesBatch(ctx, c.OrgID, now, "CONTAINS", "application", "service", sets); err != nil {
+		c.Log.Warn("history: could not link applications to their services", "err", err)
+	}
+}
+
+// linkApplications is run by the recorder after it has recorded the topology: membership can change without a workspace
+// being saved (a service appears that an accepted grouping already claims), and a service has to be in the graph before
+// anything can be linked to it.
+func (c *Core) linkApplications(ctx context.Context, now time.Time, doc StateDoc) {
+	if _, ok := c.Store.(batchMemberLinker); !ok {
+		return
+	}
+	ws, err := c.Store.GetWorkspace(ctx, c.OrgID)
+	if err != nil {
+		return
+	}
+	if apps, err := applicationsIn(ws.Data, hintsOf(doc)); err == nil {
+		c.linkApplicationMembers(ctx, now, apps)
+	}
 }
 
 // retireClosedApplications closes each removed application's membership, in one round trip when the store

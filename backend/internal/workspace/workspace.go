@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -401,11 +402,7 @@ func Parse(data []byte) (Declared, error) {
 }
 
 // ApplicationDoc is one application as a document declares it, together with which services it
-// currently contains. A service's membership lives in one of two places depending on how the service
-// itself got into the document: a discovered one only ever has a ref (Declare strips the record itself
-// down to the ref the moment it sees "source": "discovered"), a manually authored one carries
-// applicationId inline on the record because it was never replaced by a ref at all. A caller asking
-// "what does this application contain right now" should not need to know which of the two it is.
+// currently contains.
 type ApplicationDoc struct {
 	ID          string
 	Name        string
@@ -415,42 +412,54 @@ type ApplicationDoc struct {
 	ServiceIDs  []string
 }
 
-// Applications reads every application a document declares, resolving each one's member services from
-// both places membership can live. Order is deterministic (by id, and each application's ServiceIDs
-// sorted) so a caller diffing two calls of this on unchanged input sees no difference.
-func Applications(data []byte) ([]ApplicationDoc, error) {
-	d, err := Parse(data)
-	if err != nil {
-		return nil, err
-	}
+// Applications is the one definition of which applications exist and which services are in each; the live FUSION
+// groups and the graph are both made from it. An application is a record of the document that has not been deleted
+// (deletedAt). A service is in it when a person put it there, in one of two places depending on how the service got
+// into the document (a discovered one only ever has a ref, because Declare strips the record down to it; a manual
+// one carries applicationId inline), or when it was left to its own labels: hints says, by service id, which
+// application a discovered service's labels suggest, and that counts once the application exists and as long as a
+// person has not put the service anywhere. A deleted service record is no member. Order is deterministic (by id,
+// and each ServiceIDs sorted) so two calls on unchanged input agree.
+func Applications(d Declared, hints map[string]string) []ApplicationDoc {
+	alive := func(r map[string]any) bool { _, gone := r["deletedAt"]; return !gone }
 	members := map[string][]string{}
-	for svcID, ref := range d.Refs {
+	chosen := map[string]bool{} // services a person put in an application, which their labels do not override
+	for id, ref := range d.Refs {
 		if ref.Kind == "service" && ref.ApplicationID != "" {
-			members[ref.ApplicationID] = append(members[ref.ApplicationID], svcID)
+			members[ref.ApplicationID] = append(members[ref.ApplicationID], id)
+			chosen[id] = true
 		}
 	}
 	for _, r := range d.Records["service"] {
 		appID, _ := r["applicationId"].(string)
 		id, _ := r["id"].(string)
-		if appID != "" && id != "" {
+		if appID != "" && id != "" && alive(r) {
 			members[appID] = append(members[appID], id)
+			chosen[id] = true
 		}
 	}
-	for _, ids := range members {
-		sort.Strings(ids)
-	}
-	out := make([]ApplicationDoc, 0, len(d.Records["application"]))
+	var out []ApplicationDoc
+	live := map[string]bool{}
 	for _, r := range d.Records["application"] {
-		id, _ := r["id"].(string)
-		if id == "" {
-			continue
+		if id, _ := r["id"].(string); id != "" && alive(r) {
+			live[id] = true
+			name, _ := r["name"].(string)
+			desc, _ := r["description"].(string)
+			origin, _ := r["origin"].(string)
+			conf, _ := r["confidence"].(string)
+			out = append(out, ApplicationDoc{ID: id, Name: name, Description: desc, Origin: origin, Confidence: conf})
 		}
-		name, _ := r["name"].(string)
-		desc, _ := r["description"].(string)
-		origin, _ := r["origin"].(string)
-		conf, _ := r["confidence"].(string)
-		out = append(out, ApplicationDoc{ID: id, Name: name, Description: desc, Origin: origin, Confidence: conf, ServiceIDs: members[id]})
+	}
+	for svc, app := range hints {
+		if live[app] && !chosen[svc] {
+			members[app] = append(members[app], svc)
+		}
+	}
+	for i := range out {
+		ids := members[out[i].ID]
+		sort.Strings(ids)
+		out[i].ServiceIDs = slices.Compact(ids)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, nil
+	return out
 }

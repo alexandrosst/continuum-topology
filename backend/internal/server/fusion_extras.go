@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"sync"
 	"time"
 
@@ -102,15 +101,28 @@ func (e fusionExtras) applications(ctx context.Context) ([]fusionapi.AppGroup, e
 	return appGroups(ws.Data, doc), nil
 }
 
-// appGroups turns the applications of a saved workspace into groups of services by the identity telemetry carries. A member
-// is a topology service the workspace names by id; one the topology does not (or no longer) have is left out, since there
-// is nothing to match telemetry with. The aliases are the app labels a service's telemetry often takes as its service.name
-// instead of the workload name.
+// hintsOf is what the labels of the discovered services suggest, by service id: the application each belongs to once a
+// person has accepted that grouping, i.e. the application exists (workspace.Applications decides). Ikhnos does not store
+// this as a membership (the suggestion is the membership), so it is read from the topology the same way the UI reads it.
+func hintsOf(doc StateDoc) map[string]string {
+	hints := map[string]string{}
+	for _, s := range doc.Topology.Services {
+		if s.ApplicationHint != "" {
+			hints[s.ID] = s.ApplicationHint
+		}
+	}
+	return hints
+}
+
+// appGroups turns the applications of a saved workspace (workspace.Applications, the definition the graph uses too) into
+// groups of services by the identity telemetry carries. A member is a topology service the workspace names by id; one the
+// topology does not (or no longer) have is left out, since there is nothing to match telemetry with. The aliases are the
+// app labels a service's telemetry often takes as its service.name instead of the workload name.
 func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
 	if len(data) == 0 {
 		return nil
 	}
-	apps, err := workspace.Applications(data)
+	d, err := workspace.Parse(data)
 	if err != nil {
 		return nil
 	}
@@ -121,57 +133,22 @@ func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
 	// A service a person wrote into Ikhnos by hand is not in the interpreted topology (that is what the agents saw), but the
 	// record itself says what it is called and where it runs, which is all telemetry can be matched with.
 	declared := map[string]map[string]any{}
-	live := map[string]bool{}    // applications that exist
-	deleted := map[string]bool{} // applications a person deleted: not applications any more
-	chosen := map[string]bool{}  // services a person put in an application explicitly, in a ref or on their own record
-	if d, err := workspace.Parse(data); err == nil {
-		for _, r := range d.Records["service"] {
+	for _, r := range d.Records["service"] {
+		if _, gone := r["deletedAt"]; !gone {
 			if id, _ := r["id"].(string); id != "" {
-				if _, gone := r["deletedAt"]; !gone {
-					declared[id] = r
-				}
-				if app, _ := r["applicationId"].(string); app != "" {
-					chosen[id] = true
-				}
+				declared[id] = r
 			}
-		}
-		for id, ref := range d.Refs {
-			if ref.ApplicationID != "" {
-				chosen[id] = true
-			}
-		}
-		for _, r := range d.Records["application"] {
-			if id, _ := r["id"].(string); id != "" {
-				if _, gone := r["deletedAt"]; gone {
-					deleted[id] = true
-				} else {
-					live[id] = true
-				}
-			}
-		}
-	}
-	// A discovered service whose own labels suggest an application ("grouped as ...") belongs to it as soon as a person has
-	// accepted that grouping, i.e. the application exists, unless a person put it somewhere else. Ikhnos does not store this
-	// as a membership (the suggestion is the membership), so it is read from the topology the same way the UI reads it.
-	hinted := map[string][]string{}
-	for _, s := range doc.Topology.Services {
-		if s.ApplicationHint != "" && !chosen[s.ID] && live[s.ApplicationHint] {
-			hinted[s.ApplicationHint] = append(hinted[s.ApplicationHint], s.ID)
 		}
 	}
 	str := func(r map[string]any, k string) string { v, _ := r[k].(string); return v }
+	apps := workspace.Applications(d, hintsOf(doc))
 	out := make([]fusionapi.AppGroup, 0, len(apps))
 	for _, a := range apps {
-		if deleted[a.ID] {
-			continue
-		}
 		g := fusionapi.AppGroup{ID: a.ID, Name: a.Name, Description: a.Description, Members: []fusionapi.AppMember{}}
 		if g.Name == "" {
 			g.Name = a.ID
 		}
-		ids := append(append([]string{}, a.ServiceIDs...), hinted[a.ID]...)
-		sort.Strings(ids)
-		for _, id := range ids {
+		for _, id := range a.ServiceIDs {
 			var m fusionapi.AppMember
 			if i, ok := byID[id]; ok {
 				s := doc.Topology.Services[i]
