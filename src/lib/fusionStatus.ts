@@ -130,7 +130,7 @@ export function fusionProblems(s: FusionStatus | null, retention: FusionRetentio
   if (s.central?.warnings?.length) {
     out.push({ id: 'central-address', part: 'central', health: 'attention', title: "The central operator's address may not work", detail: s.central.warnings.join(' '), action: { kind: 'link', label: 'Open Pipeline', to: '/pipeline' } })
   }
-  if (s.state === 'running') {
+  if (s.state === 'running' || s.state === 'attention') {
     const last = s.lastDataAt ? Date.parse(s.lastDataAt) : NaN
     const up = s.since ? Date.parse(s.since) : NaN
     const open = { kind: 'link', label: 'Open Pipeline', to: '/pipeline' } as const

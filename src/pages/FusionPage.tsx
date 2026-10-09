@@ -28,8 +28,8 @@ function Tabs() {
   return (
     <nav className="flex w-fit max-w-full overflow-hidden rounded-md border border-nb-850" aria-label="FUSION sections">
       {TABS.map(({ to, end, label, icon: Icon }) => (
-        <NavLink key={to} to={to} end={end} className={({ isActive }) => clsx('flex items-center gap-1.5 px-3 py-1.5 text-sm', isActive ? 'bg-nb-940 text-nb-300' : 'text-nb-400 hover:text-nb-300')}>
-          <Icon size={ICON_SM} aria-hidden /> {label}
+        <NavLink key={to} to={to} end={end} className={({ isActive }) => clsx('flex items-center gap-1.5 px-2.5 py-1.5 text-sm sm:px-3', isActive ? 'bg-nb-940 text-nb-300' : 'text-nb-400 hover:text-nb-300')}>
+          <Icon size={ICON_SM} className="hidden sm:block" aria-hidden /> {label}
         </NavLink>
       ))}
     </nav>

@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
-import { FusionSection } from '@/components/fusion/FusionSection'
-import { ErrorBanner, Pill, SkeletonBlock, Table, Td, Th } from '@/components/ui/primitives'
+import { FusionSection, ROWS } from '@/components/fusion/FusionSection'
+import { ErrorBanner, Pill, SkeletonBlock } from '@/components/ui/primitives'
 import { api, ApiError, type FusionApplications, type FusionServices, type FusionSignal } from '@/lib/api'
 import { useServer } from '@/store/server'
 
 const SIGNAL_WORD: Record<FusionSignal, string> = { metrics: 'Metrics', logs: 'Logs', traces: 'Traces' }
-const COLS = ['w-56', 'w-20', '', 'w-72']
 const SHOWN_SERVICES = 25
 
 /** The signals FUSION holds for something, or that it has none yet. */
@@ -40,32 +39,33 @@ export function FusionData() {
     <>
       {warnings.map((w) => <ErrorBanner key={w} className="mb-4">{w}</ErrorBanner>)}
       <FusionSection title="Applications" description="The applications Ikhnos knows, and which signals FUSION received for their services in the last 24 hours." testId="fusion-applications">
-        <Table cols={COLS}>
-          <thead><tr><Th>Application</Th><Th>Services</Th><Th>Clusters</Th><Th>Data</Th></tr></thead>
-          <tbody>
-            {apps.applications.map((a) => (
-              <tr key={a.id} data-testid={`fusion-app-${a.name}`}>
-                <Td valign="top"><div className="truncate" title={a.name}>{a.name}</div>{a.unresolvedMembers ? <div className="mt-0.5 text-xs text-nb-500">{a.unresolvedMembers} not running</div> : null}</Td>
-                <Td valign="top" className="tabular-nums text-nb-500">{a.services.length}</Td>
-                <Td valign="top" className="text-nb-500">{a.clusters.join(', ') || '-'}</Td>
-                <Td valign="top"><Signals list={a.signals} /></Td>
-              </tr>
-            ))}
-            {apps.applications.length === 0 && <tr><Td colSpan={4} className="text-nb-500">No application has been declared in Ikhnos yet.</Td></tr>}
-          </tbody>
-        </Table>
+        <ul className={ROWS}>
+          {apps.applications.map((a) => (
+            <li key={a.id} className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-3" data-testid={`fusion-app-${a.name}`}>
+              <div className="min-w-0 sm:w-56">
+                <div className="truncate text-nb-300" title={a.name}>{a.name}</div>
+                <div className="mt-0.5 text-xs text-nb-500">
+                  {a.services.length} {a.services.length === 1 ? 'service' : 'services'}{a.clusters.length > 0 && <> in {a.clusters.join(', ')}</>}
+                  {a.unresolvedMembers ? <>, {a.unresolvedMembers} not running</> : null}
+                </div>
+              </div>
+              <div className="sm:ml-auto"><Signals list={a.signals} /></div>
+            </li>
+          ))}
+          {apps.applications.length === 0 && <li className="px-4 py-3 text-nb-500">No application has been declared in Ikhnos yet.</li>}
+        </ul>
       </FusionSection>
 
       {loose.length > 0 && (
         <FusionSection title="Other services" description="Services with data that are in no application: infrastructure that reports under a name of its own, or a service nobody has grouped yet." testId="fusion-services">
-          <Table cols={['', 'w-72']}>
-            <thead><tr><Th>Service</Th><Th>Data</Th></tr></thead>
-            <tbody>
-              {loose.slice(0, SHOWN_SERVICES).map((s) => (
-                <tr key={s.name}><Td><div className="truncate" title={s.name}>{s.name}</div></Td><Td><Signals list={s.signals} /></Td></tr>
-              ))}
-            </tbody>
-          </Table>
+          <ul className={ROWS}>
+            {loose.slice(0, SHOWN_SERVICES).map((s) => (
+              <li key={s.name} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 px-4 py-3">
+                <span className="min-w-0 truncate text-nb-300" title={s.name}>{s.name}</span>
+                <Signals list={s.signals} />
+              </li>
+            ))}
+          </ul>
           {loose.length > SHOWN_SERVICES && <p className="mt-2 text-xs text-nb-500">and {loose.length - SHOWN_SERVICES} more, which the data API lists.</p>}
         </FusionSection>
       )}
