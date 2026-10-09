@@ -301,8 +301,9 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
                 "inference-regional", "Temperature sensors") truncate at this card's fixed width, and there
                 was no way to see the full name short of opening the Inspector - a native tooltip on hover
                 costs nothing and needs no layout change. */}
-            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[21px]' : 'text-[13px]')} title={data.title}>{data.title}</span>
+            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title}>{data.title}</span>
           </div>
+          {far && data.clusterTag && <div className="truncate text-[14px] leading-4 text-nb-500">{data.clusterTag}</div>}
           {!far && <div className="truncate text-[11px] text-nb-500" title={data.subtitle}>{data.subtitle}</div>}
           {!far && isMachine && <div className="truncate text-[11px] text-nb-500" title={data.meta}>{data.meta}</div>}
         </div>

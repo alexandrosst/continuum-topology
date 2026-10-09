@@ -1325,6 +1325,31 @@ test('chain layout: services rank strictly by dependency depth, across clusters,
   assert.ok(xOf(b.id) < xOf(other.id), 'b leads its own callee, even one in a different cluster')
 })
 
+test('chain layout: no card, service or leaf, is drawn over another, and a repeated name says its cluster', () => {
+  const [a, b] = inCluster
+  const other = seed.services.find((w) => w.clusterId !== a.clusterId)!
+  const twin = { ...other, id: 'w-twin', name: a.name }
+  const withPods = { ...b, pods: [{ name: `${b.name}-1`, nodeId: 'n-c2', phase: 'Running', ready: true }] }
+  const t = {
+    ...seed,
+    services: [...seed.services.map((w) => (w.id === b.id ? withPods : w)), twin],
+    dependencies: [...seed.dependencies, seenDep({ id: 'dep-twin', from: a.id, to: 'w-twin' })],
+  }
+  const g = buildGraph(t, { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: true, chain: true })
+  const boxes = g.nodes.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y, w: Number(n.style?.width), h: Number(n.style?.height) }))
+  assert.ok(boxes.some((x) => x.h > APP_CARD.h), 'sanity: a taller card (its pod row) is among them')
+  for (const [i, p] of boxes.entries()) {
+    for (const q of boxes.slice(i + 1)) {
+      assert.ok(p.x + p.w <= q.x || q.x + q.w <= p.x || p.y + p.h <= q.y || q.y + q.h <= p.y, `${p.id} and ${q.id} overlap`)
+    }
+  }
+  const tag = (id: string) => g.nodes.find((n) => n.data.entityId === id)!.data.clusterTag
+  const clusterName = (id: string) => seed.clusters.find((c) => c.id === id)!.name
+  assert.equal(tag(a.id), clusterName(a.clusterId), 'a repeated name carries its cluster')
+  assert.equal(tag('w-twin'), clusterName(other.clusterId))
+  assert.equal(tag(b.id), undefined, 'a unique name carries nothing extra')
+})
+
 test('chain layout: a dependency cycle is broken for ranking, but both directions are still drawn', () => {
   const [a, b] = inCluster
   const t = { ...seed, dependencies: [seenDep({ from: a.id, to: b.id }), seenDep({ id: 'dep-back', from: b.id, to: a.id, port: 80 })] }

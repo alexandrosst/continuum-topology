@@ -92,6 +92,9 @@ export type CardData = {
   notReady?: string
   /** Service mesh overlay: how the mesh treats this service. `tone` picks the chip's colour. */
   mesh?: { label: string; tone: 'in' | 'control' | 'out'; title: string }
+  /** Chain layout only, on a service whose name another service shares: its cluster, drawn under the title
+   *  even when zoomed far out (the subtitle that names it is hidden then). */
+  clusterTag?: string
   /** Machine cards only, node-probe-only facts worth a glance without opening the Inspector: whether the
    *  machine can run without mains power, and the fastest physical uplink the probe saw (the max of
    *  MachineNode.networkInterfaces' speedMbps, not any one interface in particular - which one is fastest
@@ -863,13 +866,15 @@ const CHAIN_ROW_GAP = 28
  * possible. Cycles (two services depending on each other) are broken with a DFS feedback-arc pass before
  * ranking - the dropped back-edge is still drawn later, just without influencing anyone's column. Devices
  * and external endpoints are not part of the ranking; each is hung one column past whichever service it's
- * paired with (its first caller or callee found), stacked near that service's row.
+ * paired with (its first caller or callee found), stacked below that column's services. Cards are stacked by
+ * their own heights (a card with a pod row is taller than one without), so none overlaps the next.
  */
 function layoutChain(
   serviceIds: string[],
   serviceDeps: { from: string; to: string }[],
   leafIds: string[],
   leafNear: Map<string, string | undefined>,
+  heightOf: (id: string) => number,
 ): Map<string, { x: number; y: number }> {
   const svc = new Set(serviceIds)
   const adj = new Map<string, Set<string>>(serviceIds.map((id) => [id, new Set<string>()]))
@@ -959,8 +964,15 @@ function layoutChain(
   sweep((id) => radj.get(id)!)
   sweep((id) => adj.get(id)!)
 
+  // Next free y in each column: services first, then the leaves hung in the same column go underneath them.
   const pos = new Map<string, { x: number; y: number }>()
-  for (const [r, ids] of byRank) ids.forEach((id, i) => pos.set(id, { x: r * (APP_CARD.w + CHAIN_COL_GAP), y: i * (APP_CARD.h + CHAIN_ROW_GAP) }))
+  const bottom = new Map<number, number>()
+  const place = (r: number, id: string) => {
+    const y = bottom.get(r) ?? 0
+    pos.set(id, { x: r * (APP_CARD.w + CHAIN_COL_GAP), y })
+    bottom.set(r, y + heightOf(id) + CHAIN_ROW_GAP)
+  }
+  for (const [r, ids] of byRank) ids.forEach((id) => place(r, id))
 
   const leafRank = new Map<string, number>()
   for (const id of leafIds) {
@@ -978,7 +990,7 @@ function layoutChain(
       return near ? (pos.get(near)?.y ?? 0) : 0
     }
     ids.sort((a, b) => nearY(a) - nearY(b) || a.localeCompare(b))
-    ids.forEach((id, i) => pos.set(id, { x: r * (APP_CARD.w + CHAIN_COL_GAP), y: i * (APP_CARD.h + CHAIN_ROW_GAP) }))
+    ids.forEach((id) => place(r, id))
   }
 
   return pos
@@ -1013,31 +1025,30 @@ function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edg
     leafNear.set(id, dep ? (serviceById.has(dep.from) ? dep.from : dep.to) : undefined)
   }
 
-  const positions = layoutChain(serviceIds, serviceDeps, leafIds, leafNear)
+  // Two services of the same name in different clusters would read as one at far zoom, where the subtitle
+  // (and with it the cluster) is hidden: those carry the cluster name for the far presentation.
+  const names = new Map<string, number>()
+  for (const w of services) names.set(w.name, (names.get(w.name) ?? 0) + 1)
+  const items: Item[] = [
+    ...services.map((w) => {
+      const c = clusterById.get(w.clusterId)!
+      const item = serviceItem(w, c, true, o.hints?.get(w.id), o.mesh, nodeById, serviceById)
+      return (names.get(w.name) ?? 0) > 1 ? { ...item, data: { ...item.data, clusterTag: c.name } } : item
+    }),
+    ...deviceLeaves.map((dv) => deviceItem(dv, dv.siteId ? siteById.get(dv.siteId) : undefined, true)),
+    ...externalLeaves.map((e) => externalItem(e)),
+  ]
+  const ids = [...serviceIds, ...leafIds]
+  const itemById = new Map(ids.map((id, i) => [id, items[i]]))
+  const positions = layoutChain(serviceIds, serviceDeps, leafIds, leafNear, (id) => itemById.get(id)?.h ?? APP_CARD.h)
 
   const nodes: TopoNode[] = []
   const abs = new Map<string, Box>()
-
-  for (const w of services) {
-    const c = clusterById.get(w.clusterId)!
-    const item = serviceItem(w, c, true, o.hints?.get(w.id), o.mesh, nodeById, serviceById)
-    const p = positions.get(w.id) ?? { x: 0, y: 0 }
+  items.forEach((item, i) => {
+    const p = positions.get(ids[i]) ?? { x: 0, y: 0 }
     nodes.push({ id: item.id, type: 'card', position: { x: p.x, y: p.y }, style: { width: item.w, height: item.h }, zIndex: 10, data: item.data })
     abs.set(item.id, { x: p.x, y: p.y, w: item.w, h: item.h })
-  }
-  for (const dv of deviceLeaves) {
-    const s = dv.siteId ? siteById.get(dv.siteId) : undefined
-    const item = deviceItem(dv, s, true)
-    const p = positions.get(dv.id) ?? { x: 0, y: 0 }
-    nodes.push({ id: item.id, type: 'card', position: { x: p.x, y: p.y }, style: { width: item.w, height: item.h }, zIndex: 10, data: item.data })
-    abs.set(item.id, { x: p.x, y: p.y, w: item.w, h: item.h })
-  }
-  for (const e of externalLeaves) {
-    const item = externalItem(e)
-    const p = positions.get(e.id) ?? { x: 0, y: 0 }
-    nodes.push({ id: item.id, type: 'card', position: { x: p.x, y: p.y }, style: { width: item.w, height: item.h }, zIndex: 10, data: item.data })
-    abs.set(item.id, { x: p.x, y: p.y, w: item.w, h: item.h })
-  }
+  })
 
   const edges: TopoEdge[] = []
   for (const d of t.dependencies) {

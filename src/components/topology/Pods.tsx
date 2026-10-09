@@ -19,7 +19,7 @@ const CELL: Record<PodState, string> = {
  *  (a scaling event) carries a small pip, `info` rather than `accent` (already selection and advice). */
 export function Cell({ pod, far, title }: { pod: Pick<PodRow, 'state' | 'recent'>; far?: boolean; title?: string }) {
   return (
-    <span title={title} className={clsx('relative shrink-0 rounded-[3px]', far ? 'h-[22px] w-4' : 'h-3.5 w-2.5', CELL[pod.state])}>
+    <span title={title} className={clsx('relative shrink-0 rounded-[3px]', far ? 'h-[22px] w-3' : 'h-3.5 w-2.5', CELL[pod.state])}>
       {pod.recent && <span className={clsx('absolute rounded-full bg-info ring-1 ring-nb-925', far ? '-right-1 -top-1 size-2' : '-right-[3px] -top-[3px] size-[5px]')} />}
     </span>
   )
@@ -38,6 +38,7 @@ export function PodRail({ pods, far, open, onToggle, buttonRef }: { pods: PodsVi
       ref={buttonRef}
       type="button"
       onClick={(e) => { e.stopPropagation(); onToggle() }}
+      title={`${pods.ready} of ${plural(pods.total, 'pod')} ready`}
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-label={`${pods.ready} of ${plural(pods.total, 'pod')} ready${pods.bad ? `, ${pods.bad} crash-looping` : ''}. Show the pods`}
@@ -46,7 +47,7 @@ export function PodRail({ pods, far, open, onToggle, buttonRef }: { pods: PodsVi
     >
       {pods.rail.map((p) => <Cell key={p.id} pod={p} far={far} title={p.title} />)}
       {pods.overflow > 0 && <span className={clsx('ml-0.5 text-nb-500', far ? 'text-[15px]' : 'text-[10.5px]')} title={`${plural(pods.overflow, 'more pod')} not drawn`}>+{pods.overflow}</span>}
-      <span className={clsx('ml-auto shrink-0 whitespace-nowrap pl-2', far ? 'text-[18px]' : 'text-[11px]', tone)}>{pods.ready}/{pods.total} ready</span>
+      <span className={clsx('ml-auto shrink-0 whitespace-nowrap pl-2', far ? 'text-[17px]' : 'text-[11px]', tone)}>{pods.ready}/{pods.total}{!far && ' ready'}</span>
     </button>
   )
 }
