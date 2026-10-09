@@ -3,6 +3,7 @@ import { CopyCommand } from '@/components/agents/AgentInsight'
 import { Button, ErrorBanner, Field, Input, Modal } from '@/components/ui/primitives'
 import { api, ApiError, type OperatorExposure } from '@/lib/api'
 import { shArg } from '@/lib/install'
+import { operatorServiceName } from '@/lib/operatorsView'
 import type { RegionalOperator } from '@/lib/types'
 import { useServer } from '@/store/server'
 
@@ -13,14 +14,6 @@ export const EXPOSURE_OPTIONS: { id: OperatorExposure; label: string; hint: stri
   { id: 'loadbalancer', label: 'Other clusters, through a load balancer', hint: 'The install command makes its Service a LoadBalancer; the cloud gives it an address.' },
   { id: 'nodeport', label: 'Other clusters, through a node port', hint: 'The install command makes its Service a NodePort; other clusters dial any node on that port.' },
 ]
-
-/** The Service the regional-operator chart creates for a release named after the operator (what the install command
- *  does): the chart's own naming rule - the release name plus "-regional-operator", unless it already says so, cut to 63
- *  characters. The server applies the same rule (operatorServiceName), so the two agree on what to dial and to read. */
-export function operatorServiceName(id: string): string {
-  const name = id.includes('regional-operator') ? id : `${id}-regional-operator`
-  return name.slice(0, 63).replace(/-+$/, '')
-}
 
 /** The kubectl line that reads the address a Service ended up with. */
 export function addressCommands(id: string, svc?: { service: string; namespace: string }): { loadBalancer: string; nodePort: string } {
