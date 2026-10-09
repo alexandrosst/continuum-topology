@@ -13,14 +13,21 @@ import (
 // The doctor: one test, no cluster, that follows a label from the agent to the Grafana query and fails where a value is accepted
 // by one layer and dropped, or cannot be joined, by the next. The vocabulary (fusionapi.Vocabulary) is the one table every
 // stage holds the rest to; to add a label, add it there and let the failing stage say which chart value or query to change.
+// Run it with `go test ./internal/server -run TestDoctor`. The stages marked "needs helm" skip when helm is not installed.
 //
 //	stage 0  the table against the FUSION chart's values and the dashboards          (doctor_vocab_test.go)
 //	stage 1  every endpoint the agent sends is stored or counted as dropped          (doctor_agent_test.go)
+//	stage 2  the commands the server prints, rendered through the real charts        (doctor_chart_test.go, needs helm)
+//	stage 3  what the collectors scrape and the gateway and the stores keep            (doctor_stores_test.go, needs helm)
 //	stage 4  what the API asks the stores, and what the dashboards join on           (doctor_queries_test.go)
+//	stage 5  no link between the stores and Grafana leads to data nothing produces    (doctor_stores_test.go, needs helm)
 func TestDoctor(t *testing.T) {
 	t.Run("stage 0: the vocabulary is what the chart promotes and the dashboards select", doctorVocabulary)
 	t.Run("stage 1: every kind of endpoint an agent sends is stored or counted as dropped", doctorAgentToServer)
+	t.Run("stage 2: the commands the server prints are what the charts stamp", doctorCommands)
+	t.Run("stage 3: what the collectors scrape and the gateway and the stores keep matches the vocabulary", doctorStores)
 	t.Run("stage 4: the API and the dashboards ask the stores for the same things", doctorQueries)
+	t.Run("stage 5: no link points at data nothing produces", doctorLinks)
 }
 
 // ---- reading a query ----
