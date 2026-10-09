@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { buildDecisionInput, BUILTIN_DECIDERS, compare, baselineDecider, externalDecider, parseDecisionOutput, recordDecisionLog, runDecider, toDecisionLogEntry, vet, type DecisionLogEntry } from '../src/lib/placement/deciders'
+import { keepHints, placementHints } from '../src/lib/placement/hints'
 import { evacuate, evaluate, reasonsFor, recommend, totals, whatIf } from '../src/lib/placement/engine'
 import { DEFAULT_POLICY, type EdgeEvidence, type Evaluation, type Policy } from '../src/lib/placement/types'
 import { buildWorld, freeCapacity, rtt, withMoves, type World } from '../src/lib/placement/world'
@@ -436,6 +437,27 @@ test('recordDecisionLog: a failure to record never throws and never blocks on th
     got = es
   }, [entry])
   assert.deepEqual(got, [entry])
+})
+
+test('a service\'s peers come in dependency order from both directions, a self-dependency is no peer, and each dependency list has its own', () => {
+  const deps = [dep('d1', 'api', 'db', 1024), dep('d2', 'worker', 'api', 2048), dep('d3', 'api', 'api', 4096), dep('d4', 'cache', 'api')]
+  const w = world({ dependencies: deps })
+  const edgesOf = (x: World) => evaluate(x, x.byService.get('api')!, 'cl-edge', P).edges.map((e) => e.dependencyId)
+  assert.deepEqual(edgesOf(w), ['d1', 'd2', 'd4'])
+  assert.deepEqual(edgesOf(w), ['d1', 'd2', 'd4'], 'asked again, the same answer')
+  assert.deepEqual(edgesOf(world({ dependencies: [deps[3], deps[0]] })), ['d4', 'd1'], 'another dependency list is not served from the first one')
+  assert.deepEqual(recommend(w, P), recommend(world({ dependencies: [...deps] }), P), 'the plan is the same for the same inputs')
+})
+
+test('canvas hints name the target cluster of each move, and a poll that changes nothing keeps the same map', () => {
+  const w = world()
+  const plan = recommend(w, P)
+  const hints = placementHints(plan, w)
+  assert.equal(hints.size, plan.recommendations.length)
+  for (const r of plan.recommendations) assert.equal(hints.get(r.serviceId), w.byCluster.get(r.to)?.name ?? r.to)
+  assert.equal(keepHints(hints, placementHints(plan, w)), hints, 'equal hints keep the earlier map')
+  assert.notEqual(keepHints(hints, new Map([...hints, ['x', 'somewhere']])), hints, 'a new marker replaces it')
+  assert.notEqual(keepHints(hints, new Map([...hints].map(([id]) => [id, 'elsewhere']))), hints, 'so does a different target')
 })
 
 for (const { name, fn } of queue) {

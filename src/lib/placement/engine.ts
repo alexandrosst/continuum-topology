@@ -34,23 +34,32 @@ interface Peer {
   trafficKnown: boolean
 }
 
+function peerOf(d: World['deps'][number], kind: Peer['kind'], id: string): Peer {
+  const bps = d.stats?.bytesPerSec
+  const cpm = d.stats?.connectionsPerMin
+  let activity = DECLARED_ACTIVITY
+  if (bps !== undefined) activity = clamp(bps / FULL_ACTIVITY_BPS, MIN_ACTIVITY, 1)
+  else if (cpm !== undefined) activity = clamp(cpm / 30, MIN_ACTIVITY, 1)
+  if (d.stale) activity = MIN_ACTIVITY
+  return { dependencyId: d.id, kind, id, bps, lossPct: d.stats?.lossPct, jitterMs: d.jitterMs, activity, trafficKnown: bps !== undefined }
+}
+
+/** Each service's peers, in dependency order, worked out once per dependency list: the planner asks for them per service and per target cluster. */
+const peerIndex = new WeakMap<World['deps'], Map<string, Peer[]>>()
+
 function peersOf(w: World, s: Service): Peer[] {
-  const out: Peer[] = []
-  for (const d of w.deps) {
-    let kind: Peer['kind'] | undefined
-    let id = ''
-    if (d.from === s.id && d.fromKind === 'service') [kind, id] = [d.toKind, d.to]
-    else if (d.to === s.id && d.toKind === 'service') [kind, id] = [d.fromKind, d.from]
-    if (!kind || id === s.id) continue
-    const bps = d.stats?.bytesPerSec
-    const cpm = d.stats?.connectionsPerMin
-    let activity = DECLARED_ACTIVITY
-    if (bps !== undefined) activity = clamp(bps / FULL_ACTIVITY_BPS, MIN_ACTIVITY, 1)
-    else if (cpm !== undefined) activity = clamp(cpm / 30, MIN_ACTIVITY, 1)
-    if (d.stale) activity = MIN_ACTIVITY
-    out.push({ dependencyId: d.id, kind, id, bps, lossPct: d.stats?.lossPct, jitterMs: d.jitterMs, activity, trafficKnown: bps !== undefined })
+  let index = peerIndex.get(w.deps)
+  if (!index) {
+    index = new Map()
+    const add = (svc: string, p: Peer) => (index!.get(svc) ?? index!.set(svc, []).get(svc)!).push(p)
+    for (const d of w.deps) {
+      if (d.from === d.to) continue
+      if (d.fromKind === 'service') add(d.from, peerOf(d, d.toKind, d.to))
+      if (d.toKind === 'service') add(d.to, peerOf(d, d.fromKind, d.from))
+    }
+    peerIndex.set(w.deps, index)
   }
-  return out
+  return index.get(s.id) ?? []
 }
 
 function peerName(w: World, p: Peer): string {

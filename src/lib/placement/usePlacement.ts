@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useEffectiveModel } from '@/store/effectiveModel'
 import { useObserved } from '@/store/observed'
 import { usePolicy } from '@/store/placement'
 import { usePaths, useTopology } from '@/store/topology'
 import { recommend } from './engine'
+import { keepHints, placementHints } from './hints'
 import type { Plan, Policy } from './types'
 import { buildWorld, type World } from './world'
 
@@ -37,4 +38,28 @@ export function usePlan(): { world: World; plan: Plan; policy: Policy } {
   const policy = usePolicy((s) => s.policy)
   const plan = useMemo(() => recommend(world, policy), [world, policy])
   return { world, plan, policy }
+}
+
+const NONE = new Map<string, string>()
+
+/**
+ * Where the plan would move services, for the canvas markers, worked out once the browser is idle: the plan is
+ * the one heavy step of a state poll (seconds on a large estate), and the edges must not wait behind it. The
+ * markers follow the same plan `usePlan` gives, a moment later.
+ */
+export function usePlanHints(): Map<string, string> {
+  const world = useWorld()
+  const policy = usePolicy((s) => s.policy)
+  const [hints, setHints] = useState(NONE)
+  const last = useRef(NONE)
+  useEffect(() => {
+    const run = () => setHints((last.current = keepHints(last.current, placementHints(recommend(world, policy), world))))
+    if (typeof requestIdleCallback !== 'function') {
+      const id = setTimeout(run, 50)
+      return () => clearTimeout(id)
+    }
+    const id = requestIdleCallback(run, { timeout: 2000 })
+    return () => cancelIdleCallback(id)
+  }, [world, policy])
+  return hints
 }

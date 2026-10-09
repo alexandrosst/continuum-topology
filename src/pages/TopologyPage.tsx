@@ -50,7 +50,7 @@ import { applyGraphUpdate, buildGraph, cardId, groupId, selectedServiceIds, sync
 import { lossBand } from '@/lib/metrics'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
-import { usePlan } from '@/lib/placement/usePlacement'
+import { usePlanHints } from '@/lib/placement/usePlacement'
 import { parseSel } from '@/lib/search'
 import { TIER_COLOR, TIERS, type ClusterLink, type GroupBy, type ViewKind } from '@/lib/types'
 import { useServer } from '@/store/server'
@@ -320,8 +320,7 @@ function Canvas() {
   const paths = usePaths()
   const clusterLinks = useClusterLinks()
   // Placement advice, shown as a small marker on the services it would move.
-  const { plan, world } = usePlan()
-  const hints = useMemo(() => new Map(plan.recommendations.map((r) => [r.serviceId, world.byCluster.get(r.to)?.name ?? r.to])), [plan, world])
+  const hints = usePlanHints()
 
   // Only some clusters or applications, when asked (?clusters=a,b&apps=x). Ids that no longer exist are ignored.
   const rawFilter = useMemo(() => parseFilter(sp), [sp])
