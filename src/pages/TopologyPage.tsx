@@ -17,7 +17,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
 import { toPng } from 'html-to-image'
-import { Antenna, Boxes, ChevronDown, Download, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, X } from 'lucide-react'
+import { Funnel, Boxes, ChevronDown, Download, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, X } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -1268,7 +1268,7 @@ function Canvas() {
                     <>
                       <span className="h-3 w-px bg-nb-800" />
                       <span className="flex items-center gap-1.5" title="This badge on a cluster box means a local operator (an approved agent with telemetry signals on) is running there - click it to configure">
-                        <Antenna size={ICON_SM} className="text-accent" />
+                        <Funnel size={ICON_SM} className="text-accent" />
                         Local telemetry
                       </span>
                     </>

@@ -1,7 +1,7 @@
 import { Handle, useStore, type NodeProps } from '@xyflow/react'
 import clsx from 'clsx'
 import {
-  Antenna,
+  Funnel,
   ArrowUpRight,
   BatteryCharging,
   Box,
@@ -215,7 +215,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
                 aria-label={`Local telemetry running: ${data.localTelemetry.layers.join(', ') || 'signals active'}. Click to configure.`}
                 className="grid size-5 shrink-0 place-items-center rounded-full bg-accent-soft text-accent transition-colors hover:bg-accent/20"
               >
-                <Antenna size={ICON_MD} />
+                <Funnel size={ICON_MD} />
               </button>
             )}
             <span

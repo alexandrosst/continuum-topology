@@ -1,13 +1,13 @@
 import { useStore, type NodeProps } from '@xyflow/react'
 import clsx from 'clsx'
-import { Antenna, Bot, CircleCheck, CircleHelp, CircleX, Database, Merge, TriangleAlert, Waypoints, type LucideIcon } from 'lucide-react'
+import { Cable, CircleCheck, CircleHelp, CircleX, Database, DoorOpen, Funnel, Merge, TriangleAlert, type LucideIcon } from 'lucide-react'
 import { memo } from 'react'
 import { AllHandles, FAR_ZOOM } from '@/components/topology/nodes'
 import { ICON_SM } from '@/components/ui/primitives'
 import { PLATFORM_STATUS_WORD, type PlatformKind, type PlatformStatus } from '@/lib/platformLayer'
 import type { PlatformNode as PlatformNodeType } from '@/lib/platformLayerGraph'
 
-export const PLATFORM_ICON: Record<PlatformKind, LucideIcon> = { agent: Bot, local: Antenna, regional: Waypoints, central: Merge, fusion: Database }
+export const PLATFORM_ICON: Record<PlatformKind, LucideIcon> = { agent: Cable, local: Funnel, regional: Merge, central: DoorOpen, fusion: Database }
 
 const GLYPH: Record<PlatformStatus, { icon: LucideIcon; tone: string }> = {
   healthy: { icon: CircleCheck, tone: 'text-ok' },
