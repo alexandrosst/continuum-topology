@@ -1,6 +1,19 @@
 // Pure helpers that decide how model values are shown. Kept out of the components so they can be tested.
 import type { GeoUnlocatableReason, NetworkInterface, Pod, Resources, ServiceVolume, Site } from './types'
 
+/* ---------- words ---------- */
+
+/** "1 service", "3 services": the count with its noun in the right number. */
+export const count = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`
+
+/** Cuts the middle of a long name, not its end: "ip-10-0-12-34.eu-west-1.compute.internal" keeps the part that
+ *  tells machines apart (the start) and the part that tells where it lives (the end). Short names stay whole. */
+export function middleTruncate(s: string, max: number): string {
+  if (s.length <= max || max < 5) return s
+  const tail = Math.floor((max - 1) / 2)
+  return `${s.slice(0, max - 1 - tail)}\u2026${s.slice(s.length - tail)}`
+}
+
 /* ---------- places ---------- */
 
 /** "Greece" for "GR"; the code itself when the runtime does not know it. */

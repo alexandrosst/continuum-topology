@@ -45,7 +45,7 @@ import TelemetryTab from '@/components/topology/TelemetryTab'
 import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
 import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock } from '@/components/ui/primitives'
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
-import FilterMenu from '@/components/topology/FilterMenu'
+import FilterMenu, { FilterChip } from '@/components/topology/FilterMenu'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { applyFilter, encodeList, filterActive, hopNeighborhood, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
 import { applyGraphUpdate, buildGraph, cardId, groupId, sameLayout, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
@@ -751,7 +751,9 @@ function Canvas() {
             </Button>
           ) : (
             <>
+          <FilterChip filter={filter} onClear={() => { setSp((p) => { const n = new URLSearchParams(p); for (const k of ['clusters', 'apps', 'kinds']) n.delete(k); return n }, { replace: true }); setSelection(null) }} />
           <FilterMenu
+            disabled={empty}
             open={openMenu === 'filter'}
             onOpenChange={(o) => setOpenMenu(o ? 'filter' : null)}
             filter={filter}
@@ -782,7 +784,7 @@ function Canvas() {
           )}
           {isCanvas && (
             <div className="relative">
-              <Button onClick={() => toggleMenu('options')} aria-expanded={openMenu === 'options'} aria-haspopup="true" data-testid="view-options">
+              <Button onClick={() => toggleMenu('options')} disabled={empty} aria-expanded={openMenu === 'options'} aria-haspopup="true" data-testid="view-options">
                 <SlidersHorizontal size={ICON_SM} /> <span className="hidden sm:inline">Options</span>
                 {changedOptions > 0 && <span className="rounded-full bg-accent-soft px-1.5 text-[11px] font-medium text-accent">{changedOptions}</span>}
               </Button>
@@ -919,6 +921,7 @@ function Canvas() {
 
           {isCanvas && (
             <Button
+              disabled={empty}
               onClick={() => {
                 setNodes(graph.nodes)
                 // The `shape` effect above only re-fits when node ids/sizes change, which a layout reset
@@ -936,7 +939,7 @@ function Canvas() {
           {isCanvas && (
             <Button
               onClick={exportPng}
-              disabled={exportingPng}
+              disabled={exportingPng || empty}
               title="Save the current canvas as a PNG image, at its full extent (not just what's on screen)"
               data-testid="export-png"
             >
@@ -948,6 +951,7 @@ function Canvas() {
             <Button
               variant={pickMode ? 'primary' : undefined}
               onClick={() => setPickMode((v) => !v)}
+              disabled={empty}
               aria-pressed={pickMode}
               title={pickMode ? 'Cancel - click a service or cluster to scope it, or press Escape' : 'Pick a service or cluster on the canvas to configure its telemetry, without selecting it first'}
               data-testid="pick-scope"
@@ -1146,7 +1150,8 @@ function Canvas() {
             >
               <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="var(--color-nb-850)" />
               <Controls showInteractive={false} />
-              <MiniMap className="!hidden sm:!block" pannable zoomable nodeColor={miniColor} nodeStrokeWidth={0} maskColor="rgba(22,24,26,0.7)" />
+              {/* Hidden while the Inspector is open: the canvas is narrower then and the map would sit on the legend. The mask is themed in index.css. */}
+              <MiniMap className={selection ? '!hidden' : '!hidden sm:!block'} pannable zoomable nodeColor={miniColor} nodeStrokeWidth={0} />
               {/* Follows the current selection instead of sitting in the fixed toolbar: the accent halo
                   (nodes.tsx, driven by highlightedIds above) marks *what* is selected, this sits right next
                   to it as the *action* for it - one click or box-drag, then the thing to do about it is right

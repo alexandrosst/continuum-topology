@@ -368,11 +368,9 @@ function packItems(items: Item[], headerY: number, pad = PAD): { w: number; h: n
   for (let i = 0; i < n; i += cols) {
     const slice = items.slice(i, i + cols)
     const rowH = Math.max(...slice.map((s) => s.h))
-    // Each child keeps its OWN height here, not the row's tallest - rowH only decides how far the next
-    // row starts (every item in a row is top-aligned at `y`), it is not every item's actual height. A
-    // shorter card sharing a row with a taller one used to be stretched to match, since this used to
-    // store rowH onto every child in the slice instead.
-    slice.forEach((item, j) => children.push({ item, x: pad + j * (cw + GAP_X), y, h: item.h }))
+    // Every card in a row is as tall as the tallest, so a row reads as one band; the card keeps its header
+    // at the top (see Card), so a shorter card's status dot and title stay level with its neighbours'.
+    slice.forEach((item, j) => children.push({ item, x: pad + j * (cw + GAP_X), y, h: rowH }))
     y += rowH + GAP_Y
   }
   const usedCols = Math.min(cols, n)
@@ -402,6 +400,16 @@ function layoutNamespaces(items: Item[]): { w: number; h: number; boxes: NsBox[]
     return box
   })
   return { w, h: Math.max(0, y - NS_GAP_Y), boxes }
+}
+
+/** The services of a cluster that are drawn as cards, so the cluster's "not fully up" count and its "N services"
+ *  count are about the same set (the mesh's own workloads are hidden without the overlay; the Infrastructure
+ *  view draws no service cards, so it keeps the whole cluster). */
+function shownServices(clusterId: string, items: Item[], view: GraphOptions['view'], byCluster: Map<string, Service[]>): Service[] {
+  const all = byCluster.get(clusterId) ?? []
+  if (view !== 'application') return all
+  const drawn = new Set(items.map((i) => i.data.entityId))
+  return all.filter((s) => drawn.has(s.id))
 }
 
 const worstStatus = (ss: Status[]): Status => {
@@ -581,16 +589,16 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
           country: ex ? ex.country : cl ? siteById.get(cl.siteId ?? '')?.country : undefined,
           tier: g.tier,
           status: groupStatus,
-          load: cl ? clusterLoad(cl, nodesByCluster.get(cl.id) ?? [], servicesByCluster.get(cl.id) ?? []) : undefined,
+          load: cl ? clusterLoad(cl, nodesByCluster.get(cl.id) ?? [], shownServices(cl.id, g.items, o.view, servicesByCluster)) : undefined,
           mesh: o.mesh && o.view === 'application' && cl?.mesh ? groupMesh(cl.mesh) : undefined,
           localTelemetry: cl && o.groupBy === 'cluster' ? o.localOperators?.get(cl.id) : undefined,
           networking: cl && o.groupBy === 'cluster' && (cl.cni || cl.ingress) ? { cni: cl.cni, ingress: cl.ingress } : undefined,
           stats:
             ex?.kind === 'devices'
-              ? `${units} devices`
+              ? count(units, 'device')
               : ex
-                ? `${g.items.length} endpoints`
-                : `${g.items.length} ${o.view === 'application' ? 'services' : 'nodes'}`,
+                ? count(g.items.length, 'endpoint')
+                : count(g.items.length, o.view === 'application' ? 'service' : 'node'),
           empty: o.view === 'application' ? 'No services' : 'No nodes',
         },
       })

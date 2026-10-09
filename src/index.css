@@ -140,7 +140,10 @@ body {
 }
 .react-flow__controls-button:hover { background: var(--color-nb-940); }
 .react-flow__minimap {
-  background: var(--color-nb-925);
+  /* Through React Flow's own variables (its stylesheet sets `background` after ours, so a plain background loses): the map is
+     the page surface and the dimmed part outside the viewport a recessed one, in whichever theme is on. A fixed dark rgba was a black box in light. */
+  --xy-minimap-background-color: var(--color-nb-925);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--color-nb-950) 80%, transparent);
   border: 1px solid var(--color-nb-850);
   border-radius: 10px;
 }

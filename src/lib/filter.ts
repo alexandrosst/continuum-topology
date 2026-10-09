@@ -1,5 +1,6 @@
 // Filtering the topology to some clusters, applications and/or workload kinds. A pure function of the
 // model, so the graph, the map and the tests all agree on what "only these" means.
+import { count } from './present'
 import type { ServiceKind, Topology } from './types'
 
 /** The stand-in id for "services that belong to no application". */
@@ -44,6 +45,17 @@ export const parseFilter = (sp: URLSearchParams): Filter => ({
 export const encodeList = (ids: string[]): string | null => (ids.length ? ids.map(encodeURIComponent).join(',') : null)
 
 export const filterActive = (f: Filter) => f.clusters.length > 0 || f.apps.length > 0 || f.kinds.length > 0
+
+/** The filter in a few words, for the chip next to the Filter button: "Deployments only", "2 clusters · 1 application".
+ *  Undefined when nothing is filtered. */
+export function filterSummary(f: Filter): string | undefined {
+  const parts = [
+    f.kinds.length === 1 ? `${f.kinds[0]}s only` : f.kinds.length > 1 ? count(f.kinds.length, 'kind') : '',
+    f.clusters.length ? count(f.clusters.length, 'cluster') : '',
+    f.apps.length ? count(f.apps.length, 'application') : '',
+  ].filter(Boolean)
+  return parts.length ? parts.join(' \u00b7 ') : undefined
+}
 
 /** Whether the Application view's Kind filter should default to Deployment-only ("real services") - true
  * only for a page that arrived with no `kinds`, `clusters` or `apps` of its own to lose. Kept as a pure

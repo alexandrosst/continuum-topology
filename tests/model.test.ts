@@ -4,12 +4,13 @@ import { completeness } from '../src/lib/completeness'
 import { mergeDiscovered, normalizeServerState, type ServerAgent, type ServerState } from '../src/lib/discovered'
 import { applyEdit, applyEffective, confirmOverride, effective } from '../src/lib/effective'
 import { normalize, upgrade } from '../src/lib/migrate'
-import { accelSummary, ageLabel, autoscalerRange, callerIfaceSpeedMbps, countryName, disruptionLabel, ipScope, linkUtilizationPct, podsLabel, podsPercent, distroKey, formatCpu, formatMemory, loadBand, placeLabel, providerKey, requestedPercent, shortVersion } from '../src/lib/present'
+import { accelSummary, ageLabel, autoscalerRange, callerIfaceSpeedMbps, count, countryName, middleTruncate, disruptionLabel, ipScope, linkUtilizationPct, podsLabel, podsPercent, distroKey, formatCpu, formatMemory, loadBand, placeLabel, providerKey, requestedPercent, shortVersion } from '../src/lib/present'
 import { buildMapSites, clampPan, dominantTier, exitIps, groupByProximity, groupLabel, siteConnections, unplacedClusters, worstStatus } from '../src/lib/geo'
 import { buildIndex, countryAt, countryShapes, derivePlacementSuggestions, distanceKm, findCities, fold, nearestCity, parseCities, placementCandidates, siteFromCandidate, siteLocationIssue } from '../src/lib/places'
 import { EXONYMS } from '../src/data/exonyms'
 import { moveTargets, movability, type MoveModel } from '../src/lib/movability'
 import { buildSearchIndex, parseSel, searchItems } from '../src/lib/search'
+import { filterSummary } from '../src/lib/filter'
 import { activeView, describeView, sameView, viewParams } from '../src/lib/views'
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
@@ -1591,7 +1592,7 @@ test('a card\'s own drag extent keeps it inside its parent box\'s PAD/HEADER mar
   }
 })
 
-test("service card: a shorter card sharing a packed row with a taller one keeps its own height, not the row's tallest", () => {
+test('service card: cards sharing a packed row are all as tall as the row\'s tallest', () => {
   // w-registry and w-train (both in cl-cloud, namespace 'ml') sort ahead of w-gw/w-orch (namespace
   // 'platform') and together already fill the group's first row of two, so w-gw and w-orch land in the
   // same row together - exactly the layout packItems rows cards into.
@@ -1609,7 +1610,8 @@ test("service card: a shorter card sharing a packed row with a taller one keeps 
   const gw = g.nodes.find((n) => n.id === cardId('w-gw'))!
   const orch = g.nodes.find((n) => n.id === cardId('w-orch'))!
   assert.equal(Number(gw.style?.height), APP_CARD.h + 24, 'the taller card (its own pods row) keeps that height')
-  assert.equal(Number(orch.style?.height), APP_CARD.h, "its shorter row-mate must not be stretched to the taller card's height")
+  assert.equal(Number(orch.style?.height), Number(gw.style?.height), 'its shorter row-mate is stretched to match, so the row reads as one band')
+  assert.equal(orch.position.y, gw.position.y, 'both start at the same top')
 })
 
 test('cluster links: a confirmed overlay/subnet edge is drawn directly between the two clusters, with no arrowhead', () => {
@@ -1940,6 +1942,42 @@ test('scope: names are split and checked, a selector must be on a label the agen
   assert.match(all, /--set-string scope\.selector='continuum\.io\/scope=yes'/)
   // An invalid scope never reaches the command: the wizard refuses it first, and this stays safe if it did not.
   assert.equal(withScope(base, { ...emptyScope, namespaces: ['Bad Name'] }), base)
+})
+
+test('cluster stats: singular and plural, and "not fully up" counts only the services that are drawn', () => {
+  assert.equal(count(1, 'service'), '1 service')
+  assert.equal(count(0, 'node'), '0 nodes')
+  const one = inCluster[0]
+  const hidden: Service = { ...inCluster[1], id: 'w-istiod', name: 'istiod', replicas: 2, readyReplicas: 0, mesh: { mesh: 'istio', controlPlane: true, source: 'workload' } }
+  const t = {
+    ...seed,
+    clusters: seed.clusters.filter((c) => c.id === one.clusterId),
+    nodes: seed.nodes.filter((n) => n.clusterId === one.clusterId),
+    services: [{ ...one, replicas: 1, readyReplicas: 1 }, hidden],
+    dependencies: [],
+  }
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: false, devices: false }
+  const box = buildGraph(t, opts).nodes.find((n) => n.id === groupId(one.clusterId))!.data as { stats: string; load?: { unready: number; services: number } }
+  assert.equal(box.stats, '1 service', 'one card, not "1 services"')
+  assert.equal(box.load?.unready, 0, 'the hidden mesh workload is not counted as "not fully up"')
+  assert.equal(box.load?.services, 1)
+  const infra = buildGraph(t, { ...opts, view: 'infrastructure' }).nodes.find((n) => n.id === groupId(one.clusterId))!.data as { load?: { services: number } }
+  assert.equal(infra.load?.services, 2, 'the Infrastructure view draws no service cards, so it keeps the whole cluster')
+})
+
+test('middleTruncate: keeps the start and the end of a long name, leaves a short one whole', () => {
+  assert.equal(middleTruncate('worker-1', 24), 'worker-1')
+  const long = 'ip-10-0-12-34.eu-west-1.compute.internal'
+  const cut = middleTruncate(long, 24)
+  assert.equal(cut.length, 24)
+  assert.ok(cut.startsWith('ip-10-0-12') && cut.endsWith(long.slice(-11)) && cut.includes('\u2026'))
+  assert.equal(middleTruncate('abcdef', 3), 'abcdef', 'a budget too small to be useful leaves the name alone')
+})
+
+test('filterSummary: says what the filter is doing in a few words, nothing when it does nothing', () => {
+  assert.equal(filterSummary({ clusters: [], apps: [], kinds: [] }), undefined)
+  assert.equal(filterSummary({ clusters: [], apps: [], kinds: ['Deployment'] }), 'Deployments only')
+  assert.equal(filterSummary({ clusters: ['a'], apps: ['x', 'y'], kinds: ['Job', 'DaemonSet'] }), '2 kinds \u00b7 1 cluster \u00b7 2 applications')
 })
 
 console.log(failed ? `\n${failed} FAILED` : '\nall passed')

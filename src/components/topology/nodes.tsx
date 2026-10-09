@@ -29,6 +29,7 @@ import { memo, useCallback, useState, type ComponentProps, type ReactNode } from
 import { PodPopover, PodRail } from '@/components/topology/Pods'
 import { LoadRow, peakLoad } from '@/components/topology/Load'
 import { DistroIcon, Flag } from '@/components/ui/brand'
+import { middleTruncate } from '@/lib/present'
 import { SIDES, type CardNode, type GroupNode, type NamespaceNode } from '@/lib/graph'
 import { STATUS_COLOR, TIER_COLOR, type DeviceKind, type ServiceKind } from '@/lib/types'
 
@@ -280,7 +281,7 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
     <div
       data-far={far ? '1' : undefined}
       className={clsx(
-        'flex h-full w-full flex-col justify-center gap-2 rounded-xl border bg-nb-925 px-3.5 py-2.5 transition-colors',
+        'flex h-full w-full flex-col justify-start gap-2 rounded-xl border bg-nb-925 px-3.5 pb-2.5 pt-4 transition-colors',
         // inset, not outward - see the identical note on the group/boundary box above: an outward ring
         // here would bleed past this card's own true boundary and sit on top of any edge arrowhead
         // pointing at it, since edges always render beneath every node regardless of z-index.
@@ -301,7 +302,16 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
                 "inference-regional", "Temperature sensors") truncate at this card's fixed width, and there
                 was no way to see the full name short of opening the Inspector - a native tooltip on hover
                 costs nothing and needs no layout change. */}
-            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title}>{data.title}</span>
+            {isMachine ? (
+              // A machine name is often a long generated one whose start and end both matter ("ip-10-0-12-34.eu-west-1...internal"), so
+              // the middle goes, not the end; the full name stays in the tooltip and for screen readers.
+              <>
+                <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title} aria-hidden="true">{middleTruncate(data.title, far ? 15 : 24)}</span>
+                <span className="sr-only">{data.title}</span>
+              </>
+            ) : (
+              <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title}>{data.title}</span>
+            )}
           </div>
           {far && data.clusterTag && <div className="truncate text-[14px] leading-4 text-nb-500">{data.clusterTag}</div>}
           {!far && <div className="truncate text-[11px] text-nb-500" title={data.subtitle}>{data.subtitle}</div>}
