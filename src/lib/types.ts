@@ -963,12 +963,6 @@ export interface Topology {
    *  view; see PipelinePage / TopologyPage). Optional so every other Topology producer (seed data,
    *  history snapshots, tests) is unaffected. */
   operators?: RegionalOperator[]
-  /** Discovery agents, one per cluster that has one - unlike operators above, this IS part of the
-   *  continuously-polled model (see ServerState.topology.agents), so it is never a one-off fetch. Named
-   *  `discoveryAgents`, not `agents`: Control.agents (the enrollment/admin Agent[] this same Model also
-   *  extends) already owns that name for a completely different shape. Still optional for the same
-   *  "every other Topology producer is unaffected" reason operators is. */
-  discoveryAgents?: DiscoveryAgent[]
 }
 
 /* ---------- control plane: how the graph was learned ---------- */

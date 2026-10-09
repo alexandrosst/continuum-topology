@@ -16,8 +16,9 @@ import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
 import { applyGraphUpdate, APP_CARD, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
+import type { PlatformEntity, PlatformModel } from '../src/lib/platformLayer'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
-import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterLink, type ClusterMesh, type Dependency, type Device, type DiscoveryAgent, type ExternalEndpoint, type Model, type RegionalOperator, type Service, type Suggestion } from '../src/lib/types'
+import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterLink, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type Service, type Suggestion } from '../src/lib/types'
 
 let failed = 0
 const test = (name: string, fn: () => void) => {
@@ -1566,98 +1567,64 @@ test('a card\'s own drag extent keeps it inside its parent box\'s PAD/HEADER mar
   }
 })
 
-test('regional operators: a group box + real arrows from each source cluster appear only when that cluster is on the canvas', () => {
-  const op: RegionalOperator = {
-    id: 'op-1',
-    orgId: DEFAULT_ORG,
-    name: 'Athens aggregator',
-    status: 'active',
-    sourceClusterIds: ['cl-edge-a', 'cl-edge-b'],
-    destination: { kind: 'external', endpoint: 'https://collector.example.com:4317' },
-    createdAt: SEEN,
-    createdBy: 'alex',
+/** A platform layer for the seed's two far-edge clusters: an agent and a local operator in each, one regional operator, the central operator and FUSION. */
+const platformModel = (): PlatformModel => {
+  const part = (id: string, kind: PlatformEntity['kind'], name: string, over: Partial<PlatformEntity> = {}): PlatformEntity => ({ id, kind, name, detail: '', status: 'healthy', sentence: 'Fine.', sendsTo: [], ...over })
+  return {
+    entities: [
+      part('agent:a', 'agent', 'Discovery agent', { clusterId: 'cl-edge-a' }),
+      part('local:a', 'local', 'Local operator', { clusterId: 'cl-edge-a' }),
+      part('agent:b', 'agent', 'Discovery agent', { clusterId: 'cl-edge-b' }),
+      part('local:b', 'local', 'Local operator', { clusterId: 'cl-edge-b', status: 'attention' }),
+      part('regional:op-1', 'regional', 'Athens aggregator'),
+      part('central', 'central', 'Central operator'),
+      part('fusion', 'fusion', 'FUSION'),
+    ],
+    edges: [
+      { id: 'local:a>regional:op-1', from: 'local:a', to: 'regional:op-1', status: 'healthy', age: '2 s' },
+      { id: 'local:b>regional:op-1', from: 'local:b', to: 'regional:op-1', status: 'attention', age: '14 min' },
+      { id: 'regional:op-1>central', from: 'regional:op-1', to: 'central', status: 'healthy' },
+      { id: 'central>fusion', from: 'central', to: 'fusion', status: 'healthy', age: '8 s' },
+    ],
   }
-  // showSystem: true - operator boxes are gated behind the same "system entities" toggle discovery
-  // agent boxes are (see graph.test additions), off by default.
-  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false, showSystem: true }
-  const g = buildGraph({ ...seed, operators: [op] }, opts)
-  const opBox = g.nodes.find((n) => n.id === groupId('op:op-1'))
-  assert.ok(opBox, 'the operator gets its own group box')
-  assert.equal((opBox!.data as { extra?: string }).extra, 'operators')
-  const edgeToA = g.edges.find((e) => e.source === groupId('cl-edge-a') && e.target === groupId('op:op-1'))
-  const edgeToB = g.edges.find((e) => e.source === groupId('cl-edge-b') && e.target === groupId('op:op-1'))
-  assert.ok(edgeToA && edgeToB, 'a real arrow from each source cluster to the operator')
-  assert.ok(edgeToA!.markerEnd, 'unlike the aggregated dependency-count lines, this one keeps its arrowhead')
+}
 
-  // Revoked operators, and ones whose only source clusters are not on the canvas, get no box at all.
-  const revoked = buildGraph({ ...seed, operators: [{ ...op, status: 'revoked' as const }] }, opts)
-  assert.ok(!revoked.nodes.some((n) => n.id === groupId('op:op-1')), 'a revoked operator draws nothing')
-  const orphan = buildGraph({ ...seed, operators: [{ ...op, sourceClusterIds: ['does-not-exist'] }] }, opts)
-  assert.ok(!orphan.nodes.some((n) => n.id === groupId('op:op-1')), 'no source cluster on the canvas means no box either')
-
-  // Grouped by tier, the arrow still lands - cl-edge-a and cl-edge-b share the far-edge tier box, so the
-  // two sources collapse into one arrow rather than drawing the same line onto the operator twice.
-  const byTier = buildGraph({ ...seed, operators: [op] }, { ...opts, groupBy: 'tier' as const })
-  const tierEdges = byTier.edges.filter((e) => e.target === groupId('op:op-1'))
-  assert.equal(tierEdges.length, 1, 'both sources are in the far-edge tier, so just one arrow from that box')
-  assert.equal(tierEdges[0].source, groupId('far-edge'))
-})
-
-test('discovery agents: a group box + a real arrow to its own cluster appear only when showSystem is on and that cluster is on the canvas', () => {
-  const ag: DiscoveryAgent = { orgId: DEFAULT_ORG, source: 'discovered', id: 'ag-1', clusterId: 'cl-edge-a', name: 'edge-a agent' }
+test('platform layer: off it adds no node and no edge; on, each cluster box holds its agent and local operator', () => {
   const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
-
-  // Off by default: no box, no edge, even though the agent's own cluster is right there on the canvas.
-  const off = buildGraph({ ...seed, discoveryAgents: [ag] }, opts)
-  assert.ok(!off.nodes.some((n) => n.id === groupId('ag:ag-1')), 'hidden until showSystem is turned on')
-
-  const g = buildGraph({ ...seed, discoveryAgents: [ag] }, { ...opts, showSystem: true })
-  const agBox = g.nodes.find((n) => n.id === groupId('ag:ag-1'))
-  assert.ok(agBox, 'the agent gets its own group box')
-  assert.equal((agBox!.data as { extra?: string }).extra, 'agents')
-  const edge = g.edges.find((e) => e.source === groupId('ag:ag-1') && e.target === groupId('cl-edge-a'))
-  assert.ok(edge, 'a real arrow from the agent box to the cluster it serves')
-  assert.ok(edge!.markerEnd, 'unlike the aggregated dependency-count lines, this one keeps its arrowhead')
-
-  // No matching cluster on the canvas for it to point at means no box either, same "no arrow into/out of
-  // nothing" rule regional operators already follow above.
-  const orphan = buildGraph({ ...seed, discoveryAgents: [{ ...ag, clusterId: 'does-not-exist' }] }, { ...opts, showSystem: true })
-  assert.ok(!orphan.nodes.some((n) => n.id === groupId('ag:ag-1')), 'no matching cluster on the canvas means no box')
-
-  // Grouped by tier, the arrow still lands - on the tier box cl-edge-a collapsed into, not the cluster itself.
-  const byTier = buildGraph({ ...seed, discoveryAgents: [ag] }, { ...opts, groupBy: 'tier' as const, showSystem: true })
-  const tierEdge = byTier.edges.find((e) => e.source === groupId('ag:ag-1'))
-  assert.ok(tierEdge, 'the edge still lands once grouped by tier')
-  assert.equal(tierEdge!.target, groupId('far-edge'))
+  const off = buildGraph(seed, opts)
+  assert.ok(!off.nodes.some((n) => n.type === 'platform'), 'nothing of the layer without it')
+  assert.ok(!off.edges.some((e) => e.data?.platform))
+  const on = buildGraph(seed, { ...opts, platform: platformModel() })
+  const inA = on.nodes.filter((n) => n.type === 'platform' && n.parentId === groupId('cl-edge-a'))
+  assert.deepEqual(inA.map((n) => n.id).sort(), ['p:agent:a', 'p:local:a'])
+  const box = on.nodes.find((n) => n.id === groupId('cl-edge-a'))!
+  const [agent, local] = inA
+  assert.ok(Number(local.position.x) >= Number(agent.position.x) + 200, 'side by side, not on top of each other')
+  assert.ok(Number(agent.position.y) + 56 <= Number(box.style?.height), 'inside the box it grew by one row')
+  assert.ok(agent.extent, 'dragged only within its cluster, like a card')
 })
 
-test('discovery agents: a stale agent box reads offline, a live one healthy', () => {
-  const live: DiscoveryAgent = { orgId: DEFAULT_ORG, source: 'discovered', id: 'ag-1', clusterId: 'cl-edge-a', name: 'edge-a agent' }
-  const stale: DiscoveryAgent = { ...live, stale: true, state: 'stale' }
-  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false, showSystem: true }
-
-  const liveGraph = buildGraph({ ...seed, discoveryAgents: [live] }, opts)
-  assert.equal(liveGraph.nodes.find((n) => n.id === groupId('ag:ag-1'))!.data.status, 'healthy')
-
-  const staleGraph = buildGraph({ ...seed, discoveryAgents: [stale] }, opts)
-  assert.equal(staleGraph.nodes.find((n) => n.id === groupId('ag:ag-1'))!.data.status, 'offline')
+test('platform layer: regional operators, the central operator and FUSION stand right of every cluster, in that order, joined by dashed-telemetry hops with their age', () => {
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false, platform: platformModel() }
+  const g = buildGraph(seed, opts)
+  const x = (id: string) => Number(g.nodes.find((n) => n.id === id)!.position.x)
+  const clustersRight = Math.max(...g.nodes.filter((n) => n.data.kind === 'group').map((n) => Number(n.position.x) + Number(n.style?.width)))
+  assert.ok(x('p:regional:op-1') > clustersRight, 'outside the cluster boxes')
+  assert.ok(x('p:central') > x('p:regional:op-1') && x('p:fusion') > x('p:central'), 'local -> regional -> central -> FUSION, left to right')
+  const hops = g.edges.filter((e) => e.data?.platform)
+  assert.equal(hops.length, 4)
+  const hop = hops.find((e) => e.id === 'pl:local:b>regional:op-1')!
+  assert.equal(hop.source, 'p:local:b')
+  assert.equal(hop.target, 'p:regional:op-1')
+  assert.equal(hop.label, '14 min')
+  assert.equal(hop.data?.platform?.status, 'attention')
+  assert.ok(hop.markerEnd, 'an arrowhead, like every line that has a direction')
+  assert.equal(hops.find((e) => e.id === 'pl:regional:op-1>central')!.label, '', 'a hop with no time of its own says none')
 })
 
-test('system entities toggle: showSystem hides/shows agent and regional-operator boxes together, as one group', () => {
-  const ag: DiscoveryAgent = { orgId: DEFAULT_ORG, source: 'discovered', id: 'ag-1', clusterId: 'cl-edge-a', name: 'edge-a agent' }
-  const op: RegionalOperator = {
-    id: 'op-1', orgId: DEFAULT_ORG, name: 'Athens aggregator', status: 'active', sourceClusterIds: ['cl-edge-a'],
-    destination: { kind: 'external', endpoint: 'https://collector.example.com:4317' }, createdAt: SEEN, createdBy: 'alex',
-  }
-  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
-  const isSystemGroup = (n: { data: { kind: string; extra?: string } }) => n.data.kind === 'group' && (n.data.extra === 'agents' || n.data.extra === 'operators')
-
-  const off = buildGraph({ ...seed, discoveryAgents: [ag], operators: [op] }, opts)
-  assert.equal(off.nodes.filter(isSystemGroup).length, 0, 'both kinds stay hidden by default')
-
-  const on = buildGraph({ ...seed, discoveryAgents: [ag], operators: [op] }, { ...opts, showSystem: true })
-  assert.equal(on.nodes.filter((n) => n.data.kind === 'group' && n.data.extra === 'agents').length, 1)
-  assert.equal(on.nodes.filter((n) => n.data.kind === 'group' && n.data.extra === 'operators').length, 1)
+test('platform layer: grouped by tier it is left out, because it needs the cluster boxes', () => {
+  const g = buildGraph(seed, { view: 'application' as const, groupBy: 'tier' as const, servicesOnNodes: false, links: true, devices: false, platform: platformModel() })
+  assert.ok(!g.nodes.some((n) => n.type === 'platform'))
 })
 
 test("service card: a shorter card sharing a packed row with a taller one keeps its own height, not the row's tallest", () => {

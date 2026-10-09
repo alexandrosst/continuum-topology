@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { ArrowRight, Pencil, X } from 'lucide-react'
+import { Pencil, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckLine } from '@/components/discovery/AgentParts'
@@ -7,6 +7,8 @@ import EntityHistory from '@/components/EntityHistory'
 import { EvidenceSection, WeakValues } from '@/components/EvidenceSection'
 import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
+import { LinkRow, Section } from '@/components/topology/InspectorParts'
+import PlatformPanel, { PlatformSubtitle } from '@/components/topology/PlatformPanel'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
 import { Button, CompletenessBadge, ConnectivityStatusBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, Pill, Provenance as ProvenanceStrip, Select, Sparkline, SourceBadge, StatusDot, TierBadge, TunnelEvidence } from '@/components/ui/primitives'
 import { completeness } from '@/lib/completeness'
@@ -17,16 +19,17 @@ import { ageLabel, autoscalerRange, callerIfaceSpeedMbps, disruptionLabel, forma
 import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { useHistoryView } from '@/store/history'
 import { useConn, useServer } from '@/store/server'
-import { useDiscoveryAgents, useRawTopology, useTopology } from '@/store/topology'
+import { useRawTopology, useTopology } from '@/store/topology'
 import { bytesPerSec, bytesTotal, isObserved, trafficSummary } from '@/lib/observed'
 import { lossBand, pathQuality, rttLabel } from '@/lib/metrics'
 import { useClusterPairConnectivity, usePaths } from '@/store/topology'
 import { connectionVerdict, meshName, MTLS_WORDS, proxyWords, VERDICT_COLOR } from '@/lib/mesh'
+import type { PlatformModel } from '@/lib/platformLayer'
 import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Evidence, type ExternalEndpoint, type ExternalKind, type OverrideMeta, type Provenance, type Resources, type Tier } from '@/lib/types'
 import { api } from '@/lib/api'
 import type { DependencySeriesPoint } from '@/lib/history'
 
-export type Selection = { kind: 'cluster' | 'tier' | 'node' | 'service' | 'device' | 'site' | 'external' | 'dependency' | 'agent'; id: string } | null
+export type Selection = { kind: 'cluster' | 'tier' | 'node' | 'service' | 'device' | 'site' | 'external' | 'dependency' | 'platform'; id: string } | null
 
 // A thin wrapper around the shared DetailRow (primitives.tsx) - keeps every one of this file's ~50+
 // existing Row(...) call sites unchanged (same props, same roomy non-dense sizing) while the actual
@@ -85,25 +88,6 @@ function DependencyTrend({ dependencyId }: { dependencyId: string }) {
         {hasTrend(bps) && <Sparkline values={bps} title="Throughput, last 24h" className="text-ok" />}
       </span>
     </Row>
-  )
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="border-t border-nb-850 px-5 py-4">
-      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-nb-500">{title}</div>
-      {children}
-    </div>
-  )
-}
-
-function LinkRow({ label, sub, onClick, stacked }: { label: string; sub?: string; onClick?: () => void; stacked?: boolean }) {
-  // `stacked` puts a long sub-label (protocol, sources, rates) under the name instead of squeezing it.
-  return (
-    <button onClick={onClick} disabled={!onClick} className={'flex w-full rounded-md px-2 py-1.5 text-left text-sm text-nb-300 hover:bg-nb-940 disabled:hover:bg-transparent ' + (stacked ? 'flex-col gap-0.5' : 'items-center justify-between')}>
-      <span className="w-full truncate">{label}</span>
-      {sub && <span className={stacked ? 'w-full truncate text-xs text-nb-500' : 'ml-3 shrink-0 text-xs text-nb-500'}>{sub}</span>}
-    </button>
   )
 }
 
@@ -322,17 +306,19 @@ const busiest = (a: Dependency, b: Dependency) =>
 
 export default function Inspector({
   selection,
+  platform,
   onSelect,
   onEdit,
   onClose,
 }: {
   selection: Selection
+  /** The platform layer on the canvas, for a selection of one of its parts. */
+  platform?: PlatformModel
   onSelect: (s: Selection) => void
   onEdit: (s: NonNullable<Selection>) => void
   onClose: () => void
 }) {
   const { clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents } = useTopology()
-  const discoveryAgents = useDiscoveryAgents()
   const placement = usePlacementSuggestions().byCluster
   const inPast = useHistoryView((s) => s.at !== null)
   const measured = usePaths()
@@ -1055,42 +1041,13 @@ export default function Inspector({
         </Section>
       </>
     )
-  } else if (selection.kind === 'agent') {
-    const ag = discoveryAgents.find((x) => x.id === selection.id)
-    if (!ag) return null
-    const c = clusters.find((x) => x.id === ag.clusterId)
-    title = ag.name
-    subtitle = (
-      <span className="flex flex-wrap items-center gap-2">
-        <StatusDot status={ag.stale ? 'offline' : 'healthy'} withLabel />
-        <Pill>Discovery agent</Pill>
-      </span>
-    )
+  } else if (selection.kind === 'platform') {
+    const part = platform?.entities.find((x) => x.id === selection.id)
+    if (!part) return null
+    title = part.name
     editable = false
-    body = (
-      <>
-        <Section title="Identity">
-          <Row label="Cluster">
-            {c ? <button className="text-accent hover:underline" onClick={() => onSelect({ kind: 'cluster', id: c.id })}>{c.name}</button> : ag.clusterId}
-          </Row>
-          <Row label="Status">{ag.stale ? ag.stateReason || 'Not reporting' : 'Live'}</Row>
-        </Section>
-        {ag.self && (
-          <Section title="Self telemetry">
-            <Row label="Memory (RSS)">{formatMemory(ag.self.rssBytes / 1024 ** 3)}</Row>
-            <Row label="Goroutines">{ag.self.goroutines}</Row>
-            <Row label="As of">{ago(ag.self.t)}</Row>
-            {/* The full history (with derived CPU% and bandwidth share) lives on the System Health
-                page, never duplicated here. */}
-            <div className="pt-1">
-              <Link to="/system-health" className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline">
-                View full history <ArrowRight size={ICON_SM} aria-hidden />
-              </Link>
-            </div>
-          </Section>
-        )}
-      </>
-    )
+    subtitle = <PlatformSubtitle part={part} />
+    body = <PlatformPanel part={part} platform={platform!} onSelect={onSelect} />
   } else if (selection.kind === 'site') {
     const s = sites.find((x) => x.id === selection.id)
     const ds = devices.filter((d) => (s ? d.siteId === s.id : selection.id === 'none' ? !d.siteId : true))
@@ -1461,7 +1418,7 @@ export default function Inspector({
       </div>
       {body}
       {(selection.kind === 'cluster' || selection.kind === 'node' || selection.kind === 'service') && <EvidenceSection key={`ev:${selection.kind}:${selection.id}`} kind={selection.kind} id={selection.id} />}
-      <EntityHistory key={`${selection.kind}:${selection.id}`} kind={selection.kind} id={selection.id} />
+      {selection.kind !== 'platform' && <EntityHistory key={`${selection.kind}:${selection.id}`} kind={selection.kind} id={selection.id} />}
     </aside>
   )
 }

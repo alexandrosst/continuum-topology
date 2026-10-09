@@ -84,7 +84,7 @@ export interface PlatformInput {
 const LATE_AFTER_MS = 75_000
 const MODALITIES: Modality[] = ['metrics', 'logs', 'traces']
 const MODALITY_OF = new Map(TELEMETRY_SIGNALS.map((x) => [x.id, x.modality]))
-const MODALITY_WORD: Record<Modality, string> = { metrics: 'Metrics', logs: 'Logs', traces: 'Traces' }
+export const MODALITY_WORD: Record<Modality, string> = { metrics: 'Metrics', logs: 'Logs', traces: 'Traces' }
 
 /** "2 s", "14 min", "3 h", "2 d". */
 export function shortAge(iso: string | undefined, now: number): string | undefined {
