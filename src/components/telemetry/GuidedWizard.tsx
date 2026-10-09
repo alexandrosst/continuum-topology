@@ -149,7 +149,9 @@ export default function GuidedWizard({
   const catalog = catalogOf(enabledModalitySet)
 
   // Sending to FUSION while it cannot receive: nothing would be there to take it, so no command is offered until that is fixed.
-  const sendsToFusion = value.exportSplit ? activeLanes(value).some((m) => value.exportLanes[m].exportOperatorId === CENTRAL_OPERATOR_ID) : value.exportOperatorId === CENTRAL_OPERATOR_ID
+  // An install that dials FUSION's address counts even when its draft does not name the operator (the destination step matches it the same way).
+  const dialsFusion = !!fusionEntry && fusionEntry.central.endpoint !== '' && value.exportEndpoint.trim() === fusionEntry.central.endpoint
+  const sendsToFusion = value.exportSplit ? activeLanes(value).some((m) => value.exportLanes[m].exportOperatorId === CENTRAL_OPERATOR_ID) : value.exportOperatorId === CENTRAL_OPERATOR_ID || dialsFusion
   const fusionBlocked = sendsToFusion && !!fusionEntry && !fusionEntry.offer.usable
   // "Create the command" needs something to put in it: at least one signal, and somewhere to send it that can receive.
   const canCreate = turningOff || (onSignals.length > 0 && destinationReady(value) && !fusionBlocked)

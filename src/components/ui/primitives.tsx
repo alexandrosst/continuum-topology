@@ -1520,7 +1520,7 @@ export function ChipList({ items, max = 2 }: { items: string[]; max?: number }) 
  */
 export function WizardSteps({ steps, currentIndex, failedIndex, testId = 'wizard-steps' }: { steps: string[]; currentIndex: number; failedIndex?: number; testId?: string }) {
   return (
-    <div className="mb-4 flex items-center" data-testid={testId}>
+    <div className="@container mb-4 flex items-center" data-testid={testId}>
       {steps.map((label, i) => {
         const failed = i === failedIndex
         const done = !failed && i < currentIndex
@@ -1544,8 +1544,8 @@ export function WizardSteps({ steps, currentIndex, failedIndex, testId = 'wizard
                 {failed ? <X size={ICON_MD} /> : done ? <Check size={ICON_MD} /> : i + 1}
               </span>
             </span>
-            {/* On a phone only the current step keeps its words on screen (the others stay for a screen reader): three labels do not fit in a row. */}
-            <span aria-current={current ? 'step' : undefined} className={clsx('ml-1.5 whitespace-nowrap text-[11px]', !current && 'max-sm:sr-only', failed ? 'text-bad' : done ? 'text-nb-400' : current ? 'text-nb-200' : 'text-nb-600')}>{label}</span>
+            {/* Where the row is narrow (a phone, or the column an agent's row opens into) only the current step keeps its words on screen (the others stay for a screen reader): the labels do not fit in a row. */}
+            <span aria-current={current ? 'step' : undefined} className={clsx('ml-1.5 whitespace-nowrap text-[11px]', !current && '@max-md:sr-only', failed ? 'text-bad' : done ? 'text-nb-400' : current ? 'text-nb-200' : 'text-nb-600')}>{label}</span>
             {i < steps.length - 1 && <span className={clsx('mx-2 h-px flex-1', done ? 'bg-ok/30' : 'bg-nb-850')} />}
           </div>
         )
