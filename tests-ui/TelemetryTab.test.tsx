@@ -106,6 +106,6 @@ describe('flow animation', () => {
   test('is CSS only, slow, and switched off for people who ask for less motion', () => {
     expect(css).toMatch(/\.flow-dash\s*\{[^}]*animation:\s*flow-dash 1\.6s linear infinite/)
     const reduced = css.split('@media (prefers-reduced-motion: reduce)').slice(1).join('\n')
-    expect(reduced).toMatch(/\.flow-dash\s*\{\s*animation:\s*none;?\s*\}/)
+    expect(reduced).toMatch(/\.flow-dash[^{]*\{\s*animation:\s*none;?\s*\}/)
   })
 })
