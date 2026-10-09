@@ -102,3 +102,11 @@ test('an open suggestion the server keeps repeating verbatim keeps its identity;
   assert.equal(suggestions, m.suggestions)
   assert.equal(suggestions![0], s)
 })
+
+test('declared refs keep their identity while nothing lands on them, and shrink when their record appears', () => {
+  const ref = { kind: 'cluster', siteId: 's1' } as unknown as Model['refs'][string]
+  const m = model({ refs: { c9: ref } })
+  assert.equal(mergeDiscovered(m, doc()).refs, m.refs, 'an unchanged poll hands back the same refs object')
+  const topology = { clusters: [cluster('c9')], nodes: [], namespaces: [], services: [], suggestions: [], dependencies: [], externalEndpoints: [], paths: [] }
+  assert.deepEqual(mergeDiscovered(m, doc({ topology })).refs, {}, 'the ref that found its record is consumed')
+})

@@ -274,5 +274,8 @@ export function mergeDiscovered(m: Model, doc: ServerState): Partial<Model> {
   const newAuditEvents = doc.auditLog.filter((e) => !have.has(e.id))
   const auditLog = newAuditEvents.length ? [...m.auditLog, ...newAuditEvents] : m.auditLog
 
-  return { clusters, nodes, namespaces, services, agents, suggestions, auditLog, refs: left }
+  // `left` only ever loses keys (a declared ref lands on a record that just appeared), so an equal count means it is
+  // still `m.refs`: keep that identity, which the effective-model cache and everything built on it is keyed on.
+  const refs = Object.keys(left).length === Object.keys(m.refs).length ? m.refs : left
+  return { clusters, nodes, namespaces, services, agents, suggestions, auditLog, refs }
 }
