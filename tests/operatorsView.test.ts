@@ -134,10 +134,10 @@ const op = (over: Partial<RegionalOperator> = {}): RegionalOperator => ({
   receiverAuth: 'mtls', health: { state: 'online', reporting: true, lastSeenAt: ago(20_000) }, certs: { receiverNotAfter: ahead(25 * DAY), clientNotAfter: ahead(26 * DAY), caNotAfter: ahead(900 * DAY) }, certState: 'ok', addressState: 'set', ...over,
 }) as RegionalOperator
 
-test('certCell: renewing automatically with the day the next renewal is due (20 days before the end), a problem only when renewal fails', () => {
+test('certCell: renewing automatically until the day the soonest certificate ends, a problem only when renewal fails', () => {
   const ok = certCell(op())
   assert.equal(ok.kind, 'auto')
-  assert.equal(ok.kind === 'auto' && ok.next, ahead(5 * DAY))
+  assert.equal(ok.kind === 'auto' && ok.endsAt, ahead(25 * DAY))
   assert.deepEqual(certCell(op({ certs: { caNotAfter: ahead(900 * DAY) } })), { kind: 'none' })
   assert.deepEqual(certCell(op({ certs: undefined, certState: undefined })), { kind: 'none' })
   assert.equal(certCell(op({ certState: 'renewal-failing', certs: { receiverNotAfter: ahead(13 * DAY) } })).kind, 'failing')

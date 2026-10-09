@@ -27,8 +27,9 @@ export interface Verdict {
   todo?: Todo
 }
 
-/** What the certificate column says. Operator certificates last 30 days and renew themselves, so only a failing renewal is a problem. */
-export type CertCell = { kind: 'none' } | { kind: 'auto'; next?: string } | { kind: 'failing' | 'expired'; until: string }
+/** What the certificate column says. Operator certificates last 30 days and renew themselves, so only a failing renewal is a problem.
+ *  `endsAt` / `until` is the day the soonest of them runs out; an agent's own certificate has no date to show. */
+export type CertCell = { kind: 'none' } | { kind: 'auto'; endsAt?: string } | { kind: 'failing' | 'expired'; until: string }
 
 export interface ComponentRow {
   id: string
@@ -47,13 +48,10 @@ export interface ComponentRow {
 }
 
 const MIN = 60_000
-const DAY = 86_400_000
 /** Agents send a heartbeat every 30 seconds; two missed is "late". */
 const LATE_AFTER_MS = 75_000
 /** A telemetry request nothing has answered for this long is no longer "just run the command". */
 const PENDING_AFTER_MS = 60 * MIN
-/** Operator certificates are renewed with this much life left (backend pki.OperatorRenewBefore). */
-const RENEW_BEFORE_MS = 20 * DAY
 
 /** "2 h 8 min", "14 min", "40 s": how long, for a sentence. */
 export function duration(ms: number): string {
@@ -234,7 +232,7 @@ export function certCell(op: Pick<RegionalOperator, 'certs' | 'certState'>): Cer
   if (ends.length === 0) return { kind: 'none' }
   const soonest = Math.min(...ends)
   if (op.certState === 'expired' || op.certState === 'renewal-failing') return { kind: op.certState === 'expired' ? 'expired' : 'failing', until: new Date(soonest).toISOString() }
-  return { kind: 'auto', next: new Date(soonest - RENEW_BEFORE_MS).toISOString() }
+  return { kind: 'auto', endsAt: new Date(soonest).toISOString() }
 }
 
 /** A regional or central operator. The worst thing wins and is said once: an ended one, an expired certificate, silence, a failing renewal,

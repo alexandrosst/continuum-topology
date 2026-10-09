@@ -352,22 +352,30 @@ describe('PipelinePage', () => {
     expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Stop and remove…'])
   })
 
-  test('the certificate column says Renewing automatically with the next date; only a failing renewal or an ended certificate is anything else', async () => {
+  test('the certificate column is a lifetime bar with its value in words; text appears only for a failing renewal or an ended certificate', async () => {
     listOperators.mockResolvedValue([
       op({ id: 'op-a', name: 'fine-op', certState: 'ok', certs: { receiverNotAfter: daysFromNow(25) } }),
       op({ id: 'op-b', name: 'soon-op', certState: 'renewal-failing', certs: { receiverNotAfter: daysFromNow(12) } }),
       op({ id: 'op-c', name: 'late-op', certState: 'expired', certs: { receiverNotAfter: daysFromNow(-3) } }),
       op({ id: 'op-d', name: 'old-op' }),
+      op({ id: 'op-e', name: 'long-op', certState: 'ok', certs: { receiverNotAfter: daysFromNow(300) } }),
     ])
     renderPage()
     const cell = (name: string) => within(screen.getByTestId(`operator-${name}`)).getAllByRole('cell')[3]
     await screen.findByTestId('operator-fine-op')
-    expect(cell('fine-op')).toHaveTextContent(/Renewing automatically\s*next \w+ \d+/)
+    expect(cell('fine-op')).not.toHaveTextContent(/Renewing|next|failing|Expired/)
+    expect(within(cell('fine-op')).getByRole('meter', { name: 'Certificate lifetime' })).toHaveAttribute('aria-valuetext', 'expires in 25 days')
+    expect(within(cell('fine-op')).getByRole('meter')).toHaveAttribute('aria-valuenow', '83')
+    expect(within(cell('soon-op')).getByRole('meter')).toHaveAttribute('aria-valuetext', 'expires in 12 days')
+    expect(within(cell('late-op')).getByRole('meter')).toHaveAttribute('aria-valuetext', 'expired 3 days ago')
+    expect(cell('long-op')).toHaveTextContent('legacy')
+    expect(cell('fine-op')).not.toHaveTextContent('legacy')
     expect(cell('soon-op')).toHaveTextContent('Renewal failing')
     expect(cell('soon-op').querySelector('.text-warn')).not.toBeNull()
     expect(cell('late-op')).toHaveTextContent('Expired')
     expect(cell('late-op').querySelector('.text-bad')).not.toBeNull()
     expect(cell('old-op')).toHaveTextContent('—')
+    expect(cell('old-op').querySelector('[role=meter]')).toBeNull()
     expect(screen.getByTestId('component-reason-regional:op-b')).toHaveTextContent('Certificate renewal is failing')
   })
 

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
 import type { Hop } from '@/lib/operatorsView'
+import { certLife } from '@/lib/certLifetime'
 import { EXPECTED_MS, freshness, hopChip, linkState } from '@/lib/pipelineFlow'
 
 const NOW = Date.parse('2026-10-09T12:00:00Z')
@@ -59,5 +60,27 @@ describe('flow animation', () => {
     expect(css).toMatch(/\.flow-dash \{[^}]*stroke-dasharray: 5 4;[^}]*animation: flow-dash 1\.6s linear infinite/)
     for (const c of ['.flow-dash', '.flow-dash-bg', '.flow-dash-bg-v']) expect(reduced).toContain(c)
     expect(reduced).toMatch(/animation: none/)
+  })
+})
+
+describe('certLife', () => {
+  const day = 86_400_000
+  const at = (days: number) => new Date(NOW + days * day).toISOString()
+  test('renewing normally: the share of the 30 days left, neutral, no words but the value for a screen reader', () => {
+    expect(certLife({ kind: 'auto', endsAt: at(15) }, NOW)).toEqual({ fraction: 0.5, tone: 'neutral', legacy: false, text: 'expires in 15 days', exception: undefined })
+    expect(certLife({ kind: 'auto', endsAt: at(0.5) }, NOW)?.text).toBe('expires in 1 day')
+  })
+  test('a failing renewal is amber with its words; an ended certificate is red, empty, and says how long ago', () => {
+    expect(certLife({ kind: 'failing', until: at(13) }, NOW)).toMatchObject({ tone: 'warn', exception: 'Renewal failing', text: 'expires in 13 days' })
+    expect(certLife({ kind: 'expired', until: at(-3) }, NOW)).toMatchObject({ fraction: 0, tone: 'bad', exception: 'Expired', text: 'expired 3 days ago' })
+    expect(certLife({ kind: 'auto', endsAt: at(-0.2) }, NOW)).toMatchObject({ tone: 'bad', text: 'expired today' })
+  })
+  test('one with more than its 30 days left is shown full and marked legacy', () => {
+    expect(certLife({ kind: 'auto', endsAt: at(300) }, NOW)).toMatchObject({ fraction: 1, legacy: true })
+    expect(certLife({ kind: 'auto', endsAt: at(30.5) }, NOW)?.legacy).toBe(false)
+  })
+  test('nothing to measure without a date', () => {
+    expect(certLife({ kind: 'none' }, NOW)).toBeNull()
+    expect(certLife({ kind: 'auto' }, NOW)).toBeNull()
   })
 })

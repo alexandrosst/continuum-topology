@@ -1,29 +1,28 @@
+import clsx from 'clsx'
 import { ShieldCheck } from 'lucide-react'
 import RowMenu, { type RowMenuItem } from '@/components/operators/RowMenu'
 import StateChip from '@/components/operators/StateChip'
-import { Button, ChipList, CopyIconButton, ICON_SM, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
-import { addressCell, KIND_LABEL, lastDataText, shortDate, type CertCell, type ComponentRow } from '@/lib/operatorsView'
+import { Button, ChipList, CopyIconButton, ICON_SM, Pill, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
+import { certLife } from '@/lib/certLifetime'
+import { addressCell, KIND_LABEL, lastDataText, type CertCell, type ComponentRow } from '@/lib/operatorsView'
 
 /** Fixed widths that add up to what the page has beside the sidebar at 1280 px, so the row's menu is on screen without scrolling the table
  *  sideways; the State column takes the rest, because it is the one that holds a sentence. */
 const COLS = ['w-64', '', 'w-20', 'w-44', 'w-36', 'w-28', 'w-12']
 
-/** What the certificate column says. Operator certificates renew themselves, so that is the normal state and not a chore: only a renewal
- *  that is failing, or a certificate that ended, is anything but quiet. */
-function CertText({ cert }: { cert: CertCell }) {
+/** What the certificate column shows: a thin bar of how much of the 30-day lifetime is left, and words only when something is wrong. Operator
+ *  certificates renew themselves, so that is the normal state and says nothing; an agent's own has no date, so it is just a quiet mark. */
+function CertLife({ cert, now }: { cert: CertCell; now: number }) {
   if (cert.kind === 'none') return <span className="text-nb-700" aria-label="None">—</span>
-  if (cert.kind === 'auto') {
-    return (
-      <span className="text-xs text-nb-400">
-        <span className="inline-flex items-center gap-1"><ShieldCheck size={ICON_SM} className="text-nb-500" aria-hidden /> Renewing automatically</span>
-        {cert.next && <span className="block text-nb-500">next {shortDate(cert.next)}</span>}
-      </span>
-    )
-  }
+  const life = certLife(cert, now)
+  if (!life) return <span role="img" aria-label="Renews automatically" title="Renews automatically"><ShieldCheck size={ICON_SM} className="text-nb-500" aria-hidden /></span>
   return (
-    <span className={cert.kind === 'expired' ? 'text-xs text-bad' : 'text-xs text-warn'}>
-      {cert.kind === 'expired' ? 'Expired' : 'Renewal failing'}
-      <span className="block text-nb-500">{cert.kind === 'expired' ? 'on' : 'valid until'} {shortDate(cert.until)}</span>
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 align-middle text-xs" title={life.text}>
+      <span role="meter" aria-label="Certificate lifetime" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(life.fraction * 100)} aria-valuetext={life.text} className="h-1 w-14 overflow-hidden rounded-full bg-nb-850">
+        <span className={clsx('block h-full rounded-full meter-bar', { neutral: 'bg-nb-500', warn: 'bg-warn', bad: 'bg-bad' }[life.tone])} style={{ width: `${life.fraction * 100}%` }} />
+      </span>
+      {life.legacy && <Pill title="Issued for longer than the 30 days new certificates last, so it does not renew the way they do" className="text-[11px] text-nb-500">legacy</Pill>}
+      {life.exception && <span className={life.tone === 'bad' ? 'text-bad' : 'text-warn'}>{life.exception}</span>}
     </span>
   )
 }
@@ -73,7 +72,7 @@ export default function ComponentsTable({ rows, now, menuFor, onWhatToDo }: { ro
                 )}
               </Td>
               <Td valign="top" className="whitespace-nowrap text-xs text-nb-500 max-md:inline-block max-md:border-0 max-md:pb-0 max-md:pt-2"><Label>Version</Label>{r.version ? `v${r.version}` : <span className="text-nb-700">—</span>}</Td>
-              <Td valign="top" className="text-xs max-md:block max-md:border-0 max-md:pb-0 max-md:pt-1"><Label>Certificate</Label><CertText cert={r.cert} /></Td>
+              <Td valign="top" className="text-xs max-md:block max-md:border-0 max-md:pb-0 max-md:pt-1"><Label>Certificate</Label><CertLife cert={r.cert} now={now} /></Td>
               <Td valign="top" className="text-xs text-nb-400 max-md:block max-md:border-0 max-md:pb-0 max-md:pt-1"><Label>Sends to</Label><span className="break-words font-mono md:block md:truncate" title={r.sendsTo}>{r.sendsTo}</span></Td>
               <Td valign="top" className="whitespace-nowrap text-xs text-nb-500 max-md:block max-md:border-0 max-md:pb-0 max-md:pt-1"><Label>Last data</Label><span title={r.lastData ? new Date(r.lastData).toLocaleString() : undefined}>{lastDataText(r.lastData, now)}</span></Td>
               <Td valign="top" className="sticky right-0 bg-nb-925 text-right group-hover:bg-nb-930 max-md:absolute max-md:right-1 max-md:top-2 max-md:border-0 max-md:bg-transparent max-md:p-0">
