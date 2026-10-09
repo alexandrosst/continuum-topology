@@ -285,3 +285,17 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---- Flow lines (appended; shared by the Pipeline path and anything else that draws a line data moves along) ----
+   Slow, decorative and only for a line something is flowing through: stalled, broken and unknown lines get no class and stay still.
+   .flow-dash is for an SVG stroke; .flow-dash-bg (across) and .flow-dash-bg-v (down) are for a CSS line, which takes its colour from the
+   text colour. Both dash patterns repeat every 9px, which is what the keyframes travel. */
+@keyframes flow-dash { to { stroke-dashoffset: -9; } }
+@keyframes flow-dash-bg { to { background-position: 9px 0; } }
+@keyframes flow-dash-bg-v { to { background-position: 0 9px; } }
+.flow-dash { stroke-dasharray: 5 4; animation: flow-dash 1.6s linear infinite; }
+.flow-dash-bg { background-image: repeating-linear-gradient(90deg, currentColor 0 5px, transparent 5px 9px); animation: flow-dash-bg 1.6s linear infinite; }
+.flow-dash-bg-v { background-image: repeating-linear-gradient(180deg, currentColor 0 5px, transparent 5px 9px); animation: flow-dash-bg-v 1.6s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .flow-dash, .flow-dash-bg, .flow-dash-bg-v { animation: none; }
+}

@@ -316,6 +316,8 @@ export interface Hop {
   total: number
   healthy: number
   state?: State
+  /** How many of them are in that worst state. */
+  worst: number
   lastData?: string
 }
 
@@ -327,9 +329,10 @@ export function buildHops(rows: ComponentRow[], fusion: { kind: FusionKind; last
   const live = rows.filter((r) => !r.ended)
   const hops: Hop[] = KINDS.map((k) => {
     const of = live.filter((r) => r.kind === k)
-    return { key: k, label: KIND_PLURAL[k], total: of.length, healthy: of.filter((r) => r.verdict.state === 'healthy').length, state: worstState(of.map((r) => r.verdict.state)), lastData: newest(of.map((r) => r.lastData)) }
+    const state = worstState(of.map((r) => r.verdict.state))
+    return { key: k, label: KIND_PLURAL[k], total: of.length, healthy: of.filter((r) => r.verdict.state === 'healthy').length, state, worst: of.filter((r) => r.verdict.state === state).length, lastData: newest(of.map((r) => r.lastData)) }
   })
   if (!fusion || fusion.kind === 'checking' || fusion.kind === 'unavailable') return hops
   const state = ({ running: 'healthy', attention: 'attention', starting: 'unknown', off: undefined } as const)[fusion.kind]
-  return [...hops, { key: 'fusion', label: 'FUSION', total: state ? 1 : 0, healthy: state === 'healthy' ? 1 : 0, state, lastData: fusion.lastDataAt }]
+  return [...hops, { key: 'fusion', label: 'FUSION', total: state ? 1 : 0, healthy: state === 'healthy' ? 1 : 0, state, worst: state ? 1 : 0, lastData: fusion.lastDataAt }]
 }

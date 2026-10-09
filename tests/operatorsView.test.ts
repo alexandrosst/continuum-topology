@@ -209,7 +209,7 @@ test('buildHops: counts, worst state and newest data per hop, ended components l
   const hops = buildHops(rows, { kind: 'running', lastDataAt: ago(3_000) })
   assert.deepEqual(hops.map((h) => [h.key, h.total, h.healthy, h.state]), [['agent', 2, 1, 'down'], ['local', 0, 0, undefined], ['regional', 0, 0, undefined], ['central', 0, 0, undefined], ['fusion', 1, 1, 'healthy']])
   assert.equal(hops[0].lastData, ago(10_000))
-  assert.deepEqual(buildHops([], { kind: 'off' }).at(-1), { key: 'fusion', label: 'FUSION', total: 0, healthy: 0, state: undefined, lastData: undefined })
+  assert.deepEqual(buildHops([], { kind: 'off' }).at(-1), { key: 'fusion', label: 'FUSION', total: 0, healthy: 0, state: undefined, worst: 0, lastData: undefined })
   assert.equal(buildHops([], { kind: 'starting' }).at(-1)?.state, 'unknown')
   assert.equal(buildHops([], { kind: 'attention' }).at(-1)?.state, 'attention')
   // Not known yet, or not something this server can run: no hop for it.

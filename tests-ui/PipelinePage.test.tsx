@@ -254,22 +254,25 @@ describe('PipelinePage', () => {
     expect(screen.queryByTestId('operator-athens-regional')).not.toBeInTheDocument()
   })
 
-  test('the data path has one tile per hop with its count of healthy ones, and FUSION last once it is on', async () => {
+  test('the data path is one connected strip: a node per hop with its count and worst state, a line between each, and FUSION last once it is on', async () => {
     fusionStatus = fusionRunning()
     listOperators.mockResolvedValue([op({ health: { state: 'online', lastSeenAt: minutesAgo(1), reporting: true } }), centralOp({ health: { state: 'online', reporting: false, lastSeenAt: minutesAgo(1) } })])
     renderPage()
     const path = await screen.findByTestId('pipeline-path')
     await waitFor(() => expect(within(path).getByTestId('hop-fusion')).toHaveTextContent('On'))
-    expect(within(path).getByTestId('hop-regional')).toHaveTextContent('1 of 1')
+    expect(within(path).getByTestId('hop-regional')).toHaveTextContent(/^1Regional operators\s*Healthy$/)
     expect(within(path).getByTestId('hop-central')).toHaveTextContent('Healthy')
     expect(within(path).getByTestId('hop-fusion')).toHaveTextContent('Healthy')
-    expect(within(path).getAllByRole('listitem').map((i) => i.getAttribute('data-testid')).filter(Boolean)).toEqual(['hop-agent', 'hop-local', 'hop-regional', 'hop-central', 'hop-fusion'])
+    expect(within(path).getAllByRole('listitem').map((i) => i.getAttribute('data-testid')).filter((t) => t?.startsWith('hop-'))).toEqual(['hop-agent', 'hop-local', 'hop-regional', 'hop-central', 'hop-fusion'])
+    // A line between every two nodes, each with a freshness meter that says its value in words.
+    expect(within(path).getAllByRole('meter').length).toBeGreaterThan(0)
+    for (const m of within(path).getAllByRole('meter')) expect(m).toHaveAttribute('aria-valuetext', expect.stringMatching(/^Last data /))
   })
 
   test('with FUSION off there is no FUSION hop figure but "Off", and the central operator is not a row', async () => {
     renderPage()
     expect(await screen.findByTestId('hop-fusion')).toHaveTextContent('Off')
-    expect(screen.queryByTestId('hop-central')?.textContent).toMatch(/^Central operator0/)
+    expect(screen.queryByTestId('hop-central')?.textContent).toMatch(/^0Central operator/)
   })
 
   test('nothing is wrong: no "What needs attention"; something is wrong: one sentence per problem and a What to do that opens numbered steps with the exact command', async () => {
