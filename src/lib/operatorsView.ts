@@ -321,13 +321,15 @@ export interface Hop {
 
 const worstState = (states: State[]): State | undefined => [...states].sort((a, b) => SEVERITY[a] - SEVERITY[b])[0]
 
-/** The path from the discovery agents to FUSION. FUSION is not a row of the table (it has a section of its own): its hop is its own state. */
+/** The path from the discovery agents to FUSION. FUSION is not a row of the table (it has a section of its own): its hop is its own state,
+ *  and is left out while it is not known or this server cannot run it at all. */
 export function buildHops(rows: ComponentRow[], fusion: { kind: FusionKind; lastDataAt?: string } | undefined): Hop[] {
   const live = rows.filter((r) => !r.ended)
   const hops: Hop[] = KINDS.map((k) => {
     const of = live.filter((r) => r.kind === k)
     return { key: k, label: KIND_PLURAL[k], total: of.length, healthy: of.filter((r) => r.verdict.state === 'healthy').length, state: worstState(of.map((r) => r.verdict.state)), lastData: newest(of.map((r) => r.lastData)) }
   })
-  const state = fusion && ({ running: 'healthy', attention: 'attention', starting: 'unknown', off: 'unknown' } as Partial<Record<FusionKind, State>>)[fusion.kind]
-  return [...hops, { key: 'fusion', label: 'FUSION', total: state ? 1 : 0, healthy: state === 'healthy' ? 1 : 0, state, lastData: fusion?.lastDataAt }]
+  if (!fusion || fusion.kind === 'checking' || fusion.kind === 'unavailable') return hops
+  const state = ({ running: 'healthy', attention: 'attention', starting: 'unknown', off: undefined } as const)[fusion.kind]
+  return [...hops, { key: 'fusion', label: 'FUSION', total: state ? 1 : 0, healthy: state === 'healthy' ? 1 : 0, state, lastData: fusion.lastDataAt }]
 }
