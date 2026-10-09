@@ -53,7 +53,7 @@ export default function ComponentsTable({ rows, now, menuFor, onWhatToDo }: { ro
                   {r.cluster && <TierBadge tier={r.cluster.tier} />}
                 </div>
                 <div className="mt-0.5 truncate text-xs text-nb-500">
-                  {KIND_LABEL[r.kind]}
+                  {r.kind === 'central' ? 'Receives data for FUSION' : KIND_LABEL[r.kind]}
                   {r.cluster ? ` · ${r.cluster.name}` : ''}
                   {r.operator && r.kind === 'regional' ? ` · ${r.operator.sourceClusterIds.length} cluster${r.operator.sourceClusterIds.length === 1 ? '' : 's'}` : ''}
                 </div>
