@@ -111,8 +111,8 @@ const list = (xs: string[]) => (xs.length <= 2 ? xs.join(' and ') : `${xs.slice(
  * command changes against what the install reports (describeTelemetryChanges); with an install to compare against it is the list, and
  * without one (nothing is installed yet) everything is new, so the draft is described instead.
  */
-export function reviewNotes(o: { draft: TelemetryInput; diff: string[]; installed: boolean; turningOff: boolean; destination: string; kept: string[] }): ReviewNotes {
-  const { draft, diff, installed, turningOff, destination, kept } = o
+export function reviewNotes(o: { draft: TelemetryInput; diff: string[]; installed: boolean; turningOff: boolean; destination: string; kept: string[]; /** With one destination per signal type: "metrics to Mimir", "logs to Loki". */ routes?: string[] }): ReviewNotes {
+  const { draft, diff, installed, turningOff, destination, kept, routes } = o
   const unchanged = [
     'What the discovery agent may see: its access level stays as approved.',
     'Your applications: nothing in them is edited. The collectors only read from the cluster.',
@@ -125,7 +125,7 @@ export function reviewNotes(o: { draft: TelemetryInput; diff: string[]; installe
   if (installed) return { changes: diff.length > 0 ? diff : ['Nothing: this is already how the install is set up, so the command would leave it as it is.'], unchanged, stop }
 
   const on = TELEMETRY_SIGNALS.filter((s) => (draft as unknown as Record<string, boolean>)[s.id])
-  const changes = [`Starts collecting ${list(on.map((s) => s.label))}.`, `Sends it to ${destination}.`]
+  const changes = [`Starts collecting ${list(on.map((s) => s.label))}.`, routes && routes.length > 0 ? `Sends ${list(routes)}.` : `Sends it to ${destination}.`]
   if (draft.redaction) changes.push('Masks values that look like secrets before anything leaves the cluster.')
   if (draft.traces && draft.tracesSamplingPercent < 100) changes.push(`Keeps ${draft.tracesSamplingPercent}% of traces.`)
   const tags = cleanTags(draft.tags)

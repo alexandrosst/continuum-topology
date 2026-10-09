@@ -6,11 +6,11 @@ import { useServer } from '@/store/server'
 const TelemetryWizard = lazy(() => import('@/components/telemetry/TelemetryWizard'))
 
 /**
- * "Configure telemetry" is one flow with several entry points - the Agents page header button (no target
+ * "Set up telemetry" is one flow with several entry points - the Agents page header button (no target
  * chosen yet), the topology canvas's "Define scope from selection" quick action (a target and scope already
  * known), "Connect <cluster>" on an operator (a target and the operator to send to already known: `initialDestination` is that
- * operator's id), and the inline "Change telemetry" disclosure on an already-expanded agent row, which stays a
- * separate, simpler path (see TelemetryPanel). Call `start()` from a button; render `dialogs` once on the
+ * operator's id), and the inline "Change telemetry" disclosure on an already-expanded agent row, which holds the same
+ * guided setup in place (see TelemetryPanel). Call `start()` from a button; render `dialogs` once on the
  * page that owns this hook. Mirrors useConnectFlow's shape in ConnectFlow.tsx, but gated on editor-level
  * access (`canEdit`), the same bar TelemetryPanel/ConsentPanel already use - not useConnectFlow's own
  * admin-level `canStart`, since configuring telemetry is an editor-level action today, not an

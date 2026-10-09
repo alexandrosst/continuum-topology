@@ -47,35 +47,45 @@ describe('TelemetryWizard', () => {
     expect(screen.getByText('agents-page-marker')).toBeInTheDocument()
   })
 
-  test('with no agent named, shows a picker of approved clusters and clicking one moves to the configure phase', async () => {
+  test('with no agent named, "Where from" lists the approved clusters; Continue is off until one is picked, then the setup opens', async () => {
     const user = userEvent.setup()
-    topologyState = { agents: [ag()], clusters: [cl()] }
+    topologyState = { agents: [ag(), ag({ id: 'a2', clusterId: 'c2', name: 'edge-2' })], clusters: [cl(), cl({ id: 'c2', name: 'edge-2' })] }
     renderWizard()
+    expect(screen.getByRole('dialog', { name: 'Set up telemetry' })).toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-wizard-steps')).toHaveTextContent(/Where from.*What to collect.*Where to send.*Review and install/)
     expect(screen.getByTestId('telemetry-wizard-picker')).toBeInTheDocument()
-    expect(screen.queryByText('Installed now')).not.toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-wizard-continue')).toBeDisabled()
+    expect(screen.queryByTestId('telemetry-wizard-guided-step-collect')).not.toBeInTheDocument()
 
-    await user.click(screen.getByTestId('telemetry-wizard-target'))
+    await user.click(screen.getAllByTestId('telemetry-wizard-target')[0])
+    await user.click(screen.getByTestId('telemetry-wizard-continue'))
     expect(screen.queryByTestId('telemetry-wizard-picker')).not.toBeInTheDocument()
-    expect(screen.getByText('Installed now')).toBeInTheDocument()
+    expect(screen.getByTestId('telemetry-wizard-guided-step-collect')).toBeInTheDocument()
+    // The cluster was chosen here, so the way back to the list is offered.
+    await user.click(screen.getByTestId('telemetry-wizard-guided-change-cluster'))
+    expect(screen.getByTestId('telemetry-wizard-picker')).toBeInTheDocument()
   })
 
-  test('a target and scope handed off from the topology skip straight to the configure phase, scope carried over', () => {
+  test('the only approved cluster is already picked, so Continue is on straight away', () => {
+    topologyState = { agents: [ag()], clusters: [cl()] }
+    renderWizard()
+    expect(screen.getByTestId('telemetry-wizard-continue')).toBeEnabled()
+  })
+
+  test('a target and scope handed off from the topology skip "Where from", with the scope carried over and no way back to a list', () => {
     topologyState = { agents: [ag()], clusters: [cl()] }
     renderWizard({ agentId: 'a1', initialScope: { name: 'shop scope (from topology)', namespaces: ['shop'] } })
     expect(screen.queryByTestId('telemetry-wizard-picker')).not.toBeInTheDocument()
-    expect(screen.getByText('Installed now')).toBeInTheDocument()
-    // Being handed a scope starts the form in guided mode, which is where that scope actually shows up.
-    expect(screen.getByTestId('telemetry-wizard-mode-guided')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByTestId('telemetry-wizard-guided-step-collect')).toBeInTheDocument()
+    expect(screen.queryByTestId('telemetry-wizard-guided-change-cluster')).not.toBeInTheDocument()
+    // The scope is open where it is edited, with the name it came with.
+    expect(screen.getByTestId('telemetry-wizard-guided-scope')).toHaveAttribute('open')
   })
 
-  test('a scope handed off for a target with nothing configured yet starts the guided wizard at Collect, not Review', () => {
-    // Regression test: a fresh "Define scope from selection" hand-off used to seed the wizard straight onto
-    // the 'scope' step, which - with nothing turned on yet - immediately collapsed to 'review' (a dead end
-    // reading "nothing is turned on yet"), skipping Collect entirely. See GuidedWizard.tsx's
-    // rawStep initializer.
+  test('a handed-off scope for a cluster with nothing set up starts at What to collect, never at a dead-end review', () => {
     topologyState = { agents: [ag()], clusters: [cl()] }
     renderWizard({ agentId: 'a1', initialScope: { name: 'shop scope (from topology)', namespaces: ['shop'] } })
     expect(screen.getByTestId('telemetry-wizard-guided-step-collect')).toBeInTheDocument()
-    expect(screen.queryByText(/nothing is turned on yet/i)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('telemetry-wizard-guided-step-review')).not.toBeInTheDocument()
   })
 })

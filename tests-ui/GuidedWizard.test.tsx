@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { MemoryRouter } from 'react-router-dom'
@@ -6,11 +6,10 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import GuidedWizard from '@/components/telemetry/GuidedWizard'
 import { DEFAULT_SETTINGS, type AppSettings, type QuickStartBackend } from '@/lib/history'
 import { emptyTelemetry, type TelemetryInput } from '@/lib/install'
-import { quickStartSpec } from '@/lib/quickStartBackends'
 import type { FusionStatus } from '@/lib/api'
 import type { OperatorDestinationEntry, RegionalOperator } from '@/lib/types'
 
-// GuidedWizard's destination step (between Scope and Review) merges regional operators, the built-in
+// GuidedWizard's "Where to send" step (between What to collect and Review) merges regional operators, the built-in
 // export presets and this org's own already-quick-started backends into one pickable catalog
 // (destinationCatalog.ts), plus the two "deploy new" entry points. Every assertion below is about what
 // renders and what the step writes into the TelemetryInput draft - never about anything actually
@@ -86,9 +85,11 @@ const operator = (overrides: Partial<RegionalOperator> = {}): RegionalOperator =
 /** The draft as of the last change - lets a test read what the wizard wrote into it. */
 let latest: TelemetryInput = emptyTelemetry
 
+const onDone = vi.fn()
+
 function Wrapper({ initial = emptyTelemetry, clusterId, initialDestination }: { initial?: TelemetryInput; clusterId?: string; initialDestination?: string }) {
   const [value, setValue] = useState<TelemetryInput>(initial)
-  return <GuidedWizard value={value} onChange={(v) => { latest = v; setValue(v) }} testIdPrefix="t" clusterId={clusterId} initialDestination={initialDestination} runSection={<div data-testid="t-run-section">the command</div>} />
+  return <GuidedWizard value={value} onChange={(v) => { latest = v; setValue(v) }} testIdPrefix="t" clusterId={clusterId} initialDestination={initialDestination} clusterName="vradipus-cluster" review={{ diff: [], installed: false, kept: [] }} runSection={<div data-testid="t-run-section">the command</div>} checkSection={<div data-testid="t-check-section">the check</div>} onDone={onDone} />
 }
 
 function renderWizard(initial?: TelemetryInput, clusterId?: string, initialDestination?: string) {
@@ -103,8 +104,7 @@ function renderWizard(initial?: TelemetryInput, clusterId?: string, initialDesti
  *  offer, the list opens on the first few built-in presets - Honeycomb is one of them. */
 async function gotoDestination(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByTestId('t-resourceUsage'))
-  await user.click(screen.getByTestId('t-guided-continue')) // Collect -> Process
-  await user.click(screen.getByTestId('t-guided-continue')) // Process -> Destination
+  await user.click(screen.getByTestId('t-guided-continue')) // What to collect -> Where to send
 }
 
 beforeEach(() => {
@@ -120,9 +120,10 @@ beforeEach(() => {
 })
 
 describe('GuidedWizard: the command comes last', () => {
-  test('no command anywhere until Review has been passed: "Create the command" opens the Run step, Back returns to Review', async () => {
+  test('the rail is the four steps, and no command anywhere until Review has been passed: "Create the command" opens the Run phase, Back returns to Review', async () => {
     const user = userEvent.setup()
     renderWizard()
+    expect(screen.getByTestId('t-guided-steps')).toHaveTextContent(/Where from.*What to collect.*Where to send.*Review and install/)
     await gotoDestination(user)
     await user.click(screen.getByTestId('t-guided-destination-external-preset-honeycomb'))
     expect(screen.queryByTestId('t-run-section')).not.toBeInTheDocument()
@@ -132,66 +133,113 @@ describe('GuidedWizard: the command comes last', () => {
     await user.click(screen.getByTestId('t-guided-create-command'))
     expect(screen.getByTestId('t-guided-step-run')).toBeInTheDocument()
     expect(screen.getByTestId('t-run-section')).toBeInTheDocument()
-    expect(screen.getByTestId('t-guided-run-summary')).toHaveTextContent('1 signal to api.honeycomb.io:443')
+    expect(screen.getByTestId('t-guided-run-summary')).toHaveTextContent('1 signal to Honeycomb')
     await user.click(screen.getByTestId('t-guided-back'))
     expect(screen.getByTestId('t-guided-step-review')).toBeInTheDocument()
   })
 
-  test('with no destination yet, "Create the command" is disabled and Review offers to choose one', async () => {
+  test('the review says what changes in the cluster, what does not, and how to stop, before the command', async () => {
     const user = userEvent.setup()
     renderWizard()
     await gotoDestination(user)
-    await user.click(screen.getByTestId('t-guided-continue')) // continue without choosing one
+    await user.click(screen.getByTestId('t-guided-destination-external-preset-honeycomb'))
+    await user.click(screen.getByTestId('t-guided-continue'))
+    expect(screen.getByTestId('t-review-changes')).toHaveTextContent('What changes in vradipus-cluster')
+    expect(screen.getByTestId('t-review-changes')).toHaveTextContent('Sends it to Honeycomb.')
+    expect(screen.getByTestId('t-review-unchanged')).toHaveTextContent('access level stays as approved')
+    expect(screen.getByTestId('t-review-stop')).toHaveTextContent('nothing picked: the command turns every signal off')
+  })
+
+  test('after the command, "Check that data arrives" shows what the caller built, and Done closes', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+    await gotoDestination(user)
+    await user.click(screen.getByTestId('t-guided-destination-external-preset-honeycomb'))
+    await user.click(screen.getByTestId('t-guided-continue'))
+    await user.click(screen.getByTestId('t-guided-create-command'))
+    expect(screen.queryByTestId('t-check-section')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('t-guided-check'))
+    expect(screen.getByTestId('t-guided-step-check')).toBeInTheDocument()
+    expect(screen.getByTestId('t-check-section')).toBeInTheDocument()
+    await user.click(screen.getByTestId('t-guided-done'))
+    expect(onDone).toHaveBeenCalled()
+    await user.click(screen.getByTestId('t-guided-back'))
+    expect(screen.getByTestId('t-guided-step-run')).toBeInTheDocument()
+  })
+
+  test('with no destination yet, Continue is off and says why; there is no way to Review without one', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+    await gotoDestination(user)
+    expect(screen.getByTestId('t-guided-continue')).toBeDisabled()
+    expect(screen.getByTestId('t-guided-why')).toHaveTextContent('Choose where to send this.')
+  })
+
+  test('a draft that already has an endpoint goes straight on: the destination step shows it as a custom endpoint and Review is reachable', async () => {
+    const user = userEvent.setup()
+    renderWizard({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'collector.example:4317' })
+    await user.click(screen.getByTestId('t-guided-continue'))
+    expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('Another OTLP endpoint')
+    await user.click(screen.getByTestId('t-guided-continue'))
     expect(screen.getByTestId('t-guided-step-review')).toBeInTheDocument()
-    expect(screen.getByTestId('t-guided-create-command')).toBeDisabled()
-    expect(screen.getByTestId('t-guided-no-destination')).toBeInTheDocument()
+    expect(screen.getByTestId('t-review-changes')).toHaveTextContent('Sends it to collector.example:4317.')
   })
 })
 
-describe('GuidedWizard destination step: reachability', () => {
-  test('Continue from Collect (no scope needed) lands on Destination, and Continue from there lands on Review', async () => {
+describe('GuidedWizard: moving between the three steps', () => {
+  test('What to collect holds the signals, tags and masking in one screen; Continue is off until a signal is picked', async () => {
     const user = userEvent.setup()
     renderWizard()
+    expect(screen.getByTestId('t-guided-step-collect')).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-process')).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-continue')).toBeDisabled()
+    expect(screen.getByTestId('t-guided-why')).toHaveTextContent('Pick at least one signal.')
     await user.click(screen.getByTestId('t-resourceUsage'))
-    await user.click(screen.getByTestId('t-guided-continue'))
-    expect(screen.getByTestId('t-guided-step-process')).toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-continue'))
-    expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-destination-external-preset-honeycomb'))
-    await user.click(screen.getByTestId('t-guided-continue'))
-    expect(screen.getByTestId('t-guided-step-review')).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-continue')).toBeEnabled()
   })
 
-  test('Back from Process returns to Collect; Back from Destination to Process; Back from Review to Destination', async () => {
+  test('Continue goes What to collect -> Where to send -> Review, and Back goes the same way back', async () => {
     const user = userEvent.setup()
     renderWizard()
     await user.click(screen.getByTestId('t-resourceUsage'))
     await user.click(screen.getByTestId('t-guided-continue'))
+    expect(screen.getByTestId('t-guided-step-where')).toBeInTheDocument()
     await user.click(screen.getByTestId('t-guided-back'))
     expect(screen.getByTestId('t-guided-step-collect')).toBeInTheDocument()
-
-    await user.click(screen.getByTestId('t-guided-continue')) // on to Process
-    await user.click(screen.getByTestId('t-guided-continue')) // on to Destination
-    await user.click(screen.getByTestId('t-guided-back'))
-    expect(screen.getByTestId('t-guided-step-process')).toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-continue')) // back to Destination
+    await user.click(screen.getByTestId('t-guided-continue'))
     await user.click(screen.getByTestId('t-guided-destination-external-preset-honeycomb'))
-    await user.click(screen.getByTestId('t-guided-continue')) // on to Review
+    await user.click(screen.getByTestId('t-guided-continue'))
     expect(screen.getByTestId('t-guided-step-review')).toBeInTheDocument()
     await user.click(screen.getByTestId('t-guided-back'))
-    expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-step-where')).toBeInTheDocument()
   })
 
-  test('an application modality (needs scope) reaches Process via Scope\'s own Continue, and Back from Process returns to Scope', async () => {
+  test('an application signal offers "Limit to some namespaces" in the same step, closed unless a scope was handed in', async () => {
     const user = userEvent.setup()
-    renderWizard()
+    const { unmount } = renderWizard()
+    expect(screen.queryByTestId('t-guided-scope')).not.toBeInTheDocument()
     await user.click(screen.getByTestId('t-applicationMetrics'))
-    await user.click(screen.getByTestId('t-guided-continue'))
-    expect(screen.getByTestId('t-guided-step-scope')).toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-continue'))
-    expect(screen.getByTestId('t-guided-step-process')).toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-back'))
-    expect(screen.getByTestId('t-guided-step-scope')).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-scope')).not.toHaveAttribute('open')
+    unmount()
+    render(
+      <MemoryRouter>
+        <GuidedWizard value={{ ...emptyTelemetry, applicationMetrics: true }} onChange={() => undefined} testIdPrefix="t" initialScope={{ name: 'Checkout', namespaces: ['shop'] }} review={{ diff: [], installed: false, kept: [] }} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('t-guided-scope')).toHaveAttribute('open')
+    expect(within(screen.getByTestId('t-guided-scope')).getByDisplayValue('Checkout')).toBeInTheDocument()
+  })
+
+  test('with a way back to the cluster list, "Change cluster" is offered on the first step', async () => {
+    const onBack = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <GuidedWizard value={emptyTelemetry} onChange={() => undefined} testIdPrefix="t" clusterName="vradipus-cluster" review={{ diff: [], installed: false, kept: [] }} onBackToCluster={onBack} />
+      </MemoryRouter>,
+    )
+    await user.click(screen.getByTestId('t-guided-change-cluster'))
+    expect(onBack).toHaveBeenCalled()
   })
 })
 
@@ -202,12 +250,11 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     settings = { ...DEFAULT_SETTINGS, quickStartBackends: [backend] }
     renderWizard()
     await user.click(screen.getByTestId('t-traces'))
-    await user.click(screen.getByTestId('t-guided-continue')) // Collect -> Scope
-    await user.click(screen.getByTestId('t-guided-continue')) // Scope -> Process
-    await user.click(screen.getByTestId('t-guided-continue')) // Process -> Destination
-    expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
+    await user.click(screen.getByTestId('t-guided-continue')) // What to collect -> Where to send
+    expect(screen.getByTestId('t-guided-step-where')).toBeInTheDocument()
     // Nothing of the organisation's own fits, so nothing is picked for the person: they choose from the list.
     expect(screen.queryByTestId('t-guided-destination-summary')).not.toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-continue')).toBeDisabled()
     expect(screen.queryByTestId('t-guided-destination-quickstart-qsb-1')).not.toBeInTheDocument()
     expect(screen.getByTestId('t-guided-destination-external-preset-jaeger')).toBeInTheDocument()
   })
@@ -246,7 +293,7 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     renderWizard()
     await gotoDestination(user) // metrics only
     await user.type(screen.getByTestId('t-guided-destination-search'), 'tempo')
-    expect(screen.getByTestId('t-guided-destination-external-preset-tempo')).toHaveTextContent('Takes traces only, not metrics.')
+    expect(screen.getByTestId('t-guided-destination-external-preset-tempo')).toHaveTextContent('Does not accept metrics.')
     await user.clear(screen.getByTestId('t-guided-destination-search'))
     await user.type(screen.getByTestId('t-guided-destination-search'), 'zzzz')
     expect(screen.getByTestId('t-guided-destination-no-match')).toBeInTheDocument()
@@ -274,7 +321,9 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     expect(screen.getByTestId('t-guided-destination-endpoint')).toHaveTextContent('op-eu.continuum-system.svc:4317')
     expect(screen.getByTestId('t-guided-destination-endpoint').tagName).not.toBe('INPUT')
     await user.click(screen.getByTestId('t-guided-continue'))
-    expect(screen.getByTestId('t-review-pipeline')).toHaveTextContent('op-eu.continuum-system.svc:4317')
+    expect(screen.getByTestId('t-guided-step-review')).toBeInTheDocument()
+    expect(screen.getByTestId('t-review-changes')).toHaveTextContent('Sends it to EU regional operator.')
+    expect(latest.exportEndpoint).toBe('op-eu.continuum-system.svc:4317')
   })
 
   test('an operator says whether other clusters can reach it: the recorded address, or only its in-cluster name', async () => {
@@ -299,7 +348,7 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('Sends to otlp.eu.example.com:4317')
   })
 
-  test('the destination and the review show the address the commands will really dial, not the placeholder name', async () => {
+  test('the destination shows, and the draft carries, the address the commands will really dial, not the placeholder name', async () => {
     const user = userEvent.setup()
     role = 'admin'
     getFusion.mockResolvedValue(RUNNING)
@@ -310,9 +359,8 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     expect(screen.getByTestId('t-guided-destination-endpoint')).toHaveTextContent('continuum-fusion-central.continuum.svc:4317')
     expect(screen.getByTestId('t-guided-destination-endpoint')).not.toHaveTextContent('op-central.continuum-system.svc')
     expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('FUSION is reachable inside its own cluster only (continuum-fusion-central.continuum.svc:4317')
-    await user.click(screen.getByTestId('t-guided-continue'))
-    expect(screen.getByTestId('t-review-pipeline')).toHaveTextContent('continuum-fusion-central.continuum.svc:4317')
-    expect(screen.getByTestId('t-review-pipeline')).not.toHaveTextContent('op-central.continuum-system.svc')
+    // The draft keeps the operator's own name: it is the commands, not the draft, that dial the advertised address.
+    expect(latest.exportOperatorId).toBe('op-central')
   })
 
   test('an operator pick records its id and describes the real flow; a custom endpoint afterwards clears it', async () => {
@@ -325,18 +373,15 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     expect(latest.exportOperatorId).toBe('op-eu')
     expect(latest.exportEndpoint).toBe('op-eu.continuum-system.svc:4317')
     // The step no longer sends people to the Operators page for the connecting commands: the panel generates them.
-    expect(screen.getByTestId('t-guided-destination-operator-note')).toHaveTextContent('generated on the wizard’s last step')
+    expect(screen.getByTestId('t-guided-destination-operator-note')).toHaveTextContent('generated on the last step')
     expect(screen.getByTestId('t-guided-destination-operator-note')).toHaveTextContent('administrators only')
     expect(screen.getByTestId('t-guided-destination-operator-note')).not.toHaveTextContent('Operators page')
-    expect(screen.getByTestId('t-guided-destination-next')).toHaveTextContent('the server generates it')
-    expect(screen.getByTestId('t-guided-destination-next')).not.toHaveTextContent('You run it in the cluster yourself')
 
-    await user.click(screen.getByTestId('t-guided-destination-change'))
     await user.click(screen.getByTestId('t-guided-destination-custom'))
     await user.type(screen.getByTestId('t-guided-destination-custom-endpoint'), 'otel.example.com:4317')
-    await user.click(screen.getByTestId('t-guided-destination-custom-use'))
     expect(latest.exportOperatorId).toBe('')
-    expect(screen.getByTestId('t-guided-destination-next')).toHaveTextContent('You run it in the cluster yourself')
+    expect(latest.exportEndpoint).toBe('otel.example.com:4317')
+    expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('Another OTLP endpoint')
   })
 
   test('two regional operators are not auto-picked: the person chooses', async () => {
@@ -388,7 +433,6 @@ describe('GuidedWizard destination step: the merged catalog', () => {
       expect(screen.getByTestId('t-guided-destination-offline-note')).toHaveTextContent('may not be able to deliver')
       expect(screen.getByTestId('t-guided-continue')).toBeEnabled()
 
-      await user.click(screen.getByTestId('t-guided-destination-change'))
       await user.click(screen.getByTestId('t-guided-destination-operator-op-on'))
       expect(screen.getByTestId('t-guided-destination-health')).toHaveTextContent('Online')
       expect(screen.queryByTestId('t-guided-destination-offline-note')).not.toBeInTheDocument()
@@ -425,21 +469,22 @@ describe('GuidedWizard destination step: the merged catalog', () => {
       await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('EU regional operator'))
       expect(screen.queryByTestId('t-export-auth-secret')).not.toBeInTheDocument()
       expect(screen.getByTestId('t-guided-destination-operator-mtls')).toHaveTextContent('authenticates this cluster by the client certificate')
-      expect(screen.getByTestId('t-guided-destination-connection')).toHaveTextContent('client certificate only')
-      expect(screen.getByTestId('t-guided-destination-next')).not.toHaveTextContent('receiver token')
+      expect(screen.getByTestId('t-guided-destination-connection-summary')).toHaveTextContent('client certificate only')
+      expect(screen.getByTestId('t-guided-destination-connection-summary')).not.toHaveTextContent('receiver token')
     })
   })
 
-  test('Continue is never blocked: without a destination, Review says so and offers the way back', async () => {
+  test('without a destination Continue is off and says why; choosing "Another OTLP endpoint" does not change that until an address is typed', async () => {
     const user = userEvent.setup()
     renderWizard()
     await gotoDestination(user)
+    expect(screen.getByTestId('t-guided-continue')).toBeDisabled()
+    expect(screen.getByTestId('t-guided-why')).toHaveTextContent('Choose where to send this.')
+    await user.click(screen.getByTestId('t-guided-destination-custom'))
+    expect(screen.getByTestId('t-guided-continue')).toBeDisabled()
+    await user.type(screen.getByTestId('t-guided-destination-custom-endpoint'), 'collector.internal:4317')
     expect(screen.getByTestId('t-guided-continue')).toBeEnabled()
-    expect(screen.getByTestId('t-guided-destination-skip-note')).toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-continue'))
-    expect(screen.getByTestId('t-guided-no-destination')).toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-choose-destination'))
-    expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
+    expect(screen.queryByTestId('t-guided-why')).not.toBeInTheDocument()
   })
 
   test('the operator that already receives this cluster is recommended and listed first', async () => {
@@ -460,10 +505,10 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     listOperators.mockResolvedValue([operator({ acceptedModalities: ['traces'] })])
     renderWizard()
     await gotoDestination(user) // metrics only
-    const toggle = await screen.findByTestId('t-guided-destination-unavailable-toggle')
-    expect(screen.queryByTestId('t-guided-destination-operator-op-eu')).not.toBeInTheDocument()
-    await user.click(toggle)
-    expect(screen.getByTestId('t-guided-destination-operator-op-eu')).toHaveTextContent('Takes traces only')
+    // Greyed out in its own group, with the one sentence that says why, and it is not a radio that can be picked.
+    expect(await screen.findByTestId('t-guided-destination-operator-op-eu-reason')).toHaveTextContent('Does not accept metrics.')
+    expect(screen.getByTestId('t-guided-destination-operator-op-eu')).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.queryByRole('radio', { name: /EU regional operator/ })).not.toBeInTheDocument()
   })
 
   test('picking a preset opens its connection details, pre-filled, and keeps its note after the endpoint is edited', async () => {
@@ -482,6 +527,15 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('Honeycomb')
   })
 
+  test('the connection checkbox says it sends WITHOUT TLS: it is not a "skip certificate verification" option', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+    await gotoDestination(user)
+    await user.click(screen.getByTestId('t-guided-destination-custom'))
+    expect(screen.getByText('Send without TLS (plain connection)')).toBeInTheDocument()
+    expect(screen.queryByText(/Skip TLS verification/)).not.toBeInTheDocument()
+  })
+
   test('an unfilled <placeholder> in a preset endpoint is flagged on the summary', async () => {
     const user = userEvent.setup()
     renderWizard()
@@ -493,29 +547,29 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     expect(screen.queryByTestId('t-export-protocol')).not.toBeInTheDocument()
   })
 
-  test('Change returns to the list without losing the current choice, and "Keep" goes back to it', async () => {
+  test('the list stays on screen after a pick: choosing another row moves the choice, and exactly one row is selected', async () => {
     const user = userEvent.setup()
     renderWizard()
     await gotoDestination(user)
     await user.click(screen.getByTestId('t-guided-destination-external-preset-honeycomb'))
-    await user.click(screen.getByTestId('t-guided-destination-change'))
     expect(screen.getByTestId('t-guided-destination-list')).toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-destination-keep'))
-    expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('Honeycomb')
+    expect(screen.getByTestId('t-guided-destination-external-preset-honeycomb')).toHaveAttribute('aria-checked', 'true')
+    await user.click(screen.getByTestId('t-guided-destination-custom'))
+    expect(screen.getByTestId('t-guided-destination-external-preset-honeycomb')).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByTestId('t-guided-destination-custom')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getAllByRole('radio').filter((r) => r.getAttribute('aria-checked') === 'true')).toHaveLength(1)
   })
 
-  test('a custom endpoint is one button away and lands on the same summary', async () => {
+  test('another endpoint is a row of the same list and lands on the same panel, with its connection details open', async () => {
     const user = userEvent.setup()
     renderWizard()
     await gotoDestination(user)
     await user.click(screen.getByTestId('t-guided-destination-custom'))
-    expect(screen.getByTestId('t-guided-destination-custom-use')).toBeDisabled()
     await user.type(screen.getByTestId('t-guided-destination-custom-endpoint'), 'collector.internal:4317')
-    await user.click(screen.getByTestId('t-guided-destination-custom-use'))
-    expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('Custom endpoint')
-    expect(screen.getByTestId('t-guided-destination-endpoint')).toHaveValue('collector.internal:4317')
-    // Details start closed for something that was never said to need a credential.
-    expect(screen.getByTestId('t-guided-destination-connection')).not.toHaveAttribute('open')
+    expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('Another OTLP endpoint')
+    expect(latest.exportEndpoint).toBe('collector.internal:4317')
+    // Nothing is known about an endpoint of your own, so its details are not hidden.
+    expect(screen.getByTestId('t-guided-destination-connection')).toHaveAttribute('open')
   })
 
   test('the legacy "Send telemetry to" block is not rendered a second time under the guided wizard', async () => {
@@ -554,7 +608,7 @@ describe('GuidedWizard destination step: no backend is deployed from here', () =
     // It opens the create dialog in place: the wizard is still there behind it, so nothing typed so far is lost.
     await user.click(screen.getByTestId('t-guided-deploy-operator'))
     expect(await screen.findByRole('dialog', { name: 'New operator' })).toBeInTheDocument()
-    expect(screen.getByTestId('t-guided-step-destination')).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-step-where')).toBeInTheDocument()
   })
 })
 
@@ -632,8 +686,6 @@ describe('GuidedWizard destination step: FUSION', () => {
     await user.click(screen.getByTestId('t-resourceUsage'))
     await user.click(screen.getByTestId('t-guided-continue'))
     await user.click(screen.getByTestId('t-guided-continue'))
-    await waitFor(() => expect(screen.getByTestId('t-guided-continue')).toBeInTheDocument())
-    await user.click(screen.getByTestId('t-guided-continue'))
     expect(screen.getByTestId('t-guided-step-review')).toBeInTheDocument()
     expect(screen.getByTestId('t-guided-create-command')).toBeDisabled()
     expect(screen.getByTestId('t-guided-fusion-blocked')).toHaveTextContent('FUSION is off')
@@ -659,7 +711,6 @@ describe('GuidedWizard destination step: FUSION', () => {
     // The signals are already on, as when the wizard is started for an agent.
     renderWizard({ ...emptyTelemetry, resourceUsage: true }, undefined, 'op-us')
     await user.click(screen.getByTestId('t-guided-continue'))
-    await user.click(screen.getByTestId('t-guided-continue'))
     await waitFor(() => expect(latest.exportOperatorId).toBe('op-us'))
     expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('US regional operator')
   })
@@ -670,10 +721,7 @@ describe('GuidedWizard destination step: FUSION', () => {
     getFusion.mockResolvedValue(RUNNING)
     listOperators.mockResolvedValue([operator({ id: 'op-central', name: 'Central', endpoint: CENTRAL.endpoint }), operator()])
     const preset = { ...emptyTelemetry, resourceUsage: true }
-    const toDestination = async () => {
-      await user.click(screen.getByTestId('t-guided-continue'))
-      await user.click(screen.getByTestId('t-guided-continue'))
-    }
+    const toDestination = () => user.click(screen.getByTestId('t-guided-continue'))
     const { unmount } = renderWizard(preset, undefined, 'op-central')
     await toDestination()
     await waitFor(() => expect(latest.exportOperatorId).toBe('op-central'))
@@ -702,17 +750,18 @@ describe('GuidedWizard destination step: FUSION', () => {
 })
 
 describe('GuidedWizard: an install that has telemetry can be emptied', () => {
-  test('nothing picked: Continue stays off on a fresh draft; on an installed one, "turn it all off" goes to Review and on to the Run step', async () => {
+  test('nothing picked on an installed one: "Review turning everything off" goes to Review and on to the Run step', async () => {
     const user = userEvent.setup()
     renderWizard({ ...emptyTelemetry, hadTelemetry: true, resourceUsage: true })
     await user.click(screen.getByTestId('t-resourceUsage')) // untick the only signal
-    expect(screen.queryByTestId('t-guided-continue')).not.toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-turn-off'))
-    expect(screen.getByTestId('t-guided-step-review')).toHaveTextContent('will be turned off')
+    expect(screen.getByTestId('t-guided-continue')).toHaveTextContent('Review turning everything off')
+    await user.click(screen.getByTestId('t-guided-continue'))
+    expect(screen.getByTestId('t-guided-step-review')).toHaveTextContent('Turns every telemetry signal off')
     expect(screen.getByTestId('t-guided-create-command')).toBeEnabled()
     await user.click(screen.getByTestId('t-guided-create-command'))
     expect(screen.getByTestId('t-guided-run-summary')).toHaveTextContent('Every signal turned off')
     expect(screen.getByTestId('t-run-section')).toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-done')).toBeInTheDocument()
     await user.click(screen.getByTestId('t-guided-back'))
     await user.click(screen.getByTestId('t-guided-back'))
     expect(screen.getByTestId('t-guided-step-collect')).toBeInTheDocument()
@@ -721,6 +770,6 @@ describe('GuidedWizard: an install that has telemetry can be emptied', () => {
   test('a fresh draft with nothing picked has no way forward, as before', () => {
     renderWizard()
     expect(screen.getByTestId('t-guided-continue')).toBeDisabled()
-    expect(screen.queryByTestId('t-guided-turn-off')).not.toBeInTheDocument()
+    expect(screen.getByTestId('t-guided-continue')).not.toHaveTextContent('turning everything off')
   })
 })

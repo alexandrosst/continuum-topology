@@ -1,13 +1,12 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { describe, expect, test, vi } from 'vitest'
+import { describe, expect, test } from 'vitest'
 import CollectStep from '@/components/telemetry/CollectStep'
 import { TELEMETRY_INTENT_PRESETS } from '@/lib/consent'
 import { emptyTelemetry, PICKABLE_SIGNALS, type TelemetryInput } from '@/lib/install'
 
 let latest: TelemetryInput = emptyTelemetry
-const onContinue = vi.fn()
 
 function Wrapper({ initial = emptyTelemetry }: { initial?: TelemetryInput }) {
   const [value, setValue] = useState(initial)
@@ -19,7 +18,6 @@ function Wrapper({ initial = emptyTelemetry }: { initial?: TelemetryInput }) {
         setValue(v)
       }}
       testIdPrefix="c"
-      onContinue={onContinue}
     />
   )
 }
@@ -41,24 +39,14 @@ describe('CollectStep', () => {
     expect(screen.getByTestId('c-collect-infrastructure-logs-count')).toHaveTextContent(/0 of 2/)
   })
 
-  test('Continue is disabled with nothing picked, and enabled once one signal is', async () => {
+  test('every checkbox writes straight into the draft, and unticking undoes it', async () => {
     const user = userEvent.setup()
-    onContinue.mockClear()
     render(<Wrapper />)
-    expect(screen.getByTestId('c-collect-count')).toHaveTextContent('Nothing picked yet.')
-    expect(screen.getByTestId('c-guided-continue')).toBeDisabled()
+    expect(checked('resourceUsage')).toBe(false)
     await user.click(screen.getByTestId('c-resourceUsage'))
-    expect(screen.getByTestId('c-guided-continue')).toBeEnabled()
-    expect(screen.getByTestId('c-collect-count')).toHaveTextContent(`1 of ${PICKABLE_SIGNALS.length} signals picked.`)
-    await user.click(screen.getByTestId('c-guided-continue'))
-    expect(onContinue).toHaveBeenCalledTimes(1)
-  })
-
-  test('picking an application signal says the next step narrows its namespaces', async () => {
-    const user = userEvent.setup()
-    render(<Wrapper />)
-    await user.click(screen.getByTestId('c-traces'))
-    expect(screen.getByTestId('c-collect-count')).toHaveTextContent('narrows which namespaces')
+    expect(latest.resourceUsage).toBe(true)
+    await user.click(screen.getByTestId('c-resourceUsage'))
+    expect(latest.resourceUsage).toBe(false)
   })
 
   test('Select all and Clear act on one modality group only', async () => {
@@ -110,19 +98,5 @@ describe('CollectStep', () => {
     expect(screen.getByTestId('c-accelerators-source')).toBeInTheDocument()
     await user.click(screen.getByTestId('c-energy'))
     expect(screen.queryByTestId('c-energy-source')).not.toBeInTheDocument()
-  })
-
-  test('with nothing picked, Continue is off - and on an install that has telemetry the way forward is to turn it all off', async () => {
-    const user = userEvent.setup()
-    const { unmount } = render(<Wrapper />)
-    expect(screen.getByTestId('c-guided-continue')).toBeDisabled()
-    expect(screen.queryByTestId('c-guided-turn-off')).not.toBeInTheDocument()
-    unmount()
-    const turnOff = vi.fn()
-    render(<CollectStep value={{ ...emptyTelemetry, hadTelemetry: true }} onChange={() => undefined} testIdPrefix="c" onContinue={onContinue} onTurnOff={turnOff} />)
-    expect(screen.queryByTestId('c-guided-continue')).not.toBeInTheDocument()
-    expect(screen.getByTestId('c-collect-count')).toHaveTextContent('turn all of this install')
-    await user.click(screen.getByTestId('c-guided-turn-off'))
-    expect(turnOff).toHaveBeenCalled()
   })
 })

@@ -47,7 +47,7 @@ let latest: TelemetryInput = emptyTelemetry
 
 function Wrapper({ initial = emptyTelemetry }: { initial?: TelemetryInput }) {
   const [value, setValue] = useState<TelemetryInput>(initial)
-  return <GuidedWizard value={value} onChange={(v) => { latest = v; setValue(v) }} testIdPrefix="t" runSection={<div data-testid="t-run-section">the command</div>} />
+  return <GuidedWizard value={value} onChange={(v) => { latest = v; setValue(v) }} testIdPrefix="t" clusterName="vradipus-cluster" review={{ diff: [], installed: false, kept: [] }} runSection={<div data-testid="t-run-section">the command</div>} />
 }
 
 const renderWizard = (initial?: TelemetryInput) => render(<MemoryRouter><Wrapper initial={initial} /></MemoryRouter>)
@@ -55,13 +55,18 @@ const renderWizard = (initial?: TelemetryInput) => render(<MemoryRouter><Wrapper
 /** To the Destination step with one metrics signal and one logs signal on. */
 async function gotoDestination(user: ReturnType<typeof userEvent.setup>, signals: string[] = ['resourceUsage', 'systemLogs']) {
   for (const s of signals) await user.click(screen.getByTestId(`t-${s}`))
-  await user.click(screen.getByTestId('t-guided-continue')) // Collect -> Process
-  await user.click(screen.getByTestId('t-guided-continue')) // Process -> Destination
+  await user.click(screen.getByTestId('t-guided-continue')) // What to collect -> Where to send
 }
 
-async function pickInLane(user: ReturnType<typeof userEvent.setup>, lane: string, query: string, key: string) {
-  await user.type(screen.getByTestId(`t-lane-${lane}-guided-destination-search`), query)
-  await user.click(screen.getByTestId(`t-lane-${lane}-guided-destination-${key}`))
+/** A lane's list is short and has no search box: what is not among the first rows is behind "show more". */
+async function rowInLane(user: ReturnType<typeof userEvent.setup>, lane: string, key: string) {
+  const id = `t-lane-${lane}-guided-destination-${key}`
+  if (!screen.queryByTestId(id)) await user.click(screen.getByTestId(`t-lane-${lane}-guided-destination-more`))
+  return screen.getByTestId(id)
+}
+
+async function pickInLane(user: ReturnType<typeof userEvent.setup>, lane: string, key: string) {
+  await user.click(await rowInLane(user, lane, key))
 }
 
 beforeEach(() => {
@@ -77,17 +82,16 @@ describe('GuidedWizard: one destination per signal type', () => {
     const user = userEvent.setup()
     renderWizard()
     await gotoDestination(user, ['resourceUsage'])
-    expect(screen.queryByTestId('t-guided-mode')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('t-guided-split')).not.toBeInTheDocument()
   })
 
-  test('with two signal types on, both ways are offered and one destination is where it starts', async () => {
+  test('with two signal types on, one destination is where it starts and splitting is one checkbox away', async () => {
     const user = userEvent.setup()
     renderWizard()
     await gotoDestination(user)
-    expect(screen.getByTestId('t-guided-mode-single')).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByTestId('t-guided-mode-split')).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByTestId('t-guided-split')).not.toBeChecked()
     expect(screen.queryByTestId('t-routes')).not.toBeInTheDocument()
-    // The heading is the choice's own, not shown twice.
+    expect(screen.getByTestId('t-guided-destination-list')).toBeInTheDocument()
     expect(screen.getAllByText('Where should this telemetry go?')).toHaveLength(1)
   })
 
@@ -95,51 +99,48 @@ describe('GuidedWizard: one destination per signal type', () => {
     const user = userEvent.setup()
     renderWizard()
     await gotoDestination(user)
-    await user.click(screen.getByTestId('t-guided-mode-split'))
+    await user.click(screen.getByTestId('t-guided-split'))
     expect(latest.exportSplit).toBe(true)
     expect(screen.getByTestId('t-lane-metrics')).toBeInTheDocument()
     expect(screen.getByTestId('t-lane-logs')).toBeInTheDocument()
     expect(screen.queryByTestId('t-lane-traces')).not.toBeInTheDocument()
     expect(screen.getByTestId('t-lane-metrics-signals')).toHaveTextContent('Resource usage')
     // A logs-only backend can be where logs go, and is not even offered for metrics.
-    await user.type(screen.getByTestId('t-lane-logs-guided-destination-search'), 'loki')
-    expect(screen.getByTestId('t-lane-logs-guided-destination-external-preset-loki')).toBeInTheDocument()
-    await user.type(screen.getByTestId('t-lane-metrics-guided-destination-search'), 'loki')
-    const loki = screen.getByTestId('t-lane-metrics-guided-destination-external-preset-loki')
+    expect(await rowInLane(user, 'logs', 'external-preset-loki')).toHaveAttribute('role', 'radio')
+    const loki = await rowInLane(user, 'metrics', 'external-preset-loki')
     expect(loki).not.toHaveAttribute('role', 'radio')
-    expect(loki).toHaveTextContent('Takes logs only, not metrics.')
+    expect(loki).toHaveTextContent('Does not accept metrics.')
   })
 
   test('each lane is chosen on its own, Review shows where each goes, and the command can then be created', async () => {
     const user = userEvent.setup()
     renderWizard()
     await gotoDestination(user)
-    await user.click(screen.getByTestId('t-guided-mode-split'))
-    await pickInLane(user, 'metrics', 'mimir', 'external-preset-mimir')
-    expect(screen.getByTestId('t-guided-routes-incomplete')).toHaveTextContent('logs')
-    await pickInLane(user, 'logs', 'loki', 'external-preset-loki')
+    await user.click(screen.getByTestId('t-guided-split'))
+    await pickInLane(user, 'metrics', 'external-preset-mimir')
+    expect(screen.getByTestId('t-guided-why')).toHaveTextContent('Choose where logs should go.')
+    expect(screen.getByTestId('t-guided-continue')).toBeDisabled()
+    await pickInLane(user, 'logs', 'external-preset-loki')
     expect(latest.exportLanes.metrics.exportEndpoint).not.toBe('')
     expect(latest.exportLanes.logs.exportEndpoint).not.toBe('')
     expect(latest.exportLanes.metrics.exportEndpoint).not.toBe(latest.exportLanes.logs.exportEndpoint)
-    expect(screen.queryByTestId('t-guided-routes-incomplete')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('t-guided-why')).not.toBeInTheDocument()
     await user.click(screen.getByTestId('t-guided-continue'))
-    const routes = screen.getByTestId('t-review-routes')
-    expect(within(routes).getByText('Metrics')).toBeInTheDocument()
-    expect(within(routes).getByText('Logs')).toBeInTheDocument()
+    expect(screen.getByTestId('t-review-changes')).toHaveTextContent(/Sends metrics to .*Mimir.* and logs to .*Loki/)
     expect(screen.getByTestId('t-guided-create-command')).toBeEnabled()
     await user.click(screen.getByTestId('t-guided-create-command'))
     expect(screen.getByTestId('t-guided-run-summary')).toHaveTextContent('2 signals to 2 destinations, one per signal type')
   })
 
-  test('until every signal type has a destination, nothing can be created and Review says which are missing', async () => {
+  test('until every signal type has a destination, Continue is off and says which are missing', async () => {
     const user = userEvent.setup()
     renderWizard()
     await gotoDestination(user)
-    await user.click(screen.getByTestId('t-guided-mode-split'))
-    await pickInLane(user, 'metrics', 'mimir', 'external-preset-mimir')
-    await user.click(screen.getByTestId('t-guided-continue'))
-    expect(screen.getByTestId('t-guided-create-command')).toBeDisabled()
-    expect(screen.getByTestId('t-guided-no-destination')).toHaveTextContent('logs still need a destination')
+    await user.click(screen.getByTestId('t-guided-split'))
+    await pickInLane(user, 'metrics', 'external-preset-mimir')
+    // Review cannot be reached with a lane still empty.
+    expect(screen.getByTestId('t-guided-continue')).toBeDisabled()
+    expect(screen.getByTestId('t-guided-why')).toHaveTextContent('Choose where logs should go.')
   })
 
   test('the destination picked for everything is where every lane starts, and switching back loses nothing', async () => {
@@ -149,10 +150,10 @@ describe('GuidedWizard: one destination per signal type', () => {
     await user.click(screen.getByTestId('t-guided-destination-external-preset-honeycomb'))
     const single = latest.exportEndpoint
     expect(single).not.toBe('')
-    await user.click(screen.getByTestId('t-guided-mode-split'))
+    await user.click(screen.getByTestId('t-guided-split'))
     expect(latest.exportLanes.metrics.exportEndpoint).toBe(single)
     expect(latest.exportLanes.logs.exportEndpoint).toBe(single)
-    await user.click(screen.getByTestId('t-guided-mode-single'))
+    await user.click(screen.getByTestId('t-guided-split'))
     expect(latest.exportSplit).toBe(false)
     expect(latest.exportEndpoint).toBe(single)
     expect(latest.exportLanes.logs.exportEndpoint).toBe(single)
@@ -164,7 +165,7 @@ describe('GuidedWizard: one destination per signal type', () => {
     renderWizard()
     await gotoDestination(user)
     await user.click(screen.getByTestId('t-guided-destination-external-preset-honeycomb'))
-    await user.click(screen.getByTestId('t-guided-mode-split'))
+    await user.click(screen.getByTestId('t-guided-split'))
     // Name the Secret on the metrics lane only.
     const metrics = screen.getByTestId('t-lane-metrics')
     await user.click(within(metrics).getByText('Connection details'))
@@ -183,10 +184,9 @@ describe('GuidedWizard: one destination per signal type', () => {
     const lane = (endpoint: string) => ({ ...emptyTelemetry.exportLanes.metrics, exportEndpoint: endpoint })
     renderWizard({ ...emptyTelemetry, resourceUsage: true, systemLogs: true, exportSplit: true, exportRoutesInstalled: true, exportLanes: { metrics: lane('mimir.example:4317'), logs: lane('loki.example:3100'), traces: lane('') } })
     await user.click(screen.getByTestId('t-guided-continue'))
-    await user.click(screen.getByTestId('t-guided-continue'))
-    expect(screen.getByTestId('t-guided-mode-split')).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByTestId('t-lane-metrics-guided-destination-endpoint')).toHaveValue('mimir.example:4317')
-    expect(screen.getByTestId('t-lane-logs-guided-destination-endpoint')).toHaveValue('loki.example:3100')
+    expect(screen.getByTestId('t-guided-split')).toBeChecked()
+    expect(screen.getByTestId('t-lane-metrics-guided-destination-custom-endpoint')).toHaveValue('mimir.example:4317')
+    expect(screen.getByTestId('t-lane-logs-guided-destination-custom-endpoint')).toHaveValue('loki.example:3100')
   })
 
   test('a regional operator is a destination for the signal types it takes, and splitting leaves a lane it cannot carry empty', async () => {
@@ -198,8 +198,8 @@ describe('GuidedWizard: one destination per signal type', () => {
     renderWizard()
     await gotoDestination(user)
     // Picked for everything, it cannot carry logs, so it is not offered as the one destination...
-    expect(screen.queryByTestId('t-guided-destination-operator-op-m')).not.toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-mode-split'))
+    expect(screen.getByTestId('t-guided-destination-operator-op-m-reason')).toHaveTextContent('Does not accept logs.')
+    await user.click(screen.getByTestId('t-guided-split'))
     // ...but is the lone, auto-picked destination for the metrics lane, and is shown unavailable for logs.
     await waitFor(() => expect(screen.getByTestId('t-lane-metrics-guided-destination-name')).toHaveTextContent('Metrics operator'))
     expect(latest.exportLanes.metrics.exportOperatorId).toBe('op-m')

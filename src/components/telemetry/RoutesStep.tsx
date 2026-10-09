@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { Activity, FileText, Waypoints, type LucideIcon } from 'lucide-react'
 import type { DestinationCatalog } from '@/lib/destinationCatalog'
 import { activeLanes, laneView, TELEMETRY_SIGNALS, withLane, type Modality, type TelemetryInput } from '@/lib/install'
@@ -13,41 +12,7 @@ const LANE_META: Record<Modality, { icon: LucideIcon; label: string; plural: str
 }
 
 /**
- * The two ways to send telemetry, as one choice at the top of the Destination step: everything to one
- * place, or each signal type (metrics, logs, traces) to its own. Only offered when two or more signal types
- * are on - with one there is nothing to split.
- */
-export function DestinationMode({
-  split,
-  onChange,
-  testIdPrefix,
-}: {
-  split: boolean
-  onChange: (split: boolean) => void
-  testIdPrefix: string
-}) {
-  const option = (on: boolean, label: string, id: string) => (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={split === on}
-      onClick={() => split !== on && onChange(on)}
-      data-testid={`${testIdPrefix}-mode-${id}`}
-      className={clsx('rounded-md px-3 py-1.5 text-xs font-medium transition-colors', split === on ? 'bg-nb-850 text-nb-100' : 'text-nb-400 hover:text-nb-200')}
-    >
-      {label}
-    </button>
-  )
-  return (
-    <div role="radiogroup" aria-label="How to send" className="inline-flex gap-0.5 rounded-lg border border-nb-850 bg-nb-925 p-0.5" data-testid={`${testIdPrefix}-mode`}>
-      {option(false, 'One destination for everything', 'single')}
-      {option(true, 'One per signal type', 'split')}
-    </div>
-  )
-}
-
-/**
- * The Destination step while each signal type has its own destination: one card per type that has a signal
+ * Where to send, while each signal type has its own destination: one card per type that has a signal
  * turned on, each holding the same picker the single destination uses (so a lane is chosen, edited and
  * explained exactly like it), filtered to what can carry that type. A type with no signal on has no card
  * and needs nothing. Switching back to one destination keeps what was chosen here.
@@ -114,8 +79,6 @@ export default function RoutesStep({
               clusterId={clusterId}
               choice={choices[m]}
               onChoose={(k) => onChoose(m, k)}
-              onBack={() => undefined}
-              onContinue={() => undefined}
               fusion={shared?.fusion}
               onRecordAddress={shared?.onRecordAddress}
               onSetUpOperator={shared?.onSetUpOperator && (() => shared.onSetUpOperator!(m))}

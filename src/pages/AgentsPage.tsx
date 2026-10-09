@@ -139,7 +139,7 @@ export default function AgentsPage() {
                 disabled={!agents.some((a) => a.status === 'approved')}
                 title={agents.some((a) => a.status === 'approved') ? undefined : 'Connect a cluster first'}
               >
-                <Radio size={ICON_SM} /> Configure telemetry
+                <Radio size={ICON_SM} /> Set up telemetry
               </Button>
             )}
             {canAdminister && (

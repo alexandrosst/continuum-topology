@@ -1,8 +1,8 @@
 import clsx from 'clsx'
-import { ChevronDown, ChevronLeft, Plus, X } from 'lucide-react'
+import { ChevronDown, Plus, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button, Field, ICON_MD, ICON_SM, InfoTip, Input } from '@/components/ui/primitives'
-import { scopeTag, tagProblems, TAG_LIMIT, telemetryActive, type DebugVerbosity, type TagEntry, type TelemetryInput } from '@/lib/install'
+import { scopeTag, tagProblems, TAG_LIMIT, type DebugVerbosity, type TagEntry, type TelemetryInput } from '@/lib/install'
 import ProcessorEditor from './ProcessorEditor'
 
 /** A titled block of the Process step - the same bordered-box language as the rest of the wizard. */
@@ -121,38 +121,27 @@ export function DebugChoice({ value, onChange, testIdPrefix }: { value: Telemetr
 }
 
 /**
- * The guided wizard's Process step: what happens to telemetry between being collected and leaving the cluster.
- * Everything has a sensible default, so most people read it and press Continue. First comes what Ikhnos
- * adds on its own (and why it can be trusted), then what you add, then masking and cost, then a way to check
- * it works. Extra processors - filters, tail sampling - stay behind a disclosure: rarely needed.
+ * What happens to telemetry between being collected and leaving the cluster, as options on the "What to collect" step: everything has a
+ * sensible default, so most people never open it. First what Ikhnos adds on its own (and why it can be trusted), then what you add,
+ * then masking and cost, then a way to check it works. Extra processors - filters, tail sampling - stay behind a disclosure of their own.
  */
-export default function ProcessStep({
+export default function ProcessOptions({
   value,
   onChange,
   testIdPrefix,
   clusterName,
-  onBack,
-  onContinue,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
   testIdPrefix: string
   /** The cluster's name, when known - offered as a one-click `k8s.cluster.name` tag. */
   clusterName?: string
-  onBack: () => void
-  onContinue: () => void
 }) {
   const p = `${testIdPrefix}-guided`
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
   const scope = scopeTag(value)
-  const blocked = telemetryActive(value) && tagProblems(value.tags).length > 0
   return (
     <div className="space-y-3" data-testid={`${p}-step-process`}>
-      <div>
-        <h3 className="text-sm font-medium text-nb-200">What happens before it leaves the cluster?</h3>
-        <p className="mt-0.5 text-xs text-nb-500">The defaults are safe. Change what you need, or just continue.</p>
-      </div>
-
       <Card title="Added to everything" hint="So whoever reads this data can tell where it came from. These win over anything else that sets the same names." testId={`${p}-process-auto`}>
         <div className="flex flex-wrap gap-1.5">
           <Fact name="continuum.org.id" testId={`${p}-fact-org`} />
@@ -204,13 +193,6 @@ export default function ProcessStep({
           <ProcessorEditor entries={value.extraProcessors} onChange={(extraProcessors) => set('extraProcessors', extraProcessors)} testIdPrefix={testIdPrefix} />
         </div>
       </details>
-
-      <div className="flex items-center gap-2 pt-1">
-        <Button variant="ghost" size="sm" onClick={onBack} data-testid={`${testIdPrefix}-guided-back`}>
-          <ChevronLeft size={ICON_SM} /> Back
-        </Button>
-        <Button variant="primary" className="ml-auto" disabled={blocked} onClick={onContinue} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
-      </div>
     </div>
   )
 }

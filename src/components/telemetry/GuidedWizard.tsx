@@ -1,27 +1,27 @@
 import clsx from 'clsx'
-import { ChevronLeft, Pencil, X } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import CreateOperatorModal from '@/components/operators/CreateOperatorModal'
 import { useFusion } from '@/components/operators/FusionPanel'
 import { OperatorAddressModal } from '@/components/operators/OperatorAddress'
-import { Button, ICON_MD, ICON_SM, WizardSteps } from '@/components/ui/primitives'
+import { Button, ErrorBanner, ICON_SM, WizardSteps } from '@/components/ui/primitives'
 import { atLeast, type CreatedOperator } from '@/lib/api'
 import { TELEMETRY_SIGNALS } from '@/lib/consent'
-import { applyDestination, buildDestinationCatalog, catalogOperators, destinationKey, fusionForCatalog, operatorReceiverEndpoint, type DestinationCatalog } from '@/lib/destinationCatalog'
+import { applyDestination, buildDestinationCatalog, catalogOperators, destinationKey, fusionForCatalog, type DestinationCatalog } from '@/lib/destinationCatalog'
 import { CENTRAL_OPERATOR_ID, fusionLabel } from '@/lib/fusionStatus'
-import { activeLanes, destinationReady, emptyExportTarget, enabledModalities, laneView, ROUTE_MODALITIES, startLanes, withLane, type Modality, type TelemetryInput } from '@/lib/install'
-import { LAYER_META } from '@/lib/telemetryLayers'
+import { activeLanes, destinationReady, emptyExportTarget, enabledModalities, laneView, ROUTE_MODALITIES, scopeNarrows, startLanes, withLane, type Modality, type TelemetryInput } from '@/lib/install'
+import { reviewNotes, SETUP_STEPS } from '@/lib/telemetrySetup'
 import type { RegionalOperator } from '@/lib/types'
 import { useOperatorDestinations, useOperators } from '@/lib/useOperators'
 import { useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
-import CollectStep from './CollectStep'
+import CollectStep, { type SignalId } from './CollectStep'
 import DestinationStep from './DestinationStep'
+import Disclosure from './Disclosure'
 import GuidedScope from './GuidedScope'
-import RoutesStep, { DestinationMode } from './RoutesStep'
-import ProcessStep from './ProcessStep'
-import type { SignalId } from './TelemetryFields'
-import TelemetryReviewPipeline from './TelemetryReviewPipeline'
+import ProcessOptions from './ProcessOptions'
+import ReviewStep from './ReviewStep'
+import RoutesStep from './RoutesStep'
 
 /** "3 destinations, one per signal type" - or "one destination" when they all turned out to be the same. */
 function sentTo(t: TelemetryInput): string {
@@ -29,55 +29,48 @@ function sentTo(t: TelemetryInput): string {
   return n === 1 ? 'one destination, set per signal type' : `${n} destinations, one per signal type`
 }
 
-type Step = 'collect' | 'scope' | 'process' | 'destination' | 'review' | 'run'
+type Phase = 'collect' | 'destination' | 'review' | 'run' | 'check'
+const PHASES: Phase[] = ['collect', 'destination', 'review', 'run', 'check']
+/** Which dot of the rail each phase is on: "Where from" is the first and is done before this opens; the last three phases are all "Review and install". */
+const RAIL: Record<Phase, number> = { collect: 1, destination: 2, review: 3, run: 3, check: 3 }
 
 const APP_SCOPED = ['applicationMetrics', 'applicationLogs', 'traces'] as const
+const SCOPE_OF = { applicationMetrics: 'applicationMetricsScope', applicationLogs: 'applicationLogsScope', traces: 'tracesScope' } as const
 
-/** A low-weight "go back" link, not a bordered button - a wizard already has one strong action per screen
- *  (Continue, or a card pick), and a second box of equal visual weight next to it reads as two competing
- *  choices rather than one primary action and an escape hatch. Mirrors the "Change cluster" back-link
- *  TelemetryWizard.tsx's own picker phase already uses for the same reason. */
-function BackLink({ onClick, testId }: { onClick: () => void; testId: string }) {
+function StepHeading({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <Button variant="ghost" size="sm" onClick={onClick} data-testid={testId}>
-      <ChevronLeft size={ICON_SM} /> Back
-    </Button>
+    <div>
+      <h3 className="text-sm font-medium text-nb-200">{title}</h3>
+      {children && <p className="mt-0.5 text-xs text-nb-500">{children}</p>}
+    </div>
   )
 }
 
-/** One signal already turned on, anywhere in the flow (not just on the Collect step it was picked from) - a
- *  small removable chip, so "Add another" builds up a visible, editable set instead of a running total a
- *  person can only see by scrolling all the way to Review. Removing here is the same action unchecking its
- *  SignalRow checkbox would be - it writes straight into `value`, there is nothing to "confirm" first. Its
- *  icon is `LAYER_META`'s, looked up by the signal's own layer, so infrastructure- and application-origin
- *  signals stay visually distinguishable even once they're flattened into one list. */
-function SelectedChip({ signal, onRemove, testId }: { signal: (typeof TELEMETRY_SIGNALS)[number]; onRemove: () => void; testId: string }) {
-  const Icon = LAYER_META[signal.layer].icon
+/** Back on the left, the one way forward on the right, and - beside it, as words - why that is not available yet. */
+function StepNav({ onBack, next, testIdPrefix, why }: { onBack?: () => void; next?: { label: string; onClick: () => void; disabled?: boolean; testId: string }; testIdPrefix: string; why?: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-md border border-nb-800 bg-nb-930 py-1 pl-2 pr-1 text-xs text-nb-300" data-testid={testId}>
-      <Icon size={ICON_SM} className="text-nb-500" aria-hidden />
-      {signal.label}
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Remove ${signal.label}`}
-        className="rounded p-0.5 text-nb-600 hover:bg-nb-940 hover:text-nb-300"
-        data-testid={`${testId}-remove`}
-      >
-        <X size={ICON_MD} />
-      </button>
-    </span>
+    <div className="flex flex-wrap items-center gap-2 pt-1">
+      {onBack && (
+        <Button variant="ghost" size="sm" onClick={onBack} data-testid={`${testIdPrefix}-guided-back`}>
+          <ChevronLeft size={ICON_SM} /> Back
+        </Button>
+      )}
+      {why && <span className="ml-auto text-xs text-nb-500" role="status" data-testid={`${testIdPrefix}-guided-why`}>{why}</span>}
+      {next && (
+        <Button variant="primary" className={clsx(!why && 'ml-auto')} disabled={next.disabled} onClick={next.onClick} data-testid={next.testId}>
+          {next.label}
+        </Button>
+      )}
+    </div>
   )
 }
 
 /**
- * The navigable guided path into telemetry configuration: target is resolved before this ever mounts (see
- * TelemetryWizard.tsx's own `pick` phase, or a scope handed off from the topology canvas), so this only
- * ever walks Collect (every signal on one screen, grouped layer > modality) -> Scope (only when something
- * picked needs one) -> Process -> Destination -> Review -> Run, one screen at a time with Back/Next -
- * reusing GuidedScope for its scope-drafting step alone rather than a second, driftable copy of that logic.
- * Every checkbox writes straight into `value`, exactly like the flat grid does - there is nothing to
- * "commit", so leaving mid-flow never loses a change already made.
+ * The guided setup, the only way to set telemetry up: Where from, What to collect, Where to send, Review and install. "Where from" (the cluster)
+ * is chosen before this mounts, by the dialog that wraps it or by the agent row it sits in, so this walks the other three, one screen at a
+ * time with Back/Continue. What to collect holds everything about the data itself - the signals, which namespaces, tags and masking - with the
+ * less common parts behind disclosures. Review says in plain words what the command changes, and only then comes the command, followed by a
+ * check that data arrives. Every control writes straight into `value`, so leaving mid-flow never loses a change already made.
  */
 export default function GuidedWizard({
   value,
@@ -86,69 +79,53 @@ export default function GuidedWizard({
   initialScope,
   initialDestination,
   clusterId,
+  clusterName,
   runSection,
+  checkSection,
+  review,
+  problems = [],
+  onBackToCluster,
+  onDone,
 }: {
-  /** The last screen's content: the command to run, or the button that generates it. Built by the caller
-   *  (TelemetryPanel), which holds what it depends on. Nothing in the wizard shows a command before this. */
-  runSection?: ReactNode
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
   testIdPrefix: string
-  /** The agent and cluster this telemetry is for, when the caller knows them. */
+  /** The agent this telemetry is for, when the caller knows it. */
   agentId?: string
+  /** The cluster this telemetry is for, when known: its workloads are offered as scope, and the operator that already receives it is recommended. */
   clusterId?: string
+  /** Its name, for the sentences about what changes there. */
+  clusterName?: string
   /** A scope pre-filled from outside the wizard (see GuidedScope.tsx's own doc on this same prop). */
   initialScope?: { name: string; namespaces: string[] }
   /** The id of the operator (or FUSION) to send to, when whoever opened the wizard already knows it ("Connect <cluster>"): the destination
    *  step opens with it chosen, once the list it is in has arrived. */
   initialDestination?: string
+  /** The command to run, or the button that generates it. Built by the caller, which holds what it depends on. Nothing before it shows a command. */
+  runSection?: ReactNode
+  /** The check that data arrives, once the command has been run. Built by the caller, which holds what the agent reports. */
+  checkSection?: ReactNode
+  /** What the command changes against what the install reports: the list, whether anything is installed, and what the form shows but the install does not report. */
+  review: { diff: string[]; installed: boolean; kept: string[] }
+  /** What is wrong with the draft as it stands (telemetryProblems): said on the review, where the command would otherwise be made. */
+  problems?: string[]
+  /** Goes back to choosing the cluster - absent when the cluster was not chosen here. */
+  onBackToCluster?: () => void
+  /** Closes whatever holds this wizard; offered on the last screen. */
+  onDone?: () => void
 }) {
-  const needsScope = APP_SCOPED.some((k) => value[k])
-  // A scope handed off from outside (the topology canvas's "Define scope from selection") only means
-  // something to land on directly when there's already a signal on to attach it to - re-opening an agent
-  // that already has application-scoped telemetry configured, say. The common case is the opposite: a scope
-  // picked from a fresh, unconfigured selection, where nothing has been turned on yet and "attach a scope"
-  // has nothing to attach - that has to start at Collect like any other fresh session, same as
-  // the render-time `step` override just below already assumes once something IS on the scope step.
-  const [rawStep, setStep] = useState<Step>(() => (initialScope && needsScope ? 'scope' : 'collect'))
-  // If the only application-scoped signal gets unchecked while the scope step is showing, there is nothing
-  // left to scope - derived at render time (not an effect) so it never needs a second render to catch up:
-  // the "Define scope" screen simply never has a moment where it shows with nothing left to attach. This is
-  // reachable now: removing a signal's chip (see SelectedChip above) while sitting on the scope step is
-  // exactly that case.
-  // Same reasoning, but landing on Process (not Review): it, and Destination after it, are still worth
-  // seeing even once there is nothing left to scope.
-  const step: Step = rawStep === 'scope' && !needsScope ? 'process' : rawStep
-
-  // Whether the rail shows 4 steps or 5 is latched at each actual step transition (see finishCollect and
-  // removeSignal below), not derived from `value` on every render like `needsScope` above: reading it live
-  // here would reflow the step rail under the user's cursor the instant they ticked an application-scoped
-  // checkbox on the Collect step, before they had asked to move on anywhere. Seeded from `needsScope` at mount
-  // so a value that already has scoped signals on (editing an existing install, or a scope handed off from
-  // outside) starts the rail showing the right step count from the first paint.
-  const [scopeStepNeeded, setScopeStepNeeded] = useState<boolean>(needsScope)
-
-  const stepKeys: Step[] = scopeStepNeeded
-    ? ['collect', 'scope', 'process', 'destination', 'review', 'run']
-    : ['collect', 'process', 'destination', 'review', 'run']
-  const stepLabels: Record<Step, string> = { collect: 'Collect', scope: 'Scope', process: 'Process', destination: 'Destination', review: 'Review', run: 'Run' }
-  const currentIndex = Math.max(0, stepKeys.indexOf(step))
+  const cluster = clusterName ?? 'the cluster'
+  const [phase, setPhase] = useState<Phase>('collect')
+  const phaseIndex = PHASES.indexOf(phase)
 
   const onSignals = TELEMETRY_SIGNALS.filter((s) => value[s.id as SignalId])
-  // Nothing picked on an install that has telemetry: the one thing left to do is turn it all off (see CollectStep's onTurnOff).
+  // Nothing picked on an install that has telemetry: the one thing left to do is turn it all off.
   const turningOff = onSignals.length === 0 && value.hadTelemetry
+  const needsScope = APP_SCOPED.some((k) => value[k])
+  const scopeNarrowed = APP_SCOPED.some((k) => scopeNarrows(value[SCOPE_OF[k]]))
+  const processEdited = value.tags.length > 0 || value.extraProcessors.length > 0 || value.resourceDetection || !value.redaction || value.tracesSamplingPercent !== 100 || value.debugVerbosity !== ''
 
-  // Where Back from Process lands: Scope when this session actually needed one, otherwise Collect.
-  const beforeProcess: Step = scopeStepNeeded ? 'scope' : 'collect'
-
-  // Collect's Continue: latch whether the rail gains a Scope step, then go to it (or straight to Process).
-  const finishCollect = () => {
-    const willNeedScope = APP_SCOPED.some((k) => value[k])
-    setScopeStepNeeded(willNeedScope)
-    setStep(willNeedScope ? 'scope' : 'process')
-  }
-
-  // Destination step: a modality-filtered merge of FUSION, the regional operators, external-backend presets and already-quick-started
+  // Where to send: a modality-filtered merge of FUSION, the regional operators, external-backend presets and already-quick-started
   // backends (see destinationCatalog.ts). An administrator reads the operators and FUSION's own state; an editor reads the same
   // thing as a read model (GET /operator-destinations). Both are polled, so a health dot that changes while this is open changes on it.
   const isAdmin = useServer((s) => atLeast(s.role, 'admin'))
@@ -157,15 +134,15 @@ export default function GuidedWizard({
   const { operators } = operatorList
   const { destinations } = destinationList
   const reloadLists = () => void (isAdmin ? operatorList.reload() : destinationList.reload())
+  const loadError = isAdmin ? operatorList.error : destinationList.error
   const fusionState = useFusion(isAdmin, reloadLists)
-  // Whether what the destination step lists has settled (fetched, failed, or never needed) - it waits for it before auto-picking a lone
-  // match, see DestinationStep. FUSION counts for an administrator: its state arrives separately.
+  // Whether what the list shows has settled (fetched, failed, or never needed) - the default pick waits for it. FUSION counts for an
+  // administrator: its state arrives separately.
   const operatorsReady = isAdmin ? operatorList.loaded && (fusionState.status !== null || fusionState.error !== '') : destinationList.loaded
 
   const enabledModalitySet = enabledModalities(value)
   // Receivers discovery already sees running in this cluster ("Found in your cluster").
-  const { services, clusters } = useTopology()
-  const clusterName = clusterId ? clusters?.find((c) => c.id === clusterId)?.name : undefined
+  const { services } = useTopology()
   const fusionEntry = fusionForCatalog({ status: fusionState.status, operators, destinations, isAdmin })
   const catalogOf = (modalities: Set<Modality>): DestinationCatalog =>
     buildDestinationCatalog({ services, clusterId, operators: catalogOperators({ operators, destinations, isAdmin }), enabledModalities: modalities, isAdmin, fusion: fusionEntry })
@@ -174,7 +151,7 @@ export default function GuidedWizard({
   // Sending to FUSION while it cannot receive: nothing would be there to take it, so no command is offered until that is fixed.
   const sendsToFusion = value.exportSplit ? activeLanes(value).some((m) => value.exportLanes[m].exportOperatorId === CENTRAL_OPERATOR_ID) : value.exportOperatorId === CENTRAL_OPERATOR_ID
   const fusionBlocked = sendsToFusion && !!fusionEntry && !fusionEntry.offer.usable
-  // Review's "Create the command" needs something to put in it: at least one signal, and somewhere to send it that can receive.
+  // "Create the command" needs something to put in it: at least one signal, and somewhere to send it that can receive.
   const canCreate = turningOff || (onSignals.length > 0 && destinationReady(value) && !fusionBlocked)
 
   const fusionControls = {
@@ -190,14 +167,14 @@ export default function GuidedWizard({
   const [pendingPick, setPendingPick] = useState<{ id: string; lane?: Modality; /** Dropped, not waited for, when the list turns out not to have it. */ optional?: boolean } | null>(() => (initialDestination ? { id: initialDestination, optional: true } : null))
 
   // Which catalog entry the person picked (DestinationStep's own destinationKey), or 'custom' - held here,
-  // not in the step, so it survives leaving Destination for Review and coming back.
+  // not in the step, so it survives leaving Where to send for Review and coming back.
   const [destChoice, setDestChoice] = useState<string | null>(null)
   // The same, for each signal type while it has a destination of its own.
   const [laneChoices, setLaneChoices] = useState<Record<Modality, string | null>>({ metrics: null, logs: null, traces: null })
   // What can carry just one signal type: a regional operator only if it takes that type, a backend only if it does.
   const catalogFor = (m: Modality) => catalogOf(new Set<Modality>([m]))
   // Picks the operator that was asked for (a new one, or the one "Connect <cluster>" came from) as soon as the list has it. FUSION is only
-  // ever picked while it can receive: an off one is left to the picker's "Enable and use".
+  // ever picked while it can receive: an off one is left to the list's "Enable and use".
   useEffect(() => {
     if (!pendingPick || !operatorsReady) return
     const entry = (pendingPick.lane ? catalogFor(pendingPick.lane) : catalog).entries.find((e) => (e.kind === 'operator' || e.kind === 'fusion') && e.id === pendingPick.id)
@@ -227,177 +204,175 @@ export default function GuidedWizard({
   // Only worth offering with two or more signal types on - one has nothing to split. A draft that already
   // sends them separately keeps the choice visible even if that is no longer so.
   const canSplit = enabledModalitySet.size > 1 || value.exportSplit
+  const missingLanes = activeLanes(value).filter((m) => value.exportLanes[m].exportEndpoint.trim() === '')
 
-  const removeSignal = (id: SignalId) => {
-    const next = { ...value, [id]: false }
-    onChange(next)
-    setScopeStepNeeded(APP_SCOPED.some((k) => next[k]))
-  }
-
-  // Which way the step content should slide in: forward (into the next step) or back (returning to a
-  // prior one). "Adjust state during render" (react.dev's own name for this exact pattern - comparing a
-  // prop/derived value to a snapshot of its own last-seen value, entirely within render, no effect) rather
-  // than a ref read during render: a ref's `current` isn't tracked by React's render purity model, so
-  // reading it while rendering can disagree with what actually got committed last (React may re-run a
-  // render without committing it) - a real, if subtle, correctness gap for something as fast-changing as a
-  // wizard step. Calling setState here, mid-render, is what react.dev specifically documents for this: React
-  // discards this render immediately and re-renders once more with the new state before painting anything,
-  // so it costs one extra render pass, never an extra paint.
-  const [renderedIndex, setRenderedIndex] = useState(currentIndex)
+  // Which way the step content should slide in: forward or back. "Adjust state during render" (react.dev's own name for this pattern):
+  // React discards this render and re-renders once with the new state before painting anything.
+  const [renderedIndex, setRenderedIndex] = useState(phaseIndex)
   const [direction, setDirection] = useState<'forward' | 'back'>('forward')
-  if (currentIndex !== renderedIndex) {
-    setDirection(currentIndex >= renderedIndex ? 'forward' : 'back')
-    setRenderedIndex(currentIndex)
+  if (phaseIndex !== renderedIndex) {
+    setDirection(phaseIndex >= renderedIndex ? 'forward' : 'back')
+    setRenderedIndex(phaseIndex)
   }
+
+  const destinationName = value.exportSplit ? sentTo(value) : (catalog.entries.find((e) => destinationKey(e) === destChoice)?.label ?? value.exportEndpoint.trim()) || 'the destination'
+  const routes = value.exportSplit
+    ? activeLanes(value).map((m) => `${m} to ${catalogFor(m).entries.find((e) => destinationKey(e) === laneChoices[m])?.label ?? (value.exportLanes[m].exportEndpoint.trim() || 'no destination yet')}`)
+    : undefined
+  const notes = reviewNotes({ draft: value, diff: review.diff, installed: review.installed, turningOff, destination: destinationName, kept: review.kept, routes })
+  const p = testIdPrefix
 
   return (
     <div className="space-y-4">
-      <WizardSteps steps={stepKeys.map((k) => stepLabels[k])} currentIndex={currentIndex} testId={`${testIdPrefix}-guided-steps`} />
+      <WizardSteps steps={SETUP_STEPS} currentIndex={RAIL[phase]} testId={`${p}-guided-steps`} />
 
-      {/* Hidden on Review: that screen is this same set, already grouped and spelled out in full below -
-          repeating it as a chip strip right above would just say the same thing twice in a row. */}
-      {onSignals.length > 0 && step !== 'collect' && step !== 'review' && step !== 'run' && (
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-nb-850 pb-3" data-testid={`${testIdPrefix}-guided-selected`}>
-          <span className="text-xs text-nb-600">Turning on:</span>
-          {onSignals.map((s) => (
-            <SelectedChip key={s.id} signal={s} onRemove={() => removeSignal(s.id as SignalId)} testId={`${testIdPrefix}-guided-chip-${s.id}`} />
-          ))}
-        </div>
-      )}
-
-      <div key={step} className={clsx('wizard-step-in', direction === 'back' && 'wizard-step-in-back')}>
-        {step === 'collect' && <CollectStep value={value} onChange={onChange} testIdPrefix={testIdPrefix} onContinue={finishCollect} onTurnOff={turningOff ? () => setStep('review') : undefined} />}
-
-        {step === 'scope' && (
-          <div className="space-y-3" data-testid={`${testIdPrefix}-guided-step-scope`}>
-            <GuidedScope value={value} onChange={onChange} testIdPrefix={testIdPrefix} initialDraft={initialScope} clusterId={clusterId} />
-            <div className="flex items-center gap-2 pt-1">
-              <BackLink onClick={() => setStep('collect')} testId={`${testIdPrefix}-guided-back`} />
-              <Button variant="primary" className="ml-auto" onClick={() => setStep('process')} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
-            </div>
+      <div key={phase} className={clsx('wizard-step-in', direction === 'back' && 'wizard-step-in-back')}>
+        {phase === 'collect' && (
+          <div className="space-y-4">
+            <StepHeading title="What should be collected?">
+              {clusterName ? <>From <span className="text-nb-300">{clusterName}</span>. </> : null}
+              Pick a starting point or tick signals one by one; you can change this later by running the setup again.
+              {onBackToCluster && (
+                <>
+                  {' '}
+                  <button type="button" className="text-accent hover:underline" onClick={onBackToCluster} data-testid={`${p}-guided-change-cluster`}>Change cluster</button>
+                </>
+              )}
+            </StepHeading>
+            <CollectStep value={value} onChange={onChange} testIdPrefix={p} />
+            {(needsScope || scopeNarrowed || initialScope) && (
+              <Disclosure title="Limit to some namespaces" hint="applications only" defaultOpen={!!initialScope || scopeNarrowed} testId={`${p}-guided-scope`}>
+                <div data-testid={`${p}-guided-step-scope`}>
+                  <GuidedScope value={value} onChange={onChange} testIdPrefix={p} initialDraft={initialScope} clusterId={clusterId} />
+                </div>
+              </Disclosure>
+            )}
+            <Disclosure title="Tags, masking and sampling" hint="optional" defaultOpen={processEdited} testId={`${p}-guided-process`}>
+              <ProcessOptions value={value} onChange={onChange} testIdPrefix={p} clusterName={clusterName} />
+            </Disclosure>
+            <StepNav
+              testIdPrefix={p}
+              why={onSignals.length === 0 && !turningOff ? 'Pick at least one signal.' : undefined}
+              next={{ label: turningOff ? 'Review turning everything off' : 'Continue', onClick: () => setPhase(turningOff ? 'review' : 'destination'), disabled: onSignals.length === 0 && !turningOff, testId: `${p}-guided-continue` }}
+            />
           </div>
         )}
 
-        {step === 'process' && (
-          <ProcessStep value={value} onChange={onChange} testIdPrefix={testIdPrefix} clusterName={clusterName} onBack={() => setStep(beforeProcess)} onContinue={() => setStep('destination')} />
-        )}
-
-        {step === 'destination' && (
-          <div className="space-y-3">
-            {canSplit && (
-              <div className="space-y-2" data-testid={`${testIdPrefix}-guided-destination-mode`}>
-                <div>
-                  <h3 className="text-sm font-medium text-nb-200">Where should this telemetry go?</h3>
-                  <p className="mt-0.5 text-xs text-nb-500">
-                    {value.exportSplit
-                      ? 'Each signal type has its own destination.'
-                      : 'Everything to one place, unless the place you pick cannot take every signal you turned on.'}
-                  </p>
-                </div>
-                <DestinationMode split={value.exportSplit} onChange={(split) => onChange(split ? splitDestinations(value) : { ...value, exportSplit: false })} testIdPrefix={`${testIdPrefix}-guided`} />
+        {phase === 'destination' && (
+          <div className="space-y-3" data-testid={`${p}-guided-step-where`}>
+            <StepHeading title="Where should this telemetry go?">
+              One list: {[...enabledModalitySet].join(', ')} can go to the places that accept them. Anything that does not says why.
+            </StepHeading>
+            {loadError && (
+              <div className="flex flex-wrap items-start gap-2" data-testid={`${p}-guided-load-error`}>
+                <ErrorBanner className="min-w-0 flex-1 basis-60">Your regional operators could not be loaded ({loadError}). Other destinations are still listed; try again to see the operators.</ErrorBanner>
+                <Button size="sm" onClick={reloadLists} data-testid={`${p}-guided-load-retry`}>Try again</Button>
               </div>
             )}
-            {value.exportSplit ? (
-              <>
-                <RoutesStep
-                  value={value}
-                  onChange={onChange}
-                  testIdPrefix={testIdPrefix}
-                  catalogFor={catalogFor}
-                  catalogReady={operatorsReady}
-                  clusterId={clusterId}
-                  choices={laneChoices}
-                  onChoose={(m, key) => setLaneChoices((c) => ({ ...c, [m]: key }))}
-                  shared={{ fusion: fusionControls, onSetUpOperator: isAdmin ? (lane) => setCreatingFor({ lane }) : undefined, onRecordAddress: setAddressFor }}
+            {canSplit && (
+              <label className="flex cursor-pointer items-start gap-2.5 text-sm" data-testid={`${p}-guided-mode`}>
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 accent-[var(--color-accent)]"
+                  checked={value.exportSplit}
+                  onChange={(e) => onChange(e.target.checked ? splitDestinations(value) : { ...value, exportSplit: false })}
+                  data-testid={`${p}-guided-split`}
                 />
-                {!destinationReady(value) && (
-                  <p className="text-xs text-nb-500" data-testid={`${testIdPrefix}-guided-routes-incomplete`}>
-                    {activeLanes(value).filter((m) => value.exportLanes[m].exportEndpoint.trim() === '').join(' and ')} still need a destination. You can continue without, but no command is generated until each has one.
-                  </p>
-                )}
-                <div className="flex items-center gap-2 pt-1">
-                  <BackLink onClick={() => setStep('process')} testId={`${testIdPrefix}-guided-back`} />
-                  <Button variant="primary" className="ml-auto" onClick={() => setStep('review')} data-testid={`${testIdPrefix}-guided-continue`}>Continue</Button>
-                </div>
-              </>
+                <span>
+                  <span className="text-nb-300">Send each signal type to its own destination</span>
+                  <span className="block text-xs text-nb-500">Metrics, logs and traces each get their own place and credential.</span>
+                </span>
+              </label>
+            )}
+            {value.exportSplit ? (
+              <RoutesStep
+                value={value}
+                onChange={onChange}
+                testIdPrefix={p}
+                catalogFor={catalogFor}
+                catalogReady={operatorsReady}
+                clusterId={clusterId}
+                choices={laneChoices}
+                onChoose={(m, key) => setLaneChoices((c) => ({ ...c, [m]: key }))}
+                shared={{ fusion: fusionControls, onSetUpOperator: isAdmin ? (lane) => setCreatingFor({ lane }) : undefined, onRecordAddress: setAddressFor }}
+              />
             ) : (
               <DestinationStep
                 value={value}
                 onChange={onChange}
-                testIdPrefix={testIdPrefix}
+                testIdPrefix={p}
                 catalog={catalog}
                 catalogReady={operatorsReady}
                 clusterId={clusterId}
                 choice={destChoice}
                 onChoose={setDestChoice}
-                onBack={() => setStep('process')}
-                onContinue={() => setStep('review')}
-                heading={!canSplit}
                 fusion={fusionControls}
                 onSetUpOperator={isAdmin ? () => setCreatingFor({}) : undefined}
                 onRecordAddress={setAddressFor}
               />
             )}
+            <StepNav
+              testIdPrefix={p}
+              onBack={() => setPhase('collect')}
+              why={destinationReady(value) ? undefined : value.exportSplit ? `Choose where ${missingLanes.join(' and ')} should go.` : 'Choose where to send this.'}
+              next={{ label: 'Continue', onClick: () => setPhase('review'), disabled: !destinationReady(value), testId: `${p}-guided-continue` }}
+            />
           </div>
         )}
 
-        {step === 'review' && (
-          <div className="space-y-3" data-testid={`${testIdPrefix}-guided-step-review`}>
-            {onSignals.length === 0 ? (
-              turningOff ? (
-                <p className="text-xs text-nb-300" data-testid={`${testIdPrefix}-guided-review-off`}>Every telemetry signal of this install will be turned off, and its routes and extra processors cleared. Nothing is sent from the cluster any more once the command has run.</p>
-              ) : (
-                <p className="text-xs text-nb-500">Nothing is turned on yet - go back and pick at least one signal.</p>
-              )
-            ) : (
-              <>
-                <p className="text-xs text-nb-500">How this will flow, end to end:</p>
-                <TelemetryReviewPipeline value={value} onSignals={onSignals} testIdPrefix={testIdPrefix} shownEndpoints={Object.fromEntries([...catalogOperators({ operators, destinations, isAdmin }), ...(fusionEntry ? [fusionEntry.central] : [])].filter((o) => o.endpoint).map((o) => [operatorReceiverEndpoint(o), o.endpoint as string]))} />
-                {fusionBlocked && fusionEntry && (
-                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" role="alert" data-testid={`${testIdPrefix}-guided-fusion-blocked`}>
-                    <span>FUSION is {fusionLabel(fusionEntry.offer.kind).toLowerCase()}, so nothing would receive this and no command is generated.</span>
-                    {fusionEntry.offer.canEnable && fusionControls.enable ? (
-                      <Button size="sm" onClick={() => void fusionControls.enable?.()} disabled={fusionControls.busy} data-testid={`${testIdPrefix}-guided-fusion-enable`}>{fusionControls.busy ? 'Starting…' : 'Enable FUSION'}</Button>
-                    ) : (
-                      <span>{isAdmin ? 'Choose another destination.' : 'An administrator can turn it on.'}</span>
-                    )}
-                  </div>
-                )}
-                {!destinationReady(value) && (
-                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" role="status" data-testid={`${testIdPrefix}-guided-no-destination`}>
-                    <span>{value.exportSplit ? `${activeLanes(value).filter((m) => value.exportLanes[m].exportEndpoint.trim() === '').join(' and ')} still need a destination, so no command is generated.` : 'No destination yet, so no command is generated.'}</span>
-                    <Button size="sm" onClick={() => setStep('destination')} data-testid={`${testIdPrefix}-guided-choose-destination`}>Choose a destination</Button>
-                  </div>
-                )}
-              </>
-            )}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              {/* Destination always sits directly before Review now, whatever scopeStepNeeded is. */}
-              <BackLink onClick={() => setStep(turningOff ? 'collect' : 'destination')} testId={`${testIdPrefix}-guided-back`} />
-              <Button onClick={() => setStep('collect')} data-testid={`${testIdPrefix}-guided-edit-signals`}><Pencil size={ICON_SM} /> Change what is collected</Button>
-              {/* The command is the last thing, not something drawn under every step: it is only worth
-                  reading once everything it contains has been decided. */}
-              <Button variant="primary" className="ml-auto" disabled={!canCreate} onClick={() => setStep('run')} data-testid={`${testIdPrefix}-guided-create-command`}>
-                Create the command
-              </Button>
-            </div>
+        {phase === 'review' && (
+          <div className="space-y-3">
+            <StepHeading title="Review before anything is installed">
+              {turningOff ? 'Nothing is changed by looking at this.' : 'This is what the command does. Nothing changes until you run it.'}
+            </StepHeading>
+            <ReviewStep notes={notes} cluster={cluster} testIdPrefix={p}>
+              {problems.length > 0 && (
+                <ErrorBanner data-testid={`${p}-problems`}>{problems.join('. ')}.</ErrorBanner>
+              )}
+              {fusionBlocked && fusionEntry && (
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" role="alert" data-testid={`${p}-guided-fusion-blocked`}>
+                  <span>FUSION is {fusionLabel(fusionEntry.offer.kind).toLowerCase()}, so nothing would receive this and no command is generated.</span>
+                  {fusionEntry.offer.canEnable && fusionControls.enable ? (
+                    <Button size="sm" onClick={() => void fusionControls.enable?.()} disabled={fusionControls.busy} data-testid={`${p}-guided-fusion-enable`}>{fusionControls.busy ? 'Starting…' : 'Enable FUSION'}</Button>
+                  ) : (
+                    <span>{isAdmin ? 'Go back and choose another destination.' : 'An administrator can turn it on.'}</span>
+                  )}
+                </div>
+              )}
+            </ReviewStep>
+            <StepNav
+              testIdPrefix={p}
+              onBack={() => setPhase(turningOff ? 'collect' : 'destination')}
+              next={{ label: 'Create the command', onClick: () => setPhase('run'), disabled: !canCreate, testId: `${p}-guided-create-command` }}
+            />
           </div>
         )}
 
-        {step === 'run' && (
-          <div className="space-y-4" data-testid={`${testIdPrefix}-guided-step-run`}>
-            <div>
-              <h3 className="text-sm font-medium text-nb-200">Apply it to the cluster</h3>
-              <p className="mt-0.5 text-xs text-nb-500" data-testid={`${testIdPrefix}-guided-run-summary`}>
+        {phase === 'run' && (
+          <div className="space-y-4" data-testid={`${p}-guided-step-run`}>
+            <StepHeading title={`Run it in ${cluster}`}>
+              <span data-testid={`${p}-guided-run-summary`}>
                 {turningOff
                   ? 'Every signal turned off. Nothing changes until the command is run.'
-                  : `${onSignals.length} ${onSignals.length === 1 ? 'signal' : 'signals'} to ${value.exportSplit ? sentTo(value) : value.exportEndpoint.trim() || 'no destination yet'}. Nothing changes until the command is run.`}
-              </p>
-            </div>
+                  : `${onSignals.length} ${onSignals.length === 1 ? 'signal' : 'signals'} to ${destinationName}. Nothing changes until the command is run.`}
+              </span>
+            </StepHeading>
             {runSection}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <BackLink onClick={() => setStep('review')} testId={`${testIdPrefix}-guided-back`} />
-            </div>
+            <StepNav
+              testIdPrefix={p}
+              onBack={() => setPhase('review')}
+              next={turningOff ? (onDone ? { label: 'Done', onClick: onDone, testId: `${p}-guided-done` } : undefined) : { label: 'I have run it: check that data arrives', onClick: () => setPhase('check'), testId: `${p}-guided-check` }}
+            />
+          </div>
+        )}
+
+        {phase === 'check' && (
+          <div className="space-y-3" data-testid={`${p}-guided-step-check`}>
+            <StepHeading title="Check that data arrives">
+              This reads what the agent in {cluster} reports about its collectors, and updates by itself. The first data usually goes out within a minute or two.
+            </StepHeading>
+            {checkSection}
+            <StepNav testIdPrefix={p} onBack={() => setPhase('run')} next={onDone ? { label: 'Done', onClick: onDone, testId: `${p}-guided-done` } : undefined} />
           </div>
         )}
       </div>

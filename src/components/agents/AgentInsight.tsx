@@ -2,9 +2,8 @@ import clsx from 'clsx'
 import { AlertCircle, AlertTriangle, Check, ChevronRight, Copy, Info, Loader2, ShieldCheck } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Field, ICON_MD, ICON_SM, MANUAL_COPY_HINT, RunStep, TagsInput, useCopy } from '@/components/ui/primitives'
-import ChangeSummary from '@/components/telemetry/ChangeSummary'
-import ExportHealth from '@/components/telemetry/ExportHealth'
-import TelemetryFields from '@/components/telemetry/TelemetryFields'
+import ArrivalCheck from '@/components/telemetry/ArrivalCheck'
+import GuidedWizard from '@/components/telemetry/GuidedWizard'
 import TierLevels from '@/components/TierLevels'
 import { api, ApiError, atLeast, type ServerInfo } from '@/lib/api'
 import {
@@ -45,6 +44,7 @@ import { TONE_CLASS } from '@/lib/provenance'
 import type { Agent, AccessTier, ReceiverAuth, TelemetryIntent } from '@/lib/types'
 import { useOperators } from '@/lib/useOperators'
 import { useConn, useServer } from '@/store/server'
+import { useTopology } from '@/store/topology'
 import { chainCommands } from '@/lib/shellChain'
 
 const SEVERITY_STYLE: Record<Severity, { chip: string; icon: typeof Info; label: string }> = {
@@ -415,6 +415,8 @@ function TelemetryPanelBody({
   initialScope,
   initialDestination,
   standalone = false,
+  onBackToCluster,
+  onDone,
   testIdPrefix = 'telemetry-panel',
 }: {
   diagnostics?: AgentDiagnostics
@@ -436,6 +438,10 @@ function TelemetryPanelBody({
    * modal whose entire purpose is configuring telemetry (the standalone TelemetryWizard) shouldn't hide its
    * own form behind a second disclosure - the inline usage on an already-expanded agent row keeps it. */
   standalone?: boolean
+  /** Standalone only: goes back to choosing the cluster. */
+  onBackToCluster?: () => void
+  /** Standalone only: closes the dialog the setup is in, offered on its last screen. */
+  onDone?: () => void
   /** Forwarded to the outer container, the inline disclosure (inline mode only), and TelemetryFields' own
    * testIdPrefix. Needed because an expanded Agents-page row and the standalone wizard can both be mounted
    * for the same agent at once - without a distinguishing prefix they'd share every nested testid. */
@@ -703,56 +709,68 @@ function TelemetryPanelBody({
     </ol>
   )
 
+  const { agents, clusters } = useTopology()
+  const clusterName = clusters?.find((c) => c.id === clusterId)?.name
+  const wanted = TELEMETRY_SIGNALS.filter((s) => (draft as unknown as Record<string, boolean>)[s.id]).map((s) => s.id)
   const form = (
-    <TelemetryFields
+    <GuidedWizard
       value={draft}
       onChange={edit}
       testIdPrefix={testIdPrefix}
       initialScope={initialScope}
       initialDestination={initialDestination}
-      measurementsOn={measurementsOn}
       agentId={agentId}
       clusterId={clusterId}
+      clusterName={clusterName}
+      problems={problems}
+      review={{ diff: changes, installed: installed.length > 0, kept: hadTelemetry ? keptSummary(draft) : [] }}
+      onBackToCluster={onBackToCluster}
+      onDone={onDone}
       runSection={
         telemetryActive(draft) || turningOff ? (
-          <div className="mt-3 space-y-3" data-testid={`${p}-run`}>
-            <ChangeSummary changes={changes} installed={installed.length > 0} kept={hadTelemetry ? keptSummary(draft) : []} testId={`${p}-changes`} />
+          <div className="space-y-3" data-testid={`${p}-run`}>
             {targets.length > 0 && !turningOff ? operatorSection : commandSection}
-            {!turningOff && (
-              <p className="text-xs text-nb-500" data-testid={`${p}-run-watch`}>
-                Once it is applied, watch <span className="text-nb-300">Is data arriving?</span> above: each signal type starts at Waiting for data and changes to Sending when the first data goes out, usually within a minute or two.
-              </p>
-            )}
           </div>
         ) : undefined
       }
+      checkSection={<ArrivalCheck wanted={wanted} diagnostics={d} connected={agents?.find((a) => a.id === agentId)?.connected} cluster={clusterName ?? 'the cluster'} testId={`${p}-arrival`} />}
     />
   )
 
   return (
     <div data-testid={testIdPrefix}>
-      <div className="mb-1.5 text-sm font-medium text-nb-300">Installed now</div>
-      {installed.length === 0 ? (
-        <p className="text-xs text-nb-500">{d ? 'No telemetry signal is enabled in this install.' : 'Not reported yet.'}</p>
-      ) : (
-        <ul className="flex flex-wrap gap-1.5" data-testid="telemetry-installed">
-          {installed.map((id) => {
-            const s = TELEMETRY_SIGNALS.find((x) => x.id === id)
-            return (
-              <li key={id} title={s?.what} className="rounded border border-nb-800 bg-nb-930 px-1.5 py-0.5 text-xs text-nb-300">
-                {s?.label ?? id}
-              </li>
-            )
-          })}
-        </ul>
-      )}
-      {installed.length > 0 && (
-        <p className="mt-1.5 text-xs text-nb-500" data-testid="telemetry-installed-note">
-          The settings below start from these. The command they create states every signal: the ones left ticked stay on (or turn on), every other one is turned off.
-        </p>
-      )}
+      {!standalone && (
+        <>
+          <div className="mb-1.5 text-sm font-medium text-nb-300">Installed now</div>
+          {installed.length === 0 ? (
+            <p className="text-xs text-nb-500">{d ? 'No telemetry signal is enabled in this install.' : 'Not reported yet.'}</p>
+          ) : (
+            <ul className="flex flex-wrap gap-1.5" data-testid="telemetry-installed">
+              {installed.map((id) => {
+                const s = TELEMETRY_SIGNALS.find((x) => x.id === id)
+                return (
+                  <li key={id} title={s?.what} className="rounded border border-nb-800 bg-nb-930 px-1.5 py-0.5 text-xs text-nb-300">
+                    {s?.label ?? id}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {installed.length > 0 && (
+            <p className="mt-1.5 text-xs text-nb-500" data-testid="telemetry-installed-note">
+              The settings below start from these. The command they create states every signal: the ones left ticked stay on (or turn on), every other one is turned off.
+            </p>
+          )}
 
-      <ExportHealth installed={installed} diagnostics={d} />
+          {installed.length > 0 && (
+            <div className="mt-3" data-testid="export-health">
+              <div className="mb-1.5 text-sm font-medium text-nb-300">Is data arriving?</div>
+              <ArrivalCheck passive wanted={installed} diagnostics={d} connected={agents?.find((a) => a.id === agentId)?.connected} cluster={clusterName ?? 'the cluster'} testId="export-health-check" />
+            </div>
+          )}
+
+        </>
+      )}
 
       {restored && (
         <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-nb-500" data-testid={`${testIdPrefix}-restored`}>
@@ -762,7 +780,7 @@ function TelemetryPanelBody({
       )}
 
       {standalone ? (
-        <div className="mt-3 rounded-lg border border-nb-850 bg-nb-925 p-3">{form}</div>
+        <div className={restored ? 'mt-3' : undefined}>{form}</div>
       ) : (
         <details className="group mt-3" open={open} onToggle={(e) => setOpen(e.currentTarget.open)} data-testid={`${testIdPrefix}-change`}>
           <summary className="flex cursor-pointer select-none items-center gap-1 text-xs font-medium text-nb-400 hover:text-nb-300 marker:content-none">

@@ -1,10 +1,129 @@
 import clsx from 'clsx'
 import { Activity, FileText, Waypoints, type LucideIcon } from 'lucide-react'
-import { Button, ICON_SM } from '@/components/ui/primitives'
-import { applyIntentPreset, PICKABLE_SIGNALS, TELEMETRY_INTENT_PRESETS } from '@/lib/consent'
+import { Button, Field, ICON_SM, InfoTip, Input, Select } from '@/components/ui/primitives'
+import { applyIntentPreset, PICKABLE_SIGNALS, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS } from '@/lib/consent'
 import type { TelemetryInput } from '@/lib/install'
 import { LAYER_CARDS, LAYER_META, type Layer } from '@/lib/telemetryLayers'
-import { AcceleratorsFields, EnergyFields, SignalRow } from './TelemetryFields'
+
+export type SignalId = 'resourceUsage' | 'energy' | 'kubernetesState' | 'nodeRuntime' | 'networkLatency' | 'applicationMetrics' | 'systemLogs' | 'kubernetesEvents' | 'applicationLogs' | 'traces' | 'accelerators'
+
+/** cluster/node scope needs no form control (cluster: physically unfilterable; node: the chart's own
+ * nodeSelector/tolerations values, structured k8s scheduling objects that don't fit this form's --set
+ * model) - so those two just get an honest caption here instead. application scope gets a real control,
+ * the wizard's namespace scope. */
+const scopeCaption = (s: (typeof TELEMETRY_SIGNALS)[number]): string | undefined => {
+  if (s.scope === 'cluster') return 'Always cluster-wide - cannot be narrowed.'
+  if (s.scope === 'node') return "Runs on every node - narrow which nodes with the chart's own nodeSelector/tolerations values, not from this form."
+  return undefined
+}
+
+/** Energy's own source picker, shown once `energy` is on. */
+export function EnergyFields({ value, onChange, testIdPrefix }: { value: TelemetryInput; onChange: (v: TelemetryInput) => void; testIdPrefix: string }) {
+  const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
+  return (
+    <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
+      <Field label="Energy source">
+        <Select
+          value={value.energySource}
+          onChange={(e) => set('energySource', e.target.value as TelemetryInput['energySource'])}
+          data-testid={`${testIdPrefix}-energy-source`}
+        >
+          <option value="bundle-kepler">Deploy Kepler (privileged, one pod per node)</option>
+          <option value="existing">Scrape one I already run</option>
+        </Select>
+      </Field>
+      {value.energySource === 'existing' && (
+        <Field label="Its Prometheus endpoint" hint="Host and port only. The collector adds /metrics itself; a scheme or a path stops it from starting.">
+          <Input
+            value={value.energyExistingEndpoint}
+            onChange={(e) => set('energyExistingEndpoint', e.target.value)}
+            placeholder="kepler.monitoring:9102"
+            data-testid={`${testIdPrefix}-energy-endpoint`}
+          />
+        </Field>
+      )}
+    </div>
+  )
+}
+
+/** Accelerators' own source picker and "apply the install's scope to GPU metrics" toggle, shown once `accelerators` is on. */
+export function AcceleratorsFields({ value, onChange, testIdPrefix }: { value: TelemetryInput; onChange: (v: TelemetryInput) => void; testIdPrefix: string }) {
+  const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
+  const accelerators = TELEMETRY_SIGNALS.find((s) => s.id === 'accelerators')
+  return (
+    <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">
+      <Field label="Accelerators source">
+        <Select
+          value={value.acceleratorsSource}
+          onChange={(e) => set('acceleratorsSource', e.target.value as TelemetryInput['acceleratorsSource'])}
+          data-testid={`${testIdPrefix}-accelerators-source`}
+        >
+          <option value="bundle-dcgm">Deploy dcgm-exporter (GPU nodes only, needs the NVIDIA driver + Container Toolkit already on the node)</option>
+          <option value="existing">Scrape one I already run</option>
+        </Select>
+      </Field>
+      {value.acceleratorsSource === 'existing' && (
+        <Field label="Its Prometheus endpoint" hint="Host and port only. The collector adds /metrics itself; a scheme or a path stops it from starting.">
+          <Input
+            value={value.acceleratorsExistingEndpoint}
+            onChange={(e) => set('acceleratorsExistingEndpoint', e.target.value)}
+            placeholder="dcgm-exporter.monitoring:9400"
+            data-testid={`${testIdPrefix}-accelerators-endpoint`}
+          />
+        </Field>
+      )}
+      {accelerators?.namespaceScopable && (
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm sm:col-span-2">
+          <input
+            type="checkbox"
+            className="mt-0.5 size-4 accent-[var(--color-accent)]"
+            checked={value.acceleratorsApplyScope}
+            onChange={(e) => set('acceleratorsApplyScope', e.target.checked)}
+            data-testid={`${testIdPrefix}-accelerators-apply-scope`}
+          />
+          <span>
+            <span className="text-nb-300">Apply the install's namespace scope to GPU metrics</span>
+            <InfoTip>Off by default. Accelerators are deployed per node (infrastructure), but GPU metrics can carry the namespace/pod using the GPU - turning this on asks dcgm-exporter to attach that identity, so the install's namespace scope narrows GPU metrics the same way it narrows application data.</InfoTip>
+            <span className="block text-xs text-nb-500">Only takes effect while deploying dcgm-exporter above, not when scraping one you already run.</span>
+          </span>
+        </label>
+      )}
+    </div>
+  )
+}
+
+/** One signal's checkbox row: the label, its permissions info tip, what it collects, and (cluster/node signals only) the caption explaining why there is no scope control for it. */
+export function SignalRow({
+  signal,
+  checked,
+  onChange,
+  testIdPrefix,
+}: {
+  signal: (typeof TELEMETRY_SIGNALS)[number]
+  checked: boolean
+  onChange: (v: boolean) => void
+  testIdPrefix: string
+}) {
+  const caption = scopeCaption(signal)
+  return (
+    <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+      <input
+        type="checkbox"
+        className="mt-0.5 size-4 accent-[var(--color-accent)]"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        data-testid={`${testIdPrefix}-${signal.id}`}
+      />
+      <span>
+        <span className="text-nb-300">{signal.label}</span>
+        <InfoTip>{signal.permissions}</InfoTip>
+        <span className="block text-xs text-nb-500">{signal.what}</span>
+        {caption && <span className="block text-xs text-nb-600">{caption}</span>}
+      </span>
+    </label>
+  )
+}
+
 
 type Modality = 'metrics' | 'logs' | 'traces'
 
@@ -32,16 +151,10 @@ export default function CollectStep({
   value,
   onChange,
   testIdPrefix,
-  onContinue,
-  onTurnOff,
 }: {
   value: TelemetryInput
   onChange: (v: TelemetryInput) => void
   testIdPrefix: string
-  onContinue: () => void
-  /** Offered while nothing is picked on an install that has telemetry: the way to turn all of it off (there is no destination or
-   *  processing to decide, so it goes straight to Review). Without it, Continue stays disabled and an install could never be emptied here. */
-  onTurnOff?: () => void
 }) {
   const rec = value as unknown as Record<string, boolean>
   const on = PICKABLE_SIGNALS.filter((s) => rec[s.id])
@@ -51,7 +164,6 @@ export default function CollectStep({
     for (const id of ids) next[id] = v
     onChange(next as unknown as TelemetryInput)
   }
-  const appCount = on.filter((s) => s.layer === 'application').length
 
   return (
     <div className="space-y-4" data-testid={`${testIdPrefix}-guided-step-collect`}>
@@ -132,25 +244,6 @@ export default function CollectStep({
           </section>
         )
       })}
-
-      <div className="flex flex-wrap items-center gap-3 pt-1">
-        <p className="text-xs text-nb-500" role="status" data-testid={`${testIdPrefix}-collect-count`}>
-          {on.length === 0
-            ? onTurnOff
-              ? 'Nothing picked: the command will turn all of this install’s telemetry off.'
-              : 'Nothing picked yet.'
-            : `${on.length} of ${PICKABLE_SIGNALS.length} signals picked${appCount > 0 ? ' - the next step narrows which namespaces your applications are collected from.' : '.'}`}
-        </p>
-        {on.length === 0 && onTurnOff ? (
-          <Button variant="primary" className="ml-auto" onClick={onTurnOff} data-testid={`${testIdPrefix}-guided-turn-off`}>
-            Review turning it all off
-          </Button>
-        ) : (
-          <Button variant="primary" className="ml-auto" disabled={on.length === 0} onClick={onContinue} data-testid={`${testIdPrefix}-guided-continue`}>
-            Continue
-          </Button>
-        )}
-      </div>
     </div>
   )
 }

@@ -38,11 +38,21 @@ const tree = (diagnostics?: AgentDiagnostics, agentId = 'a1') => (
   </MemoryRouter>
 )
 
+/** What to collect -> Where to send -> Review -> "Create the command": the last screen, which is the only one with a command on it. */
+async function toRun(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByTestId('tp-guided-continue'))
+  await user.click(screen.getByTestId('tp-guided-continue'))
+  await user.click(screen.getByTestId('tp-guided-create-command'))
+}
+
 describe('TelemetryPanel on an install that has telemetry', () => {
-  test('the form starts from what is installed: only Kepler ticked, and nothing else added (no debug exporter, no other signal)', () => {
+  test('the form starts from what is installed: only Kepler ticked, and nothing else added (no debug exporter, no other signal)', async () => {
+    const user = userEvent.setup()
     render(tree(KEPLER))
     expect(screen.getByTestId('tp-energy')).toBeChecked()
     expect(screen.getByTestId('tp-resourceUsage')).not.toBeChecked()
+    // The install already sends somewhere, so Where to send opens on that and Review can be reached at once.
+    await toRun(user)
     const cmd = screen.getByTestId('helm-command').textContent ?? ''
     // Exactly one signal is on, and the settings this agent does not report (the debug exporter, the tags, the scope) are left as installed.
     expect(cmd.match(/(metrics|logs|traces)\.enabled=true/g)).toHaveLength(1)
@@ -57,13 +67,17 @@ describe('TelemetryPanel on an install that has telemetry', () => {
     const user = userEvent.setup()
     render(tree(KEPLER))
     await user.click(screen.getByTestId('tp-energy'))
+    expect(screen.getByTestId('tp-guided-continue')).toHaveTextContent('Review turning everything off')
+    await user.click(screen.getByTestId('tp-guided-continue'))
+    expect(screen.getByTestId('tp-review-changes')).toHaveTextContent('Turns every telemetry signal off')
+    await user.click(screen.getByTestId('tp-guided-create-command'))
     const cmd = screen.getByTestId('helm-command').textContent ?? ''
     expect(cmd).toContain('--set telemetry.energy.metrics.enabled=false')
     expect(cmd).toContain('--set telemetry.resourceUsage.metrics.enabled=false')
     expect(cmd).toMatch(/telemetry\.export\.routes\.metrics\.endpoint=/)
     expect(cmd).not.toContain('telemetry.export.otlp.endpoint')
-    expect(screen.getByTestId('tp-changes')).toHaveTextContent('Turns off Energy')
-    expect(screen.queryByTestId('tp-run-watch')).not.toBeInTheDocument()
+    // Nothing is left to arrive, so there is no "check that data arrives".
+    expect(screen.queryByTestId('tp-guided-check')).not.toBeInTheDocument()
   })
 
   test('a diagnostics report that arrives after the panel opened is what an untouched draft follows', () => {
@@ -91,21 +105,27 @@ describe('TelemetryPanel on an install that has telemetry', () => {
     expect(screen.getByTestId('tp-energy')).not.toBeChecked()
     CONN = { url: 'https://example.test', org: 'org-2' }
     rerender(tree(diag({ installedTelemetry: ['traces'], installedTelemetryConfig: { exportEndpoint: 'x:4317', redactionEnabled: true, resourceDetectionEnabled: false } }), 'a2'))
+    await toRun(user)
     expect(screen.getByTestId('helm-command').textContent).toContain('telemetry.resource.orgId=org-2')
     CONN = { url: 'https://example.test', org: 'org-1' }
   })
 
-  test('what the install does not report is said to be left as installed, not shown as if it were known', () => {
-    render(tree(diag({ installedTelemetry: ['energy'] })))
-    expect(screen.getByTestId('tp-changes-kept')).toHaveTextContent('Left exactly as installed')
-    expect(screen.getByTestId('tp-changes-kept')).toHaveTextContent('extra processors')
+  test('what the install does not report is said to be left as installed, not shown as if it were known', async () => {
+    const user = userEvent.setup()
+    render(tree(diag({ installedTelemetry: ['energy'], installedTelemetryConfig: { exportEndpoint: 'gw.example.com:4317', redactionEnabled: true, resourceDetectionEnabled: false } })))
+    await user.click(screen.getByTestId('tp-guided-continue'))
+    await user.click(screen.getByTestId('tp-guided-continue'))
+    expect(screen.getByTestId('tp-review-unchanged')).toHaveTextContent("Everything else in the agent's release, including")
+    expect(screen.getByTestId('tp-review-unchanged')).toHaveTextContent('extra processors')
   })
 
-  test('a draft that cannot be a command shows why there is none, not the bare upgrade to copy', async () => {
+  test('a draft with nowhere to send cannot reach Review, and says so, so there is never a bare upgrade to copy', async () => {
     const user = userEvent.setup()
     render(tree(diag({ installedTelemetry: ['energy'], installedTelemetryConfig: { exportEndpoint: '', redactionEnabled: true, resourceDetectionEnabled: false } })))
     await user.click(screen.getByTestId('tp-resourceUsage'))
+    await user.click(screen.getByTestId('tp-guided-continue'))
+    expect(screen.getByTestId('tp-guided-continue')).toBeDisabled()
+    expect(screen.getByTestId('tp-guided-why')).toHaveTextContent('Choose where to send this.')
     expect(screen.queryByTestId('helm-command')).not.toBeInTheDocument()
-    expect(screen.getByTestId('tp-command-blocked')).toHaveTextContent('export endpoint is required')
   })
 })

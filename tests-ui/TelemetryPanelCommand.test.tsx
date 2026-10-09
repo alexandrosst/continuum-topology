@@ -27,10 +27,8 @@ vi.mock('@/lib/api', async (importOriginal) => {
 })
 
 async function pickHoneycomb(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByTestId('tp-mode-guided'))
   await user.click(screen.getByTestId('tp-resourceUsage'))
-  await user.click(screen.getByTestId('tp-guided-continue')) // Collect -> Process
-  await user.click(screen.getByTestId('tp-guided-continue')) // Process -> Destination
+  await user.click(screen.getByTestId('tp-guided-continue')) // What to collect -> Where to send
   await user.click(screen.getByTestId('tp-guided-destination-external-preset-honeycomb'))
 }
 
@@ -98,8 +96,7 @@ describe('TelemetryPanel: an unfinished draft survives leaving the page', () => 
     const user = userEvent.setup()
     const first = render(panel())
     expect(screen.queryByTestId('tp-restored')).not.toBeInTheDocument()
-    await user.click(screen.getByTestId('tp-mode-guided'))
-    await user.click(screen.getByTestId('tp-resourceUsage'))
+      await user.click(screen.getByTestId('tp-resourceUsage'))
     first.unmount()
 
     const again = render(panel())
@@ -113,8 +110,7 @@ describe('TelemetryPanel: an unfinished draft survives leaving the page', () => 
   test('"Start over" drops it, and the next visit starts clean', async () => {
     const user = userEvent.setup()
     const first = render(panel())
-    await user.click(screen.getByTestId('tp-mode-guided'))
-    await user.click(screen.getByTestId('tp-resourceUsage'))
+      await user.click(screen.getByTestId('tp-resourceUsage'))
     first.unmount()
     const again = render(panel())
     await user.click(screen.getByTestId('tp-start-over'))

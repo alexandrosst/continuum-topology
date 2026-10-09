@@ -1,22 +1,21 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { describe, expect, test, vi } from 'vitest'
-import ProcessStep from '@/components/telemetry/ProcessStep'
+import { describe, expect, test } from 'vitest'
+import ProcessOptions from '@/components/telemetry/ProcessOptions'
 import { emptyTelemetry, TAG_LIMIT, type TelemetryInput } from '@/lib/install'
 
-// The guided wizard's Process step: what Ikhnos adds on its own, the tags a person adds, masking and
+// The guided wizard's "Tags, masking and sampling" section: what Ikhnos adds on its own, the tags a person adds, masking and
 // cost, and the debug exporter. All of it is plain state on the telemetry draft; nothing here fetches.
 
 let latest: TelemetryInput = emptyTelemetry
-const onContinue = vi.fn()
 
 function Wrapper({ initial = { ...emptyTelemetry, resourceUsage: true }, clusterName }: { initial?: TelemetryInput; clusterName?: string }) {
   const [value, setValue] = useState(initial)
-  return <ProcessStep value={value} onChange={(v) => { latest = v; setValue(v) }} testIdPrefix="t" clusterName={clusterName} onBack={() => undefined} onContinue={onContinue} />
+  return <ProcessOptions value={value} onChange={(v) => { latest = v; setValue(v) }} testIdPrefix="t" clusterName={clusterName} />
 }
 
-describe('ProcessStep', () => {
+describe('ProcessOptions', () => {
   test('says what is always added, and mentions no scope tag when nothing is narrowed', () => {
     render(<Wrapper />)
     expect(screen.getByTestId('t-guided-fact-org')).toHaveTextContent('continuum.org.id')
@@ -51,19 +50,16 @@ describe('ProcessStep', () => {
     expect(screen.queryByTestId('t-tag-suggest')).not.toBeInTheDocument()
   })
 
-  test('the continuum. prefix is refused with a reason, and Continue waits until it is fixed', async () => {
+  test('the continuum. prefix is refused with a reason until it is fixed', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
     await user.click(screen.getByTestId('t-tag-add'))
     await user.type(screen.getByTestId('t-tag-key-0'), 'continuum.org.id')
     await user.type(screen.getByTestId('t-tag-value-0'), 'me')
     expect(screen.getByTestId('t-tag-problems')).toHaveTextContent('reserved')
-    expect(screen.getByTestId('t-guided-continue')).toBeDisabled()
     await user.clear(screen.getByTestId('t-tag-key-0'))
     await user.type(screen.getByTestId('t-tag-key-0'), 'team')
     expect(screen.queryByTestId('t-tag-problems')).not.toBeInTheDocument()
-    await user.click(screen.getByTestId('t-guided-continue'))
-    expect(onContinue).toHaveBeenCalled()
   })
 
   test(`no more than ${TAG_LIMIT} tags can be added`, () => {

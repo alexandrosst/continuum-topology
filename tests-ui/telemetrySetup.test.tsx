@@ -91,6 +91,12 @@ describe('reviewNotes: the review in plain words', () => {
     expect(n.changes).toContain('Adds one tag to everything it sends.')
   })
 
+  test('with one destination per signal type it says where each goes instead of one place', () => {
+    const n = reviewNotes({ draft, diff: [], installed: false, turningOff: false, destination: '2 destinations', kept: [], routes: ['metrics to Mimir', 'traces to Tempo'] })
+    expect(n.changes).toContain('Sends metrics to Mimir and traces to Tempo.')
+    expect(n.changes.join(' ')).not.toContain('Sends it to')
+  })
+
   test('with an install it is the diff against it, or says nothing changes', () => {
     expect(reviewNotes({ draft, diff: ['Turns on Traces.'], installed: true, turningOff: false, destination: 'x', kept: [] }).changes).toEqual(['Turns on Traces.'])
     expect(reviewNotes({ draft, diff: [], installed: true, turningOff: false, destination: 'x', kept: [] }).changes[0]).toMatch(/^Nothing: this is already how the install is set up/)

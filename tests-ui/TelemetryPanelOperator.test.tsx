@@ -96,10 +96,8 @@ const tree = () => (
 /** Resource usage on, and the one operator of the organisation picked (the lone destination that fits is
  *  picked for the person on arrival). */
 async function pickOperator(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByTestId('tp-mode-guided'))
   await user.click(screen.getByTestId('tp-resourceUsage'))
-  await user.click(screen.getByTestId('tp-guided-continue')) // Collect -> Process
-  await user.click(screen.getByTestId('tp-guided-continue')) // Process -> Destination
+  await user.click(screen.getByTestId('tp-guided-continue')) // What to collect -> Where to send
   await screen.findByTestId('tp-guided-destination-summary')
   expect(screen.getByTestId('tp-guided-destination-name')).toHaveTextContent('EU regional operator')
 }
@@ -212,13 +210,10 @@ describe('TelemetryPanel with a regional operator destination', () => {
     const user = userEvent.setup()
     render(tree())
     await waitFor(() => expect(listTelemetryIntents).toHaveBeenCalled())
-    await user.click(screen.getByTestId('tp-mode-guided'))
     await user.click(screen.getByTestId('tp-resourceUsage'))
-    await user.click(screen.getByTestId('tp-guided-continue')) // Collect -> Process
-    await user.click(screen.getByTestId('tp-guided-continue')) // Process -> Destination
+    await user.click(screen.getByTestId('tp-guided-continue')) // What to collect -> Where to send
     // The destination the active request already names is where the step opens, not an empty one; the operator is a change from it.
-    expect(await screen.findByTestId('tp-guided-destination-endpoint')).toHaveValue('otel.example.com:4317')
-    await user.click(screen.getByTestId('tp-guided-destination-change'))
+    expect(await screen.findByTestId('tp-guided-destination-custom-endpoint')).toHaveValue('otel.example.com:4317')
     await user.click(await screen.findByTestId('tp-guided-destination-operator-op-eu'))
     await toRun(user)
     await user.click(await generateButton())
@@ -327,10 +322,8 @@ describe('TelemetryPanel with a regional operator destination', () => {
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
-    await user.click(screen.getByTestId('tp-guided-destination-change'))
     await user.click(screen.getByTestId('tp-guided-destination-custom'))
     await user.type(screen.getByTestId('tp-guided-destination-custom-endpoint'), 'otel.example.com:4317')
-    await user.click(screen.getByTestId('tp-guided-destination-custom-use'))
     await toRun(user)
     expect(screen.queryByTestId('tp-operator')).not.toBeInTheDocument()
     expect(screen.getByTestId('helm-command').textContent).toContain('otel.example.com:4317')
@@ -347,12 +340,10 @@ describe('TelemetryPanel with signal types going to different destinations', () 
 
   /** Metrics and logs on, split into one destination each: the lone operator is picked for both on arrival. */
   async function splitToRun(user: ReturnType<typeof userEvent.setup>) {
-    await user.click(screen.getByTestId('tp-mode-guided'))
     await user.click(screen.getByTestId('tp-resourceUsage'))
     await user.click(screen.getByTestId('tp-systemLogs'))
-    await user.click(screen.getByTestId('tp-guided-continue')) // Collect -> Process
-    await user.click(screen.getByTestId('tp-guided-continue')) // Process -> Destination
-    await user.click(screen.getByTestId('tp-guided-mode-split'))
+    await user.click(screen.getByTestId('tp-guided-continue')) // What to collect -> Where to send
+    await user.click(screen.getByTestId('tp-guided-split'))
     await waitFor(() => expect(screen.getByTestId('tp-lane-metrics-guided-destination-name')).toHaveTextContent('EU regional operator'))
     await waitFor(() => expect(screen.getByTestId('tp-lane-logs-guided-destination-name')).toHaveTextContent('EU regional operator'))
   }
@@ -401,8 +392,7 @@ describe('TelemetryPanel with signal types going to different destinations', () 
     const user = userEvent.setup()
     render(tree())
     await splitToRun(user)
-    await user.click(screen.getByTestId('tp-lane-logs-guided-destination-change'))
-    await user.type(screen.getByTestId('tp-lane-logs-guided-destination-search'), 'loki')
+    if (!screen.queryByTestId('tp-lane-logs-guided-destination-external-preset-loki')) await user.click(screen.getByTestId('tp-lane-logs-guided-destination-more'))
     await user.click(screen.getByTestId('tp-lane-logs-guided-destination-external-preset-loki'))
     // The preset's `<namespace>` is a placeholder: no command is printed until it is filled in.
     expect(screen.getByTestId('tp-lane-logs-guided-destination-placeholder')).toBeInTheDocument()
