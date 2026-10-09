@@ -58,7 +58,7 @@ export function PlatformNode({ entity, selected, label, className, style, ...han
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] font-medium text-nb-300" title={entity.name}>{entity.name}</div>
-        <div className={clsx('truncate text-[11px]', healthy || entity.off ? 'text-nb-500' : GLYPH[entity.status].tone)}>
+        <div className={clsx('truncate text-[11px]', healthy || entity.off ? 'text-nb-500' : GLYPH[entity.status].tone)} title={healthy || entity.off ? entity.detail : undefined}>
           {healthy || entity.off ? entity.detail : PLATFORM_STATUS_WORD[entity.status]}
         </div>
       </div>
