@@ -32,7 +32,7 @@ function Node({ h, selected, onSelect }: { h: Hop; selected: boolean; onSelect: 
         <span className={clsx('text-xl font-medium tabular-nums', h.total === 0 ? 'text-nb-500' : 'text-nb-300')}>{figure(h)}</span>
       </span>
       <span className="min-w-0 flex-1 truncate text-xs text-nb-500 xl:w-full xl:flex-none">{h.label}</span>
-      {chip && <StateChip state={chip.state} count={chip.count} className="xl:mt-0.5" />}
+      {chip && <StateChip state={chip.state} count={chip.count} compact className="xl:mt-0.5" />}
     </div>
   )
   const focus = 'block h-full w-full rounded-xl text-left'
