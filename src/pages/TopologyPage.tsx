@@ -47,6 +47,7 @@ import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock 
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu, { FilterChip } from '@/components/topology/FilterMenu'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
+import { narrowFitZoom } from '@/lib/fit'
 import { applyFilter, encodeList, filterActive, hopNeighborhood, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
 import { applyGraphUpdate, buildGraph, cardId, groupId, sameLayout, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
@@ -130,7 +131,10 @@ function Canvas() {
     // Nothing measured yet: let React Flow wait for it.
     if (!width || !height || !bounds.width) { void fitView({ ...FIT_VIEW_OPTIONS, duration }); return }
     const v = getViewportForBounds(bounds, width, height, FIT_MIN_ZOOM, 1.75, FIT_PADDING)
-    void setViewport({ ...v, x: Math.max(v.x, width * 0.04 - bounds.x * v.zoom), y: Math.max(v.y, height * 0.04 - bounds.y * v.zoom) }, { duration })
+    // On a phone the widest cluster box sets the zoom instead of the whole graph (see narrowFitZoom).
+    const widest = Math.max(0, ...getNodes().filter((n) => n.type === 'boundary' && !n.parentId).map((n) => n.measured?.width ?? 0))
+    const zoom = narrowFitZoom(width, v.zoom, widest)
+    void setViewport({ x: Math.max(zoom === v.zoom ? v.x : -Infinity, width * 0.04 - bounds.x * zoom), y: Math.max(zoom === v.zoom ? v.y : -Infinity, height * 0.04 - bounds.y * zoom), zoom }, { duration })
   }, [store, fitView, getNodes, setViewport])
   const [sp, setSp] = useSearchParams()
   const connect = useConnectFlow()

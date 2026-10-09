@@ -11,6 +11,7 @@ import { EXONYMS } from '../src/data/exonyms'
 import { moveTargets, movability, type MoveModel } from '../src/lib/movability'
 import { buildSearchIndex, parseSel, searchItems } from '../src/lib/search'
 import { filterSummary } from '../src/lib/filter'
+import { narrowFitZoom } from '../src/lib/fit'
 import { activeView, describeView, sameView, viewParams } from '../src/lib/views'
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
@@ -1978,6 +1979,14 @@ test('filterSummary: says what the filter is doing in a few words, nothing when 
   assert.equal(filterSummary({ clusters: [], apps: [], kinds: [] }), undefined)
   assert.equal(filterSummary({ clusters: [], apps: [], kinds: ['Deployment'] }), 'Deployments only')
   assert.equal(filterSummary({ clusters: ['a'], apps: ['x', 'y'], kinds: ['Job', 'DaemonSet'] }), '2 kinds \u00b7 1 cluster \u00b7 2 applications')
+})
+
+test('narrowFitZoom: on a phone the widest box sets the fit, elsewhere the whole-graph fit stands', () => {
+  assert.equal(narrowFitZoom(1440, 0.5, 400), 0.5, 'a desktop-width canvas is untouched')
+  assert.ok(Math.abs(narrowFitZoom(390, 0.5, 400) - (390 * 0.92) / 400) < 1e-9, 'the widest box fills the phone')
+  assert.equal(narrowFitZoom(390, 0.5, 200), 1, 'never magnified past 1')
+  assert.equal(narrowFitZoom(390, 0.9, 800), 0.9, 'a fit that is already larger stays')
+  assert.equal(narrowFitZoom(390, 0.5, 0), 0.5, 'nothing measured yet')
 })
 
 console.log(failed ? `\n${failed} FAILED` : '\nall passed')

@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Pencil, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Pencil, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckLine } from '@/components/discovery/AgentParts'
@@ -321,6 +321,8 @@ export default function Inspector({
   const { clusters, nodes, namespaces, services, devices, dependencies, applications, sites, siteLinks, externalEndpoints, agents } = useTopology()
   const placement = usePlacementSuggestions().byCluster
   const inPast = useHistoryView((s) => s.at !== null)
+  // On a narrow screen the details are a sheet over the canvas; "peek" shrinks it to its header so the selected thing stays in view.
+  const [peek, setPeek] = useState(false)
   const measured = usePaths()
   const clusterPairConnectivity = useClusterPairConnectivity()
   const publicIpFallbackOn = useServer((s) => s.info?.geoip?.publicIpFallback)
@@ -1399,8 +1401,18 @@ export default function Inspector({
     // the whole canvas appearing to "jump" the moment the sidebar finished scrolling, since nothing told
     // the browser this panel's own scroll boundary was the end of the gesture, not a handoff to whatever's
     // underneath it.
-    <aside className="modal-pop fixed inset-x-0 bottom-0 z-30 flex max-h-[65vh] flex-col overflow-y-auto overscroll-contain rounded-t-xl border-t border-nb-850 bg-nb-920 shadow-2xl lg:static lg:max-h-none lg:w-80 lg:min-h-0 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
-      <div className="flex items-start justify-between gap-3 px-5 py-4">
+    <aside className={clsx('modal-pop fixed inset-x-0 bottom-0 z-30 flex flex-col overflow-y-auto overscroll-contain rounded-t-xl border-t border-nb-850 bg-nb-920 shadow-2xl transition-[max-height] duration-200 motion-reduce:transition-none lg:static lg:max-h-none lg:w-80 lg:min-h-0 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none', peek ? 'max-h-[30vh]' : 'max-h-[65vh]')}>
+      <button
+        type="button"
+        onClick={() => setPeek((v) => !v)}
+        aria-expanded={!peek}
+        aria-label={peek ? 'Show all details' : 'Show only the header, to see the canvas'}
+        className="sticky top-0 z-10 flex shrink-0 justify-center rounded-t-xl bg-nb-920 py-1.5 text-nb-500 hover:text-nb-300 lg:hidden"
+        data-testid="inspector-peek"
+      >
+        {peek ? <ChevronUp size={ICON_MD} aria-hidden="true" /> : <ChevronDown size={ICON_MD} aria-hidden="true" />}
+      </button>
+      <div className="flex items-start justify-between gap-3 px-5 pb-4 pt-1 lg:pt-4">
         <div className="min-w-0">
           <h2 className="truncate text-base font-medium text-nb-300">{title}</h2>
           <div className="mt-1.5">{subtitle}</div>

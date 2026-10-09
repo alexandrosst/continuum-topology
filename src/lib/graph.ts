@@ -5,7 +5,7 @@
  * "view" turns entities into boxes and edges, so adding a new plane (network,
  * data-flow, cost…) means adding a branch here + optionally a node component.
  */
-import { callerIfaceSpeedMbps, placeLabel } from './present'
+import { callerIfaceSpeedMbps, count, placeLabel } from './present'
 import { buildPodsView, type PodsView } from './pods'
 import { MarkerType, Position, type Edge, type Node } from '@xyflow/react'
 import { deepEqual } from './discovered'

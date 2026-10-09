@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
 import Inspector from '@/components/topology/Inspector'
@@ -303,5 +303,19 @@ describe('Inspector · external endpoint', () => {
     renderInspector(ext({ name: 'Internal DB', source: 'manual' }))
     expect(screen.getByText('Entered manually')).toBeInTheDocument()
     expect(screen.queryByTestId('provenance-freshness')).not.toBeInTheDocument()
+  })
+
+  test('on a narrow screen the sheet can shrink to a short peek and back, announced as expanded or not', () => {
+    renderInspector(ext({ name: 'Payments API' }))
+    const toggle = screen.getByTestId('inspector-peek')
+    const sheet = toggle.closest('aside')!
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(sheet.className).toContain('max-h-[65vh]')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(sheet.className).toContain('max-h-[30vh]')
+    expect(sheet.className).not.toContain('max-h-[65vh]')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
   })
 })
