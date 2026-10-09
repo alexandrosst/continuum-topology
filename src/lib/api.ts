@@ -610,8 +610,9 @@ export interface Conn {
   org?: string
 }
 
-/** Routes that are about the person or the server, not about one organisation. */
-const GLOBAL = /^\/api\/v1\/(auth\/|server$|orgs$|invites\/(preview|accept)$|mail$)/
+/** Routes that are about the person or the server, not about one organisation. The FUSION data API (what FUSION holds) is the FUSION
+ * organisation's own and is served without an organisation in the path; the switch, retention and tokens next to it are per organisation. */
+const GLOBAL = /^\/api\/v1\/(auth\/|server$|orgs$|invites\/(preview|accept)$|mail$|fusion\/(applications|services)([?/]|$))/
 
 // No request in this file had a timeout: a stalled connection (a laptop sleep/wake, a proxy silently
 // dropping a long-lived keep-alive) left its fetch() promise pending forever - never resolving, never
