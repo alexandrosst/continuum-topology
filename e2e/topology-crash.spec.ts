@@ -234,9 +234,20 @@ test.describe('topology canvas', () => {
     await expect(toolbar).toBeVisible({ timeout: 5000 })
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(2)
 
+    // A spot of the pane with nothing on it. It is looked up, not fixed: how the cards, pods and cluster boxes fall on the
+    // canvas changes with the layout, and a fixed corner can land on a cluster box (which is what a click there then selects).
     const pane = page.locator('.react-flow__pane').first()
-    const box = await pane.boundingBox()
-    await page.mouse.click(box!.x + box!.width - 40, box!.y + 40)
+    const box = (await pane.boundingBox())!
+    const spot = await page.evaluate(({ x, y, w, h }) => {
+      for (let dy = 24; dy < h - 24; dy += 24) {
+        for (let dx = w - 24; dx > 24; dx -= 24) {
+          if (document.elementFromPoint(x + dx, y + dy)?.classList.contains('react-flow__pane')) return { x: x + dx, y: y + dy }
+        }
+      }
+      return null
+    }, { x: box.x, y: box.y, w: box.width, h: box.height })
+    expect(spot, 'there is a free spot on the canvas to click').not.toBeNull()
+    await page.mouse.click(spot!.x, spot!.y)
 
     await expect(toolbar).toBeHidden()
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(0)
