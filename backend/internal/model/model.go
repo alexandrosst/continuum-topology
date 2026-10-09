@@ -345,6 +345,21 @@ type Namespace struct {
 	Mtls string `json:"mtls,omitempty"`
 }
 
+// ServiceKey is the identity telemetry gives a service: where it runs and what it is called. It is what Prometheus,
+// Loki and Tempo can say about a service, so it is what the API, the info series and the graph all join on. Kind is
+// not part of it (telemetry cannot tell a Deployment from a StatefulSet of one name), so two services can share a
+// key; the service's id, which includes its kind, is what tells them apart.
+type ServiceKey struct{ Cluster, Namespace, Name string }
+
+// String is "name/namespace/cluster", the value of the member label of ikhnos_application_info; a part that is not
+// known is empty.
+func (k ServiceKey) String() string { return k.Name + "/" + k.Namespace + "/" + k.Cluster }
+
+// ServiceKey is the service's key (not Key, which a Service has already: the Provenance's).
+func (s Service) ServiceKey() ServiceKey {
+	return ServiceKey{Cluster: s.ClusterID, Namespace: s.Namespace, Name: s.Name}
+}
+
 type Service struct {
 	Provenance
 	ID            string            `json:"id"`

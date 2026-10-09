@@ -2,21 +2,28 @@ package graph
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+
+	"continuum/internal/model"
 )
 
 // SchemaVersion is bumped when the shape of the graph changes; Ensure applies what is missing.
 // 2: added entity_org, the dedicated (org) index on :Entity.
 // 3: open:true on every current Version and temporal relationship (removed when it closes), indexed, so
 // "what is open" is a seek instead of a scan of all history; Ensure sets it on data written before.
-const SchemaVersion = 3
+// 4: key and ns (model.ServiceKey as "name/namespace/cluster", and the namespace) on every service Entity and
+// Version, with a plain (org, key) index; Ensure sets them on the services that are current. Older versions
+// and services that are gone do not have them.
+const SchemaVersion = 4
 
 // The graph, in one place:
 //
 //	(:Tenant {id, name})                              one organisation
-//	(:Entity {org, kind, id, name, status})           the identity of a cluster, node, namespace,
+//	(:Entity {org, kind, id, name, status, cluster, key, ns})  the identity of a cluster, node, namespace,
 //	   also labelled :Cluster :Node :Namespace :Service :ExternalEndpoint :Dependency :Path
 //	   -[:HAS_VERSION]-> (:Version {org, kind, id, validFrom, validTo, open, hash, doc})
+//	      (key and ns, set on services only, are model.ServiceKey and the namespace; the same two on the Version)
 //	      one row per distinct state; validTo is null and open is true while it is current (open is removed,
 //	      not set false, when it closes, so the (org, open) index holds only what is current)
 //	(:Entity)-[:IN_CLUSTER|RUNS_ON|CALLS|PATH_FROM|PATH_TO|CONTAINS {org, ekey, validFrom, validTo, open}]->(:Entity)
@@ -56,6 +63,8 @@ var ddl = []string{
 	// org-scoped label here (Event, Audit) already gets its own dedicated (org, ...) index rather than
 	// leaning on a composite constraint's incidental prefix support. This one closes that gap for Entity.
 	`CREATE INDEX entity_org IF NOT EXISTS FOR (e:Entity) ON (e.org)`,
+	// Not unique: a Deployment and a StatefulSet of one name in one namespace have one key and two ids.
+	`CREATE INDEX entity_service_key IF NOT EXISTS FOR (e:Entity) ON (e.org, e.key)`,
 	`CREATE INDEX version_from IF NOT EXISTS FOR (v:Version) ON (v.org, v.validFrom)`,
 	`CREATE INDEX version_to IF NOT EXISTS FOR (v:Version) ON (v.org, v.validTo)`,
 	`CREATE INDEX version_open IF NOT EXISTS FOR (v:Version) ON (v.org, v.open)`,
@@ -111,17 +120,51 @@ func (c *Client) Ensure(ctx context.Context) error {
 			return fmt.Errorf("preparing the graph: %w", err)
 		}
 	}
-	if v, err := c.schemaVersion(ctx); err != nil {
+	v, err := c.schemaVersion(ctx)
+	if err != nil {
 		return err
-	} else if v < 3 {
+	}
+	if v < 3 {
 		for _, q := range migrate3 {
 			if _, err := c.Run(ctx, Global(q, nil)); err != nil {
 				return fmt.Errorf("migrating the graph: %w", err)
 			}
 		}
 	}
-	_, err := c.Run(ctx, Global(`MERGE (m:SchemaMeta {id:'schema'}) SET m.version = $v, m.updated = datetime()`, map[string]any{"v": SchemaVersion}))
+	if v < 4 {
+		if err := c.backfillServiceKeys(ctx); err != nil {
+			return fmt.Errorf("migrating the graph: %w", err)
+		}
+	}
+	_, err = c.Run(ctx, Global(`MERGE (m:SchemaMeta {id:'schema'}) SET m.version = $v, m.updated = datetime()`, map[string]any{"v": SchemaVersion}))
 	return err
+}
+
+// backfillServiceKeys gives the services that are current (an open version) their key and ns, which are only written
+// with a new version: one that has not changed since would never get them. Safe to run twice. A service that is
+// gone, and the versions that ended, stay without them; nothing needs them there.
+func (c *Client) backfillServiceKeys(ctx context.Context) error {
+	res, err := c.Run(ctx, Global(`MATCH (v:Version {kind:'service', open:true}) WHERE v.key IS NULL RETURN v.org, v.id, v.name, v.cluster, v.doc`, nil))
+	if err != nil {
+		return err
+	}
+	var rows []map[string]any
+	for _, r := range res[0].Rows {
+		var doc struct{ Namespace string }
+		_ = json.Unmarshal([]byte(str(r[4])), &doc)
+		key := model.ServiceKey{Cluster: str(r[3]), Namespace: doc.Namespace, Name: str(r[2])}.String()
+		rows = append(rows, map[string]any{"org": str(r[0]), "id": str(r[1]), "key": key, "ns": doc.Namespace})
+	}
+	for len(rows) > 0 {
+		n := min(len(rows), 1000)
+		if _, err := c.Run(ctx,
+			Global(`UNWIND $rows AS row MATCH (e:Entity {org:row.org, kind:'service', id:row.id}) SET e.key = row.key, e.ns = row.ns`, map[string]any{"rows": rows[:n]}),
+			Global(`UNWIND $rows AS row MATCH (v:Version {org:row.org, kind:'service', id:row.id, open:true}) SET v.key = row.key, v.ns = row.ns`, map[string]any{"rows": rows[:n]})); err != nil {
+			return err
+		}
+		rows = rows[n:]
+	}
+	return nil
 }
 
 // schemaVersion is the version Ensure last completed (0 for a database it has never prepared).

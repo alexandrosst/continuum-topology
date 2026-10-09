@@ -18,16 +18,16 @@ import (
 
 func infoGroups() []AppGroup {
 	return []AppGroup{{ID: "app-1", Name: "Shop", Members: []AppMember{
-		{Name: "cart", Namespace: "shop", Cluster: "cl-1", Aliases: []string{"cart-app", "cart"}},
-		{Name: "web", Namespace: "shop"},
-	}}, {ID: "app-2", Name: "Pay", Members: []AppMember{{Name: "pay", Namespace: "pay", Cluster: "cl-2"}}}}
+		{ID: "sv-cart", Name: "cart", Namespace: "shop", Cluster: "cl-1", Aliases: []string{"cart-app", "cart"}},
+		{ID: "sv-web", Name: "web", Namespace: "shop"},
+	}}, {ID: "app-2", Name: "Pay", Members: []AppMember{{ID: "sv-pay", Name: "pay", Namespace: "pay", Cluster: "cl-2"}}}}
 }
 
 func TestInfoSeriesAreOnePerServiceNameAndSorted(t *testing.T) {
 	got, _ := AppInfoSeriesOf(infoGroups())
 	want := []AppInfoSeries{
-		{"Shop", "app-1", "cart", "shop", "cl-1"}, {"Shop", "app-1", "cart-app", "shop", "cl-1"}, {"Shop", "app-1", "web", "shop", ""},
-		{"Pay", "app-2", "pay", "pay", "cl-2"},
+		{"Shop", "app-1", "cart", "shop", "cl-1", "sv-cart"}, {"Shop", "app-1", "cart-app", "shop", "cl-1", "sv-cart"}, {"Shop", "app-1", "web", "shop", "", "sv-web"},
+		{"Pay", "app-2", "pay", "pay", "cl-2", "sv-pay"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%+v", got)
@@ -82,7 +82,7 @@ func TestTheEncodedRequestIsTheOTLPMetricShape(t *testing.T) {
 		kv := readMsg(t, a)
 		labels[string(kv[1][0])] = string(readMsg(t, kv[2][0])[1][0])
 	}
-	want := map[string]string{"application": "Shop", "application_id": "app-1", "service_name": "cart", "k8s_namespace_name": "shop", "continuum_cluster_id": "cl-1", "member": "cart/shop/cl-1"}
+	want := map[string]string{"application": "Shop", "application_id": "app-1", "service_name": "cart", "k8s_namespace_name": "shop", "continuum_cluster_id": "cl-1", "member": "cart/shop/cl-1", "service_id": "sv-cart"}
 	if !reflect.DeepEqual(labels, want) {
 		t.Fatalf("labels %v", labels)
 	}
@@ -90,7 +90,7 @@ func TestTheEncodedRequestIsTheOTLPMetricShape(t *testing.T) {
 		t.Fatalf("time %d", v)
 	}
 	// A member with no cluster simply lacks that label (its member value has an empty last part).
-	if n := len(readMsg(t, points[2])[7]); n != 5 {
+	if n := len(readMsg(t, points[2])[7]); n != 6 {
 		t.Fatalf("%d attributes for a service without a cluster", n)
 	}
 }
@@ -163,6 +163,17 @@ func TestInfoSeriesAreAcceptedByARealPrometheus(t *testing.T) {
 		if r.Metric["application_id"] != "app-1" || r.Metric["k8s_namespace_name"] != "shop" || r.Value[1] != "1" {
 			t.Errorf("%v", r)
 		}
+	}
+}
+
+// Two members of one key (a Deployment and a StatefulSet of one name, a discovered service and a manual one) are one
+// series, not two: service_id adds no series to what the labels a query selects on already made.
+func TestTwoMembersOfOneKeyAreOneSeries(t *testing.T) {
+	g := []AppGroup{{ID: "app-1", Name: "Shop", Members: []AppMember{
+		{ID: "sv-a", Name: "db", Namespace: "shop", Cluster: "cl-1"}, {ID: "sv-b", Name: "db", Namespace: "shop", Cluster: "cl-1"}}}}
+	got := mustSeries(g)
+	if len(got) != 1 || got[0].ServiceID != "sv-a" {
+		t.Fatalf("%+v", got)
 	}
 }
 

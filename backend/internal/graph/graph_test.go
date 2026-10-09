@@ -140,8 +140,8 @@ func TestEveryStatementInThePackageIsTenantScopedOrDeliberatelyGlobal(t *testing
 			t.Errorf("%s runs statements on the raw client", f)
 		}
 	}
-	if global != 6 {
-		t.Errorf("found %d raw statements outside a tenant scope; expected the 6 known ones (schema, schema version, schema migration, schema meta, ping, tenant ids). Review any new one.", global)
+	if global != 9 {
+		t.Errorf("found %d raw statements outside a tenant scope; expected the 9 known ones (schema, schema version, schema migration, the service-key migration's read and two writes, schema meta, ping, tenant ids). Review any new one.", global)
 	}
 }
 
@@ -2253,5 +2253,83 @@ func TestWalkTimeoutBoundsTheWholeOperation(t *testing.T) {
 	_, _, err := db.Dependencies(ctx, org, t0, "service", "s-1", 2)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("an all-but-zero walk timeout should fail with a context deadline error, got %v", err)
+	}
+}
+
+// serviceKeyRows reads what the graph says about the keys of the services: entity and open version, by id.
+func serviceKeyRows(t *testing.T, db *DB, org string) map[string][4]string {
+	t.Helper()
+	res, err := db.C.Run(context.Background(), db.C.For(org).S(`MATCH (e:Entity {org:$org, kind:'service'})-[:HAS_VERSION]->(v:Version {open:true})
+RETURN e.id, e.key, e.ns, v.key, v.ns`, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string][4]string{}
+	for _, r := range res[0].Rows {
+		out[str(r[0])] = [4]string{str(r[1]), str(r[2]), str(r[3]), str(r[4])}
+	}
+	return out
+}
+
+// A service is found by what telemetry calls it: its entity and its versions carry the key (name/namespace/cluster)
+// and the namespace, and nothing else does.
+func TestServicesCarryTheirKeyAndNamespace(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	e := estate()
+	e.Services[0].Namespace = "shop"
+	record(t, db, org, time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC), e)
+
+	got := serviceKeyRows(t, db, org)
+	if got["s-1"] != [4]string{"web/shop/c-1", "shop", "web/shop/c-1", "shop"} || got["s-2"] != [4]string{"db//c-2", "", "db//c-2", ""} {
+		t.Fatalf("%v", got)
+	}
+	res, err := db.C.Run(ctx, db.C.For(org).S(`MATCH (e:Entity {org:$org, key:$key}) RETURN e.id`, map[string]any{"key": "web/shop/c-1"}),
+		db.C.For(org).S(`MATCH (e:Entity {org:$org}) WHERE e.kind <> 'service' AND (e.key IS NOT NULL OR e.ns IS NOT NULL) RETURN count(e)`, nil),
+		Global(`SHOW INDEXES YIELD name WHERE name = 'entity_service_key' RETURN count(*)`, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res[0].Rows) != 1 || str(res[0].Rows[0][0]) != "s-1" {
+		t.Errorf("by key: %v", res[0].Rows)
+	}
+	if i64(res[1].Rows[0][0]) != 0 {
+		t.Errorf("only services have a key, %v others do", res[1].Rows[0][0])
+	}
+	if i64(res[2].Rows[0][0]) != 1 {
+		t.Error("no index on the key")
+	}
+}
+
+// TestEnsureGivesTheCurrentServicesTheirKey: a graph written before schema 4 has services without key and ns, and a
+// service that has not changed since would never get them from Record.
+func TestEnsureGivesTheCurrentServicesTheirKey(t *testing.T) {
+	db, org := testDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	e := estate()
+	e.Services[0].Namespace = "shop"
+	record(t, db, org, t0, e)
+
+	sc := db.C.For(org)
+	if _, err := db.C.Run(ctx,
+		sc.S(`MATCH (n {org:$org}) WHERE n:Entity OR n:Version REMOVE n.key, n.ns`, nil),
+		Global(`MERGE (m:SchemaMeta {id:'schema'}) SET m.version = 3`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if got := serviceKeyRows(t, db, org)["s-1"]; got != [4]string{} {
+		t.Fatalf("setup did not remove the keys: %v", got)
+	}
+	if err := db.C.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := serviceKeyRows(t, db, org); got["s-1"] != [4]string{"web/shop/c-1", "shop", "web/shop/c-1", "shop"} || got["s-2"][0] != "db//c-2" {
+		t.Errorf("after Ensure: %v", got)
+	}
+	// And nothing else was versioned for it: the next recording of the same estate writes no version.
+	before, _ := db.Stats(ctx, org)
+	record(t, db, org, t0.Add(time.Hour), e)
+	if after, _ := db.Stats(ctx, org); after.Versions != before.Versions {
+		t.Errorf("recording an unchanged estate after the migration wrote %d versions", after.Versions-before.Versions)
 	}
 }

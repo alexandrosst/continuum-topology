@@ -52,3 +52,13 @@ func TestTunnelEncryptionPostureClassifiesEveryDocumentedKind(t *testing.T) {
 		}
 	}
 }
+
+func TestServiceKeyIsTheMemberLabel(t *testing.T) {
+	s := Service{ID: "sv-1", Name: "cart", Namespace: "shop", ClusterID: "cl-1", Kind: "Deployment"}
+	if got := s.ServiceKey().String(); got != "cart/shop/cl-1" {
+		t.Fatalf("%q", got)
+	}
+	if got := (ServiceKey{Name: "web", Namespace: "shop"}).String(); got != "web/shop/" {
+		t.Fatalf("a part that is not known is empty: %q", got)
+	}
+}

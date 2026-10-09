@@ -71,6 +71,9 @@ func polledKind(kind string) bool {
 
 type ver struct {
 	Kind, ID, Hash, Doc, Name, Status, Cluster string
+	// Key and Ns are a service's model.ServiceKey and namespace as properties of its entity and versions, so a
+	// service is found by what telemetry calls it without reading its document. Empty for every other kind.
+	Key, Ns string
 }
 
 func vkey(kind, id string) string { return kind + "\x00" + id }
@@ -157,6 +160,9 @@ func extract(t model.Topology) (vs map[string]ver, es map[string]edge, tr map[st
 			s.Pods[i].Traffic = nil
 		}
 		put("service", s.ID, s.Name, s.Status, s.ClusterID, s)
+		v := vs[vkey("service", s.ID)]
+		v.Key, v.Ns = s.ServiceKey().String(), s.Namespace
+		vs[vkey("service", s.ID)] = v
 	}
 	for _, e := range t.ExternalEndpoints {
 		e.LastSeen, e.Revision = "", 0
@@ -341,7 +347,11 @@ func diffEntities(sc *Scope, at time.Time, t model.Topology, fp string, size int
 		if o, ok := open[k]; ok && o == v.Hash {
 			continue
 		}
-		created[v.Kind] = append(created[v.Kind], row{"kind": v.Kind, "id": v.ID, "hash": v.Hash, "doc": v.Doc, "name": v.Name, "status": v.Status, "cluster": v.Cluster})
+		r := row{"kind": v.Kind, "id": v.ID, "hash": v.Hash, "doc": v.Doc, "name": v.Name, "status": v.Status, "cluster": v.Cluster}
+		if v.Key != "" { // only a service has them: for the rest row.key is null and the property is not set
+			r["key"], r["ns"] = v.Key, v.Ns
+		}
+		created[v.Kind] = append(created[v.Kind], r)
 	}
 	sortRows := func(rs []row) {
 		sort.Slice(rs, func(i, j int) bool {
@@ -379,8 +389,8 @@ MATCH (e:Entity {org:$org, kind:row.kind, id:row.id}) SET e.gone = datetime($at)
 		w = append(w, sc.S(fmt.Sprintf(`UNWIND $rows AS row
 MERGE (e:Entity {org:$org, kind:row.kind, id:row.id})
 ON CREATE SET e.firstSeen = datetime($at)
-SET e:%s, e.name = row.name, e.status = row.status, e.cluster = row.cluster, e.gone = null
-CREATE (v:Version {org:$org, kind:row.kind, id:row.id, open:true, validFrom:datetime($at), hash:row.hash, doc:row.doc, name:row.name, status:row.status, cluster:row.cluster})
+SET e:%s, e.name = row.name, e.status = row.status, e.cluster = row.cluster, e.key = row.key, e.ns = row.ns, e.gone = null
+CREATE (v:Version {org:$org, kind:row.kind, id:row.id, open:true, validFrom:datetime($at), hash:row.hash, doc:row.doc, name:row.name, status:row.status, cluster:row.cluster, key:row.key, ns:row.ns})
 CREATE (e)-[:HAS_VERSION]->(v)`, k.Label), map[string]any{"rows": rows, "at": atS}))
 	}
 	// Links.

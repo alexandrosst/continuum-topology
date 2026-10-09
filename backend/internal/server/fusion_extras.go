@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/model"
 	"continuum/internal/store"
 	"continuum/internal/workspace"
 )
@@ -174,14 +175,14 @@ func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
 			var m fusionapi.AppMember
 			if i, ok := byID[id]; ok {
 				s := doc.Topology.Services[i]
-				m = fusionapi.AppMember{Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID, Kind: s.Kind}
+				m = fusionapi.AppMember{ID: id, Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID, Kind: s.Kind}
 				for _, k := range []string{"app", "app.kubernetes.io/name"} {
 					if v := s.Labels[k]; v != "" && v != s.Name && !slices.Contains(m.Aliases, v) {
 						m.Aliases = append(m.Aliases, v)
 					}
 				}
 			} else if r, ok := declared[id]; ok && str(r, "name") != "" {
-				m = fusionapi.AppMember{Name: str(r, "name"), Namespace: str(r, "namespace"), Cluster: str(r, "clusterId"), Kind: str(r, "kind")}
+				m = fusionapi.AppMember{ID: id, Name: str(r, "name"), Namespace: str(r, "namespace"), Cluster: str(r, "clusterId"), Kind: str(r, "kind")}
 			} else {
 				// A member Ikhnos has an id for but cannot tie to a running service: a cluster that is not connected, or a
 				// service that has gone. Counted, so a caller can be told why an application looks empty.
@@ -195,21 +196,19 @@ func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
 	return out
 }
 
-// annotateApplications names, on each service of the view, the applications it is in.
+// annotateApplications names, on each service of the view, the applications it is in: those with a member of the
+// service's key.
 func annotateApplications(v *fusionapi.TopologyView, groups []fusionapi.AppGroup) {
-	if len(groups) == 0 {
-		return
-	}
-	for i := range v.Services {
-		sv := &v.Services[i]
-		for _, g := range groups {
-			for _, m := range g.Members {
-				if m.Name == sv.Name && m.Namespace == sv.Namespace && m.Cluster == sv.Cluster {
-					sv.Applications = append(sv.Applications, g.Name)
-					break
-				}
+	in := map[model.ServiceKey][]string{}
+	for _, g := range groups {
+		for _, m := range g.Members {
+			if k := m.Key(); !slices.Contains(in[k], g.Name) {
+				in[k] = append(in[k], g.Name)
 			}
 		}
+	}
+	for i := range v.Services {
+		v.Services[i].Applications = append(v.Services[i].Applications, in[v.Services[i].Key()]...)
 	}
 }
 

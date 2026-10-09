@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/encoding/protowire"
+
+	"continuum/internal/model"
 )
 
 // The application info series: what lets the tools that read Prometheus directly (Grafana, PromQL written by hand) filter by
 // Ikhnos application, which telemetry itself does not carry. For each service of each application the server writes
 //
-//	ikhnos_application_info{application, application_id, service_name, k8s_namespace_name, continuum_cluster_id, member} 1
+//	ikhnos_application_info{application, application_id, service_name, k8s_namespace_name, continuum_cluster_id, member, service_id} 1
 //
 // into FUSION's Prometheus, the same labels the telemetry's own series have for the service, so a query joins on them:
 //
@@ -40,14 +42,19 @@ const (
 	// Ikhnos does not know is empty). A dashboard's picker offers these, so a selection is exact: choosing two members of
 	// two namespaces never also selects the pairing of the first's service with the second's namespace.
 	infoMember = "member"
+	// infoServiceID is the id the graph and the topology know the service by (sv-...), so a series reads back to Neo4j
+	// as a label. It is the member's id, so it adds no series: one member has one id.
+	infoServiceID = "service_id"
 )
 
 // Member is the value of the info series' member label.
-func (s AppInfoSeries) Member() string { return s.Service + "/" + s.Namespace + "/" + s.Cluster }
+func (s AppInfoSeries) Member() string {
+	return model.ServiceKey{Cluster: s.Cluster, Namespace: s.Namespace, Name: s.Service}.String()
+}
 
 // AppInfoSeries is one series of the info metric: the labels of one service of one application.
 type AppInfoSeries struct {
-	Application, ApplicationID, Service, Namespace, Cluster string
+	Application, ApplicationID, Service, Namespace, Cluster, ServiceID string
 }
 
 // AppInfoSeriesOf lists the series for the groups: one per service name the telemetry of a member may carry (its name and
@@ -62,8 +69,9 @@ func AppInfoSeriesOf(groups []AppGroup) (out []AppInfoSeries, truncated bool) {
 					continue
 				}
 				s := AppInfoSeries{Application: g.Name, ApplicationID: g.ID, Service: n, Namespace: m.Namespace, Cluster: m.Cluster}
-				if !seen[s] {
+				if !seen[s] { // by the labels a query selects on: two members of one key are one series, with the first one's id
 					seen[s] = true
+					s.ServiceID = m.ID
 					out = append(out, s)
 				}
 			}
@@ -98,7 +106,7 @@ func EncodeAppInfo(series []AppInfoSeries, at time.Time) []byte {
 	for _, s := range series {
 		var dp []byte
 		for _, kv := range [][2]string{{infoApplication, s.Application}, {infoApplicationID, s.ApplicationID}, {lblService, s.Service},
-			{lblNamespace, s.Namespace}, {lblCluster, s.Cluster}, {infoMember, s.Member()}} {
+			{lblNamespace, s.Namespace}, {lblCluster, s.Cluster}, {infoMember, s.Member()}, {infoServiceID, s.ServiceID}} {
 			if kv[1] == "" {
 				continue
 			}

@@ -10,7 +10,7 @@
       "clusters": {"type": "array", "items": {"type": "string"}, "description": "Empty means every cluster."},
       "rawQueries": {"type": "boolean", "description": "Whether PromQL, LogQL and TraceQL as written are allowed (only when nothing is limited)."},
       "expiresAt": {"type": "string", "format": "date-time"}}}}},
-  "ApplicationService": {"type": "object", "properties": {"name": {"type": "string"}, "namespace": {"type": "string"}, "cluster": {"type": "string"}, "kind": {"type": "string"},
+  "ApplicationService": {"type": "object", "properties": {"id": {"type": "string", "description": "The service's id in Ikhnos (the topology's, or the record's of a service written in by hand)."}, "name": {"type": "string"}, "namespace": {"type": "string"}, "cluster": {"type": "string"}, "kind": {"type": "string"},
     "aliases": {"type": "array", "items": {"type": "string"}, "description": "Other names its telemetry may carry as service.name (its app label)."},
     "signals": {"type": "array", "items": {"type": "string"}, "description": "The signals FUSION has for it in the range, matched by service name."}}},
   "Application": {"type": "object", "description": "An Ikhnos application: a group of services.", "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "description": {"type": "string"},

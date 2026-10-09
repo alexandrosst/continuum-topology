@@ -246,6 +246,9 @@ func TestApplicationGroupsAreBuiltFromTheWorkspaceAndTheTopology(t *testing.T) {
 	if len(shop.Members) != 2 || shop.Members[0].Name != "cart-deploy" || len(shop.Members[0].Aliases) != 1 || shop.Members[0].Aliases[0] != "cart" {
 		t.Fatalf("%+v", shop)
 	}
+	if shop.Members[0].ID != "sv-1" || shop.Members[1].ID != "sv-hand" {
+		t.Fatalf("a member says which service it is by id: %+v", shop.Members)
+	}
 	if m := shop.Members[1]; m.Name != "billing" || m.Namespace != "pay" || m.Cluster != "cl-9" || m.Kind != "Deployment" {
 		t.Fatalf("a service written by hand matches telemetry by its own record: %+v", m)
 	}
@@ -262,6 +265,22 @@ func TestApplicationGroupsAreBuiltFromTheWorkspaceAndTheTopology(t *testing.T) {
 	}
 	if appGroups(nil, doc) != nil || appGroups([]byte("junk"), doc) != nil {
 		t.Fatal("no workspace, no groups")
+	}
+}
+
+// A service is in an application when a member has its key, whichever id the member was written with: a record written by
+// hand for a service that discovery also found names it in the application, and the discovered one shows it too.
+func TestAServiceIsAnnotatedByItsKeyNotItsId(t *testing.T) {
+	v := &fusionapi.TopologyView{Services: []fusionapi.TopoService{
+		{ID: "sv-1", Name: "cart", Namespace: "shop", Cluster: "cl-1"}, {ID: "sv-2", Name: "cart", Namespace: "other", Cluster: "cl-1"}}}
+	annotateApplications(v, []fusionapi.AppGroup{
+		{ID: "app-1", Name: "Shop", Members: []fusionapi.AppMember{{ID: "svc-by-hand", Name: "cart", Namespace: "shop", Cluster: "cl-1"}, {ID: "sv-1", Name: "cart", Namespace: "shop", Cluster: "cl-1"}}},
+		{ID: "app-2", Name: "Pay", Members: []fusionapi.AppMember{{ID: "sv-1", Name: "cart", Namespace: "shop", Cluster: "cl-1"}}}})
+	if got := v.Services[0].Applications; len(got) != 2 || got[0] != "Shop" || got[1] != "Pay" {
+		t.Errorf("%v", got)
+	}
+	if got := v.Services[1].Applications; len(got) != 0 {
+		t.Errorf("same name, other namespace: %v", got)
 	}
 }
 

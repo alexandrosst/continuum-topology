@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"continuum/internal/model"
 )
 
 // What Ikhnos itself knows about the things a trace ran on, joined to the fused object: which services each service
@@ -56,6 +58,11 @@ type TopoService struct {
 	Applications []string `json:"applications,omitempty"`
 }
 
+// Key is the identity telemetry knows the service by.
+func (s TopoService) Key() model.ServiceKey {
+	return model.ServiceKey{Cluster: s.Cluster, Namespace: s.Namespace, Name: s.Name}
+}
+
 // AppGroup is an Ikhnos application: a named group of services. What FUSION calls an "application" elsewhere is a single
 // service.name; this is the grouping a person made in Ikhnos, which telemetry itself does not carry.
 type AppGroup struct {
@@ -70,12 +77,19 @@ type AppGroup struct {
 
 // AppMember is one service of an application, by the identity telemetry carries.
 type AppMember struct {
+	// ID is the service's id in Ikhnos (the topology's, or the record's of a service a person wrote in by hand).
+	ID        string `json:"id,omitempty"`
 	Name      string `json:"name"`
 	Namespace string `json:"namespace,omitempty"`
 	Cluster   string `json:"cluster,omitempty"`
 	Kind      string `json:"kind,omitempty"`
 	// Aliases are other names the telemetry of this service may carry as its service.name (its app label), besides Name.
 	Aliases []string `json:"aliases,omitempty"`
+}
+
+// Key is the identity telemetry knows the service by.
+func (m AppMember) Key() model.ServiceKey {
+	return model.ServiceKey{Cluster: m.Cluster, Namespace: m.Namespace, Name: m.Name}
 }
 
 // ServiceNames is every service.name telemetry of this application may carry: each member's name and aliases, sorted and without repeats.
