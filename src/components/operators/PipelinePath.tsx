@@ -3,6 +3,7 @@ import { Cable, ChevronDown, ChevronRight, Database, DoorOpen, Funnel, Merge, ty
 import { Fragment } from 'react'
 import { Link } from 'react-router-dom'
 import StateChip from '@/components/operators/StateChip'
+import { MeterBar, type BarTone } from '@/components/ui/MeterBar'
 import { ICON_MD, ICON_SM } from '@/components/ui/primitives'
 import { lastDataText, type Hop, type Kind } from '@/lib/operatorsView'
 import { EXPECTED_MS, freshness, hopChip, linkState, type FreshnessLevel, type LinkState } from '@/lib/pipelineFlow'
@@ -18,7 +19,7 @@ function figure(h: Hop): string {
 const TONE: Record<LinkState, string> = { flowing: 'text-ok', stalled: 'text-warn', broken: 'text-bad', unknown: 'text-nb-700' }
 /** The line itself: dashes that move, a still bar, or a still dashed rule (a border, so it has no fill). `v` is the vertical, narrow-screen one. */
 const line = (l: LinkState, v: boolean) => ({ flowing: v ? 'flow-dash-bg-v' : 'flow-dash-bg', stalled: 'bg-current', broken: 'bg-current', unknown: v ? 'w-0 border-l-2 border-dashed border-current' : 'h-0 border-t-2 border-dashed border-current' })[l]
-const BAR: Record<FreshnessLevel, string> = { fresh: 'bg-ok', late: 'bg-warn', stale: 'bg-bad', none: '' }
+const BAR: Record<FreshnessLevel, BarTone> = { fresh: 'ok', late: 'warn', stale: 'bad', none: 'neutral' }
 const AGE_TEXT: Record<LinkState, string> = { flowing: 'hidden text-nb-500 group-hover:block group-focus-within:block', stalled: 'text-warn', broken: 'text-bad', unknown: 'text-nb-500' }
 
 function Node({ h, selected, onSelect }: { h: Hop; selected: boolean; onSelect: (kind: Kind) => void }) {
@@ -59,13 +60,7 @@ function Connector({ from, to, now }: { from: Hop; to: Hop; now: number }) {
       <ChevronRight size={ICON_SM} className="absolute right-0 top-6 hidden -translate-y-1/2 xl:block" aria-hidden />
       {measured && (
         <div className="absolute left-10 top-1/2 flex -translate-y-1/2 items-center gap-2 xl:left-1/2 xl:top-8 xl:-translate-x-1/2 xl:translate-y-0 xl:flex-col xl:gap-1">
-          <div
-            role="meter" tabIndex={0} title={`Last data ${age}`}
-            aria-label={`Data from ${from.label} to ${to.label}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(f.fraction * 100)} aria-valuetext={`Last data ${age}`}
-            className="h-1 w-10 overflow-hidden rounded-full bg-nb-850"
-          >
-            <div className={clsx('h-full rounded-full meter-bar', BAR[f.level])} style={{ width: `${f.fraction * 100}%` }} />
-          </div>
+          <MeterBar pct={f.fraction * 100} tone={BAR[f.level]} label={`Data from ${from.label} to ${to.label}`} valueText={`Last data ${age}`} title={`Last data ${age}`} tabIndex={0} className="w-10" />
           <span className={clsx('whitespace-nowrap text-[11px] tabular-nums', AGE_TEXT[link])}>{age}</span>
         </div>
       )}

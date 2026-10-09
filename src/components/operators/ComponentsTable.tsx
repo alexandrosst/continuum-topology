@@ -1,5 +1,5 @@
-import clsx from 'clsx'
 import { ShieldCheck } from 'lucide-react'
+import { MeterBar } from '@/components/ui/MeterBar'
 import RowMenu, { type RowMenuItem } from '@/components/operators/RowMenu'
 import StateChip from '@/components/operators/StateChip'
 import { Button, ChipList, CopyIconButton, ICON_SM, Pill, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
@@ -18,9 +18,7 @@ function CertLife({ cert, now }: { cert: CertCell; now: number }) {
   if (!life) return <span role="img" aria-label="Renews automatically" title="Renews automatically"><ShieldCheck size={ICON_SM} className="text-nb-500" aria-hidden /></span>
   return (
     <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 align-middle text-xs" title={life.text}>
-      <span role="meter" aria-label="Certificate lifetime" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(life.fraction * 100)} aria-valuetext={life.text} className="h-1 w-14 overflow-hidden rounded-full bg-nb-850">
-        <span className={clsx('block h-full rounded-full meter-bar', { neutral: 'bg-nb-500', warn: 'bg-warn', bad: 'bg-bad' }[life.tone])} style={{ width: `${life.fraction * 100}%` }} />
-      </span>
+      <MeterBar pct={life.fraction * 100} tone={life.tone} label="Certificate lifetime" valueText={life.text} />
       {life.legacy && <Pill title="Issued for longer than the 30 days new certificates last, so it does not renew the way they do" className="text-[11px] text-nb-500">legacy</Pill>}
       {life.exception && <span className={life.tone === 'bad' ? 'text-bad' : 'text-warn'}>{life.exception}</span>}
     </span>
