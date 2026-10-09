@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { cleanCode, codeComplete, formatCode, fromPaste, hasStrayCharacters } from '../src/lib/approvalCode'
-import { skewLabel, skewWarning } from '../src/lib/clock'
+import { settleSkew, skewLabel, skewWarning } from '../src/lib/clock'
 
 test('an approval code is cleaned the way the server reads it', () => {
   assert.equal(cleanCode('k7qm-4txd'), 'K7QM4TXD')
@@ -49,4 +49,12 @@ test('pasting a whole log line finds the code in it', () => {
   assert.equal(fromPaste('  K7QM 4TXD '), 'K7QM-4TXD')
   assert.equal(fromPaste('K7QM4TXD'), 'K7QM-4TXD')
   assert.equal(fromPaste(''), '')
+})
+
+test('a re-measured server clock offset only replaces the one in use when it moved by more than a few seconds', () => {
+  assert.equal(settleSkew(0, 3_000), 0, 'jitter keeps the offset, so nothing judged by it is re-run')
+  assert.equal(settleSkew(-1_200, 3_500), -1_200)
+  assert.equal(settleSkew(0, -5_000), 0, 'exactly the threshold still counts as jitter')
+  assert.equal(settleSkew(0, 5_001), 5_001, 'a real difference is adopted')
+  assert.equal(settleSkew(5_001, -90_000), -90_000)
 })

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { settleSkew } from '@/lib/clock'
 import { deepEqual } from '@/lib/discovered'
 import type { EffectiveModel } from '@/lib/provenance'
 import type { ClusterLink, ClusterPairConnectivity, Dependency, DiscoveryAgent, ExternalEndpoint, Path, Tombstone } from '@/lib/types'
@@ -73,6 +74,6 @@ export const useObserved = create<ObservedStore>((set) => ({
       discoveryAgents: deepEqual(discoveryAgents, s.discoveryAgents) ? s.discoveryAgents : discoveryAgents,
     })),
   setModel: (model) => set({ model }),
-  setSkew: (skewMs) => set({ skewMs }),
+  setSkew: (ms) => set((s) => (settleSkew(s.skewMs, ms) === s.skewMs ? s : { skewMs: ms })),
   clear: () => set({ dependencies: [], externalEndpoints: [], paths: [], clusterLinks: [], clusterPairConnectivity: [], discoveryAgents: [], tombstones: [], model: undefined }),
 }))

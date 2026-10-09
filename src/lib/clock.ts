@@ -14,3 +14,13 @@ export function skewWarning(ms: number | undefined): string | undefined {
   if (ms === undefined || Math.abs(ms) <= SKEW_WARN_MS) return undefined
   return `This cluster's clock is ${words(ms)} ${ms > 0 ? 'ahead of' : 'behind'} the server's. Certificates are checked against the clock, so a difference this large can show up as "certificate expired" or "not yet valid" errors and hide the real cause. Fix time synchronisation (NTP, chrony) on the cluster's nodes.`
 }
+
+/** A measured server-minus-browser difference moves the one in use only when it differs by more than this (network and render delay jitter). */
+export const SKEW_SETTLE_MS = 5_000
+
+/**
+ * The server-clock offset to judge facts by: the one already in use, unless the new measurement moved by more than
+ * `SKEW_SETTLE_MS`. Each poll measures the offset again with a few ms to seconds of delay in it; adopting that noise
+ * changed the judged time, and with it re-ran the whole placement plan, on every poll. Facts are aged in minutes.
+ */
+export const settleSkew = (current: number, measured: number) => (Math.abs(measured - current) > SKEW_SETTLE_MS ? measured : current)
