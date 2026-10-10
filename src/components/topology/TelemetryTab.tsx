@@ -143,9 +143,23 @@ export default function TelemetryTab({ clusters, agents, problemsOnly, selection
     const order = new Map(whole.nodes.map((n) => [n.entity.id, n.y * 10_000 + n.x]))
     return summarize(model, (id) => order.get(id) ?? 0)
   }, [model, whole])
+  const scrollEl = useRef<HTMLDivElement | null>(null)
+  const [moreRight, setMoreRight] = useState(false)
+  const readMore = useCallback(() => {
+    const el = scrollEl.current
+    setMoreRight(!!el && el.scrollWidth - el.clientWidth - el.scrollLeft > 8)
+  }, [])
+  useLayoutEffect(readMore, [readMore, box, layout, list])
   const hasAgents = !!model?.entities.some((e) => e.kind === 'agent')
   const selectedId = selection?.kind === 'platform' ? selection.id : undefined
-  const select = (id: string) => onSelect({ kind: 'platform', id })
+  // Opening a part keeps it in view: with the Inspector beside it the grid can be wider than what is left, and the part a person clicked must not slide away.
+  const select = (id: string) => {
+    onSelect({ kind: 'platform', id })
+    requestAnimationFrame(() => {
+      const el = Array.from(document.querySelectorAll('[data-platform-id]')).find((n) => n.getAttribute('data-platform-id') === id)
+      el?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' })
+    })
+  }
 
   // The pill counts places, and a place has one part to open: the selected part of a cluster counts as that place being selected.
   const places = useMemo(() => summary?.places ?? [], [summary])
@@ -181,7 +195,8 @@ export default function TelemetryTab({ clusters, agents, problemsOnly, selection
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         {showSummary && <SummaryBar summary={summary} selectedId={placeSelected} problemsOnly={problemsOnly} onGo={go} onShow={() => (placeSelected ? reveal(placeSelected) : go(false))} onToggle={() => (problemsOnly ? onShowAll() : onSetProblemsOnly?.(true))} />}
-        <div ref={scroller} className={clsx('relative min-h-0 flex-1 overflow-auto', !layout && 'p-4 sm:p-6')} data-testid="telemetry-scroll">
+        <div className="relative flex min-h-0 flex-1 flex-col">
+        <div ref={(el) => { scroller(el); scrollEl.current = el }} onScroll={readMore} className={clsx('relative min-h-0 flex-1 overflow-auto', !layout && 'p-4 sm:p-6')} data-testid="telemetry-scroll">
           {!layout ? (
             <SkeletonBlock className="h-64 w-full" />
           ) : layout.lanes.length > 0 ? (
@@ -191,6 +206,9 @@ export default function TelemetryTab({ clusters, agents, problemsOnly, selection
           ) : (
             <Quiet title="No data yet" description="Each cluster with a Discovery agent gets a row here, from the agent to FUSION. Connect a cluster to start." action={<ConnectAction onConnect={onConnect} />} />
           )}
+        </div>
+        {/* More of the grid lies to the right (the Inspector took its room): a fade says so, where the scrollbar is easy to miss. */}
+        {moreRight && <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-nb-900 to-transparent" aria-hidden="true" data-testid="telemetry-more" />}
         </div>
       </div>
       <Inspector selection={selection} platform={model} onSelect={onSelect} onEdit={() => {}} onClose={onClose} />
