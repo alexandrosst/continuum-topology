@@ -449,6 +449,20 @@ describe('collectObstacles (which nodeLookup entries count as a routing obstacle
     expect(obstacles).toHaveLength(1)
   })
 
+  test('a bundle runs between two boxes: the cards and namespaces inside either box are not in its way', () => {
+    const nodeLookup = new Map(
+      Object.entries({
+        'grp-a': node('boundary', undefined, 0, 0, 400, 400),
+        'ns-a': node('namespace', 'grp-a', 10, 10, 200, 200),
+        'card-a': node('card', 'ns-a', 20, 20),
+        'grp-b': node('boundary', undefined, 600, 0, 400, 400),
+        'card-b': node('card', 'grp-b', 620, 20),
+        'grp-mid': node('boundary', undefined, 450, 0, 100, 400),
+      }),
+    )
+    expect(collectObstacles(nodeLookup, 'grp-a', 'grp-b', bounds)).toEqual([{ x: 450, y: 0, w: 100, h: 400 }])
+  })
+
   test('a node type that is none of card/boundary/namespace is never an obstacle (e.g. a cluster-link group box)', () => {
     const nodeLookup = new Map(
       Object.entries({

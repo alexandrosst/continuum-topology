@@ -27,3 +27,6 @@ export const useCanvasFocus = create<CanvasFocus>((set) => ({
 
 /** The node whose surroundings are lit: what the pointer is on, else what is selected. */
 export const activeId = (s: Pick<CanvasFocus, 'hover' | 'pinned'>) => s.hover ?? s.pinned
+
+/** Whether the hover or the selection is one of `ids` (a bundle's boxes and ends): the answer a line asks to light its calls. */
+export const focusedBy = (s: Pick<CanvasFocus, 'hover' | 'pinned'>, ids: readonly string[] | undefined) => !!ids && [s.hover, s.pinned].some((a) => !!a && ids.includes(a))

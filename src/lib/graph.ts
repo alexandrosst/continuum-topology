@@ -12,7 +12,7 @@ import { deepEqual } from './discovered'
 import { isObserved } from './observed'
 import { buildNetworks, networkSentence, type Network } from './networks'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
-import { clusterLoad, nodeLoad, pathQuality, peakLoad, type ClusterLoad, type NodeLoad, type PathQuality } from './metrics'
+import { clusterLoad, lossBand, nodeLoad, pathQuality, peakLoad, type ClusterLoad, type NodeLoad, type PathQuality } from './metrics'
 import { alertOfLoad, alertOfPods, alertOfStatus, PRESSURE_WARN, worstAlert, type Alert, type Detail } from './detail'
 import {
   DEVICE_KINDS,
@@ -213,6 +213,18 @@ export type EdgeData = {
   /** How long a DNS response took to arrive after its matching query (Dependency.dnsRttMs) - eBPF only,
    *  a gauge, only ever set on the pod<->resolver edge itself. */
   dnsRttMs?: number
+  /** A seen link that is losing connection attempts (a link that was only declared is never a problem: nothing was measured on it). Calm gives
+   *  such a line, and a bundle that holds one, the state colour, its label and its place on the canvas at rest. */
+  problem?: boolean
+  /** A bundle's own count of the dependencies it stands for. */
+  count?: number
+  /** Calm, application view: 'bundle' is the one line between two boxes that stands for every dependency across them; 'detail' is one of those
+   *  dependencies, drawn only for the focus (or when it is a problem). Unset for a line that crosses nothing. */
+  role?: 'bundle' | 'detail'
+  /** The nodes whose hover or selection brings a 'detail' line forward (and quiets its bundle): both boxes and both ends. */
+  focusIds?: string[]
+  /** Set by the page for the one line the Inspector has open, so it is drawn even when it would be quiet. */
+  revealed?: boolean
   /** Aggregated (group<->group) edges only: how many of the bundled dependencies were actually seen in
    *  traffic, out of the total the label already counts - the hover card's "(N seen in traffic)" aside. */
   activeCount?: number
@@ -739,6 +751,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
 
   /* 3. Edges. */
   const edges: TopoEdge[] = []
+  const depById = new Map(t.dependencies.map((d) => [d.id, d]))
   if (o.view === 'application') {
     for (const d of t.dependencies) {
       if (d.from === d.to) continue // a service calling itself has no distinct "other end" to draw a line to
@@ -782,11 +795,13 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         dnsRttMs: d.dnsRttMs,
         route,
         tunnelLink: d.tunnelLink,
+        problem: isObserved(d) && !d.stale && !!quality && lossBand(quality.lossPct) !== 'ok',
       }))
     }
+    if (calm) bundleCrossEdges(edges, abs, groupOfEntity, depById)
   } else if (o.links) {
     // Aggregate service dependencies into group ↔ group links.
-    const agg = new Map<string, { a: string; b: string; count: number; active: number; bytesPerSec: number; protocols: Map<string, number> }>()
+    const agg = new Map<string, { a: string; b: string; count: number; active: number; bytesPerSec: number; protocols: Map<string, number>; quality?: PathQuality }>()
     for (const d of t.dependencies) {
       const from = serviceById.get(d.from)
       const to = serviceById.get(d.to)
@@ -801,9 +816,10 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       if (isObserved(d) && !d.stale) cur.active++
       cur.bytesPerSec += d.stats?.bytesPerSec ?? 0
       cur.protocols.set(d.protocol, (cur.protocols.get(d.protocol) ?? 0) + 1)
+      if (o.paths && from.clusterId !== to.clusterId) cur.quality = lossier(cur.quality, pathQuality(o.paths, from.clusterId, to.clusterId))
       agg.set(key, cur)
     }
-    for (const { a, b, count, active, bytesPerSec, protocols } of agg.values()) {
+    for (const { a, b, count, active, bytesPerSec, protocols, quality } of agg.values()) {
       if (!abs.has(groupId(a)) || !abs.has(groupId(b))) continue
       edges.push(makeEdge(`agg:${a}|${b}`, groupId(a), groupId(b), abs, {
         label: `${count} ${count === 1 ? 'dependency' : 'dependencies'}`,
@@ -812,6 +828,9 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         from: a,
         to: b,
         activeCount: active,
+        count,
+        quality,
+        problem: active > 0 && !!quality && lossBand(quality.lossPct) !== 'ok',
         protocols: protocols.size > 1 ? Object.fromEntries(protocols) : undefined,
         // Animate this bundle exactly when it actually contains real, live traffic (active > 0) - the same
         // "motion means real traffic, not just cross-cluster" rule makeEdge's own doc applies to a single
@@ -868,6 +887,56 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   spreadFanned(edges, abs)
   spreadParallel(edges)
   return { nodes, edges }
+}
+
+const lossier = (a: PathQuality | undefined, b: PathQuality | undefined) => (!b ? a : !a || b.lossPct > a.lossPct ? b : a)
+
+/**
+ * Calm, application view: every dependency that crosses from one box to another is drawn as ONE line between the two boxes (the count says how
+ * many), so the canvas shows which boxes talk, not every service-to-service call. The calls themselves stay in the graph as 'detail' lines that
+ * the focus brings forward (hovering or selecting either box or either end, see OffsetEdge) and that a problem keeps on show.
+ */
+function bundleCrossEdges(edges: TopoEdge[], abs: Map<string, Box>, groupOfEntity: Map<string, string>, depById: Map<string, Dependency>) {
+  const pairs = new Map<string, { a: string; b: string; members: TopoEdge[] }>()
+  for (const e of edges) {
+    const ga = groupOfEntity.get(e.data!.from)
+    const gb = groupOfEntity.get(e.data!.to)
+    if (!ga || !gb || ga === gb) continue
+    const [a, b] = ga < gb ? [ga, gb] : [gb, ga]
+    const pair = pairs.get(`${a}|${b}`) ?? { a, b, members: [] }
+    pair.members.push(e)
+    pairs.set(`${a}|${b}`, pair)
+  }
+  for (const { a, b, members } of pairs.values()) {
+    const protocols = new Map<string, number>()
+    let active = 0
+    let bytesPerSec = 0
+    let quality: PathQuality | undefined
+    for (const e of members) {
+      e.data = { ...e.data!, role: 'detail', focusIds: [groupId(a), groupId(b), e.source, e.target] }
+      if (e.data.observed && !e.data.stale) active++
+      bytesPerSec += e.data.stats?.bytesPerSec ?? 0
+      quality = lossier(quality, e.data.quality)
+      const protocol = depById.get(e.id)?.protocol
+      if (protocol) protocols.set(protocol, (protocols.get(protocol) ?? 0) + 1)
+    }
+    edges.push(makeEdge(`bundle:${a}|${b}`, groupId(a), groupId(b), abs, {
+      label: `${members.length} ${members.length === 1 ? 'dependency' : 'dependencies'}`,
+      cross: true,
+      aggregated: true,
+      from: a,
+      to: b,
+      activeCount: active,
+      count: members.length,
+      quality,
+      problem: members.some((e) => e.data?.problem),
+      role: 'bundle',
+      focusIds: [groupId(a), groupId(b), ...members.flatMap((e) => [e.source, e.target])],
+      protocols: protocols.size > 1 ? Object.fromEntries(protocols) : undefined,
+      observed: active > 0,
+      stats: bytesPerSec > 0 ? { bytesPerSec } : undefined,
+    }))
+  }
 }
 
 /**
@@ -1527,6 +1596,10 @@ function makeEdge(
     dnsQueryNames?: string[]
     dnsRttMs?: number
     activeCount?: number
+    problem?: boolean
+    count?: number
+    role?: 'bundle' | 'detail'
+    focusIds?: string[]
     /** Only set on a cross-cluster dependency: whether the target is reached over a flat/mesh-federated
      *  network route, or has to go out through its own external exposure (ingress, node port or load
      *  balancer) to be reached at all - the only two ways a call from outside the target's own cluster can
@@ -1569,7 +1642,7 @@ function makeEdge(
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,
     markerEnd: d.aggregated || d.clusterLink ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, ifaceSpeedMbps: d.ifaceSpeedMbps, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, dnsRttMs: d.dnsRttMs, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink, tunnelLink: d.tunnelLink, protocols: d.protocols },
+    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, ifaceSpeedMbps: d.ifaceSpeedMbps, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, dnsRttMs: d.dnsRttMs, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink, tunnelLink: d.tunnelLink, protocols: d.protocols, problem: d.problem, count: d.count, role: d.role, focusIds: d.focusIds },
   }
 }
 

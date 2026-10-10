@@ -399,7 +399,8 @@ function Canvas() {
     const seen = graph.edges.some((e) => e.data?.observed && !e.data?.stale)
     const notSeen = graph.edges.some((e) => !e.data?.clusterLink && !(e.data?.observed && !e.data?.stale))
     const networks = graph.nodes.some((n) => n.type === 'boundary' && n.data.networks)
-    return { tiers, warn, bad, seen, notSeen, networks }
+    const bundles = graph.edges.some((e) => e.data?.role === 'bundle')
+    return { tiers, warn, bad, seen, notSeen, networks, bundles }
   }, [graph])
 
   const [nodes, setNodes, onNodesChange] = useNodesState<TopoNode>(graph.nodes)
@@ -548,18 +549,22 @@ function Canvas() {
             ? selection.id
             : null
     const pickedEdge = selection?.kind === 'dependency' ? selection.id : null
-    const related = (e: TopoEdge) => (!!focus && (e.data?.from === focus || e.data?.to === focus)) || e.id === pickedEdge
+    // A box or a service selected also brings forward the calls the bundles hold (see EdgeData.focusIds).
+    const related = (e: TopoEdge) => (!!focus && (e.data?.from === focus || e.data?.to === focus)) || e.id === pickedEdge || (!!selectedRfId && !!e.data?.focusIds?.includes(selectedRfId))
     const anyRelated = (!!focus || !!pickedEdge) && graph.edges.some(related)
     return graph.edges.map((e) => {
       const hot = related(e)
       const dim = anyRelated && !hot
       const q = e.data?.quality
-      const band = q ? lossBand(q.lossPct) : 'ok'
-      // Calm: a line is a thin grey one until it is the focus or has something wrong with it (losing connection attempts).
-      // Only those two earn a colour, a label and moving dashes; the rest of the encodings (cluster-link colours, the lighter
-      // cross-cluster grey, weight and the conntrack dash) come back on Full, or on a line that is the focus.
-      const problem = band !== 'ok'
+      // Calm: a line is a thin grey one until it is the focus or has something wrong with it (a seen link losing connection attempts: a link
+      // nobody has seen traffic on is never a problem). Only those two earn a colour, a label and moving dashes; the rest of the encodings
+      // (cluster-link colours, the lighter cross-cluster grey, weight and the conntrack dash) come back on Full, or on a line that is the focus.
+      const problem = !!e.data?.problem
+      const band = q && (!calm || problem) ? lossBand(q.lossPct) : 'ok'
+      // A bundle says how many calls it holds, once there is more than one.
+      const bundleCount = calm && e.data?.aggregated && (e.data.count ?? 0) > 1 ? String(e.data.count) : undefined
       const showLabel = showLabels || hot || (calm && problem)
+      const label = e.data?.aggregated && calm ? bundleCount ?? (showLabel ? e.label : undefined) : showLabel ? e.label : undefined
       // A link that loses connection attempts is coloured by how badly; otherwise grey, or orange when it is the focus.
       const mv = e.data?.mesh
       const cl = e.data?.clusterLink
@@ -588,7 +593,8 @@ function Canvas() {
         ...e,
         // Calm lines do not run at rest (a seen line is simply solid); the focus's lines do, and say it is the focus.
         className: calm ? (hot ? ['edge-hot', e.className].filter(Boolean).join(' ') : undefined) : e.className,
-        label: showLabel ? e.label : undefined,
+        label,
+        data: pickedEdge === e.id ? { ...e.data!, revealed: true } : e.data,
         style: {
           stroke,
           strokeWidth: width,
@@ -634,7 +640,9 @@ function Canvas() {
     for (const n of nodes) m.set(n.id, 'title' in n.data ? n.data.title : n.id)
     return m
   }, [nodes])
-  const hoveredEdge = hoverEdge ? edges.find((e) => e.id === hoverEdge) : undefined
+  const hoveredFound = hoverEdge ? edges.find((e) => e.id === hoverEdge) : undefined
+  // The card always says what the line is ("3 dependencies"), not the bare count the canvas draws on a bundle.
+  const hoveredEdge = hoveredFound && { ...hoveredFound, label: rawLabelById.get(hoveredFound.id) }
 
   const select = useCallback((s: Selection) => setSelection(s), [])
 
@@ -1233,7 +1241,12 @@ function Canvas() {
                 setMultiSelectedIds((prev) => (prev.length === 0 ? prev : []))
                 setNodes((ns) => syncSelected(ns, new Set()))
               }}
-              onEdgeClick={(_, e) => { if (!e.data?.aggregated) select({ kind: 'dependency', id: e.id }) }}
+              onEdgeClick={(_, e) => {
+                if (!e.data?.aggregated) return select({ kind: 'dependency', id: e.id })
+                // A bundle opens the box it leaves, whose Inspector lists what it is connected to and whose calls the selection brings forward.
+                const from = nodes.find((n) => n.id === e.source)
+                if (from && e.data.role === 'bundle') select(fromNode(from))
+              }}
               onEdgeMouseEnter={(e, edge) => { setHoverEdge(edge.id); setHoverPos({ cx: e.clientX, cy: e.clientY }) }}
               onEdgeMouseMove={(e) => setHoverPos({ cx: e.clientX, cy: e.clientY })}
               onEdgeMouseLeave={() => { setHoverEdge(null); setHoverPos(null) }}
@@ -1287,6 +1300,15 @@ function Canvas() {
                       <span className="h-3 w-px bg-nb-800" />
                       <span className="flex items-center gap-1.5" title="Clusters on the same subnet, or joined by the same overlay or tunnel, share a network. Hover the chip to see which; it is a fact about the cluster, not a line.">
                         <span className="inline-flex items-center gap-1 rounded bg-info/10 px-1.5 py-px text-[10.5px] text-info"><Network size={ICON_SM} aria-hidden="true" />Shared network</span>
+                      </span>
+                    </>
+                  )}
+                  {calm && onCanvas.bundles && (
+                    <>
+                      <span className="h-3 w-px bg-nb-800" />
+                      <span className="flex items-center gap-1.5" title="One line stands for every dependency between two clusters. A number says how many. Hover or select either cluster, or a service on it, to see the dependencies themselves.">
+                        <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.2" /></svg>
+                        Dependencies between clusters
                       </span>
                     </>
                   )}

@@ -1,7 +1,9 @@
 import { BaseEdge, useInternalNode, useStore, useViewport, type EdgeProps } from '@xyflow/react'
+import clsx from 'clsx'
 import { createContext, useContext } from 'react'
 import type { TopoEdge } from '@/lib/graph'
 import { DetailContext } from '@/lib/detail'
+import { focusedBy, useCanvasFocus } from '@/store/canvasFocus'
 
 /** Which path generator OffsetEdge draws with - 'curved' (the default hand-built bow, see curvedPath below)
  *  or 'elbow' (the opt-in rounded-orthogonal style, see elbowPath below). Read via context rather than a
@@ -517,9 +519,14 @@ export function collectObstacles(
   }
   const skip = ancestorsOf(source)
   for (const id of ancestorsOf(target)) skip.add(id)
+  // A box at either end of the line (a bundle runs between two cluster boxes) holds its own cards and namespaces: they are not in its way either.
+  const insideEnd = (n: ObstacleCandidate) => {
+    for (let cur: ObstacleCandidate | undefined = n; cur?.parentId !== undefined; cur = nodeLookup.get(cur.parentId)) if (cur.parentId === source || cur.parentId === target) return true
+    return false
+  }
   const obstacles: PathObstacle[] = []
   for (const [nodeId, n] of nodeLookup) {
-    if (nodeId === source || nodeId === target || skip.has(nodeId)) continue
+    if (nodeId === source || nodeId === target || skip.has(nodeId) || insideEnd(n)) continue
     if (n.type !== 'card' && n.type !== 'boundary' && n.type !== 'namespace') continue
     const w = n.measured.width
     const h = n.measured.height
@@ -648,6 +655,11 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
 
   const edgeStyle = useContext(EdgeStyleContext)
   const calm = useContext(DetailContext) === 'calm'
+  // The hover or selection is the focus of a bundle's calls: lit means a 'detail' line shows (CSS fades it in) and its bundle steps back.
+  // A store read with a boolean answer, so a pointer moving over the canvas re-renders only the lines whose answer changes.
+  const focusIds = data?.focusIds
+  const focused = useCanvasFocus((s) => focusedBy(s, focusIds))
+  const lit = focused || (data?.role === 'detail' && (!!data.revealed || !!data.problem))
   const { path, labelX, labelY } =
     edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal, obstacles) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
   // An "overlay" cluster link (joined through a tunnel, not a flat shared subnet) gets a second, wider,
@@ -661,7 +673,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   const isOverlayLink = data?.clusterLink?.kind === 'overlay'
   const baseOpacity = typeof style?.opacity === 'number' ? style.opacity : 1
   return (
-    <>
+    <g className={clsx(data?.role && `edge-${data.role}`, lit && 'edge-lit')}>
       {isOverlayLink && (
         <path
           d={path}
@@ -686,7 +698,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
         style={style}
         interactionWidth={interactionWidth}
       />
-    </>
+    </g>
   )
 }
 

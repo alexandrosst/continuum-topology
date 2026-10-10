@@ -2117,3 +2117,40 @@ test('narrowFitZoom: on a phone the widest box sets the fit, elsewhere the whole
 
 console.log(failed ? `\n${failed} FAILED` : '\nall passed')
 process.exit(failed ? 1 : 0)
+
+test('calm detail: every dependency across two boxes is ONE bundle (with a count); the calls are quiet "detail" lines the focus brings forward', () => {
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+  const a = seed.services[0]
+  const sameBox = seed.services.find((s) => s.id !== a.id && s.clusterId === a.clusterId)
+  const others = seed.services.filter((s) => s.clusterId !== a.clusterId)
+  assert.ok(others.length >= 2 && sameBox, 'the seed has two services across the same pair of boxes')
+  const [b, c] = others
+  const t = { ...seed, dependencies: [seenDep({ id: 'x1', from: a.id, to: b.id }), seenDep({ id: 'x2', from: c.id, to: a.id }), seenDep({ id: 'in', from: a.id, to: sameBox!.id })] }
+  const calm = buildGraph(t, { ...opts, detail: 'calm' })
+  const bundles = calm.edges.filter((e) => e.data?.role === 'bundle')
+  const detail = calm.edges.filter((e) => e.data?.role === 'detail')
+  assert.ok(bundles.length >= 1 && bundles.every((e) => e.id.startsWith('bundle:') && e.data?.aggregated), 'one aggregated line per pair of boxes')
+  assert.equal(new Set(bundles.map((e) => [e.source, e.target].sort().join('|'))).size, bundles.length, 'never two lines for one pair of boxes')
+  assert.deepEqual(detail.map((e) => e.id).sort(), ['x1', 'x2'].sort(), 'every call across boxes is kept, as a detail line')
+  assert.ok(detail.every((e) => e.data?.focusIds?.includes(e.source) && e.data.focusIds.includes(e.target)), 'the hover of either end brings it forward')
+  assert.equal(calm.edges.find((e) => e.id === 'in')!.data?.role, undefined, 'a call inside a box is drawn as before')
+  const two = buildGraph({ ...t, dependencies: [...t.dependencies, seenDep({ id: 'x3', from: b.id, to: a.id })] }, { ...opts, detail: 'calm' })
+  const ab = two.edges.find((e) => e.data?.role === 'bundle' && e.data.focusIds?.includes(a.id) && e.data.focusIds.includes(b.id))
+  assert.ok(ab && ab.data?.count === 2 && ab.label === '2 dependencies', 'two calls across the same two boxes are one line that says 2')
+  const full = buildGraph(t, { ...opts, detail: 'full' })
+  assert.ok(!full.edges.some((e) => e.data?.role), 'Full is unchanged: one line per dependency')
+})
+
+test('calm detail: only a seen link losing connection attempts is a problem, on its line and on the bundle that holds it', () => {
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false, detail: 'calm' as const }
+  const a = seed.services[0]
+  const b = seed.services.find((s) => s.clusterId !== a.clusterId)!
+  const lossy = [{ id: 'p', fromCluster: a.clusterId, fromName: 'A', host: '1.2.3.4', port: 443, toCluster: b.clusterId, toName: 'B', source: 'observed' as const, rttMinMs: 1, rttP50Ms: 2, rttP95Ms: 3, lossPct: 6, samples: 9, at: SEEN }]
+  const seen = buildGraph({ ...seed, dependencies: [seenDep({ id: 'x1', from: a.id, to: b.id })] }, { ...opts, paths: lossy })
+  assert.equal(seen.edges.find((e) => e.id === 'x1')!.data?.problem, true)
+  assert.equal(seen.edges.find((e) => e.data?.role === 'bundle')!.data?.problem, true)
+  const declared = buildGraph({ ...seed, dependencies: [{ ...seenDep({ id: 'x1', from: a.id, to: b.id }), sources: ['declared'], stats: undefined, via: undefined }] }, { ...opts, paths: lossy })
+  assert.ok(declared.edges.every((e) => !e.data?.problem), 'nothing was measured on a declared link, so it is never a problem')
+  const fine = buildGraph({ ...seed, dependencies: [seenDep({ id: 'x1', from: a.id, to: b.id })] }, { ...opts, paths: lossy.map((p) => ({ ...p, lossPct: 0.2 })) })
+  assert.ok(fine.edges.every((e) => !e.data?.problem))
+})
