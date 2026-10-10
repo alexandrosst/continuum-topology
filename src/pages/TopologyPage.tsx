@@ -26,6 +26,7 @@ import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
 import { ClusterForm, DeviceForm, NodeForm, ServiceForm } from '@/components/forms'
 import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
 import Inspector, { type Selection } from '@/components/topology/Inspector'
+import OverflowMenu from '@/components/topology/OverflowMenu'
 import { PodLegend } from '@/components/topology/Pods'
 // Lazily loaded, not a plain top-level import: MapView pulls in d3-geo, topojson-client and the
 // placement-suggestion engine (usePlacementSuggestions) at its own module top level - real weight
@@ -118,7 +119,7 @@ type FormState =
 /** The toolbar's popovers (filter, saved views, options, add) all hang off the same row: at most one may be
  * open at a time, so opening one always closes any other that was already open, instead of both fighting over
  * their own click-outside backdrop. */
-type MenuKey = 'filter' | 'views' | 'options' | 'add' | 'scope'
+type MenuKey = 'filter' | 'views' | 'options' | 'add' | 'scope' | 'more'
 
 function Canvas() {
   const topology = useTopology()
@@ -372,6 +373,13 @@ function Canvas() {
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
 
   const [nodes, setNodes, onNodesChange] = useNodesState<TopoNode>(graph.nodes)
+  const resetLayout = () => {
+    setNodes(graph.nodes)
+    // The `shape` effect below only re-fits when node ids/sizes change, which a layout reset never does (same nodes, new
+    // positions) - without this, a reset whose new positions happen to land outside the current viewport looked like the
+    // button did nothing at all.
+    fit(200)
+  }
 
   // React Flow's own multi-select (shift/ctrl/cmd-click, or a box-drag - see multiSelectionKeyCode below)
   // writes here via onSelectionChange, entirely separately from `selection` below (the single-click
@@ -948,16 +956,34 @@ function Canvas() {
             </div>
           )}
 
-          {isCanvas && (
+          {isCanvas && calm && (
+            <>
+              {/* Calm keeps the toolbar to what is used on most visits (Filter, Views, Options, Add); the three canvas actions live
+                  under "...". Picking is a mode, so while it is on its way out stays one click away, in the toolbar. */}
+              {pickMode && (
+                <Button variant="primary" onClick={() => setPickMode(false)} aria-pressed title="Cancel - click a service or cluster to scope it, or press Escape" data-testid="pick-scope">
+                  <Target size={ICON_SM} /> <span className="hidden sm:inline">Cancel picking</span>
+                </Button>
+              )}
+              <OverflowMenu
+                open={openMenu === 'more'}
+                onToggle={() => toggleMenu('more')}
+                onClose={() => setOpenMenu(null)}
+                label="More canvas actions"
+                testId="canvas-more"
+                items={[
+                  { key: 'reset', label: 'Reset layout', icon: RotateCcw, disabled: empty, onSelect: resetLayout, title: 'Snaps every entity back to its computed position. Your view options (filters, grouping, toggles) are untouched.', testId: 'reset-layout' },
+                  { key: 'png', label: exportingPng ? 'Exporting…' : 'Export PNG', icon: Download, disabled: exportingPng || empty, onSelect: exportPng, title: "Save the current canvas as a PNG image, at its full extent (not just what's on screen)", testId: 'export-png' },
+                  ...(pickMode ? [] : [{ key: 'pick', label: 'Pick from canvas', icon: Target, disabled: empty, onSelect: () => setPickMode(true), title: 'Pick a service or cluster on the canvas to configure its telemetry, without selecting it first', testId: 'pick-scope' }]),
+                ]}
+              />
+            </>
+          )}
+
+          {isCanvas && !calm && (
             <Button
               disabled={empty}
-              onClick={() => {
-                setNodes(graph.nodes)
-                // The `shape` effect above only re-fits when node ids/sizes change, which a layout reset
-                // never does (same nodes, new positions) - without this, a reset whose new positions happen
-                // to land outside the current viewport looked like the button did nothing at all.
-                fit(200)
-              }}
+              onClick={resetLayout}
               title="Reset the canvas layout - snaps every entity back to its computed position. Your view options (filters, grouping, toggles) are untouched."
               data-testid="reset-layout"
             >
@@ -965,7 +991,7 @@ function Canvas() {
             </Button>
           )}
 
-          {isCanvas && (
+          {isCanvas && !calm && (
             <Button
               onClick={exportPng}
               disabled={exportingPng || empty}
@@ -976,7 +1002,7 @@ function Canvas() {
             </Button>
           )}
 
-          {isCanvas && (
+          {isCanvas && !calm && (
             <Button
               variant={pickMode ? 'primary' : undefined}
               onClick={() => setPickMode((v) => !v)}
