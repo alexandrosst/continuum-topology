@@ -5,6 +5,7 @@ import {
   curvedPath,
   elbowPath,
   intersection,
+  OffsetEdge,
   outwardNormal,
   OBSTACLE_MARGIN,
   pickClearSide,
@@ -571,5 +572,12 @@ describe('pickClearSide (falls back to a different entry side when the natural o
       { x: box.x + box.w + depth / 2 - 10, y: box.y, w: 20, h: box.h },
     ]
     expect(pickClearSide(box, naturalTop, blockAll)).toEqual(naturalTop)
+  })
+})
+
+describe('OffsetEdge in Calm', () => {
+  test('a call inside a bundle draws nothing: the bundle is the line, and the focus rings the cards at its ends', () => {
+    expect(OffsetEdge({ data: { role: 'detail' } } as never)).toBeNull()
+    expect(OffsetEdge({ data: { role: 'bundle' } } as never)).not.toBeNull()
   })
 })

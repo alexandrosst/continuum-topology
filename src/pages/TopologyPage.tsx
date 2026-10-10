@@ -47,7 +47,7 @@ import ScopeFromSelection from '@/components/topology/ScopeFromSelection'
 import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
 import { nodeTypes, ZoomVar } from '@/components/topology/nodes'
-import { useCanvasFocus } from '@/store/canvasFocus'
+import { PeersContext, useCanvasFocus } from '@/store/canvasFocus'
 import TelemetryTab from '@/components/topology/TelemetryTab'
 import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
 import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock, TIER_ICON } from '@/components/ui/primitives'
@@ -461,6 +461,14 @@ function Canvas() {
     })
   }, [])
 
+  // Which cards each card talks to across boxes (the calls Calm folds into bundles): the cards a hover or a selection rings, in place of a line to each.
+  const peers = useMemo(() => {
+    const m = new Map<string, Set<string>>()
+    const add = (a: string, b: string) => m.set(a, (m.get(a) ?? new Set()).add(b))
+    for (const e of graph.edges) if (e.data?.role === 'detail') { add(e.source, e.target); add(e.target, e.source) }
+    return m
+  }, [graph.edges])
+
   // React Flow id of the current single-click Inspector selection (if it is visible in this plane).
   const selectedRfId = useMemo(() => {
     if (!selection) return null
@@ -534,9 +542,11 @@ function Canvas() {
   }, [selectedRfId, setNodes])
   // What is selected also lights its network peers (see canvasFocus); a store write, so no render of the page or the graph.
   useEffect(() => {
-    useCanvasFocus.getState().setPinned(selectedRfId)
+    // A selected dependency pins the card it leaves, so the one it reaches rings (a call is not drawn in Calm).
+    const call = selection?.kind === 'dependency' ? graph.edges.find((e) => e.id === selection.id) : undefined
+    useCanvasFocus.getState().setPinned(selectedRfId ?? call?.source ?? null)
     return () => useCanvasFocus.getState().setPinned(null)
-  }, [selectedRfId])
+  }, [selectedRfId, selection, graph.edges])
 
   // Re-fit the viewport whenever the *shape* of the graph changes (not on every edit).
   const shape = useMemo(() => graph.nodes.map((n) => `${n.id}:${n.style?.width}x${n.style?.height}`).join('|'), [graph])
@@ -584,7 +594,8 @@ function Canvas() {
       const showLabel = calm ? hot || (problem && !!e.data?.aggregated) : showLabels || hot
       // A line that stands for several says nothing at rest unless it is failing, and then why: the path's round trip and loss. How many it
       // stands for is the hover card's to say, and the Inspector's.
-      const label = e.data?.aggregated && calm ? (problem && q ? qualityLabel(q) : undefined) : showLabel ? e.label : undefined
+      // The focus's bundle also says how many calls it holds ("3 dependencies"): the answer to "what is that line?", where the calls themselves are not drawn.
+      const label = e.data?.aggregated && calm ? (problem && q ? qualityLabel(q) : hot && e.data.role === 'bundle' ? e.label : undefined) : showLabel ? e.label : undefined
       // A link that loses connection attempts is coloured by how badly; otherwise grey, or orange when it is the focus.
       const mv = e.data?.mesh
       const cl = e.data?.clusterLink
@@ -596,9 +607,14 @@ function Canvas() {
       // category colour rather than a fabricated "healthy" green.
       const clHealthBand = showHealthLens && cl?.avgLossPct !== undefined ? lossBand(cl.avgLossPct) : null
       const clHealthColor = clHealthBand === 'hot' ? '#f87171' : clHealthBand === 'warn' ? '#fbbf24' : clHealthBand === 'ok' ? '#34d399' : null
-      const stroke = hot
-        ? '#f68330'
-        : clHealthColor ?? (cl && !calm ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? '#f87171' : band === 'warn' ? '#fbbf24' : e.data?.crossGroup && !calm ? '#98a4ae' : '#6f7b85')
+      // Calm draws in the theme's own variables, so a line holds its contrast in light as well as dark; Full keeps its hexes (its arrowheads cannot take a variable).
+      // Colour on a calm line means a problem and nothing else: the focus is told by weight and a stronger grey, and a failing line stays red when focused.
+      const calmBand = band === 'hot' ? 'var(--color-bad)' : band === 'warn' ? 'var(--color-warn)' : null
+      const stroke = calm && !cl && !mv
+        ? calmBand ?? (hot ? 'var(--color-nb-300)' : 'var(--color-nb-600)')
+        : hot
+          ? '#f68330'
+          : clHealthColor ?? (cl && !calm ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? '#f87171' : band === 'warn' ? '#fbbf24' : e.data?.crossGroup && !calm ? '#98a4ae' : '#6f7b85')
       // Seen in traffic: solid, and a touch thicker the busier it is. Only declared (or gone quiet): dotted and
       // thin. Kept close to the declared baseline (1.2) rather than scaling up hard - a busy link should read as
       // "more traffic" without out-weighing the 2.4px used for the current selection/focus.
@@ -617,7 +633,6 @@ function Canvas() {
         // Calm lines do not run at rest (a seen line is simply solid); the focus's lines do, and say it is the focus.
         className: calm ? (hot ? ['edge-hot', e.className].filter(Boolean).join(' ') : undefined) : e.className,
         label,
-        data: pickedEdge === e.id ? { ...e.data!, revealed: true } : e.data,
         style: {
           stroke,
           strokeWidth: width,
@@ -632,7 +647,7 @@ function Canvas() {
           // Busier links run their dashes faster (a quiet one takes 2.4 s for a period, the busiest 0.7 s).
           animationDuration: e.className === 'edge-animated' && (!calm || hot) ? `${(2.4 - 1.7 * (e.data?.weight ?? 0)).toFixed(2)}s` : undefined,
         },
-        labelStyle: { fill: hot ? '#f68330' : 'var(--color-nb-300)', fontSize: 10.5, opacity: dim ? 0.3 : 1 },
+        labelStyle: { fill: hot && !calm ? '#f68330' : 'var(--color-nb-300)', fontSize: 10.5, opacity: dim ? 0.3 : 1 },
         labelBgStyle: { fill: 'var(--color-nb-910)', fillOpacity: 0.95 },
         labelBgPadding: [6, 3] as [number, number],
         labelBgBorderRadius: 4,
@@ -1228,6 +1243,7 @@ function Canvas() {
             </Suspense>
           ) : (
             <DetailContext.Provider value={detail}>
+            <PeersContext.Provider value={peers}>
             <EdgeStyleContext.Provider value={edgeStyle}>
             <ReactFlow<TopoNode, Edge>
               className={pickMode ? 'topology-pick-mode' : undefined}
@@ -1534,6 +1550,7 @@ function Canvas() {
               </Panel>
             </ReactFlow>
             </EdgeStyleContext.Provider>
+            </PeersContext.Provider>
             </DetailContext.Provider>
           )}
           {hoveredEdge && hoverPos && (

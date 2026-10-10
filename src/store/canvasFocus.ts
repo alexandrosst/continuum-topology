@@ -1,3 +1,4 @@
+import { createContext } from 'react'
 import { create } from 'zustand'
 
 /**
@@ -30,3 +31,13 @@ export const activeId = (s: Pick<CanvasFocus, 'hover' | 'pinned'>) => s.hover ??
 
 /** Whether the hover or the selection is one of `ids` (a bundle's boxes and ends): the answer a line asks to light its calls. */
 export const focusedBy = (s: Pick<CanvasFocus, 'hover' | 'pinned'>, ids: readonly string[] | undefined) => !!ids && [s.hover, s.pinned].some((a) => !!a && ids.includes(a))
+
+/** Which cards each card calls or is called by across boxes (React Flow ids). A line between two boxes is one bundle; this is what says which cards are on its ends,
+ *  so the card the pointer or the selection is on can ring the ones it talks to instead of drawing a line across the canvas to each. */
+export const PeersContext = createContext<ReadonlyMap<string, ReadonlySet<string>>>(new Map())
+
+/** Whether `id` is one of the cards the active card (hovered, else selected) talks to across boxes. */
+export const isPeer = (s: Pick<CanvasFocus, 'hover' | 'pinned'>, peers: ReadonlyMap<string, ReadonlySet<string>>, id: string) => {
+  const a = activeId(s)
+  return !!a && a !== id && !!peers.get(a)?.has(id)
+}

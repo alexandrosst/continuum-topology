@@ -614,7 +614,7 @@ function longestRun(points: Pt[]): { x: number; y: number } {
  *  obstacle for it - generous enough to cover the widest bow curvedPath's own escalation ever tries (see
  *  its doc comment), so nothing that could plausibly end up under the curve gets missed, while still
  *  skipping the large majority of an even moderately busy canvas that's nowhere near this one edge's route. */
-export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targetY, data, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, labelShowBg, markerEnd, style, interactionWidth }: EdgeProps<TopoEdge>) {
+function DrawnEdge({ id, source, target, sourceX, sourceY, targetX, targetY, data, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, labelShowBg, markerEnd, style, interactionWidth }: EdgeProps<TopoEdge>) {
   const sourceNode = useInternalNode(source)
   const targetNode = useInternalNode(target)
   const sourceBox = boxOf(sourceNode)
@@ -693,11 +693,11 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
 
   const edgeStyle = useContext(EdgeStyleContext)
   const calm = useContext(DetailContext) === 'calm'
-  // The hover or selection is the focus of a bundle's calls: lit means a 'detail' line shows (CSS fades it in) and its bundle steps back.
+  // The hover or selection is on one of the bundle's boxes or ends: lit means the bundle is drawn firmly (CSS), and the cards it joins ring (nodes.tsx).
   // A store read with a boolean answer, so a pointer moving over the canvas re-renders only the lines whose answer changes.
   const focusIds = data?.focusIds
   const focused = useCanvasFocus((s) => focusedBy(s, focusIds))
-  const lit = focused || (data?.role === 'detail' && !!data.revealed)
+  const lit = focused
   // Calm: a line that stands for several (a bundle, or the link between two clusters) runs in the gutters between boxes, never across one.
   const lane = calm && data?.aggregated && sourceBox && targetBox ? lanePath(sourceBox, targetBox, collectObstacles(nodeLookup, source, target, WORLD, ['boundary']), sourceOff, targetOff, (data.track ?? 0) * TRACK_GAP) : null
   const laneAt = lane && longestRun(lane)
@@ -717,7 +717,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   const isOverlayLink = data?.clusterLink?.kind === 'overlay'
   const baseOpacity = typeof style?.opacity === 'number' ? style.opacity : 1
   return (
-    <g className={clsx(data?.role && `edge-${data.role}`, lit && 'edge-lit')}>
+    <g className={clsx(data?.role && `edge-${data.role}`, lit && 'edge-lit', data?.problem && 'edge-problem')}>
       {isOverlayLink && (
         <path
           d={path}
@@ -757,6 +757,15 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
       )}
     </g>
   )
+}
+
+/**
+ * Calm draws the calls between two boxes as the one bundle line between them, and never the calls themselves: a call is a line across the canvas to a
+ * card far away, which runs over titles and boxes whatever the route. What a hover or a selection brings forward instead is the bundle (lit) and, on the
+ * cards at its ends, a ring (nodes.tsx); the calls are in the Inspector and the hover card. So a 'detail' line draws nothing, and costs nothing.
+ */
+export function OffsetEdge(props: EdgeProps<TopoEdge>) {
+  return props.data?.role === 'detail' ? null : <DrawnEdge {...props} />
 }
 
 export const edgeTypes = { offset: OffsetEdge }

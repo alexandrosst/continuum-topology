@@ -36,7 +36,7 @@ import { DistroIcon, Flag } from '@/components/ui/brand'
 import { hostName, middleTruncate } from '@/lib/present'
 import { SIDES, type CardData, type CardNode, type GroupData, type GroupNode, type NamespaceNode } from '@/lib/graph'
 import { DetailContext, shownStatus, type Alert } from '@/lib/detail'
-import { activeId, useCanvasFocus } from '@/store/canvasFocus'
+import { activeId, isPeer, PeersContext, useCanvasFocus } from '@/store/canvasFocus'
 import { TIER_COLOR, type DeviceKind, type ServiceKind } from '@/lib/types'
 
 export const DEVICE_ICON: Record<DeviceKind, LucideIcon> = {
@@ -338,8 +338,8 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
         background: `color-mix(in srgb, ${color} 5%, var(--color-nb-920))`,
       }}
     >
-      {ringName && (
-        <span className="fine pointer-events-none absolute left-5 top-full z-10 flex -translate-y-1/2 items-center gap-1 whitespace-nowrap rounded-full border border-info bg-nb-900 px-2 py-px text-info" data-testid="network-ring-name">
+      {ringName && far && (
+        <span className="fine pointer-events-none absolute left-5 top-full z-10 mt-1 flex items-center gap-1 whitespace-nowrap rounded-full border border-info bg-nb-900 px-2 py-px text-info" data-testid="network-ring-name">
           <Network className="size-[1.1em]" aria-hidden="true" />{ringName}
         </span>
       )}
@@ -355,7 +355,10 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
           tile={<Glyph size={ICON_SM} aria-hidden="true" />}
           tileStyle={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }}
           meta={
-            data.place && (
+            // A ringed box names the network on its own second line (where it is, for the time it is lit): nothing is drawn over the canvas around it.
+            ringName ? (
+              <span className="flex min-w-0 items-center gap-1 text-info" data-testid="network-ring-name"><Network className="size-[1.1em] shrink-0" aria-hidden="true" /><span className="truncate" title={ringName}>{ringName}</span></span>
+            ) : data.place && (
               <>
                 {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
                 {data.country && <Flag code={data.country} className="!h-2.5 !w-[15px]" />}
@@ -570,7 +573,10 @@ const QUIET = 'hidden group-hover/card:flex group-hover/card:animate-[quiet-in_1
 export const NEAR_ZOOM = 1.1
 const useNear = () => useStore((s) => s.transform[2] >= NEAR_ZOOM)
 
-function CalmCard({ data, selected }: NodeProps<CardNode>) {
+function CalmCard({ id, data, selected }: NodeProps<CardNode>) {
+  // The card the hovered or selected one calls (or is called by) across boxes: ringed, in place of a line drawn across the canvas to it.
+  const peers = useContext(PeersContext)
+  const peer = useCanvasFocus((s) => isPeer(s, peers, id))
   const isMachine = data.kind === 'machine'
   const pods = usePodPopover()
   const far = useFar()
@@ -589,7 +595,8 @@ function CalmCard({ data, selected }: NodeProps<CardNode>) {
       <div
         className={clsx(
           'group/card absolute inset-x-0 top-0 min-h-full rounded-xl border bg-nb-925 px-2 py-[7px] transition-colors',
-          selected ? 'border-nb-100 shadow-[inset_0_0_0_1px_var(--color-nb-100)]' : alert ? '' : 'border-nb-800 hover:border-nb-700',
+          selected ? 'border-nb-100 shadow-[inset_0_0_0_1px_var(--color-nb-100)]' : peer ? 'shadow-[inset_0_0_0_1px_var(--color-nb-400)]' : '',
+          !selected && (peer ? 'border-nb-400' : alert ? '' : 'border-nb-800 hover:border-nb-700'),
         )}
         title={alert && data.note ? `${data.title}: ${data.note}` : undefined}
         style={tone && !selected ? { borderColor: `color-mix(in srgb, ${tone} 70%, transparent)`, background: `color-mix(in srgb, ${tone} 7%, var(--color-nb-925))` } : undefined}

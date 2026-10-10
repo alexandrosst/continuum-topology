@@ -222,10 +222,8 @@ export type EdgeData = {
   /** Calm, application view: 'bundle' is the one line between two boxes that stands for every dependency across them; 'detail' is one of those
    *  dependencies, drawn only for the focus. Unset for a line that crosses nothing. */
   role?: 'bundle' | 'detail'
-  /** The nodes whose hover or selection brings a 'detail' line forward (and quiets its bundle): both boxes and both ends. */
+  /** The nodes whose hover or selection lights the bundle (and rings the cards at its ends): both boxes and every call's two ends. */
   focusIds?: string[]
-  /** Set by the page for the one line the Inspector has open, so it is drawn even when it would be quiet. */
-  revealed?: boolean
   /** Aggregated (group<->group) edges only: how many of the bundled dependencies were actually seen in
    *  traffic, out of the total the label already counts - the hover card's "(N seen in traffic)" aside. */
   activeCount?: number

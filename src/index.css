@@ -189,13 +189,12 @@ body {
    over its own cards. The reveal fades in over 120 ms; the reduced-motion rule further down turns that into a cut. */
 .react-flow__node-card:hover, .react-flow__node-card:focus-within { z-index: 1000 !important; }
 @keyframes quiet-in { from { opacity: 0; } }
-/* Calm, application view: the calls across two boxes are one bundle line; the calls themselves belong to the focus. A 'detail' line waits
-   (hidden, so it cannot be hovered either) until the hover or selection reaches either box or either end; its bundle steps
-   back while they show. The short delay on the way in keeps a pointer crossing the canvas from flickering lines. */
-.edge-detail { opacity: 0; visibility: hidden; transition: opacity 120ms ease-out, visibility 0s linear 120ms; }
-.edge-detail.edge-lit { opacity: 1; visibility: visible; transition: opacity 140ms ease-out 80ms; }
-.edge-bundle { transition: opacity 120ms ease-out; }
-.edge-bundle.edge-lit { opacity: 0.25; transition: opacity 140ms ease-out 80ms; }
+/* Calm, application view: the calls across two boxes are one bundle line, and only that is drawn (OffsetEdge). When the hover or the selection is on
+   either box or either end, the bundle is drawn firmly: the strong text colour and a little heavier, unless it is a failing path, which keeps its own colour.
+   !important because the edge's stroke is set inline. The cards at its ends ring (nodes.tsx). */
+.edge-bundle path.react-flow__edge-path { transition: stroke-width 140ms ease-out, opacity 140ms ease-out; }
+.edge-bundle.edge-lit:not(.edge-problem) path.react-flow__edge-path { stroke: var(--color-nb-300) !important; opacity: 1 !important; }
+.edge-bundle.edge-lit path.react-flow__edge-path { stroke-width: 2.25px !important; }
 /* The pipe around an overlay cluster link is part of the focus, not of the resting canvas: it shows when the line is hovered,
    selected or is the focus's line. !important because the edge's own opacity is set inline. */
 .calm-pipe { opacity: 0 !important; transition: opacity 120ms ease-out; }
@@ -240,6 +239,7 @@ body {
 .cluster-link-pipe { stroke-width: 7px; stroke-dasharray: 14 10; animation: pipe-dash 2.6s linear infinite; }
 @media (prefers-reduced-motion: reduce) {
   .edge-animated path.react-flow__edge-path, .map-link, .cluster-link-pipe { animation: none; }
+  .edge-bundle path.react-flow__edge-path { transition: none; }
 }
 
 /* A popover (filter, saved views, options, add) eases in briefly on open instead of just appearing - the same light

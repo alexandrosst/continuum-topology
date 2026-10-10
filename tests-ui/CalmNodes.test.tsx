@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest'
 import { Card, GroupBox } from '@/components/topology/nodes'
 import { DetailContext, type Detail } from '@/lib/detail'
 import type { CardData, GroupData } from '@/lib/graph'
-import { useCanvasFocus } from '@/store/canvasFocus'
+import { PeersContext, useCanvasFocus } from '@/store/canvasFocus'
 
 const card = (over: Partial<CardData> = {}): CardData => ({
   kind: 'service', entityId: 's1', title: 'metrics-api', subtitle: 'analytics · Deployment', meta: '×3', status: 'healthy', tier: 'cloud', clusterName: 'c1', ...over,
@@ -136,6 +136,29 @@ describe('Calm network chips', () => {
     const { getAllByTestId, getByText } = renderGroup(group({ networks: many }), 'calm')
     expect(getAllByTestId('network-chip')).toHaveLength(2)
     expect(getByText('+2')).toHaveAttribute('title', 'On overlay c\nOn overlay d')
+  })
+
+  test('the card the hovered or selected one calls across boxes is ringed, in place of a line to it; the card itself and strangers are not', () => {
+    reset()
+    const peers = new Map([['c:s1', new Set(['c:s2'])], ['c:s2', new Set(['c:s1'])]])
+    const ringed = (c: HTMLElement) => c.querySelector('.border-nb-400')
+    const at = (id: string) => {
+      const props = { id, data: card(), selected: false, type: 'card', dragging: false, zIndex: 0, isConnectable: false, positionAbsoluteX: 0, positionAbsoluteY: 0 } as never
+      return render(<ReactFlowProvider><PeersContext.Provider value={peers}><DetailContext.Provider value="calm"><Card {...props} /></DetailContext.Provider></PeersContext.Provider></ReactFlowProvider>)
+    }
+    const peer = at('c:s2')
+    const self = at('c:s1')
+    const stranger = at('c:s3')
+    expect(ringed(peer.container)).toBeNull()
+    act(() => useCanvasFocus.getState().setHover('c:s1'))
+    expect(ringed(peer.container)).not.toBeNull()
+    expect(ringed(self.container)).toBeNull()
+    expect(ringed(stranger.container)).toBeNull()
+    act(() => useCanvasFocus.getState().setHover(null))
+    expect(ringed(peer.container)).toBeNull()
+    act(() => useCanvasFocus.getState().setPinned('c:s1'))
+    expect(ringed(peer.container)).not.toBeNull()
+    reset()
   })
 
   test('lighting a chip rings every box on that network, by pointer or by keyboard focus, and only those', () => {
