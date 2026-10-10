@@ -19,6 +19,7 @@ import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved 
 import { alertOfLoad, alertOfPods, alertOfStatus, worstAlert, parseDetail } from '../src/lib/detail'
 import { applyGraphUpdate, APP_CARD, CALM_CARD_H, CALM_HEADER, CALM_NOTE, sameLayout, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
+import { buildNetworks, networkSentence } from '../src/lib/networks'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterLink, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type Service, type Suggestion } from '../src/lib/types'
 
@@ -1707,6 +1708,37 @@ test('calm detail: a machine under pressure says which resource in one line; one
   assert.equal((hot.data as { note?: string }).note, 'Memory 92% requested')
   const listed = buildGraph(calmed, { ...opts, servicesOnNodes: true }).nodes.filter((n) => n.data.kind === 'machine')
   assert.ok(listed.every((n) => Number(n.style?.height) > CALM_CARD_H), 'the list is something the person asked for')
+})
+
+test('networks: pair links that name the same evidence are one network, and the sentence names who else is on it', () => {
+  const pair = (a: string, b: string, kind: 'overlay' | 'subnet', via: string): ClusterLink => ({ fromCluster: a, fromName: a.toUpperCase(), toCluster: b, toName: b.toUpperCase(), kind, via, redundancy: 1 })
+  const nets = buildNetworks([pair('a', 'b', 'subnet', '10.0.0.0/16'), pair('b', 'c', 'subnet', '10.0.0.0/16'), pair('a', 'b', 'overlay', 'wg0 (wireguard)')])
+  assert.equal(nets.length, 2, 'the same prefix is one network however many pairs were confirmed')
+  const subnet = nets.find((n) => n.kind === 'subnet')!
+  assert.deepEqual(subnet.members.map((m) => m.id), ['a', 'b', 'c'])
+  assert.equal(networkSentence(subnet, 'a'), 'Shares subnet 10.0.0.0/16 with B, C')
+  assert.equal(networkSentence(nets.find((n) => n.kind === 'overlay')!, 'b'), 'On overlay wg0 (wireguard) with A')
+  assert.deepEqual(buildNetworks(undefined), [])
+})
+
+test('calm detail: network membership is a fact on the boxes (chips, peers), never a line; Full still draws the pair line', () => {
+  const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+  const links: ClusterLink[] = [
+    { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'subnet', via: '10.30.0.0/16', redundancy: 1 },
+    { fromCluster: 'cl-edge-b', fromName: 'Edge B', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'subnet', via: '10.30.0.0/16', redundancy: 1 },
+  ]
+  const calm = buildGraph(seed, { ...opts, detail: 'calm', clusterLinks: links })
+  assert.ok(!calm.edges.some((e) => e.data?.clusterLink), 'no line for a network')
+  const box = (id: string) => calm.nodes.find((n) => n.id === groupId(id))!.data as { networks?: { id: string; text: string }[]; peers?: string[] }
+  assert.equal(box('cl-cloud').networks?.length, 1, 'one network, however many pairs')
+  assert.match(box('cl-cloud').networks![0].text, /^Shares subnet 10\.30\.0\.0\/16 with /)
+  assert.deepEqual([...box('cl-edge-a').peers!].sort(), [groupId('cl-cloud'), groupId('cl-edge-b')].sort(), 'every other member rings with it')
+  assert.equal(box('cl-region').networks, undefined, 'a cluster on no network says nothing')
+  const full = buildGraph(seed, { ...opts, detail: 'full', clusterLinks: links })
+  assert.ok(full.edges.some((e) => e.data?.clusterLink), 'Full is as it was')
+  assert.equal((full.nodes.find((n) => n.id === groupId('cl-cloud'))!.data as { networks?: unknown }).networks, undefined)
+  const header = (g: typeof calm, id: string) => Number(g.nodes.find((n) => n.id === groupId(id))!.style?.height)
+  assert.ok(header(calm, 'cl-cloud') > header(buildGraph(seed, { ...opts, detail: 'calm' }), 'cl-cloud'), 'a box with a network chip has room for the chip row')
 })
 
 test('cluster links: a confirmed overlay/subnet edge is drawn directly between the two clusters, with no arrowhead', () => {

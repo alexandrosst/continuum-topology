@@ -16,6 +16,7 @@ import {
   Globe,
   HardDrive,
   Layers,
+  Network,
   Radio,
   Router,
   Server,
@@ -31,8 +32,9 @@ import { LoadRow } from '@/components/topology/Load'
 import { peakLoad } from '@/lib/metrics'
 import { DistroIcon, Flag } from '@/components/ui/brand'
 import { middleTruncate } from '@/lib/present'
-import { SIDES, type CardData, type CardNode, type GroupNode, type NamespaceNode } from '@/lib/graph'
+import { SIDES, type CardData, type CardNode, type GroupData, type GroupNode, type NamespaceNode } from '@/lib/graph'
 import { DetailContext, type Alert } from '@/lib/detail'
+import { activeId, useCanvasFocus } from '@/store/canvasFocus'
 import { STATUS_COLOR, TIER_COLOR, type DeviceKind, type ServiceKind } from '@/lib/types'
 
 export const DEVICE_ICON: Record<DeviceKind, LucideIcon> = {
@@ -237,10 +239,54 @@ function FullGroupBox({ data, selected }: NodeProps<GroupNode>) {
 /** The glyph at a box's right edge, in place of a text chip: the box's tint already says the tier, this says what kind of thing the box is. */
 const BOX_KIND = { devices: { Glyph: Radio, label: 'Devices' }, external: { Glyph: Globe, label: 'External endpoints' } } as const
 
+const NETWORK_CHIPS = 2
+
+/** The networks a box sits on, as quiet chips: a fact about the box, not a line to another one. Hovering or focusing a chip lights every box on that
+ *  network (see CalmGroupBox's ring); the Inspector says the same in words. Past two networks the rest fold into "+N", named in the tooltip. */
+function NetworkChips({ networks }: { networks: NonNullable<GroupData['networks']> }) {
+  const lit = useCanvasFocus((s) => s.network)
+  const setNetwork = useCanvasFocus((s) => s.setNetwork)
+  const shown = networks.slice(0, NETWORK_CHIPS)
+  const more = networks.slice(NETWORK_CHIPS)
+  return (
+    <div className="mt-1.5 flex items-center gap-1.5 pl-4" data-testid="network-chips">
+      {shown.map((n) => (
+        <button
+          key={n.id}
+          type="button"
+          title={n.text}
+          aria-label={n.text}
+          data-testid="network-chip"
+          onPointerEnter={() => setNetwork(n.id)}
+          onPointerLeave={() => setNetwork(null)}
+          onFocus={() => setNetwork(n.id)}
+          onBlur={() => setNetwork(null)}
+          className={clsx(
+            'nodrag nopan inline-flex min-w-0 max-w-[9.5rem] items-center gap-1 rounded px-1.5 py-px text-[10.5px] text-info transition-colors',
+            lit === n.id ? 'bg-info/20' : 'bg-info/10 hover:bg-info/15',
+          )}
+        >
+          {n.kind === 'overlay' ? <Cable size={ICON_SM} className="shrink-0" aria-hidden="true" /> : <Network size={ICON_SM} className="shrink-0" aria-hidden="true" />}
+          <span className="truncate">{n.via}</span>
+        </button>
+      ))}
+      {more.length > 0 && (
+        <span className="text-[10.5px] text-nb-500" title={more.map((n) => n.text).join('\n')}>+{more.length}</span>
+      )}
+    </div>
+  )
+}
+
 /** Calm: the header is what identifies the box (its name, its logo, its status dot), where it is, and what is wrong with it. The tier is a
  *  small glyph with its name on hover; the distribution, counts, load bars and telemetry control are the Inspector's. */
-function CalmGroupBox({ data, selected }: NodeProps<GroupNode>) {
+function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
   const far = useFar()
+  // Rings this box when it shares a network with whatever is hovered or selected, or when one of its own network chips is lit.
+  const ringed = useCanvasFocus((s) => {
+    if (s.network && data.networks?.some((n) => n.id === s.network)) return true
+    const a = activeId(s)
+    return !!a && a !== id && !!data.peers?.includes(a)
+  })
   const color = TIER_COLOR[data.tier]
   const peak = data.load ? peakLoad(data.load) : undefined
   const alert = data.alert
@@ -250,7 +296,10 @@ function CalmGroupBox({ data, selected }: NodeProps<GroupNode>) {
   return (
     // Inset ring: see the note in FullGroupBox.
     <div
-      className={clsx('group/box h-full w-full rounded-2xl border transition-shadow', selected && 'shadow-[inset_0_0_0_2px_var(--color-accent)]')}
+      className={clsx(
+        'group/box h-full w-full rounded-2xl border transition-shadow',
+        selected ? 'shadow-[inset_0_0_0_2px_var(--color-accent)]' : ringed && 'shadow-[inset_0_0_0_2px_color-mix(in_srgb,var(--color-info)_55%,transparent)]',
+      )}
       style={{
         borderColor: alert && !selected ? `color-mix(in srgb, ${ALERT_COLOR[alert]} 55%, transparent)` : `color-mix(in srgb, ${color} ${selected ? 70 : 32}%, transparent)`,
         background: `color-mix(in srgb, ${color} 5%, var(--color-nb-920))`,
@@ -281,6 +330,7 @@ function CalmGroupBox({ data, selected }: NodeProps<GroupNode>) {
           {!far && alert && data.note && (
             <div className="mt-0.5 truncate pl-4 text-[11px]" style={{ color: ALERT_COLOR[alert] }} data-testid="box-note">{data.note}</div>
           )}
+          {!far && data.networks && <NetworkChips networks={data.networks} />}
         </div>
         <span
           role="img"

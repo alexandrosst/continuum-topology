@@ -28,6 +28,7 @@ vi.mock('@/store/topology', () => ({
   useRawTopology: (selector: (s: { upsertExternalEndpoint: () => void }) => unknown) => selector({ upsertExternalEndpoint: vi.fn() }),
   usePaths: () => ({}),
   useClusterPairConnectivity: () => [],
+  useClusterLinks: () => [],
   useDiscoveryAgents: () => discoveryAgentsFixture,
 }))
 vi.mock('@/store/history', () => ({

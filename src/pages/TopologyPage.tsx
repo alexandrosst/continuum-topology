@@ -18,7 +18,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
 import { toPng } from 'html-to-image'
-import { Funnel, Boxes, ChevronDown, CircleHelp, Download, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, TriangleAlert, X } from 'lucide-react'
+import { Funnel, Boxes, ChevronDown, CircleHelp, Download, Filter as FilterIcon, Network, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, TriangleAlert, X } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -42,9 +42,10 @@ import ScopeFromSelection from '@/components/topology/ScopeFromSelection'
 import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
 import { nodeTypes } from '@/components/topology/nodes'
+import { useCanvasFocus } from '@/store/canvasFocus'
 import TelemetryTab from '@/components/topology/TelemetryTab'
 import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
-import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock } from '@/components/ui/primitives'
+import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock, TIER_ICON } from '@/components/ui/primitives'
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu, { FilterChip } from '@/components/topology/FilterMenu'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
@@ -397,9 +398,8 @@ function Canvas() {
     }
     const seen = graph.edges.some((e) => e.data?.observed && !e.data?.stale)
     const notSeen = graph.edges.some((e) => !e.data?.clusterLink && !(e.data?.observed && !e.data?.stale))
-    const overlay = graph.edges.some((e) => e.data?.clusterLink?.kind === 'overlay')
-    const subnet = graph.edges.some((e) => e.data?.clusterLink?.kind === 'subnet')
-    return { tiers, warn, bad, seen, notSeen, overlay, subnet }
+    const networks = graph.nodes.some((n) => n.type === 'boundary' && n.data.networks)
+    return { tiers, warn, bad, seen, notSeen, networks }
   }, [graph])
 
   const [nodes, setNodes, onNodesChange] = useNodesState<TopoNode>(graph.nodes)
@@ -513,6 +513,11 @@ function Canvas() {
     setNodes((ns) => syncSelected(ns, highlightedIds))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRfId, setNodes])
+  // What is selected also lights its network peers (see canvasFocus); a store write, so no render of the page or the graph.
+  useEffect(() => {
+    useCanvasFocus.getState().setPinned(selectedRfId)
+    return () => useCanvasFocus.getState().setPinned(null)
+  }, [selectedRfId])
 
   // Re-fit the viewport whenever the *shape* of the graph changes (not on every edit).
   const shape = useMemo(() => graph.nodes.map((n) => `${n.id}:${n.style?.width}x${n.style?.height}`).join('|'), [graph])
@@ -889,8 +894,8 @@ function Canvas() {
                 <Toggle
                   checked={showClusterLinks}
                   onChange={(v) => setParam('clusterLinks', v ? null : '0')}
-                  label="Cluster links"
-                  title="Clusters confirmed joined by an overlay/tunnel, or sitting on the same flat subnet"
+                  label={calm ? 'Shared networks' : 'Cluster links'}
+                  title={calm ? 'Mark the clusters that share a subnet or an overlay, and light them up together on hover' : 'Clusters confirmed joined by an overlay/tunnel, or sitting on the same flat subnet'}
                 />
                 <Toggle
                   checked={showMinimap}
@@ -1208,6 +1213,8 @@ function Canvas() {
                 select(fromNode(n))
                 setNodes((ns) => syncSelected(ns, new Set([n.id])))
               }}
+              onNodeMouseEnter={(_, n) => useCanvasFocus.getState().setHover(n.id)}
+              onNodeMouseLeave={() => useCanvasFocus.getState().setHover(null)}
               onPaneClick={() => {
                 if (pickMode) { setPickMode(false); return }
                 // Closes the Inspector (the single-click `selection`) - but a prior shift/ctrl-click or
@@ -1265,12 +1272,24 @@ function Canvas() {
               <Panel position="bottom-left" className={clsx('!mb-3 !ml-16 hidden sm:block', calm && 'flex-col items-start gap-2 sm:!flex')}>
                 {(!calm || legendOpen) && (
                 <div id="topology-legend" className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
-                  {TIERS.filter((t) => !calm || onCanvas.tiers.has(t.value)).map((t) => (
-                    <span key={t.value} className="flex items-center gap-1.5">
-                      <span className="size-2 rounded-full" style={{ background: TIER_COLOR[t.value] }} />
-                      {t.label}
-                    </span>
-                  ))}
+                  {TIERS.filter((t) => !calm || onCanvas.tiers.has(t.value)).map((t) => {
+                    // Calm boxes carry the tier as a glyph, so the legend shows that glyph rather than a dot.
+                    const Glyph = TIER_ICON[t.value]
+                    return (
+                      <span key={t.value} className="flex items-center gap-1.5">
+                        {calm ? <Glyph size={ICON_SM} style={{ color: TIER_COLOR[t.value] }} aria-hidden="true" /> : <span className="size-2 rounded-full" style={{ background: TIER_COLOR[t.value] }} />}
+                        {t.label}
+                      </span>
+                    )
+                  })}
+                  {calm && onCanvas.networks && (
+                    <>
+                      <span className="h-3 w-px bg-nb-800" />
+                      <span className="flex items-center gap-1.5" title="Clusters on the same subnet, or joined by the same overlay or tunnel, share a network. Hover the chip to see which; it is a fact about the cluster, not a line.">
+                        <span className="inline-flex items-center gap-1 rounded bg-info/10 px-1.5 py-px text-[10.5px] text-info"><Network size={ICON_SM} aria-hidden="true" />Shared network</span>
+                      </span>
+                    </>
+                  )}
                   {!calm && (
                     <>
                   <span className="h-3 w-px bg-nb-800" />
@@ -1352,18 +1371,14 @@ function Canvas() {
                         </>
                       ) : (
                         <>
-                          {(!calm || onCanvas.overlay) && (
-                            <span className="flex items-center gap-1.5" title="Clusters joined through an overlay/tunnel interface - confirmed from each side's own routing data, not a guess">
-                              <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={calm ? '#8a96a0' : CLUSTER_LINK_COLOR.overlay} strokeWidth={calm ? 1.4 : 1.8} strokeDasharray="6 4" /></svg>
-                              Overlay link
-                            </span>
-                          )}
-                          {(!calm || onCanvas.subnet) && (
-                            <span className="flex items-center gap-1.5" title="Clusters whose nodes sit on the very same flat network segment, with no tunnel at all - confirmed from each side's own address data, not a guess">
-                              <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={calm ? '#8a96a0' : CLUSTER_LINK_COLOR.subnet} strokeWidth={calm ? 1.4 : 1.8} /></svg>
-                              Same subnet
-                            </span>
-                          )}
+                          <span className="flex items-center gap-1.5" title="Clusters joined through an overlay/tunnel interface - confirmed from each side's own routing data, not a guess">
+                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={CLUSTER_LINK_COLOR.overlay} strokeWidth="1.8" strokeDasharray="6 4" /></svg>
+                            Overlay link
+                          </span>
+                          <span className="flex items-center gap-1.5" title="Clusters whose nodes sit on the very same flat network segment, with no tunnel at all - confirmed from each side's own address data, not a guess">
+                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={CLUSTER_LINK_COLOR.subnet} strokeWidth="1.8" /></svg>
+                            Same subnet
+                          </span>
                         </>
                       )}
                     </>

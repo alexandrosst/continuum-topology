@@ -10,6 +10,7 @@ import { buildPodsView, type PodsView } from './pods'
 import { MarkerType, Position, type Edge, type Node } from '@xyflow/react'
 import { deepEqual } from './discovered'
 import { isObserved } from './observed'
+import { buildNetworks, networkSentence, type Network } from './networks'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
 import { clusterLoad, nodeLoad, pathQuality, peakLoad, type ClusterLoad, type NodeLoad, type PathQuality } from './metrics'
 import { alertOfLoad, alertOfPods, alertOfStatus, PRESSURE_WARN, worstAlert, type Alert, type Detail } from './detail'
@@ -75,6 +76,11 @@ export type GroupData = {
    *  session's own note on why a full separate networking view isn't warranted yet (no routing-rule data
    *  behind it to actually draw), but the already-detected name is cheap to show here. */
   networking?: { cni?: string; ingress?: string }
+  /** Calm: the networks this box sits on (a shared subnet, an overlay), drawn as quiet chips in its header rather than as lines.
+   *  `text` is the sentence to read ("Shares subnet 10.30.0.0/16 with polaris-edge"). */
+  networks?: { id: string; kind: 'overlay' | 'subnet'; via: string; text: string }[]
+  /** Calm: the other boxes (React Flow ids) that share any of those networks - what rings when this box is hovered or selected. */
+  peers?: string[]
 }
 
 export type CardData = {
@@ -571,6 +577,18 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     infoOf.set(g.key, { load, alert, note: alert ? parts.filter(Boolean).join(' · ') || STATUS_WORD[cl.status] || undefined : undefined })
   }
 
+  // Calm: network membership is a fact about a box, not a line between two. Boxes that share a subnet or an overlay know each other.
+  const netsOf = new Map<string, Network[]>()
+  if (calm) {
+    for (const n of buildNetworks(o.clusterLinks)) {
+      for (const m of n.members) {
+        const k = groupKeyOfCluster(m.id)
+        if (k && groups.has(k) && !netsOf.get(k)?.includes(n)) netsOf.set(k, [...(netsOf.get(k) ?? []), n])
+      }
+    }
+  }
+  const peersOf = (k: string) => [...new Set((netsOf.get(k) ?? []).flatMap((n) => n.members.map((m) => groupKeyOfCluster(m.id))))].filter((x): x is string => !!x && x !== k && groups.has(x)).map(groupId)
+
   /* 2. Lay out: tiers are rows (cloud on top → far edge at the bottom), groups sit side by side. */
   const rows = new Map<number, GroupAcc[]>()
   ;[...groups.values()]
@@ -586,7 +604,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   const layoutCards = (g: GroupAcc): Placed => {
     const n = g.items.length
     // Calm: a shorter header (a name and where it is), taller only when the box has something to say about itself.
-    const header = calm ? CALM_HEADER + (infoOf.get(g.key)?.note ? CALM_NOTE : 0) : HEADER
+    const header = calm ? CALM_HEADER + (infoOf.get(g.key)?.note ? CALM_NOTE : 0) + (netsOf.has(g.key) ? CALM_CHIP_ROW : 0) : HEADER
     if (nsEnabled && g.cluster && n > 0) {
       const { w: nsW, h: nsH, boxes } = layoutNamespaces(g.items, !calm)
       return { g, w: Math.max(PAD * 2 + nsW, 248, MIN_GROUP_HEADER_WIDTH), h: header + nsH + PAD, header, children: [], nsBoxes: boxes }
@@ -642,6 +660,8 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
           mesh: o.mesh && o.view === 'application' && cl?.mesh ? groupMesh(cl.mesh) : undefined,
           localTelemetry: cl && o.groupBy === 'cluster' ? o.localOperators?.get(cl.id) : undefined,
           networking: cl && o.groupBy === 'cluster' && (cl.cni || cl.ingress) ? { cni: cl.cni, ingress: cl.ingress } : undefined,
+          networks: netsOf.get(g.key)?.map((n) => ({ id: n.id, kind: n.kind, via: n.via, text: networkSentence(n, g.cluster?.id ?? '') })),
+          peers: netsOf.has(g.key) ? peersOf(g.key) : undefined,
           stats:
             ex?.kind === 'devices'
               ? count(units, 'device')
@@ -821,7 +841,8 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   // keeps this line: no single dependency edge can stand in for the aggregate (flowsObserved/avgRttMs/
   // avgLossPct) only this line carries. A "subnet" link is never suppressed - dependencies never carry a
   // tunnelLink for one (see Dependency.tunnelLink's own doc), so there is nothing to check.
-  for (const cl of o.clusterLinks ?? []) {
+  // Calm draws none of these: membership is the box's chip and ring (see netsOf above), and a line is for traffic.
+  for (const cl of calm ? [] : o.clusterLinks ?? []) {
     const a = groupKeyOfCluster(cl.fromCluster)
     const b = groupKeyOfCluster(cl.toCluster)
     if (!a || !b || a === b) continue

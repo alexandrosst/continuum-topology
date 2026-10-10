@@ -1,9 +1,10 @@
-import { render } from '@testing-library/react'
+import { act, fireEvent, render } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { describe, expect, test } from 'vitest'
 import { Card, GroupBox } from '@/components/topology/nodes'
 import { DetailContext, type Detail } from '@/lib/detail'
 import type { CardData, GroupData } from '@/lib/graph'
+import { useCanvasFocus } from '@/store/canvasFocus'
 
 const card = (over: Partial<CardData> = {}): CardData => ({
   kind: 'service', entityId: 's1', title: 'metrics-api', subtitle: 'analytics · Deployment', meta: '×3', status: 'healthy', tier: 'cloud', clusterName: 'c1', ...over,
@@ -16,8 +17,8 @@ function renderCard(data: CardData, detail: Detail, selected = false) {
   const props = { id: 'c:s1', data, selected, type: 'card', dragging: false, zIndex: 0, isConnectable: false, positionAbsoluteX: 0, positionAbsoluteY: 0 } as never
   return render(<ReactFlowProvider><DetailContext.Provider value={detail}><Card {...props} /></DetailContext.Provider></ReactFlowProvider>)
 }
-function renderGroup(data: GroupData, detail: Detail, selected = false) {
-  const props = { id: 'g:c1', data, selected, type: 'boundary', dragging: false, zIndex: 0, isConnectable: false, positionAbsoluteX: 0, positionAbsoluteY: 0 } as never
+function renderGroup(data: GroupData, detail: Detail, selected = false, id = 'g:c1') {
+  const props = { id, data, selected, type: 'boundary', dragging: false, zIndex: 0, isConnectable: false, positionAbsoluteX: 0, positionAbsoluteY: 0 } as never
   return render(<ReactFlowProvider><DetailContext.Provider value={detail}><GroupBox {...props} /></DetailContext.Provider></ReactFlowProvider>)
 }
 
@@ -107,5 +108,55 @@ describe('Calm cluster box', () => {
     expect(waiting(container)).toEqual([])
     expect(container.textContent).toContain('GKE · Frankfurt')
     expect(container.textContent).toContain('Cloud')
+  })
+})
+
+describe('Calm network chips', () => {
+  const networks = [{ id: 'subnet:10.30.0.0/16', kind: 'subnet' as const, via: '10.30.0.0/16', text: 'Shares subnet 10.30.0.0/16 with polaris-edge' }]
+  const reset = () => act(() => useCanvasFocus.setState({ hover: null, pinned: null, network: null }))
+  const ring = (c: HTMLElement) => c.querySelector('[class*="inset_0_0_0_2px_color-mix"]')
+
+  test('a box on a network says so with one quiet chip, readable by name; Full draws none', () => {
+    reset()
+    const calm = renderGroup(group({ networks }), 'calm')
+    expect(calm.getByRole('button', { name: 'Shares subnet 10.30.0.0/16 with polaris-edge' })).toHaveTextContent('10.30.0.0/16')
+    calm.unmount()
+    expect(renderGroup(group({ networks }), 'full').container.querySelectorAll('[data-testid="network-chip"]')).toHaveLength(0)
+  })
+
+  test('more than two networks fold into a count that names the rest', () => {
+    const many = ['a', 'b', 'c', 'd'].map((x) => ({ id: `overlay:${x}`, kind: 'overlay' as const, via: x, text: `On overlay ${x}` }))
+    const { getAllByTestId, getByText } = renderGroup(group({ networks: many }), 'calm')
+    expect(getAllByTestId('network-chip')).toHaveLength(2)
+    expect(getByText('+2')).toHaveAttribute('title', 'On overlay c\nOn overlay d')
+  })
+
+  test('lighting a chip rings every box on that network, by pointer or by keyboard focus, and only those', () => {
+    reset()
+    const member = renderGroup(group({ networks }), 'calm')
+    const stranger = renderGroup(group(), 'calm', false, 'g:other')
+    expect(ring(member.container)).toBeNull()
+    fireEvent.pointerEnter(member.getByTestId('network-chip'))
+    expect(ring(member.container)).not.toBeNull()
+    expect(ring(stranger.container)).toBeNull()
+    fireEvent.pointerLeave(member.getByTestId('network-chip'))
+    expect(ring(member.container)).toBeNull()
+    fireEvent.focus(member.getByTestId('network-chip'))
+    expect(useCanvasFocus.getState().network).toBe(networks[0].id)
+    reset()
+  })
+
+  test('hovering or selecting a box rings the boxes that share a network with it, never itself', () => {
+    reset()
+    const peer = renderGroup(group({ peers: ['g:c1'] }), 'calm', false, 'g:c2')
+    const self = renderGroup(group({ peers: ['g:c2'] }), 'calm', false, 'g:c1')
+    act(() => useCanvasFocus.getState().setHover('g:c1'))
+    expect(ring(peer.container)).not.toBeNull()
+    expect(ring(self.container)).toBeNull()
+    act(() => useCanvasFocus.getState().setHover(null))
+    expect(ring(peer.container)).toBeNull()
+    act(() => useCanvasFocus.getState().setPinned('g:c1'))
+    expect(ring(peer.container)).not.toBeNull()
+    reset()
   })
 })

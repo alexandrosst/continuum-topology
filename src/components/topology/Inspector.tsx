@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { ChevronDown, ChevronUp, Pencil, X } from 'lucide-react'
+import { Cable, ChevronDown, ChevronUp, Network, Pencil, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckLine } from '@/components/discovery/AgentParts'
@@ -23,7 +23,9 @@ import { useConn, useServer } from '@/store/server'
 import { useRawTopology, useTopology } from '@/store/topology'
 import { bytesPerSec, bytesTotal, isObserved, trafficSummary } from '@/lib/observed'
 import { clusterLoad, lossBand, nodeLoad, pathQuality, rttLabel } from '@/lib/metrics'
-import { useClusterPairConnectivity, usePaths } from '@/store/topology'
+import { useClusterLinks, useClusterPairConnectivity, usePaths } from '@/store/topology'
+import { useCanvasFocus } from '@/store/canvasFocus'
+import { buildNetworks as networksOf, networkWord } from '@/lib/networks'
 import { connectionVerdict, meshName, MTLS_WORDS, proxyWords, VERDICT_COLOR } from '@/lib/mesh'
 import type { PlatformModel } from '@/lib/platformLayer'
 import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Evidence, type ExternalEndpoint, type ExternalKind, type OverrideMeta, type Provenance, type Resources, type Tier } from '@/lib/types'
@@ -331,6 +333,8 @@ export default function Inspector({
   const [peek, setPeek] = useState(false)
   const measured = usePaths()
   const clusterPairConnectivity = useClusterPairConnectivity()
+  const clusterLinks = useClusterLinks()
+  const setNetwork = useCanvasFocus((s) => s.setNetwork)
   const publicIpFallbackOn = useServer((s) => s.info?.geoip?.publicIpFallback)
   // Id -> node, built once per `nodes` change instead of fresh on every render just to resolve the one or
   // two nodes a selected dependency's caller-interface lookup actually needs (see callerIfaceSpeedMbps below).
@@ -496,6 +500,26 @@ export default function Inspector({
         <Section title="Load">
           {ns.length > 0 || ws.length > 0 ? <LoadMeters load={clusterLoad(c, ns, ws)} /> : <p className="text-sm text-nb-500">Nothing reported yet.</p>}
         </Section>
+        {(() => {
+          // The same networks the canvas chips name, in words, with who else is on them; hovering one lights those clusters on the canvas.
+          const mine = networksOf(clusterLinks).filter((n) => n.members.some((m) => m.id === c.id))
+          return mine.length > 0 && (
+            <Section title={`Networks (${mine.length})`}>
+              {mine.map((n) => (
+                <div key={n.id} className="mb-2.5 last:mb-0" data-testid="inspector-network" onPointerEnter={() => setNetwork(n.id)} onPointerLeave={() => setNetwork(null)}>
+                  <div className="flex items-center gap-1.5 px-2 text-sm text-nb-300">
+                    {n.kind === 'overlay' ? <Cable size={ICON_SM} className="shrink-0 text-info" aria-hidden="true" /> : <Network size={ICON_SM} className="shrink-0 text-info" aria-hidden="true" />}
+                    <span>{networkWord(n.kind)}</span>
+                    <span className="truncate text-nb-500" title={n.via}>{n.via}</span>
+                  </div>
+                  {n.members.filter((m) => m.id !== c.id).map((m) => (
+                    <LinkRow key={m.id} label={m.name} sub={n.kind === 'overlay' ? 'same overlay' : 'same subnet'} onClick={() => onSelect({ kind: 'cluster', id: m.id })} />
+                  ))}
+                </div>
+              ))}
+            </Section>
+          )
+        })()}
         {(() => {
           // Every cluster pair c has SOME relationship with (a confirmed ClusterLink, or observed
           // cross-cluster traffic) - a strict superset of the old "Cluster links" section, which only
