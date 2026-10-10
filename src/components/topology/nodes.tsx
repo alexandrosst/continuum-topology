@@ -70,6 +70,9 @@ const useFar = () => useStore((s) => s.transform[2] < FAR_ZOOM)
 
 /** The state colours of a problem card or cluster: the same two the status dot and the rest of the app use. */
 const ALERT_COLOR: Record<Alert, string> = { warn: STATUS_COLOR.degraded, bad: STATUS_COLOR.offline }
+/** What a problem's words are drawn in: the theme's own text steps (amber and red that hold 4.5:1 on a light surface as well as a dark one), not the
+ *  vivid fills the tint, the border and the dot use. */
+const ALERT_TEXT: Record<Alert, string> = { warn: 'text-warn', bad: 'text-bad' }
 const TONE = { good: 'bg-ok/10 text-ok', warn: 'bg-warn/10 text-warn', bad: 'bg-bad/10 text-bad' } as const
 const MESH_TONE = { in: 'bg-ok/10 text-ok', control: 'bg-violet-400/10 text-violet-300', out: 'bg-nb-900 text-nb-400' } as const
 // The shared "neutral gray, no particular status" tone - used by both the networking badge and a card's
@@ -328,7 +331,7 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
             </div>
           )}
           {!far && alert && data.note && (
-            <div className="mt-0.5 truncate pl-4 text-[11px]" style={{ color: ALERT_COLOR[alert] }} data-testid="box-note">{data.note}</div>
+            <div className={clsx('mt-0.5 truncate pl-4 text-[11px]', ALERT_TEXT[alert])} data-testid="box-note">{data.note}</div>
           )}
           {!far && data.networks && <NetworkChips networks={data.networks} />}
         </div>
@@ -573,7 +576,7 @@ function CalmCard({ data, selected }: NodeProps<CardNode>) {
           <span className={clsx('shrink-0 rounded-full', far ? 'size-3' : 'size-2')} style={{ background: STATUS_COLOR[data.status] }} title={data.status} />
         </div>
         {!far && alert && data.note && (
-          <div className="-mt-0.5 truncate pl-11 text-[11px]" style={{ color: tone }} data-testid="card-note">{data.note}</div>
+          <div className={clsx('-mt-0.5 truncate pl-11 text-[11px]', ALERT_TEXT[alert])} data-testid="card-note">{data.note}</div>
         )}
         {more && (
           <div className={clsx('flex-col gap-1.5 pb-1 pt-1.5', out ? 'flex' : QUIET)}>
