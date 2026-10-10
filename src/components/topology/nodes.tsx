@@ -28,6 +28,7 @@ import {
 import { ICON_MD, ICON_SM, TIER_ICON } from '@/components/ui/primitives'
 import { createElement, memo, useCallback, useContext, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import { PodPopover, PodRail } from '@/components/topology/Pods'
+import { NodeFace } from '@/components/topology/NodeFace'
 import { LoadRow } from '@/components/topology/Load'
 import { peakLoad } from '@/lib/metrics'
 import { DistroIcon, Flag } from '@/components/ui/brand'
@@ -261,7 +262,7 @@ function NetworkChips({ networks }: { networks: NonNullable<GroupData['networks'
   const shown = networks.slice(0, NETWORK_CHIPS)
   const more = networks.slice(NETWORK_CHIPS)
   return (
-    <div className="mt-1.5 flex items-center gap-1.5 pl-4" data-testid="network-chips">
+    <div className="flex shrink-0 items-center gap-1.5" data-testid="network-chips">
       {shown.map((n) => (
         <button
           key={n.id}
@@ -342,42 +343,41 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
         </span>
       )}
       <AllHandles />
-      <div className="flex items-start justify-between gap-3 px-5 pt-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={clsx('shrink-0 rounded-full', far ? 'size-3' : 'size-2')} style={{ background: shown.color }} title={shown.word} />
-            {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
-            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
-            {far && data.networks && <NetworkPip networks={data.networks} />}
-            {far && peak !== undefined && peak >= 70 && (
-              <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
-            )}
-          </div>
-          {!far && data.place && (
-            <div className="mt-0.5 flex items-center gap-1.5 pl-4 text-xs text-nb-500">
-              {data.country && <Flag code={data.country} className="!h-2.5 !w-[15px]" />}
-              <span className="truncate" title={data.place}>{data.place}</span>
-              {data.mesh && (
+      <div className="px-4 pt-3">
+        <NodeFace
+          state={shown.state}
+          far={far}
+          nameSize="box"
+          title={data.title}
+          name={data.title}
+          tileLabel={kindLabel}
+          tile={<Glyph size={ICON_SM} aria-hidden="true" />}
+          tileStyle={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }}
+          meta={
+            data.place && (
+              <>
+                {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
+                {data.country && <Flag code={data.country} className="!h-2.5 !w-[15px]" />}
+                <span className="min-w-0 truncate" title={data.place}>{data.place}</span>
+              </>
+            )
+          }
+          note={alert && data.note ? <span className={clsx('min-w-0 truncate', far && 'fine', ALERT_TEXT[alert])} title={data.note} data-testid="box-note">{data.note}</span> : undefined}
+          trailing={
+            <>
+              {far && data.networks && <NetworkPip networks={data.networks} />}
+              {far && peak !== undefined && peak >= 70 && (
+                <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
+              )}
+              {!far && data.mesh && (
                 <Badge tone={TONE[data.mesh.tone]} dense title={data.mesh.title} data-testid="mesh-badge">
                   {data.mesh.label}
                 </Badge>
               )}
-            </div>
-          )}
-          {alert && data.note && (
-            <div className={clsx('fine mt-0.5 truncate pl-4', ALERT_TEXT[alert])} title={data.note} data-testid="box-note">{data.note}</div>
-          )}
-          {!far && data.networks && <NetworkChips networks={data.networks} />}
-        </div>
-        <span
-          role="img"
-          aria-label={kindLabel}
-          title={kindLabel}
-          className="grid size-6 shrink-0 place-items-center rounded-full"
-          style={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }}
-        >
-          <Glyph size={ICON_SM} aria-hidden="true" />
-        </span>
+              {!far && data.networks && <NetworkChips networks={data.networks} />}
+            </>
+          }
+        />
       </div>
     </div>
   )
@@ -587,33 +587,38 @@ function CalmCard({ data, selected }: NodeProps<CardNode>) {
       {/* The surface is at least the card's own box and grows downward over the gap when it has more to show. */}
       <div
         className={clsx(
-          'group/card absolute inset-x-0 top-0 min-h-full rounded-xl border bg-nb-925 px-3.5 py-[7px] transition-colors',
+          'group/card absolute inset-x-0 top-0 min-h-full rounded-xl border bg-nb-925 px-2 py-[7px] transition-colors',
           selected ? 'border-nb-100 shadow-[inset_0_0_0_1px_var(--color-nb-100)]' : alert ? '' : 'border-nb-800 hover:border-nb-700',
         )}
         title={alert && data.note ? `${data.title}: ${data.note}` : undefined}
         style={tone && !selected ? { borderColor: `color-mix(in srgb, ${tone} 70%, transparent)`, background: `color-mix(in srgb, ${tone} 7%, var(--color-nb-925))` } : undefined}
       >
-        <div className="flex h-9 items-center gap-3">
-          <div className="grid size-8 shrink-0 place-items-center rounded-lg" style={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}>
-            {createElement(iconOf(data), { size: ICON_SM })}
-          </div>
-          <div className="min-w-0 flex-1">
-            {isMachine ? (
+        <NodeFace
+          state={shown.state}
+          far={far}
+          title={data.title}
+          name={
+            isMachine ? (
+              // A machine name is often a long generated one whose start and end both matter, so the middle goes, not the end; the full name
+              // stays in the tooltip and for screen readers.
               <>
-                <span className={clsx('block truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title} aria-hidden="true">{middleTruncate(data.title, far ? 15 : 24)}</span>
+                <span aria-hidden="true">{middleTruncate(data.title, far ? 15 : 24)}</span>
                 <span className="sr-only">{data.title}</span>
               </>
             ) : (
-              <span className={clsx('block truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title}>{data.title}</span>
-            )}
-            {far && data.clusterTag && <div className="truncate text-[14px] leading-4 text-nb-500">{data.clusterTag}</div>}
-          </div>
-          {!far && data.kind === 'device' && data.meta && <span className="shrink-0 text-[11px] text-nb-500" title="Devices in this group">{data.meta}</span>}
-          <span className={clsx('shrink-0 rounded-full', far ? 'size-3' : 'size-2')} style={{ background: shown.color }} title={shown.word} />
-        </div>
-        {alert && data.note && (
-          <div className={clsx('fine -mt-0.5 truncate pl-11', ALERT_TEXT[alert])} title={data.note} data-testid="card-note">{data.note}</div>
-        )}
+              data.title
+            )
+          }
+          tile={createElement(iconOf(data), { size: ICON_SM })}
+          tileStyle={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}
+          note={alert && data.note ? <span className={clsx('min-w-0 truncate', far && 'fine', ALERT_TEXT[alert])} title={data.note} data-testid="card-note">{data.note}</span> : undefined}
+          trailing={
+            <>
+              {far && data.clusterTag && <span className="truncate text-[14px] text-nb-500">{data.clusterTag}</span>}
+              {!far && data.kind === 'device' && data.meta && <span className="shrink-0 text-[11px] text-nb-500" title="Devices in this group">{data.meta}</span>}
+            </>
+          }
+        />
         {more && (
           <div className={clsx('flex-col gap-1.5 pb-1 pt-1.5', out ? 'flex' : QUIET)}>
             <BadgeRow data={data} calm />

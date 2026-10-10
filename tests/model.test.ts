@@ -17,7 +17,7 @@ import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasuremen
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
 import { alertOfLoad, alertOfPods, alertOfStatus, worstAlert, parseDetail, resolveDetail } from '../src/lib/detail'
-import { applyGraphUpdate, APP_CARD, CALM_CARD_H, CALM_HEADER, CALM_NOTE, sameLayout, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
+import { applyGraphUpdate, APP_CARD, CALM_CARD, CALM_CARD_H, CALM_HEADER, sameLayout, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { buildNetworks, networkSentence } from '../src/lib/networks'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
@@ -1617,7 +1617,7 @@ test('service card: cards sharing a packed row are all as tall as the row\'s tal
   assert.equal(orch.position.y, gw.position.y, 'both start at the same top')
 })
 
-test('calm detail: a card that is fine is small, a card with a problem adds one line saying what, and no card is stretched to its row-mate', () => {
+test('calm detail: every card is the one size, a card with a problem says what inside it, and no card is stretched to its row-mate', () => {
   const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
   const old = new Date(Date.now() - 20 * 60 * 1000).toISOString()
   const fine = { ...seed, services: seed.services.map((s) => ({ ...s, status: 'healthy' as const, pods: undefined, readyReplicas: undefined })) }
@@ -1628,16 +1628,17 @@ test('calm detail: a card that is fine is small, a card with a problem adds one 
   const full = buildGraph(fine, { ...opts, detail: 'full' })
   assert.ok(full.nodes.filter((n) => n.type === 'card').every((n) => Number(n.style?.height) === APP_CARD.h), 'Full keeps the card it always was')
   assert.equal(Number(buildGraph(fine, opts).nodes.find((n) => n.type === 'card')!.style?.height), APP_CARD.h, 'no choice made is the old canvas')
-  // One workload goes bad: its card adds the line that says so; its row-mate keeps its own small height, top-aligned with it.
+  // One workload goes bad: its card says so on the line under its name and keeps the one size, so a problem never moves what is around it.
   const bad = { ...fine, services: fine.services.map((s) => (s.id === 'w-gw' ? { ...s, status: 'degraded' as const } : s)) }
   const g = buildGraph(bad, { ...opts, detail: 'calm' })
   const gw = g.nodes.find((n) => n.id === cardId('w-gw'))!
   assert.equal(gw.data.alert, 'warn')
   assert.equal(gw.data.note, 'Degraded')
-  assert.equal(Number(gw.style?.height), CALM_CARD_H + CALM_NOTE)
+  assert.equal(Number(gw.style?.height), CALM_CARD_H, 'the line fits inside the card')
+  assert.equal(Number(gw.style?.width), CALM_CARD.w)
   const orch = g.nodes.find((n) => n.id === cardId('w-orch'))!
   assert.equal(orch.data.alert, undefined)
-  assert.equal(Number(orch.style?.height), CALM_CARD_H, 'a fine card next to a problem one is not stretched into an empty box')
+  assert.equal(Number(orch.style?.height), CALM_CARD_H, 'a fine card next to a problem one is the same card')
   assert.equal(orch.position.y, gw.position.y, 'but both start at the same top')
   // Pods that are not all ready are a warning on their own, a crash loop is worse, and the line names them.
   const pods = (ready: boolean, phase = 'Running', restarts = 0) => [{ name: 'gw-1', nodeId: 'n-c2', phase, ready, restarts, createdAt: old }]
@@ -1648,7 +1649,7 @@ test('calm detail: a card that is fine is small, a card with a problem adds one 
   assert.equal(withPods(pods(true, 'Running', 5)).data.note, '1 crash-looping')
 })
 
-test('calm detail: a cluster box says only what is wrong with itself, in words, and keeps a shorter header than Full', () => {
+test('calm detail: a cluster box says only what is wrong with itself, in words, on the one line of its header, and keeps a shorter header than Full', () => {
   const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
   const fine = { ...seed, clusters: seed.clusters.map((c) => ({ ...c, status: 'healthy' as const })), services: seed.services.map((s) => ({ ...s, status: 'healthy' as const, readyReplicas: undefined })), nodes: seed.nodes.map((n) => ({ ...n, status: 'healthy' as const, requested: undefined, podCount: undefined })) }
   const quiet = buildGraph(fine, { ...opts, detail: 'calm' })
@@ -1661,15 +1662,44 @@ test('calm detail: a cluster box says only what is wrong with itself, in words, 
   const home = g.nodes.find((n) => n.id === groupId(down.services[0].clusterId))!
   assert.equal(home.data.alert, undefined)
   assert.equal((home.data as { status?: string }).status, 'offline')
-  // A cluster that is down itself says so, and its header grows by that line.
+  // A cluster that is down itself says so, on the line under its name: the header is the same slot either way.
   const offline = { ...fine, clusters: fine.clusters.map((c, i) => (i === 0 ? { ...c, status: 'offline' as const } : c)) }
   const og = buildGraph(offline, { ...opts, detail: 'calm' })
   const box = og.nodes.find((n) => n.id === groupId(offline.clusters[0].id))!
   assert.equal(box.data.alert, 'bad')
   assert.equal((box.data as { note?: string }).note, 'Offline')
   const firstCard = og.nodes.find((n) => n.type === 'card' && n.parentId === box.id)!
-  assert.equal(firstCard.position.y, CALM_HEADER + CALM_NOTE)
+  assert.equal(firstCard.position.y, CALM_HEADER, 'the header does not grow for a note')
   assert.ok(CALM_HEADER < HEADER, 'Calm needs less header than Full')
+})
+
+test('calm detail: one grid - every card the same size, boxes of a row the same size, cards in a box on the 8px grid and clear of each other', () => {
+  for (const view of ['application', 'infrastructure'] as const) {
+    const g = buildGraph(seed, { view, groupBy: 'cluster', servicesOnNodes: false, links: true, devices: true, detail: 'calm' })
+    const cards = g.nodes.filter((n) => n.type === 'card' && n.data.kind !== 'machine')
+    const sizes = new Set((view === 'application' ? cards : g.nodes.filter((n) => n.type === 'card')).map((n) => `${n.style?.width}x${n.style?.height}`))
+    assert.equal(sizes.size, 1, `${view}: every card is the one size, got ${[...sizes].join(', ')}`)
+    assert.ok(sizes.has(`${CALM_CARD.w}x${CALM_CARD_H}`))
+    const boxes = g.nodes.filter((n) => n.type === 'boundary')
+    const rows = new Map<number, typeof boxes>()
+    for (const b of boxes) rows.set(b.position.y, [...(rows.get(b.position.y) ?? []), b])
+    for (const [y, row] of rows) {
+      assert.equal(new Set(row.map((b) => b.style?.width)).size, 1, `${view}: boxes on the row at y=${y} share a width`)
+      assert.equal(new Set(row.map((b) => b.style?.height)).size, 1, `${view}: ...and a height`)
+    }
+    for (const b of boxes) {
+      const inside = g.nodes.filter((n) => n.parentId === b.id)
+      for (const c of inside) {
+        assert.equal(c.position.x % 4, 0, `${view}: ${c.id} sits on the grid (x=${c.position.x})`)
+        assert.ok(c.position.y >= CALM_HEADER, 'cards start below the header slot')
+      }
+      for (const a of inside) for (const c of inside) {
+        if (a.id >= c.id) continue
+        const apart = a.position.x + Number(a.style?.width) <= c.position.x || c.position.x + Number(c.style?.width) <= a.position.x || a.position.y + Number(a.style?.height) <= c.position.y || c.position.y + Number(c.style?.height) <= a.position.y
+        assert.ok(apart, `${view}: ${a.id} and ${c.id} do not overlap`)
+      }
+    }
+  }
 })
 
 test('calm detail: the alert helpers rank status, pods and load the way the rest of the app does', () => {
@@ -1697,12 +1727,12 @@ test('calm detail: a machine under pressure says which resource in one line; one
   const machines = g.nodes.filter((n) => n.data.kind === 'machine')
   assert.ok(machines.length > 2)
   assert.ok(machines.some((n) => !n.data.alert && Number(n.style?.height) === CALM_CARD_H), 'a machine that is fine is the small card')
-  assert.ok(machines.filter((n) => n.data.alert).every((n) => Number(n.style?.height) === CALM_CARD_H + CALM_NOTE && !!(n.data as { note?: string }).note), 'one under pressure adds its line')
+  assert.ok(machines.filter((n) => n.data.alert).every((n) => Number(n.style?.height) === CALM_CARD_H && !!(n.data as { note?: string }).note), 'one under pressure says so inside the same card')
   const down = { ...calmed, nodes: calmed.nodes.map((n, i) => (i === 0 ? { ...n, status: 'offline' as const } : n)) }
   const loud = buildGraph(down, opts).nodes.find((n) => n.id === cardId(down.nodes[0].id))!
   assert.equal(loud.data.alert, 'bad')
   assert.equal((loud.data as { note?: string }).note, 'Offline')
-  assert.equal(Number(loud.style?.height), CALM_CARD_H + CALM_NOTE)
+  assert.equal(Number(loud.style?.height), CALM_CARD_H)
   const pressed = { ...calmed, nodes: calmed.nodes.map((n, i) => (i === 0 ? { ...n, allocatable: { cpu: 10, memoryGb: 10 }, requested: { cpu: 3, memoryGb: 9.2 } } : n)) }
   const hot = buildGraph(pressed, opts).nodes.find((n) => n.id === cardId(pressed.nodes[0].id))!
   assert.equal((hot.data as { note?: string }).note, 'Memory 92% requested')
@@ -1738,7 +1768,7 @@ test('calm detail: network membership is a fact on the boxes (chips, members), n
   assert.ok(full.edges.some((e) => e.data?.clusterLink), 'Full is as it was')
   assert.equal((full.nodes.find((n) => n.id === groupId('cl-cloud'))!.data as { networks?: unknown }).networks, undefined)
   const header = (g: typeof calm, id: string) => Number(g.nodes.find((n) => n.id === groupId(id))!.style?.height)
-  assert.ok(header(calm, 'cl-cloud') > header(buildGraph(seed, { ...opts, detail: 'calm' }), 'cl-cloud'), 'a box with a network chip has room for the chip row')
+  assert.equal(header(calm, 'cl-cloud'), header(buildGraph(seed, { ...opts, detail: 'calm' }), 'cl-cloud'), 'the chips sit on the header line, so a network does not make its box taller')
 })
 
 test('cluster links: a confirmed overlay/subnet edge is drawn directly between the two clusters, with no arrowhead', () => {

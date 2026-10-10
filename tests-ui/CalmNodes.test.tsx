@@ -36,9 +36,9 @@ describe('Calm card', () => {
   const pods = { total: 3, ready: 3, warn: 0, bad: 0, nodes: 1, rail: [{ id: 'a', label: 'a', state: 'ready', recent: false, restarts: 0, age: '3d', title: 'a' }], overflow: 0, groups: [] } as unknown as CardData['pods']
 
   test('a card that is fine is its name and its status: the kind, namespace and replicas are the Inspector\'s', () => {
-    const { container, getByTitle } = renderCard(card(), 'calm')
+    const { container, getByRole } = renderCard(card(), 'calm')
     expect(container.textContent).toContain('metrics-api')
-    expect(getByTitle('healthy')).toBeInTheDocument()
+    expect(getByRole('img', { name: 'Healthy' })).toBeInTheDocument()
     expect(container.querySelector('[data-alert]')).toBeNull()
     expect(container.textContent).not.toContain('analytics')
     expect(container.textContent).not.toContain('×3')

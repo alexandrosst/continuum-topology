@@ -167,6 +167,8 @@ export type EdgeData = {
    *  (ingress, node port or load balancer) to reach it at all. See makeEdge's own doc for why this is
    *  meaningless for a same-cluster call. */
   route?: 'direct' | 'gateway'
+  /** Calm: which of up to five tracks (-2..2) of a gutter this bundle line runs on, so two lines that share a gutter are two lines and not one. */
+  track?: number
   /** Pixels to shift this line's source end sideways (perpendicular to the caller->callee line). */
   sourceOffset?: number
   /** Pixels to shift this line's target end sideways (perpendicular to the caller->callee line). Independent from sourceOffset, so a line can fan out at a busy node while still landing cleanly at a quiet one. */
@@ -319,7 +321,7 @@ const GAP_Y = 44
 const GROUP_GAP_X = 64
 const ROW_GAP = 150
 /** Calm rows sit closer: the lines between boxes run in the gap, which only needs room for a lane and a label. */
-const CALM_ROW_GAP = 96
+const CALM_ROW_GAP = 72
 // Widened from 244/248 per the UI/UX pass: several common service/device names ("inference-regional",
 // "stream-aggregator", "Vibration sensor") were truncating hard even with visible slack around the card -
 // the icon, status dot, and optional meta/hint column on the right all eat into the title's real estate
@@ -329,12 +331,23 @@ const CALM_ROW_GAP = 96
 // arbitrary name, which is exactly why the native `title=` tooltip (added in an earlier pass) exists as the
 // fallback rather than chasing zero truncation by growing every card to accommodate the longest outlier.
 export const APP_CARD = { w: 300, h: 68 }
-/** Calm: what a card that is fine needs - its icon, name and status dot. What a hover reveals is drawn over the gap below it. */
-export const CALM_CARD_H = 52
-/** The line of a card or box that says what is wrong with it, in Calm. */
-export const CALM_NOTE = 16
-/** Calm cluster boxes need less header than Full: a name and, under it, where it is (and a line when something is wrong). */
-export const CALM_HEADER = 68
+/* Calm lays everything on one 8px grid: every card is the same size, whatever it says (its name, and under it the one line that says what is
+   wrong when something is), every box has the same header slot, and boxes that share a row share a width and a height. */
+/** The one card of the Calm canvas: a 32px icon tile between two 8px margins, and wide enough for a name like "event-aggregator" at the size the zoomed-out canvas draws it. A problem's line fits inside it, so a card never changes height. */
+export const CALM_CARD = { w: 304, h: 48 }
+export const CALM_CARD_H = CALM_CARD.h
+/** A box's header: the same anatomy as a card (tile, name, one line, status), then 16px of air before the first row of cards. */
+export const CALM_HEADER = 64
+const CALM_PAD = 16
+const CALM_GAP_X = 40
+const CALM_GAP_Y = 24
+/** A Calm row wraps rather than grow wider than this. */
+const CALM_ROW_MAX = 1440
+const CALM_BOX_GAP = 64
+/** Two columns of cards in a box at most: a box with more cards grows taller, so every box can share one width and the gaps between boxes line up from row to row. */
+const CALM_COLS = 2
+/** A box is never narrower than this, so its header has room for a name, a network chip and a status mark however few cards it holds. */
+const CALM_MIN_W = 416
 // A card that lists the services on a machine (a choice made in Options) keeps them in view: 10px of padding, then the chip rows.
 const CALM_BLOCK = 10
 const CALM_CHIP_ROW = 24
@@ -401,14 +414,21 @@ interface Placed {
   /** Where the first row of cards starts: below the box's own header. */
   header: number
   children: PlacedChild[]
+  /** The width of what is inside, before the box is widened to match its row. */
+  inner: number
   /** Set instead of (never alongside) `children` when this group nests its items under namespace sub-boxes. */
   nsBoxes?: NsBox[]
 }
 
+/** The room cards are laid out in: Full's wide gaps and four columns, or Calm's grid. */
+interface Grid { pad: number; gapX: number; gapY: number; maxCols: number }
+const FULL_GRID: Grid = { pad: PAD, gapX: GAP_X, gapY: GAP_Y, maxCols: 4 }
+const CALM_GRID: Grid = { pad: CALM_PAD, gapX: CALM_GAP_X, gapY: CALM_GAP_Y, maxCols: CALM_COLS }
+
 /** One row of cards, left to right, wrapping at `cols`: shared by a cluster box and a namespace sub-box. */
-function packItems(items: Item[], headerY: number, pad = PAD, stretch = true): { w: number; h: number; children: PlacedChild[] } {
+function packItems(items: Item[], headerY: number, pad = PAD, stretch = true, grid: Grid = FULL_GRID): { w: number; h: number; children: PlacedChild[] } {
   const n = items.length
-  const cols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(n))))
+  const cols = Math.max(1, Math.min(grid.maxCols, Math.ceil(Math.sqrt(n))))
   const cw = items[0]?.w ?? 0
   const children: PlacedChild[] = []
   let y = headerY
@@ -418,12 +438,12 @@ function packItems(items: Item[], headerY: number, pad = PAD, stretch = true): {
     // Full: every card in a row is as tall as the tallest, so a row reads as one band; the card keeps its header at the top
     // (see Card), so a shorter card's status dot and title stay level with its neighbours'. Calm keeps each card its own height,
     // top-aligned: a fine card next to one with a problem is not stretched into an empty box.
-    slice.forEach((item, j) => children.push({ item, x: pad + j * (cw + GAP_X), y, h: stretch ? rowH : item.h }))
-    y += rowH + GAP_Y
+    slice.forEach((item, j) => children.push({ item, x: pad + j * (cw + grid.gapX), y, h: stretch ? rowH : item.h }))
+    y += rowH + grid.gapY
   }
   const usedCols = Math.min(cols, n)
-  const w = n === 0 ? 0 : pad * 2 + usedCols * cw + (usedCols - 1) * GAP_X
-  const h = n === 0 ? headerY : y - GAP_Y + pad
+  const w = n === 0 ? 0 : pad * 2 + usedCols * cw + (usedCols - 1) * grid.gapX
+  const h = n === 0 ? headerY : y - grid.gapY + pad
   return { w, h, children }
 }
 
@@ -432,14 +452,14 @@ function packItems(items: Item[], headerY: number, pad = PAD, stretch = true): {
  * namespace first, so this does not need to sort again) and stacks the sub-boxes vertically. Every sub-box
  * gets the same width, the widest one's, so the stack reads as one aligned column rather than a jumble.
  */
-function layoutNamespaces(items: Item[], stretch: boolean): { w: number; h: number; boxes: NsBox[] } {
+function layoutNamespaces(items: Item[], stretch: boolean, grid: Grid = FULL_GRID): { w: number; h: number; boxes: NsBox[] } {
   const byNs = new Map<string, Item[]>()
   for (const it of items) {
     const key = it.namespace || 'no namespace'
     if (!byNs.has(key)) byNs.set(key, [])
     byNs.get(key)!.push(it)
   }
-  const laidOut = [...byNs.entries()].map(([namespace, its]) => ({ namespace, its, ...packItems(its, NS_HEADER, NS_PAD, stretch) }))
+  const laidOut = [...byNs.entries()].map(([namespace, its]) => ({ namespace, its, ...packItems(its, NS_HEADER, NS_PAD, stretch, grid) }))
   const w = Math.max(0, ...laidOut.map((b) => b.w))
   let y = 0
   const boxes: NsBox[] = laidOut.map((b) => {
@@ -613,30 +633,61 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   // mixes several clusters together, and infrastructure cards (nodes) have no namespace.
   const nsEnabled = o.namespaces && o.view === 'application' && o.groupBy === 'cluster'
 
-  // Calm: a shorter header (a name and where it is), taller only when the box has something to say about itself.
-  const headerOf = (g: GroupAcc) => (calm ? CALM_HEADER + (infoOf.get(g.key)?.note ? CALM_NOTE : 0) + (netsOf.has(g.key) ? CALM_CHIP_ROW : 0) : HEADER)
+  // Calm: one header slot for every box (a tile, a name and one line), whatever the box has to say. Full keeps its taller one.
+  const headerOf = () => (calm ? CALM_HEADER : HEADER)
+  const pad = calm ? CALM_PAD : PAD
+  const gapX = calm ? CALM_BOX_GAP : GROUP_GAP_X
   const layoutCards = (g: GroupAcc, header: number): Placed => {
     const n = g.items.length
     if (nsEnabled && g.cluster && n > 0) {
-      const { w: nsW, h: nsH, boxes } = layoutNamespaces(g.items, !calm)
-      return { g, w: Math.max(PAD * 2 + nsW, 248, MIN_GROUP_HEADER_WIDTH), h: header + nsH + PAD, header, children: [], nsBoxes: boxes }
+      const { w: nsW, h: nsH, boxes } = layoutNamespaces(g.items, !calm, calm ? CALM_GRID : FULL_GRID)
+      const inner = pad * 2 + nsW
+      return { g, w: Math.max(inner, 248, calm ? CALM_MIN_W : MIN_GROUP_HEADER_WIDTH), inner, h: header + nsH + pad, header, children: [], nsBoxes: boxes }
     }
-    const { w, h, children } = packItems(g.items, header, PAD, !calm)
-    return { g, w: Math.max(w || 248, 248, MIN_GROUP_HEADER_WIDTH), h: n === 0 ? header + 52 : h, header, children }
+    const { w, h, children } = packItems(g.items, header, pad, !calm, calm ? CALM_GRID : FULL_GRID)
+    return { g, w: Math.max(w || 248, 248, calm ? CALM_MIN_W : MIN_GROUP_HEADER_WIDTH), inner: w, h: n === 0 ? header + 52 : h, header, children }
   }
-  // One header slot per row: boxes side by side start their cards at the same height whichever of them has a note or a chip row to show.
-  const placedRows = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, gs]) => {
-    const slot = Math.max(...gs.map(headerOf))
-    return gs.map((g) => layoutCards(g, slot))
-  })
-  const rowWidths = placedRows.map((r) => r.reduce((s, p) => s + p.w, 0) + (r.length - 1) * GROUP_GAP_X)
+  /** Calm: boxes that share a row share a width and a height, and what is inside sits in the middle of the box, so a row is one band. */
+  const settle = (row: Placed[]): Placed[] => {
+    if (!calm) return row
+    const w = Math.max(...row.map((p) => p.w))
+    const h = Math.max(...row.map((p) => p.h))
+    return row.map((p) => {
+      const dx = Math.round((w - p.inner) / 8) * 4
+      return { ...p, w, h, children: p.children.map((c) => ({ ...c, x: c.x + dx })), nsBoxes: p.nsBoxes?.map((b) => ({ ...b, x: b.x + dx })) }
+    })
+  }
+  /** Calm: a tier with more boxes than fit side by side wraps onto another line instead of running off the screen. */
+  const wrap = (row: Placed[]): Placed[][] => {
+    if (!calm) return [row]
+    const lines: Placed[][] = [[]]
+    let used = 0
+    for (const p of row) {
+      const cur = lines[lines.length - 1]
+      if (cur.length && used + gapX + p.w > CALM_ROW_MAX) {
+        lines.push([p])
+        used = p.w
+      } else {
+        cur.push(p)
+        used += (cur.length > 1 ? gapX : 0) + p.w
+      }
+    }
+    return lines
+  }
+  // One header slot per row: boxes side by side start their cards at the same height.
+  const laid = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, gs]) => gs.map((g) => layoutCards(g, headerOf())))
+  // Calm: every box is as wide as the widest, so the gaps between boxes are in the same place on every row, and a line can run down one.
+  const colW = calm ? Math.max(CALM_MIN_W, ...laid.flat().map((p) => p.w)) : 0
+  const placedRows = laid.flatMap((r) => wrap(calm ? r.map((p) => ({ ...p, w: colW })) : r).map(settle))
+  const rowWidths = placedRows.map((r) => r.reduce((s, p) => s + p.w, 0) + (r.length - 1) * gapX)
   const maxW = Math.max(0, ...rowWidths)
 
   const nodes: TopoNode[] = []
   const abs = new Map<string, Box>() // absolute boxes by react-flow id (for edge routing)
   let y = 0
   placedRows.forEach((row, ri) => {
-    let x = (maxW - rowWidths[ri]) / 2
+    // Calm rows start at the same left edge, so the boxes are columns; Full centres each row.
+    let x = calm ? 0 : (maxW - rowWidths[ri]) / 2
     for (const p of row) {
       const { g } = p
       const gid = groupId(g.key)
@@ -696,7 +747,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
             parentId: gid,
             extent: 'parent',
             draggable: false,
-            position: { x: PAD + nb.x, y: p.header + nb.y },
+            position: { x: pad + nb.x, y: p.header + nb.y },
             style: { width: nb.w, height: nb.h },
             zIndex: 5,
             data: {
@@ -725,7 +776,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
               zIndex: 10,
               data: c.item.data,
             })
-            abs.set(c.item.id, { x: x + PAD + nb.x + c.x, y: y + p.header + nb.y + c.y, w: c.item.w, h: c.h })
+            abs.set(c.item.id, { x: x + pad + nb.x + c.x, y: y + p.header + nb.y + c.y, w: c.item.w, h: c.h })
           }
         }
       } else {
@@ -738,7 +789,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
             // margin packItems already used to lay it out, not the group box's own bare edges - otherwise a
             // drag can park a card flush against the box's left/right/bottom border, or up under the
             // cluster's own header (title, subtitle, load meter).
-            extent: [[PAD, p.header], [p.w - PAD, p.h - PAD]],
+            extent: [[pad, p.header], [p.w - pad, p.h - pad]],
             position: { x: c.x, y: c.y },
             style: { width: c.item.w, height: c.h },
             zIndex: 10,
@@ -747,7 +798,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
           abs.set(c.item.id, { x: x + c.x, y: y + c.y, w: c.item.w, h: c.h })
         }
       }
-      x += p.w + GROUP_GAP_X
+      x += p.w + gapX
     }
     y += Math.max(...row.map((p) => p.h)) + (calm ? CALM_ROW_GAP : ROW_GAP)
   })
@@ -889,7 +940,16 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
 
   spreadFanned(edges, abs)
   spreadParallel(edges)
+  if (calm) assignTracks(edges)
   return { nodes, edges }
+}
+
+/** Lines that run in the gutters take turns on five tracks, in a fixed order, so the lines of one gutter are side by side and not on top of each other. */
+function assignTracks(edges: TopoEdge[]) {
+  edges
+    .filter((e) => e.data?.aggregated)
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .forEach((e, i) => { e.data = { ...e.data!, track: (i % 5) - 2 } })
 }
 
 const lossier = (a: PathQuality | undefined, b: PathQuality | undefined) => (!b ? a : !a || b.lossPct > a.lossPct ? b : a)
@@ -1270,8 +1330,8 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string 
   const note = alert ? serviceNote(w, pods, notReady) : undefined
   return {
     id: cardId(w.id),
-    w: APP_CARD.w,
-    h: calm ? CALM_CARD_H + (note ? CALM_NOTE : 0) : APP_CARD.h + (extraRows === 2 ? 46 : extraRows === 1 ? 24 : 0),
+    w: calm ? CALM_CARD.w : APP_CARD.w,
+    h: calm ? CALM_CARD_H : APP_CARD.h + (extraRows === 2 ? 46 : extraRows === 1 ? 24 : 0),
     namespace: w.namespace,
     data: {
       kind: 'service',
@@ -1329,8 +1389,8 @@ function deviceItem(dv: Device, s: Site | undefined, withSite: boolean, calm: bo
   const alert = alertOfStatus(dv.status)
   return {
     id: cardId(dv.id),
-    w: APP_CARD.w,
-    h: calm ? CALM_CARD_H + (alert ? CALM_NOTE : 0) : APP_CARD.h,
+    w: calm ? CALM_CARD.w : APP_CARD.w,
+    h: calm ? CALM_CARD_H : APP_CARD.h,
     data: {
       kind: 'device',
       entityId: dv.id,
@@ -1351,7 +1411,7 @@ function deviceItem(dv: Device, s: Site | undefined, withSite: boolean, calm: bo
 function externalItem(e: ExternalEndpoint, calm: boolean): Item {
   return {
     id: cardId(e.id),
-    w: APP_CARD.w,
+    w: calm ? CALM_CARD.w : APP_CARD.w,
     h: calm ? CALM_CARD_H : APP_CARD.h,
     data: {
       kind: 'external',
@@ -1375,7 +1435,7 @@ function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: stri
   const hardware = n.hasBattery || nicMbps ? { hasBattery: n.hasBattery, nicMbps: nicMbps || undefined } : undefined
   return {
     id: cardId(n.id),
-    w: MACHINE_CARD.w,
+    w: calm ? CALM_CARD.w : MACHINE_CARD.w,
     // Card's own badge row (Card, in nodes.tsx) renders whenever `hardware` is set - a Battery and/or NIC
     // speed pill - the same extra row serviceItem() below already reserves height for via its own hint/
     // notReady/mesh badges. This was missing here, so a machine with a fast-NIC or battery badge got no
@@ -1383,7 +1443,7 @@ function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: stri
     // the card's own bottom border.
     // Services-on-nodes is a choice to see them, so a card that lists them keeps the room for the list.
     h: calm
-      ? CALM_CARD_H + (note ? CALM_NOTE : 0) + (chips ? CALM_BLOCK + (chipRows ? chipRows * CALM_CHIP_ROW + 5 : 25) : 0)
+      ? CALM_CARD_H + (chips ? CALM_BLOCK + (chipRows ? chipRows * CALM_CHIP_ROW + 5 : 25) : 0)
       : MACHINE_CARD.h + (hardware ? 24 : 0) + (chips ? (chipRows ? chipRows * CHIP_ROW + 14 : 26) : 0),
     data: {
       kind: 'machine',
