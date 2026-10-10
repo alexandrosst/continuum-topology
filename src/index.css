@@ -167,8 +167,6 @@ body {
    over its own cards. The reveal fades in over 120 ms; the reduced-motion rule further down turns that into a cut. */
 .react-flow__node-card:hover, .react-flow__node-card:focus-within { z-index: 1000 !important; }
 @keyframes quiet-in { from { opacity: 0; } }
-/* The pipe around an overlay cluster link is part of the focus, not of the resting canvas: it shows when the line is hovered,
-   selected or is the focus's line. !important because the edge's own opacity is set inline. */
 /* Calm, application view: the calls across two boxes are one bundle line; the calls themselves belong to the focus. A 'detail' line waits
    (hidden, so it cannot be hovered either) until the hover or selection reaches either box or either end, or it is a problem; its bundle steps
    back while they show. The short delay on the way in keeps a pointer crossing the canvas from flickering lines. */
@@ -176,6 +174,8 @@ body {
 .edge-detail.edge-lit { opacity: 1; visibility: visible; transition: opacity 140ms ease-out 80ms; }
 .edge-bundle { transition: opacity 120ms ease-out; }
 .edge-bundle.edge-lit { opacity: 0.25; transition: opacity 140ms ease-out 80ms; }
+/* The pipe around an overlay cluster link is part of the focus, not of the resting canvas: it shows when the line is hovered,
+   selected or is the focus's line. !important because the edge's own opacity is set inline. */
 .calm-pipe { opacity: 0 !important; transition: opacity 120ms ease-out; }
 .react-flow__edge:hover .calm-pipe, .react-flow__edge.selected .calm-pipe, .react-flow__edge.edge-hot .calm-pipe { opacity: 0.35 !important; }
 
@@ -305,6 +305,7 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 }

@@ -581,7 +581,8 @@ function Canvas() {
       // A bundle says how many calls it holds, once there is more than one.
       const bundleCount = calm && e.data?.aggregated && (e.data.count ?? 0) > 1 ? String(e.data.count) : undefined
       const showLabel = showLabels || hot || (calm && problem)
-      const label = e.data?.aggregated && calm ? bundleCount ?? (showLabel ? e.label : undefined) : showLabel ? e.label : undefined
+      // A bundle's label is its count and nothing else (a problem's own line carries the protocol, and the hover card says what the bundle is).
+      const label = e.data?.aggregated && calm ? bundleCount : showLabel ? e.label : undefined
       // A link that loses connection attempts is coloured by how badly; otherwise grey, or orange when it is the focus.
       const mv = e.data?.mesh
       const cl = e.data?.clusterLink
