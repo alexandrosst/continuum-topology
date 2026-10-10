@@ -1385,7 +1385,7 @@ function Canvas() {
               </NodeToolbar>
               <Panel position="bottom-left" className={clsx('hidden sm:block', calm ? 'legend-above flex-col items-start sm:!flex' : '!mb-3 !ml-16')}>
                 {legendOpen && (
-                <div id="topology-legend" className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
+                <div id="topology-legend" className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925 px-3.5 py-2 text-xs text-nb-400">
                   {/* The one status language, taught here: the same four glyphs and words every box and card carries. */}
                   <StatusKey />
                   <span className="h-3 w-px bg-nb-800" />
