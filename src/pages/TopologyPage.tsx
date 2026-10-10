@@ -18,7 +18,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
 import { toPng } from 'html-to-image'
-import { Funnel, Boxes, ChevronDown, Download, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, TriangleAlert, X } from 'lucide-react'
+import { Funnel, Boxes, ChevronDown, CircleHelp, Download, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, TriangleAlert, X } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -48,16 +48,17 @@ import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock 
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu, { FilterChip } from '@/components/topology/FilterMenu'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
-import { DetailContext, parseDetail } from '@/lib/detail'
+import { DetailContext, parseDetail, type Alert } from '@/lib/detail'
 import { narrowFitZoom } from '@/lib/fit'
 import { applyFilter, encodeList, filterActive, hopNeighborhood, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
 import { applyGraphUpdate, buildGraph, cardId, groupId, sameLayout, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
+import { readFlag, writeFlag } from '@/lib/remember'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
 import { usePlanHints } from '@/lib/placement/usePlacement'
 import { parseSel } from '@/lib/search'
-import { TIER_COLOR, TIERS, type ClusterLink, type GroupBy, type ViewKind } from '@/lib/types'
+import { STATUS_COLOR, TIER_COLOR, TIERS, type ClusterLink, type Tier, type GroupBy, type ViewKind } from '@/lib/types'
 import { useServer } from '@/store/server'
 import { useHistoryView } from '@/store/history'
 import { useClusterLinks, usePaths, useTopology } from '@/store/topology'
@@ -121,6 +122,10 @@ type FormState =
  * their own click-outside backdrop. */
 type MenuKey = 'filter' | 'views' | 'options' | 'add' | 'scope' | 'more'
 
+/** Past this many boxes and cards the minimap earns its place on a Calm canvas without being asked for. */
+const MINIMAP_NODES = 30
+const LEGEND_KEY = 'continuum:topology-legend'
+
 function Canvas() {
   const topology = useTopology()
   const { fitView, getNodes, setViewport } = useReactFlow()
@@ -156,6 +161,9 @@ function Canvas() {
   // How much the canvas says at rest: 'calm' (default) draws names and what is wrong, 'full' everything (lib/detail.ts).
   const detail = parseDetail(sp.get('detail'))
   const calm = detail === 'calm'
+  // Minimap: on for a big graph (an overview helps most there) and on Full as ever; otherwise one Options choice away.
+  // ?minimap=1 / 0 is the person's own choice and beats that default.
+  const minimapChoice = sp.get('minimap') === '1' ? true : sp.get('minimap') === '0' ? false : null
   const servicesOnNodes = sp.get('services') === '1'
   const links = sp.get('links') !== '0'
   const showDevices = sp.get('devices') !== '0'
@@ -186,7 +194,7 @@ function Canvas() {
   // The Telemetry tab's own filter: only the lanes where something needs attention or is not working.
   const problemsOnly = isTelemetry && sp.get('problems') === '1'
   // How many options differ from the defaults, so a hidden option is never a mystery.
-  const changedOptions = [detail === 'full', !showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow', !showClusterLinks, showHealthLens].filter(Boolean).length
+  const changedOptions = [detail === 'full', minimapChoice !== null, !showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow', !showClusterLinks, showHealthLens].filter(Boolean).length
   const setParam = (k: string, v: string | null) =>
     setSp((p) => {
       const n = new URLSearchParams(p)
@@ -371,6 +379,28 @@ function Canvas() {
     [shown, view, detail, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks, showClusterLinks],
   )
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
+  const autoMinimap = !calm || graph.nodes.length > MINIMAP_NODES
+  const showMinimap = minimapChoice ?? autoMinimap
+  // The legend of the Calm canvas explains what is drawn on it, so it asks what is: which tiers, which kinds of line, whether anything
+  // has a problem. Open or closed is remembered in this browser.
+  const [legendOpen, setLegendOpen] = useState(() => readFlag(LEGEND_KEY, false))
+  const toggleLegend = () => setLegendOpen((v) => { writeFlag(LEGEND_KEY, !v); return !v })
+  const onCanvas = useMemo(() => {
+    const tiers = new Set<Tier>()
+    let warn = false
+    let bad = false
+    for (const n of graph.nodes) {
+      const d = n.data as { tier?: Tier; alert?: Alert }
+      if (d.tier) tiers.add(d.tier)
+      if (d.alert === 'warn') warn = true
+      if (d.alert === 'bad') bad = true
+    }
+    const seen = graph.edges.some((e) => e.data?.observed && !e.data?.stale)
+    const notSeen = graph.edges.some((e) => !e.data?.clusterLink && !(e.data?.observed && !e.data?.stale))
+    const overlay = graph.edges.some((e) => e.data?.clusterLink?.kind === 'overlay')
+    const subnet = graph.edges.some((e) => e.data?.clusterLink?.kind === 'subnet')
+    return { tiers, warn, bad, seen, notSeen, overlay, subnet }
+  }, [graph])
 
   const [nodes, setNodes, onNodesChange] = useNodesState<TopoNode>(graph.nodes)
   const resetLayout = () => {
@@ -862,6 +892,12 @@ function Canvas() {
                   label="Cluster links"
                   title="Clusters confirmed joined by an overlay/tunnel, or sitting on the same flat subnet"
                 />
+                <Toggle
+                  checked={showMinimap}
+                  onChange={(v) => setParam('minimap', v === autoMinimap ? null : v ? '1' : '0')}
+                  label="Minimap"
+                  title="A small overview of the whole canvas in the corner. On by default for a big graph."
+                />
 
                 {/* Lenses: unlike every toggle above (which only ever decides whether something already
                     computed gets drawn), each of these changes what the canvas itself is interpreting -
@@ -1205,9 +1241,9 @@ function Canvas() {
               colorMode="dark"
             >
               <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="var(--color-nb-850)" />
-              <Controls showInteractive={false} />
+              <Controls showInteractive={false} className={calm ? 'controls-quiet' : undefined} />
               {/* Hidden while the Inspector is open: the canvas is narrower then and the map would sit on the legend. The mask is themed in index.css. */}
-              <MiniMap className={selection ? '!hidden' : '!hidden sm:!block'} pannable zoomable nodeColor={miniColor} nodeStrokeWidth={0} />
+              {showMinimap && <MiniMap className={selection ? '!hidden' : '!hidden sm:!block'} pannable zoomable nodeColor={miniColor} nodeStrokeWidth={0} />}
               {/* Follows the current selection instead of sitting in the fixed toolbar: the accent halo
                   (nodes.tsx, driven by highlightedIds above) marks *what* is selected, this sits right next
                   to it as the *action* for it - one click or box-drag, then the thing to do about it is right
@@ -1226,19 +1262,17 @@ function Canvas() {
                   onScope={telemetry.start}
                 />
               </NodeToolbar>
-              <Panel position="bottom-left" className="!mb-3 !ml-16 hidden sm:block">
-                {/* flex-wrap (plus the max-w below) lets a long legend - everything explained can be on at
-                    once: tiers, cross-group, mesh, traffic, telemetry, cluster links - wrap onto a second
-                    line on a narrower viewport or with the Inspector open, rather than running off the
-                    right edge of the canvas with no way to see the rest of it. whitespace-nowrap is kept on
-                    the row so wrapping only ever happens between entries, never mid-label. */}
-                <div className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
-                  {TIERS.map((t) => (
+              <Panel position="bottom-left" className={clsx('!mb-3 !ml-16 hidden sm:block', calm && 'flex-col items-start gap-2 sm:!flex')}>
+                {(!calm || legendOpen) && (
+                <div id="topology-legend" className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
+                  {TIERS.filter((t) => !calm || onCanvas.tiers.has(t.value)).map((t) => (
                     <span key={t.value} className="flex items-center gap-1.5">
                       <span className="size-2 rounded-full" style={{ background: TIER_COLOR[t.value] }} />
                       {t.label}
                     </span>
                   ))}
+                  {!calm && (
+                    <>
                   <span className="h-3 w-px bg-nb-800" />
                   <span
                     className="flex items-center gap-1.5"
@@ -1254,6 +1288,8 @@ function Canvas() {
                     <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#98a4ae" strokeWidth="1.5" /></svg>
                     Cross-{groupBy}
                   </span>
+                    </>
+                  )}
                   {mode === 'application' && showMesh && (
                     <>
                       <span className="h-3 w-px bg-nb-800" />
@@ -1268,15 +1304,19 @@ function Canvas() {
                   {mode === 'application' && dependencies.length > 0 && (
                     <>
                       <span className="h-3 w-px bg-nb-800" />
-                      <span className="flex items-center gap-1.5" title="Traffic was seen on this link; the thicker, the busier">
-                        <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="2.4" /></svg>
-                        Seen in traffic
-                      </span>
-                      <span className="flex items-center gap-1.5" title="Declared or entered by a person, but no traffic seen">
-                        <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.2" strokeDasharray="2 5" /></svg>
-                        Not seen
-                      </span>
-                      {graph.edges.some((e) => e.data?.via === 'conntrack' && e.data?.observed && !e.data?.stale) && (
+                      {(!calm || onCanvas.seen) && (
+                        <span className="flex items-center gap-1.5" title={calm ? 'Traffic was seen on this link' : 'Traffic was seen on this link; the thicker, the busier'}>
+                          <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth={calm ? 1.2 : 2.4} /></svg>
+                          Seen in traffic
+                        </span>
+                      )}
+                      {(!calm || onCanvas.notSeen) && (
+                        <span className="flex items-center gap-1.5" title="Declared or entered by a person, but no traffic seen">
+                          <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.2" strokeDasharray="2 5" /></svg>
+                          Not seen
+                        </span>
+                      )}
+                      {!calm && graph.edges.some((e) => e.data?.via === 'conntrack' && e.data?.observed && !e.data?.stale) && (
                         <span className="flex items-center gap-1.5" title="Seen by conntrack only - no eBPF collector on that node, so there's no byte count or retransmit data behind it, connections only">
                           <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.2" strokeDasharray="8 4" /></svg>
                           Connections only
@@ -1312,15 +1352,36 @@ function Canvas() {
                         </>
                       ) : (
                         <>
-                          <span className="flex items-center gap-1.5" title="Clusters joined through an overlay/tunnel interface - confirmed from each side's own routing data, not a guess">
-                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={CLUSTER_LINK_COLOR.overlay} strokeWidth="1.8" strokeDasharray="6 4" /></svg>
-                            Overlay link
-                          </span>
-                          <span className="flex items-center gap-1.5" title="Clusters whose nodes sit on the very same flat network segment, with no tunnel at all - confirmed from each side's own address data, not a guess">
-                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={CLUSTER_LINK_COLOR.subnet} strokeWidth="1.8" /></svg>
-                            Same subnet
-                          </span>
+                          {(!calm || onCanvas.overlay) && (
+                            <span className="flex items-center gap-1.5" title="Clusters joined through an overlay/tunnel interface - confirmed from each side's own routing data, not a guess">
+                              <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={calm ? '#8a96a0' : CLUSTER_LINK_COLOR.overlay} strokeWidth={calm ? 1.4 : 1.8} strokeDasharray="6 4" /></svg>
+                              Overlay link
+                            </span>
+                          )}
+                          {(!calm || onCanvas.subnet) && (
+                            <span className="flex items-center gap-1.5" title="Clusters whose nodes sit on the very same flat network segment, with no tunnel at all - confirmed from each side's own address data, not a guess">
+                              <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={calm ? '#8a96a0' : CLUSTER_LINK_COLOR.subnet} strokeWidth={calm ? 1.4 : 1.8} /></svg>
+                              Same subnet
+                            </span>
+                          )}
                         </>
+                      )}
+                    </>
+                  )}
+                  {calm && (onCanvas.warn || onCanvas.bad) && (
+                    <>
+                      <span className="h-3 w-px bg-nb-800" />
+                      {onCanvas.warn && (
+                        <span className="flex items-center gap-1.5" title="Not fully healthy: degraded, pods not ready, or under pressure. Its details stay on show.">
+                          <span className="size-2.5 rounded-sm border" style={{ borderColor: STATUS_COLOR.degraded, background: `color-mix(in srgb, ${STATUS_COLOR.degraded} 18%, transparent)` }} />
+                          Needs a look
+                        </span>
+                      )}
+                      {onCanvas.bad && (
+                        <span className="flex items-center gap-1.5" title="Offline, crash-looping or out of room. Its details stay on show.">
+                          <span className="size-2.5 rounded-sm border" style={{ borderColor: STATUS_COLOR.offline, background: `color-mix(in srgb, ${STATUS_COLOR.offline} 18%, transparent)` }} />
+                          Broken
+                        </span>
                       )}
                     </>
                   )}
@@ -1340,6 +1401,19 @@ function Canvas() {
                     </>
                   )}
                 </div>
+                )}
+                {calm && (
+                  <button
+                    type="button"
+                    onClick={toggleLegend}
+                    aria-expanded={legendOpen}
+                    aria-controls="topology-legend"
+                    className={clsx('flex items-center gap-1.5 rounded-lg border border-nb-850 bg-nb-925/95 px-2.5 py-1.5 text-xs text-nb-400 hover:text-nb-300', PRESS_CLASS)}
+                    data-testid="legend-toggle"
+                  >
+                    <CircleHelp size={ICON_SM} aria-hidden /> Legend
+                  </button>
+                )}
               </Panel>
             </ReactFlow>
             </EdgeStyleContext.Provider>
