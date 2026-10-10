@@ -18,11 +18,17 @@ const MIN_GAP = 2 * CLEAR + 4
 const OUTSIDE = 48
 const EDGE_ROOM = 20
 
-/** The middle of every gap between two neighbouring edges on one axis, and the outside of the lot. */
-function lanes(edges: number[], extra: number[]): number[] {
+/** The middle of every gap between two neighbouring edges on one axis, and the outside of the lot. `nudge` moves a line off the middle of each gap
+ *  (never closer than CLEAR to a box), so lines that run in the same gutter can each have a track of their own. */
+function lanes(edges: number[], extra: number[], nudge = 0): number[] {
   const sorted = [...new Set(edges.map(Math.round))].sort((a, b) => a - b)
   const out = new Set(extra.map(Math.round))
-  for (let i = 1; i < sorted.length; i++) if (sorted[i] - sorted[i - 1] >= MIN_GAP) out.add(Math.round((sorted[i] + sorted[i - 1]) / 2))
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i] - sorted[i - 1]
+    if (gap < MIN_GAP) continue
+    const room = gap / 2 - CLEAR
+    out.add(Math.round((sorted[i] + sorted[i - 1]) / 2 + Math.max(-room, Math.min(room, nudge))))
+  }
   out.add(sorted[0] - OUTSIDE)
   out.add(sorted[sorted.length - 1] + OUTSIDE)
   return [...out].sort((a, b) => a - b)
@@ -90,16 +96,17 @@ class Heap<T> {
 
 /**
  * The corners of the line from `from` to `to`: out of the side of `from` that faces `to`, along the gaps between `others`, into the side of
- * `to` that faces `from`. `fromShift`/`toShift` slide where it attaches along those sides (lines that share a side stay apart). Null when
+ * `to` that faces `from`. `fromShift`/`toShift` slide where it attaches along those sides (lines that share a side stay apart), and `nudge` slides
+ * where it runs in a gutter (lines that share a gutter stay apart). Null when
  * the boxes leave no way through (they touch, or one sits on the other), and the caller draws something simpler.
  */
-export function laneRoute(from: Rect, to: Rect, others: Rect[], fromShift = 0, toShift = 0): Pt[] | null {
+export function laneRoute(from: Rect, to: Rect, others: Rect[], fromShift = 0, toShift = 0, nudge = 0): Pt[] | null {
   if (from.x < to.x + to.w && to.x < from.x + from.w && from.y < to.y + to.h && to.y < from.y + from.h) return null
   const a = facing(from, to, fromShift)
   const b = facing(to, from, toShift)
   const walls = [...others, from, to]
-  const xs = lanes(walls.flatMap((r) => [r.x, r.x + r.w]), [a.point.x, b.point.x])
-  const ys = lanes(walls.flatMap((r) => [r.y, r.y + r.h]), [a.point.y, b.point.y])
+  const xs = lanes(walls.flatMap((r) => [r.x, r.x + r.w]), [a.point.x, b.point.x], nudge)
+  const ys = lanes(walls.flatMap((r) => [r.y, r.y + r.h]), [a.point.y, b.point.y], nudge)
   const at = (i: number, j: number): Pt => ({ x: xs[i], y: ys[j] })
   const ia = xs.indexOf(Math.round(a.point.x))
   const ja = ys.indexOf(Math.round(a.point.y))
@@ -163,6 +170,9 @@ export function laneRoute(from: Rect, to: Rect, others: Rect[], fromShift = 0, t
   })
 }
 
-/** A key that says whether two routes are the same problem, so a route is worked out once however many times a line is redrawn. */
-export const laneKey = (from: Rect, to: Rect, others: Rect[], fromShift: number, toShift: number) =>
-  [from, to, ...others].map((r) => `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.w)},${Math.round(r.h)}`).join('|') + `|${Math.round(fromShift)}|${Math.round(toShift)}`
+/** A key that says whether two routes are the same problem, so a route is worked out once however many times a line is redrawn. The boxes that are in
+ *  the way count in any order: the same canvas read from a different place in the node list is the same problem. */
+export const laneKey = (from: Rect, to: Rect, others: Rect[], fromShift: number, toShift: number, nudge = 0) => {
+  const k = (r: Rect) => `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.w)},${Math.round(r.h)}`
+  return [k(from), k(to), ...others.map(k).sort()].join('|') + `|${Math.round(fromShift)}|${Math.round(toShift)}|${Math.round(nudge)}`
+}

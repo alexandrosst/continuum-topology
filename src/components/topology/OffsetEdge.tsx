@@ -1,4 +1,4 @@
-import { BaseEdge, useInternalNode, useStore, useViewport, type EdgeProps } from '@xyflow/react'
+import { BaseEdge, EdgeLabelRenderer, useInternalNode, useStore, useViewport, type EdgeProps } from '@xyflow/react'
 import clsx from 'clsx'
 import { createContext, useContext } from 'react'
 import type { TopoEdge } from '@/lib/graph'
@@ -544,15 +544,17 @@ export function collectObstacles(
 const WORLD = { minX: -Infinity, maxX: Infinity, minY: -Infinity, maxY: Infinity }
 /** How far the end of a line stays off the box it belongs to (px). */
 const LANE_GAP = 6
+/** The distance between two lines that run in the same gutter (px). */
+const TRACK_GAP = 8
 const laneCache = new Map<string, Pt[] | null>()
 
 /** The gutter route of a line between two boxes (lib/lanes.ts), worked out once per layout however often the line is redrawn (a zoom or a
  *  hover redraws every line, the route only changes when a box moves), with its two ends held off the boxes. */
-function lanePath(from: PathObstacle, to: PathObstacle, others: PathObstacle[], fromShift: number, toShift: number): Pt[] | null {
-  const key = laneKey(from, to, others, fromShift, toShift)
+function lanePath(from: PathObstacle, to: PathObstacle, others: PathObstacle[], fromShift: number, toShift: number, nudge: number): Pt[] | null {
+  const key = laneKey(from, to, others, fromShift, toShift, nudge)
   let route = laneCache.get(key)
   if (route === undefined) {
-    route = laneRoute(from, to, others, fromShift, toShift)?.map((p) => ({ ...p })) ?? null
+    route = laneRoute(from, to, others, fromShift, toShift, nudge)?.map((p) => ({ ...p })) ?? null
     if (route) {
       const pull = (p: Pt, q: Pt): Pt => ({ x: p.x + Math.sign(q.x - p.x) * LANE_GAP, y: p.y + Math.sign(q.y - p.y) * LANE_GAP })
       route[0] = pull(route[0], route[1])
@@ -697,7 +699,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   const focused = useCanvasFocus((s) => focusedBy(s, focusIds))
   const lit = focused || (data?.role === 'detail' && !!data.revealed)
   // Calm: a line that stands for several (a bundle, or the link between two clusters) runs in the gutters between boxes, never across one.
-  const lane = calm && data?.aggregated && sourceBox && targetBox ? lanePath(sourceBox, targetBox, collectObstacles(nodeLookup, source, target, WORLD, ['boundary']), sourceOff, targetOff) : null
+  const lane = calm && data?.aggregated && sourceBox && targetBox ? lanePath(sourceBox, targetBox, collectObstacles(nodeLookup, source, target, WORLD, ['boundary']), sourceOff, targetOff, (data.track ?? 0) * TRACK_GAP) : null
   const laneAt = lane && longestRun(lane)
   const { path, labelX, labelY } = lane
     ? { path: roundedPolylinePath(lane, 14), labelX: laneAt!.x, labelY: laneAt!.y }
@@ -730,16 +732,29 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
         path={path}
         labelX={labelX}
         labelY={labelY}
-        label={label}
-        labelStyle={calm ? { ...labelStyle, fontSize: 11 / zoom } : labelStyle}
+        label={calm ? undefined : label}
+        labelStyle={labelStyle}
         labelShowBg={labelShowBg}
         labelBgStyle={labelBgStyle}
-        labelBgPadding={calm ? [6 / zoom, 3 / zoom] : labelBgPadding}
-        labelBgBorderRadius={calm ? 4 / zoom : labelBgBorderRadius}
+        labelBgPadding={labelBgPadding}
+        labelBgBorderRadius={labelBgBorderRadius}
         markerEnd={markerEnd}
         style={style}
         interactionWidth={calm ? 20 / zoom : interactionWidth}
       />
+      {calm && label && (
+        // Calm names a line with a pill in the layer above every line (an SVG label is painted with its own line, so a line drawn after it strikes
+        // it through), opaque so no line shows through, and the same size on screen at every zoom.
+        <EdgeLabelRenderer>
+          <div
+            data-testid="edge-pill"
+            className="edge-pill nodrag nopan"
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px) scale(${1 / zoom})`, color: labelStyle?.fill, opacity: labelStyle?.opacity }}
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
     </g>
   )
 }
