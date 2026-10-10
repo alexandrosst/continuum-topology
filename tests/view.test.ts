@@ -208,6 +208,12 @@ test('hopNeighborhood: keeps walking transitively, and narrows every collection 
   assert.ok(two.nodes.every((n) => keptNodeIds.has(n.id)))
 })
 
+test('a saved view that still carries detail= or minimap= opens, and the two are neither described nor written back', () => {
+  assert.equal(viewParams('view=application&detail=full&minimap=1'), '')
+  assert.equal(viewParams('view=infrastructure&detail=calm&clusters=a'), 'clusters=a&view=infrastructure')
+  assert.doesNotMatch(describeView('view=application&detail=full&minimap=1'), /detail|minimap/i)
+})
+
 if (failed) {
   console.log(`${failed} failed`)
   process.exit(1)
