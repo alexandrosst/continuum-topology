@@ -28,7 +28,6 @@ import {
 import { ICON_MD, ICON_SM, TIER_ICON } from '@/components/ui/primitives'
 import { createElement, memo, useCallback, useContext, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import { PodPopover, PodRail } from '@/components/topology/Pods'
-import { NodeFace } from '@/components/topology/NodeFace'
 import { StatusMark } from '@/components/topology/StatusMark'
 import { LoadRow } from '@/components/topology/Load'
 import { peakLoad } from '@/lib/metrics'
@@ -36,7 +35,7 @@ import { DistroIcon, Flag } from '@/components/ui/brand'
 import { hostName, middleTruncate } from '@/lib/present'
 import { SIDES, type CardData, type CardNode, type GroupData, type GroupNode, type NamespaceNode } from '@/lib/graph'
 import { DetailContext, shownStatus, type Alert } from '@/lib/detail'
-import { activeId, isPeer, PeersContext, useCanvasFocus } from '@/store/canvasFocus'
+import { activeId, useCanvasFocus } from '@/store/canvasFocus'
 import { TIER_COLOR, type DeviceKind, type ServiceKind } from '@/lib/types'
 
 export const DEVICE_ICON: Record<DeviceKind, LucideIcon> = {
@@ -67,7 +66,7 @@ export function AllHandles() {
  * so it stays legible) and any warning; the detail returns as soon as you zoom in. Selecting the store value
  * as a boolean means only a crossing of the threshold re-renders the nodes, not every step of a zoom.
  */
-export const FAR_ZOOM = 0.8
+export const FAR_ZOOM = 0.62
 const useFar = () => useStore((s) => s.transform[2] < FAR_ZOOM)
 
 /** Keeps the canvas's zoom where CSS can read it (`--zoom`), so the few things that must stay readable however far out the canvas is drawn (what is
@@ -188,7 +187,7 @@ function FullGroupBox({ data, selected }: NodeProps<GroupNode>) {
             )}
           </div>
           {!far && (
-            <div className="mt-0.5 flex items-center gap-1.5 truncate pl-4 text-xs text-nb-500">
+            <div className="mt-0.5 flex items-center gap-1.5 truncate pl-6 text-xs text-nb-500">
               {data.country && <Flag code={data.country} className="!h-2.5 !w-[15px]" />}
               <span className="truncate" title={data.subtitle || undefined}>{data.subtitle || ' '}</span>
               {data.mesh && (
@@ -210,7 +209,7 @@ function FullGroupBox({ data, selected }: NodeProps<GroupNode>) {
             </div>
           )}
           {!far && data.load && (data.load.cpuPct !== undefined || data.load.memPct !== undefined || data.load.podPct !== undefined || data.load.ready < data.load.nodes || data.load.unready > 0) && (
-            <LoadRow load={data.load} className="mt-1 pl-4" />
+            <LoadRow load={data.load} className="mt-1 pl-6" />
           )}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -263,7 +262,7 @@ function NetworkChips({ networks }: { networks: NonNullable<GroupData['networks'
   const shown = networks.slice(0, NETWORK_CHIPS)
   const more = networks.slice(NETWORK_CHIPS)
   return (
-    <div className="flex shrink-0 items-center gap-1.5" data-testid="network-chips">
+    <div className="mt-1.5 flex items-center gap-1.5 pl-6" data-testid="network-chips">
       {shown.map((n) => (
         <button
           key={n.id}
@@ -338,51 +337,48 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
         background: `color-mix(in srgb, ${color} 5%, var(--color-nb-920))`,
       }}
     >
-      {ringName && far && (
-        <span className="fine pointer-events-none absolute left-5 top-full z-10 mt-1 flex items-center gap-1 whitespace-nowrap rounded-full border border-info bg-nb-900 px-2 py-px text-info" data-testid="network-ring-name">
+      {ringName && (
+        <span className="fine pointer-events-none absolute left-5 top-full z-10 flex -translate-y-1/2 items-center gap-1 whitespace-nowrap rounded-full border border-info bg-nb-900 px-2 py-px text-info" data-testid="network-ring-name">
           <Network className="size-[1.1em]" aria-hidden="true" />{ringName}
         </span>
       )}
       <AllHandles />
-      <div className="px-4 pt-3">
-        <NodeFace
-          state={shown.state}
-          far={far}
-          nameSize="box"
-          // Zoomed out the place, the tier and the networks are not drawn: the name says them on hover (and for keyboard focus, through the same title).
-          title={[data.title, [kindLabel, data.place].filter(Boolean).join(' · '), data.networks?.length ? `Networks: ${data.networks.map((n) => n.via).join(', ')}` : '', data.note ?? ''].filter(Boolean).join('\n')}
-          name={data.title}
-          tileLabel={kindLabel}
-          tile={<Glyph size={ICON_SM} aria-hidden="true" />}
-          tileStyle={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }}
-          meta={
-            // A ringed box names the network on its own second line (where it is, for the time it is lit): nothing is drawn over the canvas around it.
-            ringName ? (
-              <span className="flex min-w-0 items-center gap-1 text-info" data-testid="network-ring-name"><Network className="size-[1.1em] shrink-0" aria-hidden="true" /><span className="truncate" title={ringName}>{ringName}</span></span>
-            ) : data.place && (
-              <>
-                {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
-                {data.country && <Flag code={data.country} className="!h-2.5 !w-[15px]" />}
-                <span className="min-w-0 truncate" title={data.place}>{data.place}</span>
-              </>
-            )
-          }
-          note={alert && data.note ? <span className={clsx('min-w-0 truncate', far && 'fine', ALERT_TEXT[alert])} title={data.note} data-testid="box-note">{data.note}</span> : undefined}
-          trailing={
-            <>
-              {far && data.networks && <NetworkPip networks={data.networks} />}
-              {far && peak !== undefined && peak >= 70 && (
-                <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
-              )}
-              {!far && data.mesh && (
+      <div className="flex items-start justify-between gap-3 px-5 pt-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <StatusMark state={shown.state} far={far} />
+            {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
+            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
+            {far && data.networks && <NetworkPip networks={data.networks} />}
+            {far && peak !== undefined && peak >= 70 && (
+              <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
+            )}
+          </div>
+          {!far && data.place && (
+            <div className="mt-0.5 flex items-center gap-1.5 pl-6 text-xs text-nb-500">
+              {data.country && <Flag code={data.country} className="!h-2.5 !w-[15px]" />}
+              <span className="truncate" title={data.place}>{data.place}</span>
+              {data.mesh && (
                 <Badge tone={TONE[data.mesh.tone]} dense title={data.mesh.title} data-testid="mesh-badge">
                   {data.mesh.label}
                 </Badge>
               )}
-              {!far && data.networks && <NetworkChips networks={data.networks} />}
-            </>
-          }
-        />
+            </div>
+          )}
+          {alert && data.note && (
+            <div className={clsx('fine mt-0.5 truncate', far ? 'pl-8' : 'pl-6', ALERT_TEXT[alert])} title={data.note} data-testid="box-note">{data.note}</div>
+          )}
+          {!far && data.networks && <NetworkChips networks={data.networks} />}
+        </div>
+        <span
+          role="img"
+          aria-label={kindLabel}
+          title={kindLabel}
+          className="grid size-6 shrink-0 place-items-center rounded-full"
+          style={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }}
+        >
+          <Glyph size={ICON_SM} aria-hidden="true" />
+        </span>
       </div>
     </div>
   )
@@ -574,10 +570,7 @@ const QUIET = 'hidden group-hover/card:flex group-hover/card:animate-[quiet-in_1
 export const NEAR_ZOOM = 1.1
 const useNear = () => useStore((s) => s.transform[2] >= NEAR_ZOOM)
 
-function CalmCard({ id, data, selected }: NodeProps<CardNode>) {
-  // The card the hovered or selected one calls (or is called by) across boxes: ringed, in place of a line drawn across the canvas to it.
-  const peers = useContext(PeersContext)
-  const peer = useCanvasFocus((s) => isPeer(s, peers, id))
+function CalmCard({ data, selected }: NodeProps<CardNode>) {
   const isMachine = data.kind === 'machine'
   const pods = usePodPopover()
   const far = useFar()
@@ -595,39 +588,33 @@ function CalmCard({ id, data, selected }: NodeProps<CardNode>) {
       {/* The surface is at least the card's own box and grows downward over the gap when it has more to show. */}
       <div
         className={clsx(
-          'group/card absolute inset-x-0 top-0 min-h-full rounded-xl border bg-nb-925 px-2 py-[7px] transition-colors',
-          selected ? 'border-nb-100 shadow-[inset_0_0_0_1px_var(--color-nb-100)]' : peer ? 'shadow-[inset_0_0_0_1px_var(--color-nb-400)]' : '',
-          !selected && (peer ? 'border-nb-400' : alert ? '' : 'border-nb-800 hover:border-nb-700'),
+          'group/card absolute inset-x-0 top-0 min-h-full rounded-xl border bg-nb-925 px-3.5 py-[7px] transition-colors',
+          selected ? 'border-nb-100 shadow-[inset_0_0_0_1px_var(--color-nb-100)]' : alert ? '' : 'border-nb-800 hover:border-nb-700',
         )}
         title={alert && data.note ? `${data.title}: ${data.note}` : undefined}
         style={tone && !selected ? { borderColor: `color-mix(in srgb, ${tone} 70%, transparent)`, background: `color-mix(in srgb, ${tone} 7%, var(--color-nb-925))` } : undefined}
       >
-        <NodeFace
-          state={shown.state}
-          far={far}
-          title={data.title}
-          name={
-            isMachine ? (
-              // A machine name is often a long generated one: the host without its shared domain, and when that is still long the middle goes, not
-              // the end. The full name stays in the tooltip and for screen readers.
+        <div className="flex h-9 items-center gap-3">
+          <div className="grid size-8 shrink-0 place-items-center rounded-lg" style={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}>
+            {createElement(iconOf(data), { size: ICON_SM })}
+          </div>
+          <div className="min-w-0 flex-1">
+            {isMachine ? (
               <>
-                <span aria-hidden="true">{middleTruncate(hostName(data.title), far ? 17 : 28)}</span>
+                <span className={clsx('block truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title} aria-hidden="true">{middleTruncate(hostName(data.title), far ? 15 : 24)}</span>
                 <span className="sr-only">{data.title}</span>
               </>
             ) : (
-              data.title
-            )
-          }
-          tile={createElement(iconOf(data), { size: ICON_SM })}
-          tileStyle={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}
-          note={alert && data.note ? <span className={clsx('min-w-0 truncate', far && 'fine', ALERT_TEXT[alert])} title={data.note} data-testid="card-note">{data.note}</span> : undefined}
-          trailing={
-            <>
-              {far && data.clusterTag && <span className="truncate text-[14px] text-nb-500">{data.clusterTag}</span>}
-              {!far && data.kind === 'device' && data.meta && <span className="shrink-0 text-[11px] text-nb-500" title="Devices in this group">{data.meta}</span>}
-            </>
-          }
-        />
+              <span className={clsx('block truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title}>{data.title}</span>
+            )}
+            {far && data.clusterTag && <div className="truncate text-[14px] leading-4 text-nb-500">{data.clusterTag}</div>}
+          </div>
+          {!far && data.kind === 'device' && data.meta && <span className="shrink-0 text-[11px] text-nb-500" title="Devices in this group">{data.meta}</span>}
+          <StatusMark state={shown.state} far={far} />
+        </div>
+        {alert && data.note && (
+          <div className={clsx('fine -mt-0.5 truncate pl-11', ALERT_TEXT[alert])} title={data.note} data-testid="card-note">{data.note}</div>
+        )}
         {more && (
           <div className={clsx('flex-col gap-1.5 pb-1 pt-1.5', out ? 'flex' : QUIET)}>
             <BadgeRow data={data} calm />

@@ -48,7 +48,7 @@ import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
 import { BAR_BUTTON, BAR_WORD } from '@/components/topology/toolbar'
 import { nodeTypes, ZoomVar } from '@/components/topology/nodes'
-import { PeersContext, useCanvasFocus } from '@/store/canvasFocus'
+import { useCanvasFocus } from '@/store/canvasFocus'
 import TelemetryTab from '@/components/topology/TelemetryTab'
 import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
 import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock, TIER_ICON } from '@/components/ui/primitives'
@@ -175,7 +175,7 @@ function Canvas() {
   const detailParam = sp.get('detail')
   const detail = resolveDetail(detailParam, storedDetail)
   const calm = detail === 'calm'
-  // Minimap: on for a big graph, where an overview helps most, in either Detail; otherwise one Options choice away. Neither it nor the legend sits over boxes by default.
+  // Minimap: on for a big graph and on Full as ever; otherwise one Options choice away.
   // ?minimap=1 / 0 is the person's own choice and beats that default.
   const minimapChoice = sp.get('minimap') === '1' ? true : sp.get('minimap') === '0' ? false : null
   const servicesOnNodes = sp.get('services') === '1'
@@ -399,7 +399,7 @@ function Canvas() {
     [shown, view, detail, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks, showClusterLinks],
   )
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
-  const autoMinimap = graph.nodes.length > MINIMAP_NODES
+  const autoMinimap = !calm || graph.nodes.length > MINIMAP_NODES
   const showMinimap = minimapChoice ?? autoMinimap
   // The legend of the Calm canvas explains what is drawn on it, so it asks what is: which tiers, which kinds of line, whether anything
   // has a problem. Open or closed is remembered in this browser.
@@ -461,14 +461,6 @@ function Canvas() {
       return ids
     })
   }, [])
-
-  // Which cards each card talks to across boxes (the calls Calm folds into bundles): the cards a hover or a selection rings, in place of a line to each.
-  const peers = useMemo(() => {
-    const m = new Map<string, Set<string>>()
-    const add = (a: string, b: string) => m.set(a, (m.get(a) ?? new Set()).add(b))
-    for (const e of graph.edges) if (e.data?.role === 'detail') { add(e.source, e.target); add(e.target, e.source) }
-    return m
-  }, [graph.edges])
 
   // React Flow id of the current single-click Inspector selection (if it is visible in this plane).
   const selectedRfId = useMemo(() => {
@@ -543,11 +535,9 @@ function Canvas() {
   }, [selectedRfId, setNodes])
   // What is selected also lights its network peers (see canvasFocus); a store write, so no render of the page or the graph.
   useEffect(() => {
-    // A selected dependency pins the card it leaves, so the one it reaches rings (a call is not drawn in Calm).
-    const call = selection?.kind === 'dependency' ? graph.edges.find((e) => e.id === selection.id) : undefined
-    useCanvasFocus.getState().setPinned(selectedRfId ?? call?.source ?? null)
+    useCanvasFocus.getState().setPinned(selectedRfId)
     return () => useCanvasFocus.getState().setPinned(null)
-  }, [selectedRfId, selection, graph.edges])
+  }, [selectedRfId])
 
   // Re-fit the viewport whenever the *shape* of the graph changes (not on every edit).
   const shape = useMemo(() => graph.nodes.map((n) => `${n.id}:${n.style?.width}x${n.style?.height}`).join('|'), [graph])
@@ -590,13 +580,12 @@ function Canvas() {
       // (cluster-link colours, the lighter cross-cluster grey, weight and the conntrack dash) come back on Full, or on a line that is the focus.
       const problem = !!e.data?.problem
       const band = q && (!calm || problem) ? lossBand(q.lossPct) : 'ok'
-      // Calm names only a bundle (below): a protocol word does not fit in the 40px between two cards, and on a line inside a cluster its pill would sit on
-      // the card at its end. That line is the Inspector's to name, and the hover card's.
-      const showLabel = calm ? false : showLabels || hot
+      // A call between two cards names itself when it is the focus (or when labels are asked for): a failing one inside a cluster is told by its colour,
+      // since its pill would sit on the card at its end.
+      const showLabel = showLabels || hot
       // A line that stands for several says nothing at rest unless it is failing, and then why: the path's round trip and loss. How many it
       // stands for is the hover card's to say, and the Inspector's.
-      // The focus's bundle also says how many calls it holds ("3 dependencies"): the answer to "what is that line?", where the calls themselves are not drawn.
-      const label = e.data?.aggregated && calm ? (problem && q ? qualityLabel(q) : hot && e.data.role === 'bundle' ? e.label : undefined) : showLabel ? e.label : undefined
+      const label = e.data?.aggregated && calm ? (problem && q ? qualityLabel(q) : undefined) : showLabel ? e.label : undefined
       // A link that loses connection attempts is coloured by how badly; otherwise grey, or orange when it is the focus.
       const mv = e.data?.mesh
       const cl = e.data?.clusterLink
@@ -608,14 +597,10 @@ function Canvas() {
       // category colour rather than a fabricated "healthy" green.
       const clHealthBand = showHealthLens && cl?.avgLossPct !== undefined ? lossBand(cl.avgLossPct) : null
       const clHealthColor = clHealthBand === 'hot' ? 'var(--color-bad)' : clHealthBand === 'warn' ? 'var(--color-warn)' : clHealthBand === 'ok' ? 'var(--color-ok)' : null
-      // Calm draws in the theme's own variables, so a line holds its contrast in light as well as dark; Full keeps its hexes (its arrowheads cannot take a variable).
-      // Colour on a calm line means a problem and nothing else: the focus is told by weight and a stronger grey, and a failing line stays red when focused.
-      const calmBand = band === 'hot' ? 'var(--color-bad)' : band === 'warn' ? 'var(--color-warn)' : null
-      const stroke = calm && !cl && !mv
-        ? calmBand ?? (hot ? 'var(--color-nb-300)' : 'var(--color-nb-600)')
-        : hot
-          ? 'var(--color-accent)'
-          : clHealthColor ?? (cl && !calm ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? 'var(--color-bad)' : band === 'warn' ? 'var(--color-warn)' : e.data?.crossGroup && !calm ? 'var(--color-nb-500)' : 'var(--color-nb-600)')
+      // Lines draw in the theme's own variables, so one holds its contrast in light as well as dark. The focus is the accent, as it always was.
+      const stroke = hot
+        ? 'var(--color-accent)'
+        : clHealthColor ?? (cl && !calm ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? 'var(--color-bad)' : band === 'warn' ? 'var(--color-warn)' : e.data?.crossGroup && !calm ? 'var(--color-nb-500)' : 'var(--color-nb-600)')
       // Seen in traffic: solid, and a touch thicker the busier it is. Only declared (or gone quiet): dotted and
       // thin. Kept close to the declared baseline (1.2) rather than scaling up hard - a busy link should read as
       // "more traffic" without out-weighing the 2.4px used for the current selection/focus.
@@ -634,6 +619,7 @@ function Canvas() {
         // Calm lines do not run at rest (a seen line is simply solid); the focus's lines do, and say it is the focus.
         className: calm ? (hot ? ['edge-hot', e.className].filter(Boolean).join(' ') : undefined) : e.className,
         label,
+        data: pickedEdge === e.id ? { ...e.data!, revealed: true } : e.data,
         style: {
           stroke,
           strokeWidth: width,
@@ -648,7 +634,7 @@ function Canvas() {
           // Busier links run their dashes faster (a quiet one takes 2.4 s for a period, the busiest 0.7 s).
           animationDuration: e.className === 'edge-animated' && (!calm || hot) ? `${(2.4 - 1.7 * (e.data?.weight ?? 0)).toFixed(2)}s` : undefined,
         },
-        labelStyle: { fill: hot && !calm ? 'var(--color-accent)' : 'var(--color-nb-300)', fontSize: 10.5, opacity: dim ? 0.3 : 1 },
+        labelStyle: { fill: hot ? 'var(--color-accent)' : 'var(--color-nb-300)', fontSize: 10.5, opacity: dim ? 0.3 : 1 },
         labelBgStyle: { fill: 'var(--color-nb-910)', fillOpacity: 0.95 },
         labelBgPadding: [6, 3] as [number, number],
         labelBgBorderRadius: 4,
@@ -1240,7 +1226,6 @@ function Canvas() {
             </Suspense>
           ) : (
             <DetailContext.Provider value={detail}>
-            <PeersContext.Provider value={peers}>
             <EdgeStyleContext.Provider value={edgeStyle}>
             <ReactFlow<TopoNode, Edge>
               className={pickMode ? 'topology-pick-mode' : undefined}
@@ -1545,7 +1530,6 @@ function Canvas() {
               </Panel>
             </ReactFlow>
             </EdgeStyleContext.Provider>
-            </PeersContext.Provider>
             </DetailContext.Provider>
           )}
           {hoveredEdge && hoverPos && (
