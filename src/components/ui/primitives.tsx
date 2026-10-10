@@ -11,8 +11,7 @@ import type { Completeness as CompletenessInfo } from '@/lib/completeness'
 import { IP_SCOPE_HELP, ipScope, ipScopeLabel, loadBand } from '@/lib/present'
 import { rttLabel } from '@/lib/metrics'
 import { ageLabel, EVIDENCE_HELP, EVIDENCE_LABEL, EVIDENCE_TONE, needsEvidenceChip, TONE_CLASS, type EvidenceLevel, type ObsInfo, type Tone } from '@/lib/provenance'
-import { shownStatus, type Alert } from '@/lib/detail'
-import { TIER_COLOR, type Source, type Status, type Tier } from '@/lib/types'
+import { STATUS_COLOR, TIER_COLOR, type Source, type Status, type Tier } from '@/lib/types'
 
 /** The app's whole icon-size scale: every lucide-react (and brand.tsx) icon's `size` prop should come
  *  from one of these two constants rather than a one-off literal - the 10-18px range previously in use
@@ -667,14 +666,12 @@ export function useFlash<T>(value: T, ms = 800): boolean {
   return flash
 }
 
-/** `alert` is what is wrong inside a thing that reports itself well (see shownStatus): the dot and the word then say that instead of "healthy". */
-export function StatusDot({ status, alert, withLabel, notCurrent }: { status: Status; alert?: Alert; withLabel?: boolean; notCurrent?: string }) {
+export function StatusDot({ status, withLabel, notCurrent }: { status: Status; withLabel?: boolean; notCurrent?: string }) {
   const flash = useFlash(status)
-  const shown = shownStatus(status, notCurrent ? undefined : alert)
   return (
     <span className="inline-flex items-center gap-2 text-sm" title={notCurrent ? `Last known: ${status}. ${notCurrent}` : undefined}>
-      <span className={clsx('size-2 rounded-full', flash && 'flash-ring', notCurrent && 'border bg-transparent')} style={notCurrent ? { borderColor: shown.color } : { background: shown.color }} />
-      {withLabel && <span className={notCurrent ? 'capitalize text-nb-500' : 'text-nb-400'}>{notCurrent ? `was ${status}` : shown.word}</span>}
+      <span className={clsx('size-2 rounded-full', flash && 'flash-ring', notCurrent && 'border bg-transparent')} style={notCurrent ? { borderColor: STATUS_COLOR[status] } : { background: STATUS_COLOR[status] }} />
+      {withLabel && <span className={clsx('capitalize', notCurrent ? 'text-nb-500' : 'text-nb-400')}>{notCurrent ? `was ${status}` : status}</span>}
     </span>
   )
 }
