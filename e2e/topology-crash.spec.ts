@@ -310,11 +310,9 @@ test('Export PNG downloads a PNG file from the graph canvas', async ({ page }) =
   await loadSampleTopology(page)
   await goToTopologyCanvas(page)
 
-  // Calm keeps the canvas actions under the "..." menu.
-  await page.getByRole('button', { name: 'More canvas actions' }).click()
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 15_000 }),
-    page.getByRole('menuitem', { name: 'Export PNG' }).click(),
+    page.getByTestId('export-png').click(),
   ])
   expect(download.suggestedFilename()).toMatch(/^topology-.*\.png$/)
   const path = await download.path()
