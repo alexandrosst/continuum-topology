@@ -676,7 +676,15 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   const laid = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, gs]) => gs.map((g) => layoutCards(g, headerOf())))
   // Calm: every box is as wide as the widest, so the gaps between boxes are in the same place on every row, and a line can run down one.
   const colW = calm ? Math.max(CALM_MIN_W, ...laid.flat().map((p) => p.w)) : 0
-  const placedRows = laid.flatMap((r) => wrap(calm ? r.map((p) => ({ ...p, w: colW })) : r).map(settle))
+  const lines = laid.flatMap((r) => wrap(calm ? r.map((p) => ({ ...p, w: colW })) : r))
+  // Calm: External is not a tier, so when it would stand alone on the last line and the line above has room, it takes that place instead of a line of its own.
+  const last = lines[lines.length - 1]
+  const above = lines[lines.length - 2]
+  if (calm && above && last.length === 1 && last[0].g.extra?.kind === 'external' && above.reduce((s, p) => s + p.w + gapX, 0) + last[0].w <= CALM_ROW_MAX) {
+    above.push(last[0])
+    lines.pop()
+  }
+  const placedRows = lines.map(settle)
   const rowWidths = placedRows.map((r) => r.reduce((s, p) => s + p.w, 0) + (r.length - 1) * gapX)
   const maxW = Math.max(0, ...rowWidths)
 

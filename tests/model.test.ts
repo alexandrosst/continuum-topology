@@ -1706,6 +1706,15 @@ test('calm detail: one grid - every card the same size, boxes of a row the same 
   }
 })
 
+test('calm detail: External is not left alone on a last line when the line above has room for it', () => {
+  const keep = (id: string) => id !== 'cl-edge-b'
+  const t = { ...seed, devices: [], clusters: seed.clusters.filter((c) => keep(c.id)), services: seed.services.filter((x) => keep(x.clusterId ?? '')), dependencies: [...seed.dependencies.filter((d) => seed.services.find((x) => x.id === d.from)?.clusterId !== 'cl-edge-b' && seed.services.find((x) => x.id === d.to)?.clusterId !== 'cl-edge-b'), seenDep({ id: 'to-ext', from: seed.services.find((x) => keep(x.clusterId ?? ''))!.id, to: 'ext-1', toKind: 'external', port: 443 })], externalEndpoints: [ext()] }
+  const g = buildGraph(t, { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: true, detail: 'calm' })
+  const ext_ = g.nodes.find((n) => n.type === 'boundary' && n.data.title === 'External')
+  assert.ok(ext_, 'a call to an outside address gives an External box')
+  assert.ok(g.nodes.some((n) => n.type === 'boundary' && n.id !== ext_.id && n.position.y === ext_.position.y), 'External shares its line with another box')
+})
+
 test('calm detail: the alert helpers rank status, pods and load the way the rest of the app does', () => {
   assert.equal(alertOfStatus('offline'), 'bad')
   assert.equal(alertOfStatus('degraded'), 'warn')
