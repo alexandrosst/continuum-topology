@@ -546,6 +546,8 @@ const WORLD = { minX: -Infinity, maxX: Infinity, minY: -Infinity, maxY: Infinity
 const LANE_GAP = 6
 /** The distance between two lines that run in the same gutter (px). */
 const TRACK_GAP = 8
+/** A line shorter than this on screen (px) is too short for its pill: the pill would sit on the cards at its ends, so the line goes unnamed (the hover card names it). */
+const PILL_MIN_LINE = 110
 const laneCache = new Map<string, Pt[] | null>()
 
 /** The gutter route of a line between two boxes (lib/lanes.ts), worked out once per layout however often the line is redrawn (a zoom or a
@@ -742,7 +744,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
         style={style}
         interactionWidth={calm ? 20 / zoom : interactionWidth}
       />
-      {calm && label && (
+      {calm && label && (lane || Math.hypot(x2 - x1, y2 - y1) * zoom >= PILL_MIN_LINE) && (
         // Calm names a line with a pill in the layer above every line (an SVG label is painted with its own line, so a line drawn after it strikes
         // it through), opaque so no line shows through, and the same size on screen at every zoom.
         <EdgeLabelRenderer>

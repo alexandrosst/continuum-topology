@@ -610,7 +610,8 @@ function CalmCard({ data, selected }: NodeProps<CardNode>) {
             {far && data.clusterTag && <div className="truncate text-[14px] leading-4 text-nb-500">{data.clusterTag}</div>}
           </div>
           {!far && data.kind === 'device' && data.meta && <span className="shrink-0 text-[11px] text-nb-500" title="Devices in this group">{data.meta}</span>}
-          <StatusMark state={shown.state} far={far} />
+          {/* The mark takes the room the dot always had (8px, 12px zoomed out), so a name truncates where it did; a glyph spills over the gap beside it. */}
+          <StatusMark state={shown.state} far={far} className={far ? '-mx-1.5' : '-mx-1'} />
         </div>
         {alert && data.note && (
           <div className={clsx('fine -mt-0.5 truncate pl-11', ALERT_TEXT[alert])} title={data.note} data-testid="card-note">{data.note}</div>
