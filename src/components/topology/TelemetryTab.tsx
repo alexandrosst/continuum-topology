@@ -54,7 +54,7 @@ function Lanes({ layout, facts, selectedId, onSelect }: { layout: LaneLayout; fa
       <div className="sticky top-0 z-20 -mx-4 bg-nb-900 px-4 pt-2">
         <ColumnHead layout={layout} />
       </div>
-      <div className="relative" style={{ width: layout.width, height: layout.height - oy }} data-testid="telemetry-lanes">
+      <div className="relative mt-2" style={{ width: layout.width, height: layout.height - oy }} data-testid="telemetry-lanes">
         {layout.lanes.map((l) => (
           <div key={l.clusterId} className="absolute inset-x-0 rounded-xl bg-nb-925/60" style={{ top: l.top - oy, height: l.height }}>
             <ClusterCell name={l.name} facts={facts.get(l.clusterId)} className="px-3" style={{ height: LANE.caption }} />

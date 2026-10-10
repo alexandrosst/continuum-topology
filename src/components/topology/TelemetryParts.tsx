@@ -11,7 +11,7 @@ import type { Modality } from '@/lib/install'
 import { Button, ICON_SM } from '@/components/ui/primitives'
 import type { PlatformEntity, PlatformKind } from '@/lib/platformLayer'
 import { aside, headline, type TelemetrySummary } from '@/lib/telemetrySummary'
-import { LANE_COLUMNS, nodeLabel, type LaneLayout } from '@/lib/telemetryLanes'
+import { hopNeedsLabel, LANE_COLUMNS, nodeLabel, type LaneHop, type LaneLayout } from '@/lib/telemetryLanes'
 import type { Tier } from '@/lib/types'
 
 const TIER_WORD: Record<Tier, string> = { cloud: 'Cloud', edge: 'Edge', 'far-edge': 'Far edge' }
@@ -141,6 +141,20 @@ export function ConnectAction({ onConnect }: { onConnect: () => void }) {
   return <Button variant="primary" onClick={onConnect} data-testid="telemetry-connect"><Plug size={ICON_SM} /> Connect a cluster</Button>
 }
 
+const LINK_LINE: Record<LaneHop['status'], string> = { healthy: 'bg-ok/70', attention: 'bg-warn', down: 'bg-bad', unknown: 'bg-nb-600' }
+const LINK_PILL: Record<LaneHop['status'], string> = { healthy: 'border-nb-800 text-nb-500', attention: 'border-warn/40 text-warn', down: 'border-bad/40 text-bad', unknown: 'border-nb-800 text-nb-500' }
+
+/** The line between two boxes of a list, as the grid draws it between its columns: a short stroke in the hop's state, and how long ago data crossed it where something is wrong. */
+function Link({ hop }: { hop?: LaneHop }) {
+  if (!hop) return null
+  return (
+    <div className="-my-1.5 flex h-4 items-center justify-center gap-2 text-[10.5px] leading-4 tabular-nums" aria-hidden data-testid="list-hop" data-status={hop.status}>
+      <span className={clsx('h-full w-px', LINK_LINE[hop.status], hop.status === 'healthy' && 'opacity-70')} />
+      {hopNeedsLabel(hop) && <span className={clsx('rounded-full border bg-nb-900 px-1.5 py-px', LINK_PILL[hop.status])}>{hop.age}</span>}
+    </div>
+  )
+}
+
 /**
  * The same pipeline on a phone, as a list: a card per cluster with its agent and local operator, then the shared parts. There is no room
  * for five columns and lines between them, and a list is what a thumb scrolls; each box says its role (there is no header to do it) and
@@ -159,7 +173,12 @@ export function PhoneList({ layout, facts, selectedId, onSelect }: { layout: Lan
       {rows.map(({ lane, parts }) => (
         <section key={lane.clusterId} aria-label={lane.name} className="flex flex-col gap-2">
           <ClusterCell name={lane.name} facts={facts.get(lane.clusterId)} className="px-1" />
-          {parts.map(node)}
+          {parts.map((n, i) => (
+            <Fragment key={n.entity.id}>
+              {i > 0 && <Link hop={layout.hops.find((h) => h.from === parts[i - 1].entity.id && h.to === n.entity.id)} />}
+              {node(n)}
+            </Fragment>
+          ))}
         </section>
       ))}
       {shared.length > 0 && (
