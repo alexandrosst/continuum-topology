@@ -28,6 +28,8 @@ import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
 import Inspector, { type Selection } from '@/components/topology/Inspector'
 import OverflowMenu from '@/components/topology/OverflowMenu'
 import { PodLegend } from '@/components/topology/Pods'
+import { ProblemsPill } from '@/components/topology/ProblemsPill'
+import { nextProblem, problemsOf } from '@/lib/problems'
 // Lazily loaded, not a plain top-level import: MapView pulls in d3-geo, topojson-client and the
 // placement-suggestion engine (usePlacementSuggestions) at its own module top level - real weight
 // (~45KB gzipped) that a static import would put on every single visit to this page, Topology being
@@ -129,8 +131,10 @@ const LEGEND_KEY = 'continuum:topology-legend'
 
 function Canvas() {
   const topology = useTopology()
-  const { fitView, getNodes, setViewport } = useReactFlow()
+  const { fitView, getInternalNode, getNodes, setViewport } = useReactFlow()
   const store = useStoreApi()
+  // Room kept clear at the top-left for the problems pill, so a graph that starts at the very top does not run under it.
+  const topRoom = useRef(0)
   // Fit the whole graph, but never below FIT_MIN_ZOOM: a graph bigger than the window then starts at its top
   // left (cropping only the far side, which scrolls into view) instead of cropping both ends equally.
   const fit = useCallback((duration: number) => {
@@ -142,7 +146,7 @@ function Canvas() {
     // On a phone the widest cluster box sets the zoom instead of the whole graph (see narrowFitZoom).
     const widest = Math.max(0, ...getNodes().filter((n) => n.type === 'boundary' && !n.parentId).map((n) => n.measured?.width ?? 0))
     const zoom = narrowFitZoom(width, v.zoom, widest)
-    void setViewport({ x: Math.max(zoom === v.zoom ? v.x : -Infinity, width * 0.04 - bounds.x * zoom), y: Math.max(zoom === v.zoom ? v.y : -Infinity, height * 0.04 - bounds.y * zoom), zoom }, { duration })
+    void setViewport({ x: Math.max(zoom === v.zoom ? v.x : -Infinity, width * 0.04 - bounds.x * zoom), y: Math.max(zoom === v.zoom ? v.y : -Infinity, Math.max(height * 0.04, topRoom.current) - bounds.y * zoom), zoom }, { duration })
   }, [store, fitView, getNodes, setViewport])
   const [sp, setSp] = useSearchParams()
   const connect = useConnectFlow()
@@ -403,6 +407,11 @@ function Canvas() {
     return { tiers, warn, bad, seen, notSeen, networks, bundles }
   }, [graph])
 
+  // What the Calm canvas tints, in the order the pill walks them (Full does not tint, so it has no pill either).
+  const problems = useMemo(() => (calm && isCanvas ? problemsOf(graph.nodes) : []), [calm, isCanvas, graph.nodes])
+
+  useEffect(() => { topRoom.current = problems.length ? 52 : 0 }, [problems.length])
+
   const [nodes, setNodes, onNodesChange] = useNodesState<TopoNode>(graph.nodes)
   const resetLayout = () => {
     setNodes(graph.nodes)
@@ -656,6 +665,32 @@ function Canvas() {
     if (d.kind === 'namespace') return null // a visual grouping only, nothing to inspect on its own
     return { kind: d.kind === 'machine' ? 'node' : d.kind, id: d.entityId }
   }
+
+  // The problems pill: select the next problem and bring it to the middle of the canvas. The move waits two frames so it measures the
+  // canvas after the Inspector has taken its share of the width, and it does not animate for a person who asked for less motion.
+  const [panTo, setPanTo] = useState<{ id: string; n: number } | null>(null)
+  const goToProblem = (back: boolean) => {
+    const p = nextProblem(problems, selectedRfId, back)
+    const n = p && graph.nodes.find((x) => x.id === p.id)
+    if (!p || !n) return
+    select(fromNode(n))
+    setPanTo((cur) => ({ id: p.id, n: (cur?.n ?? 0) + 1 }))
+  }
+  useEffect(() => {
+    if (!panTo) return
+    let second = 0
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => {
+        const n = getInternalNode(panTo.id)
+        if (!n?.measured.width || !n.measured.height) return
+        const calmMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+        const { width, height } = store.getState()
+        const v = getViewportForBounds({ x: n.internals.positionAbsolute.x, y: n.internals.positionAbsolute.y, width: n.measured.width, height: n.measured.height }, width, height, FIT_MIN_ZOOM, 1.1, 0.6)
+        void setViewport(v, { duration: calmMotion ? 0 : 450 })
+      })
+    })
+    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second) }
+  }, [panTo, store, setViewport, getInternalNode])
 
   // "Pick from canvas": dims every entity and un-dims whatever's under the pointer (topology-pick-mode in
   // index.css does the dimming, driven only by this boolean), so a single hover-then-click goes straight to
@@ -1282,6 +1317,11 @@ function Canvas() {
                   onScope={telemetry.start}
                 />
               </NodeToolbar>
+              {problems.length > 0 && (
+                <Panel position="top-left" className="!m-3">
+                  <ProblemsPill problems={problems} selectedId={selectedRfId} onGo={goToProblem} />
+                </Panel>
+              )}
               <Panel position="bottom-left" className={clsx('!mb-3 !ml-16 hidden sm:block', calm && 'flex-col items-start gap-2 sm:!flex')}>
                 {(!calm || legendOpen) && (
                 <div id="topology-legend" className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
