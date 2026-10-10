@@ -41,29 +41,36 @@ describe('TelemetryTab', () => {
     expect(screen.getAllByTestId('platform-node').filter((n) => n.getAttribute('data-platform') === 'regional')).toHaveLength(1)
   })
 
-  test('a healthy hop is a quiet, still line whose dashes move only while its chain is hovered; one that stalled is loud and still, with its age on a pill on the line', () => {
+  test('a healthy hop is a green line whose dashes always move; one that stalled is loud and still, with its age on a pill on the line', () => {
     renderTab()
     const hops = screen.getAllByTestId('hop')
     expect(hops.filter((h) => h.getAttribute('data-flowing') === 'true')).toHaveLength(3)
     expect(hops.filter((h) => h.getAttribute('data-status') === 'attention' && h.getAttribute('data-flowing') === 'false')).toHaveLength(1)
-    expect(hops.filter((h) => h.getAttribute('data-flowing') === 'true').some((h) => h.querySelector('path')?.getAttribute('class')?.includes('flow-dash'))).toBe(false)
-    fireEvent.mouseEnter(screen.getAllByTestId('platform-node').find((n) => n.getAttribute('data-platform') === 'local')!)
-    expect(hops.some((h) => h.getAttribute('data-flowing') === 'true' && h.querySelector('path')?.getAttribute('class')?.includes('flow-dash'))).toBe(true)
+    expect(hops.filter((h) => h.getAttribute('data-flowing') === 'true').every((h) => h.querySelector('path')?.getAttribute('class')?.includes('flow-dash'))).toBe(true)
     expect(hops.find((h) => h.getAttribute('data-status') === 'attention')!.querySelector('path')?.getAttribute('class')).not.toContain('flow-dash')
-    // Loud ones are drawn last, so a neutral line never lies over a coloured one.
+    // Loud ones are drawn last, so a calm line never lies over a coloured one.
     expect(hops[hops.length - 1].getAttribute('data-status')).toBe('attention')
     expect(screen.getAllByTestId('hop-age').map((a) => a.textContent)).toEqual(['14 min'])
   })
 
-  test('hovering or focusing a part lights up the line it is on, and only that', () => {
+  test('hovering or focusing a part lights up the line it is on, with how long ago data crossed each hop, and only that', () => {
     renderTab()
-    const lit = () => screen.getAllByTestId('hop').filter((h) => h.querySelector('path')?.getAttribute('class')?.includes('!stroke-nb-400')).map((h) => h.getAttribute('data-status'))
+    const lit = () => screen.getAllByTestId('hop').filter((h) => h.querySelector('path')?.getAttribute('class')?.includes('!stroke-ok')).map((h) => h.getAttribute('data-status'))
     expect(lit()).toEqual([])
     const local = screen.getByRole('button', { name: /^Local operator, apple/ })
     fireEvent.focus(local)
     expect(lit()).toHaveLength(2) // apple's agent to its local operator, and on to the regional operator
+    expect(screen.getAllByTestId('hop-age').map((a) => a.textContent).sort()).toEqual(['14 min', '2 s', '20 s'])
     fireEvent.blur(local)
     expect(lit()).toEqual([])
+    expect(screen.getAllByTestId('hop-age').map((a) => a.textContent)).toEqual(['14 min'])
+  })
+
+  test('a box says what it is and what it holds without hovering: its role, where it sends, its signals, how long ago the agent was heard', () => {
+    renderTab()
+    const text = screen.getAllByTestId('platform-node').map((n) => n.textContent)
+    expect(text[0]).toBe('Discovery agentHeard 20 s ago')
+    expect(screen.getAllByTestId('lane').map((l) => l.textContent)).toEqual(['apple', 'banana'])
   })
 
   test('every part is a button named with its state and its last data, and a click selects it as a platform part', () => {

@@ -11,16 +11,17 @@ import { summarize } from '@/lib/telemetrySummary'
 import type { Agent, Cluster } from '@/lib/types'
 
 /**
- * A hop's line. Quiet while all is well: a thin, still, neutral line (data moves on it, in slow dashes, only while its chain is hovered or selected).
- * Loud only when something is wrong: amber or red, still and a little thicker, with its age on a pill sitting on the line. Not known is a fine grey dotted line.
+ * A hop's line, as the pipeline has always drawn it: dashes that move while data flows (green), still and solid amber or red when it has stalled
+ * or broken, grey and dotted when not known. The one chain a part belongs to is a little firmer while the pointer or the keyboard is on that part
+ * (or it is selected), and says how long ago data crossed each of its hops; a hop that is not well carries its age on a pill all the time.
  */
 const HOP_LINE: Record<LaneHop['status'], string> = {
-  healthy: 'stroke-nb-600/85',
+  healthy: 'flow-dash stroke-ok/70',
   attention: 'stroke-warn',
   down: 'stroke-bad',
-  unknown: 'stroke-nb-600/85 [stroke-dasharray:1.5_5]',
+  unknown: 'stroke-nb-600 [stroke-dasharray:4_6]',
 }
-const HOP_TIP: Record<LaneHop['status'], string> = { healthy: 'stroke-nb-600/85', attention: 'stroke-warn', down: 'stroke-bad', unknown: 'stroke-nb-600/85' }
+const HOP_TIP: Record<LaneHop['status'], string> = { healthy: 'stroke-ok/70', attention: 'stroke-warn', down: 'stroke-bad', unknown: 'stroke-nb-600' }
 const HOP_PILL: Record<LaneHop['status'], string> = { healthy: 'border-nb-800 text-nb-500', attention: 'border-warn/40 text-warn', down: 'border-bad/40 text-bad', unknown: 'border-nb-800 text-nb-500' }
 const LOUD = { healthy: 0, unknown: 0, attention: 1, down: 2 } as const
 
@@ -46,25 +47,32 @@ function Lanes({ layout, facts, selectedId, onSelect }: { layout: LaneLayout; fa
     return id ? chainOf(layout.hops, id) : new Set<string>()
   }, [layout.hops, active, selectedId])
   const hops = useMemo(() => [...layout.hops].sort((a, b) => LOUD[a.status] - LOUD[b.status]), [layout.hops])
+  const ageFrom = useMemo(() => new Map(layout.hops.filter((h) => h.age && layout.nodes.some((n) => n.entity.id === h.from && n.entity.kind === 'agent')).map((h) => [h.from, h.age!])), [layout])
   const oy = LANE.head
   return (
-    <div className="px-4 pb-8 sm:px-6" style={{ width: layout.width + 48 }}>
-      <div className="sticky top-0 z-20 -mx-4 bg-nb-900 px-4 pt-2 sm:-mx-6 sm:px-6">
+    <div className="px-4 pb-8" style={{ width: layout.width + 32 }}>
+      <div className="sticky top-0 z-20 -mx-4 bg-nb-900 px-4 pt-2">
         <ColumnHead layout={layout} />
       </div>
       <div className="relative" style={{ width: layout.width, height: layout.height - oy }} data-testid="telemetry-lanes">
         {layout.lanes.map((l) => (
-          <ClusterCell key={l.clusterId} name={l.name} facts={facts.get(l.clusterId)} className="absolute left-0" style={{ top: l.y - LANE.nodeH / 2 - oy, width: LANE.nameW, height: LANE.nodeH }} />
+          <div key={l.clusterId} className="absolute inset-x-0 rounded-xl bg-nb-925/60" style={{ top: l.top - oy, height: l.height }}>
+            <ClusterCell name={l.name} facts={facts.get(l.clusterId)} className="px-3" style={{ height: LANE.caption }} />
+          </div>
         ))}
         <svg className="absolute left-0 top-0" width={layout.width} height={layout.height - oy} viewBox={`0 ${oy} ${layout.width} ${layout.height - oy}`} aria-hidden>
-          {hops.map((h) => (
-            <g key={h.id} data-testid="hop" data-status={h.status} data-flowing={h.flowing} fill="none" strokeLinecap="round" strokeLinejoin="round" className="transition-opacity duration-150 motion-reduce:transition-none">
-              <path d={h.d} strokeWidth={h.status === 'healthy' || h.status === 'unknown' ? 1.25 : 1.75} className={clsx(HOP_LINE[h.status], lit.has(h.id) && (h.status === 'healthy' || h.status === 'unknown') && '!stroke-nb-400', lit.has(h.id) && h.status === 'healthy' && 'flow-dash')} />
-              <path d={h.tip} strokeWidth={h.status === 'healthy' || h.status === 'unknown' ? 1.25 : 1.75} className={clsx(HOP_TIP[h.status], lit.has(h.id) && (h.status === 'healthy' || h.status === 'unknown') && '!stroke-nb-400')} />
-            </g>
-          ))}
+          {hops.map((h) => {
+            const on = lit.has(h.id)
+            const w = (h.status === 'healthy' || h.status === 'unknown' ? 1.6 : 1.9) + (on ? 0.5 : 0)
+            return (
+              <g key={h.id} data-testid="hop" data-status={h.status} data-flowing={h.flowing} fill="none" strokeLinecap="round" strokeLinejoin="round" className="transition-opacity duration-150 motion-reduce:transition-none">
+                <path d={h.d} strokeWidth={w} className={clsx(HOP_LINE[h.status], on && h.status === 'healthy' && '!stroke-ok')} />
+                <path d={h.tip} strokeWidth={w} className={clsx(HOP_TIP[h.status], on && h.status === 'healthy' && '!stroke-ok')} />
+              </g>
+            )
+          })}
         </svg>
-        {layout.hops.filter(hopNeedsLabel).map((h) => (
+        {layout.hops.filter((h) => hopNeedsLabel(h) || (h.age && lit.has(h.id))).map((h) => (
           <span key={h.id} aria-hidden className={clsx('pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full border bg-nb-900 px-1.5 py-px text-[11px] leading-4 tabular-nums', HOP_PILL[h.status])} style={{ left: h.mid.x, top: h.mid.y - oy }} data-testid="hop-age">{h.age}</span>
         ))}
         {layout.nodes.map(({ entity, x, y, senders }) => (
@@ -74,6 +82,7 @@ function Lanes({ layout, facts, selectedId, onSelect }: { layout: LaneLayout; fa
             selected={entity.id === selectedId}
             label={nodeLabel(entity)}
             senders={senders}
+            age={ageFrom.get(entity.id)}
             tip
             tipAlign={x + 240 > layout.width ? 'right' : 'left'}
             className="absolute"
@@ -133,11 +142,11 @@ export default function TelemetryTab({ clusters, agents, problemsOnly, selection
   const model = usePlatformLayer(known, agents)
   const [box, scroller] = useBox<HTMLDivElement>()
   const list = !!box && box.w < LIST_BELOW
-  // Less the page's padding and room for a scrollbar on each side.
-  const [width, height] = box ? [box.w - 48 - 12, box.h - 8 - 12] : [undefined, undefined]
-  const layout = useMemo(() => model && layoutLanes(model, { problemsOnly, width, height }), [model, problemsOnly, width, height])
+  // Less the page's padding and room for a scrollbar.
+  const width = box ? box.w - 32 - 15 : undefined
+  const layout = useMemo(() => model && layoutLanes(model, { problemsOnly, width }), [model, problemsOnly, width])
   // The problems are those of the whole pipeline, whatever the filter keeps, in the order the grid shows them.
-  const whole = useMemo(() => (model && problemsOnly ? layoutLanes(model, { width, height }) : layout), [model, layout, problemsOnly, width, height])
+  const whole = useMemo(() => (model && problemsOnly ? layoutLanes(model, { width }) : layout), [model, layout, problemsOnly, width])
   const summary = useMemo(() => {
     if (!model || !whole) return undefined
     const order = new Map(whole.nodes.map((n) => [n.entity.id, n.y * 10_000 + n.x]))

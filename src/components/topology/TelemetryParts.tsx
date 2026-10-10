@@ -84,15 +84,14 @@ function TelemetryKey() {
   )
 }
 
-/** The column names, the only place the role is spelled out in the grid: an icon and a small caps label, level with the text of the boxes below. */
+/** The column names, sticky above the lanes: an icon and a small caps label, level with the left edge of the boxes below. */
 export function ColumnHead({ layout }: { layout: LaneLayout }) {
   return (
-    <div className="relative border-b border-nb-850" style={{ width: layout.width, height: 40 }} data-testid="telemetry-columns">
-      <span className="absolute bottom-2 left-0 text-[11px] font-medium uppercase tracking-wider text-nb-400">Cluster</span>
+    <div className="relative border-b border-nb-850" style={{ width: layout.width, height: 32 }} data-testid="telemetry-columns">
       {layout.columns.map((c) => {
         const Icon = PLATFORM_ICON[c.kind]
         return (
-          <span key={c.kind} className="absolute bottom-2 flex items-center gap-1.5 whitespace-nowrap text-[11px] font-medium uppercase tracking-wider text-nb-400" style={{ left: c.x + 12 }}>
+          <span key={c.kind} className="absolute bottom-2 flex items-center gap-1.5 whitespace-nowrap text-[11px] font-medium uppercase tracking-wider text-nb-400" style={{ left: c.x }}>
             <Icon size={ICON_SM} aria-hidden className="text-nb-500" />
             {c.label}
           </span>
@@ -102,13 +101,13 @@ export function ColumnHead({ layout }: { layout: LaneLayout }) {
   )
 }
 
-/** A cluster's row header: its name, and what kind of place it is (tier, distribution), in the type scale of every other card. */
+/** A cluster's caption, on the band of its lane: its name, and what kind of place it is (tier, distribution) beside it. */
 export function ClusterCell({ name, facts, className, style }: { name: string; facts?: ClusterFacts; className?: string; style?: React.CSSProperties }) {
-  const meta = [facts?.tier && TIER_WORD[facts.tier], facts?.distribution].filter(Boolean).join(' · ')
+  const meta = [facts?.tier && TIER_WORD[facts.tier], facts?.distribution].filter(Boolean).join(' \u00b7 ')
   return (
-    <div className={clsx('flex flex-col justify-center pr-3', className)} style={style} data-testid="lane">
-      <span className="truncate text-[13px] font-semibold leading-[18px] text-nb-300" title={name}>{name}</span>
-      {meta && <span className="truncate text-[11px] leading-4 text-nb-500">{meta}</span>}
+    <div className={clsx('flex items-center gap-2 pt-1', className)} style={style} data-testid="lane">
+      <span className="truncate text-xs font-semibold text-nb-300" title={name}>{name}</span>
+      {meta && <span className="truncate text-[11px] text-nb-500">{meta}</span>}
     </div>
   )
 }
@@ -151,8 +150,9 @@ export function PhoneList({ layout, facts, selectedId, onSelect }: { layout: Lan
   const at = (e: PlatformEntity) => layout.nodes.find((n) => n.entity.id === e.id)
   const rows = layout.lanes.map((l) => ({ lane: l, parts: layout.nodes.filter((n) => n.entity.clusterId === l.clusterId).sort((a, b) => a.x - b.x) }))
   const shared = layout.nodes.filter((n) => !n.entity.clusterId).sort((a, b) => a.x - b.x || a.y - b.y)
+  const ageFrom = new Map(layout.hops.filter((h) => h.age && layout.nodes.some((n) => n.entity.id === h.from && n.entity.kind === 'agent')).map((h) => [h.from, h.age!]))
   const node = (n: NonNullable<ReturnType<typeof at>>) => (
-    <PlatformNode key={n.entity.id} entity={n.entity} selected={n.entity.id === selectedId} label={nodeLabel(n.entity)} senders={n.senders} withRole className="relative min-h-12" onClick={() => onSelect(n.entity.id)} />
+    <PlatformNode key={n.entity.id} entity={n.entity} selected={n.entity.id === selectedId} label={nodeLabel(n.entity)} senders={n.senders} age={ageFrom.get(n.entity.id)} withRole className="relative min-h-12" onClick={() => onSelect(n.entity.id)} />
   )
   return (
     <div className="flex flex-col gap-6 px-4 py-4" data-testid="telemetry-list">
