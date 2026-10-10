@@ -1177,6 +1177,9 @@ function Canvas() {
               edges={edges}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
+              // A line is reached by a pointer or, for a keyboard, from the connections the Inspector lists: giving every line a tab stop made
+              // the focus ring land on invisible, unnamed paths.
+              edgesFocusable={false}
               onNodesChange={onNodesChange}
               onSelectionChange={onSelectionChange}
               onNodeClick={(e, n) => {
