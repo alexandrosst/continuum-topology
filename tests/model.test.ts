@@ -1617,6 +1617,8 @@ test('service card: cards sharing a packed row are all as tall as the row\'s tal
   assert.equal(orch.position.y, gw.position.y, 'both start at the same top')
 })
 
+const orchLabel = (g: ReturnType<typeof buildGraph>): string => String(g.nodes.find((n) => n.id === cardId('w-orch'))!.ariaLabel)
+
 test('calm detail: every card is the one size, a card with a problem says what inside it, and no card is stretched to its row-mate', () => {
   const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
   const old = new Date(Date.now() - 20 * 60 * 1000).toISOString()
@@ -1634,6 +1636,8 @@ test('calm detail: every card is the one size, a card with a problem says what i
   const gw = g.nodes.find((n) => n.id === cardId('w-gw'))!
   assert.equal(gw.data.alert, 'warn')
   assert.equal(gw.data.note, 'Degraded')
+  assert.match(String(gw.ariaLabel), /^.+\. Needs attention: Degraded$/, 'a screen reader gets the name, the state in words and what is wrong')
+  assert.equal(String(orchLabel(g)), `${orchLabel(g).split('.')[0]}. Healthy`, 'a fine card says only that it is healthy')
   assert.equal(Number(gw.style?.height), CALM_CARD_H, 'the line fits inside the card')
   assert.equal(Number(gw.style?.width), CALM_CARD.w)
   const orch = g.nodes.find((n) => n.id === cardId('w-orch'))!

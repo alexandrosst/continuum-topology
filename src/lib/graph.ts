@@ -13,7 +13,7 @@ import { isObserved } from './observed'
 import { buildNetworks, networkSentence, type Network } from './networks'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
 import { clusterLoad, lossBand, nodeLoad, pathQuality, peakLoad, type ClusterLoad, type NodeLoad, type PathQuality } from './metrics'
-import { alertOfLoad, alertOfPods, alertOfStatus, PRESSURE_WARN, worstAlert, type Alert, type Detail } from './detail'
+import { alertOfLoad, alertOfPods, alertOfStatus, PRESSURE_WARN, statusSentence, worstAlert, type Alert, type Detail } from './detail'
 import {
   DEVICE_KINDS,
   TIER_ORDER,
@@ -941,7 +941,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   spreadFanned(edges, abs)
   spreadParallel(edges)
   if (calm) assignTracks(edges)
-  return { nodes, edges }
+  return { nodes: nodes.map(spoken), edges }
 }
 
 /** Lines that run in the gutters take turns on five tracks, in a fixed order, so the lines of one gutter are side by side and not on top of each other. */
@@ -1293,10 +1293,17 @@ function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edg
 
   spreadFanned(edges, abs)
   spreadParallel(edges)
-  return { nodes, edges }
+  return { nodes: nodes.map(spoken), edges }
 }
 
 /* ---------- helpers ---------- */
+/** A box or card says its name and its state in words to a screen reader (and on keyboard focus), the same sentence the glyph and the tint say to the eye. */
+function spoken<N extends TopoNode>(n: N): N {
+  const d = n.data as { title?: string; status?: Status; alert?: Alert; note?: string }
+  return d.title && d.status ? { ...n, ariaLabel: statusSentence(d.title, d.status, d.alert, d.note) } : n
+}
+
+
 function tierLabel(t: Tier) {
   return t === 'far-edge' ? 'Far edge' : t[0].toUpperCase() + t.slice(1)
 }

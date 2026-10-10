@@ -147,6 +147,16 @@ body {
 @media (max-width: 639px) {
   .react-flow__controls.react-flow__panel.bottom.left { left: auto; right: 0; }
 }
+/* Calm: one control bar, laid out in a row; its last button is the legend, wider than a zoom button because it carries a word. */
+.react-flow__controls.horizontal .react-flow__controls-button { border-bottom: 0; border-right: 1px solid var(--color-nb-850); }
+.react-flow__controls.horizontal .react-flow__controls-button:last-child { border-right: 0; }
+.react-flow__controls-button.legend-button { width: auto; gap: 6px; padding: 0 12px; font-size: 12px; line-height: 16px; }
+.react-flow__controls-button.legend-button svg { fill: none; }
+.react-flow__controls-button.legend-button[aria-expanded='true'] { background: var(--color-nb-940); color: var(--color-nb-200); }
+@media (max-width: 639px) { .react-flow__controls-button.legend-button { display: none; } }
+/* The legend sits just above that bar: the bar's own 15px margin and height, and 8px of air. */
+.react-flow__panel.legend-above { margin: 0 0 59px 15px; }
+@media (pointer: coarse) { .react-flow__panel.legend-above { margin-bottom: 67px; } }
 /* Calm: the zoom buttons rest quietly and come up when the pointer or the keyboard is on them. */
 .react-flow__controls.controls-quiet { opacity: 0.55; transition: opacity 120ms ease-out; }
 .react-flow__controls.controls-quiet:hover, .react-flow__controls.controls-quiet:focus-within { opacity: 1; }
@@ -168,7 +178,7 @@ body {
    so an active drag stays instant and never fights the transition timer. Width/height are deliberately left
    alone: those are triggered by content reflow (a box gaining/losing a sibling), and animating them is both
    more expensive (layout, not just compositing) and reads as the box "breathing" rather than moving. */
-.react-flow__node:not(.dragging) { transition: transform 220ms ease-out; }
+.react-flow__node:not(.dragging) { transition: transform 160ms ease-out; }
 
 /* What a Calm canvas says about a problem or a network stays readable however far out it is drawn: 11 px on screen (the canvas's zoom is --zoom,
    kept by ZoomVar), and never smaller than 11 px once zoomed in. */

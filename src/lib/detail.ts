@@ -54,3 +54,9 @@ export function shownStatus(status: Status, alert?: Alert): { state: Shown; colo
   const state: Shown = status === 'offline' || status === 'degraded' ? SHOWN_OF_STATUS[status] : alert === 'bad' ? 'down' : alert === 'warn' ? 'attention' : SHOWN_OF_STATUS[status]
   return { state, color: SHOWN_COLOR[state], word: SHOWN_WORD[state] }
 }
+
+/** The whole answer a box or card gives at a glance, as one sentence for assistive technology: "frame-resizer. Not working: 1 crash-looping". */
+export function statusSentence(name: string, status: Status, alert?: Alert, note?: string): string {
+  const { word } = shownStatus(status, alert)
+  return `${name}. ${word}${note && alert ? `: ${note}` : ''}`
+}

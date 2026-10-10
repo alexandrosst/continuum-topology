@@ -1,6 +1,7 @@
 import {
   Background,
   BackgroundVariant,
+  ControlButton,
   Controls,
   getNodesBounds,
   getViewportForBounds,
@@ -1360,7 +1361,14 @@ function Canvas() {
               colorMode="dark"
             >
               <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="var(--color-nb-850)" />
-              <Controls showInteractive={false} className={calm ? 'controls-quiet' : undefined} />
+              <Controls showInteractive={false} orientation={calm ? 'horizontal' : 'vertical'} className={calm ? 'controls-quiet' : undefined}>
+                {/* Calm: the legend is the fourth button of the one control bar (zoom in, zoom out, fit, legend), not a widget of its own. */}
+                {calm && (
+                  <ControlButton onClick={toggleLegend} aria-expanded={legendOpen} aria-controls="topology-legend" className="legend-button" data-testid="legend-toggle" title="What the colours, lines and badges mean">
+                    <CircleHelp size={ICON_SM} aria-hidden /> Legend
+                  </ControlButton>
+                )}
+              </Controls>
               <ZoomVar />
               {/* Hidden while the Inspector is open: the canvas is narrower then and the map would sit on the legend. The mask is themed in index.css. */}
               {showMinimap && <MiniMap className={selection ? '!hidden' : '!hidden sm:!block'} pannable zoomable nodeColor={miniColor} nodeStrokeWidth={0} />}
@@ -1387,7 +1395,7 @@ function Canvas() {
                   <ProblemsPill problems={problems} selectedId={selectedRfId} onGo={goToProblem} onShow={showProblem} />
                 </Panel>
               )}
-              <Panel position="bottom-left" className={clsx('!mb-3 !ml-16 hidden sm:block', calm && 'flex-col items-start gap-2 sm:!flex')}>
+              <Panel position="bottom-left" className={clsx('hidden sm:block', calm ? 'legend-above flex-col items-start sm:!flex' : '!mb-3 !ml-16')}>
                 {(!calm || legendOpen) && (
                 <div id="topology-legend" className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
                   {TIERS.filter((t) => !calm || onCanvas.tiers.has(t.value)).map((t) => {
@@ -1551,18 +1559,6 @@ function Canvas() {
                     </>
                   )}
                 </div>
-                )}
-                {calm && (
-                  <button
-                    type="button"
-                    onClick={toggleLegend}
-                    aria-expanded={legendOpen}
-                    aria-controls="topology-legend"
-                    className={clsx('flex items-center gap-1.5 rounded-lg border border-nb-850 bg-nb-925/95 px-2.5 py-1.5 text-xs text-nb-400 hover:text-nb-300', PRESS_CLASS)}
-                    data-testid="legend-toggle"
-                  >
-                    <CircleHelp size={ICON_SM} aria-hidden /> Legend
-                  </button>
                 )}
               </Panel>
             </ReactFlow>
