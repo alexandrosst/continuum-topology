@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
 import Inspector from '@/components/topology/Inspector'
+import type { Cluster } from '@/lib/types'
 import type { ExternalEndpoint, MachineNode } from '@/lib/types'
 
 // A focused Inspector test: only the 'external' selection branch is exercised here, so every store/hook
@@ -317,5 +318,29 @@ describe('Inspector · external endpoint', () => {
     expect(sheet.className).not.toContain('max-h-[65vh]')
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  })
+})
+
+describe('Inspector · what the canvas no longer draws', () => {
+  test('a machine shows its load as meters, since its card only says when one resource is under pressure', () => {
+    renderNodeInspector(node({ allocatable: { cpu: 10, memoryGb: 10 }, requested: { cpu: 4, memoryGb: 9 } }))
+    const meters = screen.getByTestId('load-meters')
+    expect(within(meters).getByText('40%')).toBeInTheDocument()
+    expect(within(meters).getByText('90%')).toBeInTheDocument()
+  })
+
+  test('a cluster shows its load and a local operator\'s telemetry, with the control the box used to carry', () => {
+    const cluster = { id: 'c1', name: 'atlas', status: 'healthy', tier: 'edge', source: 'discovered', orgId: 'o', distribution: 'k3s', version: '1.30', labels: {} } as unknown as Cluster
+    topologyState = { clusters: [cluster] as never[], nodes: [node({ allocatable: { cpu: 10, memoryGb: 10 }, requested: { cpu: 5, memoryGb: 2 } })] as never[], namespaces: [], services: [], devices: [], dependencies: [], applications: [], sites: [], siteLinks: [], externalEndpoints: [], agents: [], suggestions: [] }
+    const start = vi.fn()
+    render(
+      <MemoryRouter>
+        <Inspector selection={{ kind: 'cluster', id: 'c1' }} onSelect={() => {}} onEdit={() => {}} onClose={() => {}} localOperators={new Map([['c1', { layers: ['infrastructure'], agentId: 'a1' }]])} onConfigureTelemetry={start} />
+      </MemoryRouter>,
+    )
+    expect(within(screen.getByTestId('load-meters')).getByText('50%')).toBeInTheDocument()
+    expect(screen.getByText('Running (infrastructure)')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('configure-local-telemetry'))
+    expect(start).toHaveBeenCalledWith('a1')
   })
 })

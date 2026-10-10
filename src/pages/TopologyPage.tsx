@@ -1391,7 +1391,7 @@ function Canvas() {
                       <PodLegend />
                     </>
                   )}
-                  {localOperatorByCluster.size > 0 && (
+                  {!calm && localOperatorByCluster.size > 0 && (
                     <>
                       <span className="h-3 w-px bg-nb-800" />
                       <span className="flex items-center gap-1.5" title="This badge on a cluster box means a local operator (an approved agent with telemetry signals on) is running there - click it to configure">
@@ -1430,7 +1430,7 @@ function Canvas() {
           )}
         </div>
 
-        <Inspector selection={selection} onSelect={select} onEdit={editSelection} onClose={() => setSelection(null)} />
+        <Inspector selection={selection} onSelect={select} onEdit={editSelection} onClose={() => setSelection(null)} localOperators={localOperatorByCluster} onConfigureTelemetry={telemetry.start} />
       </div>
       )}
 

@@ -27,7 +27,7 @@ import {
 import { ICON_MD, ICON_SM, TIER_ICON } from '@/components/ui/primitives'
 import { createElement, memo, useCallback, useContext, useState, type ComponentProps, type ReactNode } from 'react'
 import { PodPopover, PodRail } from '@/components/topology/Pods'
-import { LoadRow, MiniBar } from '@/components/topology/Load'
+import { LoadRow } from '@/components/topology/Load'
 import { peakLoad } from '@/lib/metrics'
 import { DistroIcon, Flag } from '@/components/ui/brand'
 import { middleTruncate } from '@/lib/present'
@@ -68,9 +68,6 @@ const useFar = () => useStore((s) => s.transform[2] < FAR_ZOOM)
 
 /** The state colours of a problem card or cluster: the same two the status dot and the rest of the app use. */
 const ALERT_COLOR: Record<Alert, string> = { warn: STATUS_COLOR.degraded, bad: STATUS_COLOR.offline }
-/** A line of a cluster header that waits for hover, focus or selection (Calm). Whole class names, so Tailwind finds them. */
-const BOX_QUIET = 'hidden group-hover/box:flex group-hover/box:animate-[quiet-in_120ms_ease-out] [.react-flow__node:focus-within_&]:flex'
-
 const TONE = { good: 'bg-ok/10 text-ok', warn: 'bg-warn/10 text-warn', bad: 'bg-bad/10 text-bad' } as const
 const MESH_TONE = { in: 'bg-ok/10 text-ok', control: 'bg-violet-400/10 text-violet-300', out: 'bg-nb-900 text-nb-400' } as const
 // The shared "neutral gray, no particular status" tone - used by both the networking badge and a card's
@@ -133,7 +130,7 @@ function Badge({
 }
 
 /* ---------- Cluster / tier boundary ---------- */
-export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<GroupNode>) {
+function FullGroupBox({ data, selected }: NodeProps<GroupNode>) {
   const far = useFar()
   const color = TIER_COLOR[data.tier]
   const peak = data.load ? peakLoad(data.load) : undefined
@@ -148,11 +145,6 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
   // Devices/External are synthetic grouping rows (always laid out as tier: 'cloud', see graph.ts), not a
   // real tier - no tier icon for those, same as their label above already isn't a tier name.
   const TierGlyph = data.extra ? undefined : TIER_ICON[data.tier]
-  // Calm: the header is the name, the status dot and the tier; the lines under it wait for hover, focus or selection, and a
-  // cluster under pressure keeps its bars up. They sit in the header's own reserved room, so showing them moves nothing.
-  const calm = useContext(DetailContext) === 'calm'
-  const alert = calm ? data.alert : undefined
-  const quiet = (shown: boolean) => (calm && !shown ? BOX_QUIET : 'flex')
   return (
     // The selection ring is `inset`, not the plain outward `0_0_0_Npx` box-shadow it used to be: OffsetEdge
     // places an incoming edge's arrowhead tip with zero gap exactly on this box's true boundary (see its
@@ -162,9 +154,9 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
     // very tip of any edge pointing at it. Inset keeps the identical highlight look without ever drawing
     // outside the box OffsetEdge's own math already treats as this card's exact, true extent.
     <div
-      className={clsx('group/box h-full w-full rounded-2xl border transition-shadow', selected && 'shadow-[inset_0_0_0_2px_var(--color-accent)]')}
+      className={clsx('h-full w-full rounded-2xl border transition-shadow', selected && 'shadow-[inset_0_0_0_2px_var(--color-accent)]')}
       style={{
-        borderColor: alert && !selected ? `color-mix(in srgb, ${ALERT_COLOR[alert]} 55%, transparent)` : `color-mix(in srgb, ${color} ${selected ? 70 : 32}%, transparent)`,
+        borderColor: `color-mix(in srgb, ${color} ${selected ? 70 : 32}%, transparent)`,
         background: `color-mix(in srgb, ${color} 5%, var(--color-nb-920))`,
       }}
     >
@@ -180,7 +172,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
             )}
           </div>
           {!far && (
-            <div className={clsx('mt-0.5 items-center gap-1.5 truncate pl-4 text-xs text-nb-500', quiet(selected))}>
+            <div className="mt-0.5 flex items-center gap-1.5 truncate pl-4 text-xs text-nb-500">
               {data.country && <Flag code={data.country} className="!h-2.5 !w-[15px]" />}
               <span className="truncate" title={data.subtitle || undefined}>{data.subtitle || ' '}</span>
               {data.mesh && (
@@ -202,7 +194,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
             </div>
           )}
           {!far && data.load && (data.load.cpuPct !== undefined || data.load.memPct !== undefined || data.load.podPct !== undefined || data.load.ready < data.load.nodes || data.load.unready > 0) && (
-            <LoadRow load={data.load} className={clsx('mt-1 pl-4', quiet(selected || !!alert))} />
+            <LoadRow load={data.load} className="mt-1 pl-4" />
           )}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -235,22 +227,90 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
               {tierLabel}
             </span>
           </div>
-          {!far && <span className={clsx('text-[11px] text-nb-500', calm && !selected && BOX_QUIET)}>{data.stats}</span>}
+          {!far && <span className="text-[11px] text-nb-500">{data.stats}</span>}
         </div>
       </div>
     </div>
   )
+}
+
+/** The glyph at a box's right edge, in place of a text chip: the box's tint already says the tier, this says what kind of thing the box is. */
+const BOX_KIND = { devices: { Glyph: Radio, label: 'Devices' }, external: { Glyph: Globe, label: 'External endpoints' } } as const
+
+/** Calm: the header is what identifies the box (its name, its logo, its status dot), where it is, and what is wrong with it. The tier is a
+ *  small glyph with its name on hover; the distribution, counts, load bars and telemetry control are the Inspector's. */
+function CalmGroupBox({ data, selected }: NodeProps<GroupNode>) {
+  const far = useFar()
+  const color = TIER_COLOR[data.tier]
+  const peak = data.load ? peakLoad(data.load) : undefined
+  const alert = data.alert
+  const kind = data.extra ? BOX_KIND[data.extra] : undefined
+  const Glyph = kind?.Glyph ?? TIER_ICON[data.tier]
+  const kindLabel = kind?.label ?? `${data.tier === 'far-edge' ? 'Far edge' : data.tier[0].toUpperCase() + data.tier.slice(1)} tier`
+  return (
+    // Inset ring: see the note in FullGroupBox.
+    <div
+      className={clsx('group/box h-full w-full rounded-2xl border transition-shadow', selected && 'shadow-[inset_0_0_0_2px_var(--color-accent)]')}
+      style={{
+        borderColor: alert && !selected ? `color-mix(in srgb, ${ALERT_COLOR[alert]} 55%, transparent)` : `color-mix(in srgb, ${color} ${selected ? 70 : 32}%, transparent)`,
+        background: `color-mix(in srgb, ${color} 5%, var(--color-nb-920))`,
+      }}
+    >
+      <AllHandles />
+      <div className="flex items-start justify-between gap-3 px-5 pt-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={clsx('shrink-0 rounded-full', far ? 'size-3' : 'size-2')} style={{ background: STATUS_COLOR[data.status] }} />
+            {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
+            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
+            {far && peak !== undefined && peak >= 70 && (
+              <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
+            )}
+          </div>
+          {!far && data.place && (
+            <div className="mt-0.5 flex items-center gap-1.5 pl-4 text-xs text-nb-500">
+              {data.country && <Flag code={data.country} className="!h-2.5 !w-[15px]" />}
+              <span className="truncate" title={data.place}>{data.place}</span>
+              {data.mesh && (
+                <Badge tone={TONE[data.mesh.tone]} dense title={data.mesh.title} data-testid="mesh-badge">
+                  {data.mesh.label}
+                </Badge>
+              )}
+            </div>
+          )}
+          {!far && alert && data.note && (
+            <div className="mt-0.5 truncate pl-4 text-[11px]" style={{ color: ALERT_COLOR[alert] }} data-testid="box-note">{data.note}</div>
+          )}
+        </div>
+        <span
+          role="img"
+          aria-label={kindLabel}
+          title={kindLabel}
+          className="grid size-6 shrink-0 place-items-center rounded-full"
+          style={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }}
+        >
+          <Glyph size={ICON_SM} aria-hidden="true" />
+        </span>
+      </div>
+    </div>
+  )
+}
+
+export const GroupBox = memo(function GroupBox(props: NodeProps<GroupNode>) {
+  return useContext(DetailContext) === 'calm' ? <CalmGroupBox {...props} /> : <FullGroupBox {...props} />
 })
 
 /* ---------- Namespace sub-box (nests inside a cluster box, one level in from it) ---------- */
 export const NamespaceBox = memo(function NamespaceBox({ data }: NodeProps<NamespaceNode>) {
+  // Calm leaves the count out: the cards inside are right there to count.
+  const calm = useContext(DetailContext) === 'calm'
   return (
     <div className="h-full w-full rounded-lg border border-dashed border-nb-800 bg-black/10">
       <AllHandles />
       <div className="flex items-center gap-1.5 px-3 pt-2">
         <span className="size-1.5 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
         <span className="truncate text-[11px] font-medium uppercase tracking-wide text-nb-500">{data.namespace}</span>
-        <span className="ml-auto shrink-0 text-[10.5px] normal-case tracking-normal text-nb-600">{data.count}</span>
+        {!calm && <span className="ml-auto shrink-0 text-[10.5px] normal-case tracking-normal text-nb-600">{data.count}</span>}
       </div>
     </div>
   )
@@ -284,9 +344,12 @@ function iconOf(data: CardData): LucideIcon {
           : Box
 }
 
-/** The small chips under a card's name: mesh state, replicas not ready, placement advice, hardware facts. */
-function BadgeRow({ data }: { data: CardData }) {
-  if (!(data.hint || data.notReady || data.mesh || data.hardware)) return null
+/** The small chips under a card's name: mesh state, replicas not ready, placement advice, hardware facts. Calm keeps the
+ *  two that relate the card to something else (the mesh, a better home); not-ready replicas are its note and the hardware is the Inspector's. */
+function BadgeRow({ data, calm }: { data: CardData; calm?: boolean }) {
+  const notReady = !calm && data.notReady
+  const hardware = !calm && data.hardware
+  if (!(data.hint || notReady || data.mesh || hardware)) return null
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
       {data.mesh && (
@@ -294,20 +357,20 @@ function BadgeRow({ data }: { data: CardData }) {
           {data.mesh.label}
         </Badge>
       )}
-      {data.notReady && <Badge tone="bg-warn/10 text-warn" title="Fewer replicas are ready than wanted">{data.notReady}</Badge>}
+      {notReady && <Badge tone="bg-warn/10 text-warn" title="Fewer replicas are ready than wanted">{notReady}</Badge>}
       {data.hint && (
         <Badge tone="bg-accent-soft text-accent" icon={ArrowUpRight} title={`The placement advice would move this to ${data.hint}. Open it for the evidence.`} data-testid="placement-hint" className="max-w-full">
           better in {data.hint}
         </Badge>
       )}
-      {data.hardware?.hasBattery && (
+      {hardware && hardware.hasBattery && (
         <Badge tone={NEUTRAL_TONE} icon={BatteryCharging} title="Node probe: this machine can run without mains power (has a battery)" data-testid="battery-badge">
           Battery
         </Badge>
       )}
-      {data.hardware?.nicMbps !== undefined && (
-        <Badge tone={NEUTRAL_TONE} icon={Cable} title={`Node probe: fastest physical network interface seen on this machine is ${nicSpeedLabel(data.hardware.nicMbps)}`} data-testid="nic-badge">
-          {nicSpeedLabel(data.hardware.nicMbps)}
+      {hardware && hardware.nicMbps !== undefined && (
+        <Badge tone={NEUTRAL_TONE} icon={Cable} title={`Node probe: fastest physical network interface seen on this machine is ${nicSpeedLabel(hardware.nicMbps)}`} data-testid="nic-badge">
+          {nicSpeedLabel(hardware.nicMbps)}
         </Badge>
       )}
     </div>
@@ -408,23 +471,28 @@ function FullCard({ data, selected }: NodeProps<CardNode>) {
 }
 
 /* ---------- Calm card ---------- */
-// The Calm presentation draws a card that is fine as its name, its icon and its status dot, and keeps everything
-// else (the line under the name, the badges, the pod rail, a machine's load) for hover, keyboard focus and
-// selection, and always for a card with a problem. The layout gives a fine card only its own small height
-// (graph.ts, CALM_CARD_H); what a hover or a selection reveals is drawn over the gap below it, so it never moves
-// anything else. `group/card` is the card's own surface: CSS alone decides what a hover shows, no state.
+// The Calm presentation draws a card as what identifies it (its icon, its name, its status dot) and, when something is wrong with it,
+// one line in the state colour saying what. The pods of a service wait for hover, keyboard focus, selection and a close zoom; a card
+// that is fine has nothing else to say, since the kind, namespace, replicas and hardware are the Inspector's. The layout gives a card
+// only its own small height (graph.ts); what a hover reveals is drawn over the gap below it, so it never moves anything else.
+// `group/card` is the card's own surface: CSS alone decides what a hover shows, no state.
 /** A part of a card that waits for hover or focus. Whole class names, so Tailwind finds them. */
 const QUIET = 'hidden group-hover/card:flex group-hover/card:animate-[quiet-in_120ms_ease-out] [.react-flow__node:focus-within_&]:flex [.react-flow__node:focus-within_&]:animate-[quiet-in_120ms_ease-out]'
+/** From this zoom on the person is looking closely: pods are drawn without waiting for a hover. */
+export const NEAR_ZOOM = 1.1
+const useNear = () => useStore((s) => s.transform[2] >= NEAR_ZOOM)
 
 function CalmCard({ data, selected }: NodeProps<CardNode>) {
   const isMachine = data.kind === 'machine'
   const pods = usePodPopover()
   const far = useFar()
+  const near = useNear()
   const color = TIER_COLOR[data.tier]
   const alert = data.alert
-  // A services-on-nodes list is something the person asked to see, so it keeps the whole card up.
-  const out = !!alert || selected || !!data.chips || pods.open
   const tone = alert ? ALERT_COLOR[alert] : undefined
+  const more = !far && (data.pods || data.hint || data.mesh || data.chips)
+  // A services-on-nodes list is something the person asked to see, so it stays up.
+  const out = !!data.chips || selected || near || pods.open
   return (
     <div data-far={far ? '1' : undefined} data-alert={alert} className="relative h-full w-full">
       <AllHandles />
@@ -451,35 +519,24 @@ function CalmCard({ data, selected }: NodeProps<CardNode>) {
             )}
             {far && data.clusterTag && <div className="truncate text-[14px] leading-4 text-nb-500">{data.clusterTag}</div>}
           </div>
-          {far && data.notReady && <span className="size-2.5 shrink-0 rounded-sm bg-warn" title={data.notReady} />}
+          {!far && data.kind === 'device' && data.meta && <span className="shrink-0 text-[11px] text-nb-500" title="Devices in this group">{data.meta}</span>}
           <span className={clsx('shrink-0 rounded-full', far ? 'size-3' : 'size-2')} style={{ background: STATUS_COLOR[data.status] }} title={data.status} />
         </div>
-        <div className={clsx('flex-col gap-1.5 pb-1 pt-1.5', out ? 'flex' : QUIET)}>
-          {!far && (
-            <div className="text-[11px] text-nb-500">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="truncate" title={data.subtitle}>{data.subtitle}</span>
-                {!isMachine && data.meta && <span className="shrink-0">{data.meta}</span>}
-              </div>
-              {isMachine && <div className="truncate" title={data.meta}>{data.meta}</div>}
-            </div>
-          )}
-          {!far && <BadgeRow data={data} />}
-          {data.load && !far && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5" data-testid="machine-load">
-              <MiniBar label="CPU" pct={data.load.cpuPct} />
-              <MiniBar label="Mem" pct={data.load.memPct} />
-              <MiniBar label="Pods" pct={data.load.podPct} />
-            </div>
-          )}
-          {data.pods && (
-            <>
-              <PodRail pods={data.pods} far={far} open={pods.open} onToggle={pods.toggle} buttonRef={pods.setAnchor} />
-              {pods.open && pods.anchor && <PodPopover pods={data.pods} name={data.title} anchor={pods.anchor} onClose={pods.close} />}
-            </>
-          )}
-          {!far && data.chips && <ChipRow chips={data.chips} />}
-        </div>
+        {!far && alert && data.note && (
+          <div className="-mt-0.5 truncate pl-11 text-[11px]" style={{ color: tone }} data-testid="card-note">{data.note}</div>
+        )}
+        {more && (
+          <div className={clsx('flex-col gap-1.5 pb-1 pt-1.5', out ? 'flex' : QUIET)}>
+            <BadgeRow data={data} calm />
+            {data.pods && (
+              <>
+                <PodRail pods={data.pods} far={far} open={pods.open} onToggle={pods.toggle} buttonRef={pods.setAnchor} />
+                {pods.open && pods.anchor && <PodPopover pods={data.pods} name={data.title} anchor={pods.anchor} onClose={pods.close} />}
+              </>
+            )}
+            {data.chips && <ChipRow chips={data.chips} />}
+          </div>
+        )}
       </div>
     </div>
   )

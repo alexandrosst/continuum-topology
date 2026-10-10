@@ -7,6 +7,7 @@ import EntityHistory from '@/components/EntityHistory'
 import { EvidenceSection, WeakValues } from '@/components/EvidenceSection'
 import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
+import { LoadMeters } from '@/components/topology/Load'
 import { LinkRow, Section } from '@/components/topology/InspectorParts'
 import PlatformPanel, { PlatformSubtitle } from '@/components/topology/PlatformPanel'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
@@ -21,7 +22,7 @@ import { useHistoryView } from '@/store/history'
 import { useConn, useServer } from '@/store/server'
 import { useRawTopology, useTopology } from '@/store/topology'
 import { bytesPerSec, bytesTotal, isObserved, trafficSummary } from '@/lib/observed'
-import { lossBand, pathQuality, rttLabel } from '@/lib/metrics'
+import { clusterLoad, lossBand, nodeLoad, pathQuality, rttLabel } from '@/lib/metrics'
 import { useClusterPairConnectivity, usePaths } from '@/store/topology'
 import { connectionVerdict, meshName, MTLS_WORDS, proxyWords, VERDICT_COLOR } from '@/lib/mesh'
 import type { PlatformModel } from '@/lib/platformLayer'
@@ -310,10 +311,15 @@ export default function Inspector({
   onSelect,
   onEdit,
   onClose,
+  localOperators,
+  onConfigureTelemetry,
 }: {
   selection: Selection
   /** The platform layer on the canvas, for a selection of one of its parts. */
   platform?: PlatformModel
+  /** Cluster id -> the agent running local telemetry there, which the canvas no longer shows a control for. */
+  localOperators?: ReadonlyMap<string, { layers: string[]; agentId: string }>
+  onConfigureTelemetry?: (agentId: string) => void
   onSelect: (s: Selection) => void
   onEdit: (s: NonNullable<Selection>) => void
   onClose: () => void
@@ -487,6 +493,9 @@ export default function Inspector({
             </div>
           )}
         </Section>
+        <Section title="Load">
+          {ns.length > 0 || ws.length > 0 ? <LoadMeters load={clusterLoad(c, ns, ws)} /> : <p className="text-sm text-nb-500">Nothing reported yet.</p>}
+        </Section>
         {(() => {
           // Every cluster pair c has SOME relationship with (a confirmed ClusterLink, or observed
           // cross-cluster traffic) - a strict superset of the old "Cluster links" section, which only
@@ -573,6 +582,16 @@ export default function Inspector({
           {agent && (
             <Row label="Agent">
               <Link to="/discovery" className="text-accent hover:underline">{agent.name}</Link> <span className="text-nb-500">tier {agent.accessTier}</span>
+            </Row>
+          )}
+          {localOperators?.get(c.id) && (
+            <Row label="Local telemetry" wrap>
+              <span className="text-nb-300">Running{localOperators.get(c.id)!.layers.length ? ` (${localOperators.get(c.id)!.layers.join(', ')})` : ''}</span>{' '}
+              {onConfigureTelemetry && (
+                <button type="button" className="text-accent hover:underline" onClick={() => onConfigureTelemetry(localOperators.get(c.id)!.agentId)} data-testid="configure-local-telemetry">
+                  Configure
+                </button>
+              )}
             </Row>
           )}
           {agent && <ObserverRow agent={agent} nodeNames={ns.map((n) => n.name)} />}
@@ -711,6 +730,10 @@ export default function Inspector({
         <Section title="Capacity">
           <Row label="IP" copy={n.ip}><IpAddress ip={n.ip} inline /></Row>
           <Row label="Capacity">{n.cpu} vCPU · {n.memoryGb} GB{n.diskGb !== undefined ? ` · ${formatMemory(n.diskGb)} disk` : ''}</Row>
+          {(() => {
+            const load = nodeLoad(n)
+            return load && <div className="my-2"><LoadMeters load={load} /></div>
+          })()}
           <Maybe label="Allocatable">{res(n.allocatable)}</Maybe>
           <Maybe label="Requested">{res(n.requested)}</Maybe>
           <Maybe label="Pods">

@@ -12,7 +12,7 @@ import { deepEqual } from './discovered'
 import { isObserved } from './observed'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
 import { clusterLoad, nodeLoad, pathQuality, peakLoad, type ClusterLoad, type NodeLoad, type PathQuality } from './metrics'
-import { alertOfLoad, alertOfPods, alertOfStatus, worstAlert, type Alert, type Detail } from './detail'
+import { alertOfLoad, alertOfPods, alertOfStatus, PRESSURE_WARN, worstAlert, type Alert, type Detail } from './detail'
 import {
   DEVICE_KINDS,
   TIER_ORDER,
@@ -56,9 +56,13 @@ export type GroupData = {
   empty: string
   /** How loaded a cluster is, from what its nodes report. Only cluster groups have it. */
   load?: ClusterLoad
-  /** Set when the box is not fine (its own or a card's status, a resource under pressure, a node or service down):
-   *  the Calm presentation then keeps the header's extra line up instead of waiting for a hover. */
+  /** Where the cluster or site is ("Frankfurt, Germany"): what Calm keeps under the name, in place of the distribution and counts. */
+  place?: string
+  /** Set when the box itself is not fine (its own status, a resource under pressure, a node or service down). A card's
+   *  problem is its own: the box does not repeat it. Calm tints the box and says what is wrong in `note`. */
   alert?: Alert
+  /** What is wrong with the box, in a few words ("1/2 nodes ready", "Memory 92% requested"); set with `alert`. */
+  note?: string
   /** Service mesh overlay: what mesh the cluster runs, e.g. "Istio 1.22 · sidecar · mTLS permissive". */
   mesh?: { label: string; tone: 'good' | 'warn' | 'bad'; title: string }
   /** Set on a real cluster box (groupBy 'cluster' only) when one of its approved agents has at least one
@@ -105,9 +109,11 @@ export type CardData = {
    *  MachineNode.networkInterfaces' speedMbps, not any one interface in particular - which one is fastest
    *  is a detail the Inspector's own per-interface list already covers). */
   hardware?: { hasBattery?: boolean; nicMbps?: number }
-  /** Set when the card is not fine (status, pods not ready, a machine under pressure): Calm draws it in full and in the
-   *  state colour, and the layout gives it its whole height; a card without one is as small as its name. */
+  /** Set when the card is not fine (status, pods not ready, a machine under pressure): Calm draws it in the state colour with
+   *  `note` under its name, and the layout gives it that line; a card without one is as small as its name. */
   alert?: Alert
+  /** What is wrong, in a few words ("1 crash-looping · 1 not ready", "Memory 92% requested"); set with `alert`. */
+  note?: string
   /** Machine cards only: how much of the machine's CPU, memory and pod slots is already promised. */
   load?: NodeLoad
   /** `service` cards only: the pod rail, the "27/30 ready" summary and the popover's rows (see lib/pods.ts).
@@ -304,22 +310,15 @@ const ROW_GAP = 150
 // arbitrary name, which is exactly why the native `title=` tooltip (added in an earlier pass) exists as the
 // fallback rather than chasing zero truncation by growing every card to accommodate the longest outlier.
 export const APP_CARD = { w: 300, h: 68 }
-/** Calm: what a card that is fine needs - its icon, name and status dot. Everything else is drawn over the gap below it, on hover. */
+/** Calm: what a card that is fine needs - its icon, name and status dot. What a hover reveals is drawn over the gap below it. */
 export const CALM_CARD_H = 52
-// A card with a problem keeps the rest in view, so its box is the calm header plus the parts it shows, measured in
-// the browser at normal zoom (the revealed block in nodes.tsx: 10px of padding, 6px between parts).
+/** The line of a card or box that says what is wrong with it, in Calm. */
+export const CALM_NOTE = 16
+/** Calm cluster boxes need less header than Full: a name and, under it, where it is (and a line when something is wrong). */
+export const CALM_HEADER = 68
+// A card that lists the services on a machine (a choice made in Options) keeps them in view: 10px of padding, then the chip rows.
 const CALM_BLOCK = 10
-const CALM_GAP = 6
-export const CALM_LINE = 16
-const CALM_BADGES = 18
-const CALM_RAIL = 17
-// CPU, Mem and Pods do not fit one line of a machine card, so the bars take two.
-const CALM_LOAD = 35
-/** The height of a calm card that shows `parts` (each a height in px, falsy ones skipped) under its header. */
-export const calmPinnedH = (...parts: (number | false | undefined)[]): number => {
-  const shown = parts.filter((p): p is number => !!p)
-  return CALM_CARD_H + CALM_BLOCK + shown.reduce((sum, p) => sum + p, 0) + CALM_GAP * Math.max(0, shown.length - 1)
-}
+const CALM_CHIP_ROW = 24
 // Exported so a test can assert a card's own height reserves room for whichever extra badge row(s) its data ends up rendering.
 export const MACHINE_CARD = { w: 288, h: 84 }
 const CHIP_ROW = 22
@@ -356,7 +355,7 @@ interface GroupAcc {
   tier: Tier
   cluster?: Cluster
   /** Device / external groups: what to show in the header. */
-  extra?: { kind: 'devices' | 'external'; entityId: string; title: string; subtitle: string; country?: string; status?: Status }
+  extra?: { kind: 'devices' | 'external'; entityId: string; title: string; subtitle: string; place?: string; country?: string; status?: Status }
   items: Item[]
 }
 
@@ -380,13 +379,15 @@ interface Placed {
   g: GroupAcc
   w: number
   h: number
+  /** Where the first row of cards starts: below the box's own header. */
+  header: number
   children: PlacedChild[]
   /** Set instead of (never alongside) `children` when this group nests its items under namespace sub-boxes. */
   nsBoxes?: NsBox[]
 }
 
 /** One row of cards, left to right, wrapping at `cols`: shared by a cluster box and a namespace sub-box. */
-function packItems(items: Item[], headerY: number, pad = PAD): { w: number; h: number; children: PlacedChild[] } {
+function packItems(items: Item[], headerY: number, pad = PAD, stretch = true): { w: number; h: number; children: PlacedChild[] } {
   const n = items.length
   const cols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(n))))
   const cw = items[0]?.w ?? 0
@@ -395,9 +396,10 @@ function packItems(items: Item[], headerY: number, pad = PAD): { w: number; h: n
   for (let i = 0; i < n; i += cols) {
     const slice = items.slice(i, i + cols)
     const rowH = Math.max(...slice.map((s) => s.h))
-    // Every card in a row is as tall as the tallest, so a row reads as one band; the card keeps its header
-    // at the top (see Card), so a shorter card's status dot and title stay level with its neighbours'.
-    slice.forEach((item, j) => children.push({ item, x: pad + j * (cw + GAP_X), y, h: rowH }))
+    // Full: every card in a row is as tall as the tallest, so a row reads as one band; the card keeps its header at the top
+    // (see Card), so a shorter card's status dot and title stay level with its neighbours'. Calm keeps each card its own height,
+    // top-aligned: a fine card next to one with a problem is not stretched into an empty box.
+    slice.forEach((item, j) => children.push({ item, x: pad + j * (cw + GAP_X), y, h: stretch ? rowH : item.h }))
     y += rowH + GAP_Y
   }
   const usedCols = Math.min(cols, n)
@@ -411,14 +413,14 @@ function packItems(items: Item[], headerY: number, pad = PAD): { w: number; h: n
  * namespace first, so this does not need to sort again) and stacks the sub-boxes vertically. Every sub-box
  * gets the same width, the widest one's, so the stack reads as one aligned column rather than a jumble.
  */
-function layoutNamespaces(items: Item[]): { w: number; h: number; boxes: NsBox[] } {
+function layoutNamespaces(items: Item[], stretch: boolean): { w: number; h: number; boxes: NsBox[] } {
   const byNs = new Map<string, Item[]>()
   for (const it of items) {
     const key = it.namespace || 'no namespace'
     if (!byNs.has(key)) byNs.set(key, [])
     byNs.get(key)!.push(it)
   }
-  const laidOut = [...byNs.entries()].map(([namespace, its]) => ({ namespace, its, ...packItems(its, NS_HEADER, NS_PAD) }))
+  const laidOut = [...byNs.entries()].map(([namespace, its]) => ({ namespace, its, ...packItems(its, NS_HEADER, NS_PAD, stretch) }))
   const w = Math.max(0, ...laidOut.map((b) => b.w))
   let y = 0
   const boxes: NsBox[] = laidOut.map((b) => {
@@ -525,6 +527,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
               entityId,
               title: perSite ? (s?.name ?? 'Unplaced devices') : 'Devices',
               subtitle: perSite ? (s ? [s.kind.replace('-', ' '), placeLabel(s)].filter(Boolean).join(' · ') : 'No site assigned') : '',
+              place: perSite ? placeLabel(s) : '',
               country: perSite ? s?.country : undefined,
             },
             items: [],
@@ -556,6 +559,18 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     }
   }
 
+  // What each cluster box says about itself: its load, whether it is fine and, when it is not, in what words. A card's own problem is the card's.
+  const infoOf = new Map<string, { load?: ClusterLoad; alert?: Alert; note?: string }>()
+  for (const g of groups.values()) {
+    const cl = g.cluster
+    if (!cl) continue
+    const load = clusterLoad(cl, nodesByCluster.get(cl.id) ?? [], shownServices(cl.id, g.items, o.view, servicesByCluster))
+    const down = load.nodes > load.ready || load.unready > 0
+    const alert = worstAlert(alertOfStatus(cl.status), alertOfLoad(peakLoad(load)), down ? 'warn' : undefined)
+    const parts = [load.nodes > load.ready && `${load.ready}/${load.nodes} nodes ready`, load.unready > 0 && `${count(load.unready, 'service')} not fully up`, pressureNote(load)]
+    infoOf.set(g.key, { load, alert, note: alert ? parts.filter(Boolean).join(' · ') || STATUS_WORD[cl.status] || undefined : undefined })
+  }
+
   /* 2. Lay out: tiers are rows (cloud on top → far edge at the bottom), groups sit side by side. */
   const rows = new Map<number, GroupAcc[]>()
   ;[...groups.values()]
@@ -570,12 +585,14 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
 
   const layoutCards = (g: GroupAcc): Placed => {
     const n = g.items.length
+    // Calm: a shorter header (a name and where it is), taller only when the box has something to say about itself.
+    const header = calm ? CALM_HEADER + (infoOf.get(g.key)?.note ? CALM_NOTE : 0) : HEADER
     if (nsEnabled && g.cluster && n > 0) {
-      const { w: nsW, h: nsH, boxes } = layoutNamespaces(g.items)
-      return { g, w: Math.max(PAD * 2 + nsW, 248, MIN_GROUP_HEADER_WIDTH), h: HEADER + nsH + PAD, children: [], nsBoxes: boxes }
+      const { w: nsW, h: nsH, boxes } = layoutNamespaces(g.items, !calm)
+      return { g, w: Math.max(PAD * 2 + nsW, 248, MIN_GROUP_HEADER_WIDTH), h: header + nsH + PAD, header, children: [], nsBoxes: boxes }
     }
-    const { w, h, children } = packItems(g.items, HEADER)
-    return { g, w: Math.max(w || 248, 248, MIN_GROUP_HEADER_WIDTH), h: n === 0 ? HEADER + 52 : h, children }
+    const { w, h, children } = packItems(g.items, header, PAD, !calm)
+    return { g, w: Math.max(w || 248, 248, MIN_GROUP_HEADER_WIDTH), h: n === 0 ? header + 52 : h, header, children }
   }
   const placedRows = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, gs]) => gs.map(layoutCards))
   const rowWidths = placedRows.map((r) => r.reduce((s, p) => s + p.w, 0) + (r.length - 1) * GROUP_GAP_X)
@@ -595,7 +612,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       const ex = g.extra
       const units = g.items.reduce((s, i) => s + (i.data.units ?? 1), 0)
       const siteCount = new Set(g.items.map((i) => i.data.clusterName).filter(Boolean)).size
-      const groupLoad = cl ? clusterLoad(cl, nodesByCluster.get(cl.id) ?? [], shownServices(cl.id, g.items, o.view, servicesByCluster)) : undefined
+      const info = infoOf.get(g.key)
       nodes.push({
         id: gid,
         type: 'boundary',
@@ -618,12 +635,10 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
           country: ex ? ex.country : cl ? siteById.get(cl.siteId ?? '')?.country : undefined,
           tier: g.tier,
           status: groupStatus,
-          load: groupLoad,
-          alert: worstAlert(
-            alertOfStatus(groupStatus),
-            alertOfLoad(groupLoad && peakLoad(groupLoad)),
-            groupLoad && (groupLoad.ready < groupLoad.nodes || groupLoad.unready > 0) ? 'warn' : undefined,
-          ),
+          place: ex ? ex.place : cl ? placeLabel(siteById.get(cl.siteId ?? '')) || cl.region : '',
+          load: info?.load,
+          alert: info?.alert,
+          note: info?.note,
           mesh: o.mesh && o.view === 'application' && cl?.mesh ? groupMesh(cl.mesh) : undefined,
           localTelemetry: cl && o.groupBy === 'cluster' ? o.localOperators?.get(cl.id) : undefined,
           networking: cl && o.groupBy === 'cluster' && (cl.cni || cl.ingress) ? { cni: cl.cni, ingress: cl.ingress } : undefined,
@@ -646,7 +661,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
             parentId: gid,
             extent: 'parent',
             draggable: false,
-            position: { x: PAD + nb.x, y: HEADER + nb.y },
+            position: { x: PAD + nb.x, y: p.header + nb.y },
             style: { width: nb.w, height: nb.h },
             zIndex: 5,
             data: {
@@ -675,7 +690,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
               zIndex: 10,
               data: c.item.data,
             })
-            abs.set(c.item.id, { x: x + PAD + nb.x + c.x, y: y + HEADER + nb.y + c.y, w: c.item.w, h: c.h })
+            abs.set(c.item.id, { x: x + PAD + nb.x + c.x, y: y + p.header + nb.y + c.y, w: c.item.w, h: c.h })
           }
         }
       } else {
@@ -688,7 +703,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
             // margin packItems already used to lay it out, not the group box's own bare edges - otherwise a
             // drag can park a card flush against the box's left/right/bottom border, or up under the
             // cluster's own header (title, subtitle, load meter).
-            extent: [[PAD, HEADER], [p.w - PAD, p.h - PAD]],
+            extent: [[PAD, p.header], [p.w - PAD, p.h - PAD]],
             position: { x: c.x, y: c.y },
             style: { width: c.item.w, height: c.h },
             zIndex: 10,
@@ -1143,10 +1158,11 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string 
   const podsRow = !!pods
   const extraRows = (badgeRow ? 1 : 0) + (podsRow ? 1 : 0)
   const alert = worstAlert(alertOfStatus(w.status), alertOfPods(pods), notReady ? 'warn' : undefined)
+  const note = alert ? serviceNote(w, pods, notReady) : undefined
   return {
     id: cardId(w.id),
     w: APP_CARD.w,
-    h: calm ? (alert ? calmPinnedH(CALM_LINE, badgeRow && CALM_BADGES, podsRow && CALM_RAIL) : CALM_CARD_H) : APP_CARD.h + (extraRows === 2 ? 46 : extraRows === 1 ? 24 : 0),
+    h: calm ? CALM_CARD_H + (note ? CALM_NOTE : 0) : APP_CARD.h + (extraRows === 2 ? 46 : extraRows === 1 ? 24 : 0),
     namespace: w.namespace,
     data: {
       kind: 'service',
@@ -1156,6 +1172,7 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string 
       meta: `×${w.replicas}`,
       status: w.status,
       alert,
+      note,
       tier: c.tier,
       clusterName: c.name,
       serviceKind: w.kind,
@@ -1180,6 +1197,23 @@ function meshChip(w: Service): NonNullable<CardData['mesh']> {
   return { label: words, tone: m.controlPlane ? 'control' : inMesh(m) ? 'in' : 'out', title: `${words}. ${src} Inferred from configuration.` }
 }
 
+const STATUS_WORD: Record<Status, string> = { offline: 'Offline', degraded: 'Degraded', unknown: '', healthy: '' }
+
+/** The busiest resource of a machine or cluster once it is under pressure, in words: "Memory 92% requested". */
+function pressureNote(load: NodeLoad | undefined): string | undefined {
+  if (!load) return undefined
+  const rows: [string, number | undefined, string][] = [['CPU', load.cpuPct, 'requested'], ['Memory', load.memPct, 'requested'], ['Pods', load.podPct, 'full']]
+  let top: [string, number, string] | undefined
+  for (const [label, pct, what] of rows) if (pct !== undefined && (!top || pct > top[1])) top = [label, pct, what]
+  return top && top[1] >= PRESSURE_WARN ? `${top[0]} ${top[1]}% ${top[2]}` : undefined
+}
+
+/** What is wrong with a service, in the words its pods would use ("1 crash-looping · 1 not ready"), else its state. */
+function serviceNote(w: Service, pods: PodsView | undefined, notReady: boolean): string | undefined {
+  const parts = pods ? [pods.bad > 0 && `${pods.bad} crash-looping`, pods.warn > 0 && `${pods.warn} not ready`] : [notReady && `${w.readyReplicas}/${w.replicas} ready`]
+  return parts.filter(Boolean).join(' · ') || STATUS_WORD[w.status] || undefined
+}
+
 const DEVICE_LABEL = Object.fromEntries(DEVICE_KINDS.map((k) => [k.value, k.label])) as Record<DeviceKind, string>
 
 function deviceItem(dv: Device, s: Site | undefined, withSite: boolean, calm: boolean): Item {
@@ -1187,7 +1221,7 @@ function deviceItem(dv: Device, s: Site | undefined, withSite: boolean, calm: bo
   return {
     id: cardId(dv.id),
     w: APP_CARD.w,
-    h: calm ? (alert ? calmPinnedH(CALM_LINE) : CALM_CARD_H) : APP_CARD.h,
+    h: calm ? CALM_CARD_H + (alert ? CALM_NOTE : 0) : APP_CARD.h,
     data: {
       kind: 'device',
       entityId: dv.id,
@@ -1196,6 +1230,7 @@ function deviceItem(dv: Device, s: Site | undefined, withSite: boolean, calm: bo
       meta: dv.count > 1 ? `×${dv.count}` : '',
       status: dv.status,
       alert,
+      note: alert ? STATUS_WORD[dv.status] : undefined,
       tier: 'far-edge',
       clusterName: s?.name ?? '',
       deviceKind: dv.kind,
@@ -1225,6 +1260,7 @@ function externalItem(e: ExternalEndpoint, calm: boolean): Item {
 function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: string }[] | undefined, withCluster: boolean, calm: boolean): Item {
   const load = nodeLoad(n)
   const alert = worstAlert(alertOfStatus(n.status), alertOfLoad(load && peakLoad(load)))
+  const note = alert ? STATUS_WORD[n.status] || pressureNote(load) : undefined
   const chipRows = chips && chips.length ? Math.ceil(chips.length / 2) : 0
   const nicMbps = n.networkInterfaces?.reduce((max, i) => (i.speedMbps !== undefined && i.speedMbps > max ? i.speedMbps : max), 0)
   const hardware = n.hasBattery || nicMbps ? { hasBattery: n.hasBattery, nicMbps: nicMbps || undefined } : undefined
@@ -1238,9 +1274,7 @@ function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: stri
     // the card's own bottom border.
     // Services-on-nodes is a choice to see them, so a card that lists them keeps the room for the list.
     h: calm
-      ? alert || chips
-        ? calmPinnedH(2 * CALM_LINE, load && CALM_LOAD, hardware && CALM_BADGES, chips && (chipRows ? chipRows * (CALM_BADGES + CALM_GAP) + 5 : 25))
-        : CALM_CARD_H
+      ? CALM_CARD_H + (note ? CALM_NOTE : 0) + (chips ? CALM_BLOCK + (chipRows ? chipRows * CALM_CHIP_ROW + 5 : 25) : 0)
       : MACHINE_CARD.h + (hardware ? 24 : 0) + (chips ? (chipRows ? chipRows * CHIP_ROW + 14 : 26) : 0),
     data: {
       kind: 'machine',
@@ -1250,6 +1284,7 @@ function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: stri
       meta: `${n.cpu} vCPU · ${n.memoryGb} GB`,
       status: n.status,
       alert,
+      note,
       load,
       tier: c.tier,
       clusterName: c.name,
