@@ -318,6 +318,8 @@ const GAP_X = 72
 const GAP_Y = 44
 const GROUP_GAP_X = 64
 const ROW_GAP = 150
+/** Calm rows sit closer: the lines between boxes run in the gap, which only needs room for a lane and a label. */
+const CALM_ROW_GAP = 96
 // Widened from 244/248 per the UI/UX pass: several common service/device names ("inference-regional",
 // "stream-aggregator", "Vibration sensor") were truncating hard even with visible slack around the card -
 // the icon, status dot, and optional meta/hint column on the right all eat into the title's real estate
@@ -611,10 +613,10 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   // mixes several clusters together, and infrastructure cards (nodes) have no namespace.
   const nsEnabled = o.namespaces && o.view === 'application' && o.groupBy === 'cluster'
 
-  const layoutCards = (g: GroupAcc): Placed => {
+  // Calm: a shorter header (a name and where it is), taller only when the box has something to say about itself.
+  const headerOf = (g: GroupAcc) => (calm ? CALM_HEADER + (infoOf.get(g.key)?.note ? CALM_NOTE : 0) + (netsOf.has(g.key) ? CALM_CHIP_ROW : 0) : HEADER)
+  const layoutCards = (g: GroupAcc, header: number): Placed => {
     const n = g.items.length
-    // Calm: a shorter header (a name and where it is), taller only when the box has something to say about itself.
-    const header = calm ? CALM_HEADER + (infoOf.get(g.key)?.note ? CALM_NOTE : 0) + (netsOf.has(g.key) ? CALM_CHIP_ROW : 0) : HEADER
     if (nsEnabled && g.cluster && n > 0) {
       const { w: nsW, h: nsH, boxes } = layoutNamespaces(g.items, !calm)
       return { g, w: Math.max(PAD * 2 + nsW, 248, MIN_GROUP_HEADER_WIDTH), h: header + nsH + PAD, header, children: [], nsBoxes: boxes }
@@ -622,7 +624,11 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     const { w, h, children } = packItems(g.items, header, PAD, !calm)
     return { g, w: Math.max(w || 248, 248, MIN_GROUP_HEADER_WIDTH), h: n === 0 ? header + 52 : h, header, children }
   }
-  const placedRows = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, gs]) => gs.map(layoutCards))
+  // One header slot per row: boxes side by side start their cards at the same height whichever of them has a note or a chip row to show.
+  const placedRows = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, gs]) => {
+    const slot = Math.max(...gs.map(headerOf))
+    return gs.map((g) => layoutCards(g, slot))
+  })
   const rowWidths = placedRows.map((r) => r.reduce((s, p) => s + p.w, 0) + (r.length - 1) * GROUP_GAP_X)
   const maxW = Math.max(0, ...rowWidths)
 
@@ -743,7 +749,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       }
       x += p.w + GROUP_GAP_X
     }
-    y += Math.max(...row.map((p) => p.h)) + ROW_GAP
+    y += Math.max(...row.map((p) => p.h)) + (calm ? CALM_ROW_GAP : ROW_GAP)
   })
 
   /* 3. Edges. */
