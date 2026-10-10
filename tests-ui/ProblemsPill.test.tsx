@@ -38,26 +38,34 @@ describe('ProblemsPill', () => {
   const ps: Problem[] = [{ id: 'a', alert: 'bad' }, { id: 'b', alert: 'warn' }, { id: 'c', alert: 'warn' }]
 
   test('draws nothing when nothing needs attention', () => {
-    const { container } = render(<ProblemsPill problems={[]} selectedId={null} onGo={() => {}} />)
+    const { container } = render(<ProblemsPill problems={[]} selectedId={null} onGo={() => {}} onShow={() => {}} />)
     expect(container).toBeEmptyDOMElement()
   })
 
   test('says how many, with an accessible name, and singular for one', () => {
-    const { rerender } = render(<ProblemsPill problems={ps} selectedId={null} onGo={() => {}} />)
+    const { rerender } = render(<ProblemsPill problems={ps} selectedId={null} onGo={() => {}} onShow={() => {}} />)
     expect(screen.getByRole('button', { name: /^3 need attention/ })).toBeTruthy()
-    rerender(<ProblemsPill problems={[ps[0]]} selectedId={null} onGo={() => {}} />)
+    rerender(<ProblemsPill problems={[ps[0]]} selectedId={null} onGo={() => {}} onShow={() => {}} />)
     expect(screen.getByRole('button', { name: /^1 needs attention/ })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Previous problem' })).toBeNull()
   })
 
-  test('a press goes forward, Shift or the chevron goes back, and the position shows once one is selected', () => {
+  test('the label shows the problem, the chevrons walk to the next and previous, and the position shows once one is selected', () => {
     const onGo = vi.fn()
-    render(<ProblemsPill problems={ps} selectedId="b" onGo={onGo} />)
+    const onShow = vi.fn()
+    render(<ProblemsPill problems={ps} selectedId="b" onGo={onGo} onShow={onShow} />)
     expect(screen.getByText('2 of 3 need attention')).toBeTruthy()
-    const main = screen.getByRole('button', { name: /need attention/ })
-    fireEvent.click(main)
-    fireEvent.click(main, { shiftKey: true })
+    fireEvent.click(screen.getByRole('button', { name: /need attention/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next problem' }))
     fireEvent.click(screen.getByRole('button', { name: 'Previous problem' }))
-    expect(onGo.mock.calls).toEqual([[false], [true], [true]])
+    expect(onShow).toHaveBeenCalledTimes(1)
+    expect(onGo.mock.calls).toEqual([[false], [true]])
+  })
+
+  test('is tinted by the worst of it: red when anything is broken, amber when it only needs a look', () => {
+    const { rerender } = render(<ProblemsPill problems={ps} selectedId={null} onGo={() => {}} onShow={() => {}} />)
+    expect(screen.getByTestId('problems-pill')).toHaveAttribute('data-worst', 'bad')
+    rerender(<ProblemsPill problems={ps.slice(1)} selectedId={null} onGo={() => {}} onShow={() => {}} />)
+    expect(screen.getByTestId('problems-pill')).toHaveAttribute('data-worst', 'warn')
   })
 })
