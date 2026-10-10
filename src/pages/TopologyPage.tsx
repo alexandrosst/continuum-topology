@@ -46,6 +46,7 @@ import EdgeHoverCard, { type EdgeHoverPos } from '@/components/topology/EdgeHove
 import ScopeFromSelection from '@/components/topology/ScopeFromSelection'
 import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
+import { BAR_BUTTON, BAR_WORD } from '@/components/topology/toolbar'
 import { nodeTypes, ZoomVar } from '@/components/topology/nodes'
 import { PeersContext, useCanvasFocus } from '@/store/canvasFocus'
 import TelemetryTab from '@/components/topology/TelemetryTab'
@@ -174,7 +175,7 @@ function Canvas() {
   const detailParam = sp.get('detail')
   const detail = resolveDetail(detailParam, storedDetail)
   const calm = detail === 'calm'
-  // Minimap: on for a big graph (an overview helps most there) and on Full as ever; otherwise one Options choice away.
+  // Minimap: on for a big graph, where an overview helps most, in either Detail; otherwise one Options choice away. Neither it nor the legend sits over boxes by default.
   // ?minimap=1 / 0 is the person's own choice and beats that default.
   const minimapChoice = sp.get('minimap') === '1' ? true : sp.get('minimap') === '0' ? false : null
   const servicesOnNodes = sp.get('services') === '1'
@@ -398,7 +399,7 @@ function Canvas() {
     [shown, view, detail, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks, showClusterLinks],
   )
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
-  const autoMinimap = !calm || graph.nodes.length > MINIMAP_NODES
+  const autoMinimap = graph.nodes.length > MINIMAP_NODES
   const showMinimap = minimapChoice ?? autoMinimap
   // The legend of the Calm canvas explains what is drawn on it, so it asks what is: which tiers, which kinds of line, whether anything
   // has a problem. Open or closed is remembered in this browser.
@@ -589,9 +590,9 @@ function Canvas() {
       // (cluster-link colours, the lighter cross-cluster grey, weight and the conntrack dash) come back on Full, or on a line that is the focus.
       const problem = !!e.data?.problem
       const band = q && (!calm || problem) ? lossBand(q.lossPct) : 'ok'
-      // Calm names a line only when it is failing and runs between boxes (a bundle): a protocol word does not fit in the 40px between two cards, and
-      // on a line inside a cluster its pill would sit on the card at its end. That line says it with its colour, and its name when it is the focus.
-      const showLabel = calm ? hot || (problem && !!e.data?.aggregated) : showLabels || hot
+      // Calm names only a bundle (below): a protocol word does not fit in the 40px between two cards, and on a line inside a cluster its pill would sit on
+      // the card at its end. That line is the Inspector's to name, and the hover card's.
+      const showLabel = calm ? false : showLabels || hot
       // A line that stands for several says nothing at rest unless it is failing, and then why: the path's round trip and loss. How many it
       // stands for is the hover card's to say, and the Inspector's.
       // The focus's bundle also says how many calls it holds ("3 dependencies"): the answer to "what is that line?", where the calls themselves are not drawn.
@@ -606,15 +607,15 @@ function Canvas() {
       // measured avgLossPct to show - a link with no matched flows yet falls straight back to its fixed
       // category colour rather than a fabricated "healthy" green.
       const clHealthBand = showHealthLens && cl?.avgLossPct !== undefined ? lossBand(cl.avgLossPct) : null
-      const clHealthColor = clHealthBand === 'hot' ? '#f87171' : clHealthBand === 'warn' ? '#fbbf24' : clHealthBand === 'ok' ? '#34d399' : null
+      const clHealthColor = clHealthBand === 'hot' ? 'var(--color-bad)' : clHealthBand === 'warn' ? 'var(--color-warn)' : clHealthBand === 'ok' ? 'var(--color-ok)' : null
       // Calm draws in the theme's own variables, so a line holds its contrast in light as well as dark; Full keeps its hexes (its arrowheads cannot take a variable).
       // Colour on a calm line means a problem and nothing else: the focus is told by weight and a stronger grey, and a failing line stays red when focused.
       const calmBand = band === 'hot' ? 'var(--color-bad)' : band === 'warn' ? 'var(--color-warn)' : null
       const stroke = calm && !cl && !mv
         ? calmBand ?? (hot ? 'var(--color-nb-300)' : 'var(--color-nb-600)')
         : hot
-          ? '#f68330'
-          : clHealthColor ?? (cl && !calm ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? '#f87171' : band === 'warn' ? '#fbbf24' : e.data?.crossGroup && !calm ? '#98a4ae' : '#6f7b85')
+          ? 'var(--color-accent)'
+          : clHealthColor ?? (cl && !calm ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? 'var(--color-bad)' : band === 'warn' ? 'var(--color-warn)' : e.data?.crossGroup && !calm ? 'var(--color-nb-500)' : 'var(--color-nb-600)')
       // Seen in traffic: solid, and a touch thicker the busier it is. Only declared (or gone quiet): dotted and
       // thin. Kept close to the declared baseline (1.2) rather than scaling up hard - a busy link should read as
       // "more traffic" without out-weighing the 2.4px used for the current selection/focus.
@@ -647,7 +648,7 @@ function Canvas() {
           // Busier links run their dashes faster (a quiet one takes 2.4 s for a period, the busiest 0.7 s).
           animationDuration: e.className === 'edge-animated' && (!calm || hot) ? `${(2.4 - 1.7 * (e.data?.weight ?? 0)).toFixed(2)}s` : undefined,
         },
-        labelStyle: { fill: hot && !calm ? '#f68330' : 'var(--color-nb-300)', fontSize: 10.5, opacity: dim ? 0.3 : 1 },
+        labelStyle: { fill: hot && !calm ? 'var(--color-accent)' : 'var(--color-nb-300)', fontSize: 10.5, opacity: dim ? 0.3 : 1 },
         labelBgStyle: { fill: 'var(--color-nb-910)', fillOpacity: 0.95 },
         labelBgPadding: [6, 3] as [number, number],
         labelBgBorderRadius: 4,
@@ -752,7 +753,8 @@ function Canvas() {
           const left = box.x * cur + transform[0]
           if (top >= 8 && top + box.h * cur <= band - 8 && left >= 0 && left + box.w * cur <= width) return
         }
-        const zoom = Math.max(FIT_MIN_ZOOM, Math.min(panTo.soft || cur >= 0.7 ? cur : 1, fits, 1.75))
+        // From far out it comes in only as far as the names are drawn (not all the way to 1), so the jump stays something the eye can follow.
+        const zoom = Math.max(FIT_MIN_ZOOM, Math.min(panTo.soft || cur >= 0.7 ? cur : 0.9, fits, 1.75))
         const x = width / 2 - (box.x + box.w / 2) * zoom
         const y = band / 2 - (box.y + box.h / 2) * zoom
         void setViewport({ x, y, zoom }, { duration: calmMotion ? 0 : 450 })
@@ -857,6 +859,35 @@ function Canvas() {
   }
 
   const empty = clusters.length === 0
+  // What the selected service is a neighbourhood of: this many steps out. It belongs with the status line under the toolbar (it changes what is on the
+  // canvas, as the pill does), not in the toolbar, whose width the Inspector takes; and there it has room for its words, on a phone too.
+  const hopsControl = mode === 'application' && selection?.kind === 'service' && (
+    <div className="flex items-center gap-1 text-xs text-nb-500" role="group" aria-label="Neighbourhood: how many steps out from the selected service" title="Show only this service's neighborhood: what it calls and what calls it, this many steps out" data-testid="hops-control">
+      <Target size={ICON_SM} className="shrink-0" aria-hidden />
+      <span className="mr-1">Steps out</span>
+      <span className="flex items-center rounded-md border border-nb-800 bg-nb-925 p-0.5">
+      {[1, 2, 3].map((n) => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => setParam('hops', hops === n ? null : String(n))}
+          className={clsx('grid h-7 min-w-7 place-items-center rounded px-2 text-xs pointer-coarse:size-11', PRESS_CLASS, hops === n ? 'bg-accent-soft text-accent' : 'text-nb-400 hover:bg-nb-850 hover:text-nb-300')}
+          aria-pressed={hops === n}
+          aria-label={`${n} ${n === 1 ? 'step' : 'steps'} out`}
+          data-testid={`hops-${n}`}
+        >
+          {n}
+        </button>
+      ))}
+      </span>
+      {hops !== undefined && (
+        <button type="button" onClick={() => setParam('hops', null)} className="grid h-7 min-w-7 place-items-center rounded px-1 text-nb-500 hover:bg-nb-850 hover:text-nb-300 pointer-coarse:size-11" aria-label="Clear neighborhood filter" data-testid="hops-clear">
+          <X size={ICON_MD} />
+        </button>
+      )}
+    </div>
+  )
+
   const liveClusters = useMemo(() => clusters.filter((c) => !c.deletedAt), [clusters])
   const closeForm = () => setForm(null)
 
@@ -872,8 +903,8 @@ function Canvas() {
         are actually a page of content.
       */}
       {/* Toolbar */}
-      <div className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 sm:gap-x-4 border-b border-nb-850 bg-nb-920 px-4 py-2 sm:px-5">
-        <h1 className="order-1 text-base font-medium text-nb-300">Topology</h1>
+      <div className="@container/bar flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 sm:gap-x-4 border-b border-nb-850 bg-nb-920 px-4 py-2 sm:px-5">
+        <h1 className="order-1 text-base font-medium text-nb-300 sm:@max-[800px]/bar:sr-only">Topology</h1>
         <div className="order-3 flex basis-full overflow-x-auto rounded-lg border border-nb-800 bg-nb-925 p-0.5 sm:order-2 sm:basis-auto sm:overflow-visible" role="tablist" aria-label="View">
           {VIEWS.map((v) => (
             <button
@@ -886,7 +917,7 @@ function Canvas() {
                 setSelection(null)
               }}
               className={clsx(
-                'flex-1 rounded-md px-2.5 py-1.5 text-sm sm:flex-none sm:px-3.5',
+                'flex-1 rounded-md px-2.5 py-1.5 text-sm pointer-coarse:min-h-11 sm:flex-none @min-[800px]/bar:px-3.5',
                 PRESS_CLASS,
                 mode === v.value ? 'bg-nb-850 text-nb-300' : 'text-nb-400 hover:text-nb-300',
               )}
@@ -898,44 +929,9 @@ function Canvas() {
 
         <div className="order-2 ml-auto flex flex-wrap items-center gap-1.5 sm:order-3 sm:gap-3">
           <LiveStatus />
-          {mode === 'application' && selection?.kind === 'service' && (
-            <div
-              className="hidden items-center gap-1 rounded-md border border-nb-800 bg-nb-925 px-1.5 py-1 sm:flex"
-              title="Show only this service's neighborhood: what it calls and what calls it, this many steps out"
-              data-testid="hops-control"
-            >
-              <Target size={ICON_SM} className="ml-0.5 shrink-0 text-nb-500" aria-hidden />
-              {[1, 2, 3].map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => setParam('hops', hops === n ? null : String(n))}
-                  className={clsx(
-                    'rounded px-2 py-0.5 text-xs',
-                    PRESS_CLASS,
-                    hops === n ? 'bg-accent-soft text-accent' : 'text-nb-400 hover:text-nb-300',
-                  )}
-                  aria-pressed={hops === n}
-                  data-testid={`hops-${n}`}
-                >
-                  {n}
-                </button>
-              ))}
-              {hops !== undefined && (
-                <button
-                  type="button"
-                  onClick={() => setParam('hops', null)}
-                  className="rounded px-1 py-0.5 text-nb-500 hover:bg-nb-850 hover:text-nb-300"
-                  aria-label="Clear neighborhood filter"
-                  data-testid="hops-clear"
-                >
-                  <X size={ICON_MD} />
-                </button>
-              )}
-            </div>
-          )}
           {isTelemetry ? null : (
             <>
+          {!empty && (
           <FilterMenu
             disabled={empty}
             open={openMenu === 'filter'}
@@ -955,6 +951,7 @@ function Canvas() {
               setSelection(null)
             }}
           />
+          )}
           <ViewsMenu
             open={openMenu === 'views'}
             onOpenChange={(o) => setOpenMenu(o ? 'views' : null)}
@@ -969,10 +966,10 @@ function Canvas() {
           />
             </>
           )}
-          {isCanvas && (
+          {isCanvas && !empty && (
             <div className="relative">
-              <Button onClick={() => toggleMenu('options')} disabled={empty} aria-expanded={openMenu === 'options'} aria-haspopup="true" data-testid="view-options">
-                <SlidersHorizontal size={ICON_SM} /> <span className="hidden sm:inline">Options</span>
+              <Button className={BAR_BUTTON} onClick={() => toggleMenu('options')} disabled={empty} aria-expanded={openMenu === 'options'} aria-haspopup="true" data-testid="view-options">
+                <SlidersHorizontal size={ICON_SM} /> <span className={BAR_WORD}>Options</span>
                 {changedOptions > 0 && <span className="rounded-full bg-accent-soft px-1.5 text-[11px] font-medium text-accent">{changedOptions}</span>}
               </Button>
               <MenuPanel open={openMenu === 'options'} onClose={() => setOpenMenu(null)} className="w-72 p-2" role="group" aria-label="View options">
@@ -1131,13 +1128,13 @@ function Canvas() {
             </div>
           )}
 
-          {isCanvas && (
+          {isCanvas && !empty && (
             <>
               {/* The toolbar keeps to what is used on most visits (Filter, Views, Options, Add) in both Details; the three canvas actions live
                   under "...". Picking is a mode, so while it is on its way out stays one click away, in the toolbar. */}
               {pickMode && (
-                <Button variant="primary" onClick={() => setPickMode(false)} aria-pressed title="Cancel - click a service or cluster to scope it, or press Escape" data-testid="pick-scope">
-                  <Target size={ICON_SM} /> <span className="hidden sm:inline">Cancel picking</span>
+                <Button className={BAR_BUTTON} variant="primary" onClick={() => setPickMode(false)} aria-pressed title="Cancel - click a service or cluster to scope it, or press Escape" data-testid="pick-scope">
+                  <Target size={ICON_SM} /> <span className={BAR_WORD}>Cancel picking</span>
                 </Button>
               )}
               <OverflowMenu
@@ -1156,8 +1153,8 @@ function Canvas() {
           )}
 
           <div className="relative">
-            <Button variant="primary" onClick={() => toggleMenu('add')} aria-label="Add" disabled={inPast} title={inPast ? 'Return to now to add or change things' : undefined}>
-              <Plus size={ICON_SM} /> <span className="hidden sm:inline">Add</span> <ChevronDown size={ICON_SM} className="hidden sm:block" />
+            <Button className={BAR_BUTTON} variant="primary" onClick={() => toggleMenu('add')} aria-label="Add" disabled={inPast} title={inPast ? 'Return to now to add or change things' : undefined}>
+              <Plus size={ICON_SM} /> <span className={BAR_WORD}>Add</span> <ChevronDown size={ICON_SM} className="hidden @min-[800px]/bar:block" />
             </Button>
             <MenuPanel open={openMenu === 'add'} onClose={() => setOpenMenu(null)} className="w-48 overflow-hidden p-1">
               {[
@@ -1197,7 +1194,7 @@ function Canvas() {
         />
       ) : (
       <>
-      {isCanvas && !empty && !nothingMatches && <CanvasBar problems={problems} selectedId={selectedRfId} onGo={goToProblem} onShow={showProblem} />}
+      {isCanvas && !empty && !nothingMatches && <CanvasBar problems={problems} selectedId={selectedRfId} onGo={goToProblem} onShow={showProblem} trailing={hopsControl || undefined} />}
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1" ref={setHost}>
           {!empty && nothingMatches ? (
@@ -1360,12 +1357,10 @@ function Canvas() {
             >
               <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="var(--color-nb-850)" />
               <Controls showInteractive={false} orientation={calm ? 'horizontal' : 'vertical'} className={calm ? 'controls-quiet' : undefined}>
-                {/* Calm: the legend is the fourth button of the one control bar (zoom in, zoom out, fit, legend), not a widget of its own. */}
-                {calm && (
-                  <ControlButton onClick={toggleLegend} aria-expanded={legendOpen} aria-controls="topology-legend" className="legend-button" data-testid="legend-toggle" title="What the colours, lines and badges mean">
-                    <CircleHelp size={ICON_SM} aria-hidden /> Legend
-                  </ControlButton>
-                )}
+                {/* The legend is the fourth button of the one control bar (zoom in, zoom out, fit, legend), not a widget of its own. */}
+                <ControlButton onClick={toggleLegend} aria-expanded={legendOpen} aria-controls="topology-legend" className={clsx('legend-button', !calm && 'legend-icon')} data-testid="legend-toggle" title="What the colours, lines and badges mean">
+                  <CircleHelp size={ICON_SM} aria-hidden /> <span className={calm ? undefined : 'sr-only'}>Legend</span>
+                </ControlButton>
               </Controls>
               <ZoomVar />
               {/* Hidden while the Inspector is open: the canvas is narrower then and the map would sit on the legend. The mask is themed in index.css. */}
@@ -1389,7 +1384,7 @@ function Canvas() {
                 />
               </NodeToolbar>
               <Panel position="bottom-left" className={clsx('hidden sm:block', calm ? 'legend-above flex-col items-start sm:!flex' : '!mb-3 !ml-16')}>
-                {(!calm || legendOpen) && (
+                {legendOpen && (
                 <div id="topology-legend" className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
                   {/* The one status language, taught here: the same four glyphs and words every box and card carries. */}
                   <StatusKey />
@@ -1423,7 +1418,7 @@ function Canvas() {
                       </span>
                       {onCanvas.lossy && (
                         <span className="flex items-center gap-1.5" title="Connection attempts on this path are being lost. The line says how long it takes and how much is lost.">
-                          <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#f87171" strokeWidth="2" /></svg>
+                          <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="var(--color-bad)" strokeWidth="2" /></svg>
                           Losing connections
                         </span>
                       )}
@@ -1442,8 +1437,8 @@ function Canvas() {
                         solid, and one that isn't renders dotted, same as any other edge. A dashed swatch here
                         used to imply cross-cluster edges are always dashed, which isn't true and duplicated
                         what the "Not seen" swatch already means; the earlier version's colour (#8a96a0) is
-                        also now the exact shade the edges themselves use (#98a4ae), not just an approximation. */}
-                    <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#98a4ae" strokeWidth="1.5" /></svg>
+                        also now the exact shade the edges themselves use (nb-500), not just an approximation. */}
+                    <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="var(--color-nb-500)" strokeWidth="1.5" /></svg>
                     Cross-{groupBy}
                   </span>
                     </>
@@ -1492,15 +1487,15 @@ function Canvas() {
                       {showHealthLens ? (
                         <>
                           <span className="flex items-center gap-1.5" title="Average measured loss% across the flows matched onto this cluster link is under 1%">
-                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#34d399" strokeWidth="1.8" /></svg>
+                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="var(--color-ok)" strokeWidth="1.8" /></svg>
                             Healthy
                           </span>
                           <span className="flex items-center gap-1.5" title="Average measured loss% across the flows matched onto this cluster link is 1-5%">
-                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#fbbf24" strokeWidth="1.8" /></svg>
+                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="var(--color-warn)" strokeWidth="1.8" /></svg>
                             Degraded
                           </span>
                           <span className="flex items-center gap-1.5" title="Average measured loss% across the flows matched onto this cluster link is 5% or higher">
-                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#f87171" strokeWidth="1.8" /></svg>
+                            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="var(--color-bad)" strokeWidth="1.8" /></svg>
                             Unhealthy
                           </span>
                           <span className="flex items-center gap-1.5 text-nb-500" title="No flows have been matched onto this cluster link's confirmed tunnel yet, so it keeps its overlay/subnet category colour until one is">

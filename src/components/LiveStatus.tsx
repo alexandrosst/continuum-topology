@@ -21,7 +21,8 @@ export default function LiveStatus() {
         {!stale && <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-75" />}
         <span className={`relative inline-flex size-1.5 rounded-full ${stale ? 'bg-warn' : 'bg-ok'}`} />
       </span>
-      {text}
+      {/* In a narrow toolbar (the Inspector open) it is the dot alone (unless the connection is in trouble); the word is still there for assistive technology. */}
+      <span className={stale ? undefined : "@max-[800px]/bar:sr-only"}>{text}</span>
     </span>
   )
 }

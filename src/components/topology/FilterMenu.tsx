@@ -1,5 +1,6 @@
 import { Filter as FilterIcon, X } from 'lucide-react'
 import { Button, ICON_SM, MenuPanel } from '@/components/ui/primitives'
+import { BAR_BUTTON } from '@/components/topology/toolbar'
 import { filterActive, filterSummary, NO_APP, SERVICE_KINDS, type Filter } from '@/lib/filter'
 import type { Application, Cluster } from '@/lib/types'
 
@@ -60,11 +61,11 @@ export default function FilterMenu({
 
   return (
     <div className="relative">
-      <Button onClick={() => onOpenChange(!open)} disabled={disabled} aria-haspopup="dialog" aria-expanded={open} aria-label={filterSummary(filter) ? `Filter the topology (showing ${filterSummary(filter)})` : 'Filter the topology'} title={filterSummary(filter)} data-testid="filter-button">
+      <Button className={BAR_BUTTON} onClick={() => onOpenChange(!open)} disabled={disabled} aria-haspopup="dialog" aria-expanded={open} aria-label={filterSummary(filter) ? `Filter the topology (showing ${filterSummary(filter)})` : 'Filter the topology'} title={filterSummary(filter)} data-testid="filter-button">
         <FilterIcon size={ICON_SM} className={filterActive(filter) ? 'text-accent' : ''} />
-        <span className="hidden sm:inline">Filter</span>
-        {count > 0 && (
-          <span className="hidden rounded-full bg-accent/20 px-1.5 text-xs text-accent sm:inline" data-testid="filter-count">
+        <span className="hidden @min-[800px]/bar:inline">Filter</span>
+        {count > 0 && !disabled && (
+          <span className="hidden rounded-full bg-accent/20 px-1.5 text-xs text-accent @min-[800px]/bar:inline" data-testid="filter-count">
             {count}
           </span>
         )}

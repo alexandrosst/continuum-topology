@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import type { ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, TriangleAlert } from 'lucide-react'
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import { StatusMark } from '@/components/topology/StatusMark'
@@ -61,7 +62,7 @@ export function WalkHint({ className }: { className?: string }) {
  * The thin line under the toolbar on the Application and Infrastructure tabs, where the Telemetry tab has its summary: the answer to "is anything
  * wrong?" before anything else on the screen, in the same place whatever the layer. The pill when something is, "No problems" when not.
  */
-export function CanvasBar({ problems, selectedId, onGo, onShow }: { problems: Problem[]; selectedId: string | null; onGo: (back: boolean) => void; onShow: () => void }) {
+export function CanvasBar({ problems, selectedId, onGo, onShow, trailing }: { problems: Problem[]; selectedId: string | null; onGo: (back: boolean) => void; onShow: () => void; trailing?: ReactNode }) {
   return (
     <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-nb-850 px-4 py-2 sm:px-6" data-testid="canvas-status">
       {problems.length > 0 ? (
@@ -69,7 +70,10 @@ export function CanvasBar({ problems, selectedId, onGo, onShow }: { problems: Pr
       ) : (
         <p className="flex min-h-8 items-center gap-2 text-[13px] text-nb-300"><StatusMark state="healthy" /> No problems</p>
       )}
-      {problems.length > 1 && <WalkHint className="ml-auto" />}
+      <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2">
+        {trailing}
+        {problems.length > 1 && <WalkHint />}
+      </div>
     </div>
   )
 }

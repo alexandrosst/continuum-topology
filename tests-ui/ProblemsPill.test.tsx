@@ -94,4 +94,8 @@ describe('CanvasBar', () => {
     expect(screen.getByTestId('problems-pill')).toHaveTextContent('2 services need attention')
     expect(screen.getByTestId('canvas-status')).toHaveTextContent('Shift N')
   })
+  test('carries the view-wide control (the neighbourhood steps) on its right, beside the status', () => {
+    render(<CanvasBar problems={[]} selectedId={null} onGo={() => {}} onShow={() => {}} trailing={<div data-testid="hops-control">Steps out</div>} />)
+    expect(screen.getByTestId('canvas-status')).toContainElement(screen.getByTestId('hops-control'))
+  })
 })
