@@ -139,6 +139,9 @@ body {
   color: var(--color-nb-400);
 }
 .react-flow__controls-button:hover { background: var(--color-nb-940); }
+/* Calm: the zoom buttons rest quietly and come up when the pointer or the keyboard is on them. */
+.react-flow__controls.controls-quiet { opacity: 0.55; transition: opacity 120ms ease-out; }
+.react-flow__controls.controls-quiet:hover, .react-flow__controls.controls-quiet:focus-within { opacity: 1; }
 .react-flow__minimap {
   /* Through React Flow's own variables (its stylesheet sets `background` after ours, so a plain background loses): the map is
      the page surface and the dimmed part outside the viewport a recessed one, in whichever theme is on. A fixed dark rgba was a black box in light. */

@@ -154,6 +154,7 @@ function Canvas() {
   const groupBy: GroupBy = sp.get('group') === 'tier' ? 'tier' : 'cluster'
   // How much the canvas says at rest: 'calm' (default) draws names and what is wrong, 'full' everything (lib/detail.ts).
   const detail = parseDetail(sp.get('detail'))
+  const calm = detail === 'calm'
   const servicesOnNodes = sp.get('services') === '1'
   const links = sp.get('links') !== '0'
   const showDevices = sp.get('devices') !== '0'
@@ -509,9 +510,13 @@ function Canvas() {
     return graph.edges.map((e) => {
       const hot = related(e)
       const dim = anyRelated && !hot
-      const showLabel = showLabels || hot
       const q = e.data?.quality
       const band = q ? lossBand(q.lossPct) : 'ok'
+      // Calm: a line is a thin grey one until it is the focus or has something wrong with it (losing connection attempts).
+      // Only those two earn a colour, a label and moving dashes; the rest of the encodings (cluster-link colours, the lighter
+      // cross-cluster grey, weight and the conntrack dash) come back on Full, or on a line that is the focus.
+      const problem = band !== 'ok'
+      const showLabel = showLabels || hot || (calm && problem)
       // A link that loses connection attempts is coloured by how badly; otherwise grey, or orange when it is the focus.
       const mv = e.data?.mesh
       const cl = e.data?.clusterLink
@@ -523,19 +528,23 @@ function Canvas() {
       // category colour rather than a fabricated "healthy" green.
       const clHealthBand = showHealthLens && cl?.avgLossPct !== undefined ? lossBand(cl.avgLossPct) : null
       const clHealthColor = clHealthBand === 'hot' ? '#f87171' : clHealthBand === 'warn' ? '#fbbf24' : clHealthBand === 'ok' ? '#34d399' : null
-      const stroke = hot ? '#f68330' : clHealthColor ?? (cl ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? '#f87171' : band === 'warn' ? '#fbbf24' : e.data?.crossGroup ? '#98a4ae' : '#6f7b85')
+      const stroke = hot
+        ? '#f68330'
+        : clHealthColor ?? (cl && !calm ? CLUSTER_LINK_COLOR[cl.kind] : mv ? VERDICT_COLOR[mv.state] : band === 'hot' ? '#f87171' : band === 'warn' ? '#fbbf24' : e.data?.crossGroup && !calm ? '#98a4ae' : '#6f7b85')
       // Seen in traffic: solid, and a touch thicker the busier it is. Only declared (or gone quiet): dotted and
       // thin. Kept close to the declared baseline (1.2) rather than scaling up hard - a busy link should read as
       // "more traffic" without out-weighing the 2.4px used for the current selection/focus.
       const seen = !!e.data?.observed && !e.data?.stale
-      const width = hot ? 2.4 : cl ? 1.8 : e.data?.aggregated ? 2 : seen ? 1.2 + 1.0 * (e.data?.weight ?? 0.15) : 1.2
+      const width = hot ? 2.4 : calm ? (problem ? 1.8 : cl ? 1.4 : 1.2) : cl ? 1.8 : e.data?.aggregated ? 2 : seen ? 1.2 + 1.0 * (e.data?.weight ?? 0.15) : 1.2
       // A seen edge with no `via` at all can't happen (isObserved only ever sets true alongside via), so
       // this only ever fires for a real conntrack-only edge - one whose traffic numbers, if it shows any,
       // are connection counts only (see EdgeData.via's own comment): a long, open dash reads as "mostly
       // solid but not fully confirmed" without competing with the short, tight '2 5' used for "not seen".
-      const conntrackOnly = seen && e.data?.via === 'conntrack'
+      const conntrackOnly = seen && e.data?.via === 'conntrack' && !calm
       return {
         ...e,
+        // Calm lines do not run at rest (a seen line is simply solid); the focus's lines do, and say it is the focus.
+        className: calm ? (hot ? ['edge-hot', e.className].filter(Boolean).join(' ') : undefined) : e.className,
         label: showLabel ? e.label : undefined,
         style: {
           stroke,
@@ -547,7 +556,7 @@ function Canvas() {
           // never a question of whether anything was observed.
           strokeDasharray: cl ? (cl.kind === 'overlay' ? '6 4' : undefined) : !e.data?.aggregated && !seen ? '2 5' : conntrackOnly ? '8 4' : undefined,
           // Busier links run their dashes faster (a quiet one takes 2.4 s for a period, the busiest 0.7 s).
-          animationDuration: e.className === 'edge-animated' ? `${(2.4 - 1.7 * (e.data?.weight ?? 0)).toFixed(2)}s` : undefined,
+          animationDuration: e.className === 'edge-animated' && (!calm || hot) ? `${(2.4 - 1.7 * (e.data?.weight ?? 0)).toFixed(2)}s` : undefined,
         },
         labelStyle: { fill: hot ? '#f68330' : '#a7b1b9', fontSize: 10.5, opacity: dim ? 0.3 : 1 },
         labelBgStyle: { fill: 'var(--color-nb-910)', fillOpacity: 0.95 },
@@ -556,7 +565,7 @@ function Canvas() {
         markerEnd: e.markerEnd && typeof e.markerEnd === 'object' ? { ...e.markerEnd, color: stroke } : e.markerEnd,
       }
     })
-  }, [graph.edges, selection, groupBy, showLabels, showHealthLens])
+  }, [graph.edges, selection, groupBy, showLabels, showHealthLens, calm])
 
   // The raw (un-hidden) label text for every edge, so the hover-only reveal below can put one back without
   // needing to keep the whole graph.edges array around.

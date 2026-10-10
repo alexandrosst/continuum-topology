@@ -66,6 +66,11 @@ export function AllHandles() {
 export const FAR_ZOOM = 0.62
 const useFar = () => useStore((s) => s.transform[2] < FAR_ZOOM)
 
+/** The state colours of a problem card or cluster: the same two the status dot and the rest of the app use. */
+const ALERT_COLOR: Record<Alert, string> = { warn: STATUS_COLOR.degraded, bad: STATUS_COLOR.offline }
+/** A line of a cluster header that waits for hover, focus or selection (Calm). Whole class names, so Tailwind finds them. */
+const BOX_QUIET = 'hidden group-hover/box:flex group-hover/box:animate-[quiet-in_120ms_ease-out] [.react-flow__node:focus-within_&]:flex'
+
 const TONE = { good: 'bg-ok/10 text-ok', warn: 'bg-warn/10 text-warn', bad: 'bg-bad/10 text-bad' } as const
 const MESH_TONE = { in: 'bg-ok/10 text-ok', control: 'bg-violet-400/10 text-violet-300', out: 'bg-nb-900 text-nb-400' } as const
 // The shared "neutral gray, no particular status" tone - used by both the networking badge and a card's
@@ -143,6 +148,11 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
   // Devices/External are synthetic grouping rows (always laid out as tier: 'cloud', see graph.ts), not a
   // real tier - no tier icon for those, same as their label above already isn't a tier name.
   const TierGlyph = data.extra ? undefined : TIER_ICON[data.tier]
+  // Calm: the header is the name, the status dot and the tier; the lines under it wait for hover, focus or selection, and a
+  // cluster under pressure keeps its bars up. They sit in the header's own reserved room, so showing them moves nothing.
+  const calm = useContext(DetailContext) === 'calm'
+  const alert = calm ? data.alert : undefined
+  const quiet = (shown: boolean) => (calm && !shown ? BOX_QUIET : 'flex')
   return (
     // The selection ring is `inset`, not the plain outward `0_0_0_Npx` box-shadow it used to be: OffsetEdge
     // places an incoming edge's arrowhead tip with zero gap exactly on this box's true boundary (see its
@@ -152,9 +162,9 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
     // very tip of any edge pointing at it. Inset keeps the identical highlight look without ever drawing
     // outside the box OffsetEdge's own math already treats as this card's exact, true extent.
     <div
-      className={clsx('h-full w-full rounded-2xl border transition-shadow', selected && 'shadow-[inset_0_0_0_2px_var(--color-accent)]')}
+      className={clsx('group/box h-full w-full rounded-2xl border transition-shadow', selected && 'shadow-[inset_0_0_0_2px_var(--color-accent)]')}
       style={{
-        borderColor: `color-mix(in srgb, ${color} ${selected ? 70 : 32}%, transparent)`,
+        borderColor: alert && !selected ? `color-mix(in srgb, ${ALERT_COLOR[alert]} 55%, transparent)` : `color-mix(in srgb, ${color} ${selected ? 70 : 32}%, transparent)`,
         background: `color-mix(in srgb, ${color} 5%, var(--color-nb-920))`,
       }}
     >
@@ -170,7 +180,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
             )}
           </div>
           {!far && (
-            <div className="mt-0.5 flex items-center gap-1.5 truncate pl-4 text-xs text-nb-500">
+            <div className={clsx('mt-0.5 items-center gap-1.5 truncate pl-4 text-xs text-nb-500', quiet(selected))}>
               {data.country && <Flag code={data.country} className="!h-2.5 !w-[15px]" />}
               <span className="truncate" title={data.subtitle || undefined}>{data.subtitle || ' '}</span>
               {data.mesh && (
@@ -192,7 +202,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
             </div>
           )}
           {!far && data.load && (data.load.cpuPct !== undefined || data.load.memPct !== undefined || data.load.podPct !== undefined || data.load.ready < data.load.nodes || data.load.unready > 0) && (
-            <LoadRow load={data.load} className="mt-1 pl-4" />
+            <LoadRow load={data.load} className={clsx('mt-1 pl-4', quiet(selected || !!alert))} />
           )}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -225,7 +235,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
               {tierLabel}
             </span>
           </div>
-          {!far && <span className="text-[11px] text-nb-500">{data.stats}</span>}
+          {!far && <span className={clsx('text-[11px] text-nb-500', calm && !selected && BOX_QUIET)}>{data.stats}</span>}
         </div>
       </div>
     </div>
@@ -405,8 +415,6 @@ function FullCard({ data, selected }: NodeProps<CardNode>) {
 // anything else. `group/card` is the card's own surface: CSS alone decides what a hover shows, no state.
 /** A part of a card that waits for hover or focus. Whole class names, so Tailwind finds them. */
 const QUIET = 'hidden group-hover/card:flex group-hover/card:animate-[quiet-in_120ms_ease-out] [.react-flow__node:focus-within_&]:flex [.react-flow__node:focus-within_&]:animate-[quiet-in_120ms_ease-out]'
-/** The state colours of a problem card: the same two the status dot and the rest of the app use. */
-const ALERT_COLOR: Record<Alert, string> = { warn: STATUS_COLOR.degraded, bad: STATUS_COLOR.offline }
 
 function CalmCard({ data, selected }: NodeProps<CardNode>) {
   const isMachine = data.kind === 'machine'

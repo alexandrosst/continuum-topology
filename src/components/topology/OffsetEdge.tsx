@@ -1,6 +1,7 @@
 import { BaseEdge, useInternalNode, useStore, useViewport, type EdgeProps } from '@xyflow/react'
 import { createContext, useContext } from 'react'
 import type { TopoEdge } from '@/lib/graph'
+import { DetailContext } from '@/lib/detail'
 
 /** Which path generator OffsetEdge draws with - 'curved' (the default hand-built bow, see curvedPath below)
  *  or 'elbow' (the opt-in rounded-orthogonal style, see elbowPath below). Read via context rather than a
@@ -646,6 +647,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   const y2 = ty + ny * targetOff
 
   const edgeStyle = useContext(EdgeStyleContext)
+  const calm = useContext(DetailContext) === 'calm'
   const { path, labelX, labelY } =
     edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal, obstacles) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
   // An "overlay" cluster link (joined through a tunnel, not a flat shared subnet) gets a second, wider,
@@ -663,7 +665,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
       {isOverlayLink && (
         <path
           d={path}
-          className="cluster-link-pipe"
+          className={calm ? 'cluster-link-pipe calm-pipe' : 'cluster-link-pipe'}
           style={{ stroke: style?.stroke, opacity: baseOpacity * 0.35 }}
           fill="none"
           pointerEvents="none"
