@@ -4,6 +4,7 @@ import { createContext, useContext } from 'react'
 import type { TopoEdge } from '@/lib/graph'
 import { DetailContext } from '@/lib/detail'
 import { focusedBy, useCanvasFocus } from '@/store/canvasFocus'
+import { laneKey, laneRoute } from '@/lib/lanes'
 
 /** Which path generator OffsetEdge draws with - 'curved' (the default hand-built bow, see curvedPath below)
  *  or 'elbow' (the opt-in rounded-orthogonal style, see elbowPath below). Read via context rather than a
@@ -507,6 +508,7 @@ export function collectObstacles(
   source: string,
   target: string,
   bounds: { minX: number; maxX: number; minY: number; maxY: number },
+  kinds: readonly string[] = ['card', 'boundary', 'namespace'],
 ): PathObstacle[] {
   const ancestorsOf = (id: string): Set<string> => {
     const out = new Set<string>()
@@ -527,7 +529,7 @@ export function collectObstacles(
   const obstacles: PathObstacle[] = []
   for (const [nodeId, n] of nodeLookup) {
     if (nodeId === source || nodeId === target || skip.has(nodeId) || insideEnd(n)) continue
-    if (n.type !== 'card' && n.type !== 'boundary' && n.type !== 'namespace') continue
+    if (!n.type || !kinds.includes(n.type)) continue
     const w = n.measured.width
     const h = n.measured.height
     if (!w || !h) continue
@@ -538,6 +540,40 @@ export function collectObstacles(
   return obstacles
 }
 
+
+const WORLD = { minX: -Infinity, maxX: Infinity, minY: -Infinity, maxY: Infinity }
+/** How far the end of a line stays off the box it belongs to (px). */
+const LANE_GAP = 6
+const laneCache = new Map<string, Pt[] | null>()
+
+/** The gutter route of a line between two boxes (lib/lanes.ts), worked out once per layout however often the line is redrawn (a zoom or a
+ *  hover redraws every line, the route only changes when a box moves), with its two ends held off the boxes. */
+function lanePath(from: PathObstacle, to: PathObstacle, others: PathObstacle[], fromShift: number, toShift: number): Pt[] | null {
+  const key = laneKey(from, to, others, fromShift, toShift)
+  let route = laneCache.get(key)
+  if (route === undefined) {
+    route = laneRoute(from, to, others, fromShift, toShift)?.map((p) => ({ ...p })) ?? null
+    if (route) {
+      const pull = (p: Pt, q: Pt): Pt => ({ x: p.x + Math.sign(q.x - p.x) * LANE_GAP, y: p.y + Math.sign(q.y - p.y) * LANE_GAP })
+      route[0] = pull(route[0], route[1])
+      route[route.length - 1] = pull(route[route.length - 1], route[route.length - 2])
+    }
+    if (laneCache.size > 400) laneCache.clear()
+    laneCache.set(key, route)
+  }
+  return route
+}
+
+/** Where a line's label sits: the middle of its longest straight run, which is clear of the corners. */
+function longestRun(points: Pt[]): { x: number; y: number } {
+  let best = { x: points[0].x, y: points[0].y }
+  let len = -1
+  for (let i = 1; i < points.length; i++) {
+    const l = Math.abs(points[i].x - points[i - 1].x) + Math.abs(points[i].y - points[i - 1].y)
+    if (l > len) { len = l; best = { x: (points[i].x + points[i - 1].x) / 2, y: (points[i].y + points[i - 1].y) / 2 } }
+  }
+  return best
+}
 
 /**
  * A line like the default one, with its source end moved sideways by `data.sourceOffset` pixels and its
@@ -659,9 +695,15 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   // A store read with a boolean answer, so a pointer moving over the canvas re-renders only the lines whose answer changes.
   const focusIds = data?.focusIds
   const focused = useCanvasFocus((s) => focusedBy(s, focusIds))
-  const lit = focused || (data?.role === 'detail' && (!!data.revealed || !!data.problem))
-  const { path, labelX, labelY } =
-    edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal, obstacles) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
+  const lit = focused || (data?.role === 'detail' && !!data.revealed)
+  // Calm: a line that stands for several (a bundle, or the link between two clusters) runs in the gutters between boxes, never across one.
+  const lane = calm && data?.aggregated && sourceBox && targetBox ? lanePath(sourceBox, targetBox, collectObstacles(nodeLookup, source, target, WORLD, ['boundary']), sourceOff, targetOff) : null
+  const laneAt = lane && longestRun(lane)
+  const { path, labelX, labelY } = lane
+    ? { path: roundedPolylinePath(lane, 14), labelX: laneAt!.x, labelY: laneAt!.y }
+    : edgeStyle === 'elbow'
+      ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal, obstacles)
+      : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
   // An "overlay" cluster link (joined through a tunnel, not a flat shared subnet) gets a second, wider,
   // low-opacity path drawn behind the real one - a "pipe" the already-dashed line now visibly runs
   // through, rather than just another plain line. Non-interactive (pointerEvents: 'none') so hovering or
@@ -689,14 +731,14 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
         labelX={labelX}
         labelY={labelY}
         label={label}
-        labelStyle={labelStyle}
+        labelStyle={calm ? { ...labelStyle, fontSize: 11 / zoom } : labelStyle}
         labelShowBg={labelShowBg}
         labelBgStyle={labelBgStyle}
-        labelBgPadding={labelBgPadding}
-        labelBgBorderRadius={labelBgBorderRadius}
+        labelBgPadding={calm ? [6 / zoom, 3 / zoom] : labelBgPadding}
+        labelBgBorderRadius={calm ? 4 / zoom : labelBgBorderRadius}
         markerEnd={markerEnd}
         style={style}
-        interactionWidth={interactionWidth}
+        interactionWidth={calm ? 20 / zoom : interactionWidth}
       />
     </g>
   )

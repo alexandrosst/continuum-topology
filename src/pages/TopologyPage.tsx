@@ -55,7 +55,7 @@ import { DETAIL_KEY, DetailContext, resolveDetail, type Alert } from '@/lib/deta
 import { narrowFitZoom } from '@/lib/fit'
 import { applyFilter, encodeList, filterActive, hopNeighborhood, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
 import { applyGraphUpdate, buildGraph, cardId, groupId, sameLayout, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
-import { lossBand } from '@/lib/metrics'
+import { lossBand, qualityLabel } from '@/lib/metrics'
 import { readFlag, readText, writeFlag, writeText } from '@/lib/remember'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
@@ -578,11 +578,10 @@ function Canvas() {
       // (cluster-link colours, the lighter cross-cluster grey, weight and the conntrack dash) come back on Full, or on a line that is the focus.
       const problem = !!e.data?.problem
       const band = q && (!calm || problem) ? lossBand(q.lossPct) : 'ok'
-      // A bundle says how many calls it holds, once there is more than one.
-      const bundleCount = calm && e.data?.aggregated && (e.data.count ?? 0) > 1 ? String(e.data.count) : undefined
       const showLabel = showLabels || hot || (calm && problem)
-      // A bundle's label is its count and nothing else (a problem's own line carries the protocol, and the hover card says what the bundle is).
-      const label = e.data?.aggregated && calm ? bundleCount : showLabel ? e.label : undefined
+      // A line that stands for several says nothing at rest unless it is failing, and then why: the path's round trip and loss. How many it
+      // stands for is the hover card's to say, and the Inspector's.
+      const label = e.data?.aggregated && calm ? (problem && q ? qualityLabel(q) : undefined) : showLabel ? e.label : undefined
       // A link that loses connection attempts is coloured by how badly; otherwise grey, or orange when it is the focus.
       const mv = e.data?.mesh
       const cl = e.data?.clusterLink
@@ -601,7 +600,7 @@ function Canvas() {
       // thin. Kept close to the declared baseline (1.2) rather than scaling up hard - a busy link should read as
       // "more traffic" without out-weighing the 2.4px used for the current selection/focus.
       const seen = !!e.data?.observed && !e.data?.stale
-      const width = hot ? 2.4 : calm ? (problem ? 1.8 : cl ? 1.4 : 1.2) : cl ? 1.8 : e.data?.aggregated ? 2 : seen ? 1.2 + 1.0 * (e.data?.weight ?? 0.15) : 1.2
+      const width = hot ? 2.4 : calm ? (problem ? 2 : 1.5) : cl ? 1.8 : e.data?.aggregated ? 2 : seen ? 1.2 + 1.0 * (e.data?.weight ?? 0.15) : 1.2
       // A seen edge with no `via` at all can't happen (isObserved only ever sets true alongside via), so
       // this only ever fires for a real conntrack-only edge - one whose traffic numbers, if it shows any,
       // are connection counts only (see EdgeData.via's own comment): a long, open dash reads as "mostly
@@ -619,16 +618,18 @@ function Canvas() {
         style: {
           stroke,
           strokeWidth: width,
-          opacity: dim ? 0.15 : faint ? 0.5 : e.data?.stale ? 0.55 : 1,
+          opacity: dim ? 0.15 : faint ? 0.75 : e.data?.stale ? 0.55 : 1,
+          // Calm lines keep their weight on screen at every zoom: a hairline at the far fit is a scratch, not a line.
+          vectorEffect: calm ? 'non-scaling-stroke' : undefined,
           // A cluster link is solid for "subnet" (a direct, physical network fact - no tunnel in the way)
           // and dashed for "overlay" (traffic actually travels through a tunnel interface to get there) -
           // a deliberate, different dash from the traffic seen/not-seen convention below, since this was
           // never a question of whether anything was observed.
-          strokeDasharray: cl ? (cl.kind === 'overlay' ? '6 4' : undefined) : (calm ? !cl : !e.data?.aggregated) && !seen ? '2 5' : conntrackOnly ? '8 4' : undefined,
+          strokeDasharray: cl ? (cl.kind === 'overlay' ? '6 4' : undefined) : (calm ? !cl : !e.data?.aggregated) && !seen ? (calm ? '1.5 4' : '2 5') : conntrackOnly ? '8 4' : undefined,
           // Busier links run their dashes faster (a quiet one takes 2.4 s for a period, the busiest 0.7 s).
           animationDuration: e.className === 'edge-animated' && (!calm || hot) ? `${(2.4 - 1.7 * (e.data?.weight ?? 0)).toFixed(2)}s` : undefined,
         },
-        labelStyle: { fill: hot ? '#f68330' : '#a7b1b9', fontSize: 10.5, opacity: dim ? 0.3 : 1 },
+        labelStyle: { fill: hot ? '#f68330' : 'var(--color-nb-300)', fontSize: 10.5, opacity: dim ? 0.3 : 1 },
         labelBgStyle: { fill: 'var(--color-nb-910)', fillOpacity: 0.95 },
         labelBgPadding: [6, 3] as [number, number],
         labelBgBorderRadius: 4,

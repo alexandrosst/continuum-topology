@@ -168,7 +168,7 @@ body {
 .react-flow__node-card:hover, .react-flow__node-card:focus-within { z-index: 1000 !important; }
 @keyframes quiet-in { from { opacity: 0; } }
 /* Calm, application view: the calls across two boxes are one bundle line; the calls themselves belong to the focus. A 'detail' line waits
-   (hidden, so it cannot be hovered either) until the hover or selection reaches either box or either end, or it is a problem; its bundle steps
+   (hidden, so it cannot be hovered either) until the hover or selection reaches either box or either end; its bundle steps
    back while they show. The short delay on the way in keeps a pointer crossing the canvas from flickering lines. */
 .edge-detail { opacity: 0; visibility: hidden; transition: opacity 120ms ease-out, visibility 0s linear 120ms; }
 .edge-detail.edge-lit { opacity: 1; visibility: visible; transition: opacity 140ms ease-out 80ms; }

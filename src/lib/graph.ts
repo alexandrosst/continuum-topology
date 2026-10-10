@@ -214,12 +214,12 @@ export type EdgeData = {
    *  a gauge, only ever set on the pod<->resolver edge itself. */
   dnsRttMs?: number
   /** A seen link that is losing connection attempts (a link that was only declared is never a problem: nothing was measured on it). Calm gives
-   *  such a line, and a bundle that holds one, the state colour, its label and its place on the canvas at rest. */
+   *  a bundle that holds one the state colour and a label saying how bad the path is, at rest; the calls themselves wait for the focus. */
   problem?: boolean
   /** A bundle's own count of the dependencies it stands for. */
   count?: number
   /** Calm, application view: 'bundle' is the one line between two boxes that stands for every dependency across them; 'detail' is one of those
-   *  dependencies, drawn only for the focus (or when it is a problem). Unset for a line that crosses nothing. */
+   *  dependencies, drawn only for the focus. Unset for a line that crosses nothing. */
   role?: 'bundle' | 'detail'
   /** The nodes whose hover or selection brings a 'detail' line forward (and quiets its bundle): both boxes and both ends. */
   focusIds?: string[]
@@ -892,9 +892,9 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
 const lossier = (a: PathQuality | undefined, b: PathQuality | undefined) => (!b ? a : !a || b.lossPct > a.lossPct ? b : a)
 
 /**
- * Calm, application view: every dependency that crosses from one box to another is drawn as ONE line between the two boxes (the count says how
+ * Calm, application view: every dependency that crosses from one box to another is drawn as ONE line between the two boxes (the hover says how
  * many), so the canvas shows which boxes talk, not every service-to-service call. The calls themselves stay in the graph as 'detail' lines that
- * the focus brings forward (hovering or selecting either box or either end, see OffsetEdge) and that a problem keeps on show.
+ * the focus brings forward (hovering or selecting either box or either end, see OffsetEdge). A bundle that holds a failing path is the one red line.
  */
 function bundleCrossEdges(edges: TopoEdge[], abs: Map<string, Box>, groupOfEntity: Map<string, string>, depById: Map<string, Dependency>) {
   const pairs = new Map<string, { a: string; b: string; members: TopoEdge[] }>()
