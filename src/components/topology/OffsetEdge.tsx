@@ -1,10 +1,6 @@
-import { BaseEdge, EdgeLabelRenderer, useInternalNode, useStore, useViewport, type EdgeProps } from '@xyflow/react'
-import clsx from 'clsx'
+import { BaseEdge, useInternalNode, useStore, useViewport, type EdgeProps } from '@xyflow/react'
 import { createContext, useContext } from 'react'
 import type { TopoEdge } from '@/lib/graph'
-import { DetailContext } from '@/lib/detail'
-import { focusedBy, useCanvasFocus } from '@/store/canvasFocus'
-import { laneKey, laneRoute } from '@/lib/lanes'
 
 /** Which path generator OffsetEdge draws with - 'curved' (the default hand-built bow, see curvedPath below)
  *  or 'elbow' (the opt-in rounded-orthogonal style, see elbowPath below). Read via context rather than a
@@ -508,7 +504,6 @@ export function collectObstacles(
   source: string,
   target: string,
   bounds: { minX: number; maxX: number; minY: number; maxY: number },
-  kinds: readonly string[] = ['card', 'boundary', 'namespace'],
 ): PathObstacle[] {
   const ancestorsOf = (id: string): Set<string> => {
     const out = new Set<string>()
@@ -521,15 +516,10 @@ export function collectObstacles(
   }
   const skip = ancestorsOf(source)
   for (const id of ancestorsOf(target)) skip.add(id)
-  // A box at either end of the line (a bundle runs between two cluster boxes) holds its own cards and namespaces: they are not in its way either.
-  const insideEnd = (n: ObstacleCandidate) => {
-    for (let cur: ObstacleCandidate | undefined = n; cur?.parentId !== undefined; cur = nodeLookup.get(cur.parentId)) if (cur.parentId === source || cur.parentId === target) return true
-    return false
-  }
   const obstacles: PathObstacle[] = []
   for (const [nodeId, n] of nodeLookup) {
-    if (nodeId === source || nodeId === target || skip.has(nodeId) || insideEnd(n)) continue
-    if (!n.type || !kinds.includes(n.type)) continue
+    if (nodeId === source || nodeId === target || skip.has(nodeId)) continue
+    if (n.type !== 'card' && n.type !== 'boundary' && n.type !== 'namespace') continue
     const w = n.measured.width
     const h = n.measured.height
     if (!w || !h) continue
@@ -540,44 +530,6 @@ export function collectObstacles(
   return obstacles
 }
 
-
-const WORLD = { minX: -Infinity, maxX: Infinity, minY: -Infinity, maxY: Infinity }
-/** How far the end of a line stays off the box it belongs to (px). */
-const LANE_GAP = 6
-/** The distance between two lines that run in the same gutter (px). */
-const TRACK_GAP = 8
-/** A line shorter than this on screen (px) is too short for its pill: the pill would sit on the cards at its ends, so the line goes unnamed (the hover card names it). */
-const PILL_MIN_LINE = 110
-const laneCache = new Map<string, Pt[] | null>()
-
-/** The gutter route of a line between two boxes (lib/lanes.ts), worked out once per layout however often the line is redrawn (a zoom or a
- *  hover redraws every line, the route only changes when a box moves), with its two ends held off the boxes. */
-function lanePath(from: PathObstacle, to: PathObstacle, others: PathObstacle[], fromShift: number, toShift: number, nudge: number): Pt[] | null {
-  const key = laneKey(from, to, others, fromShift, toShift, nudge)
-  let route = laneCache.get(key)
-  if (route === undefined) {
-    route = laneRoute(from, to, others, fromShift, toShift, nudge)?.map((p) => ({ ...p })) ?? null
-    if (route) {
-      const pull = (p: Pt, q: Pt): Pt => ({ x: p.x + Math.sign(q.x - p.x) * LANE_GAP, y: p.y + Math.sign(q.y - p.y) * LANE_GAP })
-      route[0] = pull(route[0], route[1])
-      route[route.length - 1] = pull(route[route.length - 1], route[route.length - 2])
-    }
-    if (laneCache.size > 400) laneCache.clear()
-    laneCache.set(key, route)
-  }
-  return route
-}
-
-/** Where a line's label sits: the middle of its longest straight run, which is clear of the corners. */
-function longestRun(points: Pt[]): { x: number; y: number } {
-  let best = { x: points[0].x, y: points[0].y }
-  let len = -1
-  for (let i = 1; i < points.length; i++) {
-    const l = Math.abs(points[i].x - points[i - 1].x) + Math.abs(points[i].y - points[i - 1].y)
-    if (l > len) { len = l; best = { x: (points[i].x + points[i - 1].x) / 2, y: (points[i].y + points[i - 1].y) / 2 } }
-  }
-  return best
-}
 
 /**
  * A line like the default one, with its source end moved sideways by `data.sourceOffset` pixels and its
@@ -616,10 +568,6 @@ function longestRun(points: Pt[]): { x: number; y: number } {
  *  obstacle for it - generous enough to cover the widest bow curvedPath's own escalation ever tries (see
  *  its doc comment), so nothing that could plausibly end up under the curve gets missed, while still
  *  skipping the large majority of an even moderately busy canvas that's nowhere near this one edge's route. */
-/** A pill is half cut off by the edge of the canvas when its middle is within its own half-width of it (a phone pans a wide graph), and a cut pill reads as a fault: leave it out until the line is panned into view. */
-const pillInView = (x: number, width: number) => !width || (x > PILL_HALF && x < width - PILL_HALF)
-const PILL_HALF = 56
-
 export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targetY, data, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, labelShowBg, markerEnd, style, interactionWidth }: EdgeProps<TopoEdge>) {
   const sourceNode = useInternalNode(source)
   const targetNode = useInternalNode(target)
@@ -677,8 +625,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   // current zoom - a flat flow-space constant would shrink to sub-pixel, invisible nothing at the ~0.5-0.6x
   // zoom this app's own overview layouts commonly fit to, which is exactly the zoom level this was first
   // reported unnoticeable at.
-  const { zoom, x: panX } = useViewport()
-  const paneW = useStore((st) => st.width)
+  const { zoom } = useViewport()
   const GAP = 5 / zoom
   const pulled = pullBackEnds(sx, sy, tx, ty, GAP, !!markerEnd)
   sx = pulled.sx
@@ -699,20 +646,8 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   const y2 = ty + ny * targetOff
 
   const edgeStyle = useContext(EdgeStyleContext)
-  const calm = useContext(DetailContext) === 'calm'
-  // The hover or selection is the focus of a bundle's calls: lit means a 'detail' line shows (CSS fades it in) and its bundle steps back.
-  // A store read with a boolean answer, so a pointer moving over the canvas re-renders only the lines whose answer changes.
-  const focusIds = data?.focusIds
-  const focused = useCanvasFocus((s) => focusedBy(s, focusIds))
-  const lit = focused || (data?.role === 'detail' && !!data.revealed)
-  // Calm: a line that stands for several (a bundle, or the link between two clusters) runs in the gutters between boxes, never across one.
-  const lane = calm && data?.aggregated && sourceBox && targetBox ? lanePath(sourceBox, targetBox, collectObstacles(nodeLookup, source, target, WORLD, ['boundary']), sourceOff, targetOff, (data.track ?? 0) * TRACK_GAP) : null
-  const laneAt = lane && longestRun(lane)
-  const { path, labelX, labelY } = lane
-    ? { path: roundedPolylinePath(lane, 14), labelX: laneAt!.x, labelY: laneAt!.y }
-    : edgeStyle === 'elbow'
-      ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal, obstacles)
-      : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
+  const { path, labelX, labelY } =
+    edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal, obstacles) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
   // An "overlay" cluster link (joined through a tunnel, not a flat shared subnet) gets a second, wider,
   // low-opacity path drawn behind the real one - a "pipe" the already-dashed line now visibly runs
   // through, rather than just another plain line. Non-interactive (pointerEvents: 'none') so hovering or
@@ -724,11 +659,11 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   const isOverlayLink = data?.clusterLink?.kind === 'overlay'
   const baseOpacity = typeof style?.opacity === 'number' ? style.opacity : 1
   return (
-    <g className={clsx(data?.role && `edge-${data.role}`, lit && 'edge-lit', data?.problem && 'edge-problem')}>
+    <>
       {isOverlayLink && (
         <path
           d={path}
-          className={calm ? 'cluster-link-pipe calm-pipe' : 'cluster-link-pipe'}
+          className="cluster-link-pipe"
           style={{ stroke: style?.stroke, opacity: baseOpacity * 0.35 }}
           fill="none"
           pointerEvents="none"
@@ -739,7 +674,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
         path={path}
         labelX={labelX}
         labelY={labelY}
-        label={calm ? undefined : label}
+        label={label}
         labelStyle={labelStyle}
         labelShowBg={labelShowBg}
         labelBgStyle={labelBgStyle}
@@ -747,22 +682,9 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
         labelBgBorderRadius={labelBgBorderRadius}
         markerEnd={markerEnd}
         style={style}
-        interactionWidth={calm ? 20 / zoom : interactionWidth}
+        interactionWidth={interactionWidth}
       />
-      {calm && label && (data?.role !== 'detail' || lit) && pillInView(labelX * zoom + panX, paneW) && (lane || Math.hypot(x2 - x1, y2 - y1) * zoom >= PILL_MIN_LINE) && (
-        // Calm names a line with a pill in the layer above every line (an SVG label is painted with its own line, so a line drawn after it strikes
-        // it through), opaque so no line shows through, and the same size on screen at every zoom.
-        <EdgeLabelRenderer>
-          <div
-            data-testid="edge-pill"
-            className="edge-pill nodrag nopan"
-            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px) scale(${1 / zoom})`, color: labelStyle?.fill, opacity: labelStyle?.opacity }}
-          >
-            {label}
-          </div>
-        </EdgeLabelRenderer>
-      )}
-    </g>
+    </>
   )
 }
 

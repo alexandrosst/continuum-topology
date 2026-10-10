@@ -10,10 +10,8 @@ import { buildPodsView, type PodsView } from './pods'
 import { MarkerType, Position, type Edge, type Node } from '@xyflow/react'
 import { deepEqual } from './discovered'
 import { isObserved } from './observed'
-import { buildNetworks, networkSentence, type Network } from './networks'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
-import { clusterLoad, lossBand, nodeLoad, pathQuality, peakLoad, type ClusterLoad, type NodeLoad, type PathQuality } from './metrics'
-import { alertOfLoad, alertOfPods, alertOfStatus, PRESSURE_WARN, statusSentence, worstAlert, type Alert, type Detail } from './detail'
+import { clusterLoad, pathQuality, type ClusterLoad, type PathQuality } from './metrics'
 import {
   DEVICE_KINDS,
   TIER_ORDER,
@@ -57,13 +55,6 @@ export type GroupData = {
   empty: string
   /** How loaded a cluster is, from what its nodes report. Only cluster groups have it. */
   load?: ClusterLoad
-  /** Where the cluster or site is ("Frankfurt, Germany"): what Calm keeps under the name, in place of the distribution and counts. */
-  place?: string
-  /** Set when the box itself is not fine (its own status, a resource under pressure, a node or service down). A card's
-   *  problem is its own: the box does not repeat it. Calm tints the box and says what is wrong in `note`. */
-  alert?: Alert
-  /** What is wrong with the box, in a few words ("1/2 nodes ready", "Memory 92% requested"); set with `alert`. */
-  note?: string
   /** Service mesh overlay: what mesh the cluster runs, e.g. "Istio 1.22 · sidecar · mTLS permissive". */
   mesh?: { label: string; tone: 'good' | 'warn' | 'bad'; title: string }
   /** Set on a real cluster box (groupBy 'cluster' only) when one of its approved agents has at least one
@@ -76,10 +67,6 @@ export type GroupData = {
    *  session's own note on why a full separate networking view isn't warranted yet (no routing-rule data
    *  behind it to actually draw), but the already-detected name is cheap to show here. */
   networking?: { cni?: string; ingress?: string }
-  /** Calm: the networks this box sits on (a shared subnet, an overlay), drawn as quiet chips in its header rather than as lines.
-   *  `text` is the sentence to read ("Shares subnet 10.30.0.0/16 with polaris-edge"); `members` are the boxes (React Flow ids, this one
-   *  included) on the network, which light together when it is hovered or one of them is hovered or selected. */
-  networks?: { id: string; kind: 'overlay' | 'subnet'; via: string; text: string; members: string[] }[]
 }
 
 export type CardData = {
@@ -114,13 +101,6 @@ export type CardData = {
    *  MachineNode.networkInterfaces' speedMbps, not any one interface in particular - which one is fastest
    *  is a detail the Inspector's own per-interface list already covers). */
   hardware?: { hasBattery?: boolean; nicMbps?: number }
-  /** Set when the card is not fine (status, pods not ready, a machine under pressure): Calm draws it in the state colour with
-   *  `note` under its name, and the layout gives it that line; a card without one is as small as its name. */
-  alert?: Alert
-  /** What is wrong, in a few words ("1 crash-looping · 1 not ready", "Memory 92% requested"); set with `alert`. */
-  note?: string
-  /** Machine cards only: how much of the machine's CPU, memory and pod slots is already promised. */
-  load?: NodeLoad
   /** `service` cards only: the pod rail, the "27/30 ready" summary and the popover's rows (see lib/pods.ts).
    *  Absent when no per-pod facts were collected (older agent tier, or no pods up): the card then keeps just
    *  the replica count and, if some are not ready, the "x/y ready" chip. */
@@ -167,8 +147,6 @@ export type EdgeData = {
    *  (ingress, node port or load balancer) to reach it at all. See makeEdge's own doc for why this is
    *  meaningless for a same-cluster call. */
   route?: 'direct' | 'gateway'
-  /** Calm: which of up to five tracks (-2..2) of a gutter this bundle line runs on, so two lines that share a gutter are two lines and not one. */
-  track?: number
   /** Pixels to shift this line's source end sideways (perpendicular to the caller->callee line). */
   sourceOffset?: number
   /** Pixels to shift this line's target end sideways (perpendicular to the caller->callee line). Independent from sourceOffset, so a line can fan out at a busy node while still landing cleanly at a quiet one. */
@@ -214,18 +192,6 @@ export type EdgeData = {
   /** How long a DNS response took to arrive after its matching query (Dependency.dnsRttMs) - eBPF only,
    *  a gauge, only ever set on the pod<->resolver edge itself. */
   dnsRttMs?: number
-  /** A seen link that is losing connection attempts (a link that was only declared is never a problem: nothing was measured on it). Calm gives
-   *  a bundle that holds one the state colour and a label saying how bad the path is, at rest; the calls themselves wait for the focus. */
-  problem?: boolean
-  /** A bundle's own count of the dependencies it stands for. */
-  count?: number
-  /** Calm, application view: 'bundle' is the one line between two boxes that stands for every dependency across them; 'detail' is one of those
-   *  dependencies, drawn only for the focus. Unset for a line that crosses nothing. */
-  role?: 'bundle' | 'detail'
-  /** The nodes whose hover or selection brings a 'detail' line forward (and quiets its bundle): both boxes and both ends. */
-  focusIds?: string[]
-  /** Set by the page for the one line the Inspector has open, so it is drawn even when it would be quiet. */
-  revealed?: boolean
   /** Aggregated (group<->group) edges only: how many of the bundled dependencies were actually seen in
    *  traffic, out of the total the label already counts - the hover card's "(N seen in traffic)" aside. */
   activeCount?: number
@@ -256,8 +222,6 @@ export type EdgeData = {
 export type TopoEdge = Edge<EdgeData>
 
 export interface GraphOptions {
-  /** 'calm' (the default) sizes a card that is fine to its name alone; 'full' gives every card the room for everything. */
-  detail?: Detail
   view: ViewKind
   groupBy: GroupBy
   servicesOnNodes: boolean
@@ -320,8 +284,6 @@ const GAP_X = 72
 const GAP_Y = 44
 const GROUP_GAP_X = 64
 const ROW_GAP = 150
-/** Calm rows sit closer: the lines between boxes run in the gap, which only needs room for a lane and a label. */
-const CALM_ROW_GAP = 96
 // Widened from 244/248 per the UI/UX pass: several common service/device names ("inference-regional",
 // "stream-aggregator", "Vibration sensor") were truncating hard even with visible slack around the card -
 // the icon, status dot, and optional meta/hint column on the right all eat into the title's real estate
@@ -331,15 +293,6 @@ const CALM_ROW_GAP = 96
 // arbitrary name, which is exactly why the native `title=` tooltip (added in an earlier pass) exists as the
 // fallback rather than chasing zero truncation by growing every card to accommodate the longest outlier.
 export const APP_CARD = { w: 300, h: 68 }
-/** Calm: what a card that is fine needs - its icon, name and status dot. What a hover reveals is drawn over the gap below it. */
-export const CALM_CARD_H = 52
-/** The line of a card or box that says what is wrong with it, in Calm. */
-export const CALM_NOTE = 16
-/** Calm cluster boxes need less header than Full: a name and, under it, where it is (and a line when something is wrong). */
-export const CALM_HEADER = 68
-// A card that lists the services on a machine (a choice made in Options) keeps them in view: 10px of padding, then the chip rows.
-const CALM_BLOCK = 10
-const CALM_CHIP_ROW = 24
 // Exported so a test can assert a card's own height reserves room for whichever extra badge row(s) its data ends up rendering.
 export const MACHINE_CARD = { w: 288, h: 84 }
 const CHIP_ROW = 22
@@ -376,7 +329,7 @@ interface GroupAcc {
   tier: Tier
   cluster?: Cluster
   /** Device / external groups: what to show in the header. */
-  extra?: { kind: 'devices' | 'external'; entityId: string; title: string; subtitle: string; place?: string; country?: string; status?: Status }
+  extra?: { kind: 'devices' | 'external'; entityId: string; title: string; subtitle: string; country?: string; status?: Status }
   items: Item[]
 }
 
@@ -400,15 +353,13 @@ interface Placed {
   g: GroupAcc
   w: number
   h: number
-  /** Where the first row of cards starts: below the box's own header. */
-  header: number
   children: PlacedChild[]
   /** Set instead of (never alongside) `children` when this group nests its items under namespace sub-boxes. */
   nsBoxes?: NsBox[]
 }
 
 /** One row of cards, left to right, wrapping at `cols`: shared by a cluster box and a namespace sub-box. */
-function packItems(items: Item[], headerY: number, pad = PAD, stretch = true): { w: number; h: number; children: PlacedChild[] } {
+function packItems(items: Item[], headerY: number, pad = PAD): { w: number; h: number; children: PlacedChild[] } {
   const n = items.length
   const cols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(n))))
   const cw = items[0]?.w ?? 0
@@ -417,10 +368,9 @@ function packItems(items: Item[], headerY: number, pad = PAD, stretch = true): {
   for (let i = 0; i < n; i += cols) {
     const slice = items.slice(i, i + cols)
     const rowH = Math.max(...slice.map((s) => s.h))
-    // Full: every card in a row is as tall as the tallest, so a row reads as one band; the card keeps its header at the top
-    // (see Card), so a shorter card's status dot and title stay level with its neighbours'. Calm keeps each card its own height,
-    // top-aligned: a fine card next to one with a problem is not stretched into an empty box.
-    slice.forEach((item, j) => children.push({ item, x: pad + j * (cw + GAP_X), y, h: stretch ? rowH : item.h }))
+    // Every card in a row is as tall as the tallest, so a row reads as one band; the card keeps its header
+    // at the top (see Card), so a shorter card's status dot and title stay level with its neighbours'.
+    slice.forEach((item, j) => children.push({ item, x: pad + j * (cw + GAP_X), y, h: rowH }))
     y += rowH + GAP_Y
   }
   const usedCols = Math.min(cols, n)
@@ -434,14 +384,14 @@ function packItems(items: Item[], headerY: number, pad = PAD, stretch = true): {
  * namespace first, so this does not need to sort again) and stacks the sub-boxes vertically. Every sub-box
  * gets the same width, the widest one's, so the stack reads as one aligned column rather than a jumble.
  */
-function layoutNamespaces(items: Item[], stretch: boolean): { w: number; h: number; boxes: NsBox[] } {
+function layoutNamespaces(items: Item[]): { w: number; h: number; boxes: NsBox[] } {
   const byNs = new Map<string, Item[]>()
   for (const it of items) {
     const key = it.namespace || 'no namespace'
     if (!byNs.has(key)) byNs.set(key, [])
     byNs.get(key)!.push(it)
   }
-  const laidOut = [...byNs.entries()].map(([namespace, its]) => ({ namespace, its, ...packItems(its, NS_HEADER, NS_PAD, stretch) }))
+  const laidOut = [...byNs.entries()].map(([namespace, its]) => ({ namespace, its, ...packItems(its, NS_HEADER, NS_PAD) }))
   const w = Math.max(0, ...laidOut.map((b) => b.w))
   let y = 0
   const boxes: NsBox[] = laidOut.map((b) => {
@@ -470,7 +420,6 @@ const worstStatus = (ss: Status[]): Status => {
 export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNode[]; edges: TopoEdge[] } {
   // Machinery traffic (DNS, kube-system) would bury the applications' own edges; it is opt-in.
   const t: Topology = o.noise ? topology : { ...topology, dependencies: topology.dependencies.filter((d) => !d.noise) }
-  const calm = o.detail === 'calm'
   if (o.view === 'application' && o.chain) return buildChainGraph(t, o)
   const clusterById = new Map(t.clusters.map((c) => [c.id, c]))
   const serviceById = new Map(t.services.map((w) => [w.id, w]))
@@ -527,7 +476,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       // The mesh's own workloads (istiod, ztunnel, gateways) are machinery: shown only with the mesh overlay.
       if (w.mesh?.controlPlane && !o.mesh) continue
       const g = ensureGroup(c)
-      g.items.push(serviceItem(w, c, o.groupBy === 'tier', o.hints?.get(w.id), o.mesh, nodeById, serviceById, calm))
+      g.items.push(serviceItem(w, c, o.groupBy === 'tier', o.hints?.get(w.id), o.mesh, nodeById, serviceById))
       groupOfEntity.set(w.id, g.key)
     }
 
@@ -548,13 +497,12 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
               entityId,
               title: perSite ? (s?.name ?? 'Unplaced devices') : 'Devices',
               subtitle: perSite ? (s ? [s.kind.replace('-', ' '), placeLabel(s)].filter(Boolean).join(' · ') : 'No site assigned') : '',
-              place: perSite ? placeLabel(s) : '',
               country: perSite ? s?.country : undefined,
             },
             items: [],
           })
         }
-        groups.get(key)!.items.push(deviceItem(dv, s, !perSite, calm))
+        groups.get(key)!.items.push(deviceItem(dv, s, !perSite))
         groupOfEntity.set(dv.id, key)
       }
 
@@ -565,7 +513,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         const key = 'ext:all'
         groups.set(key, { key, row: EXTERNAL_ROW, tier: 'cloud', extra: { kind: 'external', entityId: 'all', title: 'External', subtitle: 'Outside every onboarded cluster' }, items: [] })
         for (const e of ext) {
-          groups.get(key)!.items.push(externalItem(e, calm))
+          groups.get(key)!.items.push(externalItem(e))
           groupOfEntity.set(e.id, key)
         }
       }
@@ -576,32 +524,9 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       const c = clusterById.get(n.clusterId)
       if (!c) continue
       const chips = o.servicesOnNodes ? (servicesByNodeId.get(n.id) ?? []) : undefined
-      ensureGroup(c).items.push(machineItem(n, c, chips, o.groupBy === 'tier', calm))
+      ensureGroup(c).items.push(machineItem(n, c, chips, o.groupBy === 'tier'))
     }
   }
-
-  // What each cluster box says about itself: its load, whether it is fine and, when it is not, in what words. A card's own problem is the card's.
-  const infoOf = new Map<string, { load?: ClusterLoad; alert?: Alert; note?: string }>()
-  for (const g of groups.values()) {
-    const cl = g.cluster
-    if (!cl) continue
-    const load = clusterLoad(cl, nodesByCluster.get(cl.id) ?? [], shownServices(cl.id, g.items, o.view, servicesByCluster))
-    const alert = clusterAlert(cl, load)
-    const parts = [load.nodes > load.ready && `${load.ready}/${load.nodes} nodes ready`, load.unready > 0 && `${count(load.unready, 'service')} not fully up`, pressureNote(load)]
-    infoOf.set(g.key, { load, alert, note: alert ? parts.filter(Boolean).join(' · ') || STATUS_WORD[cl.status] || undefined : undefined })
-  }
-
-  // Calm: network membership is a fact about a box, not a line between two. Boxes that share a subnet or an overlay know each other.
-  const netsOf = new Map<string, Network[]>()
-  if (calm) {
-    for (const n of buildNetworks(o.clusterLinks)) {
-      for (const m of n.members) {
-        const k = groupKeyOfCluster(m.id)
-        if (k && groups.has(k) && !netsOf.get(k)?.includes(n)) netsOf.set(k, [...(netsOf.get(k) ?? []), n])
-      }
-    }
-  }
-  const drawnMembers = (n: Network) => [...new Set(n.members.map((m) => groupKeyOfCluster(m.id)))].filter((k): k is string => !!k && groups.has(k)).map(groupId)
 
   /* 2. Lay out: tiers are rows (cloud on top → far edge at the bottom), groups sit side by side. */
   const rows = new Map<number, GroupAcc[]>()
@@ -615,22 +540,16 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   // mixes several clusters together, and infrastructure cards (nodes) have no namespace.
   const nsEnabled = o.namespaces && o.view === 'application' && o.groupBy === 'cluster'
 
-  // Calm: a shorter header (a name and where it is), taller only when the box has something to say about itself.
-  const headerOf = (g: GroupAcc) => (calm ? CALM_HEADER + (infoOf.get(g.key)?.note ? CALM_NOTE : 0) + (netsOf.has(g.key) ? CALM_CHIP_ROW : 0) : HEADER)
-  const layoutCards = (g: GroupAcc, header: number): Placed => {
+  const layoutCards = (g: GroupAcc): Placed => {
     const n = g.items.length
     if (nsEnabled && g.cluster && n > 0) {
-      const { w: nsW, h: nsH, boxes } = layoutNamespaces(g.items, !calm)
-      return { g, w: Math.max(PAD * 2 + nsW, 248, MIN_GROUP_HEADER_WIDTH), h: header + nsH + PAD, header, children: [], nsBoxes: boxes }
+      const { w: nsW, h: nsH, boxes } = layoutNamespaces(g.items)
+      return { g, w: Math.max(PAD * 2 + nsW, 248, MIN_GROUP_HEADER_WIDTH), h: HEADER + nsH + PAD, children: [], nsBoxes: boxes }
     }
-    const { w, h, children } = packItems(g.items, header, PAD, !calm)
-    return { g, w: Math.max(w || 248, 248, MIN_GROUP_HEADER_WIDTH), h: n === 0 ? header + 52 : h, header, children }
+    const { w, h, children } = packItems(g.items, HEADER)
+    return { g, w: Math.max(w || 248, 248, MIN_GROUP_HEADER_WIDTH), h: n === 0 ? HEADER + 52 : h, children }
   }
-  // One header slot per row: boxes side by side start their cards at the same height whichever of them has a note or a chip row to show.
-  const placedRows = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, gs]) => {
-    const slot = Math.max(...gs.map(headerOf))
-    return gs.map((g) => layoutCards(g, slot))
-  })
+  const placedRows = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, gs]) => gs.map(layoutCards))
   const rowWidths = placedRows.map((r) => r.reduce((s, p) => s + p.w, 0) + (r.length - 1) * GROUP_GAP_X)
   const maxW = Math.max(0, ...rowWidths)
 
@@ -648,7 +567,6 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       const ex = g.extra
       const units = g.items.reduce((s, i) => s + (i.data.units ?? 1), 0)
       const siteCount = new Set(g.items.map((i) => i.data.clusterName).filter(Boolean)).size
-      const info = infoOf.get(g.key)
       nodes.push({
         id: gid,
         type: 'boundary',
@@ -671,14 +589,10 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
           country: ex ? ex.country : cl ? siteById.get(cl.siteId ?? '')?.country : undefined,
           tier: g.tier,
           status: groupStatus,
-          place: ex ? ex.place : cl ? placeLabel(siteById.get(cl.siteId ?? '')) || cl.region : '',
-          load: info?.load,
-          alert: info?.alert,
-          note: info?.note,
+          load: cl ? clusterLoad(cl, nodesByCluster.get(cl.id) ?? [], shownServices(cl.id, g.items, o.view, servicesByCluster)) : undefined,
           mesh: o.mesh && o.view === 'application' && cl?.mesh ? groupMesh(cl.mesh) : undefined,
           localTelemetry: cl && o.groupBy === 'cluster' ? o.localOperators?.get(cl.id) : undefined,
           networking: cl && o.groupBy === 'cluster' && (cl.cni || cl.ingress) ? { cni: cl.cni, ingress: cl.ingress } : undefined,
-          networks: netsOf.get(g.key)?.map((n) => ({ id: n.id, kind: n.kind, via: n.via, text: networkSentence(n, g.cluster?.id ?? ''), members: drawnMembers(n) })),
           stats:
             ex?.kind === 'devices'
               ? count(units, 'device')
@@ -698,7 +612,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
             parentId: gid,
             extent: 'parent',
             draggable: false,
-            position: { x: PAD + nb.x, y: p.header + nb.y },
+            position: { x: PAD + nb.x, y: HEADER + nb.y },
             style: { width: nb.w, height: nb.h },
             zIndex: 5,
             data: {
@@ -727,7 +641,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
               zIndex: 10,
               data: c.item.data,
             })
-            abs.set(c.item.id, { x: x + PAD + nb.x + c.x, y: y + p.header + nb.y + c.y, w: c.item.w, h: c.h })
+            abs.set(c.item.id, { x: x + PAD + nb.x + c.x, y: y + HEADER + nb.y + c.y, w: c.item.w, h: c.h })
           }
         }
       } else {
@@ -740,7 +654,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
             // margin packItems already used to lay it out, not the group box's own bare edges - otherwise a
             // drag can park a card flush against the box's left/right/bottom border, or up under the
             // cluster's own header (title, subtitle, load meter).
-            extent: [[PAD, p.header], [p.w - PAD, p.h - PAD]],
+            extent: [[PAD, HEADER], [p.w - PAD, p.h - PAD]],
             position: { x: c.x, y: c.y },
             style: { width: c.item.w, height: c.h },
             zIndex: 10,
@@ -751,12 +665,11 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       }
       x += p.w + GROUP_GAP_X
     }
-    y += Math.max(...row.map((p) => p.h)) + (calm ? CALM_ROW_GAP : ROW_GAP)
+    y += Math.max(...row.map((p) => p.h)) + ROW_GAP
   })
 
   /* 3. Edges. */
   const edges: TopoEdge[] = []
-  const depById = new Map(t.dependencies.map((d) => [d.id, d]))
   if (o.view === 'application') {
     for (const d of t.dependencies) {
       if (d.from === d.to) continue // a service calling itself has no distinct "other end" to draw a line to
@@ -800,13 +713,11 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         dnsRttMs: d.dnsRttMs,
         route,
         tunnelLink: d.tunnelLink,
-        problem: isObserved(d) && !d.stale && !!quality && lossBand(quality.lossPct) !== 'ok',
       }))
     }
-    if (calm) bundleCrossEdges(edges, abs, groupOfEntity, depById)
   } else if (o.links) {
     // Aggregate service dependencies into group ↔ group links.
-    const agg = new Map<string, { a: string; b: string; count: number; active: number; bytesPerSec: number; protocols: Map<string, number>; quality?: PathQuality }>()
+    const agg = new Map<string, { a: string; b: string; count: number; active: number; bytesPerSec: number; protocols: Map<string, number> }>()
     for (const d of t.dependencies) {
       const from = serviceById.get(d.from)
       const to = serviceById.get(d.to)
@@ -821,10 +732,9 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       if (isObserved(d) && !d.stale) cur.active++
       cur.bytesPerSec += d.stats?.bytesPerSec ?? 0
       cur.protocols.set(d.protocol, (cur.protocols.get(d.protocol) ?? 0) + 1)
-      if (o.paths && from.clusterId !== to.clusterId) cur.quality = lossier(cur.quality, pathQuality(o.paths, from.clusterId, to.clusterId))
       agg.set(key, cur)
     }
-    for (const { a, b, count, active, bytesPerSec, protocols, quality } of agg.values()) {
+    for (const { a, b, count, active, bytesPerSec, protocols } of agg.values()) {
       if (!abs.has(groupId(a)) || !abs.has(groupId(b))) continue
       edges.push(makeEdge(`agg:${a}|${b}`, groupId(a), groupId(b), abs, {
         label: `${count} ${count === 1 ? 'dependency' : 'dependencies'}`,
@@ -833,9 +743,6 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         from: a,
         to: b,
         activeCount: active,
-        count,
-        quality,
-        problem: active > 0 && !!quality && lossBand(quality.lossPct) !== 'ok',
         protocols: protocols.size > 1 ? Object.fromEntries(protocols) : undefined,
         // Animate this bundle exactly when it actually contains real, live traffic (active > 0) - the same
         // "motion means real traffic, not just cross-cluster" rule makeEdge's own doc applies to a single
@@ -865,8 +772,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   // keeps this line: no single dependency edge can stand in for the aggregate (flowsObserved/avgRttMs/
   // avgLossPct) only this line carries. A "subnet" link is never suppressed - dependencies never carry a
   // tunnelLink for one (see Dependency.tunnelLink's own doc), so there is nothing to check.
-  // Calm draws none of these: membership is the box's chip and ring (see netsOf above), and a line is for traffic.
-  for (const cl of calm ? [] : o.clusterLinks ?? []) {
+  for (const cl of o.clusterLinks ?? []) {
     const a = groupKeyOfCluster(cl.fromCluster)
     const b = groupKeyOfCluster(cl.toCluster)
     if (!a || !b || a === b) continue
@@ -891,66 +797,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
 
   spreadFanned(edges, abs)
   spreadParallel(edges)
-  if (calm) assignTracks(edges)
-  return { nodes: nodes.map(spoken), edges }
-}
-
-/** Lines that run in the gutters take turns on five tracks, in a fixed order, so the lines of one gutter are side by side and not on top of each other. */
-function assignTracks(edges: TopoEdge[]) {
-  edges
-    .filter((e) => e.data?.aggregated)
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .forEach((e, i) => { e.data = { ...e.data!, track: (i % 5) - 2 } })
-}
-
-const lossier = (a: PathQuality | undefined, b: PathQuality | undefined) => (!b ? a : !a || b.lossPct > a.lossPct ? b : a)
-
-/**
- * Calm, application view: every dependency that crosses from one box to another is drawn as ONE line between the two boxes (the hover says how
- * many), so the canvas shows which boxes talk, not every service-to-service call. The calls themselves stay in the graph as 'detail' lines that
- * the focus brings forward (hovering or selecting either box or either end, see OffsetEdge). A bundle that holds a failing path is the one red line.
- */
-function bundleCrossEdges(edges: TopoEdge[], abs: Map<string, Box>, groupOfEntity: Map<string, string>, depById: Map<string, Dependency>) {
-  const pairs = new Map<string, { a: string; b: string; members: TopoEdge[] }>()
-  for (const e of edges) {
-    const ga = groupOfEntity.get(e.data!.from)
-    const gb = groupOfEntity.get(e.data!.to)
-    if (!ga || !gb || ga === gb) continue
-    const [a, b] = ga < gb ? [ga, gb] : [gb, ga]
-    const pair = pairs.get(`${a}|${b}`) ?? { a, b, members: [] }
-    pair.members.push(e)
-    pairs.set(`${a}|${b}`, pair)
-  }
-  for (const { a, b, members } of pairs.values()) {
-    const protocols = new Map<string, number>()
-    let active = 0
-    let bytesPerSec = 0
-    let quality: PathQuality | undefined
-    for (const e of members) {
-      e.data = { ...e.data!, role: 'detail', focusIds: [groupId(a), groupId(b), e.source, e.target] }
-      if (e.data.observed && !e.data.stale) active++
-      bytesPerSec += e.data.stats?.bytesPerSec ?? 0
-      quality = lossier(quality, e.data.quality)
-      const protocol = depById.get(e.id)?.protocol
-      if (protocol) protocols.set(protocol, (protocols.get(protocol) ?? 0) + 1)
-    }
-    edges.push(makeEdge(`bundle:${a}|${b}`, groupId(a), groupId(b), abs, {
-      label: `${members.length} ${members.length === 1 ? 'dependency' : 'dependencies'}`,
-      cross: true,
-      aggregated: true,
-      from: a,
-      to: b,
-      activeCount: active,
-      count: members.length,
-      quality,
-      problem: members.some((e) => e.data?.problem),
-      role: 'bundle',
-      focusIds: [groupId(a), groupId(b), ...members.flatMap((e) => [e.source, e.target])],
-      protocols: protocols.size > 1 ? Object.fromEntries(protocols) : undefined,
-      observed: active > 0,
-      stats: bytesPerSec > 0 ? { bytesPerSec } : undefined,
-    }))
-  }
+  return { nodes, edges }
 }
 
 /**
@@ -1161,7 +1008,6 @@ function layoutChain(
 /** The Application view's alternate layout: every service (across every cluster) placed in one flat
  * left-to-right dependency chain instead of nested inside cluster/tier boxes. See `chain` on GraphOptions. */
 function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edges: TopoEdge[] } {
-  const calm = o.detail === 'calm'
   const clusterById = new Map(t.clusters.map((c) => [c.id, c]))
   const siteById = new Map(t.sites.map((s) => [s.id, s]))
   const serviceById = new Map(t.services.map((w) => [w.id, w]))
@@ -1195,11 +1041,11 @@ function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edg
   const items: Item[] = [
     ...services.map((w) => {
       const c = clusterById.get(w.clusterId)!
-      const item = serviceItem(w, c, true, o.hints?.get(w.id), o.mesh, nodeById, serviceById, calm)
+      const item = serviceItem(w, c, true, o.hints?.get(w.id), o.mesh, nodeById, serviceById)
       return (names.get(w.name) ?? 0) > 1 ? { ...item, data: { ...item.data, clusterTag: c.name } } : item
     }),
-    ...deviceLeaves.map((dv) => deviceItem(dv, dv.siteId ? siteById.get(dv.siteId) : undefined, true, calm)),
-    ...externalLeaves.map((e) => externalItem(e, calm)),
+    ...deviceLeaves.map((dv) => deviceItem(dv, dv.siteId ? siteById.get(dv.siteId) : undefined, true)),
+    ...externalLeaves.map((e) => externalItem(e)),
   ]
   const ids = [...serviceIds, ...leafIds]
   const itemById = new Map(ids.map((id, i) => [id, items[i]]))
@@ -1244,37 +1090,15 @@ function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edg
 
   spreadFanned(edges, abs)
   spreadParallel(edges)
-  return { nodes: nodes.map(spoken), edges }
+  return { nodes, edges }
 }
 
 /* ---------- helpers ---------- */
-/** A box or card says its name and its state in words to a screen reader (and on keyboard focus), the same sentence the glyph and the tint say to the eye. */
-function spoken<N extends TopoNode>(n: N): N {
-  const d = n.data as { title?: string; status?: Status; alert?: Alert; note?: string }
-  return d.title && d.status ? { ...n, ariaLabel: statusSentence(d.title, d.status, d.alert, d.note) } : n
-}
-
 function tierLabel(t: Tier) {
   return t === 'far-edge' ? 'Far edge' : t[0].toUpperCase() + t.slice(1)
 }
 
-/** What is wrong with a cluster as a whole: it reports badly, a node or a service is not up, or it is running out of room. */
-export function clusterAlert(cl: Pick<Cluster, 'status'>, load: ClusterLoad): Alert | undefined {
-  return worstAlert(alertOfStatus(cl.status), alertOfLoad(peakLoad(load)), load.nodes > load.ready || load.unready > 0 ? 'warn' : undefined)
-}
-
-/** What is wrong with a service: it reports badly, its pods are not all ready (or crash-looping), or fewer replicas are ready than wanted. */
-export function serviceAlert(w: Service, pods: PodsView | undefined): Alert | undefined {
-  return worstAlert(alertOfStatus(w.status), alertOfPods(pods), !pods && w.readyReplicas !== undefined && w.readyReplicas < w.replicas ? 'warn' : undefined)
-}
-
-/** What is wrong with a machine: it reports badly, or it is running out of room. */
-export function machineAlert(n: MachineNode): Alert | undefined {
-  const load = nodeLoad(n)
-  return worstAlert(alertOfStatus(n.status), alertOfLoad(load && peakLoad(load)))
-}
-
-function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string | undefined, mesh: boolean | undefined, nodeById: Map<string, MachineNode>, serviceById: Map<string, Service>, calm: boolean): Item {
+function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string | undefined, mesh: boolean | undefined, nodeById: Map<string, MachineNode>, serviceById: Map<string, Service>): Item {
   const pods = buildPodsView(w.pods, w.name, nodeById, serviceById)
   // With per-pod facts the pod summary says it ("27/30 ready"), so the chip is only for a service without them.
   const notReady = !pods && w.readyReplicas !== undefined && w.readyReplicas < w.replicas
@@ -1283,12 +1107,10 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string 
   const badgeRow = !!(hint || notReady || (mesh && w.mesh))
   const podsRow = !!pods
   const extraRows = (badgeRow ? 1 : 0) + (podsRow ? 1 : 0)
-  const alert = serviceAlert(w, pods)
-  const note = alert ? serviceNote(w, pods, notReady) : undefined
   return {
     id: cardId(w.id),
     w: APP_CARD.w,
-    h: calm ? CALM_CARD_H + (note ? CALM_NOTE : 0) : APP_CARD.h + (extraRows === 2 ? 46 : extraRows === 1 ? 24 : 0),
+    h: APP_CARD.h + (extraRows === 2 ? 46 : extraRows === 1 ? 24 : 0),
     namespace: w.namespace,
     data: {
       kind: 'service',
@@ -1297,8 +1119,6 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string 
       subtitle: [withCluster ? c.name : '', w.namespace, w.kind].filter(Boolean).join(' · '),
       meta: `×${w.replicas}`,
       status: w.status,
-      alert,
-      note,
       tier: c.tier,
       clusterName: c.name,
       serviceKind: w.kind,
@@ -1323,31 +1143,13 @@ function meshChip(w: Service): NonNullable<CardData['mesh']> {
   return { label: words, tone: m.controlPlane ? 'control' : inMesh(m) ? 'in' : 'out', title: `${words}. ${src} Inferred from configuration.` }
 }
 
-const STATUS_WORD: Record<Status, string> = { offline: 'Offline', degraded: 'Degraded', unknown: '', healthy: '' }
-
-/** The busiest resource of a machine or cluster once it is under pressure, in words: "Memory 92% requested". */
-function pressureNote(load: NodeLoad | undefined): string | undefined {
-  if (!load) return undefined
-  const rows: [string, number | undefined, string][] = [['CPU', load.cpuPct, 'requested'], ['Memory', load.memPct, 'requested'], ['Pods', load.podPct, 'full']]
-  let top: [string, number, string] | undefined
-  for (const [label, pct, what] of rows) if (pct !== undefined && (!top || pct > top[1])) top = [label, pct, what]
-  return top && top[1] >= PRESSURE_WARN ? `${top[0]} ${top[1]}% ${top[2]}` : undefined
-}
-
-/** What is wrong with a service, in the words its pods would use ("1 crash-looping · 1 not ready"), else its state. */
-function serviceNote(w: Service, pods: PodsView | undefined, notReady: boolean): string | undefined {
-  const parts = pods ? [pods.bad > 0 && `${pods.bad} crash-looping`, pods.warn > 0 && `${pods.warn} not ready`] : [notReady && `${w.readyReplicas}/${w.replicas} ready`]
-  return parts.filter(Boolean).join(' · ') || STATUS_WORD[w.status] || undefined
-}
-
 const DEVICE_LABEL = Object.fromEntries(DEVICE_KINDS.map((k) => [k.value, k.label])) as Record<DeviceKind, string>
 
-function deviceItem(dv: Device, s: Site | undefined, withSite: boolean, calm: boolean): Item {
-  const alert = alertOfStatus(dv.status)
+function deviceItem(dv: Device, s: Site | undefined, withSite: boolean): Item {
   return {
     id: cardId(dv.id),
     w: APP_CARD.w,
-    h: calm ? CALM_CARD_H + (alert ? CALM_NOTE : 0) : APP_CARD.h,
+    h: APP_CARD.h,
     data: {
       kind: 'device',
       entityId: dv.id,
@@ -1355,8 +1157,6 @@ function deviceItem(dv: Device, s: Site | undefined, withSite: boolean, calm: bo
       subtitle: [withSite ? s?.name : '', DEVICE_LABEL[dv.kind], dv.protocol].filter(Boolean).join(' · '),
       meta: dv.count > 1 ? `×${dv.count}` : '',
       status: dv.status,
-      alert,
-      note: alert ? STATUS_WORD[dv.status] : undefined,
       tier: 'far-edge',
       clusterName: s?.name ?? '',
       deviceKind: dv.kind,
@@ -1365,11 +1165,11 @@ function deviceItem(dv: Device, s: Site | undefined, withSite: boolean, calm: bo
   }
 }
 
-function externalItem(e: ExternalEndpoint, calm: boolean): Item {
+function externalItem(e: ExternalEndpoint): Item {
   return {
     id: cardId(e.id),
     w: APP_CARD.w,
-    h: calm ? CALM_CARD_H : APP_CARD.h,
+    h: APP_CARD.h,
     data: {
       kind: 'external',
       entityId: e.id,
@@ -1383,10 +1183,7 @@ function externalItem(e: ExternalEndpoint, calm: boolean): Item {
   }
 }
 
-function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: string }[] | undefined, withCluster: boolean, calm: boolean): Item {
-  const load = nodeLoad(n)
-  const alert = machineAlert(n)
-  const note = alert ? STATUS_WORD[n.status] || pressureNote(load) : undefined
+function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: string }[] | undefined, withCluster: boolean): Item {
   const chipRows = chips && chips.length ? Math.ceil(chips.length / 2) : 0
   const nicMbps = n.networkInterfaces?.reduce((max, i) => (i.speedMbps !== undefined && i.speedMbps > max ? i.speedMbps : max), 0)
   const hardware = n.hasBattery || nicMbps ? { hasBattery: n.hasBattery, nicMbps: nicMbps || undefined } : undefined
@@ -1398,10 +1195,7 @@ function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: stri
     // notReady/mesh badges. This was missing here, so a machine with a fast-NIC or battery badge got no
     // headroom for it at all and the pill sat flush against (visually indistinguishable from spilling past)
     // the card's own bottom border.
-    // Services-on-nodes is a choice to see them, so a card that lists them keeps the room for the list.
-    h: calm
-      ? CALM_CARD_H + (note ? CALM_NOTE : 0) + (chips ? CALM_BLOCK + (chipRows ? chipRows * CALM_CHIP_ROW + 5 : 25) : 0)
-      : MACHINE_CARD.h + (hardware ? 24 : 0) + (chips ? (chipRows ? chipRows * CHIP_ROW + 14 : 26) : 0),
+    h: MACHINE_CARD.h + (hardware ? 24 : 0) + (chips ? (chipRows ? chipRows * CHIP_ROW + 14 : 26) : 0),
     data: {
       kind: 'machine',
       entityId: n.id,
@@ -1409,9 +1203,6 @@ function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: stri
       subtitle: [withCluster ? c.name : '', n.role === 'control-plane' ? 'Control plane' : 'Worker', n.ip].filter(Boolean).join(' · '),
       meta: `${n.cpu} vCPU · ${n.memoryGb} GB`,
       status: n.status,
-      alert,
-      note,
-      load,
       tier: c.tier,
       clusterName: c.name,
       machineKind: n.kind,
@@ -1632,10 +1423,6 @@ function makeEdge(
     dnsQueryNames?: string[]
     dnsRttMs?: number
     activeCount?: number
-    problem?: boolean
-    count?: number
-    role?: 'bundle' | 'detail'
-    focusIds?: string[]
     /** Only set on a cross-cluster dependency: whether the target is reached over a flat/mesh-federated
      *  network route, or has to go out through its own external exposure (ingress, node port or load
      *  balancer) to be reached at all - the only two ways a call from outside the target's own cluster can
@@ -1678,7 +1465,7 @@ function makeEdge(
     // the cards (10) so they never steal clicks; group↔group links sit just above the group boxes (0).
     zIndex: d.aggregated || d.groupLevel ? 5 : -1,
     markerEnd: d.aggregated || d.clusterLink ? undefined : { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, ifaceSpeedMbps: d.ifaceSpeedMbps, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, dnsRttMs: d.dnsRttMs, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink, tunnelLink: d.tunnelLink, protocols: d.protocols, problem: d.problem, count: d.count, role: d.role, focusIds: d.focusIds },
+    data: { crossGroup: d.cross, aggregated: d.aggregated, from: d.from, to: d.to, sources: d.sources, confidence: d.confidence, observed: d.observed, stale: d.stale, weight: d.weight, quality: d.quality, mesh: d.mesh, stats: d.stats, via: d.via, iface: d.iface, ifaceSpeedMbps: d.ifaceSpeedMbps, retransmits: d.retransmits, rttMs: d.rttMs, jitterMs: d.jitterMs, handshakeMs: d.handshakeMs, failedAttempts: d.failedAttempts, sniHost: d.sniHost, dnsQueryNames: d.dnsQueryNames, dnsRttMs: d.dnsRttMs, activeCount: d.activeCount, route: d.route, clusterLink: d.clusterLink, tunnelLink: d.tunnelLink, protocols: d.protocols },
   }
 }
 

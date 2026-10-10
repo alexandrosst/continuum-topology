@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Cable, ChevronDown, ChevronUp, Network, Pencil, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Pencil, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckLine } from '@/components/discovery/AgentParts'
@@ -7,9 +7,6 @@ import EntityHistory from '@/components/EntityHistory'
 import { EvidenceSection, WeakValues } from '@/components/EvidenceSection'
 import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
-import { LoadMeters } from '@/components/topology/Load'
-import { clusterAlert, machineAlert, serviceAlert } from '@/lib/graph'
-import { buildPodsView } from '@/lib/pods'
 import { LinkRow, Section } from '@/components/topology/InspectorParts'
 import PlatformPanel, { PlatformSubtitle } from '@/components/topology/PlatformPanel'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
@@ -24,10 +21,8 @@ import { useHistoryView } from '@/store/history'
 import { useConn, useServer } from '@/store/server'
 import { useRawTopology, useTopology } from '@/store/topology'
 import { bytesPerSec, bytesTotal, isObserved, trafficSummary } from '@/lib/observed'
-import { clusterLoad, lossBand, nodeLoad, pathQuality, rttLabel } from '@/lib/metrics'
-import { useClusterLinks, useClusterPairConnectivity, usePaths } from '@/store/topology'
-import { useCanvasFocus } from '@/store/canvasFocus'
-import { buildNetworks as networksOf, networkWord } from '@/lib/networks'
+import { lossBand, pathQuality, rttLabel } from '@/lib/metrics'
+import { useClusterPairConnectivity, usePaths } from '@/store/topology'
 import { connectionVerdict, meshName, MTLS_WORDS, proxyWords, VERDICT_COLOR } from '@/lib/mesh'
 import type { PlatformModel } from '@/lib/platformLayer'
 import { CONNECTIVITY, DEVICE_KINDS, TIERS, type Agent, type Dependency, type Evidence, type ExternalEndpoint, type ExternalKind, type OverrideMeta, type Provenance, type Resources, type Tier } from '@/lib/types'
@@ -315,15 +310,10 @@ export default function Inspector({
   onSelect,
   onEdit,
   onClose,
-  localOperators,
-  onConfigureTelemetry,
 }: {
   selection: Selection
   /** The platform layer on the canvas, for a selection of one of its parts. */
   platform?: PlatformModel
-  /** Cluster id -> the agent running local telemetry there, which the canvas no longer shows a control for. */
-  localOperators?: ReadonlyMap<string, { layers: string[]; agentId: string }>
-  onConfigureTelemetry?: (agentId: string) => void
   onSelect: (s: Selection) => void
   onEdit: (s: NonNullable<Selection>) => void
   onClose: () => void
@@ -332,17 +322,13 @@ export default function Inspector({
   const placement = usePlacementSuggestions().byCluster
   const inPast = useHistoryView((s) => s.at !== null)
   // On a narrow screen the details are a sheet over the canvas; "peek" shrinks it to its header so the selected thing stays in view.
-  // It opens as a header only, so what was selected is still in view above it; a press on the handle opens it.
-  const [peek, setPeek] = useState(() => !(window.matchMedia?.('(min-width: 1024px)').matches ?? true))
+  const [peek, setPeek] = useState(false)
   const measured = usePaths()
   const clusterPairConnectivity = useClusterPairConnectivity()
-  const clusterLinks = useClusterLinks()
-  const setNetwork = useCanvasFocus((s) => s.setNetwork)
   const publicIpFallbackOn = useServer((s) => s.info?.geoip?.publicIpFallback)
   // Id -> node, built once per `nodes` change instead of fresh on every render just to resolve the one or
   // two nodes a selected dependency's caller-interface lookup actually needs (see callerIfaceSpeedMbps below).
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes])
-  const serviceById = useMemo(() => new Map(services.map((w) => [w.id, w])), [services])
   // Grouping every dependency by its `from`/`to` end, and sorting each group, is a full scan of the
   // topology's dependencies - worth doing once per `dependencies` change rather than redoing on every
   // render regardless of whether the selection (or anything else) actually changed. depSections below
@@ -419,7 +405,7 @@ export default function Inspector({
     title = c.name
     subtitle = (
       <span className="flex flex-wrap items-center gap-2">
-        <StatusDot status={c.status} alert={clusterAlert(c, clusterLoad(c, ns, ws))} withLabel />
+        <StatusDot status={c.status} withLabel />
         <TierBadge tier={c.tier} />
       </span>
     )
@@ -501,29 +487,6 @@ export default function Inspector({
             </div>
           )}
         </Section>
-        <Section title="Load">
-          {ns.length > 0 || ws.length > 0 ? <LoadMeters load={clusterLoad(c, ns, ws)} /> : <p className="text-sm text-nb-500">Nothing reported yet.</p>}
-        </Section>
-        {(() => {
-          // The same networks the canvas chips name, in words, with who else is on them; hovering one lights those clusters on the canvas.
-          const mine = networksOf(clusterLinks).filter((n) => n.members.some((m) => m.id === c.id))
-          return mine.length > 0 && (
-            <Section title={`Networks (${mine.length})`}>
-              {mine.map((n) => (
-                <div key={n.id} className="mb-2.5 last:mb-0" data-testid="inspector-network" onPointerEnter={() => setNetwork(n.id)} onPointerLeave={() => setNetwork(null)}>
-                  <div className="flex items-center gap-1.5 px-2 text-sm text-nb-300">
-                    {n.kind === 'overlay' ? <Cable size={ICON_SM} className="shrink-0 text-info" aria-hidden="true" /> : <Network size={ICON_SM} className="shrink-0 text-info" aria-hidden="true" />}
-                    <span>{networkWord(n.kind)}</span>
-                    <span className="truncate text-nb-500" title={n.via}>{n.via}</span>
-                  </div>
-                  {n.members.filter((m) => m.id !== c.id).map((m) => (
-                    <LinkRow key={m.id} label={m.name} sub={n.kind === 'overlay' ? 'same overlay' : 'same subnet'} onClick={() => onSelect({ kind: 'cluster', id: m.id })} />
-                  ))}
-                </div>
-              ))}
-            </Section>
-          )
-        })()}
         {(() => {
           // Every cluster pair c has SOME relationship with (a confirmed ClusterLink, or observed
           // cross-cluster traffic) - a strict superset of the old "Cluster links" section, which only
@@ -610,16 +573,6 @@ export default function Inspector({
           {agent && (
             <Row label="Agent">
               <Link to="/discovery" className="text-accent hover:underline">{agent.name}</Link> <span className="text-nb-500">tier {agent.accessTier}</span>
-            </Row>
-          )}
-          {localOperators?.get(c.id) && (
-            <Row label="Local telemetry" wrap>
-              <span className="text-nb-300">Running{localOperators.get(c.id)!.layers.length ? ` (${localOperators.get(c.id)!.layers.join(', ')})` : ''}</span>{' '}
-              {onConfigureTelemetry && (
-                <button type="button" className="text-accent hover:underline" onClick={() => onConfigureTelemetry(localOperators.get(c.id)!.agentId)} data-testid="configure-local-telemetry">
-                  Configure
-                </button>
-              )}
             </Row>
           )}
           {agent && <ObserverRow agent={agent} nodeNames={ns.map((n) => n.name)} />}
@@ -721,7 +674,7 @@ export default function Inspector({
     title = n.name
     subtitle = (
       <span className="flex flex-wrap items-center gap-2">
-        <StatusDot status={n.status} alert={machineAlert(n)} withLabel />
+        <StatusDot status={n.status} withLabel />
         <Pill>{n.role === 'control-plane' ? 'Control plane' : 'Worker'}</Pill>
       </span>
     )
@@ -758,10 +711,6 @@ export default function Inspector({
         <Section title="Capacity">
           <Row label="IP" copy={n.ip}><IpAddress ip={n.ip} inline /></Row>
           <Row label="Capacity">{n.cpu} vCPU · {n.memoryGb} GB{n.diskGb !== undefined ? ` · ${formatMemory(n.diskGb)} disk` : ''}</Row>
-          {(() => {
-            const load = nodeLoad(n)
-            return load && <div className="my-2"><LoadMeters load={load} /></div>
-          })()}
           <Maybe label="Allocatable">{res(n.allocatable)}</Maybe>
           <Maybe label="Requested">{res(n.requested)}</Maybe>
           <Maybe label="Pods">
@@ -880,7 +829,7 @@ export default function Inspector({
     title = w.name
     subtitle = (
       <span className="flex flex-wrap items-center gap-2">
-        <StatusDot status={w.status} alert={serviceAlert(w, buildPodsView(w.pods, w.name, nodeById, serviceById))} withLabel />
+        <StatusDot status={w.status} withLabel />
         <Pill>{w.kind}</Pill>
       </span>
     )
@@ -1452,7 +1401,7 @@ export default function Inspector({
     // the whole canvas appearing to "jump" the moment the sidebar finished scrolling, since nothing told
     // the browser this panel's own scroll boundary was the end of the gesture, not a handoff to whatever's
     // underneath it.
-    <aside className={clsx('modal-pop fixed inset-x-0 bottom-0 z-30 flex flex-col overflow-y-auto overscroll-contain rounded-t-xl border-t border-nb-850 bg-nb-920 shadow-2xl transition-[max-height] duration-200 motion-reduce:transition-none lg:static lg:max-h-none lg:w-80 lg:min-h-0 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none', peek ? 'max-h-[9.5rem]' : 'max-h-[65vh]')}>
+    <aside className={clsx('modal-pop fixed inset-x-0 bottom-0 z-30 flex flex-col overflow-y-auto overscroll-contain rounded-t-xl border-t border-nb-850 bg-nb-920 shadow-2xl transition-[max-height] duration-200 motion-reduce:transition-none lg:static lg:max-h-none lg:w-80 lg:min-h-0 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none', peek ? 'max-h-[30vh]' : 'max-h-[65vh]')}>
       <button
         type="button"
         onClick={() => setPeek((v) => !v)}

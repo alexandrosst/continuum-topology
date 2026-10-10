@@ -2,7 +2,6 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
 import Inspector from '@/components/topology/Inspector'
-import type { Cluster, ClusterLink } from '@/lib/types'
 import type { ExternalEndpoint, MachineNode } from '@/lib/types'
 
 // A focused Inspector test: only the 'external' selection branch is exercised here, so every store/hook
@@ -23,13 +22,11 @@ let topologyState: {
   suggestions: never[]
 }
 
-let clusterLinksState: ClusterLink[] = []
 vi.mock('@/store/topology', () => ({
   useTopology: () => topologyState,
   useRawTopology: (selector: (s: { upsertExternalEndpoint: () => void }) => unknown) => selector({ upsertExternalEndpoint: vi.fn() }),
   usePaths: () => ({}),
   useClusterPairConnectivity: () => [],
-  useClusterLinks: () => clusterLinksState,
   useDiscoveryAgents: () => [],
 }))
 vi.mock('@/store/history', () => ({
@@ -316,60 +313,9 @@ describe('Inspector · external endpoint', () => {
     expect(sheet.className).toContain('max-h-[65vh]')
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(sheet.className).toContain('max-h-[9.5rem]')
+    expect(sheet.className).toContain('max-h-[30vh]')
     expect(sheet.className).not.toContain('max-h-[65vh]')
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  })
-})
-
-describe('Inspector · what the canvas no longer draws', () => {
-  test('a machine shows its load as meters, since its card only says when one resource is under pressure', () => {
-    renderNodeInspector(node({ allocatable: { cpu: 10, memoryGb: 10 }, requested: { cpu: 4, memoryGb: 9 } }))
-    const meters = screen.getByTestId('load-meters')
-    expect(within(meters).getByText('40%')).toBeInTheDocument()
-    expect(within(meters).getByText('90%')).toBeInTheDocument()
-  })
-
-  test('a cluster shows its load and a local operator\'s telemetry, with the control the box used to carry', () => {
-    const cluster = { id: 'c1', name: 'atlas', status: 'healthy', tier: 'edge', source: 'discovered', orgId: 'o', distribution: 'k3s', version: '1.30', labels: {} } as unknown as Cluster
-    topologyState = { clusters: [cluster] as never[], nodes: [node({ allocatable: { cpu: 10, memoryGb: 10 }, requested: { cpu: 5, memoryGb: 2 } })] as never[], namespaces: [], services: [], devices: [], dependencies: [], applications: [], sites: [], siteLinks: [], externalEndpoints: [], agents: [], suggestions: [] }
-    const start = vi.fn()
-    render(
-      <MemoryRouter>
-        <Inspector selection={{ kind: 'cluster', id: 'c1' }} onSelect={() => {}} onEdit={() => {}} onClose={() => {}} localOperators={new Map([['c1', { layers: ['infrastructure'], agentId: 'a1' }]])} onConfigureTelemetry={start} />
-      </MemoryRouter>,
-    )
-    expect(within(screen.getByTestId('load-meters')).getByText('50%')).toBeInTheDocument()
-    expect(screen.getByText('Running (infrastructure)')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('configure-local-telemetry'))
-    expect(start).toHaveBeenCalledWith('a1')
-  })
-})
-
-describe('Inspector · networks', () => {
-  const cl = (id: string, name: string) => ({ id, name, status: 'healthy', tier: 'edge', source: 'discovered', orgId: 'o', distribution: 'k3s', version: '1.30', labels: {} }) as unknown as Cluster
-  const open = (id: string, onSelect = vi.fn()) => {
-    topologyState = { clusters: [cl('c1', 'atlas'), cl('c2', 'kestrel'), cl('c3', 'polaris')] as never[], nodes: [], namespaces: [], services: [], devices: [], dependencies: [], applications: [], sites: [], siteLinks: [], externalEndpoints: [], agents: [], suggestions: [] }
-    render(<MemoryRouter><Inspector selection={{ kind: 'cluster', id }} onSelect={onSelect} onEdit={() => {}} onClose={() => {}} /></MemoryRouter>)
-    return onSelect
-  }
-  const pair = (a: string, an: string, b: string, bn: string, via: string): ClusterLink => ({ fromCluster: a, fromName: an, toCluster: b, toName: bn, kind: 'subnet', via, redundancy: 1 })
-
-  test('says which subnet or overlay a cluster is on and who shares it, and each name selects that cluster', () => {
-    clusterLinksState = [pair('c1', 'atlas', 'c2', 'kestrel', '10.30.0.0/16'), pair('c2', 'kestrel', 'c3', 'polaris', '10.30.0.0/16')]
-    const onSelect = open('c2')
-    const section = screen.getByTestId('inspector-network')
-    expect(within(section).getByText('Same subnet')).toBeInTheDocument()
-    expect(within(section).getByText('10.30.0.0/16')).toBeInTheDocument()
-    fireEvent.click(within(section).getByText('polaris'))
-    expect(onSelect).toHaveBeenCalledWith({ kind: 'cluster', id: 'c3' })
-    expect(within(section).getByText('atlas')).toBeInTheDocument()
-  })
-
-  test('a cluster on no network has no such section', () => {
-    clusterLinksState = [pair('c1', 'atlas', 'c2', 'kestrel', '10.30.0.0/16')]
-    open('c3')
-    expect(screen.queryByTestId('inspector-network')).toBeNull()
   })
 })
